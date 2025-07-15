@@ -203,79 +203,77 @@ inline String staticProcessor(const String& var) {
     return {};
 }
 
-inline void serverSetup() {
-    server.on("/toggleSteam", HTTP_POST, [](AsyncWebServerRequest* request) {
-        if (!authenticate(request)) {
-            return request->requestAuthentication();
-        }
-
-        const bool steamMode = !steamON;
-        setSteamMode(steamMode);
-
-        LOGF(DEBUG, "Toggle steam mode: %s", steamON ? "on" : "off");
-
-        request->redirect("/");
-    });
-
-    server.on("/togglePid", HTTP_POST, [](AsyncWebServerRequest* request) {
-        if (!authenticate(request)) {
-            return request->requestAuthentication();
-        }
-
-        LOGF(DEBUG, "/togglePid requested, method: %d", request->method());
-
-        const auto pidParam = ParameterRegistry::getInstance().getParameterById("pid.enabled");
-        const bool newPidState = !pidParam->getValueAs<bool>();
-        ParameterRegistry::getInstance().setParameterValue("pid.enabled", newPidState);
-
-        pidON = newPidState;
-
-        LOGF(DEBUG, "Toggle PID state: %d\n", newPidState);
-
-        request->redirect("/");
-    });
-
-    server.on("/toggleBackflush", HTTP_POST, [](AsyncWebServerRequest* request) {
-        if (!authenticate(request)) {
-            return request->requestAuthentication();
-        }
-
-        backflushOn = !backflushOn;
-        LOGF(DEBUG, "Toggle backflush mode: %s", backflushOn ? "on" : "off");
-
-        request->redirect("/");
-    });
-
-    if (config.get<bool>("hardware.sensors.scale.enabled")) {
-        server.on("/toggleTareScale", HTTP_POST, [](AsyncWebServerRequest* request) {
-            if (!authenticate(request)) {
-                return request->requestAuthentication();
-            }
-
-            scaleTareOn = !scaleTareOn;
-
-            LOGF(DEBUG, "Toggle scale tare mode: %s", scaleTareOn ? "on" : "off");
-
-            request->redirect("/");
-        });
-
-        server.on("/toggleScaleCalibration", HTTP_POST, [](AsyncWebServerRequest* request) {
-            if (!authenticate(request)) {
-                return request->requestAuthentication();
-            }
-
-            scaleCalibrationOn = !scaleCalibrationOn;
-
-            LOGF(DEBUG, "Toggle scale calibration mode: %s", scaleCalibrationOn ? "on" : "off");
-
-            request->redirect("/");
-        });
+// API Handler Functions
+inline void handleToggleSteam(AsyncWebServerRequest* request) {
+    if (!authenticate(request)) {
+        return request->requestAuthentication();
     }
 
-    server.on("/parameters", [](AsyncWebServerRequest* request) {
-        if (!authenticate(request)) {
-            return request->requestAuthentication();
-        }
+    const bool steamMode = !steamON;
+    setSteamMode(steamMode);
+
+    LOGF(DEBUG, "Toggle steam mode: %s", steamON ? "on" : "off");
+
+    request->send(200, "application/json", "{\"success\": true, \"steamMode\": " + String(steamON ? "true" : "false") + "}");
+}
+
+inline void handleTogglePid(AsyncWebServerRequest* request) {
+    if (!authenticate(request)) {
+        return request->requestAuthentication();
+    }
+
+    LOGF(DEBUG, "/api/pid requested, method: %d", request->method());
+
+    const auto pidParam = ParameterRegistry::getInstance().getParameterById("pid.enabled");
+    const bool newPidState = !pidParam->getValueAs<bool>();
+    ParameterRegistry::getInstance().setParameterValue("pid.enabled", newPidState);
+
+    pidON = newPidState;
+
+    LOGF(DEBUG, "Toggle PID state: %d\n", newPidState);
+
+    request->send(200, "application/json", "{\"success\": true, \"pidEnabled\": " + String(newPidState ? "true" : "false") + "}");
+}
+
+inline void handleToggleBackflush(AsyncWebServerRequest* request) {
+    if (!authenticate(request)) {
+        return request->requestAuthentication();
+    }
+
+    backflushOn = !backflushOn;
+    LOGF(DEBUG, "Toggle backflush mode: %s", backflushOn ? "on" : "off");
+
+    request->send(200, "application/json", "{\"success\": true, \"backflushOn\": " + String(backflushOn ? "true" : "false") + "}");
+}
+
+inline void handleToggleTareScale(AsyncWebServerRequest* request) {
+    if (!authenticate(request)) {
+        return request->requestAuthentication();
+    }
+
+    scaleTareOn = !scaleTareOn;
+
+    LOGF(DEBUG, "Toggle scale tare mode: %s", scaleTareOn ? "on" : "off");
+
+    request->send(200, "application/json", "{\"success\": true, \"scaleTareOn\": " + String(scaleTareOn ? "true" : "false") + "}");
+}
+
+inline void handleToggleScaleCalibration(AsyncWebServerRequest* request) {
+    if (!authenticate(request)) {
+        return request->requestAuthentication();
+    }
+
+    scaleCalibrationOn = !scaleCalibrationOn;
+
+    LOGF(DEBUG, "Toggle scale calibration mode: %s", scaleCalibrationOn ? "on" : "off");
+
+    request->send(200, "application/json", "{\"success\": true, \"scaleCalibrationOn\": " + String(scaleCalibrationOn ? "true" : "false") + "}");
+}
+
+inline void handleParameters(AsyncWebServerRequest* request) {
+    if (!authenticate(request)) {
+        return request->requestAuthentication();
+    }
 
         if (request->method() == 1) { // HTTP_GET
             const auto& registry = ParameterRegistry::getInstance();
@@ -372,189 +370,288 @@ inline void serverSetup() {
             response->addHeader("Connection", "close");
             request->send(response);
         }
+}
+
+inline void handleParameterHelp(AsyncWebServerRequest* request) {
+    if (!authenticate(request)) {
+        return request->requestAuthentication();
+    }
+
+    JsonDocument doc;
+    auto* p = request->getParam("param");
+
+    if (p == nullptr) {
+        request->send(422, "application/json", "{\"error\": \"parameter is missing\"}");
+        return;
+    }
+
+    const String& varValue = p->value();
+
+    const std::shared_ptr<Parameter> param = ParameterRegistry::getInstance().getParameterById(varValue.c_str());
+
+    if (param == nullptr) {
+        request->send(404, "application/json", "{\"error\": \"parameter not found\"}");
+        return;
+    }
+
+    doc["name"] = varValue;
+    doc["helpText"] = param->getHelpText();
+
+    String helpJson;
+    serializeJson(doc, helpJson);
+    request->send(200, "application/json", helpJson);
+}
+
+inline void handleTemperatures(AsyncWebServerRequest* request) {
+    if (!authenticate(request)) {
+        return request->requestAuthentication();
+    }
+
+    const String json = getTempString();
+    request->send(200, "application/json", json);
+}
+
+
+// TODO: could send values also chunked and without json (but needs three
+// endpoints then?)
+// https://stackoverflow.com/questions/61559745/espasyncwebserver-serve-large-array-from-ram
+
+inline void handleTimeseries(AsyncWebServerRequest* request) {
+    if (!authenticate(request)) {
+        return request->requestAuthentication();
+    }
+
+    AsyncResponseStream* response = request->beginResponseStream("application/json");
+    response->addHeader("Connection", "close"); // Force connection close
+
+    StaticJsonDocument<8192> doc;
+
+    // for each value in mem history array, add json array element
+    auto currentTemps = doc["currentTemps"].to<JsonArray>();
+    auto targetTemps = doc["targetTemps"].to<JsonArray>();
+    auto heaterPowers = doc["heaterPowers"].to<JsonArray>();
+
+    // go through history values backwards starting from currentIndex and
+    // wrap around beginning to include valueCount many values
+    for (int i = mod(historyCurrentIndex - historyValueCount, HISTORY_LENGTH); i != mod(historyCurrentIndex, HISTORY_LENGTH); i = mod(i + 1, HISTORY_LENGTH)) {
+        currentTemps.add(round2(tempHistory[0][i]));
+        targetTemps.add(round2(tempHistory[1][i]));
+        heaterPowers.add(round2(tempHistory[2][i]));
+    }
+
+    if (doc.overflowed()) {
+        request->send(500, "application/json", "{\"error\": \"timeseries JSON overflowed\"}");
+        return;
+    }
+
+    String out;
+    out.reserve(measureJson(doc) + 16);
+    serializeJson(doc, out);
+    request->send(200, "application/json", out);
+}
+
+inline void handleWifiReset(AsyncWebServerRequest* request) {
+    if (!authenticate(request)) {
+        return request->requestAuthentication();
+    }
+
+    request->send(200, "application/json", "{\"success\": true, \"message\": \"WiFi settings are being reset. Rebooting...\"}");
+
+    // Defer slightly so the response gets sent before reboot
+    delay(1000);
+
+    wiFiReset();
+}
+
+inline void handleConfigDownload(AsyncWebServerRequest* request) {
+    if (!authenticate(request)) {
+        return request->requestAuthentication();
+    }
+
+    if (!LittleFS.exists("/config.json")) {
+        request->send(404, "application/json", "{\"error\": \"Config file not found\"}");
+        return;
+    }
+
+    File configFile = LittleFS.open("/config.json", "r");
+
+    if (!configFile) {
+        request->send(500, "application/json", "{\"error\": \"Failed to open config file\"}");
+        return;
+    }
+
+    JsonDocument doc;
+    const DeserializationError error = deserializeJson(doc, configFile);
+    configFile.close();
+
+    if (error) {
+        request->send(500, "application/json", "{\"error\": \"Failed to parse config file\"}");
+        return;
+    }
+
+    // Serialize as pretty JSON
+    String prettifiedJson;
+    serializeJsonPretty(doc, prettifiedJson);
+
+    // Send the prettified JSON
+    AsyncWebServerResponse* response = request->beginResponse(200, "application/json", prettifiedJson);
+    response->addHeader("Content-Disposition", "attachment; filename=\"config.json\"");
+    request->send(response);
+}
+
+inline void handleConfigUpload(AsyncWebServerRequest* request, const String& filename, const size_t index, const uint8_t* data, const size_t len, const bool final) {
+    if (!authenticate(request)) {
+        return request->requestAuthentication();
+    }
+
+    static String uploadBuffer;
+    static size_t totalSize = 0;
+
+    if (index == 0) {
+        uploadBuffer = "";
+        uploadBuffer.reserve(8192);
+        totalSize = 0;
+        LOGF(INFO, "Config upload started: %s", filename.c_str());
+    }
+
+    for (size_t i = 0; i < len; i++) {
+        uploadBuffer += static_cast<char>(data[i]);
+    }
+
+    totalSize += len;
+
+    if (final) {
+        LOGF(INFO, "Config upload finished: %s, total size: %u bytes", filename.c_str(), totalSize);
+
+        if (bool isValid = config.validateAndApplyFromJson(uploadBuffer)) {
+            LOG(INFO, "Configuration validated and applied successfully");
+
+            AsyncWebServerResponse* response = request->beginResponse(200, "application/json",
+                R"({"success": true, "message": "Configuration validated and applied successfully.", "restart": true})");
+
+            response->addHeader("Connection", "close");
+            request->send(response);
+        }
+        else {
+            LOG(ERROR, "Configuration validation failed - invalid data or out of range values");
+
+            AsyncWebServerResponse* response = request->beginResponse(400, "application/json",
+                R"({"success": false, "message": "Configuration validation failed. Please check that all parameter values are within valid ranges.", "restart": true})");
+
+            response->addHeader("Connection", "close");
+            request->send(response);
+        }
+    }
+}
+
+inline void handleRestart(AsyncWebServerRequest* request) {
+    if (!authenticate(request)) {
+        return request->requestAuthentication();
+    }
+
+    request->send(200, "application/json", "{\"success\": true, \"message\": \"Restarting...\"}");
+    delay(100);
+    ESP.restart();
+}
+
+inline void handleFactoryReset(AsyncWebServerRequest* request) {
+    if (!authenticate(request)) {
+        return request->requestAuthentication();
+    }
+
+    const bool removed = LittleFS.remove("/config.json");
+
+    request->send(200, "application/json",
+        removed ? "{\"success\": true, \"message\": \"Factory reset. Restarting...\"}"
+                : "{\"success\": false, \"message\": \"Could not delete config.json. Restarting...\"}");
+
+    delay(100);
+    ESP.restart();
+}
+
+// Setup API routes with /api/ prefix
+inline void setupApiRoutes() {
+
+    // Alive check
+    server.on("/api/alive", HTTP_HEAD, [](AsyncWebServerRequest* request) {
+        request->send(200);
     });
 
-    server.on("/parameterHelp", HTTP_GET, [](AsyncWebServerRequest* request) {
-        JsonDocument doc;
-        auto* p = request->getParam(0);
+    // Machine control endpoints
+    server.on("/api/steam", HTTP_POST, handleToggleSteam);
+    server.on("/api/pid", HTTP_POST, handleTogglePid);
+    server.on("/api/backflush", HTTP_POST, handleToggleBackflush);
 
-        if (p == nullptr) {
-            request->send(422, "text/plain", "parameter is missing");
+    // Scale endpoints (conditional)
+    if (config.get<bool>("hardware.sensors.scale.enabled")) {
+        server.on("/api/scale/tare", HTTP_POST, handleToggleTareScale);
+        server.on("/api/scale/calibration", HTTP_POST, handleToggleScaleCalibration);
+    }
+
+    // Data endpoints
+    server.on("/api/parameters", HTTP_ANY, handleParameters);
+    server.on("/api/parameter-help", HTTP_GET, handleParameterHelp);
+    server.on("/api/temperatures", HTTP_GET, handleTemperatures);
+    server.on("/api/history", HTTP_GET, handleTimeseries);
+
+    // System endpoints
+    server.on("/api/wifi-reset", HTTP_POST, handleWifiReset);
+    server.on("/api/config/download", HTTP_GET, handleConfigDownload);
+    server.on("/api/config/upload", HTTP_POST, [](AsyncWebServerRequest* request) {
+        // Response handled by upload handler
+    }, handleConfigUpload);
+    server.on("/api/restart", HTTP_POST, handleRestart);
+    server.on("/api/factory-reset", HTTP_POST, handleFactoryReset);
+}
+
+// Enhanced 404 handler that serves SPA for UI routes and proper 404 for API routes
+inline void handleNotFound(AsyncWebServerRequest* request) {
+    String path = request->url();
+
+    // API routes should return proper JSON 404
+    if (path.startsWith("/api/")) {
+        request->send(404, "application/json", "{\"error\": \"API endpoint not found\"}");
+        return;
+    }
+
+    // All UI routes under /ui/ should serve the SPA and let React handle routing
+    if (path.startsWith("/ui/")) {
+        if (File file = LittleFS.open("/ui/index.html", "r")) {
+            request->send(LittleFS, "/ui/index.html", "text/html");
+            return;
+        } else {
+            request->send(404, "text/plain", "UI files not found");
+            return;
+        }
+    }
+
+    // For any other path, return proper 404
+    request->send(404, "text/plain", "Not found");
+}
+
+inline void serverSetup() {
+    // Setup API routes
+    setupApiRoutes();
+
+    // Add redirect from root to /ui/
+    server.on("/", HTTP_GET, [](AsyncWebServerRequest* request) {
+        // Check if this is exactly the root path (no query params for UI routes)
+        String path = request->url();
+        if (path == "/") {
+            request->redirect("/ui/");
             return;
         }
 
-        const String& varValue = p->value();
-
-        const std::shared_ptr<Parameter> param = ParameterRegistry::getInstance().getParameterById(varValue.c_str());
-
-        if (param == nullptr) {
-            request->send(404, "application/json", "parameter not found");
-            return;
+        // If it's a root path with parameters, serve the SPA
+        if (File file = LittleFS.open("/ui/index.html", "r")) {
+            request->send(LittleFS, "/ui/index.html", "text/html");
+        } else {
+            request->send(404, "text/plain", "UI not found");
         }
-
-        doc["name"] = varValue;
-        doc["helpText"] = param->getHelpText();
-
-        String helpJson;
-        serializeJson(doc, helpJson);
-        request->send(200, "application/json", helpJson);
     });
 
-    server.on("/temperatures", HTTP_GET, [](AsyncWebServerRequest* request) {
-        const String json = getTempString();
-        request->send(200, "application/json", json);
-    });
-
-    // TODO: could send values also chunked and without json (but needs three
-    // endpoints then?)
-    // https://stackoverflow.com/questions/61559745/espasyncwebserver-serve-large-array-from-ram
-    server.on("/timeseries", HTTP_GET, [](AsyncWebServerRequest* request) {
-        AsyncResponseStream* response = request->beginResponseStream("application/json");
-        response->addHeader("Connection", "close"); // Force connection close
-
-        JsonDocument doc;
-
-        // for each value in mem history array, add json array element
-        auto currentTemps = doc["currentTemps"].to<JsonArray>();
-        auto targetTemps = doc["targetTemps"].to<JsonArray>();
-        auto heaterPowers = doc["heaterPowers"].to<JsonArray>();
-
-        // go through history values backwards starting from currentIndex and
-        // wrap around beginning to include valueCount many values
-        for (int i = mod(historyCurrentIndex - historyValueCount, HISTORY_LENGTH); i != mod(historyCurrentIndex, HISTORY_LENGTH); i = mod(i + 1, HISTORY_LENGTH)) {
-            currentTemps.add(round2(tempHistory[0][i]));
-            targetTemps.add(round2(tempHistory[1][i]));
-            heaterPowers.add(round2(tempHistory[2][i]));
-        }
-
-        String out;
-        out.reserve(measureJson(doc) + 16);
-        serializeJson(doc, out);
-        request->send(200, "application/json", out);
-    });
-
-    server.on("/wifireset", HTTP_POST, [](AsyncWebServerRequest* request) {
-        if (!authenticate(request)) {
-            return request->requestAuthentication();
-        }
-
-        request->send(200, "text/plain", "WiFi settings are being reset. Rebooting...");
-
-        // Defer slightly so the response gets sent before reboot
-        delay(1000);
-
-        wiFiReset();
-    });
-
-    server.on("/download/config", HTTP_GET, [](AsyncWebServerRequest* request) {
-        if (!authenticate(request)) {
-            return request->requestAuthentication();
-        }
-
-        if (!LittleFS.exists("/config.json")) {
-            request->send(404, "text/plain", "Config file not found");
-            return;
-        }
-
-        File configFile = LittleFS.open("/config.json", "r");
-
-        if (!configFile) {
-            request->send(500, "text/plain", "Failed to open config file");
-            return;
-        }
-
-        JsonDocument doc;
-        const DeserializationError error = deserializeJson(doc, configFile);
-        configFile.close();
-
-        if (error) {
-            request->send(500, "text/plain", "Failed to parse config file");
-            return;
-        }
-
-        // Serialize as pretty JSON
-        String prettifiedJson;
-        serializeJsonPretty(doc, prettifiedJson);
-
-        // Send the prettified JSON
-        AsyncWebServerResponse* response = request->beginResponse(200, "application/json", prettifiedJson);
-        response->addHeader("Content-Disposition", "attachment; filename=\"config.json\"");
-        request->send(response);
-    });
-
-    server.on(
-        "/upload/config", HTTP_POST,
-        [](AsyncWebServerRequest* request) {
-            // This response will be set by the upload handler
-        },
-        [](AsyncWebServerRequest* request, const String& filename, const size_t index, const uint8_t* data, const size_t len, const bool final) {
-            if (!authenticate(request)) {
-                return request->requestAuthentication();
-            }
-
-            static String uploadBuffer;
-            static size_t totalSize = 0;
-
-            if (index == 0) {
-                uploadBuffer = "";
-                uploadBuffer.reserve(8192);
-                totalSize = 0;
-                LOGF(INFO, "Config upload started: %s", filename.c_str());
-            }
-
-            for (size_t i = 0; i < len; i++) {
-                uploadBuffer += static_cast<char>(data[i]);
-            }
-
-            totalSize += len;
-
-            if (final) {
-                LOGF(INFO, "Config upload finished: %s, total size: %u bytes", filename.c_str(), totalSize);
-
-                if (bool isValid = config.validateAndApplyFromJson(uploadBuffer)) {
-                    LOG(INFO, "Configuration validated and applied successfully");
-
-                    AsyncWebServerResponse* response = request->beginResponse(200, "application/json", R"({"success": true, "message": "Configuration validated and applied successfully.", "restart": true})");
-
-                    response->addHeader("Connection", "close");
-                    request->send(response);
-                }
-                else {
-                    LOG(ERROR, "Configuration validation failed - invalid data or out of range values");
-
-                    AsyncWebServerResponse* response =
-                        request->beginResponse(400, "application/json", R"({"success": false, "message": "Configuration validation failed. Please check that all parameter values are within valid ranges.", "restart": true})");
-
-                    response->addHeader("Connection", "close");
-                    request->send(response);
-                }
-            }
-        });
-
-    server.on("/restart", HTTP_POST, [](AsyncWebServerRequest* request) {
-        if (!authenticate(request)) {
-            return request->requestAuthentication();
-        }
-
-        request->send(200, "text/plain", "Restarting...");
-        delay(100);
-        ESP.restart();
-    });
-
-    server.on("/factoryreset", HTTP_POST, [](AsyncWebServerRequest* request) {
-        if (!authenticate(request)) {
-            return request->requestAuthentication();
-        }
-
-        const bool removed = LittleFS.remove("/config.json");
-
-        request->send(200, "text/plain", removed ? "Factory reset. Restarting..." : "Could not delete config.json. Restarting...");
-
-        delay(100);
-        ESP.restart();
-    });
-
-    server.onNotFound([](AsyncWebServerRequest* request) { request->send(404, "text/plain", "Not found"); });
+    // Enhanced 404 handler for both API and UI routes
+    server.onNotFound(handleNotFound);
 
     // set up event handler for temperature messages
     events.onConnect([](AsyncEventSourceClient* client) {
@@ -569,12 +666,9 @@ inline void serverSetup() {
 
     // serve static files
     LittleFS.begin();
-    server.serveStatic("/css", LittleFS, "/css/", "max-age=604800"); // cache for one week
-    server.serveStatic("/js", LittleFS, "/js/", "max-age=604800");
-    server.serveStatic("/img", LittleFS, "/img/", "max-age=604800"); // cache for one week
-    server.serveStatic("/webfonts", LittleFS, "/webfonts/", "max-age=604800");
-    server.serveStatic("/manifest.json", LittleFS, "/manifest.json", "max-age=604800");
-    server.serveStatic("/", LittleFS, "/html/", "max-age=604800").setDefaultFile("index.html").setTemplateProcessor(staticProcessor);
+
+    // Serve UI at /ui/ path only (root is handled by redirect above)
+    server.serveStatic("/ui", LittleFS, "/ui/", "max-age=604800").setDefaultFile("index.html");
 
     server.begin();
 
