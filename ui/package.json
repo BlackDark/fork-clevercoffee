@@ -7,6 +7,7 @@
     "dev": "vite --mode mock",
     "build": "VITE_BASE_PATH=/ui/ tsc -b && VITE_BASE_PATH=/ui/ vite --mode production build",
     "lint": "eslint .",
+    "tsc": "tsc --noEmit",
     "preview": "vite preview"
   },
   "dependencies": {

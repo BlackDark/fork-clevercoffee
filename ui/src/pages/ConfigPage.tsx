@@ -1,128 +1,101 @@
-import { useState, useEffect, useMemo } from "react";
-import { useParams } from "react-router-dom";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useState, useMemo } from "react";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
-  ChevronDown,
-  ChevronUp,
-  TriangleAlert,
   Loader2,
   CheckCircle,
-  HelpCircle,
   Save,
   RefreshCw,
   AlertCircle,
+  HelpCircle,
+  TriangleAlert,
+  ChevronUp,
+  ChevronDown,
 } from "lucide-react";
+import { toast } from "sonner";
+import { ParameterTypes } from "@/types/parameters";
+import { useCleverCoffee } from "@/hooks/use-clever-coffee";
+import parameterLabels from "@/lib/parameter-labels";
+import { parameterGroups } from "@/lib/parameter-groups";
+import { parameterHelpTexts } from "@/lib/parameter-help-texts";
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@/components/ui/popover";
+import { ParameterNavigation } from "@/components/ParameterNavigation";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@radix-ui/react-collapsible";
-import { toast } from "sonner";
-import { useCleverCoffee, type Parameter } from "@/hooks/use-clever-coffee";
-import { ParameterNavigation } from "@/components/ParameterNavigation";
-
-const sectionNames: Record<number, string> = {
-  0: "PID Parameters",
-  1: "Temperature",
-  2: "Brew PID Parameters",
-  3: "Brew Control",
-  4: "Scale Parameters",
-  5: "Display Settings",
-  6: "Maintenance",
-  7: "Power Settings",
-  8: "MQTT Settings",
-  9: "System Settings",
-  10: "Other",
-  11: "OLED Display",
-  12: "Relays",
-  13: "Switches",
-  14: "LEDs",
-  15: "Sensors",
-};
+import { useParams } from "react-router-dom";
 
 export function ConfigPage() {
-  const { filter } = useParams<{ filter: string }>();
-  const [isHardwareWarningOpen, setIsHardwareWarningOpen] = useState(false);
-
   // Use the centralized hook for all data and actions
   const {
-    // State
     parameters,
-    parametersHelpTexts,
     isLoadingParams,
     isPostingForm,
     showPostSucceeded,
     connectionError,
-
-    // Actions
     fetchParameters,
-    fetchHelpText,
     updateParameterValue,
     postParameters,
   } = useCleverCoffee();
 
-  // Fetch parameters when filter changes
-  useEffect(() => {
-    fetchParameters(filter || "");
-  }, [fetchParameters, filter]);
-
-  // Helper functions
-  const getInputType = (param: Parameter) => {
-    switch (param.type) {
-      case 5: // enum
-        return "select";
-      case 4: // string
-        return "text";
-      case 0: // integer
-      case 1: // uint8
-      case 2: // double
-      case 3: // float
-        return "number";
-      default:
-        return "text";
-    }
+  // Map parameter group keys to categories
+  const groupCategoryMap: Record<string, string> = {
+    pidParameters: "behavior",
+    brewControl: "behavior",
+    steamControl: "behavior",
+    standby: "behavior",
+    displaySettings: "behavior",
+    mqttSettings: "system",
+    systemSettings: "system",
+    systemAuth: "system",
+    oledDisplay: "hardware",
+    relays: "hardware",
+    switchesBrew: "hardware",
+    switchesSteam: "hardware",
+    switchesPower: "hardware",
+    switchesHotWater: "hardware",
+    ledsStatus: "hardware",
+    ledsBrew: "hardware",
+    ledsSteam: "hardware",
+    sensorTemperature: "hardware",
+    sensorPressure: "hardware",
+    sensorWatertank: "hardware",
+    sensorScale: "hardware",
+    brewSection: "behavior",
+    maintenance: "behavior",
+    brewPidSection: "behavior",
+    other: "system",
   };
-
-  const getNumberStep = (param: Parameter) => {
-    switch (param.type) {
-      case 0: // integer
-      case 1: // uint8
-        return 1;
-      case 2: // double
-      case 3: // float
-        return 0.01;
-      default:
-        return 1;
-    }
-  };
-
-  const isBoolean = (param: Parameter) => {
-    return param.type === 1 && param.min === 0 && param.max === 1;
-  };
+  const { filter } = useParams<{ filter: string }>();
+  const [isHardwareWarningOpen, setIsHardwareWarningOpen] = useState(false);
 
   // Handle form submission
   const handleSubmitParameters = async (e: React.FormEvent) => {
     e.preventDefault();
-
     const parameterNames = parameters.map((param) => param.name);
     const success = await postParameters(parameterNames);
-
     if (success) {
       toast.success("Parameters saved successfully", {
         description: `Saved ${parameters.length} parameters. Settings will take effect after restart.`,
       });
-      // Re-fetch to get updated values/conditions
-      fetchParameters(filter || "");
+      fetchParameters();
     } else {
       toast.error("Failed to save parameters", {
         description: "Please check your connection and try again.",
@@ -130,19 +103,72 @@ export function ConfigPage() {
     }
   };
 
-  // Group parameters by section for display
+  // Dynamic field logic example (e.g., show MQTT fields if enabled)
+  const visibleParameters = useMemo(() => {
+    const mqttEnabled = parameters.find(
+      (p) => p.name === "mqtt.enabled" && p.value === 1
+    );
+    return parameters.filter((param) => {
+      if (param.name.startsWith("mqtt.") && !mqttEnabled) return false;
+      return true;
+    });
+  }, [parameters]);
+
+  // Only show groups for selected filter/category
+  const selectedCategory = filter || "behavior";
+  const filteredGroups = parameterGroups.filter(
+    (group) => groupCategoryMap[group.key] === selectedCategory
+  );
+  const paramMap = Object.fromEntries(
+    visibleParameters.map((p) => [p.name, p])
+  );
   const groupedParameters = useMemo(() => {
-    const result: Record<string, Parameter[]> = {};
-    parameters.forEach((param) => {
-      const section = Math.floor(param.position / 100);
-      const sectionName = sectionNames[section] || `Section ${section}`;
-      if (!result[sectionName]) {
-        result[sectionName] = [];
-      }
-      result[sectionName].push(param);
+    const result: Record<string, typeof visibleParameters> = {};
+    filteredGroups.forEach((group) => {
+      result[group.label] = group.parameters
+        .map((name) => paramMap[name])
+        .filter(Boolean);
     });
     return result;
-  }, [parameters]);
+  }, [filteredGroups, paramMap]);
+
+  if (
+    (isLoadingParams && !parameters.length) ||
+    (!isLoadingParams && parameters.length === 0)
+  ) {
+    return (
+      <div className="flex flex-col items-center justify-center h-[60vh]">
+        {isLoadingParams ? (
+          <div className="flex flex-col items-center gap-4">
+            <Loader2 className="h-10 w-10 animate-spin text-primary" />
+            <span className="text-lg text-muted-foreground">
+              Loading parameters...
+            </span>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center gap-6 p-8 rounded-xl border border-destructive/40 bg-destructive/10 shadow-lg">
+            <AlertCircle className="h-10 w-10 text-destructive mb-2" />
+            <h2 className="text-xl font-semibold text-destructive">
+              Failed to load parameters
+            </h2>
+            <p className="text-base text-destructive/80 text-center max-w-md">
+              The configuration parameters could not be loaded.
+              <br />
+              Please check your connection and try again.
+            </p>
+            <Button
+              onClick={() => fetchParameters()}
+              variant="destructive"
+              size="lg"
+            >
+              <RefreshCw className="mr-2 h-5 w-5" />
+              Retry
+            </Button>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="container mx-auto p-6 space-y-6 max-w-7xl">
@@ -150,17 +176,10 @@ export function ConfigPage() {
       {connectionError && (
         <Alert className="border-destructive/50 text-destructive dark:border-destructive [&>svg]:text-destructive">
           <AlertCircle className="h-4 w-4" />
-          <AlertDescription className="flex items-center justify-between">
-            <span>{connectionError}</span>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                fetchParameters(filter || "");
-              }}
-              className="ml-3"
-            >
-              <RefreshCw className="h-4 w-4 mr-1" />
+          <AlertDescription>
+            {connectionError}
+            <Button onClick={() => fetchParameters()} className="ml-4">
+              <RefreshCw className="mr-2 h-4 w-4" />
               Retry
             </Button>
           </AlertDescription>
@@ -168,21 +187,7 @@ export function ConfigPage() {
       )}
 
       {/* Parameter Navigation */}
-      {!isLoadingParams && <ParameterNavigation />}
-
-      {/* Loading State */}
-      {isLoadingParams && (
-        <Card>
-          <CardContent className="flex items-center justify-center py-12">
-            <div className="flex flex-col items-center space-y-3">
-              <Loader2 className="h-8 w-8 animate-spin text-primary" />
-              <p className="text-sm text-muted-foreground">
-                Loading parameters...
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      <ParameterNavigation />
 
       {/* Hardware Warning */}
       {filter === "hardware" && !isLoadingParams && (
@@ -252,51 +257,17 @@ export function ConfigPage() {
         </Alert>
       )}
 
-      {/* Parameters Form */}
-      {!isLoadingParams && (
-        <form onSubmit={handleSubmitParameters} className="space-y-6">
-          {parameters.length === 0 ? (
-            <Card>
-              <CardContent className="flex flex-col items-center justify-center py-12">
-                <AlertCircle className="h-12 w-12 text-muted-foreground mb-4" />
-                <h3 className="text-lg font-semibold mb-2">
-                  No Parameters Found
-                </h3>
-                <p className="text-muted-foreground text-center max-w-md">
-                  No parameters are available for the selected filter. Try
-                  selecting a different category or check your connection.
-                </p>
-                <Button
-                  variant="outline"
-                  className="mt-4"
-                  onClick={() => fetchParameters(filter || "")}
-                  disabled={isLoadingParams}
-                >
-                  <RefreshCw className="mr-2 h-4 w-4" />
-                  Refresh
-                </Button>
-              </CardContent>
-            </Card>
-          ) : (
-            Object.entries(groupedParameters).map(
-              ([sectionName, sectionParams], sectionIndex) => (
-                <Card key={sectionName}>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
-                        <span className="text-sm font-bold text-primary">
-                          {sectionIndex + 1}
-                        </span>
-                      </div>
-                      {sectionName}
-                      <span className="ml-auto text-sm font-normal text-muted-foreground">
-                        {sectionParams.length} parameters
-                      </span>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-6">
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                      {sectionParams.map((param) => (
+      <form onSubmit={handleSubmitParameters} className="space-y-6">
+        {Object.entries(groupedParameters).map(
+          ([sectionName, sectionParams]) =>
+            sectionParams.length > 0 && (
+              <Card key={sectionName} className="mb-8">
+                <CardContent>
+                  <h2 className="text-xl font-bold mb-4">{sectionName}</h2>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {sectionParams
+                      .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+                      .map((param) => (
                         <div
                           key={param.name}
                           className="space-y-3 p-4 rounded-lg border bg-card hover:bg-accent/50 transition-colors duration-200"
@@ -306,162 +277,146 @@ export function ConfigPage() {
                               htmlFor={param.name}
                               className="text-sm font-medium"
                             >
-                              {param.displayName}
+                              {parameterLabels.en[param.name] || param.name}
                             </Label>
-                            {param.hasHelpText && (
+                            {parameterHelpTexts[param.name] && (
                               <Popover>
                                 <PopoverTrigger asChild>
                                   <Button
                                     variant="ghost"
                                     size="icon"
-                                    className="h-6 w-6"
-                                    onMouseEnter={() =>
-                                      fetchHelpText(param.name)
-                                    }
+                                    className="h-6 w-6 ml-2"
+                                    tabIndex={0}
                                   >
                                     <HelpCircle className="h-4 w-4" />
                                   </Button>
                                 </PopoverTrigger>
-                                <PopoverContent className="w-80">
-                                  <div className="space-y-2">
-                                    <h4 className="font-medium">
-                                      {param.displayName}
-                                    </h4>
-                                    <p className="text-sm text-muted-foreground">
-                                      {parametersHelpTexts[param.name] || (
-                                        <span className="flex items-center">
-                                          <Loader2 className="mr-2 h-3 w-3 animate-spin" />
-                                          Loading help text...
-                                        </span>
-                                      )}
-                                    </p>
-                                  </div>
+                                <PopoverContent className="w-80 text-xs">
+                                  <span
+                                    dangerouslySetInnerHTML={{
+                                      __html: parameterHelpTexts[param.name],
+                                    }}
+                                  />
                                 </PopoverContent>
                               </Popover>
                             )}
                           </div>
 
-                          {isBoolean(param) ? (
-                            <div className="flex items-center space-x-3">
+                          {param.type === ParameterTypes.BOOLEAN ? (
+                            <div className="flex items-center space-x-2">
                               <Switch
                                 id={param.name}
-                                checked={param.value !== 0}
+                                checked={!!param.value}
                                 onCheckedChange={(checked) =>
                                   updateParameterValue(
                                     param.name,
                                     checked ? 1 : 0
                                   )
                                 }
-                                className="data-[state=checked]:bg-green-600"
                               />
-                              <Label
-                                htmlFor={param.name}
-                                className="text-sm text-muted-foreground"
-                              >
-                                {param.value !== 0 ? "Enabled" : "Disabled"}
-                              </Label>
+                              <span>{param.value ? "On" : "Off"}</span>
                             </div>
-                          ) : getInputType(param) === "text" ? (
+                          ) : param.type === ParameterTypes.SELECT ? (
+                            <Select
+                              value={String(param.value)}
+                              onValueChange={(value) =>
+                                updateParameterValue(param.name, Number(value))
+                              }
+                            >
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {param.options?.map((option) => (
+                                  <SelectItem
+                                    key={option.value}
+                                    value={String(option.value)}
+                                  >
+                                    {option.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          ) : param.type === ParameterTypes.STRING ? (
                             <Input
+                              id={param.name}
                               type={
                                 param.name.toLowerCase().includes("password")
                                   ? "password"
                                   : "text"
                               }
-                              id={param.name}
                               value={String(param.value || "")}
                               onChange={(e) =>
                                 updateParameterValue(param.name, e.target.value)
                               }
-                              maxLength={param.max > 0 ? param.max : 64}
-                              placeholder={`Enter ${param.displayName.toLowerCase()}`}
+                              maxLength={
+                                param.max && param.max > 0 ? param.max : 64
+                              }
+                              placeholder={`Enter ${param.name}`}
                             />
                           ) : (
                             <Input
+                              id={param.name}
                               type="number"
-                              step={getNumberStep(param)}
+                              step={
+                                param.type === ParameterTypes.FLOAT
+                                  ? "0.1"
+                                  : "1"
+                              }
                               min={param.min}
                               max={param.max}
-                              id={param.name}
                               value={String(param.value)}
                               onChange={(e) =>
                                 updateParameterValue(
                                   param.name,
-                                  parseFloat(e.target.value) || 0
+                                  param.type === ParameterTypes.FLOAT
+                                    ? parseFloat(e.target.value)
+                                    : parseInt(e.target.value, 10)
                                 )
                               }
                               placeholder={`${param.min} - ${param.max}`}
                             />
                           )}
-
-                          {/* Validation Messages */}
-                          {param.type !== 4 &&
-                            typeof param.value === "number" &&
-                            (param.value < param.min ||
-                              param.value > param.max) && (
-                              <div className="flex items-center space-x-2 text-destructive text-xs">
-                                <AlertCircle className="h-3 w-3" />
-                                <span>
-                                  Value must be between {param.min} and{" "}
-                                  {param.max}
-                                </span>
-                              </div>
-                            )}
-                          {param.type === 4 &&
-                            param.max > 0 &&
-                            typeof param.value === "string" &&
-                            param.value.length > param.max && (
-                              <div className="flex items-center space-x-2 text-destructive text-xs">
-                                <AlertCircle className="h-3 w-3" />
-                                <span>
-                                  Text too long (max {param.max} characters)
-                                </span>
-                              </div>
-                            )}
                         </div>
                       ))}
-                    </div>
-                  </CardContent>
-                </Card>
-              )
-            )
-          )}
-
-          {/* Save Button */}
-          {parameters.length > 0 && (
-            <Card>
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between">
-                  <div className="text-sm text-muted-foreground">
-                    {parameters.length} parameters loaded
                   </div>
-                  <Button
-                    type="submit"
-                    disabled={isPostingForm}
-                    size="lg"
-                    className={`min-w-[140px] ${
-                      showPostSucceeded ? "bg-green-600 hover:bg-green-700" : ""
-                    }`}
-                  >
-                    {isPostingForm ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : showPostSucceeded ? (
-                      <CheckCircle className="mr-2 h-4 w-4" />
-                    ) : (
-                      <Save className="mr-2 h-4 w-4" />
-                    )}
-                    {isPostingForm
-                      ? "Saving..."
-                      : showPostSucceeded
-                      ? "Saved Successfully!"
-                      : "Save Parameters"}
-                  </Button>
+                </CardContent>
+              </Card>
+            )
+        )}
+        {parameters.length > 0 && (
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div className="text-sm text-muted-foreground">
+                  {parameters.length} parameters loaded
                 </div>
-              </CardContent>
-            </Card>
-          )}
-        </form>
-      )}
+                <Button
+                  type="submit"
+                  disabled={isPostingForm}
+                  size="lg"
+                  className={`min-w-[140px] ${
+                    showPostSucceeded ? "bg-green-600 hover:bg-green-700" : ""
+                  }`}
+                >
+                  {isPostingForm ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : showPostSucceeded ? (
+                    <CheckCircle className="mr-2 h-4 w-4" />
+                  ) : (
+                    <Save className="mr-2 h-4 w-4" />
+                  )}
+                  {isPostingForm
+                    ? "Saving..."
+                    : showPostSucceeded
+                    ? "Saved Successfully!"
+                    : "Save Parameters"}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+      </form>
     </div>
   );
 }

@@ -14,23 +14,6 @@ export interface HistoryData {
   heaterPowers: number[];
 }
 
-export interface Parameter {
-  type: number;
-  name: string;
-  displayName: string;
-  section: number;
-  position: number;
-  hasHelpText: boolean;
-  show: boolean;
-  value: number | string;
-  min: number;
-  max: number;
-  options?: Array<{
-    value: string;
-    label: string;
-  }>;
-}
-
 export interface ParameterHelpResponse {
   name: string;
   helpText: string;

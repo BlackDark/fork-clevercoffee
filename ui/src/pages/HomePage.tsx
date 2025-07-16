@@ -27,6 +27,8 @@ import {
   Activity,
 } from "lucide-react";
 import { toast } from "sonner";
+import parameterLabels from "@/lib/parameter-labels";
+import { parameterHelpTexts } from "@/lib/parameter-help-texts";
 
 export function HomePage() {
   // Use the centralized hook for all data and actions
@@ -34,7 +36,6 @@ export function HomePage() {
     // State
     parameters,
     currentTemperature,
-    parametersHelpTexts,
     isLoadingParams,
     isLoadingTemp,
     isPostingForm,
@@ -150,13 +151,7 @@ export function HomePage() {
   // Handle function toggles with proper mapping and toast feedback
   const handleToggleFunction = async (paramName: string) => {
     let success = false;
-    let displayName = paramName;
-
-    // Find the parameter for display name
-    const param = parameters.find((p) => p.name === paramName);
-    if (param) {
-      displayName = param.displayName || paramName;
-    }
+    const displayName = parameterLabels.en[paramName] || paramName;
 
     switch (paramName) {
       case "pid.enabled":
@@ -171,7 +166,8 @@ export function HomePage() {
     }
 
     if (success) {
-      const newValue = param?.value === 1 ? 0 : 1;
+      const newValue =
+        parameters.find((p) => p.name === paramName)?.value === 1 ? 0 : 1;
       toast.success(`${displayName} ${newValue ? "enabled" : "disabled"}`, {
         description: "Setting updated successfully",
       });
@@ -373,24 +369,31 @@ export function HomePage() {
                     className="text-sm font-medium flex items-center gap-2"
                   >
                     <Settings className="h-4 w-4 text-green-600" />
-                    {brewSetpointParam.displayName}
-                    {brewSetpointParam.hasHelpText && (
+                    {parameterLabels.en[brewSetpointParam.name] ||
+                      brewSetpointParam.name}
+                    {parameterHelpTexts[brewSetpointParam.name] && (
                       <Popover>
                         <PopoverTrigger asChild>
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-6 w-6"
+                            className="h-6 w-6 ml-1"
+                            tabIndex={0}
                             onMouseEnter={() =>
                               fetchHelpText(brewSetpointParam.name)
                             }
                           >
-                            <HelpCircle className="h-4 w-4" />
+                            <HelpCircle className="h-4 w-4 text-muted-foreground" />
                           </Button>
                         </PopoverTrigger>
-                        <PopoverContent className="w-80">
-                          {parametersHelpTexts[brewSetpointParam.name] ||
-                            "Loading help text..."}
+                        <PopoverContent className="w-80 text-xs">
+                          <span
+                            dangerouslySetInnerHTML={{
+                              __html:
+                                parameterHelpTexts[brewSetpointParam.name] ||
+                                "Loading help text...",
+                            }}
+                          />
                         </PopoverContent>
                       </Popover>
                     )}
@@ -468,7 +471,7 @@ export function HomePage() {
                   >
                     <div className="space-y-1">
                       <div className="font-medium">
-                        {param.displayName || param.name}
+                        {parameterLabels.en[param.name] || param.name}
                       </div>
                       <div className="text-sm text-muted-foreground">
                         {param.value === 1 ? "Enabled" : "Disabled"}

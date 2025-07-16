@@ -2,17 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { apiFetch, apiJsonFetch } from "@/lib/api-config";
 import type { HistoryData, ApiResponse } from "@/types/api";
 import { useChartData } from "./use-chart-data";
-
-export interface Parameter {
-  name: string;
-  displayName: string;
-  value: unknown;
-  hasHelpText: boolean;
-  type: number;
-  min: number;
-  max: number;
-  position: number;
-}
+import type { Parameter } from "@/types/parameters";
 
 export interface CleverCoffeeState {
   // Core data
@@ -153,30 +143,24 @@ export function useCleverCoffee(): CleverCoffeeState & CleverCoffeeActions {
     [] // Empty dependency array since we use refs for chart functions
   );
 
-  const fetchParameters = useCallback(
-    async (filter: string = ""): Promise<boolean> => {
-      setIsLoadingParams(true);
-      let url = "/parameters";
-      if (filter) {
-        url += "?filter=" + filter;
+  const fetchParameters = useCallback(async (): Promise<boolean> => {
+    setIsLoadingParams(true);
+    const url = "/parameters";
+    try {
+      const response = await apiFetch(url);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
-      try {
-        const response = await apiFetch(url);
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        const data: Parameter[] = await response.json();
-        setParameters(data.sort((a, b) => a.position - b.position));
-        return true; // Success
-      } catch (error) {
-        console.error("Error fetching parameters:", error);
-        return false; // Failure
-      } finally {
-        setIsLoadingParams(false);
-      }
-    },
-    []
-  );
+      const data: Parameter[] = await response.json();
+      setParameters(data);
+      return true; // Success
+    } catch (error) {
+      console.error("Error fetching parameters:", error);
+      return false; // Failure
+    } finally {
+      setIsLoadingParams(false);
+    }
+  }, []);
 
   const fetchHistoryData = useCallback(async (): Promise<boolean> => {
     try {
@@ -217,7 +201,11 @@ export function useCleverCoffee(): CleverCoffeeState & CleverCoffeeActions {
   const updateParameterValue = useCallback(
     (paramName: string, newValue: unknown) => {
       setParameters((prev) =>
-        prev.map((p) => (p.name === paramName ? { ...p, value: newValue } : p))
+        prev.map((p) =>
+          p.name === paramName
+            ? { ...p, value: newValue as number | string }
+            : p
+        )
       );
     },
     []

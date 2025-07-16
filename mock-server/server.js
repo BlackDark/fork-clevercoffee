@@ -3,6 +3,7 @@ import cors from "cors";
 import multer from "multer";
 import fs from "fs";
 import path from "path";
+import parameters from "./parameters.js";
 
 const app = express();
 const PORT = 3001;
@@ -25,122 +26,7 @@ let mockState = {
   currentTemp: 93.5,
   targetTemp: 94.0,
   heaterPower: 75.2,
-  parameters: [
-    {
-      type: 2, // kDouble
-      name: "pid.enabled",
-      displayName: "PID Control",
-      section: 1,
-      position: 1,
-      hasHelpText: true,
-      show: true,
-      value: 1,
-      min: 0,
-      max: 1,
-    },
-    {
-      type: 1, // kUInt8
-      name: "STEAM_MODE",
-      displayName: "Steam Mode",
-      section: 2,
-      position: 1,
-      hasHelpText: true,
-      show: true,
-      value: 0,
-      min: 0,
-      max: 1,
-    },
-    {
-      type: 1, // kUInt8
-      name: "BACKFLUSH_ON",
-      displayName: "Backflush Mode",
-      section: 2,
-      position: 2,
-      hasHelpText: true,
-      show: true,
-      value: 0,
-      min: 0,
-      max: 1,
-    },
-    {
-      type: 2, // kDouble
-      name: "brew.temp",
-      displayName: "Brew Temperature",
-      section: 0,
-      position: 1,
-      hasHelpText: true,
-      show: true,
-      value: 94.0,
-      min: 85.0,
-      max: 100.0,
-    },
-    {
-      type: 2, // kDouble
-      name: "pid.kp",
-      displayName: "PID Kp",
-      section: 1,
-      position: 2,
-      hasHelpText: true,
-      show: true,
-      value: 2.5,
-      min: 0.0,
-      max: 10.0,
-    },
-    {
-      type: 2, // kDouble
-      name: "pid.ki",
-      displayName: "PID Ki",
-      section: 1,
-      position: 3,
-      hasHelpText: true,
-      show: true,
-      value: 0.1,
-      min: 0.0,
-      max: 1.0,
-    },
-    {
-      type: 2, // kDouble
-      name: "pid.kd",
-      displayName: "PID Kd",
-      section: 1,
-      position: 4,
-      hasHelpText: true,
-      show: true,
-      value: 0.05,
-      min: 0.0,
-      max: 1.0,
-    },
-    {
-      type: 4, // kCString
-      name: "system.hostname",
-      displayName: "Device Hostname",
-      section: 10,
-      position: 1,
-      hasHelpText: true,
-      show: true,
-      value: "clevercoffee",
-      min: 0,
-      max: 32,
-    },
-    {
-      type: 3, // kEnum
-      name: "display.type",
-      displayName: "Display Type",
-      section: 11,
-      position: 1,
-      hasHelpText: true,
-      show: true,
-      value: 0,
-      min: 0,
-      max: 3,
-      options: [
-        { value: 0, label: "Standard" },
-        { value: 1, label: "Minimal" },
-        { value: 2, label: "Scale" },
-        { value: 3, label: "Temperature Only" },
-      ],
-    },
-  ],
+  parameters: parameters,
   historyData: {
     currentTemps: [],
     targetTemps: [],
