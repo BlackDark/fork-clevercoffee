@@ -14,19 +14,43 @@ export const parameterGroups = [
     ],
   },
   {
+    key: "temperatureControl",
+    label: "Temperature Control",
+    parameters: ["TEMP", "brew.setpoint", "brew.temp_offset", "steam.setpoint"],
+  },
+  {
+    key: "brewPidSection",
+    label: "Brew PID Parameters",
+    parameters: [
+      "pid.bd.enabled",
+      "brew.pid_delay",
+      "pid.bd.kp",
+      "pid.bd.tn",
+      "pid.bd.tv",
+    ],
+  },
+  {
     key: "brewControl",
     label: "Brew Control",
-    parameters: ["brew.setpoint", "brew.temp_offset"],
+    parameters: [
+      "brew.mode",
+      "brew.by_time",
+      "brew.target_time",
+      "brew.by_weight",
+      "brew.target_weight",
+      "brew.pre_infusion.enabled",
+      "brew.pre_infusion.time",
+      "brew.pre_infusion.pause",
+    ],
   },
   {
-    key: "steamControl",
-    label: "Steam Control",
-    parameters: ["steam.setpoint", "STEAM_MODE"],
-  },
-  {
-    key: "standby",
-    label: "Power Settings",
-    parameters: ["standby.enabled", "standby.time"],
+    key: "scaleParameters",
+    label: "Scale Parameters",
+    parameters: [
+      "hardware.sensors.scale.known_weight",
+      "hardware.sensors.scale.calibration",
+      "hardware.sensors.scale.calibration2",
+    ],
   },
   {
     key: "displaySettings",
@@ -42,6 +66,20 @@ export const parameterGroups = [
       "display.heating_logo",
       "display.pid_off_logo",
     ],
+  },
+  {
+    key: "maintenance",
+    label: "Maintenance",
+    parameters: [
+      "backflush.cycles",
+      "backflush.fill_time",
+      "backflush.flush_time",
+    ],
+  },
+  {
+    key: "powerSettings",
+    label: "Power Settings",
+    parameters: ["standby.enabled", "standby.time"],
   },
   {
     key: "mqttSettings",
@@ -60,15 +98,32 @@ export const parameterGroups = [
   {
     key: "systemSettings",
     label: "System Settings",
-    parameters: ["system.hostname", "system.ota_password", "system.log_level"],
+    parameters: [
+      "system.hostname",
+      "system.ota_password",
+      "system.log_level",
+      "system.timing_debug.enabled",
+      "system.showdisplay.enabled",
+    ],
   },
   {
     key: "systemAuth",
-    label: "System Auth",
+    label: "System Authentication",
     parameters: [
       "system.auth.enabled",
       "system.auth.username",
       "system.auth.password",
+    ],
+  },
+  {
+    key: "runtimeControls",
+    label: "Runtime Controls",
+    parameters: [
+      "STEAM_MODE",
+      "BACKFLUSH_ON",
+      "TARE_ON",
+      "CALIBRATION_ON",
+      "VERSION",
     ],
   },
   {
@@ -171,48 +226,6 @@ export const parameterGroups = [
       "hardware.sensors.scale.calibration",
       "hardware.sensors.scale.calibration2",
       "hardware.sensors.scale.known_weight",
-      "TARE_ON",
-      "CALIBRATION_ON",
     ],
-  },
-  {
-    key: "brewSection",
-    label: "Brew Section",
-    parameters: [
-      "brew.mode",
-      "brew.by_time",
-      "brew.target_time",
-      "brew.by_weight",
-      "brew.target_weight",
-      "brew.pre_infusion.enabled",
-      "brew.pre_infusion.time",
-      "brew.pre_infusion.pause",
-    ],
-  },
-  {
-    key: "maintenance",
-    label: "Maintenance",
-    parameters: [
-      "backflush.cycles",
-      "backflush.fill_time",
-      "backflush.flush_time",
-      "BACKFLUSH_ON",
-    ],
-  },
-  {
-    key: "brewPidSection",
-    label: "Brew PID Section",
-    parameters: [
-      "pid.bd.enabled",
-      "brew.pid_delay",
-      "pid.bd.kp",
-      "pid.bd.tn",
-      "pid.bd.tv",
-    ],
-  },
-  {
-    key: "other",
-    label: "Other",
-    parameters: ["STEAM_MODE", "VERSION"],
   },
 ];

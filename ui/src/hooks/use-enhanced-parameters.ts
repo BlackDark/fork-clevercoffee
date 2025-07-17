@@ -1,0 +1,240 @@
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { parameterGroups } from "@/lib/parameter-groups";
+
+// Import the complete parameter definitions
+import {
+  allParameters,
+  CompleteParameter,
+  shouldShowParameter,
+  mergeWithServerParameters,
+} from "@/lib/all-parameters";
+
+interface UseEnhancedParametersReturn {
+  parameters: CompleteParameter[];
+  visibleParameters: CompleteParameter[];
+  parametersBySection: Record<number, CompleteParameter[]>;
+  groupedParameters: Record<string, CompleteParameter[]>;
+  loading: boolean;
+  error: string | null;
+  updateParameter: (name: string, value: any) => void;
+  saveParameters: () => Promise<boolean>;
+  refreshParameters: () => Promise<void>;
+  getParameter: (name: string) => CompleteParameter | undefined;
+  isPostingForm: boolean;
+  showPostSucceeded: boolean;
+}
+
+export function useEnhancedParameters(
+  filter?: string
+): UseEnhancedParametersReturn {
+  const [serverParameters, setServerParameters] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [isPostingForm, setIsPostingForm] = useState(false);
+  const [showPostSucceeded, setShowPostSucceeded] = useState(false);
+
+  // Merge server parameters with complete definitions
+  const parameters = useMemo(() => {
+    return mergeWithServerParameters(serverParameters, allParameters);
+  }, [serverParameters]);
+
+  // Filter visible parameters based on conditions
+  const visibleParameters = useMemo(() => {
+    return parameters.filter((param) => shouldShowParameter(param, parameters));
+  }, [parameters]);
+
+  // Group parameters by section
+  const parametersBySection = useMemo(() => {
+    return visibleParameters.reduce((acc, param) => {
+      if (!acc[param.section]) {
+        acc[param.section] = [];
+      }
+      acc[param.section].push(param);
+      return acc;
+    }, {} as Record<number, CompleteParameter[]>);
+  }, [visibleParameters]);
+
+  // Map parameter group keys to categories
+  const groupCategoryMap: Record<string, string> = {
+    pidParameters: "behavior",
+    temperatureControl: "behavior",
+    brewPidSection: "behavior",
+    brewControl: "behavior",
+    scaleParameters: "behavior",
+    displaySettings: "behavior",
+    maintenance: "behavior",
+    powerSettings: "behavior",
+    mqttSettings: "system",
+    systemSettings: "system",
+    systemAuth: "system",
+    runtimeControls: "system",
+    oledDisplay: "hardware",
+    relays: "hardware",
+    switchesBrew: "hardware",
+    switchesSteam: "hardware",
+    switchesPower: "hardware",
+    switchesHotWater: "hardware",
+    ledsStatus: "hardware",
+    ledsBrew: "hardware",
+    ledsSteam: "hardware",
+    sensorTemperature: "hardware",
+    sensorPressure: "hardware",
+    sensorWatertank: "hardware",
+    sensorScale: "hardware",
+  };
+
+  // Group parameters for display
+  const groupedParameters = useMemo(() => {
+    const selectedCategory = filter || "behavior";
+    const filteredGroups = parameterGroups.filter(
+      (group) => groupCategoryMap[group.key] === selectedCategory
+    );
+
+    const paramMap = Object.fromEntries(
+      visibleParameters.map((p) => [p.name, p])
+    );
+
+    const result: Record<string, CompleteParameter[]> = {};
+    filteredGroups.forEach((group) => {
+      const groupParams = group.parameters
+        .map((name) => paramMap[name])
+        .filter(Boolean);
+
+      if (groupParams.length > 0) {
+        result[group.label] = groupParams;
+      }
+    });
+
+    return result;
+  }, [visibleParameters, filter]);
+
+  // Fetch parameters from server
+  const fetchParameters = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      let url = "/api/parameters";
+      if (filter) {
+        url += `?filter=${filter}`;
+      }
+
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      setServerParameters(
+        data.sort((a: any, b: any) => a.position - b.position)
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to fetch parameters"
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [filter]);
+
+  // Initial load
+  useEffect(() => {
+    fetchParameters();
+  }, [fetchParameters]);
+
+  // Update a parameter value locally
+  const updateParameter = useCallback((name: string, value: any) => {
+    setServerParameters((prev) => {
+      const existingIndex = prev.findIndex((p) => p.name === name);
+      if (existingIndex >= 0) {
+        // Update existing parameter
+        const updated = [...prev];
+        updated[existingIndex] = { ...updated[existingIndex], value };
+        return updated;
+      } else {
+        // Add new parameter (for parameters not sent by server initially)
+        const completeParam = allParameters.find((p) => p.name === name);
+        if (completeParam) {
+          return [...prev, { ...completeParam, value }];
+        }
+        return prev;
+      }
+    });
+  }, []);
+
+  // Save parameters to backend
+  const saveParameters = useCallback(async (): Promise<boolean> => {
+    try {
+      setError(null);
+      setIsPostingForm(true);
+
+      // Only save visible parameters
+      const paramsToSave = visibleParameters.filter(
+        (param) =>
+          // Don't save read-only parameters
+          param.name !== "TEMP" && param.name !== "VERSION"
+      );
+
+      // Build form data
+      const formData = new URLSearchParams();
+      paramsToSave.forEach((param) => {
+        formData.append(param.name, String(param.value));
+      });
+
+      const response = await fetch("/api/parameters", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: formData.toString(),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      // Show success state
+      setShowPostSucceeded(true);
+      setTimeout(() => setShowPostSucceeded(false), 2000);
+
+      // Refresh parameters after save to get updated conditions
+      await fetchParameters();
+      return true;
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to save parameters"
+      );
+      return false;
+    } finally {
+      setIsPostingForm(false);
+    }
+  }, [visibleParameters, fetchParameters]);
+
+  // Refresh parameters from backend
+  const refreshParameters = useCallback(async () => {
+    await fetchParameters();
+  }, [fetchParameters]);
+
+  // Get a specific parameter by name
+  const getParameter = useCallback(
+    (name: string): CompleteParameter | undefined => {
+      return parameters.find((param) => param.name === name);
+    },
+    [parameters]
+  );
+
+  return {
+    parameters,
+    visibleParameters,
+    parametersBySection,
+    groupedParameters,
+    loading,
+    error,
+    updateParameter,
+    saveParameters,
+    refreshParameters,
+    getParameter,
+    isPostingForm,
+    showPostSucceeded,
+  };
+}

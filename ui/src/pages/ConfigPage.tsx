@@ -24,11 +24,15 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { toast } from "sonner";
-import { ParameterTypes } from "@/types/parameters";
+import { ParameterTypes, isParameterBoolean } from "@/types/parameters";
 import { useCleverCoffee } from "@/hooks/use-clever-coffee";
 import parameterLabels from "@/lib/parameter-labels";
 import { parameterGroups } from "@/lib/parameter-groups";
 import { parameterHelpTexts } from "@/lib/parameter-help-texts";
+import {
+  mergeParametersWithDefaults,
+  shouldShowParameter,
+} from "@/lib/complete-parameters";
 import {
   Popover,
   PopoverTrigger,
@@ -43,7 +47,10 @@ import {
 import { useParams } from "react-router-dom";
 
 export function ConfigPage() {
-  // Use the centralized hook for all data and actions
+  const { filter } = useParams<{ filter: string }>();
+  const [isHardwareWarningOpen, setIsHardwareWarningOpen] = useState(false);
+
+  // Use the existing clever coffee hook
   const {
     parameters,
     isLoadingParams,
@@ -58,13 +65,17 @@ export function ConfigPage() {
   // Map parameter group keys to categories
   const groupCategoryMap: Record<string, string> = {
     pidParameters: "behavior",
+    temperatureControl: "behavior",
+    brewPidSection: "behavior",
     brewControl: "behavior",
-    steamControl: "behavior",
-    standby: "behavior",
+    scaleParameters: "behavior",
     displaySettings: "behavior",
+    maintenance: "behavior",
+    powerSettings: "behavior",
     mqttSettings: "system",
     systemSettings: "system",
     systemAuth: "system",
+    runtimeControls: "system",
     oledDisplay: "hardware",
     relays: "hardware",
     switchesBrew: "hardware",
@@ -78,22 +89,81 @@ export function ConfigPage() {
     sensorPressure: "hardware",
     sensorWatertank: "hardware",
     sensorScale: "hardware",
-    brewSection: "behavior",
-    maintenance: "behavior",
-    brewPidSection: "behavior",
-    other: "system",
   };
-  const { filter } = useParams<{ filter: string }>();
-  const [isHardwareWarningOpen, setIsHardwareWarningOpen] = useState(false);
+
+  // State to track local parameter changes
+  const [localParameterChanges, setLocalParameterChanges] = useState<
+    Record<string, unknown>
+  >({});
+
+  // Merge server parameters with complete definitions to ensure ALL parameters are available
+  const completeParameters = useMemo(() => {
+    const merged = mergeParametersWithDefaults(parameters);
+    // Apply local changes
+    return merged.map((param) => ({
+      ...param,
+      value:
+        localParameterChanges[param.name] !== undefined
+          ? localParameterChanges[param.name]
+          : param.value,
+    }));
+  }, [parameters, localParameterChanges]);
+
+  // Enhanced parameter visibility logic using complete parameters
+  const visibleParameters = useMemo(() => {
+    return completeParameters.filter((param) =>
+      shouldShowParameter(param, completeParameters)
+    );
+  }, [completeParameters]);
+
+  // Custom update function that handles both server and local parameters
+  const updateCompleteParameterValue = (
+    paramName: string,
+    newValue: unknown
+  ) => {
+    // Update local changes
+    setLocalParameterChanges((prev) => ({
+      ...prev,
+      [paramName]: newValue,
+    }));
+
+    // Also update the server parameters if they exist (for compatibility)
+    updateParameterValue(paramName, newValue);
+  };
+
+  // Group parameters for display
+  const groupedParameters = useMemo(() => {
+    const selectedCategory = filter || "behavior";
+    const filteredGroups = parameterGroups.filter(
+      (group) => groupCategoryMap[group.key] === selectedCategory
+    );
+
+    const paramMap = Object.fromEntries(
+      visibleParameters.map((p) => [p.name, p])
+    );
+
+    const result: Record<string, typeof visibleParameters> = {};
+    filteredGroups.forEach((group) => {
+      const groupParams = group.parameters
+        .map((name) => paramMap[name])
+        .filter(Boolean);
+
+      if (groupParams.length > 0) {
+        result[group.label] = groupParams;
+      }
+    });
+
+    return result;
+  }, [visibleParameters, filter, groupCategoryMap]);
 
   // Handle form submission
   const handleSubmitParameters = async (e: React.FormEvent) => {
     e.preventDefault();
-    const parameterNames = parameters.map((param) => param.name);
+    const parameterNames = visibleParameters.map((param) => param.name);
     const success = await postParameters(parameterNames);
     if (success) {
       toast.success("Parameters saved successfully", {
-        description: `Saved ${parameters.length} parameters. Settings will take effect after restart.`,
+        description: `Saved ${visibleParameters.length} parameters. Settings will take effect after restart.`,
       });
       fetchParameters();
     } else {
@@ -102,35 +172,6 @@ export function ConfigPage() {
       });
     }
   };
-
-  // Dynamic field logic example (e.g., show MQTT fields if enabled)
-  const visibleParameters = useMemo(() => {
-    const mqttEnabled = parameters.find(
-      (p) => p.name === "mqtt.enabled" && p.value === 1
-    );
-    return parameters.filter((param) => {
-      if (param.name.startsWith("mqtt.") && !mqttEnabled) return false;
-      return true;
-    });
-  }, [parameters]);
-
-  // Only show groups for selected filter/category
-  const selectedCategory = filter || "behavior";
-  const filteredGroups = parameterGroups.filter(
-    (group) => groupCategoryMap[group.key] === selectedCategory
-  );
-  const paramMap = Object.fromEntries(
-    visibleParameters.map((p) => [p.name, p])
-  );
-  const groupedParameters = useMemo(() => {
-    const result: Record<string, typeof visibleParameters> = {};
-    filteredGroups.forEach((group) => {
-      result[group.label] = group.parameters
-        .map((name) => paramMap[name])
-        .filter(Boolean);
-    });
-    return result;
-  }, [filteredGroups, paramMap]);
 
   if (
     (isLoadingParams && !parameters.length) ||
@@ -187,7 +228,23 @@ export function ConfigPage() {
       )}
 
       {/* Parameter Navigation */}
-      <ParameterNavigation />
+      <div className="flex items-center justify-between mb-4">
+        <ParameterNavigation />
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => fetchParameters()}
+          disabled={isLoadingParams}
+          className="ml-2"
+        >
+          {isLoadingParams ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <RefreshCw className="mr-2 h-4 w-4" />
+          )}
+          Refresh Parameters
+        </Button>
+      </div>
 
       {/* Hardware Warning */}
       {filter === "hardware" && !isLoadingParams && (
@@ -264,13 +321,13 @@ export function ConfigPage() {
               <Card key={sectionName} className="mb-8">
                 <CardContent>
                   <h2 className="text-xl font-bold mb-4">{sectionName}</h2>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 auto-rows-fr">
                     {sectionParams
                       .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
                       .map((param) => (
                         <div
                           key={param.name}
-                          className="space-y-3 p-4 rounded-lg border bg-card hover:bg-accent/50 transition-colors duration-200"
+                          className="flex flex-col space-y-3 p-4 rounded-lg border bg-card hover:bg-accent/50 transition-colors duration-200 min-h-[120px]"
                         >
                           <div className="flex items-center justify-between">
                             <Label
@@ -302,13 +359,13 @@ export function ConfigPage() {
                             )}
                           </div>
 
-                          {param.type === ParameterTypes.BOOLEAN ? (
+                          {isParameterBoolean(param) ? (
                             <div className="flex items-center space-x-2">
                               <Switch
                                 id={param.name}
                                 checked={!!param.value}
                                 onCheckedChange={(checked) =>
-                                  updateParameterValue(
+                                  updateCompleteParameterValue(
                                     param.name,
                                     checked ? 1 : 0
                                   )
@@ -316,11 +373,14 @@ export function ConfigPage() {
                               />
                               <span>{param.value ? "On" : "Off"}</span>
                             </div>
-                          ) : param.type === ParameterTypes.SELECT ? (
+                          ) : param.type === ParameterTypes.ENUM ? (
                             <Select
                               value={String(param.value)}
                               onValueChange={(value) =>
-                                updateParameterValue(param.name, Number(value))
+                                updateCompleteParameterValue(
+                                  param.name,
+                                  Number(value)
+                                )
                               }
                             >
                               <SelectTrigger>
@@ -347,7 +407,10 @@ export function ConfigPage() {
                               }
                               value={String(param.value || "")}
                               onChange={(e) =>
-                                updateParameterValue(param.name, e.target.value)
+                                updateCompleteParameterValue(
+                                  param.name,
+                                  e.target.value
+                                )
                               }
                               maxLength={
                                 param.max && param.max > 0 ? param.max : 64
@@ -359,17 +422,19 @@ export function ConfigPage() {
                               id={param.name}
                               type="number"
                               step={
-                                param.type === ParameterTypes.FLOAT
-                                  ? "0.1"
+                                param.type === ParameterTypes.FLOAT ||
+                                param.type === ParameterTypes.DOUBLE
+                                  ? "0.01"
                                   : "1"
                               }
                               min={param.min}
                               max={param.max}
                               value={String(param.value)}
                               onChange={(e) =>
-                                updateParameterValue(
+                                updateCompleteParameterValue(
                                   param.name,
-                                  param.type === ParameterTypes.FLOAT
+                                  param.type === ParameterTypes.FLOAT ||
+                                    param.type === ParameterTypes.DOUBLE
                                     ? parseFloat(e.target.value)
                                     : parseInt(e.target.value, 10)
                                 )

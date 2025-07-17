@@ -30,25 +30,36 @@ export const parameterHelpTexts: Record<string, string> = {
   "brew.target_weight": "Brew is running until this weight has been measured",
   "brew.pre_infusion.enabled":
     "Enables pre-wetting of the coffee puck by turning on the pump for a configurable length of time.",
-  "brew.pre_infusion.time": "Time in seconds the pump is running during the pre-infusion",
+  "brew.pre_infusion.time":
+    "Time in seconds the pump is running during the pre-infusion",
   "brew.pre_infusion.pause":
     "Pause to let the puck bloom after the initial pre-infusion while turning off the pump and leaving the 3-way valve open",
-  "backflush.cycles": "Number of cycles of filling and flushing during a backflush",
-  "backflush.fill_time": "Time in seconds the pump is running during one backflush cycle",
-  "backflush.flush_time": "Time in seconds the selenoid valve stays open during one backflush cycle",
-  "TARE_ON": "Tare the scale for zeroing before brewing.",
-  "CALIBRATION_ON": "Enable scale calibration mode.",
-  "hardware.sensors.scale.known_weight": "Weight in grams of the known calibration weight used for scale setup",
-  "hardware.sensors.scale.calibration": "Primary scale calibration factor (adjust during calibration process)",
-  "hardware.sensors.scale.calibration2": "Secondary scale calibration factor (for dual load cell setups)",
+  "backflush.cycles":
+    "Number of cycles of filling and flushing during a backflush",
+  "backflush.fill_time":
+    "Time in seconds the pump is running during one backflush cycle",
+  "backflush.flush_time":
+    "Time in seconds the selenoid valve stays open during one backflush cycle",
+  TARE_ON: "Tare the scale for zeroing before brewing.",
+  CALIBRATION_ON: "Enable scale calibration mode.",
+  "hardware.sensors.scale.known_weight":
+    "Weight in grams of the known calibration weight used for scale setup",
+  "hardware.sensors.scale.calibration":
+    "Primary scale calibration factor (adjust during calibration process)",
+  "hardware.sensors.scale.calibration2":
+    "Secondary scale calibration factor (for dual load cell setups)",
   "pid.bd.enabled": "Use separate PID parameters while brew is running",
-  "brew.pid_delay": "Delay time in seconds during which the PID will be disabled once a brew is detected. This prevents too high brew temperatures with boiler machines like Rancilio Silvia. Set to 0 for thermoblock machines.",
-  "pid.bd.kp": "Proportional gain (in Watts/°C) for the PID when brewing has been detected. Use this controller to either increase heating during the brew to counter temperature drop from fresh cold water in the boiler. Some machines, e.g. Rancilio Silvia, actually need to heat less or not at all during the brew because of high temperature stability.",
-  "pid.bd.tn": "Integral time constant (in seconds) for the PID when brewing has been detected.",
-  "pid.bd.tv": "Differential time constant (in seconds) for the PID when brewing has been detected.",
-  "STEAM_MODE": "Toggle steam mode on or off.",
-  "BACKFLUSH_ON": "Toggle backflush mode on or off.",
-  "VERSION": "Firmware version string.",
+  "brew.pid_delay":
+    "Delay time in seconds during which the PID will be disabled once a brew is detected. This prevents too high brew temperatures with boiler machines like Rancilio Silvia. Set to 0 for thermoblock machines.",
+  "pid.bd.kp":
+    "Proportional gain (in Watts/°C) for the PID when brewing has been detected. Use this controller to either increase heating during the brew to counter temperature drop from fresh cold water in the boiler. Some machines, e.g. Rancilio Silvia, actually need to heat less or not at all during the brew because of high temperature stability.",
+  "pid.bd.tn":
+    "Integral time constant (in seconds) for the PID when brewing has been detected.",
+  "pid.bd.tv":
+    "Differential time constant (in seconds) for the PID when brewing has been detected.",
+  STEAM_MODE: "Toggle steam mode on or off.",
+  BACKFLUSH_ON: "Toggle backflush mode on or off.",
+  VERSION: "Firmware version string.",
   "standby.enabled": "Turn heater off after standby time has elapsed.",
   "standby.time":
     "Time in minutes until the heater is turned off. Timer is reset by brew, manual flush, backflush and steam.",
