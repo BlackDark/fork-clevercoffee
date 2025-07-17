@@ -21,7 +21,7 @@ export function getChartTheme(isDark: boolean) {
     axisColor: isDark ? "#6b7280" : "#9ca3af", // gray-500 in dark, gray-400 in light
     gridColor: isDark ? "#374151" : "#e5e7eb", // gray-700 in dark, gray-200 in light
     backgroundColor: isDark ? "#111827" : "#ffffff", // gray-900 in dark, white in light
-    
+
     // Chart series colors optimized for both themes
     series: {
       temperature: {
