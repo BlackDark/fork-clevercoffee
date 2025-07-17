@@ -18,6 +18,10 @@ export interface CleverCoffeeState {
   // UI states
   showPostSucceeded: boolean;
 
+  // Connection health
+  isOnline: boolean;
+  lastHealthCheck: Date | null;
+
   // Error states
   connectionError: string | null;
   temperatureError: string | null;
@@ -34,6 +38,9 @@ export interface CleverCoffeeActions {
   fetchTemperatureAndChartData: (showLoading?: boolean) => Promise<boolean>;
   fetchHistoryData: () => Promise<boolean>;
   fetchHelpText: (paramName: string) => Promise<boolean>;
+
+  // Health check
+  checkHealth: () => Promise<boolean>;
 
   // Parameter management
   updateParameterValue: (paramName: string, newValue: unknown) => void;
@@ -73,6 +80,10 @@ export function useCleverCoffee(): CleverCoffeeState & CleverCoffeeActions {
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [temperatureError, setTemperatureError] = useState<string | null>(null);
   const [chartError, setChartError] = useState<string | null>(null);
+
+  // Health check state
+  const [isOnline, setIsOnline] = useState(true);
+  const [lastHealthCheck, setLastHealthCheck] = useState<Date | null>(null);
 
   // Chart data hook
   const { addTempData, addHeaterData, tempData, heaterData } = useChartData();
@@ -196,6 +207,34 @@ export function useCleverCoffee(): CleverCoffeeState & CleverCoffeeActions {
     },
     [parametersHelpTexts]
   );
+
+  // Health check function
+  const checkHealth = useCallback(async (): Promise<boolean> => {
+    try {
+      const response = await apiFetch("/health", {
+        method: "HEAD",
+        signal: AbortSignal.timeout(3000), // 3 second timeout for health checks
+      });
+
+      const isHealthy = response.ok;
+      setIsOnline(isHealthy);
+      setLastHealthCheck(new Date());
+
+      if (!isHealthy) {
+        setConnectionError("Service unavailable");
+      } else {
+        setConnectionError(null);
+      }
+
+      return isHealthy;
+    } catch (error) {
+      console.error("Health check failed:", error);
+      setIsOnline(false);
+      setLastHealthCheck(new Date());
+      setConnectionError("Connection failed");
+      return false;
+    }
+  }, []);
 
   // Parameter management
   const updateParameterValue = useCallback(
@@ -352,10 +391,25 @@ export function useCleverCoffee(): CleverCoffeeState & CleverCoffeeActions {
       await fetchParameters();
       await fetchHistoryData();
       await fetchTemperatureAndChartData(true); // Initial call with loading feedback
+      await checkHealth(); // Initial health check
     };
 
     initializeData();
-  }, [fetchParameters, fetchHistoryData, fetchTemperatureAndChartData]);
+  }, [
+    fetchParameters,
+    fetchHistoryData,
+    fetchTemperatureAndChartData,
+    checkHealth,
+  ]);
+
+  // Health check polling
+  useEffect(() => {
+    const healthCheckInterval = setInterval(async () => {
+      await checkHealth();
+    }, 1000); // Check every 1 seconds
+
+    return () => clearInterval(healthCheckInterval);
+  }, [checkHealth]);
 
   return {
     // State
@@ -366,6 +420,8 @@ export function useCleverCoffee(): CleverCoffeeState & CleverCoffeeActions {
     isLoadingTemp,
     isPostingForm,
     showPostSucceeded,
+    isOnline,
+    lastHealthCheck,
     connectionError,
     temperatureError,
     chartError,
@@ -377,6 +433,7 @@ export function useCleverCoffee(): CleverCoffeeState & CleverCoffeeActions {
     fetchTemperatureAndChartData,
     fetchHistoryData,
     fetchHelpText,
+    checkHealth,
     updateParameterValue,
     postParameters,
     togglePid,

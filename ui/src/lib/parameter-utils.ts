@@ -9,29 +9,26 @@ import {
   isParameterNumeric,
 } from "./parameter-types";
 import { parameterHelpTexts } from "./parameter-help-texts";
+import { getParameterLabel } from "./parameter-labels";
 import { parameterGroups } from "./parameter-groups";
 
 // Re-export types for convenience
 export type {
   Parameter,
-  ParameterCondition,
   ParameterType,
   ParameterOption,
 } from "./parameter-types";
 
 /**
- * Evaluates whether a parameter should be shown based on its conditions
- * and the current values of other parameters
+ * Checks if a parameter's required parameters are met
  */
-export function shouldShowParameter(
+export function areRequiredParametersMet(
   parameter: Parameter,
   allParameters: Parameter[]
 ): boolean {
-  if (!parameter.conditions) {
-    return parameter.show !== false; // Default to true unless explicitly set to false
+  if (!parameter.requiredParameters) {
+    return true; // No requirements, always enabled
   }
-
-  const { showWhen, hideWhen } = parameter.conditions;
 
   // Create a lookup map for parameter values
   const parameterValues = allParameters.reduce((acc, param) => {
@@ -39,47 +36,127 @@ export function shouldShowParameter(
     return acc;
   }, {} as Record<string, string | number | boolean>);
 
-  // Check hideWhen conditions first (takes precedence)
-  if (hideWhen) {
-    for (const [paramName, expectedValue] of Object.entries(hideWhen)) {
-      const actualValue = parameterValues[paramName];
-      if (actualValue === expectedValue) {
-        return false; // Hide the parameter
-      }
+  // Check all required parameters
+  for (const [paramName, expectedValue] of Object.entries(
+    parameter.requiredParameters
+  )) {
+    const actualValue = parameterValues[paramName];
+    if (actualValue !== expectedValue) {
+      return false; // Required parameter not met
     }
   }
 
-  // Check showWhen conditions
-  if (showWhen) {
-    for (const [paramName, expectedValue] of Object.entries(showWhen)) {
-      const actualValue = parameterValues[paramName];
-      if (actualValue !== expectedValue) {
-        return false; // Don't show the parameter
-      }
-    }
-  }
-
-  return parameter.show !== false; // Default to true
+  return true; // All requirements met
 }
 
 /**
- * Groups parameters by section with conditional filtering
+ * Gets a human-readable description of missing required parameters
+ */
+export function getMissingRequiredParametersMessage(
+  parameter: Parameter,
+  allParameters: Parameter[]
+): string {
+  if (!parameter.requiredParameters) {
+    return "";
+  }
+
+  const parameterValues = allParameters.reduce((acc, param) => {
+    acc[param.name] = param.value;
+    return acc;
+  }, {} as Record<string, string | number | boolean>);
+
+  const missingRequirements: string[] = [];
+
+  for (const [paramName, expectedValue] of Object.entries(
+    parameter.requiredParameters
+  )) {
+    const actualValue = parameterValues[paramName];
+    if (actualValue !== expectedValue) {
+      const paramLabel = getParameterLabel(paramName) || paramName;
+      const expectedLabel =
+        expectedValue === 1 ? "enabled" : `set to ${expectedValue}`;
+      missingRequirements.push(`'${paramLabel}' must be ${expectedLabel}`);
+    }
+  }
+
+  if (missingRequirements.length === 0) {
+    return "";
+  }
+
+  if (missingRequirements.length === 1) {
+    return `Enable this by setting: ${missingRequirements[0]}`;
+  }
+
+  return `Enable this by setting: ${missingRequirements.join(" and ")}`;
+}
+
+/**
+ * Legacy function for backward compatibility - now shows all parameters
+ * Parameters are disabled in UI instead of hidden
+ */
+export function shouldShowParameter(): boolean {
+  return true; // Always show parameters, but disable them if requirements not met
+}
+
+/**
+ * Groups parameters by prefix (e.g., "pid", "brew", "hardware") with conditional filtering
+ */
+export function groupParametersByPrefix(
+  parameters: Parameter[]
+): Record<string, Parameter[]> {
+  const visibleParameters = parameters.filter(() => true); // Show all parameters
+
+  return visibleParameters.reduce((groups, param) => {
+    const prefix = param.name.split(".")[0];
+    if (!groups[prefix]) {
+      groups[prefix] = [];
+    }
+    groups[prefix].push(param);
+    return groups;
+  }, {} as Record<string, Parameter[]>);
+}
+
+/**
+ * Groups parameters by logical groups defined in parameter-groups.ts
+ * This provides proper separation (e.g., scale parameters in behavior vs hardware)
  */
 export function groupParametersBySection(
   parameters: Parameter[]
-): Record<number, Parameter[]> {
-  const visibleParameters = parameters.filter((param) =>
-    shouldShowParameter(param, parameters)
-  );
+): Record<string, Parameter[]> {
+  const visibleParameters = parameters.filter(() => true); // Show all parameters
 
-  return visibleParameters.reduce((groups, param) => {
-    const section = param.section;
-    if (!groups[section]) {
-      groups[section] = [];
+  const groups: Record<string, Parameter[]> = {};
+
+  // Create a lookup map for parameter names to groups
+  const parameterToGroup = new Map<string, string>();
+  for (const group of parameterGroups) {
+    for (const paramName of group.parameters) {
+      parameterToGroup.set(paramName, group.label);
     }
-    groups[section].push(param);
-    return groups;
-  }, {} as Record<number, Parameter[]>);
+  }
+
+  // Group parameters by their defined logical groups
+  for (const param of visibleParameters) {
+    const groupLabel = parameterToGroup.get(param.name);
+    if (groupLabel) {
+      if (!groups[groupLabel]) {
+        groups[groupLabel] = [];
+      }
+      groups[groupLabel].push(param);
+    } else {
+      // Fallback to prefix-based grouping for parameters not in groups
+      const prefix = param.name.split(".")[0];
+      const fallbackLabel = `${prefix.charAt(0).toUpperCase()}${prefix.slice(
+        1
+      )} Parameters`;
+      if (!groups[fallbackLabel]) {
+        groups[fallbackLabel] = [];
+      }
+      groups[fallbackLabel].push(param);
+    }
+  }
+
+  return groups;
 }
 
 /**
@@ -205,20 +282,15 @@ export function searchParameters(
   return parameters.filter(
     (param) =>
       param.name.toLowerCase().includes(term) ||
-      (param.displayName && param.displayName.toLowerCase().includes(term))
+      getParameterLabel(param.name).toLowerCase().includes(term)
   );
 }
 
 /**
- * Sorts parameters by section and position
+ * Sorts parameters by name alphabetically
  */
 export function sortParameters(parameters: Parameter[]): Parameter[] {
-  return [...parameters].sort((a, b) => {
-    if (a.section !== b.section) {
-      return a.section - b.section;
-    }
-    return a.position - b.position;
-  });
+  return [...parameters].sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /**
@@ -253,4 +325,45 @@ export function getNumberStep(param: Parameter): string {
     return "1";
   }
   return "0.1"; // For DOUBLE and FLOAT
+}
+
+/**
+ * Type guard to check if a value is a valid parameter value
+ */
+export function isValidParameterValue(
+  value: unknown
+): value is string | number | boolean {
+  return (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  );
+}
+
+/**
+ * Get parameter by name from a list of parameters
+ */
+export function findParameterByName(
+  parameters: Parameter[],
+  name: string
+): Parameter | undefined {
+  return parameters.find((param) => param.name === name);
+}
+
+/**
+ * Get all parameters that have validation errors
+ */
+export function getParametersWithErrors(
+  parameters: Parameter[]
+): Array<{ parameter: Parameter; error: string }> {
+  const errors: Array<{ parameter: Parameter; error: string }> = [];
+
+  parameters.forEach((param) => {
+    const { isValid, error } = validateParameterValue(param, param.value);
+    if (!isValid && error) {
+      errors.push({ parameter: param, error });
+    }
+  });
+
+  return errors;
 }

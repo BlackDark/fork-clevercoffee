@@ -1,5 +1,6 @@
 import { Outlet, Link, useLocation } from "react-router-dom";
 import { ModeToggle } from "./mode-toggle";
+import { LiveStatusIndicator } from "./LiveStatusIndicator";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
 import { Menu, X } from "lucide-react";
@@ -71,6 +72,7 @@ export function Layout() {
         </div>
 
         <div className="flex items-center gap-2">
+          <LiveStatusIndicator />
           <ModeToggle />
 
           {/* Mobile Menu Button */}

@@ -47,9 +47,8 @@ export const parameterGroups = [
     key: "scaleParameters",
     label: "Scale Parameters",
     parameters: [
-      "hardware.sensors.scale.known_weight",
-      "hardware.sensors.scale.calibration",
-      "hardware.sensors.scale.calibration2",
+      // Scale parameters moved to hardware section for better organization
+      // All scale-related parameters now appear only in "Scale Sensors" under hardware
     ],
   },
   {

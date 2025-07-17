@@ -3,7 +3,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -258,295 +257,352 @@ export function HomePage() {
         </Alert>
       )}
 
-      {/* Machine Status Card */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-500/10">
-              <Activity className="h-5 w-5 text-blue-600" />
-            </div>
-            Machine Status
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmitParameters}>
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Temperature Display */}
-              <div className="space-y-3">
-                <Label className="text-sm font-medium flex items-center gap-2">
-                  <Thermometer className="h-4 w-4 text-red-500" />
-                  Current Temperature
-                </Label>
-                {isLoadingTemp ? (
-                  <div className="flex items-center gap-3">
-                    <Skeleton className="h-10 w-20" />
+      {/* Machine Status and Functions Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Machine Status Card */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-500/10">
+                <Activity className="h-5 w-5 text-blue-600" />
+              </div>
+              Machine Status
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Temperature Display */}
+                <div className="space-y-3">
+                  <div className="font-medium flex items-center gap-2">
+                    <Thermometer className="h-4 w-4 text-red-500" />
+                    Current Temperature
+                  </div>
+                  {isLoadingTemp ? (
+                    <div className="flex items-center gap-3">
+                      <Skeleton className="h-10 w-20" />
+                      <div className="space-y-1">
+                        <Skeleton className="h-3 w-16" />
+                        <Skeleton className="h-2 w-12" />
+                      </div>
+                    </div>
+                  ) : temperatureError ? (
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2">
+                        <AlertCircle className="h-5 w-5 text-destructive" />
+                        <div>
+                          <p className="font-semibold text-destructive">
+                            {temperatureError.includes("offline")
+                              ? "Sensor Offline"
+                              : temperatureError.includes("retrying")
+                              ? "Retrying..."
+                              : "Connection Failed"}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {temperatureError}
+                          </p>
+                        </div>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleTemperatureRetry}
+                        disabled={temperatureError.includes("retrying")}
+                      >
+                        <RefreshCw
+                          className={`h-4 w-4 mr-2 ${
+                            temperatureError.includes("retrying")
+                              ? "animate-spin"
+                              : ""
+                          }`}
+                        />
+                        {temperatureError.includes("retrying")
+                          ? "Retrying..."
+                          : "Retry"}
+                      </Button>
+                    </div>
+                  ) : currentTemperature ? (
                     <div className="space-y-1">
-                      <Skeleton className="h-3 w-16" />
-                      <Skeleton className="h-2 w-12" />
-                    </div>
-                  </div>
-                ) : temperatureError ? (
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-2">
-                      <AlertCircle className="h-5 w-5 text-destructive" />
-                      <div>
-                        <p className="font-semibold text-destructive">
-                          {temperatureError.includes("offline")
-                            ? "Sensor Offline"
-                            : temperatureError.includes("retrying")
-                            ? "Retrying..."
-                            : "Connection Failed"}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {temperatureError}
-                        </p>
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-3xl font-bold tracking-tight">
+                          {parseFloat(currentTemperature).toFixed(2)}
+                        </span>
+                        <span className="text-xl text-muted-foreground">
+                          °C
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1 text-xs text-green-600">
+                        <div className="h-2 w-2 bg-green-500 rounded-full animate-pulse" />
+                        Live
                       </div>
                     </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleTemperatureRetry}
-                      disabled={temperatureError.includes("retrying")}
-                    >
-                      <RefreshCw
-                        className={`h-4 w-4 mr-2 ${
-                          temperatureError.includes("retrying")
-                            ? "animate-spin"
-                            : ""
-                        }`}
-                      />
-                      {temperatureError.includes("retrying")
-                        ? "Retrying..."
-                        : "Retry"}
-                    </Button>
-                  </div>
-                ) : currentTemperature ? (
-                  <div className="space-y-1">
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-3xl font-bold tracking-tight">
-                        {currentTemperature}
-                      </span>
-                      <span className="text-xl text-muted-foreground">°C</span>
+                  ) : (
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2">
+                        <AlertCircle className="h-5 w-5 text-orange-500" />
+                        <div>
+                          <p className="font-semibold text-orange-600">
+                            No Data
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            Temperature sensor offline
+                          </p>
+                        </div>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleTemperatureRetry}
+                      >
+                        <RefreshCw className="h-4 w-4 mr-2" />
+                        Retry
+                      </Button>
                     </div>
-                    <div className="flex items-center gap-1 text-xs text-green-600">
-                      <div className="h-2 w-2 bg-green-500 rounded-full animate-pulse" />
-                      Live
-                    </div>
+                  )}
+                </div>
+
+                {/* Heater Power Display */}
+                <div className="space-y-3">
+                  <div className="font-medium flex items-center gap-2">
+                    <Zap className="h-4 w-4 text-yellow-500" />
+                    Current Heater Power
                   </div>
-                ) : (
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-2">
-                      <AlertCircle className="h-5 w-5 text-orange-500" />
-                      <div>
-                        <p className="font-semibold text-orange-600">No Data</p>
-                        <p className="text-xs text-muted-foreground">
-                          Temperature sensor offline
-                        </p>
+                  {isLoadingTemp ? (
+                    <div className="flex items-center gap-3">
+                      <Skeleton className="h-10 w-20" />
+                      <div className="space-y-1">
+                        <Skeleton className="h-3 w-16" />
+                        <Skeleton className="h-2 w-12" />
                       </div>
                     </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleTemperatureRetry}
-                    >
-                      <RefreshCw className="h-4 w-4 mr-2" />
-                      Retry
-                    </Button>
-                  </div>
-                )}
+                  ) : heaterData.heaterPowerVals.length > 0 ? (
+                    <div className="space-y-1">
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-3xl font-bold tracking-tight">
+                          {heaterData.heaterPowerVals[
+                            heaterData.heaterPowerVals.length - 1
+                          ]?.toFixed(1) || "0.0"}
+                        </span>
+                        <span className="text-xl text-muted-foreground">%</span>
+                      </div>
+                      <div className="flex items-center gap-1 text-xs text-green-600">
+                        <div className="h-2 w-2 bg-green-500 rounded-full animate-pulse" />
+                        Live
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-1">
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-3xl font-bold tracking-tight">
+                          0.0
+                        </span>
+                        <span className="text-xl text-muted-foreground">%</span>
+                      </div>
+                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <div className="h-2 w-2 bg-gray-400 rounded-full" />
+                        Offline
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
 
-              {/* Setpoint Parameter */}
+              {/* Temperature Setpoint Control */}
               {isLoadingParams ? (
-                <div className="space-y-3">
-                  <Skeleton className="h-4 w-24" />
-                  <Skeleton className="h-10 w-32" />
+                <div className="flex items-center justify-between p-4 border rounded-lg">
+                  <div className="space-y-1">
+                    <Skeleton className="h-4 w-32" />
+                    <Skeleton className="h-3 w-24" />
+                  </div>
+                  <Skeleton className="h-10 w-20" />
                 </div>
               ) : brewSetpointParam ? (
-                <div className="space-y-3">
-                  <Label
-                    htmlFor={brewSetpointParam.name}
-                    className="text-sm font-medium flex items-center gap-2"
-                  >
-                    <Settings className="h-4 w-4 text-green-600" />
-                    {parameterLabels.en[brewSetpointParam.name] ||
-                      brewSetpointParam.name}
-                    {parameterHelpTexts[brewSetpointParam.name] && (
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6 ml-1"
-                            tabIndex={0}
-                            onMouseEnter={() =>
-                              fetchHelpText(brewSetpointParam.name)
-                            }
-                          >
-                            <HelpCircle className="h-4 w-4 text-muted-foreground" />
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-80 text-xs">
-                          <span
-                            dangerouslySetInnerHTML={{
-                              __html:
-                                parameterHelpTexts[brewSetpointParam.name] ||
-                                "Loading help text...",
-                            }}
-                          />
-                        </PopoverContent>
-                      </Popover>
-                    )}
-                  </Label>
-                  <Input
-                    id={brewSetpointParam.name}
-                    type="number"
-                    step={getNumberStep(brewSetpointParam)}
-                    value={brewSetpointParam.value as string}
-                    onChange={(e) =>
-                      updateParameterValue(
-                        brewSetpointParam.name,
-                        e.target.value
-                      )
-                    }
-                    min={brewSetpointParam.min}
-                    max={brewSetpointParam.max}
-                    className="w-32"
-                  />
-                </div>
-              ) : null}
-
-              {/* Save Button */}
-              <div className="flex justify-end">
-                <Button
-                  type="submit"
-                  disabled={isPostingForm}
-                  className="min-w-32"
-                >
-                  {showPostSucceeded && (
-                    <CheckCircle className="mr-2 h-4 w-4" />
-                  )}
-                  {isPostingForm && (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  )}
-                  {showPostSucceeded ? "Saved!" : "Save Changes"}
-                </Button>
-              </div>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
-
-      {/* Machine Functions Card */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-purple-500/10">
-              <Zap className="h-5 w-5 text-purple-600" />
-            </div>
-            Machine Functions
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {isLoadingParams ? (
-            <div className="space-y-4">
-              {[1, 2, 3].map((i) => (
-                <div
-                  key={i}
-                  className="flex justify-between items-center p-4 border rounded-lg"
-                >
-                  <Skeleton className="h-5 w-32" />
-                  <Skeleton className="h-6 w-12" />
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {/* Function Toggles */}
-              <div className="grid gap-3">
-                {functionToggleParams.map((param) => (
-                  <div
-                    key={param.name}
-                    className="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 transition-colors"
-                  >
+                <form onSubmit={handleSubmitParameters}>
+                  <div className="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 transition-colors">
                     <div className="space-y-1">
-                      <div className="font-medium">
-                        {parameterLabels.en[param.name] || param.name}
+                      <div className="font-medium flex items-center gap-2">
+                        <Settings className="h-4 w-4 text-green-600" />
+                        {parameterLabels.en[brewSetpointParam.name] ||
+                          brewSetpointParam.name}
+                        {parameterHelpTexts[brewSetpointParam.name] && (
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6 ml-1"
+                                tabIndex={0}
+                                onMouseEnter={() =>
+                                  fetchHelpText(brewSetpointParam.name)
+                                }
+                              >
+                                <HelpCircle className="h-4 w-4 text-muted-foreground" />
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-80 text-xs">
+                              <span
+                                dangerouslySetInnerHTML={{
+                                  __html:
+                                    parameterHelpTexts[
+                                      brewSetpointParam.name
+                                    ] || "Loading help text...",
+                                }}
+                              />
+                            </PopoverContent>
+                          </Popover>
+                        )}
                       </div>
                       <div className="text-sm text-muted-foreground">
-                        {param.value === 1 ? "Enabled" : "Disabled"}
+                        Target: {brewSetpointParam.value}°C
                       </div>
                     </div>
-                    <Switch
-                      id={param.name}
-                      checked={param.value === 1}
-                      onCheckedChange={() => handleToggleFunction(param.name)}
-                    />
+                    <div className="flex items-center gap-2">
+                      <Input
+                        id={brewSetpointParam.name}
+                        type="number"
+                        step={getNumberStep(brewSetpointParam)}
+                        value={brewSetpointParam.value as string}
+                        onChange={(e) =>
+                          updateParameterValue(
+                            brewSetpointParam.name,
+                            e.target.value
+                          )
+                        }
+                        min={brewSetpointParam.min}
+                        max={brewSetpointParam.max}
+                        className="w-20"
+                      />
+                      <Button type="submit" size="sm" disabled={isPostingForm}>
+                        {showPostSucceeded && (
+                          <CheckCircle className="h-4 w-4" />
+                        )}
+                        {isPostingForm && (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        )}
+                        {!showPostSucceeded && !isPostingForm && "Save"}
+                      </Button>
+                    </div>
+                  </div>
+                </form>
+              ) : null}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Machine Functions Card */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-purple-500/10">
+                <Zap className="h-5 w-5 text-purple-600" />
+              </div>
+              Machine Functions
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {isLoadingParams ? (
+              <div className="space-y-4">
+                {[1, 2, 3].map((i) => (
+                  <div
+                    key={i}
+                    className="flex justify-between items-center p-4 border rounded-lg"
+                  >
+                    <Skeleton className="h-5 w-32" />
+                    <Skeleton className="h-6 w-12" />
                   </div>
                 ))}
               </div>
-
-              {/* Scale Operations */}
-              {scaleActionParams.length > 0 && (
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2 pt-4 border-t">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-500/10">
-                      <Settings className="h-4 w-4 text-blue-600" />
+            ) : (
+              <div className="space-y-4">
+                {/* Function Toggles */}
+                <div className="grid gap-3">
+                  {functionToggleParams.map((param) => (
+                    <div
+                      key={param.name}
+                      className="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 transition-colors"
+                    >
+                      <div className="space-y-1">
+                        <div className="font-medium">
+                          {parameterLabels.en[param.name] || param.name}
+                        </div>
+                        <div className="text-sm text-muted-foreground">
+                          {param.value === 1 ? "Enabled" : "Disabled"}
+                        </div>
+                      </div>
+                      <Switch
+                        id={param.name}
+                        checked={param.value === 1}
+                        onCheckedChange={() => handleToggleFunction(param.name)}
+                      />
                     </div>
-                    <h4 className="font-medium">Scale Operations</h4>
-                  </div>
-                  <div className="grid gap-3">
-                    {scaleActionParams.map((param) => {
-                      if (param.name === "TARE_ON") {
-                        return (
-                          <div
-                            key={param.name}
-                            className="flex items-center justify-between p-4 border rounded-lg"
-                          >
-                            <div className="space-y-1">
-                              <div className="font-medium">Tare Scale</div>
-                              <div className="text-sm text-muted-foreground">
-                                Reset scale to zero
-                              </div>
-                            </div>
-                            <Button variant="outline" onClick={handleTareScale}>
-                              Tare Scale
-                            </Button>
-                          </div>
-                        );
-                      }
-                      if (param.name === "CALIBRATION_ON") {
-                        return (
-                          <div
-                            key={param.name}
-                            className="flex items-center justify-between p-4 border rounded-lg"
-                          >
-                            <div className="space-y-1">
-                              <div className="font-medium">
-                                Scale Calibration
-                              </div>
-                              <div className="text-sm text-muted-foreground">
-                                Calibrate scale accuracy
-                              </div>
-                            </div>
-                            <Button
-                              variant="outline"
-                              onClick={handleCalibrateScale}
-                            >
-                              Start Calibration
-                            </Button>
-                          </div>
-                        );
-                      }
-                      return null;
-                    })}
-                  </div>
+                  ))}
                 </div>
-              )}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+
+                {/* Scale Operations */}
+                {scaleActionParams.length > 0 && (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2 pt-4 border-t">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-500/10">
+                        <Settings className="h-4 w-4 text-blue-600" />
+                      </div>
+                      <h4 className="font-medium">Scale Operations</h4>
+                    </div>
+                    <div className="grid gap-3">
+                      {scaleActionParams.map((param) => {
+                        if (param.name === "TARE_ON") {
+                          return (
+                            <div
+                              key={param.name}
+                              className="flex items-center justify-between p-4 border rounded-lg"
+                            >
+                              <div className="space-y-1">
+                                <div className="font-medium">Tare Scale</div>
+                                <div className="text-sm text-muted-foreground">
+                                  Reset scale to zero
+                                </div>
+                              </div>
+                              <Button
+                                variant="outline"
+                                onClick={handleTareScale}
+                              >
+                                Tare Scale
+                              </Button>
+                            </div>
+                          );
+                        }
+                        if (param.name === "CALIBRATION_ON") {
+                          return (
+                            <div
+                              key={param.name}
+                              className="flex items-center justify-between p-4 border rounded-lg"
+                            >
+                              <div className="space-y-1">
+                                <div className="font-medium">
+                                  Scale Calibration
+                                </div>
+                                <div className="text-sm text-muted-foreground">
+                                  Calibrate scale accuracy
+                                </div>
+                              </div>
+                              <Button
+                                variant="outline"
+                                onClick={handleCalibrateScale}
+                              >
+                                Start Calibration
+                              </Button>
+                            </div>
+                          );
+                        }
+                        return null;
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
 
       {/* Temperature Chart */}
       <Card>

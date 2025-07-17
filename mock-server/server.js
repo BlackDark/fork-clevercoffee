@@ -351,6 +351,11 @@ app.post("/api/factory-reset", simulateAuth, (req, res) => {
   res.json({ success: true, message: "Factory reset. Restarting..." });
 });
 
+// Data endpoints
+app.head("/api/health", simulateAuth, (req, res) => {
+  res.json();
+});
+
 // 404 handler for API routes
 app.use("/api/*", (req, res) => {
   console.log(`404 - API endpoint not found: ${req.method} ${req.path}`);

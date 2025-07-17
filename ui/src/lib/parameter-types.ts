@@ -18,44 +18,57 @@ export interface ParameterOption {
   label: string;
 }
 
-export interface ParameterCondition {
-  showWhen?: Record<string, string | number | boolean>;
-  hideWhen?: Record<string, string | number | boolean>;
-}
-
-export interface Parameter {
+// Server parameter type - minimal data from backend
+export interface ServerParameter {
   type: ParameterType;
   name: string;
-  displayName?: string;
-  section: number;
-  position: number;
-  hasHelpText?: boolean;
-  show?: boolean;
   value: string | number | boolean;
   min: number;
   max: number;
   options?: ParameterOption[];
-  conditions?: ParameterCondition;
+}
+
+// UI parameter metadata - everything needed for display
+export interface ParameterMetadata {
+  type: ParameterType;
+  min: number;
+  max: number;
+  defaultValue: string | number | boolean;
+  options?: ParameterOption[];
+  requiredParameters?: Record<string, string | number | boolean>;
+}
+
+// Complete parameter for UI use (server data + metadata)
+export interface Parameter extends ServerParameter {
+  requiredParameters?: Record<string, string | number | boolean>;
 }
 
 /**
  * Helper functions for parameter types
  */
-export const isParameterBoolean = (param: Parameter): boolean => {
+export const isParameterBoolean = (
+  param: Parameter | ParameterMetadata
+): boolean => {
   return (
     param.type === ParameterTypes.UINT8 && param.min === 0 && param.max === 1
   );
 };
 
-export const isParameterEnum = (param: Parameter): boolean => {
+export const isParameterEnum = (
+  param: Parameter | ParameterMetadata
+): boolean => {
   return param.type === ParameterTypes.ENUM && !!param.options;
 };
 
-export const isParameterString = (param: Parameter): boolean => {
+export const isParameterString = (
+  param: Parameter | ParameterMetadata
+): boolean => {
   return param.type === ParameterTypes.STRING;
 };
 
-export const isParameterNumeric = (param: Parameter): boolean => {
+export const isParameterNumeric = (
+  param: Parameter | ParameterMetadata
+): boolean => {
   return (
     [
       ParameterTypes.INTEGER,

@@ -1,16 +1,13 @@
 import { useState, useEffect, useCallback } from "react";
 import type { Parameter } from "../lib/parameter-types";
-import {
-  shouldShowParameter,
-  groupParametersBySection,
-} from "../lib/parameter-utils";
+import { groupParametersBySection } from "../lib/parameter-utils";
 
 interface UseParametersReturn {
   parameters: Parameter[];
-  parametersBySection: Record<number, Parameter[]>;
+  parametersBySection: Record<string, Parameter[]>;
   loading: boolean;
   error: string | null;
-  updateParameter: (name: string, value: any) => void;
+  updateParameter: (name: string, value: string | number | boolean) => void;
   saveParameters: () => Promise<boolean>;
   refreshParameters: () => Promise<void>;
   getParameter: (name: string) => Parameter | undefined;
@@ -39,7 +36,7 @@ export function useParameters(filter?: string): UseParametersReturn {
 
       const data = await response.json();
       setParameters(
-        data.sort((a: Parameter, b: Parameter) => a.position - b.position)
+        data.sort((a: Parameter, b: Parameter) => a.name.localeCompare(b.name))
       );
     } catch (err) {
       setError(
@@ -56,11 +53,14 @@ export function useParameters(filter?: string): UseParametersReturn {
   }, [fetchParameters]);
 
   // Update a parameter value locally
-  const updateParameter = useCallback((name: string, value: any) => {
-    setParameters((prev) =>
-      prev.map((param) => (param.name === name ? { ...param, value } : param))
-    );
-  }, []);
+  const updateParameter = useCallback(
+    (name: string, value: string | number | boolean) => {
+      setParameters((prev) =>
+        prev.map((param) => (param.name === name ? { ...param, value } : param))
+      );
+    },
+    []
+  );
 
   // Save parameters to backend
   const saveParameters = useCallback(async (): Promise<boolean> => {
@@ -68,9 +68,7 @@ export function useParameters(filter?: string): UseParametersReturn {
       setError(null);
 
       // Filter visible parameters for saving
-      const visibleParameters = parameters.filter((param) =>
-        shouldShowParameter(param, parameters)
-      );
+      const visibleParameters = parameters; // Show all parameters now
 
       // Build form data
       const formData = new URLSearchParams();

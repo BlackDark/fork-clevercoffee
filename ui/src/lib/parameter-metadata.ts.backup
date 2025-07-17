@@ -1,0 +1,529 @@
+// Parameter metadata map for efficient lookups
+// This replaces the old array-based parameter definitions
+
+import type {
+  ParameterMetadata,
+  ServerParameter,
+  Parameter,
+} from "./parameter-types";
+import { ParameterTypes } from "./parameter-types";
+
+// Core parameter metadata - everything needed for UI display and validation
+export const parameterMetadata = new Map<string, ParameterMetadata>([
+  // PID Parameters
+  [
+    "pid.enabled",
+    {
+      type: ParameterTypes.UINT8,
+      min: 0,
+      max: 1,
+      defaultValue: 0,
+    },
+  ],
+  [
+    "pid.use_ponm",
+    {
+      type: ParameterTypes.UINT8,
+      min: 0,
+      max: 1,
+      defaultValue: 0,
+    },
+  ],
+  [
+    "pid.ema_factor",
+    {
+      type: ParameterTypes.DOUBLE,
+      min: 0,
+      max: 1,
+      defaultValue: 0.6,
+    },
+  ],
+  [
+    "pid.regular.kp",
+    {
+      type: ParameterTypes.DOUBLE,
+      min: 0,
+      max: 999,
+      defaultValue: 50,
+    },
+  ],
+  [
+    "pid.regular.tn",
+    {
+      type: ParameterTypes.DOUBLE,
+      min: 0,
+      max: 999,
+      defaultValue: 2,
+    },
+  ],
+  [
+    "pid.regular.tv",
+    {
+      type: ParameterTypes.DOUBLE,
+      min: 0,
+      max: 999,
+      defaultValue: 0.1,
+    },
+  ],
+  [
+    "pid.regular.i_max",
+    {
+      type: ParameterTypes.DOUBLE,
+      min: 0,
+      max: 999,
+      defaultValue: 192,
+    },
+  ],
+  [
+    "pid.steam.kp",
+    {
+      type: ParameterTypes.DOUBLE,
+      min: 0,
+      max: 999,
+      defaultValue: 150,
+    },
+  ],
+
+  // Temperature Control
+  [
+    "TEMP",
+    {
+      type: ParameterTypes.DOUBLE,
+      min: -50,
+      max: 200,
+      defaultValue: 0,
+    },
+  ],
+  [
+    "brew.setpoint",
+    {
+      type: ParameterTypes.DOUBLE,
+      min: 20,
+      max: 110,
+      defaultValue: 95,
+    },
+  ],
+  [
+    "brew.temp_offset",
+    {
+      type: ParameterTypes.DOUBLE,
+      min: -25,
+      max: 25,
+      defaultValue: 0,
+    },
+  ],
+  [
+    "steam.setpoint",
+    {
+      type: ParameterTypes.DOUBLE,
+      min: 100,
+      max: 170,
+      defaultValue: 135,
+    },
+  ],
+
+  // Brew PID Parameters
+  [
+    "pid.bd.enabled",
+    {
+      type: ParameterTypes.UINT8,
+      min: 0,
+      max: 1,
+      defaultValue: 0,
+      requiredParameters: { "pid.enabled": 1 },
+    },
+  ],
+  [
+    "brew.pid_delay",
+    {
+      type: ParameterTypes.DOUBLE,
+      min: 0,
+      max: 999,
+      defaultValue: 10,
+      requiredParameters: { "pid.bd.enabled": 1 },
+    },
+  ],
+  [
+    "pid.bd.kp",
+    {
+      type: ParameterTypes.DOUBLE,
+      min: 0,
+      max: 999,
+      defaultValue: 0,
+      requiredParameters: { "pid.bd.enabled": 1 },
+    },
+  ],
+  [
+    "pid.bd.tn",
+    {
+      type: ParameterTypes.DOUBLE,
+      min: 0,
+      max: 999,
+      defaultValue: 0,
+      requiredParameters: { "pid.bd.enabled": 1 },
+    },
+  ],
+  [
+    "pid.bd.tv",
+    {
+      type: ParameterTypes.DOUBLE,
+      min: 0,
+      max: 999,
+      defaultValue: 0,
+      requiredParameters: { "pid.bd.enabled": 1 },
+    },
+  ],
+
+  // Brew Control
+  [
+    "brew.mode",
+    {
+      type: ParameterTypes.ENUM,
+      min: 0,
+      max: 1,
+      defaultValue: 0,
+      options: [
+        { value: 0, label: "Manual" },
+        { value: 1, label: "Automatic" },
+      ],
+    },
+  ],
+  [
+    "brew.by_time",
+    {
+      type: ParameterTypes.UINT8,
+      min: 0,
+      max: 1,
+      defaultValue: 0,
+    },
+  ],
+  [
+    "brew.target_time",
+    {
+      type: ParameterTypes.DOUBLE,
+      min: 0,
+      max: 999,
+      defaultValue: 25,
+      },
+    },
+  ],
+  [
+    "brew.by_weight",
+    {
+      type: ParameterTypes.UINT8,
+      min: 0,
+      max: 1,
+      defaultValue: 0,
+    },
+  ],
+  [
+    "brew.target_weight",
+    {
+      type: ParameterTypes.DOUBLE,
+      min: 0,
+      max: 999,
+      defaultValue: 30,
+      },
+    },
+  ],
+  [
+    "brew.pre_infusion.enabled",
+    {
+      type: ParameterTypes.UINT8,
+      min: 0,
+      max: 1,
+      defaultValue: 0,
+    },
+  ],
+  [
+    "brew.pre_infusion.time",
+    {
+      type: ParameterTypes.DOUBLE,
+      min: 0,
+      max: 999,
+      defaultValue: 2,
+      },
+    },
+  ],
+  [
+    "brew.pre_infusion.pause",
+    {
+      type: ParameterTypes.DOUBLE,
+      min: 0,
+      max: 999,
+      defaultValue: 5,
+      },
+    },
+  ],
+
+  // Scale Parameters
+  [
+    "hardware.sensors.scale.known_weight",
+    {
+      type: ParameterTypes.DOUBLE,
+      min: 0,
+      max: 1000,
+      defaultValue: 200,
+    },
+  ],
+  [
+    "hardware.sensors.scale.calibration",
+    {
+      type: ParameterTypes.DOUBLE,
+      min: -999999,
+      max: 999999,
+      defaultValue: 1,
+    },
+  ],
+  [
+    "hardware.sensors.scale.calibration2",
+    {
+      type: ParameterTypes.DOUBLE,
+      min: -999999,
+      max: 999999,
+      defaultValue: 1,
+    },
+  ],
+
+  // Display Parameters
+  [
+    "display.template",
+    {
+      type: ParameterTypes.ENUM,
+      min: 0,
+      max: 4,
+      defaultValue: 0,
+      options: [
+        { value: 0, label: "Standard" },
+        { value: 1, label: "Minimal" },
+        { value: 2, label: "Temp only" },
+        { value: 3, label: "Scale" },
+        { value: 4, label: "Upright" },
+      ],
+    },
+  ],
+  [
+    "display.inverted",
+    {
+      type: ParameterTypes.UINT8,
+      min: 0,
+      max: 1,
+      defaultValue: 0,
+    },
+  ],
+  [
+    "display.language",
+    {
+      type: ParameterTypes.ENUM,
+      min: 0,
+      max: 2,
+      defaultValue: 0,
+      options: [
+        { value: 0, label: "Deutsch" },
+        { value: 1, label: "English" },
+        { value: 2, label: "Español" },
+      ],
+    },
+  ],
+  [
+    "display.fullscreen_brew_timer",
+    {
+      type: ParameterTypes.UINT8,
+      min: 0,
+      max: 1,
+      defaultValue: 0,
+    },
+  ],
+  [
+    "display.fullscreen_manual_flush_timer",
+    {
+      type: ParameterTypes.UINT8,
+      min: 0,
+      max: 1,
+      defaultValue: 0,
+    },
+  ],
+  [
+    "display.fullscreen_hot_water_timer",
+    {
+      type: ParameterTypes.UINT8,
+      min: 0,
+      max: 1,
+      defaultValue: 0,
+    },
+  ],
+  [
+    "display.post_brew_timer_duration",
+    {
+      type: ParameterTypes.UINT8,
+      min: 0,
+      max: 255,
+      defaultValue: 5,
+    },
+  ],
+  [
+    "display.heating_logo",
+    {
+      type: ParameterTypes.UINT8,
+      min: 0,
+      max: 1,
+      defaultValue: 1,
+    },
+  ],
+  [
+    "display.pid_off_logo",
+    {
+      type: ParameterTypes.UINT8,
+      min: 0,
+      max: 1,
+      defaultValue: 1,
+    },
+  ],
+
+  // System Parameters
+  [
+    "VERSION",
+    {
+      type: ParameterTypes.STRING,
+      min: 0,
+      max: 100,
+      defaultValue: "unknown",
+    },
+  ],
+  [
+    "STEAM_MODE",
+    {
+      type: ParameterTypes.UINT8,
+      min: 0,
+      max: 1,
+      defaultValue: 0,
+    },
+  ],
+  [
+    "BACKFLUSH_ON",
+    {
+      type: ParameterTypes.UINT8,
+      min: 0,
+      max: 1,
+      defaultValue: 0,
+    },
+  ],
+  [
+    "TARE_ON",
+    {
+      type: ParameterTypes.UINT8,
+      min: 0,
+      max: 1,
+      defaultValue: 0,
+    },
+  ],
+  [
+    "CALIBRATION_ON",
+    {
+      type: ParameterTypes.UINT8,
+      min: 0,
+      max: 1,
+      defaultValue: 0,
+    },
+  ],
+]);
+
+/**
+ * Get parameter metadata by name
+ */
+export function getParameterMetadata(
+  name: string
+): ParameterMetadata | undefined {
+  return parameterMetadata.get(name);
+}
+
+/**
+ * Check if a parameter exists in metadata
+ */
+export function hasParameterMetadata(name: string): boolean {
+  return parameterMetadata.has(name);
+}
+
+/**
+ * Merge server parameter with metadata to create complete UI parameter
+ */
+export function mergeParameterWithMetadata(
+  serverParam: ServerParameter
+): Parameter {
+  const metadata = parameterMetadata.get(serverParam.name);
+  if (!metadata) {
+    // Return server parameter as-is if no metadata found
+    return serverParam;
+  }
+
+  return {
+    ...serverParam,
+    conditions: metadata.conditions,
+  };
+}
+
+/**
+ * Merge array of server parameters with metadata
+ */
+export function mergeParametersWithMetadata(
+  serverParameters: ServerParameter[]
+): Parameter[] {
+  return serverParameters.map(mergeParameterWithMetadata);
+}
+
+/**
+ * Get all parameter names that have metadata
+ */
+export function getAllParameterNames(): string[] {
+  return Array.from(parameterMetadata.keys());
+}
+
+/**
+ * Create a parameter with default values from metadata
+ */
+export function createParameterWithDefaults(
+  name: string
+): Parameter | undefined {
+  const metadata = parameterMetadata.get(name);
+  if (!metadata) {
+    return undefined;
+  }
+
+  return {
+    type: metadata.type,
+    name,
+    value: metadata.defaultValue,
+    min: metadata.min,
+    max: metadata.max,
+    options: metadata.options,
+    conditions: metadata.conditions,
+  };
+}
+
+/**
+ * Ensure all metadata parameters exist in server parameters list
+ * This fills in missing parameters with default values
+ */
+export function ensureCompleteParameters(
+  serverParameters: ServerParameter[]
+): Parameter[] {
+  const serverParamMap = new Map(serverParameters.map((p) => [p.name, p]));
+  const result: Parameter[] = [];
+
+  // Add all server parameters first
+  for (const serverParam of serverParameters) {
+    result.push(mergeParameterWithMetadata(serverParam));
+  }
+
+  // Add missing parameters with defaults
+  for (const [name] of parameterMetadata) {
+    if (!serverParamMap.has(name)) {
+      const defaultParam = createParameterWithDefaults(name);
+      if (defaultParam) {
+        result.push(defaultParam);
+      }
+    }
+  }
+
+  return result;
+}

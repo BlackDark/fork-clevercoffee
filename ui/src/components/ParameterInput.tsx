@@ -6,13 +6,16 @@ import {
   getNumberStep,
   validateParameterValue,
 } from "../lib/parameter-utils";
+import { getParameterLabel } from "../lib/parameter-labels";
+import { parameterHelpTexts } from "../lib/parameter-help-texts";
 
 interface ParameterInputProps {
   parameter: Parameter;
-  value: any;
-  onChange: (value: any) => void;
+  value: string | number | boolean;
+  onChange: (value: string | number | boolean) => void;
   onHelpClick?: (parameterName: string) => void;
   disabled?: boolean;
+  disabledHint?: string;
 }
 
 export function ParameterInput({
@@ -21,6 +24,7 @@ export function ParameterInput({
   onChange,
   onHelpClick,
   disabled = false,
+  disabledHint,
 }: ParameterInputProps) {
   const isValid = validateParameterValue(parameter, value);
   const inputType = getInputType(parameter);
@@ -28,20 +32,20 @@ export function ParameterInput({
   const handleChange = (
     event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
   ) => {
-    let newValue: any = event.target.value;
+    let newValue: string | number | boolean = event.target.value;
 
     // Convert to appropriate type
     switch (parameter.type) {
       case 0: // integer
       case 1: // uint8
-        newValue = parseInt(newValue, 10);
+        newValue = parseInt(newValue as string, 10);
         break;
       case 2: // double
       case 3: // float
-        newValue = parseFloat(newValue);
+        newValue = parseFloat(newValue as string);
         break;
       case 5: // enum
-        newValue = parseInt(newValue, 10);
+        newValue = parseInt(newValue as string, 10);
         break;
       // string (type 4) stays as string
     }
@@ -59,8 +63,8 @@ export function ParameterInput({
         className="form-label d-flex align-items-center gap-2"
         htmlFor={`param-${parameter.name}`}
       >
-        {parameter.displayName}
-        {parameter.hasHelpText && onHelpClick && (
+        {getParameterLabel(parameter.name)}
+        {parameterHelpTexts[parameter.name] && onHelpClick && (
           <button
             type="button"
             className="btn btn-link p-0 text-info"
@@ -71,6 +75,14 @@ export function ParameterInput({
           </button>
         )}
       </label>
+
+      {/* Show disabled hint if parameter is disabled */}
+      {disabled && disabledHint && (
+        <div className="alert alert-warning alert-sm mb-2">
+          <i className="fas fa-exclamation-triangle me-2"></i>
+          {disabledHint}
+        </div>
+      )}
 
       {isBoolean(parameter) ? (
         // Boolean parameter (checkbox)
@@ -90,7 +102,7 @@ export function ParameterInput({
           <select
             className={`form-select ${!isValid ? "is-invalid" : ""}`}
             id={`param-${parameter.name}`}
-            value={value}
+            value={String(value)}
             onChange={handleChange}
             disabled={disabled}
           >
@@ -113,7 +125,7 @@ export function ParameterInput({
             type={inputType}
             className={`form-control ${!isValid ? "is-invalid" : ""}`}
             id={`param-${parameter.name}`}
-            value={value}
+            value={String(value)}
             onChange={handleChange}
             maxLength={parameter.max > 0 ? parameter.max : undefined}
             disabled={disabled}
@@ -133,7 +145,7 @@ export function ParameterInput({
             type={inputType}
             className={`form-control ${!isValid ? "is-invalid" : ""}`}
             id={`param-${parameter.name}`}
-            value={value}
+            value={String(value)}
             onChange={handleChange}
             min={parameter.min}
             max={parameter.max}

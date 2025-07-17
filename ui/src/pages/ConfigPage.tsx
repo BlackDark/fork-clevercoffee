@@ -31,8 +31,11 @@ import { useCleverCoffee } from "@/hooks/use-clever-coffee";
 import parameterLabels from "@/lib/parameter-labels";
 import { parameterGroups } from "@/lib/parameter-groups";
 import { parameterHelpTexts } from "@/lib/parameter-help-texts";
-import { mergeParametersWithDefaults } from "@/lib/parameter-definitions";
-import { shouldShowParameter } from "@/lib/parameter-utils";
+import { ensureCompleteParameters } from "@/lib/parameter-metadata";
+import {
+  areRequiredParametersMet,
+  getMissingRequiredParametersMessage,
+} from "@/lib/parameter-utils";
 import {
   Popover,
   PopoverTrigger,
@@ -51,11 +54,6 @@ const convertParameterType = (oldParam: OldParameter): NewParameter => {
   return {
     type: oldParam.type,
     name: oldParam.name,
-    displayName: oldParam.name, // Use name as displayName if not provided
-    section: oldParam.section || 0,
-    position: oldParam.position || 0,
-    hasHelpText: false,
-    show: true,
     value: oldParam.value as string | number | boolean,
     min: oldParam.min || 0,
     max: oldParam.max || 100,
@@ -119,7 +117,7 @@ export function ConfigPage() {
   // Merge server parameters with complete definitions to ensure ALL parameters are available
   const completeParameters = useMemo(() => {
     const convertedParameters = parameters.map(convertParameterType);
-    const merged = mergeParametersWithDefaults(convertedParameters);
+    const merged = ensureCompleteParameters(convertedParameters);
     // Apply local changes with proper typing
     return merged.map(
       (param): NewParameter => ({
@@ -133,9 +131,7 @@ export function ConfigPage() {
 
   // Enhanced parameter visibility logic using complete parameters
   const visibleParameters = useMemo(() => {
-    return completeParameters.filter((param) =>
-      shouldShowParameter(param, completeParameters)
-    );
+    return completeParameters; // Show all parameters, but disable those without met requirements
   }, [completeParameters]);
 
   // Custom update function that handles both server and local parameters
@@ -344,9 +340,19 @@ export function ConfigPage() {
                 <CardContent>
                   <h2 className="text-xl font-bold mb-4">{sectionName}</h2>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 auto-rows-fr">
-                    {sectionParams
-                      .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
-                      .map((param) => (
+                    {sectionParams.map((param) => {
+                      const isDisabled = !areRequiredParametersMet(
+                        param,
+                        visibleParameters
+                      );
+                      const disabledHint = isDisabled
+                        ? getMissingRequiredParametersMessage(
+                            param,
+                            visibleParameters
+                          )
+                        : undefined;
+
+                      return (
                         <div
                           key={param.name}
                           className="flex flex-col space-y-3 p-4 rounded-lg border bg-card hover:bg-accent/50 transition-colors duration-200 min-h-[120px]"
@@ -382,63 +388,161 @@ export function ConfigPage() {
                           </div>
 
                           {isParameterBoolean(param) ? (
-                            <div className="flex items-center space-x-2">
-                              <Switch
-                                id={param.name}
-                                checked={!!param.value}
-                                onCheckedChange={(checked) =>
+                            isDisabled ? (
+                              <Popover>
+                                <PopoverTrigger asChild>
+                                  <div className="flex items-center justify-center py-4 cursor-help">
+                                    <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 rounded-md border border-blue-200 dark:border-blue-800">
+                                      <HelpCircle className="h-4 w-4" />
+                                      <span className="text-sm font-medium">
+                                        Disabled
+                                      </span>
+                                    </div>
+                                  </div>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-64 text-xs">
+                                  <div className="space-y-2">
+                                    <div className="font-medium">
+                                      Parameter Disabled
+                                    </div>
+                                    <div className="text-muted-foreground">
+                                      {disabledHint}
+                                    </div>
+                                  </div>
+                                </PopoverContent>
+                              </Popover>
+                            ) : (
+                              <div className="flex items-center space-x-2">
+                                <Switch
+                                  id={param.name}
+                                  checked={!!param.value}
+                                  onCheckedChange={(checked) =>
+                                    updateCompleteParameterValue(
+                                      param.name,
+                                      checked ? 1 : 0
+                                    )
+                                  }
+                                />
+                                <span>{param.value ? "On" : "Off"}</span>
+                              </div>
+                            )
+                          ) : param.type === ParameterTypes.ENUM ? (
+                            isDisabled ? (
+                              <Popover>
+                                <PopoverTrigger asChild>
+                                  <div className="flex items-center justify-center py-4 cursor-help">
+                                    <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 rounded-md border border-blue-200 dark:border-blue-800">
+                                      <HelpCircle className="h-4 w-4" />
+                                      <span className="text-sm font-medium">
+                                        Disabled
+                                      </span>
+                                    </div>
+                                  </div>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-64 text-xs">
+                                  <div className="space-y-2">
+                                    <div className="font-medium">
+                                      Parameter Disabled
+                                    </div>
+                                    <div className="text-muted-foreground">
+                                      {disabledHint}
+                                    </div>
+                                  </div>
+                                </PopoverContent>
+                              </Popover>
+                            ) : (
+                              <Select
+                                value={String(param.value)}
+                                onValueChange={(value) =>
                                   updateCompleteParameterValue(
                                     param.name,
-                                    checked ? 1 : 0
+                                    Number(value)
                                   )
                                 }
-                              />
-                              <span>{param.value ? "On" : "Off"}</span>
-                            </div>
-                          ) : param.type === ParameterTypes.ENUM ? (
-                            <Select
-                              value={String(param.value)}
-                              onValueChange={(value) =>
-                                updateCompleteParameterValue(
-                                  param.name,
-                                  Number(value)
-                                )
-                              }
-                            >
-                              <SelectTrigger>
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {param.options?.map((option) => (
-                                  <SelectItem
-                                    key={option.value}
-                                    value={String(option.value)}
-                                  >
-                                    {option.label}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
+                              >
+                                <SelectTrigger>
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {param.options?.map((option) => (
+                                    <SelectItem
+                                      key={option.value}
+                                      value={String(option.value)}
+                                    >
+                                      {option.label}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            )
                           ) : param.type === ParameterTypes.STRING ? (
-                            <Input
-                              id={param.name}
-                              type={
-                                param.name.toLowerCase().includes("password")
-                                  ? "password"
-                                  : "text"
-                              }
-                              value={String(param.value || "")}
-                              onChange={(e) =>
-                                updateCompleteParameterValue(
-                                  param.name,
-                                  e.target.value
-                                )
-                              }
-                              maxLength={
-                                param.max && param.max > 0 ? param.max : 64
-                              }
-                              placeholder={`Enter ${param.name}`}
-                            />
+                            isDisabled ? (
+                              <Popover>
+                                <PopoverTrigger asChild>
+                                  <div className="flex items-center justify-center py-4 cursor-help">
+                                    <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 rounded-md border border-blue-200 dark:border-blue-800">
+                                      <HelpCircle className="h-4 w-4" />
+                                      <span className="text-sm font-medium">
+                                        Disabled
+                                      </span>
+                                    </div>
+                                  </div>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-64 text-xs">
+                                  <div className="space-y-2">
+                                    <div className="font-medium">
+                                      Parameter Disabled
+                                    </div>
+                                    <div className="text-muted-foreground">
+                                      {disabledHint}
+                                    </div>
+                                  </div>
+                                </PopoverContent>
+                              </Popover>
+                            ) : (
+                              <Input
+                                id={param.name}
+                                type={
+                                  param.name.toLowerCase().includes("password")
+                                    ? "password"
+                                    : "text"
+                                }
+                                value={String(param.value || "")}
+                                onChange={(e) =>
+                                  updateCompleteParameterValue(
+                                    param.name,
+                                    e.target.value
+                                  )
+                                }
+                                maxLength={
+                                  param.max && param.max > 0 ? param.max : 64
+                                }
+                                placeholder={`Enter ${param.name}`}
+                              />
+                            )
+                          ) : isDisabled ? (
+                            <Popover>
+                              <PopoverTrigger asChild>
+                                <div className="flex items-center justify-center py-4 cursor-help">
+                                  <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 rounded-md border border-blue-200 dark:border-blue-800">
+                                    <HelpCircle className="h-4 w-4" />
+                                    <span className="text-sm font-medium">
+                                      Disabled
+                                    </span>
+                                  </div>
+                                </div>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-64 text-xs">
+                                <div className="space-y-2">
+                                  <div className="font-medium">
+                                    Parameter Disabled
+                                  </div>
+                                  <div className="text-muted-foreground">
+                                    {disabledHint}
+                                  </div>
+                                </div>
+                              </PopoverContent>
+                            </Popover>
                           ) : (
                             <Input
                               id={param.name}
@@ -465,7 +569,8 @@ export function ConfigPage() {
                             />
                           )}
                         </div>
-                      ))}
+                      );
+                    })}
                   </div>
                 </CardContent>
               </Card>

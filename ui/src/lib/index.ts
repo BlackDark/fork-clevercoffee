@@ -1,23 +1,30 @@
 // Main exports for parameter management
 // This provides a single entry point for all parameter-related functionality
 
-// Core types and constants
+// === Core Parameter System ===
+// Types and constants
 export * from "./parameter-types";
 
-// Parameter definitions
-export * from "./parameter-definitions";
+// Parameter metadata and data
+export * from "./parameter-metadata";
 
-// Utility functions
+// Utility functions for parameter processing
 export * from "./parameter-utils";
 
-// UI-specific utilities
+// === Supporting Data ===
+// Help texts and grouping
 export * from "./parameter-help-texts";
 export * from "./parameter-groups";
+
+// Labels for internationalization
+export * from "./parameter-labels";
+
+// === UI Utilities ===
+// General utilities
 export { cn } from "./utils";
+
+// Button styling variants
 export { buttonVariants } from "./button-variants";
 
-// API utilities
+// === API Configuration ===
 export * from "./api-config";
-
-// Backward compatibility (deprecated)
-export * from "./parameter-conditions";

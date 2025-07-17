@@ -3,16 +3,15 @@ import { parameterGroups } from "@/lib/parameter-groups";
 
 // Import the complete parameter definitions
 import {
-  parameterDefinitions as allParameters,
-  mergeParametersWithDefaults,
-} from "@/lib/parameter-definitions";
+  ensureCompleteParameters,
+  createParameterWithDefaults,
+} from "@/lib/parameter-metadata";
 import type { Parameter as CompleteParameter } from "@/lib/parameter-types";
-import { shouldShowParameter } from "@/lib/parameter-utils";
 
 interface UseEnhancedParametersReturn {
   parameters: CompleteParameter[];
   visibleParameters: CompleteParameter[];
-  parametersBySection: Record<number, CompleteParameter[]>;
+  parametersBySection: Record<string, CompleteParameter[]>;
   groupedParameters: Record<string, CompleteParameter[]>;
   loading: boolean;
   error: string | null;
@@ -37,27 +36,26 @@ export function useEnhancedParameters(
 
   // Merge server parameters with complete definitions
   const parameters = useMemo(() => {
-    return mergeParametersWithDefaults(serverParameters);
+    return ensureCompleteParameters(serverParameters);
   }, [serverParameters]);
 
-  // Filter visible parameters based on conditions
+  // All parameters are visible - we handle disabled state through requiredParameters
   const visibleParameters = useMemo(() => {
-    return parameters.filter((param: CompleteParameter) =>
-      shouldShowParameter(param, parameters)
-    );
+    return parameters;
   }, [parameters]);
 
-  // Group parameters by section
+  // Group parameters by prefix instead of section
   const parametersBySection = useMemo(() => {
     return visibleParameters.reduce(
       (acc: Record<string, CompleteParameter[]>, param: CompleteParameter) => {
-        if (!acc[param.section]) {
-          acc[param.section] = [];
+        const prefix = param.name.split(".")[0];
+        if (!acc[prefix]) {
+          acc[prefix] = [];
         }
-        acc[param.section].push(param);
+        acc[prefix].push(param);
         return acc;
       },
-      {} as Record<number, CompleteParameter[]>
+      {} as Record<string, CompleteParameter[]>
     );
   }, [visibleParameters]);
 
@@ -136,9 +134,8 @@ export function useEnhancedParameters(
 
       const data = await response.json();
       setServerParameters(
-        data.sort(
-          (a: CompleteParameter, b: CompleteParameter) =>
-            a.position - b.position
+        data.sort((a: CompleteParameter, b: CompleteParameter) =>
+          a.name.localeCompare(b.name)
         )
       );
     } catch (err) {
@@ -167,7 +164,7 @@ export function useEnhancedParameters(
           return updated;
         } else {
           // Add new parameter (for parameters not sent by server initially)
-          const completeParam = allParameters.find((p) => p.name === name);
+          const completeParam = createParameterWithDefaults(name);
           if (completeParam) {
             return [...prev, { ...completeParam, value }];
           }
