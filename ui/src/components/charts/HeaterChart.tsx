@@ -1,6 +1,7 @@
-import { useEffect, useRef, useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
+import { useDarkMode, getChartTheme } from "@/hooks/use-dark-mode";
 
 interface HeaterChartProps {
   data: number[][];
@@ -24,6 +25,10 @@ export function HeaterChart({
   const chartRef = useRef<HTMLDivElement>(null);
   const plotRef = useRef<uPlot | null>(null);
   const [chartSize, setChartSize] = useState({ width: 800, height });
+  const isDark = useDarkMode();
+
+  // Memoize theme to prevent unnecessary chart recreations
+  const theme = useMemo(() => getChartTheme(isDark), [isDark]);
 
   // Update chart size based on container width
   useEffect(() => {
@@ -50,15 +55,9 @@ export function HeaterChart({
     };
   }, [width, height]);
 
-  const createChart = useCallback(() => {
-    if (!chartRef.current || data.length === 0) return;
-
-    // Destroy existing plot
-    if (plotRef.current) {
-      plotRef.current.destroy();
-    }
-
-    const opts: uPlot.Options = {
+  // Create chart configuration
+  const createChartConfig = useCallback(() => {
+    return {
       title,
       width: chartSize.width,
       height: chartSize.height,
@@ -67,9 +66,9 @@ export function HeaterChart({
         {
           label: "Heater Power",
           scale: "%",
-          value: (_u, v) => (v == null ? "" : (v as number).toFixed(0) + "%"),
-          stroke: "#778899",
-          fill: "#77889910",
+          value: (_u: uPlot, v: number) => (v == null ? "" : v.toFixed(0) + "%"),
+          stroke: theme.series.heater.power,
+          fill: theme.series.heater.power + "20",
           width: 2,
           show: true,
           points: { show: false },
@@ -77,54 +76,62 @@ export function HeaterChart({
       ],
       axes: [
         {
-          values: (_u, vals) =>
+          values: (_u: uPlot, vals: number[]) =>
             vals.map((v) =>
               new Date(v * 1000).toLocaleString("de-DE", tzdateOptions)
             ),
+          stroke: theme.axisColor,
+          grid: { stroke: theme.gridColor },
         },
         {
           side: 3,
           scale: "%",
-          values: (_u, vals) =>
-            vals.map((v) => +(v as number).toFixed(0) + "%"),
+          values: (_u: uPlot, vals: number[]) =>
+            vals.map((v) => v.toFixed(0) + "%"),
+          stroke: theme.axisColor,
+          grid: { stroke: theme.gridColor },
         },
       ],
       scales: {
         "%": {
           auto: false,
-          range: [0, 105],
+          range: [0, 105] as [number, number],
+        },
+        x: {
+          auto: true,
         },
       },
     };
+  }, [chartSize, title, theme]);
 
-    plotRef.current = new uPlot(
-      opts,
-      data as uPlot.AlignedData,
-      chartRef.current
-    );
-  }, [data, chartSize.width, chartSize.height, title]);
-
-  const updateChart = useCallback((newData: number[][]) => {
-    if (plotRef.current && newData.length > 0) {
-      plotRef.current.setData(newData as uPlot.AlignedData);
-    }
-  }, []);
-
+  // Main effect that handles chart creation and updates
   useEffect(() => {
-    createChart();
+    if (!chartRef.current || !data || data.length === 0 || !data[0] || data[0].length === 0) {
+      return;
+    }
 
+    // Clean up existing chart
+    if (plotRef.current) {
+      plotRef.current.destroy();
+      plotRef.current = null;
+    }
+
+    try {
+      // Create new chart
+      const config = createChartConfig();
+      plotRef.current = new uPlot(config, data as uPlot.AlignedData, chartRef.current);
+    } catch (error) {
+      console.error("Error creating heater chart:", error);
+    }
+
+    // Cleanup function
     return () => {
       if (plotRef.current) {
         plotRef.current.destroy();
+        plotRef.current = null;
       }
     };
-  }, [createChart]);
-
-  useEffect(() => {
-    if (plotRef.current && data.length > 0) {
-      updateChart(data);
-    }
-  }, [data, updateChart]);
+  }, [data, createChartConfig]);
 
   // Update chart size when chartSize changes
   useEffect(() => {

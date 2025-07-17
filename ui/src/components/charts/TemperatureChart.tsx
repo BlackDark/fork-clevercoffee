@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
+import { useDarkMode, getChartTheme } from "@/hooks/use-dark-mode";
 
 interface TemperatureChartProps {
   data: number[][];
@@ -24,6 +25,10 @@ export function TemperatureChart({
   const chartRef = useRef<HTMLDivElement>(null);
   const plotRef = useRef<uPlot | null>(null);
   const [chartSize, setChartSize] = useState({ width: 800, height });
+  const isDark = useDarkMode();
+
+  // Memoize theme to prevent unnecessary chart recreations
+  const theme = useMemo(() => getChartTheme(isDark), [isDark]);
 
   // Update chart size based on container width
   useEffect(() => {
@@ -50,31 +55,23 @@ export function TemperatureChart({
     };
   }, [width, height]);
 
-  const createChart = useCallback(() => {
-    if (!chartRef.current || !data || data.length === 0) return;
-
-    // Clean up existing plot
-    if (plotRef.current) {
-      plotRef.current.destroy();
-    }
-
-    const opts: uPlot.Options = {
+  // Create chart configuration
+  const createChartConfig = useCallback(() => {
+    return {
       title,
       width: chartSize.width,
       height: chartSize.height,
       tzDate: (ts: number) => new Date(ts * 1000),
       series: [
-        {
-          value: "{YYYY}-{MM}-{DD} {HH}:{mm}:{ss}",
-        },
+        {},
         {
           label: "Current Temperature",
           scale: "°C",
           value: (_u: uPlot, v: number) =>
             v == null ? "" : v.toFixed(1) + " °C",
           show: true,
-          stroke: "#008080",
-          fill: "#00808010",
+          stroke: theme.series.temperature.current,
+          fill: theme.series.temperature.current + "20",
           width: 2,
           points: { show: false },
         },
@@ -83,8 +80,8 @@ export function TemperatureChart({
           scale: "°C",
           value: (_u: uPlot, v: number) =>
             v == null ? "" : v.toFixed(1) + " °C",
-          stroke: "#9932CC",
-          fill: "#9932CC10",
+          stroke: theme.series.temperature.target,
+          fill: theme.series.temperature.target + "20",
           width: 2,
           show: true,
           points: { show: false },
@@ -96,68 +93,55 @@ export function TemperatureChart({
             vals.map((v) =>
               new Date(v * 1000).toLocaleString("de-DE", tzdateOptions)
             ),
+          stroke: theme.axisColor,
+          grid: { stroke: theme.gridColor },
         },
         {
           scale: "°C",
           values: (_u: uPlot, vals: number[]) => vals.map((v) => v + "°C"),
+          stroke: theme.axisColor,
+          grid: { stroke: theme.gridColor },
         },
       ],
       scales: {
         "°C": {
           auto: true,
         },
+        x: {
+          auto: true,
+        },
       },
     };
+  }, [chartSize, title, theme]);
 
-    plotRef.current = new uPlot(
-      opts,
-      data as uPlot.AlignedData,
-      chartRef.current
-    );
-  }, [data, chartSize.width, chartSize.height, title]);
-
-  const updateChart = useCallback((newData: number[][]) => {
-    if (plotRef.current && newData.length > 0) {
-      // Check if chart is zoomed
-      const isZoomed =
-        plotRef.current.scales.x.min != plotRef.current.data[0][0] ||
-        plotRef.current.scales.x.max !=
-          plotRef.current.data[0][plotRef.current.data[0].length - 1];
-
-      if (isZoomed) {
-        const xScaleMinMax = [
-          plotRef.current.scales.x.min!,
-          plotRef.current.scales.x.max!,
-        ];
-        // Add data but don't autoscale
-        plotRef.current.setData(newData as uPlot.AlignedData, false);
-        // Move the zoomed area one value to the right so the window stays the same
-        plotRef.current.setScale("x", {
-          min: xScaleMinMax[0] + 1,
-          max: xScaleMinMax[1] + 1,
-        });
-      } else {
-        // Add data and autoscale (including new data)
-        plotRef.current.setData(newData as uPlot.AlignedData);
-      }
-    }
-  }, []);
-
+  // Main effect that handles chart creation and updates
   useEffect(() => {
-    createChart();
+    if (!chartRef.current || !data || data.length === 0 || !data[0] || data[0].length === 0) {
+      return;
+    }
 
+    // Clean up existing chart
+    if (plotRef.current) {
+      plotRef.current.destroy();
+      plotRef.current = null;
+    }
+
+    try {
+      // Create new chart
+      const config = createChartConfig();
+      plotRef.current = new uPlot(config, data as uPlot.AlignedData, chartRef.current);
+    } catch (error) {
+      console.error("Error creating temperature chart:", error);
+    }
+
+    // Cleanup function
     return () => {
       if (plotRef.current) {
         plotRef.current.destroy();
+        plotRef.current = null;
       }
     };
-  }, [createChart]);
-
-  useEffect(() => {
-    if (plotRef.current && data.length > 0) {
-      updateChart(data);
-    }
-  }, [data, updateChart]);
+  }, [data, createChartConfig]);
 
   // Update chart size when chartSize changes
   useEffect(() => {
