@@ -11,14 +11,6 @@ import {
 import { parameterHelpTexts } from "./parameter-help-texts";
 import { parameterGroups } from "./parameter-groups";
 
-// Re-export types for convenience
-export type {
-  Parameter,
-  ParameterCondition,
-  ParameterType,
-  ParameterOption,
-} from "./parameter-types";
-
 /**
  * Evaluates whether a parameter should be shown based on its conditions
  * and the current values of other parameters
@@ -235,22 +227,4 @@ export function getParametersForGroup(
   return group.parameters
     .map((name) => paramMap.get(name))
     .filter((param): param is Parameter => param !== undefined);
-}
-
-/**
- * Determines if parameter is boolean (checkbox) - legacy alias
- */
-export function isBoolean(param: Parameter): boolean {
-  return isParameterBoolean(param);
-}
-
-/**
- * Gets the step value for number inputs
- */
-export function getNumberStep(param: Parameter): string {
-  if (param.type === 1 || param.type === 0) {
-    // UINT8 or INTEGER
-    return "1";
-  }
-  return "0.1"; // For DOUBLE and FLOAT
 }

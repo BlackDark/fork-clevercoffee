@@ -3,11 +3,11 @@ import { parameterGroups } from "@/lib/parameter-groups";
 
 // Import the complete parameter definitions
 import {
-  allParameters,
-  CompleteParameter,
-  shouldShowParameter,
-  mergeWithServerParameters,
-} from "@/lib/all-parameters";
+  parameterDefinitions as allParameters,
+  mergeParametersWithDefaults,
+} from "@/lib/parameter-definitions";
+import type { Parameter as CompleteParameter } from "@/lib/parameter-types";
+import { shouldShowParameter } from "@/lib/parameter-utils";
 
 interface UseEnhancedParametersReturn {
   parameters: CompleteParameter[];
@@ -16,7 +16,7 @@ interface UseEnhancedParametersReturn {
   groupedParameters: Record<string, CompleteParameter[]>;
   loading: boolean;
   error: string | null;
-  updateParameter: (name: string, value: any) => void;
+  updateParameter: (name: string, value: string | number | boolean) => void;
   saveParameters: () => Promise<boolean>;
   refreshParameters: () => Promise<void>;
   getParameter: (name: string) => CompleteParameter | undefined;
@@ -27,7 +27,9 @@ interface UseEnhancedParametersReturn {
 export function useEnhancedParameters(
   filter?: string
 ): UseEnhancedParametersReturn {
-  const [serverParameters, setServerParameters] = useState<any[]>([]);
+  const [serverParameters, setServerParameters] = useState<CompleteParameter[]>(
+    []
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isPostingForm, setIsPostingForm] = useState(false);
@@ -35,53 +37,61 @@ export function useEnhancedParameters(
 
   // Merge server parameters with complete definitions
   const parameters = useMemo(() => {
-    return mergeWithServerParameters(serverParameters, allParameters);
+    return mergeParametersWithDefaults(serverParameters);
   }, [serverParameters]);
 
   // Filter visible parameters based on conditions
   const visibleParameters = useMemo(() => {
-    return parameters.filter((param) => shouldShowParameter(param, parameters));
+    return parameters.filter((param: CompleteParameter) =>
+      shouldShowParameter(param, parameters)
+    );
   }, [parameters]);
 
   // Group parameters by section
   const parametersBySection = useMemo(() => {
-    return visibleParameters.reduce((acc, param) => {
-      if (!acc[param.section]) {
-        acc[param.section] = [];
-      }
-      acc[param.section].push(param);
-      return acc;
-    }, {} as Record<number, CompleteParameter[]>);
+    return visibleParameters.reduce(
+      (acc: Record<string, CompleteParameter[]>, param: CompleteParameter) => {
+        if (!acc[param.section]) {
+          acc[param.section] = [];
+        }
+        acc[param.section].push(param);
+        return acc;
+      },
+      {} as Record<number, CompleteParameter[]>
+    );
   }, [visibleParameters]);
 
   // Map parameter group keys to categories
-  const groupCategoryMap: Record<string, string> = {
-    pidParameters: "behavior",
-    temperatureControl: "behavior",
-    brewPidSection: "behavior",
-    brewControl: "behavior",
-    scaleParameters: "behavior",
-    displaySettings: "behavior",
-    maintenance: "behavior",
-    powerSettings: "behavior",
-    mqttSettings: "system",
-    systemSettings: "system",
-    systemAuth: "system",
-    runtimeControls: "system",
-    oledDisplay: "hardware",
-    relays: "hardware",
-    switchesBrew: "hardware",
-    switchesSteam: "hardware",
-    switchesPower: "hardware",
-    switchesHotWater: "hardware",
-    ledsStatus: "hardware",
-    ledsBrew: "hardware",
-    ledsSteam: "hardware",
-    sensorTemperature: "hardware",
-    sensorPressure: "hardware",
-    sensorWatertank: "hardware",
-    sensorScale: "hardware",
-  };
+  const groupCategoryMap = useMemo(
+    (): Record<string, string> => ({
+      pidParameters: "behavior",
+      temperatureControl: "behavior",
+      brewPidSection: "behavior",
+      brewControl: "behavior",
+      scaleParameters: "behavior",
+      displaySettings: "behavior",
+      maintenance: "behavior",
+      powerSettings: "behavior",
+      mqttSettings: "system",
+      systemSettings: "system",
+      systemAuth: "system",
+      runtimeControls: "system",
+      oledDisplay: "hardware",
+      relays: "hardware",
+      switchesBrew: "hardware",
+      switchesSteam: "hardware",
+      switchesPower: "hardware",
+      switchesHotWater: "hardware",
+      ledsStatus: "hardware",
+      ledsBrew: "hardware",
+      ledsSteam: "hardware",
+      sensorTemperature: "hardware",
+      sensorPressure: "hardware",
+      sensorWatertank: "hardware",
+      sensorScale: "hardware",
+    }),
+    []
+  );
 
   // Group parameters for display
   const groupedParameters = useMemo(() => {
@@ -91,7 +101,7 @@ export function useEnhancedParameters(
     );
 
     const paramMap = Object.fromEntries(
-      visibleParameters.map((p) => [p.name, p])
+      visibleParameters.map((p: CompleteParameter) => [p.name, p])
     );
 
     const result: Record<string, CompleteParameter[]> = {};
@@ -106,7 +116,7 @@ export function useEnhancedParameters(
     });
 
     return result;
-  }, [visibleParameters, filter]);
+  }, [visibleParameters, filter, groupCategoryMap]);
 
   // Fetch parameters from server
   const fetchParameters = useCallback(async () => {
@@ -126,7 +136,10 @@ export function useEnhancedParameters(
 
       const data = await response.json();
       setServerParameters(
-        data.sort((a: any, b: any) => a.position - b.position)
+        data.sort(
+          (a: CompleteParameter, b: CompleteParameter) =>
+            a.position - b.position
+        )
       );
     } catch (err) {
       setError(
@@ -143,24 +156,27 @@ export function useEnhancedParameters(
   }, [fetchParameters]);
 
   // Update a parameter value locally
-  const updateParameter = useCallback((name: string, value: any) => {
-    setServerParameters((prev) => {
-      const existingIndex = prev.findIndex((p) => p.name === name);
-      if (existingIndex >= 0) {
-        // Update existing parameter
-        const updated = [...prev];
-        updated[existingIndex] = { ...updated[existingIndex], value };
-        return updated;
-      } else {
-        // Add new parameter (for parameters not sent by server initially)
-        const completeParam = allParameters.find((p) => p.name === name);
-        if (completeParam) {
-          return [...prev, { ...completeParam, value }];
+  const updateParameter = useCallback(
+    (name: string, value: string | number | boolean) => {
+      setServerParameters((prev) => {
+        const existingIndex = prev.findIndex((p) => p.name === name);
+        if (existingIndex >= 0) {
+          // Update existing parameter
+          const updated = [...prev];
+          updated[existingIndex] = { ...updated[existingIndex], value };
+          return updated;
+        } else {
+          // Add new parameter (for parameters not sent by server initially)
+          const completeParam = allParameters.find((p) => p.name === name);
+          if (completeParam) {
+            return [...prev, { ...completeParam, value }];
+          }
+          return prev;
         }
-        return prev;
-      }
-    });
-  }, []);
+      });
+    },
+    []
+  );
 
   // Save parameters to backend
   const saveParameters = useCallback(async (): Promise<boolean> => {
@@ -170,14 +186,14 @@ export function useEnhancedParameters(
 
       // Only save visible parameters
       const paramsToSave = visibleParameters.filter(
-        (param) =>
+        (param: CompleteParameter) =>
           // Don't save read-only parameters
           param.name !== "TEMP" && param.name !== "VERSION"
       );
 
       // Build form data
       const formData = new URLSearchParams();
-      paramsToSave.forEach((param) => {
+      paramsToSave.forEach((param: CompleteParameter) => {
         formData.append(param.name, String(param.value));
       });
 
@@ -218,7 +234,7 @@ export function useEnhancedParameters(
   // Get a specific parameter by name
   const getParameter = useCallback(
     (name: string): CompleteParameter | undefined => {
-      return parameters.find((param) => param.name === name);
+      return parameters.find((param: CompleteParameter) => param.name === name);
     },
     [parameters]
   );

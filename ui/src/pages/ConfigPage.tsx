@@ -24,15 +24,15 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { toast } from "sonner";
-import { ParameterTypes, isParameterBoolean } from "@/types/parameters";
+import { ParameterTypes, isParameterBoolean } from "@/lib/parameter-types";
+import type { Parameter as OldParameter } from "@/types/parameters";
+import type { Parameter as NewParameter } from "@/lib/parameter-types";
 import { useCleverCoffee } from "@/hooks/use-clever-coffee";
 import parameterLabels from "@/lib/parameter-labels";
 import { parameterGroups } from "@/lib/parameter-groups";
 import { parameterHelpTexts } from "@/lib/parameter-help-texts";
-import {
-  mergeParametersWithDefaults,
-  shouldShowParameter,
-} from "@/lib/complete-parameters";
+import { mergeParametersWithDefaults } from "@/lib/parameter-definitions";
+import { shouldShowParameter } from "@/lib/parameter-utils";
 import {
   Popover,
   PopoverTrigger,
@@ -45,6 +45,23 @@ import {
   CollapsibleTrigger,
 } from "@radix-ui/react-collapsible";
 import { useParams } from "react-router-dom";
+
+// Helper function to convert from old Parameter type to new Parameter type
+const convertParameterType = (oldParam: OldParameter): NewParameter => {
+  return {
+    type: oldParam.type,
+    name: oldParam.name,
+    displayName: oldParam.name, // Use name as displayName if not provided
+    section: oldParam.section || 0,
+    position: oldParam.position || 0,
+    hasHelpText: false,
+    show: true,
+    value: oldParam.value as string | number | boolean,
+    min: oldParam.min || 0,
+    max: oldParam.max || 100,
+    options: oldParam.options,
+  };
+};
 
 export function ConfigPage() {
   const { filter } = useParams<{ filter: string }>();
@@ -63,33 +80,36 @@ export function ConfigPage() {
   } = useCleverCoffee();
 
   // Map parameter group keys to categories
-  const groupCategoryMap: Record<string, string> = {
-    pidParameters: "behavior",
-    temperatureControl: "behavior",
-    brewPidSection: "behavior",
-    brewControl: "behavior",
-    scaleParameters: "behavior",
-    displaySettings: "behavior",
-    maintenance: "behavior",
-    powerSettings: "behavior",
-    mqttSettings: "system",
-    systemSettings: "system",
-    systemAuth: "system",
-    runtimeControls: "system",
-    oledDisplay: "hardware",
-    relays: "hardware",
-    switchesBrew: "hardware",
-    switchesSteam: "hardware",
-    switchesPower: "hardware",
-    switchesHotWater: "hardware",
-    ledsStatus: "hardware",
-    ledsBrew: "hardware",
-    ledsSteam: "hardware",
-    sensorTemperature: "hardware",
-    sensorPressure: "hardware",
-    sensorWatertank: "hardware",
-    sensorScale: "hardware",
-  };
+  const groupCategoryMap = useMemo(
+    (): Record<string, string> => ({
+      pidParameters: "behavior",
+      temperatureControl: "behavior",
+      brewPidSection: "behavior",
+      brewControl: "behavior",
+      scaleParameters: "behavior",
+      displaySettings: "behavior",
+      maintenance: "behavior",
+      powerSettings: "behavior",
+      mqttSettings: "system",
+      systemSettings: "system",
+      systemAuth: "system",
+      runtimeControls: "system",
+      oledDisplay: "hardware",
+      relays: "hardware",
+      switchesBrew: "hardware",
+      switchesSteam: "hardware",
+      switchesPower: "hardware",
+      switchesHotWater: "hardware",
+      ledsStatus: "hardware",
+      ledsBrew: "hardware",
+      ledsSteam: "hardware",
+      sensorTemperature: "hardware",
+      sensorPressure: "hardware",
+      sensorWatertank: "hardware",
+      sensorScale: "hardware",
+    }),
+    []
+  );
 
   // State to track local parameter changes
   const [localParameterChanges, setLocalParameterChanges] = useState<
@@ -98,15 +118,17 @@ export function ConfigPage() {
 
   // Merge server parameters with complete definitions to ensure ALL parameters are available
   const completeParameters = useMemo(() => {
-    const merged = mergeParametersWithDefaults(parameters);
-    // Apply local changes
-    return merged.map((param) => ({
-      ...param,
-      value:
-        localParameterChanges[param.name] !== undefined
-          ? localParameterChanges[param.name]
-          : param.value,
-    }));
+    const convertedParameters = parameters.map(convertParameterType);
+    const merged = mergeParametersWithDefaults(convertedParameters);
+    // Apply local changes with proper typing
+    return merged.map(
+      (param): NewParameter => ({
+        ...param,
+        value:
+          (localParameterChanges[param.name] as string | number | boolean) ??
+          param.value,
+      })
+    );
   }, [parameters, localParameterChanges]);
 
   // Enhanced parameter visibility logic using complete parameters

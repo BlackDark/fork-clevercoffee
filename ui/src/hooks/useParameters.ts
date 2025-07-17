@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
+import type { Parameter } from "../lib/parameter-types";
 import {
-  Parameter,
   shouldShowParameter,
   groupParametersBySection,
 } from "../lib/parameter-utils";

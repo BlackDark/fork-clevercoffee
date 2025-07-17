@@ -1,6 +1,6 @@
 import React from "react";
+import type { Parameter } from "../lib/parameter-types";
 import {
-  Parameter,
   isBoolean,
   getInputType,
   getNumberStep,

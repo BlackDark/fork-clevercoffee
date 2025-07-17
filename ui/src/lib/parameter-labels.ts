@@ -1,4 +1,6 @@
 // Parameter label translations (add more languages as needed)
+// This file provides localized display names for parameters
+
 const parameterLabels: Record<string, Record<string, string>> = {
   en: {
     // PID Parameters
@@ -129,8 +131,6 @@ const parameterLabels: Record<string, Record<string, string>> = {
     "hardware.sensors.scale.enabled": "Enable Scale",
     "hardware.sensors.scale.type": "Scale Setup Type",
     "hardware.sensors.scale.samples": "Scale Samples",
-    "hardware.sensors.scale.calibration": "Scale Calibration Factor",
-    "hardware.sensors.scale.calibration2": "Scale Calibration Factor 2",
   },
   // Add other languages here, e.g. de: {...}, fr: {...}
 };
