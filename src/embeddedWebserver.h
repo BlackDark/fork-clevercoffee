@@ -424,12 +424,13 @@ inline void handleTimeseries(AsyncWebServerRequest* request) {
     AsyncResponseStream* response = request->beginResponseStream("application/json");
     response->addHeader("Connection", "close"); // Force connection close
 
-    StaticJsonDocument<8192> doc;
+    JsonDocument doc;
 
     // for each value in mem history array, add json array element
     auto currentTemps = doc["currentTemps"].to<JsonArray>();
     auto targetTemps = doc["targetTemps"].to<JsonArray>();
     auto heaterPowers = doc["heaterPowers"].to<JsonArray>();
+
 
     // go through history values backwards starting from currentIndex and
     // wrap around beginning to include valueCount many values
@@ -572,8 +573,8 @@ inline void handleFactoryReset(AsyncWebServerRequest* request) {
 // Setup API routes with /api/ prefix
 inline void setupApiRoutes() {
 
-    // Alive check
-    server.on("/api/alive", HTTP_HEAD, [](AsyncWebServerRequest* request) {
+    // Health check
+    server.on("/api/health", HTTP_GET, [](AsyncWebServerRequest* request) {
         request->send(200);
     });
 

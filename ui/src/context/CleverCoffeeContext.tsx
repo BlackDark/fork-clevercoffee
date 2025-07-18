@@ -248,8 +248,8 @@ export const CleverCoffeeProvider: React.FC<{ children: React.ReactNode }> = ({
   // Health check
   const checkHealth = useCallback(async (): Promise<boolean> => {
     try {
-      const response = await apiFetch("/alive", {
-        method: "HEAD",
+      const response = await apiFetch("/health", {
+        method: "GET",
         signal: AbortSignal.timeout(3000),
       });
       const isHealthy = response.ok;

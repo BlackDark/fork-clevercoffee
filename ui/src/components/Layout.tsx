@@ -35,7 +35,7 @@ export function Layout() {
             to="/"
             className="flex items-center gap-2 text-lg font-semibold md:text-base"
           >
-            <img src="/vite.svg" className="h-6 w-6" alt="Logo" />
+            <img src="/logo.png" className="h-6 w-6" alt="Logo" />
             <span className="sr-only">CleverCoffee</span>
           </Link>
           {navigationItems.map((item) => (

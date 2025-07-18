@@ -1,8 +1,9 @@
-import { useMemo } from "react";
+import { useMemo, useCallback } from "react";
 import { parameterGroups } from "@/lib/parameter-groups";
 import { ensureCompleteParameters } from "@/lib/parameter-metadata";
 import type { Parameter as CompleteParameter } from "@/lib/parameter-types";
 import { useCleverCoffee } from "@/context/useCleverCoffee";
+import { apiFetch } from "@/lib/api-config";
 
 interface UseEnhancedParametersReturn {
   parameters: CompleteParameter[];
@@ -12,7 +13,9 @@ interface UseEnhancedParametersReturn {
   loading: boolean;
   error: string | null;
   updateParameter: (name: string, value: string | number | boolean) => void;
-  saveParameters: () => Promise<boolean>;
+  saveParameters: (
+    changedParams?: Record<string, string | number | boolean>
+  ) => Promise<boolean>;
   refreshParameters: () => Promise<void>;
   getParameter: (name: string) => CompleteParameter | undefined;
 }
@@ -96,6 +99,38 @@ export function useEnhancedParameters(
     return result;
   }, [visibleParameters, filter, groupCategoryMap]);
 
+  // Save parameters to backend (accepts changedParams map)
+  const saveParameters = useCallback(
+    async (
+      changedParams?: Record<string, string | number | boolean>
+    ): Promise<boolean> => {
+      try {
+        const formData = new URLSearchParams();
+        if (changedParams) {
+          Object.entries(changedParams).forEach(([name, value]) => {
+            formData.append(name, String(value));
+          });
+        } else {
+          parameters.forEach((param) => {
+            formData.append(param.name, String(param.value));
+          });
+        }
+        const response = await apiFetch("/parameters", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: formData.toString(),
+        });
+        if (!response.ok)
+          throw new Error(`HTTP error! status: ${response.status}`);
+        await ctx.refreshParameters();
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [parameters, ctx]
+  );
+
   return {
     parameters,
     visibleParameters,
@@ -104,7 +139,7 @@ export function useEnhancedParameters(
     loading: ctx.loadingParams,
     error: ctx.errorParams,
     updateParameter: ctx.updateParameter,
-    saveParameters: ctx.saveParameters,
+    saveParameters,
     refreshParameters: ctx.refreshParameters,
     getParameter: ctx.getParameter,
   };

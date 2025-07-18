@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -48,10 +48,28 @@ import {
   CollapsibleTrigger,
 } from "@radix-ui/react-collapsible";
 import { useParams } from "react-router-dom";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import type { Parameter } from "@/lib/parameter-types";
 
 export function ConfigPage() {
   const { filter } = useParams<{ filter: string }>();
   const [isHardwareWarningOpen, setIsHardwareWarningOpen] = useState(false);
+  const [originalParameters, setOriginalParameters] = useState<Parameter[]>([]);
+  const [showChangesDialog, setShowChangesDialog] = useState(false);
+  const [pendingChanges, setPendingChanges] = useState<
+    {
+      name: string;
+      oldValue: string | number | boolean;
+      newValue: string | number | boolean;
+    }[]
+  >([]);
+  const [saving, setSaving] = useState(false);
 
   // Use the enhanced clever coffee hook
   const {
@@ -65,6 +83,30 @@ export function ConfigPage() {
     refreshParameters,
   } = useEnhancedParameters(filter);
 
+  // On initial load, store original parameters
+  useEffect(() => {
+    if (parameters.length && !originalParameters.length) {
+      setOriginalParameters(parameters.map((p) => ({ ...p })));
+    }
+  }, [parameters, originalParameters.length]);
+
+  // Compute changed parameters
+  const getChangedParameters = () => {
+    return parameters
+      .filter((param) => {
+        const orig = originalParameters.find((p) => p.name === param.name);
+        return orig && param.value !== orig.value;
+      })
+      .map((param) => {
+        const orig = originalParameters.find((p) => p.name === param.name);
+        return {
+          name: param.name,
+          oldValue: orig?.value as string | number | boolean,
+          newValue: param.value as string | number | boolean,
+        };
+      });
+  };
+
   // Custom update function for parameters
   const updateCompleteParameterValue = (
     paramName: string,
@@ -76,15 +118,40 @@ export function ConfigPage() {
   // Handle form submission
   const handleSubmitParameters = async (e: React.FormEvent) => {
     e.preventDefault();
-    const success = await saveParameters();
-    if (success) {
-      toast.success("Parameters saved successfully", {
-        description: `Saved ${parameters.length} parameters. Settings will take effect after restart.`,
-      });
-      refreshParameters();
-    } else {
+    const changes = getChangedParameters();
+    setPendingChanges(changes);
+    setShowChangesDialog(true);
+  };
+
+  // Confirm save (only changed parameters)
+  const handleConfirmSave = async () => {
+    setSaving(true);
+    // Collect changed parameters as a map
+    const changedParams: Record<string, string | number | boolean> = {};
+    pendingChanges.forEach((change) => {
+      changedParams[change.name] = change.newValue;
+    });
+    // Pass map to saveParameters
+    try {
+      const success = await saveParameters(changedParams);
+      setSaving(false);
+      setShowChangesDialog(false);
+      if (success) {
+        toast.success("Parameters saved successfully", {
+          description: `Saved ${pendingChanges.length} changed parameters. Settings will take effect after restart.`,
+        });
+        await refreshParameters();
+        setOriginalParameters(parameters.map((p) => ({ ...p })));
+      } else {
+        toast.error("Failed to save parameters", {
+          description: "Please check your connection and try again.",
+        });
+      }
+    } catch (err) {
+      setSaving(false);
+      setShowChangesDialog(false);
       toast.error("Failed to save parameters", {
-        description: "Please check your connection and try again.",
+        description: err instanceof Error ? err.message : String(err),
       });
     }
   };
@@ -142,23 +209,44 @@ export function ConfigPage() {
         </Alert>
       )}
 
-      {/* Parameter Navigation */}
+      {/* Parameter Navigation and Actions */}
       <div className="flex items-center justify-between mb-4">
         <ParameterNavigation />
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => refreshParameters()}
-          disabled={loading}
-          className="ml-2"
-        >
-          {loading ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          ) : (
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            disabled={loading || parameters.length === 0}
+            onClick={() => {
+              // Reset all parameters to their original values
+              originalParameters.forEach((orig) => {
+                const current = parameters.find((p) => p.name === orig.name);
+                if (current && current.value !== orig.value) {
+                  updateParameter(orig.name, orig.value);
+                }
+              });
+              toast.info("All changes have been reset.");
+            }}
+          >
             <RefreshCw className="mr-2 h-4 w-4" />
-          )}
-          Refresh Parameters
-        </Button>
+            Reset All Changes
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => refreshParameters()}
+            disabled={loading}
+            className="ml-2"
+          >
+            {loading ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="mr-2 h-4 w-4" />
+            )}
+            Refresh Parameters
+          </Button>
+        </div>
       </div>
 
       {/* Hardware Warning */}
@@ -498,6 +586,73 @@ export function ConfigPage() {
           </Card>
         )}
       </form>
+      {/* Changes Dialog */}
+      <Dialog open={showChangesDialog} onOpenChange={setShowChangesDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirm Parameter Changes</DialogTitle>
+          </DialogHeader>
+          {pendingChanges.length === 0 ? (
+            <div className="text-muted-foreground">No changes detected.</div>
+          ) : (
+            <div className="space-y-2">
+              <div className="font-medium mb-2">
+                The following parameters will be updated:
+              </div>
+              <ul className="list-disc pl-5">
+                {pendingChanges.map((change) => {
+                  const param = parameters.find((p) => p.name === change.name);
+                  const label = parameterLabels.en[change.name] || change.name;
+                  let oldValueLabel = String(change.oldValue);
+                  let newValueLabel = String(change.newValue);
+                  if (param && param.options) {
+                    const oldOpt = param.options.find(
+                      (opt) => opt.value === change.oldValue
+                    );
+                    const newOpt = param.options.find(
+                      (opt) => opt.value === change.newValue
+                    );
+                    if (oldOpt) oldValueLabel = oldOpt.label;
+                    if (newOpt) newValueLabel = newOpt.label;
+                  }
+                  return (
+                    <li key={change.name}>
+                      <span className="font-semibold">{label}</span>:{" "}
+                      <span className="text-muted-foreground">
+                        {oldValueLabel}
+                      </span>{" "}
+                      →{" "}
+                      <span className="text-primary font-semibold">
+                        {newValueLabel}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowChangesDialog(false)}
+              disabled={saving}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleConfirmSave}
+              disabled={saving || pendingChanges.length === 0}
+            >
+              {saving ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Save className="mr-2 h-4 w-4" />
+              )}
+              {saving ? "Saving..." : `Save ${pendingChanges.length} Changes`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
