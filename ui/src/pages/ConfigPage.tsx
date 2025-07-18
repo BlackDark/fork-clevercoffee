@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,7 +14,6 @@ import {
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   Loader2,
-  CheckCircle,
   Save,
   RefreshCw,
   AlertCircle,
@@ -24,14 +23,15 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { toast } from "sonner";
-import { ParameterTypes, isParameterBoolean } from "@/lib/parameter-types";
-import type { Parameter as OldParameter } from "@/types/parameters";
-import type { Parameter as NewParameter } from "@/lib/parameter-types";
-import { useCleverCoffee } from "@/hooks/use-clever-coffee";
+import { useEnhancedParameters } from "@/hooks/use-enhanced-parameters";
+import {
+  ParameterTypes,
+  isParameterBoolean,
+  isParameterEnum,
+  isParameterString,
+} from "@/lib/parameter-types";
 import parameterLabels from "@/lib/parameter-labels";
-import { parameterGroups } from "@/lib/parameter-groups";
 import { parameterHelpTexts } from "@/lib/parameter-help-texts";
-import { ensureCompleteParameters } from "@/lib/parameter-metadata";
 import {
   areRequiredParametersMet,
   getMissingRequiredParametersMessage,
@@ -49,141 +49,39 @@ import {
 } from "@radix-ui/react-collapsible";
 import { useParams } from "react-router-dom";
 
-// Helper function to convert from old Parameter type to new Parameter type
-const convertParameterType = (oldParam: OldParameter): NewParameter => {
-  return {
-    type: oldParam.type,
-    name: oldParam.name,
-    value: oldParam.value as string | number | boolean,
-    min: oldParam.min || 0,
-    max: oldParam.max || 100,
-    options: oldParam.options,
-  };
-};
-
 export function ConfigPage() {
   const { filter } = useParams<{ filter: string }>();
   const [isHardwareWarningOpen, setIsHardwareWarningOpen] = useState(false);
 
-  // Use the existing clever coffee hook
+  // Use the enhanced clever coffee hook
   const {
     parameters,
-    isLoadingParams,
-    isPostingForm,
-    showPostSucceeded,
-    connectionError,
-    fetchParameters,
-    updateParameterValue,
-    postParameters,
-  } = useCleverCoffee();
+    visibleParameters,
+    groupedParameters,
+    loading,
+    error,
+    updateParameter,
+    saveParameters,
+    refreshParameters,
+  } = useEnhancedParameters(filter);
 
-  // Map parameter group keys to categories
-  const groupCategoryMap = useMemo(
-    (): Record<string, string> => ({
-      pidParameters: "behavior",
-      temperatureControl: "behavior",
-      brewPidSection: "behavior",
-      brewControl: "behavior",
-      scaleParameters: "behavior",
-      displaySettings: "behavior",
-      maintenance: "behavior",
-      powerSettings: "behavior",
-      mqttSettings: "system",
-      systemSettings: "system",
-      systemAuth: "system",
-      runtimeControls: "system",
-      oledDisplay: "hardware",
-      relays: "hardware",
-      switchesBrew: "hardware",
-      switchesSteam: "hardware",
-      switchesPower: "hardware",
-      switchesHotWater: "hardware",
-      ledsStatus: "hardware",
-      ledsBrew: "hardware",
-      ledsSteam: "hardware",
-      sensorTemperature: "hardware",
-      sensorPressure: "hardware",
-      sensorWatertank: "hardware",
-      sensorScale: "hardware",
-    }),
-    []
-  );
-
-  // State to track local parameter changes
-  const [localParameterChanges, setLocalParameterChanges] = useState<
-    Record<string, unknown>
-  >({});
-
-  // Merge server parameters with complete definitions to ensure ALL parameters are available
-  const completeParameters = useMemo(() => {
-    const convertedParameters = parameters.map(convertParameterType);
-    const merged = ensureCompleteParameters(convertedParameters);
-    // Apply local changes with proper typing
-    return merged.map(
-      (param): NewParameter => ({
-        ...param,
-        value:
-          (localParameterChanges[param.name] as string | number | boolean) ??
-          param.value,
-      })
-    );
-  }, [parameters, localParameterChanges]);
-
-  // Enhanced parameter visibility logic using complete parameters
-  const visibleParameters = useMemo(() => {
-    return completeParameters; // Show all parameters, but disable those without met requirements
-  }, [completeParameters]);
-
-  // Custom update function that handles both server and local parameters
+  // Custom update function for parameters
   const updateCompleteParameterValue = (
     paramName: string,
-    newValue: unknown
+    newValue: string | number | boolean
   ) => {
-    // Update local changes
-    setLocalParameterChanges((prev) => ({
-      ...prev,
-      [paramName]: newValue,
-    }));
-
-    // Also update the server parameters if they exist (for compatibility)
-    updateParameterValue(paramName, newValue);
+    updateParameter(paramName, newValue);
   };
-
-  // Group parameters for display
-  const groupedParameters = useMemo(() => {
-    const selectedCategory = filter || "behavior";
-    const filteredGroups = parameterGroups.filter(
-      (group) => groupCategoryMap[group.key] === selectedCategory
-    );
-
-    const paramMap = Object.fromEntries(
-      visibleParameters.map((p) => [p.name, p])
-    );
-
-    const result: Record<string, typeof visibleParameters> = {};
-    filteredGroups.forEach((group) => {
-      const groupParams = group.parameters
-        .map((name) => paramMap[name])
-        .filter(Boolean);
-
-      if (groupParams.length > 0) {
-        result[group.label] = groupParams;
-      }
-    });
-
-    return result;
-  }, [visibleParameters, filter, groupCategoryMap]);
 
   // Handle form submission
   const handleSubmitParameters = async (e: React.FormEvent) => {
     e.preventDefault();
-    const parameterNames = visibleParameters.map((param) => param.name);
-    const success = await postParameters(parameterNames);
+    const success = await saveParameters();
     if (success) {
       toast.success("Parameters saved successfully", {
-        description: `Saved ${visibleParameters.length} parameters. Settings will take effect after restart.`,
+        description: `Saved ${parameters.length} parameters. Settings will take effect after restart.`,
       });
-      fetchParameters();
+      refreshParameters();
     } else {
       toast.error("Failed to save parameters", {
         description: "Please check your connection and try again.",
@@ -191,40 +89,39 @@ export function ConfigPage() {
     }
   };
 
-  if (
-    (isLoadingParams && !parameters.length) ||
-    (!isLoadingParams && parameters.length === 0)
-  ) {
+  if (loading && !parameters.length) {
     return (
       <div className="flex flex-col items-center justify-center h-[60vh]">
-        {isLoadingParams ? (
-          <div className="flex flex-col items-center gap-4">
-            <Loader2 className="h-10 w-10 animate-spin text-primary" />
-            <span className="text-lg text-muted-foreground">
-              Loading parameters...
-            </span>
-          </div>
-        ) : (
-          <div className="flex flex-col items-center gap-6 p-8 rounded-xl border border-destructive/40 bg-destructive/10 shadow-lg">
-            <AlertCircle className="h-10 w-10 text-destructive mb-2" />
-            <h2 className="text-xl font-semibold text-destructive">
-              Failed to load parameters
-            </h2>
-            <p className="text-base text-destructive/80 text-center max-w-md">
-              The configuration parameters could not be loaded.
-              <br />
-              Please check your connection and try again.
-            </p>
-            <Button
-              onClick={() => fetchParameters()}
-              variant="destructive"
-              size="lg"
-            >
-              <RefreshCw className="mr-2 h-5 w-5" />
-              Retry
-            </Button>
-          </div>
-        )}
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="h-10 w-10 animate-spin text-primary" />
+          <span className="text-lg text-muted-foreground">
+            Loading parameters...
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center gap-6 p-8 rounded-xl border border-destructive/40 bg-destructive/10 shadow-lg">
+        <AlertCircle className="h-10 w-10 text-destructive mb-2" />
+        <h2 className="text-xl font-semibold text-destructive">
+          Failed to load parameters
+        </h2>
+        <p className="text-base text-destructive/80 text-center max-w-md">
+          The configuration parameters could not be loaded.
+          <br />
+          Please check your connection and try again.
+        </p>
+        <Button
+          onClick={() => refreshParameters()}
+          variant="destructive"
+          size="lg"
+        >
+          <RefreshCw className="mr-2 h-5 w-5" />
+          Retry
+        </Button>
       </div>
     );
   }
@@ -232,12 +129,12 @@ export function ConfigPage() {
   return (
     <div className="container mx-auto p-6 space-y-6 max-w-7xl">
       {/* Connection Error Alert */}
-      {connectionError && (
+      {error && (
         <Alert className="border-destructive/50 text-destructive dark:border-destructive [&>svg]:text-destructive">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
-            {connectionError}
-            <Button onClick={() => fetchParameters()} className="ml-4">
+            {error}
+            <Button onClick={() => refreshParameters()} className="ml-4">
               <RefreshCw className="mr-2 h-4 w-4" />
               Retry
             </Button>
@@ -251,11 +148,11 @@ export function ConfigPage() {
         <Button
           variant="outline"
           size="sm"
-          onClick={() => fetchParameters()}
-          disabled={isLoadingParams}
+          onClick={() => refreshParameters()}
+          disabled={loading}
           className="ml-2"
         >
-          {isLoadingParams ? (
+          {loading ? (
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
           ) : (
             <RefreshCw className="mr-2 h-4 w-4" />
@@ -265,7 +162,7 @@ export function ConfigPage() {
       </div>
 
       {/* Hardware Warning */}
-      {filter === "hardware" && !isLoadingParams && (
+      {filter === "hardware" && !loading && (
         <Alert variant="destructive">
           <TriangleAlert className="h-4 w-4" />
           <AlertTitle>Hardware Configuration Warning</AlertTitle>
@@ -426,7 +323,7 @@ export function ConfigPage() {
                                 <span>{param.value ? "On" : "Off"}</span>
                               </div>
                             )
-                          ) : param.type === ParameterTypes.ENUM ? (
+                          ) : isParameterEnum(param) ? (
                             isDisabled ? (
                               <Popover>
                                 <PopoverTrigger asChild>
@@ -475,7 +372,7 @@ export function ConfigPage() {
                                 </SelectContent>
                               </Select>
                             )
-                          ) : param.type === ParameterTypes.STRING ? (
+                          ) : isParameterString(param) ? (
                             isDisabled ? (
                               <Popover>
                                 <PopoverTrigger asChild>
@@ -585,24 +482,16 @@ export function ConfigPage() {
                 </div>
                 <Button
                   type="submit"
-                  disabled={isPostingForm}
+                  disabled={loading}
                   size="lg"
-                  className={`min-w-[140px] ${
-                    showPostSucceeded ? "bg-green-600 hover:bg-green-700" : ""
-                  }`}
+                  className={`min-w-[140px]`}
                 >
-                  {isPostingForm ? (
+                  {loading ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : showPostSucceeded ? (
-                    <CheckCircle className="mr-2 h-4 w-4" />
                   ) : (
                     <Save className="mr-2 h-4 w-4" />
                   )}
-                  {isPostingForm
-                    ? "Saving..."
-                    : showPostSucceeded
-                    ? "Saved Successfully!"
-                    : "Save Parameters"}
+                  {loading ? "Saving..." : "Save Parameters"}
                 </Button>
               </div>
             </CardContent>

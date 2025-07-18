@@ -1,4 +1,4 @@
-import { useCleverCoffee } from "@/hooks/use-clever-coffee";
+import { useCleverCoffee } from "@/context/useCleverCoffee";
 import { Wifi, WifiOff, Clock } from "lucide-react";
 
 export function LiveStatusIndicator() {

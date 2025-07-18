@@ -14,8 +14,8 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
-import { useCleverCoffee } from "@/hooks/use-clever-coffee";
 import { API_BASE_URL, apiFetch } from "@/lib/api-config";
+import { useCleverCoffee } from "@/context/useCleverCoffee";
 
 export function SystemPage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);

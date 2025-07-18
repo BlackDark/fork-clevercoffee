@@ -384,3 +384,5 @@ export function HeaterChart({
     </div>
   );
 }
+
+export default HeaterChart;

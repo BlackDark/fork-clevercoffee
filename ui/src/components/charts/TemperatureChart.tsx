@@ -417,3 +417,4 @@ export function TemperatureChart({
 }
 
 export type { TemperatureChartProps };
+export default TemperatureChart;

@@ -1,4 +1,4 @@
-import { useMemo, useEffect, useRef } from "react";
+import React, { useMemo, useEffect, useRef, Suspense, lazy } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,13 +10,9 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { TemperatureChart } from "@/components/charts/TemperatureChart";
-import { HeaterChart } from "@/components/charts/HeaterChart";
-import { useCleverCoffee } from "@/hooks/use-clever-coffee";
 import {
   HelpCircle,
   Loader2,
-  CheckCircle,
   AlertCircle,
   RefreshCw,
   Thermometer,
@@ -28,56 +24,65 @@ import {
 import { toast } from "sonner";
 import parameterLabels from "@/lib/parameter-labels";
 import { parameterHelpTexts } from "@/lib/parameter-help-texts";
+import { useCleverCoffee } from "@/context/useCleverCoffee";
+
+// Code-split chart components
+const TemperatureChart = lazy(
+  () => import("@/components/charts/TemperatureChart")
+);
+const HeaterChart = lazy(() => import("@/components/charts/HeaterChart"));
+
+const POLL_INTERVAL_TEMPERATURE = 3000; // 3 seconds
 
 export function HomePage() {
-  // Use the centralized hook for all data and actions
   const {
-    // State
     parameters,
     currentTemperature,
-    isLoadingParams,
+    loadingParams,
     isLoadingTemp,
-    isPostingForm,
-    showPostSucceeded,
-    connectionError,
     temperatureError,
     chartError,
     tempData,
     heaterData,
-
-    // Actions
     fetchTemperatureAndChartData,
     fetchHistoryData,
-    fetchHelpText,
-    updateParameterValue,
-    postParameters,
-    togglePid,
-    toggleSteamMode,
-    toggleBackflush,
-    tareScale,
-    calibrateScale,
-    clearTemperatureError,
-    clearChartError,
+    updateParameter,
+    saveParameters,
     retryConnection,
+    togglePid,
+    toggleSteam,
+    toggleBackflush,
+    toggleTareScale,
+    toggleScaleCalibration,
   } = useCleverCoffee();
+
+  useEffect(() => {
+    if (fetchHistoryData) {
+      fetchHistoryData();
+    }
+  }, [fetchHistoryData]);
 
   // Polling interval ref for temperature and chart data
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Setup polling for temperature and chart data (only needed on Home page)
+  // Fetch history on mount, then start polling
   useEffect(() => {
-    // Start polling every 5 seconds (reduced from 2 seconds to minimize flicker)
-    pollingIntervalRef.current = setInterval(async () => {
-      await fetchTemperatureAndChartData(); // Don't show loading during polling
-    }, 5000);
-
+    (async () => {
+      if (pollingIntervalRef.current == null) {
+        // Start polling after history loads
+        pollingIntervalRef.current = setInterval(async () => {
+          await fetchTemperatureAndChartData();
+        }, POLL_INTERVAL_TEMPERATURE);
+        fetchTemperatureAndChartData();
+      }
+    })();
     return () => {
       if (pollingIntervalRef.current) {
         clearInterval(pollingIntervalRef.current);
         pollingIntervalRef.current = null;
       }
     };
-  }, [fetchTemperatureAndChartData]);
+  }, [fetchTemperatureAndChartData, chartError]);
 
   // Memoized filtered parameters to avoid recalculating on every render
   const brewSetpointParam = useMemo(
@@ -103,7 +108,7 @@ export function HomePage() {
   const tempChartData = useMemo(() => {
     if (tempData.tempDates.length === 0) return [];
     return [
-      tempData.tempDates.map((d) => d.getTime() / 1000),
+      tempData.tempDates.map((d: Date) => d.getTime() / 1000),
       tempData.curTempVals,
       tempData.targetTempVals,
     ];
@@ -112,7 +117,7 @@ export function HomePage() {
   const heaterChartData = useMemo(() => {
     if (heaterData.heaterDates.length === 0) return [];
     return [
-      heaterData.heaterDates.map((d) => d.getTime() / 1000),
+      heaterData.heaterDates.map((d: Date) => d.getTime() / 1000),
       heaterData.heaterPowerVals,
     ];
   }, [heaterData.heaterDates, heaterData.heaterPowerVals]);
@@ -131,10 +136,10 @@ export function HomePage() {
     }
   };
 
-  // Handle form submission
+  // Handle form submission for brew setpoint
   const handleSubmitParameters = async (e: React.FormEvent) => {
     e.preventDefault();
-    const success = await postParameters(["brew.setpoint"]); // Only submit brew.setpoint from home page
+    const success = await saveParameters(); // Only submit brew.setpoint from home page
 
     if (success) {
       toast.success("Parameters saved successfully", {
@@ -147,31 +152,53 @@ export function HomePage() {
     }
   };
 
-  // Handle function toggles with proper mapping and toast feedback
+  // Handle function toggles by calling dedicated context methods if available
   const handleToggleFunction = async (paramName: string) => {
     let success = false;
-    const displayName = parameterLabels.en[paramName] || paramName;
-
-    switch (paramName) {
-      case "pid.enabled":
-        success = await togglePid();
-        break;
-      case "STEAM_MODE":
-        success = await toggleSteamMode();
-        break;
-      case "BACKFLUSH_ON":
-        success = await toggleBackflush();
-        break;
-    }
-
-    if (success) {
-      const newValue =
-        parameters.find((p) => p.name === paramName)?.value === 1 ? 0 : 1;
-      toast.success(`${displayName} ${newValue ? "enabled" : "disabled"}`, {
-        description: "Setting updated successfully",
-      });
+    if (paramName === "pid.enabled") {
+      success = await togglePid();
+    } else if (paramName === "STEAM_MODE") {
+      success = await toggleSteam();
+    } else if (paramName === "BACKFLUSH_ON") {
+      success = await toggleBackflush();
     } else {
-      toast.error("Failed to update setting", {
+      // Fallback: update and save parameter
+      const param = parameters.find((p) => p.name === paramName);
+      if (!param) return;
+      const newValue = param.value === 1 ? 0 : 1;
+      updateParameter(paramName, newValue);
+      success = await saveParameters();
+    }
+    if (success) {
+      toast.success(
+        `${parameterLabels.en[paramName] || paramName} toggled successfully`,
+        { description: "Setting updated via API endpoint or parameter save." }
+      );
+    } else {
+      toast.error("Failed to toggle", {
+        description: "Please check your connection and try again.",
+      });
+    }
+  };
+
+  // Handle scale actions by calling dedicated context methods
+  const handleScaleAction = async (paramName: string) => {
+    let success = false;
+    if (paramName === "TARE_ON") {
+      success = await toggleTareScale();
+    } else if (paramName === "CALIBRATION_ON") {
+      success = await toggleScaleCalibration();
+    } else {
+      updateParameter(paramName, 1);
+      success = true;
+    }
+    if (success) {
+      toast.success(
+        `${parameterLabels.en[paramName] || paramName} action triggered`,
+        { description: "Command executed successfully" }
+      );
+    } else {
+      toast.error("Failed to trigger action", {
         description: "Please check your connection and try again.",
       });
     }
@@ -179,7 +206,6 @@ export function HomePage() {
 
   // Handle temperature retry with feedback
   const handleTemperatureRetry = async () => {
-    clearTemperatureError();
     const success = await fetchTemperatureAndChartData(true); // Show loading during manual retry
 
     if (success) {
@@ -195,7 +221,6 @@ export function HomePage() {
 
   // Handle chart data retry with feedback
   const handleChartRetry = async () => {
-    clearChartError();
     const success = await fetchHistoryData();
 
     if (!success) {
@@ -205,45 +230,14 @@ export function HomePage() {
     }
   };
 
-  // Handle scale actions with feedback
-  const handleTareScale = async () => {
-    const success = await tareScale();
-
-    if (success) {
-      toast.success("Scale tared", {
-        description: "Command executed successfully",
-      });
-    } else {
-      toast.error("Failed to execute action", {
-        description: "Please check your connection and try again.",
-      });
-    }
-  };
-
-  const handleCalibrateScale = async () => {
-    const success = await calibrateScale();
-
-    if (success) {
-      toast.success("Scale calibration started", {
-        description: "Command executed successfully",
-      });
-    } else if (success === false) {
-      // Only show error if the action was attempted but failed
-      // (calibrateScale returns false if user cancels, which shouldn't show error)
-      toast.error("Failed to execute action", {
-        description: "Please check your connection and try again.",
-      });
-    }
-  };
-
   return (
     <div className="container mx-auto p-6 space-y-6 max-w-7xl">
       {/* Connection Error Alert */}
-      {connectionError && (
+      {temperatureError && (
         <Alert className="border-destructive/50 text-destructive dark:border-destructive [&>svg]:text-destructive">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
-            {connectionError}
+            {temperatureError}
             <Button
               variant="outline"
               size="sm"
@@ -408,7 +402,7 @@ export function HomePage() {
               </div>
 
               {/* Temperature Setpoint Control */}
-              {isLoadingParams ? (
+              {loadingParams ? (
                 <div className="flex items-center justify-between p-4 border rounded-lg">
                   <div className="space-y-1">
                     <Skeleton className="h-4 w-32" />
@@ -433,7 +427,7 @@ export function HomePage() {
                                 className="h-6 w-6 ml-1"
                                 tabIndex={0}
                                 onMouseEnter={() =>
-                                  fetchHelpText(brewSetpointParam.name)
+                                  parameterHelpTexts[brewSetpointParam.name]
                                 }
                               >
                                 <HelpCircle className="h-4 w-4 text-muted-foreground" />
@@ -463,7 +457,7 @@ export function HomePage() {
                         step={getNumberStep(brewSetpointParam)}
                         value={brewSetpointParam.value as string}
                         onChange={(e) =>
-                          updateParameterValue(
+                          updateParameter(
                             brewSetpointParam.name,
                             e.target.value
                           )
@@ -472,14 +466,11 @@ export function HomePage() {
                         max={brewSetpointParam.max}
                         className="w-20"
                       />
-                      <Button type="submit" size="sm" disabled={isPostingForm}>
-                        {showPostSucceeded && (
-                          <CheckCircle className="h-4 w-4" />
-                        )}
-                        {isPostingForm && (
+                      <Button type="submit" size="sm" disabled={isLoadingTemp}>
+                        {isLoadingTemp && (
                           <Loader2 className="h-4 w-4 animate-spin" />
                         )}
-                        {!showPostSucceeded && !isPostingForm && "Save"}
+                        {!isLoadingTemp && "Save"}
                       </Button>
                     </div>
                   </div>
@@ -500,7 +491,7 @@ export function HomePage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {isLoadingParams ? (
+            {loadingParams ? (
               <div className="space-y-4">
                 {[1, 2, 3].map((i) => (
                   <div
@@ -548,53 +539,31 @@ export function HomePage() {
                       <h4 className="font-medium">Scale Operations</h4>
                     </div>
                     <div className="grid gap-3">
-                      {scaleActionParams.map((param) => {
-                        if (param.name === "TARE_ON") {
-                          return (
-                            <div
-                              key={param.name}
-                              className="flex items-center justify-between p-4 border rounded-lg"
-                            >
-                              <div className="space-y-1">
-                                <div className="font-medium">Tare Scale</div>
-                                <div className="text-sm text-muted-foreground">
-                                  Reset scale to zero
-                                </div>
-                              </div>
-                              <Button
-                                variant="outline"
-                                onClick={handleTareScale}
-                              >
-                                Tare Scale
-                              </Button>
+                      {scaleActionParams.map((param) => (
+                        <div
+                          key={param.name}
+                          className="flex items-center justify-between p-4 border rounded-lg"
+                        >
+                          <div className="space-y-1">
+                            <div className="font-medium">
+                              {parameterLabels.en[param.name] || param.name}
                             </div>
-                          );
-                        }
-                        if (param.name === "CALIBRATION_ON") {
-                          return (
-                            <div
-                              key={param.name}
-                              className="flex items-center justify-between p-4 border rounded-lg"
-                            >
-                              <div className="space-y-1">
-                                <div className="font-medium">
-                                  Scale Calibration
-                                </div>
-                                <div className="text-sm text-muted-foreground">
-                                  Calibrate scale accuracy
-                                </div>
-                              </div>
-                              <Button
-                                variant="outline"
-                                onClick={handleCalibrateScale}
-                              >
-                                Start Calibration
-                              </Button>
+                            <div className="text-sm text-muted-foreground">
+                              {param.name === "TARE_ON"
+                                ? "Reset scale to zero"
+                                : "Calibrate scale accuracy"}
                             </div>
-                          );
-                        }
-                        return null;
-                      })}
+                          </div>
+                          <Button
+                            variant="outline"
+                            onClick={() => handleScaleAction(param.name)}
+                          >
+                            {param.name === "TARE_ON"
+                              ? "Tare Scale"
+                              : "Start Calibration"}
+                          </Button>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 )}
@@ -647,13 +616,19 @@ export function HomePage() {
               </div>
             </div>
           ) : (
-            <div className="w-full">
+            <Suspense
+              fallback={
+                <div className="h-64 flex items-center justify-center">
+                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                </div>
+              }
+            >
               <TemperatureChart
                 data={tempChartData}
                 height={300}
                 title="Temperature History"
               />
-            </div>
+            </Suspense>
           )}
         </CardContent>
       </Card>
@@ -701,13 +676,19 @@ export function HomePage() {
               </div>
             </div>
           ) : (
-            <div className="w-full">
+            <Suspense
+              fallback={
+                <div className="h-64 flex items-center justify-center">
+                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                </div>
+              }
+            >
               <HeaterChart
                 data={heaterChartData}
                 height={300}
                 title="Heater Power History"
               />
-            </div>
+            </Suspense>
           )}
         </CardContent>
       </Card>

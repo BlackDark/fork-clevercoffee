@@ -1,15 +1,34 @@
-import { useTheme } from "next-themes";
-import { useEffect, useState } from "react";
+// Custom useTheme hook for Vite/shadcn
+import type { ThemeProviderState } from "@/types/theme";
+import { createContext, useContext, useEffect, useState } from "react";
 
+const initialState: ThemeProviderState = {
+  theme: "system",
+  setTheme: () => null,
+};
+
+export const ThemeProviderContext =
+  createContext<ThemeProviderState>(initialState);
+
+export const useTheme = () => {
+  const context = useContext(ThemeProviderContext);
+
+  if (context === undefined)
+    throw new Error("useTheme must be used within a ThemeProvider");
+
+  return context;
+};
+
+// This hook is for theme/dark mode only and is independent of clever coffee state.
 export function useDarkMode() {
-  const { resolvedTheme } = useTheme();
+  const { theme } = useTheme();
   const [isDark, setIsDark] = useState(false);
 
   useEffect(() => {
     // Check if the resolved theme is dark, default to false if undefined
-    const isCurrentlyDark = resolvedTheme === "dark";
+    const isCurrentlyDark = theme === "dark";
     setIsDark(isCurrentlyDark);
-  }, [resolvedTheme]);
+  }, [theme]);
 
   return isDark;
 }

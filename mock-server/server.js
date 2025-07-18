@@ -352,7 +352,7 @@ app.post("/api/factory-reset", simulateAuth, (req, res) => {
 });
 
 // Data endpoints
-app.head("/api/health", simulateAuth, (req, res) => {
+app.head("/api/alive", simulateAuth, (req, res) => {
   res.json();
 });
 

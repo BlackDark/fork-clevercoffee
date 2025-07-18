@@ -4,13 +4,15 @@ import path from "path";
 import tailwindcss from "@tailwindcss/vite";
 import type { UserConfig } from "vite";
 
+import gzipPlugin from "rollup-plugin-gzip";
+
 // Get base path from environment variable or default to root
 const basePath = process.env.VITE_BASE_PATH || "/";
 
 // https://vite.dev/config/
 export default defineConfig(() => {
   const config: UserConfig = {
-    plugins: [react(), tailwindcss()],
+    plugins: [react(), tailwindcss(), gzipPlugin()],
     resolve: {
       alias: {
         "@": path.resolve(__dirname, "./src"),

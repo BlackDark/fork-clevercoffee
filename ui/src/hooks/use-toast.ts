@@ -1,5 +1,7 @@
 import * as React from "react";
 
+// This hook is for UI toast notifications and is independent of clever coffee state.
+
 type ToastProps = {
   id: string;
   title?: React.ReactNode;
