@@ -275,101 +275,101 @@ inline void handleParameters(AsyncWebServerRequest* request) {
         return request->requestAuthentication();
     }
 
-        if (request->method() == 1) { // HTTP_GET
-            const auto& registry = ParameterRegistry::getInstance();
-            const auto& parameters = registry.getParameters();
+    if (request->method() == 1) { // HTTP_GET
+        const auto& registry = ParameterRegistry::getInstance();
+        const auto& parameters = registry.getParameters();
 
-            // Check for filter parameter
-            String filterType = "";
-            if (request->hasParam("filter")) {
-                filterType = request->getParam("filter")->value();
-            }
-
-            AsyncJsonResponse* response = new AsyncJsonResponse(false);
-            JsonArray array = response->getRoot().to<JsonArray>();
-
-            int filteredParameterCount = 0;
-
-            // Get parameters based on filter
-            for (const auto& param : parameters) {
-                if (!param->shouldShow()) continue;
-
-                bool includeParam = false;
-
-                if (filterType == "hardware") {
-                    includeParam = param->getSection() >= 11 && param->getSection() <= 15;
-                }
-                else if (filterType == "behavior") {
-                    includeParam = param->getSection() >= 0 && param->getSection() <= 9;
-                }
-                else if (filterType == "other") {
-                    includeParam = param->getSection() == 10;
-                }
-                else if (filterType == "all") {
-                    includeParam = true;
-                }
-                else {
-                    includeParam = param->getSection() == 0 || param->getSection() == 1 || param->getSection() == 10;
-                }
-
-                if (includeParam) {
-                    JsonObject paramObj = array.add<JsonObject>();
-                    paramToJson(param->getId(), param, paramObj);
-                    filteredParameterCount++;
-                }
-            }
-
-            LOGF(DEBUG, "/parameters returning %d parameters", filteredParameterCount);
-            response->setLength();
-            request->send(response);
+        // Check for filter parameter
+        String filterType = "";
+        if (request->hasParam("filter")) {
+            filterType = request->getParam("filter")->value();
         }
-        else if (request->method() == 2) { // HTTP_POST
-            auto& registry = ParameterRegistry::getInstance();
 
-            String responseMessage = "OK";
-            bool hasErrors = false;
+        AsyncJsonResponse* response = new AsyncJsonResponse(false);
+        JsonArray array = response->getRoot().to<JsonArray>();
 
-            const auto requestParams = request->params();
+        int filteredParameterCount = 0;
 
-            for (auto i = 0u; i < requestParams; ++i) {
-                if (auto* p = request->getParam(i); p && p->name().length() > 0 && p->value().length() > 0) {
-                    const String& varName = p->name();
-                    const String& value = p->value();
+        // Get parameters based on filter
+        for (const auto& param : parameters) {
+            if (!param->shouldShow()) continue;
 
-                    try {
-                        std::shared_ptr<Parameter> paramPtr = registry.getParameterById(varName.c_str());
+            bool includeParam = false;
 
-                        if (paramPtr == nullptr || !paramPtr->shouldShow()) {
-                            continue;
-                        }
+            if (filterType == "hardware") {
+                includeParam = param->getSection() >= 11 && param->getSection() <= 15;
+            }
+            else if (filterType == "behavior") {
+                includeParam = param->getSection() >= 0 && param->getSection() <= 9;
+            }
+            else if (filterType == "other") {
+                includeParam = param->getSection() == 10;
+            }
+            else if (filterType == "all") {
+                includeParam = true;
+            }
+            else {
+                includeParam = param->getSection() == 0 || param->getSection() == 1 || param->getSection() == 10;
+            }
 
-                        if (paramPtr->getType() == kCString) {
-                            registry.setParameterValue(varName.c_str(), value);
-                        }
-                        else {
-                            double newVal = std::stod(value.c_str());
-                            registry.setParameterValue(varName.c_str(), newVal);
-                        }
-                    } catch (const std::exception& e) {
-                        LOGF(INFO, "Parameter %s processing failed: %s", varName.c_str(), e.what());
-                        hasErrors = true;
+            if (includeParam) {
+                JsonObject paramObj = array.add<JsonObject>();
+                paramToJson(param->getId(), param, paramObj);
+                filteredParameterCount++;
+            }
+        }
+
+        LOGF(DEBUG, "/parameters returning %d parameters", filteredParameterCount);
+        response->setLength();
+        request->send(response);
+    }
+    else if (request->method() == 2) { // HTTP_POST
+        auto& registry = ParameterRegistry::getInstance();
+
+        String responseMessage = "OK";
+        bool hasErrors = false;
+
+        const auto requestParams = request->params();
+
+        for (auto i = 0u; i < requestParams; ++i) {
+            if (auto* p = request->getParam(i); p && p->name().length() > 0 && p->value().length() > 0) {
+                const String& varName = p->name();
+                const String& value = p->value();
+
+                try {
+                    std::shared_ptr<Parameter> paramPtr = registry.getParameterById(varName.c_str());
+
+                    if (paramPtr == nullptr || !paramPtr->shouldShow()) {
+                        continue;
                     }
+
+                    if (paramPtr->getType() == kCString) {
+                        registry.setParameterValue(varName.c_str(), value);
+                    }
+                    else {
+                        double newVal = std::stod(value.c_str());
+                        registry.setParameterValue(varName.c_str(), newVal);
+                    }
+                } catch (const std::exception& e) {
+                    LOGF(INFO, "Parameter %s processing failed: %s", varName.c_str(), e.what());
+                    hasErrors = true;
                 }
             }
-
-            registry.forceSave();
-            writeSysParamsToMQTT(true);
-
-            AsyncWebServerResponse* response = request->beginResponse(200, "text/plain", hasErrors ? "Partial Success" : "OK");
-            response->addHeader("Connection", "close");
-            request->send(response);
         }
-        else {
-            LOGF(ERROR, "Unsupported HTTP method %d for /parameters", request->method());
-            AsyncWebServerResponse* response = request->beginResponse(405, "text/plain", "Method Not Allowed");
-            response->addHeader("Connection", "close");
-            request->send(response);
-        }
+
+        registry.forceSave();
+        writeSysParamsToMQTT(true);
+
+        AsyncWebServerResponse* response = request->beginResponse(200, "text/plain", hasErrors ? "Partial Success" : "OK");
+        response->addHeader("Connection", "close");
+        request->send(response);
+    }
+    else {
+        LOGF(ERROR, "Unsupported HTTP method %d for /parameters", request->method());
+        AsyncWebServerResponse* response = request->beginResponse(405, "text/plain", "Method Not Allowed");
+        response->addHeader("Connection", "close");
+        request->send(response);
+    }
 }
 
 inline void handleParameterHelp(AsyncWebServerRequest* request) {
@@ -411,7 +411,6 @@ inline void handleTemperatures(AsyncWebServerRequest* request) {
     request->send(200, "application/json", json);
 }
 
-
 // TODO: could send values also chunked and without json (but needs three
 // endpoints then?)
 // https://stackoverflow.com/questions/61559745/espasyncwebserver-serve-large-array-from-ram
@@ -430,7 +429,6 @@ inline void handleTimeseries(AsyncWebServerRequest* request) {
     auto currentTemps = doc["currentTemps"].to<JsonArray>();
     auto targetTemps = doc["targetTemps"].to<JsonArray>();
     auto heaterPowers = doc["heaterPowers"].to<JsonArray>();
-
 
     // go through history values backwards starting from currentIndex and
     // wrap around beginning to include valueCount many values
@@ -527,8 +525,7 @@ inline void handleConfigUpload(AsyncWebServerRequest* request, const String& fil
         if (bool isValid = config.validateAndApplyFromJson(uploadBuffer)) {
             LOG(INFO, "Configuration validated and applied successfully");
 
-            AsyncWebServerResponse* response = request->beginResponse(200, "application/json",
-                R"({"success": true, "message": "Configuration validated and applied successfully.", "restart": true})");
+            AsyncWebServerResponse* response = request->beginResponse(200, "application/json", R"({"success": true, "message": "Configuration validated and applied successfully.", "restart": true})");
 
             response->addHeader("Connection", "close");
             request->send(response);
@@ -536,8 +533,8 @@ inline void handleConfigUpload(AsyncWebServerRequest* request, const String& fil
         else {
             LOG(ERROR, "Configuration validation failed - invalid data or out of range values");
 
-            AsyncWebServerResponse* response = request->beginResponse(400, "application/json",
-                R"({"success": false, "message": "Configuration validation failed. Please check that all parameter values are within valid ranges.", "restart": true})");
+            AsyncWebServerResponse* response =
+                request->beginResponse(400, "application/json", R"({"success": false, "message": "Configuration validation failed. Please check that all parameter values are within valid ranges.", "restart": true})");
 
             response->addHeader("Connection", "close");
             request->send(response);
@@ -562,9 +559,7 @@ inline void handleFactoryReset(AsyncWebServerRequest* request) {
 
     const bool removed = LittleFS.remove("/config.json");
 
-    request->send(200, "application/json",
-        removed ? "{\"success\": true, \"message\": \"Factory reset. Restarting...\"}"
-                : "{\"success\": false, \"message\": \"Could not delete config.json. Restarting...\"}");
+    request->send(200, "application/json", removed ? "{\"success\": true, \"message\": \"Factory reset. Restarting...\"}" : "{\"success\": false, \"message\": \"Could not delete config.json. Restarting...\"}");
 
     delay(100);
     ESP.restart();
@@ -574,9 +569,7 @@ inline void handleFactoryReset(AsyncWebServerRequest* request) {
 inline void setupApiRoutes() {
 
     // Health check
-    server.on("/api/health", HTTP_GET, [](AsyncWebServerRequest* request) {
-        request->send(200);
-    });
+    server.on("/api/health", HTTP_GET, [](AsyncWebServerRequest* request) { request->send(200); });
 
     // Machine control endpoints
     server.on("/api/steam", HTTP_POST, handleToggleSteam);
@@ -598,9 +591,12 @@ inline void setupApiRoutes() {
     // System endpoints
     server.on("/api/wifi-reset", HTTP_POST, handleWifiReset);
     server.on("/api/config/download", HTTP_GET, handleConfigDownload);
-    server.on("/api/config/upload", HTTP_POST, [](AsyncWebServerRequest* request) {
-        // Response handled by upload handler
-    }, handleConfigUpload);
+    server.on(
+        "/api/config/upload", HTTP_POST,
+        [](AsyncWebServerRequest* request) {
+            // Response handled by upload handler
+        },
+        handleConfigUpload);
     server.on("/api/restart", HTTP_POST, handleRestart);
     server.on("/api/factory-reset", HTTP_POST, handleFactoryReset);
 }
@@ -620,7 +616,8 @@ inline void handleNotFound(AsyncWebServerRequest* request) {
         if (File file = LittleFS.open("/ui/index.html", "r")) {
             request->send(LittleFS, "/ui/index.html", "text/html");
             return;
-        } else {
+        }
+        else {
             request->send(404, "text/plain", "UI files not found");
             return;
         }
@@ -646,7 +643,8 @@ inline void serverSetup() {
         // If it's a root path with parameters, serve the SPA
         if (File file = LittleFS.open("/ui/index.html", "r")) {
             request->send(LittleFS, "/ui/index.html", "text/html");
-        } else {
+        }
+        else {
             request->send(404, "text/plain", "UI not found");
         }
     });
