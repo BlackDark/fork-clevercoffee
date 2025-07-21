@@ -22,9 +22,18 @@
 inline AsyncWebServer server(80);
 inline AsyncEventSource events("/events");
 
+AsyncCorsMiddleware corsMiddleware;
+
+// why do we need these?
 inline double curTemp = 0.0;
 inline double tTemp = 0.0;
 inline double hPower = 0.0;
+
+extern float currReadingWeight; // defined in brewHandler.h
+extern float currBrewWeight; // defined in brewHandler.h
+extern double temperature; // defined in main.cpp
+extern double brewSetpoint; // defined in main.cpp
+extern double pidOutput; // defined in main.cpp, needs to be divided by 10 for display
 
 #define HISTORY_LENGTH 600 // 30 mins of values (20 vals/min * 60 min) = 600 (7,2kb)
 
@@ -64,18 +73,6 @@ inline uint8_t flipUintValue(const uint8_t value) {
     return (value + 3) % 2;
 }
 
-inline String getTempString() {
-    JsonDocument doc;
-
-    doc["currentTemp"] = curTemp;
-    doc["targetTemp"] = tTemp;
-    doc["heaterPower"] = hPower;
-
-    String jsonTemps;
-    serializeJson(doc, jsonTemps);
-
-    return jsonTemps;
-}
 
 // proper modulo function (% is remainder, so will return negatives)
 inline int mod(const int a, const int b) {
@@ -88,6 +85,33 @@ inline int mod(const int a, const int b) {
 // (less characters when serialized to json)
 inline double round2(const double value) {
     return std::round(value * 100.0) / 100.0;
+}
+
+inline String getTempString() {
+    JsonDocument doc;
+
+    doc["currentTemp"] = temperature;
+    doc["targetTemp"] = brewSetpoint;
+    doc["heaterPower"] = pidOutput / 10;
+
+    String json;
+    serializeJson(doc, json);
+
+    return json;
+}
+
+inline String getWeightJsonString() {
+    extern float currReadingWeight;
+
+    JsonDocument doc;
+
+    doc["weight"] = round2(currReadingWeight);
+    doc["brewWeight"] = round2(currBrewWeight);
+
+    String json;
+    serializeJson(doc, json);
+
+    return json;
 }
 
 inline String getValue(const String& varName) {
@@ -268,6 +292,15 @@ inline void handleToggleScaleCalibration(AsyncWebServerRequest* request) {
     LOGF(DEBUG, "Toggle scale calibration mode: %s", scaleCalibrationOn ? "on" : "off");
 
     request->send(200, "application/json", "{\"success\": true, \"scaleCalibrationOn\": " + String(scaleCalibrationOn ? "true" : "false") + "}");
+}
+
+// Handler for last measured weight
+inline void handleWeight(AsyncWebServerRequest* request) {
+    if (!authenticate(request)) {
+        return request->requestAuthentication();
+    }
+    String json = getWeightJsonString();
+    request->send(200, "application/json", json);
 }
 
 inline void handleParameters(AsyncWebServerRequest* request) {
@@ -580,6 +613,7 @@ inline void setupApiRoutes() {
     if (config.get<bool>("hardware.sensors.scale.enabled")) {
         server.on("/api/scale/tare", HTTP_POST, handleToggleTareScale);
         server.on("/api/scale/calibration", HTTP_POST, handleToggleScaleCalibration);
+        server.on("/api/scale/weight", HTTP_GET, handleWeight);
     }
 
     // Data endpoints
@@ -669,6 +703,7 @@ inline void serverSetup() {
     // Serve UI at /ui/ path only (root is handled by redirect above)
     server.serveStatic("/ui", LittleFS, "/ui/", "max-age=604800").setDefaultFile("index.html");
 
+    server.addMiddleware(&corsMiddleware);
     server.begin();
 
     LOG(INFO, ("Server started at " + WiFi.localIP().toString()).c_str());
@@ -702,3 +737,10 @@ inline void sendTempEvent(const double currentTemp, const double targetTemp, con
     events.send("ping", nullptr, millis());
     events.send(getTempString().c_str(), "new_temps", millis());
 }
+
+inline void sendWeightEvent() {
+    // Send weight event
+    String weightJson = getWeightJsonString();
+    events.send(weightJson.c_str(), "weight", millis());
+}
+

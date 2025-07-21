@@ -1,4 +1,3 @@
-// parameter-help-texts.ts
 export const parameterHelpTexts: Record<string, string> = {
   "pid.enabled": "Enables or disables the PID temperature controller",
   "pid.use_ponm":

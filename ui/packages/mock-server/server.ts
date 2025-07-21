@@ -494,6 +494,34 @@ app.get("/api/health", simulateAuth, (req: Request, res: Response): void => {
   res.json({});
 });
 
+// SSE endpoint for temperature and heater power
+app.get("/events", (req: Request, res: Response) => {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+
+  // Send initial hello event
+  res.write(`event: ping\ndata: hello\n\n`);
+
+  // Send temperature data every 2 seconds
+  const interval = setInterval(() => {
+    const variation = (Math.random() - 0.5) * 0.5;
+    mockState.currentTemp = Math.round((93.5 + variation) * 100) / 100;
+    mockState.heaterPower = Math.round((75 + Math.random() * 25) * 100) / 100;
+    const tempData = {
+      currentTemp: mockState.currentTemp,
+      targetTemp: mockState.targetTemp,
+      heaterPower: mockState.heaterPower,
+    };
+    res.write(`event: new_temps\ndata: ${JSON.stringify(tempData)}\n\n`);
+  }, 2000);
+
+  req.on("close", () => {
+    clearInterval(interval);
+    res.end();
+  });
+});
+
 // 404 handler for API routes
 app.use("/api/*path", (req: Request, res: Response): void => {
   console.log(`404 - API endpoint not found: ${req.method} ${req.path}`);

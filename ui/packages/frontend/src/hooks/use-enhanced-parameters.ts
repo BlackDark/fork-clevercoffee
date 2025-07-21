@@ -16,7 +16,7 @@ interface UseEnhancedParametersReturn {
   saveParameters: (
     changedParams?: Record<string, string | number | boolean>
   ) => Promise<boolean>;
-  refreshParameters: () => Promise<void>;
+  fetchParameters: () => Promise<void>;
   getParameter: (name: string) => CompleteParameter | undefined;
 }
 
@@ -122,7 +122,7 @@ export function useEnhancedParameters(
         });
         if (!response.ok)
           throw new Error(`HTTP error! status: ${response.status}`);
-        await ctx.refreshParameters();
+        await ctx.fetchParameters();
         return true;
       } catch {
         return false;
@@ -140,7 +140,7 @@ export function useEnhancedParameters(
     error: ctx.errorParams,
     updateParameter: ctx.updateParameter,
     saveParameters,
-    refreshParameters: ctx.refreshParameters,
+    fetchParameters: ctx.fetchParameters,
     getParameter: ctx.getParameter,
   };
 }

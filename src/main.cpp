@@ -1277,6 +1277,19 @@ void loopPid() {
 
     websiteUpdateRunning = false;
 
+    if (config.get<bool>("hardware.sensors.scale.enabled")) {
+        checkWeight();    // Check Weight Scale in the loop
+        shotTimerScale(); // Calculation of weight of shot while brew is running
+    }
+
+    if (config.get<bool>("hardware.sensors.pressure.enabled")) {
+        if (const unsigned long currentMillisPressure = millis(); currentMillisPressure - previousMillisPressure >= intervalPressure) {
+            previousMillisPressure = currentMillisPressure;
+            inputPressure = measurePressure();
+            inputPressureFilter = filterPressureValue(inputPressure);
+        }
+    }
+
     // refresh website if loop does not have anoth long running process already
     if (((millis() - lastTempEvent) > tempEventInterval) && (!mqttUpdateRunning && !hassioUpdateRunning && !displayBufferReady && !temperatureUpdateRunning)) {
         websiteUpdateRunning = true;
@@ -1284,6 +1297,10 @@ void loopPid() {
         // send temperatures to website endpoint
         if (WiFi.status() == WL_CONNECTED && !offlineMode) {
             sendTempEvent(temperature, brewSetpoint, pidOutput / 10); // pidOutput is promill, so /10 to get percent value
+
+            if (config.get<bool>("hardware.sensors.scale.enabled")) {
+                sendWeightEvent();
+            }
         }
 
         lastTempEvent = millis();
@@ -1309,19 +1326,6 @@ void loopPid() {
             LOGF(TRACE, "currBrewTime %f", currBrewTime);
             LOGF(TRACE, "Brew detected %i", checkBrewActive());
             LOGF(TRACE, "brewPidDisabled %i", brewPidDisabled);
-        }
-    }
-
-    if (config.get<bool>("hardware.sensors.scale.enabled")) {
-        checkWeight();    // Check Weight Scale in the loop
-        shotTimerScale(); // Calculation of weight of shot while brew is running
-    }
-
-    if (config.get<bool>("hardware.sensors.pressure.enabled")) {
-        if (const unsigned long currentMillisPressure = millis(); currentMillisPressure - previousMillisPressure >= intervalPressure) {
-            previousMillisPressure = currentMillisPressure;
-            inputPressure = measurePressure();
-            inputPressureFilter = filterPressureValue(inputPressure);
         }
     }
 

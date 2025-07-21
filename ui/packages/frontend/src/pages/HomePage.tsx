@@ -1,4 +1,4 @@
-import React, { useMemo, useEffect, useRef, Suspense, lazy } from "react";
+import React, { useMemo, useEffect, Suspense, lazy } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,12 +32,10 @@ const TemperatureChart = lazy(
 );
 const HeaterChart = lazy(() => import("@/components/charts/HeaterChart"));
 
-const POLL_INTERVAL_TEMPERATURE = 3000; // 3 seconds
-
 export function HomePage() {
   const {
     parameters,
-    currentTemperature,
+    currentTempData,
     loadingParams,
     isLoadingTemp,
     temperatureError,
@@ -62,28 +60,6 @@ export function HomePage() {
     }
   }, [fetchHistoryData]);
 
-  // Polling interval ref for temperature and chart data
-  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
-
-  // Fetch history on mount, then start polling
-  useEffect(() => {
-    (async () => {
-      if (pollingIntervalRef.current == null) {
-        // Start polling after history loads
-        pollingIntervalRef.current = setInterval(async () => {
-          await fetchTemperatureAndChartData();
-        }, POLL_INTERVAL_TEMPERATURE);
-        fetchTemperatureAndChartData();
-      }
-    })();
-    return () => {
-      if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current);
-        pollingIntervalRef.current = null;
-      }
-    };
-  }, [fetchTemperatureAndChartData, chartError]);
-
   // Memoized filtered parameters to avoid recalculating on every render
   const brewSetpointParam = useMemo(
     () => parameters.find((p) => p.name === "brew.setpoint"),
@@ -101,6 +77,13 @@ export function HomePage() {
   const scaleActionParams = useMemo(
     () =>
       parameters.filter((p) => ["TARE_ON", "CALIBRATION_ON"].includes(p.name)),
+    [parameters]
+  );
+
+  const scaleEnabled = useMemo(
+    () =>
+      parameters.find((p) => p.name === "hardware.sensors.scale.enabled")
+        ?.value === 1,
     [parameters]
   );
 
@@ -315,11 +298,11 @@ export function HomePage() {
                           : "Retry"}
                       </Button>
                     </div>
-                  ) : currentTemperature ? (
+                  ) : currentTempData ? (
                     <div className="space-y-1">
                       <div className="flex items-baseline gap-2">
                         <span className="text-3xl font-bold tracking-tight">
-                          {parseFloat(currentTemperature).toFixed(2)}
+                          {currentTempData.currentTemp.toFixed(2)}
                         </span>
                         <span className="text-xl text-muted-foreground">
                           °C
@@ -369,13 +352,46 @@ export function HomePage() {
                         <Skeleton className="h-2 w-12" />
                       </div>
                     </div>
-                  ) : heaterData.heaterPowerVals.length > 0 ? (
+                  ) : temperatureError ? (
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2">
+                        <AlertCircle className="h-5 w-5 text-destructive" />
+                        <div>
+                          <p className="font-semibold text-destructive">
+                            {temperatureError.includes("offline")
+                              ? "Sensor Offline"
+                              : temperatureError.includes("retrying")
+                              ? "Retrying..."
+                              : "Connection Failed"}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {temperatureError}
+                          </p>
+                        </div>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleTemperatureRetry}
+                        disabled={temperatureError.includes("retrying")}
+                      >
+                        <RefreshCw
+                          className={`h-4 w-4 mr-2 ${
+                            temperatureError.includes("retrying")
+                              ? "animate-spin"
+                              : ""
+                          }`}
+                        />
+                        {temperatureError.includes("retrying")
+                          ? "Retrying..."
+                          : "Retry"}
+                      </Button>
+                    </div>
+                  ) : currentTempData ? (
                     <div className="space-y-1">
                       <div className="flex items-baseline gap-2">
                         <span className="text-3xl font-bold tracking-tight">
-                          {heaterData.heaterPowerVals[
-                            heaterData.heaterPowerVals.length - 1
-                          ]?.toFixed(1) || "0.0"}
+                          {currentTempData.heaterPower.toFixed(2) || "0.00"}
                         </span>
                         <span className="text-xl text-muted-foreground">%</span>
                       </div>
@@ -530,7 +546,7 @@ export function HomePage() {
                 </div>
 
                 {/* Scale Operations */}
-                {scaleActionParams.length > 0 && (
+                {scaleEnabled && scaleActionParams.length > 0 && (
                   <div className="space-y-3">
                     <div className="flex items-center gap-2 pt-4 border-t">
                       <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-500/10">

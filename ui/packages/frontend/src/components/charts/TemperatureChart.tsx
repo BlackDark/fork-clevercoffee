@@ -89,7 +89,6 @@ export function TemperatureChart({
     const isZoomed =
       Math.abs(xScale.min - dataStart) > tolerance ||
       Math.abs(xScale.max - dataEnd) > tolerance;
-
     return isZoomed;
   }, []);
 
@@ -133,10 +132,6 @@ export function TemperatureChart({
 
         // Update data length tracking
         lastDataLength.current = newData[0].length;
-
-        // Update zoom state
-        const currentlyZoomed = checkZoomState(plot);
-        setIsZoomed(currentlyZoomed);
       } catch (error) {
         console.error("Error updating plot data:", error);
         onError?.(error instanceof Error ? error : new Error(String(error)));

@@ -3,9 +3,13 @@
  * Handles API base URL configuration based on environment variables
  */
 
+export const SERVER_BASE_URL = import.meta.env.VITE_SERVER_ENDPOINT || "";
+
 // Get the API base URL from environment
 // If not set, use relative URLs (same host as the UI)
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
+export const API_BASE_URL = `${SERVER_BASE_URL}${
+  import.meta.env.VITE_API_PATH || ""
+}`;
 
 // Check if we're in mock mode
 export const isMockMode = import.meta.env.VITE_MOCK_MODE === "true";

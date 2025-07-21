@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useMemo } from "react";
-import { apiFetch } from "@/lib/api-config";
+import { apiFetch, SERVER_BASE_URL } from "@/lib/api-config";
 import type { Parameter } from "../lib/parameter-types";
 import { groupParametersBySection } from "../lib/parameter-utils";
 import { ensureCompleteParameters } from "@/lib/parameter-metadata";
@@ -14,7 +14,7 @@ interface CleverCoffeeContextValue {
   errorParams: string | null;
   updateParameter: (name: string, value: string | number | boolean) => void;
   saveParameters: () => Promise<boolean>;
-  refreshParameters: () => Promise<void>;
+  fetchParameters: (refresh?: boolean) => Promise<void>;
   getParameter: (name: string) => Parameter | undefined;
 
   // Chart
@@ -38,7 +38,7 @@ interface CleverCoffeeContextValue {
   checkHealth: () => Promise<boolean>;
 
   // Temperature
-  currentTemperature: string | null;
+  currentTempData: TemperatureData | null;
   isLoadingTemp: boolean;
   temperatureError: string | null;
   fetchTemperatureAndChartData: (showLoading?: boolean) => Promise<boolean>;
@@ -80,9 +80,8 @@ export const CleverCoffeeProvider: React.FC<{ children: React.ReactNode }> = ({
   const [connectionError, setConnectionError] = useState<string | null>(null);
 
   // Temperature
-  const [currentTemperature, setCurrentTemperature] = useState<string | null>(
-    null
-  );
+  const [currentTempData, setCurrentTempData] =
+    useState<TemperatureData | null>(null);
   const [isLoadingTemp, setIsLoadingTemp] = useState(true);
   const [temperatureError, setTemperatureError] = useState<string | null>(null);
 
@@ -122,11 +121,14 @@ export const CleverCoffeeProvider: React.FC<{ children: React.ReactNode }> = ({
   }, []);
 
   // Fetch parameters from API
-  const fetchParameters = useCallback(async () => {
+  const fetchParameters = useCallback(async (refresh = true) => {
     try {
-      setLoadingParams(true);
-      setErrorParams(null);
-      const response = await apiFetch("/parameters");
+      if (refresh) {
+        setLoadingParams(true);
+        setErrorParams(null);
+      }
+
+      const response = await apiFetch("/parameters?filter=all");
       if (!response.ok)
         throw new Error(`HTTP error! status: ${response.status}`);
       const data = await response.json();
@@ -136,6 +138,7 @@ export const CleverCoffeeProvider: React.FC<{ children: React.ReactNode }> = ({
           a.name.localeCompare(b.name)
         )
       );
+      setErrorParams(null);
     } catch (err) {
       setErrorParams(
         err instanceof Error ? err.message : "Failed to fetch parameters"
@@ -226,11 +229,6 @@ export const CleverCoffeeProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   }, [parameters, fetchParameters]);
 
-  // Refresh parameters from backend
-  const refreshParameters = useCallback(async () => {
-    await fetchParameters();
-  }, [fetchParameters]);
-
   // Get a specific parameter by name
   const getParameter = useCallback(
     (name: string): Parameter | undefined => {
@@ -265,13 +263,13 @@ export const CleverCoffeeProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   }, []);
 
-  // Health polling
-  useEffect(() => {
-    const healthCheckInterval = setInterval(async () => {
-      await checkHealth();
-    }, 1000);
-    return () => clearInterval(healthCheckInterval);
-  }, [checkHealth]);
+  // // Health polling
+  // useEffect(() => {
+  //   const healthCheckInterval = setInterval(async () => {
+  //     await checkHealth();
+  //   }, 1000);
+  //   return () => clearInterval(healthCheckInterval);
+  // }, [checkHealth]);
 
   // Unified temperature and chart data fetching
   const fetchTemperatureAndChartData = useCallback(
@@ -286,37 +284,24 @@ export const CleverCoffeeProvider: React.FC<{ children: React.ReactNode }> = ({
         });
         if (!response.ok)
           throw new Error(`HTTP error! status: ${response.status}`);
-        const { currentTemp, heaterPower, targetTemp }: TemperatureData =
-          await response.json();
-        console.log(
-          "[fetchTemperatureAndChartData] liveData:",
-          currentTemp,
-          heaterPower,
-          targetTemp
-        );
+        const tempData: TemperatureData = await response.json();
 
-        if (currentTemp !== undefined) {
-          setCurrentTemperature(currentTemp.toString());
-          setTemperatureError(null);
-          setIsLoadingTemp(false);
-        }
+        setCurrentTempData(tempData);
+        setTemperatureError(null);
+        setIsLoadingTemp(false);
 
         // Only append if history has loaded
         if (isHistoryLoaded) {
-          if (targetTemp != null && currentTemp != null) {
-            addTempData2({
-              currentTemp: currentTemp,
-              targetTemp: targetTemp,
-            });
-          }
+          addTempData2({
+            currentTemp: tempData.currentTemp,
+            targetTemp: tempData.targetTemp,
+          });
 
-          if (heaterPower !== undefined) {
-            addHeaterData2({ heaterPower: heaterPower });
-          }
+          addHeaterData2({ heaterPower: tempData.heaterPower });
         }
         return true;
       } catch (err) {
-        setCurrentTemperature(null);
+        setCurrentTempData(null);
         setTemperatureError("Temperature sensor offline");
         if (showLoading) {
           setIsLoadingTemp(false);
@@ -328,65 +313,133 @@ export const CleverCoffeeProvider: React.FC<{ children: React.ReactNode }> = ({
     [addTempData2, addHeaterData2, isHistoryLoaded]
   );
 
+  // Extracted SSE connect logic
+  const connectEventSource = useCallback(() => {
+    let events: EventSource | null = null;
+    let retryTimeout: NodeJS.Timeout | null = null;
+    const startEventSource = () => {
+      events = new EventSource(`${SERVER_BASE_URL}/events`); // ("http://test-silvia.lan/events");
+      events.onopen = () => {
+        setIsOnline(true);
+        setConnectionError(null);
+        setTemperatureError(null);
+        //console.log("[EventSource] Connection opened");
+      };
+
+      events.addEventListener("new_temps", (e) => {
+        try {
+          const tempData: TemperatureData = JSON.parse(e.data);
+          setCurrentTempData(tempData);
+          setTemperatureError(null);
+          setIsLoadingTemp(false);
+          if (isHistoryLoaded) {
+            addTempData2({
+              currentTemp: tempData.currentTemp,
+              targetTemp: tempData.targetTemp,
+            });
+
+            addHeaterData2({ heaterPower: tempData.heaterPower });
+          }
+        } catch (err: unknown) {
+          console.log("[EventSource] Error parsing temperature event:", err);
+          setTemperatureError("Failed to parse temperature event");
+          setCurrentTempData(null);
+        }
+      });
+
+      events.addEventListener("weight", (e) => {
+        try {
+          console.log(e.data);
+        } catch (err: unknown) {
+          console.log("[EventSource] Error parsing weight event:", err);
+        }
+      });
+
+      events.onerror = () => {
+        setConnectionError("Lost connection to event source");
+        setIsOnline(false);
+        setTemperatureError("Lost connection");
+        setCurrentTempData(null);
+        if (events) {
+          events.close();
+        }
+        // Retry after 3 seconds
+        retryTimeout = setTimeout(startEventSource, 3000);
+      };
+    };
+    startEventSource();
+    return () => {
+      if (events) events.close();
+      if (retryTimeout) clearTimeout(retryTimeout);
+    };
+  }, [isHistoryLoaded, addTempData2, addHeaterData2]);
+
+  // SSE events for temperature and heater power
+  useEffect(() => {
+    const cleanup = connectEventSource();
+    return cleanup;
+  }, [connectEventSource]);
+
   // Retry connection
   const retryConnection = useCallback(() => {
     setConnectionError(null);
     fetchTemperatureAndChartData(true);
     fetchParameters();
-  }, [fetchTemperatureAndChartData, fetchParameters]);
+    connectEventSource();
+  }, [fetchTemperatureAndChartData, fetchParameters, connectEventSource]);
 
   // Dedicated toggle functions
   const togglePid = useCallback(async () => {
     try {
       const response = await apiFetch("/pid", { method: "POST" });
       if (response.ok) {
-        await refreshParameters();
+        await fetchParameters(false);
         return true;
       }
       return false;
     } catch {
       return false;
     }
-  }, [refreshParameters]);
+  }, [fetchParameters]);
 
   const toggleSteam = useCallback(async () => {
     try {
       const response = await apiFetch("/steam", { method: "POST" });
       if (response.ok) {
-        await refreshParameters();
+        await fetchParameters(false);
         return true;
       }
       return false;
     } catch {
       return false;
     }
-  }, [refreshParameters]);
+  }, [fetchParameters]);
 
   const toggleBackflush = useCallback(async () => {
     try {
       const response = await apiFetch("/backflush", { method: "POST" });
       if (response.ok) {
-        await refreshParameters();
+        await fetchParameters(false);
         return true;
       }
       return false;
     } catch {
       return false;
     }
-  }, [refreshParameters]);
+  }, [fetchParameters]);
 
   const toggleTareScale = useCallback(async () => {
     try {
       const response = await apiFetch("/scale/tare", { method: "POST" });
       if (response.ok) {
-        await refreshParameters();
+        await fetchParameters(false);
         return true;
       }
       return false;
     } catch {
       return false;
     }
-  }, [refreshParameters]);
+  }, [fetchParameters]);
 
   const toggleScaleCalibration = useCallback(async () => {
     try {
@@ -394,14 +447,14 @@ export const CleverCoffeeProvider: React.FC<{ children: React.ReactNode }> = ({
         method: "POST",
       });
       if (response.ok) {
-        await refreshParameters();
+        await fetchParameters(false);
         return true;
       }
       return false;
     } catch {
       return false;
     }
-  }, [refreshParameters]);
+  }, [fetchParameters]);
 
   const value: CleverCoffeeContextValue = {
     parameters,
@@ -410,7 +463,7 @@ export const CleverCoffeeProvider: React.FC<{ children: React.ReactNode }> = ({
     errorParams,
     updateParameter,
     saveParameters,
-    refreshParameters,
+    fetchParameters,
     getParameter,
     tempData,
     heaterData,
@@ -421,7 +474,7 @@ export const CleverCoffeeProvider: React.FC<{ children: React.ReactNode }> = ({
     lastHealthCheck,
     connectionError,
     checkHealth,
-    currentTemperature,
+    currentTempData,
     isLoadingTemp,
     temperatureError,
     fetchTemperatureAndChartData,

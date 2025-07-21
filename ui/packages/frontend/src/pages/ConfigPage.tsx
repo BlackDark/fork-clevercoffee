@@ -80,7 +80,7 @@ export function ConfigPage() {
     error,
     updateParameter,
     saveParameters,
-    refreshParameters,
+    fetchParameters,
   } = useEnhancedParameters(filter);
 
   // On initial load, store original parameters
@@ -140,7 +140,7 @@ export function ConfigPage() {
         toast.success("Parameters saved successfully", {
           description: `Saved ${pendingChanges.length} changed parameters. Settings will take effect after restart.`,
         });
-        await refreshParameters();
+        await fetchParameters();
         setOriginalParameters(parameters.map((p) => ({ ...p })));
       } else {
         toast.error("Failed to save parameters", {
@@ -182,7 +182,7 @@ export function ConfigPage() {
           Please check your connection and try again.
         </p>
         <Button
-          onClick={() => refreshParameters()}
+          onClick={() => fetchParameters()}
           variant="destructive"
           size="lg"
         >
@@ -201,7 +201,7 @@ export function ConfigPage() {
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
             {error}
-            <Button onClick={() => refreshParameters()} className="ml-4">
+            <Button onClick={() => fetchParameters()} className="ml-4">
               <RefreshCw className="mr-2 h-4 w-4" />
               Retry
             </Button>
@@ -235,7 +235,7 @@ export function ConfigPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => refreshParameters()}
+            onClick={() => fetchParameters()}
             disabled={loading}
             className="ml-2"
           >
