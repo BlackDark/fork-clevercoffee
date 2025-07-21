@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { useState } from "react";
 import { Menu, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { basePathWithoutTrailingSlash } from "@/lib/config";
 
 export function Layout() {
   const location = useLocation();
@@ -35,7 +36,11 @@ export function Layout() {
             to="/"
             className="flex items-center gap-2 text-lg font-semibold md:text-base"
           >
-            <img src="/logo.png" className="h-6 w-6" alt="Logo" />
+            <img
+              src={`${basePathWithoutTrailingSlash}/logo.png`}
+              className="h-6 w-6"
+              alt="Logo"
+            />
             <span className="sr-only">CleverCoffee</span>
           </Link>
           {navigationItems.map((item) => (

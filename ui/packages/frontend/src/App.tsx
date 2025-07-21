@@ -7,10 +7,7 @@ import { AboutPage } from "./pages/AboutPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
 import { Toaster } from "./components/ui/sonner";
 import { ErrorBoundary } from "./components/ErrorBoundary";
-
-// Get base path from environment variable or use Vite's base
-const basePath =
-  import.meta.env.VITE_BASE_PATH || import.meta.env.BASE_URL || "/";
+import { basePath } from "@/lib/config";
 
 function App() {
   return (

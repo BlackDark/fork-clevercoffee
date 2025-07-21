@@ -5,25 +5,6 @@
     <link rel="icon" type="image/svg+xml" href="/logo.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>CleverCoffee</title>
-    <script>
-      // Prevent flash of unstyled content (FOUC) and set initial theme
-      (function () {
-        const storageKey = "vite-ui-theme";
-        const theme = localStorage.getItem(storageKey) || "dark";
-        const isSystem = theme === "system";
-        const systemTheme = window.matchMedia("(prefers-color-scheme: dark)")
-          .matches
-          ? "dark"
-          : "light";
-        const resolvedTheme = isSystem ? systemTheme : theme;
-
-        if (resolvedTheme === "dark") {
-          document.documentElement.classList.add("dark");
-        } else {
-          document.documentElement.classList.remove("dark");
-        }
-      })();
-    </script>
   </head>
   <body>
     <div id="root"></div>
