@@ -30,12 +30,12 @@ inline double tTemp = 0.0;
 inline double hPower = 0.0;
 
 extern float currReadingWeight; // defined in brewHandler.h
-extern float currBrewWeight; // defined in brewHandler.h
-extern double temperature; // defined in main.cpp
-extern double brewSetpoint; // defined in main.cpp
-extern double pidOutput; // defined in main.cpp, needs to be divided by 10 for display
+extern float currBrewWeight;    // defined in brewHandler.h
+extern double temperature;      // defined in main.cpp
+extern double brewSetpoint;     // defined in main.cpp
+extern double pidOutput;        // defined in main.cpp, needs to be divided by 10 for display
 
-#define HISTORY_LENGTH 600 // 30 mins of values (20 vals/min * 60 min) = 600 (7,2kb)
+#define HISTORY_LENGTH 600      // 30 mins of values (20 vals/min * 60 min) = 600 (7,2kb)
 
 static float tempHistory[3][HISTORY_LENGTH] = {};
 inline int historyCurrentIndex = 0;
@@ -72,7 +72,6 @@ inline bool authenticate(AsyncWebServerRequest* request) {
 inline uint8_t flipUintValue(const uint8_t value) {
     return (value + 3) % 2;
 }
-
 
 // proper modulo function (% is remainder, so will return negatives)
 inline int mod(const int a, const int b) {
@@ -743,4 +742,3 @@ inline void sendWeightEvent() {
     String weightJson = getWeightJsonString();
     events.send(weightJson.c_str(), "weight", millis());
 }
-
