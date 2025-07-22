@@ -23,8 +23,5 @@ export * from "./parameter-labels";
 // General utilities
 export { cn } from "./utils";
 
-// Button styling variants
-export { buttonVariants } from "./button-variants";
-
 // === API Configuration ===
 export * from "./api-config";
