@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,7 +23,6 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { toast } from "sonner";
-import { useEnhancedParameters } from "@/hooks/use-enhanced-parameters";
 import {
   ParameterTypes,
   isParameterBoolean,
@@ -55,7 +54,9 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import type { Parameter } from "@/lib/parameter-types";
+import type { Parameter, UpdateParameter } from "@/lib/parameter-types";
+import { useCleverCoffee } from "@/context/useCleverCoffee";
+import { groups2, mappedParameterGroups } from "@/lib";
 
 export function ConfigPage() {
   const { filter } = useParams<{ filter: string }>();
@@ -70,18 +71,14 @@ export function ConfigPage() {
     }[]
   >([]);
   const [saving, setSaving] = useState(false);
-
-  // Use the enhanced clever coffee hook
   const {
     parameters,
-    visibleParameters,
-    groupedParameters,
-    loading,
-    error,
     updateParameter,
     saveParameters,
+    loadingParams,
     fetchParameters,
-  } = useEnhancedParameters(filter);
+    errorParams,
+  } = useCleverCoffee();
 
   // On initial load, store original parameters
   useEffect(() => {
@@ -89,6 +86,37 @@ export function ConfigPage() {
       setOriginalParameters(parameters.map((p) => ({ ...p })));
     }
   }, [parameters, originalParameters.length]);
+
+  useEffect(() => {}, []);
+
+  const groupedParameters = useMemo(() => {
+    if (!filter) {
+      return {};
+    }
+
+    return groups2[filter].reduce<Record<string, Parameter[]>>(
+      (prev, section) => {
+        const tmp: Parameter[] = [];
+
+        const group = mappedParameterGroups.get(section);
+
+        if (!group) {
+          return prev; // Skip if no group found
+        }
+
+        group.parameters.forEach((paramName) => {
+          const param = parameters.find((p) => p.name === paramName);
+          if (param) {
+            tmp.push(param);
+          }
+        });
+
+        prev[group.label] = tmp;
+        return prev;
+      },
+      {}
+    );
+  }, [parameters, filter]);
 
   // Compute changed parameters
   const getChangedParameters = () => {
@@ -127,9 +155,12 @@ export function ConfigPage() {
   const handleConfirmSave = async () => {
     setSaving(true);
     // Collect changed parameters as a map
-    const changedParams: Record<string, string | number | boolean> = {};
+    const changedParams: UpdateParameter[] = [];
     pendingChanges.forEach((change) => {
-      changedParams[change.name] = change.newValue;
+      changedParams.push({
+        name: change.name,
+        value: change.newValue,
+      });
     });
     // Pass map to saveParameters
     try {
@@ -156,7 +187,7 @@ export function ConfigPage() {
     }
   };
 
-  if (loading && !parameters.length) {
+  if (loadingParams && !parameters.length) {
     return (
       <div className="flex flex-col items-center justify-center h-[60vh]">
         <div className="flex flex-col items-center gap-4">
@@ -169,7 +200,7 @@ export function ConfigPage() {
     );
   }
 
-  if (error) {
+  if (errorParams) {
     return (
       <div className="flex flex-col items-center gap-6 p-8 rounded-xl border border-destructive/40 bg-destructive/10 shadow-lg">
         <AlertCircle className="h-10 w-10 text-destructive mb-2" />
@@ -196,11 +227,11 @@ export function ConfigPage() {
   return (
     <div className="container mx-auto p-6 space-y-6 max-w-7xl">
       {/* Connection Error Alert */}
-      {error && (
+      {errorParams && (
         <Alert className="border-destructive/50 text-destructive dark:border-destructive [&>svg]:text-destructive">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
-            {error}
+            {errorParams}
             <Button onClick={() => fetchParameters()} className="ml-4">
               <RefreshCw className="mr-2 h-4 w-4" />
               Retry
@@ -217,7 +248,7 @@ export function ConfigPage() {
             type="button"
             variant="secondary"
             size="sm"
-            disabled={loading || parameters.length === 0}
+            disabled={loadingParams || parameters.length === 0}
             onClick={() => {
               // Reset all parameters to their original values
               originalParameters.forEach((orig) => {
@@ -236,10 +267,10 @@ export function ConfigPage() {
             variant="outline"
             size="sm"
             onClick={() => fetchParameters()}
-            disabled={loading}
+            disabled={loadingParams}
             className="ml-2"
           >
-            {loading ? (
+            {loadingParams ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
               <RefreshCw className="mr-2 h-4 w-4" />
@@ -250,7 +281,7 @@ export function ConfigPage() {
       </div>
 
       {/* Hardware Warning */}
-      {filter === "hardware" && !loading && (
+      {filter === "hardware" && !loadingParams && (
         <Alert variant="destructive">
           <TriangleAlert className="h-4 w-4" />
           <AlertTitle>Hardware Configuration Warning</AlertTitle>
@@ -328,13 +359,10 @@ export function ConfigPage() {
                     {sectionParams.map((param) => {
                       const isDisabled = !areRequiredParametersMet(
                         param,
-                        visibleParameters
+                        parameters
                       );
                       const disabledHint = isDisabled
-                        ? getMissingRequiredParametersMessage(
-                            param,
-                            visibleParameters
-                          )
+                        ? getMissingRequiredParametersMessage(param, parameters)
                         : undefined;
 
                       return (
@@ -570,16 +598,16 @@ export function ConfigPage() {
                 </div>
                 <Button
                   type="submit"
-                  disabled={loading}
+                  disabled={loadingParams}
                   size="lg"
                   className={`min-w-[140px]`}
                 >
-                  {loading ? (
+                  {loadingParams ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   ) : (
                     <Save className="mr-2 h-4 w-4" />
                   )}
-                  {loading ? "Saving..." : "Save Parameters"}
+                  {loadingParams ? "Saving..." : "Save Parameters"}
                 </Button>
               </div>
             </CardContent>

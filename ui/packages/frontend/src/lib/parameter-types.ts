@@ -29,8 +29,10 @@ export interface ServerParameter {
 }
 
 // UI parameter metadata - everything needed for display
-export interface ParameterMetadata {
+
+export interface ParameterTemplate {
   type: ParameterType;
+  name: string;
   min: number;
   max: number;
   defaultValue: string | number | boolean;
@@ -38,37 +40,30 @@ export interface ParameterMetadata {
   requiredParameters?: Record<string, string | number | boolean>;
 }
 
-// Complete parameter for UI use (server data + metadata)
-export interface Parameter extends ServerParameter {
-  requiredParameters?: Record<string, string | number | boolean>;
+export interface Parameter extends ParameterTemplate {
+  value: string | number | boolean;
 }
+
+export type UpdateParameter = Pick<Parameter, "name" | "value">;
 
 /**
  * Helper functions for parameter types
  */
-export const isParameterBoolean = (
-  param: Parameter | ParameterMetadata
-): boolean => {
+export const isParameterBoolean = (param: Parameter): boolean => {
   return (
     param.type === ParameterTypes.UINT8 && param.min === 0 && param.max === 1
   );
 };
 
-export const isParameterEnum = (
-  param: Parameter | ParameterMetadata
-): boolean => {
+export const isParameterEnum = (param: Parameter): boolean => {
   return param.type === ParameterTypes.ENUM && !!param.options;
 };
 
-export const isParameterString = (
-  param: Parameter | ParameterMetadata
-): boolean => {
+export const isParameterString = (param: Parameter): boolean => {
   return param.type === ParameterTypes.STRING;
 };
 
-export const isParameterNumeric = (
-  param: Parameter | ParameterMetadata
-): boolean => {
+export const isParameterNumeric = (param: Parameter): boolean => {
   return (
     [
       ParameterTypes.INTEGER,

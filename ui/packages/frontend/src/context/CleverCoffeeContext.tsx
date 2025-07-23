@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect, useMemo } from "react";
 import { apiFetch, SERVER_BASE_URL } from "@/lib/api-config";
-import type { Parameter } from "../lib/parameter-types";
+import type { Parameter, UpdateParameter } from "../lib/parameter-types";
 import { groupParametersBySection } from "../lib/parameter-utils";
 import { ensureCompleteParameters } from "@/lib/parameter-metadata";
 import type { HistoryData, TemperatureData } from "@/types/api";
@@ -13,7 +13,7 @@ interface CleverCoffeeContextValue {
   loadingParams: boolean;
   errorParams: string | null;
   updateParameter: (name: string, value: string | number | boolean) => void;
-  saveParameters: () => Promise<boolean>;
+  saveParameters: (updateParamaters?: UpdateParameter[]) => Promise<boolean>;
   fetchParameters: (refresh?: boolean) => Promise<void>;
   getParameter: (name: string) => Parameter | undefined;
 
@@ -205,29 +205,43 @@ export const CleverCoffeeProvider: React.FC<{ children: React.ReactNode }> = ({
   );
 
   // Save parameters to backend
-  const saveParameters = useCallback(async (): Promise<boolean> => {
-    try {
-      setErrorParams(null);
-      const formData = new URLSearchParams();
-      parameters.forEach((param) => {
-        formData.append(param.name, String(param.value));
-      });
-      const response = await apiFetch("/parameters", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: formData.toString(),
-      });
-      if (!response.ok)
-        throw new Error(`HTTP error! status: ${response.status}`);
-      await fetchParameters();
-      return true;
-    } catch (err) {
-      setErrorParams(
-        err instanceof Error ? err.message : "Failed to save parameters"
-      );
-      return false;
-    }
-  }, [parameters, fetchParameters]);
+  const saveParameters = useCallback(
+    async (changedParams?: UpdateParameter[]): Promise<boolean> => {
+      try {
+        setErrorParams(null);
+        const formData = new URLSearchParams();
+
+        if (changedParams != null) {
+          if (changedParams.length > 0) {
+            changedParams.forEach((param) => {
+              formData.append(param.name, String(param.value));
+            });
+          } else {
+            return true; // No changes to save
+          }
+        } else {
+          parameters.forEach((param) => {
+            formData.append(param.name, String(param.value));
+          });
+        }
+        const response = await apiFetch("/parameters", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: formData.toString(),
+        });
+        if (!response.ok)
+          throw new Error(`HTTP error! status: ${response.status}`);
+        await fetchParameters();
+        return true;
+      } catch (err) {
+        setErrorParams(
+          err instanceof Error ? err.message : "Failed to save parameters"
+        );
+        return false;
+      }
+    },
+    [parameters, fetchParameters]
+  );
 
   // Get a specific parameter by name
   const getParameter = useCallback(

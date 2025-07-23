@@ -2,1074 +2,871 @@
 // This replaces the old array-based parameter definitions
 
 import type {
-  ParameterMetadata,
   ServerParameter,
   Parameter,
+  ParameterTemplate,
 } from "./parameter-types";
 import { ParameterTypes } from "./parameter-types";
 
 // Core parameter metadata - everything needed for UI display and validation
-export const parameterMetadata = new Map<string, ParameterMetadata>([
-  // PID Parameters
-  [
-    "pid.enabled",
-    {
-      type: ParameterTypes.UINT8,
-      min: 0,
-      max: 1,
-      defaultValue: 0,
-    },
-  ],
-  [
-    "pid.use_ponm",
-    {
-      type: ParameterTypes.UINT8,
-      min: 0,
-      max: 1,
-      defaultValue: 0,
-    },
-  ],
-  [
-    "pid.ema_factor",
-    {
-      type: ParameterTypes.DOUBLE,
-      min: 0,
-      max: 1,
-      defaultValue: 0.6,
-    },
-  ],
-  [
-    "pid.regular.kp",
-    {
-      type: ParameterTypes.DOUBLE,
-      min: 0,
-      max: 999,
-      defaultValue: 50,
-    },
-  ],
-  [
-    "pid.regular.tn",
-    {
-      type: ParameterTypes.DOUBLE,
-      min: 0,
-      max: 999,
-      defaultValue: 2,
-    },
-  ],
-  [
-    "pid.regular.tv",
-    {
-      type: ParameterTypes.DOUBLE,
-      min: 0,
-      max: 999,
-      defaultValue: 0.1,
-    },
-  ],
-  [
-    "pid.regular.i_max",
-    {
-      type: ParameterTypes.DOUBLE,
-      min: 0,
-      max: 999,
-      defaultValue: 192,
-    },
-  ],
-  [
-    "pid.steam.kp",
-    {
-      type: ParameterTypes.DOUBLE,
-      min: 0,
-      max: 999,
-      defaultValue: 150,
-    },
-  ],
+export const defaultParametersList: Array<ParameterTemplate> = [
+  {
+    name: "pid.enabled",
+    type: ParameterTypes.UINT8,
+    min: 0,
+    max: 1,
+    defaultValue: 0,
+  },
+  {
+    name: "pid.use_ponm",
+    type: ParameterTypes.UINT8,
+    min: 0,
+    max: 1,
+    defaultValue: 0,
+  },
+  {
+    name: "pid.ema_factor",
+    type: ParameterTypes.DOUBLE,
+    min: 0,
+    max: 1,
+    defaultValue: 0.6,
+  },
+  {
+    name: "pid.regular.kp",
+    type: ParameterTypes.DOUBLE,
+    min: 0,
+    max: 999,
+    defaultValue: 50,
+  },
+  {
+    name: "pid.regular.tn",
+    type: ParameterTypes.DOUBLE,
+    min: 0,
+    max: 999,
+    defaultValue: 2,
+  },
+  {
+    name: "pid.regular.tv",
+    type: ParameterTypes.DOUBLE,
+    min: 0,
+    max: 999,
+    defaultValue: 0.1,
+  },
+  {
+    name: "pid.regular.i_max",
+    type: ParameterTypes.DOUBLE,
+    min: 0,
+    max: 999,
+    defaultValue: 192,
+  },
+  {
+    name: "pid.steam.kp",
+    type: ParameterTypes.DOUBLE,
+    min: 0,
+    max: 999,
+    defaultValue: 150,
+  },
 
   // Temperature Control
-  [
-    "TEMP",
-    {
-      type: ParameterTypes.DOUBLE,
-      min: -50,
-      max: 200,
-      defaultValue: 0,
-    },
-  ],
-  [
-    "brew.setpoint",
-    {
-      type: ParameterTypes.DOUBLE,
-      min: 20,
-      max: 110,
-      defaultValue: 95,
-    },
-  ],
-  [
-    "brew.temp_offset",
-    {
-      type: ParameterTypes.DOUBLE,
-      min: -25,
-      max: 25,
-      defaultValue: 0,
-    },
-  ],
-  [
-    "steam.setpoint",
-    {
-      type: ParameterTypes.DOUBLE,
-      min: 100,
-      max: 170,
-      defaultValue: 135,
-    },
-  ],
+  {
+    name: "TEMP",
+    type: ParameterTypes.DOUBLE,
+    min: -50,
+    max: 200,
+    defaultValue: 0,
+  },
+  {
+    name: "brew.setpoint",
+    type: ParameterTypes.DOUBLE,
+    min: 20,
+    max: 110,
+    defaultValue: 95,
+  },
+  {
+    name: "brew.temp_offset",
+    type: ParameterTypes.DOUBLE,
+    min: -25,
+    max: 25,
+    defaultValue: 0,
+  },
+  {
+    name: "steam.setpoint",
+    type: ParameterTypes.DOUBLE,
+    min: 100,
+    max: 170,
+    defaultValue: 135,
+  },
 
   // Brew PID Parameters
-  [
-    "pid.bd.enabled",
-    {
-      type: ParameterTypes.UINT8,
-      min: 0,
-      max: 1,
-      defaultValue: 0,
-      requiredParameters: { "pid.enabled": 1 },
-    },
-  ],
-  [
-    "brew.pid_delay",
-    {
-      type: ParameterTypes.DOUBLE,
-      min: 0,
-      max: 999,
-      defaultValue: 10,
-      requiredParameters: { "pid.bd.enabled": 1 },
-    },
-  ],
-  [
-    "pid.bd.kp",
-    {
-      type: ParameterTypes.DOUBLE,
-      min: 0,
-      max: 999,
-      defaultValue: 0,
-      requiredParameters: { "pid.bd.enabled": 1 },
-    },
-  ],
-  [
-    "pid.bd.tn",
-    {
-      type: ParameterTypes.DOUBLE,
-      min: 0,
-      max: 999,
-      defaultValue: 0,
-      requiredParameters: { "pid.bd.enabled": 1 },
-    },
-  ],
-  [
-    "pid.bd.tv",
-    {
-      type: ParameterTypes.DOUBLE,
-      min: 0,
-      max: 999,
-      defaultValue: 0,
-      requiredParameters: { "pid.bd.enabled": 1 },
-    },
-  ],
+  {
+    name: "pid.bd.enabled",
+    type: ParameterTypes.UINT8,
+    min: 0,
+    max: 1,
+    defaultValue: 0,
+    requiredParameters: { "pid.enabled": 1 },
+  },
+  {
+    name: "brew.pid_delay",
+    type: ParameterTypes.DOUBLE,
+    min: 0,
+    max: 999,
+    defaultValue: 10,
+    requiredParameters: { "pid.bd.enabled": 1 },
+  },
+  {
+    name: "pid.bd.kp",
+    type: ParameterTypes.DOUBLE,
+    min: 0,
+    max: 999,
+    defaultValue: 0,
+    requiredParameters: { "pid.bd.enabled": 1 },
+  },
+  {
+    name: "pid.bd.tn",
+    type: ParameterTypes.DOUBLE,
+    min: 0,
+    max: 999,
+    defaultValue: 0,
+    requiredParameters: { "pid.bd.enabled": 1 },
+  },
+  {
+    name: "pid.bd.tv",
+    type: ParameterTypes.DOUBLE,
+    min: 0,
+    max: 999,
+    defaultValue: 0,
+    requiredParameters: { "pid.bd.enabled": 1 },
+  },
 
   // Brew Control
-  [
-    "brew.mode",
-    {
-      type: ParameterTypes.ENUM,
-      min: 0,
-      max: 1,
-      defaultValue: 0,
-      options: [
-        { value: 0, label: "Manual" },
-        { value: 1, label: "Automatic" },
-      ],
-      requiredParameters: { "hardware.switches.brew.enabled": 1 },
-    },
-  ],
-  [
-    "brew.by_time",
-    {
-      type: ParameterTypes.UINT8,
-      min: 0,
-      max: 1,
-      defaultValue: 0,
-      requiredParameters: { "brew.mode": 1 },
-    },
-  ],
-  [
-    "brew.target_time",
-    {
-      type: ParameterTypes.DOUBLE,
-      min: 0,
-      max: 999,
-      defaultValue: 25,
-      requiredParameters: { "brew.by_time": 1 },
-    },
-  ],
-  [
-    "brew.by_weight",
-    {
-      type: ParameterTypes.UINT8,
-      min: 0,
-      max: 1,
-      defaultValue: 0,
-      requiredParameters: { "brew.mode": 1 },
-    },
-  ],
-  [
-    "brew.target_weight",
-    {
-      type: ParameterTypes.DOUBLE,
-      min: 0,
-      max: 999,
-      defaultValue: 30,
-      requiredParameters: { "brew.by_weight": 1 },
-    },
-  ],
-  [
-    "brew.pre_infusion.enabled",
-    {
-      type: ParameterTypes.UINT8,
-      min: 0,
-      max: 1,
-      defaultValue: 0,
-      requiredParameters: { "brew.mode": 1 },
-    },
-  ],
-  [
-    "brew.pre_infusion.time",
-    {
-      type: ParameterTypes.DOUBLE,
-      min: 0,
-      max: 999,
-      defaultValue: 2,
-      requiredParameters: { "brew.pre_infusion.enabled": 1 },
-    },
-  ],
-  [
-    "brew.pre_infusion.pause",
-    {
-      type: ParameterTypes.DOUBLE,
-      min: 0,
-      max: 999,
-      defaultValue: 5,
-      requiredParameters: { "brew.pre_infusion.enabled": 1 },
-    },
-  ],
+  {
+    name: "brew.mode",
+    type: ParameterTypes.ENUM,
+    min: 0,
+    max: 1,
+    defaultValue: 0,
+    options: [
+      { value: 0, label: "Manual" },
+      { value: 1, label: "Automatic" },
+    ],
+    requiredParameters: { "hardware.switches.brew.enabled": 1 },
+  },
+  {
+    name: "brew.by_time",
+    type: ParameterTypes.UINT8,
+    min: 0,
+    max: 1,
+    defaultValue: 0,
+    requiredParameters: { "brew.mode": 1 },
+  },
+  {
+    name: "brew.target_time",
+    type: ParameterTypes.DOUBLE,
+    min: 0,
+    max: 999,
+    defaultValue: 25,
+    requiredParameters: { "brew.by_time": 1 },
+  },
+  {
+    name: "brew.by_weight",
+    type: ParameterTypes.UINT8,
+    min: 0,
+    max: 1,
+    defaultValue: 0,
+    requiredParameters: { "brew.mode": 1 },
+  },
+  {
+    name: "brew.target_weight",
+    type: ParameterTypes.DOUBLE,
+    min: 0,
+    max: 999,
+    defaultValue: 30,
+    requiredParameters: { "brew.by_weight": 1 },
+  },
+  {
+    name: "brew.pre_infusion.enabled",
+    type: ParameterTypes.UINT8,
+    min: 0,
+    max: 1,
+    defaultValue: 0,
+    requiredParameters: { "brew.mode": 1 },
+  },
+  {
+    name: "brew.pre_infusion.time",
+    type: ParameterTypes.DOUBLE,
+    min: 0,
+    max: 999,
+    defaultValue: 2,
+    requiredParameters: { "brew.pre_infusion.enabled": 1 },
+  },
+  {
+    name: "brew.pre_infusion.pause",
+    type: ParameterTypes.DOUBLE,
+    min: 0,
+    max: 999,
+    defaultValue: 5,
+    requiredParameters: { "brew.pre_infusion.enabled": 1 },
+  },
 
   // Maintenance Parameters
-  [
-    "backflush.cycles",
-    {
-      type: ParameterTypes.UINT8,
-      min: 1,
-      max: 20,
-      defaultValue: 5,
-    },
-  ],
-  [
-    "backflush.fill_time",
-    {
-      type: ParameterTypes.DOUBLE,
-      min: 0,
-      max: 60,
-      defaultValue: 3,
-    },
-  ],
-  [
-    "backflush.flush_time",
-    {
-      type: ParameterTypes.DOUBLE,
-      min: 0,
-      max: 60,
-      defaultValue: 6,
-    },
-  ],
+  {
+    name: "backflush.cycles",
+    type: ParameterTypes.UINT8,
+    min: 1,
+    max: 20,
+    defaultValue: 5,
+  },
+  {
+    name: "backflush.fill_time",
+    type: ParameterTypes.DOUBLE,
+    min: 0,
+    max: 60,
+    defaultValue: 3,
+  },
+  {
+    name: "backflush.flush_time",
+    type: ParameterTypes.DOUBLE,
+    min: 0,
+    max: 60,
+    defaultValue: 6,
+  },
 
   // Standby Parameters
-  [
-    "standby.enabled",
-    {
-      type: ParameterTypes.UINT8,
-      min: 0,
-      max: 1,
-      defaultValue: 0,
-    },
-  ],
-  [
-    "standby.time",
-    {
-      type: ParameterTypes.DOUBLE,
-      min: 0,
-      max: 999,
-      defaultValue: 60,
-      requiredParameters: { "standby.enabled": 1 },
-    },
-  ],
+  {
+    name: "standby.enabled",
+    type: ParameterTypes.UINT8,
+    min: 0,
+    max: 1,
+    defaultValue: 0,
+  },
+  {
+    name: "standby.time",
+    type: ParameterTypes.DOUBLE,
+    min: 0,
+    max: 999,
+    defaultValue: 60,
+    requiredParameters: { "standby.enabled": 1 },
+  },
 
   // Scale Parameters
-  [
-    "hardware.sensors.scale.enabled",
-    {
-      type: ParameterTypes.UINT8,
-      min: 0,
-      max: 1,
-      defaultValue: 0,
-    },
-  ],
-  [
-    "hardware.sensors.scale.type",
-    {
-      type: ParameterTypes.ENUM,
-      min: 0,
-      max: 1,
-      defaultValue: 0,
-      options: [
-        { value: 0, label: "2 load cells" },
-        { value: 1, label: "1 load cell" },
-      ],
-      requiredParameters: { "hardware.sensors.scale.enabled": 1 },
-    },
-  ],
-  [
-    "hardware.sensors.scale.samples",
-    {
-      type: ParameterTypes.UINT8,
-      min: 1,
-      max: 20,
-      defaultValue: 5,
-      requiredParameters: { "hardware.sensors.scale.enabled": 1 },
-    },
-  ],
-  [
-    "hardware.sensors.scale.known_weight",
-    {
-      type: ParameterTypes.DOUBLE,
-      min: 1,
-      max: 5000,
-      defaultValue: 200,
-      requiredParameters: { "hardware.sensors.scale.enabled": 1 },
-    },
-  ],
-  [
-    "hardware.sensors.scale.calibration",
-    {
-      type: ParameterTypes.DOUBLE,
-      min: -10000,
-      max: 10000,
-      defaultValue: 1,
-      requiredParameters: { "hardware.sensors.scale.enabled": 1 },
-    },
-  ],
-  [
-    "hardware.sensors.scale.calibration2",
-    {
-      type: ParameterTypes.DOUBLE,
-      min: -10000,
-      max: 10000,
-      defaultValue: 1,
-      requiredParameters: { "hardware.sensors.scale.enabled": 1 },
-    },
-  ],
+  {
+    name: "hardware.sensors.scale.enabled",
+    type: ParameterTypes.UINT8,
+    min: 0,
+    max: 1,
+    defaultValue: 0,
+  },
+  {
+    name: "hardware.sensors.scale.type",
+    type: ParameterTypes.ENUM,
+    min: 0,
+    max: 1,
+    defaultValue: 0,
+    options: [
+      { value: 0, label: "2 load cells" },
+      { value: 1, label: "1 load cell" },
+    ],
+    requiredParameters: { "hardware.sensors.scale.enabled": 1 },
+  },
+  {
+    name: "hardware.sensors.scale.samples",
+    type: ParameterTypes.UINT8,
+    min: 1,
+    max: 20,
+    defaultValue: 5,
+    requiredParameters: { "hardware.sensors.scale.enabled": 1 },
+  },
+  {
+    name: "hardware.sensors.scale.known_weight",
+    type: ParameterTypes.DOUBLE,
+    min: 1,
+    max: 5000,
+    defaultValue: 200,
+    requiredParameters: { "hardware.sensors.scale.enabled": 1 },
+  },
+  {
+    name: "hardware.sensors.scale.calibration",
+    type: ParameterTypes.DOUBLE,
+    min: -10000,
+    max: 10000,
+    defaultValue: 1,
+    requiredParameters: { "hardware.sensors.scale.enabled": 1 },
+  },
+  {
+    name: "hardware.sensors.scale.calibration2",
+    type: ParameterTypes.DOUBLE,
+    min: -10000,
+    max: 10000,
+    defaultValue: 1,
+    requiredParameters: { "hardware.sensors.scale.enabled": 1 },
+  },
 
   // MQTT Parameters
-  [
-    "mqtt.enabled",
-    {
-      type: ParameterTypes.UINT8,
-      min: 0,
-      max: 1,
-      defaultValue: 0,
-    },
-  ],
-  [
-    "mqtt.broker",
-    {
-      type: ParameterTypes.STRING,
-      min: 0,
-      max: 64,
-      defaultValue: "",
-      requiredParameters: { "mqtt.enabled": 1 },
-    },
-  ],
-  [
-    "mqtt.port",
-    {
-      type: ParameterTypes.INTEGER,
-      min: 1,
-      max: 65535,
-      defaultValue: 1883,
-      requiredParameters: { "mqtt.enabled": 1 },
-    },
-  ],
-  [
-    "mqtt.username",
-    {
-      type: ParameterTypes.STRING,
-      min: 0,
-      max: 32,
-      defaultValue: "",
-      requiredParameters: { "mqtt.enabled": 1 },
-    },
-  ],
-  [
-    "mqtt.password",
-    {
-      type: ParameterTypes.STRING,
-      min: 0,
-      max: 32,
-      defaultValue: "",
-      requiredParameters: { "mqtt.enabled": 1 },
-    },
-  ],
-  [
-    "mqtt.topic",
-    {
-      type: ParameterTypes.STRING,
-      min: 0,
-      max: 64,
-      defaultValue: "",
-      requiredParameters: { "mqtt.enabled": 1 },
-    },
-  ],
-  [
-    "mqtt.hassio.enabled",
-    {
-      type: ParameterTypes.UINT8,
-      min: 0,
-      max: 1,
-      defaultValue: 0,
-      requiredParameters: { "mqtt.enabled": 1 },
-    },
-  ],
-  [
-    "mqtt.hassio.prefix",
-    {
-      type: ParameterTypes.STRING,
-      min: 0,
-      max: 32,
-      defaultValue: "",
-      requiredParameters: { "mqtt.hassio.enabled": 1 },
-    },
-  ],
+  {
+    name: "mqtt.enabled",
+    type: ParameterTypes.UINT8,
+    min: 0,
+    max: 1,
+    defaultValue: 0,
+  },
+  {
+    name: "mqtt.broker",
+    type: ParameterTypes.STRING,
+    min: 0,
+    max: 64,
+    defaultValue: "",
+    requiredParameters: { "mqtt.enabled": 1 },
+  },
+  {
+    name: "mqtt.port",
+    type: ParameterTypes.INTEGER,
+    min: 1,
+    max: 65535,
+    defaultValue: 1883,
+    requiredParameters: { "mqtt.enabled": 1 },
+  },
+  {
+    name: "mqtt.username",
+    type: ParameterTypes.STRING,
+    min: 0,
+    max: 32,
+    defaultValue: "",
+    requiredParameters: { "mqtt.enabled": 1 },
+  },
+  {
+    name: "mqtt.password",
+    type: ParameterTypes.STRING,
+    min: 0,
+    max: 32,
+    defaultValue: "",
+    requiredParameters: { "mqtt.enabled": 1 },
+  },
+  {
+    name: "mqtt.topic",
+    type: ParameterTypes.STRING,
+    min: 0,
+    max: 64,
+    defaultValue: "",
+    requiredParameters: { "mqtt.enabled": 1 },
+  },
+  {
+    name: "mqtt.hassio.enabled",
+    type: ParameterTypes.UINT8,
+    min: 0,
+    max: 1,
+    defaultValue: 0,
+    requiredParameters: { "mqtt.enabled": 1 },
+  },
+  {
+    name: "mqtt.hassio.prefix",
+    type: ParameterTypes.STRING,
+    min: 0,
+    max: 32,
+    defaultValue: "",
+    requiredParameters: { "mqtt.hassio.enabled": 1 },
+  },
 
   // System Parameters
-  [
-    "system.hostname",
-    {
-      type: ParameterTypes.STRING,
-      min: 0,
-      max: 32,
-      defaultValue: "clevercoffee",
-    },
-  ],
-  [
-    "system.ota_password",
-    {
-      type: ParameterTypes.STRING,
-      min: 0,
-      max: 32,
-      defaultValue: "",
-    },
-  ],
-  [
-    "system.log_level",
-    {
-      type: ParameterTypes.ENUM,
-      min: 0,
-      max: 6,
-      defaultValue: 2,
-      options: [
-        { value: 0, label: "TRACE" },
-        { value: 1, label: "DEBUG" },
-        { value: 2, label: "INFO" },
-        { value: 3, label: "WARNING" },
-        { value: 4, label: "ERROR" },
-        { value: 5, label: "FATAL" },
-        { value: 6, label: "SILENT" },
-      ],
-    },
-  ],
-  [
-    "system.auth.enabled",
-    {
-      type: ParameterTypes.UINT8,
-      min: 0,
-      max: 1,
-      defaultValue: 0,
-    },
-  ],
-  [
-    "system.auth.username",
-    {
-      type: ParameterTypes.STRING,
-      min: 0,
-      max: 32,
-      defaultValue: "",
-      requiredParameters: { "system.auth.enabled": 1 },
-    },
-  ],
-  [
-    "system.auth.password",
-    {
-      type: ParameterTypes.STRING,
-      min: 0,
-      max: 32,
-      defaultValue: "",
-      requiredParameters: { "system.auth.enabled": 1 },
-    },
-  ],
-  [
-    "system.timing_debug.enabled",
-    {
-      type: ParameterTypes.UINT8,
-      min: 0,
-      max: 1,
-      defaultValue: 0,
-      requiredParameters: { "system.log_level": 1 },
-    },
-  ],
-  [
-    "system.showdisplay.enabled",
-    {
-      type: ParameterTypes.UINT8,
-      min: 0,
-      max: 1,
-      defaultValue: 0,
-      requiredParameters: { "system.log_level": 1 },
-    },
-  ],
+  {
+    name: "system.hostname",
+    type: ParameterTypes.STRING,
+    min: 0,
+    max: 32,
+    defaultValue: "clevercoffee",
+  },
+  {
+    name: "system.ota_password",
+    type: ParameterTypes.STRING,
+    min: 0,
+    max: 32,
+    defaultValue: "",
+  },
+  {
+    name: "system.log_level",
+    type: ParameterTypes.ENUM,
+    min: 0,
+    max: 6,
+    defaultValue: 2,
+    options: [
+      { value: 0, label: "TRACE" },
+      { value: 1, label: "DEBUG" },
+      { value: 2, label: "INFO" },
+      { value: 3, label: "WARNING" },
+      { value: 4, label: "ERROR" },
+      { value: 5, label: "FATAL" },
+      { value: 6, label: "SILENT" },
+    ],
+  },
+  {
+    name: "system.auth.enabled",
+    type: ParameterTypes.UINT8,
+    min: 0,
+    max: 1,
+    defaultValue: 0,
+  },
+  {
+    name: "system.auth.username",
+    type: ParameterTypes.STRING,
+    min: 0,
+    max: 32,
+    defaultValue: "",
+    requiredParameters: { "system.auth.enabled": 1 },
+  },
+  {
+    name: "system.auth.password",
+    type: ParameterTypes.STRING,
+    min: 0,
+    max: 32,
+    defaultValue: "",
+    requiredParameters: { "system.auth.enabled": 1 },
+  },
+  {
+    name: "system.timing_debug.enabled",
+    type: ParameterTypes.UINT8,
+    min: 0,
+    max: 1,
+    defaultValue: 0,
+    requiredParameters: { "system.log_level": 1 },
+  },
+  {
+    name: "system.showdisplay.enabled",
+    type: ParameterTypes.UINT8,
+    min: 0,
+    max: 1,
+    defaultValue: 0,
+    requiredParameters: { "system.log_level": 1 },
+  },
 
   // Hardware - OLED Parameters
-  [
-    "hardware.oled.enabled",
-    {
-      type: ParameterTypes.UINT8,
-      min: 0,
-      max: 1,
-      defaultValue: 1,
-    },
-  ],
-  [
-    "hardware.oled.type",
-    {
-      type: ParameterTypes.ENUM,
-      min: 0,
-      max: 1,
-      defaultValue: 0,
-      options: [
-        { value: 0, label: "SH1106" },
-        { value: 1, label: "SSD1306" },
-      ],
-      requiredParameters: { "hardware.oled.enabled": 1 },
-    },
-  ],
-  [
-    "hardware.oled.address",
-    {
-      type: ParameterTypes.ENUM,
-      min: 0,
-      max: 1,
-      defaultValue: 0,
-      options: [
-        { value: 0, label: "0x3C" },
-        { value: 1, label: "0x3D" },
-      ],
-      requiredParameters: { "hardware.oled.enabled": 1 },
-    },
-  ],
+  {
+    name: "hardware.oled.enabled",
+    type: ParameterTypes.UINT8,
+    min: 0,
+    max: 1,
+    defaultValue: 1,
+  },
+  {
+    name: "hardware.oled.type",
+    type: ParameterTypes.ENUM,
+    min: 0,
+    max: 1,
+    defaultValue: 0,
+    options: [
+      { value: 0, label: "SH1106" },
+      { value: 1, label: "SSD1306" },
+    ],
+    requiredParameters: { "hardware.oled.enabled": 1 },
+  },
+  {
+    name: "hardware.oled.address",
+    type: ParameterTypes.ENUM,
+    min: 0,
+    max: 1,
+    defaultValue: 0,
+    options: [
+      { value: 0, label: "0x3C" },
+      { value: 1, label: "0x3D" },
+    ],
+    requiredParameters: { "hardware.oled.enabled": 1 },
+  },
 
   // Hardware - Relay Parameters
-  [
-    "hardware.relays.heater.trigger_type",
-    {
-      type: ParameterTypes.ENUM,
-      min: 0,
-      max: 1,
-      defaultValue: 0,
-      options: [
-        { value: 0, label: "Low Trigger" },
-        { value: 1, label: "High Trigger" },
-      ],
-    },
-  ],
-  [
-    "hardware.relays.valve.trigger_type",
-    {
-      type: ParameterTypes.ENUM,
-      min: 0,
-      max: 1,
-      defaultValue: 0,
-      options: [
-        { value: 0, label: "Low Trigger" },
-        { value: 1, label: "High Trigger" },
-      ],
-    },
-  ],
-  [
-    "hardware.relays.pump.trigger_type",
-    {
-      type: ParameterTypes.ENUM,
-      min: 0,
-      max: 1,
-      defaultValue: 0,
-      options: [
-        { value: 0, label: "Low Trigger" },
-        { value: 1, label: "High Trigger" },
-      ],
-    },
-  ],
+  {
+    name: "hardware.relays.heater.trigger_type",
+    type: ParameterTypes.ENUM,
+    min: 0,
+    max: 1,
+    defaultValue: 0,
+    options: [
+      { value: 0, label: "Low Trigger" },
+      { value: 1, label: "High Trigger" },
+    ],
+  },
+  {
+    name: "hardware.relays.valve.trigger_type",
+    type: ParameterTypes.ENUM,
+    min: 0,
+    max: 1,
+    defaultValue: 0,
+    options: [
+      { value: 0, label: "Low Trigger" },
+      { value: 1, label: "High Trigger" },
+    ],
+  },
+  {
+    name: "hardware.relays.pump.trigger_type",
+    type: ParameterTypes.ENUM,
+    min: 0,
+    max: 1,
+    defaultValue: 0,
+    options: [
+      { value: 0, label: "Low Trigger" },
+      { value: 1, label: "High Trigger" },
+    ],
+  },
 
   // Hardware - Switch Parameters
-  [
-    "hardware.switches.brew.enabled",
-    {
-      type: ParameterTypes.UINT8,
-      min: 0,
-      max: 1,
-      defaultValue: 0,
-    },
-  ],
-  [
-    "hardware.switches.brew.type",
-    {
-      type: ParameterTypes.ENUM,
-      min: 0,
-      max: 1,
-      defaultValue: 0,
-      options: [
-        { value: 0, label: "Momentary" },
-        { value: 1, label: "Toggle" },
-      ],
-      requiredParameters: { "hardware.switches.brew.enabled": 1 },
-    },
-  ],
-  [
-    "hardware.switches.brew.mode",
-    {
-      type: ParameterTypes.ENUM,
-      min: 0,
-      max: 1,
-      defaultValue: 0,
-      options: [
-        { value: 0, label: "Normally Open" },
-        { value: 1, label: "Normally Closed" },
-      ],
-      requiredParameters: { "hardware.switches.brew.enabled": 1 },
-    },
-  ],
-  [
-    "hardware.switches.steam.enabled",
-    {
-      type: ParameterTypes.UINT8,
-      min: 0,
-      max: 1,
-      defaultValue: 0,
-    },
-  ],
-  [
-    "hardware.switches.steam.type",
-    {
-      type: ParameterTypes.ENUM,
-      min: 0,
-      max: 1,
-      defaultValue: 0,
-      options: [
-        { value: 0, label: "Momentary" },
-        { value: 1, label: "Toggle" },
-      ],
-      requiredParameters: { "hardware.switches.steam.enabled": 1 },
-    },
-  ],
-  [
-    "hardware.switches.steam.mode",
-    {
-      type: ParameterTypes.ENUM,
-      min: 0,
-      max: 1,
-      defaultValue: 0,
-      options: [
-        { value: 0, label: "Normally Open" },
-        { value: 1, label: "Normally Closed" },
-      ],
-      requiredParameters: { "hardware.switches.steam.enabled": 1 },
-    },
-  ],
-  [
-    "hardware.switches.power.enabled",
-    {
-      type: ParameterTypes.UINT8,
-      min: 0,
-      max: 1,
-      defaultValue: 0,
-    },
-  ],
-  [
-    "hardware.switches.power.type",
-    {
-      type: ParameterTypes.ENUM,
-      min: 0,
-      max: 1,
-      defaultValue: 0,
-      options: [
-        { value: 0, label: "Momentary" },
-        { value: 1, label: "Toggle" },
-      ],
-      requiredParameters: { "hardware.switches.power.enabled": 1 },
-    },
-  ],
-  [
-    "hardware.switches.power.mode",
-    {
-      type: ParameterTypes.ENUM,
-      min: 0,
-      max: 1,
-      defaultValue: 0,
-      options: [
-        { value: 0, label: "Normally Open" },
-        { value: 1, label: "Normally Closed" },
-      ],
-      requiredParameters: { "hardware.switches.power.enabled": 1 },
-    },
-  ],
-  [
-    "hardware.switches.hot_water.enabled",
-    {
-      type: ParameterTypes.UINT8,
-      min: 0,
-      max: 1,
-      defaultValue: 0,
-    },
-  ],
-  [
-    "hardware.switches.hot_water.type",
-    {
-      type: ParameterTypes.ENUM,
-      min: 0,
-      max: 1,
-      defaultValue: 0,
-      options: [
-        { value: 0, label: "Momentary" },
-        { value: 1, label: "Toggle" },
-      ],
-      requiredParameters: { "hardware.switches.hot_water.enabled": 1 },
-    },
-  ],
-  [
-    "hardware.switches.hot_water.mode",
-    {
-      type: ParameterTypes.ENUM,
-      min: 0,
-      max: 1,
-      defaultValue: 0,
-      options: [
-        { value: 0, label: "Normally Open" },
-        { value: 1, label: "Normally Closed" },
-      ],
-      requiredParameters: { "hardware.switches.hot_water.enabled": 1 },
-    },
-  ],
+  {
+    name: "hardware.switches.brew.enabled",
+    type: ParameterTypes.UINT8,
+    min: 0,
+    max: 1,
+    defaultValue: 0,
+  },
+  {
+    name: "hardware.switches.brew.type",
+    type: ParameterTypes.ENUM,
+    min: 0,
+    max: 1,
+    defaultValue: 0,
+    options: [
+      { value: 0, label: "Momentary" },
+      { value: 1, label: "Toggle" },
+    ],
+    requiredParameters: { "hardware.switches.brew.enabled": 1 },
+  },
+  {
+    name: "hardware.switches.brew.mode",
+    type: ParameterTypes.ENUM,
+    min: 0,
+    max: 1,
+    defaultValue: 0,
+    options: [
+      { value: 0, label: "Normally Open" },
+      { value: 1, label: "Normally Closed" },
+    ],
+    requiredParameters: { "hardware.switches.brew.enabled": 1 },
+  },
+  {
+    name: "hardware.switches.steam.enabled",
+    type: ParameterTypes.UINT8,
+    min: 0,
+    max: 1,
+    defaultValue: 0,
+  },
+  {
+    name: "hardware.switches.steam.type",
+    type: ParameterTypes.ENUM,
+    min: 0,
+    max: 1,
+    defaultValue: 0,
+    options: [
+      { value: 0, label: "Momentary" },
+      { value: 1, label: "Toggle" },
+    ],
+    requiredParameters: { "hardware.switches.steam.enabled": 1 },
+  },
+  {
+    name: "hardware.switches.steam.mode",
+    type: ParameterTypes.ENUM,
+    min: 0,
+    max: 1,
+    defaultValue: 0,
+    options: [
+      { value: 0, label: "Normally Open" },
+      { value: 1, label: "Normally Closed" },
+    ],
+    requiredParameters: { "hardware.switches.steam.enabled": 1 },
+  },
+  {
+    name: "hardware.switches.power.enabled",
+    type: ParameterTypes.UINT8,
+    min: 0,
+    max: 1,
+    defaultValue: 0,
+  },
+  {
+    name: "hardware.switches.power.type",
+    type: ParameterTypes.ENUM,
+    min: 0,
+    max: 1,
+    defaultValue: 0,
+    options: [
+      { value: 0, label: "Momentary" },
+      { value: 1, label: "Toggle" },
+    ],
+    requiredParameters: { "hardware.switches.power.enabled": 1 },
+  },
+  {
+    name: "hardware.switches.power.mode",
+    type: ParameterTypes.ENUM,
+    min: 0,
+    max: 1,
+    defaultValue: 0,
+    options: [
+      { value: 0, label: "Normally Open" },
+      { value: 1, label: "Normally Closed" },
+    ],
+    requiredParameters: { "hardware.switches.power.enabled": 1 },
+  },
+  {
+    name: "hardware.switches.hot_water.enabled",
+    type: ParameterTypes.UINT8,
+    min: 0,
+    max: 1,
+    defaultValue: 0,
+  },
+  {
+    name: "hardware.switches.hot_water.type",
+    type: ParameterTypes.ENUM,
+    min: 0,
+    max: 1,
+    defaultValue: 0,
+    options: [
+      { value: 0, label: "Momentary" },
+      { value: 1, label: "Toggle" },
+    ],
+    requiredParameters: { "hardware.switches.hot_water.enabled": 1 },
+  },
+  {
+    name: "hardware.switches.hot_water.mode",
+    type: ParameterTypes.ENUM,
+    min: 0,
+    max: 1,
+    defaultValue: 0,
+    options: [
+      { value: 0, label: "Normally Open" },
+      { value: 1, label: "Normally Closed" },
+    ],
+    requiredParameters: { "hardware.switches.hot_water.enabled": 1 },
+  },
 
   // Hardware - LED Parameters
-  [
-    "hardware.leds.status.enabled",
-    {
-      type: ParameterTypes.UINT8,
-      min: 0,
-      max: 1,
-      defaultValue: 0,
-    },
-  ],
-  [
-    "hardware.leds.status.inverted",
-    {
-      type: ParameterTypes.UINT8,
-      min: 0,
-      max: 1,
-      defaultValue: 0,
-      requiredParameters: { "hardware.leds.status.enabled": 1 },
-    },
-  ],
-  [
-    "hardware.leds.brew.enabled",
-    {
-      type: ParameterTypes.UINT8,
-      min: 0,
-      max: 1,
-      defaultValue: 0,
-    },
-  ],
-  [
-    "hardware.leds.brew.inverted",
-    {
-      type: ParameterTypes.UINT8,
-      min: 0,
-      max: 1,
-      defaultValue: 0,
-      requiredParameters: { "hardware.leds.brew.enabled": 1 },
-    },
-  ],
-  [
-    "hardware.leds.steam.enabled",
-    {
-      type: ParameterTypes.UINT8,
-      min: 0,
-      max: 1,
-      defaultValue: 0,
-    },
-  ],
-  [
-    "hardware.leds.steam.inverted",
-    {
-      type: ParameterTypes.UINT8,
-      min: 0,
-      max: 1,
-      defaultValue: 0,
-      requiredParameters: { "hardware.leds.steam.enabled": 1 },
-    },
-  ],
+  {
+    name: "hardware.leds.status.enabled",
+    type: ParameterTypes.UINT8,
+    min: 0,
+    max: 1,
+    defaultValue: 0,
+  },
+  {
+    name: "hardware.leds.status.inverted",
+    type: ParameterTypes.UINT8,
+    min: 0,
+    max: 1,
+    defaultValue: 0,
+    requiredParameters: { "hardware.leds.status.enabled": 1 },
+  },
+  {
+    name: "hardware.leds.brew.enabled",
+    type: ParameterTypes.UINT8,
+    min: 0,
+    max: 1,
+    defaultValue: 0,
+  },
+  {
+    name: "hardware.leds.brew.inverted",
+    type: ParameterTypes.UINT8,
+    min: 0,
+    max: 1,
+    defaultValue: 0,
+    requiredParameters: { "hardware.leds.brew.enabled": 1 },
+  },
+  {
+    name: "hardware.leds.steam.enabled",
+    type: ParameterTypes.UINT8,
+    min: 0,
+    max: 1,
+    defaultValue: 0,
+  },
+  {
+    name: "hardware.leds.steam.inverted",
+    type: ParameterTypes.UINT8,
+    min: 0,
+    max: 1,
+    defaultValue: 0,
+    requiredParameters: { "hardware.leds.steam.enabled": 1 },
+  },
 
   // Hardware - Sensor Parameters
-  [
-    "hardware.sensors.temperature.type",
-    {
-      type: ParameterTypes.ENUM,
-      min: 0,
-      max: 1,
-      defaultValue: 0,
-      options: [
-        { value: 0, label: "TSIC306" },
-        { value: 1, label: "Dallas DS18B20" },
-      ],
-    },
-  ],
-  [
-    "hardware.sensors.pressure.enabled",
-    {
-      type: ParameterTypes.UINT8,
-      min: 0,
-      max: 1,
-      defaultValue: 0,
-    },
-  ],
-  [
-    "hardware.sensors.watertank.enabled",
-    {
-      type: ParameterTypes.UINT8,
-      min: 0,
-      max: 1,
-      defaultValue: 0,
-    },
-  ],
-  [
-    "hardware.sensors.watertank.mode",
-    {
-      type: ParameterTypes.ENUM,
-      min: 0,
-      max: 1,
-      defaultValue: 0,
-      options: [
-        { value: 0, label: "Normally Open" },
-        { value: 1, label: "Normally Closed" },
-      ],
-      requiredParameters: { "hardware.sensors.watertank.enabled": 1 },
-    },
-  ],
+  {
+    name: "hardware.sensors.temperature.type",
+    type: ParameterTypes.ENUM,
+    min: 0,
+    max: 1,
+    defaultValue: 0,
+    options: [
+      { value: 0, label: "TSIC306" },
+      { value: 1, label: "Dallas DS18B20" },
+    ],
+  },
+  {
+    name: "hardware.sensors.pressure.enabled",
+    type: ParameterTypes.UINT8,
+    min: 0,
+    max: 1,
+    defaultValue: 0,
+  },
+  {
+    name: "hardware.sensors.watertank.enabled",
+    type: ParameterTypes.UINT8,
+    min: 0,
+    max: 1,
+    defaultValue: 0,
+  },
+  {
+    name: "hardware.sensors.watertank.mode",
+    type: ParameterTypes.ENUM,
+    min: 0,
+    max: 1,
+    defaultValue: 0,
+    options: [
+      { value: 0, label: "Normally Open" },
+      { value: 1, label: "Normally Closed" },
+    ],
+    requiredParameters: { "hardware.sensors.watertank.enabled": 1 },
+  },
 
   // Display Parameters
-  [
-    "display.template",
-    {
-      type: ParameterTypes.ENUM,
-      min: 0,
-      max: 4,
-      defaultValue: 0,
-      options: [
-        { value: 0, label: "Standard" },
-        { value: 1, label: "Minimal" },
-        { value: 2, label: "Temp only" },
-        { value: 3, label: "Scale" },
-        { value: 4, label: "Upright" },
-      ],
-    },
-  ],
-  [
-    "display.inverted",
-    {
-      type: ParameterTypes.UINT8,
-      min: 0,
-      max: 1,
-      defaultValue: 0,
-    },
-  ],
-  [
-    "display.language",
-    {
-      type: ParameterTypes.ENUM,
-      min: 0,
-      max: 2,
-      defaultValue: 0,
-      options: [
-        { value: 0, label: "Deutsch" },
-        { value: 1, label: "English" },
-        { value: 2, label: "Español" },
-      ],
-    },
-  ],
-  [
-    "display.fullscreen_brew_timer",
-    {
-      type: ParameterTypes.UINT8,
-      min: 0,
-      max: 1,
-      defaultValue: 0,
-    },
-  ],
-  [
-    "display.fullscreen_manual_flush_timer",
-    {
-      type: ParameterTypes.UINT8,
-      min: 0,
-      max: 1,
-      defaultValue: 0,
-    },
-  ],
-  [
-    "display.fullscreen_hot_water_timer",
-    {
-      type: ParameterTypes.UINT8,
-      min: 0,
-      max: 1,
-      defaultValue: 0,
-    },
-  ],
-  [
-    "display.post_brew_timer_duration",
-    {
-      type: ParameterTypes.DOUBLE,
-      min: 0,
-      max: 300,
-      defaultValue: 5,
-    },
-  ],
-  [
-    "display.heating_logo",
-    {
-      type: ParameterTypes.UINT8,
-      min: 0,
-      max: 1,
-      defaultValue: 1,
-    },
-  ],
-  [
-    "display.pid_off_logo",
-    {
-      type: ParameterTypes.UINT8,
-      min: 0,
-      max: 1,
-      defaultValue: 1,
-    },
-  ],
+  {
+    name: "display.template",
+    type: ParameterTypes.ENUM,
+    min: 0,
+    max: 4,
+    defaultValue: 0,
+    options: [
+      { value: 0, label: "Standard" },
+      { value: 1, label: "Minimal" },
+      { value: 2, label: "Temp only" },
+      { value: 3, label: "Scale" },
+      { value: 4, label: "Upright" },
+    ],
+  },
+  {
+    name: "display.inverted",
+    type: ParameterTypes.UINT8,
+    min: 0,
+    max: 1,
+    defaultValue: 0,
+  },
+  {
+    name: "display.language",
+    type: ParameterTypes.ENUM,
+    min: 0,
+    max: 2,
+    defaultValue: 0,
+    options: [
+      { value: 0, label: "Deutsch" },
+      { value: 1, label: "English" },
+      { value: 2, label: "Español" },
+    ],
+  },
+  {
+    name: "display.fullscreen_brew_timer",
+    type: ParameterTypes.UINT8,
+    min: 0,
+    max: 1,
+    defaultValue: 0,
+  },
+  {
+    name: "display.fullscreen_manual_flush_timer",
+    type: ParameterTypes.UINT8,
+    min: 0,
+    max: 1,
+    defaultValue: 0,
+  },
+  {
+    name: "display.fullscreen_hot_water_timer",
+    type: ParameterTypes.UINT8,
+    min: 0,
+    max: 1,
+    defaultValue: 0,
+  },
+  {
+    name: "display.post_brew_timer_duration",
+    type: ParameterTypes.DOUBLE,
+    min: 0,
+    max: 300,
+    defaultValue: 5,
+  },
+  {
+    name: "display.heating_logo",
+    type: ParameterTypes.UINT8,
+    min: 0,
+    max: 1,
+    defaultValue: 1,
+  },
+  {
+    name: "display.pid_off_logo",
+    type: ParameterTypes.UINT8,
+    min: 0,
+    max: 1,
+    defaultValue: 1,
+  },
 
   // System Parameters
-  [
-    "VERSION",
-    {
-      type: ParameterTypes.STRING,
-      min: 0,
-      max: 100,
-      defaultValue: "unknown",
-    },
-  ],
-  [
-    "STEAM_MODE",
-    {
-      type: ParameterTypes.UINT8,
-      min: 0,
-      max: 1,
-      defaultValue: 0,
-    },
-  ],
-  [
-    "BACKFLUSH_ON",
-    {
-      type: ParameterTypes.UINT8,
-      min: 0,
-      max: 1,
-      defaultValue: 0,
-    },
-  ],
-  [
-    "TARE_ON",
-    {
-      type: ParameterTypes.UINT8,
-      min: 0,
-      max: 1,
-      defaultValue: 0,
-    },
-  ],
-  [
-    "CALIBRATION_ON",
-    {
-      type: ParameterTypes.UINT8,
-      min: 0,
-      max: 1,
-      defaultValue: 0,
-    },
-  ],
-]);
+  {
+    name: "VERSION",
+    type: ParameterTypes.STRING,
+    min: 0,
+    max: 100,
+    defaultValue: "unknown",
+  },
+  {
+    name: "STEAM_MODE",
+    type: ParameterTypes.UINT8,
+    min: 0,
+    max: 1,
+    defaultValue: 0,
+  },
+  {
+    name: "BACKFLUSH_ON",
+    type: ParameterTypes.UINT8,
+    min: 0,
+    max: 1,
+    defaultValue: 0,
+  },
+  {
+    name: "TARE_ON",
+    type: ParameterTypes.UINT8,
+    min: 0,
+    max: 1,
+    defaultValue: 0,
+  },
+  {
+    name: "CALIBRATION_ON",
+    type: ParameterTypes.UINT8,
+    min: 0,
+    max: 1,
+    defaultValue: 0,
+  },
+];
+
+const mappedParameters = new Map<string, Parameter>(
+  defaultParametersList.map((p) => [p.name, { ...p, value: p.defaultValue }])
+);
 
 /**
  * Get parameter metadata by name
  */
-export function getParameterMetadata(
-  name: string
-): ParameterMetadata | undefined {
-  return parameterMetadata.get(name);
+export function getParameterMetadata(name: string): Parameter | undefined {
+  return mappedParameters.get(name);
 }
 
 /**
  * Check if a parameter exists in metadata
  */
-export function hasParameterMetadata(name: string): boolean {
-  return parameterMetadata.has(name);
+export function hasParameter(name: string): boolean {
+  return mappedParameters.has(name);
 }
 
-/**
- * Merge server parameter with metadata to create complete UI parameter
- */
-export function mergeParameterWithMetadata(
-  serverParam: ServerParameter
-): Parameter {
-  const metadata = parameterMetadata.get(serverParam.name);
-  if (!metadata) {
-    // Return server parameter as-is if no metadata found
-    return serverParam;
-  }
+export const mapServerParameterToParameter = (
+  serverParameter: ServerParameter
+): Parameter => {
+  const metadata = mappedParameters.get(serverParameter.name);
 
   return {
-    ...serverParam,
-    requiredParameters: metadata.requiredParameters,
+    ...serverParameter,
+    defaultValue: metadata?.defaultValue ?? serverParameter.value,
   };
-}
-
-/**
- * Merge array of server parameters with metadata
- */
-export function mergeParametersWithMetadata(
-  serverParameters: ServerParameter[]
-): Parameter[] {
-  return serverParameters.map(mergeParameterWithMetadata);
-}
+};
 
 /**
  * Get all parameter names that have metadata
  */
 export function getAllParameterNames(): string[] {
-  return Array.from(parameterMetadata.keys());
+  return Array.from(mappedParameters.keys());
 }
 
 /**
@@ -1078,7 +875,8 @@ export function getAllParameterNames(): string[] {
 export function createParameterWithDefaults(
   name: string
 ): Parameter | undefined {
-  const metadata = parameterMetadata.get(name);
+  const metadata = mappedParameters.get(name);
+
   if (!metadata) {
     return undefined;
   }
@@ -1086,7 +884,8 @@ export function createParameterWithDefaults(
   return {
     type: metadata.type,
     name,
-    value: metadata.defaultValue,
+    value: metadata.value,
+    defaultValue: metadata.defaultValue,
     min: metadata.min,
     max: metadata.max,
     options: metadata.options,
@@ -1106,11 +905,11 @@ export function ensureCompleteParameters(
 
   // Add all server parameters first
   for (const serverParam of serverParameters) {
-    result.push(mergeParameterWithMetadata(serverParam));
+    result.push(mapServerParameterToParameter(serverParam));
   }
 
   // Add missing parameters with defaults
-  for (const [name] of parameterMetadata) {
+  for (const [name] of mappedParameters) {
     if (!serverParamMap.has(name)) {
       const defaultParam = createParameterWithDefaults(name);
       if (defaultParam) {

@@ -1,4 +1,39 @@
-export const parameterGroups = [
+export const groups2: Record<string, Array<string>> = {
+  behavior: [
+    "pidParameters",
+    "temperatureControl",
+    "brewPidSection",
+    "brewControl",
+    "scaleParameters",
+    "displaySettings",
+    "maintenance",
+    "powerSettings",
+  ],
+  system: ["mqttSettings", "systemSettings", "systemAuth", "runtimeControls"],
+  hardware: [
+    "oledDisplay",
+    "relays",
+    "switchesBrew",
+    "switchesSteam",
+    "switchesPower",
+    "switchesHotWater",
+    "ledsStatus",
+    "ledsBrew",
+    "ledsSteam",
+    "sensorTemperature",
+    "sensorPressure",
+    "sensorWatertank",
+    "sensorScale",
+  ],
+};
+
+type ParameterGroup = {
+  key: string;
+  label: string;
+  parameters: string[];
+};
+
+export const parameterGroups: ParameterGroup[] = [
   {
     key: "pidParameters",
     label: "PID Parameters",
@@ -228,3 +263,7 @@ export const parameterGroups = [
     ],
   },
 ];
+
+export const mappedParameterGroups = new Map<string, ParameterGroup>(
+  parameterGroups.map((group) => [group.key, group])
+);
