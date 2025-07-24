@@ -3,7 +3,7 @@
 	import { page } from '$app/state';
 	import { cn } from '$lib/utils';
 	import { Menu, X } from 'lucide-svelte';
-	import { Button } from '$lib/components/ui/button';
+	import Button from '$lib/components/ui/button/button.svelte';
 	import { basePathWithoutTrailingSlash } from '$lib/config';
 	import LiveStatusIndicator from '$lib/components/LiveStatusIndicator.svelte';
 	import ModeToggle from '$lib/components/mode-toggle.svelte';

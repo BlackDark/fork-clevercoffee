@@ -6,7 +6,7 @@
 		DropdownMenuItem,
 		DropdownMenuTrigger
 	} from '$lib/components/ui/dropdown-menu';
-	import { Button } from '$lib/components/ui/button';
+	import Button from '$lib/components/ui/button/button.svelte';
 	import { ChevronDown, Settings } from 'lucide-svelte';
 
 	const parameterCategories = [

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { Card, CardContent, CardHeader, CardTitle } from '$lib/components/ui/card';
-	import { Button } from '$lib/components/ui/button';
+	import Button from '$lib/components/ui/button/button.svelte';
 	import { Input } from '$lib/components/ui/input';
 	import { Switch } from '$lib/components/ui/switch';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
