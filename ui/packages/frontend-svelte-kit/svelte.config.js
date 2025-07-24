@@ -16,10 +16,17 @@ const config = {
 			strict: false
 		}),
 
-		// Disable SSR completely
-		prerender: {
-			handleMissingId: 'ignore',
-			entries: [] // Don't prerender any pages
+		// adapter: adapter({
+		// 	fallback: 'index.html',
+		// 	bundleStrategy: 'single'
+		// }),
+
+		// output: {
+		// 	bundleStrategy: 'single'
+		// },
+
+		alias: {
+			'@/*': './path/to/lib/*'
 		},
 
 		// Paths configuration

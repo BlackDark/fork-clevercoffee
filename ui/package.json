@@ -15,7 +15,9 @@
   },
   "pnpm": {
     "onlyBuiltDependencies": [
-      "esbuild"
+      "@tailwindcss/oxide",
+      "esbuild",
+      "svelte-preprocess"
     ]
   }
 }

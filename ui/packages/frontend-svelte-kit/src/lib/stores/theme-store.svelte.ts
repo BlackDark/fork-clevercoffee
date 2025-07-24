@@ -1,7 +1,6 @@
-import { writable, derived } from 'svelte/store';
 import { browser } from '$app/environment';
 
-type Theme = 'dark' | 'light' | 'system';
+export type Theme = 'dark' | 'light' | 'system';
 
 // Initialize theme from localStorage or default to system
 function initializeTheme(): Theme {
@@ -12,21 +11,8 @@ function initializeTheme(): Theme {
 	return 'system';
 }
 
-// Create the theme store
-export const theme = writable<Theme>(initializeTheme());
-
-// Save theme changes to localStorage
-theme.subscribe((value) => {
-	if (browser) {
-		localStorage.setItem('theme', value);
-
-		// Update the document class for immediate theme change
-		updateThemeClass(value);
-	}
-});
-
 // Helper to update the document class based on theme
-function updateThemeClass(value: Theme) {
+export function updateThemeClass(value: Theme) {
 	if (!browser) return;
 
 	const isDark =
@@ -36,19 +22,32 @@ function updateThemeClass(value: Theme) {
 	document.documentElement.classList.toggle('dark', isDark);
 }
 
-// Derived store to determine if dark mode is active
-export const isDarkMode = derived(theme, ($theme) => {
+// Create reactive theme state
+let theme = $state<Theme>(initializeTheme());
+
+// Reactive derived value for dark mode
+const isDarkMode = $derived.by(() => {
 	if (!browser) return false;
 
 	return (
-		$theme === 'dark' ||
-		($theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+		theme === 'dark' ||
+		(theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
 	);
 });
 
 // Function to set the theme
 export function setTheme(value: Theme) {
-	theme.set(value);
+	theme = value;
+}
+
+// Getter function to access current theme
+export function getTheme(): Theme {
+	return theme;
+}
+
+// Getter function to access dark mode state
+export function getIsDarkMode(): boolean {
+	return isDarkMode;
 }
 
 // Chart theme helper
@@ -71,17 +70,4 @@ export function getChartTheme(isDark: boolean) {
 			}
 		}
 	};
-}
-
-// Initialize theme class on load
-if (browser) {
-	updateThemeClass(initializeTheme());
-
-	// Listen for system theme changes
-	window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
-		const currentTheme = localStorage.getItem('theme') as Theme;
-		if (currentTheme === 'system') {
-			updateThemeClass('system');
-		}
-	});
 }

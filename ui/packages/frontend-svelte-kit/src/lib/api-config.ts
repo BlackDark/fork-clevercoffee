@@ -3,17 +3,16 @@
  * Handles API base URL configuration based on environment variables
  */
 
-// In SvelteKit, we need to use $env modules for environment variables
-import { PUBLIC_SERVER_ENDPOINT, PUBLIC_API_PATH, PUBLIC_MOCK_MODE } from '$env/static/public';
-
-export const SERVER_BASE_URL = PUBLIC_SERVER_ENDPOINT || '';
+export const SERVER_BASE_URL = import.meta.env.VITE_SERVER_ENDPOINT || "";
 
 // Get the API base URL from environment
 // If not set, use relative URLs (same host as the UI)
-export const API_BASE_URL = `${SERVER_BASE_URL}${PUBLIC_API_PATH || ''}`;
+export const API_BASE_URL = `${SERVER_BASE_URL}${
+  import.meta.env.VITE_API_PATH || ""
+}`;
 
 // Check if we're in mock mode
-export const isMockMode = PUBLIC_MOCK_MODE === 'true';
+export const isMockMode = import.meta.env.VITE_MOCK_MODE === "true";
 
 /**
  * Creates fetch options with default settings
@@ -21,13 +20,13 @@ export const isMockMode = PUBLIC_MOCK_MODE === 'true';
  * @returns Fetch options with defaults applied
  */
 export function createFetchOptions(options: RequestInit = {}): RequestInit {
-	return {
-		headers: {
-			'Content-Type': 'application/json',
-			...options.headers
-		},
-		...options
-	};
+  return {
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
+    ...options,
+  };
 }
 
 /**
@@ -36,15 +35,20 @@ export function createFetchOptions(options: RequestInit = {}): RequestInit {
  * @param options - Fetch options
  * @returns Promise<Response>
  */
-export async function apiFetch(endpoint: string, options: RequestInit = {}): Promise<Response> {
-	const url = `${API_BASE_URL}/${endpoint.replace(/^\//, '').replace(/\/$/, '')}`;
-	const fetchOptions = createFetchOptions(options);
+export async function apiFetch(
+  endpoint: string,
+  options: RequestInit = {}
+): Promise<Response> {
+  const url = `${API_BASE_URL}/${endpoint
+    .replace(/^\//, "")
+    .replace(/\/$/, "")}`;
+  const fetchOptions = createFetchOptions(options);
 
-	if (isMockMode) {
-		console.log(`🔧 Mock API call: ${options.method || 'GET'} ${url}`);
-	}
+  if (isMockMode) {
+    console.log(`🔧 Mock API call: ${options.method || "GET"} ${url}`);
+  }
 
-	return fetch(url, fetchOptions);
+  return fetch(url, fetchOptions);
 }
 
 /**
@@ -54,23 +58,23 @@ export async function apiFetch(endpoint: string, options: RequestInit = {}): Pro
  * @returns Promise<T> - Parsed JSON response
  */
 export async function apiJsonFetch<T = unknown>(
-	endpoint: string,
-	options: RequestInit = {}
+  endpoint: string,
+  options: RequestInit = {}
 ): Promise<T> {
-	const response = await apiFetch(endpoint, options);
+  const response = await apiFetch(endpoint, options);
 
-	if (!response.ok) {
-		throw new Error(`API error: ${response.status} ${response.statusText}`);
-	}
+  if (!response.ok) {
+    throw new Error(`API error: ${response.status} ${response.statusText}`);
+  }
 
-	return response.json();
+  return response.json();
 }
 
 // Log current configuration in development
 if (import.meta.env.DEV) {
-	console.log('🔧 API Configuration:', {
-		apiBaseUrl: API_BASE_URL || '(relative)',
-		isMockMode,
-		sampleUrl: `${API_BASE_URL}/temperature` // Example endpoint
-	});
+  console.log("🔧 API Configuration:", {
+    apiBaseUrl: API_BASE_URL || "(relative)",
+    isMockMode,
+    sampleUrl: `${API_BASE_URL}/temperature`, // Example endpoint
+  });
 }
