@@ -2,19 +2,23 @@
 /**
  * @file Config.h
  *
- * @brief Centralized configuration management with JSON storage
+ * @brief Centralized configuration management with NVS storage
  */
 
 #pragma once
 
 #include "ConfigDef.h"
+#include "GlobalVariables.h"
 #include "Logger.h"
 #include "defaults.h"
 #include "hardware/Relay.h"
 #include "hardware/Switch.h"
 #include <ArduinoJson.h>
-#include <LittleFS.h>
 #include <map>
+#include <optional>
+
+// Forward declaration to avoid circular dependency
+class ParameterRegistry;
 
 class Config {
     public:
@@ -24,89 +28,8 @@ class Config {
          * @return true if successful, false otherwise
          */
         bool begin() {
-            if (!LittleFS.begin(true)) {
-                LOG(ERROR, "Failed to initialize LittleFS");
-                return false;
-            }
-
-            // Check if config file exists
-            if (!LittleFS.exists(CONFIG_FILE)) {
-                LOG(INFO, "Config file not found, creating from defaults");
-
-                createDefaults();
-
-                return save();
-            }
-
-            // Try to load existing config
-            if (!load()) {
-                LOG(WARNING, "Failed to load config, creating from defaults");
-
-                createDefaults();
-
-                return save();
-            }
-
             initializeConfigDefs();
-
-            return true;
-        }
-
-        /**
-         * @brief Load configuration from file
-         *
-         * @return true if successful, false otherwise
-         */
-        bool load() {
-            if (!LittleFS.exists(CONFIG_FILE)) {
-                LOG(INFO, "Config file does not exist");
-
-                return false;
-            }
-
-            File file = LittleFS.open(CONFIG_FILE, "r");
-
-            if (!file) {
-                LOG(ERROR, "Failed to open config file for reading");
-
-                return false;
-            }
-
-            const DeserializationError error = deserializeJson(_doc, file);
-            file.close();
-
-            if (error) {
-                LOG(ERROR, "Failed to parse config file");
-                return false;
-            }
-
-            LOG(INFO, "Configuration loaded successfully");
-
-            return true;
-        }
-
-        /**
-         * @brief Save configuration to file
-         *
-         * @return true if successful, false otherwise
-         */
-        [[nodiscard]] bool save() const {
-            File file = LittleFS.open(CONFIG_FILE, "w");
-
-            if (!file) {
-                LOG(ERROR, "Failed to open config file for writing");
-                return false;
-            }
-
-            if (serializeJson(_doc, file) == 0) {
-                LOG(ERROR, "Failed to write config to file");
-                file.close();
-                return false;
-            }
-
-            file.close();
-            LOG(INFO, "Configuration saved successfully");
-
+            LOG(INFO, "Configuration system initialized");
             return true;
         }
 
@@ -126,115 +49,95 @@ class Config {
             return true;
         }
 
+        /**
+         * @brief Get configuration value from global variables (NVS-backed)
+         */
         template <typename T>
         T get(const String& path) const {
-            auto current = _doc.as<JsonVariantConst>();
-            int startIndex = 0;
-            int dotIndex;
-
-            while ((dotIndex = path.indexOf('.', startIndex)) != -1) {
-                char segment[64]; // Stack-allocated buffer
-                const int segmentLen = dotIndex - startIndex;
-
-                if (segmentLen >= 64) {
-                    return T{};
-                }
-
-                path.substring(startIndex, dotIndex).toCharArray(segment, segmentLen + 1);
-                segment[segmentLen] = '\0';
-
-                if (!current[segment].isNull()) {
-                    current = current[segment];
-                }
-                else {
-                    return T{};
-                }
-
-                startIndex = dotIndex + 1;
+            if (auto globalValue = getFromGlobalVariable<T>(path); globalValue.has_value()) {
+                return globalValue.value();
             }
 
-            char finalSegment[64];
-            const unsigned int pathLen = path.length();
-            const unsigned int finalLen = pathLen - static_cast<unsigned int>(startIndex);
-
-            if (finalLen >= 64) {
-                return T{};
-            }
-
-            path.substring(startIndex).toCharArray(finalSegment, finalLen + 1);
-            finalSegment[finalLen] = '\0';
-
-            current = current[finalSegment];
-
-            if constexpr (std::is_same_v<T, bool>) {
-                return current.as<bool>();
-            }
-            else if constexpr (std::is_same_v<T, int>) {
-                return current.as<int>();
-            }
-            else if constexpr (std::is_same_v<T, uint8_t>) {
-                return current.as<uint8_t>();
-            }
-            else if constexpr (std::is_same_v<T, float>) {
-                return current.as<float>();
-            }
-            else if constexpr (std::is_same_v<T, double>) {
-                return current.as<double>();
-            }
-            else if constexpr (std::is_same_v<T, String>) {
-                return current.as<String>();
-            }
-            else {
-                static_assert(std::is_arithmetic_v<T> || std::is_same_v<T, String>, "Type must be arithmetic or String");
-                return current.as<T>();
-            }
+            // If no global variable found, return default value
+            LOGF(WARNING, "No global variable found for path: %s", path.c_str());
+            return T{};
         }
 
         template <typename T>
-        void set(const String& path, const T& value) {
-            auto current = _doc.as<JsonVariant>();
-            int startIndex = 0;
-            int dotIndex;
-
-            // Navigate to the parent object
-            while ((dotIndex = path.indexOf('.', startIndex)) != -1) {
-                char segment[64]; // Stack-allocated buffer
-                const int segmentLen = dotIndex - startIndex;
-
-                if (segmentLen >= 64) {
-                    return;
-                }
-
-                path.substring(startIndex, dotIndex).toCharArray(segment, segmentLen + 1);
-                segment[segmentLen] = '\0';
-
-                if (!current[segment].is<JsonObject>()) {
-                    current[segment] = current.add<JsonObject>();
-                }
-                current = current[segment];
-
-                startIndex = dotIndex + 1;
+        std::optional<T> getFromGlobalVariable(const String& path) const {
+            // System settings - String type
+            if constexpr (std::is_same_v<T, String>) {
+                if (path == "system.hostname") return hostname;
+                if (path == "system.ota_password") return otaPassword;
+                if (path == "system.auth.username") return authUsername;
+                if (path == "system.auth.password") return authPassword;
+                if (path == "mqtt.broker") return mqttBroker;
+                if (path == "mqtt.username") return mqttUsername;
+                if (path == "mqtt.password") return mqttPassword;
+                if (path == "mqtt.topic") return mqttTopic;
+                if (path == "mqtt.hassio.prefix") return mqttHassioPrefix;
             }
 
-            char finalSegment[64];
-            const unsigned int pathLen = path.length();
-            const unsigned int finalLen = pathLen - static_cast<unsigned int>(startIndex);
-
-            if (finalLen >= 64) {
-                return;
+            // Boolean type
+            if constexpr (std::is_same_v<T, bool>) {
+                if (path == "system.offline_mode") return offlineMode;
+                if (path == "system.auth.enabled") return authEnabled;
+                if (path == "display.inverted") return displayInverted;
+                if (path == "hardware.oled.enabled") return oledEnabled;
+                if (path == "hardware.switches.brew.enabled") return brewSwitchEnabled;
+                if (path == "hardware.switches.steam.enabled") return steamSwitchEnabled;
+                if (path == "hardware.switches.power.enabled") return powerSwitchEnabled;
+                if (path == "hardware.switches.hot_water.enabled") return hotWaterSwitchEnabled;
+                if (path == "hardware.leds.status.enabled") return statusLedEnabled;
+                if (path == "hardware.leds.status.inverted") return statusLedInverted;
+                if (path == "hardware.leds.brew.enabled") return brewLedEnabled;
+                if (path == "hardware.leds.brew.inverted") return brewLedInverted;
+                if (path == "hardware.leds.steam.enabled") return steamLedEnabled;
+                if (path == "hardware.leds.steam.inverted") return steamLedInverted;
+                if (path == "hardware.sensors.pressure.enabled") return pressureSensorEnabled;
+                if (path == "hardware.sensors.watertank.enabled") return waterTankSensorEnabled;
+                if (path == "hardware.sensors.scale.enabled") return scaleEnabled;
+                if (path == "mqtt.enabled") return mqttEnabled;
+                if (path == "mqtt.hassio.enabled") return mqttHassioEnabled;
             }
 
-            path.substring(startIndex).toCharArray(finalSegment, finalLen + 1);
-            finalSegment[finalLen] = '\0';
+            // Integer type
+            if constexpr (std::is_same_v<T, int>) {
+                if (path == "display.template") return displayTemplate;
+                if (path == "display.language") return displayLanguage;
+                if (path == "hardware.oled.type") return oledType;
+                if (path == "hardware.oled.address") return oledAddress;
+                if (path == "hardware.relays.heater.trigger_type") return heaterTriggerType;
+                if (path == "hardware.relays.valve.trigger_type") return valveTriggerType;
+                if (path == "hardware.relays.pump.trigger_type") return pumpTriggerType;
+                if (path == "hardware.switches.brew.type") return brewSwitchType;
+                if (path == "hardware.switches.brew.mode") return brewSwitchMode;
+                if (path == "hardware.switches.steam.type") return steamSwitchType;
+                if (path == "hardware.switches.steam.mode") return steamSwitchMode;
+                if (path == "hardware.switches.power.type") return powerSwitchType;
+                if (path == "hardware.switches.power.mode") return powerSwitchMode;
+                if (path == "hardware.switches.hot_water.type") return hotWaterSwitchType;
+                if (path == "hardware.switches.hot_water.mode") return hotWaterSwitchMode;
+                if (path == "hardware.sensors.temperature.type") return temperatureSensorType;
+                if (path == "hardware.sensors.watertank.mode") return waterTankSensorMode;
+                if (path == "hardware.sensors.scale.samples") return scaleSamples;
+                if (path == "hardware.sensors.scale.type") return scaleType;
+                if (path == "mqtt.port") return mqttPort;
+                if (path == "system.log_level") return logLevel;
+            }
 
-            current[finalSegment] = value;
+            // Double type
+            if constexpr (std::is_same_v<T, double>) {
+                if (path == "hardware.sensors.scale.calibration") return scaleCalibrationFactor;
+                if (path == "hardware.sensors.scale.calibration2") return scaleCalibrationFactor2;
+                if (path == "hardware.sensors.scale.known_weight") return scaleKnownWeight;
+            }
+
+            // No matching global variable found
+            return std::nullopt;
         }
 
     private:
-        inline static auto CONFIG_FILE = "/config.json";
-
-        JsonDocument _doc;
-
         std::map<std::string, ConfigDef> _configDefs;
 
         void initializeConfigDefs() {
@@ -369,284 +272,5 @@ class Config {
             _configDefs.emplace("hardware.sensors.scale.known_weight", ConfigDef::forDouble(SCALE_KNOWN_WEIGHT, SCALE_KNOWN_WEIGHT_MIN, SCALE_KNOWN_WEIGHT_MAX));
         }
 
-        /**
-         * @brief Set a value in the JSON document using a dot-separated path
-         */
-        template <typename T>
-        static bool setJsonValue(JsonDocument& doc, const String& path, const T& value) {
-            if (path.isEmpty()) {
-                LOGF(ERROR, "Empty path provided to setJsonValue");
-                return false;
-            }
-
-            if (!doc.is<JsonObject>()) {
-                doc.to<JsonObject>();
-            }
-
-            auto current = doc.as<JsonObject>();
-
-            if (current.isNull()) {
-                LOGF(ERROR, "Failed to get root object");
-                return false;
-            }
-
-            // Split the path into segments
-            int startIndex = 0;
-            int dotIndex;
-
-            // Navigate through all segments except the last one
-            while ((dotIndex = path.indexOf('.', startIndex)) != -1) {
-                String segment = path.substring(startIndex, dotIndex);
-
-                if (segment.isEmpty()) {
-                    LOGF(ERROR, "Empty segment in path: %s", path.c_str());
-                    return false;
-                }
-
-                // Get or create the nested object for this segment
-                if (current[segment].isNull()) {
-                    // Create new nested object
-                    current = current[segment].to<JsonObject>();
-
-                    if (current.isNull()) {
-                        LOGF(ERROR, "Failed to create nested object for segment: %s", segment.c_str());
-                        return false;
-                    }
-                }
-                else if (current[segment].is<JsonObject>()) {
-                    // Use existing object
-                    current = current[segment];
-                }
-                else {
-                    // Existing value is not an object - need to replace it
-                    current.remove(segment);
-                    current = current[segment].to<JsonObject>();
-
-                    if (current.isNull()) {
-                        LOGF(ERROR, "Failed to replace value with nested object for segment: %s", segment.c_str());
-                        return false;
-                    }
-                }
-
-                startIndex = dotIndex + 1;
-            }
-
-            // Set the final value using the last segment as the key
-            const String leafKey = path.substring(startIndex);
-
-            if (leafKey.isEmpty()) {
-                LOGF(ERROR, "Empty leaf key in path: %s", path.c_str());
-                return false;
-            }
-
-            current[leafKey] = value;
-
-            LOGF(TRACE, "Successfully set %s = %s", path.c_str(), String(value).c_str());
-
-            return true;
-        }
-
-        /**
-         * @brief Create a new configuration with default values
-         */
-        void createDefaults() {
-            LOGF(INFO, "Starting createDefaults");
-
-            initializeConfigDefs();
-            _doc.clear();
-
-            LOGF(INFO, "Processing %d config definitions", _configDefs.size());
-
-            int successCount = 0;
-            for (const auto& [path, configDef] : _configDefs) {
-                const auto pathStr = String(path.c_str());
-
-                LOGF(DEBUG, "Processing path: '%s'", pathStr.c_str());
-
-                bool success = false;
-
-                switch (configDef.type) {
-                    case ConfigDef::BOOL:
-                        LOGF(DEBUG, "Setting bool %s = %s", pathStr.c_str(), configDef.boolVal ? "true" : "false");
-                        success = setJsonValue(_doc, pathStr, configDef.boolVal);
-                        break;
-
-                    case ConfigDef::INT:
-                        LOGF(DEBUG, "Setting int %s = %d", pathStr.c_str(), configDef.intVal);
-                        success = setJsonValue(_doc, pathStr, configDef.intVal);
-                        break;
-
-                    case ConfigDef::DOUBLE:
-                        LOGF(DEBUG, "Setting double %s = %f", pathStr.c_str(), configDef.doubleVal);
-                        success = setJsonValue(_doc, pathStr, configDef.doubleVal);
-                        break;
-
-                    case ConfigDef::STRING:
-                        LOGF(DEBUG, "Setting string %s = '%s'", pathStr.c_str(), configDef.stringVal.c_str());
-                        success = setJsonValue(_doc, pathStr, configDef.stringVal);
-                        break;
-
-                    default:
-                        LOGF(ERROR, "Unknown config type for path: %s", pathStr.c_str());
-                        continue;
-                }
-
-                if (success) {
-                    successCount++;
-                    LOGF(DEBUG, "Successfully set value for %s", pathStr.c_str());
-                }
-                else {
-                    LOGF(ERROR, "Failed to set value for %s", pathStr.c_str());
-                }
-
-                // Add a small delay to prevent overwhelming the system
-                delay(1);
-            }
-
-            LOGF(INFO, "createDefaults completed. Successfully set %d/%d values", successCount, _configDefs.size());
-
-            String jsonStr;
-            serializeJsonPretty(_doc, jsonStr);
-            LOGF(DEBUG, "Final JSON structure:\n%s", jsonStr.c_str());
-        }
-
-        bool validateAndApplyConfig(const JsonDocument& doc) {
-            LOGF(INFO, "Validating and applying configuration with %d parameters", _configDefs.size());
-
-            // Helper function to recursively extract all paths from JSON
-            std::function<void(JsonVariantConst, const String&, std::vector<std::pair<String, JsonVariantConst>>&)> extractPaths = [&](JsonVariantConst obj, const String& prefix,
-                                                                                                                                       std::vector<std::pair<String, JsonVariantConst>>& paths) {
-                if (obj.is<JsonObjectConst>()) {
-                    for (JsonPairConst pair : obj.as<JsonObjectConst>()) {
-                        String newPath = prefix.isEmpty() ? String(pair.key().c_str()) : prefix + "." + pair.key().c_str();
-                        extractPaths(pair.value(), newPath, paths);
-                    }
-                }
-                else {
-                    // Leaf value
-                    paths.emplace_back(prefix, obj);
-                }
-            };
-
-            // Extract all paths from the document
-            std::vector<std::pair<String, JsonVariantConst>> docPaths;
-            extractPaths(doc.as<JsonVariantConst>(), "", docPaths);
-
-            LOGF(DEBUG, "Found %d parameters in uploaded config", docPaths.size());
-
-            // Validate each path against _configDefs
-            for (const auto& [path, value] : docPaths) {
-                auto it = _configDefs.find(path.c_str());
-
-                if (it == _configDefs.end()) {
-                    LOGF(WARNING, "Unknown parameter in config: %s - skipping", path.c_str());
-                    continue;
-                }
-
-                const ConfigDef& def = it->second;
-
-                // Validate and apply based on type
-                bool validationSuccess = false;
-                switch (def.type) {
-                    case ConfigDef::BOOL:
-                        {
-                            if (value.is<bool>()) {
-                                bool boolVal = value.as<bool>();
-                                set<bool>(path.c_str(), boolVal);
-                                validationSuccess = true;
-                                LOGF(TRACE, "Applied bool %s = %s", path.c_str(), boolVal ? "true" : "false");
-                            }
-                            else {
-                                LOGF(ERROR, "Invalid type for boolean parameter %s", path.c_str());
-                            }
-                            break;
-                        }
-
-                    case ConfigDef::INT:
-                        {
-                            if (value.is<int>()) {
-                                if (auto intVal = value.as<int>(); intVal >= def.minValue && intVal <= def.maxValue) {
-                                    set<int>(path.c_str(), intVal);
-                                    validationSuccess = true;
-                                    LOGF(TRACE, "Applied int %s = %d", path.c_str(), intVal);
-                                }
-                                else {
-                                    LOGF(ERROR, "Value %d for %s outside range [%.2f, %.2f]", intVal, path.c_str(), def.minValue, def.maxValue);
-                                }
-                            }
-                            else {
-                                LOGF(ERROR, "Invalid type for integer parameter %s", path.c_str());
-                            }
-
-                            break;
-                        }
-
-                    case ConfigDef::DOUBLE:
-                        {
-                            if (value.is<double>() || value.is<float>()) {
-                                if (auto doubleVal = value.as<double>(); doubleVal >= def.minValue && doubleVal <= def.maxValue) {
-                                    set<double>(path.c_str(), doubleVal);
-                                    validationSuccess = true;
-                                    LOGF(TRACE, "Applied double %s = %.4f", path.c_str(), doubleVal);
-                                }
-                                else {
-                                    LOGF(ERROR, "Value %.4f for %s outside range [%.2f, %.2f]", doubleVal, path.c_str(), def.minValue, def.maxValue);
-                                }
-                            }
-                            else {
-                                LOGF(ERROR, "Invalid type for double parameter %s", path.c_str());
-                            }
-                            break;
-                        }
-
-                    case ConfigDef::STRING:
-                        {
-                            if (value.is<const char*>() || value.is<String>()) {
-                                auto stringVal = value.as<String>();
-
-                                if (stringVal.length() <= def.maxLength) {
-                                    set<String>(path.c_str(), stringVal);
-                                    validationSuccess = true;
-                                    LOGF(TRACE, "Applied string %s = %s", path.c_str(), stringVal.c_str());
-                                }
-                                else {
-                                    LOGF(ERROR, "String value for %s too long: %d > %d", path.c_str(), stringVal.length(), def.maxLength);
-                                }
-                            }
-                            else {
-                                LOGF(ERROR, "Invalid type for string parameter %s", path.c_str());
-                            }
-                            break;
-                        }
-                }
-
-                if (!validationSuccess) {
-                    LOGF(ERROR, "Failed to validate parameter: %s", path.c_str());
-                    return false;
-                }
-            }
-
-            LOGF(INFO, "Successfully validated and applied all configuration parameters");
-
-            return save();
-        }
-
-        template <typename T>
-        static bool validateParameterRange(const char* paramName, T value, T min, T max) {
-            if (value < min || value > max) {
-                LOGF(ERROR, "Parameter %s value %.2f out of range [%.2f, %.2f]", paramName, static_cast<double>(value), static_cast<double>(min), static_cast<double>(max));
-                return false;
-            }
-            return true;
-        }
-
-        static String constrainStringParameter(const String& value, const size_t maxLength, const char* paramName = nullptr) {
-            if (value.length() <= maxLength) {
-                return value;
-            }
-
-            LOGF(WARNING, "Parameter '%s' truncated from %d to %d characters", paramName, value.length(), maxLength);
-
-            return value.substring(0, maxLength);
-        }
+        bool validateAndApplyConfig(const JsonDocument& doc);
 };

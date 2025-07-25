@@ -117,6 +117,16 @@ class Parameter {
         void syncToGlobalVariable(double value) const;
         void syncToGlobalVariable(const String& value) const;
 
+        // NVS/Preferences methods
+        void saveToPreferences() const;
+        void loadFromPreferences() const;
+        static void saveAllToPreferences(const std::vector<Parameter*>& params);
+        static void loadAllFromPreferences(const std::vector<Parameter*>& params);
+        static String generateJsonConfig(const std::vector<Parameter*>& params);
+
+        // Helper method to generate short NVS keys
+        String generateNvsKey() const;
+
         template <typename T>
         T getValueAs() const {
             if constexpr (std::is_same_v<T, bool>) {
@@ -144,6 +154,10 @@ class Parameter {
         }
 
     private:
+        // Internal methods for loading values without saving to NVS
+        void setValueForLoading(double value) const;
+        void setStringValueForLoading(const String& value) const;
+
         const char* _id;
         const char* _displayName;
         EditableKind _type;

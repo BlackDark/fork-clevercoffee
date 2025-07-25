@@ -14,6 +14,7 @@
 #include <ArduinoOTA.h>
 #include <LittleFS.h>
 #include <PID_v1.h>  // for PID calculation
+#include <Preferences.h>
 #include <U8g2lib.h> // i2c display
 #include <WiFiManager.h>
 #include <os.h>
@@ -222,7 +223,6 @@ constexpr int waterTankCountsNeeded = 3;   // Number of same readings to change 
 // PID controller
 unsigned long previousMillistemp; // initialisation at the end of init()
 
-double setpointTemp;
 double previousInput = 0;
 
 // Embedded HTTP Server
@@ -820,17 +820,20 @@ void wiFiSetup() {
         }
 
         wifiConnected = wm.startConfigPortal(hostname.c_str(), pass);
-
         if (wifiConnected) {
             restartAfterAP = true;
+        }
+
+        // Read hostname from portal and store in config
+        String newHostname = String(custom_hostname.getValue());
+        if (newHostname.length() > 0 && newHostname != hostname) {
+            hostname = newHostname;
+            // Update the parameter registry - this will automatically save to NVS
+            ParameterRegistry::getInstance().setParameterValue("system.hostname", hostname);
         }
     }
 
     if (wifiConnected) {
-        if (!config.save()) {
-            LOG(ERROR, "Failed to save config to filesystem!");
-        }
-
         LOGF(INFO, "WiFi connected - IP = %i.%i.%i.%i", WiFi.localIP()[0], WiFi.localIP()[1], WiFi.localIP()[2], WiFi.localIP()[3]);
 
         byte mac[6];
@@ -871,11 +874,6 @@ void wiFiSetup() {
 
 void wiFiReset() {
     wm.resetSettings();
-
-    if (!config.save()) {
-        LOG(ERROR, "Failed to save config to filesystem!");
-    }
-
     delay(500);
     ESP.restart();
 }
@@ -893,17 +891,14 @@ void setup() {
         LOG(ERROR, "Failed to load config from filesystem!");
     }
 
-    hostname = config.get<String>("system.hostname");
-
     ParameterRegistry::getInstance().initialize(config);
 
     if (!ParameterRegistry::getInstance().isReady()) {
         LOG(ERROR, "Failed to initialize ParameterRegistry!");
         // TODO Error handling
     }
-    else {
-        ParameterRegistry::getInstance().syncGlobalVariables();
-    }
+
+    hostname = config.get<String>("system.hostname");
 
     Wire.begin();
 
@@ -920,7 +915,7 @@ void setup() {
         }
 
         if (u8g2 != nullptr) {
-            if (const int i2cAddress = config.get<int>("hardware.oled.i2c_address"); i2cAddress == 0) {
+            if (const int i2cAddress = config.get<int>("hardware.oled.address"); i2cAddress == 0) {
                 u8g2->setI2CAddress(0x3C * 2);
             }
             else {
@@ -941,7 +936,8 @@ void setup() {
         }
         else {
             LOG(ERROR, "Error initializing the display!");
-            config.set<bool>("hardware.oled.enabled", false);
+            // Update parameter registry - this will automatically save to NVS
+            ParameterRegistry::getInstance().setParameterValue("hardware.oled.enabled", false);
         }
     }
 
@@ -1192,9 +1188,6 @@ void loop() {
 
     // print timing related data to check what is causing stutters
     debugTimingLoop();
-
-    // Handle automatic config save
-    ParameterRegistry::getInstance().processPeriodicSave();
 }
 
 void loopPid() {
@@ -1475,7 +1468,8 @@ void checkWaterTank() {
 
 void setRuntimePidState(const bool enabled) {
     pidON = enabled ? 1 : 0;
-    config.set<bool>("pid.enabled", enabled);
+    // Update via parameter registry instead of config directly
+    ParameterRegistry::getInstance().setParameterValue("pid.enabled", enabled);
 }
 
 void setSteamMode(bool steamMode) {

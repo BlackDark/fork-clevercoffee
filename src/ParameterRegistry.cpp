@@ -1,55 +1,90 @@
-
 #include "ParameterRegistry.h"
+#include "GlobalVariables.h"
 #include "Logger.h"
+#include "defaults.h"
 
 #include <algorithm>
 
 ParameterRegistry ParameterRegistry::_singleton;
 
-// Global variables, needed for backwards compatibility
-extern bool pidON;
-extern bool usePonM;
-extern double aggKp;
-extern double aggTn;
-extern double aggTv;
-extern double aggIMax;
-extern double steamKp;
-extern double brewSetpoint;
-extern double brewTempOffset;
-extern double brewPidDelay;
-extern bool useBDPID;
-extern double aggbKp;
-extern double aggbTn;
-extern double aggbTv;
-extern double emaFactor;
-extern double steamSetpoint;
-extern double targetBrewTime;
-extern double preinfusion;
-extern double preinfusionPause;
-extern int backflushCycles;
-extern double backflushFillTime;
-extern double backflushFlushTime;
-extern bool standbyModeOn;
-extern double standbyModeTime;
-extern bool featureFullscreenBrewTimer;
-extern bool featureFullscreenManualFlushTimer;
-extern bool featureFullscreenHotWaterTimer;
-extern double postBrewTimerDuration;
-extern bool featureHeatingLogo;
-extern bool featurePidOffLogo;
-extern bool steamON;
-extern bool backflushOn;
-extern double temperature;
-extern bool scaleTareOn;
-extern bool scaleCalibrationOn;
-extern int logLevel;
-extern const char sysVersion[64];
-extern bool includeDisplayInLogs;
-extern bool timingDebugActive;
+// System settings - only define variables that are NOT already defined in main.cpp
+String otaPassword = "otapass";
+bool authEnabled = false;
+String authUsername = "admin";
+String authPassword = "admin";
+
+extern int logLevel; // Defined in Logger.cpp
+
+// Display settings
+int displayTemplate = 0;
+bool displayInverted = false;
+int displayLanguage = 0;
+
+// Hardware - OLED
+bool oledEnabled = true;
+int oledType = 0;
+int oledAddress = 0;
+
+// Hardware - Relays
+int heaterTriggerType = 1; // High trigger
+int valveTriggerType = 1;  // High trigger
+int pumpTriggerType = 1;   // High trigger
+
+// Hardware - Switches
+bool brewSwitchEnabled = false;
+int brewSwitchType = 1;     // Toggle
+int brewSwitchMode = 0;     // Normally open
+bool steamSwitchEnabled = false;
+int steamSwitchType = 1;    // Toggle
+int steamSwitchMode = 0;    // Normally open
+bool powerSwitchEnabled = false;
+int powerSwitchType = 1;    // Toggle
+int powerSwitchMode = 0;    // Normally open
+bool hotWaterSwitchEnabled = false;
+int hotWaterSwitchType = 1; // Toggle
+int hotWaterSwitchMode = 0; // Normally open
+
+// Hardware - LEDs
+bool statusLedEnabled = false;
+bool statusLedInverted = false;
+bool brewLedEnabled = false;
+bool brewLedInverted = false;
+bool steamLedEnabled = false;
+bool steamLedInverted = false;
+
+// Hardware - Sensors
+int temperatureSensorType = 0; // Dallas DS18B20
+bool pressureSensorEnabled = false;
+bool waterTankSensorEnabled = false;
+int waterTankSensorMode = 1;   // Normally closed
+
+// Scale settings
+bool scaleEnabled = false;
+int scaleSamples = 2;
+int scaleType = 0;
+double scaleCalibrationFactor = 1.0;
+double scaleCalibrationFactor2 = 1.0;
+double scaleKnownWeight = 267.0;
+double targetBrewWeight = TARGET_BREW_WEIGHT;
+
+// MQTT settings
+bool mqttEnabled = false;
+String mqttBroker = "";
+int mqttPort = 1883;
+String mqttUsername = "rancilio";
+String mqttPassword = "silvia";
+String mqttTopic = "custom/kitchen/";
+bool mqttHassioEnabled = false;
+String mqttHassioPrefix = "homeassistant";
 
 const char* switchTypes[2] = {"Momentary", "Toggle"};
 const char* switchModes[2] = {"Normally Open", "Normally Closed"};
 const char* relayTriggerTypes[2] = {"Low Trigger", "High Trigger"};
+const char* displayTemplateOptions[5] = {"Standard", "Minimal", "Temperature Only", "Scale", "Upright"};
+const char* languageOptions[3] = {"English", "German", "Spanish"};
+const char* oledTypeOptions[2] = {"SSD1306", "SH1106"};
+const char* oledAddressOptions[2] = {"0x3C", "0x3D"};
+const char* temperatureSensorTypes[2] = {"Dallas DS18B20", "TSIC 306"};
 
 void ParameterRegistry::initialize(Config& config) {
     if (_ready) {
@@ -60,8 +95,6 @@ void ParameterRegistry::initialize(Config& config) {
 
     _parameters.clear();
     _parameterMap.clear();
-    _pendingChanges = false;
-    _lastChangeTime = 0;
 
     // clang-format off
 
@@ -262,7 +295,7 @@ void ParameterRegistry::initialize(Config& config) {
                 kDouble,
                 sBrewSection,
                 322,
-                nullptr,
+                &targetBrewWeight,
                 TARGET_BREW_WEIGHT_MIN,
                 TARGET_BREW_WEIGHT_MAX,
                 "Brew is running until this weight has been measured",
@@ -515,7 +548,7 @@ void ParameterRegistry::initialize(Config& config) {
         "Display Template",
         sDisplaySection,
         901,
-        nullptr,
+        &displayTemplate,
         (const char* const[]){"Standard", "Minimal", "Temp only", "Scale", "Upright"},
         5,
         "Set the display template, changes require a reboot"
@@ -526,7 +559,7 @@ void ParameterRegistry::initialize(Config& config) {
         "Invert Display",
         sDisplaySection,
         902,
-        nullptr,
+        &displayInverted,
         "Set the display rotation, changes require a reboot"
     );
 
@@ -535,7 +568,7 @@ void ParameterRegistry::initialize(Config& config) {
         "Display Language",
         sDisplaySection,
         903,
-        nullptr,  // No global variable for this parameter
+        &displayLanguage,
         (const char* const[]){"Deutsch", "English", "Español"},
         3,
         "Set the language for the OLED display, changes requre a reboot"
@@ -604,7 +637,7 @@ void ParameterRegistry::initialize(Config& config) {
         "MQTT enabled",
         sMqttSection,
         1001,
-        nullptr,
+        &mqttEnabled,
         "Enables MQTT, change requires a restart"
     );
 
@@ -613,7 +646,7 @@ void ParameterRegistry::initialize(Config& config) {
         "Hostname",
         sMqttSection,
         1011,
-        nullptr,
+        &mqttBroker,
         MQTT_BROKER_MAX_LENGTH,
         "IP addresss or hostname of your MQTT broker, changes require a restart"
     );
@@ -624,7 +657,7 @@ void ParameterRegistry::initialize(Config& config) {
         kInteger,
         sMqttSection,
         1012,
-        nullptr,
+        &mqttPort,
         1,
         65535,
         "Port number of your MQTT broker, changes require a restart"
@@ -635,7 +668,7 @@ void ParameterRegistry::initialize(Config& config) {
         "Username",
         sMqttSection,
         1013,
-        nullptr,
+        &mqttUsername,
         USERNAME_MAX_LENGTH,
         "Username for your MQTT broker, changes require a restart"
     );
@@ -645,7 +678,7 @@ void ParameterRegistry::initialize(Config& config) {
         "Password",
         sMqttSection,
         1014,
-        nullptr,
+        &mqttPassword,
         PASSWORD_MAX_LENGTH,
         "Password for your MQTT broker, changes require a restart"
     );
@@ -655,7 +688,7 @@ void ParameterRegistry::initialize(Config& config) {
         "Topic Prefix",
         sMqttSection,
         1015,
-        nullptr,
+        &mqttTopic,
         MQTT_TOPIC_MAX_LENGTH,
         "Custom MQTT topic prefix, changes require a restart"
     );
@@ -665,7 +698,7 @@ void ParameterRegistry::initialize(Config& config) {
         "Hass.io enabled",
         sMqttSection,
         1021,
-        nullptr,
+        &mqttHassioEnabled,
         "Enables Home Assistant integration, requires a restart"
     );
 
@@ -674,7 +707,7 @@ void ParameterRegistry::initialize(Config& config) {
         "Hass.io Prefix",
         sMqttSection,
         1022,
-        nullptr,
+        &mqttHassioPrefix,
         MQTT_HASSIO_PREFIX_MAX_LENGTH,
         "Custom MQTT topic prefix, changes require a restart"
     );
@@ -684,7 +717,7 @@ void ParameterRegistry::initialize(Config& config) {
         "Hostname",
         sSystemSection,
         1101,
-        nullptr,
+        &hostname,
         HOSTNAME_MAX_LENGTH,
         "Hostname of your machine, changes require a restart"
     );
@@ -694,7 +727,7 @@ void ParameterRegistry::initialize(Config& config) {
         "OTA Password",
         sSystemSection,
         1102,
-        nullptr,
+        &otaPassword,
         PASSWORD_MAX_LENGTH,
         "Password for over-the-air updates, changes require a restart"
     );
@@ -715,7 +748,7 @@ void ParameterRegistry::initialize(Config& config) {
         "Enable Website Authentication",
         sSystemSection,
         1201,
-        nullptr,
+        &authEnabled,
         "Enables authentication for accessing certain parts of the website and for web requests in general. "
             "This setting secures the calls to sensitive url endpoints, e.g. for config parameters, hardware settings, factory reset, etc."
     );
@@ -725,7 +758,7 @@ void ParameterRegistry::initialize(Config& config) {
         "Website Username",
         sSystemSection,
         1202,
-        nullptr,
+        &authUsername,
         USERNAME_MAX_LENGTH,
         "Username for accessing the website and authenticating web requests. "
     );
@@ -735,7 +768,7 @@ void ParameterRegistry::initialize(Config& config) {
         "Website Password",
         sSystemSection,
         1203,
-        nullptr,
+        &authPassword,
         PASSWORD_MAX_LENGTH,
         "Password for accessing the website and authenticating web requests."
     );
@@ -775,7 +808,7 @@ void ParameterRegistry::initialize(Config& config) {
         "Enable OLED Display",
         sHardwareOledSection,
         2001,
-        nullptr,
+        &oledEnabled,
         "Enable or disable the OLED display"
     );
 
@@ -784,7 +817,7 @@ void ParameterRegistry::initialize(Config& config) {
         "OLED Type",
         sHardwareOledSection,
         2002,
-        nullptr,
+        &oledType,
         (const char* const[]){"SH1106", "SSD1306"},
         2,
         "Select your OLED display type"
@@ -795,7 +828,7 @@ void ParameterRegistry::initialize(Config& config) {
         "I2C Address",
         sHardwareOledSection,
         2003,
-        nullptr,
+        &oledAddress,
         (const char* const[]){"0x3C", "0x3D"},
         2,
         "I2C address of the OLED display, should be 0x3C in most cases, if in doubt check the datasheet"
@@ -807,7 +840,7 @@ void ParameterRegistry::initialize(Config& config) {
         "Heater Relay Trigger Type",
         sHardwareRelaySection,
         2101,
-        nullptr,
+        &heaterTriggerType,
         relayTriggerTypes,
         2,
         "Relay trigger type for heater control"
@@ -818,7 +851,7 @@ void ParameterRegistry::initialize(Config& config) {
         "Valve Relay Trigger Type",
         sHardwareRelaySection,
         2102,
-        nullptr,
+        &valveTriggerType,
         relayTriggerTypes,
         2,
         "Relay trigger type for valve control"
@@ -829,7 +862,7 @@ void ParameterRegistry::initialize(Config& config) {
         "Pump Relay Trigger Type",
         sHardwareRelaySection,
         2103,
-        nullptr,
+        &pumpTriggerType,
         (const char* const[]){"Low Trigger", "High Trigger"},
         2,
         "Relay trigger type for pump control"
@@ -1021,7 +1054,7 @@ void ParameterRegistry::initialize(Config& config) {
         "Temperature Sensor Type",
         sHardwareSensorSection,
         2401,
-        nullptr,
+        &temperatureSensorType,
         (const char* const[]){"TSIC306", "Dallas DS18B20"},
         2,
         "Type of temperature sensor connected"
@@ -1061,7 +1094,7 @@ void ParameterRegistry::initialize(Config& config) {
         "Enable Scale",
         sHardwareSensorSection,
         2431,
-        nullptr,
+        &scaleEnabled,
         "Enable integrated scale for weight-based brewing"
     );
 
@@ -1070,7 +1103,7 @@ void ParameterRegistry::initialize(Config& config) {
         "Scale Type",
         sHardwareSensorSection,
         2432,
-        nullptr,
+        &scaleType,
         (const char* const[]){"HX711 (2 load cells)", "HX711 (1 load cell)", "Bluetooth"},
         3,
         "Integrated HX711-based scale with different load cell configurations or Bluetooth Low Energy scales"
@@ -1082,7 +1115,7 @@ void ParameterRegistry::initialize(Config& config) {
         kInteger,
         sHardwareSensorSection,
         2433,
-        nullptr,
+        &scaleSamples,
         SCALE_SAMPLES_MIN, SCALE_SAMPLES_MAX,
         "Number of samples to average for scale readings (higher = more stable but slower)",
         [&config] { return config.get<int>("hardware.sensors.scale.type") < 2; }
@@ -1094,7 +1127,7 @@ void ParameterRegistry::initialize(Config& config) {
         kDouble,
         sHardwareSensorSection,
         2434,
-        nullptr,
+        &scaleCalibrationFactor,
         SCALE_CALIBRATION_MIN, SCALE_CALIBRATION_MAX,
         "Primary scale calibration factor (adjust during calibration process)",
         [&config] { return config.get<int>("hardware.sensors.scale.type") < 2; }
@@ -1106,7 +1139,7 @@ void ParameterRegistry::initialize(Config& config) {
         kDouble,
         sHardwareSensorSection,
         2435,
-        nullptr,
+        &scaleCalibrationFactor2,
         SCALE_CALIBRATION_MIN, SCALE_CALIBRATION_MAX,
         "Secondary scale calibration factor (for dual load cell setups)",
         [&config] { return config.get<int>("hardware.sensors.scale.type") < 2; }
@@ -1118,7 +1151,7 @@ void ParameterRegistry::initialize(Config& config) {
         kDouble,
         sHardwareSensorSection,
         2436,
-        nullptr,
+        &scaleKnownWeight,
         SCALE_KNOWN_WEIGHT_MIN, SCALE_KNOWN_WEIGHT_MAX,
         "Weight in grams of the known calibration weight used for scale setup",
         [&config] { return config.get<int>("hardware.sensors.scale.type") < 2; }
@@ -1129,6 +1162,13 @@ void ParameterRegistry::initialize(Config& config) {
     addParam(std::make_shared<Parameter>("VERSION", "Version", kCString, sOtherSection, 7, [] { return sysVersion; }, nullptr, 64, false, "", [] { return false; }, nullptr));
 
     std::sort(_parameters.begin(), _parameters.end(), [](const std::shared_ptr<Parameter>& a, const std::shared_ptr<Parameter>& b) { return a->getPosition() < b->getPosition(); });
+
+    // Load all parameters from NVS immediately after registration
+    LOG(INFO, "Loading all parameters from NVS");
+    loadAllFromPreferences();
+
+    // Sync the loaded values to global variables
+    syncGlobalVariables();
 
     _ready = true;
 }

@@ -3,6 +3,7 @@
 
 #include "Config.h"
 #include "Parameter.h"
+#include <Preferences.h>
 #include <map>
 #include <memory>
 #include <vector>
@@ -68,7 +69,7 @@ inline const char* getSectionName(const int sectionId) {
 class ParameterRegistry {
     private:
         ParameterRegistry() :
-            _ready(false), _config(nullptr), _pendingChanges(false), _lastChangeTime(0) {
+            _ready(false), _config(nullptr) {
         }
 
         static ParameterRegistry _singleton;
@@ -78,9 +79,6 @@ class ParameterRegistry {
         std::vector<std::shared_ptr<Parameter>> _parameters;
         std::map<std::string, std::shared_ptr<Parameter>> _parameterMap;
         Config* _config;
-        bool _pendingChanges;
-        unsigned long _lastChangeTime;
-        static constexpr unsigned long SAVE_DELAY_MS = 2000;
 
         void addParam(const std::shared_ptr<Parameter>& param) {
             _parameters.push_back(param);
@@ -111,62 +109,71 @@ class ParameterRegistry {
             const auto param = getParameterById(id);
 
             if (!param) {
+                LOGF(WARNING, "ParameterRegistry::setParameterValue: Parameter '%s' not found", id);
                 return false;
             }
+
+            LOGF(INFO, "ParameterRegistry::setParameterValue: Setting parameter '%s'", id);
 
             if constexpr (std::is_same_v<T, String> || std::is_same_v<T, std::string>) {
                 // Handle string parameters
                 if (param->getType() == kCString) {
-                    param->setStringValue(value);
+                    String newValue = String(value);
+                    LOGF(INFO, "ParameterRegistry::setParameterValue: Setting string parameter '%s' = '%s'", id, newValue.c_str());
+                    param->setStringValue(newValue);
                 }
                 else {
                     const double numericValue = value.toDouble();
+                    LOGF(INFO, "ParameterRegistry::setParameterValue: Converting string '%s' to numeric %.6f for parameter '%s'", String(value).c_str(), numericValue, id);
                     param->setValue(numericValue);
                 }
             }
             else if constexpr (std::is_same_v<T, bool>) {
                 // Handle boolean parameters
-                param->setValue(value ? 1.0 : 0.0);
+                double boolValue = value ? 1.0 : 0.0;
+                LOGF(INFO, "ParameterRegistry::setParameterValue: Setting boolean parameter '%s' = %.0f", id, boolValue);
+                param->setValue(boolValue);
             }
             else {
                 // Handle all numeric types (int, float, double, uint8_t, etc.)
-                param->setValue(static_cast<double>(value));
+                double numericValue = static_cast<double>(value);
+                LOGF(INFO, "ParameterRegistry::setParameterValue: Setting numeric parameter '%s' = %.6f", id, numericValue);
+                param->setValue(numericValue);
             }
 
-            markChanged();
+            LOGF(INFO, "ParameterRegistry::setParameterValue: Successfully set parameter '%s'", id);
             return true;
         }
 
-        // Persistence management
-        void processPeriodicSave() {
-            if (!_config || !_pendingChanges) {
-                return;
-            }
-
-            // Check if enough time has passed since last change
-            if (millis() - _lastChangeTime > SAVE_DELAY_MS) {
-                if (_config->save()) {
-                    _pendingChanges = false;
-                    LOG(INFO, "Configuration automatically saved to filesystem");
-                }
-            }
-        }
-
         void forceSave() {
-            if (!_config || !_pendingChanges) {
-                LOG(INFO, "No pending changes, configuration not written to filesystem");
-                return;
-            }
-
-            if (_config->save()) {
-                _pendingChanges = false;
-                LOG(INFO, "Configuration forcibly saved to filesystem");
-            }
+            // Save all parameters to NVS
+            saveAllToPreferences();
+            LOG(INFO, "Configuration forcibly saved to NVS");
         }
 
-        void markChanged() {
-            _pendingChanges = true;
-            _lastChangeTime = millis();
+        // NVS/Preferences methods
+        void loadAllFromPreferences() {
+            std::vector<Parameter*> params;
+            for (const auto& param : _parameters) {
+                params.push_back(param.get());
+            }
+            Parameter::loadAllFromPreferences(params);
+        }
+
+        void saveAllToPreferences() {
+            std::vector<Parameter*> params;
+            for (const auto& param : _parameters) {
+                params.push_back(param.get());
+            }
+            Parameter::saveAllToPreferences(params);
+        }
+
+        String generateJsonConfig() {
+            std::vector<Parameter*> params;
+            for (const auto& param : _parameters) {
+                params.push_back(param.get());
+            }
+            return Parameter::generateJsonConfig(params);
         }
 
         // Convenience method for adding string config parameters
@@ -174,9 +181,8 @@ class ParameterRegistry {
             const char* configPath, const char* displayName, int section, int position, String* globalVar, double maxLength, const char* helpText = "", const std::function<bool()>& showCondition = [] { return true; }) {
 
             const auto param = std::make_shared<Parameter>(
-                configPath, displayName, kCString, section, position, [this, configPath]() -> String { return _config->get<String>(configPath); },
-                [this, configPath, globalVar](const String& val) {
-                    _config->set<String>(configPath, val);
+                configPath, displayName, kCString, section, position, [globalVar]() -> String { return globalVar ? *globalVar : String(); },
+                [globalVar](const String& val) {
                     if (globalVar) *globalVar = val;
                 },
                 maxLength, !String(helpText).isEmpty(), helpText, showCondition, globalVar);
@@ -188,9 +194,8 @@ class ParameterRegistry {
         void addBoolConfigParam(const char* configPath, const char* displayName, int section, int position, bool* globalVar, const char* helpText = "", const std::function<bool()>& showCondition = [] { return true; }) {
 
             const auto param = std::make_shared<Parameter>(
-                configPath, displayName, kUInt8, section, position, [this, configPath]() -> bool { return _config->get<bool>(configPath); },
-                [this, configPath, globalVar](const bool val) {
-                    _config->set<bool>(configPath, val);
+                configPath, displayName, kUInt8, section, position, [globalVar]() -> bool { return globalVar ? *globalVar : false; },
+                [globalVar](const bool val) {
                     if (globalVar) *globalVar = val;
                 },
                 !String(helpText).isEmpty(), helpText, showCondition, globalVar);
@@ -206,10 +211,9 @@ class ParameterRegistry {
             }) {
 
             auto param = std::make_shared<Parameter>(
-                configPath, displayName, type, section, position, [this, configPath]() -> double { return static_cast<double>(_config->get<T>(configPath)); },
-                [this, configPath, globalVar](const double val) {
+                configPath, displayName, type, section, position, [globalVar]() -> double { return globalVar ? static_cast<double>(*globalVar) : 0.0; },
+                [globalVar](const double val) {
                     T typedVal = static_cast<T>(val);
-                    _config->set<T>(configPath, typedVal);
                     if (globalVar) *globalVar = typedVal;
                 },
                 minValue, maxValue, !String(helpText).isEmpty(), helpText, showCondition, globalVar);
@@ -230,10 +234,9 @@ class ParameterRegistry {
             const std::function<bool()>& showCondition = [] { return true; }) {
 
             const auto param = std::make_shared<Parameter>(
-                configPath, displayName, kEnum, section, position, [this, configPath]() -> double { return _config->get<int>(configPath); },
-                [this, configPath, globalVar](const double val) {
+                configPath, displayName, kEnum, section, position, [globalVar]() -> double { return globalVar ? static_cast<double>(*globalVar) : 0.0; },
+                [globalVar](const double val) {
                     const int intVal = static_cast<int>(val);
-                    _config->set<int>(configPath, intVal);
                     if (globalVar) *globalVar = intVal;
                 },
                 options, optionCount, !String(helpText).isEmpty(), helpText, showCondition, globalVar);
