@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite --mode mock",
     "build": "VITE_BASE_PATH=/ui/ tsc -b && VITE_BASE_PATH=/ui/ vite --mode production build",
+    "postbuild": "rimraf -g \"dist/**/*.html\" \"dist/**/*.js\" \"dist/**/*.css\"",
     "lint": "eslint .",
     "tsc": "tsc --noEmit",
     "preview": "vite preview"

@@ -83,9 +83,10 @@ bool featurePidOffLogo = false;
 
 // WiFi
 WiFiManager wm;
+String hostname = "silvia";
+WiFiManagerParameter custom_hostname("hostname", "Device Hostname", hostname.c_str(), 32);
 constexpr unsigned long wifiConnectionDelay = WIFICONNECTIONDELAY;
 constexpr unsigned int maxWifiReconnects = MAXWIFIRECONNECTS;
-String hostname = "silvia";
 auto pass = WM_PASS;
 unsigned long lastWifiConnectionAttempt = millis();
 unsigned int wifiReconnects = 0; // actual number of reconnects
@@ -792,6 +793,7 @@ char const* machinestateEnumToString(const MachineState machineState) {
  * @brief Set up internal WiFi hardware
  */
 void wiFiSetup() {
+    wm.addParameter(&custom_hostname);
     wm.setCleanConnect(true);
     wm.setConnectTimeout(10); // using 10s to connect to WLAN, 5s is sometimes too short!
     wm.setBreakAfterConfig(true);
