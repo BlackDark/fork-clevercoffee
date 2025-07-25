@@ -1,4 +1,4 @@
-import React, { useMemo, useEffect, Suspense, lazy } from "react";
+import React, { useMemo, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,12 +25,8 @@ import { toast } from "sonner";
 import parameterLabels from "@/lib/parameter-labels";
 import { parameterHelpTexts } from "@/lib/parameter-help-texts";
 import { useCleverCoffee } from "@/context/useCleverCoffee";
-
-// Code-split chart components
-const TemperatureChart = lazy(
-  () => import("@/components/charts/TemperatureChart")
-);
-const HeaterChart = lazy(() => import("@/components/charts/HeaterChart"));
+import TemperatureChart from "@/components/charts/TemperatureChart";
+import HeaterChart from "@/components/charts/HeaterChart";
 
 export function HomePage() {
   const {
@@ -632,19 +628,11 @@ export function HomePage() {
               </div>
             </div>
           ) : (
-            <Suspense
-              fallback={
-                <div className="h-64 flex items-center justify-center">
-                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                </div>
-              }
-            >
-              <TemperatureChart
-                data={tempChartData}
-                height={300}
-                title="Temperature History"
-              />
-            </Suspense>
+            <TemperatureChart
+              data={tempChartData}
+              height={300}
+              title="Temperature History"
+            />
           )}
         </CardContent>
       </Card>
@@ -692,19 +680,11 @@ export function HomePage() {
               </div>
             </div>
           ) : (
-            <Suspense
-              fallback={
-                <div className="h-64 flex items-center justify-center">
-                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                </div>
-              }
-            >
-              <HeaterChart
-                data={heaterChartData}
-                height={300}
-                title="Heater Power History"
-              />
-            </Suspense>
+            <HeaterChart
+              data={heaterChartData}
+              height={300}
+              title="Heater Power History"
+            />
           )}
         </CardContent>
       </Card>
