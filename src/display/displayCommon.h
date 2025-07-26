@@ -6,8 +6,12 @@
 
 #pragma once
 
+#include "../Config.h"
 #include "bitmaps.h"
 #include "languages.h"
+
+// Backward compatibility reference
+extern Config& config;
 
 inline const u8g2_cb_t* getU8G2Rotation(const int rotationValue) {
     switch (rotationValue) {

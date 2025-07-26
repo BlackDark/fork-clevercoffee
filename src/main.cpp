@@ -21,7 +21,7 @@
 
 // Includes
 #include "Config.h"
-#include "ParameterRegistry.h"
+// ParameterRegistry is now unified into Config.h
 
 // Utilities
 #include "utils/Timer.h"
@@ -45,7 +45,9 @@ hw_timer_t* timer = nullptr;
 #include "hardware/pressureSensor.h"
 #include <Wire.h>
 
-Config config;
+// Config is now a singleton - use Config::getInstance()
+// Create a reference for backward compatibility during transition
+extern Config& config;
 
 enum MachineState {
     kInit = 0,
@@ -67,7 +69,7 @@ MachineState machineState = kInit;
 MachineState lastmachinestate = kInit;
 int lastmachinestatepid = -1;
 
-bool offlineMode = false;
+extern bool offlineMode;
 int displayOffline = 0;
 
 inline bool systemInitialized = false;
@@ -75,16 +77,16 @@ inline bool systemInitialized = false;
 // Display
 U8G2* u8g2 = nullptr;
 
-bool featureFullscreenBrewTimer = false;
-bool featureFullscreenManualFlushTimer = false;
-bool featureFullscreenHotWaterTimer = false;
-double postBrewTimerDuration = POST_BREW_TIMER_DURATION;
-bool featureHeatingLogo = false;
-bool featurePidOffLogo = false;
+extern bool featureFullscreenBrewTimer;
+extern bool featureFullscreenManualFlushTimer;
+extern bool featureFullscreenHotWaterTimer;
+extern double postBrewTimerDuration;
+extern bool featureHeatingLogo;
+extern bool featurePidOffLogo;
 
 // WiFi
 WiFiManager wm;
-String hostname = "silvia";
+extern String hostname;
 WiFiManagerParameter custom_hostname("hostname", "Device Hostname", hostname.c_str(), 32);
 constexpr unsigned long wifiConnectionDelay = WIFICONNECTIONDELAY;
 constexpr unsigned int maxWifiReconnects = MAXWIFIRECONNECTS;
@@ -103,8 +105,8 @@ const unsigned long intervalPressure = 100;
 unsigned long previousMillisPressure; // initialisation at the end of init()
 
 // timing flags
-bool timingDebugActive = false;
-bool includeDisplayInLogs = false;
+extern bool timingDebugActive;
+extern bool includeDisplayInLogs;
 bool displayBufferReady = false;
 bool displayUpdateRunning = false;
 bool websiteUpdateRunning = false;
@@ -168,39 +170,40 @@ String hotWaterStateDebug = "off";
 String lastHotWaterStateDebug = "off";
 
 // system parameters
-bool pidON = false;
-bool usePonM = false;
-double brewSetpoint = SETPOINT;
-double brewTempOffset = TEMPOFFSET;
+extern bool pidON;
+extern bool usePonM;
+extern double brewSetpoint;
+extern double brewTempOffset;
 double setpoint = brewSetpoint;
-double steamSetpoint = STEAMSETPOINT;
-double steamKp = STEAMKP;
-double aggKp = AGGKP;
-double aggTn = AGGTN;
-double aggTv = AGGTV;
-double aggIMax = AGGIMAX;
-double emaFactor = EMA_FACTOR;
+extern double steamSetpoint;
+extern double steamKp;
+extern double aggKp;
+extern double aggTn;
+extern double aggTv;
+extern double aggIMax;
+extern double emaFactor;
 
 // PID - values for offline brew detection
-bool useBDPID = false;
-double aggbKp = AGGBKP;
-double aggbTn = AGGBTN;
-double aggbTv = AGGBTV;
+extern bool useBDPID;
+extern double aggbKp;
+extern double aggbTn;
+extern double aggbTv;
 double aggbKi = (aggbTn == 0) ? 0 : aggbKp / aggbTn;
 double aggbKd = aggbTv * aggbKp;
 double aggKi = (aggTn == 0) ? 0 : aggKp / aggTn;
 double aggKd = aggTv * aggKp;
 
-double brewPidDelay = BREW_PID_DELAY; // Time PID will be disabled after brew started
+extern double brewPidDelay; // Time PID will be disabled after brew started
 
-bool standbyModeOn = false;
-double standbyModeTime = STANDBY_MODE_TIME;
+extern bool standbyModeOn;
+extern double standbyModeTime;
 
 #include "standby.h"
 
 // Variables to hold PID values (Temp input, Heater output)
-double temperature, pidOutput;
-bool steamON = false;
+extern double temperature;
+double pidOutput;
+extern bool steamON;
 bool steamFirstON = false;
 
 PID bPID(&temperature, &pidOutput, &setpoint, aggKp, aggKi, aggKd, 1, DIRECT);
@@ -306,7 +309,7 @@ void testEmergencyStop() {
  * @brief Switch to offline mode if maxWifiReconnects were exceeded during boot
  */
 void initOfflineMode() {
-    if (config.get<bool>("hardware.oled.enabled")) {
+    if (Config::getInstance().get<bool>("hardware.oled.enabled")) {
         displayOffline = 1;
     }
 
@@ -659,7 +662,7 @@ void handleMachineState() {
 
         case kStandby:
             {
-                bool oledEnabled = config.get<bool>("hardware.oled.enabled");
+                bool oledEnabled = Config::getInstance().get<bool>("hardware.oled.enabled");
 
                 if (standbyModeRemainingTimeDisplayOffMillis == 0 && oledEnabled) {
                     u8g2->setPowerSave(1);
@@ -799,7 +802,7 @@ void wiFiSetup() {
     wm.setBreakAfterConfig(true);
     wm.setConnectRetries(3);
 
-    bool oledEnabled = config.get<bool>("hardware.oled.enabled");
+    bool oledEnabled = Config::getInstance().get<bool>("hardware.oled.enabled");
 
     if (wm.getWiFiIsSaved()) {
         LOG(INFO, "Connecting to WiFi");
@@ -828,8 +831,8 @@ void wiFiSetup() {
         String newHostname = String(custom_hostname.getValue());
         if (newHostname.length() > 0 && newHostname != hostname) {
             hostname = newHostname;
-            // Update the parameter registry - this will automatically save to NVS
-            ParameterRegistry::getInstance().setParameterValue("system.hostname", hostname);
+            // Update the config system - this will automatically save to NVS
+            Config::getInstance().set<String>("system.hostname", hostname);
         }
     }
 
@@ -878,7 +881,7 @@ void wiFiReset() {
     ESP.restart();
 }
 
-extern const char sysVersion[] = STR(AUTO_VERSION);
+extern const char sysVersion[];
 
 void setup() {
     // Start serial console
@@ -887,23 +890,19 @@ void setup() {
     // Initialize the logger
     Logger::init(23);
 
-    if (!config.begin()) {
-        LOG(ERROR, "Failed to load config from filesystem!");
+    if (!Config::getInstance().begin()) {
+        LOG(ERROR, "Failed to initialize configuration system!");
     }
 
-    ParameterRegistry::getInstance().initialize(config);
+    // Configuration system is now unified in Config class
+    LOG(INFO, "Configuration system ready");
 
-    if (!ParameterRegistry::getInstance().isReady()) {
-        LOG(ERROR, "Failed to initialize ParameterRegistry!");
-        // TODO Error handling
-    }
-
-    hostname = config.get<String>("system.hostname");
+    hostname = Config::getInstance().get<String>("system.hostname");
 
     Wire.begin();
 
-    if (config.get<bool>("hardware.oled.enabled")) {
-        switch (config.get<int>("hardware.oled.type")) {
+    if (Config::getInstance().get<bool>("hardware.oled.enabled")) {
+        switch (Config::getInstance().get<int>("hardware.oled.type")) {
             case 0:
                 u8g2 = new U8G2_SH1106_128X64_NONAME_F_HW_I2C(U8G2_R0, U8X8_PIN_NONE, PIN_I2CSCL, PIN_I2CSDA);  // e.g. 1.3"
                 break;
@@ -915,7 +914,7 @@ void setup() {
         }
 
         if (u8g2 != nullptr) {
-            if (const int i2cAddress = config.get<int>("hardware.oled.address"); i2cAddress == 0) {
+            if (const int i2cAddress = Config::getInstance().get<int>("hardware.oled.address"); i2cAddress == 0) {
                 u8g2->setI2CAddress(0x3C * 2);
             }
             else {
@@ -929,15 +928,15 @@ void setup() {
 
             initLangStrings(config);
 
-            const int templateId = config.get<int>("display.template");
+            const int templateId = Config::getInstance().get<int>("display.template");
             DisplayTemplateManager::initializeDisplay(templateId);
 
             displayLogo(String("Version "), String(sysVersion));
         }
         else {
             LOG(ERROR, "Error initializing the display!");
-            // Update parameter registry - this will automatically save to NVS
-            ParameterRegistry::getInstance().setParameterValue("hardware.oled.enabled", false);
+            // Update config system - this will automatically save to NVS
+            Config::getInstance().set<bool>("hardware.oled.enabled", false);
         }
     }
 
@@ -949,15 +948,15 @@ void setup() {
 
     initTimer1();
 
-    const auto heaterTriggerType = static_cast<Relay::TriggerType>(config.get<int>("hardware.relays.heater.trigger_type"));
+    const auto heaterTriggerType = static_cast<Relay::TriggerType>(Config::getInstance().get<int>("hardware.relays.heater.trigger_type"));
     heaterRelay = new Relay(heaterRelayPin, heaterTriggerType);
     heaterRelay->off();
 
-    const auto valveTriggerType = static_cast<Relay::TriggerType>(config.get<int>("hardware.relays.valve.trigger_type"));
+    const auto valveTriggerType = static_cast<Relay::TriggerType>(Config::getInstance().get<int>("hardware.relays.valve.trigger_type"));
     valveRelay = new Relay(valveRelayPin, valveTriggerType);
     valveRelay->off();
 
-    const auto pumpTriggerType = static_cast<Relay::TriggerType>(config.get<int>("hardware.relays.pump.trigger_type"));
+    const auto pumpTriggerType = static_cast<Relay::TriggerType>(Config::getInstance().get<int>("hardware.relays.pump.trigger_type"));
     pumpRelay = new Relay(pumpRelayPin, pumpTriggerType);
     pumpRelay->off();
 
@@ -1104,7 +1103,7 @@ void setup() {
 
     // Start the logger
     Logger::begin();
-    int level = ParameterRegistry::getInstance().getParameterById("system.log_level")->getValueAs<int>();
+    int level = Config::getInstance().get<int>("system.log_level");
     Logger::setLevel(static_cast<Logger::Level>(level));
 
     // Initialize PID controller
@@ -1468,8 +1467,8 @@ void checkWaterTank() {
 
 void setRuntimePidState(const bool enabled) {
     pidON = enabled ? 1 : 0;
-    // Update via parameter registry instead of config directly
-    ParameterRegistry::getInstance().setParameterValue("pid.enabled", enabled);
+    // Update via config system
+    Config::getInstance().set<bool>("pid.enabled", enabled);
 }
 
 void setSteamMode(bool steamMode) {

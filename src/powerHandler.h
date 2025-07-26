@@ -5,6 +5,11 @@
  */
 #pragma once
 
+#include "Config.h"
+
+// Backward compatibility reference
+extern Config& config;
+
 inline bool currStatePowerSwitchPressed = false;
 inline bool lastPowerSwitchPressed = false;
 inline unsigned long systemInitializedTime = 0;

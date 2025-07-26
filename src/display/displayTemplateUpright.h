@@ -7,6 +7,11 @@
 
 #pragma once
 
+#include "../Config.h"
+
+// Backward compatibility reference
+Config& config = Config::getInstance();
+
 /**
  * @brief Send data to display
  */
@@ -199,7 +204,7 @@ inline void printScreen() {
 
                         if (scaleEnabled) {
                             if (automaticBrewingEnabled && config.get<bool>("brew.by_weight.enabled")) {
-                                const auto targetBrewWeight = ParameterRegistry::getInstance().getParameterById("brew.by_weight.target_weight")->getValueAs<float>();
+                                const auto targetBrewWeight = Config::getInstance().get<double>("brew.by_weight.target_weight");
                                 displayBrewWeight(1, 44, currBrewWeight, targetBrewWeight, scaleFailure);
                             }
                             else {

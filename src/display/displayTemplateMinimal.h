@@ -7,6 +7,11 @@
 
 #pragma once
 
+#include "../Config.h"
+
+// Backward compatibility reference
+Config& config = Config::getInstance();
+
 /**
  * @brief Send data to display
  */

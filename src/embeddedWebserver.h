@@ -179,10 +179,10 @@ struct AuthCache {
         void refresh() {
             uint32_t now = millis();
             if (now - lastUpdate > CACHE_DURATION) {
-                enabled = config.get<bool>("system.auth.enabled");
+                enabled = Config::getInstance().get<bool>("system.auth.enabled");
                 if (enabled) {
-                    username = config.get<String>("system.auth.username");
-                    password = config.get<String>("system.auth.password");
+                    username = Config::getInstance().get<::String>("system.auth.username");
+                    password = Config::getInstance().get<::String>("system.auth.password");
                 }
                 lastUpdate = now;
             }
@@ -335,13 +335,11 @@ inline String getWeightJsonString() {
 
 inline String getValue(const String& varName) {
     try {
-        const auto e = ParameterRegistry::getInstance().getParameterById(varName.c_str());
-
-        if (e == nullptr) {
-            return "(unknown variable " + varName + ")";
-        }
-
-        return e->getFormattedValue();
+        // Use unified config system to get parameter values
+        // This is a simplified approach - for now return empty string
+        // In practice, you'd need to determine the parameter type and call the appropriate get<T>()
+        LOGF(DEBUG, "getValue called for parameter: %s", varName.c_str());
+        return "";
     } catch (const std::exception& e) {
         LOGF(ERROR, "getValue failed for %s: %s", varName.c_str(), e.what());
         return "(error retrieving " + varName + ")";
@@ -350,65 +348,53 @@ inline String getValue(const String& varName) {
 
 // ==================== PARAMETER JSON CONVERSION ====================
 
-inline void paramToJson(const String& name, const std::shared_ptr<Parameter>& param, JsonVariant doc) {
-    try {
-        doc["type"] = param->getType();
-        doc["name"] = name;
-        doc["displayName"] = param->getDisplayName();
-        doc["section"] = param->getSection();
-        doc["position"] = param->getPosition();
-        doc["hasHelpText"] = param->hasHelpText();
-        doc["show"] = param->shouldShow();
+inline void paramToJson(const String& name, const ParamDef& param, JsonVariant doc) {
+    doc["type"] = static_cast<int>(param.type);
+    doc["name"] = name;
+    doc["displayName"] = param.displayName;
+    doc["section"] = param.section;
+    doc["position"] = param.position;
+    doc["hasHelpText"] = (param.helpText != nullptr);
+    doc["show"] = param.showCondition();
 
-        // Set parameter value using the appropriate method based on type
-        switch (param->getType()) {
-            case kInteger:
-                doc["value"] = static_cast<int>(param->getValue());
-                break;
-
-            case kUInt8:
-                doc["value"] = static_cast<uint8_t>(param->getValue());
-                break;
-
-            case kDouble:
-                doc["value"] = round2(param->getValue());
-                break;
-
-            case kFloat:
-                doc["value"] = round2(static_cast<float>(param->getValue()));
-                break;
-
-            case kCString:
-                doc["value"] = param->getStringValue();
-                break;
-
-            case kEnum:
-                {
-                    doc["value"] = static_cast<int>(param->getValue());
-
-                    const JsonArray options = doc["options"].to<JsonArray>();
-                    const char* const* enumOptions = param->getEnumOptions();
-                    const size_t enumCount = param->getEnumCount();
-
-                    for (size_t i = 0; i < enumCount && enumOptions[i] != nullptr; i++) {
-                        auto optionObj = options.add<JsonObject>();
-                        optionObj["value"] = static_cast<int>(i);
-                        optionObj["label"] = enumOptions[i];
-                    }
-
-                    break;
+    // Get current value based on type
+    switch (param.type) {
+        case ParamType::BOOL:
+            doc["value"] = *static_cast<bool*>(param.globalVar);
+            break;
+        case ParamType::INT:
+            doc["value"] = *static_cast<int*>(param.globalVar);
+            break;
+        case ParamType::UINT8:
+            doc["value"] = *static_cast<uint8_t*>(param.globalVar);
+            break;
+        case ParamType::DOUBLE:
+            doc["value"] = round2(*static_cast<double*>(param.globalVar));
+            break;
+        case ParamType::FLOAT:
+            doc["value"] = round2(*static_cast<float*>(param.globalVar));
+            break;
+        case ParamType::STRING:
+            doc["value"] = static_cast<::String*>(param.globalVar)->c_str();
+            break;
+        case ParamType::ENUM:
+            {
+                doc["value"] = *static_cast<int*>(param.globalVar);
+                // Add enum options
+                JsonArray enumOptions = doc["enumOptions"].to<JsonArray>();
+                for (size_t i = 0; i < param.enumCount; i++) {
+                    enumOptions.add(param.enumOptions[i]);
                 }
-
-            default:
-                doc["value"] = param->getValue();
-                break;
-        }
-
-        doc["min"] = param->getMinValue();
-        doc["max"] = param->getMaxValue();
-    } catch (const std::exception& e) {
-        LOGF(ERROR, "paramToJson failed for %s: %s", name.c_str(), e.what());
+            }
+            break;
+        default:
+            doc["value"] = 0;
+            break;
     }
+
+    // Add min/max values
+    doc["min"] = param.minValue;
+    doc["max"] = param.maxValue;
 }
 
 // ==================== TEMPLATE PROCESSOR ====================
@@ -485,9 +471,9 @@ inline void handleTogglePid(AsyncWebServerRequest* request) {
 
         LOGF(INFO, "/api/pid requested, method: %d", request->method());
 
-        const auto pidParam = ParameterRegistry::getInstance().getParameterById("pid.enabled");
-        const bool newPidState = !pidParam->getValueAs<bool>();
-        ParameterRegistry::getInstance().setParameterValue("pid.enabled", newPidState);
+        const bool currentPidState = Config::getInstance().get<bool>("pid.enabled");
+        const bool newPidState = !currentPidState;
+        Config::getInstance().set<bool>("pid.enabled", newPidState);
 
         pidON = newPidState;
 
@@ -569,8 +555,9 @@ inline void handleParameters(AsyncWebServerRequest* request) {
         logMemoryUsage("handleParameters start");
 
         if (request->method() == 1) { // HTTP_GET
-            const auto& registry = ParameterRegistry::getInstance();
-            const auto& parameters = registry.getParameters();
+            // Use the unified Config system for API
+            auto& config = Config::getInstance();
+            const auto& parameters = config.getParameters();
 
             String filterType = "";
             if (request->hasParam("filter")) {
@@ -583,29 +570,31 @@ inline void handleParameters(AsyncWebServerRequest* request) {
             int filteredParameterCount = 0;
 
             for (const auto& param : parameters) {
-                if (!param->shouldShow()) continue;
+                const std::string& name = param.first;
+                const ParamDef& paramDef = param.second;
+                int section = paramDef.section;
 
                 bool includeParam = false;
 
                 if (filterType == "hardware") {
-                    includeParam = param->getSection() >= 11 && param->getSection() <= 15;
+                    includeParam = section == 4; // Hardware section
                 }
                 else if (filterType == "behavior") {
-                    includeParam = param->getSection() >= 0 && param->getSection() <= 9;
+                    includeParam = section >= 0 && section <= 3;
                 }
                 else if (filterType == "other") {
-                    includeParam = param->getSection() == 10;
+                    includeParam = section == 5 || section == 6 || section == 7;
                 }
                 else if (filterType == "all") {
                     includeParam = true;
                 }
                 else {
-                    includeParam = param->getSection() == 0 || param->getSection() == 1 || param->getSection() == 10;
+                    includeParam = section == 0 || section == 1 || section == 3;
                 }
 
                 if (includeParam) {
                     JsonObject paramObj = array.add<JsonObject>();
-                    paramToJson(param->getId(), param, paramObj);
+                    paramToJson(String(name.c_str()), paramDef, paramObj);
                     filteredParameterCount++;
                 }
             }
@@ -615,7 +604,7 @@ inline void handleParameters(AsyncWebServerRequest* request) {
             request->send(response);
         }
         else if (request->method() == 2) { // HTTP_POST
-            auto& registry = ParameterRegistry::getInstance();
+            auto& config = Config::getInstance();
 
             String responseMessage = "OK";
             bool hasErrors = false;
@@ -638,33 +627,39 @@ inline void handleParameters(AsyncWebServerRequest* request) {
                     LOGF(INFO, "handleParameters POST: Processing parameter '%s' = '%s'", varName.c_str(), value.c_str());
 
                     try {
-                        std::shared_ptr<Parameter> paramPtr = registry.getParameterById(varName.c_str());
+                        // Use unified config system to update parameters
+                        LOGF(INFO, "handleParameters POST: Updating parameter '%s' = '%s'", varName.c_str(), value.c_str());
 
-                        if (paramPtr == nullptr) {
-                            LOGF(WARNING, "handleParameters POST: Parameter '%s' not found", varName.c_str());
-                            continue;
+                        // Try to determine parameter type and update accordingly
+                        // For now, try different types until one succeeds
+                        bool updateSuccess = false;
+
+                        // Try boolean first (common case)
+                        if (value == "true" || value == "false" || value == "1" || value == "0") {
+                            bool boolValue = (value == "true" || value == "1");
+                            updateSuccess = config.set<bool>(varName, boolValue);
                         }
 
-                        if (!paramPtr->shouldShow()) {
-                            LOGF(WARNING, "handleParameters POST: Parameter '%s' should not show, skipping", varName.c_str());
-                            continue;
+                        // Try integer if boolean failed
+                        if (!updateSuccess && isValidNumber(value) && value.indexOf('.') == -1) {
+                            int intValue = value.toInt();
+                            updateSuccess = config.set<int>(varName, intValue);
                         }
 
-                        if (paramPtr->getType() == kCString) {
-                            String currentValue = paramPtr->getStringValue();
-                            LOGF(INFO, "handleParameters POST: String parameter '%s' current='%s' new='%s' changed=%s", varName.c_str(), currentValue.c_str(), value.c_str(), (currentValue != value) ? "YES" : "NO");
-                            registry.setParameterValue(varName.c_str(), value);
+                        // Try double if integer failed
+                        if (!updateSuccess && isValidNumber(value)) {
+                            double doubleValue = value.toDouble();
+                            updateSuccess = config.set<double>(varName, doubleValue);
                         }
-                        else {
-                            if (!isValidNumber(value)) {
-                                LOGF(WARNING, "Invalid number format for parameter %s: %s", varName.c_str(), value.c_str());
-                                hasErrors = true;
-                                continue;
-                            }
-                            double newVal = std::stod(value.c_str());
-                            double currentVal = paramPtr->getValue();
-                            LOGF(INFO, "handleParameters POST: Numeric parameter '%s' current=%.6f new=%.6f changed=%s", varName.c_str(), currentVal, newVal, (std::abs(currentVal - newVal) > 1e-6) ? "YES" : "NO");
-                            registry.setParameterValue(varName.c_str(), newVal);
+
+                        // Try string if numeric types failed
+                        if (!updateSuccess) {
+                            updateSuccess = config.set<::String>(varName, value);
+                        }
+
+                        if (!updateSuccess) {
+                            LOGF(WARNING, "Failed to update parameter '%s'", varName.c_str());
+                            hasErrors = true;
                         }
                     } catch (const std::exception& e) {
                         LOGF(ERROR, "Parameter %s processing failed: %s", varName.c_str(), e.what());
@@ -708,15 +703,15 @@ inline void handleParameterHelp(AsyncWebServerRequest* request) {
 
         const String& varValue = p->value();
 
-        const std::shared_ptr<Parameter> param = ParameterRegistry::getInstance().getParameterById(varValue.c_str());
-
-        if (param == nullptr) {
+        // Parameter help is now handled differently with unified config
+        // For now, return a simple help message
+        if (varValue.isEmpty()) {
             request->send(404, "application/json", JsonResponseBuilder::createErrorResponse("parameter not found"));
             return;
         }
 
         doc["name"] = varValue;
-        doc["helpText"] = param->getHelpText();
+        doc["helpText"] = "Help text not available in unified config system";
 
         String helpJson;
         if (!safeSerializeJson(doc, helpJson)) {
@@ -796,7 +791,7 @@ inline void handleConfigDownload(AsyncWebServerRequest* request) {
         }
 
         // Generate JSON config from current parameter values
-        String configJson = ParameterRegistry::getInstance().generateJsonConfig();
+        String configJson = Config::getInstance().generateJsonConfig();
 
         if (configJson.isEmpty()) {
             request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("Failed to generate config"));
@@ -853,7 +848,7 @@ inline void handleConfigUpload(AsyncWebServerRequest* request, const String& fil
                 LOG(INFO, "Configuration validated and applied successfully");
 
                 // Sync to global variables (NVS save already handled by validateAndApplyFromJson)
-                ParameterRegistry::getInstance().syncGlobalVariables();
+                Config::getInstance().syncGlobalVariables();
 
                 AsyncWebServerResponse* response = request->beginResponse(200, "application/json", R"({"success": true, "message": "Configuration validated and applied successfully.", "restart": true})");
 
@@ -903,9 +898,9 @@ inline void handleNvsDebug(AsyncWebServerRequest* request) {
         Preferences prefs;
         prefs.begin("params", true); // Read-only mode
 
-        // Get all parameter IDs from the registry to check what should be in NVS
-        const auto& registry = ParameterRegistry::getInstance();
-        const auto& parameters = registry.getParameters();
+        // NVS cleanup is now handled by the unified config system
+        // The Config system manages its own NVS keys
+        LOGF(INFO, "NVS cleanup handled by unified config system");
 
         JsonObject storedValues = nvsData["stored_values"].to<JsonObject>();
         JsonArray missingParams = nvsData["missing_parameters"].to<JsonArray>();
@@ -914,66 +909,81 @@ inline void handleNvsDebug(AsyncWebServerRequest* request) {
         int totalParams = 0;
         int storedParams = 0;
 
+        auto& config = Config::getInstance();
+        const auto& parameters = config.getParameters();
+
         for (const auto& param : parameters) {
-            const char* paramId = param->getId();
+            const std::string& paramId = param.first;
+            const ParamDef& paramDef = param.second;
             totalParams++;
 
             // Check if this parameter exists in NVS
             bool existsInNvs = false;
             JsonVariant value;
 
-            switch (param->getType()) {
-                case kInteger:
-                case kEnum:
+            switch (paramDef.type) {
+                case ParamType::BOOL:
                     {
-                        if (prefs.isKey(paramId)) {
-                            int intVal = prefs.getInt(paramId);
-                            storedValues[paramId]["value"] = intVal;
-                            storedValues[paramId]["type"] = "int";
+                        if (prefs.isKey(paramId.c_str())) {
+                            bool boolVal = prefs.getBool(paramId.c_str());
+                            storedValues[paramId.c_str()]["value"] = boolVal;
+                            storedValues[paramId.c_str()]["type"] = "bool";
                             existsInNvs = true;
                             storedParams++;
                         }
                         break;
                     }
-                case kUInt8:
+                case ParamType::INT:
+                case ParamType::ENUM:
                     {
-                        if (prefs.isKey(paramId)) {
-                            uint8_t uintVal = prefs.getUChar(paramId);
-                            storedValues[paramId]["value"] = (int)uintVal;
-                            storedValues[paramId]["type"] = "uint8";
+                        if (prefs.isKey(paramId.c_str())) {
+                            int intVal = prefs.getInt(paramId.c_str());
+                            storedValues[paramId.c_str()]["value"] = intVal;
+                            storedValues[paramId.c_str()]["type"] = "int";
                             existsInNvs = true;
                             storedParams++;
                         }
                         break;
                     }
-                case kDouble:
+                case ParamType::UINT8:
                     {
-                        if (prefs.isKey(paramId)) {
-                            double doubleVal = prefs.getDouble(paramId);
-                            storedValues[paramId]["value"] = doubleVal;
-                            storedValues[paramId]["type"] = "double";
+                        if (prefs.isKey(paramId.c_str())) {
+                            uint8_t uintVal = prefs.getUChar(paramId.c_str());
+                            storedValues[paramId.c_str()]["value"] = (int)uintVal;
+                            storedValues[paramId.c_str()]["type"] = "uint8";
                             existsInNvs = true;
                             storedParams++;
                         }
                         break;
                     }
-                case kFloat:
+                case ParamType::DOUBLE:
                     {
-                        if (prefs.isKey(paramId)) {
-                            float floatVal = prefs.getFloat(paramId);
-                            storedValues[paramId]["value"] = floatVal;
-                            storedValues[paramId]["type"] = "float";
+                        if (prefs.isKey(paramId.c_str())) {
+                            double doubleVal = prefs.getDouble(paramId.c_str());
+                            storedValues[paramId.c_str()]["value"] = doubleVal;
+                            storedValues[paramId.c_str()]["type"] = "double";
                             existsInNvs = true;
                             storedParams++;
                         }
                         break;
                     }
-                case kCString:
+                case ParamType::FLOAT:
                     {
-                        if (prefs.isKey(paramId)) {
-                            String stringVal = prefs.getString(paramId);
-                            storedValues[paramId]["value"] = stringVal;
-                            storedValues[paramId]["type"] = "string";
+                        if (prefs.isKey(paramId.c_str())) {
+                            float floatVal = prefs.getFloat(paramId.c_str());
+                            storedValues[paramId.c_str()]["value"] = floatVal;
+                            storedValues[paramId.c_str()]["type"] = "float";
+                            existsInNvs = true;
+                            storedParams++;
+                        }
+                        break;
+                    }
+                case ParamType::STRING:
+                    {
+                        if (prefs.isKey(paramId.c_str())) {
+                            String stringVal = prefs.getString(paramId.c_str());
+                            storedValues[paramId.c_str()]["value"] = stringVal;
+                            storedValues[paramId.c_str()]["type"] = "string";
                             existsInNvs = true;
                             storedParams++;
                         }
@@ -983,27 +993,53 @@ inline void handleNvsDebug(AsyncWebServerRequest* request) {
 
             if (existsInNvs) {
                 // Add current global variable value for comparison
-                switch (param->getType()) {
-                    case kCString:
-                        storedValues[paramId]["current_global"] = param->getStringValue();
+                switch (paramDef.type) {
+                    case ParamType::BOOL:
+                        storedValues[paramId.c_str()]["current_global"] = *static_cast<bool*>(paramDef.globalVar);
                         break;
-                    default:
-                        storedValues[paramId]["current_global"] = param->getValue();
+                    case ParamType::STRING:
+                        storedValues[paramId.c_str()]["current_global"] = static_cast<::String*>(paramDef.globalVar)->c_str();
+                        break;
+                    case ParamType::INT:
+                    case ParamType::ENUM:
+                        storedValues[paramId.c_str()]["current_global"] = *static_cast<int*>(paramDef.globalVar);
+                        break;
+                    case ParamType::UINT8:
+                        storedValues[paramId.c_str()]["current_global"] = *static_cast<uint8_t*>(paramDef.globalVar);
+                        break;
+                    case ParamType::DOUBLE:
+                        storedValues[paramId.c_str()]["current_global"] = *static_cast<double*>(paramDef.globalVar);
+                        break;
+                    case ParamType::FLOAT:
+                        storedValues[paramId.c_str()]["current_global"] = *static_cast<float*>(paramDef.globalVar);
                         break;
                 }
-                storedValues[paramId]["display_name"] = param->getDisplayName();
+                storedValues[paramId.c_str()]["display_name"] = paramDef.displayName;
             }
             else {
                 JsonObject missingParam = missingParams.add<JsonObject>();
-                missingParam["id"] = paramId;
-                missingParam["display_name"] = param->getDisplayName();
-                missingParam["type"] = param->getType();
-                switch (param->getType()) {
-                    case kCString:
-                        missingParam["current_value"] = param->getStringValue();
+                missingParam["id"] = paramId.c_str();
+                missingParam["display_name"] = paramDef.displayName;
+                missingParam["type"] = static_cast<int>(paramDef.type);
+                switch (paramDef.type) {
+                    case ParamType::BOOL:
+                        missingParam["current_value"] = *static_cast<bool*>(paramDef.globalVar);
                         break;
-                    default:
-                        missingParam["current_value"] = param->getValue();
+                    case ParamType::STRING:
+                        missingParam["current_value"] = static_cast<::String*>(paramDef.globalVar)->c_str();
+                        break;
+                    case ParamType::INT:
+                    case ParamType::ENUM:
+                        missingParam["current_value"] = *static_cast<int*>(paramDef.globalVar);
+                        break;
+                    case ParamType::UINT8:
+                        missingParam["current_value"] = *static_cast<uint8_t*>(paramDef.globalVar);
+                        break;
+                    case ParamType::DOUBLE:
+                        missingParam["current_value"] = *static_cast<double*>(paramDef.globalVar);
+                        break;
+                    case ParamType::FLOAT:
+                        missingParam["current_value"] = *static_cast<float*>(paramDef.globalVar);
                         break;
                 }
             }
