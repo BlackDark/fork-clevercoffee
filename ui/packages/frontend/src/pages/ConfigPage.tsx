@@ -115,14 +115,14 @@ const HardwareWarning = ({
     <TriangleAlert className="h-4 w-4" />
     <AlertTitle>Hardware Configuration Warning</AlertTitle>
     <AlertDescription>
-      <p className="mb-3">
-        <strong>
-          Incorrect hardware settings can cause dangerous behavior!
-        </strong>
-      </p>
       <Collapsible open={isOpen} onOpenChange={onToggle}>
         <CollapsibleContent className="data-[state=open]:animate-collapsible-down data-[state=closed]:animate-collapsible-up overflow-hidden">
-          <div className="text-sm space-y-2 mt-3">
+          <div className="text-sm space-y-2 mt-3 max-h-64 overflow-y-auto pr-2">
+            <p className="mb-3">
+              <strong>
+                Incorrect hardware settings can cause dangerous behavior!
+              </strong>
+            </p>
             <ul className="list-disc pl-5 space-y-1">
               <li>
                 <strong>Wrong relay or switch configurations</strong> could
@@ -438,159 +438,175 @@ export function ConfigPage() {
   const hasChanges = changedParameters.length > 0;
 
   return (
-    <div className="container mx-auto p-6 space-y-6 max-w-7xl">
-      {/* Connection Error Alert */}
-      {errorParams && (
-        <Alert className="border-destructive/50 text-destructive dark:border-destructive [&>svg]:text-destructive">
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription>
-            {errorParams}
-            <Button onClick={() => fetchParameters()} className="ml-4">
-              <RefreshCw className="mr-2 h-4 w-4" />
-              Retry
-            </Button>
-          </AlertDescription>
-        </Alert>
-      )}
+    <div className="min-h-screen">
+      {/* Fixed Header Section */}
+      <div className="fixed top-16 left-0 right-0 z-30 bg-background border-b shadow-sm">
+        <div className="container mx-auto px-6 pt-6 pb-4 max-w-7xl">
+          {/* Connection Error Alert */}
+          {errorParams && (
+            <Alert className="border-destructive/50 text-destructive dark:border-destructive [&>svg]:text-destructive mb-4">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>
+                {errorParams}
+                <Button onClick={() => fetchParameters()} className="ml-4">
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  Retry
+                </Button>
+              </AlertDescription>
+            </Alert>
+          )}
 
-      {/* Parameter Navigation and Actions */}
-      <div className="flex items-center justify-between mb-4">
-        <ParameterNavigation />
-        <div className="flex items-center gap-2">
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            disabled={loadingParams || !hasParameters || !hasChanges}
-            onClick={resetAllChanges}
-          >
-            <RefreshCw className="mr-2 h-4 w-4" />
-            Reset All Changes
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => fetchParameters()}
-            disabled={loadingParams}
-            className="ml-2"
-          >
-            {loadingParams ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <RefreshCw className="mr-2 h-4 w-4" />
-            )}
-            Refresh Parameters
-          </Button>
+          {/* Parameter Navigation and Actions */}
+          <div className="flex flex-col space-y-3 md:flex-row md:items-center md:justify-between md:space-y-0 mb-4">
+            <ParameterNavigation />
+            <div className="flex flex-col space-y-2 sm:flex-row sm:space-y-0 sm:space-x-2">
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                disabled={loadingParams || !hasParameters || !hasChanges}
+                onClick={resetAllChanges}
+                className="w-full sm:w-auto"
+              >
+                <RefreshCw className="mr-2 h-4 w-4" />
+                Reset All Changes
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => fetchParameters()}
+                disabled={loadingParams}
+                className="w-full sm:w-auto"
+              >
+                {loadingParams ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                )}
+                Refresh Parameters
+              </Button>
+            </div>
+          </div>
+
+          {/* Hardware Warning */}
+          {isHardwareFilter && !loadingParams && (
+            <HardwareWarning
+              isOpen={isHardwareWarningOpen}
+              onToggle={setIsHardwareWarningOpen}
+            />
+          )}
         </div>
       </div>
 
-      {/* Hardware Warning */}
-      {isHardwareFilter && !loadingParams && (
-        <HardwareWarning
-          isOpen={isHardwareWarningOpen}
-          onToggle={setIsHardwareWarningOpen}
-        />
-      )}
-
-      <form onSubmit={handleSubmitParameters} className="space-y-6">
-        {Object.entries(groupedParameters).map(
-          ([sectionName, sectionParams]) => (
-            <Card key={sectionName} className="mb-8">
-              <CardContent>
-                <h2 className="text-xl font-bold mb-4">{sectionName}</h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 auto-rows-fr">
-                  {sectionParams.map((param) => {
-                    // Simple inline requirement check - no complex memoization
-                    const isDisabled = !areRequiredParametersMet(
-                      param,
-                      localParameters
-                    );
-                    const disabledHint = isDisabled
-                      ? getMissingRequiredParametersMessage(
+      {/* Parameters Content Area with proper top padding */}
+      <div className="pt-56">
+        <div className="container mx-auto px-6 py-6 max-w-7xl pb-32">
+          <form onSubmit={handleSubmitParameters} className="space-y-6">
+            {Object.entries(groupedParameters).map(
+              ([sectionName, sectionParams]) => (
+                <Card key={sectionName} className="mb-8">
+                  <CardContent>
+                    <h2 className="text-xl font-bold mb-4">{sectionName}</h2>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 auto-rows-fr">
+                      {sectionParams.map((param) => {
+                        // Simple inline requirement check - no complex memoization
+                        const isDisabled = !areRequiredParametersMet(
                           param,
                           localParameters
-                        )
-                      : undefined;
+                        );
+                        const disabledHint = isDisabled
+                          ? getMissingRequiredParametersMessage(
+                              param,
+                              localParameters
+                            )
+                          : undefined;
 
-                    return (
-                      <div
-                        key={param.name}
-                        className="flex flex-col space-y-3 p-4 rounded-lg border bg-card hover:bg-accent/50 transition-colors duration-200 min-h-[120px]"
-                      >
-                        <div className="flex items-center justify-between">
-                          <Label
-                            htmlFor={param.name}
-                            className="text-sm font-medium"
+                        return (
+                          <div
+                            key={param.name}
+                            className="flex flex-col space-y-3 p-4 rounded-lg border bg-card hover:bg-accent/50 transition-colors duration-200 min-h-[120px]"
                           >
-                            {parameterLabels.en[param.name] || param.name}
-                          </Label>
-                          {parameterHelpTexts[param.name] && (
-                            <Popover>
-                              <PopoverTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-6 w-6 ml-2"
-                                  tabIndex={0}
-                                >
-                                  <HelpCircle className="h-4 w-4" />
-                                </Button>
-                              </PopoverTrigger>
-                              <PopoverContent className="w-80 text-xs">
-                                <span
-                                  dangerouslySetInnerHTML={{
-                                    __html: parameterHelpTexts[param.name],
-                                  }}
-                                />
-                              </PopoverContent>
-                            </Popover>
-                          )}
-                        </div>
+                            <div className="flex items-center justify-between">
+                              <Label
+                                htmlFor={param.name}
+                                className="text-sm font-medium"
+                              >
+                                {parameterLabels.en[param.name] || param.name}
+                              </Label>
+                              {parameterHelpTexts[param.name] && (
+                                <Popover>
+                                  <PopoverTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-6 w-6 ml-2"
+                                      tabIndex={0}
+                                    >
+                                      <HelpCircle className="h-4 w-4" />
+                                    </Button>
+                                  </PopoverTrigger>
+                                  <PopoverContent className="w-80 text-xs">
+                                    <span
+                                      dangerouslySetInnerHTML={{
+                                        __html: parameterHelpTexts[param.name],
+                                      }}
+                                    />
+                                  </PopoverContent>
+                                </Popover>
+                              )}
+                            </div>
 
-                        <ParameterInput
-                          param={param}
-                          isDisabled={isDisabled}
-                          disabledHint={disabledHint}
-                          onUpdate={(value) =>
-                            updateLocalParameter(param.name, value)
-                          }
-                        />
-                      </div>
-                    );
-                  })}
+                            <ParameterInput
+                              param={param}
+                              isDisabled={isDisabled}
+                              disabledHint={disabledHint}
+                              onUpdate={(value) =>
+                                updateLocalParameter(param.name, value)
+                              }
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </CardContent>
+                </Card>
+              )
+            )}
+          </form>
+        </div>
+      </div>
+
+      {/* Fixed Save Button at Bottom */}
+      {hasParameters && (
+        <div className="fixed bottom-0 left-0 right-0 z-40 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 shadow-lg">
+          <div className="container mx-auto px-6 py-4 max-w-7xl">
+            <Card>
+              <CardContent className="py-4">
+                <div className="flex flex-col space-y-3 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
+                  <div className="text-sm text-muted-foreground">
+                    {localParameters.length} parameters
+                    {hasChanges && ` • ${changedParameters.length} changes`}
+                  </div>
+                  <Button
+                    type="submit"
+                    disabled={loadingParams || !hasChanges}
+                    size="lg"
+                    className="min-w-[140px] w-full sm:w-auto"
+                    onClick={handleSubmitParameters}
+                  >
+                    {loadingParams ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Save className="mr-2 h-4 w-4" />
+                    )}
+                    {loadingParams ? "Saving..." : "Save Parameters"}
+                  </Button>
                 </div>
               </CardContent>
             </Card>
-          )
-        )}
-
-        {hasParameters && (
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div className="text-sm text-muted-foreground">
-                  {localParameters.length} parameters loaded
-                  {hasChanges &&
-                    ` • ${changedParameters.length} changes pending`}
-                </div>
-                <Button
-                  type="submit"
-                  disabled={loadingParams || !hasChanges}
-                  size="lg"
-                  className="min-w-[140px]"
-                >
-                  {loadingParams ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <Save className="mr-2 h-4 w-4" />
-                  )}
-                  {loadingParams ? "Saving..." : "Save Parameters"}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-      </form>
+          </div>
+        </div>
+      )}
 
       {/* Changes Dialog */}
       <Dialog open={showChangesDialog} onOpenChange={setShowChangesDialog}>

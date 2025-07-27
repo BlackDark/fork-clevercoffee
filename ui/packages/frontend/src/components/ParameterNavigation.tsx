@@ -1,12 +1,12 @@
-import { Link, useParams } from "react-router-dom";
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Button } from "@/components/ui/button";
 import { ChevronDown, Settings } from "lucide-react";
+import { Link, useParams } from "react-router-dom";
 
 const parameterCategories = [
   {
@@ -36,7 +36,7 @@ export function ParameterNavigation() {
     <div className="flex items-center gap-2 mb-6">
       <Settings className="h-5 w-5 text-muted-foreground" />
       <span className="text-sm font-medium text-muted-foreground">
-        Parameter Category:
+        Category:
       </span>
 
       <DropdownMenu>
