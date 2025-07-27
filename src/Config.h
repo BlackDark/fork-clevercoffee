@@ -12,13 +12,21 @@
 #include "defaults.h"
 #include "hardware/Relay.h"
 #include "hardware/Switch.h"
+#include "utils/helperUtils.h"
 #include <ArduinoJson.h>
 #include <Preferences.h>
 #include <functional>
 #include <map>
 #include <optional>
+#include <cmath>
 
-enum class ParamType { BOOL, INT, UINT8, DOUBLE, FLOAT, STRING, ENUM };
+enum class ParamType { INT = 0, UINT8 = 1, DOUBLE = 2, FLOAT = 3, STRING = 4, ENUM = 5, BOOL = 6 };
+
+// Structure for enum options with explicit value mapping
+struct EnumOption {
+    int value;
+    const char* label;
+};
 
 struct ParamDef {
     ParamType type;
@@ -41,12 +49,14 @@ struct ParamDef {
     ::String defaultString = "";
 
     // Enum support
-    const char* const* enumOptions = nullptr;
+    const EnumOption* enumOptions = nullptr;
     size_t enumCount = 0;
 
     static ParamDef Bool(bool* var, bool defaultVal, const char* name = "", int sec = 0, int pos = 0, const char* help = "") {
         ParamDef def;
         def.type = ParamType::BOOL;
+        def.minValue = 0.0;
+        def.maxValue = 1.0;
         def.globalVar = var;
         def.defaultBool = defaultVal;
         def.displayName = name;
@@ -125,7 +135,7 @@ struct ParamDef {
         return def;
     }
 
-    static ParamDef Enum(int* var, int defaultVal, const char* const* options, size_t optionCount, const char* name = "", int sec = 0, int pos = 0, const char* help = "") {
+    static ParamDef Enum(int* var, int defaultVal, const EnumOption* options, size_t optionCount, const char* name = "", int sec = 0, int pos = 0, const char* help = "") {
         ParamDef def;
         def.type = ParamType::ENUM;
         def.globalVar = var;
@@ -144,6 +154,67 @@ struct ParamDef {
         showCondition = cond;
         return *this;
     }
+
+    // Method to convert parameter to JSON format
+    JsonObject toJson(JsonObject& obj, const ::String& name) const {
+        obj["name"] = name;
+        obj["displayName"] = displayName;
+        obj["section"] = section;
+        obj["position"] = position;
+        obj["hasHelpText"] = (helpText != nullptr && strlen(helpText) > 0);
+        obj["show"] = showCondition();
+        obj["type"] = static_cast<int>(type);
+
+        // Add type-specific values and constraints
+        switch (type) {
+            case ParamType::BOOL:
+                obj["value"] = globalVar ? *static_cast<bool*>(globalVar) : false;
+                obj["min"] = 0;
+                obj["max"] = 1;
+                break;
+            case ParamType::INT:
+                obj["value"] = globalVar ? *static_cast<int*>(globalVar) : 0;
+                obj["min"] = minValue;
+                obj["max"] = maxValue;
+                break;
+            case ParamType::UINT8:
+                obj["value"] = globalVar ? *static_cast<uint8_t*>(globalVar) : 0;
+                obj["min"] = minValue;
+                obj["max"] = maxValue;
+                break;
+            case ParamType::DOUBLE:
+                obj["value"] = globalVar ? round2(*static_cast<double*>(globalVar)) : 0.0;
+                obj["min"] = minValue;
+                obj["max"] = maxValue;
+                break;
+            case ParamType::FLOAT:
+                obj["value"] = globalVar ? round2(*static_cast<float*>(globalVar)) : 0.0f;
+                obj["min"] = minValue;
+                obj["max"] = maxValue;
+                break;
+            case ParamType::STRING:
+                obj["value"] = globalVar ? static_cast<::String*>(globalVar)->c_str() : "";
+                obj["maxLength"] = maxLength;
+                break;
+            case ParamType::ENUM:
+                obj["value"] = globalVar ? *static_cast<int*>(globalVar) : 0;
+                // Add enum options with proper value/label structure
+                if (enumOptions != nullptr && enumCount > 0) {
+                    JsonArray options = obj["options"].to<JsonArray>();
+                    for (size_t i = 0; i < enumCount; i++) {
+                        JsonObject option = options.add<JsonObject>();
+                        option["value"] = enumOptions[i].value;
+                        option["label"] = enumOptions[i].label;
+                    }
+                }
+                break;
+            default:
+                obj["value"] = 0;
+                break;
+        }
+
+        return obj;
+    }
 };
 
 class Config {
@@ -155,7 +226,6 @@ class Config {
 
         bool begin() {
             initializeParams();
-            initializeGlobalVariablesWithDefaults();
             loadFromNVS();
             LOG(INFO, "Configuration system initialized");
             return true;
@@ -206,8 +276,11 @@ class Config {
 
             // Update global variable
             if (def.globalVar) {
+                LOGF(DEBUG, "Config::set(%s): Updating global var from current value to %s", path.c_str(), String(value).c_str());
                 *static_cast<T*>(def.globalVar) = value;
+                LOGF(DEBUG, "Config::set(%s): Global var updated, now saving to NVS", path.c_str());
                 saveToNVS(path.c_str(), value);
+                LOGF(DEBUG, "Config::set(%s): NVS save completed", path.c_str());
                 return true;
             }
             return false;
@@ -296,29 +369,128 @@ class Config {
             return _params;
         }
 
+        // Generate a short key for NVS storage (max 15 chars) - public for webserver use
+        String generateNvsKey(const char* path) const {
+            // Simple hash-based approach to create short unique keys
+            uint32_t hash = 0;
+            const char* str = path;
+            while (*str) {
+                hash = hash * 31 + *str++;
+            }
+
+            // Create a key with prefix + hash (max 15 chars)
+            String key = "c" + String(hash, HEX);
+            if (key.length() > 15) {
+                key = key.substring(0, 15);
+            }
+
+            LOGF(DEBUG, "Config::generateNvsKey(%s): Using NVS key '%s'", path, key.c_str());
+            return key;
+        }
+
     private:
         std::map<std::string, ParamDef> _params;
         Preferences _prefs;
 
+        // Local storage for parameters without global variables
+        int _brewMode = 0;  // Default value for brew.mode
+
         void initializeParams();
-        void initializeGlobalVariablesWithDefaults();
 
         template<typename T>
         void saveToNVS(const char* path, const T& value) {
-            _prefs.begin("config", false);
-            if constexpr (std::is_same_v<T, bool>) {
-                _prefs.putBool(path, value);
-            } else if constexpr (std::is_same_v<T, int>) {
-                _prefs.putInt(path, value);
-            } else if constexpr (std::is_same_v<T, uint8_t>) {
-                _prefs.putUChar(path, value);
-            } else if constexpr (std::is_same_v<T, double>) {
-                _prefs.putDouble(path, value);
-            } else if constexpr (std::is_same_v<T, float>) {
-                _prefs.putFloat(path, value);
-            } else if constexpr (std::is_same_v<T, ::String>) {
-                _prefs.putString(path, value);
+            // Look up the parameter definition to get the correct type
+            auto it = _params.find(path);
+            if (it == _params.end()) {
+                LOGF(ERROR, "Config::saveToNVS(%s): Parameter not found in definition", path);
+                return;
+            }
+            const ParamDef& def = it->second;
+
+            String nvsKey = generateNvsKey(path);
+            LOGF(INFO, "Config::saveToNVS(%s): Saving value '%s' with NVS key '%s'", path, String(value).c_str(), nvsKey.c_str());
+            _prefs.begin(STORAGE_NAMESPACE, false);
+            bool success = false;
+
+            // Use parameter definition type, not template type, for storage decisions
+            // But only cast when types are compatible
+            switch (def.type) {
+                case ParamType::BOOL:
+                    if constexpr (std::is_same_v<T, bool>) {
+                        success = _prefs.putBool(nvsKey.c_str(), value);
+                        LOGF(DEBUG, "Config::saveToNVS(%s): putBool(%s, %s) = %s", path, nvsKey.c_str(), value ? "true" : "false", success ? "success" : "failed");
+                    } else if constexpr (std::is_arithmetic_v<T>) {
+                        success = _prefs.putBool(nvsKey.c_str(), static_cast<bool>(value));
+                        LOGF(DEBUG, "Config::saveToNVS(%s): putBool(%s, %s) = %s", path, nvsKey.c_str(), static_cast<bool>(value) ? "true" : "false", success ? "success" : "failed");
+                    } else {
+                        LOGF(ERROR, "Config::saveToNVS(%s): Cannot convert non-arithmetic type to bool", path);
+                    }
+                    break;
+                case ParamType::INT:
+                case ParamType::ENUM:  // ENUMs are stored as integers
+                    if constexpr (std::is_same_v<T, int>) {
+                        success = _prefs.putInt(nvsKey.c_str(), value);
+                        LOGF(DEBUG, "Config::saveToNVS(%s): putInt(%s, %d) = %s", path, nvsKey.c_str(), value, success ? "success" : "failed");
+                    } else if constexpr (std::is_arithmetic_v<T>) {
+                        success = _prefs.putInt(nvsKey.c_str(), static_cast<int>(value));
+                        LOGF(DEBUG, "Config::saveToNVS(%s): putInt(%s, %d) = %s", path, nvsKey.c_str(), static_cast<int>(value), success ? "success" : "failed");
+                    } else {
+                        LOGF(ERROR, "Config::saveToNVS(%s): Cannot convert non-arithmetic type to int", path);
+                    }
+                    break;
+                case ParamType::UINT8:
+                    if constexpr (std::is_same_v<T, uint8_t>) {
+                        success = _prefs.putUChar(nvsKey.c_str(), value);
+                        LOGF(DEBUG, "Config::saveToNVS(%s): putUChar(%s, %d) = %s", path, nvsKey.c_str(), value, success ? "success" : "failed");
+                    } else if constexpr (std::is_arithmetic_v<T>) {
+                        success = _prefs.putUChar(nvsKey.c_str(), static_cast<uint8_t>(value));
+                        LOGF(DEBUG, "Config::saveToNVS(%s): putUChar(%s, %d) = %s", path, nvsKey.c_str(), static_cast<uint8_t>(value), success ? "success" : "failed");
+                    } else {
+                        LOGF(ERROR, "Config::saveToNVS(%s): Cannot convert non-arithmetic type to uint8_t", path);
+                    }
+                    break;
+                case ParamType::DOUBLE:
+                    if constexpr (std::is_same_v<T, double>) {
+                        success = _prefs.putDouble(nvsKey.c_str(), value);
+                        LOGF(DEBUG, "Config::saveToNVS(%s): putDouble(%s, %.6f) = %s", path, nvsKey.c_str(), value, success ? "success" : "failed");
+                    } else if constexpr (std::is_arithmetic_v<T>) {
+                        success = _prefs.putDouble(nvsKey.c_str(), static_cast<double>(value));
+                        LOGF(DEBUG, "Config::saveToNVS(%s): putDouble(%s, %.6f) = %s", path, nvsKey.c_str(), static_cast<double>(value), success ? "success" : "failed");
+                    } else {
+                        LOGF(ERROR, "Config::saveToNVS(%s): Cannot convert non-arithmetic type to double", path);
+                    }
+                    break;
+                case ParamType::FLOAT:
+                    if constexpr (std::is_same_v<T, float>) {
+                        success = _prefs.putFloat(nvsKey.c_str(), value);
+                        LOGF(DEBUG, "Config::saveToNVS(%s): putFloat(%s, %.6f) = %s", path, nvsKey.c_str(), value, success ? "success" : "failed");
+                    } else if constexpr (std::is_arithmetic_v<T>) {
+                        success = _prefs.putFloat(nvsKey.c_str(), static_cast<float>(value));
+                        LOGF(DEBUG, "Config::saveToNVS(%s): putFloat(%s, %.6f) = %s", path, nvsKey.c_str(), static_cast<float>(value), success ? "success" : "failed");
+                    } else {
+                        LOGF(ERROR, "Config::saveToNVS(%s): Cannot convert non-arithmetic type to float", path);
+                    }
+                    break;
+                case ParamType::STRING:
+                    if constexpr (std::is_same_v<T, ::String>) {
+                        success = _prefs.putString(nvsKey.c_str(), value);
+                        LOGF(DEBUG, "Config::saveToNVS(%s): putString(%s, '%s') = %s", path, nvsKey.c_str(), value.c_str(), success ? "success" : "failed");
+                    } else {
+                        String strValue = String(value);
+                        success = _prefs.putString(nvsKey.c_str(), strValue);
+                        LOGF(DEBUG, "Config::saveToNVS(%s): putString(%s, '%s') = %s", path, nvsKey.c_str(), strValue.c_str(), success ? "success" : "failed");
+                    }
+                    break;
+                default:
+                    LOGF(ERROR, "Config::saveToNVS(%s): Unknown parameter type %d", path, static_cast<int>(def.type));
+                    break;
             }
             _prefs.end();
+
+            if (!success) {
+                LOGF(ERROR, "Failed to save parameter '%s' to NVS (key: %s)", path, nvsKey.c_str());
+            } else {
+                LOGF(INFO, "Successfully saved parameter '%s' to NVS (key: %s)", path, nvsKey.c_str());
+            }
         }
 };

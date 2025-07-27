@@ -1,13 +1,13 @@
 [
   {
-    "type": 1,
+    "type": 6,
     "name": "pid.enabled",
     "displayName": "Enable PID Controller",
     "section": 0,
     "position": 101,
     "hasHelpText": true,
     "show": true,
-    "value": 0,
+    "value": true,
     "min": 0,
     "max": 1
   },

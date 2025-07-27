@@ -12,17 +12,17 @@ import { ParameterTypes } from "./parameter-types";
 export const defaultParametersList: Array<ParameterTemplate> = [
   {
     name: "pid.enabled",
-    type: ParameterTypes.UINT8,
+    type: ParameterTypes.BOOL,
     min: 0,
     max: 1,
-    defaultValue: 0,
+    defaultValue: false,
   },
   {
     name: "pid.use_ponm",
-    type: ParameterTypes.UINT8,
+    type: ParameterTypes.BOOL,
     min: 0,
     max: 1,
-    defaultValue: 0,
+    defaultValue: false,
   },
   {
     name: "pid.ema_factor",
@@ -100,11 +100,11 @@ export const defaultParametersList: Array<ParameterTemplate> = [
   // Brew PID Parameters
   {
     name: "pid.bd.enabled",
-    type: ParameterTypes.UINT8,
+    type: ParameterTypes.BOOL,
     min: 0,
     max: 1,
-    defaultValue: 0,
-    requiredParameters: { "pid.enabled": 1 },
+    defaultValue: false,
+    requiredParameters: { "pid.enabled": true },
   },
   {
     name: "brew.pid_delay",
@@ -112,7 +112,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     min: 0,
     max: 999,
     defaultValue: 10,
-    requiredParameters: { "pid.bd.enabled": 1 },
+    requiredParameters: { "pid.bd.enabled": true },
   },
   {
     name: "pid.bd.kp",
@@ -120,7 +120,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     min: 0,
     max: 999,
     defaultValue: 0,
-    requiredParameters: { "pid.bd.enabled": 1 },
+    requiredParameters: { "pid.bd.enabled": true },
   },
   {
     name: "pid.bd.tn",
@@ -128,7 +128,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     min: 0,
     max: 999,
     defaultValue: 0,
-    requiredParameters: { "pid.bd.enabled": 1 },
+    requiredParameters: { "pid.bd.enabled": true },
   },
   {
     name: "pid.bd.tv",
@@ -136,7 +136,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     min: 0,
     max: 999,
     defaultValue: 0,
-    requiredParameters: { "pid.bd.enabled": 1 },
+    requiredParameters: { "pid.bd.enabled": true },
   },
 
   // Brew Control
@@ -150,14 +150,14 @@ export const defaultParametersList: Array<ParameterTemplate> = [
       { value: 0, label: "Manual" },
       { value: 1, label: "Automatic" },
     ],
-    requiredParameters: { "hardware.switches.brew.enabled": 1 },
+    requiredParameters: { "hardware.switches.brew.enabled": true },
   },
   {
     name: "brew.by_time",
-    type: ParameterTypes.UINT8,
+    type: ParameterTypes.BOOL,
     min: 0,
     max: 1,
-    defaultValue: 0,
+    defaultValue: false,
     requiredParameters: { "brew.mode": 1 },
   },
   {
@@ -170,10 +170,10 @@ export const defaultParametersList: Array<ParameterTemplate> = [
   },
   {
     name: "brew.by_weight",
-    type: ParameterTypes.UINT8,
+    type: ParameterTypes.BOOL,
     min: 0,
     max: 1,
-    defaultValue: 0,
+    defaultValue: false,
     requiredParameters: { "brew.mode": 1 },
   },
   {
@@ -186,10 +186,10 @@ export const defaultParametersList: Array<ParameterTemplate> = [
   },
   {
     name: "brew.pre_infusion.enabled",
-    type: ParameterTypes.UINT8,
+    type: ParameterTypes.BOOL,
     min: 0,
     max: 1,
-    defaultValue: 0,
+    defaultValue: false,
     requiredParameters: { "brew.mode": 1 },
   },
   {
@@ -198,7 +198,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     min: 0,
     max: 999,
     defaultValue: 2,
-    requiredParameters: { "brew.pre_infusion.enabled": 1 },
+    requiredParameters: { "brew.pre_infusion.enabled": true },
   },
   {
     name: "brew.pre_infusion.pause",
@@ -206,7 +206,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     min: 0,
     max: 999,
     defaultValue: 5,
-    requiredParameters: { "brew.pre_infusion.enabled": 1 },
+    requiredParameters: { "brew.pre_infusion.enabled": true },
   },
 
   // Maintenance Parameters
@@ -235,10 +235,10 @@ export const defaultParametersList: Array<ParameterTemplate> = [
   // Standby Parameters
   {
     name: "standby.enabled",
-    type: ParameterTypes.UINT8,
+    type: ParameterTypes.BOOL,
     min: 0,
     max: 1,
-    defaultValue: 0,
+    defaultValue: false,
   },
   {
     name: "standby.time",
@@ -246,16 +246,16 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     min: 0,
     max: 999,
     defaultValue: 60,
-    requiredParameters: { "standby.enabled": 1 },
+    requiredParameters: { "standby.enabled": true },
   },
 
   // Scale Parameters
   {
     name: "hardware.sensors.scale.enabled",
-    type: ParameterTypes.UINT8,
+    type: ParameterTypes.BOOL,
     min: 0,
     max: 1,
-    defaultValue: 0,
+    defaultValue: false,
   },
   {
     name: "hardware.sensors.scale.type",
@@ -267,7 +267,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
       { value: 0, label: "2 load cells" },
       { value: 1, label: "1 load cell" },
     ],
-    requiredParameters: { "hardware.sensors.scale.enabled": 1 },
+    requiredParameters: { "hardware.sensors.scale.enabled": true },
   },
   {
     name: "hardware.sensors.scale.samples",
@@ -275,7 +275,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     min: 1,
     max: 20,
     defaultValue: 5,
-    requiredParameters: { "hardware.sensors.scale.enabled": 1 },
+    requiredParameters: { "hardware.sensors.scale.enabled": true },
   },
   {
     name: "hardware.sensors.scale.known_weight",
@@ -283,7 +283,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     min: 1,
     max: 5000,
     defaultValue: 200,
-    requiredParameters: { "hardware.sensors.scale.enabled": 1 },
+    requiredParameters: { "hardware.sensors.scale.enabled": true },
   },
   {
     name: "hardware.sensors.scale.calibration",
@@ -291,7 +291,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     min: -10000,
     max: 10000,
     defaultValue: 1,
-    requiredParameters: { "hardware.sensors.scale.enabled": 1 },
+    requiredParameters: { "hardware.sensors.scale.enabled": true },
   },
   {
     name: "hardware.sensors.scale.calibration2",
@@ -299,16 +299,16 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     min: -10000,
     max: 10000,
     defaultValue: 1,
-    requiredParameters: { "hardware.sensors.scale.enabled": 1 },
+    requiredParameters: { "hardware.sensors.scale.enabled": true },
   },
 
   // MQTT Parameters
   {
     name: "mqtt.enabled",
-    type: ParameterTypes.UINT8,
+    type: ParameterTypes.BOOL,
     min: 0,
     max: 1,
-    defaultValue: 0,
+    defaultValue: false,
   },
   {
     name: "mqtt.broker",
@@ -316,7 +316,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     min: 0,
     max: 64,
     defaultValue: "",
-    requiredParameters: { "mqtt.enabled": 1 },
+    requiredParameters: { "mqtt.enabled": true },
   },
   {
     name: "mqtt.port",
@@ -324,7 +324,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     min: 1,
     max: 65535,
     defaultValue: 1883,
-    requiredParameters: { "mqtt.enabled": 1 },
+    requiredParameters: { "mqtt.enabled": true },
   },
   {
     name: "mqtt.username",
@@ -332,7 +332,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     min: 0,
     max: 32,
     defaultValue: "",
-    requiredParameters: { "mqtt.enabled": 1 },
+    requiredParameters: { "mqtt.enabled": true },
   },
   {
     name: "mqtt.password",
@@ -340,7 +340,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     min: 0,
     max: 32,
     defaultValue: "",
-    requiredParameters: { "mqtt.enabled": 1 },
+    requiredParameters: { "mqtt.enabled": true },
   },
   {
     name: "mqtt.topic",
@@ -348,15 +348,15 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     min: 0,
     max: 64,
     defaultValue: "",
-    requiredParameters: { "mqtt.enabled": 1 },
+    requiredParameters: { "mqtt.enabled": true },
   },
   {
     name: "mqtt.hassio.enabled",
-    type: ParameterTypes.UINT8,
+    type: ParameterTypes.BOOL,
     min: 0,
     max: 1,
-    defaultValue: 0,
-    requiredParameters: { "mqtt.enabled": 1 },
+    defaultValue: false,
+    requiredParameters: { "mqtt.enabled": true },
   },
   {
     name: "mqtt.hassio.prefix",
@@ -364,7 +364,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     min: 0,
     max: 32,
     defaultValue: "",
-    requiredParameters: { "mqtt.hassio.enabled": 1 },
+    requiredParameters: { "mqtt.hassio.enabled": true },
   },
 
   // System Parameters
@@ -400,10 +400,10 @@ export const defaultParametersList: Array<ParameterTemplate> = [
   },
   {
     name: "system.auth.enabled",
-    type: ParameterTypes.UINT8,
+    type: ParameterTypes.BOOL,
     min: 0,
     max: 1,
-    defaultValue: 0,
+    defaultValue: false,
   },
   {
     name: "system.auth.username",
@@ -411,7 +411,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     min: 0,
     max: 32,
     defaultValue: "",
-    requiredParameters: { "system.auth.enabled": 1 },
+    requiredParameters: { "system.auth.enabled": true },
   },
   {
     name: "system.auth.password",
@@ -419,32 +419,32 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     min: 0,
     max: 32,
     defaultValue: "",
-    requiredParameters: { "system.auth.enabled": 1 },
+    requiredParameters: { "system.auth.enabled": true },
   },
   {
     name: "system.timing_debug.enabled",
-    type: ParameterTypes.UINT8,
+    type: ParameterTypes.BOOL,
     min: 0,
     max: 1,
-    defaultValue: 0,
+    defaultValue: false,
     requiredParameters: { "system.log_level": 1 },
   },
   {
     name: "system.showdisplay.enabled",
-    type: ParameterTypes.UINT8,
+    type: ParameterTypes.BOOL,
     min: 0,
     max: 1,
-    defaultValue: 0,
+    defaultValue: false,
     requiredParameters: { "system.log_level": 1 },
   },
 
   // Hardware - OLED Parameters
   {
     name: "hardware.oled.enabled",
-    type: ParameterTypes.UINT8,
+    type: ParameterTypes.BOOL,
     min: 0,
     max: 1,
-    defaultValue: 1,
+    defaultValue: true,
   },
   {
     name: "hardware.oled.type",
@@ -456,7 +456,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
       { value: 0, label: "SH1106" },
       { value: 1, label: "SSD1306" },
     ],
-    requiredParameters: { "hardware.oled.enabled": 1 },
+    requiredParameters: { "hardware.oled.enabled": true },
   },
   {
     name: "hardware.oled.address",
@@ -468,7 +468,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
       { value: 0, label: "0x3C" },
       { value: 1, label: "0x3D" },
     ],
-    requiredParameters: { "hardware.oled.enabled": 1 },
+    requiredParameters: { "hardware.oled.enabled": true },
   },
 
   // Hardware - Relay Parameters
@@ -509,10 +509,10 @@ export const defaultParametersList: Array<ParameterTemplate> = [
   // Hardware - Switch Parameters
   {
     name: "hardware.switches.brew.enabled",
-    type: ParameterTypes.UINT8,
+    type: ParameterTypes.BOOL,
     min: 0,
     max: 1,
-    defaultValue: 0,
+    defaultValue: false,
   },
   {
     name: "hardware.switches.brew.type",
@@ -524,7 +524,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
       { value: 0, label: "Momentary" },
       { value: 1, label: "Toggle" },
     ],
-    requiredParameters: { "hardware.switches.brew.enabled": 1 },
+    requiredParameters: { "hardware.switches.brew.enabled": true },
   },
   {
     name: "hardware.switches.brew.mode",
@@ -536,14 +536,14 @@ export const defaultParametersList: Array<ParameterTemplate> = [
       { value: 0, label: "Normally Open" },
       { value: 1, label: "Normally Closed" },
     ],
-    requiredParameters: { "hardware.switches.brew.enabled": 1 },
+    requiredParameters: { "hardware.switches.brew.enabled": true },
   },
   {
     name: "hardware.switches.steam.enabled",
-    type: ParameterTypes.UINT8,
+    type: ParameterTypes.BOOL,
     min: 0,
     max: 1,
-    defaultValue: 0,
+    defaultValue: false,
   },
   {
     name: "hardware.switches.steam.type",
@@ -555,7 +555,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
       { value: 0, label: "Momentary" },
       { value: 1, label: "Toggle" },
     ],
-    requiredParameters: { "hardware.switches.steam.enabled": 1 },
+    requiredParameters: { "hardware.switches.steam.enabled": true },
   },
   {
     name: "hardware.switches.steam.mode",
@@ -567,14 +567,14 @@ export const defaultParametersList: Array<ParameterTemplate> = [
       { value: 0, label: "Normally Open" },
       { value: 1, label: "Normally Closed" },
     ],
-    requiredParameters: { "hardware.switches.steam.enabled": 1 },
+    requiredParameters: { "hardware.switches.steam.enabled": true },
   },
   {
     name: "hardware.switches.power.enabled",
-    type: ParameterTypes.UINT8,
+    type: ParameterTypes.BOOL,
     min: 0,
     max: 1,
-    defaultValue: 0,
+    defaultValue: false,
   },
   {
     name: "hardware.switches.power.type",
@@ -586,7 +586,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
       { value: 0, label: "Momentary" },
       { value: 1, label: "Toggle" },
     ],
-    requiredParameters: { "hardware.switches.power.enabled": 1 },
+    requiredParameters: { "hardware.switches.power.enabled": true },
   },
   {
     name: "hardware.switches.power.mode",
@@ -598,14 +598,14 @@ export const defaultParametersList: Array<ParameterTemplate> = [
       { value: 0, label: "Normally Open" },
       { value: 1, label: "Normally Closed" },
     ],
-    requiredParameters: { "hardware.switches.power.enabled": 1 },
+    requiredParameters: { "hardware.switches.power.enabled": true },
   },
   {
     name: "hardware.switches.hot_water.enabled",
-    type: ParameterTypes.UINT8,
+    type: ParameterTypes.BOOL,
     min: 0,
     max: 1,
-    defaultValue: 0,
+    defaultValue: false,
   },
   {
     name: "hardware.switches.hot_water.type",
@@ -617,7 +617,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
       { value: 0, label: "Momentary" },
       { value: 1, label: "Toggle" },
     ],
-    requiredParameters: { "hardware.switches.hot_water.enabled": 1 },
+    requiredParameters: { "hardware.switches.hot_water.enabled": true },
   },
   {
     name: "hardware.switches.hot_water.mode",
@@ -629,54 +629,54 @@ export const defaultParametersList: Array<ParameterTemplate> = [
       { value: 0, label: "Normally Open" },
       { value: 1, label: "Normally Closed" },
     ],
-    requiredParameters: { "hardware.switches.hot_water.enabled": 1 },
+    requiredParameters: { "hardware.switches.hot_water.enabled": true },
   },
 
   // Hardware - LED Parameters
   {
     name: "hardware.leds.status.enabled",
-    type: ParameterTypes.UINT8,
+    type: ParameterTypes.BOOL,
     min: 0,
     max: 1,
-    defaultValue: 0,
+    defaultValue: false,
   },
   {
     name: "hardware.leds.status.inverted",
-    type: ParameterTypes.UINT8,
+    type: ParameterTypes.BOOL,
     min: 0,
     max: 1,
-    defaultValue: 0,
-    requiredParameters: { "hardware.leds.status.enabled": 1 },
+    defaultValue: false,
+    requiredParameters: { "hardware.leds.status.enabled": true },
   },
   {
     name: "hardware.leds.brew.enabled",
-    type: ParameterTypes.UINT8,
+    type: ParameterTypes.BOOL,
     min: 0,
     max: 1,
-    defaultValue: 0,
+    defaultValue: false,
   },
   {
     name: "hardware.leds.brew.inverted",
-    type: ParameterTypes.UINT8,
+    type: ParameterTypes.BOOL,
     min: 0,
     max: 1,
-    defaultValue: 0,
-    requiredParameters: { "hardware.leds.brew.enabled": 1 },
+    defaultValue: false,
+    requiredParameters: { "hardware.leds.brew.enabled": true },
   },
   {
     name: "hardware.leds.steam.enabled",
-    type: ParameterTypes.UINT8,
+    type: ParameterTypes.BOOL,
     min: 0,
     max: 1,
-    defaultValue: 0,
+    defaultValue: false,
   },
   {
     name: "hardware.leds.steam.inverted",
-    type: ParameterTypes.UINT8,
+    type: ParameterTypes.BOOL,
     min: 0,
     max: 1,
-    defaultValue: 0,
-    requiredParameters: { "hardware.leds.steam.enabled": 1 },
+    defaultValue: false,
+    requiredParameters: { "hardware.leds.steam.enabled": true },
   },
 
   // Hardware - Sensor Parameters
@@ -693,17 +693,17 @@ export const defaultParametersList: Array<ParameterTemplate> = [
   },
   {
     name: "hardware.sensors.pressure.enabled",
-    type: ParameterTypes.UINT8,
+    type: ParameterTypes.BOOL,
     min: 0,
     max: 1,
-    defaultValue: 0,
+    defaultValue: false,
   },
   {
     name: "hardware.sensors.watertank.enabled",
-    type: ParameterTypes.UINT8,
+    type: ParameterTypes.BOOL,
     min: 0,
     max: 1,
-    defaultValue: 0,
+    defaultValue: false,
   },
   {
     name: "hardware.sensors.watertank.mode",
@@ -715,7 +715,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
       { value: 0, label: "Normally Open" },
       { value: 1, label: "Normally Closed" },
     ],
-    requiredParameters: { "hardware.sensors.watertank.enabled": 1 },
+    requiredParameters: { "hardware.sensors.watertank.enabled": true },
   },
 
   // Display Parameters

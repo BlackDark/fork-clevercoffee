@@ -7,6 +7,7 @@
 
 #include "FS.h"
 #include "LittleFS.h"
+#include "utils/helperUtils.h"
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <AsyncJson.h>
@@ -31,21 +32,6 @@ extern double pidOutput;
 #define PATH_BUFFER_SIZE     128
 #define RESPONSE_BUFFER_SIZE 256
 
-// ==================== UTILITY FUNCTIONS ====================
-
-inline uint8_t flipUintValue(const uint8_t value) {
-    return value == 0 ? 1 : 0;
-}
-
-inline int mod(const int a, const int b) {
-    const int r = a % b;
-    return r < 0 ? r + b : r;
-}
-
-inline double round2(const double value) {
-    return std::round(value * 100.0) / 100.0;
-}
-
 // Memory monitoring function
 void logMemoryUsage(const char* location) {
     size_t freeHeap = ESP.getFreeHeap();
@@ -56,18 +42,6 @@ void logMemoryUsage(const char* location) {
     if (freeHeap < 10000) { // Less than 10KB free
         LOGF(WARNING, "Low memory condition detected!");
     }
-}
-
-// Input validation function
-bool isValidNumber(const String& str) {
-    if (str.length() == 0) return false;
-
-    for (size_t i = 0; i < str.length(); i++) {
-        if (!isdigit(str[i]) && str[i] != '.' && str[i] != '-') {
-            return false;
-        }
-    }
-    return true;
 }
 
 // ==================== CONTENT TYPE DETECTION ====================
@@ -346,57 +320,6 @@ inline String getValue(const String& varName) {
     }
 }
 
-// ==================== PARAMETER JSON CONVERSION ====================
-
-inline void paramToJson(const String& name, const ParamDef& param, JsonVariant doc) {
-    doc["type"] = static_cast<int>(param.type);
-    doc["name"] = name;
-    doc["displayName"] = param.displayName;
-    doc["section"] = param.section;
-    doc["position"] = param.position;
-    doc["hasHelpText"] = (param.helpText != nullptr);
-    doc["show"] = param.showCondition();
-
-    // Get current value based on type
-    switch (param.type) {
-        case ParamType::BOOL:
-            doc["value"] = *static_cast<bool*>(param.globalVar);
-            break;
-        case ParamType::INT:
-            doc["value"] = *static_cast<int*>(param.globalVar);
-            break;
-        case ParamType::UINT8:
-            doc["value"] = *static_cast<uint8_t*>(param.globalVar);
-            break;
-        case ParamType::DOUBLE:
-            doc["value"] = round2(*static_cast<double*>(param.globalVar));
-            break;
-        case ParamType::FLOAT:
-            doc["value"] = round2(*static_cast<float*>(param.globalVar));
-            break;
-        case ParamType::STRING:
-            doc["value"] = static_cast<::String*>(param.globalVar)->c_str();
-            break;
-        case ParamType::ENUM:
-            {
-                doc["value"] = *static_cast<int*>(param.globalVar);
-                // Add enum options
-                JsonArray enumOptions = doc["enumOptions"].to<JsonArray>();
-                for (size_t i = 0; i < param.enumCount; i++) {
-                    enumOptions.add(param.enumOptions[i]);
-                }
-            }
-            break;
-        default:
-            doc["value"] = 0;
-            break;
-    }
-
-    // Add min/max values
-    doc["min"] = param.minValue;
-    doc["max"] = param.maxValue;
-}
-
 // ==================== TEMPLATE PROCESSOR ====================
 
 inline String getHeader(const String& varName) {
@@ -593,8 +516,9 @@ inline void handleParameters(AsyncWebServerRequest* request) {
                 }
 
                 if (includeParam) {
-                    JsonObject paramObj = array.add<JsonObject>();
-                    paramToJson(String(name.c_str()), paramDef, paramObj);
+                    // Use the ParamDef's toJson method directly
+                    JsonObject result = array.add<JsonObject>();
+                    paramDef.toJson(result, String(name.c_str()));
                     filteredParameterCount++;
                 }
             }
@@ -896,7 +820,7 @@ inline void handleNvsDebug(AsyncWebServerRequest* request) {
         JsonObject nvsData = doc.to<JsonObject>();
 
         Preferences prefs;
-        prefs.begin("params", true); // Read-only mode
+        prefs.begin(STORAGE_NAMESPACE, true); // Read-only mode - use correct namespace
 
         // NVS cleanup is now handled by the unified config system
         // The Config system manages its own NVS keys
@@ -917,17 +841,21 @@ inline void handleNvsDebug(AsyncWebServerRequest* request) {
             const ParamDef& paramDef = param.second;
             totalParams++;
 
-            // Check if this parameter exists in NVS
+            // Generate hashed NVS key for the parameter (same method as Config system)
+            String nvsKey = config.generateNvsKey(paramId.c_str());
+
+            // Check if this parameter exists in NVS using the hashed key
             bool existsInNvs = false;
             JsonVariant value;
 
             switch (paramDef.type) {
                 case ParamType::BOOL:
                     {
-                        if (prefs.isKey(paramId.c_str())) {
-                            bool boolVal = prefs.getBool(paramId.c_str());
+                        if (prefs.isKey(nvsKey.c_str())) {
+                            bool boolVal = prefs.getBool(nvsKey.c_str());
                             storedValues[paramId.c_str()]["value"] = boolVal;
                             storedValues[paramId.c_str()]["type"] = "bool";
+                            storedValues[paramId.c_str()]["nvs_key"] = nvsKey;
                             existsInNvs = true;
                             storedParams++;
                         }
@@ -936,10 +864,11 @@ inline void handleNvsDebug(AsyncWebServerRequest* request) {
                 case ParamType::INT:
                 case ParamType::ENUM:
                     {
-                        if (prefs.isKey(paramId.c_str())) {
-                            int intVal = prefs.getInt(paramId.c_str());
+                        if (prefs.isKey(nvsKey.c_str())) {
+                            int intVal = prefs.getInt(nvsKey.c_str());
                             storedValues[paramId.c_str()]["value"] = intVal;
                             storedValues[paramId.c_str()]["type"] = "int";
+                            storedValues[paramId.c_str()]["nvs_key"] = nvsKey;
                             existsInNvs = true;
                             storedParams++;
                         }
@@ -947,10 +876,11 @@ inline void handleNvsDebug(AsyncWebServerRequest* request) {
                     }
                 case ParamType::UINT8:
                     {
-                        if (prefs.isKey(paramId.c_str())) {
-                            uint8_t uintVal = prefs.getUChar(paramId.c_str());
+                        if (prefs.isKey(nvsKey.c_str())) {
+                            uint8_t uintVal = prefs.getUChar(nvsKey.c_str());
                             storedValues[paramId.c_str()]["value"] = (int)uintVal;
                             storedValues[paramId.c_str()]["type"] = "uint8";
+                            storedValues[paramId.c_str()]["nvs_key"] = nvsKey;
                             existsInNvs = true;
                             storedParams++;
                         }
@@ -958,10 +888,11 @@ inline void handleNvsDebug(AsyncWebServerRequest* request) {
                     }
                 case ParamType::DOUBLE:
                     {
-                        if (prefs.isKey(paramId.c_str())) {
-                            double doubleVal = prefs.getDouble(paramId.c_str());
+                        if (prefs.isKey(nvsKey.c_str())) {
+                            double doubleVal = prefs.getDouble(nvsKey.c_str());
                             storedValues[paramId.c_str()]["value"] = doubleVal;
                             storedValues[paramId.c_str()]["type"] = "double";
+                            storedValues[paramId.c_str()]["nvs_key"] = nvsKey;
                             existsInNvs = true;
                             storedParams++;
                         }
@@ -969,10 +900,11 @@ inline void handleNvsDebug(AsyncWebServerRequest* request) {
                     }
                 case ParamType::FLOAT:
                     {
-                        if (prefs.isKey(paramId.c_str())) {
-                            float floatVal = prefs.getFloat(paramId.c_str());
+                        if (prefs.isKey(nvsKey.c_str())) {
+                            float floatVal = prefs.getFloat(nvsKey.c_str());
                             storedValues[paramId.c_str()]["value"] = floatVal;
                             storedValues[paramId.c_str()]["type"] = "float";
+                            storedValues[paramId.c_str()]["nvs_key"] = nvsKey;
                             existsInNvs = true;
                             storedParams++;
                         }
@@ -980,10 +912,11 @@ inline void handleNvsDebug(AsyncWebServerRequest* request) {
                     }
                 case ParamType::STRING:
                     {
-                        if (prefs.isKey(paramId.c_str())) {
-                            String stringVal = prefs.getString(paramId.c_str());
+                        if (prefs.isKey(nvsKey.c_str())) {
+                            String stringVal = prefs.getString(nvsKey.c_str());
                             storedValues[paramId.c_str()]["value"] = stringVal;
                             storedValues[paramId.c_str()]["type"] = "string";
+                            storedValues[paramId.c_str()]["nvs_key"] = nvsKey;
                             existsInNvs = true;
                             storedParams++;
                         }
@@ -1021,6 +954,7 @@ inline void handleNvsDebug(AsyncWebServerRequest* request) {
                 missingParam["id"] = paramId.c_str();
                 missingParam["display_name"] = paramDef.displayName;
                 missingParam["type"] = static_cast<int>(paramDef.type);
+                missingParam["expected_nvs_key"] = nvsKey.c_str();
                 switch (paramDef.type) {
                     case ParamType::BOOL:
                         missingParam["current_value"] = *static_cast<bool*>(paramDef.globalVar);
@@ -1052,7 +986,7 @@ inline void handleNvsDebug(AsyncWebServerRequest* request) {
         metadata["stored_parameters"] = storedParams;
         metadata["missing_parameters"] = totalParams - storedParams;
         metadata["storage_percentage"] = totalParams > 0 ? (storedParams * 100) / totalParams : 0;
-        metadata["nvs_namespace"] = "params";
+        metadata["nvs_namespace"] = STORAGE_NAMESPACE;
         metadata["free_heap"] = ESP.getFreeHeap();
         metadata["min_free_heap"] = ESP.getMinFreeHeap();
 
@@ -1077,14 +1011,14 @@ inline void handleFactoryReset(AsyncWebServerRequest* request) {
             return request->requestAuthentication();
         }
 
+        // Reset all parameters to defaults using unified config system
+        Config::getInstance().resetAllToDefaults();
+
         // Clear NVS preferences
         Preferences prefs;
-        prefs.begin("params", false);
+        prefs.begin(STORAGE_NAMESPACE, false);
         bool cleared = prefs.clear();
         prefs.end();
-
-        // Also remove config file if it exists
-        LittleFS.remove("/config.json");
 
         request->send(200, "application/json", cleared ? JsonResponseBuilder::createSuccessResponse("Factory reset. Restarting...") : JsonResponseBuilder::createErrorResponse("Could not clear preferences. Restarting..."));
 

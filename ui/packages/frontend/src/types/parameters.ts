@@ -1,18 +1,24 @@
 export const ParameterTypes = {
   INTEGER: 0, // kInteger
-  UINT8: 1, // kUInt8 (used for booleans when min=0, max=1)
+  UINT8: 1, // kUInt8
   DOUBLE: 2, // kDouble
   FLOAT: 3, // kFloat
   STRING: 4, // kCString
   ENUM: 5, // kEnum (select dropdown)
+  BOOL: 6, // New unified config boolean type
 } as const;
 
 // Helper to check if a parameter is boolean
 export const isParameterBoolean = (param: {
   type: number;
-  min: number;
-  max: number;
+  min?: number;
+  max?: number;
 }) => {
+  // New unified config uses explicit BOOL type
+  if (param.type === ParameterTypes.BOOL) {
+    return true;
+  }
+  // Legacy: UINT8 with min=0, max=1 (for backward compatibility)
   return (
     param.type === ParameterTypes.UINT8 && param.min === 0 && param.max === 1
   );

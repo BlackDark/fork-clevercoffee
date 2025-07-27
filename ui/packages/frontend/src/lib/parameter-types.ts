@@ -8,6 +8,7 @@ export const ParameterTypes = {
   FLOAT: 3,
   STRING: 4,
   ENUM: 5,
+  BOOL: 6, // New unified config boolean type
 } as const;
 
 export type ParameterType =
@@ -50,6 +51,11 @@ export type UpdateParameter = Pick<Parameter, "name" | "value">;
  * Helper functions for parameter types
  */
 export const isParameterBoolean = (param: Parameter): boolean => {
+  // New unified config uses explicit BOOL type
+  if (param.type === ParameterTypes.BOOL) {
+    return true;
+  }
+  // Legacy: UINT8 with min=0, max=1 (for backward compatibility)
   return (
     param.type === ParameterTypes.UINT8 && param.min === 0 && param.max === 1
   );

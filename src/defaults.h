@@ -12,6 +12,7 @@
 #define STR(x)        STR_HELPER(x)
 
 // default parameters
+#define STORAGE_NAMESPACE        "config"          // NVS namespace for storing parameters
 #define HOSTNAME                 "silvia"          // default hostname
 #define OTAPASS                  "otapass"         // default password for over-the-air updates
 #define WM_PASS                  "CleverCoffee"    // default password for WiFiManager
