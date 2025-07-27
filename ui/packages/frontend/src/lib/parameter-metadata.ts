@@ -166,7 +166,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     min: 0,
     max: 999,
     defaultValue: 25,
-    requiredParameters: { "brew.by_time": 1 },
+    requiredParameters: { "brew.by_time": true },
   },
   {
     name: "brew.by_weight",
@@ -182,7 +182,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     min: 0,
     max: 999,
     defaultValue: 30,
-    requiredParameters: { "brew.by_weight": 1 },
+    requiredParameters: { "brew.by_weight": true },
   },
   {
     name: "brew.pre_infusion.enabled",
@@ -905,7 +905,12 @@ export function ensureCompleteParameters(
 
   // Add all server parameters first
   for (const serverParam of serverParameters) {
-    result.push(mapServerParameterToParameter(serverParam));
+    const mappedServerParam = mapServerParameterToParameter(serverParam);
+
+    result.push({
+      ...mappedParameters.get(serverParam.name),
+      ...mappedServerParam,
+    });
   }
 
   // Add missing parameters with defaults

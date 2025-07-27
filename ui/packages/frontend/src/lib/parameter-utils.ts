@@ -24,7 +24,22 @@ export function areRequiredParametersMet(
     parameter.requiredParameters
   )) {
     const actualValue = parameterValues[paramName];
-    if (actualValue !== expectedValue) {
+
+    // Handle boolean conversion: server might send 0/1 but we expect true/false
+    let normalizedActualValue = actualValue;
+    let normalizedExpectedValue = expectedValue;
+
+    // Convert numeric boolean values to actual booleans for comparison
+    if (typeof expectedValue === "boolean" && typeof actualValue === "number") {
+      normalizedActualValue = actualValue === 1;
+    } else if (
+      typeof actualValue === "boolean" &&
+      typeof expectedValue === "number"
+    ) {
+      normalizedExpectedValue = expectedValue === 1;
+    }
+
+    if (normalizedActualValue !== normalizedExpectedValue) {
       return false; // Required parameter not met
     }
   }
@@ -54,10 +69,27 @@ export function getMissingRequiredParametersMessage(
     parameter.requiredParameters
   )) {
     const actualValue = parameterValues[paramName];
-    if (actualValue !== expectedValue) {
+
+    // Handle boolean conversion: server might send 0/1 but we expect true/false
+    let normalizedActualValue = actualValue;
+    let normalizedExpectedValue = expectedValue;
+
+    // Convert numeric boolean values to actual booleans for comparison
+    if (typeof expectedValue === "boolean" && typeof actualValue === "number") {
+      normalizedActualValue = actualValue === 1;
+    } else if (
+      typeof actualValue === "boolean" &&
+      typeof expectedValue === "number"
+    ) {
+      normalizedExpectedValue = expectedValue === 1;
+    }
+
+    if (normalizedActualValue !== normalizedExpectedValue) {
       const paramLabel = getParameterLabel(paramName) || paramName;
       const expectedLabel =
-        expectedValue === 1 ? "enabled" : `set to ${expectedValue}`;
+        expectedValue === true || expectedValue === 1
+          ? "enabled"
+          : `set to ${expectedValue}`;
       missingRequirements.push(`'${paramLabel}' must be ${expectedLabel}`);
     }
   }
