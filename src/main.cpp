@@ -1260,6 +1260,10 @@ void loopPid() {
         // send temperatures to website endpoint
         if (WiFi.status() == WL_CONNECTED && !offlineMode) {
             sendTempEvent(temperature, brewSetpoint, pidOutput / 10); // pidOutput is promill, so /10 to get percent value
+
+            if (config.get<bool>("hardware.sensors.scale.enabled")) {
+                sendWeightEvent();
+            }
         }
 
         lastTempEvent = millis();

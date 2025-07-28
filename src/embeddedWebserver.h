@@ -21,6 +21,8 @@ inline AsyncWebServer server(80);
 inline AsyncEventSource events("/events");
 AsyncCorsMiddleware corsMiddleware;
 
+extern float currReadingWeight;
+extern float currBrewWeight;
 extern double temperature;
 extern double brewSetpoint;
 extern double pidOutput;
@@ -283,6 +285,26 @@ inline String getTempString() {
     } catch (const std::exception& e) {
         LOGF(ERROR, "getTempString failed: %s", e.what());
         return "{\"error\": \"Temperature data unavailable\"}";
+    }
+}
+
+inline String getWeightJsonString() {
+    try {
+        extern float currReadingWeight;
+
+        JsonDocument doc;
+
+        doc["weight"] = round2(currReadingWeight);
+        doc["brewWeight"] = round2(currBrewWeight);
+
+        String json;
+        if (!safeSerializeJson(doc, json)) {
+            return "{\"error\": \"Failed to serialize weight data\"}";
+        }
+        return json;
+    } catch (const std::exception& e) {
+        LOGF(ERROR, "getWeightJsonString failed: %s", e.what());
+        return "{\"error\": \"Weight data unavailable\"}";
     }
 }
 
@@ -1161,5 +1183,14 @@ inline void sendTempEvent(const double currentTemp, const double targetTemp, con
         events.send(getTempString().c_str(), "new_temps", millis());
     } catch (const std::exception& e) {
         LOGF(ERROR, "sendTempEvent failed: %s", e.what());
+    }
+}
+
+inline void sendWeightEvent() {
+    try {
+        String weightJson = getWeightJsonString();
+        events.send(weightJson.c_str(), "weight", millis());
+    } catch (const std::exception& e) {
+        LOGF(ERROR, "sendWeightEvent failed: %s", e.what());
     }
 }
