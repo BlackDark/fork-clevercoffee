@@ -21,6 +21,7 @@
 inline AsyncWebServer server(80);
 inline AsyncEventSource events("/events");
 AsyncCorsMiddleware corsMiddleware;
+AsyncAuthenticationMiddleware authMiddleware;
 
 extern float currReadingWeight;
 extern float currBrewWeight;
@@ -143,33 +144,6 @@ class TemperatureHistory {
 
 inline TemperatureHistory tempHistory;
 
-// ==================== AUTHENTICATION CACHE ====================
-
-struct AuthCache {
-        bool enabled = false;
-        String username;
-        String password;
-        uint32_t lastUpdate = 0;
-        static constexpr uint32_t CACHE_DURATION = 10000; // 10 seconds
-
-        void refresh() {
-            uint32_t now = millis();
-            if (now - lastUpdate > CACHE_DURATION) {
-                enabled = Config::getInstance().get<bool>("system.auth.enabled");
-                if (enabled) {
-                    username = Config::getInstance().get<::String>("system.auth.username");
-                    password = Config::getInstance().get<::String>("system.auth.password");
-                }
-                lastUpdate = now;
-            }
-        }
-} static authCache;
-
-inline bool authenticate(AsyncWebServerRequest* request);
-
-// Wrapper function for OTA module to access authentication
-bool otaAuthenticate(AsyncWebServerRequest* request);
-
 // ==================== SAFE JSON OPERATIONS ====================
 
 bool safeSerializeJson(const JsonDocument& doc, String& output) {
@@ -247,36 +221,6 @@ inline bool serveGzippedFile(AsyncWebServerRequest* request, const String& path)
     return false;
 }
 #endif
-
-inline bool authenticate(AsyncWebServerRequest* request) {
-    authCache.refresh();
-
-    if (!authCache.enabled) {
-        return true;
-    }
-
-    const auto clientIP = request->client()->remoteIP().toString();
-    const auto requestedPath = request->url();
-
-    if (request->authenticate(authCache.username.c_str(), authCache.password.c_str())) {
-        LOGF(INFO, "Web auth OK: %s -> %s", clientIP.c_str(), requestedPath.c_str());
-        return true;
-    }
-
-    if (request->hasHeader("Authorization")) {
-        LOGF(WARNING, "Web auth FAIL: %s -> %s (wrong credentials)", clientIP.c_str(), requestedPath.c_str());
-    }
-    else {
-        LOGF(INFO, "Web auth required: %s -> %s", clientIP.c_str(), requestedPath.c_str());
-    }
-
-    return false;
-}
-
-// Wrapper function for OTA module to access authentication
-bool otaAuthenticate(AsyncWebServerRequest* request) {
-    return authenticate(request);
-}
 
 // ==================== DATA RETRIEVAL FUNCTIONS ====================
 
@@ -384,10 +328,6 @@ inline String staticProcessor(const String& var) {
 
 inline void handleToggleSteam(AsyncWebServerRequest* request) {
     try {
-        if (!authenticate(request)) {
-            return request->requestAuthentication();
-        }
-
         const bool steamMode = !steamON;
         setSteamMode(steamMode);
         LOGF(INFO, "Toggle steam mode: %s", steamON ? "on" : "off");
@@ -400,10 +340,6 @@ inline void handleToggleSteam(AsyncWebServerRequest* request) {
 
 inline void handleTogglePid(AsyncWebServerRequest* request) {
     try {
-        if (!authenticate(request)) {
-            return request->requestAuthentication();
-        }
-
         LOGF(INFO, "/api/pid requested, method: %d", request->method());
 
         const bool currentPidState = Config::getInstance().get<bool>("pid.enabled");
@@ -423,10 +359,6 @@ inline void handleTogglePid(AsyncWebServerRequest* request) {
 
 inline void handleToggleBackflush(AsyncWebServerRequest* request) {
     try {
-        if (!authenticate(request)) {
-            return request->requestAuthentication();
-        }
-
         backflushOn = !backflushOn;
         LOGF(INFO, "Toggle backflush mode: %s", backflushOn ? "on" : "off");
         request->send(200, "application/json", JsonResponseBuilder::createBoolResponse("backflushOn", backflushOn));
@@ -438,10 +370,6 @@ inline void handleToggleBackflush(AsyncWebServerRequest* request) {
 
 inline void handleToggleTareScale(AsyncWebServerRequest* request) {
     try {
-        if (!authenticate(request)) {
-            return request->requestAuthentication();
-        }
-
         scaleTareOn = !scaleTareOn;
         LOGF(INFO, "Toggle scale tare mode: %s", scaleTareOn ? "on" : "off");
         request->send(200, "application/json", JsonResponseBuilder::createBoolResponse("scaleTareOn", scaleTareOn));
@@ -453,10 +381,6 @@ inline void handleToggleTareScale(AsyncWebServerRequest* request) {
 
 inline void handleToggleScaleCalibration(AsyncWebServerRequest* request) {
     try {
-        if (!authenticate(request)) {
-            return request->requestAuthentication();
-        }
-
         scaleCalibrationOn = !scaleCalibrationOn;
         LOGF(INFO, "Toggle scale calibration mode: %s", scaleCalibrationOn ? "on" : "off");
         request->send(200, "application/json", JsonResponseBuilder::createBoolResponse("scaleCalibrationOn", scaleCalibrationOn));
@@ -468,10 +392,6 @@ inline void handleToggleScaleCalibration(AsyncWebServerRequest* request) {
 
 inline void handleParameters(AsyncWebServerRequest* request) {
     try {
-        if (!authenticate(request)) {
-            return request->requestAuthentication();
-        }
-
         logMemoryUsage("handleParameters start");
 
         if (request->method() == 1) { // HTTP_GET
@@ -632,10 +552,6 @@ inline void handleParameters(AsyncWebServerRequest* request) {
 
 inline void handleParameterHelp(AsyncWebServerRequest* request) {
     try {
-        if (!authenticate(request)) {
-            return request->requestAuthentication();
-        }
-
         auto* p = request->getParam("param");
         if (p == nullptr) {
             request->send(422, "application/json", JsonResponseBuilder::createErrorResponse("parameter is missing"));
@@ -670,10 +586,6 @@ inline void handleParameterHelp(AsyncWebServerRequest* request) {
 
 inline void handleTemperatures(AsyncWebServerRequest* request) {
     try {
-        if (!authenticate(request)) {
-            return request->requestAuthentication();
-        }
-
         const String json = getTempString();
         request->send(200, "application/json", json);
     } catch (const std::exception& e) {
@@ -684,10 +596,6 @@ inline void handleTemperatures(AsyncWebServerRequest* request) {
 
 inline void handleTimeseries(AsyncWebServerRequest* request) {
     try {
-        if (!authenticate(request)) {
-            return request->requestAuthentication();
-        }
-
         logMemoryUsage("handleTimeseries start");
 
         JsonDocument doc;
@@ -713,10 +621,6 @@ inline void handleTimeseries(AsyncWebServerRequest* request) {
 
 inline void handleWifiReset(AsyncWebServerRequest* request) {
     try {
-        if (!authenticate(request)) {
-            return request->requestAuthentication();
-        }
-
         request->send(200, "application/json", JsonResponseBuilder::createSuccessResponse("WiFi settings are being reset. Rebooting..."));
 
         delay(1000);
@@ -729,10 +633,6 @@ inline void handleWifiReset(AsyncWebServerRequest* request) {
 
 inline void handleConfigDownload(AsyncWebServerRequest* request) {
     try {
-        if (!authenticate(request)) {
-            return request->requestAuthentication();
-        }
-
         // Generate JSON config from current parameter values
         String configJson = Config::getInstance().generateJsonConfig();
 
@@ -764,10 +664,6 @@ inline void handleConfigDownload(AsyncWebServerRequest* request) {
 
 inline void handleConfigUpload(AsyncWebServerRequest* request, const String& filename, const size_t index, const uint8_t* data, const size_t len, const bool final) {
     try {
-        if (!authenticate(request)) {
-            return request->requestAuthentication();
-        }
-
         static String uploadBuffer;
         static size_t totalSize = 0;
 
@@ -816,10 +712,6 @@ inline void handleConfigUpload(AsyncWebServerRequest* request, const String& fil
 
 inline void handleRestart(AsyncWebServerRequest* request) {
     try {
-        if (!authenticate(request)) {
-            return request->requestAuthentication();
-        }
-
         request->send(200, "application/json", JsonResponseBuilder::createSuccessResponse("Restarting..."));
         delay(100);
         ESP.restart();
@@ -831,10 +723,6 @@ inline void handleRestart(AsyncWebServerRequest* request) {
 
 inline void handleNvsDebug(AsyncWebServerRequest* request) {
     try {
-        if (!authenticate(request)) {
-            return request->requestAuthentication();
-        }
-
         JsonDocument doc;
         JsonObject nvsData = doc.to<JsonObject>();
 
@@ -1026,10 +914,6 @@ inline void handleNvsDebug(AsyncWebServerRequest* request) {
 
 inline void handleFactoryReset(AsyncWebServerRequest* request) {
     try {
-        if (!authenticate(request)) {
-            return request->requestAuthentication();
-        }
-
         // Reset all parameters to defaults using unified config system
         Config::getInstance().resetAllToDefaults();
 
@@ -1052,6 +936,21 @@ inline void handleFactoryReset(AsyncWebServerRequest* request) {
 // ==================== API ROUTES SETUP ====================
 
 inline void setupApiRoutes() {
+    authEnabled = Config::getInstance().get<bool>("system.auth.enabled");
+
+    if (authEnabled) {
+        LOG(INFO, "Authentication is enabled");
+        String username = Config::getInstance().get<::String>("system.auth.username");
+        String password = Config::getInstance().get<::String>("system.auth.password");
+
+        authMiddleware.setAuthType(AsyncAuthType::AUTH_DIGEST);
+        authMiddleware.setRealm("CleverCoffee");
+        authMiddleware.setUsername(username.c_str());
+        authMiddleware.setPassword(password.c_str());
+        authMiddleware.setAuthFailureMessage("Authentication failed");
+        authMiddleware.generateHash(); // optimization to avoid generating the hash at each request
+    }
+
     server.on("/api/health", HTTP_GET, [](AsyncWebServerRequest* request) { request->send(200); });
 
     server.on("/api/steam", HTTP_POST, handleToggleSteam);
@@ -1096,10 +995,6 @@ inline void handleNotFound(AsyncWebServerRequest* request) {
 
 #if !FRONTEND_PREPROCESSING
     if (path.startsWith("/ui/") && path.indexOf('.') == -1) {
-        if (!authenticate(request)) {
-            return request->requestAuthentication();
-        }
-
         if (serveGzippedFile(request, "/ui/index.html")) {
             return;
         }
@@ -1136,10 +1031,6 @@ void serverSetup() {
 
     // handles all /ui paths
     server.on("/ui", HTTP_GET, [](AsyncWebServerRequest* request) {
-        if (!authenticate(request)) {
-            return request->requestAuthentication();
-        }
-
         String path = request->url();
         LOGF(INFO, "UI request for: %s", path.c_str());
 
@@ -1184,6 +1075,8 @@ void serverSetup() {
     LittleFS.begin();
 
     server.addMiddleware(&corsMiddleware);
+    server.addMiddleware(&authMiddleware);
+
     server.begin();
 
     LOG(INFO, ("Server started at " + WiFi.localIP().toString()).c_str());

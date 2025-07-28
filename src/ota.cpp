@@ -7,10 +7,6 @@
 #include "utils/helperUtils.h"
 #include <ArduinoJson.h>
 
-// Include embeddedWebserver.h to get access to authenticate function
-// Note: This creates a circular dependency but is needed for authentication
-bool otaAuthenticate(AsyncWebServerRequest* request);
-
 // Use Serial for logging to avoid conflicts with Logger/WiFiManager
 #define LOG(level, msg)          Serial.println(msg)
 #define LOGF(level, format, ...) Serial.printf(format "\n", ##__VA_ARGS__)
@@ -23,9 +19,6 @@ namespace OTA {
     static uint8_t currentProgress = 0;
     static bool updateError = false;
     static String errorMessage = "";
-
-    // External function for authentication check (defined in embeddedWebserver.h)
-    // Forward declaration - actual implementation is in embeddedWebserver.h
 
     bool updateFromURL(const String& url) {
         if (url.isEmpty()) {
@@ -142,10 +135,6 @@ namespace OTA {
     }
 
     void handleFileUpload(AsyncWebServerRequest* request, const String& filename, size_t index, uint8_t* data, size_t len, bool final) {
-        if (!otaAuthenticate(request)) {
-            return request->requestAuthentication();
-        }
-
         if (index == 0) {
             updateStarted = false;
             totalSize = 0;
@@ -203,10 +192,6 @@ namespace OTA {
     }
 
     void handleURLUpdate(AsyncWebServerRequest* request) {
-        if (!otaAuthenticate(request)) {
-            return request->requestAuthentication();
-        }
-
         if (!request->hasParam("url", true)) {
             request->send(400, "application/json", R"({"success": false, "message": "URL parameter missing"})");
             return;
@@ -236,10 +221,6 @@ namespace OTA {
     }
 
     void handleStatus(AsyncWebServerRequest* request) {
-        if (!otaAuthenticate(request)) {
-            return request->requestAuthentication();
-        }
-
         JsonDocument doc;
         doc["updating"] = Update.isRunning();
         doc["progress"] = currentProgress;
