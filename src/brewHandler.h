@@ -276,7 +276,8 @@ inline bool brew() {
                     currBrewState = kPreinfusion;
                 }
 
-                if (Config::getInstance().get<bool>("hardware.sensors.scale.enabled") && Config::getInstance().get<int>("hardware.sensors.scale.type") == 2 && Config::getInstance().get<bool>("brew.by_weight.enabled") && Config::getInstance().get<bool>("brew.by_weight.auto_tare")) {
+                if (Config::getInstance().get<bool>("hardware.sensors.scale.enabled") && Config::getInstance().get<int>("hardware.sensors.scale.type") == 2 && Config::getInstance().get<bool>("brew.by_weight.enabled") &&
+                    Config::getInstance().get<bool>("brew.by_weight.auto_tare")) {
                     LOG(INFO, "Tare scale");
 
                     if (scale) {

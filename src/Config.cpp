@@ -135,65 +135,28 @@ const char sysVersion[64] = "4.0.0-beta2+feat-ui.3cfd5e7";
 String systemVersion = String(sysVersion);
 
 // Enum option arrays with explicit value mappings
-const EnumOption switchTypeOptions[] = {
-    {0, "Momentary"},
-    {1, "Toggle"}
-};
+const EnumOption switchTypeOptions[] = {{0, "Momentary"}, {1, "Toggle"}};
 
-const EnumOption switchModeOptions[] = {
-    {0, "Normally Open"},
-    {1, "Normally Closed"}
-};
+const EnumOption switchModeOptions[] = {{0, "Normally Open"}, {1, "Normally Closed"}};
 
-const EnumOption relayTriggerOptions[] = {
-    {0, "Low Trigger"},
-    {1, "High Trigger"}
-};
+const EnumOption relayTriggerOptions[] = {{0, "Low Trigger"}, {1, "High Trigger"}};
 
-const EnumOption displayTemplateOpts[] = {
-    {0, "Standard"},
-    {1, "Minimal"},
-    {2, "Temperature Only"},
-    {3, "Scale"},
-    {4, "Upright"}
-};
+const EnumOption displayTemplateOpts[] = {{0, "Standard"}, {1, "Minimal"}, {2, "Temperature Only"}, {3, "Scale"}, {4, "Upright"}};
 
-const EnumOption languageOpts[] = {
-    {0, "English"},
-    {1, "German"},
-    {2, "Spanish"}
-};
+const EnumOption languageOpts[] = {{0, "English"}, {1, "German"}, {2, "Spanish"}};
 
-const EnumOption oledTypeOpts[] = {
-    {0, "SSD1306"},
-    {1, "SH1106"}
-};
+const EnumOption oledTypeOpts[] = {{0, "SSD1306"}, {1, "SH1106"}};
 
-const EnumOption oledAddressOpts[] = {
-    {0, "0x3C"},
-    {1, "0x3D"}
-};
+const EnumOption oledAddressOpts[] = {{0, "0x3C"}, {1, "0x3D"}};
 
 const EnumOption temperatureSensorOpts[] = {
     {0, "TSIC 306"},
     {1, "Dallas DS18B20"},
 };
 
-const EnumOption scaleTypeOpts[] = {
-    {0, "HX711 (2 load cells)"},
-    {1, "HX711 (1 load cell)"},
-    {2, "Bluetooth"}
-};
+const EnumOption scaleTypeOpts[] = {{0, "HX711 (2 load cells)"}, {1, "HX711 (1 load cell)"}, {2, "Bluetooth"}};
 
-const EnumOption logLevelOpts[] = {
-    {0, "TRACE"},
-    {1, "DEBUG"},
-    {2, "INFO"},
-    {3, "WARNING"},
-    {4, "ERROR"},
-    {5, "FATAL"},
-    {6, "SILENT"}
-};
+const EnumOption logLevelOpts[] = {{0, "TRACE"}, {1, "DEBUG"}, {2, "INFO"}, {3, "WARNING"}, {4, "ERROR"}, {5, "FATAL"}, {6, "SILENT"}};
 
 const EnumOption brewModeOptions[] = {
     {0, "Manual"},
@@ -203,12 +166,12 @@ const EnumOption brewModeOptions[] = {
 // Backward compatibility reference
 Config& config = Config::getInstance();
 
-
 void Config::initializeParams() {
     // PID Parameters - using original hierarchical parameter IDs that website expects
     _params["pid.enabled"] = ParamDef::Bool(&pidON, false, "Enable PID Controller", 0, 101, "Enables or disables the PID temperature controller");
     _params["pid.use_ponm"] = ParamDef::Bool(&usePonM, false, "Enable PonM", 0, 102, "Use PonM mode (Proportional on Measurement)");
-    _params["pid.ema_factor"] = ParamDef::Double(&emaFactor, EMA_FACTOR, PID_EMA_FACTOR_MIN, PID_EMA_FACTOR_MAX, "PID EMA Factor", 0, 111, "Smoothing of input for derivative component. Smaller = less smoothing but less delay");
+    _params["pid.ema_factor"] =
+        ParamDef::Double(&emaFactor, EMA_FACTOR, PID_EMA_FACTOR_MIN, PID_EMA_FACTOR_MAX, "PID EMA Factor", 0, 111, "Smoothing of input for derivative component. Smaller = less smoothing but less delay");
     _params["pid.regular.kp"] = ParamDef::Double(&aggKp, AGGKP, PID_KP_REGULAR_MIN, PID_KP_REGULAR_MAX, "PID Kp", 0, 112, "Proportional gain (in Watts/°C) for the main PID controller");
     _params["pid.regular.tn"] = ParamDef::Double(&aggTn, AGGTN, PID_TN_REGULAR_MIN, PID_TN_REGULAR_MAX, "PID Tn", 0, 113, "Integral time constant (in seconds) for the main PID controller");
     _params["pid.regular.tv"] = ParamDef::Double(&aggTv, AGGTV, PID_TV_REGULAR_MIN, PID_TV_REGULAR_MAX, "PID Tv", 0, 114, "Differential time constant (in seconds) for the main PID controller");
@@ -224,7 +187,8 @@ void Config::initializeParams() {
     // Temperature Parameters
     _params["TEMP"] = ParamDef::Double(&temperature, 0.0, 0.0, 200.0, "Temperature", 1, 200, "Current temperature reading from sensor");
     _params["brew.setpoint"] = ParamDef::Double(&brewSetpoint, SETPOINT, BREW_SETPOINT_MIN, BREW_SETPOINT_MAX, "Setpoint (°C)", 1, 201, "The temperature that the PID will attempt to reach and hold");
-    _params["brew.temp_offset"] = ParamDef::Double(&brewTempOffset, TEMPOFFSET, BREW_TEMP_OFFSET_MIN, BREW_TEMP_OFFSET_MAX, "Offset (°C)", 1, 202, "Optional offset added to the user-visible setpoint to compensate sensor offsets");
+    _params["brew.temp_offset"] =
+        ParamDef::Double(&brewTempOffset, TEMPOFFSET, BREW_TEMP_OFFSET_MIN, BREW_TEMP_OFFSET_MAX, "Offset (°C)", 1, 202, "Optional offset added to the user-visible setpoint to compensate sensor offsets");
     _params["brew.pid_delay"] = ParamDef::Double(&brewPidDelay, BREW_PID_DELAY, BREW_PID_DELAY_MIN, BREW_PID_DELAY_MAX, "Brew PID Delay (s)", 2, 711, "Delay time during which PID will be disabled once brew is detected");
     _params["steam.setpoint"] = ParamDef::Double(&steamSetpoint, STEAMSETPOINT, STEAM_SETPOINT_MIN, STEAM_SETPOINT_MAX, "Steam Setpoint (°C)", 1, 203, "The temperature that the PID will use for steam mode");
 
@@ -233,7 +197,8 @@ void Config::initializeParams() {
     _params["brew.by_time.target_time"] = ParamDef::Double(&targetBrewTime, TARGET_BREW_TIME, TARGET_BREW_TIME_MIN, TARGET_BREW_TIME_MAX, "Target Brew Time (s)", 3, 301, "Target brew time in seconds"); // Legacy alias
     _params["brew.by_weight.enabled"] = ParamDef::Bool(&brewByWeightEnabled, false, "Brew by Weight", 3, 321, "Enable brewing by weight control");
     _params["brew.by_weight.auto_tare"] = ParamDef::Bool(&brewByWeightAutoTare, false, "Auto-tare", 3, 323, "Automatically tare scale before brewing");
-    _params["brew.by_weight.target_weight"] = ParamDef::Double(&targetBrewWeight, TARGET_BREW_WEIGHT, TARGET_BREW_WEIGHT_MIN, TARGET_BREW_WEIGHT_MAX, "Target Brew Weight (g)", 3, 322, "Brew is running until this weight has been measured");
+    _params["brew.by_weight.target_weight"] =
+        ParamDef::Double(&targetBrewWeight, TARGET_BREW_WEIGHT, TARGET_BREW_WEIGHT_MIN, TARGET_BREW_WEIGHT_MAX, "Target Brew Weight (g)", 3, 322, "Brew is running until this weight has been measured");
     _params["brew.pre_infusion.enabled"] = ParamDef::Bool(&preinfusionEnabled, false, "Pre-Infusion", 3, 304, "Enable pre-infusion phase");
     _params["brew.pre_infusion.time"] = ParamDef::Double(&preinfusion, PRE_INFUSION_TIME, PRE_INFUSION_TIME_MIN, PRE_INFUSION_TIME_MAX, "Preinfusion Time (s)", 3, 302, "Pre-infusion time in seconds");
     _params["brew.pre_infusion.pause"] = ParamDef::Double(&preinfusionPause, PRE_INFUSION_PAUSE_TIME, PRE_INFUSION_PAUSE_MIN, PRE_INFUSION_PAUSE_MAX, "Preinfusion Pause (s)", 3, 303, "Pre-infusion pause time in seconds");
@@ -244,7 +209,8 @@ void Config::initializeParams() {
     // Backflush Parameters
     _params["backflush.cycles"] = ParamDef::Int(&backflushCycles, BACKFLUSH_CYCLES, BACKFLUSH_CYCLES_MIN, BACKFLUSH_CYCLES_MAX, "Backflush Cycles", 6, 401, "Number of backflush cycles to perform");
     _params["backflush.fill_time"] = ParamDef::Double(&backflushFillTime, BACKFLUSH_FILL_TIME, BACKFLUSH_FILL_TIME_MIN, BACKFLUSH_FILL_TIME_MAX, "Backflush Fill Time (s)", 6, 402, "Time to fill during backflush cycle");
-    _params["backflush.flush_time"] = ParamDef::Double(&backflushFlushTime, BACKFLUSH_FLUSH_TIME, BACKFLUSH_FLUSH_TIME_MIN, BACKFLUSH_FLUSH_TIME_MAX, "Backflush Flush Time (s)", 6, 403, "Time to flush during backflush cycle");
+    _params["backflush.flush_time"] =
+        ParamDef::Double(&backflushFlushTime, BACKFLUSH_FLUSH_TIME, BACKFLUSH_FLUSH_TIME_MIN, BACKFLUSH_FLUSH_TIME_MAX, "Backflush Flush Time (s)", 6, 403, "Time to flush during backflush cycle");
 
     // System Parameters
     _params["system.hostname"] = ParamDef::String(&hostname, HOSTNAME, HOSTNAME_MAX_LENGTH, "Hostname", 9, 1101, "Hostname of your machine, changes require a restart");
@@ -315,9 +281,12 @@ void Config::initializeParams() {
     _params["hardware.sensors.scale.enabled"] = ParamDef::Bool(&scaleEnabled, false, "Enable Scale", 4, 2501, "Enable scale functionality");
     _params["hardware.sensors.scale.samples"] = ParamDef::Int(&scaleSamples, SCALE_SAMPLES, 1, 20, "Scale Samples", 4, 2502, "Number of samples used for calibration");
     _params["hardware.sensors.scale.type"] = ParamDef::Enum(&scaleType, 0, scaleTypeOpts, 3, "Scale Type", 15, 2503, "Integrated HX711-based scale with different load cell configurations or Bluetooth Low Energy scales");
-    _params["hardware.sensors.scale.calibration"] = ParamDef::Double(&scaleCalibrationFactor, SCALE_CALIBRATION_FACTOR, SCALE_CALIBRATION_MIN, SCALE_CALIBRATION_MAX, "Scale Calibration", 4, 2504, "Raw data is divided by this value to convert to readable data");
-    _params["hardware.sensors.scale.calibration2"] = ParamDef::Double(&scaleCalibrationFactor2, SCALE_CALIBRATION_FACTOR, SCALE_CALIBRATION_MIN, SCALE_CALIBRATION_MAX, "Scale Calibration 2", 4, 2505, "Second calibration factor for dual load cell scales");
-    _params["hardware.sensors.scale.known_weight"] = ParamDef::Double(&scaleKnownWeight, SCALE_KNOWN_WEIGHT, SCALE_KNOWN_WEIGHT_MIN, SCALE_KNOWN_WEIGHT_MAX, "Scale Known Weight", 4, 2506, "Calibration weight for scale (weight of the tray)");
+    _params["hardware.sensors.scale.calibration"] =
+        ParamDef::Double(&scaleCalibrationFactor, SCALE_CALIBRATION_FACTOR, SCALE_CALIBRATION_MIN, SCALE_CALIBRATION_MAX, "Scale Calibration", 4, 2504, "Raw data is divided by this value to convert to readable data");
+    _params["hardware.sensors.scale.calibration2"] =
+        ParamDef::Double(&scaleCalibrationFactor2, SCALE_CALIBRATION_FACTOR, SCALE_CALIBRATION_MIN, SCALE_CALIBRATION_MAX, "Scale Calibration 2", 4, 2505, "Second calibration factor for dual load cell scales");
+    _params["hardware.sensors.scale.known_weight"] =
+        ParamDef::Double(&scaleKnownWeight, SCALE_KNOWN_WEIGHT, SCALE_KNOWN_WEIGHT_MIN, SCALE_KNOWN_WEIGHT_MAX, "Scale Known Weight", 4, 2506, "Calibration weight for scale (weight of the tray)");
 
     // Display Parameters
     _params["display.template"] = ParamDef::Enum(&displayTemplate, 0, displayTemplateOpts, 5, "Display Template", 5, 901, "Set the display template, changes require a reboot");
@@ -326,7 +295,8 @@ void Config::initializeParams() {
     _params["display.fullscreen_brew_timer"] = ParamDef::Bool(&featureFullscreenBrewTimer, false, "Enable Fullscreen Brew Timer", 3, 904, "Enable fullscreen overlay during brew");
     _params["display.fullscreen_manual_flush_timer"] = ParamDef::Bool(&featureFullscreenManualFlushTimer, false, "Enable Fullscreen Manual Flush Timer", 3, 905, "Enable fullscreen overlay during manual flush");
     _params["display.fullscreen_hot_water_timer"] = ParamDef::Bool(&featureFullscreenHotWaterTimer, false, "Enable Fullscreen Hot Water Timer", 3, 906, "Enable fullscreen overlay during hot water mode");
-    _params["display.post_brew_timer_duration"] = ParamDef::Double(&postBrewTimerDuration, POST_BREW_TIMER_DURATION, POST_BREW_TIMER_DURATION_MIN, POST_BREW_TIMER_DURATION_MAX, "Post Brew Timer Duration (s)", 3, 907, "Time in seconds that brew timer will be shown after brew finished");
+    _params["display.post_brew_timer_duration"] = ParamDef::Double(&postBrewTimerDuration, POST_BREW_TIMER_DURATION, POST_BREW_TIMER_DURATION_MIN, POST_BREW_TIMER_DURATION_MAX, "Post Brew Timer Duration (s)", 3, 907,
+                                                                   "Time in seconds that brew timer will be shown after brew finished");
     _params["display.heating_logo"] = ParamDef::Bool(&featureHeatingLogo, true, "Enable Heating Logo", 3, 908, "Full screen logo will be shown if temperature is 5°C below setpoint");
     _params["display.pid_off_logo"] = ParamDef::Bool(&featurePidOffLogo, true, "Enable 'PID Disabled' Logo", 3, 909, "Full screen logo will be shown if PID is disabled");
 
@@ -526,57 +496,65 @@ void Config::loadFromNVS() {
             LOGF(INFO, "Config::loadFromNVS(%s): Found key '%s' in NVS", path.c_str(), nvsKey.c_str());
             loadedParams++;
             switch (def.type) {
-                case ParamType::BOOL: {
-                    bool value = _prefs.getBool(nvsKey.c_str());
-                    LOGF(DEBUG, "Config::loadFromNVS(%s): getBool(%s) = %s", path.c_str(), nvsKey.c_str(), value ? "true" : "false");
-                    *static_cast<bool*>(def.globalVar) = value;
-                    LOGF(INFO, "Config::loadFromNVS(%s): Set global variable to %s", path.c_str(), value ? "true" : "false");
-                    break;
-                }
-                case ParamType::INT: {
-                    int value = _prefs.getInt(nvsKey.c_str());
-                    LOGF(DEBUG, "Config::loadFromNVS(%s): getInt(%s) = %d", path.c_str(), nvsKey.c_str(), value);
-                    *static_cast<int*>(def.globalVar) = value;
-                    LOGF(INFO, "Config::loadFromNVS(%s): Set global variable to %d", path.c_str(), value);
-                    break;
-                }
-                case ParamType::UINT8: {
-                    uint8_t value = _prefs.getUChar(nvsKey.c_str());
-                    LOGF(DEBUG, "Config::loadFromNVS(%s): getUChar(%s) = %d", path.c_str(), nvsKey.c_str(), value);
-                    *static_cast<uint8_t*>(def.globalVar) = value;
-                    LOGF(INFO, "Config::loadFromNVS(%s): Set global variable to %d", path.c_str(), value);
-                    break;
-                }
-                case ParamType::DOUBLE: {
-                    double value = _prefs.getDouble(nvsKey.c_str());
-                    LOGF(DEBUG, "Config::loadFromNVS(%s): getDouble(%s) = %.6f", path.c_str(), nvsKey.c_str(), value);
-                    *static_cast<double*>(def.globalVar) = value;
-                    LOGF(INFO, "Config::loadFromNVS(%s): Set global variable to %.6f", path.c_str(), value);
-                    break;
-                }
-                case ParamType::FLOAT: {
-                    float value = _prefs.getFloat(nvsKey.c_str());
-                    LOGF(DEBUG, "Config::loadFromNVS(%s): getFloat(%s) = %.6f", path.c_str(), nvsKey.c_str(), value);
-                    *static_cast<float*>(def.globalVar) = value;
-                    LOGF(INFO, "Config::loadFromNVS(%s): Set global variable to %.6f", path.c_str(), value);
-                    break;
-                }
-                case ParamType::STRING: {
-                    ::String value = _prefs.getString(nvsKey.c_str());
-                    LOGF(DEBUG, "Config::loadFromNVS(%s): getString(%s) = '%s'", path.c_str(), nvsKey.c_str(), value.c_str());
-                    *static_cast<::String*>(def.globalVar) = value;
-                    LOGF(INFO, "Config::loadFromNVS(%s): Set global variable to '%s'", path.c_str(), value.c_str());
-                    break;
-                }
-                case ParamType::ENUM: {
-                    int value = _prefs.getInt(nvsKey.c_str());
-                    LOGF(DEBUG, "Config::loadFromNVS(%s): getInt(%s) = %d (enum)", path.c_str(), nvsKey.c_str(), value);
-                    *static_cast<int*>(def.globalVar) = value;
-                    LOGF(INFO, "Config::loadFromNVS(%s): Set global variable to %d (enum)", path.c_str(), value);
-                    break;
-                }
+                case ParamType::BOOL:
+                    {
+                        bool value = _prefs.getBool(nvsKey.c_str());
+                        LOGF(DEBUG, "Config::loadFromNVS(%s): getBool(%s) = %s", path.c_str(), nvsKey.c_str(), value ? "true" : "false");
+                        *static_cast<bool*>(def.globalVar) = value;
+                        LOGF(INFO, "Config::loadFromNVS(%s): Set global variable to %s", path.c_str(), value ? "true" : "false");
+                        break;
+                    }
+                case ParamType::INT:
+                    {
+                        int value = _prefs.getInt(nvsKey.c_str());
+                        LOGF(DEBUG, "Config::loadFromNVS(%s): getInt(%s) = %d", path.c_str(), nvsKey.c_str(), value);
+                        *static_cast<int*>(def.globalVar) = value;
+                        LOGF(INFO, "Config::loadFromNVS(%s): Set global variable to %d", path.c_str(), value);
+                        break;
+                    }
+                case ParamType::UINT8:
+                    {
+                        uint8_t value = _prefs.getUChar(nvsKey.c_str());
+                        LOGF(DEBUG, "Config::loadFromNVS(%s): getUChar(%s) = %d", path.c_str(), nvsKey.c_str(), value);
+                        *static_cast<uint8_t*>(def.globalVar) = value;
+                        LOGF(INFO, "Config::loadFromNVS(%s): Set global variable to %d", path.c_str(), value);
+                        break;
+                    }
+                case ParamType::DOUBLE:
+                    {
+                        double value = _prefs.getDouble(nvsKey.c_str());
+                        LOGF(DEBUG, "Config::loadFromNVS(%s): getDouble(%s) = %.6f", path.c_str(), nvsKey.c_str(), value);
+                        *static_cast<double*>(def.globalVar) = value;
+                        LOGF(INFO, "Config::loadFromNVS(%s): Set global variable to %.6f", path.c_str(), value);
+                        break;
+                    }
+                case ParamType::FLOAT:
+                    {
+                        float value = _prefs.getFloat(nvsKey.c_str());
+                        LOGF(DEBUG, "Config::loadFromNVS(%s): getFloat(%s) = %.6f", path.c_str(), nvsKey.c_str(), value);
+                        *static_cast<float*>(def.globalVar) = value;
+                        LOGF(INFO, "Config::loadFromNVS(%s): Set global variable to %.6f", path.c_str(), value);
+                        break;
+                    }
+                case ParamType::STRING:
+                    {
+                        ::String value = _prefs.getString(nvsKey.c_str());
+                        LOGF(DEBUG, "Config::loadFromNVS(%s): getString(%s) = '%s'", path.c_str(), nvsKey.c_str(), value.c_str());
+                        *static_cast<::String*>(def.globalVar) = value;
+                        LOGF(INFO, "Config::loadFromNVS(%s): Set global variable to '%s'", path.c_str(), value.c_str());
+                        break;
+                    }
+                case ParamType::ENUM:
+                    {
+                        int value = _prefs.getInt(nvsKey.c_str());
+                        LOGF(DEBUG, "Config::loadFromNVS(%s): getInt(%s) = %d (enum)", path.c_str(), nvsKey.c_str(), value);
+                        *static_cast<int*>(def.globalVar) = value;
+                        LOGF(INFO, "Config::loadFromNVS(%s): Set global variable to %d (enum)", path.c_str(), value);
+                        break;
+                    }
             }
-        } else {
+        }
+        else {
             LOGF(DEBUG, "Config::loadFromNVS(%s): Key '%s' not found in NVS, keeping default value", path.c_str(), nvsKey.c_str());
         }
         // If no key exists in NVS, global variable keeps its default value
@@ -621,7 +599,6 @@ bool Config::resetToDefault(const ::String& path) {
     if (it == _params.end()) return false;
 
     const ParamDef& def = it->second;
-
 
     _prefs.begin(STORAGE_NAMESPACE, false);
 
