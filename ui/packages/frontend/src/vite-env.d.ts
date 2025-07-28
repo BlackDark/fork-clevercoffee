@@ -8,6 +8,7 @@ interface ImportMetaEnv {
   readonly VITE_BASE_PATH: string;
   readonly VITE_API_PATH?: string;
   readonly VITE_MOCK_MODE?: string;
+  readonly APP_VERSION: string;
 }
 
 interface ImportMeta {

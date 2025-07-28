@@ -58,8 +58,9 @@ bool backflushOn = false;
 double temperature = 0.0;
 bool scaleTareOn = false;
 bool scaleCalibrationOn = false;
-const char sysVersion[64] = "4.0.0-beta2+feat-ui.3cfd5e7";
+const char sysVersion[64] = VERSION;
 String systemVersion = String(sysVersion);
+
 bool includeDisplayInLogs = true;
 bool timingDebugActive = false;
 

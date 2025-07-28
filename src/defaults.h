@@ -109,6 +109,10 @@
 #define MQTT_HASSIO_PREFIX_MAX_LENGTH 24
 #define HOSTNAME_MAX_LENGTH           64
 
+#ifndef VERSION
+#define VERSION "4.x.x-dev"
+#endif
+
 // Conditional code removal
 #define FRONTEND_PREPROCESSING true // enable preprocessing of frontend files (HTML, CSS, JS) to replace variables like {{hostname}} with actual values
 

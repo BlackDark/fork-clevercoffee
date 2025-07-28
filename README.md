@@ -21,6 +21,8 @@ This is fork from [CleverCoffee](https://github.com/rancilio-pid/clevercoffee) w
 ![alt text](.github/images/frontend-home.webp)
 - Conditional parameter selection with change detection
 ![alt text](.github/images/frontend-param.webp)
+- System Page
+![alt text](.github/images/frontend-system.webp)
 
 ## How to try out?
 

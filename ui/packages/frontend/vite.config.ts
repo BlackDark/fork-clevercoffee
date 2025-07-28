@@ -13,6 +13,9 @@ const basePath = process.env.VITE_BASE_PATH || "/";
 export default defineConfig(() => {
   const config: UserConfig = {
     plugins: [react(), tailwindcss(), gzipPlugin()],
+    define: {
+      APP_VERSION: JSON.stringify(process.env.npm_package_version),
+    },
     resolve: {
       alias: {
         "@": path.resolve(__dirname, "./src"),

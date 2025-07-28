@@ -1,9 +1,14 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useCleverCoffee } from "@/context/useCleverCoffee";
 import { Globe, Github, MessageCircle, Info } from "lucide-react";
+import { useMemo } from "react";
 
 export function AboutPage() {
-  // In a real application, you might fetch the version from an API
-  const version = "1.0.0"; // Placeholder for now
+  const { parameters } = useCleverCoffee();
+
+  const cleverCoffeeVersion = useMemo(() => {
+    return parameters.find((param) => param.name === "VERSION")?.value || "dev";
+  }, [parameters]);
 
   return (
     <div className="container mx-auto p-6 space-y-6 max-w-7xl">
@@ -24,13 +29,13 @@ export function AboutPage() {
                 CleverCoffee Version
               </span>
               <span className="font-mono text-sm bg-muted px-2 py-1 rounded">
-                {version}
+                {cleverCoffeeVersion}
               </span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">UI Version</span>
+              <span className="text-muted-foreground">BrewUI Version</span>
               <span className="font-mono text-sm bg-muted px-2 py-1 rounded">
-                2.0.0-beta
+                {import.meta.env.APP_VERSION || "dev"}
               </span>
             </div>
           </div>
@@ -99,8 +104,8 @@ export function AboutPage() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-orange-500/10">
-              <Info className="h-5 w-5 text-orange-600" />
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-500/10">
+              <Info className="h-5 w-5 text-blue-600" />
             </div>
             About CleverCoffee
           </CardTitle>
@@ -131,6 +136,54 @@ export function AboutPage() {
                 <li>• Open source contributions</li>
               </ul>
             </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* UI Information */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-500/10">
+              <Info className="h-5 w-5 text-blue-600" />
+            </div>
+            About BrewUI (Frontend)
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-muted-foreground">
+            BrewUI is a custom made frontend for CleverCoffee, designed to
+            provide a modern and user-friendly interface for managing your
+            espresso machine. It allows you to easily monitor and control your
+            brewing parameters, configure settings, and access real-time data.
+            It is built with React and Tailwind CSS, ensuring a responsive and
+            visually appealing experience. Developed by{" "}
+            <a
+              href="https://github.com/BlackDark"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline hover:text-blue-600  text-blue-500 "
+            >
+              BlackDark
+            </a>
+            .
+          </p>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <a
+              href="https://github.com/BlackDark/fork-clevercoffee"
+              className="block"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <div className="flex flex-col items-center justify-center p-6 rounded-lg border bg-card hover:bg-accent/50 transition-colors duration-200 h-32">
+                <Github className="h-8 w-8 mb-3 text-gray-700 dark:text-gray-300" />
+                <p className="font-medium text-center">BrewUI Repository</p>
+                <p className="text-xs text-muted-foreground text-center mt-1">
+                  Source code & issues
+                </p>
+              </div>
+            </a>
           </div>
         </CardContent>
       </Card>

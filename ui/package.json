@@ -1,5 +1,6 @@
 {
-  "author": "",
+  "author": "BlackDark <eduard-marbach.de>",
+  "version": "1.0.0",
   "license": "MIT",
   "scripts": {
     "dev": "concurrently 'pnpm run dev:ui' 'pnpm run dev:api'",
