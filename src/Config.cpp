@@ -177,7 +177,7 @@ void Config::initializeParams() {
     _params["CALIBRATION_ON"] = ParamDef::Bool(&scaleCalibrationOn, false, "Calibration", 10, 502, "Start scale calibration process");
 
     // System version (read-only)
-    _params["VERSION"] = ParamDef::String(&systemVersion, sysVersion, 64, "Version", 10, 7, "Firmware version string");
+    _params["VERSION"] = ParamDef::String(&systemVersion, sysVersion, 64, "Version", 10, 7, "Firmware version");
 }
 
 bool Config::loadFromJson(const ::String& jsonString) {

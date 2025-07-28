@@ -9,8 +9,8 @@ import re
 # noinspection PyUnresolvedReferences
 Import("env")
 
-required_pkgs = {'dulwich'}
-installed_pkgs = {dist.metadata['Name'] for dist in importlib.metadata.distributions()}
+required_pkgs = {"dulwich"}
+installed_pkgs = {dist.metadata["Name"] for dist in importlib.metadata.distributions()}
 missing_pkgs = required_pkgs - installed_pkgs
 
 if missing_pkgs:
@@ -18,6 +18,7 @@ if missing_pkgs:
 
 from dulwich.repo import Repo
 from dulwich.porcelain import active_branch
+
 
 def sanitize_branch_name(branch_name: str) -> str:
     """
@@ -29,15 +30,16 @@ def sanitize_branch_name(branch_name: str) -> str:
     branch_name = branch_name.lower()
 
     # Replace non-alphanumeric characters (including /, @, spaces, etc.) with dashes
-    branch_name = re.sub(r'[^a-z0-9]+', '-', branch_name)
+    branch_name = re.sub(r"[^a-z0-9]+", "-", branch_name)
 
     # Remove leading/trailing dashes
-    branch_name = branch_name.strip('-')
+    branch_name = branch_name.strip("-")
 
     return branch_name
 
+
 def get_version_build_flag() -> str:
-    r = Repo('.')
+    r = Repo(".")
 
     # Get the git commit hash
     commit_hash = r.head().decode("utf-8")[0:7]
@@ -47,13 +49,13 @@ def get_version_build_flag() -> str:
         sanitized_branch = sanitize_branch_name(branch_name)
     except (IndexError, KeyError):
         # Try to get branch from environment variable or use 'detached'
-        branch_name = os.environ.get('GITHUB_REF_NAME', 'detached')
+        branch_name = os.environ.get("GITHUB_REF_NAME", "detached")
         sanitized_branch = sanitize_branch_name(branch_name)
 
     # Read version from VERSION.txt file
     version_file = "VERSION.txt"
     if os.path.exists(version_file):
-        with open(version_file, 'r') as f:
+        with open(version_file, "r") as f:
             version_string = f.read().strip()
     else:
         version_string = "unknown"
@@ -63,8 +65,27 @@ def get_version_build_flag() -> str:
     build_version = f"{version_string}+{sanitized_branch}.{commit_hash}"
 
     build_flag = "-D AUTO_VERSION=" + build_version
-    print ("Firmware Revision: " + build_version)
+    print("Firmware Revision: " + build_version)
 
     return build_flag
 
+
+def get_clevercoffee_version_flag() -> str:
+    """
+    Get the CLEVERCOFFEE_VERSION build flag.
+    Uses environment variable if set, otherwise uses 4.x.x-<branch> format.
+    """
+    # Check if environment variable is set (from GitHub Actions)
+    env_version = os.environ.get("CLEVERCOFFEE_VERSION")
+    if env_version:
+        version = env_version
+        print(f"Using CLEVERCOFFEE_VERSION from environment: {version}")
+    else:
+        version = "4.x.x-dev"
+        print(f"Generated CLEVERCOFFEE_VERSION: {version}")
+
+    return f'-D VERSION=\\"{version}\\"'
+
+
 env.Append(BUILD_FLAGS=[get_version_build_flag()])
+env.Append(BUILD_FLAGS=[get_clevercoffee_version_flag()])
