@@ -10,8 +10,6 @@
 #include "GlobalVariables.h"
 #include "Logger.h"
 #include "defaults.h"
-#include "hardware/Relay.h"
-#include "hardware/Switch.h"
 #include "utils/helperUtils.h"
 #include <ArduinoJson.h>
 #include <Preferences.h>
