@@ -34,26 +34,55 @@ This directory contains comprehensive tests for the CleverCoffee parameter syste
 
 ## Running Tests
 
-### Quick Test (Individual)
+### Using PlatformIO Plugin in VS Code
+
+The tests are now integrated with PlatformIO and can be run directly from VS Code using the PlatformIO plugin:
+
+1. **Open VS Code** with the PlatformIO extension installed
+2. **Open the project** folder in VS Code
+3. **Run tests using PlatformIO:**
+   - Open the PlatformIO sidebar (alien icon)
+   - Go to "Project Tasks" → "native_test" → "Advanced" → "Test"
+   - Or use the command palette: `Ctrl+Shift+P` → "PlatformIO: Test"
+   - Or run in terminal: `~/.platformio/penv/bin/platformio test --environment native_test`
+
+### Manual Compilation (Alternative)
+
+If you prefer manual compilation or encounter issues with PlatformIO:
+
+```bash
+# Compile and run comprehensive test
+g++ -std=c++17 -O2 -Wall -Wextra test/test_comprehensive_parameter_system/test_main.cpp -o test_run && ./test_run
+
+# Compile and run individual tests
+g++ -std=c++17 -O2 -Wall -Wextra test/test_enum_static_mappings/test_main.cpp -o enum_test && ./enum_test
+g++ -std=c++17 -O2 -Wall -Wextra test/test_web_api_compatibility/test_main.cpp -o web_test && ./web_test
+g++ -std=c++17 -O2 -Wall -Wextra test/test_enum_types/test_main.cpp -o types_test && ./types_test
+```
+
+### Legacy Shell Scripts
+
+The original shell scripts are still available for quick testing:
+
 ```bash
 # From project root
 ./run_tests.sh
 ```
 
-### Comprehensive Test Suite
 ```bash
 # From project root
 ./test_all.sh
 ```
 
-### Manual Compilation
-```bash
-# Compile individual test
-g++ -std=c++17 -O2 -Wall -Wextra test/test_comprehensive_parameter_system.cpp -o test/parameter_system_test
+## PlatformIO Configuration
 
-# Run test
-./test/parameter_system_test
-```
+The tests are configured in `platformio.ini` with a `native_test` environment that:
+- Uses the native platform for cross-platform testing
+- Excludes ESP32-specific dependencies 
+- Compiles with C++17 standard
+- Runs all test files in the `test/` directory
+
+**Note:** If you encounter issues with the PlatformIO test runner, you can always fall back to manual compilation using the commands shown above.
 
 ## Test Coverage
 
