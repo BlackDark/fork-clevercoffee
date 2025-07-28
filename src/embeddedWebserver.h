@@ -1,53 +1,257 @@
 /**
  * @file embeddedWebserver.h
- *
- * @brief Embedded webserver
- *
+ * @brief Embedded webserver with gzip compression support
  */
 
 #pragma once
 
-#include <Arduino.h>
-
 #include "FS.h"
-#include <AsyncTCP.h>
-#include <WiFi.h>
-
+#include "LittleFS.h"
+#include "utils/helperUtils.h"
+#include <Arduino.h>
 #include <ArduinoJson.h>
 #include <AsyncJson.h>
+#include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
-
-#include "Config.h"
-#include "LittleFS.h"
+#include <Preferences.h>
+#include <WiFi.h>
+#include <unordered_map>
 
 inline AsyncWebServer server(80);
 inline AsyncEventSource events("/events");
+AsyncCorsMiddleware corsMiddleware;
 
-inline double curTemp = 0.0;
-inline double tTemp = 0.0;
-inline double hPower = 0.0;
+extern double temperature;
+extern double brewSetpoint;
+extern double pidOutput;
 
-#define HISTORY_LENGTH 600 // 30 mins of values (20 vals/min * 60 min) = 600 (7,2kb)
+#define JSON_BUFFER_SIZE 512
+#define PATH_BUFFER_SIZE 128
+// #define RESPONSE_BUFFER_SIZE 256
 
-static float tempHistory[3][HISTORY_LENGTH] = {};
-inline int historyCurrentIndex = 0;
-inline int historyValueCount = 0;
+// Memory monitoring function
+void logMemoryUsage(const char* location) {
+    size_t freeHeap = ESP.getFreeHeap();
+    size_t minFreeHeap = ESP.getMinFreeHeap();
 
-void serverSetup();
+    LOGF(INFO, "Memory at %s - Free: %d, Min Free: %d", location, freeHeap, minFreeHeap);
+
+    if (freeHeap < 10000) { // Less than 10KB free
+        LOGF(WARNING, "Low memory condition detected!");
+    }
+}
+
+// ==================== CONTENT TYPE DETECTION ====================
+
+#if !FRONTEND_PREPROCESSING
+const char* getContentType(const String& path) {
+    if (path.endsWith(".html")) return "text/html";
+    if (path.endsWith(".css")) return "text/css";
+    if (path.endsWith(".js")) return "application/javascript";
+    if (path.endsWith(".json")) return "application/json";
+    if (path.endsWith(".png")) return "image/png";
+    if (path.endsWith(".jpg") || path.endsWith(".jpeg")) return "image/jpeg";
+    if (path.endsWith(".gif")) return "image/gif";
+    if (path.endsWith(".svg")) return "image/svg+xml";
+    if (path.endsWith(".ico")) return "image/x-icon";
+    if (path.endsWith(".woff")) return "font/woff";
+    if (path.endsWith(".woff2")) return "font/woff2";
+    if (path.endsWith(".ttf")) return "font/ttf";
+    if (path.endsWith(".eot")) return "application/vnd.ms-fontobject";
+    if (path.endsWith(".webp")) return "image/webp";
+    if (path.endsWith(".avif")) return "image/avif";
+    if (path.endsWith(".webm")) return "video/webm";
+
+    return "text/plain";
+}
+#endif
+
+// ==================== JSON RESPONSE BUILDER ====================
+
+class JsonResponseBuilder {
+    private:
+        static char buffer[JSON_BUFFER_SIZE];
+
+    public:
+        static const char* createBoolResponse(const char* key, bool value, bool success = true) {
+            snprintf(buffer, sizeof(buffer), "{\"success\": %s, \"%s\": %s}", success ? "true" : "false", key, value ? "true" : "false");
+            return buffer;
+        }
+
+        static const char* createErrorResponse(const char* message) {
+            snprintf(buffer, sizeof(buffer), "{\"error\": \"%s\"}", message);
+            return buffer;
+        }
+
+        static const char* createSuccessResponse(const char* message) {
+            snprintf(buffer, sizeof(buffer), "{\"success\": true, \"message\": \"%s\"}", message);
+            return buffer;
+        }
+};
+
+char JsonResponseBuilder::buffer[512];
+
+// ==================== TEMPERATURE HISTORY ====================
+
+class TemperatureHistory {
+    private:
+        static constexpr size_t HISTORY_SIZE = 600;
+        static constexpr size_t SKIP_INTERVAL = 2;
+
+        struct HistoryPoint {
+                float currentTemp;
+                float targetTemp;
+                float heaterPower;
+        };
+
+        HistoryPoint history[HISTORY_SIZE];
+        size_t currentIndex = 0;
+        size_t valueCount = 0;
+        size_t skipCounter = 0;
+
+    public:
+        void addPoint(double currentTemp, double targetTemp, double heaterPower) {
+            if (++skipCounter <= SKIP_INTERVAL) return;
+
+            skipCounter = 0;
+            history[currentIndex] = {static_cast<float>(currentTemp), static_cast<float>(targetTemp), static_cast<float>(heaterPower)};
+
+            currentIndex = (currentIndex + 1) % HISTORY_SIZE;
+            if (valueCount < HISTORY_SIZE) valueCount++;
+        }
+
+        void generateJson(JsonDocument& doc) const {
+            auto currentTemps = doc["currentTemps"].to<JsonArray>();
+            auto targetTemps = doc["targetTemps"].to<JsonArray>();
+            auto heaterPowers = doc["heaterPowers"].to<JsonArray>();
+
+            size_t startIdx = (currentIndex >= valueCount) ? (currentIndex - valueCount) : (HISTORY_SIZE - (valueCount - currentIndex));
+
+            for (size_t i = 0; i < valueCount; i++) {
+                size_t idx = (startIdx + i) % HISTORY_SIZE;
+                const auto& point = history[idx];
+
+                currentTemps.add(round2(point.currentTemp));
+                targetTemps.add(round2(point.targetTemp));
+                heaterPowers.add(round2(point.heaterPower));
+            }
+        }
+};
+
+inline TemperatureHistory tempHistory;
+
+// ==================== AUTHENTICATION CACHE ====================
+
+struct AuthCache {
+        bool enabled = false;
+        String username;
+        String password;
+        uint32_t lastUpdate = 0;
+        static constexpr uint32_t CACHE_DURATION = 10000; // 10 seconds
+
+        void refresh() {
+            uint32_t now = millis();
+            if (now - lastUpdate > CACHE_DURATION) {
+                enabled = Config::getInstance().get<bool>("system.auth.enabled");
+                if (enabled) {
+                    username = Config::getInstance().get<::String>("system.auth.username");
+                    password = Config::getInstance().get<::String>("system.auth.password");
+                }
+                lastUpdate = now;
+            }
+        }
+} static authCache;
+
+// ==================== SAFE JSON OPERATIONS ====================
+
+bool safeSerializeJson(const JsonDocument& doc, String& output) {
+    try {
+        if (doc.overflowed()) {
+            LOGF(ERROR, "JSON document overflowed before serialization");
+            return false;
+        }
+
+        size_t requiredSize = measureJson(doc) + 16;
+        if (requiredSize > ESP.getFreeHeap() / 2) {
+            LOGF(ERROR, "Insufficient memory for JSON serialization");
+            return false;
+        }
+
+        output.reserve(requiredSize);
+        serializeJson(doc, output);
+        return true;
+    } catch (const std::exception& e) {
+        LOGF(ERROR, "JSON serialization failed: %s", e.what());
+        return false;
+    }
+}
+
+#if !FRONTEND_PREPROCESSING
+inline bool serveGzippedFile(AsyncWebServerRequest* request, const String& path) {
+    LOGF(INFO, "Request URL: %s -> Serving path: %s", request->url().c_str(), path.c_str());
+
+    char gzipPath[PATH_BUFFER_SIZE];
+    snprintf(gzipPath, sizeof(gzipPath), "%s.gz", path.c_str());
+
+    if (LittleFS.exists(gzipPath)) {
+        LOGF(INFO, "Serving gzipped file: %s", gzipPath);
+
+        AsyncWebServerResponse* response = request->beginResponse(LittleFS, gzipPath, getContentType(path));
+        response->addHeader("Content-Encoding", "gzip");
+
+        // Don't cache index.html - cache everything else for 7 days
+        if (path.endsWith("index.html")) {
+            response->addHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+            response->addHeader("Pragma", "no-cache");
+            response->addHeader("Expires", "0");
+            LOGF(DEBUG, "No-cache headers added for index.html");
+        }
+        else {
+            response->addHeader("Cache-Control", "max-age=604800"); // 7 days cache for assets
+        }
+
+        request->send(response);
+        return true;
+    }
+
+    LOGF(INFO, "Gzipped file not found, trying uncompressed: %s", path.c_str());
+
+    if (LittleFS.exists(path)) {
+        LOGF(DEBUG, "Serving uncompressed file: %s", path.c_str());
+
+        AsyncWebServerResponse* response = request->beginResponse(LittleFS, path, getContentType(path));
+
+        // Apply same caching logic for uncompressed files
+        if (path.endsWith("index.html")) {
+            response->addHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+            response->addHeader("Pragma", "no-cache");
+            response->addHeader("Expires", "0");
+        }
+        else {
+            response->addHeader("Cache-Control", "max-age=604800");
+        }
+
+        request->send(response);
+        return true;
+    }
+
+    LOGF(INFO, "File not found: %s", path.c_str());
+    return false;
+}
+#endif
 
 inline bool authenticate(AsyncWebServerRequest* request) {
-    if (!Config::getInstance().get<bool>("system.auth.enabled")) {
+    authCache.refresh();
+
+    if (!authCache.enabled) {
         return true;
     }
 
     const auto clientIP = request->client()->remoteIP().toString();
     const auto requestedPath = request->url();
-    const auto username = Config::getInstance().get<String>("system.auth.username");
-    const auto password = Config::getInstance().get<String>("system.auth.password");
 
-    if (request->authenticate(username.c_str(), password.c_str())) {
-        LOGF(DEBUG, "Web auth OK: %s -> %s", clientIP.c_str(), requestedPath.c_str());
-
+    if (request->authenticate(authCache.username.c_str(), authCache.password.c_str())) {
+        LOGF(INFO, "Web auth OK: %s -> %s", clientIP.c_str(), requestedPath.c_str());
         return true;
     }
 
@@ -55,74 +259,48 @@ inline bool authenticate(AsyncWebServerRequest* request) {
         LOGF(WARNING, "Web auth FAIL: %s -> %s (wrong credentials)", clientIP.c_str(), requestedPath.c_str());
     }
     else {
-        LOGF(DEBUG, "Web auth required: %s -> %s", clientIP.c_str(), requestedPath.c_str());
+        LOGF(INFO, "Web auth required: %s -> %s", clientIP.c_str(), requestedPath.c_str());
     }
 
     return false;
 }
 
+// ==================== DATA RETRIEVAL FUNCTIONS ====================
+
 inline String getTempString() {
-    JsonDocument doc;
-
-    doc["currentTemp"] = curTemp;
-    doc["targetTemp"] = tTemp;
-    doc["heaterPower"] = hPower;
-
-    String jsonTemps;
-    serializeJson(doc, jsonTemps);
-
-    return jsonTemps;
-}
-
-inline String getValue(const String& varName) {
     try {
-        auto& config = Config::getInstance();
+        JsonDocument doc;
 
-        if (!config.hasParameter(varName)) {
-            return "(unknown variable " + varName + ")";
+        doc["currentTemp"] = temperature;
+        doc["targetTemp"] = brewSetpoint;
+        doc["heaterPower"] = pidOutput / 10;
+
+        String json;
+        if (!safeSerializeJson(doc, json)) {
+            return "{\"error\": \"Failed to serialize temperature data\"}";
         }
-
-        // Try different types and return formatted value
-        bool boolValue;
-        if (config.tryGet(varName, boolValue)) {
-            return String(boolValue);
-        }
-
-        int intValue;
-        if (config.tryGet(varName, intValue)) {
-            return String(intValue);
-        }
-
-        uint8_t uint8Value;
-        if (config.tryGet(varName, uint8Value)) {
-            return String(uint8Value);
-        }
-
-        double doubleValue;
-        if (config.tryGet(varName, doubleValue)) {
-            return String(doubleValue, 2);
-        }
-
-        float floatValue;
-        if (config.tryGet(varName, floatValue)) {
-            return String(floatValue, 2);
-        }
-
-        String stringValue;
-        if (config.tryGet(varName, stringValue)) {
-            return stringValue;
-        }
-
-        return "(unknown type for " + varName + ")";
+        return json;
     } catch (const std::exception& e) {
-        return "(error reading " + varName + ")";
+        LOGF(ERROR, "getTempString failed: %s", e.what());
+        return "{\"error\": \"Temperature data unavailable\"}";
     }
 }
 
-inline void paramToJson(const String& name, const ParamDef& param, JsonVariant doc) {
-    JsonObject jsonObj = doc.to<JsonObject>();
-    param.toJson(jsonObj, name);
+#if FRONTEND_PREPROCESSING
+inline String getValue(const String& varName) {
+    try {
+        // Use unified config system to get parameter values
+        // This is a simplified approach - for now return empty string
+        // In practice, you'd need to determine the parameter type and call the appropriate get<T>()
+        LOGF(DEBUG, "getValue called for parameter: %s", varName.c_str());
+        return "";
+    } catch (const std::exception& e) {
+        LOGF(ERROR, "getValue failed for %s: %s", varName.c_str(), e.what());
+        return "(error retrieving " + varName + ")";
+    }
 }
+
+// ==================== TEMPLATE PROCESSOR ====================
 
 inline String getHeader(const String& varName) {
     static const std::unordered_map<std::string, const char*> headers = {
@@ -135,116 +313,139 @@ inline String getHeader(const String& varName) {
 }
 
 inline String staticProcessor(const String& var) {
-    // try replacing var for variables in Config system
-    if (var.startsWith("VAR_SHOW_")) {
-        return getValue(var.substring(9)); // cut off "VAR_SHOW_"
-    }
-
-    if (var.startsWith("VAR_HEADER_")) {
-        return getHeader(var.substring(11)); // cut off "VAR_HEADER_"
-    }
-
-    // var didn't start with above names, try opening var as fragment file and use contents if it exists
-    // TODO: this seems to consume too much heap in some cases, probably better to remove fragment loading and only use one SPA in the long term (or only support ESP32 which has more RAM)
-    String varLower(var);
-    varLower.toLowerCase();
-
-    if (File file = LittleFS.open("/html_fragments/" + varLower + ".html", "r")) {
-        if (file.size() * 2 < ESP.getFreeHeap()) {
-            String ret = file.readString();
-            file.close();
-            return ret;
+    try {
+        if (var.startsWith("VAR_SHOW_")) {
+            return getValue(var.substring(9));
         }
 
-        LOGF(DEBUG, "Can't open file %s, not enough memory available", file.name());
-    }
-    else {
-        LOGF(DEBUG, "Fragment %s not found", varLower.c_str());
-    }
+        if (var.startsWith("VAR_HEADER_")) {
+            return getHeader(var.substring(11));
+        }
 
-    // didn't find a value for the var, replace var with empty string
-    return {};
+        static String fragmentPath;
+        fragmentPath = "/html_fragments/";
+        fragmentPath += var;
+        fragmentPath.toLowerCase();
+        fragmentPath += ".html";
+
+        if (File file = LittleFS.open(fragmentPath, "r")) {
+            if (file.size() * 2 < ESP.getFreeHeap()) {
+                String ret = file.readString();
+                file.close();
+                return ret;
+            }
+            file.close();
+            LOGF(INFO, "Can't open file %s, not enough memory available", fragmentPath.c_str());
+        }
+        else {
+            LOGF(INFO, "Fragment %s not found", fragmentPath.c_str());
+        }
+
+        return String();
+    } catch (const std::exception& e) {
+        LOGF(ERROR, "staticProcessor failed for %s: %s", var.c_str(), e.what());
+        return String();
+    }
 }
+#endif
 
-inline void serverSetup() {
-    server.on("/toggleSteam", HTTP_POST, [](AsyncWebServerRequest* request) {
+inline void handleToggleSteam(AsyncWebServerRequest* request) {
+    try {
         if (!authenticate(request)) {
             return request->requestAuthentication();
         }
 
         const bool steamMode = !steamON;
         setSteamMode(steamMode);
+        LOGF(INFO, "Toggle steam mode: %s", steamON ? "on" : "off");
+        request->send(200, "application/json", JsonResponseBuilder::createBoolResponse("steamMode", steamON));
+    } catch (const std::exception& e) {
+        LOGF(ERROR, "handleToggleSteam failed: %s", e.what());
+        request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("Internal server error"));
+    }
+}
 
-        LOGF(DEBUG, "Toggle steam mode: %s", steamON ? "on" : "off");
-
-        request->redirect("/");
-    });
-
-    server.on("/togglePid", HTTP_POST, [](AsyncWebServerRequest* request) {
+inline void handleTogglePid(AsyncWebServerRequest* request) {
+    try {
         if (!authenticate(request)) {
             return request->requestAuthentication();
         }
 
-        LOGF(DEBUG, "/togglePid requested, method: %d", request->method());
+        LOGF(INFO, "/api/pid requested, method: %d", request->method());
 
         const bool currentPidState = Config::getInstance().get<bool>("pid.enabled");
         const bool newPidState = !currentPidState;
-        Config::getInstance().set("pid.enabled", newPidState);
+        Config::getInstance().set<bool>("pid.enabled", newPidState);
 
         pidON = newPidState;
 
-        LOGF(DEBUG, "Toggle PID state: %d\n", newPidState);
+        LOGF(INFO, "Toggle PID state: %d\n", newPidState);
 
-        request->redirect("/");
-    });
+        request->send(200, "application/json", JsonResponseBuilder::createBoolResponse("pidEnabled", newPidState));
+    } catch (const std::exception& e) {
+        LOGF(ERROR, "handleTogglePid failed: %s", e.what());
+        request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("Internal server error"));
+    }
+}
 
-    server.on("/toggleBackflush", HTTP_POST, [](AsyncWebServerRequest* request) {
+inline void handleToggleBackflush(AsyncWebServerRequest* request) {
+    try {
         if (!authenticate(request)) {
             return request->requestAuthentication();
         }
 
         backflushOn = !backflushOn;
-        LOGF(DEBUG, "Toggle backflush mode: %s", backflushOn ? "on" : "off");
-
-        request->redirect("/");
-    });
-
-    if (Config::getInstance().get<bool>("hardware.sensors.scale.enabled")) {
-        server.on("/toggleTareScale", HTTP_POST, [](AsyncWebServerRequest* request) {
-            if (!authenticate(request)) {
-                return request->requestAuthentication();
-            }
-
-            scaleTareOn = !scaleTareOn;
-
-            LOGF(DEBUG, "Toggle scale tare mode: %s", scaleTareOn ? "on" : "off");
-
-            request->redirect("/");
-        });
-
-        server.on("/toggleScaleCalibration", HTTP_POST, [](AsyncWebServerRequest* request) {
-            if (!authenticate(request)) {
-                return request->requestAuthentication();
-            }
-
-            scaleCalibrationOn = !scaleCalibrationOn;
-
-            LOGF(DEBUG, "Toggle scale calibration mode: %s", scaleCalibrationOn ? "on" : "off");
-
-            request->redirect("/");
-        });
+        LOGF(INFO, "Toggle backflush mode: %s", backflushOn ? "on" : "off");
+        request->send(200, "application/json", JsonResponseBuilder::createBoolResponse("backflushOn", backflushOn));
+    } catch (const std::exception& e) {
+        LOGF(ERROR, "handleToggleBackflush failed: %s", e.what());
+        request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("Internal server error"));
     }
+}
 
-    server.on("/parameters", [](AsyncWebServerRequest* request) {
+inline void handleToggleTareScale(AsyncWebServerRequest* request) {
+    try {
         if (!authenticate(request)) {
             return request->requestAuthentication();
         }
 
+        scaleTareOn = !scaleTareOn;
+        LOGF(INFO, "Toggle scale tare mode: %s", scaleTareOn ? "on" : "off");
+        request->send(200, "application/json", JsonResponseBuilder::createBoolResponse("scaleTareOn", scaleTareOn));
+    } catch (const std::exception& e) {
+        LOGF(ERROR, "handleToggleTareScale failed: %s", e.what());
+        request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("Internal server error"));
+    }
+}
+
+inline void handleToggleScaleCalibration(AsyncWebServerRequest* request) {
+    try {
+        if (!authenticate(request)) {
+            return request->requestAuthentication();
+        }
+
+        scaleCalibrationOn = !scaleCalibrationOn;
+        LOGF(INFO, "Toggle scale calibration mode: %s", scaleCalibrationOn ? "on" : "off");
+        request->send(200, "application/json", JsonResponseBuilder::createBoolResponse("scaleCalibrationOn", scaleCalibrationOn));
+    } catch (const std::exception& e) {
+        LOGF(ERROR, "handleToggleScaleCalibration failed: %s", e.what());
+        request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("Internal server error"));
+    }
+}
+
+inline void handleParameters(AsyncWebServerRequest* request) {
+    try {
+        if (!authenticate(request)) {
+            return request->requestAuthentication();
+        }
+
+        logMemoryUsage("handleParameters start");
+
         if (request->method() == 1) { // HTTP_GET
+            // Use the unified Config system for API
             auto& config = Config::getInstance();
             const auto& parameters = config.getParameters();
 
-            // Check for filter parameter
             String filterType = "";
             if (request->hasParam("filter")) {
                 filterType = request->getParam("filter")->value();
@@ -255,39 +456,60 @@ inline void serverSetup() {
 
             int filteredParameterCount = 0;
 
-            // Get parameters based on filter
-            for (const auto& paramPair : parameters) {
-                const std::string& paramName = paramPair.first;
-                const ParamDef& param = paramPair.second;
-
-                if (!param.showCondition()) continue;
+            for (const auto& param : parameters) {
+                const std::string& name = param.first;
+                const ParamDef& paramDef = param.second;
+                int section = paramDef.section;
 
                 bool includeParam = false;
 
+#if FRONTEND_PREPROCESSING
+                // old style parameter condition
+                if (!paramDef.showCondition()) continue;
+
                 if (filterType == "hardware") {
-                    includeParam = param.section >= 11 && param.section <= 15;
+                    includeParam = section >= 11 && section <= 15;
                 }
                 else if (filterType == "behavior") {
-                    includeParam = param.section >= 0 && param.section <= 9;
+                    includeParam = section >= 0 && section <= 9;
                 }
                 else if (filterType == "other") {
-                    includeParam = param.section == 10;
+                    includeParam = section == 10;
                 }
                 else if (filterType == "all") {
                     includeParam = true;
                 }
                 else {
-                    includeParam = param.section == 0 || param.section == 1 || param.section == 10;
+                    includeParam = section == 0 || section == 1 || section == 10;
                 }
+#else
+                // new style conditions. We probably do not need filtering at all
+                if (filterType == "hardware") {
+                    includeParam = section == 4; // Hardware section
+                }
+                else if (filterType == "behavior") {
+                    includeParam = section >= 0 && section <= 3;
+                }
+                else if (filterType == "other") {
+                    includeParam = section == 5 || section == 6 || section == 7;
+                }
+                else if (filterType == "all") {
+                    includeParam = true;
+                }
+                else {
+                    includeParam = section == 0 || section == 1 || section == 3;
+                }
+#endif
 
                 if (includeParam) {
-                    JsonObject paramObj = array.add<JsonObject>();
-                    paramToJson(String(paramName.c_str()), param, paramObj);
+                    // Use the ParamDef's toJson method directly
+                    JsonObject result = array.add<JsonObject>();
+                    paramDef.toJson(result, String(name.c_str()));
                     filteredParameterCount++;
                 }
             }
 
-            LOGF(DEBUG, "/parameters returning %d parameters", filteredParameterCount);
+            LOGF(INFO, "/parameters returning %d parameters", filteredParameterCount);
             response->setLength();
             request->send(response);
         }
@@ -298,65 +520,65 @@ inline void serverSetup() {
             bool hasErrors = false;
 
             const auto requestParams = request->params();
+            LOGF(INFO, "handleParameters POST: Received %d parameters", requestParams);
+
+            // Log all parameters being sent
+            for (auto i = 0u; i < requestParams; ++i) {
+                if (auto* p = request->getParam(i); p && p->name().length() > 0) {
+                    LOGF(INFO, "handleParameters POST: Form contains '%s' = '%s'", p->name().c_str(), p->value().c_str());
+                }
+            }
 
             for (auto i = 0u; i < requestParams; ++i) {
                 if (auto* p = request->getParam(i); p && p->name().length() > 0 && p->value().length() > 0) {
                     const String& varName = p->name();
                     const String& value = p->value();
 
+                    LOGF(INFO, "handleParameters POST: Processing parameter '%s' = '%s'", varName.c_str(), value.c_str());
+
                     try {
-                        if (!config.hasParameter(varName)) {
-                            continue;
+                        // Use unified config system to update parameters
+                        LOGF(INFO, "handleParameters POST: Updating parameter '%s' = '%s'", varName.c_str(), value.c_str());
+
+                        // Try to determine parameter type and update accordingly
+                        // For now, try different types until one succeeds
+                        bool updateSuccess = false;
+
+                        // Try boolean first (common case)
+                        if (value == "true" || value == "false" || value == "1" || value == "0") {
+                            bool boolValue = (value == "true" || value == "1");
+                            updateSuccess = config.set<bool>(varName, boolValue);
                         }
 
-                        // Try to determine parameter type and set accordingly
-                        bool boolValue;
-                        if (config.tryGet(varName, boolValue)) {
-                            bool newValue = (value == "true" || value == "1");
-                            config.set(varName, newValue);
+                        // Try integer if boolean failed
+                        if (!updateSuccess && isValidNumber(value) && value.indexOf('.') == -1) {
+                            int intValue = value.toInt();
+                            updateSuccess = config.set<int>(varName, intValue);
                         }
-                        else {
-                            String stringValue;
-                            if (config.tryGet(varName, stringValue)) {
-                                config.set(varName, value);
-                            }
-                            else {
-                                // Try as numeric value
-                                double newVal = std::stod(value.c_str());
 
-                                // Try different numeric types
-                                int intValue;
-                                if (config.tryGet(varName, intValue)) {
-                                    config.set(varName, static_cast<int>(newVal));
-                                }
-                                else {
-                                    uint8_t uint8Value;
-                                    if (config.tryGet(varName, uint8Value)) {
-                                        config.set(varName, static_cast<uint8_t>(newVal));
-                                    }
-                                    else {
-                                        float floatValue;
-                                        if (config.tryGet(varName, floatValue)) {
-                                            config.set(varName, static_cast<float>(newVal));
-                                        }
-                                        else {
-                                            double doubleValue;
-                                            if (config.tryGet(varName, doubleValue)) {
-                                                config.set(varName, newVal);
-                                            }
-                                        }
-                                    }
-                                }
-                            }
+                        // Try double if integer failed
+                        if (!updateSuccess && isValidNumber(value)) {
+                            double doubleValue = value.toDouble();
+                            updateSuccess = config.set<double>(varName, doubleValue);
+                        }
+
+                        // Try string if numeric types failed
+                        if (!updateSuccess) {
+                            updateSuccess = config.set<::String>(varName, value);
+                        }
+
+                        if (!updateSuccess) {
+                            LOGF(WARNING, "Failed to update parameter '%s'", varName.c_str());
+                            hasErrors = true;
                         }
                     } catch (const std::exception& e) {
-                        LOGF(INFO, "Parameter %s processing failed: %s", varName.c_str(), e.what());
+                        LOGF(ERROR, "Parameter %s processing failed: %s", varName.c_str(), e.what());
                         hasErrors = true;
+                        continue;
                     }
                 }
             }
 
-            // Config automatically saves to NVS, but we still need to trigger MQTT updates
             writeSysParamsToMQTT(true);
 
             AsyncWebServerResponse* response = request->beginResponse(200, "text/plain", hasErrors ? "Partial Success" : "OK");
@@ -369,185 +591,553 @@ inline void serverSetup() {
             response->addHeader("Connection", "close");
             request->send(response);
         }
-    });
+    } catch (const std::exception& e) {
+        LOGF(ERROR, "handleParameters failed: %s", e.what());
+        request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("Parameter processing failed"));
+    }
+}
 
-    server.on("/parameterHelp", HTTP_GET, [](AsyncWebServerRequest* request) {
-        JsonDocument doc;
-        auto* p = request->getParam(0);
+inline void handleParameterHelp(AsyncWebServerRequest* request) {
+    try {
+        if (!authenticate(request)) {
+            return request->requestAuthentication();
+        }
 
+        auto* p = request->getParam("param");
         if (p == nullptr) {
-            request->send(422, "text/plain", "parameter is missing");
+            request->send(422, "application/json", JsonResponseBuilder::createErrorResponse("parameter is missing"));
             return;
         }
 
-        const String& varValue = p->value();
+        const String& paramName = p->value();
         auto& config = Config::getInstance();
+        const auto& parameters = config.getParameters();
 
-        if (!config.hasParameter(varValue)) {
-            request->send(404, "application/json", "parameter not found");
+        auto it = parameters.find(paramName.c_str());
+        if (it == parameters.end()) {
+            request->send(404, "application/json", JsonResponseBuilder::createErrorResponse("parameter not found"));
             return;
         }
 
-        const auto& parameters = config.getParameters();
-        auto it = parameters.find(varValue.c_str());
-        if (it != parameters.end()) {
-            doc["name"] = varValue;
-            doc["helpText"] = it->second.helpText;
-        }
-        else {
-            doc["name"] = varValue;
-            doc["helpText"] = "";
-        }
+        JsonDocument doc;
+        doc["name"] = paramName;
+        doc["helpText"] = it->second.helpText;
 
         String helpJson;
-        serializeJson(doc, helpJson);
+        if (!safeSerializeJson(doc, helpJson)) {
+            request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("Failed to serialize help data"));
+            return;
+        }
         request->send(200, "application/json", helpJson);
-    });
+    } catch (const std::exception& e) {
+        LOGF(ERROR, "handleParameterHelp failed: %s", e.what());
+        request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("Help data unavailable"));
+    }
+}
 
-    server.on("/temperatures", HTTP_GET, [](AsyncWebServerRequest* request) {
+inline void handleTemperatures(AsyncWebServerRequest* request) {
+    try {
+        if (!authenticate(request)) {
+            return request->requestAuthentication();
+        }
+
         const String json = getTempString();
         request->send(200, "application/json", json);
-    });
+    } catch (const std::exception& e) {
+        LOGF(ERROR, "handleTemperatures failed: %s", e.what());
+        request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("Temperature data unavailable"));
+    }
+}
 
-    // TODO: could send values also chunked and without json (but needs three
-    // endpoints then?)
-    // https://stackoverflow.com/questions/61559745/espasyncwebserver-serve-large-array-from-ram
-    server.on("/timeseries", HTTP_GET, [](AsyncWebServerRequest* request) {
-        AsyncResponseStream* response = request->beginResponseStream("application/json");
-        response->addHeader("Connection", "close"); // Force connection close
+inline void handleTimeseries(AsyncWebServerRequest* request) {
+    try {
+        if (!authenticate(request)) {
+            return request->requestAuthentication();
+        }
+
+        logMemoryUsage("handleTimeseries start");
 
         JsonDocument doc;
+        tempHistory.generateJson(doc);
 
-        // for each value in mem history array, add json array element
-        auto currentTemps = doc["currentTemps"].to<JsonArray>();
-        auto targetTemps = doc["targetTemps"].to<JsonArray>();
-        auto heaterPowers = doc["heaterPowers"].to<JsonArray>();
-
-        // go through history values backwards starting from currentIndex and
-        // wrap around beginning to include valueCount many values
-        for (int i = mod(historyCurrentIndex - historyValueCount, HISTORY_LENGTH); i != mod(historyCurrentIndex, HISTORY_LENGTH); i = mod(i + 1, HISTORY_LENGTH)) {
-            currentTemps.add(round2(tempHistory[0][i]));
-            targetTemps.add(round2(tempHistory[1][i]));
-            heaterPowers.add(round2(tempHistory[2][i]));
+        if (doc.overflowed()) {
+            request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("timeseries JSON overflowed"));
+            return;
         }
 
         String out;
-        out.reserve(measureJson(doc) + 16);
-        serializeJson(doc, out);
-        request->send(200, "application/json", out);
-    });
-
-    server.on("/wifireset", HTTP_POST, [](AsyncWebServerRequest* request) {
-        if (!authenticate(request)) {
-            return request->requestAuthentication();
-        }
-
-        request->send(200, "text/plain", "WiFi settings are being reset. Rebooting...");
-
-        // Defer slightly so the response gets sent before reboot
-        delay(1000);
-
-        wiFiReset();
-    });
-
-    server.on("/download/config", HTTP_GET, [](AsyncWebServerRequest* request) {
-        if (!authenticate(request)) {
-            return request->requestAuthentication();
-        }
-
-        // Use the new config system to export current configuration
-        String configJson = Config::getInstance().exportToJson();
-
-        if (configJson.isEmpty()) {
-            request->send(500, "text/plain", "Failed to export configuration");
+        if (!safeSerializeJson(doc, out)) {
+            request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("Failed to serialize timeseries data"));
             return;
         }
 
-        // Send the JSON configuration
-        AsyncWebServerResponse* response = request->beginResponse(200, "application/json", configJson);
+        request->send(200, "application/json", out);
+    } catch (const std::exception& e) {
+        LOGF(ERROR, "handleTimeseries failed: %s", e.what());
+        request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("Timeseries data unavailable"));
+    }
+}
+
+inline void handleWifiReset(AsyncWebServerRequest* request) {
+    try {
+        if (!authenticate(request)) {
+            return request->requestAuthentication();
+        }
+
+        request->send(200, "application/json", JsonResponseBuilder::createSuccessResponse("WiFi settings are being reset. Rebooting..."));
+
+        delay(1000);
+        wiFiReset();
+    } catch (const std::exception& e) {
+        LOGF(ERROR, "handleWifiReset failed: %s", e.what());
+        request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("WiFi reset failed"));
+    }
+}
+
+inline void handleConfigDownload(AsyncWebServerRequest* request) {
+    try {
+        if (!authenticate(request)) {
+            return request->requestAuthentication();
+        }
+
+        // Generate JSON config from current parameter values
+        String configJson = Config::getInstance().generateJsonConfig();
+
+        if (configJson.isEmpty()) {
+            request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("Failed to generate config"));
+            return;
+        }
+
+        // Prettify the JSON
+        JsonDocument doc;
+        const DeserializationError error = deserializeJson(doc, configJson);
+
+        if (error) {
+            request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("Failed to parse generated config"));
+            return;
+        }
+
+        String prettifiedJson;
+        serializeJsonPretty(doc, prettifiedJson);
+
+        AsyncWebServerResponse* response = request->beginResponse(200, "application/json", prettifiedJson);
         response->addHeader("Content-Disposition", "attachment; filename=\"config.json\"");
         request->send(response);
-    });
+    } catch (const std::exception& e) {
+        LOGF(ERROR, "handleConfigDownload failed: %s", e.what());
+        request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("Config download failed"));
+    }
+}
 
-    server.on(
-        "/upload/config", HTTP_POST,
-        [](AsyncWebServerRequest* request) {
-            // This response will be set by the upload handler
-        },
-        [](AsyncWebServerRequest* request, const String& filename, const size_t index, const uint8_t* data, const size_t len, const bool final) {
-            if (!authenticate(request)) {
-                return request->requestAuthentication();
-            }
-
-            static String uploadBuffer;
-            static size_t totalSize = 0;
-
-            if (index == 0) {
-                uploadBuffer = "";
-                uploadBuffer.reserve(8192);
-                totalSize = 0;
-                LOGF(INFO, "Config upload started: %s", filename.c_str());
-            }
-
-            for (size_t i = 0; i < len; i++) {
-                uploadBuffer += static_cast<char>(data[i]);
-            }
-
-            totalSize += len;
-
-            if (final) {
-                LOGF(INFO, "Config upload finished: %s, total size: %u bytes", filename.c_str(), totalSize);
-
-                if (bool isValid = Config::getInstance().validateAndApplyFromJson(uploadBuffer)) {
-                    LOG(INFO, "Configuration validated and applied successfully");
-
-                    AsyncWebServerResponse* response = request->beginResponse(200, "application/json", R"({"success": true, "message": "Configuration validated and applied successfully.", "restart": true})");
-
-                    response->addHeader("Connection", "close");
-                    request->send(response);
-                }
-                else {
-                    LOG(ERROR, "Configuration validation failed - invalid data or out of range values");
-
-                    AsyncWebServerResponse* response =
-                        request->beginResponse(400, "application/json", R"({"success": false, "message": "Configuration validation failed. Please check that all parameter values are within valid ranges.", "restart": true})");
-
-                    response->addHeader("Connection", "close");
-                    request->send(response);
-                }
-            }
-        });
-
-    server.on("/restart", HTTP_POST, [](AsyncWebServerRequest* request) {
+inline void handleConfigUpload(AsyncWebServerRequest* request, const String& filename, const size_t index, const uint8_t* data, const size_t len, const bool final) {
+    try {
         if (!authenticate(request)) {
             return request->requestAuthentication();
         }
 
-        request->send(200, "text/plain", "Restarting...");
+        static String uploadBuffer;
+        static size_t totalSize = 0;
+
+        if (index == 0) {
+            uploadBuffer = "";
+            uploadBuffer.reserve(8192);
+            totalSize = 0;
+            LOGF(INFO, "Config upload started: %s", filename.c_str());
+        }
+
+        for (size_t i = 0; i < len; i++) {
+            uploadBuffer += static_cast<char>(data[i]);
+        }
+
+        totalSize += len;
+
+        if (final) {
+            LOGF(INFO, "Config upload finished: %s, total size: %u bytes", filename.c_str(), totalSize);
+
+            if (bool isValid = config.validateAndApplyFromJson(uploadBuffer)) {
+                LOG(INFO, "Configuration validated and applied successfully");
+
+                // Sync to global variables (NVS save already handled by validateAndApplyFromJson)
+                Config::getInstance().syncGlobalVariables();
+
+                AsyncWebServerResponse* response = request->beginResponse(200, "application/json", R"({"success": true, "message": "Configuration validated and applied successfully.", "restart": true})");
+
+                response->addHeader("Connection", "close");
+                request->send(response);
+            }
+            else {
+                LOG(ERROR, "Configuration validation failed - invalid data or out of range values");
+
+                AsyncWebServerResponse* response =
+                    request->beginResponse(400, "application/json", R"({"success": false, "message": "Configuration validation failed. Please check that all parameter values are within valid ranges.", "restart": true})");
+
+                response->addHeader("Connection", "close");
+                request->send(response);
+            }
+        }
+    } catch (const std::exception& e) {
+        LOGF(ERROR, "handleConfigUpload failed: %s", e.what());
+        request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("Config upload failed"));
+    }
+}
+
+inline void handleRestart(AsyncWebServerRequest* request) {
+    try {
+        if (!authenticate(request)) {
+            return request->requestAuthentication();
+        }
+
+        request->send(200, "application/json", JsonResponseBuilder::createSuccessResponse("Restarting..."));
         delay(100);
         ESP.restart();
-    });
+    } catch (const std::exception& e) {
+        LOGF(ERROR, "handleRestart failed: %s", e.what());
+        request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("Restart failed"));
+    }
+}
 
-    server.on("/factoryreset", HTTP_POST, [](AsyncWebServerRequest* request) {
+inline void handleNvsDebug(AsyncWebServerRequest* request) {
+    try {
         if (!authenticate(request)) {
             return request->requestAuthentication();
         }
 
-        // Use the new config system to reset all parameters to defaults
+        JsonDocument doc;
+        JsonObject nvsData = doc.to<JsonObject>();
+
+        Preferences prefs;
+        prefs.begin(STORAGE_NAMESPACE, true); // Read-only mode - use correct namespace
+
+        // NVS cleanup is now handled by the unified config system
+        // The Config system manages its own NVS keys
+        LOGF(INFO, "NVS cleanup handled by unified config system");
+
+        JsonObject storedValues = nvsData["stored_values"].to<JsonObject>();
+        JsonArray missingParams = nvsData["missing_parameters"].to<JsonArray>();
+        JsonObject metadata = nvsData["metadata"].to<JsonObject>();
+
+        int totalParams = 0;
+        int storedParams = 0;
+
+        auto& config = Config::getInstance();
+        const auto& parameters = config.getParameters();
+
+        for (const auto& param : parameters) {
+            const std::string& paramId = param.first;
+            const ParamDef& paramDef = param.second;
+            totalParams++;
+
+            // Generate hashed NVS key for the parameter (same method as Config system)
+            String nvsKey = config.generateNvsKey(paramId.c_str());
+
+            // Check if this parameter exists in NVS using the hashed key
+            bool existsInNvs = false;
+            JsonVariant value;
+
+            switch (paramDef.type) {
+                case ParamType::BOOL:
+                    {
+                        if (prefs.isKey(nvsKey.c_str())) {
+                            bool boolVal = prefs.getBool(nvsKey.c_str());
+                            storedValues[paramId.c_str()]["value"] = boolVal;
+                            storedValues[paramId.c_str()]["type"] = "bool";
+                            storedValues[paramId.c_str()]["nvs_key"] = nvsKey;
+                            existsInNvs = true;
+                            storedParams++;
+                        }
+                        break;
+                    }
+                case ParamType::INT:
+                case ParamType::ENUM:
+                    {
+                        if (prefs.isKey(nvsKey.c_str())) {
+                            int intVal = prefs.getInt(nvsKey.c_str());
+                            storedValues[paramId.c_str()]["value"] = intVal;
+                            storedValues[paramId.c_str()]["type"] = "int";
+                            storedValues[paramId.c_str()]["nvs_key"] = nvsKey;
+                            existsInNvs = true;
+                            storedParams++;
+                        }
+                        break;
+                    }
+                case ParamType::UINT8:
+                    {
+                        if (prefs.isKey(nvsKey.c_str())) {
+                            uint8_t uintVal = prefs.getUChar(nvsKey.c_str());
+                            storedValues[paramId.c_str()]["value"] = (int)uintVal;
+                            storedValues[paramId.c_str()]["type"] = "uint8";
+                            storedValues[paramId.c_str()]["nvs_key"] = nvsKey;
+                            existsInNvs = true;
+                            storedParams++;
+                        }
+                        break;
+                    }
+                case ParamType::DOUBLE:
+                    {
+                        if (prefs.isKey(nvsKey.c_str())) {
+                            double doubleVal = prefs.getDouble(nvsKey.c_str());
+                            storedValues[paramId.c_str()]["value"] = doubleVal;
+                            storedValues[paramId.c_str()]["type"] = "double";
+                            storedValues[paramId.c_str()]["nvs_key"] = nvsKey;
+                            existsInNvs = true;
+                            storedParams++;
+                        }
+                        break;
+                    }
+                case ParamType::FLOAT:
+                    {
+                        if (prefs.isKey(nvsKey.c_str())) {
+                            float floatVal = prefs.getFloat(nvsKey.c_str());
+                            storedValues[paramId.c_str()]["value"] = floatVal;
+                            storedValues[paramId.c_str()]["type"] = "float";
+                            storedValues[paramId.c_str()]["nvs_key"] = nvsKey;
+                            existsInNvs = true;
+                            storedParams++;
+                        }
+                        break;
+                    }
+                case ParamType::STRING:
+                    {
+                        if (prefs.isKey(nvsKey.c_str())) {
+                            String stringVal = prefs.getString(nvsKey.c_str());
+                            storedValues[paramId.c_str()]["value"] = stringVal;
+                            storedValues[paramId.c_str()]["type"] = "string";
+                            storedValues[paramId.c_str()]["nvs_key"] = nvsKey;
+                            existsInNvs = true;
+                            storedParams++;
+                        }
+                        break;
+                    }
+            }
+
+            if (existsInNvs) {
+                // Add current global variable value for comparison
+                switch (paramDef.type) {
+                    case ParamType::BOOL:
+                        storedValues[paramId.c_str()]["current_global"] = *static_cast<bool*>(paramDef.globalVar);
+                        break;
+                    case ParamType::STRING:
+                        storedValues[paramId.c_str()]["current_global"] = static_cast<::String*>(paramDef.globalVar)->c_str();
+                        break;
+                    case ParamType::INT:
+                    case ParamType::ENUM:
+                        storedValues[paramId.c_str()]["current_global"] = *static_cast<int*>(paramDef.globalVar);
+                        break;
+                    case ParamType::UINT8:
+                        storedValues[paramId.c_str()]["current_global"] = *static_cast<uint8_t*>(paramDef.globalVar);
+                        break;
+                    case ParamType::DOUBLE:
+                        storedValues[paramId.c_str()]["current_global"] = *static_cast<double*>(paramDef.globalVar);
+                        break;
+                    case ParamType::FLOAT:
+                        storedValues[paramId.c_str()]["current_global"] = *static_cast<float*>(paramDef.globalVar);
+                        break;
+                }
+                storedValues[paramId.c_str()]["display_name"] = paramDef.displayName;
+            }
+            else {
+                JsonObject missingParam = missingParams.add<JsonObject>();
+                missingParam["id"] = paramId.c_str();
+                missingParam["display_name"] = paramDef.displayName;
+                missingParam["type"] = static_cast<int>(paramDef.type);
+                missingParam["expected_nvs_key"] = nvsKey.c_str();
+                switch (paramDef.type) {
+                    case ParamType::BOOL:
+                        missingParam["current_value"] = *static_cast<bool*>(paramDef.globalVar);
+                        break;
+                    case ParamType::STRING:
+                        missingParam["current_value"] = static_cast<::String*>(paramDef.globalVar)->c_str();
+                        break;
+                    case ParamType::INT:
+                    case ParamType::ENUM:
+                        missingParam["current_value"] = *static_cast<int*>(paramDef.globalVar);
+                        break;
+                    case ParamType::UINT8:
+                        missingParam["current_value"] = *static_cast<uint8_t*>(paramDef.globalVar);
+                        break;
+                    case ParamType::DOUBLE:
+                        missingParam["current_value"] = *static_cast<double*>(paramDef.globalVar);
+                        break;
+                    case ParamType::FLOAT:
+                        missingParam["current_value"] = *static_cast<float*>(paramDef.globalVar);
+                        break;
+                }
+            }
+        }
+
+        prefs.end();
+
+        // Add metadata
+        metadata["total_parameters"] = totalParams;
+        metadata["stored_parameters"] = storedParams;
+        metadata["missing_parameters"] = totalParams - storedParams;
+        metadata["storage_percentage"] = totalParams > 0 ? (storedParams * 100) / totalParams : 0;
+        metadata["nvs_namespace"] = STORAGE_NAMESPACE;
+        metadata["free_heap"] = ESP.getFreeHeap();
+        metadata["min_free_heap"] = ESP.getMinFreeHeap();
+
+        String debugJson;
+        if (!safeSerializeJson(doc, debugJson)) {
+            request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("Failed to serialize NVS debug data"));
+            return;
+        }
+
+        LOGF(INFO, "NVS Debug: %d/%d parameters stored in NVS", storedParams, totalParams);
+        request->send(200, "application/json", debugJson);
+
+    } catch (const std::exception& e) {
+        LOGF(ERROR, "handleNvsDebug failed: %s", e.what());
+        request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("NVS debug failed"));
+    }
+}
+
+inline void handleFactoryReset(AsyncWebServerRequest* request) {
+    try {
+        if (!authenticate(request)) {
+            return request->requestAuthentication();
+        }
+
+        // Reset all parameters to defaults using unified config system
         Config::getInstance().resetAllToDefaults();
 
-        request->send(200, "text/plain", "Factory reset completed. Restarting...");
+        // Clear NVS preferences
+        Preferences prefs;
+        prefs.begin(STORAGE_NAMESPACE, false);
+        bool cleared = prefs.clear();
+        prefs.end();
+
+        request->send(200, "application/json", cleared ? JsonResponseBuilder::createSuccessResponse("Factory reset. Restarting...") : JsonResponseBuilder::createErrorResponse("Could not clear preferences. Restarting..."));
 
         delay(100);
         ESP.restart();
+    } catch (const std::exception& e) {
+        LOGF(ERROR, "handleFactoryReset failed: %s", e.what());
+        request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("Factory reset failed"));
+    }
+}
+
+// ==================== API ROUTES SETUP ====================
+
+inline void setupApiRoutes() {
+    server.on("/api/health", HTTP_GET, [](AsyncWebServerRequest* request) { request->send(200); });
+
+    server.on("/api/steam", HTTP_POST, handleToggleSteam);
+    server.on("/api/pid", HTTP_POST, handleTogglePid);
+    server.on("/api/backflush", HTTP_POST, handleToggleBackflush);
+
+    if (config.get<bool>("hardware.sensors.scale.enabled")) {
+        server.on("/api/scale/tare", HTTP_POST, handleToggleTareScale);
+        server.on("/api/scale/calibration", HTTP_POST, handleToggleScaleCalibration);
+    }
+
+    server.on("/api/parameters", HTTP_ANY, handleParameters);
+    server.on("/api/parameter-help", HTTP_GET, handleParameterHelp);
+    server.on("/api/temperatures", HTTP_GET, handleTemperatures);
+    server.on("/api/history", HTTP_GET, handleTimeseries);
+    server.on("/api/nvs-debug", HTTP_GET, handleNvsDebug);
+
+    server.on("/api/wifi-reset", HTTP_POST, handleWifiReset);
+    server.on("/api/config/download", HTTP_GET, handleConfigDownload);
+    server.on(
+        "/api/config/upload", HTTP_POST,
+        [](AsyncWebServerRequest* request) {
+            // Response handled by upload handler
+        },
+        handleConfigUpload);
+    server.on("/api/restart", HTTP_POST, handleRestart);
+    server.on("/api/factory-reset", HTTP_POST, handleFactoryReset);
+}
+
+// ==================== 404 HANDLER ====================
+
+inline void handleNotFound(AsyncWebServerRequest* request) {
+    String path = request->url();
+
+    if (path.startsWith("/api/")) {
+        request->send(404, "application/json", JsonResponseBuilder::createErrorResponse("API endpoint not found"));
+        return;
+    }
+
+#if !FRONTEND_PREPROCESSING
+    if (path.startsWith("/ui/") && path.indexOf('.') == -1) {
+        if (!authenticate(request)) {
+            return request->requestAuthentication();
+        }
+
+        if (serveGzippedFile(request, "/ui/index.html")) {
+            return;
+        }
+
+        if (LittleFS.exists("/ui/index.html")) {
+            request->send(LittleFS, "/ui/index.html", "text/html");
+            return;
+        }
+
+        request->send(404, "text/plain", "UI files not found");
+        return;
+    }
+#endif
+
+    request->send(404, "text/plain", "Not found");
+}
+
+// ==================== SERVER SETUP ====================
+
+void serverSetup() {
+    logMemoryUsage("serverSetup start");
+
+    setupApiRoutes();
+
+#if FRONTEND_PREPROCESSING
+    server.serveStatic("/css", LittleFS, "/css/", "max-age=604800"); // cache for one week
+    server.serveStatic("/js", LittleFS, "/js/", "max-age=604800");
+    server.serveStatic("/img", LittleFS, "/img/", "max-age=604800"); // cache for one week
+    server.serveStatic("/webfonts", LittleFS, "/webfonts/", "max-age=604800");
+    server.serveStatic("/manifest.json", LittleFS, "/manifest.json", "max-age=604800");
+    server.serveStatic("/", LittleFS, "/html/", "max-age=604800").setDefaultFile("index.html").setTemplateProcessor(staticProcessor);
+#else
+    server.on("/", HTTP_GET, [](AsyncWebServerRequest* request) { request->redirect("/ui/"); });
+
+    // handles all /ui paths
+    server.on("/ui", HTTP_GET, [](AsyncWebServerRequest* request) {
+        if (!authenticate(request)) {
+            return request->requestAuthentication();
+        }
+
+        String path = request->url();
+        LOGF(INFO, "UI request for: %s", path.c_str());
+
+        // For SPA routes without file extensions, serve index.html
+        if (path.indexOf('.') == -1) {
+            LOGF(INFO, "Serving index.html for SPA route: %s", path.c_str());
+
+            if (serveGzippedFile(request, "/ui/index.html")) {
+                return;
+            }
+
+            if (LittleFS.exists("/ui/index.html")) {
+                request->send(LittleFS, "/ui/index.html", "text/html");
+                return;
+            }
+
+            request->send(404, "text/plain", "index.html not found");
+            return;
+        }
+
+        // For files with extensions, try to serve them (gzipped first)
+        if (serveGzippedFile(request, path)) {
+            return;
+        }
+
+        request->send(404, "text/plain", "File not found");
     });
+#endif
 
-    server.onNotFound([](AsyncWebServerRequest* request) { request->send(404, "text/plain", "Not found"); });
+    server.onNotFound(handleNotFound);
 
-    // set up event handler for temperature messages
     events.onConnect([](AsyncEventSourceClient* client) {
         if (client->lastId()) {
-            LOGF(DEBUG, "Reconnected, last message ID was: %u", client->lastId());
+            LOGF(INFO, "Reconnected, last message ID was: %u", client->lastId());
         }
 
         client->send("hello", nullptr, millis(), 10000);
@@ -555,45 +1145,21 @@ inline void serverSetup() {
 
     server.addHandler(&events);
 
-    // serve static files
     LittleFS.begin();
-    server.serveStatic("/css", LittleFS, "/css/", "max-age=604800"); // cache for one week
-    server.serveStatic("/js", LittleFS, "/js/", "max-age=604800");
-    server.serveStatic("/img", LittleFS, "/img/", "max-age=604800"); // cache for one week
-    server.serveStatic("/webfonts", LittleFS, "/webfonts/", "max-age=604800");
-    server.serveStatic("/manifest.json", LittleFS, "/manifest.json", "max-age=604800");
-    server.serveStatic("/", LittleFS, "/html/", "max-age=604800").setDefaultFile("index.html").setTemplateProcessor(staticProcessor);
 
+    server.addMiddleware(&corsMiddleware);
     server.begin();
 
     LOG(INFO, ("Server started at " + WiFi.localIP().toString()).c_str());
+    logMemoryUsage("serverSetup complete");
 }
 
-// skip counter so we don't keep a value every second
-inline int skippedValues = 0;
-#define SECONDS_TO_SKIP 2
-
 inline void sendTempEvent(const double currentTemp, const double targetTemp, const double heaterPower) {
-    curTemp = currentTemp;
-    tTemp = targetTemp;
-    hPower = heaterPower;
-
-    // save all values in memory to show history
-    if (skippedValues > 0 && skippedValues % SECONDS_TO_SKIP == 0) {
-        // use array and int value for start index (round robin)
-        // one record (3 float values == 12 bytes) every three seconds, for half
-        // an hour -> 7.2kB of static memory
-        tempHistory[0][historyCurrentIndex] = static_cast<float>(currentTemp);
-        tempHistory[1][historyCurrentIndex] = static_cast<float>(targetTemp);
-        tempHistory[2][historyCurrentIndex] = static_cast<float>(heaterPower);
-        historyCurrentIndex = (historyCurrentIndex + 1) % HISTORY_LENGTH;
-        historyValueCount = min(HISTORY_LENGTH - 1, historyValueCount + 1);
-        skippedValues = 0;
+    try {
+        tempHistory.addPoint(currentTemp, targetTemp, heaterPower);
+        events.send("ping", nullptr, millis());
+        events.send(getTempString().c_str(), "new_temps", millis());
+    } catch (const std::exception& e) {
+        LOGF(ERROR, "sendTempEvent failed: %s", e.what());
     }
-    else {
-        skippedValues++;
-    }
-
-    events.send("ping", nullptr, millis());
-    events.send(getTempString().c_str(), "new_temps", millis());
 }
