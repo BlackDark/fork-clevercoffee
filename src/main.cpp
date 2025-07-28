@@ -76,6 +76,7 @@ U8G2* u8g2 = nullptr;
 
 // WiFi
 WiFiManager wm;
+WiFiManagerParameter custom_hostname("hostname", "Device Hostname", hostname.c_str(), 32);
 constexpr unsigned long wifiConnectionDelay = WIFICONNECTIONDELAY;
 constexpr unsigned int maxWifiReconnects = MAXWIFIRECONNECTS;
 auto pass = WM_PASS;
@@ -764,6 +765,7 @@ char const* machinestateEnumToString(const MachineState machineState) {
  * @brief Set up internal WiFi hardware
  */
 void wiFiSetup() {
+    wm.addParameter(&custom_hostname);
     wm.setCleanConnect(true);
     wm.setConnectTimeout(10); // using 10s to connect to WLAN, 5s is sometimes too short!
     wm.setBreakAfterConfig(true);
@@ -792,6 +794,14 @@ void wiFiSetup() {
         wifiConnected = wm.startConfigPortal(hostname.c_str(), pass);
         if (wifiConnected) {
             restartAfterAP = true;
+        }
+
+        // Read hostname from portal and store in config
+        String newHostname = String(custom_hostname.getValue());
+        if (newHostname.length() > 0 && newHostname != hostname) {
+            hostname = newHostname;
+            // Update the config system - this will automatically save to NVS
+            Config::getInstance().set<String>("system.hostname", hostname);
         }
     }
 
