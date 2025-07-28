@@ -51,10 +51,10 @@ function addTempData(jsonValue, isSingleValue=false) {
         var targetTemp = jsonValue[targetTempKey]
         targetTempVals.length = 0
         targetTempVals.push(...targetTemp)
-        
+
         // create dates for all history values (3 seconds between each value)
         tempDates.length = 0
-        
+
         for (let i=curTempVals.length; i>0; i--) {
             var date = new Date()
             date.setSeconds(date.getSeconds()-3*i)
@@ -77,7 +77,7 @@ function addTempData(jsonValue, isSingleValue=false) {
     ];
 
     for (let i = 0; i < curTempVals.length; i++) {
-        data[0][i] = tempDates[i].getTime() / updateInterval 
+        data[0][i] = tempDates[i].getTime() / updateInterval
         data[1][i] = curTempVals[i]
         data[2][i] = targetTempVals[i]
     }
@@ -103,10 +103,10 @@ function addHeaterData(jsonValue, isSingleValue=false) {
         var heaterPower = jsonValue[heaterPowerKey]
         heaterPowerVals.length = 0
         heaterPowerVals.push(...heaterPower)
-        
+
         // create dates for all history values (3 seconds between each value)
         heaterDates.length = 0
-        
+
         for (let i=heaterPowerVals.length; i>0; i--) {
             var date = new Date()
             date.setSeconds(date.getSeconds()-3*i)
@@ -127,7 +127,7 @@ function addHeaterData(jsonValue, isSingleValue=false) {
     ];
 
     for (let i = 0; i < heaterPowerVals.length; i++) {
-        data[0][i] = heaterDates[i].getTime() / updateInterval 
+        data[0][i] = heaterDates[i].getTime() / updateInterval
         data[1][i] = heaterPowerVals[i]
     }
 
@@ -183,12 +183,12 @@ function pathRenderer(u, seriesIdx, idx0, idx1, extendGap, buildClip) {
     else if (style == drawStyles.barsLeft) {
         renderer = _bars100Left
     }
-    else if (style == drawStyles.barsRight) { 
+    else if (style == drawStyles.barsRight) {
         renderer = _bars100Right
     }
     else if (style == drawStyles.points) {
         renderer = () => null
-    } 
+    }
 
     return renderer(u, seriesIdx, idx0, idx1, extendGap, buildClip);
 };
@@ -213,13 +213,13 @@ function makeTempChart(data) {
                 show: true,
                 stroke: "#008080",
                 fill: "#00808010",
-                width: 2,            
+                width: 2,
                 points: { show: false },
                 drawStyle: drawStyles.line,
 				lineInterpolation: lineInterpolations.spline,
                 paths: pathRenderer,
             }),
-            
+
             {
                 label: "Target Temperature",
                 scale: "C",
@@ -244,7 +244,7 @@ function makeTempChart(data) {
             }
         ],
     };
-    
+
     uplotTemp = new uPlot(opts, sliceData(data, 0, data.length), document.getElementById(chartDiv));
 }
 
@@ -288,17 +288,17 @@ function makeHeaterChart(data) {
             },
         ],
     };
-    
+
     uplotHeater = new uPlot(opts, sliceData(data, 0, data.length), document.getElementById(heaterDiv));
 }
 
 // append single historic values
-function addPlotData(jsonValue) {    
+function addPlotData(jsonValue) {
     function addData(data, u) {
         let isTempZoomed = u.scales.x.min != u.data[0][0] || u.scales.x.max != u.data[0][u.data[0].length-1];
 
         if (isTempZoomed) {
-            let tempXScaleMinMax = [u.scales.x.min, u.scales.x.max]            
+            let tempXScaleMinMax = [u.scales.x.min, u.scales.x.max]
             // add data but don't autoscale
             u.setData(data, false);
             // move the zoomed area one value to the right so the window stays the same
@@ -356,7 +356,7 @@ function getTimeseries() {
         }
     }
 
-    xhr.open("GET", "/timeseries", true)
+    xhr.open("GET", "/api/history", true)
     xhr.send()
 }
 
@@ -386,8 +386,8 @@ if (!!window.EventSource) {
         'new_temps',
         function (e) {
             var myObj = JSON.parse(e.data)
-            
-            // add new data to existing for plotting            
+
+            // add new data to existing for plotting
             addPlotData(myObj)
 
             // update current temp value on index page

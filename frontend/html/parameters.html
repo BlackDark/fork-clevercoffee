@@ -67,14 +67,14 @@
                                                     </template>
 
                                                     <div v-if="isBoolean(param)">
-                                                        <input type="hidden" :id="'var'+param.name" :name="'var'+param.name" :value="0">
+                                                        <input type="hidden" :id="'var'+param.name" :name="'var'+param.name" :value="false">
                                                         <input type="checkbox"
                                                                class="form-check-input form-control-lg"
                                                                :id="'var'+param.name"
                                                                :name="'var'+param.name"
-                                                               value="1"
-                                                               @change="param.value = 1-param.value"
-                                                               :checked="param.value != 0 ? 'checked' : null">
+                                                               value="true"
+                                                               @change="param.value = !param.value"
+                                                               :checked="param.value ? 'checked' : null">
                                                     </div>
 
                                                     <div v-else-if="param.type === 5 && param.options">

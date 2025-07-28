@@ -92,7 +92,7 @@
                                                            role="switch"
                                                            id="pid_toggle"
                                                            :checked="param.value == 1"
-                                                           @change="toggleFunction('/togglePid', 'pid.enabled', param)">
+                                                           @change="toggleFunction('/api/pid', 'pid.enabled', param)">
                                                     <label class="form-check-label" for="pid_toggle"></label>
                                                 </div>
                                             </td>
@@ -106,7 +106,7 @@
                                                            role="switch"
                                                            id="steam_toggle"
                                                            :checked="param.value == 1"
-                                                           @change="toggleFunction('/toggleSteam', 'STEAM_MODE', param)">
+                                                           @change="toggleFunction('/api/steam', 'STEAM_MODE', param)">
                                                     <label class="form-check-label" for="steam_toggle"></label>
                                                 </div>
                                             </td>
@@ -120,7 +120,7 @@
                                                            role="switch"
                                                            id="backflush_toggle"
                                                            :checked="param.value == 1"
-                                                           @change="toggleFunction('/toggleBackflush', 'BACKFLUSH_ON', param)">
+                                                           @change="toggleFunction('/api/backflush', 'BACKFLUSH_ON', param)">
                                                     <label class="form-check-label" for="backflush_toggle"></label>
                                                 </div>
                                             </td>
@@ -137,7 +137,7 @@
                                             <td class="align-middle"><b>Tare Scale</b></td>
                                             <td class="align-middle text-center">
                                                 <button class="btn btn-outline-primary"
-                                                        @click="executeAction('/toggleTareScale', 'TARE_ON')">
+                                                        @click="executeAction('/api/scale/tare', 'TARE_ON')">
                                                     Tare Scale
                                                 </button>
                                             </td>

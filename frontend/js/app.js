@@ -41,7 +41,7 @@ const vueApp = Vue.createApp({
 
     methods: {
         fetchParameters(filter = 'behavior') {
-            let url = "/parameters";
+            let url = "/api/parameters";
 
             if (filter) {
                 url += "?filter=" + filter;
@@ -100,7 +100,7 @@ const vueApp = Vue.createApp({
 
             this.isPostingForm = true;
 
-            const url = "/parameters";
+            const url = "/api/parameters";
 
             fetch(url, requestOptions)
                 .then(response => {
@@ -127,7 +127,7 @@ const vueApp = Vue.createApp({
 
         fetchHelpText(paramName) {
             if (!(paramName in this.parametersHelpTexts)) {
-                fetch("/parameterHelp/?param="+paramName)
+                fetch("/api/parameter-help?param="+paramName)
                     .then(response => response.json())
                     .then(data => { this.parametersHelpTexts[paramName] = data['helpText'] })
             }
@@ -195,7 +195,8 @@ const vueApp = Vue.createApp({
         // Helper method to check if parameter is a boolean (displayed as checkbox)
         isBoolean(param) {
             // Type 1 is uint8, and if min=0 max=1, it's a boolean checkbox
-            return param.type === 1 && param.min === 0 && param.max === 1;
+            return (param.type === 1 && param.min === 0 && param.max === 1) ||
+                   (param.type === 6 && param.value === true || param.value === false);
         },
 
         confirmSubmission() {
@@ -205,7 +206,7 @@ const vueApp = Vue.createApp({
                     cache: 'no-cache'
                 };
 
-                fetch("/toggleScaleCalibration", requestOptions)
+                fetch("/api/scale/calibration", requestOptions)
             }
         },
 
@@ -217,7 +218,7 @@ const vueApp = Vue.createApp({
             if (!confirmed) return;
 
             try {
-                const response = await fetch("/wifireset", { method: "POST" });
+                const response = await fetch("/api/wifi-reset", { method: "POST" });
                 const text = await response.text();
                 alert(text);
             } catch (err) {
@@ -268,7 +269,7 @@ const vueApp = Vue.createApp({
                 const formData = new FormData();
                 formData.append('config', this.selectedFile);
 
-                const response = await fetch('/upload/config', {
+                const response = await fetch('/api/config/upload', {
                     method: 'POST',
                     body: formData
                 });
@@ -371,7 +372,7 @@ const vueApp = Vue.createApp({
             this.factoryResetSuccess = true;
 
             try {
-                await fetch("/factoryreset", { method: "POST" });
+                await fetch("/api/factory-reset", { method: "POST" });
             } catch (err) {
                 console.log('Machine restarting after factory reset...');
             }
@@ -379,7 +380,7 @@ const vueApp = Vue.createApp({
 
         async restartMachine() {
             try {
-                await fetch('/restart', { method: 'POST' });
+                await fetch('/api/restart', { method: 'POST' });
                 alert('Machine is restarting...');
             } catch (e) {
                 // Expected - machine is restarting
@@ -419,7 +420,7 @@ const vueApp = Vue.createApp({
 
         confirmCalibration() {
             if (confirm('Are you sure you want to start the scale calibration?')) {
-                this.executeAction('/toggleScaleCalibration', 'CALIBRATION_ON');
+                this.executeAction('/api/scale/calibration', 'CALIBRATION_ON');
             }
         },
 

@@ -309,6 +309,12 @@ class Config {
             return loadFromJson(jsonString);
         }
 
+        void syncGlobalVariables() { /* Already handled by direct binding */
+        }
+        ::String generateJsonConfig() const {
+            return exportToJson();
+        }
+
         // NVS operations
         void loadFromNVS();
         void saveToNVS();
