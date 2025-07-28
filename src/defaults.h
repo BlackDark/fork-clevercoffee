@@ -114,7 +114,9 @@
 #endif
 
 // Conditional code removal
+#ifndef FRONTEND_PREPROCESSING
 #define FRONTEND_PREPROCESSING true // enable preprocessing of frontend files (HTML, CSS, JS) to replace variables like {{hostname}} with actual values
+#endif
 
 // Debugging flags
 #define DEBUG_CONFIG_VERBOSE false
