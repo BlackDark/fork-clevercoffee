@@ -414,6 +414,7 @@ class Config {
         Preferences _prefs;
 
         // Local storage for parameters without global variables
+        // if NVS value exist will be overwritten during boot
         int _brewMode = 0; // Default value for brew.mode
 
         void initializeParams();

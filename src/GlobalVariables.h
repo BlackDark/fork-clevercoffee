@@ -39,8 +39,8 @@ extern bool backflushOn;
 extern double temperature;
 extern bool scaleTareOn;
 extern bool scaleCalibrationOn;
-extern int logLevel;
 extern const char sysVersion[64];
+extern String systemVersion;
 extern bool includeDisplayInLogs;
 extern bool timingDebugActive;
 
@@ -112,3 +112,9 @@ extern String mqttPassword;
 extern String mqttTopic;
 extern bool mqttHassioEnabled;
 extern String mqttHassioPrefix;
+
+// Brew control flags
+extern bool brewByTimeEnabled;
+extern bool brewByWeightEnabled;
+extern bool brewByWeightAutoTare;
+extern bool preinfusionEnabled;

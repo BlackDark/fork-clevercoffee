@@ -19,9 +19,12 @@
 #include <WiFiManager.h>
 #include <os.h>
 
+// Defaults
+#include "defaults.h"
+
 // Includes
 #include "Config.h"
-// ParameterRegistry is now unified into Config.h
+#include "GlobalVariables.h"
 
 // Utilities
 #include "utils/Timer.h"
@@ -37,16 +40,12 @@
 #include "hardware/tempsensors/TempSensorDallas.h"
 #include "hardware/tempsensors/TempSensorTSIC.h"
 
-// User configuration & defaults
-#include "defaults.h"
 
 hw_timer_t* timer = nullptr;
 
 #include "hardware/pressureSensor.h"
 #include <Wire.h>
 
-// Config is now a singleton - use Config::getInstance()
-// Create a reference for backward compatibility during transition
 extern Config& config;
 
 enum MachineState {
@@ -69,7 +68,6 @@ MachineState machineState = kInit;
 MachineState lastmachinestate = kInit;
 int lastmachinestatepid = -1;
 
-extern bool offlineMode;
 int displayOffline = 0;
 
 inline bool systemInitialized = false;
@@ -77,16 +75,8 @@ inline bool systemInitialized = false;
 // Display
 U8G2* u8g2 = nullptr;
 
-extern bool featureFullscreenBrewTimer;
-extern bool featureFullscreenManualFlushTimer;
-extern bool featureFullscreenHotWaterTimer;
-extern double postBrewTimerDuration;
-extern bool featureHeatingLogo;
-extern bool featurePidOffLogo;
-
 // WiFi
 WiFiManager wm;
-extern String hostname;
 WiFiManagerParameter custom_hostname("hostname", "Device Hostname", hostname.c_str(), 32);
 constexpr unsigned long wifiConnectionDelay = WIFICONNECTIONDELAY;
 constexpr unsigned int maxWifiReconnects = MAXWIFIRECONNECTS;
@@ -105,8 +95,6 @@ const unsigned long intervalPressure = 100;
 unsigned long previousMillisPressure; // initialisation at the end of init()
 
 // timing flags
-extern bool timingDebugActive;
-extern bool includeDisplayInLogs;
 bool displayBufferReady = false;
 bool displayUpdateRunning = false;
 bool websiteUpdateRunning = false;
@@ -170,33 +158,15 @@ String hotWaterStateDebug = "off";
 String lastHotWaterStateDebug = "off";
 
 // system parameters
-extern bool pidON;
-extern bool usePonM;
-extern double brewSetpoint;
-extern double brewTempOffset;
 double setpoint = brewSetpoint;
-extern double steamSetpoint;
-extern double steamKp;
-extern double aggKp;
-extern double aggTn;
-extern double aggTv;
-extern double aggIMax;
-extern double emaFactor;
 
 // PID - values for offline brew detection
-extern bool useBDPID;
-extern double aggbKp;
-extern double aggbTn;
-extern double aggbTv;
 double aggbKi = (aggbTn == 0) ? 0 : aggbKp / aggbTn;
 double aggbKd = aggbTv * aggbKp;
 double aggKi = (aggTn == 0) ? 0 : aggKp / aggTn;
 double aggKd = aggTv * aggKp;
 
-extern double brewPidDelay; // Time PID will be disabled after brew started
-
-extern bool standbyModeOn;
-extern double standbyModeTime;
+// Time PID will be disabled after brew started
 
 #include "standby.h"
 
