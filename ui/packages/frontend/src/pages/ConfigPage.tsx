@@ -21,6 +21,7 @@ import {
   TriangleAlert,
   ChevronUp,
   ChevronDown,
+  ListRestart,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -111,7 +112,7 @@ const HardwareWarning = ({
   isOpen: boolean;
   onToggle: (open: boolean) => void;
 }) => (
-  <Alert variant="destructive">
+  <Alert variant="destructive" className="mt-4">
     <TriangleAlert className="h-4 w-4" />
     <AlertTitle>Hardware Configuration Warning</AlertTitle>
     <AlertDescription>
@@ -188,7 +189,7 @@ const ParameterInput = React.memo(
     const DisabledState = () => (
       <Popover>
         <PopoverTrigger asChild>
-          <div className="flex items-center justify-center py-4 cursor-help">
+          <div className="flex items-center justify-center cursor-help">
             <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 rounded-md border border-blue-200 dark:border-blue-800">
               <HelpCircle className="h-4 w-4" />
               <span className="text-sm font-medium">Disabled</span>
@@ -424,23 +425,14 @@ export function ConfigPage() {
     }
   }, [changedParameters, saveParameters, fetchParameters]);
 
-  // Early returns for loading and error states
-  if (loadingParams && !localParameters.length) {
-    return <LoadingState />;
-  }
-
-  if (errorParams) {
-    return <ErrorState error={errorParams} onRetry={fetchParameters} />;
-  }
-
   const hasParameters = localParameters.length > 0;
   const isHardwareFilter = filter === "hardware";
   const hasChanges = changedParameters.length > 0;
 
   return (
-    <div className="min-h-screen">
-      {/* Fixed Header Section */}
-      <div className="fixed top-16 left-0 right-0 z-30 bg-background border-b shadow-sm">
+    <div className="fixed inset-0 top-16 flex flex-col">
+      {/* Header Section - Always visible (flex-shrink-0) */}
+      <div className="flex-shrink-0 bg-background border-b shadow-sm">
         <div className="container mx-auto px-6 pt-6 pb-4 max-w-7xl">
           {/* Connection Error Alert */}
           {errorParams && (
@@ -458,8 +450,24 @@ export function ConfigPage() {
 
           {/* Parameter Navigation and Actions */}
           <div className="flex flex-col space-y-3 md:flex-row md:items-center md:justify-between md:space-y-0 mb-4">
-            <ParameterNavigation />
+            <div className="mb-2 md:mb-0">
+              <ParameterNavigation />
+            </div>
             <div className="flex flex-col space-y-2 sm:flex-row sm:space-y-0 sm:space-x-2">
+              <Button
+                type="submit"
+                disabled={loadingParams || !hasChanges}
+                size="sm"
+                className="min-w-[120px] w-full sm:w-auto"
+                onClick={handleSubmitParameters}
+              >
+                {loadingParams ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Save className="mr-2 h-4 w-4" />
+                )}
+                {loadingParams ? "Saving..." : "Save Parameters"}
+              </Button>
               <Button
                 type="button"
                 variant="secondary"
@@ -468,8 +476,8 @@ export function ConfigPage() {
                 onClick={resetAllChanges}
                 className="w-full sm:w-auto"
               >
-                <RefreshCw className="mr-2 h-4 w-4" />
-                Reset All Changes
+                <ListRestart className="mr-2 h-4 w-4" />
+                Reset Changes
               </Button>
               <Button
                 variant="outline"
@@ -488,6 +496,14 @@ export function ConfigPage() {
             </div>
           </div>
 
+          {/* Parameter Count and Changes Info */}
+          {hasParameters && (
+            <div className="text-sm text-muted-foreground">
+              {localParameters.length} parameters
+              {hasChanges && ` • ${changedParameters.length} changes`}
+            </div>
+          )}
+
           {/* Hardware Warning */}
           {isHardwareFilter && !loadingParams && (
             <HardwareWarning
@@ -498,115 +514,95 @@ export function ConfigPage() {
         </div>
       </div>
 
-      {/* Parameters Content Area with proper top padding */}
-      <div className="pt-56">
-        <div className="container mx-auto px-6 py-6 max-w-7xl pb-32">
-          <form onSubmit={handleSubmitParameters} className="space-y-6">
-            {Object.entries(groupedParameters).map(
-              ([sectionName, sectionParams]) => (
-                <Card key={sectionName} className="mb-8">
-                  <CardContent>
-                    <h2 className="text-xl font-bold mb-4">{sectionName}</h2>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 auto-rows-fr">
-                      {sectionParams.map((param) => {
-                        // Simple inline requirement check - no complex memoization
-                        const isDisabled = !areRequiredParametersMet(
-                          param,
-                          localParameters
-                        );
-                        const disabledHint = isDisabled
-                          ? getMissingRequiredParametersMessage(
-                              param,
-                              localParameters
-                            )
-                          : undefined;
+      {/* Main Content Area - Scrollable (flex-1) */}
+      <div className="flex-1 overflow-auto min-h-0">
+        <div className="container mx-auto px-6 py-6 max-w-7xl">
+          {/* Show loading state */}
+          {loadingParams && !localParameters.length && <LoadingState />}
 
-                        return (
-                          <div
-                            key={param.name}
-                            className="flex flex-col space-y-3 p-4 rounded-lg border bg-card hover:bg-accent/50 transition-colors duration-200 min-h-[120px]"
-                          >
-                            <div className="flex items-center justify-between">
-                              <Label
-                                htmlFor={param.name}
-                                className="text-sm font-medium"
-                              >
-                                {parameterLabels.en[param.name] || param.name}
-                              </Label>
-                              {parameterHelpTexts[param.name] && (
-                                <Popover>
-                                  <PopoverTrigger asChild>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-6 w-6 ml-2"
-                                      tabIndex={0}
-                                    >
-                                      <HelpCircle className="h-4 w-4" />
-                                    </Button>
-                                  </PopoverTrigger>
-                                  <PopoverContent className="w-80 text-xs">
-                                    <span
-                                      dangerouslySetInnerHTML={{
-                                        __html: parameterHelpTexts[param.name],
-                                      }}
-                                    />
-                                  </PopoverContent>
-                                </Popover>
-                              )}
+          {/* Show error state */}
+          {errorParams && !loadingParams && (
+            <ErrorState error={errorParams} onRetry={fetchParameters} />
+          )}
+
+          {/* Show parameters form */}
+          {hasParameters && (
+            <form onSubmit={handleSubmitParameters} className="space-y-6">
+              {Object.entries(groupedParameters).map(
+                ([sectionName, sectionParams]) => (
+                  <Card key={sectionName} className="mb-8">
+                    <CardContent>
+                      <h2 className="text-xl font-bold mb-4">{sectionName}</h2>
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 auto-rows-fr">
+                        {sectionParams.map((param) => {
+                          // Simple inline requirement check - no complex memoization
+                          const isDisabled = !areRequiredParametersMet(
+                            param,
+                            localParameters
+                          );
+                          const disabledHint = isDisabled
+                            ? getMissingRequiredParametersMessage(
+                                param,
+                                localParameters
+                              )
+                            : undefined;
+
+                          return (
+                            <div
+                              key={param.name}
+                              className="flex flex-col space-y-3 p-4 rounded-lg border bg-card hover:bg-accent/50 transition-colors duration-200 min-h-[120px]"
+                            >
+                              <div className="flex items-center justify-between">
+                                <Label
+                                  htmlFor={param.name}
+                                  className="text-sm font-medium"
+                                >
+                                  {parameterLabels.en[param.name] || param.name}
+                                </Label>
+                                {parameterHelpTexts[param.name] && (
+                                  <Popover>
+                                    <PopoverTrigger asChild>
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-6 w-6 ml-2"
+                                        tabIndex={0}
+                                      >
+                                        <HelpCircle className="h-4 w-4" />
+                                      </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-80 text-xs">
+                                      <span
+                                        dangerouslySetInnerHTML={{
+                                          __html:
+                                            parameterHelpTexts[param.name],
+                                        }}
+                                      />
+                                    </PopoverContent>
+                                  </Popover>
+                                )}
+                              </div>
+
+                              <ParameterInput
+                                param={param}
+                                isDisabled={isDisabled}
+                                disabledHint={disabledHint}
+                                onUpdate={(value) =>
+                                  updateLocalParameter(param.name, value)
+                                }
+                              />
                             </div>
-
-                            <ParameterInput
-                              param={param}
-                              isDisabled={isDisabled}
-                              disabledHint={disabledHint}
-                              onUpdate={(value) =>
-                                updateLocalParameter(param.name, value)
-                              }
-                            />
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </CardContent>
-                </Card>
-              )
-            )}
-          </form>
+                          );
+                        })}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )
+              )}
+            </form>
+          )}
         </div>
       </div>
-
-      {/* Fixed Save Button at Bottom */}
-      {hasParameters && (
-        <div className="fixed bottom-0 left-0 right-0 z-40 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 shadow-lg">
-          <div className="container mx-auto px-6 py-4 max-w-7xl">
-            <Card>
-              <CardContent className="py-4">
-                <div className="flex flex-col space-y-3 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
-                  <div className="text-sm text-muted-foreground">
-                    {localParameters.length} parameters
-                    {hasChanges && ` • ${changedParameters.length} changes`}
-                  </div>
-                  <Button
-                    type="submit"
-                    disabled={loadingParams || !hasChanges}
-                    size="lg"
-                    className="min-w-[140px] w-full sm:w-auto"
-                    onClick={handleSubmitParameters}
-                  >
-                    {loadingParams ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <Save className="mr-2 h-4 w-4" />
-                    )}
-                    {loadingParams ? "Saving..." : "Save Parameters"}
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-      )}
 
       {/* Changes Dialog */}
       <Dialog open={showChangesDialog} onOpenChange={setShowChangesDialog}>

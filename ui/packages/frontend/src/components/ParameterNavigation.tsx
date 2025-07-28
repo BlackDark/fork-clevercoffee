@@ -33,7 +33,7 @@ export function ParameterNavigation() {
   );
 
   return (
-    <div className="flex items-center gap-2 mb-6">
+    <div className="flex items-center gap-2">
       <Settings className="h-5 w-5 text-muted-foreground" />
       <span className="text-sm font-medium text-muted-foreground">
         Category:

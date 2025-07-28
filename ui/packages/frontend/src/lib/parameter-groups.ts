@@ -51,7 +51,12 @@ export const parameterGroups: ParameterGroup[] = [
   {
     key: "temperatureControl",
     label: "Temperature Control",
-    parameters: ["TEMP", "brew.setpoint", "brew.temp_offset", "steam.setpoint"],
+    parameters: [
+      // "TEMP",
+      "brew.setpoint",
+      "brew.temp_offset",
+      "steam.setpoint",
+    ],
   },
   {
     key: "brewPidSection",
@@ -69,9 +74,9 @@ export const parameterGroups: ParameterGroup[] = [
     label: "Brew Control",
     parameters: [
       "brew.mode",
-      "brew.by_time",
+      "brew.by_time.enabled",
       "brew.target_time",
-      "brew.by_weight",
+      "brew.by_weight.enabled",
       "brew.target_weight",
       "brew.pre_infusion.enabled",
       "brew.pre_infusion.time",
@@ -157,7 +162,7 @@ export const parameterGroups: ParameterGroup[] = [
       "BACKFLUSH_ON",
       "TARE_ON",
       "CALIBRATION_ON",
-      "VERSION",
+      // "VERSION",
     ],
   },
   {

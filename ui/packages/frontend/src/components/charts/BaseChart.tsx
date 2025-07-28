@@ -49,7 +49,7 @@ export function BaseChart({
           const containerWidth =
             (chartRef.current as HTMLDivElement).offsetWidth - 32;
           setChartSize({
-            width: width || Math.max(containerWidth, 300),
+            width: width || Math.max(containerWidth, 100),
             height,
           });
         }

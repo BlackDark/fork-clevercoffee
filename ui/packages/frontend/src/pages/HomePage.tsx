@@ -79,7 +79,7 @@ export function HomePage() {
   const scaleEnabled = useMemo(
     () =>
       parameters.find((p) => p.name === "hardware.sensors.scale.enabled")
-        ?.value === 1,
+        ?.value === true,
     [parameters]
   );
 
@@ -100,20 +100,6 @@ export function HomePage() {
       heaterData.heaterPowerVals,
     ];
   }, [heaterData.heaterDates, heaterData.heaterPowerVals]);
-
-  // Helper function to get the correct step value for number inputs
-  const getNumberStep = (param: { type: number }) => {
-    switch (param.type) {
-      case 0: // integer
-      case 1: // uint8
-        return 1;
-      case 2: // double
-      case 3: // float
-        return 0.01;
-      default:
-        return 1;
-    }
-  };
 
   // Handle form submission for brew setpoint
   const handleSubmitParameters = async (e: React.FormEvent) => {
@@ -424,7 +410,7 @@ export function HomePage() {
                 </div>
               ) : brewSetpointParam ? (
                 <form onSubmit={handleSubmitParameters}>
-                  <div className="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 transition-colors">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-4 border rounded-lg hover:bg-accent/50 transition-colors gap-3">
                     <div className="space-y-1">
                       <div className="font-medium flex items-center gap-2">
                         <Settings className="h-4 w-4 text-green-600" />
@@ -462,28 +448,37 @@ export function HomePage() {
                         Target: {brewSetpointParam.value}°C
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Input
-                        id={brewSetpointParam.name}
-                        type="number"
-                        step={getNumberStep(brewSetpointParam)}
-                        value={brewSetpointParam.value as string}
-                        onChange={(e) =>
-                          updateParameter(
-                            brewSetpointParam.name,
-                            e.target.value
-                          )
-                        }
-                        min={brewSetpointParam.min}
-                        max={brewSetpointParam.max}
-                        className="w-20"
-                      />
-                      <Button type="submit" size="sm" disabled={isLoadingTemp}>
-                        {isLoadingTemp && (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        )}
-                        {!isLoadingTemp && "Save"}
-                      </Button>
+                    <div className="flex items-center gap-2 w-full sm:w-auto">
+                      {isLoadingTemp && (
+                        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                      )}
+                      {!isLoadingTemp && (
+                        <>
+                          <Input
+                            id={brewSetpointParam.name}
+                            type="number"
+                            step={1}
+                            value={brewSetpointParam.value as string}
+                            onChange={(e) =>
+                              updateParameter(
+                                brewSetpointParam.name,
+                                e.target.value
+                              )
+                            }
+                            min={brewSetpointParam.min}
+                            max={brewSetpointParam.max}
+                            className="flex-1 sm:w-20 sm:flex-none"
+                          />
+                          <Button
+                            type="submit"
+                            size="sm"
+                            disabled={isLoadingTemp}
+                            className="shrink-0"
+                          >
+                            Save
+                          </Button>
+                        </>
+                      )}
                     </div>
                   </div>
                 </form>

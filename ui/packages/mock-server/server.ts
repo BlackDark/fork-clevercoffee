@@ -253,25 +253,32 @@ app.post(
     // Parse form data
     Object.keys(req.body).forEach((key) => {
       const param = mockState.parameters.find((p) => p.name === key);
-      if (param && param.show) {
+      if (param && (param.show == null || param.show)) {
         const value = req.body[key];
         try {
-          if (param.type === 4) {
-            // kCString
-            param.value = value;
-          } else {
-            const numValue = parseFloat(value);
-            if (
-              !isNaN(numValue) &&
-              param.min !== undefined &&
-              param.max !== undefined &&
-              numValue >= param.min &&
-              numValue <= param.max
-            ) {
-              param.value = numValue;
-            } else {
-              hasErrors = true;
-            }
+          switch (param.type) {
+            case 6:
+              // kBoolean
+              param.value = value === "true" || value === "1";
+              break;
+            case 4:
+              // kCString
+              param.value = value;
+              break;
+            default:
+              // kNumber
+              const numValue = parseFloat(value);
+              if (
+                !isNaN(numValue) &&
+                param.min !== undefined &&
+                param.max !== undefined &&
+                numValue >= param.min &&
+                numValue <= param.max
+              ) {
+                param.value = numValue;
+              } else {
+                hasErrors = true;
+              }
           }
           updates.push({ name: key, value: param.value });
         } catch (error) {

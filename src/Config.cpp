@@ -195,6 +195,11 @@ const EnumOption logLevelOpts[] = {
     {6, "SILENT"}
 };
 
+const EnumOption brewModeOptions[] = {
+    {0, "Manual"},
+    {1, "Automatic"},
+};
+
 // Backward compatibility reference
 Config& config = Config::getInstance();
 
@@ -234,7 +239,7 @@ void Config::initializeParams() {
     _params["brew.pre_infusion.pause"] = ParamDef::Double(&preinfusionPause, PRE_INFUSION_PAUSE_TIME, PRE_INFUSION_PAUSE_MIN, PRE_INFUSION_PAUSE_MAX, "Preinfusion Pause (s)", 3, 303, "Pre-infusion pause time in seconds");
 
     // Brew Mode Parameter (using local Config variable)
-    _params["brew.mode"] = ParamDef::Int(&_brewMode, 0, 0, 2, "Brew Mode", 3, 310, "Brewing mode selection");
+    _params["brew.mode"] = ParamDef::Enum(&_brewMode, 0, brewModeOptions, 2, "Brew Mode", 3, 310, "Brewing mode selection");
 
     // Backflush Parameters
     _params["backflush.cycles"] = ParamDef::Int(&backflushCycles, BACKFLUSH_CYCLES, BACKFLUSH_CYCLES_MIN, BACKFLUSH_CYCLES_MAX, "Backflush Cycles", 6, 401, "Number of backflush cycles to perform");

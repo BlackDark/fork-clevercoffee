@@ -153,7 +153,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     requiredParameters: { "hardware.switches.brew.enabled": true },
   },
   {
-    name: "brew.by_time",
+    name: "brew.by_time.enabled",
     type: ParameterTypes.BOOL,
     min: 0,
     max: 1,
@@ -166,10 +166,10 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     min: 0,
     max: 999,
     defaultValue: 25,
-    requiredParameters: { "brew.by_time": true },
+    requiredParameters: { "brew.by_time.enabled": true },
   },
   {
-    name: "brew.by_weight",
+    name: "brew.by_weight.enabled",
     type: ParameterTypes.BOOL,
     min: 0,
     max: 1,
@@ -182,7 +182,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     min: 0,
     max: 999,
     defaultValue: 30,
-    requiredParameters: { "brew.by_weight": true },
+    requiredParameters: { "brew.by_weight.enabled": true },
   },
   {
     name: "brew.pre_infusion.enabled",
@@ -266,6 +266,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     options: [
       { value: 0, label: "2 load cells" },
       { value: 1, label: "1 load cell" },
+      { value: 2, label: "Bluetooth" },
     ],
     requiredParameters: { "hardware.sensors.scale.enabled": true },
   },

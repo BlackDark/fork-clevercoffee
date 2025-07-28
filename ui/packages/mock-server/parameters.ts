@@ -15,12 +15,8 @@ export interface Parameter {
   displayName?: string;
 }
 
-// Load parameters from example_parameters.json
 const parameters: Parameter[] = JSON.parse(
-  fs.readFileSync(
-    path.join(__dirname, "./data/example_parameters.json"),
-    "utf8"
-  )
+  fs.readFileSync(path.join(__dirname, "./data/parameters.json"), "utf8")
 );
 
 export default parameters;
