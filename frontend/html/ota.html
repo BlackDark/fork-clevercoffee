@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CleverCoffee - OTA Update</title>
+    <VAR_HEADER_BOOTSTRAP>
+    <VAR_HEADER_FONTAWESOME>
+    <style>
+        .upload-area {
+            border: 2px dashed #007bff;
+            border-radius: 10px;
+            padding: 40px;
+            text-align: center;
+            margin: 20px 0;
+            background-color: #f8f9fa;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .upload-area:hover {
+            border-color: #0056b3;
+            background-color: #e3f2fd;
+        }
+        .upload-area.dragover {
+            border-color: #28a745;
+            background-color: #d4edda;
+        }
+        .progress {
+            margin-top: 20px;
+            display: none;
+        }
+        .alert {
+            margin-top: 20px;
+        }
+        .form-section {
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .container {
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <VAR_HEADER>
+
+    <div class="container">
+        <div class="row">
+            <div class="col-12">
+                <h1><i class="fas fa-download"></i> OTA Firmware Update</h1>
+                <p class="text-muted">Update your CleverCoffee firmware via file upload or URL</p>
+            </div>
+        </div>
+
+        <!-- File Upload Section -->
+        <div class="row">
+            <div class="col-12 col-lg-6">
+                <div class="form-section">
+                    <h3><i class="fas fa-file-upload"></i> Upload Firmware File</h3>
+                    <p>Select a firmware binary file (.bin) to upload</p>
+
+                    <form id="fileUploadForm" enctype="multipart/form-data">
+                        <div class="upload-area" id="uploadArea">
+                            <i class="fas fa-cloud-upload-alt fa-3x text-primary mb-3"></i>
+                            <h5>Drag & Drop firmware file here</h5>
+                            <p class="text-muted">or click to select file</p>
+                            <input type="file" id="firmwareFile" name="firmware" accept=".bin" style="display: none;">
+                        </div>
+
+                        <div id="fileInfo" style="display: none;" class="alert alert-info">
+                            <strong>Selected file:</strong> <span id="fileName"></span><br>
+                            <strong>Size:</strong> <span id="fileSize"></span>
+                        </div>
+
+                        <button type="submit" id="uploadBtn" class="btn btn-primary btn-lg" disabled>
+                            <i class="fas fa-upload"></i> Upload Firmware
+                        </button>
+                    </form>
+
+                    <div class="progress" id="uploadProgress">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated"
+                             role="progressbar" style="width: 0%"></div>
+                    </div>
+
+                    <div id="uploadResult"></div>
+                </div>
+            </div>
+
+            <!-- URL Update Section -->
+            <div class="col-12 col-lg-6">
+                <div class="form-section">
+                    <h3><i class="fas fa-link"></i> Update from URL</h3>
+                    <p>Provide a direct URL to a firmware binary file</p>
+
+                    <form id="urlUpdateForm">
+                        <div class="mb-3">
+                            <label for="firmwareUrl" class="form-label">Firmware URL</label>
+                            <input type="url" class="form-control" id="firmwareUrl"
+                                   placeholder="https://example.com/firmware.bin" required>
+                            <div class="form-text">
+                                Must be a direct link to a .bin file
+                            </div>
+                        </div>
+
+                        <button type="submit" class="btn btn-success btn-lg">
+                            <i class="fas fa-download"></i> Download & Update
+                        </button>
+                    </form>
+
+                    <div id="urlResult"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Warning Section -->
+        <div class="row">
+            <div class="col-12">
+                <div class="alert alert-warning">
+                    <h5><i class="fas fa-exclamation-triangle"></i> Important Notes</h5>
+                    <ul class="mb-0">
+                        <li>Ensure the firmware file is compatible with your device</li>
+                        <li>Do not power off the device during the update process</li>
+                        <li>The device will automatically restart after a successful update</li>
+                        <li>Invalid firmware may brick your device - proceed with caution</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <VAR_HEADER_BOOTSTRAP_BUNDLE>
+
+    <script>
+        // File upload functionality
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('firmwareFile');
+        const uploadBtn = document.getElementById('uploadBtn');
+        const uploadProgress = document.getElementById('uploadProgress');
+        const progressBar = uploadProgress.querySelector('.progress-bar');
+        const fileInfo = document.getElementById('fileInfo');
+        const fileName = document.getElementById('fileName');
+        const fileSize = document.getElementById('fileSize');
+        const uploadResult = document.getElementById('uploadResult');
+
+        // URL update functionality
+        const urlForm = document.getElementById('urlUpdateForm');
+        const urlResult = document.getElementById('urlResult');
+
+        // Drag and drop functionality
+        uploadArea.addEventListener('click', () => fileInput.click());
+        uploadArea.addEventListener('dragover', handleDragOver);
+        uploadArea.addEventListener('dragleave', handleDragLeave);
+        uploadArea.addEventListener('drop', handleDrop);
+
+        fileInput.addEventListener('change', handleFileSelect);
+
+        function handleDragOver(e) {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        }
+
+        function handleDragLeave(e) {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+        }
+
+        function handleDrop(e) {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                fileInput.files = files;
+                handleFileSelect();
+            }
+        }
+
+        function handleFileSelect() {
+            const file = fileInput.files[0];
+            if (file) {
+                fileName.textContent = file.name;
+                fileSize.textContent = formatFileSize(file.size);
+                fileInfo.style.display = 'block';
+                uploadBtn.disabled = false;
+            } else {
+                fileInfo.style.display = 'none';
+                uploadBtn.disabled = true;
+            }
+        }
+
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        // File upload form submission
+        document.getElementById('fileUploadForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+
+            const file = fileInput.files[0];
+            if (!file) return;
+
+            const formData = new FormData();
+            formData.append('firmware', file);
+
+            uploadProgress.style.display = 'block';
+            uploadBtn.disabled = true;
+            uploadResult.innerHTML = '';
+
+            const xhr = new XMLHttpRequest();
+
+            xhr.upload.addEventListener('progress', function(e) {
+                if (e.lengthComputable) {
+                    const percentComplete = (e.loaded / e.total) * 100;
+                    progressBar.style.width = percentComplete + '%';
+                    progressBar.textContent = Math.round(percentComplete) + '%';
+                }
+            });
+
+            xhr.addEventListener('load', function() {
+                if (xhr.status === 200) {
+                    uploadResult.innerHTML = '<div class="alert alert-success"><i class="fas fa-check"></i> Update successful! Device will restart...</div>';
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 3000);
+                } else {
+                    uploadResult.innerHTML = '<div class="alert alert-danger"><i class="fas fa-times"></i> Update failed. Please try again.</div>';
+                }
+                uploadBtn.disabled = false;
+                uploadProgress.style.display = 'none';
+            });
+
+            xhr.addEventListener('error', function() {
+                uploadResult.innerHTML = '<div class="alert alert-danger"><i class="fas fa-times"></i> Upload error occurred.</div>';
+                uploadBtn.disabled = false;
+                uploadProgress.style.display = 'none';
+            });
+
+            xhr.open('POST', '/api/ota/firmware');
+            xhr.send(formData);
+        });
+
+        // URL update form submission
+        urlForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+
+            const url = document.getElementById('firmwareUrl').value;
+            if (!url) return;
+
+            urlResult.innerHTML = '<div class="alert alert-info"><i class="fas fa-spinner fa-spin"></i> Downloading and updating firmware...</div>';
+
+            const formData = new FormData();
+            formData.append('url', url);
+
+            fetch('/api/ota/url', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    urlResult.innerHTML = '<div class="alert alert-success"><i class="fas fa-check"></i> ' + data.message + '</div>';
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 3000);
+                } else {
+                    urlResult.innerHTML = '<div class="alert alert-danger"><i class="fas fa-times"></i> ' + data.message + '</div>';
+                }
+            })
+            .catch(error => {
+                urlResult.innerHTML = '<div class="alert alert-danger"><i class="fas fa-times"></i> Error: ' + error.message + '</div>';
+            });
+        });
+    </script>
+</body>
+</html>

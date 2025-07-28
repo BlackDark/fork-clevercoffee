@@ -7,6 +7,7 @@
 
 #include "FS.h"
 #include "LittleFS.h"
+#include "ota.h"
 #include "utils/helperUtils.h"
 #include <Arduino.h>
 #include <ArduinoJson.h>
@@ -164,6 +165,11 @@ struct AuthCache {
         }
 } static authCache;
 
+inline bool authenticate(AsyncWebServerRequest* request);
+
+// Wrapper function for OTA module to access authentication
+bool otaAuthenticate(AsyncWebServerRequest* request);
+
 // ==================== SAFE JSON OPERATIONS ====================
 
 bool safeSerializeJson(const JsonDocument& doc, String& output) {
@@ -265,6 +271,11 @@ inline bool authenticate(AsyncWebServerRequest* request) {
     }
 
     return false;
+}
+
+// Wrapper function for OTA module to access authentication
+bool otaAuthenticate(AsyncWebServerRequest* request) {
+    return authenticate(request);
 }
 
 // ==================== DATA RETRIEVAL FUNCTIONS ====================
@@ -1068,6 +1079,9 @@ inline void setupApiRoutes() {
         handleConfigUpload);
     server.on("/api/restart", HTTP_POST, handleRestart);
     server.on("/api/factory-reset", HTTP_POST, handleFactoryReset);
+
+    // Setup OTA endpoints
+    OTA::setup(server);
 }
 
 // ==================== 404 HANDLER ====================
