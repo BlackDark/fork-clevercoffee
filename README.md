@@ -12,6 +12,15 @@ This is fork from [CleverCoffee](https://github.com/rancilio-pid/clevercoffee) w
   - https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/storage/nvs_flash.html
 - Brand new UI based on react, precompiled and fast
 - Hostname configuration during setup of the ESP for direct access with new DNS name
+- OTA support in the web app: update by uploading a binary or providing a link to the binary
+
+## New Frontend / UI
+
+- Dark mode support
+- New HomePage
+![alt text](.github/images/frontend-home.webp)
+- Conditional parameter selection with change detection
+![alt text](.github/images/frontend-param.webp)
 
 ## How to try out?
 

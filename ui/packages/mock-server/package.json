@@ -1,0 +1,30 @@
+{
+  "name": "@clevercoffee/mock-server",
+  "version": "1.0.0",
+  "description": "Mock server for CleverCoffee API endpoints",
+  "main": "server.ts",
+  "type": "module",
+  "scripts": {
+    "start": "tsx server.ts",
+    "dev": "tsx watch server.ts"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "multer": "^2.0.2"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.3",
+    "@types/multer": "^2.0.0",
+    "tsx": "^4.20.3"
+  },
+  "keywords": [
+    "mock",
+    "server",
+    "clevercoffee",
+    "api"
+  ],
+  "author": "CleverCoffee Team",
+  "license": "MIT"
+}
