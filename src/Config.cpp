@@ -93,7 +93,7 @@ void Config::initializeParams() {
     _params["system.showdisplay.enabled"] = ParamDef::Bool(&includeDisplayInLogs, true, "Activate display recording", 9, 1303, "Enable or disable showing sendBuffer loops in debug logs");
 
     // Log Level (enum parameter)
-    _params["system.log_level"] = ParamDef::Enum(&logLevel, 2, logLevelOpts, 7, "Log Level", 9, 1103, "Set the logging level for debug output");
+    _params["system.log_level"] = ParamDef::Enum(&_logLevel, 2, logLevelOpts, 7, "Log Level", 9, 1103, "Set the logging level for debug output");
 
     // Power Management
     _params["standby.enabled"] = ParamDef::Bool(&standbyModeOn, false, "Enable Standby Timer", 7, 801, "Turn heater off after standby time has elapsed");

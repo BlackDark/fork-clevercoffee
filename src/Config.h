@@ -421,6 +421,7 @@ class Config {
         bool _brewByWeightEnabled = false;
         bool _brewByWeightAutoTare = false;
         bool _preinfusionEnabled = false;
+        int _logLevel = static_cast<std::underlying_type<Logger::Level>::type>(Logger::Level::INFO); // Default log level
 
         void initializeParams();
 
