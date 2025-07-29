@@ -1,35 +1,28 @@
-import { useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { OTAUpdateSection } from "@/components/OTAUpdateSection";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import {
-  Power,
-  TriangleAlert,
-  Wifi,
-  Download,
-  Upload,
-  Loader2,
-  AlertCircle,
-  RefreshCw,
-  HardDrive,
-  Link2,
-} from "lucide-react";
-import { toast } from "sonner";
-import { API_BASE_URL, apiFetch } from "@/lib/api-config";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { useCleverCoffee } from "@/context/useCleverCoffee";
+import { API_BASE_URL, apiFetch } from "@/lib/api-config";
+import {
+  AlertCircle,
+  Download,
+  Loader2,
+  Power,
+  RefreshCw,
+  TriangleAlert,
+  Upload,
+  Wifi,
+} from "lucide-react";
+import { useState } from "react";
+import { toast } from "sonner";
 
 export function SystemPage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState("");
   const [uploadSuccess, setUploadSuccess] = useState(false);
-
-  // OTA State
-  const [selectedFirmware, setSelectedFirmware] = useState<File | null>(null);
-  const [firmwareUrl, setFirmwareUrl] = useState("");
-  const [isOtaUploading, setIsOtaUploading] = useState(false);
-  const [isUrlUpdating, setIsUrlUpdating] = useState(false);
 
   // Use the centralized hook for connection error handling
   const { connectionError } = useCleverCoffee();
@@ -250,135 +243,6 @@ export function SystemPage() {
     }
   };
 
-  // OTA Functions
-  const handleFirmwareSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files ? event.target.files[0] : null;
-    setSelectedFirmware(file);
-
-    if (file) {
-      if (!file.name.toLowerCase().endsWith(".bin")) {
-        toast.error("Invalid file type", {
-          description: "Please select a valid .bin firmware file.",
-        });
-        setSelectedFirmware(null);
-        return;
-      }
-
-      const maxSize = 10 * 1024 * 1024; // 10MB
-      if (file.size > maxSize) {
-        toast.error("File too large", {
-          description: "Firmware file is too large. Maximum size is 10MB.",
-        });
-        setSelectedFirmware(null);
-        return;
-      }
-
-      toast.success("Firmware file selected", {
-        description: `Selected: ${file.name} (${formatFileSize(file.size)})`,
-      });
-    }
-  };
-
-  const uploadFirmware = async () => {
-    if (!selectedFirmware) {
-      toast.error("No file selected", {
-        description: "Please select a firmware file first.",
-      });
-      return;
-    }
-
-    toast("Confirm Firmware Update", {
-      description:
-        "This will update the device firmware. The device will restart automatically. Are you sure?",
-      action: {
-        label: "Update Firmware",
-        onClick: async () => {
-          setIsOtaUploading(true);
-
-          try {
-            const formData = new FormData();
-            formData.append("firmware", selectedFirmware);
-
-            const response = await apiFetch("/api/ota/firmware", {
-              method: "POST",
-              body: formData,
-            });
-
-            const result = await response.json();
-
-            if (result.success) {
-              toast.success("Firmware update successful", {
-                description: "Device will restart with new firmware...",
-              });
-              setSelectedFirmware(null);
-            } else {
-              toast.error("Firmware update failed", {
-                description: result.message || "Unknown error occurred",
-              });
-            }
-          } catch (error: unknown) {
-            console.error("Firmware upload error:", error);
-            toast.error("Firmware update failed", {
-              description: "Network error or device restarting...",
-            });
-          } finally {
-            setIsOtaUploading(false);
-          }
-        },
-      },
-    });
-  };
-
-  const updateFromUrl = async () => {
-    if (!firmwareUrl.trim()) {
-      toast.error("No URL provided", {
-        description: "Please enter a firmware download URL.",
-      });
-      return;
-    }
-
-    toast("Confirm URL Update", {
-      description:
-        "This will download and install firmware from the provided URL. The device will restart automatically. Are you sure?",
-      action: {
-        label: "Update from URL",
-        onClick: async () => {
-          setIsUrlUpdating(true);
-
-          try {
-            const response = await apiFetch("/api/ota/url", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/x-www-form-urlencoded",
-              },
-              body: `url=${encodeURIComponent(firmwareUrl)}`,
-            });
-
-            const result = await response.json();
-
-            if (result.success) {
-              toast.success("Firmware update successful", {
-                description: "Device will restart with new firmware...",
-              });
-              setFirmwareUrl("");
-            } else {
-              toast.error("Firmware update failed", {
-                description: result.message || "Unknown error occurred",
-              });
-            }
-          } catch (error: unknown) {
-            console.error("URL update error:", error);
-            toast.error("Firmware update failed", {
-              description: "Network error or device restarting...",
-            });
-          } finally {
-            setIsUrlUpdating(false);
-          }
-        },
-      },
-    });
-  };
-
   return (
     <div className="container mx-auto p-6 space-y-8 max-w-7xl">
       {/* Connection Error Alert */}
@@ -542,98 +406,7 @@ export function SystemPage() {
         </div>
       </div>
 
-      {/* OTA Firmware Updates Section */}
-      <div className="space-y-6">
-        <div className="flex items-center gap-3 pb-2 border-b">
-          <HardDrive className="h-6 w-6 text-purple-600" />
-          <h2 className="text-2xl font-semibold">Firmware Updates (OTA)</h2>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* OTA Firmware Upload */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-purple-500/10">
-                  <HardDrive className="h-5 w-5 text-purple-600" />
-                </div>
-                Firmware Update (File)
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <p className="text-muted-foreground">
-                Upload a firmware .bin file to update the device. The device
-                will restart automatically after successful update.
-              </p>
-              <div className="space-y-3">
-                <Input
-                  type="file"
-                  id="firmwareFileInput"
-                  accept=".bin"
-                  onChange={handleFirmwareSelect}
-                />
-                <Button
-                  onClick={uploadFirmware}
-                  disabled={!selectedFirmware || isOtaUploading}
-                  className="bg-purple-500 hover:bg-purple-600 text-white w-full"
-                >
-                  {isOtaUploading ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <Upload className="mr-2 h-4 w-4" />
-                  )}
-                  {isOtaUploading ? "Updating..." : "Upload Firmware"}
-                </Button>
-              </div>
-              {selectedFirmware && (
-                <Alert className="border-purple-500 bg-purple-50">
-                  <AlertDescription>
-                    Selected: {selectedFirmware.name} (
-                    {formatFileSize(selectedFirmware.size)})
-                  </AlertDescription>
-                </Alert>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* OTA URL Update */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-500/10">
-                  <Link2 className="h-5 w-5 text-indigo-600" />
-                </div>
-                Firmware Update (URL)
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <p className="text-muted-foreground">
-                Provide a URL to download and install firmware directly. The
-                device will restart automatically after successful update.
-              </p>
-              <div className="space-y-3">
-                <Input
-                  type="url"
-                  placeholder="https://example.com/firmware.bin"
-                  value={firmwareUrl}
-                  onChange={(e) => setFirmwareUrl(e.target.value)}
-                />
-                <Button
-                  onClick={updateFromUrl}
-                  disabled={!firmwareUrl.trim() || isUrlUpdating}
-                  className="bg-indigo-500 hover:bg-indigo-600 text-white w-full"
-                >
-                  {isUrlUpdating ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <Download className="mr-2 h-4 w-4" />
-                  )}
-                  {isUrlUpdating ? "Updating..." : "Update from URL"}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+      <OTAUpdateSection />
     </div>
   );
 }

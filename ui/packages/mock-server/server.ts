@@ -8,6 +8,24 @@ import parameters from "./parameters";
 const app = express();
 const PORT = 3001;
 
+// OTA Simulation Configuration
+const OTA_CONFIG = {
+  // Simulation timing (in milliseconds)
+  UPDATE_INTERVAL: 1000, // How often to update progress
+  PROCESSING_DELAY: 2000, // Time spent in processing phase
+  RESTART_DELAY: 3000, // Time to simulate device restart
+  ERROR_RESET_DELAY: 10000, // Time to reset error state
+
+  // Simulation behavior
+  FAILURE_RATE: 0.05, // 5% chance of simulated failure
+  MIN_PROGRESS_STEP: 5, // Minimum progress increment per step
+  MAX_PROGRESS_STEP: 20, // Maximum progress increment per step
+
+  // File size limits (bytes)
+  MAX_FIRMWARE_SIZE: 10 * 1024 * 1024, // 10MB
+  MAX_FILESYSTEM_SIZE: 5 * 1024 * 1024, // 5MB
+};
+
 // Middleware
 app.use(cors());
 app.use(express.json());
@@ -496,6 +514,332 @@ app.post(
   }
 );
 
+// OTA Update State
+interface OTAState {
+  status:
+    | "idle"
+    | "uploading"
+    | "downloading"
+    | "processing"
+    | "complete"
+    | "error";
+  type: "firmware" | "filesystem" | "url" | "";
+  progress: number;
+  uploadedSize: number;
+  totalSize: number;
+  error?: string;
+  updateInProgress: boolean;
+  filesystemPartition: string;
+}
+
+let otaState: OTAState = {
+  status: "idle",
+  type: "",
+  progress: 0,
+  uploadedSize: 0,
+  totalSize: 0,
+  updateInProgress: false,
+  filesystemPartition: "spiffs",
+};
+
+// Helper function to simulate OTA progress
+const simulateOTAProgress = (
+  type: "firmware" | "filesystem" | "url",
+  totalSize: number = 0
+): Promise<void> => {
+  return new Promise((resolve, reject) => {
+    otaState.status = type === "url" ? "downloading" : "uploading";
+    otaState.type = type;
+    otaState.progress = 0;
+    otaState.uploadedSize = 0;
+    otaState.totalSize = totalSize;
+    otaState.updateInProgress = true;
+    otaState.error = undefined;
+
+    console.log(
+      `🔄 Starting ${type} OTA update simulation (${totalSize} bytes)`
+    );
+
+    let currentProgress = 0;
+    const interval = setInterval(() => {
+      const progressStep =
+        Math.random() *
+          (OTA_CONFIG.MAX_PROGRESS_STEP - OTA_CONFIG.MIN_PROGRESS_STEP) +
+        OTA_CONFIG.MIN_PROGRESS_STEP;
+      currentProgress += progressStep;
+
+      if (currentProgress >= 90) {
+        // Switch to processing phase
+        otaState.status = "processing";
+        otaState.progress = 95;
+        otaState.uploadedSize = totalSize;
+
+        setTimeout(() => {
+          // Complete the update
+          otaState.status = "complete";
+          otaState.progress = 100;
+          console.log(`✅ ${type} OTA update completed successfully`);
+
+          setTimeout(() => {
+            // Reset after 3 seconds (simulating device restart)
+            otaState.status = "idle";
+            otaState.type = "";
+            otaState.progress = 0;
+            otaState.uploadedSize = 0;
+            otaState.totalSize = 0;
+            otaState.updateInProgress = false;
+            console.log(`🔄 Device restart simulation complete`);
+            resolve();
+          }, OTA_CONFIG.RESTART_DELAY);
+        }, OTA_CONFIG.PROCESSING_DELAY);
+
+        clearInterval(interval);
+      } else {
+        otaState.progress = Math.min(90, currentProgress);
+        otaState.uploadedSize = Math.floor(
+          (otaState.progress / 100) * totalSize
+        );
+      }
+    }, OTA_CONFIG.UPDATE_INTERVAL);
+
+    // Simulate random failure
+    if (Math.random() < OTA_CONFIG.FAILURE_RATE) {
+      setTimeout(() => {
+        clearInterval(interval);
+        otaState.status = "error";
+        otaState.error = "Simulated update failure";
+        otaState.updateInProgress = false;
+        console.log(`❌ ${type} OTA update failed (simulated)`);
+
+        setTimeout(() => {
+          // Reset error state after configured delay
+          otaState.status = "idle";
+          otaState.type = "";
+          otaState.progress = 0;
+          otaState.uploadedSize = 0;
+          otaState.totalSize = 0;
+          otaState.error = undefined;
+        }, OTA_CONFIG.ERROR_RESET_DELAY);
+
+        reject(new Error("Simulated update failure"));
+      }, Math.random() * 5000 + 2000); // Fail after 2-7 seconds
+    }
+  });
+};
+
+// OTA Endpoints
+app.post(
+  "/api/ota/firmware",
+  upload.single("firmware"),
+  simulateAuth,
+  (req: Request, res: Response): void => {
+    console.log("🔧 Firmware OTA update requested");
+
+    // Check if update is already in progress
+    if (otaState.updateInProgress) {
+      console.log("❌ OTA update already in progress");
+      res.status(409).json({
+        success: false,
+        message:
+          "OTA update already in progress. Please wait for current update to complete.",
+      });
+      return;
+    }
+
+    if (!req.file) {
+      res.status(400).json({
+        success: false,
+        message: "No firmware file provided",
+      });
+      return;
+    }
+
+    // Validate file extension
+    if (!req.file.originalname.toLowerCase().endsWith(".bin")) {
+      res.status(400).json({
+        success: false,
+        message: "Invalid firmware file. Expected .bin extension.",
+      });
+      return;
+    }
+
+    // Validate file size
+    const fileSize = req.file.size;
+    if (fileSize > OTA_CONFIG.MAX_FIRMWARE_SIZE) {
+      res.status(400).json({
+        success: false,
+        message: `Firmware file is too large. Maximum size is ${Math.floor(
+          OTA_CONFIG.MAX_FIRMWARE_SIZE / 1024 / 1024
+        )}MB.`,
+      });
+      return;
+    }
+    console.log(
+      `📁 Firmware file: ${req.file.originalname} (${fileSize} bytes)`
+    );
+
+    // Start the simulation
+    simulateOTAProgress("firmware", fileSize)
+      .then(() => {
+        // This won't be reached due to the async nature, but kept for completeness
+      })
+      .catch((error) => {
+        console.error("Firmware update simulation failed:", error);
+      });
+
+    // Clean up uploaded file
+    fs.unlinkSync(req.file.path);
+
+    res.json({
+      success: true,
+      message: "Update successful. Device will restart.",
+    });
+  }
+);
+
+app.post(
+  "/api/ota/filesystem",
+  upload.single("filesystem"),
+  simulateAuth,
+  (req: Request, res: Response): void => {
+    console.log("🗂️ Filesystem OTA update requested");
+
+    // Check if update is already in progress
+    if (otaState.updateInProgress) {
+      console.log("❌ OTA update already in progress");
+      res.status(409).json({
+        success: false,
+        message:
+          "OTA update already in progress. Please wait for current update to complete.",
+      });
+      return;
+    }
+
+    if (!req.file) {
+      res.status(400).json({
+        success: false,
+        message: "No filesystem file provided",
+      });
+      return;
+    }
+
+    // Validate file extension
+    const validExtensions = [".bin", ".img"];
+    const isValidFile = validExtensions.some((ext) =>
+      req.file!.originalname.toLowerCase().endsWith(ext)
+    );
+
+    if (!isValidFile) {
+      res.status(400).json({
+        success: false,
+        message: "Invalid filesystem file. Expected .bin or .img extension.",
+      });
+      return;
+    }
+
+    // Validate file size
+    const fileSize = req.file.size;
+    if (fileSize > OTA_CONFIG.MAX_FILESYSTEM_SIZE) {
+      res.status(400).json({
+        success: false,
+        message: `Filesystem file is too large. Maximum size is ${Math.floor(
+          OTA_CONFIG.MAX_FILESYSTEM_SIZE / 1024 / 1024
+        )}MB.`,
+      });
+      return;
+    }
+    console.log(
+      `📁 Filesystem file: ${req.file.originalname} (${fileSize} bytes)`
+    );
+
+    // Start the simulation
+    simulateOTAProgress("filesystem", fileSize)
+      .then(() => {
+        // This won't be reached due to the async nature, but kept for completeness
+      })
+      .catch((error) => {
+        console.error("Filesystem update simulation failed:", error);
+      });
+
+    // Clean up uploaded file
+    fs.unlinkSync(req.file.path);
+
+    res.json({
+      success: true,
+      message: "Filesystem update successful. Device will restart.",
+    });
+  }
+);
+
+app.post("/api/ota/url", simulateAuth, (req: Request, res: Response): void => {
+  console.log("🌐 URL OTA update requested");
+
+  // Check if update is already in progress
+  if (otaState.updateInProgress) {
+    console.log("❌ OTA update already in progress");
+    res.status(409).json({
+      success: false,
+      message:
+        "OTA update already in progress. Please wait for current update to complete.",
+    });
+    return;
+  }
+
+  const url = req.body.url;
+  if (!url) {
+    res.status(400).json({
+      success: false,
+      message: "URL parameter missing",
+    });
+    return;
+  }
+
+  if (!url.trim()) {
+    res.status(400).json({
+      success: false,
+      message: "Empty URL provided",
+    });
+    return;
+  }
+
+  console.log(`🔗 Firmware URL: ${url}`);
+
+  // Simulate a firmware size based on URL
+  const simulatedSize = Math.floor(Math.random() * 1000000) + 500000; // 500KB - 1.5MB
+
+  // Start the simulation
+  simulateOTAProgress("url", simulatedSize)
+    .then(() => {
+      // This won't be reached due to the async nature, but kept for completeness
+    })
+    .catch((error) => {
+      console.error("URL update simulation failed:", error);
+    });
+
+  res.json({
+    success: true,
+    message: "Update successful. Device will restart.",
+  });
+});
+
+app.get(
+  "/api/ota/status",
+  simulateAuth,
+  (req: Request, res: Response): void => {
+    res.json({
+      updating: otaState.updateInProgress,
+      updateInProgress: otaState.updateInProgress,
+      progress: otaState.progress,
+      status: otaState.status,
+      type: otaState.type,
+      uploadedSize: otaState.uploadedSize,
+      totalSize: otaState.totalSize,
+      filesystemPartition: otaState.filesystemPartition,
+      ...(otaState.error && { error: otaState.error }),
+    });
+  }
+);
+
 // Data endpoints
 app.get("/api/health", simulateAuth, (req: Request, res: Response): void => {
   res.json({});
@@ -568,6 +912,10 @@ if (fs.existsSync(uiDistPath)) {
         <li>POST /api/config/upload - Upload configuration</li>
         <li>POST /api/restart - Restart device</li>
         <li>POST /api/factory-reset - Factory reset</li>
+        <li>POST /api/ota/firmware - Upload firmware for OTA update</li>
+        <li>POST /api/ota/filesystem - Upload filesystem for OTA update</li>
+        <li>POST /api/ota/url - Start OTA update from URL</li>
+        <li>GET /api/ota/status - Get OTA update status</li>
       </ul>
     `);
   });
@@ -579,6 +927,7 @@ app.listen(PORT, (): void => {
     `🚀 CleverCoffee Mock Server running on http://localhost:${PORT}`
   );
   console.log(`📡 API endpoints available at http://localhost:${PORT}/api/*`);
+  console.log(`🔄 OTA update simulation enabled`);
   console.log(
     `💡 Use this server for frontend development when ESP32 hardware is not available`
   );
