@@ -71,7 +71,11 @@ export function Layout() {
             to="/"
             className="flex items-center gap-2 text-lg font-semibold"
           >
-            <img src="/vite.svg" className="h-6 w-6" alt="Logo" />
+            <img
+              src={`${basePathWithoutTrailingSlash}/logo.png`}
+              className="h-6 w-6"
+              alt="Logo"
+            />
             <span className="sr-only">CleverCoffee</span>
           </Link>
         </div>
