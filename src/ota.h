@@ -1,6 +1,9 @@
 /**
  * @file ota.h
- * @brief Over-the-Air (OTA) firmware update functionality
+ * @brief Over-the-Air (OTA) firmware and filesystem update functionality
+ *
+ * Supports both firmware updates (to app partition) and filesystem updates (to SPIFFS partition).
+ * The filesystem partition label is configured to "spiffs" and should match the partition table.
  */
 
 #pragma once
@@ -27,7 +30,7 @@ namespace OTA {
     bool updateFromURL(const String& url);
 
     /**
-     * @brief Handle file upload for OTA updates
+     * @brief Handle firmware file upload for OTA updates
      * @param request The web server request
      * @param filename Name of the uploaded file
      * @param index Current position in the file
@@ -35,7 +38,18 @@ namespace OTA {
      * @param len Length of the data chunk
      * @param final True if this is the last chunk
      */
-    void handleFileUpload(AsyncWebServerRequest* request, const String& filename, size_t index, uint8_t* data, size_t len, bool final);
+    void handleFirmwareUpload(AsyncWebServerRequest* request, const String& filename, size_t index, uint8_t* data, size_t len, bool final);
+
+    /**
+     * @brief Handle filesystem file upload for OTA updates
+     * @param request The web server request
+     * @param filename Name of the uploaded file
+     * @param index Current position in the file
+     * @param data Chunk of file data
+     * @param len Length of the data chunk
+     * @param final True if this is the last chunk
+     */
+    void handleFilesystemUpload(AsyncWebServerRequest* request, const String& filename, size_t index, uint8_t* data, size_t len, bool final);
 
     /**
      * @brief Handle OTA update from URL endpoint
@@ -60,6 +74,18 @@ namespace OTA {
      * @return true if update is in progress
      */
     bool isRunning();
+
+    /**
+     * @brief Check if any OTA update is in progress (including preparation phases)
+     * @return true if update is in progress or being prepared
+     */
+    bool isUpdateInProgress();
+
+    /**
+     * @brief Get the filesystem partition label
+     * @return Filesystem partition label string
+     */
+    const char* getFilesystemPartitionLabel();
 
     /**
      * @brief Check if there was an OTA error

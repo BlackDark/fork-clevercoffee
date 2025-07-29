@@ -119,8 +119,8 @@
 #endif
 
 // Debugging flags
-#define DEBUG_CONFIG_VERBOSE false
-#define DEBUG_NVS_VERBOSE    false
+// #define DEBUG_CONFIG_VERBOSE true
+// #define DEBUG_NVS_VERBOSE    true
 
 // Conditional logging macros for different subsystems
 #ifdef DEBUG_CONFIG_VERBOSE

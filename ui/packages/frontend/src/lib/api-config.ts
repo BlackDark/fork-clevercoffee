@@ -20,9 +20,17 @@ export const isMockMode = import.meta.env.VITE_MOCK_MODE === "true";
  * @returns Fetch options with defaults applied
  */
 export function createFetchOptions(options: RequestInit = {}): RequestInit {
+  const headers: Record<string, string> = {};
+
+  // Only set Content-Type to application/json if no body is FormData
+  // For FormData, let the browser set the Content-Type with boundary
+  if (!(options.body instanceof FormData)) {
+    headers["Content-Type"] = "application/json";
+  }
+
   return {
     headers: {
-      "Content-Type": "application/json",
+      ...headers,
       ...options.headers,
     },
     ...options,

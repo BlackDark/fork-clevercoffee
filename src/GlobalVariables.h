@@ -112,6 +112,3 @@ extern String mqttPassword;
 extern String mqttTopic;
 extern bool mqttHassioEnabled;
 extern String mqttHassioPrefix;
-
-// External reference to logLevel from Logger library
-extern int logLevel;

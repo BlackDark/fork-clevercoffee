@@ -857,14 +857,23 @@ void setup() {
     Serial.begin(115200);
 
     // Initialize the logger
-    Logger::init(23);
+    Logger::Config loggerConfig;
+    Logger::init(loggerConfig);
+
+    // Start the logger
+    Logger::begin();
 
     if (!Config::getInstance().begin()) {
         LOG(ERROR, "Failed to initialize configuration system!");
+        Serial.println("Critical error detected!");
+        Serial.flush(); // Ensure message is sent before exiting
+        exit(0);        // Force exit the program
     }
-
-    // Configuration system is now unified in Config class
-    LOG(INFO, "Configuration system ready");
+    else {
+        LOG(INFO, "Configuration system ready");
+        int level = Config::getInstance().get<int>("system.log_level");
+        Logger::setLevel(static_cast<Logger::Level>(level));
+    }
 
     hostname = Config::getInstance().get<String>("system.hostname");
 
@@ -1069,11 +1078,6 @@ void setup() {
         offlineMode = true;
         setRuntimePidState(true);
     }
-
-    // Start the logger
-    Logger::begin();
-    int level = Config::getInstance().get<int>("system.log_level");
-    Logger::setLevel(static_cast<Logger::Level>(level));
 
     // Initialize PID controller
     bPID.SetSampleTime(windowSize);
