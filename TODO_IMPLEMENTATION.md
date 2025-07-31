@@ -43,7 +43,7 @@ This TODO list breaks down the migration plan into small, incremental steps that
 
 ### 1.2 Memory Management Foundation (Days 4-6)
 
-#### **TODO-005: Create RAII wrapper for U8G2 display**
+#### **TODO-005: Create RAII wrapper for U8G2 display** [DONE]
 - **Files**: Create `src/display/DisplayManager.h/.cpp`
 - **Action**:
   ```cpp
@@ -58,7 +58,7 @@ This TODO list breaks down the migration plan into small, incremental steps that
 - **Test**: Initialize display through wrapper
 - **Risk**: Medium - Critical display functionality
 
-#### **TODO-006: Replace U8G2 raw pointer with DisplayManager**
+#### **TODO-006: Replace U8G2 raw pointer with DisplayManager** [DONE]
 - **Files**: `src/main.cpp` (lines 894-918)
 - **Action**:
   - Replace global `U8G2* u8g2` with `std::unique_ptr<DisplayManager>`
@@ -66,7 +66,7 @@ This TODO list breaks down the migration plan into small, incremental steps that
 - **Test**: Full display functionality testing
 - **Risk**: Medium - Core display system
 
-#### **TODO-007: Create RAII wrappers for hardware components**
+#### **TODO-007: Create RAII wrappers for hardware components** [DONE]
 - **Files**: Create `src/hardware/HardwareManager.h/.cpp`
 - **Action**:
   ```cpp
