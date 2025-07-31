@@ -71,7 +71,16 @@ int displayOffline = 0;
 
 inline bool systemInitialized = false;
 
-// Display
+// Display Manager
+#include "display/DisplayManager.h"
+std::unique_ptr<DisplayManager> displayManager = nullptr;
+
+// Compatibility function for existing code
+U8G2* getU8G2() {
+    return displayManager ? displayManager->get() : nullptr;
+}
+
+// Compatibility pointer for existing code - will be removed in future refactoring
 U8G2* u8g2 = nullptr;
 
 // WiFi
@@ -880,27 +889,14 @@ void setup() {
     Wire.begin();
 
     if (Config::getInstance().get<bool>("hardware.oled.enabled")) {
-        switch (Config::getInstance().get<int>("hardware.oled.type")) {
-            case 0:
-                u8g2 = new U8G2_SH1106_128X64_NONAME_F_HW_I2C(U8G2_R0, U8X8_PIN_NONE, PIN_I2CSCL, PIN_I2CSDA);  // e.g. 1.3"
-                break;
-            case 1:
-                u8g2 = new U8G2_SSD1306_128X64_NONAME_F_HW_I2C(U8G2_R0, U8X8_PIN_NONE, PIN_I2CSCL, PIN_I2CSDA); // e.g. 0.96"
-                break;
-            default:
-                break;
-        }
+        const int displayType = Config::getInstance().get<int>("hardware.oled.type");
+        const int displayAddress = Config::getInstance().get<int>("hardware.oled.address");
 
-        if (u8g2 != nullptr) {
-            if (const int i2cAddress = Config::getInstance().get<int>("hardware.oled.address"); i2cAddress == 0) {
-                u8g2->setI2CAddress(0x3C * 2);
-            }
-            else {
-                u8g2->setI2CAddress(0x3D * 2);
-            }
+        displayManager = std::make_unique<DisplayManager>(displayType, displayAddress);
 
-            u8g2->begin();
-            u8g2->clearBuffer();
+        if (displayManager && displayManager->isInitialized()) {
+            // Set compatibility pointer for existing code
+            u8g2 = displayManager->get();
 
             u8g2_prepare();
 
@@ -913,6 +909,8 @@ void setup() {
         }
         else {
             LOG(ERROR, "Error initializing the display!");
+            displayManager.reset(); // Release failed DisplayManager
+            u8g2 = nullptr;         // Reset compatibility pointer
             // Update config system - this will automatically save to NVS
             Config::getInstance().set<bool>("hardware.oled.enabled", false);
         }
