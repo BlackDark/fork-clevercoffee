@@ -11,6 +11,7 @@
 
 // Libraries & Dependencies
 #include "Logger.h"
+#include "network/MQTTManager.h"
 #include "network/WiFiManager.h"
 #include <ArduinoOTA.h>
 #include <LittleFS.h>
@@ -106,8 +107,9 @@ Switch* hotWaterSwitch = nullptr;
 TempSensor* tempSensor = nullptr;
 
 // WiFi
-// Modern WiFi management
+// Modern WiFi and MQTT management
 std::unique_ptr<CleverCoffeeWiFiManager> wifiManager = nullptr;
+std::unique_ptr<MQTTManager> mqttManager = nullptr;
 constexpr unsigned long wifiConnectionDelay = WIFICONNECTIONDELAY;
 constexpr unsigned int maxWifiReconnects = MAXWIFIRECONNECTS;
 auto pass = WM_PASS;
@@ -115,6 +117,19 @@ unsigned long lastWifiConnectionAttempt = millis();
 unsigned int wifiReconnects = 0; // actual number of reconnects
 // offlineMode is defined in GlobalVariables.cpp
 extern bool offlineMode;
+
+// Helper function for timing debug
+bool isMqttUpdateRunning() {
+    return mqttManager && mqttManager->isUpdateRunning();
+}
+
+// Compatibility wrapper function
+int writeSysParamsToMQTT(bool continueOnError = true) {
+    if (mqttManager && mqttManager->isEnabled()) {
+        return mqttManager->writeSysParamsToMQTT(continueOnError);
+    }
+    return 0;
+}
 
 // OTA
 String otaPass;
@@ -129,7 +144,7 @@ unsigned long previousMillisPressure; // initialisation at the end of init()
 bool displayBufferReady = false;
 bool displayUpdateRunning = false;
 bool websiteUpdateRunning = false;
-bool mqttUpdateRunning = false;
+// MQTT update running is now managed by MQTTManager
 bool hassioUpdateRunning = false;
 bool temperatureUpdateRunning = false;
 
@@ -206,23 +221,31 @@ double previousInput = 0;
 // Embedded HTTP Server
 #include "embeddedWebserver.h"
 
-struct cmp_str {
-        bool operator()(char const* a, char const* b) const {
-            return strcmp(a, b) < 0;
-        }
-};
+// cmp_str struct is now defined in MQTTManager.h
 
 // MQTT
 bool hassioFailed = false;
 bool mqtt_was_connected = false;
 
-#include "mqtt.h"
+// Compatibility variables for transition period
+bool mqtt_enabled = false;
+bool mqtt_hassio_enabled = false;
+PubSubClient* mqtt = nullptr;
+unsigned int MQTTReCnctCount = 0;
+unsigned long previousMillisMQTT = 0;
+unsigned long lastMQTTConnectionAttempt = 0;
 
-std::map<const char*, const char*, cmp_str> mqttVars;
-std::map<const char*, std::function<double()>, cmp_str> mqttSensors = {};
+// MQTT functionality is now managed by MQTTManager
 
 unsigned long lastTempEvent = 0;
 unsigned long tempEventInterval = 1000;
+
+// MQTT discovery timer callback
+void sendHASSIODiscoveryMsg() {
+    if (mqttManager && mqttManager->isEnabled()) {
+        mqttManager->sendHASSIODiscoveryMsg();
+    }
+}
 
 Timer hassioDiscoveryTimer(&sendHASSIODiscoveryMsg, 300000);
 
@@ -905,78 +928,81 @@ void setup() {
             ArduinoOTA.begin();
         }
 
-        setupMqtt();
+        // Initialize MQTT manager
+        try {
+            mqttManager = std::make_unique<MQTTManager>();
 
-        if (mqtt_enabled) {
-            // Editable values reported to MQTT
-            mqttVars["pidON"] = "pid.enabled";
-            mqttVars["brewSetpoint"] = "brew.setpoint";
-            mqttVars["brewTempOffset"] = "brew.temp_offset";
-            mqttVars["steamON"] = "STEAM_MODE";
-            mqttVars["steamSetpoint"] = "steam.setpoint";
-            mqttVars["pidUsePonM"] = "pid.use_ponm";
-            mqttVars["aggKp"] = "pid.regular.kp";
-            mqttVars["aggTn"] = "pid.regular.tn";
-            mqttVars["aggTv"] = "pid.regular.tv";
-            mqttVars["aggIMax"] = "pid.regular.i_max";
-            mqttVars["steamKp"] = "pid.steam.kp";
-            mqttVars["standbyModeOn"] = "standby.enabled";
+            if (mqttManager->setup(hostname)) {
+                // Set compatibility variables
+                mqtt_enabled = mqttManager->isEnabled();
+                mqtt_hassio_enabled = true; // Assuming Home Assistant is supported
+                mqtt = &mqttManager->getClient();
+                // Register parameter mappings
+                mqttManager->registerParameter("pidON", "pid.enabled");
+                mqttManager->registerParameter("brewSetpoint", "brew.setpoint");
+                mqttManager->registerParameter("brewTempOffset", "brew.temp_offset");
+                mqttManager->registerParameter("steamON", "STEAM_MODE");
+                mqttManager->registerParameter("steamSetpoint", "steam.setpoint");
+                mqttManager->registerParameter("pidUsePonM", "pid.use_ponm");
+                mqttManager->registerParameter("aggKp", "pid.regular.kp");
+                mqttManager->registerParameter("aggTn", "pid.regular.tn");
+                mqttManager->registerParameter("aggTv", "pid.regular.tv");
+                mqttManager->registerParameter("aggIMax", "pid.regular.i_max");
+                mqttManager->registerParameter("steamKp", "pid.steam.kp");
+                mqttManager->registerParameter("standbyModeOn", "standby.enabled");
 
-            // Values reported to MQTT
-            mqttSensors["temperature"] = [] { return temperature; };
-            mqttSensors["heaterPower"] = [] { return pidOutput / 10; };
-            mqttSensors["standbyModeTimeRemaining"] = [] { return standbyModeRemainingTimeMillis / 1000; };
-            mqttSensors["currentKp"] = [] { return bPID.GetKp(); };
-            mqttSensors["currentKi"] = [] { return bPID.GetKi(); };
-            mqttSensors["currentKd"] = [] { return bPID.GetKd(); };
-            mqttSensors["machineState"] = [] { return machineState; };
+                // Register sensor callbacks
+                mqttManager->registerSensor("temperature", [] { return temperature; });
+                mqttManager->registerSensor("heaterPower", [] { return pidOutput / 10; });
+                mqttManager->registerSensor("standbyModeTimeRemaining", [] { return standbyModeRemainingTimeMillis / 1000; });
+                mqttManager->registerSensor("currentKp", [] { return bPID.GetKp(); });
+                mqttManager->registerSensor("currentKi", [] { return bPID.GetKi(); });
+                mqttManager->registerSensor("currentKd", [] { return bPID.GetKd(); });
+                mqttManager->registerSensor("machineState", [] { return machineState; });
 
-            if (config.get<bool>("hardware.switches.brew.enabled")) {
-                mqttVars["aggbKp"] = "pid.bd.kp";
-                mqttVars["aggbTn"] = "pid.bd.tn";
-                mqttVars["aggbTv"] = "pid.bd.tv";
-                mqttVars["pidUseBD"] = "pid.bd.enabled";
-                mqttVars["brewPidDelay"] = "brew.pid_delay";
-                mqttSensors["currBrewTime"] = [] { return currBrewTime / 1000; };
-                mqttVars["targetBrewTime"] = "brew.by_time.target_time";
-                mqttVars["preinfusion"] = "brew.pre_infusion.time";
-                mqttVars["preinfusionPause"] = "brew.pre_infusion.pause";
-                mqttVars["backflushOn"] = "BACKFLUSH_ON";
-                mqttVars["backflushCycles"] = "backflush.cycles";
-                mqttVars["backflushFillTime"] = "backflush.fill_time";
-                mqttVars["backflushFlushTime"] = "backflush.flush_time";
-            }
-
-            if (config.get<bool>("hardware.sensors.scale.enabled")) {
-                mqttVars["targetBrewWeight"] = "brew.by_weight.target_weight";
-                mqttVars["scaleCalibration"] = "hardware.sensors.scale.calibration";
-
-                if (config.get<int>("hardware.sensors.scale.type") == 0) {
-                    mqttVars["scale2Calibration"] = "hardware.sensors.scale.calibration2";
+                if (config.get<bool>("hardware.switches.brew.enabled")) {
+                    mqttManager->registerParameter("aggbKp", "pid.bd.kp");
+                    mqttManager->registerParameter("aggbTn", "pid.bd.tn");
+                    mqttManager->registerParameter("aggbTv", "pid.bd.tv");
+                    mqttManager->registerParameter("pidUseBD", "pid.bd.enabled");
+                    mqttManager->registerParameter("brewPidDelay", "brew.pid_delay");
+                    mqttManager->registerSensor("currBrewTime", [] { return currBrewTime / 1000; });
+                    mqttManager->registerParameter("targetBrewTime", "brew.by_time.target_time");
+                    mqttManager->registerParameter("preinfusion", "brew.pre_infusion.time");
+                    mqttManager->registerParameter("preinfusionPause", "brew.pre_infusion.pause");
+                    mqttManager->registerParameter("backflushOn", "BACKFLUSH_ON");
+                    mqttManager->registerParameter("backflushCycles", "backflush.cycles");
+                    mqttManager->registerParameter("backflushFillTime", "backflush.fill_time");
+                    mqttManager->registerParameter("backflushFlushTime", "backflush.flush_time");
                 }
 
-                mqttVars["scaleKnownWeight"] = "hardware.sensors.scale.known_weight";
-                mqttVars["scaleTareOn"] = "TARE_ON";
-                mqttVars["scaleCalibrationOn"] = "CALIBRATION_ON";
+                if (config.get<bool>("hardware.sensors.scale.enabled")) {
+                    mqttManager->registerParameter("targetBrewWeight", "brew.by_weight.target_weight");
+                    mqttManager->registerParameter("scaleCalibration", "hardware.sensors.scale.calibration");
 
-                mqttSensors["currReadingWeight"] = [] { return currReadingWeight; };
-                mqttSensors["currBrewWeight"] = [] { return currBrewWeight; };
+                    if (config.get<int>("hardware.sensors.scale.type") == 0) {
+                        mqttManager->registerParameter("scale2Calibration", "hardware.sensors.scale.calibration2");
+                    }
+
+                    mqttManager->registerParameter("scaleKnownWeight", "hardware.sensors.scale.known_weight");
+                    mqttManager->registerParameter("scaleTareOn", "TARE_ON");
+                    mqttManager->registerParameter("scaleCalibrationOn", "CALIBRATION_ON");
+
+                    mqttManager->registerSensor("currReadingWeight", [] { return currReadingWeight; });
+                    mqttManager->registerSensor("currBrewWeight", [] { return currBrewWeight; });
+                }
+
+                if (config.get<bool>("hardware.sensors.pressure.enabled")) {
+                    mqttManager->registerSensor("pressure", [] { return inputPressureFilter; });
+                }
+
+                mqttManager->checkConnection();
+                mqttManager->sendHASSIODiscoveryMsg();
+
+                LOG(INFO, "MQTT setup completed via MQTTManager");
             }
-
-            if (config.get<bool>("hardware.sensors.pressure.enabled")) {
-                mqttSensors["pressure"] = [] { return inputPressureFilter; };
-            }
-
-            snprintf(topic_will, sizeof(topic_will), "%s%s/%s", mqtt_topic_prefix.c_str(), hostname.c_str(), "status");
-            snprintf(topic_set, sizeof(topic_set), "%s%s/+/%s", mqtt_topic_prefix.c_str(), hostname.c_str(), "set");
-            mqtt.setServer(mqtt_server_ip.c_str(), mqtt_server_port);
-            mqtt.setCallback(mqtt_callback);
-
-            checkMQTT();
-
-            if (mqtt_hassio_enabled) {
-                sendHASSIODiscoveryMsg();
-            }
+        } catch (const std::exception& e) {
+            LOG(ERROR, "Failed to initialize MQTTManager");
         }
     }
     else {
@@ -1083,37 +1109,34 @@ void loopPid() {
             wifiWasConnected = true;
         }
 
-        if (mqtt_enabled) {
-            mqttUpdateRunning = false;
+        if (mqttManager && mqttManager->isEnabled()) {
+            mqttManager->setUpdateRunning(false);
 
             if (getSignalStrength() > 1) {
-                checkMQTT();
+                mqttManager->checkConnection();
 
                 // if screen is ready to refresh wait for next loop
                 if (!displayBufferReady && !temperatureUpdateRunning) {
-                    writeSysParamsToMQTT(true); // Continue on error
+                    mqttManager->writeSysParamsToMQTT(true); // Continue on error
                 }
             }
 
             hassioUpdateRunning = false;
 
-            if (mqtt.connected() == 1) {
-                mqtt.loop();
-                previousMqttConnection = millis();
+            if (mqttManager->isConnected()) {
+                mqttManager->loop();
 
-                if (mqtt_hassio_enabled) {
-                    // resend discovery messages if not during a main function and MQTT has been disconnected but has now reconnected, or if last send failed
-                    if (!(machineState >= kBrew && machineState <= kBackflush) && ((!mqtt_was_connected || hassioFailed) && !displayBufferReady && !temperatureUpdateRunning)) {
-                        hassioDiscoveryTimer();
-                    }
+                // resend discovery messages if not during a main function and MQTT has been disconnected but has now reconnected, or if last send failed
+                if (!(machineState >= kBrew && machineState <= kBackflush) && ((!mqttManager->wasConnected() || hassioFailed) && !displayBufferReady && !temperatureUpdateRunning)) {
+                    hassioDiscoveryTimer();
                 }
 
-                mqtt_was_connected = true;
+                mqttManager->setWasConnected(true);
             }
             // Supress debug messages until we have a connection etablished
-            else if (mqtt_was_connected) {
+            else if (mqttManager->wasConnected()) {
                 LOG(INFO, "MQTT disconnected");
-                mqtt_was_connected = false;
+                mqttManager->setWasConnected(false);
             }
         }
 
@@ -1156,7 +1179,7 @@ void loopPid() {
     }
 
     // refresh website if loop does not have anoth long running process already
-    if (((millis() - lastTempEvent) > tempEventInterval) && (!mqttUpdateRunning && !hassioUpdateRunning && !displayBufferReady && !temperatureUpdateRunning)) {
+    if (((millis() - lastTempEvent) > tempEventInterval) && ((!mqttManager || !mqttManager->isUpdateRunning()) && !hassioUpdateRunning && !displayBufferReady && !temperatureUpdateRunning)) {
         websiteUpdateRunning = true;
 
         // send temperatures to website endpoint
@@ -1219,7 +1242,7 @@ void loopPid() {
     if (config.get<bool>("hardware.oled.enabled")) {
 
         // update display on loops that have not had other major tasks running, if blocked it will send in the next loop (average 0.5ms)
-        if (!websiteUpdateRunning && !mqttUpdateRunning && !hassioUpdateRunning && !temperatureUpdateRunning && (standbyModeRemainingTimeDisplayOffMillis > 0)) {
+        if (!websiteUpdateRunning && (!mqttManager || !mqttManager->isUpdateRunning()) && !hassioUpdateRunning && !temperatureUpdateRunning && (standbyModeRemainingTimeMillis > 0)) {
 
             // displayUpdateRunning currently doesn't block anything as it is near the end of the loop, but if this code block moves it can be used to block other processes
             // sendBuffer() takes around 35ms so it flags that it has happened

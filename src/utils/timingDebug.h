@@ -7,6 +7,9 @@
 
 #pragma once
 
+// Forward declaration for helper function
+extern bool isMqttUpdateRunning();
+
 enum ActivityType : uint16_t {
     ACT_DISPLAY_READY = 0x01,
     ACT_DISPLAY_RUNNING = 0x02,
@@ -112,7 +115,7 @@ void debugTimingLoop() {
 
             // the loopDuration > 45 check is in case there is a long loop caused by something unknown
             // only record if one of these flags are set or loop has taken a long time
-            if ((loopDuration > 45) || ((displayUpdateRunning && includeDisplayInLogs) || websiteUpdateRunning || mqttUpdateRunning || hassioUpdateRunning || temperatureUpdateRunning)) {
+            if ((loopDuration > 45) || ((displayUpdateRunning && includeDisplayInLogs) || websiteUpdateRunning || isMqttUpdateRunning() || hassioUpdateRunning || temperatureUpdateRunning)) {
 
                 if (loopDuration >= maxLoop) {
                     maxLoop = loopDuration;
@@ -134,7 +137,7 @@ void debugTimingLoop() {
                     activityType[loopIndex] |= ACT_WEBSITE_RUNNING;
                 }
 
-                if (mqttUpdateRunning) {
+                if (isMqttUpdateRunning()) {
                     activityType[loopIndex] |= ACT_MQTT_RUNNING;
                 }
 

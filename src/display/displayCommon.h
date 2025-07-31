@@ -117,7 +117,7 @@ inline void displayWiFiStatus(const int x, const int y) {
  */
 inline void displayMQTTStatus(const int x, const int y) {
     if (mqtt_enabled) {
-        if (mqtt.connected() == 1) {
+        if (mqtt && mqtt->connected() == 1) {
             u8g2->setCursor(x, y);
             u8g2->setFont(u8g2_font_profont11_tf);
             u8g2->print("MQTT");

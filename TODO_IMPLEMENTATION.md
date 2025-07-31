@@ -102,7 +102,7 @@ This TODO list breaks down the migration plan into small, incremental steps that
 - **Test**: WiFi connection, portal setup, offline mode
 - **Risk**: Medium - Network functionality
 
-#### **TODO-010: Extract MQTT functionality to separate class**
+#### **TODO-010: Extract MQTT functionality to separate class** [DONE]
 - **Files**: Create `src/network/MQTTManager.h/.cpp`
 - **Action**:
   - Move MQTT setup and handling from `main.cpp` (lines 1002-1074)
