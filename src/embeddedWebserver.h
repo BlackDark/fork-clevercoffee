@@ -785,7 +785,7 @@ inline void handleNvsDebug(AsyncWebServerRequest* request) {
                     {
                         if (prefs.isKey(nvsKey.c_str())) {
                             uint8_t uintVal = prefs.getUChar(nvsKey.c_str());
-                            storedValues[paramId.c_str()]["value"] = (int)uintVal;
+                            storedValues[paramId.c_str()]["value"] = static_cast<int>(uintVal);
                             storedValues[paramId.c_str()]["type"] = "uint8";
                             storedValues[paramId.c_str()]["nvs_key"] = nvsKey;
                             existsInNvs = true;

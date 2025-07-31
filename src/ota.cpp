@@ -318,7 +318,7 @@ namespace OTA {
 
     void handleFirmwareUpload(AsyncWebServerRequest* request, const String& filename, size_t index, uint8_t* data, size_t len, bool final) {
         // Log every invocation for debugging
-        LOGF(INFO, "handleFirmwareUpload called: filename=%s, index=%d, len=%d, final=%d", filename.c_str(), (int)index, (int)len, final);
+        LOGF(INFO, "handleFirmwareUpload called: filename=%s, index=%d, len=%d, final=%d", filename.c_str(), static_cast<int>(index), static_cast<int>(len), final);
 
         // Validate that this is a firmware file (check file extension) - only on first chunk
         if (index == 0 && !filename.endsWith(".bin")) {
@@ -409,7 +409,7 @@ namespace OTA {
 
     void handleFilesystemUpload(AsyncWebServerRequest* request, const String& filename, size_t index, uint8_t* data, size_t len, bool final) {
         // Log every invocation for debugging
-        LOGF(INFO, "handleFilesystemUpload called: filename=%s, index=%d, len=%d, final=%d", filename.c_str(), (int)index, (int)len, final);
+        LOGF(INFO, "handleFilesystemUpload called: filename=%s, index=%d, len=%d, final=%d", filename.c_str(), static_cast<int>(index), static_cast<int>(len), final);
 
         // Validate that this is a filesystem file (check file extension) - only on first chunk
         if (index == 0 && !filename.endsWith(".bin") && !filename.endsWith(".img")) {

@@ -132,7 +132,7 @@ TempSensor* tempSensor = nullptr;
 #include "isr.h"
 
 // Method forward declarations
-void setSteamMode(bool steamMode);
+void setSteamMode(const bool steamMode);
 void setPIDTunings(bool usePonM);
 void setBDPIDTunings();
 void setRuntimePidState(bool enabled);
@@ -1121,8 +1121,8 @@ void setup() {
 
     enableTimer1();
 
-    double fsUsage = ((double)LittleFS.usedBytes() / LittleFS.totalBytes()) * 100;
-    LOGF(INFO, "LittleFS: %d%% (used %ld bytes from %ld bytes)", (int)ceil(fsUsage), LittleFS.usedBytes(), LittleFS.totalBytes());
+    double fsUsage = (static_cast<double>(LittleFS.usedBytes()) / LittleFS.totalBytes()) * 100;
+    LOGF(INFO, "LittleFS: %d%% (used %ld bytes from %ld bytes)", static_cast<int>(ceil(fsUsage)), LittleFS.usedBytes(), LittleFS.totalBytes());
 
     systemInitialized = true;
 
@@ -1444,7 +1444,7 @@ void setRuntimePidState(const bool enabled) {
     Config::getInstance().set<bool>("pid.enabled", enabled);
 }
 
-void setSteamMode(bool steamMode) {
+void setSteamMode(const bool steamMode) {
     steamON = steamMode;
 
     if (steamON) {

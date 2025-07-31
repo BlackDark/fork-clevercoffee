@@ -152,7 +152,7 @@ void debugTimingLoop() {
                 if (loopIndex == 0) {
                     printTimingAndActivityBatch(loopTiming, activityType, LOOP_HISTORY_SIZE);
                     unsigned long reportTime = millis() - lastSendMillisDebug;
-                    float avgLoopMs = loopCount > 0 ? ((float)reportTime / loopCount) : 0;
+                    float avgLoopMs = loopCount > 0 ? (static_cast<float>(reportTime) / loopCount) : 0;
                     LOGF(DEBUG, "Max time %lu (ms) -- %i entries report time %lu (ms) -- average %0.2f (ms)", maxLoop, LOOP_HISTORY_SIZE, reportTime, avgLoopMs);
                     lastSendMillisDebug = millis();
                     loopCount = 0;

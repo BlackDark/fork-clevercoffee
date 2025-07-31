@@ -10,32 +10,32 @@ This TODO list breaks down the migration plan into small, incremental steps that
 
 ### 1.1 Basic Modernization (Days 1-3)
 
-#### **TODO-001: Replace NULL with nullptr**
+#### **TODO-001: Replace NULL with nullptr** [DONE]
 - **Files**: All `.cpp` and `.h` files
 - **Action**: Search and replace all `NULL` occurrences with `nullptr`
 - **Test**: Compile and verify basic functionality
 - **Risk**: Low - Direct replacement
 
-#### **TODO-002: Add const correctness to utility functions**
+#### **TODO-002: Add const correctness to utility functions** [DONE]
 - **Files**: `src/main.cpp` (lines 344-372), `src/utils/helperUtils.h`
-- **Action**: 
+- **Action**:
   - Make `number2string()` functions take `const` parameters
   - Mark functions as `const` where appropriate
   - Add `const` to string parameters in utility functions
 - **Test**: Compile and verify no functionality changes
 - **Risk**: Low - Read-only operations
 
-#### **TODO-003: Replace C-style casts with C++ casts**
+#### **TODO-003: Replace C-style casts with C++ casts** [DONE]
 - **Files**: `src/main.cpp`, `src/Config.cpp`
-- **Action**: 
+- **Action**:
   - Replace `(type)value` with `static_cast<type>(value)`
   - Replace dangerous casts with `reinterpret_cast` where necessary
 - **Test**: Compile and run basic operations
 - **Risk**: Low - Type safety improvement
 
-#### **TODO-004: Modernize for loops where possible**
+#### **TODO-004: Modernize for loops where possible** [DONE]
 - **Files**: `src/main.cpp`, display template files
-- **Action**: 
+- **Action**:
   - Replace traditional for loops with range-based where applicable
   - Use `auto` for iterator types
 - **Test**: Compile and verify display functionality
@@ -60,7 +60,7 @@ This TODO list breaks down the migration plan into small, incremental steps that
 
 #### **TODO-006: Replace U8G2 raw pointer with DisplayManager**
 - **Files**: `src/main.cpp` (lines 894-918)
-- **Action**: 
+- **Action**:
   - Replace global `U8G2* u8g2` with `std::unique_ptr<DisplayManager>`
   - Update all `u8g2->` calls to use manager
 - **Test**: Full display functionality testing
@@ -85,7 +85,7 @@ This TODO list breaks down the migration plan into small, incremental steps that
 
 #### **TODO-008: Replace hardware raw pointers with HardwareManager**
 - **Files**: `src/main.cpp` (lines 929-988)
-- **Action**: 
+- **Action**:
   - Move hardware initialization to HardwareManager
   - Replace global pointers with manager access
 - **Test**: Complete hardware functionality test
@@ -141,7 +141,7 @@ This TODO list breaks down the migration plan into small, incremental steps that
 - **Action**:
   ```cpp
   class MachineStateContext; // Forward declaration
-  
+
   class MachineState {
   public:
       virtual ~MachineState() = default;

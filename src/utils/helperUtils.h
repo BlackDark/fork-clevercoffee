@@ -47,8 +47,8 @@ inline double round2(const double value) {
 inline bool isValidNumber(const String& str) {
     if (str.length() == 0) return false;
 
-    for (size_t i = 0; i < str.length(); i++) {
-        if (!isdigit(str[i]) && str[i] != '.' && str[i] != '-') {
+    for (const auto& ch : str) {
+        if (!isdigit(ch) && ch != '.' && ch != '-') {
             return false;
         }
     }
