@@ -75,6 +75,10 @@ inline bool systemInitialized = false;
 #include "display/DisplayManager.h"
 std::unique_ptr<DisplayManager> displayManager = nullptr;
 
+// Hardware Manager
+#include "hardware/HardwareManager.h"
+std::unique_ptr<HardwareManager> hardwareManager = nullptr;
+
 // Compatibility function for existing code
 U8G2* getU8G2() {
     return displayManager ? displayManager->get() : nullptr;
@@ -82,6 +86,23 @@ U8G2* getU8G2() {
 
 // Compatibility pointer for existing code - will be removed in future refactoring
 U8G2* u8g2 = nullptr;
+
+// Hardware compatibility pointers - will be removed in future refactoring
+Switch* waterTankSensor = nullptr;
+GPIOPin* statusLedPin = nullptr;
+GPIOPin* brewLedPin = nullptr;
+GPIOPin* steamLedPin = nullptr;
+LED* statusLed = nullptr;
+LED* brewLed = nullptr;
+LED* steamLed = nullptr;
+Relay* heaterRelay = nullptr;
+Relay* pumpRelay = nullptr;
+Relay* valveRelay = nullptr;
+Switch* powerSwitch = nullptr;
+Switch* brewSwitch = nullptr;
+Switch* steamSwitch = nullptr;
+Switch* hotWaterSwitch = nullptr;
+TempSensor* tempSensor = nullptr;
 
 // WiFi
 WiFiManager wm;
@@ -111,32 +132,6 @@ bool hassioUpdateRunning = false;
 bool temperatureUpdateRunning = false;
 
 #include "utils/timingDebug.h"
-
-Switch* waterTankSensor = nullptr;
-
-GPIOPin* statusLedPin = nullptr;
-GPIOPin* brewLedPin = nullptr;
-GPIOPin* steamLedPin = nullptr;
-
-LED* statusLed = nullptr;
-LED* brewLed = nullptr;
-LED* steamLed = nullptr;
-
-GPIOPin heaterRelayPin(PIN_HEATER, GPIOPin::OUT);
-Relay* heaterRelay = nullptr;
-
-GPIOPin pumpRelayPin(PIN_PUMP, GPIOPin::OUT);
-Relay* pumpRelay = nullptr;
-
-GPIOPin valveRelayPin(PIN_VALVE, GPIOPin::OUT);
-Relay* valveRelay = nullptr;
-
-Switch* powerSwitch = nullptr;
-Switch* brewSwitch = nullptr;
-Switch* steamSwitch = nullptr;
-Switch* hotWaterSwitch = nullptr;
-
-TempSensor* tempSensor = nullptr;
 
 #include "isr.h"
 
@@ -924,65 +919,31 @@ void setup() {
 
     initTimer1();
 
-    const auto heaterTriggerType = static_cast<Relay::TriggerType>(Config::getInstance().get<int>("hardware.relays.heater.trigger_type"));
-    heaterRelay = new Relay(heaterRelayPin, heaterTriggerType);
-    heaterRelay->off();
+    // Initialize hardware manager
+    try {
+        hardwareManager = std::make_unique<HardwareManager>();
 
-    const auto valveTriggerType = static_cast<Relay::TriggerType>(Config::getInstance().get<int>("hardware.relays.valve.trigger_type"));
-    valveRelay = new Relay(valveRelayPin, valveTriggerType);
-    valveRelay->off();
+        // Update compatibility pointers to reference HardwareManager components
+        heaterRelay = &hardwareManager->getHeaterRelay();
+        pumpRelay = &hardwareManager->getPumpRelay();
+        valveRelay = &hardwareManager->getValveRelay();
 
-    const auto pumpTriggerType = static_cast<Relay::TriggerType>(Config::getInstance().get<int>("hardware.relays.pump.trigger_type"));
-    pumpRelay = new Relay(pumpRelayPin, pumpTriggerType);
-    pumpRelay->off();
+        statusLed = hardwareManager->getStatusLed();
+        brewLed = hardwareManager->getBrewLed();
+        steamLed = hardwareManager->getSteamLed();
 
-    if (config.get<bool>("hardware.switches.power.enabled")) {
-        const auto type = static_cast<Switch::Type>(config.get<int>("hardware.switches.power.type"));
-        const auto mode = static_cast<Switch::Mode>(config.get<int>("hardware.switches.power.mode"));
-        powerSwitch = new IOSwitch(PIN_POWERSWITCH, GPIOPin::IN_HARDWARE, type, mode, mode);
-    }
+        powerSwitch = hardwareManager->getPowerSwitch();
+        brewSwitch = hardwareManager->getBrewSwitch();
+        steamSwitch = hardwareManager->getSteamSwitch();
+        hotWaterSwitch = hardwareManager->getHotWaterSwitch();
+        waterTankSensor = hardwareManager->getWaterTankSensor();
 
-    if (config.get<bool>("hardware.switches.steam.enabled")) {
-        const auto type = static_cast<Switch::Type>(config.get<int>("hardware.switches.steam.type"));
-        const auto mode = static_cast<Switch::Mode>(config.get<int>("hardware.switches.steam.mode"));
-        steamSwitch = new IOSwitch(PIN_STEAMSWITCH, GPIOPin::IN_HARDWARE, type, mode, mode);
-    }
+        tempSensor = hardwareManager->getTempSensor();
 
-    if (config.get<bool>("hardware.switches.brew.enabled")) {
-        const auto type = static_cast<Switch::Type>(config.get<int>("hardware.switches.brew.type"));
-        const auto mode = static_cast<Switch::Mode>(config.get<int>("hardware.switches.brew.mode"));
-        brewSwitch = new IOSwitch(PIN_BREWSWITCH, GPIOPin::IN_HARDWARE, type, mode, mode);
-    }
-
-    if (config.get<bool>("hardware.switches.hot_water.enabled")) {
-        const auto type = static_cast<Switch::Type>(config.get<int>("hardware.switches.hot_water.type"));
-        const auto mode = static_cast<Switch::Mode>(config.get<int>("hardware.switches.hot_water.mode"));
-        hotWaterSwitch = new IOSwitch(PIN_WATERSWITCH, GPIOPin::IN_HARDWARE, type, mode, mode);
-    }
-
-    if (config.get<bool>("hardware.leds.status.enabled")) {
-        const bool inverted = config.get<bool>("hardware.leds.status.inverted");
-        statusLedPin = new GPIOPin(PIN_STATUSLED, GPIOPin::OUT);
-        statusLed = new StandardLED(*statusLedPin, inverted);
-        statusLed->turnOff();
-    }
-
-    if (config.get<bool>("hardware.leds.brew.enabled")) {
-        const bool inverted = config.get<bool>("hardware.leds.brew.inverted");
-        brewLedPin = new GPIOPin(PIN_BREWLED, GPIOPin::OUT);
-        brewLed = new StandardLED(*brewLedPin, inverted);
-        brewLed->turnOff();
-    }
-    if (config.get<bool>("hardware.leds.steam.enabled")) {
-        const bool inverted = config.get<bool>("hardware.leds.steam.inverted");
-        steamLedPin = new GPIOPin(PIN_STEAMLED, GPIOPin::OUT);
-        steamLed = new StandardLED(*steamLedPin, inverted);
-        steamLed->turnOff();
-    }
-
-    if (config.get<bool>("hardware.sensors.watertank.enabled")) {
-        const auto mode = static_cast<Switch::Mode>(config.get<int>("hardware.sensors.watertank.mode"));
-        waterTankSensor = new IOSwitch(PIN_WATERTANKSENSOR, (mode == Switch::NORMALLY_OPEN ? GPIOPin::IN_PULLDOWN : GPIOPin::IN_PULLUP), Switch::TOGGLE, mode, !mode);
+        LOG(INFO, "Hardware initialization completed via HardwareManager");
+    } catch (const std::exception& e) {
+        LOG(ERROR, "Failed to initialize HardwareManager");
+        // Fallback: system will continue but hardware may not be available
     }
 
     if (!config.get<bool>("system.offline_mode")) { // WiFi Mode
@@ -1084,15 +1045,7 @@ void setup() {
     bPID.SetSmoothingFactor(emaFactor);
     bPID.SetMode(AUTOMATIC);
 
-    const int tempSensorType = config.get<int>("hardware.sensors.temperature.type");
-
-    if (tempSensorType == 0) {
-        tempSensor = new TempSensorTSIC(PIN_TEMPSENSOR);
-    }
-    else if (tempSensorType == 1) {
-        tempSensor = new TempSensorDallas(PIN_TEMPSENSOR);
-    }
-
+    // Temperature sensor is now managed by HardwareManager
     if (tempSensor != nullptr) {
         temperature = tempSensor->getCurrentTemperature();
         temperature -= brewTempOffset;

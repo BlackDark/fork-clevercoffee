@@ -83,7 +83,7 @@ This TODO list breaks down the migration plan into small, incremental steps that
 - **Test**: Hardware initialization and basic control
 - **Risk**: High - Core hardware functionality
 
-#### **TODO-008: Replace hardware raw pointers with HardwareManager**
+#### **TODO-008: Replace hardware raw pointers with HardwareManager** [DONE]
 - **Files**: `src/main.cpp` (lines 929-988)
 - **Action**:
   - Move hardware initialization to HardwareManager
