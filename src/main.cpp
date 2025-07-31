@@ -11,6 +11,7 @@
 
 // Libraries & Dependencies
 #include "Logger.h"
+#include "network/WiFiManager.h"
 #include <ArduinoOTA.h>
 #include <LittleFS.h>
 #include <PID_v1.h>  // for PID calculation
@@ -105,14 +106,15 @@ Switch* hotWaterSwitch = nullptr;
 TempSensor* tempSensor = nullptr;
 
 // WiFi
-WiFiManager wm;
-WiFiManagerParameter custom_hostname("hostname", "Device Hostname", hostname.c_str(), 32);
+// Modern WiFi management
+std::unique_ptr<CleverCoffeeWiFiManager> wifiManager = nullptr;
 constexpr unsigned long wifiConnectionDelay = WIFICONNECTIONDELAY;
 constexpr unsigned int maxWifiReconnects = MAXWIFIRECONNECTS;
 auto pass = WM_PASS;
 unsigned long lastWifiConnectionAttempt = millis();
 unsigned int wifiReconnects = 0; // actual number of reconnects
-bool restartAfterAP = false;
+// offlineMode is defined in GlobalVariables.cpp
+extern bool offlineMode;
 
 // OTA
 String otaPass;
@@ -306,7 +308,7 @@ void checkWifi() {
             if (wifiConnectCounter == 1) {
                 wifiReconnects++;
                 LOGF(INFO, "Attempting WIFI (re-)connection: %i", wifiReconnects);
-                wm.disconnect();
+                WiFi.disconnect();
                 WiFi.begin();
             }
 
@@ -769,89 +771,34 @@ char const* machinestateEnumToString(const MachineState machineState) {
  * @brief Set up internal WiFi hardware
  */
 void wiFiSetup() {
-    wm.addParameter(&custom_hostname);
-    wm.setCleanConnect(true);
-    wm.setConnectTimeout(10); // using 10s to connect to WLAN, 5s is sometimes too short!
-    wm.setBreakAfterConfig(true);
-    wm.setConnectRetries(3);
+    try {
+        wifiManager = std::make_unique<CleverCoffeeWiFiManager>();
+        const bool oledEnabled = Config::getInstance().get<bool>("hardware.oled.enabled");
 
-    bool oledEnabled = Config::getInstance().get<bool>("hardware.oled.enabled");
-
-    if (wm.getWiFiIsSaved()) {
-        LOG(INFO, "Connecting to WiFi");
-    }
-
-    wm.setHostname(hostname.c_str());
-    wm.setEnableConfigPortal(false); // doesnt start config portal within autoconnect
-    wm.setDisableConfigPortal(true); // disables config portal on wifi save
-    bool wifiConnected = wm.autoConnect(hostname.c_str(), pass);
-
-    if (!wifiConnected) {
-        wm.setConfigPortalTimeout(1);  // prompt config portal to update password
-        wifiConnected = wm.startConfigPortal(hostname.c_str(), pass);
-        wm.setConfigPortalTimeout(60); // sec timeout for captive portal
-
-        if (oledEnabled) {
-            displayLogo("Starting Portal AP", hostname.c_str());
+        if (!wifiManager->setupAndConnect(hostname, pass, oledEnabled, displayLogo)) {
+            offlineMode = true;
         }
 
-        wifiConnected = wm.startConfigPortal(hostname.c_str(), pass);
-        if (wifiConnected) {
-            restartAfterAP = true;
+        // Check if restart is required after AP configuration
+        if (wifiManager->requiresRestart()) {
+            // Device will restart inside WiFiManager, this code may not be reached
         }
 
-        // Read hostname from portal and store in config
-        String newHostname = String(custom_hostname.getValue());
-        if (newHostname.length() > 0 && newHostname != hostname) {
-            hostname = newHostname;
-            // Update the config system - this will automatically save to NVS
-            Config::getInstance().set<String>("system.hostname", hostname);
-        }
-    }
-
-    if (wifiConnected) {
-        LOGF(INFO, "WiFi connected - IP = %i.%i.%i.%i", WiFi.localIP()[0], WiFi.localIP()[1], WiFi.localIP()[2], WiFi.localIP()[3]);
-
-        byte mac[6];
-        WiFi.macAddress(mac);
-        const String macaddr0 = number2string(mac[0]);
-        const String macaddr1 = number2string(mac[1]);
-        const String macaddr2 = number2string(mac[2]);
-        const String macaddr3 = number2string(mac[3]);
-        const String macaddr4 = number2string(mac[4]);
-        const String macaddr5 = number2string(mac[5]);
-        const String completemac = macaddr0 + macaddr1 + macaddr2 + macaddr3 + macaddr4 + macaddr5;
-
-        LOGF(DEBUG, "MAC-ADDRESS: %s", completemac.c_str());
-
-        if (oledEnabled) {
-            displayLogo(langstring_connectwifi1, wm.getWiFiSSID(true));
-        }
-
-        if (restartAfterAP) {
-            LOG(INFO, "Restarting after successful Wifi configuration");
-            delay(1000);
-            ESP.restart();
-        }
-    }
-    else {
-        LOG(INFO, "WiFi connection timed out...");
-
-        if (oledEnabled) {
-            displayLogo(langstring_nowifi[0], langstring_nowifi[1]);
-        }
-
-        wm.disconnect();
-        delay(1000);
-
+        LOG(INFO, "WiFi setup completed via WiFiManager");
+    } catch (const std::exception& e) {
+        LOG(ERROR, "Failed to initialize WiFiManager");
         offlineMode = true;
     }
 }
 
 void wiFiReset() {
-    wm.resetSettings();
-    delay(500);
-    ESP.restart();
+    if (wifiManager) {
+        wifiManager->resetSettings();
+    }
+    else {
+        LOG(ERROR, "WiFiManager not initialized for reset");
+        ESP.restart();
+    }
 }
 
 extern const char sysVersion[];
@@ -1033,7 +980,7 @@ void setup() {
         }
     }
     else {
-        wm.disconnect();
+        WiFi.disconnect();
         offlineMode = true;
         setRuntimePidState(true);
     }

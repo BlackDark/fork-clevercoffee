@@ -93,7 +93,7 @@ This TODO list breaks down the migration plan into small, incremental steps that
 
 ### 1.3 Code Organization (Days 7-10)
 
-#### **TODO-009: Extract WiFi management to separate class**
+#### **TODO-009: Extract WiFi management to separate class** [DONE]
 - **Files**: Create `src/network/WiFiManager.h/.cpp`
 - **Action**:
   - Move WiFi setup and connection logic from `main.cpp` (lines 767-851)
