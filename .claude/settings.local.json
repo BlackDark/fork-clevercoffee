@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find:*)",
+      "Bash(~/.platformio/penv/bin/pio run -e esp32_usb)"
+    ],
+    "deny": []
+  }
+}

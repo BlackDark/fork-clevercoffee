@@ -12,20 +12,9 @@ Instructions:
 4. Present your findings as a structured plan or checklist, grouped by category where appropriate (e.g., performance, readability, structure, documentation).
 5. Do NOT modify the code yet—focus first on analysis and planning.
 
-Example Output Structure:
+Create the file `MIGRATION.md` which contains all the migration point you think needs to be tackled to follow the best practices and provide a good developer experience.
 
-Performance Optimization
-- Step 1: [...]
-- Step 2: [...]
+After creating the general plan revise the plan and create a step by step TODO list which you can use to processes the optimization in small chunks.
+In best case the steps always produce a compilable project states so we can commit and preserve the progress.
 
-Refactoring and Structure
-- Step 1: [...]
-- Step 2: [...]
-
-Readability and Code Style
-- Step 1: [...]
-- Step 2: [...]
-
-Documentation and Comments
-- Step 1: [...]
-- Step 2: [...]
+After that you can stop and I will review your generated files.
