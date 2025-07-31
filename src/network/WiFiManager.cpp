@@ -9,8 +9,15 @@
 #include <ESP.h>
 #include <WiFi.h>
 
-// Forward declaration for helper function
-extern String number2string(int value);
+// Helper function to convert byte to hex string
+static String byteToHex(byte value) {
+    String result = String(value, HEX);
+    if (result.length() == 1) {
+        result = "0" + result;
+    }
+    result.toUpperCase();
+    return result;
+}
 
 CleverCoffeeWiFiManager::CleverCoffeeWiFiManager() :
     customHostname_(nullptr), restartAfterAP_(false) {
@@ -75,13 +82,7 @@ void CleverCoffeeWiFiManager::handleSuccessfulConnection(bool oledEnabled, std::
 
     byte mac[6];
     WiFi.macAddress(mac);
-    const String macaddr0 = number2string(mac[0]);
-    const String macaddr1 = number2string(mac[1]);
-    const String macaddr2 = number2string(mac[2]);
-    const String macaddr3 = number2string(mac[3]);
-    const String macaddr4 = number2string(mac[4]);
-    const String macaddr5 = number2string(mac[5]);
-    const String completemac = macaddr0 + macaddr1 + macaddr2 + macaddr3 + macaddr4 + macaddr5;
+    const String completemac = byteToHex(mac[0]) + byteToHex(mac[1]) + byteToHex(mac[2]) + byteToHex(mac[3]) + byteToHex(mac[4]) + byteToHex(mac[5]);
 
     LOGF(DEBUG, "MAC-ADDRESS: %s", completemac.c_str());
 
