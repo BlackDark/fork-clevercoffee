@@ -16,3 +16,5 @@ platformio_extra.ini
 
 # ignore flash package
 CleverCoffee_Flash_Package
+
+.claude/
