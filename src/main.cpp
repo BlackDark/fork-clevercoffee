@@ -114,6 +114,10 @@ TempSensor* tempSensor = nullptr;
 // Modern WiFi and MQTT management
 std::unique_ptr<CleverCoffeeWiFiManager> wifiManager = nullptr;
 std::unique_ptr<MQTTManager> mqttManager = nullptr;
+
+// Modern sensor management
+#include "sensors/SensorManager.h"
+SensorManager* sensorManager = nullptr;
 constexpr unsigned long wifiConnectionDelay = WIFICONNECTIONDELAY;
 constexpr unsigned int maxWifiReconnects = MAXWIFIRECONNECTS;
 auto pass = WM_PASS;
@@ -428,7 +432,8 @@ void handleMachineState() {
                 machineState = kWaterTankEmpty;
             }
 
-            if (tempSensor != nullptr && tempSensor->hasError()) {
+            if ((sensorManager != nullptr && sensorManager->hasSensorError()) || 
+                (tempSensor != nullptr && tempSensor->hasError())) {
                 machineState = kSensorError;
             }
 
@@ -499,7 +504,8 @@ void handleMachineState() {
                 machineState = kWaterTankEmpty;
             }
 
-            if (tempSensor != nullptr && tempSensor->hasError()) {
+            if ((sensorManager != nullptr && sensorManager->hasSensorError()) || 
+                (tempSensor != nullptr && tempSensor->hasError())) {
                 machineState = kSensorError;
             }
 
@@ -518,7 +524,8 @@ void handleMachineState() {
                 machineState = kPidDisabled;
             }
 
-            if (tempSensor != nullptr && tempSensor->hasError()) {
+            if ((sensorManager != nullptr && sensorManager->hasSensorError()) || 
+                (tempSensor != nullptr && tempSensor->hasError())) {
                 machineState = kSensorError;
             }
 
@@ -541,7 +548,8 @@ void handleMachineState() {
                 machineState = kPidDisabled;
             }
 
-            if (tempSensor != nullptr && tempSensor->hasError()) {
+            if ((sensorManager != nullptr && sensorManager->hasSensorError()) || 
+                (tempSensor != nullptr && tempSensor->hasError())) {
                 machineState = kSensorError;
             }
             break;
@@ -567,7 +575,8 @@ void handleMachineState() {
                 machineState = kPidDisabled;
             }
 
-            if (tempSensor != nullptr && tempSensor->hasError()) {
+            if ((sensorManager != nullptr && sensorManager->hasSensorError()) || 
+                (tempSensor != nullptr && tempSensor->hasError())) {
                 machineState = kSensorError;
             }
 
@@ -586,7 +595,8 @@ void handleMachineState() {
                 machineState = kPidDisabled;
             }
 
-            if (tempSensor->hasError()) {
+            if ((sensorManager != nullptr && sensorManager->hasSensorError()) || 
+                (tempSensor != nullptr && tempSensor->hasError())) {
                 machineState = kSensorError;
             }
 
@@ -611,7 +621,8 @@ void handleMachineState() {
                 machineState = kWaterTankEmpty;
             }
 
-            if (tempSensor != nullptr && tempSensor->hasError()) {
+            if ((sensorManager != nullptr && sensorManager->hasSensorError()) || 
+                (tempSensor != nullptr && tempSensor->hasError())) {
                 machineState = kSensorError;
             }
 
@@ -626,7 +637,8 @@ void handleMachineState() {
                 machineState = kPidDisabled;
             }
 
-            if (tempSensor != nullptr && tempSensor->hasError()) {
+            if ((sensorManager != nullptr && sensorManager->hasSensorError()) || 
+                (tempSensor != nullptr && tempSensor->hasError())) {
                 machineState = kSensorError;
             }
 
@@ -645,7 +657,8 @@ void handleMachineState() {
                 machineState = kPidDisabled;
             }
 
-            if (tempSensor != nullptr && tempSensor->hasError()) {
+            if ((sensorManager != nullptr && sensorManager->hasSensorError()) || 
+                (tempSensor != nullptr && tempSensor->hasError())) {
                 machineState = kSensorError;
             }
 
@@ -656,7 +669,8 @@ void handleMachineState() {
                 machineState = kPidNormal;
             }
 
-            if (tempSensor != nullptr && tempSensor->hasError()) {
+            if ((sensorManager != nullptr && sensorManager->hasSensorError()) || 
+                (tempSensor != nullptr && tempSensor->hasError())) {
                 machineState = kSensorError;
             }
 
@@ -727,7 +741,8 @@ void handleMachineState() {
                     }
                 }
 
-                if (tempSensor != nullptr && tempSensor->hasError()) {
+                if ((sensorManager != nullptr && sensorManager->hasSensorError()) || 
+                    (tempSensor != nullptr && tempSensor->hasError())) {
                     if (oledEnabled) {
                         u8g2->setPowerSave(0);
                     }
@@ -879,9 +894,16 @@ void setup() {
         tempSensor = hwManager->getTempSensor();
     }
 
+    // Get SensorManager reference from SystemInitializer
+    sensorManager = systemInitializer->getSensorManager();
+
     // Complete initialization steps that require global dependencies
     if (config.get<bool>("hardware.sensors.scale.enabled")) {
-        initScale();
+        if (sensorManager) {
+            sensorManager->initializeScale();
+        } else {
+            initScale(); // Fallback to global function
+        }
     }
 
     systemInitialized = systemInitializer->isInitialized();
@@ -911,7 +933,18 @@ void loopPid() {
     // Update the temperature:
     temperatureUpdateRunning = false;
 
-    if (tempSensor != nullptr) {
+    if (sensorManager != nullptr) {
+        // Use SensorManager for temperature reading (includes brew offset automatically)
+        temperature = sensorManager->getCurrentTemperature();
+
+        if (machineState == kSteam) {
+            // For steam mode, get raw temperature without brew offset
+            if (tempSensor != nullptr) {
+                temperature = tempSensor->getCurrentTemperature();
+            }
+        }
+    } else if (tempSensor != nullptr) {
+        // Fallback to direct sensor access
         temperature = tempSensor->getCurrentTemperature();
 
         if (machineState != kSteam) {
@@ -991,10 +1024,18 @@ void loopPid() {
     }
 
     if (config.get<bool>("hardware.sensors.pressure.enabled")) {
-        if (const unsigned long currentMillisPressure = millis(); currentMillisPressure - previousMillisPressure >= intervalPressure) {
-            previousMillisPressure = currentMillisPressure;
-            inputPressure = measurePressure();
-            inputPressureFilter = filterPressureValue(inputPressure);
+        if (sensorManager != nullptr) {
+            // Use SensorManager for pressure reading
+            sensorManager->updatePressureSensor();
+            inputPressure = sensorManager->getCurrentPressure();
+            inputPressureFilter = sensorManager->getFilteredPressure();
+        } else {
+            // Fallback to direct pressure reading
+            if (const unsigned long currentMillisPressure = millis(); currentMillisPressure - previousMillisPressure >= intervalPressure) {
+                previousMillisPressure = currentMillisPressure;
+                inputPressure = measurePressure();
+                inputPressureFilter = filterPressureValue(inputPressure);
+            }
         }
     }
 
@@ -1165,17 +1206,24 @@ void loopLED() {
 }
 
 void checkWaterTank() {
-    if (!config.get<bool>("hardware.sensors.watertank.enabled") || waterTankSensor == nullptr) {
-        return;
-    }
+    if (sensorManager != nullptr) {
+        // Use SensorManager for water tank sensing
+        sensorManager->updateWaterTankSensor();
+        waterTankFull = sensorManager->isWaterTankFull();
+    } else {
+        // Fallback to direct water tank sensor reading
+        if (!config.get<bool>("hardware.sensors.watertank.enabled") || waterTankSensor == nullptr) {
+            return;
+        }
 
-    if (const bool isWaterDetected = waterTankSensor->isPressed(); isWaterDetected && !waterTankFull) {
-        waterTankFull = true;
-        LOG(INFO, "Water tank full");
-    }
-    else if (!isWaterDetected && waterTankFull) {
-        waterTankFull = false;
-        LOG(WARNING, "Water tank empty");
+        if (const bool isWaterDetected = waterTankSensor->isPressed(); isWaterDetected && !waterTankFull) {
+            waterTankFull = true;
+            LOG(INFO, "Water tank full");
+        }
+        else if (!isWaterDetected && waterTankFull) {
+            waterTankFull = false;
+            LOG(WARNING, "Water tank empty");
+        }
     }
 }
 

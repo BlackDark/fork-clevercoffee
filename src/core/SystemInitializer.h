@@ -13,6 +13,7 @@
 class DisplayManager;
 class HardwareManager;
 class MQTTManager;
+class SensorManager;
 
 /**
  * @class SystemInitializer
@@ -79,6 +80,14 @@ class SystemInitializer {
             return mqttManager_.get();
         }
 
+        /**
+         * @brief Get sensor manager
+         * @return Pointer to sensor manager (may be null)
+         */
+        SensorManager* getSensorManager() const {
+            return sensorManager_.get();
+        }
+
     private:
         // Initialization state
         bool systemInitialized_;
@@ -88,6 +97,7 @@ class SystemInitializer {
         std::unique_ptr<DisplayManager> displayManager_;
         std::unique_ptr<HardwareManager> hardwareManager_;
         std::unique_ptr<MQTTManager> mqttManager_;
+        std::unique_ptr<SensorManager> sensorManager_;
 
         // Initialization phases
         bool initializeLogger();

@@ -18,6 +18,7 @@ namespace DisplayTemplateManager {
 }
 #include "../hardware/HardwareManager.h"
 #include "../network/MQTTManager.h"
+#include "../sensors/SensorManager.h"
 #include "Logger.h"
 #include <Arduino.h>
 #include <ArduinoOTA.h>
@@ -105,7 +106,8 @@ SystemInitializer::SystemInitializer() :
     systemInitialized_(false),
     displayManager_(nullptr),
     hardwareManager_(nullptr),
-    mqttManager_(nullptr) {
+    mqttManager_(nullptr),
+    sensorManager_(nullptr) {
 }
 
 bool SystemInitializer::initialize() {
@@ -360,26 +362,30 @@ bool SystemInitializer::initializePID() {
 
 bool SystemInitializer::initializeSensors() {
     try {
-        // Temperature sensor is now managed by HardwareManager
-        if (tempSensor != nullptr) {
-            temperature = tempSensor->getCurrentTemperature();
-            temperature -= brewTempOffset;
-            LOG(INFO, "Temperature sensor initialized");
-        }
+        // Create and initialize SensorManager
+        sensorManager_ = std::make_unique<SensorManager>();
 
-        // Note: Scale initialization (initScale()) is now handled 
-        // in main.cpp after SystemInitializer completes
-        if (Config::getInstance().get<bool>("hardware.sensors.scale.enabled")) {
-            LOG(INFO, "Scale sensor will be initialized in main.cpp");
-        }
+        // Get sensor references from HardwareManager
+        TempSensor* tempSensorRef = hardwareManager_ ? hardwareManager_->getTempSensor() : nullptr;
+        Switch* waterTankSensorRef = hardwareManager_ ? hardwareManager_->getWaterTankSensor() : nullptr;
 
-        // Initialize pressure sensor timing if enabled
-        if (Config::getInstance().get<bool>("hardware.sensors.pressure.enabled")) {
-            previousMillisPressure = millis();
-            LOG(INFO, "Pressure sensor initialized");
+        if (sensorManager_->initialize(tempSensorRef, waterTankSensorRef)) {
+            // Update global temperature variable for compatibility
+            temperature = sensorManager_->getCurrentTemperature();
+            
+            LOG(INFO, "Sensor management initialized via SensorManager");
+            
+            // Note: Scale initialization is still handled separately in main.cpp 
+            // because it requires complex global dependencies
+            if (Config::getInstance().get<bool>("hardware.sensors.scale.enabled")) {
+                LOG(INFO, "Scale sensor will be initialized separately in main.cpp");
+            }
+            
+            return true;
+        } else {
+            LOG(WARNING, "SensorManager initialization returned false");
+            return false;
         }
-
-        return true;
     } catch (const std::exception& e) {
         LOGF(ERROR, "Sensor initialization failed: %s", e.what());
         return false;
