@@ -136,7 +136,7 @@ This TODO list breaks down the migration plan into small, incremental steps that
 
 ### 2.1 State Machine Refactoring (Days 11-15)
 
-#### **TODO-013: Define state machine interfaces**
+#### **TODO-013: Define state machine interfaces** [DONE]
 - **Files**: Create `src/state/MachineState.h`
 - **Action**:
   ```cpp
@@ -154,7 +154,7 @@ This TODO list breaks down the migration plan into small, incremental steps that
 - **Test**: Compile interface definitions
 - **Risk**: Low - Interface definition only
 
-#### **TODO-014: Create MachineStateContext**
+#### **TODO-014: Create MachineStateContext** [DONE]
 - **Files**: Create `src/state/MachineStateContext.h/.cpp`
 - **Action**:
   - Define context class with all necessary state data
