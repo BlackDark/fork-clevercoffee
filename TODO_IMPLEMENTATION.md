@@ -120,7 +120,7 @@ This TODO list breaks down the migration plan into small, incremental steps that
 - **Test**: Complete system startup sequence
 - **Risk**: High - System initialization
 
-#### **TODO-012: Extract sensor management to separate class** [INPROGRESS]
+#### **TODO-012: Extract sensor management to separate class** [DONE]
 - **Files**: Create `src/sensors/SensorManager.h/.cpp`
 - **Action**:
   - Move temperature sensor initialization and reading
