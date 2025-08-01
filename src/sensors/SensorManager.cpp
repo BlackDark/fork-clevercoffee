@@ -94,7 +94,8 @@ void SensorManager::update() {
 
 bool SensorManager::areSensorsReady() const {
     // Check if any enabled sensor has an error
-    if (Config::getInstance().get<bool>("hardware.sensors.temperature.enabled") && hasTemperatureError()) {
+    // Temperature sensor is always enabled, just check for errors
+    if (hasTemperatureError()) {
         return false;
     }
 
@@ -208,10 +209,7 @@ Scale* SensorManager::getScale() const {
 }
 
 bool SensorManager::initializeTemperatureSensor() {
-    if (!Config::getInstance().get<bool>("hardware.sensors.temperature.enabled")) {
-        LOG(INFO, "Temperature sensor disabled in configuration");
-        return true;
-    }
+    // Temperature sensor is always enabled - check if we have a sensor instance
 
     if (tempSensor_ == nullptr) {
         LOG(ERROR, "Temperature sensor not provided to SensorManager");

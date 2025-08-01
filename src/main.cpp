@@ -934,6 +934,9 @@ void loopPid() {
     temperatureUpdateRunning = false;
 
     if (sensorManager != nullptr) {
+        // Update SensorManager first to get fresh readings
+        sensorManager->update();
+        
         // Use SensorManager for temperature reading (includes brew offset automatically)
         temperature = sensorManager->getCurrentTemperature();
 
@@ -1025,8 +1028,7 @@ void loopPid() {
 
     if (config.get<bool>("hardware.sensors.pressure.enabled")) {
         if (sensorManager != nullptr) {
-            // Use SensorManager for pressure reading
-            sensorManager->updatePressureSensor();
+            // Pressure reading is handled by sensorManager->update() call above
             inputPressure = sensorManager->getCurrentPressure();
             inputPressureFilter = sensorManager->getFilteredPressure();
         } else {
@@ -1207,7 +1209,8 @@ void loopLED() {
 
 void checkWaterTank() {
     if (sensorManager != nullptr) {
-        // Use SensorManager for water tank sensing
+        // Use SensorManager for water tank sensing  
+        // (sensor reading is updated by sensorManager->update() in loopPid)
         sensorManager->updateWaterTankSensor();
         waterTankFull = sensorManager->isWaterTankFull();
     } else {
