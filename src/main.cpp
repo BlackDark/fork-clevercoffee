@@ -803,6 +803,7 @@ void wiFiSetup() {
         const bool oledEnabled = Config::getInstance().get<bool>("hardware.oled.enabled");
 
         // Don't pass display callback during system initialization - display isn't fully ready yet
+        // TODO: Lost: User feedback during WiFi connection (no "Connecting to WiFi..." messages on display) with commit 271d43432fab22cc4e1c950ee107212886806b8f
         if (!wifiManager->setupAndConnect(hostname, pass, false, nullptr)) {
             offlineMode = true;
         }
@@ -834,7 +835,7 @@ extern const char sysVersion[];
 void setup() {
     // Initialize system using RAII SystemInitializer
     systemInitializer = std::make_unique<SystemInitializer>();
-    
+
     if (!systemInitializer->initialize()) {
         LOG(ERROR, "System initialization failed!");
         Serial.println("Critical system initialization error detected!");
@@ -845,21 +846,21 @@ void setup() {
     // Update compatibility pointers from SystemInitializer
     if (systemInitializer->getDisplayManager()) {
         u8g2 = systemInitializer->getDisplayManager()->get();
-        
+
         // Complete display initialization that requires global dependencies
         // This must be done AFTER SystemInitializer to avoid crashes during WiFi setup
         u8g2_prepare();
         initLangStrings(config);
-        
+
         const int templateId = Config::getInstance().get<int>("display.template");
         DisplayTemplateManager::initializeDisplay(templateId);
-        
+
         displayLogo(String("Version "), String(sysVersion));
     }
 
     if (systemInitializer->getHardwareManager()) {
         HardwareManager* hwManager = systemInitializer->getHardwareManager();
-        
+
         // Update compatibility pointers
         heaterRelay = &hwManager->getHeaterRelay();
         pumpRelay = &hwManager->getPumpRelay();
@@ -884,7 +885,7 @@ void setup() {
     }
 
     systemInitialized = systemInitializer->isInitialized();
-    
+
     LOG(INFO, "System setup completed via SystemInitializer");
 }
 

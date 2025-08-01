@@ -406,6 +406,16 @@ This TODO list breaks down the migration plan into small, incremental steps that
 - **Test**: Documentation generation
 - **Risk**: Low - Documentation improvement
 
+#### **TODO-038: Restore WiFi connection status display during system initialization**
+- **Files**: `src/core/SystemInitializer.cpp`, `src/main.cpp`, `src/network/WiFiManager.cpp`
+- **Action**:
+  - Create a safe, early-stage display message function that doesn't depend on full display initialization
+  - Implement basic WiFi status messages during connection ("Connecting...", "Connected", etc.)
+  - Ensure display messages work before u8g2_prepare() and language initialization
+  - Restore user feedback during WiFi connection process without causing crashes
+- **Test**: Verify WiFi status appears on display during boot without crashes
+- **Risk**: Medium - Display system integration
+
 ---
 
 ## Implementation Guidelines
