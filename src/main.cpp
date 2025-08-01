@@ -11,6 +11,7 @@
 
 // Libraries & Dependencies
 #include "Logger.h"
+#include "core/SystemInitializer.h"
 #include "network/MQTTManager.h"
 #include "network/WiFiManager.h"
 #include <ArduinoOTA.h>
@@ -72,6 +73,9 @@ int lastmachinestatepid = -1;
 int displayOffline = 0;
 
 inline bool systemInitialized = false;
+
+// System initializer
+std::unique_ptr<SystemInitializer> systemInitializer = nullptr;
 
 // Display Manager
 #include "display/DisplayManager.h"
@@ -827,246 +831,59 @@ void wiFiReset() {
 extern const char sysVersion[];
 
 void setup() {
-    // Start serial console
-    Serial.begin(115200);
-
-    // Initialize the logger
-    Logger::Config loggerConfig;
-    Logger::init(loggerConfig);
-
-    // Start the logger
-    Logger::begin();
-
-    if (!Config::getInstance().begin()) {
-        LOG(ERROR, "Failed to initialize configuration system!");
-        Serial.println("Critical error detected!");
-        Serial.flush(); // Ensure message is sent before exiting
-        exit(0);        // Force exit the program
-    }
-    else {
-        LOG(INFO, "Configuration system ready");
-        int level = Config::getInstance().get<int>("system.log_level");
-        Logger::setLevel(static_cast<Logger::Level>(level));
+    // Initialize system using RAII SystemInitializer
+    systemInitializer = std::make_unique<SystemInitializer>();
+    
+    if (!systemInitializer->initialize()) {
+        LOG(ERROR, "System initialization failed!");
+        Serial.println("Critical system initialization error detected!");
+        Serial.flush();
+        exit(0);
     }
 
-    hostname = Config::getInstance().get<String>("system.hostname");
-
-    Wire.begin();
-
-    if (Config::getInstance().get<bool>("hardware.oled.enabled")) {
-        const int displayType = Config::getInstance().get<int>("hardware.oled.type");
-        const int displayAddress = Config::getInstance().get<int>("hardware.oled.address");
-
-        displayManager = std::make_unique<DisplayManager>(displayType, displayAddress);
-
-        if (displayManager && displayManager->isInitialized()) {
-            // Set compatibility pointer for existing code
-            u8g2 = displayManager->get();
-
-            u8g2_prepare();
-
-            initLangStrings(config);
-
-            const int templateId = Config::getInstance().get<int>("display.template");
-            DisplayTemplateManager::initializeDisplay(templateId);
-
-            displayLogo(String("Version "), String(sysVersion));
-        }
-        else {
-            LOG(ERROR, "Error initializing the display!");
-            displayManager.reset(); // Release failed DisplayManager
-            u8g2 = nullptr;         // Reset compatibility pointer
-            // Update config system - this will automatically save to NVS
-            Config::getInstance().set<bool>("hardware.oled.enabled", false);
-        }
+    // Update compatibility pointers from SystemInitializer
+    if (systemInitializer->getDisplayManager()) {
+        u8g2 = systemInitializer->getDisplayManager()->get();
+        
+        // Complete display initialization that requires global dependencies
+        u8g2_prepare();
+        initLangStrings(config);
+        
+        const int templateId = Config::getInstance().get<int>("display.template");
+        DisplayTemplateManager::initializeDisplay(templateId);
+        
+        displayLogo(String("Version "), String(sysVersion));
     }
 
-    // Calculate derived values
-    aggKi = aggTn > 0 ? aggKp / aggTn : 0;
-    aggKd = aggTv * aggKp;
-    aggbKi = aggbTn > 0 ? aggbKp / aggbTn : 0;
-    aggbKd = aggbTv * aggbKp;
+    if (systemInitializer->getHardwareManager()) {
+        HardwareManager* hwManager = systemInitializer->getHardwareManager();
+        
+        // Update compatibility pointers
+        heaterRelay = &hwManager->getHeaterRelay();
+        pumpRelay = &hwManager->getPumpRelay();
+        valveRelay = &hwManager->getValveRelay();
 
-    initTimer1();
+        statusLed = hwManager->getStatusLed();
+        brewLed = hwManager->getBrewLed();
+        steamLed = hwManager->getSteamLed();
 
-    // Initialize hardware manager
-    try {
-        hardwareManager = std::make_unique<HardwareManager>();
+        powerSwitch = hwManager->getPowerSwitch();
+        brewSwitch = hwManager->getBrewSwitch();
+        steamSwitch = hwManager->getSteamSwitch();
+        hotWaterSwitch = hwManager->getHotWaterSwitch();
+        waterTankSensor = hwManager->getWaterTankSensor();
 
-        // Update compatibility pointers to reference HardwareManager components
-        heaterRelay = &hardwareManager->getHeaterRelay();
-        pumpRelay = &hardwareManager->getPumpRelay();
-        valveRelay = &hardwareManager->getValveRelay();
-
-        statusLed = hardwareManager->getStatusLed();
-        brewLed = hardwareManager->getBrewLed();
-        steamLed = hardwareManager->getSteamLed();
-
-        powerSwitch = hardwareManager->getPowerSwitch();
-        brewSwitch = hardwareManager->getBrewSwitch();
-        steamSwitch = hardwareManager->getSteamSwitch();
-        hotWaterSwitch = hardwareManager->getHotWaterSwitch();
-        waterTankSensor = hardwareManager->getWaterTankSensor();
-
-        tempSensor = hardwareManager->getTempSensor();
-
-        LOG(INFO, "Hardware initialization completed via HardwareManager");
-    } catch (const std::exception& e) {
-        LOG(ERROR, "Failed to initialize HardwareManager");
-        // Fallback: system will continue but hardware may not be available
+        tempSensor = hwManager->getTempSensor();
     }
 
-    if (!config.get<bool>("system.offline_mode")) { // WiFi Mode
-        wiFiSetup();
-        serverSetup();
-
-        // OTA Updates
-        if (WiFi.status() == WL_CONNECTED) {
-            otaPass = config.get<String>("system.ota_password");
-            ArduinoOTA.setHostname(hostname.c_str()); //  Device name for OTA
-            ArduinoOTA.setPassword(otaPass.c_str());  //  Password for OTA
-            ArduinoOTA.begin();
-        }
-
-        // Initialize MQTT manager
-        try {
-            mqttManager = std::make_unique<MQTTManager>();
-
-            if (mqttManager->setup(hostname)) {
-                // Set compatibility variables
-                mqtt_enabled = mqttManager->isEnabled();
-                mqtt_hassio_enabled = true; // Assuming Home Assistant is supported
-                mqtt = &mqttManager->getClient();
-                // Register parameter mappings
-                mqttManager->registerParameter("pidON", "pid.enabled");
-                mqttManager->registerParameter("brewSetpoint", "brew.setpoint");
-                mqttManager->registerParameter("brewTempOffset", "brew.temp_offset");
-                mqttManager->registerParameter("steamON", "STEAM_MODE");
-                mqttManager->registerParameter("steamSetpoint", "steam.setpoint");
-                mqttManager->registerParameter("pidUsePonM", "pid.use_ponm");
-                mqttManager->registerParameter("aggKp", "pid.regular.kp");
-                mqttManager->registerParameter("aggTn", "pid.regular.tn");
-                mqttManager->registerParameter("aggTv", "pid.regular.tv");
-                mqttManager->registerParameter("aggIMax", "pid.regular.i_max");
-                mqttManager->registerParameter("steamKp", "pid.steam.kp");
-                mqttManager->registerParameter("standbyModeOn", "standby.enabled");
-
-                // Register sensor callbacks
-                mqttManager->registerSensor("temperature", [] { return temperature; });
-                mqttManager->registerSensor("heaterPower", [] { return pidOutput / 10; });
-                mqttManager->registerSensor("standbyModeTimeRemaining", [] { return standbyModeRemainingTimeMillis / 1000; });
-                mqttManager->registerSensor("currentKp", [] { return bPID.GetKp(); });
-                mqttManager->registerSensor("currentKi", [] { return bPID.GetKi(); });
-                mqttManager->registerSensor("currentKd", [] { return bPID.GetKd(); });
-                mqttManager->registerSensor("machineState", [] { return machineState; });
-
-                if (config.get<bool>("hardware.switches.brew.enabled")) {
-                    mqttManager->registerParameter("aggbKp", "pid.bd.kp");
-                    mqttManager->registerParameter("aggbTn", "pid.bd.tn");
-                    mqttManager->registerParameter("aggbTv", "pid.bd.tv");
-                    mqttManager->registerParameter("pidUseBD", "pid.bd.enabled");
-                    mqttManager->registerParameter("brewPidDelay", "brew.pid_delay");
-                    mqttManager->registerSensor("currBrewTime", [] { return currBrewTime / 1000; });
-                    mqttManager->registerParameter("targetBrewTime", "brew.by_time.target_time");
-                    mqttManager->registerParameter("preinfusion", "brew.pre_infusion.time");
-                    mqttManager->registerParameter("preinfusionPause", "brew.pre_infusion.pause");
-                    mqttManager->registerParameter("backflushOn", "BACKFLUSH_ON");
-                    mqttManager->registerParameter("backflushCycles", "backflush.cycles");
-                    mqttManager->registerParameter("backflushFillTime", "backflush.fill_time");
-                    mqttManager->registerParameter("backflushFlushTime", "backflush.flush_time");
-                }
-
-                if (config.get<bool>("hardware.sensors.scale.enabled")) {
-                    mqttManager->registerParameter("targetBrewWeight", "brew.by_weight.target_weight");
-                    mqttManager->registerParameter("scaleCalibration", "hardware.sensors.scale.calibration");
-
-                    if (config.get<int>("hardware.sensors.scale.type") == 0) {
-                        mqttManager->registerParameter("scale2Calibration", "hardware.sensors.scale.calibration2");
-                    }
-
-                    mqttManager->registerParameter("scaleKnownWeight", "hardware.sensors.scale.known_weight");
-                    mqttManager->registerParameter("scaleTareOn", "TARE_ON");
-                    mqttManager->registerParameter("scaleCalibrationOn", "CALIBRATION_ON");
-
-                    mqttManager->registerSensor("currReadingWeight", [] { return currReadingWeight; });
-                    mqttManager->registerSensor("currBrewWeight", [] { return currBrewWeight; });
-                }
-
-                if (config.get<bool>("hardware.sensors.pressure.enabled")) {
-                    mqttManager->registerSensor("pressure", [] { return inputPressureFilter; });
-                }
-
-                mqttManager->checkConnection();
-                mqttManager->sendHASSIODiscoveryMsg();
-
-                LOG(INFO, "MQTT setup completed via MQTTManager");
-            }
-        } catch (const std::exception& e) {
-            LOG(ERROR, "Failed to initialize MQTTManager");
-        }
-    }
-    else {
-        WiFi.disconnect();
-        offlineMode = true;
-        setRuntimePidState(true);
-    }
-
-    // Initialize PID controller
-    bPID.SetSampleTime(windowSize);
-    bPID.SetOutputLimits(0, windowSize);
-    bPID.SetIntegratorLimits(0, AGGIMAX);
-    bPID.SetSmoothingFactor(emaFactor);
-    bPID.SetMode(AUTOMATIC);
-
-    // Temperature sensor is now managed by HardwareManager
-    if (tempSensor != nullptr) {
-        temperature = tempSensor->getCurrentTemperature();
-        temperature -= brewTempOffset;
-    }
-
-    // Initialisation MUST be at the very end of the init(), otherwise the
-    // time comparision in loop() will have a big offset
-    unsigned long currentTime = millis();
-    previousMillistemp = currentTime;
-    windowStartTime = currentTime;
-    previousMillisMQTT = currentTime;
-    lastMQTTConnectionAttempt = currentTime;
-
-    // Init Scale
+    // Complete initialization steps that require global dependencies
     if (config.get<bool>("hardware.sensors.scale.enabled")) {
         initScale();
     }
 
-    if (config.get<bool>("hardware.sensors.pressure.enabled")) {
-        previousMillisPressure = currentTime;
-    }
-
-    setupDone = true;
-
-    enableTimer1();
-
-    double fsUsage = (static_cast<double>(LittleFS.usedBytes()) / LittleFS.totalBytes()) * 100;
-    LOGF(INFO, "LittleFS: %d%% (used %ld bytes from %ld bytes)", static_cast<int>(ceil(fsUsage)), LittleFS.usedBytes(), LittleFS.totalBytes());
-
-    systemInitialized = true;
-
-    // For momentary switches, start in normal operation mode
-    if (config.get<bool>("hardware.switches.power.enabled") && config.get<int>("hardware.switches.power.type") == Switch::MOMENTARY) {
-        machineState = kPidNormal;
-        setRuntimePidState(true);
-    }
-
-    // For toggle switches, force PidOn to switch state mode
-    if (config.get<bool>("hardware.switches.power.enabled") && config.get<int>("hardware.switches.power.type") == Switch::TOGGLE) {
-        if (powerSwitch->isPressed()) {
-            setRuntimePidState(true);
-            machineState = kPidNormal;
-        }
-        else {
-            setRuntimePidState(false);
-            machineState = kPidDisabled;
-        }
-    }
+    systemInitialized = systemInitializer->isInitialized();
+    
+    LOG(INFO, "System setup completed via SystemInitializer");
 }
 
 void loop() {

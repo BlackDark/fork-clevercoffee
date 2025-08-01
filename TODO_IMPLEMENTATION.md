@@ -111,7 +111,7 @@ This TODO list breaks down the migration plan into small, incremental steps that
 - **Test**: MQTT publishing, subscription, Home Assistant integration
 - **Risk**: Medium - External integrations
 
-#### **TODO-011: Create SystemInitializer class**
+#### **TODO-011: Create SystemInitializer class** [DONE]
 - **Files**: Create `src/core/SystemInitializer.h/.cpp`
 - **Action**:
   - Extract `setup()` function logic into organized class
