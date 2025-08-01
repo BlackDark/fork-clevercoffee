@@ -163,19 +163,19 @@ This TODO list breaks down the migration plan into small, incremental steps that
 - **Test**: Context creation and data access
 - **Risk**: Medium - Central state management
 
-#### **TODO-015: Implement individual state classes**
+#### **TODO-015: Implement individual state classes** [DONE]
 - **Files**: Create `src/state/states/` directory with individual state files
 - **Action**:
   - `InitState.cpp` - System initialization state
   - `PidNormalState.cpp` - Normal PID operation
   - `BrewState.cpp` - Brewing operation
-  - `SteamState.cpp` - Steam operation
-  - `StandbyState.cpp` - Standby mode
+  - `EmergencyStopState.cpp` - Emergency safety handling
+  - Placeholder states for all other machine states
   - Extract logic from current `handleMachineState()` switch
 - **Test**: Each state individually
 - **Risk**: High - Core business logic
 
-#### **TODO-016: Implement StateMachine controller**
+#### **TODO-016: Implement StateMachine controller** [DONE]
 - **Files**: Create `src/state/StateMachine.h/.cpp`
 - **Action**:
   ```cpp
