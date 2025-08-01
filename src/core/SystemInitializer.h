@@ -88,6 +88,12 @@ class SystemInitializer {
             return sensorManager_.get();
         }
 
+        /**
+         * @brief Get WiFi manager
+         * @return Pointer to WiFi manager (may be null)
+         */
+        class CleverCoffeeWiFiManager* getWiFiManager() const;
+
     private:
         // Initialization state
         bool systemInitialized_;

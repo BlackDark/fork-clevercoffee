@@ -50,7 +50,7 @@ hw_timer_t* timer = nullptr;
 
 extern Config& config;
 
-enum MachineState {
+enum LegacyMachineState {
     kInit = 0,
     kPidNormal = 20,
     kBrew = 30,
@@ -66,8 +66,8 @@ enum MachineState {
     kEepromError = 110,
 };
 
-MachineState machineState = kInit;
-MachineState lastmachinestate = kInit;
+LegacyMachineState machineState = kInit;
+LegacyMachineState lastmachinestate = kInit;
 int lastmachinestatepid = -1;
 
 int displayOffline = 0;
@@ -118,6 +118,10 @@ std::unique_ptr<MQTTManager> mqttManager = nullptr;
 // Modern sensor management
 #include "sensors/SensorManager.h"
 SensorManager* sensorManager = nullptr;
+
+// Modern state machine
+#include "state/StateMachine.h"
+std::unique_ptr<StateMachine> stateMachine = nullptr;
 constexpr unsigned long wifiConnectionDelay = WIFICONNECTIONDELAY;
 constexpr unsigned int maxWifiReconnects = MAXWIFIRECONNECTS;
 auto pass = WM_PASS;
@@ -170,7 +174,7 @@ void loopPid();
 void loopLED();
 void checkWaterTank();
 void printMachineState();
-char const* machinestateEnumToString(MachineState machineState);
+char const* machinestateEnumToString(LegacyMachineState machineState);
 char* number2string(double in);
 char* number2string(float in);
 char* number2string(int in);
@@ -776,7 +780,7 @@ void printMachineState() {
     LOGF(DEBUG, "new machineState: %s -> %s", machinestateEnumToString(lastmachinestate), machinestateEnumToString(machineState));
 }
 
-char const* machinestateEnumToString(const MachineState machineState) {
+char const* machinestateEnumToString(const LegacyMachineState machineState) {
     switch (machineState) {
         case kInit:
             return "Init";
@@ -907,6 +911,23 @@ void setup() {
     }
 
     systemInitialized = systemInitializer->isInitialized();
+
+    // Initialize modern state machine after all managers are set up
+    if (systemInitialized) {
+        stateMachine = std::make_unique<StateMachine>(
+            systemInitializer->getDisplayManager(),
+            systemInitializer->getHardwareManager(),
+            sensorManager,
+            systemInitializer->getWiFiManager(),
+            systemInitializer->getMQTTManager()
+        );
+        
+        if (stateMachine->initialize()) {
+            LOG(INFO, "StateMachine initialized successfully");
+        } else {
+            LOG(ERROR, "StateMachine initialization failed!");
+        }
+    }
 
     LOG(INFO, "System setup completed via SystemInitializer");
 }
@@ -1092,7 +1113,23 @@ void loopPid() {
     }
 
     updateStandbyTimer();
-    handleMachineState();
+    
+    // Update state machine (replaces handleMachineState())
+    if (stateMachine && stateMachine->isInitialized()) {
+        stateMachine->update();
+        
+        // Update compatibility variables for existing code
+        const int newStateId = stateMachine->getCurrentStateId();
+        if (newStateId != machineState) {
+            lastmachinestate = static_cast<LegacyMachineState>(machineState);
+            machineState = static_cast<LegacyMachineState>(newStateId);
+            printMachineState();
+        }
+    } else {
+        // Fallback to old state machine if new one isn't ready
+        handleMachineState();
+    }
+    
     hotWaterHandler();
     valveSafetyShutdownCheck();
 

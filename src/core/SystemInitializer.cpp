@@ -18,6 +18,7 @@ namespace DisplayTemplateManager {
 }
 #include "../hardware/HardwareManager.h"
 #include "../network/MQTTManager.h"
+#include "../network/WiFiManager.h"
 #include "../sensors/SensorManager.h"
 #include "Logger.h"
 #include <Arduino.h>
@@ -28,7 +29,7 @@ namespace DisplayTemplateManager {
 #include <Wire.h>
 
 // Machine state constants
-enum MachineState {
+enum LegacyMachineState {
     kInit = 0,
     kPidNormal = 20,
     kBrew = 30,
@@ -90,6 +91,7 @@ extern U8G2* u8g2;
 
 // Manager instances
 extern std::unique_ptr<MQTTManager> mqttManager;
+extern std::unique_ptr<CleverCoffeeWiFiManager> wifiManager;
 
 // Forward declarations
 extern void initTimer1();
@@ -522,4 +524,8 @@ void SystemInitializer::registerMQTTSensors() {
     }
 
     LOG(DEBUG, "MQTT sensors registered");
+}
+
+CleverCoffeeWiFiManager* SystemInitializer::getWiFiManager() const {
+    return wifiManager.get();
 }

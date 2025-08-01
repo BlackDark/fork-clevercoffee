@@ -25,7 +25,7 @@ extern bool hassioFailed;
 extern bool hassioUpdateRunning;
 
 // Include MachineState enum constants from main.cpp
-enum MachineState {
+enum LegacyMachineState {
     kInit = 0,
     kPidNormal = 20,
     kBrew = 30,

@@ -11,7 +11,7 @@ extern Config& config;
 
 uint8_t currStateHotWaterSwitch;
 
-MachineState lastMachineStateHotWaterDebug = kInit;
+LegacyMachineState lastMachineStateHotWaterDebug = kInit;
 
 enum HotWaterSwitchState {
     kHotWaterSwitchIdle = 10,

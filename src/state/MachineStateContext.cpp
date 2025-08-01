@@ -24,7 +24,7 @@ extern bool checkHotWaterStates();
 extern bool brew();
 
 // MachineState enum - matches main.cpp definition
-enum MachineState {
+enum LegacyMachineState {
     kInit = 0,
     kPidNormal = 20,
     kBrew = 30,
@@ -41,7 +41,7 @@ enum MachineState {
 };
 
 // Forward declaration for standby timer reset function
-extern void resetStandbyTimer(MachineState state);
+extern void resetStandbyTimer(LegacyMachineState state);
 
 // External global variables
 extern bool pidON;
@@ -227,7 +227,7 @@ unsigned long MachineStateContext::getCurrentTime() const {
 
 void MachineStateContext::resetStandbyTimer(int stateId) const {
     // Convert state ID to MachineState enum and call existing function
-    resetStandbyTimer(static_cast<MachineState>(stateId));
+    resetStandbyTimer(static_cast<LegacyMachineState>(stateId));
 }
 
 // === Control Functions ===
