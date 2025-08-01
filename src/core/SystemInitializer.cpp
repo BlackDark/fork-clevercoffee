@@ -8,12 +8,11 @@
 #include "../GlobalVariables.h"
 #include "../defaults.h"
 #include "../display/DisplayManager.h"
-// Forward declarations for display functions
+// Forward declarations for display functions that require global state
+// These will be called from main.cpp after full system initialization
 extern void u8g2_prepare();
 extern void initLangStrings(Config& config);
 extern void displayLogo(const String& text1, const String& text2);
-
-// Forward declaration for DisplayTemplateManager
 namespace DisplayTemplateManager {
     extern void initializeDisplay(int templateId);
 }
@@ -225,8 +224,9 @@ bool SystemInitializer::initializeDisplay() {
             // Set compatibility pointer for existing code
             u8g2 = displayManager_->get();
 
-            // Note: u8g2_prepare(), initLangStrings(), and displayLogo() calls
-            // are now handled in main.cpp after SystemInitializer completes
+            // Basic display setup - full initialization will be done in main.cpp
+            // The display is now ready for basic operations but NOT for complex display functions
+            // that depend on global state (like language strings, templates, etc.)
             
             LOG(INFO, "Display initialization completed");
             return true;

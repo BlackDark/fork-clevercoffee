@@ -802,7 +802,8 @@ void wiFiSetup() {
         wifiManager = std::make_unique<CleverCoffeeWiFiManager>();
         const bool oledEnabled = Config::getInstance().get<bool>("hardware.oled.enabled");
 
-        if (!wifiManager->setupAndConnect(hostname, pass, oledEnabled, displayLogo)) {
+        // Don't pass display callback during system initialization - display isn't fully ready yet
+        if (!wifiManager->setupAndConnect(hostname, pass, false, nullptr)) {
             offlineMode = true;
         }
 
@@ -846,6 +847,7 @@ void setup() {
         u8g2 = systemInitializer->getDisplayManager()->get();
         
         // Complete display initialization that requires global dependencies
+        // This must be done AFTER SystemInitializer to avoid crashes during WiFi setup
         u8g2_prepare();
         initLangStrings(config);
         
