@@ -76,6 +76,21 @@ public:
      * It handles temperature updates, PID computation, and process control.
      */
     void update();
+    
+    /**
+     * @brief Complete process control cycle including state management
+     * @param machineState Current machine state
+     * @param brewPidDisabled Whether brew PID is disabled
+     * 
+     * This method handles the complete PID control cycle including:
+     * - Temperature updates from sensors
+     * - Emergency condition testing
+     * - PID computation
+     * - Setpoint management based on steam mode
+     * - PID state management based on machine state
+     * - Debug logging
+     */
+    void updateProcessControl(int machineState, bool brewPidDisabled);
 
     /**
      * @brief Update temperature readings from sensors
@@ -194,6 +209,13 @@ private:
      * @brief Calculate brew detection PID parameters
      */
     void calculateBrewDetectionPIDParameters();
+    
+    /**
+     * @brief Handle brew PID delay logic during brewing
+     * @param machineState Current machine state
+     * @param brewPidDisabled Whether brew PID is currently disabled
+     */
+    void handleBrewPIDDelay(int machineState, bool brewPidDisabled);
 
     // Manager dependencies
     DisplayManager* displayManager_;

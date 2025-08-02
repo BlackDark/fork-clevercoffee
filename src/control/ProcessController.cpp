@@ -23,6 +23,15 @@ extern PID bPID;
 extern TempSensor* tempSensor;
 extern unsigned long lastTempEvent;
 extern unsigned long tempEventInterval;
+extern double currBrewTime;
+extern double brewPidDelay;
+extern bool useBDPID;
+extern bool usePonM;
+extern bool pidON;
+extern Relay* heaterRelay;
+
+// Forward declarations for variables from brewHandler.h
+extern bool brewPidDisabled;
 
 ProcessController::ProcessController(
     DisplayManager* displayManager,
@@ -37,25 +46,25 @@ ProcessController::ProcessController(
     temperature_(0.0),
     pidOutput_(0.0),
     setpoint_(brewSetpoint),
-    aggKp_(::aggKp),
+    aggKp_(aggKp),
     aggKi_(0.0),
     aggKd_(0.0),
-    aggTn_(::aggTn),
-    aggTv_(::aggTv),
-    aggIMax_(::aggIMax),
-    aggbKp_(::aggbKp),
+    aggTn_(aggTn),
+    aggTv_(aggTv),
+    aggIMax_(aggIMax),
+    aggbKp_(aggbKp),
     aggbKi_(0.0),
     aggbKd_(0.0),
-    aggbTn_(::aggbTn),
-    aggbTv_(::aggbTv),
-    steamKp_(::steamKp),
-    brewSetpoint_(::brewSetpoint),
-    steamSetpoint_(::steamSetpoint),
-    brewTempOffset_(::brewTempOffset),
+    aggbTn_(aggbTn),
+    aggbTv_(aggbTv),
+    steamKp_(steamKp),
+    brewSetpoint_(brewSetpoint),
+    steamSetpoint_(steamSetpoint),
+    brewTempOffset_(brewTempOffset),
     lastMachineStatePid_(-1),
     initialized_(false),
     lastTempEvent_(0),
-    tempEventInterval_(::tempEventInterval) {
+    tempEventInterval_(tempEventInterval) {
     
     LOG(INFO, "ProcessController created");
 }
@@ -68,10 +77,10 @@ bool ProcessController::initialize() {
     calculateBrewDetectionPIDParameters();
     
     // Sync with global variables
-    temperature_ = ::temperature;
-    pidOutput_ = ::pidOutput;
-    setpoint_ = ::setpoint;
-    lastTempEvent_ = ::lastTempEvent;
+    temperature_ = temperature;
+    pidOutput_ = pidOutput;
+    setpoint_ = setpoint;
+    lastTempEvent_ = lastTempEvent;
     
     initialized_ = true;
     
@@ -89,7 +98,7 @@ void ProcessController::update() {
     updateTemperature();
     
     // Sync temperature with global variable
-    ::temperature = temperature_;
+    temperature = temperature_;
     
     // Test for emergency conditions
     testEmergencyConditions();
@@ -98,7 +107,41 @@ void ProcessController::update() {
     computePID();
     
     // Sync PID output with global variable
-    ::pidOutput = pidOutput_;
+    pidOutput = pidOutput_;
+    
+    // Update debug logging if enabled
+    updateDebugLogging();
+}
+
+void ProcessController::updateProcessControl(int machineState, bool brewPidDisabled) {
+    if (!initialized_) {
+        LOG(WARNING, "ProcessController::updateProcessControl() called but not initialized");
+        return;
+    }
+    
+    // Update temperature from sensors
+    updateTemperature();
+    
+    // Sync temperature with global variable
+    temperature = temperature_;
+    
+    // Test for emergency conditions
+    testEmergencyConditions();
+    
+    // Compute PID output
+    computePID();
+    
+    // Sync PID output with global variable
+    pidOutput = pidOutput_;
+    
+    // Update setpoint based on steam mode
+    updateSetpoint(steamON == 1);
+    
+    // Update PID state based on machine state
+    updatePIDState(machineState);
+    
+    // Handle brew PID delay logic
+    handleBrewPIDDelay(machineState, brewPidDisabled);
     
     // Update debug logging if enabled
     updateDebugLogging();
@@ -113,7 +156,7 @@ void ProcessController::updateTemperature() {
         temperature_ = sensorManager_->getCurrentTemperature();
 
         // For steam mode, get raw temperature without brew offset
-        if (::steamON && tempSensor != nullptr) {
+        if (steamON && tempSensor != nullptr) {
             temperature_ = tempSensor->getCurrentTemperature();
         }
     } else if (tempSensor != nullptr) {
@@ -121,7 +164,7 @@ void ProcessController::updateTemperature() {
         temperature_ = tempSensor->getCurrentTemperature();
 
         // Apply brew offset if not in steam mode
-        if (!::steamON) {
+        if (!steamON) {
             temperature_ -= brewTempOffset_;
         }
     }
@@ -130,7 +173,7 @@ void ProcessController::updateTemperature() {
 void ProcessController::computePID() {
     // Use the global PID controller for now (will be refactored later)
     bPID.Compute();
-    pidOutput_ = ::pidOutput; // Sync from global variable updated by bPID.Compute()
+    pidOutput_ = pidOutput; // Sync from global variable updated by bPID.Compute()
 }
 
 void ProcessController::updatePIDState(int machineState) {
@@ -142,7 +185,7 @@ void ProcessController::updatePIDState(int machineState) {
             // Force PID shutdown
             setPIDEnabled(false);
             pidOutput_ = 0;
-            ::pidOutput = 0;
+            pidOutput = 0;
             if (hardwareManager_) {
                 // Turn off heater through hardware manager
                 // TODO: Add method to HardwareManager for heater control
@@ -163,25 +206,25 @@ void ProcessController::updatePIDState(int machineState) {
         switch (machineState) {
             case 20: // kPidNormal
                 LOGF(DEBUG, "new PID-Values: P=%.1f  I=%.1f  D=%.1f", aggKp_, aggKi_, aggKd_);
-                setPIDTunings(::usePonM);
+                setPIDTunings(usePonM);
                 break;
             case 50: // kSteam
                 LOGF(DEBUG, "new PID-Values: P=%.1f  I=%.1f  D=%.1f", steamKp_, 0.0, 0.0);
                 setSteamPIDTunings();
                 break;
             case 30: // kBrew - may use brew detection PID
-                if (::useBDPID) {
+                if (useBDPID) {
                     LOGF(DEBUG, "new PID-Values: P=%.1f  I=%.1f  D=%.1f", aggbKp_, aggbKi_, aggbKd_);
                     setBrewDetectionPIDTunings();
                 } else {
                     LOGF(DEBUG, "new PID-Values: P=%.1f  I=%.1f  D=%.1f", aggKp_, aggKi_, aggKd_);
-                    setPIDTunings(::usePonM);
+                    setPIDTunings(usePonM);
                 }
                 break;
             default:
                 // Use normal tuning for other states
                 LOGF(DEBUG, "new PID-Values: P=%.1f  I=%.1f  D=%.1f", aggKp_, aggKi_, aggKd_);
-                setPIDTunings(::usePonM);
+                setPIDTunings(usePonM);
                 break;
         }
     }
@@ -226,7 +269,7 @@ void ProcessController::updateSetpoint(bool steamActive) {
     }
     
     // Sync with global variable
-    ::setpoint = setpoint_;
+    setpoint = setpoint_;
 }
 
 bool ProcessController::shouldPIDBeEnabled(int machineState, bool brewPidDisabled) const {
@@ -259,7 +302,7 @@ void ProcessController::emergencyStop() {
     // Immediately disable PID and turn off heater
     setPIDEnabled(false);
     pidOutput_ = 0;
-    ::pidOutput = 0;
+    pidOutput = 0;
     
     if (hardwareManager_) {
         // Emergency heater shutdown through hardware manager
@@ -284,12 +327,12 @@ void ProcessController::updateDebugLogging() {
     const unsigned long currentMillis = millis();
     
     // Only log periodically and when PID is enabled
-    if (!::pidON || (currentMillis - lastTempEvent_) <= tempEventInterval_) {
+    if (!pidON || (currentMillis - lastTempEvent_) <= tempEventInterval_) {
         return;
     }
     
     lastTempEvent_ = currentMillis;
-    ::lastTempEvent = lastTempEvent_; // Sync with global
+    lastTempEvent = lastTempEvent_; // Sync with global
     
     // Log detailed PID information
     LOGF(TRACE, "Current PID mode: %s", bPID.GetPonE() ? "PonE" : "PonM");
@@ -334,4 +377,48 @@ void ProcessController::calculateBrewDetectionPIDParameters() {
     }
     
     aggbKd_ = aggbTv_ * aggbKp_;
+}
+
+void ProcessController::handleBrewPIDDelay(int machineState, bool brewPidDisabled) {
+    // Handle brew PID delay logic
+    if (machineState == 30) { // kBrew
+        if (brewPidDelay > 0 && currBrewTime > 0 && currBrewTime < brewPidDelay * 1000) {
+            // disable PID for brewPidDelay seconds, enable PID again with new tunings after that
+            if (!brewPidDisabled) {
+                brewPidDisabled = true;
+                bPID.SetMode(MANUAL);
+                pidOutput_ = 0;
+                pidOutput = 0;
+                if (hardwareManager_) {
+                    // Turn off heater through hardware manager - for now use global heaterRelay
+                    if (heaterRelay) {
+                        heaterRelay->off();
+                    }
+                }
+                LOGF(DEBUG, "disabled PID, waiting for %.0f seconds before enabling PID again", brewPidDelay);
+            }
+        }
+        else {
+            if (brewPidDisabled) {
+                // enable PID again
+                bPID.SetMode(AUTOMATIC);
+                brewPidDisabled = false;
+                LOGF(DEBUG, "Enabled PID again after %.0f seconds of brew pid delay", brewPidDelay);
+            }
+
+            if (useBDPID) {
+                setBrewDetectionPIDTunings();
+            }
+            else {
+                setPIDTunings(usePonM);
+            }
+        }
+    }
+    // Reset brewPidDisabled if brew was aborted
+    else if (machineState != 30 && brewPidDisabled) { // not kBrew
+        // enable PID again
+        bPID.SetMode(AUTOMATIC);
+        brewPidDisabled = false;
+        LOG(DEBUG, "Enabled PID again after brew was manually stopped");
+    }
 }

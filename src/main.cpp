@@ -122,6 +122,10 @@ SensorManager* sensorManager = nullptr;
 // Modern state machine
 #include "state/StateMachine.h"
 std::unique_ptr<StateMachine> stateMachine = nullptr;
+
+// Modern process control
+#include "control/ProcessController.h"
+std::unique_ptr<ProcessController> processController = nullptr;
 constexpr unsigned long wifiConnectionDelay = WIFICONNECTIONDELAY;
 constexpr unsigned int maxWifiReconnects = MAXWIFIRECONNECTS;
 auto pass = WM_PASS;
@@ -927,6 +931,20 @@ void setup() {
         } else {
             LOG(ERROR, "StateMachine initialization failed!");
         }
+        
+        // Initialize ProcessController for PID control
+        processController = std::make_unique<ProcessController>(
+            systemInitializer->getDisplayManager(),
+            systemInitializer->getHardwareManager(),
+            sensorManager,
+            systemInitializer->getMQTTManager()
+        );
+        
+        if (processController->initialize()) {
+            LOG(INFO, "ProcessController initialized successfully");
+        } else {
+            LOG(ERROR, "ProcessController initialization failed!");
+        }
     }
 
     LOG(INFO, "System setup completed via SystemInitializer");
@@ -951,28 +969,34 @@ void loop() {
 
 void loopPid() {
 
-    // Update the temperature:
+    // Update the temperature using ProcessController if available
     temperatureUpdateRunning = false;
 
-    if (sensorManager != nullptr) {
-        // Update SensorManager first to get fresh readings
-        sensorManager->update();
-        
-        // Use SensorManager for temperature reading (includes brew offset automatically)
-        temperature = sensorManager->getCurrentTemperature();
+    if (processController) {
+        // Use ProcessController for temperature and PID management
+        processController->updateProcessControl(static_cast<int>(machineState), brewPidDisabled);
+    } else {
+        // Fallback to original temperature reading logic
+        if (sensorManager != nullptr) {
+            // Update SensorManager first to get fresh readings
+            sensorManager->update();
+            
+            // Use SensorManager for temperature reading (includes brew offset automatically)
+            temperature = sensorManager->getCurrentTemperature();
 
-        if (machineState == kSteam) {
-            // For steam mode, get raw temperature without brew offset
-            if (tempSensor != nullptr) {
-                temperature = tempSensor->getCurrentTemperature();
+            if (machineState == kSteam) {
+                // For steam mode, get raw temperature without brew offset
+                if (tempSensor != nullptr) {
+                    temperature = tempSensor->getCurrentTemperature();
+                }
             }
-        }
-    } else if (tempSensor != nullptr) {
-        // Fallback to direct sensor access
-        temperature = tempSensor->getCurrentTemperature();
+        } else if (tempSensor != nullptr) {
+            // Fallback to direct sensor access
+            temperature = tempSensor->getCurrentTemperature();
 
-        if (machineState != kSteam) {
-            temperature -= brewTempOffset;
+            if (machineState != kSteam) {
+                temperature -= brewTempOffset;
+            }
         }
     }
 
@@ -1037,8 +1061,12 @@ void loopPid() {
         checkWifi();
     }
 
-    testEmergencyStop(); // test if temp is too high
-    bPID.Compute();      // the variable pidOutput now has new values from PID (will be written to heater pin in ISR.cpp)
+    // Emergency stop test and PID computation are now handled by ProcessController
+    if (!processController) {
+        // Fallback to original logic if ProcessController isn't available
+        testEmergencyStop(); // test if temp is too high
+        bPID.Compute();      // the variable pidOutput now has new values from PID (will be written to heater pin in ISR.cpp)
+    }
 
     websiteUpdateRunning = false;
 
@@ -1077,7 +1105,9 @@ void loopPid() {
 
         lastTempEvent = millis();
 
-        if (pidON) {
+        // PID debug logging is now handled by ProcessController
+        if (!processController && pidON) {
+            // Fallback: Original PID debug logging
             LOGF(TRACE, "Current PID mode: %s", bPID.GetPonE() ? "PonE" : "PonM");
 
             // P-Part
@@ -1104,12 +1134,15 @@ void loopPid() {
     checkSteamSwitch();
     checkPowerSwitch();
 
-    // set setpoint depending on steam or brew mode
-    if (steamON == 1) {
-        setpoint = steamSetpoint;
-    }
-    else if (steamON == 0) {
-        setpoint = brewSetpoint;
+    // Setpoint management is now handled by ProcessController
+    if (!processController) {
+        // Fallback: set setpoint depending on steam or brew mode
+        if (steamON == 1) {
+            setpoint = steamSetpoint;
+        }
+        else if (steamON == 0) {
+            setpoint = brewSetpoint;
+        }
     }
 
     updateStandbyTimer();
@@ -1157,71 +1190,76 @@ void loopPid() {
         }
     }
 
-    // Check if PID should run or not. If not, set to manual and force output to zero
-    if (machineState == kPidDisabled || machineState == kWaterTankEmpty || machineState == kSensorError || machineState == kEmergencyStop || machineState == kEepromError || machineState == kStandby ||
-        machineState == kBackflush || brewPidDisabled) {
-        if (bPID.GetMode() == 1) {
-            // Force PID shutdown
-            bPID.SetMode(0);
-            pidOutput = 0;
-            heaterRelay->off();
-        }
-    }
-    else { // no sensorerror, no pid off or no Emergency Stop
-        if (bPID.GetMode() == 0) {
-            bPID.SetMode(1);
-        }
-    }
-
-    // Regular PID operation
-    if (machineState == kPidNormal) {
-        setPIDTunings(usePonM);
-    }
-
-    // Brew PID
-    if (machineState == kBrew) {
-        if (brewPidDelay > 0 && currBrewTime > 0 && currBrewTime < brewPidDelay * 1000) {
-            // disable PID for brewPidDelay seconds, enable PID again with new tunings after that
-            if (!brewPidDisabled) {
-                brewPidDisabled = true;
-                bPID.SetMode(MANUAL);
+    // PID state management and tuning is now handled by ProcessController
+    if (!processController) {
+        // Fallback: Original PID control logic
+        
+        // Check if PID should run or not. If not, set to manual and force output to zero
+        if (machineState == kPidDisabled || machineState == kWaterTankEmpty || machineState == kSensorError || machineState == kEmergencyStop || machineState == kEepromError || machineState == kStandby ||
+            machineState == kBackflush || brewPidDisabled) {
+            if (bPID.GetMode() == 1) {
+                // Force PID shutdown
+                bPID.SetMode(0);
                 pidOutput = 0;
                 heaterRelay->off();
-                LOGF(DEBUG, "disabled PID, waiting for %.0f seconds before enabling PID again", brewPidDelay);
             }
         }
-        else {
-            if (brewPidDisabled) {
-                // enable PID again
-                bPID.SetMode(AUTOMATIC);
-                brewPidDisabled = false;
-                LOGF(DEBUG, "Enabled PID again after %.0f seconds of brew pid delay", brewPidDelay);
+        else { // no sensorerror, no pid off or no Emergency Stop
+            if (bPID.GetMode() == 0) {
+                bPID.SetMode(1);
             }
+        }
 
-            if (useBDPID) {
-                setBDPIDTunings();
+        // Regular PID operation
+        if (machineState == kPidNormal) {
+            setPIDTunings(usePonM);
+        }
+
+        // Brew PID
+        if (machineState == kBrew) {
+            if (brewPidDelay > 0 && currBrewTime > 0 && currBrewTime < brewPidDelay * 1000) {
+                // disable PID for brewPidDelay seconds, enable PID again with new tunings after that
+                if (!brewPidDisabled) {
+                    brewPidDisabled = true;
+                    bPID.SetMode(MANUAL);
+                    pidOutput = 0;
+                    heaterRelay->off();
+                    LOGF(DEBUG, "disabled PID, waiting for %.0f seconds before enabling PID again", brewPidDelay);
+                }
             }
             else {
-                setPIDTunings(usePonM);
+                if (brewPidDisabled) {
+                    // enable PID again
+                    bPID.SetMode(AUTOMATIC);
+                    brewPidDisabled = false;
+                    LOGF(DEBUG, "Enabled PID again after %.0f seconds of brew pid delay", brewPidDelay);
+                }
+
+                if (useBDPID) {
+                    setBDPIDTunings();
+                }
+                else {
+                    setPIDTunings(usePonM);
+                }
             }
         }
-    }
-    // Reset brewPidDisabled if brew was aborted
-    if (machineState != kBrew && brewPidDisabled) {
-        // enable PID again
-        bPID.SetMode(AUTOMATIC);
-        brewPidDisabled = false;
-        LOG(DEBUG, "Enabled PID again after brew was manually stopped");
-    }
-
-    // Steam on
-    if (machineState == kSteam) {
-        if (lastmachinestatepid != machineState) {
-            LOGF(DEBUG, "new PID-Values: P=%.1f  I=%.1f  D=%.1f", 150.0, 0.0, 0.0);
-            lastmachinestatepid = machineState;
+        // Reset brewPidDisabled if brew was aborted
+        if (machineState != kBrew && brewPidDisabled) {
+            // enable PID again
+            bPID.SetMode(AUTOMATIC);
+            brewPidDisabled = false;
+            LOG(DEBUG, "Enabled PID again after brew was manually stopped");
         }
 
-        bPID.SetTunings(steamKp, 0, 0, 1);
+        // Steam on
+        if (machineState == kSteam) {
+            if (lastmachinestatepid != machineState) {
+                LOGF(DEBUG, "new PID-Values: P=%.1f  I=%.1f  D=%.1f", 150.0, 0.0, 0.0);
+                lastmachinestatepid = machineState;
+            }
+
+            bPID.SetTunings(steamKp, 0, 0, 1);
+        }
     }
 }
 
