@@ -126,6 +126,10 @@ std::unique_ptr<StateMachine> stateMachine = nullptr;
 // Modern process control
 #include "control/ProcessController.h"
 std::unique_ptr<ProcessController> processController = nullptr;
+
+// Modern UI management
+#include "ui/UIManager.h"
+std::unique_ptr<UIManager> uiManager = nullptr;
 constexpr unsigned long wifiConnectionDelay = WIFICONNECTIONDELAY;
 constexpr unsigned int maxWifiReconnects = MAXWIFIRECONNECTS;
 auto pass = WM_PASS;
@@ -878,7 +882,12 @@ void setup() {
         const int templateId = Config::getInstance().get<int>("display.template");
         DisplayTemplateManager::initializeDisplay(templateId);
 
-        displayLogo(String("Version "), String(sysVersion));
+        // Display logo using UIManager if available, fallback to direct call
+        if (uiManager) {
+            uiManager->displayLogo(String("Version "), String(sysVersion));
+        } else {
+            displayLogo(String("Version "), String(sysVersion));
+        }
     }
 
     if (systemInitializer->getHardwareManager()) {
@@ -944,6 +953,17 @@ void setup() {
             LOG(INFO, "ProcessController initialized successfully");
         } else {
             LOG(ERROR, "ProcessController initialization failed!");
+        }
+        
+        // Initialize UIManager for display management
+        uiManager = std::make_unique<UIManager>(
+            systemInitializer->getDisplayManager()
+        );
+        
+        if (uiManager->initialize()) {
+            LOG(INFO, "UIManager initialized successfully");
+        } else {
+            LOG(ERROR, "UIManager initialization failed!");
         }
     }
 
@@ -1167,25 +1187,46 @@ void loopPid() {
     valveSafetyShutdownCheck();
 
     if (config.get<bool>("hardware.switches.brew.enabled")) {
-        shouldDisplayBrewTimer();
+        // Update brew timer display state using UIManager if available
+        if (uiManager) {
+            uiManager->shouldDisplayBrewTimer();
+        } else {
+            shouldDisplayBrewTimer();
+        }
     }
 
-    displayUpdateRunning = false;
-
-    if (config.get<bool>("hardware.oled.enabled")) {
-
-        // update display on loops that have not had other major tasks running, if blocked it will send in the next loop (average 0.5ms)
-        if (!websiteUpdateRunning && (!mqttManager || !mqttManager->isUpdateRunning()) && !hassioUpdateRunning && !temperatureUpdateRunning && (standbyModeRemainingTimeMillis > 0)) {
-
-            // displayUpdateRunning currently doesn't block anything as it is near the end of the loop, but if this code block moves it can be used to block other processes
-            // sendBuffer() takes around 35ms so it flags that it has happened
-            if (displayBufferReady) {
-                u8g2->sendBuffer();
-                displayBufferReady = false;
-                displayUpdateRunning = true;
+    // Display updates are now handled by UIManager
+    if (uiManager) {
+        uiManager->setUpdateRunning(false);
+        
+        if (config.get<bool>("hardware.oled.enabled")) {
+            // update display on loops that have not had other major tasks running
+            if (!websiteUpdateRunning && (!mqttManager || !mqttManager->isUpdateRunning()) && !hassioUpdateRunning && !temperatureUpdateRunning && (standbyModeRemainingTimeMillis > 0)) {
+                
+                if (uiManager->isBufferReady()) {
+                    uiManager->forceUpdate();
+                    uiManager->setBufferReady(false);
+                    uiManager->setUpdateRunning(true);
+                }
+                else {
+                    printDisplayTimer();
+                }
             }
-            else {
-                printDisplayTimer();
+        }
+    } else {
+        // Fallback to original display logic
+        displayUpdateRunning = false;
+
+        if (config.get<bool>("hardware.oled.enabled")) {
+            if (!websiteUpdateRunning && (!mqttManager || !mqttManager->isUpdateRunning()) && !hassioUpdateRunning && !temperatureUpdateRunning && (standbyModeRemainingTimeMillis > 0)) {
+                if (displayBufferReady) {
+                    u8g2->sendBuffer();
+                    displayBufferReady = false;
+                    displayUpdateRunning = true;
+                }
+                else {
+                    printDisplayTimer();
+                }
             }
         }
     }
