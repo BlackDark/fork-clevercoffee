@@ -130,6 +130,10 @@ std::unique_ptr<ProcessController> processController = nullptr;
 // Modern UI management
 #include "ui/UIManager.h"
 std::unique_ptr<UIManager> uiManager = nullptr;
+
+// Modern loop management
+#include "core/LoopManager.h"
+std::unique_ptr<LoopManager> loopManager = nullptr;
 constexpr unsigned long wifiConnectionDelay = WIFICONNECTIONDELAY;
 constexpr unsigned int maxWifiReconnects = MAXWIFIRECONNECTS;
 auto pass = WM_PASS;
@@ -160,13 +164,8 @@ float inputPressureFilter = 0;
 const unsigned long intervalPressure = 100;
 unsigned long previousMillisPressure; // initialisation at the end of init()
 
-// timing flags
-bool displayBufferReady = false;
-bool displayUpdateRunning = false;
-bool websiteUpdateRunning = false;
+// timing flags - moved to GlobalVariables.cpp
 // MQTT update running is now managed by MQTTManager
-bool hassioUpdateRunning = false;
-bool temperatureUpdateRunning = false;
 
 #include "utils/timingDebug.h"
 
@@ -965,26 +964,45 @@ void setup() {
         } else {
             LOG(ERROR, "UIManager initialization failed!");
         }
+        
+        // Initialize LoopManager for main loop coordination
+        loopManager = std::make_unique<LoopManager>(
+            processController.get(),
+            sensorManager,
+            uiManager.get()
+        );
+        
+        if (loopManager->initialize()) {
+            LOG(INFO, "LoopManager initialized successfully");
+        } else {
+            LOG(ERROR, "LoopManager initialization failed!");
+        }
     }
 
     LOG(INFO, "System setup completed via SystemInitializer");
 }
 
 void loop() {
-    // Accept potential connections for remote logging
-    Logger::update();
+    if (loopManager) {
+        // Use modern LoopManager for coordinated main loop updates
+        loopManager->update();
+    } else {
+        // Fallback to legacy loop implementation
+        // Accept potential connections for remote logging
+        Logger::update();
 
-    // Update water tank sensor
-    loopWaterTank();
+        // Update water tank sensor
+        loopWaterTank();
 
-    // Update PID settings & machine state
-    loopPid();
+        // Update PID settings & machine state
+        loopPid();
 
-    // Update LED output based on machine state
-    loopLED();
+        // Update LED output based on machine state
+        loopLED();
 
-    // print timing related data to check what is causing stutters
-    debugTimingLoop();
+        // print timing related data to check what is causing stutters
+        debugTimingLoop();
+    }
 }
 
 void loopPid() {

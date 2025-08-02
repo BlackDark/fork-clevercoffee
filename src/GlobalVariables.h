@@ -112,3 +112,12 @@ extern String mqttPassword;
 extern String mqttTopic;
 extern bool mqttHassioEnabled;
 extern String mqttHassioPrefix;
+
+// Timing debug variables
+extern bool includeDisplayInLogs;
+extern bool timingDebugActive;
+extern bool displayBufferReady;
+extern bool displayUpdateRunning;
+extern bool websiteUpdateRunning;
+extern bool hassioUpdateRunning;
+extern bool temperatureUpdateRunning;

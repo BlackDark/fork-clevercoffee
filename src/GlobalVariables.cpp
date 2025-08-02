@@ -132,3 +132,10 @@ String mqttPassword = MQTT_PASSWORD;
 String mqttTopic = MQTT_TOPIC;
 bool mqttHassioEnabled = false;
 String mqttHassioPrefix = MQTT_HASSIO_PREFIX;
+
+// Additional timing debug variables
+bool displayBufferReady = false;
+bool displayUpdateRunning = false;
+bool websiteUpdateRunning = false;
+bool hassioUpdateRunning = false;
+bool temperatureUpdateRunning = false;
