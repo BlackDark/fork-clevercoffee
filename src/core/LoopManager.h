@@ -99,6 +99,15 @@ public:
     void updateProcessControl();
 
     /**
+     * @brief Update display rendering and buffer management
+     * 
+     * Handles display template rendering, buffer management, and screen refresh.
+     * This is the critical function that was missing and caused display freeze.
+     * Manages both UIManager-based and fallback display logic.
+     */
+    void updateDisplay();
+
+    /**
      * @brief Perform debug timing analysis
      * 
      * Monitors loop timing and performance, logging slow operations

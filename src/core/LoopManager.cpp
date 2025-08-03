@@ -11,10 +11,29 @@
 #include "../GlobalVariables.h"
 #include "Logger.h"
 #include "../hardware/Relay.h"
+#include "../network/MQTTManager.h"
+#include "../utils/Timer.h"
 #include <Arduino.h>
 
 // Forward declaration for debug timing function
 extern void debugTimingLoop();
+
+// Forward declarations for external variables needed for display updates
+extern bool websiteUpdateRunning;
+extern bool hassioUpdateRunning;
+extern bool temperatureUpdateRunning;
+extern bool displayBufferReady;
+extern bool displayUpdateRunning;
+extern U8G2* u8g2;
+
+// External timer for display updates - Timer object from main.cpp
+extern Timer printDisplayTimer;
+
+// External managers 
+extern std::unique_ptr<MQTTManager> mqttManager;
+
+// External standby variables
+extern unsigned long standbyModeRemainingTimeMillis;
 
 // Machine state enum - should be moved to a header later
 enum LegacyMachineState {
@@ -40,6 +59,12 @@ extern bool waterTankFull;
 extern LegacyMachineState machineState;
 extern double temperature;
 extern double setpoint;
+
+// Display-related external declarations
+extern Timer printDisplayTimer;
+extern unsigned long standbyModeRemainingTimeMillis;
+extern U8G2* u8g2;
+extern std::unique_ptr<MQTTManager> mqttManager;
 
 // Hardware components for LED control
 extern std::unique_ptr<Relay> statusLed;
@@ -176,13 +201,62 @@ void LoopManager::updateWaterTank() {
 }
 
 void LoopManager::updateProcessControl() {
-    if (processController_) {
-        // Use modern ProcessController for PID and temperature management
-        processController_->updateProcessControl(machineState, false); // TODO: Get brewPidDisabled from proper source
+    // Call the full loopPid() function which includes ProcessController
+    // as well as display updates, MQTT, WiFi, OTA, and other critical logic
+    extern void loopPid();
+    loopPid();
+}
+
+void LoopManager::updateDisplay() {
+    // Handle display updates similar to the original main loop logic
+    if (uiManager_) {
+        // Use UIManager for display management
+        uiManager_->setUpdateRunning(false);
+        
+        if (Config::getInstance().get<bool>("hardware.oled.enabled")) {
+            // Only update display on loops that have not had other major tasks running
+            // and when not in standby display-off mode
+            if (!websiteUpdateRunning && 
+                (!mqttManager || !mqttManager->isUpdateRunning()) && 
+                !hassioUpdateRunning && 
+                !temperatureUpdateRunning && 
+                (standbyModeRemainingTimeMillis > 0)) {
+                
+                if (uiManager_->isBufferReady()) {
+                    uiManager_->forceUpdate();
+                    uiManager_->setBufferReady(false);
+                    uiManager_->setUpdateRunning(true);
+                } else {
+                    // This is the critical call that was missing!
+                    // It triggers the display template rendering
+                    printDisplayTimer();
+                }
+            }
+        }
     } else {
-        // Fallback to original loopPid() implementation
-        // This is handled in main.cpp for now during transition period
-        LOG(DEBUG, "LoopManager: ProcessController not available, using fallback");
+        // Fallback to original display logic when UIManager is not available
+        displayUpdateRunning = false;
+
+        if (Config::getInstance().get<bool>("hardware.oled.enabled")) {
+            // Only update display on loops that have not had other major tasks running
+            // and when not in standby display-off mode
+            if (!websiteUpdateRunning && 
+                (!mqttManager || !mqttManager->isUpdateRunning()) && 
+                !hassioUpdateRunning && 
+                !temperatureUpdateRunning && 
+                (standbyModeRemainingTimeMillis > 0)) {
+                
+                if (displayBufferReady) {
+                    u8g2->sendBuffer();
+                    displayBufferReady = false;
+                    displayUpdateRunning = true;
+                } else {
+                    // This is the critical call that was missing!
+                    // It triggers the display template rendering which sets displayBufferReady = true
+                    printDisplayTimer();
+                }
+            }
+        }
     }
 }
 
