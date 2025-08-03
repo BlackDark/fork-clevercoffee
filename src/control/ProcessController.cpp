@@ -4,13 +4,13 @@
  */
 
 #include "ProcessController.h"
+#include "../Config.h"
 #include "../display/DisplayManager.h"
 #include "../hardware/HardwareManager.h"
-#include "../sensors/SensorManager.h"
-#include "../network/MQTTManager.h"
-#include "../hardware/tempsensors/TempSensor.h"
 #include "../hardware/scales/Scale.h"
-#include "../Config.h"
+#include "../hardware/tempsensors/TempSensor.h"
+#include "../network/MQTTManager.h"
+#include "../sensors/SensorManager.h"
 #include "Logger.h"
 #include <Arduino.h>
 
@@ -27,12 +27,8 @@ extern Relay* heaterRelay;
 // Forward declarations for variables from brewHandler.h
 extern bool brewPidDisabled;
 
-ProcessController::ProcessController(
-    DisplayManager* displayManager,
-    HardwareManager* hardwareManager,
-    SensorManager* sensorManager,
-    MQTTManager* mqttManager
-) : displayManager_(displayManager),
+ProcessController::ProcessController(DisplayManager* displayManager, HardwareManager* hardwareManager, SensorManager* sensorManager, MQTTManager* mqttManager) :
+    displayManager_(displayManager),
     hardwareManager_(hardwareManager),
     sensorManager_(sensorManager),
     mqttManager_(mqttManager),
@@ -166,7 +162,8 @@ void ProcessController::updateTemperature() {
         if (g_state.machine.steamON && tempSensor != nullptr) {
             temperature_ = tempSensor->getCurrentTemperature();
         }
-    } else if (tempSensor != nullptr) {
+    }
+    else if (tempSensor != nullptr) {
         // Fallback to direct sensor access
         temperature_ = tempSensor->getCurrentTemperature();
 
@@ -198,7 +195,8 @@ void ProcessController::updatePIDState(int machineState) {
                 // TODO: Add method to HardwareManager for heater control
             }
         }
-    } else {
+    }
+    else {
         // Enable PID if it was disabled
         if (!isPIDEnabled()) {
             setPIDEnabled(true);
@@ -223,7 +221,8 @@ void ProcessController::updatePIDState(int machineState) {
                 if (Config::getInstance().get<bool>("pid.bd.enabled")) {
                     LOGF(DEBUG, "new PID-Values: P=%.1f  I=%.1f  D=%.1f", aggbKp_, aggbKi_, aggbKd_);
                     setBrewDetectionPIDTunings();
-                } else {
+                }
+                else {
                     LOGF(DEBUG, "new PID-Values: P=%.1f  I=%.1f  D=%.1f", aggKp_, aggKi_, aggKd_);
                     setPIDTunings(Config::getInstance().get<bool>("pid.use_ponm"));
                 }
@@ -248,7 +247,8 @@ void ProcessController::setPIDTunings(bool usePonM) {
 
     if (usePonM) {
         g_state.pid->SetTunings(aggbKp_, aggbKi_, aggbKd_, P_ON_M);
-    } else {
+    }
+    else {
         g_state.pid->SetTunings(aggKp_, aggKi_, aggKd_, 1);
     }
 }
@@ -271,7 +271,8 @@ void ProcessController::setSteamPIDTunings() {
 void ProcessController::updateSetpoint(bool steamActive) {
     if (steamActive) {
         setpoint_ = steamSetpoint_;
-    } else {
+    }
+    else {
         setpoint_ = brewSetpoint_;
     }
 
@@ -281,13 +282,13 @@ void ProcessController::updateSetpoint(bool steamActive) {
 
 bool ProcessController::shouldPIDBeEnabled(int machineState, bool brewPidDisabled) const {
     // PID should be disabled in these states
-    return !(machineState == 90 ||   // kPidDisabled
-             machineState == 70 ||   // kWaterTankEmpty
-             machineState == 100 ||  // kSensorError
-             machineState == 80 ||   // kEmergencyStop
-             machineState == 110 ||  // kEepromError
-             machineState == 95 ||   // kStandby
-             machineState == 60 ||   // kBackflush
+    return !(machineState == 90 ||  // kPidDisabled
+             machineState == 70 ||  // kWaterTankEmpty
+             machineState == 100 || // kSensorError
+             machineState == 80 ||  // kEmergencyStop
+             machineState == 110 || // kEepromError
+             machineState == 95 ||  // kStandby
+             machineState == 60 ||  // kBackflush
              brewPidDisabled);
 }
 
@@ -298,7 +299,8 @@ bool ProcessController::isPIDEnabled() const {
 void ProcessController::setPIDEnabled(bool enabled) {
     if (enabled) {
         g_state.pid->SetMode(AUTOMATIC);
-    } else {
+    }
+    else {
         g_state.pid->SetMode(MANUAL);
     }
 }
@@ -368,7 +370,8 @@ void ProcessController::calculatePIDParameters() {
     // Calculate Ki, Kd from time constants
     if (aggTn_ != 0) {
         aggKi_ = aggKp_ / aggTn_;
-    } else {
+    }
+    else {
         aggKi_ = 0;
     }
 
@@ -379,7 +382,8 @@ void ProcessController::calculateBrewDetectionPIDParameters() {
     // Calculate brew detection Ki, Kd from time constants
     if (aggbTn_ != 0) {
         aggbKi_ = aggbKp_ / aggbTn_;
-    } else {
+    }
+    else {
         aggbKi_ = 0;
     }
 

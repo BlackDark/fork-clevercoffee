@@ -47,7 +47,8 @@ inline void printScreen() {
     u8g2->clearBuffer();
 
     // draw (blinking) temp
-    if (((fabs(g_state.process.temperature - g_state.process.setpoint) < blinkingTempDelta && blinkingTemp == 0) || fabs(g_state.process.temperature - g_state.process.setpoint) >= blinkingTempDelta) && !Config::getInstance().get<bool>("hardware.leds.status.enabled")) {
+    if (((fabs(g_state.process.temperature - g_state.process.setpoint) < blinkingTempDelta && blinkingTemp == 0) || fabs(g_state.process.temperature - g_state.process.setpoint) >= blinkingTempDelta) &&
+        !Config::getInstance().get<bool>("hardware.leds.status.enabled")) {
         if (isrCounter < 500) {
             if (g_state.process.temperature < 99.999) {
                 u8g2->setCursor(8, 22);

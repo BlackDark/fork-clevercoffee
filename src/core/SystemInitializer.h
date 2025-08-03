@@ -5,9 +5,9 @@
 
 #pragma once
 
-#include <memory>
-#include <functional>
 #include <Arduino.h>
+#include <functional>
+#include <memory>
 
 // Forward declarations
 class DisplayManager;
@@ -98,7 +98,7 @@ class SystemInitializer {
         // Initialization state
         bool systemInitialized_;
         String hostname_;
-        
+
         // Manager instances
         std::unique_ptr<DisplayManager> displayManager_;
         std::unique_ptr<HardwareManager> hardwareManager_;

@@ -433,7 +433,6 @@ class Config {
         double aggbTn = AGGBTN;
         double aggbTv = AGGBTV;
 
-
         // Temperature Parameters
         double brewTempOffset = TEMPOFFSET;
         double steamSetpoint = STEAMSETPOINT;
@@ -489,7 +488,6 @@ class Config {
         int hotWaterSwitchType = 1;
         int hotWaterSwitchMode = 0;
 
-
         // Hardware - LEDs
         bool statusLedEnabled = false;
         bool statusLedInverted = false;
@@ -516,13 +514,10 @@ class Config {
         double scaleCalibrationFactor2 = SCALE_CALIBRATION_FACTOR;
         double scaleKnownWeight = SCALE_KNOWN_WEIGHT;
 
-
-
-
-        double _brewSetpoint = SETPOINT; // Default value for brew.setpoint
-        int _brewMode = 0; // Default value for brew.mode
-        bool _usePonM = false; // Default value for pid.use_ponm
-        bool _useBDPID = false; // Default value for pid.bd.enabled
+        double _brewSetpoint = SETPOINT;       // Default value for brew.setpoint
+        int _brewMode = 0;                     // Default value for brew.mode
+        bool _usePonM = false;                 // Default value for pid.use_ponm
+        bool _useBDPID = false;                // Default value for pid.bd.enabled
         double _brewPidDelay = BREW_PID_DELAY; // Default value for brew.pid.delay
         bool _standbyModeOn = false;
         double _standbyModeTime = STANDBY_MODE_TIME;
@@ -540,7 +535,6 @@ class Config {
         bool _authEnabled = false;
         String _authUsername = AUTH_USERNAME;
         String _authPassword = AUTH_PASSWORD;
-
 
         bool mqttEnabled = false;
         String mqttBroker = "";

@@ -5,11 +5,11 @@
 
 #pragma once
 
-#include "../hardware/tempsensors/TempSensor.h"
 #include "../hardware/Switch.h"
+#include "../hardware/tempsensors/TempSensor.h"
+#include <Arduino.h>
 #include <functional>
 #include <memory>
-#include <Arduino.h>
 
 // Forward declarations
 class Scale;
@@ -155,7 +155,7 @@ class SensorManager {
         bool sensorsInitialized_;
         double temperature_;
         double brewTempOffset_;
-        
+
         // Water tank state
         bool waterTankFull_;
         int waterTankCheckConsecutiveReads_;

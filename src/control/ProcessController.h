@@ -5,8 +5,8 @@
 
 #pragma once
 
-#include <memory>
 #include <PID_v1.h>
+#include <memory>
 
 // Forward declarations
 class DisplayManager;
@@ -35,226 +35,221 @@ class Scale;
  * - Provide safety controls and emergency handling
  */
 class ProcessController {
-public:
-    /**
-     * @brief Constructor
-     * @param displayManager Display manager instance
-     * @param hardwareManager Hardware manager instance  
-     * @param sensorManager Sensor manager instance
-     * @param mqttManager MQTT manager instance
-     */
-    ProcessController(
-        DisplayManager* displayManager,
-        HardwareManager* hardwareManager, 
-        SensorManager* sensorManager,
-        MQTTManager* mqttManager
-    );
+    public:
+        /**
+         * @brief Constructor
+         * @param displayManager Display manager instance
+         * @param hardwareManager Hardware manager instance
+         * @param sensorManager Sensor manager instance
+         * @param mqttManager MQTT manager instance
+         */
+        ProcessController(DisplayManager* displayManager, HardwareManager* hardwareManager, SensorManager* sensorManager, MQTTManager* mqttManager);
 
-    /**
-     * @brief Destructor
-     */
-    ~ProcessController() = default;
+        /**
+         * @brief Destructor
+         */
+        ~ProcessController() = default;
 
-    // Disable copy constructor and assignment operator
-    ProcessController(const ProcessController&) = delete;
-    ProcessController& operator=(const ProcessController&) = delete;
+        // Disable copy constructor and assignment operator
+        ProcessController(const ProcessController&) = delete;
+        ProcessController& operator=(const ProcessController&) = delete;
 
-    // Enable move constructor and assignment operator
-    ProcessController(ProcessController&&) = default;
-    ProcessController& operator=(ProcessController&&) = default;
+        // Enable move constructor and assignment operator
+        ProcessController(ProcessController&&) = default;
+        ProcessController& operator=(ProcessController&&) = default;
 
-    /**
-     * @brief Initialize process controller
-     * @return true if initialization successful
-     */
-    bool initialize();
+        /**
+         * @brief Initialize process controller
+         * @return true if initialization successful
+         */
+        bool initialize();
 
-    /**
-     * @brief Main process control update - call from main loop
-     * 
-     * This method should be called regularly from the main loop.
-     * It handles temperature updates, PID computation, and process control.
-     */
-    void update();
-    
-    /**
-     * @brief Complete process control cycle including state management
-     * @param machineState Current machine state
-     * @param brewPidDisabled Whether brew PID is disabled
-     * 
-     * This method handles the complete PID control cycle including:
-     * - Temperature updates from sensors
-     * - Emergency condition testing
-     * - PID computation
-     * - Setpoint management based on steam mode
-     * - PID state management based on machine state
-     * - Debug logging
-     */
-    void updateProcessControl(int machineState, bool brewPidDisabled);
+        /**
+         * @brief Main process control update - call from main loop
+         *
+         * This method should be called regularly from the main loop.
+         * It handles temperature updates, PID computation, and process control.
+         */
+        void update();
 
-    /**
-     * @brief Update temperature readings from sensors
-     * 
-     * Reads temperature from sensors and applies appropriate offsets
-     * based on current machine state (brew vs steam mode).
-     */
-    void updateTemperature();
+        /**
+         * @brief Complete process control cycle including state management
+         * @param machineState Current machine state
+         * @param brewPidDisabled Whether brew PID is disabled
+         *
+         * This method handles the complete PID control cycle including:
+         * - Temperature updates from sensors
+         * - Emergency condition testing
+         * - PID computation
+         * - Setpoint management based on steam mode
+         * - PID state management based on machine state
+         * - Debug logging
+         */
+        void updateProcessControl(int machineState, bool brewPidDisabled);
 
-    /**
-     * @brief Compute PID output
-     * 
-     * Runs PID computation and updates pidOutput variable.
-     * Should be called after temperature update.
-     */
-    void computePID();
+        /**
+         * @brief Update temperature readings from sensors
+         *
+         * Reads temperature from sensors and applies appropriate offsets
+         * based on current machine state (brew vs steam mode).
+         */
+        void updateTemperature();
 
-    /**
-     * @brief Update PID state based on machine state
-     * @param machineState Current machine state
-     * 
-     * Enables/disables PID and sets appropriate tuning parameters
-     * based on the current machine state.
-     */
-    void updatePIDState(int machineState);
+        /**
+         * @brief Compute PID output
+         *
+         * Runs PID computation and updates pidOutput variable.
+         * Should be called after temperature update.
+         */
+        void computePID();
 
-    /**
-     * @brief Set PID tuning parameters for normal operation
-     * @param usePonM Whether to use Proportional on Measurement mode
-     */
-    void setPIDTunings(bool usePonM);
+        /**
+         * @brief Update PID state based on machine state
+         * @param machineState Current machine state
+         *
+         * Enables/disables PID and sets appropriate tuning parameters
+         * based on the current machine state.
+         */
+        void updatePIDState(int machineState);
 
-    /**
-     * @brief Set PID tuning parameters for brew detection mode
-     */
-    void setBrewDetectionPIDTunings();
+        /**
+         * @brief Set PID tuning parameters for normal operation
+         * @param usePonM Whether to use Proportional on Measurement mode
+         */
+        void setPIDTunings(bool usePonM);
 
-    /**
-     * @brief Set PID tuning parameters for steam mode
-     */
-    void setSteamPIDTunings();
+        /**
+         * @brief Set PID tuning parameters for brew detection mode
+         */
+        void setBrewDetectionPIDTunings();
 
-    /**
-     * @brief Update setpoint based on current mode
-     * @param steamActive Whether steam mode is active
-     */
-    void updateSetpoint(bool steamActive);
+        /**
+         * @brief Set PID tuning parameters for steam mode
+         */
+        void setSteamPIDTunings();
 
-    /**
-     * @brief Check if PID should be enabled for current state
-     * @param machineState Current machine state
-     * @param brewPidDisabled Whether brew PID is disabled
-     * @return true if PID should be enabled
-     */
-    bool shouldPIDBeEnabled(int machineState, bool brewPidDisabled) const;
+        /**
+         * @brief Update setpoint based on current mode
+         * @param steamActive Whether steam mode is active
+         */
+        void updateSetpoint(bool steamActive);
 
-    /**
-     * @brief Get current temperature
-     * @return Current temperature in Celsius
-     */
-    double getCurrentTemperature() const {
-        return temperature_;
-    }
+        /**
+         * @brief Check if PID should be enabled for current state
+         * @param machineState Current machine state
+         * @param brewPidDisabled Whether brew PID is disabled
+         * @return true if PID should be enabled
+         */
+        bool shouldPIDBeEnabled(int machineState, bool brewPidDisabled) const;
 
-    /**
-     * @brief Get current PID output
-     * @return Current PID output (0-1023)
-     */
-    double getPIDOutput() const {
-        return pidOutput_;
-    }
+        /**
+         * @brief Get current temperature
+         * @return Current temperature in Celsius
+         */
+        double getCurrentTemperature() const {
+            return temperature_;
+        }
 
-    /**
-     * @brief Get current setpoint
-     * @return Current temperature setpoint in Celsius
-     */
-    double getSetpoint() const {
-        return setpoint_;
-    }
+        /**
+         * @brief Get current PID output
+         * @return Current PID output (0-1023)
+         */
+        double getPIDOutput() const {
+            return pidOutput_;
+        }
 
-    /**
-     * @brief Check if PID is currently enabled
-     * @return true if PID is in automatic mode
-     */
-    bool isPIDEnabled() const;
+        /**
+         * @brief Get current setpoint
+         * @return Current temperature setpoint in Celsius
+         */
+        double getSetpoint() const {
+            return setpoint_;
+        }
 
-    /**
-     * @brief Enable or disable PID control
-     * @param enabled Whether to enable PID
-     */
-    void setPIDEnabled(bool enabled);
+        /**
+         * @brief Check if PID is currently enabled
+         * @return true if PID is in automatic mode
+         */
+        bool isPIDEnabled() const;
 
-    /**
-     * @brief Emergency stop - immediately disable PID and turn off heater
-     */
-    void emergencyStop();
+        /**
+         * @brief Enable or disable PID control
+         * @param enabled Whether to enable PID
+         */
+        void setPIDEnabled(bool enabled);
 
-    /**
-     * @brief Test for emergency conditions (overtemperature, etc.)
-     * @return true if emergency stop was triggered
-     */
-    bool testEmergencyConditions();
+        /**
+         * @brief Emergency stop - immediately disable PID and turn off heater
+         */
+        void emergencyStop();
 
-private:
-    /**
-     * @brief Update process control debug logging
-     */
-    void updateDebugLogging();
+        /**
+         * @brief Test for emergency conditions (overtemperature, etc.)
+         * @return true if emergency stop was triggered
+         */
+        bool testEmergencyConditions();
 
-    /**
-     * @brief Calculate derived PID parameters (Ki, Kd) from Tn, Tv
-     */
-    void calculatePIDParameters();
+    private:
+        /**
+         * @brief Update process control debug logging
+         */
+        void updateDebugLogging();
 
-    /**
-     * @brief Calculate brew detection PID parameters
-     */
-    void calculateBrewDetectionPIDParameters();
-    
-    /**
-     * @brief Handle brew PID delay logic during brewing
-     * @param machineState Current machine state
-     * @param brewPidDisabled Whether brew PID is currently disabled
-     */
-    void handleBrewPIDDelay(int machineState, bool brewPidDisabled);
+        /**
+         * @brief Calculate derived PID parameters (Ki, Kd) from Tn, Tv
+         */
+        void calculatePIDParameters();
 
-    // Manager dependencies
-    DisplayManager* displayManager_;
-    HardwareManager* hardwareManager_;
-    SensorManager* sensorManager_;
-    MQTTManager* mqttManager_;
+        /**
+         * @brief Calculate brew detection PID parameters
+         */
+        void calculateBrewDetectionPIDParameters();
 
-    // PID controller
-    std::unique_ptr<PID> pidController_;
+        /**
+         * @brief Handle brew PID delay logic during brewing
+         * @param machineState Current machine state
+         * @param brewPidDisabled Whether brew PID is currently disabled
+         */
+        void handleBrewPIDDelay(int machineState, bool brewPidDisabled);
 
-    // Process variables
-    double temperature_;        ///< Current temperature reading
-    double pidOutput_;         ///< Current PID output (0-1023)
-    double setpoint_;          ///< Current temperature setpoint
+        // Manager dependencies
+        DisplayManager* displayManager_;
+        HardwareManager* hardwareManager_;
+        SensorManager* sensorManager_;
+        MQTTManager* mqttManager_;
 
-    // PID parameters (normal mode)
-    double aggKp_, aggKi_, aggKd_;     ///< Aggressive PID parameters
-    double aggTn_, aggTv_;             ///< Time constants for Ki/Kd calculation
-    double aggIMax_;                   ///< Integrator maximum value
+        // PID controller
+        std::unique_ptr<PID> pidController_;
 
-    // PID parameters (brew detection mode)
-    double aggbKp_, aggbKi_, aggbKd_;  ///< Brew detection PID parameters
-    double aggbTn_, aggbTv_;           ///< Brew detection time constants
+        // Process variables
+        double temperature_; ///< Current temperature reading
+        double pidOutput_;   ///< Current PID output (0-1023)
+        double setpoint_;    ///< Current temperature setpoint
 
-    // Steam parameters
-    double steamKp_;                   ///< Steam mode proportional gain
+        // PID parameters (normal mode)
+        double aggKp_, aggKi_, aggKd_; ///< Aggressive PID parameters
+        double aggTn_, aggTv_;         ///< Time constants for Ki/Kd calculation
+        double aggIMax_;               ///< Integrator maximum value
 
-    // Setpoint values
-    double brewSetpoint_;              ///< Target temperature for brewing
-    double steamSetpoint_;             ///< Target temperature for steam
+        // PID parameters (brew detection mode)
+        double aggbKp_, aggbKi_, aggbKd_; ///< Brew detection PID parameters
+        double aggbTn_, aggbTv_;          ///< Brew detection time constants
 
-    // Temperature offset
-    double brewTempOffset_;            ///< Temperature offset for brewing
+        // Steam parameters
+        double steamKp_; ///< Steam mode proportional gain
 
-    // State tracking
-    int lastMachineStatePid_;          ///< Last machine state for PID logging
-    bool initialized_;                 ///< Whether controller is initialized
+        // Setpoint values
+        double brewSetpoint_;  ///< Target temperature for brewing
+        double steamSetpoint_; ///< Target temperature for steam
 
-    // Timing
-    unsigned long lastTempEvent_;      ///< Last temperature event timestamp
-    unsigned long tempEventInterval_;  ///< Temperature event interval
+        // Temperature offset
+        double brewTempOffset_; ///< Temperature offset for brewing
+
+        // State tracking
+        int lastMachineStatePid_; ///< Last machine state for PID logging
+        bool initialized_;        ///< Whether controller is initialized
+
+        // Timing
+        unsigned long lastTempEvent_;     ///< Last temperature event timestamp
+        unsigned long tempEventInterval_; ///< Temperature event interval
 };

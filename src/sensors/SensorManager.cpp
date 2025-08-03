@@ -100,9 +100,9 @@ bool SensorManager::areSensorsReady() const {
     }
 
     // Water tank sensor doesn't have error state, just reports empty/full
-    
+
     // Pressure sensor doesn't have explicit error state
-    
+
     // Scale error is handled via global scaleFailure variable
     if (Config::getInstance().get<bool>("hardware.sensors.scale.enabled") && hasScaleError()) {
         return false;
@@ -157,8 +157,7 @@ void SensorManager::updatePressureSensor() {
         return;
     }
 
-    if (const unsigned long currentMillisPressure = millis(); 
-        currentMillisPressure - previousMillisPressure_ >= intervalPressure_) {
+    if (const unsigned long currentMillisPressure = millis(); currentMillisPressure - previousMillisPressure_ >= intervalPressure_) {
         previousMillisPressure_ = currentMillisPressure;
         inputPressure_ = measurePressure();
         inputPressureFilter_ = filterPressureValue(inputPressure_);
@@ -220,7 +219,7 @@ bool SensorManager::initializeTemperatureSensor() {
     // Just get the initial reading
     temperature_ = tempSensor_->getCurrentTemperature();
     temperature_ -= brewTempOffset_;
-    
+
     LOG(INFO, "Temperature sensor initialized via SensorManager");
     return true;
 }
@@ -239,7 +238,7 @@ bool SensorManager::initializeWaterTankSensor() {
     // Initialize water tank state
     waterTankFull_ = true;
     waterTankCheckConsecutiveReads_ = 0;
-    
+
     LOG(INFO, "Water tank sensor initialized via SensorManager");
     return true;
 }

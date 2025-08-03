@@ -4,9 +4,9 @@
  */
 
 #include "UIManager.h"
+#include "../Config.h"
 #include "../display/DisplayManager.h"
 #include "../display/bitmaps.h"
-#include "../Config.h"
 #include "Logger.h"
 #include <Arduino.h>
 
@@ -23,14 +23,8 @@ extern double currentWeight;
 extern double targetWeight;
 extern unsigned long uptime;
 
-UIManager::UIManager(DisplayManager* displayManager)
-    : displayManager_(displayManager),
-      u8g2_(nullptr),
-      initialized_(false),
-      bufferReady_(false),
-      updateRunning_(false),
-      brewTimerState_(BrewTimerState::Idle),
-      brewEndTime_(0) {
+UIManager::UIManager(DisplayManager* displayManager) :
+    displayManager_(displayManager), u8g2_(nullptr), initialized_(false), bufferReady_(false), updateRunning_(false), brewTimerState_(BrewTimerState::Idle), brewEndTime_(0) {
 
     LOG(INFO, "UIManager created");
 }
@@ -139,9 +133,7 @@ void UIManager::displayLogo(const String& message1, const String& message2) {
     u8g2_->sendBuffer();
 }
 
-void UIManager::displayMessage(const String& text1, const String& text2,
-                              const String& text3, const String& text4,
-                              const String& text5, const String& text6) {
+void UIManager::displayMessage(const String& text1, const String& text2, const String& text3, const String& text4, const String& text5, const String& text6) {
     if (!u8g2_) return;
 
     u8g2_->clearBuffer();
@@ -353,9 +345,11 @@ void UIManager::displayMachineState() {
     // This will be enhanced based on actual machine state values
     if (g_state.machine.steamON) {
         stateStr = "Steam";
-    } else if (currBrewTime > 0) {
+    }
+    else if (currBrewTime > 0) {
         stateStr = "Brewing";
-    } else {
+    }
+    else {
         stateStr = "Ready";
     }
 
@@ -388,7 +382,8 @@ void UIManager::displayWrappedMessage(const String& message) {
             // Last word
             line = remainingText;
             remainingText = "";
-        } else {
+        }
+        else {
             // Build line word by word
             while (spacePos != -1) {
                 word = remainingText.substring(0, spacePos);
@@ -398,7 +393,8 @@ void UIManager::displayWrappedMessage(const String& message) {
                     line = testLine;
                     remainingText = remainingText.substring(spacePos + 1);
                     spacePos = remainingText.indexOf(' ');
-                } else {
+                }
+                else {
                     break;
                 }
             }
@@ -427,10 +423,15 @@ void UIManager::forceUpdate() {
 const u8g2_cb_t* UIManager::getU8G2Rotation(int rotation) {
     // Map rotation index to U8G2 rotation constants
     switch (rotation) {
-        case 0: return U8G2_R0;
-        case 1: return U8G2_R1;
-        case 2: return U8G2_R2;
-        case 3: return U8G2_R3;
-        default: return U8G2_R0;
+        case 0:
+            return U8G2_R0;
+        case 1:
+            return U8G2_R1;
+        case 2:
+            return U8G2_R2;
+        case 3:
+            return U8G2_R3;
+        default:
+            return U8G2_R0;
     }
 }

@@ -117,7 +117,7 @@ inline void displayWiFiStatus(const int x, const int y) {
  * @brief Draw an MQTT status indicator at the given coordinates if MQTT is enabled
  */
 inline void displayMQTTStatus(const int x, const int y) {
-    if (            Config::getInstance().get<bool>("mqtt.enabled")) {
+    if (Config::getInstance().get<bool>("mqtt.enabled")) {
         if (mqtt && mqtt->connected() == 1) {
             u8g2->setCursor(x, y);
             u8g2->setFont(u8g2_font_profont11_tf);

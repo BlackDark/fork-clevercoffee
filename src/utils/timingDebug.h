@@ -115,7 +115,8 @@ void debugTimingLoop() {
 
             // the loopDuration > 45 check is in case there is a long loop caused by something unknown
             // only record if one of these flags are set or loop has taken a long time
-            if ((loopDuration > 45) || ((g_state.coordination.displayUpdateRunning && Config::getInstance().get<bool>("system.showdisplay.enabled")) || g_state.coordination.websiteUpdateRunning || isMqttUpdateRunning() || g_state.coordination.hassioUpdateRunning || g_state.coordination.temperatureUpdateRunning)) {
+            if ((loopDuration > 45) || ((g_state.coordination.displayUpdateRunning && Config::getInstance().get<bool>("system.showdisplay.enabled")) || g_state.coordination.websiteUpdateRunning || isMqttUpdateRunning() ||
+                                        g_state.coordination.hassioUpdateRunning || g_state.coordination.temperatureUpdateRunning)) {
 
                 if (loopDuration >= maxLoop) {
                     maxLoop = loopDuration;

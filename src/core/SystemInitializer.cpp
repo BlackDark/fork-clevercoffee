@@ -16,8 +16,8 @@ namespace DisplayTemplateManager {
     extern void initializeDisplay(int templateId);
 }
 #include "../hardware/HardwareManager.h"
-#include "../network/MQTTManager.h"
 #include "../network/CleverCoffeeWiFiManager.h"
+#include "../network/MQTTManager.h"
 #include "../sensors/SensorManager.h"
 #include "Logger.h"
 #include <Arduino.h>
@@ -92,11 +92,7 @@ extern void setRuntimePidState(bool state);
 extern bool checkBrewActive();
 
 SystemInitializer::SystemInitializer() :
-    systemInitialized_(false),
-    displayManager_(nullptr),
-    hardwareManager_(nullptr),
-    mqttManager_(nullptr),
-    sensorManager_(nullptr) {
+    systemInitialized_(false), displayManager_(nullptr), hardwareManager_(nullptr), mqttManager_(nullptr), sensorManager_(nullptr) {
 }
 
 bool SystemInitializer::initialize() {
@@ -152,8 +148,7 @@ bool SystemInitializer::initialize() {
     enableTimer1();
 
     double fsUsage = (static_cast<double>(LittleFS.usedBytes()) / LittleFS.totalBytes()) * 100;
-    LOGF(INFO, "LittleFS: %d%% (used %ld bytes from %ld bytes)",
-         static_cast<int>(ceil(fsUsage)), LittleFS.usedBytes(), LittleFS.totalBytes());
+    LOGF(INFO, "LittleFS: %d%% (used %ld bytes from %ld bytes)", static_cast<int>(ceil(fsUsage)), LittleFS.usedBytes(), LittleFS.totalBytes());
 
     if (!finalizeMachineState()) {
         LOG(ERROR, "Machine state finalization failed");
@@ -193,13 +188,12 @@ bool SystemInitializer::initializeConfiguration() {
     int level = Config::getInstance().get<int>("system.log_level");
     Logger::setLevel(static_cast<Logger::Level>(level));
 
-
     calculateDerivedValues();
 
     // TODO what is better?
-    //bPID = std::make_unique<PID>(&g_state.process.temperature, &g_state.process.pidOutput, &g_state.process.setpoint, Config::getInstance().get<double>("pid.regular.kp"), aggKi, aggKd, 1, DIRECT);
+    // bPID = std::make_unique<PID>(&g_state.process.temperature, &g_state.process.pidOutput, &g_state.process.setpoint, Config::getInstance().get<double>("pid.regular.kp"), aggKi, aggKd, 1, DIRECT);
     g_state.pid = new PID(&g_state.process.temperature, &g_state.process.pidOutput, &g_state.process.setpoint, Config::getInstance().get<double>("pid.regular.kp"), g_state.process.aggKi, g_state.process.aggKd, 1, DIRECT);
-    //g_state.pid = PID(&g_state.process.temperature, &g_state.process.pidOutput, &g_state.process.setpoint, Config::getInstance().get<double>("pid.regular.kp"), aggKi, aggKd, 1, DIRECT)*;
+    // g_state.pid = PID(&g_state.process.temperature, &g_state.process.pidOutput, &g_state.process.setpoint, Config::getInstance().get<double>("pid.regular.kp"), aggKi, aggKd, 1, DIRECT)*;
     return true;
 }
 
@@ -225,7 +219,8 @@ bool SystemInitializer::initializeDisplay() {
 
             LOG(INFO, "Display initialization completed");
             return true;
-        } else {
+        }
+        else {
             LOG(ERROR, "Failed to create DisplayManager");
             displayManager_.reset();
             u8g2 = nullptr;
@@ -310,10 +305,10 @@ bool SystemInitializer::initializeMQTT() {
 
         if (mqttManager_->setup(Config::getInstance().get<String>("system.hostname"))) {
             // Set compatibility variables
-            //mqtt_enabled = mqttManager_->isEnabled();
+            // mqtt_enabled = mqttManager_->isEnabled();
             Config::getInstance().set<bool>("mqtt.enabled", mqttManager_->isEnabled());
-            //mqtt_hassio_enabled = true;
-            // TODO check if this is right
+            // mqtt_hassio_enabled = true;
+            //  TODO check if this is right
             Config::getInstance().set<bool>("mqtt.hassio.enabled", true);
             mqtt = &mqttManager_->getClient();
 
@@ -329,7 +324,8 @@ bool SystemInitializer::initializeMQTT() {
 
             LOG(INFO, "MQTT setup completed via MQTTManager");
             return true;
-        } else {
+        }
+        else {
             LOG(WARNING, "MQTT setup returned false");
             return false;
         }
@@ -378,7 +374,8 @@ bool SystemInitializer::initializeSensors() {
             }
 
             return true;
-        } else {
+        }
+        else {
             LOG(WARNING, "SensorManager initialization returned false");
             return false;
         }
@@ -391,20 +388,19 @@ bool SystemInitializer::initializeSensors() {
 bool SystemInitializer::finalizeMachineState() {
     try {
         // For momentary switches, start in normal operation mode
-        if (Config::getInstance().get<bool>("hardware.switches.power.enabled") &&
-            Config::getInstance().get<int>("hardware.switches.power.type") == static_cast<int>(Switch::MOMENTARY)) {
+        if (Config::getInstance().get<bool>("hardware.switches.power.enabled") && Config::getInstance().get<int>("hardware.switches.power.type") == static_cast<int>(Switch::MOMENTARY)) {
             machineState = kPidNormal;
             setRuntimePidState(true);
             LOG(INFO, "Machine initialized in PID Normal mode (momentary switch)");
         }
         // For toggle switches, force PidOn to switch state mode
-        else if (Config::getInstance().get<bool>("hardware.switches.power.enabled") &&
-                 Config::getInstance().get<int>("hardware.switches.power.type") == static_cast<int>(Switch::TOGGLE)) {
+        else if (Config::getInstance().get<bool>("hardware.switches.power.enabled") && Config::getInstance().get<int>("hardware.switches.power.type") == static_cast<int>(Switch::TOGGLE)) {
             if (powerSwitch && powerSwitch->isPressed()) {
                 setRuntimePidState(true);
                 machineState = kPidNormal;
                 LOG(INFO, "Machine initialized in PID Normal mode (toggle switch ON)");
-            } else {
+            }
+            else {
                 setRuntimePidState(false);
                 machineState = kPidDisabled;
                 LOG(INFO, "Machine initialized in PID Disabled mode (toggle switch OFF)");

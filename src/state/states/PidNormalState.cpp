@@ -4,23 +4,23 @@
  */
 
 #include "PidNormalState.h"
-#include "BrewState.h"
-#include "ManualFlushState.h"
-#include "BackflushState.h"
-#include "SteamState.h"
-#include "HotWaterState.h"
-#include "EmergencyStopState.h"
-#include "StandbyState.h"
-#include "PidDisabledState.h"
-#include "WaterTankEmptyState.h"
-#include "SensorErrorState.h"
 #include "../MachineStateContext.h"
+#include "BackflushState.h"
+#include "BrewState.h"
+#include "EmergencyStopState.h"
+#include "HotWaterState.h"
 #include "Logger.h"
+#include "ManualFlushState.h"
+#include "PidDisabledState.h"
+#include "SensorErrorState.h"
+#include "StandbyState.h"
+#include "SteamState.h"
+#include "WaterTankEmptyState.h"
 
 void PidNormalState::onEntry(MachineStateContext& context) {
     context.logStateEntry(getStateId(), getStateName());
     LOG(INFO, "Entering normal PID operation mode");
-    
+
     // Ensure PID is enabled when entering this state
     context.setPidRuntimeState(true);
 }
@@ -33,12 +33,9 @@ void PidNormalState::onExit(MachineStateContext& context) {
 void PidNormalState::update(MachineStateContext& context) {
     // Monitor system status during normal operation
     // The actual transition logic is handled in checkTransitions()
-    
+
     // Log periodic status for debugging (could be rate-limited)
-    LOGF(DEBUG, "PID Normal: Temp=%.1f°C, Tank=%s, Sensors=%s", 
-         context.getCurrentTemperature(),
-         context.isWaterTankFull() ? "OK" : "EMPTY",
-         context.hasSensorError() ? "ERROR" : "OK");
+    LOGF(DEBUG, "PID Normal: Temp=%.1f°C, Tank=%s, Sensors=%s", context.getCurrentTemperature(), context.isWaterTankFull() ? "OK" : "EMPTY", context.hasSensorError() ? "ERROR" : "OK");
 }
 
 std::unique_ptr<MachineState> PidNormalState::checkTransitions(MachineStateContext& context) {

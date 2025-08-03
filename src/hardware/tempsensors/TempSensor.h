@@ -10,10 +10,9 @@
 #include <cmath>
 #include <numeric>
 
+#include "./state/GlobalState.h"
 #include "Logger.h"
 #include "utils/Timer.h"
-#include "./state/GlobalState.h"
-
 
 class TempSensor {
     public:

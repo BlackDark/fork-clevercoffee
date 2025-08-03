@@ -29,13 +29,15 @@ class MachineState {
          * @brief Called when entering this state
          * @param context The machine state context containing all necessary data
          */
-        virtual void onEntry(MachineStateContext& context) {}
+        virtual void onEntry(MachineStateContext& context) {
+        }
 
         /**
          * @brief Called when exiting this state
          * @param context The machine state context containing all necessary data
          */
-        virtual void onExit(MachineStateContext& context) {}
+        virtual void onExit(MachineStateContext& context) {
+        }
 
         /**
          * @brief Update the state - called every cycle while in this state

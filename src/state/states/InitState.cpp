@@ -4,12 +4,12 @@
  */
 
 #include "InitState.h"
-#include "PidNormalState.h"
-#include "PidDisabledState.h"
-#include "WaterTankEmptyState.h"
-#include "SensorErrorState.h"
 #include "../MachineStateContext.h"
 #include "Logger.h"
+#include "PidDisabledState.h"
+#include "PidNormalState.h"
+#include "SensorErrorState.h"
+#include "WaterTankEmptyState.h"
 
 void InitState::onEntry(MachineStateContext& context) {
     context.logStateEntry(getStateId(), getStateName());
@@ -24,12 +24,9 @@ void InitState::onExit(MachineStateContext& context) {
 void InitState::update(MachineStateContext& context) {
     // Perform continuous system validation during init
     // The actual transition logic is handled in checkTransitions()
-    
+
     // Log current system status for debugging
-    LOGF(DEBUG, "Init state: Water tank: %s, Sensors: %s, PID: %s",
-         checkWaterTank(context) ? "OK" : "EMPTY",
-         checkSensors(context) ? "OK" : "ERROR", 
-         checkPidEnabled(context) ? "ENABLED" : "DISABLED");
+    LOGF(DEBUG, "Init state: Water tank: %s, Sensors: %s, PID: %s", checkWaterTank(context) ? "OK" : "EMPTY", checkSensors(context) ? "OK" : "ERROR", checkPidEnabled(context) ? "ENABLED" : "DISABLED");
 }
 
 std::unique_ptr<MachineState> InitState::checkTransitions(MachineStateContext& context) {
@@ -54,7 +51,8 @@ std::unique_ptr<MachineState> InitState::checkTransitions(MachineStateContext& c
     if (!checkPidEnabled(context)) {
         context.logStateTransition(getStateId(), MachineStateIds::PID_DISABLED, "PID disabled");
         return std::make_unique<PidDisabledState>();
-    } else {
+    }
+    else {
         context.logStateTransition(getStateId(), MachineStateIds::PID_NORMAL, "PID enabled - entering normal operation");
         return std::make_unique<PidNormalState>();
     }
@@ -69,12 +67,12 @@ bool InitState::checkSensors(MachineStateContext& context) const {
     if (context.hasSensorError()) {
         return false;
     }
-    
+
     // Check temperature sensor specifically
     if (context.hasTemperatureError()) {
         return false;
     }
-    
+
     return true;
 }
 

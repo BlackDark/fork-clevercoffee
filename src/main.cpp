@@ -13,8 +13,8 @@
 // Libraries & Dependencies
 #include "Logger.h"
 #include "core/SystemInitializer.h"
-#include "network/MQTTManager.h"
 #include "network/CleverCoffeeWiFiManager.h"
+#include "network/MQTTManager.h"
 #include <ArduinoOTA.h>
 #include <LittleFS.h>
 #include <PID_v1.h>  // for PID calculation
@@ -48,7 +48,6 @@ hw_timer_t* timer = nullptr;
 
 #include "hardware/pressureSensor.h"
 #include <Wire.h>
-
 
 enum LegacyMachineState {
     kInit = 0,
@@ -199,7 +198,6 @@ String lastHotWaterStateDebug = "off";
 // g_state.machine.steamON moved to g_state.machine.g_state.machine.steamON
 bool steamFirstON = false;
 
-
 #include "brewHandler.h"
 #include "hotWaterHandler.h"
 
@@ -211,9 +209,9 @@ boolean setupDone = false;
 
 // Water tank sensor
 boolean waterTankFull = true;
-std::unique_ptr<Timer> loopWaterTank; // Check water tank level every 200 ms - initialized in setup()
-int waterTankCheckConsecutiveReads = 0;    // Counter for consecutive readings of water tank sensor
-constexpr int waterTankCountsNeeded = 3;   // Number of same readings to change water tank sensing
+std::unique_ptr<Timer> loopWaterTank;    // Check water tank level every 200 ms - initialized in setup()
+int waterTankCheckConsecutiveReads = 0;  // Counter for consecutive readings of water tank sensor
+constexpr int waterTankCountsNeeded = 3; // Number of same readings to change water tank sensing
 
 // PID controller
 unsigned long previousMillistemp; // initialisation at the end of init()
@@ -424,8 +422,7 @@ void handleMachineState() {
                 machineState = kWaterTankEmpty;
             }
 
-            if ((sensorManager != nullptr && sensorManager->hasSensorError()) ||
-                (tempSensor != nullptr && tempSensor->hasError())) {
+            if ((sensorManager != nullptr && sensorManager->hasSensorError()) || (tempSensor != nullptr && tempSensor->hasError())) {
                 machineState = kSensorError;
             }
 
@@ -496,8 +493,7 @@ void handleMachineState() {
                 machineState = kWaterTankEmpty;
             }
 
-            if ((sensorManager != nullptr && sensorManager->hasSensorError()) ||
-                (tempSensor != nullptr && tempSensor->hasError())) {
+            if ((sensorManager != nullptr && sensorManager->hasSensorError()) || (tempSensor != nullptr && tempSensor->hasError())) {
                 machineState = kSensorError;
             }
 
@@ -516,8 +512,7 @@ void handleMachineState() {
                 machineState = kPidDisabled;
             }
 
-            if ((sensorManager != nullptr && sensorManager->hasSensorError()) ||
-                (tempSensor != nullptr && tempSensor->hasError())) {
+            if ((sensorManager != nullptr && sensorManager->hasSensorError()) || (tempSensor != nullptr && tempSensor->hasError())) {
                 machineState = kSensorError;
             }
 
@@ -540,8 +535,7 @@ void handleMachineState() {
                 machineState = kPidDisabled;
             }
 
-            if ((sensorManager != nullptr && sensorManager->hasSensorError()) ||
-                (tempSensor != nullptr && tempSensor->hasError())) {
+            if ((sensorManager != nullptr && sensorManager->hasSensorError()) || (tempSensor != nullptr && tempSensor->hasError())) {
                 machineState = kSensorError;
             }
             break;
@@ -567,8 +561,7 @@ void handleMachineState() {
                 machineState = kPidDisabled;
             }
 
-            if ((sensorManager != nullptr && sensorManager->hasSensorError()) ||
-                (tempSensor != nullptr && tempSensor->hasError())) {
+            if ((sensorManager != nullptr && sensorManager->hasSensorError()) || (tempSensor != nullptr && tempSensor->hasError())) {
                 machineState = kSensorError;
             }
 
@@ -587,8 +580,7 @@ void handleMachineState() {
                 machineState = kPidDisabled;
             }
 
-            if ((sensorManager != nullptr && sensorManager->hasSensorError()) ||
-                (tempSensor != nullptr && tempSensor->hasError())) {
+            if ((sensorManager != nullptr && sensorManager->hasSensorError()) || (tempSensor != nullptr && tempSensor->hasError())) {
                 machineState = kSensorError;
             }
 
@@ -613,8 +605,7 @@ void handleMachineState() {
                 machineState = kWaterTankEmpty;
             }
 
-            if ((sensorManager != nullptr && sensorManager->hasSensorError()) ||
-                (tempSensor != nullptr && tempSensor->hasError())) {
+            if ((sensorManager != nullptr && sensorManager->hasSensorError()) || (tempSensor != nullptr && tempSensor->hasError())) {
                 machineState = kSensorError;
             }
 
@@ -629,8 +620,7 @@ void handleMachineState() {
                 machineState = kPidDisabled;
             }
 
-            if ((sensorManager != nullptr && sensorManager->hasSensorError()) ||
-                (tempSensor != nullptr && tempSensor->hasError())) {
+            if ((sensorManager != nullptr && sensorManager->hasSensorError()) || (tempSensor != nullptr && tempSensor->hasError())) {
                 machineState = kSensorError;
             }
 
@@ -649,8 +639,7 @@ void handleMachineState() {
                 machineState = kPidDisabled;
             }
 
-            if ((sensorManager != nullptr && sensorManager->hasSensorError()) ||
-                (tempSensor != nullptr && tempSensor->hasError())) {
+            if ((sensorManager != nullptr && sensorManager->hasSensorError()) || (tempSensor != nullptr && tempSensor->hasError())) {
                 machineState = kSensorError;
             }
 
@@ -661,8 +650,7 @@ void handleMachineState() {
                 machineState = kPidNormal;
             }
 
-            if ((sensorManager != nullptr && sensorManager->hasSensorError()) ||
-                (tempSensor != nullptr && tempSensor->hasError())) {
+            if ((sensorManager != nullptr && sensorManager->hasSensorError()) || (tempSensor != nullptr && tempSensor->hasError())) {
                 machineState = kSensorError;
             }
 
@@ -733,8 +721,7 @@ void handleMachineState() {
                     }
                 }
 
-                if ((sensorManager != nullptr && sensorManager->hasSensorError()) ||
-                    (tempSensor != nullptr && tempSensor->hasError())) {
+                if ((sensorManager != nullptr && sensorManager->hasSensorError()) || (tempSensor != nullptr && tempSensor->hasError())) {
                     if (oledEnabled) {
                         u8g2->setPowerSave(0);
                     }
@@ -863,7 +850,8 @@ void setup() {
         // Display logo using UIManager if available, fallback to direct call
         if (uiManager) {
             uiManager->displayLogo(String("Version "), g_state.systemVersion);
-        } else {
+        }
+        else {
             displayLogo(String("Version "), g_state.systemVersion);
         }
     }
@@ -896,7 +884,8 @@ void setup() {
     if (Config::getInstance().get<bool>("hardware.sensors.scale.enabled")) {
         if (sensorManager) {
             sensorManager->initializeScale();
-        } else {
+        }
+        else {
             initScale(); // Fallback to global function
         }
     }
@@ -905,20 +894,14 @@ void setup() {
 
     // Initialize modern state machine after all managers are set up
     if (g_state.machine.systemInitialized) {
-        stateMachine = std::make_unique<StateMachine>(
-            systemInitializer->getDisplayManager(),
-            systemInitializer->getHardwareManager(),
-            sensorManager,
-            systemInitializer->getWiFiManager(),
-            systemInitializer->getMQTTManager()
-        );
+        stateMachine = std::make_unique<StateMachine>(systemInitializer->getDisplayManager(), systemInitializer->getHardwareManager(), sensorManager, systemInitializer->getWiFiManager(), systemInitializer->getMQTTManager());
 
         if (stateMachine->initialize()) {
             LOG(INFO, "StateMachine initialized successfully");
-        } else {
+        }
+        else {
             LOG(ERROR, "StateMachine initialization failed!");
         }
-
 
         // Initialize PID parameters now that config is available
         // TODO remove?
@@ -931,40 +914,32 @@ void setup() {
         g_state.pid->SetTunings(Config::getInstance().get<double>("pid.regular.kp"), g_state.process.aggKi, g_state.process.aggKd, 1);
 
         // Initialize ProcessController for PID control
-        processController = std::make_unique<ProcessController>(
-            systemInitializer->getDisplayManager(),
-            systemInitializer->getHardwareManager(),
-            sensorManager,
-            systemInitializer->getMQTTManager()
-        );
+        processController = std::make_unique<ProcessController>(systemInitializer->getDisplayManager(), systemInitializer->getHardwareManager(), sensorManager, systemInitializer->getMQTTManager());
 
         if (processController->initialize()) {
             LOG(INFO, "ProcessController initialized successfully");
-        } else {
+        }
+        else {
             LOG(ERROR, "ProcessController initialization failed!");
         }
 
         // Initialize UIManager for display management
-        uiManager = std::make_unique<UIManager>(
-            systemInitializer->getDisplayManager()
-        );
+        uiManager = std::make_unique<UIManager>(systemInitializer->getDisplayManager());
 
         if (uiManager->initialize()) {
             LOG(INFO, "UIManager initialized successfully");
-        } else {
+        }
+        else {
             LOG(ERROR, "UIManager initialization failed!");
         }
 
         // Initialize LoopManager for main loop coordination
-        loopManager = std::make_unique<LoopManager>(
-            processController.get(),
-            sensorManager,
-            uiManager.get()
-        );
+        loopManager = std::make_unique<LoopManager>(processController.get(), sensorManager, uiManager.get());
 
         if (loopManager->initialize()) {
             LOG(INFO, "LoopManager initialized successfully");
-        } else {
+        }
+        else {
             LOG(ERROR, "LoopManager initialization failed!");
         }
     }
@@ -981,7 +956,8 @@ void loop() {
     if (loopManager) {
         // Use modern LoopManager for coordinated main loop updates
         loopManager->update();
-    } else {
+    }
+    else {
         // Fallback to legacy loop implementation
         // Accept potential connections for remote logging
         Logger::update();
@@ -1008,7 +984,8 @@ void loopPid() {
     if (processController) {
         // Use ProcessController for temperature and PID management
         processController->updateProcessControl(static_cast<int>(machineState), brewPidDisabled);
-    } else {
+    }
+    else {
         // Fallback to original temperature reading logic
         if (sensorManager != nullptr) {
             // Update SensorManager first to get fresh readings
@@ -1023,7 +1000,8 @@ void loopPid() {
                     g_state.process.temperature = tempSensor->getCurrentTemperature();
                 }
             }
-        } else if (tempSensor != nullptr) {
+        }
+        else if (tempSensor != nullptr) {
             // Fallback to direct sensor access
             g_state.process.temperature = tempSensor->getCurrentTemperature();
 
@@ -1097,8 +1075,8 @@ void loopPid() {
     // Emergency stop test and PID computation are now handled by ProcessController
     if (!processController) {
         // Fallback to original logic if ProcessController isn't available
-        testEmergencyStop(); // test if temp is too high
-        g_state.pid->Compute();      // the variable g_state.process.pidOutput now has new values from PID (will be written to heater pin in ISR.cpp)
+        testEmergencyStop();    // test if temp is too high
+        g_state.pid->Compute(); // the variable g_state.process.pidOutput now has new values from PID (will be written to heater pin in ISR.cpp)
     }
 
     g_state.coordination.websiteUpdateRunning = false;
@@ -1113,7 +1091,8 @@ void loopPid() {
             // Pressure reading is handled by sensorManager->update() call above
             g_state.sensors.inputPressure = sensorManager->getCurrentPressure();
             g_state.sensors.inputPressureFilter = sensorManager->getFilteredPressure();
-        } else {
+        }
+        else {
             // Fallback to direct pressure reading
             if (const unsigned long currentMillisPressure = millis(); currentMillisPressure - g_state.timing.previousMillisPressure >= g_state.timing.intervalPressure) {
                 g_state.timing.previousMillisPressure = currentMillisPressure;
@@ -1124,7 +1103,8 @@ void loopPid() {
     }
 
     // refresh website if loop does not have anoth long running process already
-    if (((millis() - lastTempEvent) > tempEventInterval) && ((!mqttManager || !mqttManager->isUpdateRunning()) && !g_state.coordination.hassioUpdateRunning && !g_state.coordination.displayBufferReady && !g_state.coordination.temperatureUpdateRunning)) {
+    if (((millis() - lastTempEvent) > tempEventInterval) &&
+        ((!mqttManager || !mqttManager->isUpdateRunning()) && !g_state.coordination.hassioUpdateRunning && !g_state.coordination.displayBufferReady && !g_state.coordination.temperatureUpdateRunning)) {
         g_state.coordination.websiteUpdateRunning = true;
 
         // send temperatures to website endpoint
@@ -1191,7 +1171,8 @@ void loopPid() {
             machineState = static_cast<LegacyMachineState>(newStateId);
             printMachineState();
         }
-    } else {
+    }
+    else {
         // Fallback to old state machine if new one isn't ready
         handleMachineState();
     }
@@ -1203,7 +1184,8 @@ void loopPid() {
         // Update brew timer display state using UIManager if available
         if (uiManager) {
             uiManager->shouldDisplayBrewTimer();
-        } else {
+        }
+        else {
             shouldDisplayBrewTimer();
         }
     }
@@ -1214,7 +1196,8 @@ void loopPid() {
 
         if (Config::getInstance().get<bool>("hardware.oled.enabled")) {
             // update display on loops that have not had other major tasks running
-            if (!g_state.coordination.websiteUpdateRunning && (!mqttManager || !mqttManager->isUpdateRunning()) && !g_state.coordination.hassioUpdateRunning && !g_state.coordination.temperatureUpdateRunning && (standbyModeRemainingTimeMillis > 0)) {
+            if (!g_state.coordination.websiteUpdateRunning && (!mqttManager || !mqttManager->isUpdateRunning()) && !g_state.coordination.hassioUpdateRunning && !g_state.coordination.temperatureUpdateRunning &&
+                (standbyModeRemainingTimeMillis > 0)) {
 
                 if (uiManager->isBufferReady()) {
                     uiManager->forceUpdate();
@@ -1226,12 +1209,14 @@ void loopPid() {
                 }
             }
         }
-    } else {
+    }
+    else {
         // Fallback to original display logic
         g_state.coordination.displayUpdateRunning = false;
 
         if (Config::getInstance().get<bool>("hardware.oled.enabled")) {
-            if (!g_state.coordination.websiteUpdateRunning && (!mqttManager || !mqttManager->isUpdateRunning()) && !g_state.coordination.hassioUpdateRunning && !g_state.coordination.temperatureUpdateRunning && (standbyModeRemainingTimeMillis > 0)) {
+            if (!g_state.coordination.websiteUpdateRunning && (!mqttManager || !mqttManager->isUpdateRunning()) && !g_state.coordination.hassioUpdateRunning && !g_state.coordination.temperatureUpdateRunning &&
+                (standbyModeRemainingTimeMillis > 0)) {
                 if (g_state.coordination.displayBufferReady) {
                     u8g2->sendBuffer();
                     g_state.coordination.displayBufferReady = false;
@@ -1342,7 +1327,8 @@ void checkWaterTank() {
         // (sensor reading is updated by sensorManager->update() in loopPid)
         sensorManager->updateWaterTankSensor();
         waterTankFull = sensorManager->isWaterTankFull();
-    } else {
+    }
+    else {
         // Fallback to direct water tank sensor reading
         if (!Config::getInstance().get<bool>("hardware.sensors.watertank.enabled") || waterTankSensor == nullptr) {
             return;
@@ -1462,7 +1448,7 @@ void setPIDTunings(const bool usePonM) {
 void setBDPIDTunings() {
     // calc ki, kd
     if (Config::getInstance().get<double>("pid.bd.tn") != 0) {
-       g_state.process.aggbKi = Config::getInstance().get<double>("pid.bd.kp") / Config::getInstance().get<double>("pid.bd.tn");
+        g_state.process.aggbKi = Config::getInstance().get<double>("pid.bd.kp") / Config::getInstance().get<double>("pid.bd.tn");
     }
     else {
         g_state.process.aggbKi = 0;

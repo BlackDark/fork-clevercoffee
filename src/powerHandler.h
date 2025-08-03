@@ -7,13 +7,11 @@
 
 #include "Config.h"
 
-
 inline bool currStatePowerSwitchPressed = false;
 inline bool lastPowerSwitchPressed = false;
 inline unsigned long systemInitializedTime = 0;
 inline unsigned long firstSwitchPressTime = 0;
 inline bool trackingPressTime = false;
-
 
 void performSafeShutdown();
 

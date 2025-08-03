@@ -4,47 +4,40 @@
  */
 
 #include "BrewState.h"
-#include "PidNormalState.h"
-#include "EmergencyStopState.h"
-#include "PidDisabledState.h"
-#include "SensorErrorState.h"
 #include "../MachineStateContext.h"
+#include "EmergencyStopState.h"
 #include "Logger.h"
+#include "PidDisabledState.h"
+#include "PidNormalState.h"
+#include "SensorErrorState.h"
 
 void BrewState::onEntry(MachineStateContext& context) {
     context.logStateEntry(getStateId(), getStateName());
     LOG(INFO, "Starting brew process");
-    
+
     // Log brew parameters for debugging
-    LOGF(INFO, "Brew started: Temp=%.1f°C, Weight=%.1fg", 
-         context.getCurrentTemperature(),
-         context.getCurrentBrewWeight());
+    LOGF(INFO, "Brew started: Temp=%.1f°C, Weight=%.1fg", context.getCurrentTemperature(), context.getCurrentBrewWeight());
 }
 
 void BrewState::onExit(MachineStateContext& context) {
     context.logStateExit(getStateId(), getStateName());
     LOG(INFO, "Brew process completed");
-    
+
     // Allow MQTT to try to reconnect when exiting brew mode
     // This was in the original code to handle connectivity issues during brewing
     context.resetMqttReconnectCount();
-    
+
     // Log final brew statistics
-    LOGF(INFO, "Brew completed: Final weight=%.1fg, Duration=%.1fs", 
-         context.getCurrentBrewWeight(),
-         context.getCurrentTime() / 1000.0);
+    LOGF(INFO, "Brew completed: Final weight=%.1fg, Duration=%.1fs", context.getCurrentBrewWeight(), context.getCurrentTime() / 1000.0);
 }
 
 void BrewState::update(MachineStateContext& context) {
     // Monitor brewing progress
     // The actual brew control logic is handled by the brew() function
     // which is called through context.isBrewActive()
-    
+
     // Log brewing progress periodically
-    LOGF(DEBUG, "Brewing: Temp=%.1f°C, Weight=%.1fg, Pressure=%.1fbar", 
-         context.getCurrentTemperature(),
-         context.getCurrentBrewWeight(),
-         context.getFilteredPressure());
+    LOGF(DEBUG, "Brewing: Temp=%.1f°C, Weight=%.1fg, Pressure=%.1fbar", context.getCurrentTemperature(), context.getCurrentBrewWeight(), context.getFilteredPressure());
 }
 
 std::unique_ptr<MachineState> BrewState::checkTransitions(MachineStateContext& context) {

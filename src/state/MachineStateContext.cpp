@@ -7,9 +7,9 @@
 #include "../Config.h"
 #include "../display/DisplayManager.h"
 #include "../hardware/HardwareManager.h"
-#include "../sensors/SensorManager.h"
-#include "../network/MQTTManager.h"
 #include "../network/CleverCoffeeWiFiManager.h"
+#include "../network/MQTTManager.h"
+#include "../sensors/SensorManager.h"
 #include "Logger.h"
 #include <Arduino.h>
 
@@ -50,17 +50,8 @@ extern bool waterTankFull;
 extern unsigned long standbyModeRemainingTimeMillis;
 extern int MQTTReCnctCount;
 
-MachineStateContext::MachineStateContext(
-    DisplayManager* displayManager,
-    HardwareManager* hardwareManager,
-    SensorManager* sensorManager,
-    CleverCoffeeWiFiManager* wifiManager,
-    MQTTManager* mqttManager
-) : displayManager_(displayManager),
-    hardwareManager_(hardwareManager),
-    sensorManager_(sensorManager),
-    wifiManager_(wifiManager),
-    mqttManager_(mqttManager) {
+MachineStateContext::MachineStateContext(DisplayManager* displayManager, HardwareManager* hardwareManager, SensorManager* sensorManager, CleverCoffeeWiFiManager* wifiManager, MQTTManager* mqttManager) :
+    displayManager_(displayManager), hardwareManager_(hardwareManager), sensorManager_(sensorManager), wifiManager_(wifiManager), mqttManager_(mqttManager) {
 }
 
 // === Hardware Component Access ===
@@ -202,17 +193,17 @@ Config& MachineStateContext::getConfig() const {
 }
 
 // Template specializations for common types to avoid header dependency issues
-template<>
+template <>
 bool MachineStateContext::getConfigValue<bool>(const char* key) const {
     return getConfig().get<bool>(key);
 }
 
-template<>
+template <>
 int MachineStateContext::getConfigValue<int>(const char* key) const {
     return getConfig().get<int>(key);
 }
 
-template<>
+template <>
 double MachineStateContext::getConfigValue<double>(const char* key) const {
     return getConfig().get<double>(key);
 }
@@ -259,7 +250,8 @@ void MachineStateContext::setDisplayPowerSave(int mode) const {
 void MachineStateContext::logStateTransition(int fromState, int toState, const char* reason) const {
     if (reason) {
         LOGF(INFO, "State transition: %d -> %d (%s)", fromState, toState, reason);
-    } else {
+    }
+    else {
         LOGF(INFO, "State transition: %d -> %d", fromState, toState);
     }
 }

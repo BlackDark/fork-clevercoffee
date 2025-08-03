@@ -12,7 +12,6 @@
 #include "hardware/scales/BluetoothScale.h"
 #include "hardware/scales/HX711Scale.h"
 
-
 void displayScaleFailed();
 void displayWrappedMessage(const String& msg);
 

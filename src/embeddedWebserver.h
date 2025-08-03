@@ -346,8 +346,6 @@ inline void handleTogglePid(AsyncWebServerRequest* request) {
         const bool newPidState = !currentPidState;
         Config::getInstance().set<bool>("pid.enabled", newPidState);
 
-
-
         LOGF(INFO, "Toggle PID state: %d\n", newPidState);
 
         request->send(200, "application/json", JsonResponseBuilder::createBoolResponse("pidEnabled", newPidState));

@@ -7,7 +7,7 @@
 
 /**
  * @brief Machine state identifiers
- * 
+ *
  * These constants match the existing MachineState enum values
  * to ensure compatibility during the migration.
  */
@@ -25,4 +25,4 @@ namespace MachineStateIds {
     constexpr int STANDBY = 95;
     constexpr int SENSOR_ERROR = 100;
     constexpr int EEPROM_ERROR = 110;
-}
+} // namespace MachineStateIds

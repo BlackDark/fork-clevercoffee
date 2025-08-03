@@ -183,7 +183,6 @@ void Config::initializeParams() {
     _params["VERSION"] = ParamDef::String(&g_state.systemVersion, g_state.sysVersion, 64, "Version", 10, 7, "Firmware version");
     // TODO no config
     _params["system.offline_mode"] = ParamDef::Bool(&g_state.network.offlineMode, false, "Offline Mode", 9, 1103, "Run in offline mode without WiFi connection");
-
 }
 
 bool Config::loadFromJson(const ::String& jsonString) {
