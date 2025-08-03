@@ -12,13 +12,12 @@
 #include "hardware/scales/BluetoothScale.h"
 #include "hardware/scales/HX711Scale.h"
 
-extern Config& config;
 
 void displayScaleFailed();
 void displayWrappedMessage(const String& msg);
 
-inline bool scaleCalibrationOn = false;
-inline bool scaleTareOn = false;
+// g_state.sensors.scaleCalibrationOn moved to g_state.sensors.g_state.sensors.scaleCalibrationOn
+// g_state.sensors.scaleTareOn moved to g_state.sensors.g_state.sensors.scaleTareOn
 inline int shottimerCounter = 10;
 inline float currReadingWeight = 0; // current weight reading
 inline float preBrewWeight = 0;     // weight before brew started
@@ -213,7 +212,7 @@ inline void checkWeight() {
         return;
     }
 
-    if (scaleCalibrationOn && !isBluetoothScale) {
+    if (g_state.sensors.scaleCalibrationOn && !isBluetoothScale) {
         scaleCalibrate(1, PIN_HXDAT);
 
         // Calibrate second cell
@@ -221,11 +220,11 @@ inline void checkWeight() {
             scaleCalibrate(2, PIN_HXDAT2);
         }
 
-        scaleCalibrationOn = false;
+        g_state.sensors.scaleCalibrationOn = false;
     }
 
-    if (scaleTareOn) {
-        scaleTareOn = false;
+    if (g_state.sensors.scaleTareOn) {
+        g_state.sensors.scaleTareOn = false;
         u8g2->clearBuffer();
         u8g2->drawStr(0, 2, "Taring scale,");
         u8g2->drawStr(0, 12, "remove any load!");
@@ -296,7 +295,7 @@ inline void initScale() {
     scaleConnectionFailureTime = 0;
     lastValidWeight = 0;
 
-    scaleCalibrationOn = false;
+    g_state.sensors.scaleCalibrationOn = false;
 
     LOG(INFO, "Scale initialized successfully");
 }

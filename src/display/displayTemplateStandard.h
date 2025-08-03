@@ -8,6 +8,7 @@
 #pragma once
 
 #include "../Config.h"
+#include "../state/GlobalState.h"
 
 /**
  * @brief Send data to display
@@ -48,14 +49,14 @@ inline void printScreen() {
     u8g2->setCursor(34, 16);
     u8g2->print(langstring_current_temp);
     u8g2->setCursor(84, 16);
-    u8g2->print(temperature, 1);
+    u8g2->print(g_state.process.temperature, 1);
     u8g2->setCursor(115, 16);
     u8g2->print(static_cast<char>(176));
     u8g2->print("C");
     u8g2->setCursor(34, 26);
     u8g2->print(langstring_set_temp);
     u8g2->setCursor(84, 26);
-    u8g2->print(setpoint, 1);
+    u8g2->print(g_state.process.setpoint, 1);
     u8g2->setCursor(115, 26);
     u8g2->print(static_cast<char>(176));
     u8g2->print("C");
@@ -63,7 +64,7 @@ inline void printScreen() {
     displayThermometerOutline(4, 62);
 
     // Draw current temp in thermometer
-    if (fabs(temperature - setpoint) < 0.3) {
+    if (fabs(g_state.process.temperature - g_state.process.setpoint) < 0.3) {
         if (isrCounter < 500) {
             drawTemperaturebar(8, 30);
         }
@@ -73,7 +74,7 @@ inline void printScreen() {
     }
 
     // Brew and flush time
-    if (config.get<bool>("hardware.switches.brew.enabled")) {
+    if (Config::getInstance().get<bool>("hardware.switches.brew.enabled")) {
         // Show flush time
         if (machineState == kManualFlush) {
             displayBrewTime(34, 36, langstring_manual_flush, currBrewTime);
@@ -84,7 +85,7 @@ inline void printScreen() {
         }
         else {
             if (shouldDisplayBrewTimer()) {
-                if (config.get<bool>("brew.by_time.enabled") && config.get<int>("brew.mode") == 1) {
+                if (Config::getInstance().get<bool>("brew.by_time.enabled") && Config::getInstance().get<int>("brew.mode") == 1) {
                     displayBrewTime(34, 36, langstring_brew, currBrewTime, totalTargetBrewTime);
                 }
                 else {
@@ -97,31 +98,31 @@ inline void printScreen() {
     // PID values over heat bar
     u8g2->setCursor(38, 47);
 
-    u8g2->print(bPID.GetKp(), 0);
+    u8g2->print(g_state.pid->GetKp(), 0);
     u8g2->print("|");
 
-    if (bPID.GetKi() != 0) {
-        u8g2->print(bPID.GetKp() / bPID.GetKi(), 0);
+    if (g_state.pid->GetKi() != 0) {
+        u8g2->print(g_state.pid->GetKp() / g_state.pid->GetKi(), 0);
     }
     else {
         u8g2->print("0");
     }
 
     u8g2->print("|");
-    u8g2->print(bPID.GetKd() / bPID.GetKp(), 0);
+    u8g2->print(g_state.pid->GetKd() / g_state.pid->GetKp(), 0);
     u8g2->setCursor(96, 47);
 
-    if (pidOutput < 99) {
-        u8g2->print(pidOutput / 10, 1);
+    if (g_state.process.pidOutput < 99) {
+        u8g2->print(g_state.process.pidOutput / 10, 1);
     }
     else {
-        u8g2->print(pidOutput / 10, 0);
+        u8g2->print(g_state.process.pidOutput / 10, 0);
     }
 
     u8g2->print("%");
 
     // Show heater output in %
-    displayProgressbar(pidOutput / 10, 30, 60, 98);
+    displayProgressbar(g_state.process.pidOutput / 10, 30, 60, 98);
 
-    displayBufferReady = true;
+    g_state.coordination.displayBufferReady = true;
 }

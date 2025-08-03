@@ -1,9 +1,9 @@
 /**
- * @file WiFiManager.cpp
+ * @file CleverCoffeeWiFiManager.cpp
  * @brief Implementation of RAII wrapper for WiFi management
  */
 
-#include "WiFiManager.h"
+#include "CleverCoffeeWiFiManager.h"
 #include "../Config.h"
 #include "Logger.h"
 #include <ESP.h>

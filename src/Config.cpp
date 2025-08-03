@@ -5,7 +5,8 @@
 
 #include "Config.h"
 
-Config& config = Config::getInstance();
+// Note: Global config reference removed to avoid static initialization order issues
+// Use Config::getInstance() directly in code that needs config access
 
 // Enum option arrays with explicit value mappings
 const EnumOption switchTypeOptions[] = {{0, "Momentary"}, {1, "Toggle"}};
@@ -39,7 +40,7 @@ const EnumOption brewModeOptions[] = {
 void Config::initializeParams() {
     // PID Parameters - using original hierarchical parameter IDs that website expects
     _params["pid.enabled"] = ParamDef::Bool(&pidON, false, "Enable PID Controller", 0, 101, "Enables or disables the PID temperature controller");
-    _params["pid.use_ponm"] = ParamDef::Bool(&usePonM, false, "Enable PonM", 0, 102, "Use PonM mode (Proportional on Measurement)");
+    _params["pid.use_ponm"] = ParamDef::Bool(&_usePonM, false, "Enable PonM", 0, 102, "Use PonM mode (Proportional on Measurement)");
     _params["pid.ema_factor"] =
         ParamDef::Double(&emaFactor, EMA_FACTOR, PID_EMA_FACTOR_MIN, PID_EMA_FACTOR_MAX, "PID EMA Factor", 0, 111, "Smoothing of input for derivative component. Smaller = less smoothing but less delay");
     _params["pid.regular.kp"] = ParamDef::Double(&aggKp, AGGKP, PID_KP_REGULAR_MIN, PID_KP_REGULAR_MAX, "PID Kp", 0, 112, "Proportional gain (in Watts/°C) for the main PID controller");
@@ -49,17 +50,16 @@ void Config::initializeParams() {
     _params["pid.steam.kp"] = ParamDef::Double(&steamKp, STEAMKP, PID_KP_STEAM_MIN, PID_KP_STEAM_MAX, "Steam Kp", 0, 116, "Proportional gain for the steaming mode");
 
     // Brew Detection PID
-    _params["pid.bd.enabled"] = ParamDef::Bool(&useBDPID, false, "Enable Brew PID", 2, 701, "Use separate PID parameters while brew is running");
+    _params["pid.bd.enabled"] = ParamDef::Bool(&_useBDPID, false, "Enable Brew PID", 2, 701, "Use separate PID parameters while brew is running");
     _params["pid.bd.kp"] = ParamDef::Double(&aggbKp, AGGBKP, PID_KP_BD_MIN, PID_KP_BD_MAX, "BD Kp", 2, 712, "Proportional gain for PID when brewing has been detected");
     _params["pid.bd.tn"] = ParamDef::Double(&aggbTn, AGGBTN, PID_TN_BD_MIN, PID_TN_BD_MAX, "BD Tn", 2, 713, "Integral time constant for PID when brewing has been detected");
     _params["pid.bd.tv"] = ParamDef::Double(&aggbTv, AGGBTV, PID_TV_BD_MIN, PID_TV_BD_MAX, "BD Tv", 2, 714, "Differential time constant for PID when brewing has been detected");
 
     // Temperature Parameters
-    _params["TEMP"] = ParamDef::Double(&temperature, 0.0, 0.0, 200.0, "Temperature", 1, 200, "Current temperature reading from sensor");
-    _params["brew.setpoint"] = ParamDef::Double(&brewSetpoint, SETPOINT, BREW_SETPOINT_MIN, BREW_SETPOINT_MAX, "Setpoint (°C)", 1, 201, "The temperature that the PID will attempt to reach and hold");
+    _params["brew.setpoint"] = ParamDef::Double(&_brewSetpoint, SETPOINT, BREW_SETPOINT_MIN, BREW_SETPOINT_MAX, "Setpoint (°C)", 1, 201, "The temperature that the PID will attempt to reach and hold");
     _params["brew.temp_offset"] =
         ParamDef::Double(&brewTempOffset, TEMPOFFSET, BREW_TEMP_OFFSET_MIN, BREW_TEMP_OFFSET_MAX, "Offset (°C)", 1, 202, "Optional offset added to the user-visible setpoint to compensate sensor offsets");
-    _params["brew.pid_delay"] = ParamDef::Double(&brewPidDelay, BREW_PID_DELAY, BREW_PID_DELAY_MIN, BREW_PID_DELAY_MAX, "Brew PID Delay (s)", 2, 711, "Delay time during which PID will be disabled once brew is detected");
+    _params["brew.pid_delay"] = ParamDef::Double(&_brewPidDelay, BREW_PID_DELAY, BREW_PID_DELAY_MIN, BREW_PID_DELAY_MAX, "Brew PID Delay (s)", 2, 711, "Delay time during which PID will be disabled once brew is detected");
     _params["steam.setpoint"] = ParamDef::Double(&steamSetpoint, STEAMSETPOINT, STEAM_SETPOINT_MIN, STEAM_SETPOINT_MAX, "Steam Setpoint (°C)", 1, 203, "The temperature that the PID will use for steam mode");
 
     // Brew Control Parameter
@@ -83,12 +83,12 @@ void Config::initializeParams() {
         ParamDef::Double(&backflushFlushTime, BACKFLUSH_FLUSH_TIME, BACKFLUSH_FLUSH_TIME_MIN, BACKFLUSH_FLUSH_TIME_MAX, "Backflush Flush Time (s)", 6, 403, "Time to flush during backflush cycle");
 
     // System Parameters
-    _params["system.hostname"] = ParamDef::String(&hostname, HOSTNAME, HOSTNAME_MAX_LENGTH, "Hostname", 9, 1101, "Hostname of your machine, changes require a restart");
-    _params["system.ota_password"] = ParamDef::String(&otaPassword, OTAPASS, PASSWORD_MAX_LENGTH, "OTA Password", 9, 1102, "Password for over-the-air updates, changes require a restart");
-    _params["system.offline_mode"] = ParamDef::Bool(&offlineMode, false, "Offline Mode", 9, 1103, "Run in offline mode without WiFi connection");
-    _params["system.auth.enabled"] = ParamDef::Bool(&authEnabled, false, "Enable Authentication", 9, 1201, "Enables authentication for accessing certain parts of the website");
-    _params["system.auth.username"] = ParamDef::String(&authUsername, AUTH_USERNAME, USERNAME_MAX_LENGTH, "Website Username", 9, 1202, "Username for accessing the website and authenticating web requests");
-    _params["system.auth.password"] = ParamDef::String(&authPassword, AUTH_PASSWORD, PASSWORD_MAX_LENGTH, "Website Password", 9, 1203, "Password for accessing the website and authenticating web requests");
+    _params["system.hostname"] = ParamDef::String(&_hostname, HOSTNAME, HOSTNAME_MAX_LENGTH, "Hostname", 9, 1101, "Hostname of your machine, changes require a restart");
+    _params["system.ota_password"] = ParamDef::String(&_otaPassword, OTAPASS, PASSWORD_MAX_LENGTH, "OTA Password", 9, 1102, "Password for over-the-air updates, changes require a restart");
+
+    _params["system.auth.enabled"] = ParamDef::Bool(&_authEnabled, false, "Enable Authentication", 9, 1201, "Enables authentication for accessing certain parts of the website");
+    _params["system.auth.username"] = ParamDef::String(&_authUsername, AUTH_USERNAME, USERNAME_MAX_LENGTH, "Website Username", 9, 1202, "Username for accessing the website and authenticating web requests");
+    _params["system.auth.password"] = ParamDef::String(&_authPassword, AUTH_PASSWORD, PASSWORD_MAX_LENGTH, "Website Password", 9, 1203, "Password for accessing the website and authenticating web requests");
     _params["system.timing_debug.enabled"] = ParamDef::Bool(&timingDebugActive, false, "Loop timing in console", 9, 1301, "Enable or disable the process loop time debugging in console");
     _params["system.showdisplay.enabled"] = ParamDef::Bool(&includeDisplayInLogs, true, "Activate display recording", 9, 1303, "Enable or disable showing sendBuffer loops in debug logs");
 
@@ -96,8 +96,8 @@ void Config::initializeParams() {
     _params["system.log_level"] = ParamDef::Enum(&_logLevel, 2, logLevelOpts, 7, "Log Level", 9, 1103, "Set the logging level for debug output");
 
     // Power Management
-    _params["standby.enabled"] = ParamDef::Bool(&standbyModeOn, false, "Enable Standby Timer", 7, 801, "Turn heater off after standby time has elapsed");
-    _params["standby.time"] = ParamDef::Double(&standbyModeTime, STANDBY_MODE_TIME, STANDBY_MODE_TIME_MIN, STANDBY_MODE_TIME_MAX, "Standby Time", 7, 802, "Time in minutes until the heater is turned off");
+    _params["standby.enabled"] = ParamDef::Bool(&_standbyModeOn, false, "Enable Standby Timer", 7, 801, "Turn heater off after standby time has elapsed");
+    _params["standby.time"] = ParamDef::Double(&_standbyModeTime, STANDBY_MODE_TIME, STANDBY_MODE_TIME_MIN, STANDBY_MODE_TIME_MAX, "Standby Time", 7, 802, "Time in minutes until the heater is turned off");
 
     // MQTT Parameters
     _params["mqtt.enabled"] = ParamDef::Bool(&mqttEnabled, false, "MQTT Enabled", 8, 1001, "Enables MQTT, change requires a restart");
@@ -171,13 +171,19 @@ void Config::initializeParams() {
     _params["display.pid_off_logo"] = ParamDef::Bool(&featurePidOffLogo, true, "Enable 'PID Disabled' Logo", 3, 909, "Full screen logo will be shown if PID is disabled");
 
     // Runtime action parameters (special functions)
-    _params["STEAM_MODE"] = ParamDef::Bool(&steamON, false, "Steam Mode", 10, 503, "Toggle steam mode on/off");
-    _params["BACKFLUSH_ON"] = ParamDef::Bool(&backflushOn, false, "Backflush", 10, 504, "Start/stop backflush cycle");
-    _params["TARE_ON"] = ParamDef::Bool(&scaleTareOn, false, "Tare", 10, 501, "Trigger scale tare operation");
-    _params["CALIBRATION_ON"] = ParamDef::Bool(&scaleCalibrationOn, false, "Calibration", 10, 502, "Start scale calibration process");
+    // TODO probably also readonly -> trigger via api
+    _params["STEAM_MODE"] = ParamDef::Bool(&g_state.machine.steamON, false, "Steam Mode", 10, 503, "Toggle steam mode on/off");
+    _params["BACKFLUSH_ON"] = ParamDef::Bool(&g_state.machine.backflushOn, false, "Backflush", 10, 504, "Start/stop backflush cycle");
+    _params["TARE_ON"] = ParamDef::Bool(&g_state.sensors.scaleTareOn, false, "Tare", 10, 501, "Trigger scale tare operation");
+    _params["CALIBRATION_ON"] = ParamDef::Bool(&g_state.sensors.scaleCalibrationOn, false, "Calibration", 10, 502, "Start scale calibration process");
+
+    _params["TEMP"] = ParamDef::Double(&g_state.process.temperature, 0.0, 0.0, 200.0, "Temperature", 1, 200, "Current temperature reading from sensor");
 
     // System version (read-only)
-    _params["VERSION"] = ParamDef::String(&systemVersion, sysVersion, 64, "Version", 10, 7, "Firmware version");
+    _params["VERSION"] = ParamDef::String(&g_state.systemVersion, g_state.sysVersion, 64, "Version", 10, 7, "Firmware version");
+    // TODO no config
+    _params["system.offline_mode"] = ParamDef::Bool(&g_state.network.offlineMode, false, "Offline Mode", 9, 1103, "Run in offline mode without WiFi connection");
+
 }
 
 bool Config::loadFromJson(const ::String& jsonString) {

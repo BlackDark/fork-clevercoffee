@@ -7,7 +7,6 @@
 
 #include "Config.h"
 
-extern Config& config;
 
 inline bool currStatePowerSwitchPressed = false;
 inline bool lastPowerSwitchPressed = false;
@@ -15,12 +14,11 @@ inline unsigned long systemInitializedTime = 0;
 inline unsigned long firstSwitchPressTime = 0;
 inline bool trackingPressTime = false;
 
-extern bool systemInitialized;
 
 void performSafeShutdown();
 
 inline void checkPowerSwitch() {
-    if (!config.get<bool>("hardware.switches.power.enabled") || powerSwitch == nullptr) {
+    if (!Config::getInstance().get<bool>("hardware.switches.power.enabled") || powerSwitch == nullptr) {
         return;
     }
 
@@ -28,11 +26,11 @@ inline void checkPowerSwitch() {
     const long currentMillis = millis();
 
     // Record when system was first initialized
-    if (systemInitialized && systemInitializedTime == 0) {
+    if (g_state.machine.systemInitialized && systemInitializedTime == 0) {
         systemInitializedTime = currentMillis;
     }
 
-    if (const int powerSwitchType = config.get<int>("hardware.switches.power.type"); powerSwitchType == Switch::TOGGLE) {
+    if (const int powerSwitchType = Config::getInstance().get<int>("hardware.switches.power.type"); powerSwitchType == Switch::TOGGLE) {
         if (powerSwitchPressed != lastPowerSwitchPressed) {
             lastPowerSwitchPressed = powerSwitchPressed;
 
@@ -58,7 +56,7 @@ inline void checkPowerSwitch() {
         if (powerSwitchPressed != currStatePowerSwitchPressed) {
             currStatePowerSwitchPressed = powerSwitchPressed;
 
-            if (currStatePowerSwitchPressed && systemInitialized) {
+            if (currStatePowerSwitchPressed && g_state.machine.systemInitialized) {
                 // Only start tracking press time if system has been initialized for at least 5 seconds
                 if (currentMillis - systemInitializedTime > 5000) {
                     firstSwitchPressTime = currentMillis;
@@ -91,7 +89,7 @@ inline void checkPowerSwitch() {
         // 2. At least 5 seconds have passed since initialization
         // 3. A press that started after initialization is actively tracked
         // 4. The press has lasted long enough for longPressDetected()
-        if (powerSwitchPressed && systemInitialized && (currentMillis - systemInitializedTime > 5000) && trackingPressTime && (currentMillis - firstSwitchPressTime > 1000) && // Minimum 1 second actual press
+        if (powerSwitchPressed && g_state.machine.systemInitialized && (currentMillis - systemInitializedTime > 5000) && trackingPressTime && (currentMillis - firstSwitchPressTime > 1000) && // Minimum 1 second actual press
             powerSwitch->longPressDetected()) {
             LOG(INFO, "Power switch long press detected - initiating system reboot");
             u8g2->setPowerSave(0);
@@ -115,11 +113,11 @@ inline void checkPowerSwitch() {
  * @return true if operation is allowed, false otherwise
  */
 inline bool isPowerSwitchOperationAllowed() {
-    if (!config.get<bool>("hardware.switches.power.enabled") || powerSwitch == nullptr) {
+    if (!Config::getInstance().get<bool>("hardware.switches.power.enabled") || powerSwitch == nullptr) {
         return true; // No power switch configured, allow operation
     }
 
-    if (const int powerSwitchType = config.get<int>("hardware.switches.power.type"); powerSwitchType == Switch::TOGGLE) {
+    if (const int powerSwitchType = Config::getInstance().get<int>("hardware.switches.power.type"); powerSwitchType == Switch::TOGGLE) {
         return powerSwitch->isPressed();
     }
     else if (powerSwitchType == Switch::MOMENTARY) {

@@ -8,12 +8,13 @@
 
 // STL includes
 #include <map>
+#include <memory>
 
 // Libraries & Dependencies
 #include "Logger.h"
 #include "core/SystemInitializer.h"
 #include "network/MQTTManager.h"
-#include "network/WiFiManager.h"
+#include "network/CleverCoffeeWiFiManager.h"
 #include <ArduinoOTA.h>
 #include <LittleFS.h>
 #include <PID_v1.h>  // for PID calculation
@@ -27,7 +28,7 @@
 
 // Includes
 #include "Config.h"
-#include "GlobalVariables.h"
+#include "state/GlobalState.h"
 
 // Utilities
 #include "utils/Timer.h"
@@ -48,7 +49,6 @@ hw_timer_t* timer = nullptr;
 #include "hardware/pressureSensor.h"
 #include <Wire.h>
 
-extern Config& config;
 
 enum LegacyMachineState {
     kInit = 0,
@@ -71,8 +71,6 @@ LegacyMachineState lastmachinestate = kInit;
 int lastmachinestatepid = -1;
 
 int displayOffline = 0;
-
-inline bool systemInitialized = false;
 
 // System initializer
 std::unique_ptr<SystemInitializer> systemInitializer = nullptr;
@@ -112,7 +110,7 @@ TempSensor* tempSensor = nullptr;
 
 // WiFi
 // Modern WiFi and MQTT management
-std::unique_ptr<CleverCoffeeWiFiManager> wifiManager = nullptr;
+std::unique_ptr<CleverCoffeeWiFiManager> cleverCoffeeWiFiManager = nullptr;
 std::unique_ptr<MQTTManager> mqttManager = nullptr;
 
 // Modern sensor management
@@ -139,8 +137,6 @@ constexpr unsigned int maxWifiReconnects = MAXWIFIRECONNECTS;
 auto pass = WM_PASS;
 unsigned long lastWifiConnectionAttempt = millis();
 unsigned int wifiReconnects = 0; // actual number of reconnects
-// offlineMode is defined in GlobalVariables.cpp
-extern bool offlineMode;
 
 // Helper function for timing debug
 bool isMqttUpdateRunning() {
@@ -154,9 +150,6 @@ int writeSysParamsToMQTT(bool continueOnError = true) {
     }
     return 0;
 }
-
-// OTA
-String otaPass;
 
 // Pressure sensor - now defined in GlobalVariables.cpp
 // Variables moved: inputPressure, inputPressureFilter, intervalPressure, previousMillisPressure
@@ -194,38 +187,31 @@ String hotWaterStateDebug = "off";
 String lastHotWaterStateDebug = "off";
 
 // system parameters
-double setpoint = brewSetpoint;
-
-// PID - values for offline brew detection
-double aggbKi = (aggbTn == 0) ? 0 : aggbKp / aggbTn;
-double aggbKd = aggbTv * aggbKp;
-double aggKi = (aggTn == 0) ? 0 : aggKp / aggTn;
-double aggKd = aggTv * aggKp;
+// setpoint moved to g_state.process.setpoint
 
 // Time PID will be disabled after brew started
 
 #include "standby.h"
 
 // Variables to hold PID values (Temp input, Heater output)
-extern double temperature;
-double pidOutput;
-extern bool steamON;
+// temperature moved to g_state.process.temperature
+// pidOutput moved to g_state.process.pidOutput
+// g_state.machine.steamON moved to g_state.machine.g_state.machine.steamON
 bool steamFirstON = false;
 
-PID bPID(&temperature, &pidOutput, &setpoint, aggKp, aggKi, aggKd, 1, DIRECT);
 
 #include "brewHandler.h"
 #include "hotWaterHandler.h"
 
 // Other variables
-boolean emergencyStop = false;                // Emergency stop if temperature is too high
+// g_state.machine.emergencyStop moved to g_state.machine.g_state.machine.emergencyStop
 constexpr double EmergencyStopTemp = 145;     // Temp EmergencyStopTemp
 float inX = 0, inY = 0, inOld = 0, inSum = 0; // used for filterPressureValue()
 boolean setupDone = false;
 
 // Water tank sensor
 boolean waterTankFull = true;
-Timer loopWaterTank(&checkWaterTank, 200); // Check water tank level every 200 ms
+std::unique_ptr<Timer> loopWaterTank; // Check water tank level every 200 ms - initialized in setup()
 int waterTankCheckConsecutiveReads = 0;    // Counter for consecutive readings of water tank sensor
 constexpr int waterTankCountsNeeded = 3;   // Number of same readings to change water tank sensing
 
@@ -244,8 +230,6 @@ bool hassioFailed = false;
 bool mqtt_was_connected = false;
 
 // Compatibility variables for transition period
-bool mqtt_enabled = false;
-bool mqtt_hassio_enabled = false;
 PubSubClient* mqtt = nullptr;
 unsigned int MQTTReCnctCount = 0;
 unsigned long previousMillisMQTT = 0;
@@ -263,13 +247,13 @@ void sendHASSIODiscoveryMsg() {
     }
 }
 
-Timer hassioDiscoveryTimer(&sendHASSIODiscoveryMsg, 300000);
+std::unique_ptr<Timer> hassioDiscoveryTimer; // MQTT discovery timer - initialized in setup()
 
 /**
  * @brief Get Wifi signal strength and set signalBars for display
  */
 int getSignalStrength() {
-    if (offlineMode) return 0;
+    if (g_state.network.offlineMode) return 0;
 
     long rssi;
 
@@ -303,7 +287,7 @@ void u8g2_prepare();
 
 #include "display/displayTemplateManager.h"
 
-Timer printDisplayTimer(&DisplayTemplateManager::printScreen, 100);
+std::unique_ptr<Timer> printDisplayTimer; // Display refresh timer - initialized in setup()
 
 #include "powerHandler.h"
 #include "scaleHandler.h"
@@ -311,11 +295,11 @@ Timer printDisplayTimer(&DisplayTemplateManager::printScreen, 100);
 
 // Emergency stop if temp is too high
 void testEmergencyStop() {
-    if (temperature > EmergencyStopTemp && emergencyStop == false) {
-        emergencyStop = true;
+    if (g_state.process.temperature > EmergencyStopTemp && g_state.machine.emergencyStop == false) {
+        g_state.machine.emergencyStop = true;
     }
-    else if (temperature < (brewSetpoint + 5) && emergencyStop == true) {
-        emergencyStop = false;
+    else if (g_state.process.temperature < (Config::getInstance().get<double>("brew.setpoint") + 5) && g_state.machine.emergencyStop == true) {
+        g_state.machine.emergencyStop = false;
     }
 }
 
@@ -328,7 +312,7 @@ void initOfflineMode() {
     }
 
     LOG(INFO, "Start offline mode with eeprom values, no wifi :(");
-    offlineMode = true;
+    g_state.network.offlineMode = true;
 }
 
 /**
@@ -337,7 +321,7 @@ void initOfflineMode() {
 void checkWifi() {
     static int wifiConnectCounter = 1;
     static bool wifiConnectedHandled = false;
-    if (offlineMode || checkBrewActive()) return;
+    if (g_state.network.offlineMode || checkBrewActive()) return;
 
     // Try to connect and if it does not succeed, enter offline mode
     if ((millis() - lastWifiConnectionAttempt >= wifiConnectionDelay) && (wifiReconnects <= maxWifiReconnects)) {
@@ -440,12 +424,12 @@ void handleMachineState() {
                 machineState = kWaterTankEmpty;
             }
 
-            if ((sensorManager != nullptr && sensorManager->hasSensorError()) || 
+            if ((sensorManager != nullptr && sensorManager->hasSensorError()) ||
                 (tempSensor != nullptr && tempSensor->hasError())) {
                 machineState = kSensorError;
             }
 
-            if (!pidON) {
+            if (!Config::getInstance().get<bool>("pid.enabled")) {
                 machineState = kPidDisabled;
             }
             else {
@@ -458,7 +442,7 @@ void handleMachineState() {
             if (brew()) {
                 machineState = kBrew;
 
-                if (standbyModeOn) {
+                if (Config::getInstance().get<bool>("standby.enabled")) {
                     resetStandbyTimer(machineState);
                 }
             }
@@ -466,23 +450,23 @@ void handleMachineState() {
             if (manualFlush()) {
                 machineState = kManualFlush;
 
-                if (standbyModeOn) {
+                if (Config::getInstance().get<bool>("standby.enabled")) {
                     resetStandbyTimer(machineState);
                 }
             }
 
-            if (backflushOn) {
+            if (g_state.machine.backflushOn) {
                 machineState = kBackflush;
 
-                if (standbyModeOn) {
+                if (Config::getInstance().get<bool>("standby.enabled")) {
                     resetStandbyTimer(machineState);
                 }
             }
 
-            if (steamON) {
+            if (g_state.machine.steamON) {
                 machineState = kSteam;
 
-                if (standbyModeOn) {
+                if (Config::getInstance().get<bool>("standby.enabled")) {
                     resetStandbyTimer(machineState);
                 }
             }
@@ -490,21 +474,21 @@ void handleMachineState() {
             if (checkHotWaterStates()) {
                 machineState = kHotWater;
 
-                if (standbyModeOn) {
+                if (Config::getInstance().get<bool>("standby.enabled")) {
                     resetStandbyTimer(machineState);
                 }
             }
 
-            if (emergencyStop) {
+            if (g_state.machine.emergencyStop) {
                 machineState = kEmergencyStop;
             }
 
-            if (standbyModeOn && standbyModeRemainingTimeMillis == 0) {
+            if (Config::getInstance().get<bool>("standby.enabled") && standbyModeRemainingTimeMillis == 0) {
                 machineState = kStandby;
                 setRuntimePidState(false);
             }
 
-            if (!pidON && machineState != kStandby) {
+            if (!Config::getInstance().get<bool>("pid.enabled") && machineState != kStandby) {
                 machineState = kPidDisabled;
             }
 
@@ -512,7 +496,7 @@ void handleMachineState() {
                 machineState = kWaterTankEmpty;
             }
 
-            if ((sensorManager != nullptr && sensorManager->hasSensorError()) || 
+            if ((sensorManager != nullptr && sensorManager->hasSensorError()) ||
                 (tempSensor != nullptr && tempSensor->hasError())) {
                 machineState = kSensorError;
             }
@@ -524,15 +508,15 @@ void handleMachineState() {
                 machineState = kPidNormal;
             }
 
-            if (emergencyStop) {
+            if (g_state.machine.emergencyStop) {
                 machineState = kEmergencyStop;
             }
 
-            if (!pidON) {
+            if (!Config::getInstance().get<bool>("pid.enabled")) {
                 machineState = kPidDisabled;
             }
 
-            if ((sensorManager != nullptr && sensorManager->hasSensorError()) || 
+            if ((sensorManager != nullptr && sensorManager->hasSensorError()) ||
                 (tempSensor != nullptr && tempSensor->hasError())) {
                 machineState = kSensorError;
             }
@@ -548,15 +532,15 @@ void handleMachineState() {
                 machineState = kPidNormal;
             }
 
-            if (emergencyStop) {
+            if (g_state.machine.emergencyStop) {
                 machineState = kEmergencyStop;
             }
 
-            if (!pidON) {
+            if (!Config::getInstance().get<bool>("pid.enabled")) {
                 machineState = kPidDisabled;
             }
 
-            if ((sensorManager != nullptr && sensorManager->hasSensorError()) || 
+            if ((sensorManager != nullptr && sensorManager->hasSensorError()) ||
                 (tempSensor != nullptr && tempSensor->hasError())) {
                 machineState = kSensorError;
             }
@@ -567,23 +551,23 @@ void handleMachineState() {
                 machineState = kPidNormal;
             }
 
-            if (steamON) {
+            if (g_state.machine.steamON) {
                 machineState = kSteam;
 
-                if (standbyModeOn) {
+                if (Config::getInstance().get<bool>("standby.enabled")) {
                     resetStandbyTimer(machineState);
                 }
             }
 
-            if (emergencyStop) {
+            if (g_state.machine.emergencyStop) {
                 machineState = kEmergencyStop;
             }
 
-            if (!pidON) {
+            if (!Config::getInstance().get<bool>("pid.enabled")) {
                 machineState = kPidDisabled;
             }
 
-            if ((sensorManager != nullptr && sensorManager->hasSensorError()) || 
+            if ((sensorManager != nullptr && sensorManager->hasSensorError()) ||
                 (tempSensor != nullptr && tempSensor->hasError())) {
                 machineState = kSensorError;
             }
@@ -591,19 +575,19 @@ void handleMachineState() {
             break;
 
         case kSteam:
-            if (!steamON) {
+            if (!g_state.machine.steamON) {
                 machineState = kPidNormal;
             }
 
-            if (emergencyStop) {
+            if (g_state.machine.emergencyStop) {
                 machineState = kEmergencyStop;
             }
 
-            if (pidON == 0) {
+            if (Config::getInstance().get<bool>("pid.enabled") == 0) {
                 machineState = kPidDisabled;
             }
 
-            if ((sensorManager != nullptr && sensorManager->hasSensorError()) || 
+            if ((sensorManager != nullptr && sensorManager->hasSensorError()) ||
                 (tempSensor != nullptr && tempSensor->hasError())) {
                 machineState = kSensorError;
             }
@@ -613,15 +597,15 @@ void handleMachineState() {
         case kBackflush:
             backflush();
 
-            if (!backflushOn) {
+            if (!g_state.machine.backflushOn) {
                 machineState = kPidNormal;
             }
 
-            if (emergencyStop) {
+            if (g_state.machine.emergencyStop) {
                 machineState = kEmergencyStop;
             }
 
-            if (!pidON) {
+            if (!Config::getInstance().get<bool>("pid.enabled")) {
                 machineState = kPidDisabled;
             }
 
@@ -629,7 +613,7 @@ void handleMachineState() {
                 machineState = kWaterTankEmpty;
             }
 
-            if ((sensorManager != nullptr && sensorManager->hasSensorError()) || 
+            if ((sensorManager != nullptr && sensorManager->hasSensorError()) ||
                 (tempSensor != nullptr && tempSensor->hasError())) {
                 machineState = kSensorError;
             }
@@ -637,15 +621,15 @@ void handleMachineState() {
             break;
 
         case kEmergencyStop:
-            if (!emergencyStop) {
+            if (!g_state.machine.emergencyStop) {
                 machineState = kPidNormal;
             }
 
-            if (!pidON) {
+            if (!Config::getInstance().get<bool>("pid.enabled")) {
                 machineState = kPidDisabled;
             }
 
-            if ((sensorManager != nullptr && sensorManager->hasSensorError()) || 
+            if ((sensorManager != nullptr && sensorManager->hasSensorError()) ||
                 (tempSensor != nullptr && tempSensor->hasError())) {
                 machineState = kSensorError;
             }
@@ -656,16 +640,16 @@ void handleMachineState() {
             if (waterTankFull) {
                 machineState = kPidNormal;
 
-                if (standbyModeOn) {
+                if (Config::getInstance().get<bool>("standby.enabled")) {
                     resetStandbyTimer(machineState);
                 }
             }
 
-            if (!pidON) {
+            if (!Config::getInstance().get<bool>("pid.enabled")) {
                 machineState = kPidDisabled;
             }
 
-            if ((sensorManager != nullptr && sensorManager->hasSensorError()) || 
+            if ((sensorManager != nullptr && sensorManager->hasSensorError()) ||
                 (tempSensor != nullptr && tempSensor->hasError())) {
                 machineState = kSensorError;
             }
@@ -673,11 +657,11 @@ void handleMachineState() {
             break;
 
         case kPidDisabled:
-            if (pidON) {
+            if (Config::getInstance().get<bool>("pid.enabled")) {
                 machineState = kPidNormal;
             }
 
-            if ((sensorManager != nullptr && sensorManager->hasSensorError()) || 
+            if ((sensorManager != nullptr && sensorManager->hasSensorError()) ||
                 (tempSensor != nullptr && tempSensor->hasError())) {
                 machineState = kSensorError;
             }
@@ -692,7 +676,7 @@ void handleMachineState() {
                     u8g2->setPowerSave(1);
                 }
 
-                if (pidON) {
+                if (Config::getInstance().get<bool>("pid.enabled")) {
                     machineState = kPidNormal;
                     resetStandbyTimer(machineState);
 
@@ -700,7 +684,7 @@ void handleMachineState() {
                         u8g2->setPowerSave(0);
                     }
                 }
-                if (steamON) {
+                if (g_state.machine.steamON) {
                     setRuntimePidState(true);
                     machineState = kSteam;
                     resetStandbyTimer(machineState);
@@ -740,7 +724,7 @@ void handleMachineState() {
                     }
                 }
 
-                if (backflushOn) {
+                if (g_state.machine.backflushOn) {
                     machineState = kBackflush;
                     resetStandbyTimer(machineState);
 
@@ -749,7 +733,7 @@ void handleMachineState() {
                     }
                 }
 
-                if ((sensorManager != nullptr && sensorManager->hasSensorError()) || 
+                if ((sensorManager != nullptr && sensorManager->hasSensorError()) ||
                     (tempSensor != nullptr && tempSensor->hasError())) {
                     if (oledEnabled) {
                         u8g2->setPowerSave(0);
@@ -822,38 +806,36 @@ char const* machinestateEnumToString(const LegacyMachineState machineState) {
  */
 void wiFiSetup() {
     try {
-        wifiManager = std::make_unique<CleverCoffeeWiFiManager>();
+        cleverCoffeeWiFiManager = std::make_unique<CleverCoffeeWiFiManager>();
         const bool oledEnabled = Config::getInstance().get<bool>("hardware.oled.enabled");
 
         // Don't pass display callback during system initialization - display isn't fully ready yet
         // TODO: Lost: User feedback during WiFi connection (no "Connecting to WiFi..." messages on display) with commit 271d43432fab22cc4e1c950ee107212886806b8f
-        if (!wifiManager->setupAndConnect(hostname, pass, false, nullptr)) {
-            offlineMode = true;
+        if (!cleverCoffeeWiFiManager->setupAndConnect(Config::getInstance().get<String>("system.hostname"), pass, false, nullptr)) {
+            g_state.network.offlineMode = true;
         }
 
         // Check if restart is required after AP configuration
-        if (wifiManager->requiresRestart()) {
+        if (cleverCoffeeWiFiManager->requiresRestart()) {
             // Device will restart inside WiFiManager, this code may not be reached
         }
 
         LOG(INFO, "WiFi setup completed via WiFiManager");
     } catch (const std::exception& e) {
         LOG(ERROR, "Failed to initialize WiFiManager");
-        offlineMode = true;
+        g_state.network.offlineMode = true;
     }
 }
 
 void wiFiReset() {
-    if (wifiManager) {
-        wifiManager->resetSettings();
+    if (cleverCoffeeWiFiManager) {
+        cleverCoffeeWiFiManager->resetSettings();
     }
     else {
         LOG(ERROR, "WiFiManager not initialized for reset");
         ESP.restart();
     }
 }
-
-extern const char sysVersion[];
 
 void setup() {
     // Initialize system using RAII SystemInitializer
@@ -873,16 +855,16 @@ void setup() {
         // Complete display initialization that requires global dependencies
         // This must be done AFTER SystemInitializer to avoid crashes during WiFi setup
         u8g2_prepare();
-        initLangStrings(config);
+        initLangStrings();
 
         const int templateId = Config::getInstance().get<int>("display.template");
         DisplayTemplateManager::initializeDisplay(templateId);
 
         // Display logo using UIManager if available, fallback to direct call
         if (uiManager) {
-            uiManager->displayLogo(String("Version "), String(sysVersion));
+            uiManager->displayLogo(String("Version "), g_state.systemVersion);
         } else {
-            displayLogo(String("Version "), String(sysVersion));
+            displayLogo(String("Version "), g_state.systemVersion);
         }
     }
 
@@ -911,7 +893,7 @@ void setup() {
     sensorManager = systemInitializer->getSensorManager();
 
     // Complete initialization steps that require global dependencies
-    if (config.get<bool>("hardware.sensors.scale.enabled")) {
+    if (Config::getInstance().get<bool>("hardware.sensors.scale.enabled")) {
         if (sensorManager) {
             sensorManager->initializeScale();
         } else {
@@ -919,10 +901,10 @@ void setup() {
         }
     }
 
-    systemInitialized = systemInitializer->isInitialized();
+    g_state.machine.systemInitialized = systemInitializer->isInitialized();
 
     // Initialize modern state machine after all managers are set up
-    if (systemInitialized) {
+    if (g_state.machine.systemInitialized) {
         stateMachine = std::make_unique<StateMachine>(
             systemInitializer->getDisplayManager(),
             systemInitializer->getHardwareManager(),
@@ -930,13 +912,24 @@ void setup() {
             systemInitializer->getWiFiManager(),
             systemInitializer->getMQTTManager()
         );
-        
+
         if (stateMachine->initialize()) {
             LOG(INFO, "StateMachine initialized successfully");
         } else {
             LOG(ERROR, "StateMachine initialization failed!");
         }
-        
+
+
+        // Initialize PID parameters now that config is available
+        // TODO remove?
+        g_state.process.aggbKi = (Config::getInstance().get<double>("pid.bd.tn") == 0) ? 0 : Config::getInstance().get<double>("pid.bd.kp") / Config::getInstance().get<double>("pid.bd.tn");
+        g_state.process.aggbKd = Config::getInstance().get<double>("pid.bd.tv") * Config::getInstance().get<double>("pid.bd.kp");
+        g_state.process.aggKi = (Config::getInstance().get<double>("pid.regular.tn") == 0) ? 0 : Config::getInstance().get<double>("pid.regular.kp") / Config::getInstance().get<double>("pid.regular.tn");
+        g_state.process.aggKd = Config::getInstance().get<double>("pid.regular.tv") * Config::getInstance().get<double>("pid.regular.kp");
+
+        // Set PID tunings now that parameters are calculated
+        g_state.pid->SetTunings(Config::getInstance().get<double>("pid.regular.kp"), g_state.process.aggKi, g_state.process.aggKd, 1);
+
         // Initialize ProcessController for PID control
         processController = std::make_unique<ProcessController>(
             systemInitializer->getDisplayManager(),
@@ -944,37 +937,42 @@ void setup() {
             sensorManager,
             systemInitializer->getMQTTManager()
         );
-        
+
         if (processController->initialize()) {
             LOG(INFO, "ProcessController initialized successfully");
         } else {
             LOG(ERROR, "ProcessController initialization failed!");
         }
-        
+
         // Initialize UIManager for display management
         uiManager = std::make_unique<UIManager>(
             systemInitializer->getDisplayManager()
         );
-        
+
         if (uiManager->initialize()) {
             LOG(INFO, "UIManager initialized successfully");
         } else {
             LOG(ERROR, "UIManager initialization failed!");
         }
-        
+
         // Initialize LoopManager for main loop coordination
         loopManager = std::make_unique<LoopManager>(
             processController.get(),
             sensorManager,
             uiManager.get()
         );
-        
+
         if (loopManager->initialize()) {
             LOG(INFO, "LoopManager initialized successfully");
         } else {
             LOG(ERROR, "LoopManager initialization failed!");
         }
     }
+
+    // Initialize timers after system initialization to avoid static initialization order fiasco
+    loopWaterTank = std::make_unique<Timer>(checkWaterTank, 200);
+    hassioDiscoveryTimer = std::make_unique<Timer>(sendHASSIODiscoveryMsg, 300000);
+    printDisplayTimer = std::make_unique<Timer>(DisplayTemplateManager::printScreen, 100);
 
     LOG(INFO, "System setup completed via SystemInitializer");
 }
@@ -989,7 +987,7 @@ void loop() {
         Logger::update();
 
         // Update water tank sensor
-        loopWaterTank();
+        if (loopWaterTank) (*loopWaterTank)();
 
         // Update PID settings & machine state
         loopPid();
@@ -1005,7 +1003,7 @@ void loop() {
 void loopPid() {
 
     // Update the temperature using ProcessController if available
-    temperatureUpdateRunning = false;
+    g_state.coordination.temperatureUpdateRunning = false;
 
     if (processController) {
         // Use ProcessController for temperature and PID management
@@ -1015,22 +1013,22 @@ void loopPid() {
         if (sensorManager != nullptr) {
             // Update SensorManager first to get fresh readings
             sensorManager->update();
-            
+
             // Use SensorManager for temperature reading (includes brew offset automatically)
-            temperature = sensorManager->getCurrentTemperature();
+            g_state.process.temperature = sensorManager->getCurrentTemperature();
 
             if (machineState == kSteam) {
                 // For steam mode, get raw temperature without brew offset
                 if (tempSensor != nullptr) {
-                    temperature = tempSensor->getCurrentTemperature();
+                    g_state.process.temperature = tempSensor->getCurrentTemperature();
                 }
             }
         } else if (tempSensor != nullptr) {
             // Fallback to direct sensor access
-            temperature = tempSensor->getCurrentTemperature();
+            g_state.process.temperature = tempSensor->getCurrentTemperature();
 
             if (machineState != kSteam) {
-                temperature -= brewTempOffset;
+                g_state.process.temperature -= Config::getInstance().get<double>("brew.temp_offset");
             }
         }
     }
@@ -1038,7 +1036,7 @@ void loopPid() {
     static bool wifiWasConnected = false;
 
     // Only do Wifi stuff, if Wifi is connected
-    if (WiFi.status() == WL_CONNECTED && !offlineMode) {
+    if (WiFi.status() == WL_CONNECTED && !g_state.network.offlineMode) {
 
         if (wifiWasConnected == false) {
             LOG(INFO, "WiFi Connected");
@@ -1052,19 +1050,19 @@ void loopPid() {
                 mqttManager->checkConnection();
 
                 // if screen is ready to refresh wait for next loop
-                if (!displayBufferReady && !temperatureUpdateRunning) {
+                if (!g_state.coordination.displayBufferReady && !g_state.coordination.temperatureUpdateRunning) {
                     mqttManager->writeSysParamsToMQTT(true); // Continue on error
                 }
             }
 
-            hassioUpdateRunning = false;
+            g_state.coordination.hassioUpdateRunning = false;
 
             if (mqttManager->isConnected()) {
                 mqttManager->loop();
 
                 // resend discovery messages if not during a main function and MQTT has been disconnected but has now reconnected, or if last send failed
-                if (!(machineState >= kBrew && machineState <= kBackflush) && ((!mqttManager->wasConnected() || hassioFailed) && !displayBufferReady && !temperatureUpdateRunning)) {
-                    hassioDiscoveryTimer();
+                if (!(machineState >= kBrew && machineState <= kBackflush) && ((!mqttManager->wasConnected() || hassioFailed) && !g_state.coordination.displayBufferReady && !g_state.coordination.temperatureUpdateRunning)) {
+                    if (hassioDiscoveryTimer) (*hassioDiscoveryTimer)();
                 }
 
                 mqttManager->setWasConnected(true);
@@ -1100,40 +1098,40 @@ void loopPid() {
     if (!processController) {
         // Fallback to original logic if ProcessController isn't available
         testEmergencyStop(); // test if temp is too high
-        bPID.Compute();      // the variable pidOutput now has new values from PID (will be written to heater pin in ISR.cpp)
+        g_state.pid->Compute();      // the variable g_state.process.pidOutput now has new values from PID (will be written to heater pin in ISR.cpp)
     }
 
-    websiteUpdateRunning = false;
+    g_state.coordination.websiteUpdateRunning = false;
 
-    if (config.get<bool>("hardware.sensors.scale.enabled")) {
+    if (Config::getInstance().get<bool>("hardware.sensors.scale.enabled")) {
         checkWeight();    // Check Weight Scale in the loop
         shotTimerScale(); // Calculation of weight of shot while brew is running
     }
 
-    if (config.get<bool>("hardware.sensors.pressure.enabled")) {
+    if (Config::getInstance().get<bool>("hardware.sensors.pressure.enabled")) {
         if (sensorManager != nullptr) {
             // Pressure reading is handled by sensorManager->update() call above
-            inputPressure = sensorManager->getCurrentPressure();
-            inputPressureFilter = sensorManager->getFilteredPressure();
+            g_state.sensors.inputPressure = sensorManager->getCurrentPressure();
+            g_state.sensors.inputPressureFilter = sensorManager->getFilteredPressure();
         } else {
             // Fallback to direct pressure reading
-            if (const unsigned long currentMillisPressure = millis(); currentMillisPressure - previousMillisPressure >= intervalPressure) {
-                previousMillisPressure = currentMillisPressure;
-                inputPressure = measurePressure();
-                inputPressureFilter = filterPressureValue(inputPressure);
+            if (const unsigned long currentMillisPressure = millis(); currentMillisPressure - g_state.timing.previousMillisPressure >= g_state.timing.intervalPressure) {
+                g_state.timing.previousMillisPressure = currentMillisPressure;
+                g_state.sensors.inputPressure = measurePressure();
+                g_state.sensors.inputPressureFilter = filterPressureValue(g_state.sensors.inputPressure);
             }
         }
     }
 
     // refresh website if loop does not have anoth long running process already
-    if (((millis() - lastTempEvent) > tempEventInterval) && ((!mqttManager || !mqttManager->isUpdateRunning()) && !hassioUpdateRunning && !displayBufferReady && !temperatureUpdateRunning)) {
-        websiteUpdateRunning = true;
+    if (((millis() - lastTempEvent) > tempEventInterval) && ((!mqttManager || !mqttManager->isUpdateRunning()) && !g_state.coordination.hassioUpdateRunning && !g_state.coordination.displayBufferReady && !g_state.coordination.temperatureUpdateRunning)) {
+        g_state.coordination.websiteUpdateRunning = true;
 
         // send temperatures to website endpoint
-        if (WiFi.status() == WL_CONNECTED && !offlineMode) {
-            sendTempEvent(temperature, brewSetpoint, pidOutput / 10); // pidOutput is promill, so /10 to get percent value
+        if (WiFi.status() == WL_CONNECTED && !g_state.network.offlineMode) {
+            sendTempEvent(g_state.process.temperature, Config::getInstance().get<double>("brew.setpoint"), g_state.process.pidOutput / 10); // g_state.process.pidOutput is promill, so /10 to get percent value
 
-            if (config.get<bool>("hardware.sensors.scale.enabled")) {
+            if (Config::getInstance().get<bool>("hardware.sensors.scale.enabled")) {
                 sendWeightEvent();
             }
         }
@@ -1141,23 +1139,23 @@ void loopPid() {
         lastTempEvent = millis();
 
         // PID debug logging is now handled by ProcessController
-        if (!processController && pidON) {
+        if (!processController && Config::getInstance().get<bool>("pid.enabled")) {
             // Fallback: Original PID debug logging
-            LOGF(TRACE, "Current PID mode: %s", bPID.GetPonE() ? "PonE" : "PonM");
+            LOGF(TRACE, "Current PID mode: %s", g_state.pid->GetPonE() ? "PonE" : "PonM");
 
             // P-Part
-            LOGF(TRACE, "Current PID input error: %f", bPID.GetInputError());
-            LOGF(TRACE, "Current PID P part: %f", bPID.GetLastPPart());
-            LOGF(TRACE, "Current PID kP: %f", bPID.GetKp());
+            LOGF(TRACE, "Current PID input error: %f", g_state.pid->GetInputError());
+            LOGF(TRACE, "Current PID P part: %f", g_state.pid->GetLastPPart());
+            LOGF(TRACE, "Current PID kP: %f", g_state.pid->GetKp());
             // I-Part
-            LOGF(TRACE, "Current PID I sum: %f", bPID.GetLastIPart());
-            LOGF(TRACE, "Current PID kI: %f", bPID.GetKi());
+            LOGF(TRACE, "Current PID I sum: %f", g_state.pid->GetLastIPart());
+            LOGF(TRACE, "Current PID kI: %f", g_state.pid->GetKi());
             // D-Part
-            LOGF(TRACE, "Current PID diff'd input: %f", bPID.GetDeltaInput());
-            LOGF(TRACE, "Current PID D part: %f", bPID.GetLastDPart());
-            LOGF(TRACE, "Current PID kD: %f", bPID.GetKd());
+            LOGF(TRACE, "Current PID diff'd input: %f", g_state.pid->GetDeltaInput());
+            LOGF(TRACE, "Current PID D part: %f", g_state.pid->GetLastDPart());
+            LOGF(TRACE, "Current PID kD: %f", g_state.pid->GetKd());
             // Combined PID output
-            LOGF(TRACE, "Current PID Output: %f", pidOutput);
+            LOGF(TRACE, "Current PID Output: %f", g_state.process.pidOutput);
             LOGF(TRACE, "Current Machinestate: %s", machinestateEnumToString(machineState));
             // Brew
             LOGF(TRACE, "currBrewTime %f", currBrewTime);
@@ -1172,20 +1170,20 @@ void loopPid() {
     // Setpoint management is now handled by ProcessController
     if (!processController) {
         // Fallback: set setpoint depending on steam or brew mode
-        if (steamON == 1) {
-            setpoint = steamSetpoint;
+        if (g_state.machine.steamON == 1) {
+            g_state.process.setpoint = Config::getInstance().get<double>("steam.setpoint");
         }
-        else if (steamON == 0) {
-            setpoint = brewSetpoint;
+        else if (g_state.machine.steamON == 0) {
+            g_state.process.setpoint = Config::getInstance().get<double>("brew.setpoint");
         }
     }
 
     updateStandbyTimer();
-    
+
     // Update state machine (replaces handleMachineState())
     if (stateMachine && stateMachine->isInitialized()) {
         stateMachine->update();
-        
+
         // Update compatibility variables for existing code
         const int newStateId = stateMachine->getCurrentStateId();
         if (newStateId != machineState) {
@@ -1197,11 +1195,11 @@ void loopPid() {
         // Fallback to old state machine if new one isn't ready
         handleMachineState();
     }
-    
+
     hotWaterHandler();
     valveSafetyShutdownCheck();
 
-    if (config.get<bool>("hardware.switches.brew.enabled")) {
+    if (Config::getInstance().get<bool>("hardware.switches.brew.enabled")) {
         // Update brew timer display state using UIManager if available
         if (uiManager) {
             uiManager->shouldDisplayBrewTimer();
@@ -1213,34 +1211,34 @@ void loopPid() {
     // Display updates are now handled by UIManager
     if (uiManager) {
         uiManager->setUpdateRunning(false);
-        
-        if (config.get<bool>("hardware.oled.enabled")) {
+
+        if (Config::getInstance().get<bool>("hardware.oled.enabled")) {
             // update display on loops that have not had other major tasks running
-            if (!websiteUpdateRunning && (!mqttManager || !mqttManager->isUpdateRunning()) && !hassioUpdateRunning && !temperatureUpdateRunning && (standbyModeRemainingTimeMillis > 0)) {
-                
+            if (!g_state.coordination.websiteUpdateRunning && (!mqttManager || !mqttManager->isUpdateRunning()) && !g_state.coordination.hassioUpdateRunning && !g_state.coordination.temperatureUpdateRunning && (standbyModeRemainingTimeMillis > 0)) {
+
                 if (uiManager->isBufferReady()) {
                     uiManager->forceUpdate();
                     uiManager->setBufferReady(false);
                     uiManager->setUpdateRunning(true);
                 }
                 else {
-                    printDisplayTimer();
+                    if (printDisplayTimer) (*printDisplayTimer)();
                 }
             }
         }
     } else {
         // Fallback to original display logic
-        displayUpdateRunning = false;
+        g_state.coordination.displayUpdateRunning = false;
 
-        if (config.get<bool>("hardware.oled.enabled")) {
-            if (!websiteUpdateRunning && (!mqttManager || !mqttManager->isUpdateRunning()) && !hassioUpdateRunning && !temperatureUpdateRunning && (standbyModeRemainingTimeMillis > 0)) {
-                if (displayBufferReady) {
+        if (Config::getInstance().get<bool>("hardware.oled.enabled")) {
+            if (!g_state.coordination.websiteUpdateRunning && (!mqttManager || !mqttManager->isUpdateRunning()) && !g_state.coordination.hassioUpdateRunning && !g_state.coordination.temperatureUpdateRunning && (standbyModeRemainingTimeMillis > 0)) {
+                if (g_state.coordination.displayBufferReady) {
                     u8g2->sendBuffer();
-                    displayBufferReady = false;
-                    displayUpdateRunning = true;
+                    g_state.coordination.displayBufferReady = false;
+                    g_state.coordination.displayUpdateRunning = true;
                 }
                 else {
-                    printDisplayTimer();
+                    if (printDisplayTimer) (*printDisplayTimer)();
                 }
             }
         }
@@ -1249,60 +1247,60 @@ void loopPid() {
     // PID state management and tuning is now handled by ProcessController
     if (!processController) {
         // Fallback: Original PID control logic
-        
+
         // Check if PID should run or not. If not, set to manual and force output to zero
         if (machineState == kPidDisabled || machineState == kWaterTankEmpty || machineState == kSensorError || machineState == kEmergencyStop || machineState == kEepromError || machineState == kStandby ||
             machineState == kBackflush || brewPidDisabled) {
-            if (bPID.GetMode() == 1) {
+            if (g_state.pid->GetMode() == 1) {
                 // Force PID shutdown
-                bPID.SetMode(0);
-                pidOutput = 0;
+                g_state.pid->SetMode(0);
+                g_state.process.pidOutput = 0;
                 heaterRelay->off();
             }
         }
         else { // no sensorerror, no pid off or no Emergency Stop
-            if (bPID.GetMode() == 0) {
-                bPID.SetMode(1);
+            if (g_state.pid->GetMode() == 0) {
+                g_state.pid->SetMode(1);
             }
         }
 
         // Regular PID operation
         if (machineState == kPidNormal) {
-            setPIDTunings(usePonM);
+            setPIDTunings(Config::getInstance().get<bool>("pid.use_ponm"));
         }
 
         // Brew PID
         if (machineState == kBrew) {
-            if (brewPidDelay > 0 && currBrewTime > 0 && currBrewTime < brewPidDelay * 1000) {
+            if (Config::getInstance().get<double>("brew.pid_delay") > 0 && currBrewTime > 0 && currBrewTime < Config::getInstance().get<double>("brew.pid_delay") * 1000) {
                 // disable PID for brewPidDelay seconds, enable PID again with new tunings after that
                 if (!brewPidDisabled) {
                     brewPidDisabled = true;
-                    bPID.SetMode(MANUAL);
-                    pidOutput = 0;
+                    g_state.pid->SetMode(MANUAL);
+                    g_state.process.pidOutput = 0;
                     heaterRelay->off();
-                    LOGF(DEBUG, "disabled PID, waiting for %.0f seconds before enabling PID again", brewPidDelay);
+                    LOGF(DEBUG, "disabled PID, waiting for %.0f seconds before enabling PID again", Config::getInstance().get<double>("brew.pid_delay"));
                 }
             }
             else {
                 if (brewPidDisabled) {
                     // enable PID again
-                    bPID.SetMode(AUTOMATIC);
+                    g_state.pid->SetMode(AUTOMATIC);
                     brewPidDisabled = false;
-                    LOGF(DEBUG, "Enabled PID again after %.0f seconds of brew pid delay", brewPidDelay);
+                    LOGF(DEBUG, "Enabled PID again after %.0f seconds of brew pid delay", Config::getInstance().get<double>("brew.pid_delay"));
                 }
 
-                if (useBDPID) {
+                if (Config::getInstance().get<bool>("pid.bd.enabled")) {
                     setBDPIDTunings();
                 }
                 else {
-                    setPIDTunings(usePonM);
+                    setPIDTunings(Config::getInstance().get<bool>("pid.use_ponm"));
                 }
             }
         }
         // Reset brewPidDisabled if brew was aborted
         if (machineState != kBrew && brewPidDisabled) {
             // enable PID again
-            bPID.SetMode(AUTOMATIC);
+            g_state.pid->SetMode(AUTOMATIC);
             brewPidDisabled = false;
             LOG(DEBUG, "Enabled PID again after brew was manually stopped");
         }
@@ -1314,14 +1312,14 @@ void loopPid() {
                 lastmachinestatepid = machineState;
             }
 
-            bPID.SetTunings(steamKp, 0, 0, 1);
+            g_state.pid->SetTunings(Config::getInstance().get<double>("pid.steam.kp"), 0, 0, 1);
         }
     }
 }
 
 void loopLED() {
-    if (config.get<bool>("hardware.leds.status.enabled") && statusLed != nullptr) {
-        if ((machineState == kPidNormal && (fabs(temperature - setpoint) < 0.3)) || (temperature > 115 && fabs(temperature - setpoint) < 5)) {
+    if (Config::getInstance().get<bool>("hardware.leds.status.enabled") && statusLed != nullptr) {
+        if ((machineState == kPidNormal && (fabs(g_state.process.temperature - g_state.process.setpoint) < 0.3)) || (g_state.process.temperature > 115 && fabs(g_state.process.temperature - g_state.process.setpoint) < 5)) {
             statusLed->turnOn();
         }
         else {
@@ -1329,24 +1327,24 @@ void loopLED() {
         }
     }
 
-    if (config.get<bool>("hardware.leds.brew.enabled") && brewLed != nullptr) {
+    if (Config::getInstance().get<bool>("hardware.leds.brew.enabled") && brewLed != nullptr) {
         brewLed->setGPIOState(machineState == kBrew);
     }
 
-    if (config.get<bool>("hardware.leds.steam.enabled") && steamLed != nullptr) {
+    if (Config::getInstance().get<bool>("hardware.leds.steam.enabled") && steamLed != nullptr) {
         steamLed->setGPIOState(machineState == kSteam);
     }
 }
 
 void checkWaterTank() {
     if (sensorManager != nullptr) {
-        // Use SensorManager for water tank sensing  
+        // Use SensorManager for water tank sensing
         // (sensor reading is updated by sensorManager->update() in loopPid)
         sensorManager->updateWaterTankSensor();
         waterTankFull = sensorManager->isWaterTankFull();
     } else {
         // Fallback to direct water tank sensor reading
-        if (!config.get<bool>("hardware.sensors.watertank.enabled") || waterTankSensor == nullptr) {
+        if (!Config::getInstance().get<bool>("hardware.sensors.watertank.enabled") || waterTankSensor == nullptr) {
             return;
         }
 
@@ -1362,19 +1360,18 @@ void checkWaterTank() {
 }
 
 void setRuntimePidState(const bool enabled) {
-    pidON = enabled ? 1 : 0;
     // Update via config system
     Config::getInstance().set<bool>("pid.enabled", enabled);
 }
 
 void setSteamMode(const bool steamMode) {
-    steamON = steamMode;
+    g_state.machine.steamON = steamMode;
 
-    if (steamON) {
+    if (g_state.machine.steamON) {
         steamFirstON = true;
     }
 
-    if (!steamON) {
+    if (!g_state.machine.steamON) {
         steamFirstON = false;
     }
 }
@@ -1426,9 +1423,9 @@ void performSafeShutdown() {
     }
 
     // Turn off steam mode if active
-    if (steamON) {
+    if (g_state.machine.steamON) {
         LOG(INFO, "Disabling steam mode");
-        steamON = false;
+        g_state.machine.steamON = false;
         steamFirstON = false;
     }
 
@@ -1438,45 +1435,45 @@ void performSafeShutdown() {
 void setPIDTunings(const bool usePonM) {
     // Prevent overwriting of brewdetection values
     // calc ki, kd
-    if (aggTn != 0) {
-        aggKi = aggKp / aggTn;
+    if (Config::getInstance().get<double>("pid.regular.tn") != 0) {
+        g_state.process.aggKi = Config::getInstance().get<double>("pid.regular.kp") / Config::getInstance().get<double>("pid.regular.tn");
     }
     else {
-        aggKi = 0;
+        g_state.process.aggKi = 0;
     }
 
-    aggKd = aggTv * aggKp;
+    g_state.process.aggKd = Config::getInstance().get<double>("pid.regular.tv") * Config::getInstance().get<double>("pid.regular.kp");
 
-    bPID.SetIntegratorLimits(0, aggIMax);
+    g_state.pid->SetIntegratorLimits(0, Config::getInstance().get<double>("pid.regular.i_max"));
 
     if (lastmachinestatepid != machineState) {
-        LOGF(DEBUG, "new PID-Values: P=%.1f  I=%.1f  D=%.1f", aggKp, aggKi, aggKd);
+        LOGF(DEBUG, "new PID-Values: P=%.1f  I=%.1f  D=%.1f", Config::getInstance().get<double>("pid.regular.kp"), g_state.process.aggKi, g_state.process.aggKd);
         lastmachinestatepid = machineState;
     }
 
     if (usePonM) {
-        bPID.SetTunings(aggbKp, aggbKi, aggbKd, P_ON_M);
+        g_state.pid->SetTunings(Config::getInstance().get<double>("pid.bd.kp"), g_state.process.aggbKi, g_state.process.aggbKd, P_ON_M);
     }
     else {
-        bPID.SetTunings(aggKp, aggKi, aggKd, 1);
+        g_state.pid->SetTunings(Config::getInstance().get<double>("pid.regular.kp"), g_state.process.aggKi, g_state.process.aggKd, 1);
     }
 }
 
 void setBDPIDTunings() {
     // calc ki, kd
-    if (aggbTn != 0) {
-        aggbKi = aggbKp / aggbTn;
+    if (Config::getInstance().get<double>("pid.bd.tn") != 0) {
+       g_state.process.aggbKi = Config::getInstance().get<double>("pid.bd.kp") / Config::getInstance().get<double>("pid.bd.tn");
     }
     else {
-        aggbKi = 0;
+        g_state.process.aggbKi = 0;
     }
 
-    aggbKd = aggbTv * aggbKp;
+    g_state.process.aggbKd = Config::getInstance().get<double>("pid.bd.tv") * Config::getInstance().get<double>("pid.bd.kp");
 
     if (lastmachinestatepid != machineState) {
-        LOGF(DEBUG, "new PID-Values: P=%.1f  I=%.1f  D=%.1f", aggbKp, aggbKi, aggbKd);
+        LOGF(DEBUG, "new PID-Values: P=%.1f  I=%.1f  D=%.1f", Config::getInstance().get<double>("pid.bd.kp"), g_state.process.aggbKi, g_state.process.aggbKd);
         lastmachinestatepid = machineState;
     }
 
-    bPID.SetTunings(aggbKp, aggbKi, aggbKd, 1);
+    g_state.pid->SetTunings(Config::getInstance().get<double>("pid.bd.kp"), g_state.process.aggbKi, g_state.process.aggbKd, 1);
 }

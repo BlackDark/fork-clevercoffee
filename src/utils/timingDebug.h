@@ -108,14 +108,14 @@ void debugTimingLoop() {
 
     IFLOG(DEBUG) {
 
-        if (timingDebugActive) {
+        if (Config::getInstance().get<bool>("system.timing_debug.enabled")) {
             loopCount += 1;
             unsigned long loopDuration = millis() - previousMillisDebug;
             previousMillisDebug = millis();
 
             // the loopDuration > 45 check is in case there is a long loop caused by something unknown
             // only record if one of these flags are set or loop has taken a long time
-            if ((loopDuration > 45) || ((displayUpdateRunning && includeDisplayInLogs) || websiteUpdateRunning || isMqttUpdateRunning() || hassioUpdateRunning || temperatureUpdateRunning)) {
+            if ((loopDuration > 45) || ((g_state.coordination.displayUpdateRunning && Config::getInstance().get<bool>("system.showdisplay.enabled")) || g_state.coordination.websiteUpdateRunning || isMqttUpdateRunning() || g_state.coordination.hassioUpdateRunning || g_state.coordination.temperatureUpdateRunning)) {
 
                 if (loopDuration >= maxLoop) {
                     maxLoop = loopDuration;
@@ -125,15 +125,15 @@ void debugTimingLoop() {
                 activityType[loopIndex] = 0;
 
                 // tag activityType with any activities that occured this loop
-                if (displayBufferReady) {
+                if (g_state.coordination.displayBufferReady) {
                     activityType[loopIndex] |= ACT_DISPLAY_READY;
                 }
 
-                if (displayUpdateRunning) {
+                if (g_state.coordination.displayUpdateRunning) {
                     activityType[loopIndex] |= ACT_DISPLAY_RUNNING;
                 }
 
-                if (websiteUpdateRunning) {
+                if (g_state.coordination.websiteUpdateRunning) {
                     activityType[loopIndex] |= ACT_WEBSITE_RUNNING;
                 }
 
@@ -141,11 +141,11 @@ void debugTimingLoop() {
                     activityType[loopIndex] |= ACT_MQTT_RUNNING;
                 }
 
-                if (hassioUpdateRunning) {
+                if (g_state.coordination.hassioUpdateRunning) {
                     activityType[loopIndex] |= ACT_HASSIO_RUNNING;
                 }
 
-                if (temperatureUpdateRunning) {
+                if (g_state.coordination.temperatureUpdateRunning) {
                     activityType[loopIndex] |= ACT_TEMPERATURE_RUNNING;
                 }
 

@@ -6,24 +6,26 @@
 
 #pragma once
 
+#include "Config.h"
+
 #define TIME_TO_DISPLAY_OFF        10
 #define TIME_TO_DISPLAY_OFF_MILLIS (TIME_TO_DISPLAY_OFF * 60 * 1000)
 
 inline unsigned long standbyModeStartTimeMillis = millis();
-inline unsigned long standbyModeRemainingTimeMillis = static_cast<long>(standbyModeTime) * 60 * 1000;
+inline unsigned long standbyModeRemainingTimeMillis = static_cast<long>(Config::getInstance().get<double>("standby.time")) * 60 * 1000;
 inline unsigned long standbyModeRemainingTimeDisplayOffMillis = TIME_TO_DISPLAY_OFF_MILLIS;
 inline unsigned long lastStandbyTimeMillis = standbyModeStartTimeMillis;
 inline unsigned long timeSinceStandbyMillis = 0;
 
 inline unsigned long getStandbyTimeoutMillis() {
-    return static_cast<unsigned long>(standbyModeTime * 60 * 1000);
+    return static_cast<unsigned long>(Config::getInstance().get<double>("standby.time") * 60 * 1000);
 }
 
 /**
  * @brief Decrements the remaining standby time every second, counting down from the configured duration
  */
 inline void updateStandbyTimer() {
-    if (!standbyModeOn) {
+    if (!Config::getInstance().get<bool>("standby.enabled")) {
         return;
     }
 
@@ -73,6 +75,6 @@ inline void resetStandbyTimer(const LegacyMachineState state) {
     standbyModeRemainingTimeDisplayOffMillis = TIME_TO_DISPLAY_OFF_MILLIS;
     standbyModeStartTimeMillis = millis();
 
-    LOGF(INFO, "Resetting standby timer to %i minutes", static_cast<int>(standbyModeTime));
+    LOGF(INFO, "Resetting standby timer to %i minutes", static_cast<int>(Config::getInstance().get<double>("standby.time")));
     LOGF(DEBUG, "New machine state: %s", machinestateEnumToString(state));
 }

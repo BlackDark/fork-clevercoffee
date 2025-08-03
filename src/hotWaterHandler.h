@@ -7,7 +7,6 @@
 #include "Config.h"
 
 // Backward compatibility reference
-extern Config& config;
 
 uint8_t currStateHotWaterSwitch;
 

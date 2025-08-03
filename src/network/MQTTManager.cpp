@@ -5,7 +5,6 @@
 
 #include "MQTTManager.h"
 #include "../Config.h"
-#include "../GlobalVariables.h"
 #include "../defaults.h"
 #include "Logger.h"
 #include <Arduino.h>
@@ -15,14 +14,11 @@
 MQTTManager* MQTTManager::instance_ = nullptr;
 
 // Forward declarations for external dependencies
-extern String hostname;
 extern char* number2string(double value);
-extern bool offlineMode;
 extern bool checkBrewActive();
 extern int machineState;
 extern uint8_t steamFirstON;
 extern bool hassioFailed;
-extern bool hassioUpdateRunning;
 
 // Include MachineState enum constants from main.cpp
 enum LegacyMachineState {
@@ -62,20 +58,20 @@ bool MQTTManager::setup(const String& hostname) {
 
     // Load MQTT configuration
     const auto& config = Config::getInstance();
-    mqttEnabled_ = config.get<bool>("mqtt.enabled");
+    mqttEnabled_ = Config::getInstance().get<bool>("mqtt.enabled");
 
     if (!mqttEnabled_) {
         LOG(INFO, "MQTT is disabled");
         return false;
     }
 
-    serverIP_ = config.get<String>("mqtt.broker");
-    serverPort_ = config.get<int>("mqtt.port");
-    username_ = config.get<String>("mqtt.username");
-    password_ = config.get<String>("mqtt.password");
-    topicPrefix_ = config.get<String>("mqtt.topic");
-    hassioEnabled_ = config.get<bool>("mqtt.hassio.enabled");
-    hassioDiscoveryPrefix_ = config.get<String>("mqtt.hassio.prefix");
+    serverIP_ = Config::getInstance().get<String>("mqtt.broker");
+    serverPort_ = Config::getInstance().get<int>("mqtt.port");
+    username_ = Config::getInstance().get<String>("mqtt.username");
+    password_ = Config::getInstance().get<String>("mqtt.password");
+    topicPrefix_ = Config::getInstance().get<String>("mqtt.topic");
+    hassioEnabled_ = Config::getInstance().get<bool>("mqtt.hassio.enabled");
+    hassioDiscoveryPrefix_ = Config::getInstance().get<String>("mqtt.hassio.prefix");
 
     // Setup topics
     snprintf(topicWill_, sizeof(topicWill_), "%s%s/%s", topicPrefix_.c_str(), hostname_.c_str(), "status");
@@ -95,7 +91,7 @@ void MQTTManager::initializeClient() {
 }
 
 void MQTTManager::checkConnection() {
-    if (offlineMode || checkBrewActive()) {
+    if (g_state.network.offlineMode || checkBrewActive()) {
         return;
     }
 
@@ -215,19 +211,19 @@ void MQTTManager::assignParameter(char* param, double value) {
         // Try boolean first
         if (value == 0.0 || value == 1.0) {
             bool boolValue = (value == 1.0);
-            success = config.set<bool>(parameterId, boolValue);
+            success = Config::getInstance().set<bool>(parameterId, boolValue);
         }
 
         // Try integer if boolean failed
         if (!success && value == static_cast<int>(value)) {
             int intValue = static_cast<int>(value);
-            success = config.set<int>(parameterId, intValue);
+            success = Config::getInstance().set<int>(parameterId, intValue);
         }
 
         // Try uint8 if integer failed
         if (!success && value >= 0 && value <= 255 && value == static_cast<uint8_t>(value)) {
             uint8_t uint8Value = static_cast<uint8_t>(value);
-            success = config.set<uint8_t>(parameterId, uint8Value);
+            success = Config::getInstance().set<uint8_t>(parameterId, uint8Value);
             if (success && strcasecmp(param, "steamON") == 0) {
                 steamFirstON = uint8Value;
             }
@@ -236,12 +232,12 @@ void MQTTManager::assignParameter(char* param, double value) {
         // Try float if uint8 failed
         if (!success) {
             float floatValue = static_cast<float>(value);
-            success = config.set<float>(parameterId, floatValue);
+            success = Config::getInstance().set<float>(parameterId, floatValue);
         }
 
         // Try double if float failed
         if (!success) {
-            success = config.set<double>(parameterId, value);
+            success = Config::getInstance().set<double>(parameterId, value);
         }
 
         if (success) {
@@ -297,40 +293,40 @@ int MQTTManager::writeSysParamsToMQTT(bool continueOnError) {
             bool paramFound = false;
 
             try {
-                if (config.hasParameter(parameterId)) {
+                if (Config::getInstance().hasParameter(parameterId)) {
                     // Try different types
                     bool boolVal;
-                    if (config.tryGet<bool>(parameterId, boolVal)) {
+                    if (Config::getInstance().tryGet<bool>(parameterId, boolVal)) {
                         snprintf(data, sizeof(data), "%d", boolVal ? 1 : 0);
                         paramFound = true;
                     }
                     else {
                         int intVal;
-                        if (config.tryGet<int>(parameterId, intVal)) {
+                        if (Config::getInstance().tryGet<int>(parameterId, intVal)) {
                             snprintf(data, sizeof(data), "%d", intVal);
                             paramFound = true;
                         }
                         else {
                             uint8_t uint8Val;
-                            if (config.tryGet<uint8_t>(parameterId, uint8Val)) {
+                            if (Config::getInstance().tryGet<uint8_t>(parameterId, uint8Val)) {
                                 snprintf(data, sizeof(data), "%u", uint8Val);
                                 paramFound = true;
                             }
                             else {
                                 double doubleVal;
-                                if (config.tryGet<double>(parameterId, doubleVal)) {
+                                if (Config::getInstance().tryGet<double>(parameterId, doubleVal)) {
                                     snprintf(data, sizeof(data), "%.2f", doubleVal);
                                     paramFound = true;
                                 }
                                 else {
                                     float floatVal;
-                                    if (config.tryGet<float>(parameterId, floatVal)) {
+                                    if (Config::getInstance().tryGet<float>(parameterId, floatVal)) {
                                         snprintf(data, sizeof(data), "%.2f", floatVal);
                                         paramFound = true;
                                     }
                                     else {
                                         String stringVal;
-                                        if (config.tryGet<String>(parameterId, stringVal)) {
+                                        if (Config::getInstance().tryGet<String>(parameterId, stringVal)) {
                                             snprintf(data, sizeof(data), "%s", stringVal.c_str());
                                             paramFound = true;
                                         }
@@ -597,7 +593,7 @@ int MQTTManager::publishDiscovery(const DiscoveryObject& obj) {
 }
 
 int MQTTManager::sendHASSIODiscoveryMsg() {
-    hassioUpdateRunning = true;
+    g_state.coordination.hassioUpdateRunning = true;
 
     if (!mqttClient_.connected()) {
         LOG(DEBUG, "[MQTT] Failed to send Hassio Discover, MQTT Client is not connected");
@@ -627,7 +623,7 @@ int MQTTManager::sendHASSIODiscoveryMsg() {
     failures += publishDiscovery(generateSwitchDevice("usePonM", "Use PonM"));
 
     // Conditional devices
-    if (config.get<bool>("hardware.switches.brew.enabled")) {
+    if (Config::getInstance().get<bool>("hardware.switches.brew.enabled")) {
         failures += publishDiscovery(generateSensorDevice("currBrewTime", "Current Brew Time ", "s", "duration"));
         failures += publishDiscovery(generateNumberDevice("brewPidDelay", "Brew Pid Delay", BREW_PID_DELAY_MIN, BREW_PID_DELAY_MAX, 0.1, "s"));
         failures += publishDiscovery(generateNumberDevice("targetBrewTime", "Target Brew time", TARGET_BREW_TIME_MIN, TARGET_BREW_TIME_MAX, 0.1, "s"));
@@ -639,7 +635,7 @@ int MQTTManager::sendHASSIODiscoveryMsg() {
         failures += publishDiscovery(generateSwitchDevice("backflushOn", "Backflush"));
     }
 
-    if (config.get<bool>("hardware.sensors.scale.enabled")) {
+    if (Config::getInstance().get<bool>("hardware.sensors.scale.enabled")) {
         failures += publishDiscovery(generateSensorDevice("currReadingWeight", "Weight", "g", "weight"));
         failures += publishDiscovery(generateSensorDevice("currBrewWeight", "current Brew Weight", "g", "weight"));
         failures += publishDiscovery(generateButtonDevice("scaleCalibrationOn", "Calibrate Scale"));
@@ -647,7 +643,7 @@ int MQTTManager::sendHASSIODiscoveryMsg() {
         failures += publishDiscovery(generateNumberDevice("targetBrewWeight", "Brew Weight Target", TARGET_BREW_WEIGHT_MIN, TARGET_BREW_WEIGHT_MAX, 0.1, "g"));
     }
 
-    if (config.get<bool>("hardware.sensors.pressure.enabled")) {
+    if (Config::getInstance().get<bool>("hardware.sensors.pressure.enabled")) {
         failures += publishDiscovery(generateSensorDevice("pressure", "Pressure", "bar", "pressure"));
     }
 

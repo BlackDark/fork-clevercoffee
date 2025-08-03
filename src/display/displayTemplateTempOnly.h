@@ -8,6 +8,7 @@
 #pragma once
 
 #include "../Config.h"
+#include "../state/GlobalState.h"
 
 // Define some Displayoptions
 inline constexpr int blinkingTemp = 1;          // 0: blinking near setpoint, 1: blinking far away from setpoint
@@ -46,38 +47,38 @@ inline void printScreen() {
     u8g2->clearBuffer();
 
     // draw (blinking) temp
-    if (((fabs(temperature - setpoint) < blinkingTempDelta && blinkingTemp == 0) || fabs(temperature - setpoint) >= blinkingTempDelta) && !config.get<bool>("hardware.leds.status.enabled")) {
+    if (((fabs(g_state.process.temperature - g_state.process.setpoint) < blinkingTempDelta && blinkingTemp == 0) || fabs(g_state.process.temperature - g_state.process.setpoint) >= blinkingTempDelta) && !Config::getInstance().get<bool>("hardware.leds.status.enabled")) {
         if (isrCounter < 500) {
-            if (temperature < 99.999) {
+            if (g_state.process.temperature < 99.999) {
                 u8g2->setCursor(8, 22);
                 u8g2->setFont(u8g2_font_fub35_tf);
-                u8g2->print(temperature, 1);
+                u8g2->print(g_state.process.temperature, 1);
                 u8g2->drawCircle(116, 27, 4);
             }
             else {
                 u8g2->setCursor(24, 22);
                 u8g2->setFont(u8g2_font_fub35_tf);
-                u8g2->print(temperature, 0);
+                u8g2->print(g_state.process.temperature, 0);
                 u8g2->drawCircle(116, 27, 4);
             }
         }
     }
     else {
-        if (temperature < 99.999) {
+        if (g_state.process.temperature < 99.999) {
             u8g2->setCursor(8, 22);
             u8g2->setFont(u8g2_font_fub35_tf);
-            u8g2->print(temperature, 1);
+            u8g2->print(g_state.process.temperature, 1);
             u8g2->drawCircle(116, 27, 4);
         }
         else {
             u8g2->setCursor(24, 22);
             u8g2->setFont(u8g2_font_fub35_tf);
-            u8g2->print(temperature, 0);
+            u8g2->print(g_state.process.temperature, 0);
             u8g2->drawCircle(116, 27, 4);
         }
     }
 
     displayStatusbar();
 
-    displayBufferReady = true;
+    g_state.coordination.displayBufferReady = true;
 }

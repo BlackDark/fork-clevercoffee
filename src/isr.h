@@ -8,8 +8,9 @@
 #pragma once
 
 #include "hardware/Relay.h"
+#include "state/GlobalState.h"
 
-extern double pidOutput;
+// pidOutput moved to g_state.process.pidOutput
 
 unsigned int isrCounter = 0; // counter for ISR
 unsigned long windowStartTime;
@@ -18,7 +19,7 @@ unsigned int windowSize = 1000;
 void IRAM_ATTR onTimer() {
     timerAlarmWrite(timer, 10000, true);
 
-    if (pidOutput <= isrCounter) {
+    if (g_state.process.pidOutput <= isrCounter) {
         heaterRelay->off();
     }
     else {

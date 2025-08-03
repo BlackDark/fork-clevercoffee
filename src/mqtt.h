@@ -15,7 +15,6 @@
 #include <string>
 
 // Backward compatibility reference
-extern Config& config;
 
 std::map<const char*, std::string> mqttLastSent;
 
@@ -28,13 +27,11 @@ unsigned long timeBudget = 10; // milliseconds per loop until all data is sent
 inline WiFiClient net;
 inline PubSubClient mqtt(net);
 
-inline bool mqtt_enabled = false;
 inline String mqtt_server_ip = "";
 inline int mqtt_server_port = 1883;
 inline String mqtt_username = "";
 inline String mqtt_password = "";
 inline String mqtt_topic_prefix = "";
-inline bool mqtt_hassio_enabled = false;
 inline String mqtt_hassio_discovery_prefix = "";
 
 inline char topic_will[256];
@@ -57,19 +54,16 @@ inline void setupMqtt() {
     // MQTT setup - config system is always ready after Config::getInstance().begin()
     LOGF(INFO, "Setting up MQTT with unified config system");
 
-    mqtt_enabled = config.get<bool>("mqtt.enabled");
-
-    if (!mqtt_enabled) {
+    if (!Config::getInstance().get<bool>("mqtt.enabled")) {
         return;
     }
 
-    mqtt_server_ip = config.get<::String>("mqtt.broker");
-    mqtt_server_port = config.get<int>("mqtt.port");
-    mqtt_username = config.get<::String>("mqtt.username");
-    mqtt_password = config.get<::String>("mqtt.password");
-    mqtt_topic_prefix = config.get<::String>("mqtt.topic");
-    mqtt_hassio_enabled = config.get<bool>("mqtt.hassio.enabled");
-    mqtt_hassio_discovery_prefix = config.get<::String>("mqtt.hassio.prefix");
+    mqtt_server_ip = Config::getInstance().get<::String>("mqtt.broker");
+    mqtt_server_port = Config::getInstance().get<int>("mqtt.port");
+    mqtt_username = Config::getInstance().get<::String>("mqtt.username");
+    mqtt_password = Config::getInstance().get<::String>("mqtt.password");
+    mqtt_topic_prefix = Config::getInstance().get<::String>("mqtt.topic");
+    mqtt_hassio_discovery_prefix = Config::getInstance().get<::String>("mqtt.hassio.prefix");
 }
 
 /**
@@ -77,7 +71,7 @@ inline void setupMqtt() {
  *      MQTT is also using maxWifiReconnects!
  */
 inline void checkMQTT() {
-    if (offlineMode || checkBrewActive()) {
+    if (g_state.network.offlineMode || checkBrewActive()) {
         return;
     }
 
@@ -87,7 +81,7 @@ inline void checkMQTT() {
             MQTTReCnctCount++;                    // Increment reconnection Counter
             LOGF(DEBUG, "Attempting MQTT reconnection: %i", MQTTReCnctCount);
 
-            if (mqtt.connect(hostname.c_str(), mqtt_username.c_str(), mqtt_password.c_str(), topic_will, 0, true, "offline")) {
+            if (mqtt.connect(Config::getInstance().get<String>("system.hostname").c_str(), mqtt_username.c_str(), mqtt_password.c_str(), topic_will, 0, true, "offline")) {
                 mqtt.subscribe(topic_set);
                 LOGF(DEBUG, "Subscribed to MQTT Topic: %s", topic_set);
                 MQTTReCnctCount = 0; // reset MQTT reconnect count to zero after a successful connection
@@ -110,7 +104,7 @@ inline void checkMQTT() {
  */
 inline bool mqtt_publish(const char* reading, const char* payload, const boolean retain = false) {
     char topic[120];
-    snprintf(topic, 120, "%s%s/%s", mqtt_topic_prefix.c_str(), hostname.c_str(), reading);
+    snprintf(topic, 120, "%s%s/%s", mqtt_topic_prefix.c_str(), Config::getInstance().get<String>("system.hostname").c_str(), reading);
     return mqtt.publish(topic, payload, retain);
 }
 
@@ -178,19 +172,19 @@ inline void assignMQTTParam(char* param, double value) {
         // Try boolean first (common case)
         if (value == 0.0 || value == 1.0) {
             bool boolValue = (value == 1.0);
-            success = config.set<bool>(parameterId, boolValue);
+            success = Config::getInstance().set<bool>(parameterId, boolValue);
         }
 
         // Try integer if boolean failed
         if (!success && value == static_cast<int>(value)) {
             int intValue = static_cast<int>(value);
-            success = config.set<int>(parameterId, intValue);
+            success = Config::getInstance().set<int>(parameterId, intValue);
         }
 
         // Try uint8 if integer failed
         if (!success && value >= 0 && value <= 255 && value == static_cast<uint8_t>(value)) {
             uint8_t uint8Value = static_cast<uint8_t>(value);
-            success = config.set<uint8_t>(parameterId, uint8Value);
+            success = Config::getInstance().set<uint8_t>(parameterId, uint8Value);
             if (success && strcasecmp(param, "steamON") == 0) {
                 steamFirstON = uint8Value;
             }
@@ -199,12 +193,12 @@ inline void assignMQTTParam(char* param, double value) {
         // Try float if uint8 failed
         if (!success) {
             float floatValue = static_cast<float>(value);
-            success = config.set<float>(parameterId, floatValue);
+            success = Config::getInstance().set<float>(parameterId, floatValue);
         }
 
         // Try double if float failed
         if (!success) {
-            success = config.set<double>(parameterId, value);
+            success = Config::getInstance().set<double>(parameterId, value);
         }
 
         if (success) {
@@ -234,7 +228,7 @@ inline void mqtt_callback(const char* topic, const byte* data, const unsigned in
     char cmd[64];
     double data_double;
 
-    snprintf(topic_pattern, sizeof(topic_pattern), "%s%s/%%[^\\/]/%%[^\\/]", mqtt_topic_prefix.c_str(), hostname.c_str());
+    snprintf(topic_pattern, sizeof(topic_pattern), "%s%s/%%[^\\/]/%%[^\\/]", mqtt_topic_prefix.c_str(), Config::getInstance().get<String>("system.hostname").c_str());
 
     if (sscanf(topic_str, topic_pattern, &configVar, &cmd) != 2 || strcmp(cmd, "set") != 0) {
         LOGF(WARNING, "Invalid MQTT topic/command: %s", topic_str);
@@ -263,7 +257,7 @@ inline int writeSysParamsToMQTT(const bool continueOnError = true) {
     unsigned long currentMillisMQTT = millis();
     unsigned long interval = (machineState == kBrew) ? intervalMQTTbrew : (machineState == kStandby) ? intervalMQTTstandby : intervalMQTT;
 
-    if ((currentMillisMQTT - previousMillisMQTT < interval) || !mqtt_enabled || !mqtt.connected()) {
+    if ((currentMillisMQTT - previousMillisMQTT < interval) || !Config::getInstance().get<bool>("mqtt.enabled") || !mqtt.connected()) {
         return 0;
     }
 
@@ -293,40 +287,40 @@ inline int writeSysParamsToMQTT(const bool continueOnError = true) {
             // Try to get as different types and format accordingly
             try {
                 // Try boolean first
-                if (config.hasParameter(parameterId)) {
+                if (Config::getInstance().hasParameter(parameterId)) {
                     // Try different types until one works
                     bool boolVal;
-                    if (config.tryGet<bool>(parameterId, boolVal)) {
+                    if (Config::getInstance().tryGet<bool>(parameterId, boolVal)) {
                         snprintf(data, sizeof(data), "%d", boolVal ? 1 : 0);
                         paramFound = true;
                     }
                     else {
                         int intVal;
-                        if (config.tryGet<int>(parameterId, intVal)) {
+                        if (Config::getInstance().tryGet<int>(parameterId, intVal)) {
                             snprintf(data, sizeof(data), "%d", intVal);
                             paramFound = true;
                         }
                         else {
                             uint8_t uint8Val;
-                            if (config.tryGet<uint8_t>(parameterId, uint8Val)) {
+                            if (Config::getInstance().tryGet<uint8_t>(parameterId, uint8Val)) {
                                 snprintf(data, sizeof(data), "%u", uint8Val);
                                 paramFound = true;
                             }
                             else {
                                 double doubleVal;
-                                if (config.tryGet<double>(parameterId, doubleVal)) {
+                                if (Config::getInstance().tryGet<double>(parameterId, doubleVal)) {
                                     snprintf(data, sizeof(data), "%.2f", doubleVal);
                                     paramFound = true;
                                 }
                                 else {
                                     float floatVal;
-                                    if (config.tryGet<float>(parameterId, floatVal)) {
+                                    if (Config::getInstance().tryGet<float>(parameterId, floatVal)) {
                                         snprintf(data, sizeof(data), "%.2f", floatVal);
                                         paramFound = true;
                                     }
                                     else {
                                         ::String stringVal;
-                                        if (config.tryGet<::String>(parameterId, stringVal)) {
+                                        if (Config::getInstance().tryGet<::String>(parameterId, stringVal)) {
                                             snprintf(data, sizeof(data), "%s", stringVal.c_str());
                                             paramFound = true;
                                         }
@@ -430,9 +424,9 @@ inline int writeSysParamsToMQTT(const bool continueOnError = true) {
  * @return A `DiscoveryObject` containing the switch device configuration
  */
 inline DiscoveryObject GenerateSwitchDevice(const String& name, const String& displayName, const String& payload_on = "1", const String& payload_off = "0") {
-    String mqtt_topic = String(mqtt_topic_prefix) + hostname;
+    String mqtt_topic = String(mqtt_topic_prefix) + Config::getInstance().get<String>("system.hostname");
     DiscoveryObject switch_device;
-    String unique_id = "clevercoffee-" + hostname;
+    String unique_id = "clevercoffee-" + Config::getInstance().get<String>("system.hostname");
     String SwitchDiscoveryTopic = mqtt_hassio_discovery_prefix + "/switch/";
 
     String switch_command_topic = mqtt_topic + "/" + name + "/set";
@@ -441,9 +435,9 @@ inline DiscoveryObject GenerateSwitchDevice(const String& name, const String& di
     switch_device.discovery_topic = SwitchDiscoveryTopic + unique_id + "/" + name + "/config";
 
     JsonDocument deviceMapDoc;
-    deviceMapDoc["identifiers"] = hostname;
+    deviceMapDoc["identifiers"] = Config::getInstance().get<String>("system.hostname");
     deviceMapDoc["manufacturer"] = "CleverCoffee";
-    deviceMapDoc["name"] = hostname;
+    deviceMapDoc["name"] = Config::getInstance().get<String>("system.hostname");
 
     JsonDocument switchConfigDoc;
     switchConfigDoc["name"] = displayName;
@@ -481,9 +475,9 @@ inline DiscoveryObject GenerateSwitchDevice(const String& name, const String& di
  * @return A `DiscoveryObject` containing the switch device configuration
  */
 inline DiscoveryObject GenerateButtonDevice(const String& name, const String& displayName, const String& payload_press = "1") {
-    String mqtt_topic = String(mqtt_topic_prefix) + hostname;
+    String mqtt_topic = String(mqtt_topic_prefix) + Config::getInstance().get<String>("system.hostname");
     DiscoveryObject button_device;
-    String unique_id = "clevercoffee-" + hostname;
+    String unique_id = "clevercoffee-" + Config::getInstance().get<String>("system.hostname");
     String buttonDiscoveryTopic = mqtt_hassio_discovery_prefix + "/button/";
 
     String button_command_topic = mqtt_topic + "/" + name + "/set";
@@ -492,9 +486,9 @@ inline DiscoveryObject GenerateButtonDevice(const String& name, const String& di
     button_device.discovery_topic = buttonDiscoveryTopic + unique_id + "/" + name + "/config";
 
     JsonDocument deviceMapDoc;
-    deviceMapDoc["identifiers"] = hostname;
+    deviceMapDoc["identifiers"] = Config::getInstance().get<String>("system.hostname");
     deviceMapDoc["manufacturer"] = "CleverCoffee";
-    deviceMapDoc["name"] = hostname;
+    deviceMapDoc["name"] = Config::getInstance().get<String>("system.hostname");
 
     JsonDocument buttonConfigDoc;
     buttonConfigDoc["name"] = displayName;
@@ -532,18 +526,18 @@ inline DiscoveryObject GenerateButtonDevice(const String& name, const String& di
  * @return A `DiscoveryObject` containing the sensor device configuration
  */
 inline DiscoveryObject GenerateSensorDevice(const String& name, const String& displayName, const String& unit_of_measurement, const String& device_class) {
-    String mqtt_topic = String(mqtt_topic_prefix) + hostname;
+    String mqtt_topic = String(mqtt_topic_prefix) + Config::getInstance().get<String>("system.hostname");
     DiscoveryObject sensor_device;
-    String unique_id = "clevercoffee-" + hostname;
+    String unique_id = "clevercoffee-" + Config::getInstance().get<String>("system.hostname");
     String SensorDiscoveryTopic = mqtt_hassio_discovery_prefix + "/sensor/";
 
     String sensor_state_topic = mqtt_topic + "/" + name;
     sensor_device.discovery_topic = SensorDiscoveryTopic + unique_id + "/" + name + "/config";
 
     JsonDocument deviceMapDoc;
-    deviceMapDoc["identifiers"] = hostname;
+    deviceMapDoc["identifiers"] = Config::getInstance().get<String>("system.hostname");
     deviceMapDoc["manufacturer"] = "CleverCoffee";
-    deviceMapDoc["name"] = hostname;
+    deviceMapDoc["name"] = Config::getInstance().get<String>("system.hostname");
 
     JsonDocument sensorConfigDoc;
     sensorConfigDoc["name"] = displayName;
@@ -584,17 +578,17 @@ inline DiscoveryObject GenerateSensorDevice(const String& name, const String& di
  * @return A `DiscoveryObject` containing the number device configuration
  */
 inline DiscoveryObject GenerateNumberDevice(const String& name, const String& displayName, int min_value, int max_value, float steps_value, const String& unit_of_measurement, const String& ui_mode = "box") {
-    String mqtt_topic = String(mqtt_topic_prefix) + hostname;
+    String mqtt_topic = String(mqtt_topic_prefix) + Config::getInstance().get<String>("system.hostname");
     DiscoveryObject number_device;
-    String unique_id = "clevercoffee-" + hostname;
+    String unique_id = "clevercoffee-" + Config::getInstance().get<String>("system.hostname");
 
     String NumberDiscoveryTopic = String(mqtt_hassio_discovery_prefix) + "/number/";
     number_device.discovery_topic = NumberDiscoveryTopic + unique_id + "/" + name + "/config";
 
     JsonDocument deviceMapDoc;
-    deviceMapDoc["identifiers"] = hostname;
+    deviceMapDoc["identifiers"] = Config::getInstance().get<String>("system.hostname");
     deviceMapDoc["manufacturer"] = "CleverCoffee";
-    deviceMapDoc["name"] = hostname;
+    deviceMapDoc["name"] = Config::getInstance().get<String>("system.hostname");
 
     JsonDocument numberConfigDoc;
     numberConfigDoc["name"] = displayName;
@@ -652,7 +646,7 @@ inline int publishDiscovery(const DiscoveryObject& obj) {
  * @return 0 if successful, MQTT connection error code if failed to send messages. Sets failed flag for later retry
  */
 inline int sendHASSIODiscoveryMsg() {
-    hassioUpdateRunning = true;
+    g_state.coordination.hassioUpdateRunning = true;
 
     if (!mqtt.connected()) {
         LOG(DEBUG, "[MQTT] Failed to send Hassio Discover, MQTT Client is not connected");
@@ -681,7 +675,7 @@ inline int sendHASSIODiscoveryMsg() {
     failures += publishDiscovery(GenerateSwitchDevice("usePonM", "Use PonM"));
 
     // Conditional devices
-    if (config.get<bool>("hardware.switches.brew.enabled")) {
+    if (Config::getInstance().get<bool>("hardware.switches.brew.enabled")) {
         failures += publishDiscovery(GenerateSensorDevice("currBrewTime", "Current Brew Time ", "s", "duration"));
         failures += publishDiscovery(GenerateNumberDevice("brewPidDelay", "Brew Pid Delay", BREW_PID_DELAY_MIN, BREW_PID_DELAY_MAX, 0.1, "s"));
         failures += publishDiscovery(GenerateNumberDevice("targetBrewTime", "Target Brew time", TARGET_BREW_TIME_MIN, TARGET_BREW_TIME_MAX, 0.1, "s"));
@@ -693,7 +687,7 @@ inline int sendHASSIODiscoveryMsg() {
         failures += publishDiscovery(GenerateSwitchDevice("backflushOn", "Backflush"));
     }
 
-    if (config.get<bool>("hardware.sensors.scale.enabled")) {
+    if (Config::getInstance().get<bool>("hardware.sensors.scale.enabled")) {
         failures += publishDiscovery(GenerateSensorDevice("currReadingWeight", "Weight", "g", "weight"));
         failures += publishDiscovery(GenerateSensorDevice("currBrewWeight", "current Brew Weight", "g", "weight"));
         failures += publishDiscovery(GenerateButtonDevice("scaleCalibrationOn", "Calibrate Scale"));
@@ -701,7 +695,7 @@ inline int sendHASSIODiscoveryMsg() {
         failures += publishDiscovery(GenerateNumberDevice("targetBrewWeight", "Brew Weight Target", TARGET_BREW_WEIGHT_MIN, TARGET_BREW_WEIGHT_MAX, 0.1, "g"));
     }
 
-    if (config.get<bool>("hardware.sensors.pressure.enabled")) {
+    if (Config::getInstance().get<bool>("hardware.sensors.pressure.enabled")) {
         failures += publishDiscovery(GenerateSensorDevice("pressure", "Pressure", "bar", "pressure"));
     }
 

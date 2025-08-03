@@ -9,8 +9,7 @@
 #include "../hardware/HardwareManager.h"
 #include "../sensors/SensorManager.h"
 #include "../network/MQTTManager.h"
-#include "../network/WiFiManager.h"
-#include "../GlobalVariables.h"
+#include "../network/CleverCoffeeWiFiManager.h"
 #include "Logger.h"
 #include <Arduino.h>
 
@@ -44,10 +43,9 @@ enum LegacyMachineState {
 extern void resetStandbyTimer(LegacyMachineState state);
 
 // External global variables
-extern bool pidON;
-extern bool steamON;
-extern bool backflushOn;
-extern bool emergencyStop;
+// steamON moved to g_state.machine.steamON
+// backflushOn moved to g_state.machine.backflushOn
+// emergencyStop moved to g_state.machine.emergencyStop
 extern bool waterTankFull;
 extern unsigned long standbyModeRemainingTimeMillis;
 extern int MQTTReCnctCount;
@@ -168,7 +166,7 @@ bool MachineStateContext::isManualFlushActive() const {
 }
 
 bool MachineStateContext::isSteamActive() const {
-    return steamON;
+    return g_state.machine.steamON;
 }
 
 bool MachineStateContext::isHotWaterActive() const {
@@ -176,21 +174,21 @@ bool MachineStateContext::isHotWaterActive() const {
 }
 
 bool MachineStateContext::isBackflushActive() const {
-    return backflushOn;
+    return g_state.machine.backflushOn;
 }
 
 // === System State Access ===
 
 bool MachineStateContext::isPidEnabled() const {
-    return pidON;
+    return Config::getInstance().get<bool>("pid.enabled");
 }
 
 bool MachineStateContext::isEmergencyStop() const {
-    return emergencyStop;
+    return g_state.machine.emergencyStop;
 }
 
 bool MachineStateContext::shouldEnterStandby() const {
-    return standbyModeOn && standbyModeRemainingTimeMillis == 0;
+    return Config::getInstance().get<bool>("standby.enabled") && standbyModeRemainingTimeMillis == 0;
 }
 
 unsigned long MachineStateContext::getStandbyRemainingTime() const {

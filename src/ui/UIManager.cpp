@@ -14,10 +14,9 @@
 extern bool checkBrewActive();
 extern double postBrewTimerDuration;
 extern double temperature;
-extern double setpoint;
+// setpoint moved to g_state.process.setpoint
 extern double currBrewTime;
-extern bool steamON;
-extern bool offlineMode;
+// steamON moved to g_state.machine.steamON
 extern int signalBars;
 extern bool wifiReconnects;
 extern double currentWeight;
@@ -32,29 +31,29 @@ UIManager::UIManager(DisplayManager* displayManager)
       updateRunning_(false),
       brewTimerState_(BrewTimerState::Idle),
       brewEndTime_(0) {
-    
+
     LOG(INFO, "UIManager created");
 }
 
 bool UIManager::initialize() {
     LOG(INFO, "Initializing UIManager");
-    
+
     if (!displayManager_) {
         LOG(ERROR, "UIManager: DisplayManager is null");
         return false;
     }
-    
+
     u8g2_ = displayManager_->get();
     if (!u8g2_) {
         LOG(ERROR, "UIManager: Failed to get U8G2 instance from DisplayManager");
         return false;
     }
-    
+
     // Prepare display with default settings
     prepareDisplay();
-    
+
     initialized_ = true;
-    
+
     LOG(INFO, "UIManager initialized successfully");
     return true;
 }
@@ -64,7 +63,7 @@ void UIManager::update() {
         LOG(WARNING, "UIManager::update() called but not initialized");
         return;
     }
-    
+
     // Handle display buffer updates
     if (bufferReady_) {
         u8g2_->sendBuffer();
@@ -78,7 +77,7 @@ void UIManager::prepareDisplay() {
         LOG(ERROR, "UIManager::prepareDisplay() called but u8g2 is null");
         return;
     }
-    
+
     int rotation = 0;
     u8g2_->clearBuffer();
     u8g2_->setFont(u8g2_font_profont11_tf);
@@ -100,7 +99,7 @@ void UIManager::prepareDisplay() {
 
 void UIManager::displayLogo(const String& message1, const String& message2) {
     if (!u8g2_) return;
-    
+
     if (Config::getInstance().get<int>("display.template") == 4) {
         int printrow = 47;
         u8g2_->clearBuffer();
@@ -144,7 +143,7 @@ void UIManager::displayMessage(const String& text1, const String& text2,
                               const String& text3, const String& text4,
                               const String& text5, const String& text6) {
     if (!u8g2_) return;
-    
+
     u8g2_->clearBuffer();
     u8g2_->setCursor(0, 0);
     u8g2_->print(text1);
@@ -177,7 +176,7 @@ bool UIManager::shouldDisplayBrewTimer() {
             break;
 
         case BrewTimerState::PostBrew:
-            if (millis() - brewEndTime_ > static_cast<uint32_t>(postBrewTimerDuration * 1000)) {
+            if (millis() - brewEndTime_ > static_cast<uint32_t>(Config::getInstance().get<double>("display.post_brew_timer_duration") * 1000)) {
                 brewTimerState_ = BrewTimerState::Idle;
             }
             break;
@@ -188,7 +187,7 @@ bool UIManager::shouldDisplayBrewTimer() {
 
 void UIManager::displayBrewTime() {
     if (!u8g2_) return;
-    
+
     // Implementation will be added based on existing displayBrewTime function
     // For now, just show the current brew time
     u8g2_->setFont(u8g2_font_profont15_tf);
@@ -199,17 +198,17 @@ void UIManager::displayBrewTime() {
 
 void UIManager::displayFullscreenBrewTimer() {
     if (!u8g2_) return;
-    
+
     u8g2_->clearBuffer();
     u8g2_->setFont(u8g2_font_profont22_tn);
-    
+
     char timeStr[16];
     snprintf(timeStr, sizeof(timeStr), "%.1f", currBrewTime / 1000.0);
-    
+
     // Center the text
     int textWidth = u8g2_->getStrWidth(timeStr);
     int x = (u8g2_->getDisplayWidth() - textWidth) / 2;
-    
+
     u8g2_->drawStr(x, 32, timeStr);
     u8g2_->sendBuffer();
 }
@@ -226,16 +225,16 @@ void UIManager::displayFullscreenHotWaterTimer() {
 
 void UIManager::displayStatusbar() {
     if (!u8g2_) return;
-    
+
     u8g2_->setFont(u8g2_font_profont11_tf);
-    
+
     // WiFi status
-    if (!offlineMode) {
+    if (!g_state.network.offlineMode) {
         for (int i = 0; i < signalBars; i++) {
             u8g2_->drawLine(100 + i * 2, 8 - i, 100 + i * 2, 8);
         }
     }
-    
+
     // Show reconnection attempts
     if (wifiReconnects > 0) {
         char reconnectStr[8];
@@ -250,7 +249,7 @@ void UIManager::displayWiFiStatus() {
 
 void UIManager::displayMQTTStatus() {
     if (!u8g2_) return;
-    
+
     // Display MQTT connection indicator
     u8g2_->setFont(u8g2_font_profont11_tf);
     u8g2_->drawStr(90, 0, "MQTT");
@@ -258,42 +257,42 @@ void UIManager::displayMQTTStatus() {
 
 void UIManager::displayBluetoothStatus() {
     if (!u8g2_) return;
-    
-    // Display Bluetooth connection indicator  
+
+    // Display Bluetooth connection indicator
     u8g2_->setFont(u8g2_font_profont11_tf);
     u8g2_->drawStr(70, 0, "BT");
 }
 
 void UIManager::displayOfflineMode() {
     if (!u8g2_) return;
-    
+
     u8g2_->setFont(u8g2_font_profont11_tf);
     u8g2_->drawStr(0, 0, "OFFLINE");
 }
 
 void UIManager::displayTemperature() {
     if (!u8g2_) return;
-    
+
     u8g2_->setFont(u8g2_font_profont22_tn);
-    
+
     char tempStr[16];
     snprintf(tempStr, sizeof(tempStr), "%.1f°C", temperature);
-    
+
     u8g2_->drawStr(10, 32, tempStr);
 }
 
 void UIManager::displayThermometerOutline() {
     if (!u8g2_) return;
-    
+
     // Draw thermometer outline (simplified version)
     u8g2_->drawFrame(120, 10, 6, 40);
     u8g2_->drawDisc(123, 52, 4);
-    
+
     // Fill based on temperature relative to setpoint
-    if (temperature > 0 && setpoint > 0) {
-        int fillHeight = static_cast<int>((temperature / setpoint) * 35);
+    if (temperature > 0 && g_state.process.setpoint > 0) {
+        int fillHeight = static_cast<int>((temperature / g_state.process.setpoint) * 35);
         if (fillHeight > 35) fillHeight = 35;
-        
+
         for (int i = 0; i < fillHeight; i++) {
             u8g2_->drawHLine(121, 48 - i, 4);
         }
@@ -302,25 +301,25 @@ void UIManager::displayThermometerOutline() {
 
 void UIManager::displayBrewWeight() {
     if (!u8g2_) return;
-    
+
     u8g2_->setFont(u8g2_font_profont15_tf);
-    
+
     char weightStr[16];
     snprintf(weightStr, sizeof(weightStr), "%.1fg", currentWeight);
-    
+
     u8g2_->drawStr(0, 50, weightStr);
 }
 
 void UIManager::displayProgressbar(int progress, int x, int y, int width, int height) {
     if (!u8g2_) return;
-    
+
     // Clamp progress to 0-100
     if (progress < 0) progress = 0;
     if (progress > 100) progress = 100;
-    
+
     // Draw outline
     u8g2_->drawFrame(x, y, width, height);
-    
+
     // Draw fill
     int fillWidth = (progress * (width - 2)) / 100;
     if (fillWidth > 0) {
@@ -330,36 +329,36 @@ void UIManager::displayProgressbar(int progress, int x, int y, int width, int he
 
 void UIManager::displayUptime() {
     if (!u8g2_) return;
-    
+
     u8g2_->setFont(u8g2_font_profont11_tf);
-    
+
     unsigned long seconds = uptime / 1000;
     unsigned long minutes = seconds / 60;
     unsigned long hours = minutes / 60;
-    
+
     char uptimeStr[16];
     snprintf(uptimeStr, sizeof(uptimeStr), "%luh %lum", hours, minutes % 60);
-    
+
     u8g2_->drawStr(0, 0, uptimeStr);
 }
 
 void UIManager::displayMachineState() {
     if (!u8g2_) return;
-    
+
     u8g2_->setFont(u8g2_font_profont11_tf);
-    
+
     const char* stateStr = "Unknown";
-    
+
     // Map machine state to display string
     // This will be enhanced based on actual machine state values
-    if (steamON) {
+    if (g_state.machine.steamON) {
         stateStr = "Steam";
     } else if (currBrewTime > 0) {
         stateStr = "Brewing";
     } else {
         stateStr = "Ready";
     }
-    
+
     u8g2_->drawStr(0, 54, stateStr);
 }
 
@@ -369,22 +368,22 @@ void UIManager::displayScaleFailed() {
 
 void UIManager::displayWrappedMessage(const String& message) {
     if (!u8g2_) return;
-    
+
     u8g2_->clearBuffer();
     u8g2_->setFont(u8g2_font_profont11_tf);
-    
+
     // Simple word wrapping implementation
     const int maxWidth = u8g2_->getDisplayWidth() - 4;
     const int lineHeight = 12;
     int currentY = 10;
-    
+
     String remainingText = message;
-    
+
     while (remainingText.length() > 0 && currentY < 60) {
         String line = "";
         String word = "";
         int spacePos = remainingText.indexOf(' ');
-        
+
         if (spacePos == -1) {
             // Last word
             line = remainingText;
@@ -394,7 +393,7 @@ void UIManager::displayWrappedMessage(const String& message) {
             while (spacePos != -1) {
                 word = remainingText.substring(0, spacePos);
                 String testLine = line.length() > 0 ? line + " " + word : word;
-                
+
                 if (u8g2_->getStrWidth(testLine.c_str()) <= maxWidth) {
                     line = testLine;
                     remainingText = remainingText.substring(spacePos + 1);
@@ -403,24 +402,24 @@ void UIManager::displayWrappedMessage(const String& message) {
                     break;
                 }
             }
-            
+
             if (line.length() == 0) {
                 // Single word too long, just use it
                 line = word;
                 remainingText = remainingText.substring(spacePos + 1);
             }
         }
-        
+
         u8g2_->drawStr(2, currentY, line.c_str());
         currentY += lineHeight;
     }
-    
+
     u8g2_->sendBuffer();
 }
 
 void UIManager::forceUpdate() {
     if (!u8g2_) return;
-    
+
     u8g2_->sendBuffer();
     updateRunning_ = true;
 }

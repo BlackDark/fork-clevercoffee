@@ -1,5 +1,5 @@
 /**
- * @file WiFiManager.h
+ * @file CleverCoffeeWiFiManager.h
  * @brief RAII wrapper for WiFi management functionality
  */
 

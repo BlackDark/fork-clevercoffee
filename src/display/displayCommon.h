@@ -7,6 +7,7 @@
 #pragma once
 
 #include "../Config.h"
+#include "../state/GlobalState.h"
 #include "bitmaps.h"
 #include "languages.h"
 
@@ -37,11 +38,11 @@ inline void u8g2_prepare() {
     u8g2->setFontPosTop();
     u8g2->setFontDirection(0);
 
-    if (config.get<bool>("display.inverted")) {
+    if (Config::getInstance().get<bool>("display.inverted")) {
         rotation += 2;
     }
 
-    if (config.get<int>("display.template") == 4) {
+    if (Config::getInstance().get<int>("display.template") == 4) {
         rotation++;
     }
 
@@ -52,7 +53,7 @@ inline void u8g2_prepare() {
  * @brief print error message for scales
  */
 inline void displayScaleFailed() {
-    if (config.get<int>("display.template") == 4) {
+    if (Config::getInstance().get<int>("display.template") == 4) {
         u8g2->clearBuffer();
         u8g2->drawStr(0, 32, "Failed!");
         u8g2->drawStr(0, 42, "Scale");
@@ -99,7 +100,7 @@ inline void displayWiFiStatus(const int x, const int y) {
     else {
         u8g2->drawXBMP(x, y, 8, 8, Antenna_NOK_Icon);
 
-        if (config.get<int>("display.template") == 4) {
+        if (Config::getInstance().get<int>("display.template") == 4) {
             u8g2->setCursor(x + 12, y - 1);
         }
         else {
@@ -116,7 +117,7 @@ inline void displayWiFiStatus(const int x, const int y) {
  * @brief Draw an MQTT status indicator at the given coordinates if MQTT is enabled
  */
 inline void displayMQTTStatus(const int x, const int y) {
-    if (mqtt_enabled) {
+    if (            Config::getInstance().get<bool>("mqtt.enabled")) {
         if (mqtt && mqtt->connected() == 1) {
             u8g2->setCursor(x, y);
             u8g2->setFont(u8g2_font_profont11_tf);
@@ -145,7 +146,7 @@ inline void displayThermometerOutline(const int x, const int y) {
     u8g2->drawDisc(x + 6, y - 5, 6);
 
     // draw setpoint line
-    const int height = map(static_cast<int>(setpoint), 0, 100, y - 9, y - 39);
+    const int height = map(static_cast<int>(g_state.process.setpoint), 0, 100, y - 9, y - 39);
     u8g2->drawLine(x + 11, height, x + 16, height);
 }
 
@@ -157,11 +158,11 @@ inline void drawTemperaturebar(const int x, const int heightRange) {
     const int width = x + 5;
 
     for (int i = x; i < width; i++) {
-        const int height = map(static_cast<int>(temperature), 0, 100, 0, heightRange);
+        const int height = map(static_cast<int>(g_state.process.temperature), 0, 100, 0, heightRange);
         u8g2->drawVLine(i, 52 - height, height);
     }
 
-    if (temperature > 100) {
+    if (g_state.process.temperature > 100) {
         u8g2->drawLine(x, heightRange - 11, x + 3, heightRange - 11);
         u8g2->drawLine(x, heightRange - 10, x + 4, heightRange - 10);
         u8g2->drawLine(x, heightRange - 9, x + 4, heightRange - 9);
@@ -174,13 +175,13 @@ inline void drawTemperaturebar(const int x, const int heightRange) {
 inline void displayTemperature(const int x, const int y) {
     u8g2->setFont(u8g2_font_fub30_tf);
 
-    if (temperature < 99.499) {
+    if (g_state.process.temperature < 99.499) {
         u8g2->setCursor(x + 20, y);
-        u8g2->print(temperature, 0);
+        u8g2->print(g_state.process.temperature, 0);
     }
     else {
         u8g2->setCursor(x, y);
-        u8g2->print(temperature, 0);
+        u8g2->print(g_state.process.temperature, 0);
     }
 
     u8g2->drawCircle(x + 72, y + 4, 3);
@@ -217,7 +218,7 @@ inline bool shouldDisplayBrewTimer() {
             break;
 
         case kBrewTimerPostBrew:
-            if (millis() - brewEndTime > static_cast<uint32_t>(postBrewTimerDuration * 1000)) {
+            if (millis() - brewEndTime > static_cast<uint32_t>(Config::getInstance().get<double>("display.post_brew_timer_duration") * 1000)) {
                 currBrewTimerState = kBrewTimerIdle;
             }
             break;
@@ -240,7 +241,7 @@ inline bool shouldDisplayBrewTimer() {
 inline void displayBrewTime(const int x, const int y, const char* label, const double currBrewTime, const double totalTargetBrewTime = -1) {
     u8g2->setDrawColor(0);
 
-    if (config.get<int>("display.template") == 1) {
+    if (Config::getInstance().get<int>("display.template") == 1) {
         u8g2->drawBox(x, y, 100, 15);
     }
     else {
@@ -249,7 +250,7 @@ inline void displayBrewTime(const int x, const int y, const char* label, const d
 
     u8g2->setDrawColor(1);
 
-    if (config.get<int>("display.template") == 4) {
+    if (Config::getInstance().get<int>("display.template") == 4) {
         u8g2->setCursor(x, y);
         u8g2->print(label);
         u8g2->print(currBrewTime / 1000, 0);
@@ -294,7 +295,7 @@ inline void displayBrewWeight(const int x, const int y, const float weight, cons
     u8g2->drawBox(x, y + 1, 100, 10);
     u8g2->setDrawColor(1);
 
-    if (config.get<int>("display.template") == 4) {
+    if (Config::getInstance().get<int>("display.template") == 4) {
         if (fault) {
             u8g2->setCursor(x, y);
             u8g2->print(langstring_weight_ur);
@@ -340,7 +341,7 @@ inline void displayBrewWeight(const int x, const int y, const float weight, cons
  * @brief Draw the brew time at given position (fullscreen brewtimer)
  */
 inline void displayBrewtimeFs(const int x, const int y, const double brewtime) {
-    if (config.get<int>("display.template") == 4) {
+    if (Config::getInstance().get<int>("display.template") == 4) {
         u8g2->setFont(u8g2_font_fub20_tf);
         if (brewtime < 9950.000) {
             u8g2->setCursor(x + 15, y);
@@ -407,7 +408,7 @@ inline void displayStatusbar() {
     // For status info
     u8g2->drawLine(0, 12, 128, 12);
 
-    if (!offlineMode) {
+    if (!g_state.network.offlineMode) {
         displayWiFiStatus(4, 1);
         displayMQTTStatus(40, 0);
     }
@@ -417,7 +418,7 @@ inline void displayStatusbar() {
         u8g2->print(langstring_offlinemode);
     }
 
-    if (config.get<bool>("hardware.sensors.scale.enabled") && config.get<int>("hardware.sensors.scale.type") == 2) {
+    if (Config::getInstance().get<bool>("hardware.sensors.scale.enabled") && Config::getInstance().get<int>("hardware.sensors.scale.type") == 2) {
         displayBluetoothStatus(24, 1);
     }
 
@@ -449,7 +450,7 @@ inline void displayMessage(const String& text1, const String& text2, const Strin
  * @brief print logo and message at boot
  */
 inline void displayLogo(const String& displaymessagetext, const String& displaymessagetext2) {
-    if (config.get<int>("display.template") == 4) {
+    if (Config::getInstance().get<int>("display.template") == 4) {
         int printrow = 47;
         u8g2->clearBuffer();
 
@@ -492,17 +493,17 @@ inline void displayLogo(const String& displaymessagetext, const String& displaym
  * @brief display fullscreen brew timer
  */
 inline bool displayFullscreenBrewTimer() {
-    if (!featureFullscreenBrewTimer) {
+    if (!Config::getInstance().get<bool>("display.fullscreen_brew_timer")) {
         return false;
     }
 
     if (shouldDisplayBrewTimer()) {
         u8g2->clearBuffer();
 
-        if (config.get<int>("display.template") == 4) {
+        if (Config::getInstance().get<int>("display.template") == 4) {
             u8g2->drawXBMP(12, 12, Brew_Cup_Logo_width, Brew_Cup_Logo_height, Brew_Cup_Logo);
 
-            if (config.get<bool>("hardware.sensors.scale.enabled")) {
+            if (Config::getInstance().get<bool>("hardware.sensors.scale.enabled")) {
                 u8g2->setFont(u8g2_font_profont22_tf);
                 u8g2->setCursor(5, 70);
                 u8g2->print(currBrewTime / 1000, 1);
@@ -519,7 +520,7 @@ inline bool displayFullscreenBrewTimer() {
         else {
             u8g2->drawXBMP(-1, 11, Brew_Cup_Logo_width, Brew_Cup_Logo_height, Brew_Cup_Logo);
 
-            if (config.get<bool>("hardware.sensors.scale.enabled")) {
+            if (Config::getInstance().get<bool>("hardware.sensors.scale.enabled")) {
                 u8g2->setFont(u8g2_font_profont22_tf);
                 u8g2->setCursor(64, 15);
                 u8g2->print(currBrewTime / 1000, 1);
@@ -534,7 +535,7 @@ inline bool displayFullscreenBrewTimer() {
             }
         }
 
-        displayBufferReady = true;
+        g_state.coordination.displayBufferReady = true;
         return true;
     }
 
@@ -545,14 +546,14 @@ inline bool displayFullscreenBrewTimer() {
  * @brief display fullscreen manual flush timer
  */
 inline bool displayFullscreenManualFlushTimer() {
-    if (!featureFullscreenManualFlushTimer) {
+    if (!Config::getInstance().get<bool>("display.fullscreen_manual_flush_timer")) {
         return false;
     }
 
     if (machineState == kManualFlush) {
         u8g2->clearBuffer();
 
-        if (config.get<int>("display.template") == 4) {
+        if (Config::getInstance().get<int>("display.template") == 4) {
             u8g2->drawXBMP(12, 12, Manual_Flush_Logo_width, Manual_Flush_Logo_height, Manual_Flush_Logo);
             displayBrewtimeFs(1, 80, currBrewTime);
         }
@@ -561,7 +562,7 @@ inline bool displayFullscreenManualFlushTimer() {
             displayBrewtimeFs(48, 25, currBrewTime);
         }
 
-        displayBufferReady = true;
+        g_state.coordination.displayBufferReady = true;
         return true;
     }
     return false;
@@ -571,14 +572,14 @@ inline bool displayFullscreenManualFlushTimer() {
  * @brief display fullscreen hot water on timer
  */
 inline bool displayFullscreenHotWaterTimer() {
-    if (!featureFullscreenHotWaterTimer) {
+    if (!Config::getInstance().get<bool>("display.fullscreen_hot_water_timer")) {
         return false;
     }
 
     if (machineState == kHotWater) {
         u8g2->clearBuffer();
 
-        if (config.get<int>("display.template") == 4) {
+        if (Config::getInstance().get<int>("display.template") == 4) {
             u8g2->drawXBMP(12, 12, Hot_Water_Logo_width, Hot_Water_Logo_height, Hot_Water_Logo);
             displayBrewtimeFs(1, 80, currPumpOnTime);
         }
@@ -587,7 +588,7 @@ inline bool displayFullscreenHotWaterTimer() {
             displayBrewtimeFs(48, 25, currPumpOnTime);
         }
 
-        displayBufferReady = true;
+        g_state.coordination.displayBufferReady = true;
         return true;
     }
     return false;
@@ -617,7 +618,7 @@ inline bool displayMachineState() {
     }
 
     // Show the heating logo when we are in regular PID mode and more than 5degC below the set point
-    if (featureHeatingLogo > 0 && (machineState == kPidNormal || machineState == kSteam) && setpoint - temperature > 5.) {
+    if (Config::getInstance().get<bool>("display.heating_logo") > 0 && (machineState == kPidNormal || machineState == kSteam) && g_state.process.setpoint - g_state.process.temperature > 5.) {
         // For status info
         u8g2->clearBuffer();
 
@@ -626,7 +627,7 @@ inline bool displayMachineState() {
         u8g2->drawXBMP(0, 20, Heating_Logo_width, Heating_Logo_height, Heating_Logo);
         u8g2->setFont(u8g2_font_fub25_tf);
         u8g2->setCursor(50, 30);
-        u8g2->print(temperature, 1);
+        u8g2->print(g_state.process.temperature, 1);
         u8g2->drawCircle(122, 32, 3);
 
         u8g2->sendBuffer();
@@ -634,7 +635,7 @@ inline bool displayMachineState() {
     }
 
     // Offline logo
-    if (featurePidOffLogo == 1 && machineState == kPidDisabled) {
+    if (Config::getInstance().get<bool>("display.pid_off_logo") == 1 && machineState == kPidDisabled) {
         u8g2->clearBuffer();
         u8g2->drawXBMP(38, 0, Off_Logo_width, Off_Logo_height, Off_Logo);
         u8g2->setCursor(0, 55);
@@ -644,7 +645,7 @@ inline bool displayMachineState() {
         return true;
     }
 
-    if (featurePidOffLogo == 1 && machineState == kStandby) {
+    if (Config::getInstance().get<bool>("display.pid_off_logo") == 1 && machineState == kStandby) {
         u8g2->clearBuffer();
         u8g2->drawXBMP(38, 0, Off_Logo_width, Off_Logo_height, Off_Logo);
         u8g2->setCursor(36, 55);
@@ -717,13 +718,13 @@ inline bool displayMachineState() {
         u8g2->setFont(u8g2_font_profont11_tf);
         u8g2->setCursor(32, 24);
         u8g2->print(langstring_current_temp);
-        u8g2->print(temperature, 1);
+        u8g2->print(g_state.process.temperature, 1);
         u8g2->print(" ");
         u8g2->print(static_cast<char>(176));
         u8g2->print("C");
         u8g2->setCursor(32, 34);
         u8g2->print(langstring_set_temp);
-        u8g2->print(setpoint, 1);
+        u8g2->print(g_state.process.setpoint, 1);
         u8g2->print(" ");
         u8g2->print(static_cast<char>(176));
         u8g2->print("C");
@@ -745,7 +746,7 @@ inline bool displayMachineState() {
     if (machineState == kSensorError) {
         u8g2->clearBuffer();
         u8g2->setFont(u8g2_font_profont11_tf);
-        displayMessage(langstring_error_tsensor[0], String(temperature), langstring_error_tsensor[1], "", "", "");
+        displayMessage(langstring_error_tsensor[0], String(g_state.process.temperature), langstring_error_tsensor[1], "", "", "");
         return true;
     }
 
@@ -762,7 +763,7 @@ inline bool displayMachineState() {
 inline void displayWrappedMessage(const String& message) {
     u8g2->clearBuffer();
 
-    if (config.get<int>("display.template") == 4) {
+    if (Config::getInstance().get<int>("display.template") == 4) {
         u8g2->setFont(u8g2_font_profont10_tf);
     }
     else {

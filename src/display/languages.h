@@ -8,7 +8,6 @@
 
 #include "Config.h"
 
-extern Config& config;
 
 static const char* langstring_set_temp;
 static const char* langstring_current_temp;
@@ -39,10 +38,10 @@ static const char* langstring_calibrate_start;
 static const char* langstring_calibrate_in_progress;
 static const char* langstring_calibrate_complete;
 
-inline void initLangStrings(const Config& config) {
+inline void initLangStrings() {
 
     // English
-    if (config.get<int>("display.language") == 1) {
+    if (Config::getInstance().get<int>("display.language") == 1) {
         langstring_set_temp = "Set:   ";
         langstring_current_temp = "Temp:  ";
         langstring_brew = "Brew: ";
@@ -84,7 +83,7 @@ inline void initLangStrings(const Config& config) {
         langstring_calibrate_complete = "Calibration done!\nNew result: ";
     }
     // Espanol
-    else if (config.get<int>("display.language") == 2) {
+    else if (Config::getInstance().get<int>("display.language") == 2) {
         langstring_set_temp = "Obj:  ";
         langstring_current_temp = "T:    ";
         langstring_brew = "Brew: ";

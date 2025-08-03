@@ -5,7 +5,6 @@
 
 #include "SystemInitializer.h"
 #include "../Config.h"
-#include "../GlobalVariables.h"
 #include "../defaults.h"
 #include "../display/DisplayManager.h"
 // Forward declarations for display functions that require global state
@@ -18,7 +17,7 @@ namespace DisplayTemplateManager {
 }
 #include "../hardware/HardwareManager.h"
 #include "../network/MQTTManager.h"
-#include "../network/WiFiManager.h"
+#include "../network/CleverCoffeeWiFiManager.h"
 #include "../sensors/SensorManager.h"
 #include "Logger.h"
 #include <Arduino.h>
@@ -46,18 +45,12 @@ enum LegacyMachineState {
 };
 
 // External dependencies
-extern String hostname;
-extern bool offlineMode;
 extern bool setupDone;
-extern double aggKi, aggKd, aggbKi, aggbKd;
-extern double aggKp, aggTn, aggTv, aggbKp, aggbTn, aggbTv;
-extern double brewTempOffset;
-extern double temperature;
-extern double pidOutput;
+// temperature moved to g_state.process.temperature
+// pidOutput moved to g_state.process.pidOutput
 extern double currBrewTime;
 extern double currBrewWeight;
 extern double currReadingWeight;
-extern float inputPressureFilter;
 extern double standbyModeRemainingTimeMillis;
 extern unsigned long previousMillistemp;
 extern unsigned long windowStartTime;
@@ -66,13 +59,7 @@ extern unsigned long lastMQTTConnectionAttempt;
 extern unsigned long previousMillisPressure;
 extern int windowSize;
 extern int machineState;
-extern bool mqtt_enabled;
-extern bool mqtt_hassio_enabled;
 extern PubSubClient* mqtt;
-extern PID bPID;
-extern double emaFactor;
-extern String otaPass;
-extern const char sysVersion[64];
 
 // Hardware compatibility pointers
 extern Switch* powerSwitch;
@@ -91,7 +78,7 @@ extern U8G2* u8g2;
 
 // Manager instances
 extern std::unique_ptr<MQTTManager> mqttManager;
-extern std::unique_ptr<CleverCoffeeWiFiManager> wifiManager;
+extern std::unique_ptr<CleverCoffeeWiFiManager> cleverCoffeeWiFiManager;
 
 // Forward declarations
 extern void initTimer1();
@@ -128,12 +115,11 @@ bool SystemInitializer::initialize() {
 
     // Phase 2: Hardware initialization
     Wire.begin();
-    
+
     if (!initializeDisplay()) {
         LOG(WARNING, "Display initialization failed, continuing without display");
     }
 
-    calculateDerivedValues();
     initTimer1();
 
     if (!initializeHardware()) {
@@ -144,7 +130,7 @@ bool SystemInitializer::initialize() {
     // Phase 3: Network and services
     if (!initializeNetworking()) {
         LOG(WARNING, "Network initialization failed, continuing in offline mode");
-        offlineMode = true;
+        g_state.network.offlineMode = true;
     }
 
     if (!initializeMQTT()) {
@@ -166,17 +152,17 @@ bool SystemInitializer::initialize() {
     enableTimer1();
 
     double fsUsage = (static_cast<double>(LittleFS.usedBytes()) / LittleFS.totalBytes()) * 100;
-    LOGF(INFO, "LittleFS: %d%% (used %ld bytes from %ld bytes)", 
+    LOGF(INFO, "LittleFS: %d%% (used %ld bytes from %ld bytes)",
          static_cast<int>(ceil(fsUsage)), LittleFS.usedBytes(), LittleFS.totalBytes());
 
     if (!finalizeMachineState()) {
         LOG(ERROR, "Machine state finalization failed");
-        return false;  
+        return false;
     }
 
     setupDone = true;
     systemInitialized_ = true;
-    
+
     LOG(INFO, "System initialization completed successfully");
     return true;
 }
@@ -191,7 +177,7 @@ bool SystemInitializer::initializeLogger() {
 
     // Start the logger
     Logger::begin();
-    
+
     return true;
 }
 
@@ -202,13 +188,18 @@ bool SystemInitializer::initializeConfiguration() {
         Serial.flush();
         return false;
     }
-    
+
     LOG(INFO, "Configuration system ready");
     int level = Config::getInstance().get<int>("system.log_level");
     Logger::setLevel(static_cast<Logger::Level>(level));
-    
-    hostname = Config::getInstance().get<String>("system.hostname");
-    
+
+
+    calculateDerivedValues();
+
+    // TODO what is better?
+    //bPID = std::make_unique<PID>(&g_state.process.temperature, &g_state.process.pidOutput, &g_state.process.setpoint, Config::getInstance().get<double>("pid.regular.kp"), aggKi, aggKd, 1, DIRECT);
+    g_state.pid = new PID(&g_state.process.temperature, &g_state.process.pidOutput, &g_state.process.setpoint, Config::getInstance().get<double>("pid.regular.kp"), g_state.process.aggKi, g_state.process.aggKd, 1, DIRECT);
+    //g_state.pid = PID(&g_state.process.temperature, &g_state.process.pidOutput, &g_state.process.setpoint, Config::getInstance().get<double>("pid.regular.kp"), aggKi, aggKd, 1, DIRECT)*;
     return true;
 }
 
@@ -231,7 +222,7 @@ bool SystemInitializer::initializeDisplay() {
             // Basic display setup - full initialization will be done in main.cpp
             // The display is now ready for basic operations but NOT for complex display functions
             // that depend on global state (like language strings, templates, etc.)
-            
+
             LOG(INFO, "Display initialization completed");
             return true;
         } else {
@@ -282,7 +273,7 @@ bool SystemInitializer::initializeNetworking() {
     if (Config::getInstance().get<bool>("system.offline_mode")) {
         LOG(INFO, "Offline mode enabled, skipping network initialization");
         WiFi.disconnect();
-        offlineMode = true;
+        g_state.network.offlineMode = true;
         setRuntimePidState(true);
         return true;
     }
@@ -293,8 +284,8 @@ bool SystemInitializer::initializeNetworking() {
 
         // OTA Updates
         if (WiFi.status() == WL_CONNECTED) {
-            otaPass = Config::getInstance().get<String>("system.ota_password");
-            ArduinoOTA.setHostname(hostname.c_str());
+            String otaPass = Config::getInstance().get<String>("system.ota_password");
+            ArduinoOTA.setHostname(Config::getInstance().get<String>("system.hostname").c_str());
             ArduinoOTA.setPassword(otaPass.c_str());
             ArduinoOTA.begin();
             LOG(INFO, "OTA initialized");
@@ -309,7 +300,7 @@ bool SystemInitializer::initializeNetworking() {
 }
 
 bool SystemInitializer::initializeMQTT() {
-    if (offlineMode || !Config::getInstance().get<bool>("mqtt.enabled")) {
+    if (g_state.network.offlineMode || !Config::getInstance().get<bool>("mqtt.enabled")) {
         LOG(INFO, "MQTT disabled, skipping MQTT initialization");
         return true;
     }
@@ -317,16 +308,19 @@ bool SystemInitializer::initializeMQTT() {
     try {
         mqttManager_ = std::make_unique<MQTTManager>();
 
-        if (mqttManager_->setup(hostname)) {
+        if (mqttManager_->setup(Config::getInstance().get<String>("system.hostname"))) {
             // Set compatibility variables
-            mqtt_enabled = mqttManager_->isEnabled();
-            mqtt_hassio_enabled = true;
+            //mqtt_enabled = mqttManager_->isEnabled();
+            Config::getInstance().set<bool>("mqtt.enabled", mqttManager_->isEnabled());
+            //mqtt_hassio_enabled = true;
+            // TODO check if this is right
+            Config::getInstance().set<bool>("mqtt.hassio.enabled", true);
             mqtt = &mqttManager_->getClient();
-            
+
             // Set global reference for other parts of the system
             mqttManager = std::move(mqttManager_);
             mqttManager_ = nullptr; // Transfer ownership
-            
+
             registerMQTTParameters();
             registerMQTTSensors();
 
@@ -348,11 +342,11 @@ bool SystemInitializer::initializeMQTT() {
 bool SystemInitializer::initializePID() {
     try {
         // Initialize PID controller
-        bPID.SetSampleTime(windowSize);
-        bPID.SetOutputLimits(0, windowSize);
-        bPID.SetIntegratorLimits(0, 55.0); // AGGIMAX constant
-        bPID.SetSmoothingFactor(emaFactor);
-        bPID.SetMode(AUTOMATIC);
+        g_state.pid->SetSampleTime(windowSize);
+        g_state.pid->SetOutputLimits(0, windowSize);
+        g_state.pid->SetIntegratorLimits(0, 55.0); // AGGIMAX constant
+        g_state.pid->SetSmoothingFactor(Config::getInstance().get<double>("pid.ema_factor"));
+        g_state.pid->SetMode(AUTOMATIC);
 
         LOG(INFO, "PID controller initialized");
         return true;
@@ -373,16 +367,16 @@ bool SystemInitializer::initializeSensors() {
 
         if (sensorManager_->initialize(tempSensorRef, waterTankSensorRef)) {
             // Update global temperature variable for compatibility
-            temperature = sensorManager_->getCurrentTemperature();
-            
+            g_state.process.temperature = sensorManager_->getCurrentTemperature();
+
             LOG(INFO, "Sensor management initialized via SensorManager");
-            
-            // Note: Scale initialization is still handled separately in main.cpp 
+
+            // Note: Scale initialization is still handled separately in main.cpp
             // because it requires complex global dependencies
             if (Config::getInstance().get<bool>("hardware.sensors.scale.enabled")) {
                 LOG(INFO, "Scale sensor will be initialized separately in main.cpp");
             }
-            
+
             return true;
         } else {
             LOG(WARNING, "SensorManager initialization returned false");
@@ -397,14 +391,14 @@ bool SystemInitializer::initializeSensors() {
 bool SystemInitializer::finalizeMachineState() {
     try {
         // For momentary switches, start in normal operation mode
-        if (Config::getInstance().get<bool>("hardware.switches.power.enabled") && 
+        if (Config::getInstance().get<bool>("hardware.switches.power.enabled") &&
             Config::getInstance().get<int>("hardware.switches.power.type") == static_cast<int>(Switch::MOMENTARY)) {
             machineState = kPidNormal;
             setRuntimePidState(true);
             LOG(INFO, "Machine initialized in PID Normal mode (momentary switch)");
         }
         // For toggle switches, force PidOn to switch state mode
-        else if (Config::getInstance().get<bool>("hardware.switches.power.enabled") && 
+        else if (Config::getInstance().get<bool>("hardware.switches.power.enabled") &&
                  Config::getInstance().get<int>("hardware.switches.power.type") == static_cast<int>(Switch::TOGGLE)) {
             if (powerSwitch && powerSwitch->isPressed()) {
                 setRuntimePidState(true);
@@ -426,11 +420,11 @@ bool SystemInitializer::finalizeMachineState() {
 
 void SystemInitializer::calculateDerivedValues() {
     // Calculate derived PID values
-    aggKi = aggTn > 0 ? aggKp / aggTn : 0;
-    aggKd = aggTv * aggKp;
-    aggbKi = aggbTn > 0 ? aggbKp / aggbTn : 0;
-    aggbKd = aggbTv * aggbKp;
-    
+    g_state.process.aggKi = Config::getInstance().get<double>("pid.regular.tn") > 0 ? Config::getInstance().get<double>("pid.regular.kp") / Config::getInstance().get<double>("pid.regular.tn") : 0;
+    g_state.process.aggKd = Config::getInstance().get<double>("pid.regular.tv") * Config::getInstance().get<double>("pid.regular.kp");
+    g_state.process.aggbKi = Config::getInstance().get<double>("pid.bd.tn") > 0 ? Config::getInstance().get<double>("pid.bd.kp") / Config::getInstance().get<double>("pid.bd.tn") : 0;
+    g_state.process.aggbKd = Config::getInstance().get<double>("pid.bd.tv") * Config::getInstance().get<double>("pid.bd.kp");
+
     LOG(DEBUG, "Calculated derived PID values");
 }
 
@@ -441,7 +435,7 @@ void SystemInitializer::setupTiming() {
     windowStartTime = currentTime;
     previousMillisMQTT = currentTime;
     lastMQTTConnectionAttempt = currentTime;
-    
+
     LOG(DEBUG, "Timing variables initialized");
 }
 
@@ -482,11 +476,11 @@ void SystemInitializer::registerMQTTParameters() {
     if (Config::getInstance().get<bool>("hardware.sensors.scale.enabled")) {
         mqttManager->registerParameter("targetBrewWeight", "brew.by_weight.target_weight");
         mqttManager->registerParameter("scaleCalibration", "hardware.sensors.scale.calibration");
-        
+
         if (Config::getInstance().get<int>("hardware.sensors.scale.type") == 0) {
             mqttManager->registerParameter("scale2Calibration", "hardware.sensors.scale.calibration2");
         }
-        
+
         mqttManager->registerParameter("scaleKnownWeight", "hardware.sensors.scale.known_weight");
         mqttManager->registerParameter("scaleTareOn", "TARE_ON");
         mqttManager->registerParameter("scaleCalibrationOn", "CALIBRATION_ON");
@@ -499,12 +493,12 @@ void SystemInitializer::registerMQTTSensors() {
     if (!mqttManager) return;
 
     // Core sensors
-    mqttManager->registerSensor("temperature", [] { return temperature; });
-    mqttManager->registerSensor("heaterPower", [] { return pidOutput / 10; });
+    mqttManager->registerSensor("temperature", [] { return g_state.process.temperature; });
+    mqttManager->registerSensor("heaterPower", [] { return g_state.process.pidOutput / 10; });
     mqttManager->registerSensor("standbyModeTimeRemaining", [] { return standbyModeRemainingTimeMillis / 1000; });
-    mqttManager->registerSensor("currentKp", [] { return bPID.GetKp(); });
-    mqttManager->registerSensor("currentKi", [] { return bPID.GetKi(); });
-    mqttManager->registerSensor("currentKd", [] { return bPID.GetKd(); });
+    mqttManager->registerSensor("currentKp", [] { return g_state.pid->GetKp(); });
+    mqttManager->registerSensor("currentKi", [] { return g_state.pid->GetKi(); });
+    mqttManager->registerSensor("currentKd", [] { return g_state.pid->GetKd(); });
     mqttManager->registerSensor("machineState", [] { return machineState; });
 
     // Brew-specific sensors
@@ -520,12 +514,12 @@ void SystemInitializer::registerMQTTSensors() {
 
     // Pressure sensor
     if (Config::getInstance().get<bool>("hardware.sensors.pressure.enabled")) {
-        mqttManager->registerSensor("pressure", [] { return inputPressureFilter; });
+        mqttManager->registerSensor("pressure", [] { return g_state.sensors.inputPressureFilter; });
     }
 
     LOG(DEBUG, "MQTT sensors registered");
 }
 
 CleverCoffeeWiFiManager* SystemInitializer::getWiFiManager() const {
-    return wifiManager.get();
+    return cleverCoffeeWiFiManager.get();
 }

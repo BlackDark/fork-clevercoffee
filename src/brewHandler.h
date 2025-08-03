@@ -16,7 +16,6 @@
 #include "brewStates.h"
 
 // Backward compatibility reference
-extern Config& config;
 #include "scaleHandler.h"
 
 // Brew control states
@@ -42,7 +41,7 @@ inline bool brewPidDisabled = false;                      // is PID disabled for
 inline int backflushCycles = BACKFLUSH_CYCLES;
 inline double backflushFillTime = BACKFLUSH_FILL_TIME;
 inline double backflushFlushTime = BACKFLUSH_FLUSH_TIME;
-inline bool backflushOn = false;
+// g_state.machine.backflushOn moved to g_state.machine.g_state.machine.backflushOn
 inline int currBackflushCycles = 1;
 
 bool isPowerSwitchOperationAllowed();
@@ -260,7 +259,7 @@ inline bool brew() {
     // state machine for brew
     switch (currBrewState) {
         case kBrewIdle:             // waiting step for brew switch turning on
-            if (currBrewSwitchState == kBrewSwitchShortPressed && brewSwitchWasOff && !backflushOn && machineState != kBackflush) {
+            if (currBrewSwitchState == kBrewSwitchShortPressed && brewSwitchWasOff && !g_state.machine.backflushOn && machineState != kBackflush) {
                 startingTime = millis();
                 currBrewTime = 0;   // reset currBrewTime, last brew is still stored
                 currBrewWeight = 0; // reset currBrewWeight for new brew
@@ -418,11 +417,11 @@ inline void backflush() {
 
     checkBrewSwitch();
 
-    if (currBackflushState != kBackflushIdle && !backflushOn) {
-        currBackflushState = kBackflushFinished; // Force reset in case backflushOn is reset during backflush!
+    if (currBackflushState != kBackflushIdle && !g_state.machine.backflushOn) {
+        currBackflushState = kBackflushFinished; // Force reset in case g_state.machine.backflushOn is reset during backflush!
         LOG(INFO, "Backflush: Disabled via webinterface");
     }
-    else if (offlineMode || currBrewState > kBrewIdle || backflushCycles <= 0 || !backflushOn) {
+    else if (g_state.network.offlineMode || currBrewState > kBrewIdle || backflushCycles <= 0 || !g_state.machine.backflushOn) {
         return;
     }
 
@@ -441,7 +440,7 @@ inline void backflush() {
     // State machine for backflush
     switch (currBackflushState) {
         case kBackflushIdle:
-            if (currBrewSwitchState == kBrewSwitchShortPressed && backflushOn && brewSwitchWasOff) {
+            if (currBrewSwitchState == kBrewSwitchShortPressed && g_state.machine.backflushOn && brewSwitchWasOff) {
                 startingTime = millis();
                 valveRelay->on();
                 pumpRelay->on();

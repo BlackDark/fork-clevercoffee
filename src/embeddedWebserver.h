@@ -8,6 +8,7 @@
 #include "FS.h"
 #include "LittleFS.h"
 #include "ota.h"
+#include "state/GlobalState.h"
 #include "utils/helperUtils.h"
 #include <Arduino.h>
 #include <ArduinoJson.h>
@@ -25,9 +26,8 @@ AsyncAuthenticationMiddleware authMiddleware;
 
 extern float currReadingWeight;
 extern float currBrewWeight;
-extern double temperature;
-extern double brewSetpoint;
-extern double pidOutput;
+// temperature moved to g_state.process.temperature
+// pidOutput moved to g_state.process.pidOutput
 
 #define JSON_BUFFER_SIZE 512
 #define PATH_BUFFER_SIZE 128
@@ -228,9 +228,9 @@ inline String getTempString() {
     try {
         JsonDocument doc;
 
-        doc["currentTemp"] = temperature;
-        doc["targetTemp"] = brewSetpoint;
-        doc["heaterPower"] = pidOutput / 10;
+        doc["currentTemp"] = g_state.process.temperature;
+        doc["targetTemp"] = Config::getInstance().get<double>("brew.setpoint");
+        doc["heaterPower"] = g_state.process.pidOutput / 10;
 
         String json;
         if (!safeSerializeJson(doc, json)) {
@@ -328,10 +328,10 @@ inline String staticProcessor(const String& var) {
 
 inline void handleToggleSteam(AsyncWebServerRequest* request) {
     try {
-        const bool steamMode = !steamON;
+        const bool steamMode = !g_state.machine.steamON;
         setSteamMode(steamMode);
-        LOGF(INFO, "Toggle steam mode: %s", steamON ? "on" : "off");
-        request->send(200, "application/json", JsonResponseBuilder::createBoolResponse("steamMode", steamON));
+        LOGF(INFO, "Toggle steam mode: %s", g_state.machine.steamON ? "on" : "off");
+        request->send(200, "application/json", JsonResponseBuilder::createBoolResponse("steamMode", g_state.machine.steamON));
     } catch (const std::exception& e) {
         LOGF(ERROR, "handleToggleSteam failed: %s", e.what());
         request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("Internal server error"));
@@ -346,7 +346,7 @@ inline void handleTogglePid(AsyncWebServerRequest* request) {
         const bool newPidState = !currentPidState;
         Config::getInstance().set<bool>("pid.enabled", newPidState);
 
-        pidON = newPidState;
+
 
         LOGF(INFO, "Toggle PID state: %d\n", newPidState);
 
@@ -359,9 +359,9 @@ inline void handleTogglePid(AsyncWebServerRequest* request) {
 
 inline void handleToggleBackflush(AsyncWebServerRequest* request) {
     try {
-        backflushOn = !backflushOn;
-        LOGF(INFO, "Toggle backflush mode: %s", backflushOn ? "on" : "off");
-        request->send(200, "application/json", JsonResponseBuilder::createBoolResponse("backflushOn", backflushOn));
+        g_state.machine.backflushOn = !g_state.machine.backflushOn;
+        LOGF(INFO, "Toggle backflush mode: %s", g_state.machine.backflushOn ? "on" : "off");
+        request->send(200, "application/json", JsonResponseBuilder::createBoolResponse("g_state.machine.backflushOn", g_state.machine.backflushOn));
     } catch (const std::exception& e) {
         LOGF(ERROR, "handleToggleBackflush failed: %s", e.what());
         request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("Internal server error"));
@@ -370,9 +370,9 @@ inline void handleToggleBackflush(AsyncWebServerRequest* request) {
 
 inline void handleToggleTareScale(AsyncWebServerRequest* request) {
     try {
-        scaleTareOn = !scaleTareOn;
-        LOGF(INFO, "Toggle scale tare mode: %s", scaleTareOn ? "on" : "off");
-        request->send(200, "application/json", JsonResponseBuilder::createBoolResponse("scaleTareOn", scaleTareOn));
+        g_state.sensors.scaleTareOn = !g_state.sensors.scaleTareOn;
+        LOGF(INFO, "Toggle scale tare mode: %s", g_state.sensors.scaleTareOn ? "on" : "off");
+        request->send(200, "application/json", JsonResponseBuilder::createBoolResponse("g_state.sensors.scaleTareOn", g_state.sensors.scaleTareOn));
     } catch (const std::exception& e) {
         LOGF(ERROR, "handleToggleTareScale failed: %s", e.what());
         request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("Internal server error"));
@@ -381,9 +381,9 @@ inline void handleToggleTareScale(AsyncWebServerRequest* request) {
 
 inline void handleToggleScaleCalibration(AsyncWebServerRequest* request) {
     try {
-        scaleCalibrationOn = !scaleCalibrationOn;
-        LOGF(INFO, "Toggle scale calibration mode: %s", scaleCalibrationOn ? "on" : "off");
-        request->send(200, "application/json", JsonResponseBuilder::createBoolResponse("scaleCalibrationOn", scaleCalibrationOn));
+        g_state.sensors.scaleCalibrationOn = !g_state.sensors.scaleCalibrationOn;
+        LOGF(INFO, "Toggle scale calibration mode: %s", g_state.sensors.scaleCalibrationOn ? "on" : "off");
+        request->send(200, "application/json", JsonResponseBuilder::createBoolResponse("g_state.sensors.scaleCalibrationOn", g_state.sensors.scaleCalibrationOn));
     } catch (const std::exception& e) {
         LOGF(ERROR, "handleToggleScaleCalibration failed: %s", e.what());
         request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("Internal server error"));
@@ -397,7 +397,7 @@ inline void handleParameters(AsyncWebServerRequest* request) {
         if (request->method() == 1) { // HTTP_GET
             // Use the unified Config system for API
             auto& config = Config::getInstance();
-            const auto& parameters = config.getParameters();
+            const auto& parameters = Config::getInstance().getParameters();
 
             String filterType = "";
             if (request->hasParam("filter")) {
@@ -500,24 +500,24 @@ inline void handleParameters(AsyncWebServerRequest* request) {
                         // Try boolean first (common case)
                         if (value == "true" || value == "false" || value == "1" || value == "0") {
                             bool boolValue = (value == "true" || value == "1");
-                            updateSuccess = config.set<bool>(varName, boolValue);
+                            updateSuccess = Config::getInstance().set<bool>(varName, boolValue);
                         }
 
                         // Try integer if boolean failed
                         if (!updateSuccess && isValidNumber(value) && value.indexOf('.') == -1) {
                             int intValue = value.toInt();
-                            updateSuccess = config.set<int>(varName, intValue);
+                            updateSuccess = Config::getInstance().set<int>(varName, intValue);
                         }
 
                         // Try double if integer failed
                         if (!updateSuccess && isValidNumber(value)) {
                             double doubleValue = value.toDouble();
-                            updateSuccess = config.set<double>(varName, doubleValue);
+                            updateSuccess = Config::getInstance().set<double>(varName, doubleValue);
                         }
 
                         // Try string if numeric types failed
                         if (!updateSuccess) {
-                            updateSuccess = config.set<::String>(varName, value);
+                            updateSuccess = Config::getInstance().set<::String>(varName, value);
                         }
 
                         if (!updateSuccess) {
@@ -560,7 +560,7 @@ inline void handleParameterHelp(AsyncWebServerRequest* request) {
 
         const String& paramName = p->value();
         auto& config = Config::getInstance();
-        const auto& parameters = config.getParameters();
+        const auto& parameters = Config::getInstance().getParameters();
 
         auto it = parameters.find(paramName.c_str());
         if (it == parameters.end()) {
@@ -683,7 +683,7 @@ inline void handleConfigUpload(AsyncWebServerRequest* request, const String& fil
         if (final) {
             LOGF(INFO, "Config upload finished: %s, total size: %u bytes", filename.c_str(), totalSize);
 
-            if (bool isValid = config.validateAndApplyFromJson(uploadBuffer)) {
+            if (bool isValid = Config::getInstance().validateAndApplyFromJson(uploadBuffer)) {
                 LOG(INFO, "Configuration validated and applied successfully");
 
                 // Sync to global variables (NVS save already handled by validateAndApplyFromJson)
@@ -741,7 +741,7 @@ inline void handleNvsDebug(AsyncWebServerRequest* request) {
         int storedParams = 0;
 
         auto& config = Config::getInstance();
-        const auto& parameters = config.getParameters();
+        const auto& parameters = Config::getInstance().getParameters();
 
         for (const auto& param : parameters) {
             const std::string& paramId = param.first;
@@ -749,7 +749,7 @@ inline void handleNvsDebug(AsyncWebServerRequest* request) {
             totalParams++;
 
             // Generate hashed NVS key for the parameter (same method as Config system)
-            String nvsKey = config.generateNvsKey(paramId.c_str());
+            String nvsKey = Config::getInstance().generateNvsKey(paramId.c_str());
 
             // Check if this parameter exists in NVS using the hashed key
             bool existsInNvs = false;
@@ -936,7 +936,7 @@ inline void handleFactoryReset(AsyncWebServerRequest* request) {
 // ==================== API ROUTES SETUP ====================
 
 inline void setupApiRoutes() {
-    authEnabled = Config::getInstance().get<bool>("system.auth.enabled");
+    bool authEnabled = Config::getInstance().get<bool>("system.auth.enabled");
 
     if (authEnabled) {
         LOG(INFO, "Authentication is enabled");
@@ -957,7 +957,7 @@ inline void setupApiRoutes() {
     server.on("/api/pid", HTTP_POST, handleTogglePid);
     server.on("/api/backflush", HTTP_POST, handleToggleBackflush);
 
-    if (config.get<bool>("hardware.sensors.scale.enabled")) {
+    if (Config::getInstance().get<bool>("hardware.sensors.scale.enabled")) {
         server.on("/api/scale/tare", HTTP_POST, handleToggleTareScale);
         server.on("/api/scale/calibration", HTTP_POST, handleToggleScaleCalibration);
     }
