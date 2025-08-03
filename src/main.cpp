@@ -158,11 +158,8 @@ int writeSysParamsToMQTT(bool continueOnError = true) {
 // OTA
 String otaPass;
 
-// Pressure sensor
-float inputPressure = 0;
-float inputPressureFilter = 0;
-const unsigned long intervalPressure = 100;
-unsigned long previousMillisPressure; // initialisation at the end of init()
+// Pressure sensor - now defined in GlobalVariables.cpp
+// Variables moved: inputPressure, inputPressureFilter, intervalPressure, previousMillisPressure
 
 // timing flags - moved to GlobalVariables.cpp
 // MQTT update running is now managed by MQTTManager

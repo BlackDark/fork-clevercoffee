@@ -64,6 +64,12 @@ String systemVersion = String(sysVersion);
 bool includeDisplayInLogs = true;
 bool timingDebugActive = false;
 
+// Pressure sensor variables
+float inputPressure = 0;
+float inputPressureFilter = 0;
+const unsigned long intervalPressure = 100;
+unsigned long previousMillisPressure = 0;
+
 // System settings
 String hostname = HOSTNAME;
 String otaPassword = OTAPASS;

@@ -57,7 +57,7 @@ extern double pidOutput;
 extern double currBrewTime;
 extern double currBrewWeight;
 extern double currReadingWeight;
-extern double inputPressureFilter;
+extern float inputPressureFilter;
 extern double standbyModeRemainingTimeMillis;
 extern unsigned long previousMillistemp;
 extern unsigned long windowStartTime;

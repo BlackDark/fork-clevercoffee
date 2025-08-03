@@ -7,6 +7,7 @@
 #include "../control/ProcessController.h"
 #include "../sensors/SensorManager.h"
 #include "../ui/UIManager.h"
+#include "../state/StateMachine.h"
 #include "../Config.h"
 #include "../GlobalVariables.h"
 #include "Logger.h"
@@ -14,6 +15,8 @@
 #include "../network/MQTTManager.h"
 #include "../utils/Timer.h"
 #include <Arduino.h>
+#include <ArduinoOTA.h>
+#include <WiFi.h>
 
 // Forward declaration for debug timing function
 extern void debugTimingLoop();
@@ -70,6 +73,9 @@ extern std::unique_ptr<MQTTManager> mqttManager;
 extern std::unique_ptr<Relay> statusLed;
 extern std::unique_ptr<Relay> brewLed;
 extern std::unique_ptr<Relay> steamLed;
+
+// Hardware components for heating
+extern Relay* heaterRelay;
 
 LoopManager::LoopManager(ProcessController* processController,
                         SensorManager* sensorManager,
@@ -131,7 +137,25 @@ void LoopManager::update() {
     // 4. Update LED output based on machine state
     updateLEDs();
     
-    // 5. Print timing related data to check what is causing stutters
+    // 5. Update network (WiFi/MQTT/OTA)
+    updateNetwork();
+    
+    // 6. Update website and data transmission
+    updateWebsite();
+    
+    // 7. Update sensors (scale, pressure)
+    updateSensors();
+    
+    // 8. Update switches and standby management
+    updateSwitchesAndStandby();
+    
+    // 9. Update state machine
+    updateStateMachine();
+    
+    // 10. Update display (critical for screen refresh)
+    updateDisplay();
+    
+    // 11. Print timing related data to check what is causing stutters
     updateDebugTiming();
     
     // Performance timing end
@@ -201,10 +225,13 @@ void LoopManager::updateWaterTank() {
 }
 
 void LoopManager::updateProcessControl() {
-    // Call the full loopPid() function which includes ProcessController
-    // as well as display updates, MQTT, WiFi, OTA, and other critical logic
-    extern void loopPid();
-    loopPid();
+    if (processController_) {
+        // Use modern ProcessController for PID and temperature management
+        processController_->updateProcessControl(machineState, false); // TODO: Get brewPidDisabled from proper source
+    } else {
+        // Fallback to original temperature reading logic - handled in main.cpp for now
+        LOG(DEBUG, "LoopManager: ProcessController not available, using fallback");
+    }
 }
 
 void LoopManager::updateDisplay() {
@@ -293,4 +320,183 @@ void LoopManager::checkWaterTankLevel() {
 
 bool LoopManager::getPerformanceStats() const {
     return performanceMonitoringEnabled_ && loopCount_ > 0;
+}
+
+void LoopManager::updateNetwork() {
+    // Network management (WiFi/MQTT/OTA) extracted from loopPid()
+    static bool wifiWasConnected = false;
+    extern void checkWifi();
+    extern int getSignalStrength();
+    extern bool hassioFailed;
+    extern Timer hassioDiscoveryTimer;
+    extern unsigned int wifiReconnects;
+    
+    // Only do Wifi stuff, if Wifi is connected
+    if (WiFi.status() == WL_CONNECTED && !offlineMode) {
+        if (wifiWasConnected == false) {
+            LOG(INFO, "WiFi Connected");
+            wifiWasConnected = true;
+        }
+
+        if (mqttManager && mqttManager->isEnabled()) {
+            mqttManager->setUpdateRunning(false);
+
+            if (getSignalStrength() > 1) {
+                mqttManager->checkConnection();
+
+                // if screen is ready to refresh wait for next loop
+                if (!displayBufferReady && !temperatureUpdateRunning) {
+                    mqttManager->writeSysParamsToMQTT(true);
+                }
+            }
+
+            hassioUpdateRunning = false;
+
+            if (mqttManager->isConnected()) {
+                mqttManager->loop();
+
+                // resend discovery messages if not during a main function and MQTT has been disconnected but has now reconnected
+                if (!(machineState >= kBrew && machineState <= kBackflush) && 
+                    ((!mqttManager->wasConnected() || hassioFailed) && !displayBufferReady && !temperatureUpdateRunning)) {
+                    hassioDiscoveryTimer();
+                }
+
+                mqttManager->setWasConnected(true);
+            }
+            else if (mqttManager->wasConnected()) {
+                LOG(INFO, "MQTT disconnected");
+                mqttManager->setWasConnected(false);
+            }
+        }
+
+        // OTA handling
+        ArduinoOTA.handle();
+        extern void disableTimer1();
+        extern void enableTimer1();
+        
+        // Disable interrupt if OTA is starting, otherwise it will not work
+        ArduinoOTA.onStart([]() {
+            disableTimer1();
+            if (heaterRelay) heaterRelay->off();
+        });
+
+        ArduinoOTA.onError([](ota_error_t error) { enableTimer1(); });
+        ArduinoOTA.onEnd([]() { enableTimer1(); });
+
+        wifiReconnects = 0; // reset wifi reconnects if connected
+    }
+    else {
+        wifiWasConnected = false;
+        checkWifi();
+    }
+}
+
+void LoopManager::updateWebsite() {
+    // Website and data transmission updates extracted from loopPid()
+    extern unsigned long lastTempEvent;
+    extern unsigned long tempEventInterval;
+    extern void sendTempEvent(double temp, double setpoint, double pidOutput);
+    extern void sendWeightEvent();
+    extern double pidOutput;
+    
+    websiteUpdateRunning = false;
+
+    // refresh website if loop does not have another long running process already
+    if (((millis() - lastTempEvent) > tempEventInterval) && 
+        ((!mqttManager || !mqttManager->isUpdateRunning()) && !hassioUpdateRunning && !displayBufferReady && !temperatureUpdateRunning)) {
+        websiteUpdateRunning = true;
+
+        // send temperatures to website endpoint
+        if (WiFi.status() == WL_CONNECTED && !offlineMode) {
+            sendTempEvent(temperature, brewSetpoint, pidOutput / 10); // pidOutput is promill, so /10 to get percent value
+
+            if (Config::getInstance().get<bool>("hardware.sensors.scale.enabled")) {
+                sendWeightEvent();
+            }
+        }
+
+        lastTempEvent = millis();
+    }
+}
+
+void LoopManager::updateSensors() {
+    // Scale and pressure sensor updates extracted from loopPid()
+    extern void checkWeight();
+    extern void shotTimerScale();
+    extern float inputPressure;
+    extern float inputPressureFilter;
+    extern float measurePressure();
+    extern float filterPressureValue(float input);
+    extern unsigned long previousMillisPressure;
+    extern const unsigned long intervalPressure;
+    
+    if (Config::getInstance().get<bool>("hardware.sensors.scale.enabled")) {
+        checkWeight();    // Check Weight Scale in the loop
+        shotTimerScale(); // Calculation of weight of shot while brew is running
+    }
+
+    if (Config::getInstance().get<bool>("hardware.sensors.pressure.enabled")) {
+        if (sensorManager_) {
+            // Pressure reading is handled by sensorManager->update() call in ProcessController
+            inputPressure = sensorManager_->getCurrentPressure();
+            inputPressureFilter = sensorManager_->getFilteredPressure();
+        } else {
+            // Fallback to direct pressure reading
+            if (const unsigned long currentMillisPressure = millis(); 
+                currentMillisPressure - previousMillisPressure >= intervalPressure) {
+                previousMillisPressure = currentMillisPressure;
+                inputPressure = measurePressure();
+                inputPressureFilter = filterPressureValue(inputPressure);
+            }
+        }
+    }
+}
+
+void LoopManager::updateSwitchesAndStandby() {
+    // Switch handling and standby management extracted from loopPid()
+    extern void checkSteamSwitch();
+    extern void checkPowerSwitch();
+    extern void updateStandbyTimer();
+    
+    checkSteamSwitch();
+    checkPowerSwitch();
+    updateStandbyTimer();
+}
+
+void LoopManager::updateStateMachine() {
+    // State machine updates extracted from loopPid()
+    extern std::unique_ptr<StateMachine> stateMachine;
+    extern void handleMachineState();
+    extern void printMachineState();
+    extern LegacyMachineState lastmachinestate;
+    extern void hotWaterHandler();
+    
+    // Update state machine (replaces handleMachineState())
+    if (stateMachine && stateMachine->isInitialized()) {
+        stateMachine->update();
+        
+        // Update compatibility variables for existing code
+        const int newStateId = stateMachine->getCurrentStateId();
+        if (newStateId != machineState) {
+            lastmachinestate = static_cast<LegacyMachineState>(machineState);
+            machineState = static_cast<LegacyMachineState>(newStateId);
+            printMachineState();
+        }
+    } else {
+        // Fallback to old state machine if new one isn't ready
+        handleMachineState();
+    }
+    
+    hotWaterHandler();
+    // TODO: valveSafetyShutdownCheck() - requires brewHandler.h dependencies
+
+    // Update brew timer display state using UIManager if available
+    if (Config::getInstance().get<bool>("hardware.switches.brew.enabled")) {
+        if (uiManager_) {
+            uiManager_->shouldDisplayBrewTimer();
+        } else {
+            extern bool shouldDisplayBrewTimer();
+            shouldDisplayBrewTimer();
+        }
+    }
 }

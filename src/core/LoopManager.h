@@ -99,6 +99,44 @@ public:
     void updateProcessControl();
 
     /**
+     * @brief Update network connections (WiFi/MQTT/OTA)
+     * 
+     * Handles WiFi connection management, MQTT communication,
+     * and OTA (Over-The-Air) update processing.
+     */
+    void updateNetwork();
+
+    /**
+     * @brief Update website and data transmission
+     * 
+     * Sends temperature events and weight data to website endpoints
+     * when timing conditions are met.
+     */
+    void updateWebsite();
+
+    /**
+     * @brief Update sensor readings (scale, pressure)
+     * 
+     * Processes scale weight readings and pressure sensor data
+     * if enabled in configuration.
+     */
+    void updateSensors();
+
+    /**
+     * @brief Update switches and standby management
+     * 
+     * Handles steam switch, power switch checking and standby timer updates.
+     */
+    void updateSwitchesAndStandby();
+
+    /**
+     * @brief Update state machine
+     * 
+     * Processes state machine transitions and updates compatibility variables.
+     */
+    void updateStateMachine();
+
+    /**
      * @brief Update display rendering and buffer management
      * 
      * Handles display template rendering, buffer management, and screen refresh.

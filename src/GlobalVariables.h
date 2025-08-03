@@ -44,6 +44,12 @@ extern String systemVersion;
 extern bool includeDisplayInLogs;
 extern bool timingDebugActive;
 
+// Pressure sensor variables
+extern float inputPressure;
+extern float inputPressureFilter;
+extern const unsigned long intervalPressure;
+extern unsigned long previousMillisPressure;
+
 // System settings
 extern String hostname;
 extern String otaPassword;
