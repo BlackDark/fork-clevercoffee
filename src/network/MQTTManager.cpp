@@ -4,19 +4,17 @@
  */
 
 #include "MQTTManager.h"
-#include "../state/GlobalState.h"
 #include "../Config.h"
 #include "../defaults.h"
+#include "../state/GlobalState.h"
+#include "../utils/brewUtils.h"
+#include "../utils/legacyUtils.h"
 #include "Logger.h"
 #include <Arduino.h>
 #include <cstdio>
-#include "../utils/legacyUtils.h"
 
 // Static instance for callback
 MQTTManager* MQTTManager::instance_ = nullptr;
-
-// Forward declarations for external dependencies
-extern bool checkBrewActive();
 
 MQTTManager::MQTTManager() :
     wifiClient_(std::make_unique<WiFiClient>()),

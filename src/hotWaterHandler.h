@@ -7,10 +7,10 @@
 #pragma once
 
 #include "Config.h"
+#include "hardware/Relay.h"
+#include "hardware/Switch.h"
 #include "state/GlobalState.h"
 #include "state/MachineState.h"
-#include "hardware/Switch.h"
-#include "hardware/Relay.h"
 
 enum HotWaterSwitchState {
     kHotWaterSwitchIdle = 10,
@@ -228,7 +228,7 @@ inline bool hotWaterHandler(void) {
                 g_state.hardware.pumpRelay->on();
                 pumpStartingTime = millis();
                 currHotWaterState = kHotWaterRunning;
-                currPumpOnTime = 0;           // reset currPumpOnTime
+                currPumpOnTime = 0;          // reset currPumpOnTime
                 LOG(INFO, "Hot water pump started");
                 debugHotWaterState("on-sw"); // turned on due to switch input
             }

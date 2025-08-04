@@ -12,10 +12,10 @@
 #include "../utils/Timer.h"
 #include "./brewStates.h"
 #include <Arduino.h>
-#include <memory>
-#include <map>
-#include <functional>
 #include <cstring>
+#include <functional>
+#include <map>
+#include <memory>
 
 // standby.h
 #define TIME_TO_DISPLAY_OFF        10
@@ -39,9 +39,9 @@ enum LegacyMachineState {
 };
 
 struct cmp_str {
-    bool operator()(char const *a, char const *b) const {
-        return std::strcmp(a, b) < 0;
-    }
+        bool operator()(char const* a, char const* b) const {
+            return std::strcmp(a, b) < 0;
+        }
 };
 
 #include "../hardware/scales/Scale.h"
@@ -57,7 +57,6 @@ class Config;
 class Switch;
 class LED;
 class GPIOPin;
-
 
 extern const char* WIFI_PASSWORD;
 constexpr unsigned long wifiConnectionDelay = WIFICONNECTIONDELAY;
@@ -80,8 +79,8 @@ struct ProcessState {
         bool pidEnabled = true;
 
         double currBrewTime = 0.0;
-        long startingTime = 0; // Start time of brew
-        double totalTargetBrewTime = 0.0; // Target brew time in seconds
+        long startingTime = 0;             // Start time of brew
+        double totalTargetBrewTime = 0.0;  // Target brew time in seconds
 
         double steamSetpointValue = 120.0; // Will be initialized from config
         bool brewPidDisabled = false;
@@ -129,8 +128,6 @@ struct HardwareRefs {
         Switch* powerSwitch = nullptr;
         Switch* hotWaterSwitch = nullptr;
         Switch* waterTankSensor = nullptr;
-
-
 
         // LEDs
         GPIOPin* statusLedPin = nullptr;
@@ -194,8 +191,8 @@ struct StandbyState {
         unsigned long standbyModeRemainingTimeDisplayOffMillis = TIME_TO_DISPLAY_OFF_MILLIS;
         unsigned long lastStandbyTimeMillis = 0;
         unsigned long timeSinceStandbyMillis = 0;
-        //unsigned long standbyModeStartTimeMillis = millis();
-        //unsigned long standbyModeRemainingTimeMillis = static_cast<long>(Config::getInstance().get<double>("standby.time")) * 60 * 1000;
+        // unsigned long standbyModeStartTimeMillis = millis();
+        // unsigned long standbyModeRemainingTimeMillis = static_cast<long>(Config::getInstance().get<double>("standby.time")) * 60 * 1000;
 };
 
 /**
@@ -251,7 +248,7 @@ struct SensorState {
         bool brewSwitchWasOff = false;
 
         // water
-        int waterTankCheckConsecutiveReads = 0;  // Counter for consecutive readings of water tank sensor
+        int waterTankCheckConsecutiveReads = 0; // Counter for consecutive readings of water tank sensor
 };
 
 /**
@@ -283,8 +280,8 @@ struct DisplayState {
  * @brief Legacy state for debugging purposes.
  */
 struct DebugState {
-    String hotWaterStateDebug = "off";
-    String lastHotWaterStateDebug = "off";
+        String hotWaterStateDebug = "off";
+        String lastHotWaterStateDebug = "off";
 };
 
 /**

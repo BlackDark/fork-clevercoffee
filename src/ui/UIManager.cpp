@@ -5,10 +5,10 @@
 
 #include "UIManager.h"
 #include "../Config.h"
+#include "../brewHandler.h"
 #include "../display/DisplayManager.h"
 #include "../display/bitmaps.h"
 #include "../state/GlobalState.h"
-#include "../brewHandler.h"
 #include <Arduino.h>
 
 int getSignalStrength();

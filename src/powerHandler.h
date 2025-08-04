@@ -6,12 +6,12 @@
 #pragma once
 
 #include "Config.h"
-#include "state/GlobalState.h"
-#include "state/MachineState.h"
+#include "display/displayCommon.h"
 #include "hardware/Switch.h"
 #include "standby.h"
+#include "state/GlobalState.h"
+#include "state/MachineState.h"
 #include "utils/legacyUtils.h"
-#include "display/displayCommon.h"
 
 void performSafeShutdown();
 
@@ -85,7 +85,8 @@ inline void checkPowerSwitch() {
         // 2. At least 5 seconds have passed since initialization
         // 3. A press that started after initialization is actively tracked
         // 4. The press has lasted long enough for longPressDetected()
-        if (powerSwitchPressed && g_state.machine.systemInitialized && (currentMillis - g_state.sensors.systemInitializedTime > 5000) && g_state.sensors.trackingPressTime && (currentMillis - g_state.sensors.firstSwitchPressTime > 1000) && // Minimum 1 second actual press
+        if (powerSwitchPressed && g_state.machine.systemInitialized && (currentMillis - g_state.sensors.systemInitializedTime > 5000) && g_state.sensors.trackingPressTime &&
+            (currentMillis - g_state.sensors.firstSwitchPressTime > 1000) && // Minimum 1 second actual press
             reinterpret_cast<Switch*>(g_state.hardware.powerSwitch)->longPressDetected()) {
             LOG(INFO, "Power switch long press detected - initiating system reboot");
             g_state.hardware.display->setPowerSave(0);

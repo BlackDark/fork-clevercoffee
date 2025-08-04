@@ -8,9 +8,9 @@
 
 #include "../Config.h"
 #include "../state/GlobalState.h"
+#include "../utils/legacyUtils.h"
 #include "bitmaps.h"
 #include "languages.h"
-#include "../utils/legacyUtils.h"
 
 inline const u8g2_cb_t* getU8G2Rotation(const int rotationValue) {
     switch (rotationValue) {

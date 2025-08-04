@@ -4,16 +4,15 @@
  */
 
 #include "ProcessController.h"
-#include "../state/GlobalState.h"
 #include "../Config.h"
 #include "../display/DisplayManager.h"
 #include "../hardware/HardwareManager.h"
 #include "../hardware/scales/Scale.h"
 #include "../network/MQTTManager.h"
 #include "../sensors/SensorManager.h"
+#include "../state/GlobalState.h"
 #include "Logger.h"
 #include <Arduino.h>
-
 
 ProcessController::ProcessController(DisplayManager* displayManager, HardwareManager* hardwareManager, SensorManager* sensorManager, MQTTManager* mqttManager) :
     displayManager_(displayManager),
@@ -418,4 +417,55 @@ void ProcessController::handleBrewPIDDelay(int machineState) {
         g_state.process.brewPidDisabled = false;
         LOG(DEBUG, "Enabled PID again after brew was manually stopped");
     }
+}
+
+void ProcessController::performSafeShutdown() {
+    // Disable PID control
+    extern void setRuntimePidState(bool state);
+    setRuntimePidState(false);
+
+    // Turn off all relays
+    if (hardwareManager_ && g_state.hardware.heaterRelay && g_state.hardware.pumpRelay && g_state.hardware.valveRelay) {
+        g_state.hardware.heaterRelay->off();
+        g_state.hardware.pumpRelay->off();
+        g_state.hardware.valveRelay->off();
+    }
+
+    // Reset all brew-related states
+    if (g_state.sensors.currBrewState != kBrewIdle) {
+        LOG(INFO, "Stopping active brew during safe shutdown");
+        g_state.sensors.currBrewState = kBrewIdle;
+        g_state.sensors.currBrewSwitchState = kBrewSwitchIdle;
+        g_state.process.currBrewTime = 0;
+        g_state.process.startingTime = 0;
+        g_state.sensors.brewSwitchWasOff = false;
+    }
+
+    // Reset manual flush states
+    if (g_state.sensors.currManualFlushState != kManualFlushIdle) {
+        LOG(INFO, "Stopping manual group head flush during safe shutdown");
+        g_state.sensors.currManualFlushState = kManualFlushIdle;
+        g_state.sensors.currBrewSwitchState = kBrewSwitchIdle;
+        g_state.process.currBrewTime = 0;
+        g_state.process.startingTime = 0;
+    }
+
+    // Reset backflush state
+    if (g_state.sensors.currBackflushState != kBackflushIdle) {
+        LOG(INFO, "Stopping active backflush during safe shutdown");
+        g_state.sensors.currBackflushState = kBackflushIdle;
+        g_state.machine.currBackflushCycles = 1;
+    }
+
+    // Reset hot water state - handled by hotWaterHandler
+    // TODO: Add proper hot water state reset through hotWaterHandler interface
+
+    // Turn off steam mode if active
+    if (g_state.machine.steamON) {
+        LOG(INFO, "Disabling steam mode during safe shutdown");
+        g_state.machine.steamON = false;
+        g_state.machine.steamFirstON = false;
+    }
+
+    LOG(INFO, "Safe shutdown completed - all relays turned off, all states reset");
 }

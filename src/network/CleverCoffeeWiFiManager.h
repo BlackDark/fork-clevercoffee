@@ -72,6 +72,17 @@ class CleverCoffeeWiFiManager {
             return restartAfterAP_;
         }
 
+        /**
+         * @brief Check WiFi connection and attempt reconnection if needed
+         *
+         * This method handles automatic WiFi reconnection logic including:
+         * - Connection status monitoring
+         * - Reconnection attempts with backoff
+         * - Offline mode activation after max attempts
+         * - Connection logging
+         */
+        void checkAndMaintainConnection();
+
     private:
         ::WiFiManager wifiManager_; // Use global scope to avoid naming conflict
         WiFiManagerParameter* customHostname_;

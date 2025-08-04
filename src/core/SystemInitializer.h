@@ -117,6 +117,9 @@ class SystemInitializer {
         bool initializeSensors();
         bool finalizeMachineState();
 
+        // Network setup helpers
+        void setupWiFi();
+
         // Helper methods
         void calculateDerivedValues();
         void setupTiming();

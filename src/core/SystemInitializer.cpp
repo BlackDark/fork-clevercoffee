@@ -27,13 +27,11 @@ namespace DisplayTemplateManager {
 #include <WiFi.h>
 #include <Wire.h>
 
-
 // Forward declarations
 extern void initTimer1();
 extern void enableTimer1();
 extern void u8g2_prepare();
 extern void initLangStrings(Config& config);
-extern void wiFiSetup();
 extern void serverSetup();
 extern void initScale();
 extern void setRuntimePidState(bool state);
@@ -225,7 +223,7 @@ bool SystemInitializer::initializeNetworking() {
         cleverCoffeeWiFiManager_ = std::make_unique<CleverCoffeeWiFiManager>();
         g_state.network.cleverCoffeeWiFiManager = cleverCoffeeWiFiManager_.get();
 
-        wiFiSetup();
+        setupWiFi();
         serverSetup();
 
         // OTA Updates
@@ -263,8 +261,8 @@ bool SystemInitializer::initializeMQTT() {
             Config::getInstance().set<bool>("mqtt.hassio.enabled", true);
 
             // Set global reference for other parts of the system
-            //mqttManager = std::move(mqttManager_);
-            //mqttManager_ = nullptr; // Transfer ownership
+            // mqttManager = std::move(mqttManager_);
+            // mqttManager_ = nullptr; // Transfer ownership
 
             registerMQTTParameters();
             registerMQTTSensors();
@@ -468,4 +466,26 @@ void SystemInitializer::registerMQTTSensors() {
 
 CleverCoffeeWiFiManager* SystemInitializer::getWiFiManager() const {
     return cleverCoffeeWiFiManager_.get();
+}
+
+void SystemInitializer::setupWiFi() {
+    try {
+        const bool oledEnabled = Config::getInstance().get<bool>("hardware.oled.enabled");
+
+        // Don't pass display callback during system initialization - display isn't fully ready yet
+        // TODO: Lost: User feedback during WiFi connection (no "Connecting to WiFi..." messages on display) with commit 271d43432fab22cc4e1c950ee107212886806b8f
+        if (!g_state.network.cleverCoffeeWiFiManager->setupAndConnect(Config::getInstance().get<String>("system.hostname"), WIFI_PASSWORD, false, nullptr)) {
+            g_state.network.offlineMode = true;
+        }
+
+        // Check if restart is required after AP configuration
+        if (g_state.network.cleverCoffeeWiFiManager->requiresRestart()) {
+            // Device will restart inside WiFiManager, this code may not be reached
+        }
+
+        LOG(INFO, "WiFi setup completed via WiFiManager");
+    } catch (const std::exception& e) {
+        LOG(ERROR, "Failed to initialize WiFiManager");
+        g_state.network.offlineMode = true;
+    }
 }

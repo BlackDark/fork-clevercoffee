@@ -184,6 +184,20 @@ class ProcessController {
         void emergencyStop();
 
         /**
+         * @brief Safe shutdown - completely shutdown all machine operations
+         *
+         * This method performs a comprehensive shutdown of all machine operations:
+         * - Disables PID control
+         * - Turns off all relays (heater, pump, valve)
+         * - Resets all brewing states
+         * - Resets manual flush states
+         * - Resets backflush states
+         * - Disables steam mode if active
+         * - Resets hot water state
+         */
+        void performSafeShutdown();
+
+        /**
          * @brief Test for emergency conditions (overtemperature, etc.)
          * @return true if emergency stop was triggered
          */

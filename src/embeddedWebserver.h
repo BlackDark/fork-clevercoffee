@@ -25,7 +25,6 @@ inline AsyncEventSource events("/events");
 AsyncCorsMiddleware corsMiddleware;
 AsyncAuthenticationMiddleware authMiddleware;
 
-
 #define JSON_BUFFER_SIZE 512
 #define PATH_BUFFER_SIZE 128
 // #define RESPONSE_BUFFER_SIZE 256

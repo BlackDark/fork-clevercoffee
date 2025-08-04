@@ -14,10 +14,10 @@
 
 #include "Config.h"
 #include "brewStates.h"
+#include "hardware/Relay.h"
+#include "hardware/Switch.h"
 #include "state/GlobalState.h"
 #include "state/MachineState.h"
-#include "hardware/Switch.h"
-#include "hardware/Relay.h"
 
 // Backward compatibility reference
 #include "scaleHandler.h"
@@ -129,7 +129,7 @@ inline void checkBrewSwitch() {
                 }
                 break;
 
-            case kBrewSwitchPressed:                // Brew switch pressed - check for short or long press
+            case kBrewSwitchPressed:                                // Brew switch pressed - check for short or long press
                 if (g_state.sensors.currReadingBrewSwitch == LOW) { // Brew switch short press detected
                     g_state.sensors.currBrewSwitchState = kBrewSwitchShortPressed;
                     LOG(DEBUG, "Brew switch short press detected -> got to g_state.sensors.currBrewSwitchState = kBrewSwitchShortPressed; start brew");
@@ -236,7 +236,7 @@ inline bool brew() {
 
     // state machine for brew
     switch (g_state.sensors.currBrewState) {
-        case kBrewIdle:             // waiting step for brew switch turning on
+        case kBrewIdle:                             // waiting step for brew switch turning on
             if (g_state.sensors.currBrewSwitchState == kBrewSwitchShortPressed && g_state.sensors.brewSwitchWasOff && !g_state.machine.backflushOn && g_state.machine.machineState != LegacyMachineState::kBackflush) {
                 g_state.process.startingTime = millis();
                 g_state.process.currBrewTime = 0;   // reset g_state.process.currBrewTime, last brew is still stored
@@ -429,7 +429,6 @@ inline void backflush() {
             }
 
             break;
-
 
         case kBackflushFilling:
             if (millis() - g_state.process.startingTime > Config::getInstance().get<double>("backflush.fill_time") * 1000) {

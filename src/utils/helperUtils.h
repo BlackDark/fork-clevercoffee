@@ -5,9 +5,9 @@
 
 #pragma once
 
+#include "../state/GlobalState.h"
 #include <Arduino.h>
 #include <cmath>
-#include "../state/GlobalState.h"
 
 // ==================== UTILITY FUNCTIONS ====================
 

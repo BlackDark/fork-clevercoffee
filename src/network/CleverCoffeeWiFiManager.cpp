@@ -5,6 +5,7 @@
 
 #include "CleverCoffeeWiFiManager.h"
 #include "../Config.h"
+#include "../utils/brewUtils.h"
 #include "Logger.h"
 #include <ESP.h>
 #include <WiFi.h>
@@ -132,4 +133,59 @@ bool CleverCoffeeWiFiManager::isConnected() const {
 
 String CleverCoffeeWiFiManager::getSSID() const {
     return const_cast<::WiFiManager&>(wifiManager_).getWiFiSSID(true);
+}
+
+void CleverCoffeeWiFiManager::checkAndMaintainConnection() {
+    static int connectionAttemptCounter = 1;
+    static bool wifiConnectedHandled = false;
+
+    // Don't attempt reconnection if in offline mode or brewing is active
+    if (g_state.network.offlineMode || checkBrewActive()) return;
+
+    // Try to connect and if it does not succeed, enter offline mode
+    if ((millis() - g_state.network.lastWifiConnectionAttempt >= wifiConnectionDelay) && (g_state.network.wifiReconnects <= maxWifiReconnects)) {
+
+        if (WiFi.status() != WL_CONNECTED) { // check WiFi connection status
+            wifiConnectedHandled = false;
+
+            if (connectionAttemptCounter == 1) {
+                g_state.network.wifiReconnects++;
+                LOGF(INFO, "Attempting WIFI (re-)connection: %i", g_state.network.wifiReconnects);
+                WiFi.disconnect();
+                WiFi.begin();
+            }
+
+            delay(20);                      // give WIFI some time to connect
+
+            if (WiFi.status() != WL_CONNECTED && connectionAttemptCounter < 100) {
+                connectionAttemptCounter++; // reconnect counter, maximum waiting time = 20*100ms plus loop times
+            }
+            else {
+                if (connectionAttemptCounter == 100) {
+                    LOGF(INFO, "Wifi Reconnection failed - %i loops", connectionAttemptCounter);
+                    g_state.network.lastWifiConnectionAttempt = millis();
+                    connectionAttemptCounter = 1;
+                }
+            }
+        }
+        else {
+            if (wifiConnectedHandled == false) {
+                LOGF(INFO, "Wifi Reconnected - %i loops", connectionAttemptCounter);
+                wifiConnectedHandled = true;
+                connectionAttemptCounter = 1;
+            }
+        }
+    }
+
+    // Enter offline mode if maximum reconnection attempts reached
+    if (g_state.network.wifiReconnects >= maxWifiReconnects && WiFi.status() != WL_CONNECTED) {
+        // no wifi connection after trying connection, initiate offline mode
+        g_state.network.offlineMode = true;
+        LOG(INFO, "Entered offline mode after maximum WiFi reconnection attempts");
+    }
+    else {
+        if (WiFi.status() == WL_CONNECTED) {
+            g_state.network.wifiReconnects = 0;
+        }
+    }
 }

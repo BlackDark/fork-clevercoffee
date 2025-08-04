@@ -11,6 +11,7 @@
 #include "../network/MQTTManager.h"
 #include "../sensors/SensorManager.h"
 // #include "../hotWaterHandler.h" - removed to avoid circular dependencies
+#include "../utils/brewUtils.h"
 #include "Logger.h"
 #include <Arduino.h>
 

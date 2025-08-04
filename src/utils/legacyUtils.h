@@ -1,11 +1,10 @@
 #pragma once
 #include "../Config.h"
-#include "../state/GlobalState.h"
 #include "../network/CleverCoffeeWiFiManager.h"
+#include "../state/GlobalState.h"
 #include "Logger.h"
 
 // This file should be removed in the future. Tight coupled functions
-
 
 inline void setRuntimePidState(const bool enabled) {
     g_state.process.pidEnabled = enabled;

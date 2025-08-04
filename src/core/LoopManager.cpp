@@ -4,23 +4,24 @@
  */
 
 #include "LoopManager.h"
-#include "../state/GlobalState.h"
 #include "../Config.h"
+#include "../brewHandler.h"
 #include "../control/ProcessController.h"
-#include "../hardware/Relay.h"
+#include "../embeddedWebserver.h"
 #include "../hardware/LED.h"
+#include "../hardware/Relay.h"
+#include "../hotWaterHandler.h"
 #include "../network/MQTTManager.h"
+#include "../powerHandler.h"
 #include "../sensors/SensorManager.h"
+#include "../standby.h"
+#include "../state/GlobalState.h"
 #include "../state/StateMachine.h"
+#include "../steamHandler.h"
 #include "../ui/UIManager.h"
 #include "../utils/Timer.h"
 #include "Logger.h"
 #include <Arduino.h>
-#include "../brewHandler.h"
-#include "../hotWaterHandler.h"
-#include "../powerHandler.h"
-#include "../standby.h"
-#include "../steamHandler.h"
 #include <ArduinoOTA.h>
 #include <WiFi.h>
 
@@ -42,8 +43,6 @@ extern void sendTempEvent(double temp, double setpoint, double pidOutput);
 extern void sendWeightEvent();
 extern void disableTimer1();
 extern void enableTimer1();
-
-
 
 LoopManager::LoopManager(ProcessController* processController, SensorManager* sensorManager, UIManager* uiManager) :
     processController_(processController),
@@ -150,7 +149,8 @@ void LoopManager::updateLEDs() {
         bool shouldTurnOn = false;
 
         // Turn on when at target temperature (normal or steam mode)
-        if ((g_state.machine.machineState == kPidNormal && (fabs(g_state.process.temperature - g_state.process.setpoint) < 0.3)) || (g_state.process.temperature > 115 && fabs(g_state.process.temperature - g_state.process.setpoint) < 5)) {
+        if ((g_state.machine.machineState == kPidNormal && (fabs(g_state.process.temperature - g_state.process.setpoint) < 0.3)) ||
+            (g_state.process.temperature > 115 && fabs(g_state.process.temperature - g_state.process.setpoint) < 5)) {
             shouldTurnOn = true;
         }
 
@@ -364,7 +364,8 @@ void LoopManager::updateNetwork() {
                 g_state.network.mqttManager->loop();
 
                 // resend discovery messages if not during a main function and MQTT has been disconnected but has now reconnected
-                if (!(g_state.machine.machineState >= kBrew && g_state.machine.machineState <= kBackflush) && ((!g_state.network.mqttManager->wasConnected() || g_state.network.hassioFailed) && !g_state.coordination.displayBufferReady && !g_state.coordination.temperatureUpdateRunning)) {
+                if (!(g_state.machine.machineState >= kBrew && g_state.machine.machineState <= kBackflush) &&
+                    ((!g_state.network.mqttManager->wasConnected() || g_state.network.hassioFailed) && !g_state.coordination.displayBufferReady && !g_state.coordination.temperatureUpdateRunning)) {
                     if (g_state.timing.hassioDiscoveryTimer) (*g_state.timing.hassioDiscoveryTimer)();
                 }
 
@@ -464,7 +465,6 @@ void LoopManager::updateSwitchesAndStandby() {
 void LoopManager::updateStateMachine() {
     // State machine updates extracted from loopPid()
     extern std::unique_ptr<StateMachine> stateMachine;
-    extern void handleMachineState();
     extern void printMachineState();
 
     // Update state machine (replaces handleMachineState())
@@ -480,8 +480,8 @@ void LoopManager::updateStateMachine() {
         }
     }
     else {
-        // Fallback to old state machine if new one isn't ready
-        handleMachineState();
+        // StateMachine should always be available in modern setup
+        LOG(WARNING, "StateMachine not available for state updates");
     }
 
     hotWaterHandler();

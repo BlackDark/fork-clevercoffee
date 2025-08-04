@@ -9,9 +9,9 @@
 #include "Config.h"
 #include "brewStates.h"
 #include "display/languages.h"
+#include "hardware/pinmapping.h"
 #include "hardware/scales/BluetoothScale.h"
 #include "hardware/scales/HX711Scale.h"
-#include "hardware/pinmapping.h"
 #include "utils/helperUtils.h"
 
 void displayScaleFailed();

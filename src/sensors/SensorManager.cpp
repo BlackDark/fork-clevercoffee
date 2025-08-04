@@ -4,9 +4,9 @@
  */
 
 #include "SensorManager.h"
-#include "../state/GlobalState.h"
 #include "../Config.h"
 #include "../hardware/pressureSensor.h"
+#include "../state/GlobalState.h"
 #include "Logger.h"
 #include <Arduino.h>
 #include <Wire.h>

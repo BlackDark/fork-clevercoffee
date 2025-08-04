@@ -6,10 +6,9 @@
 #pragma once
 
 #include "Config.h"
+#include "hardware/Switch.h"
 #include "state/GlobalState.h"
 #include "state/MachineState.h"
-#include "hardware/Switch.h"
-
 
 inline void checkSteamSwitch() {
     if (!Config::getInstance().get<bool>("hardware.switches.steam.enabled") || g_state.hardware.steamSwitch == nullptr) {
