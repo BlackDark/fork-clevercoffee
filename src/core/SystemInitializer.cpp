@@ -27,35 +27,6 @@ namespace DisplayTemplateManager {
 #include <WiFi.h>
 #include <Wire.h>
 
-// External dependencies
-extern bool setupDone;
-// temperature moved to g_state.process.temperature
-// pidOutput moved to g_state.process.pidOutput
-// currBrewTime moved to g_state.process.currBrewTime
-extern double currBrewWeight;
-extern double currReadingWeight;
-extern unsigned long previousMillistemp;
-extern unsigned long windowStartTime;
-extern unsigned long previousMillisMQTT;
-extern unsigned long lastMQTTConnectionAttempt;
-extern unsigned long previousMillisPressure;
-extern int windowSize;
-extern int machineState;
-extern PubSubClient* mqtt;
-
-// Hardware compatibility pointers
-extern LED* statusLed;
-extern LED* brewLed;
-extern LED* steamLed;
-extern Relay* heaterRelay;
-extern Relay* pumpRelay;
-extern Relay* valveRelay;
-extern TempSensor* tempSensor;
-extern U8G2* u8g2;
-
-// Manager instances
-extern std::unique_ptr<MQTTManager> mqttManager;
-extern std::unique_ptr<CleverCoffeeWiFiManager> cleverCoffeeWiFiManager;
 
 // Forward declarations
 extern void initTimer1();
@@ -132,7 +103,7 @@ bool SystemInitializer::initialize() {
         return false;
     }
 
-    setupDone = true;
+    g_state.coordination.setupDone = true;
     systemInitialized_ = true;
 
     LOG(INFO, "System initialization completed successfully");
@@ -188,7 +159,7 @@ bool SystemInitializer::initializeDisplay() {
 
         if (displayManager_ && displayManager_->isInitialized()) {
             // Set compatibility pointer for existing code
-            u8g2 = displayManager_->get();
+            g_state.hardware.display = displayManager_->get();
 
             // Basic display setup - full initialization will be done in main.cpp
             // The display is now ready for basic operations but NOT for complex display functions
@@ -200,14 +171,14 @@ bool SystemInitializer::initializeDisplay() {
         else {
             LOG(ERROR, "Failed to create DisplayManager");
             displayManager_.reset();
-            u8g2 = nullptr;
+            g_state.hardware.display = nullptr;
             Config::getInstance().set<bool>("hardware.oled.enabled", false);
             return false;
         }
     } catch (const std::exception& e) {
         LOGF(ERROR, "Exception during display initialization: %s", e.what());
         displayManager_.reset();
-        u8g2 = nullptr;
+        g_state.hardware.display = nullptr;
         return false;
     }
 }
@@ -217,13 +188,13 @@ bool SystemInitializer::initializeHardware() {
         hardwareManager_ = std::make_unique<HardwareManager>();
 
         // Update compatibility pointers to reference HardwareManager components
-        heaterRelay = &hardwareManager_->getHeaterRelay();
-        pumpRelay = &hardwareManager_->getPumpRelay();
-        valveRelay = &hardwareManager_->getValveRelay();
+        g_state.hardware.heaterRelay = &hardwareManager_->getHeaterRelay();
+        g_state.hardware.pumpRelay = &hardwareManager_->getPumpRelay();
+        g_state.hardware.valveRelay = &hardwareManager_->getValveRelay();
 
-        statusLed = hardwareManager_->getStatusLed();
-        brewLed = hardwareManager_->getBrewLed();
-        steamLed = hardwareManager_->getSteamLed();
+        g_state.hardware.statusLed = hardwareManager_->getStatusLed();
+        g_state.hardware.brewLed = hardwareManager_->getBrewLed();
+        g_state.hardware.steamLed = hardwareManager_->getSteamLed();
 
         g_state.hardware.powerSwitch = hardwareManager_->getPowerSwitch();
         g_state.hardware.brewSwitch = hardwareManager_->getBrewSwitch();
@@ -231,7 +202,7 @@ bool SystemInitializer::initializeHardware() {
         g_state.hardware.powerSwitch = hardwareManager_->getHotWaterSwitch();
         g_state.hardware.waterTankSensor = hardwareManager_->getWaterTankSensor();
 
-        tempSensor = hardwareManager_->getTempSensor();
+        g_state.hardware.tempSensor = hardwareManager_->getTempSensor();
 
         LOG(INFO, "Hardware initialization completed via HardwareManager");
         return true;
@@ -251,6 +222,9 @@ bool SystemInitializer::initializeNetworking() {
     }
 
     try {
+        cleverCoffeeWiFiManager_ = std::make_unique<CleverCoffeeWiFiManager>();
+        g_state.network.cleverCoffeeWiFiManager = cleverCoffeeWiFiManager_.get();
+
         wiFiSetup();
         serverSetup();
 
@@ -287,17 +261,16 @@ bool SystemInitializer::initializeMQTT() {
             // mqtt_hassio_enabled = true;
             //  TODO check if this is right
             Config::getInstance().set<bool>("mqtt.hassio.enabled", true);
-            mqtt = &mqttManager_->getClient();
 
             // Set global reference for other parts of the system
-            mqttManager = std::move(mqttManager_);
-            mqttManager_ = nullptr; // Transfer ownership
+            //mqttManager = std::move(mqttManager_);
+            //mqttManager_ = nullptr; // Transfer ownership
 
             registerMQTTParameters();
             registerMQTTSensors();
 
-            mqttManager->checkConnection();
-            mqttManager->sendHASSIODiscoveryMsg();
+            mqttManager_->checkConnection();
+            mqttManager_->sendHASSIODiscoveryMsg();
 
             LOG(INFO, "MQTT setup completed via MQTTManager");
             return true;
@@ -315,8 +288,8 @@ bool SystemInitializer::initializeMQTT() {
 bool SystemInitializer::initializePID() {
     try {
         // Initialize PID controller
-        g_state.pid->SetSampleTime(windowSize);
-        g_state.pid->SetOutputLimits(0, windowSize);
+        g_state.pid->SetSampleTime(g_state.process.windowSize);
+        g_state.pid->SetOutputLimits(0, g_state.process.windowSize);
         g_state.pid->SetIntegratorLimits(0, 55.0); // AGGIMAX constant
         g_state.pid->SetSmoothingFactor(Config::getInstance().get<double>("pid.ema_factor"));
         g_state.pid->SetMode(AUTOMATIC);
@@ -366,7 +339,7 @@ bool SystemInitializer::finalizeMachineState() {
     try {
         // For momentary switches, start in normal operation mode
         if (Config::getInstance().get<bool>("hardware.switches.power.enabled") && Config::getInstance().get<int>("hardware.switches.power.type") == static_cast<int>(Switch::MOMENTARY)) {
-            machineState = kPidNormal;
+            g_state.machine.machineState = kPidNormal;
             setRuntimePidState(true);
             LOG(INFO, "Machine initialized in PID Normal mode (momentary switch)");
         }
@@ -374,12 +347,12 @@ bool SystemInitializer::finalizeMachineState() {
         else if (Config::getInstance().get<bool>("hardware.switches.power.enabled") && Config::getInstance().get<int>("hardware.switches.power.type") == static_cast<int>(Switch::TOGGLE)) {
             if (g_state.hardware.powerSwitch && g_state.hardware.powerSwitch->isPressed()) {
                 setRuntimePidState(true);
-                machineState = kPidNormal;
+                g_state.machine.machineState = kPidNormal;
                 LOG(INFO, "Machine initialized in PID Normal mode (toggle switch ON)");
             }
             else {
                 setRuntimePidState(false);
-                machineState = kPidDisabled;
+                g_state.machine.machineState = kPidDisabled;
                 LOG(INFO, "Machine initialized in PID Disabled mode (toggle switch OFF)");
             }
         }
@@ -404,95 +377,95 @@ void SystemInitializer::calculateDerivedValues() {
 void SystemInitializer::setupTiming() {
     // Initialize timing variables
     unsigned long currentTime = millis();
-    previousMillistemp = currentTime;
-    windowStartTime = currentTime;
-    previousMillisMQTT = currentTime;
-    lastMQTTConnectionAttempt = currentTime;
+    g_state.timing.previousMillistemp = currentTime;
+    g_state.timing.windowStartTime = currentTime;
+    g_state.timing.previousMillisMQTT = currentTime;
+    g_state.network.lastMQTTConnectionAttempt = currentTime;
 
     LOG(DEBUG, "Timing variables initialized");
 }
 
 void SystemInitializer::registerMQTTParameters() {
-    if (!mqttManager) return;
+    if (!mqttManager_) return;
 
     // Core parameters
-    mqttManager->registerParameter("pidON", "pid.enabled");
-    mqttManager->registerParameter("brewSetpoint", "brew.setpoint");
-    mqttManager->registerParameter("brewTempOffset", "brew.temp_offset");
-    mqttManager->registerParameter("steamON", "STEAM_MODE");
-    mqttManager->registerParameter("steamSetpoint", "steam.setpoint");
-    mqttManager->registerParameter("pidUsePonM", "pid.use_ponm");
-    mqttManager->registerParameter("aggKp", "pid.regular.kp");
-    mqttManager->registerParameter("aggTn", "pid.regular.tn");
-    mqttManager->registerParameter("aggTv", "pid.regular.tv");
-    mqttManager->registerParameter("aggIMax", "pid.regular.i_max");
-    mqttManager->registerParameter("steamKp", "pid.steam.kp");
-    mqttManager->registerParameter("standbyModeOn", "standby.enabled");
+    mqttManager_->registerParameter("pidON", "pid.enabled");
+    mqttManager_->registerParameter("brewSetpoint", "brew.setpoint");
+    mqttManager_->registerParameter("brewTempOffset", "brew.temp_offset");
+    mqttManager_->registerParameter("steamON", "STEAM_MODE");
+    mqttManager_->registerParameter("steamSetpoint", "steam.setpoint");
+    mqttManager_->registerParameter("pidUsePonM", "pid.use_ponm");
+    mqttManager_->registerParameter("aggKp", "pid.regular.kp");
+    mqttManager_->registerParameter("aggTn", "pid.regular.tn");
+    mqttManager_->registerParameter("aggTv", "pid.regular.tv");
+    mqttManager_->registerParameter("aggIMax", "pid.regular.i_max");
+    mqttManager_->registerParameter("steamKp", "pid.steam.kp");
+    mqttManager_->registerParameter("standbyModeOn", "standby.enabled");
 
     // Brew-specific parameters
     if (Config::getInstance().get<bool>("hardware.switches.brew.enabled")) {
-        mqttManager->registerParameter("aggbKp", "pid.bd.kp");
-        mqttManager->registerParameter("aggbTn", "pid.bd.tn");
-        mqttManager->registerParameter("aggbTv", "pid.bd.tv");
-        mqttManager->registerParameter("pidUseBD", "pid.bd.enabled");
-        mqttManager->registerParameter("brewPidDelay", "brew.pid_delay");
-        mqttManager->registerParameter("targetBrewTime", "brew.by_time.target_time");
-        mqttManager->registerParameter("preinfusion", "brew.pre_infusion.time");
-        mqttManager->registerParameter("preinfusionPause", "brew.pre_infusion.pause");
-        mqttManager->registerParameter("backflushOn", "BACKFLUSH_ON");
-        mqttManager->registerParameter("backflushCycles", "backflush.cycles");
-        mqttManager->registerParameter("backflushFillTime", "backflush.fill_time");
-        mqttManager->registerParameter("backflushFlushTime", "backflush.flush_time");
+        mqttManager_->registerParameter("aggbKp", "pid.bd.kp");
+        mqttManager_->registerParameter("aggbTn", "pid.bd.tn");
+        mqttManager_->registerParameter("aggbTv", "pid.bd.tv");
+        mqttManager_->registerParameter("pidUseBD", "pid.bd.enabled");
+        mqttManager_->registerParameter("brewPidDelay", "brew.pid_delay");
+        mqttManager_->registerParameter("targetBrewTime", "brew.by_time.target_time");
+        mqttManager_->registerParameter("preinfusion", "brew.pre_infusion.time");
+        mqttManager_->registerParameter("preinfusionPause", "brew.pre_infusion.pause");
+        mqttManager_->registerParameter("backflushOn", "BACKFLUSH_ON");
+        mqttManager_->registerParameter("backflushCycles", "backflush.cycles");
+        mqttManager_->registerParameter("backflushFillTime", "backflush.fill_time");
+        mqttManager_->registerParameter("backflushFlushTime", "backflush.flush_time");
     }
 
     // Scale-specific parameters
     if (Config::getInstance().get<bool>("hardware.sensors.scale.enabled")) {
-        mqttManager->registerParameter("targetBrewWeight", "brew.by_weight.target_weight");
-        mqttManager->registerParameter("scaleCalibration", "hardware.sensors.scale.calibration");
+        mqttManager_->registerParameter("targetBrewWeight", "brew.by_weight.target_weight");
+        mqttManager_->registerParameter("scaleCalibration", "hardware.sensors.scale.calibration");
 
         if (Config::getInstance().get<int>("hardware.sensors.scale.type") == 0) {
-            mqttManager->registerParameter("scale2Calibration", "hardware.sensors.scale.calibration2");
+            mqttManager_->registerParameter("scale2Calibration", "hardware.sensors.scale.calibration2");
         }
 
-        mqttManager->registerParameter("scaleKnownWeight", "hardware.sensors.scale.known_weight");
-        mqttManager->registerParameter("scaleTareOn", "TARE_ON");
-        mqttManager->registerParameter("scaleCalibrationOn", "CALIBRATION_ON");
+        mqttManager_->registerParameter("scaleKnownWeight", "hardware.sensors.scale.known_weight");
+        mqttManager_->registerParameter("scaleTareOn", "TARE_ON");
+        mqttManager_->registerParameter("scaleCalibrationOn", "CALIBRATION_ON");
     }
 
     LOG(DEBUG, "MQTT parameters registered");
 }
 
 void SystemInitializer::registerMQTTSensors() {
-    if (!mqttManager) return;
+    if (!mqttManager_) return;
 
     // Core sensors
-    mqttManager->registerSensor("temperature", [] { return g_state.process.temperature; });
-    mqttManager->registerSensor("heaterPower", [] { return g_state.process.pidOutput / 10; });
-    mqttManager->registerSensor("standbyModeTimeRemaining", [] { return g_state.standby.standbyModeRemainingTimeMillis / 1000; });
-    mqttManager->registerSensor("currentKp", [] { return g_state.pid->GetKp(); });
-    mqttManager->registerSensor("currentKi", [] { return g_state.pid->GetKi(); });
-    mqttManager->registerSensor("currentKd", [] { return g_state.pid->GetKd(); });
-    mqttManager->registerSensor("machineState", [] { return static_cast<double>(g_state.machine.machineState); });
+    mqttManager_->registerSensor("temperature", [] { return g_state.process.temperature; });
+    mqttManager_->registerSensor("heaterPower", [] { return g_state.process.pidOutput / 10; });
+    mqttManager_->registerSensor("standbyModeTimeRemaining", [] { return g_state.standby.standbyModeRemainingTimeMillis / 1000; });
+    mqttManager_->registerSensor("currentKp", [] { return g_state.pid->GetKp(); });
+    mqttManager_->registerSensor("currentKi", [] { return g_state.pid->GetKi(); });
+    mqttManager_->registerSensor("currentKd", [] { return g_state.pid->GetKd(); });
+    mqttManager_->registerSensor("machineState", [] { return static_cast<double>(g_state.machine.machineState); });
 
     // Brew-specific sensors
     if (Config::getInstance().get<bool>("hardware.switches.brew.enabled")) {
-        mqttManager->registerSensor("currBrewTime", [] { return g_state.process.currBrewTime / 1000; });
+        mqttManager_->registerSensor("currBrewTime", [] { return g_state.process.currBrewTime / 1000; });
     }
 
     // Scale-specific sensors
     if (Config::getInstance().get<bool>("hardware.sensors.scale.enabled")) {
-        mqttManager->registerSensor("currReadingWeight", [] { return currReadingWeight; });
-        mqttManager->registerSensor("currBrewWeight", [] { return currBrewWeight; });
+        mqttManager_->registerSensor("currReadingWeight", [] { return g_state.sensors.currReadingWeight; });
+        mqttManager_->registerSensor("currBrewWeight", [] { return g_state.sensors.currBrewWeight; });
     }
 
     // Pressure sensor
     if (Config::getInstance().get<bool>("hardware.sensors.pressure.enabled")) {
-        mqttManager->registerSensor("pressure", [] { return g_state.sensors.inputPressureFilter; });
+        mqttManager_->registerSensor("pressure", [] { return g_state.sensors.inputPressureFilter; });
     }
 
     LOG(DEBUG, "MQTT sensors registered");
 }
 
 CleverCoffeeWiFiManager* SystemInitializer::getWiFiManager() const {
-    return cleverCoffeeWiFiManager.get();
+    return cleverCoffeeWiFiManager_.get();
 }

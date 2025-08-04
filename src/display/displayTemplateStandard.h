@@ -41,31 +41,31 @@ inline void printScreen() {
 
     // If no specific machine state was printed, print default:
 
-    u8g2->clearBuffer();
-    u8g2->setFont(u8g2_font_profont11_tf); // set font
+    g_state.hardware.display->clearBuffer();
+    g_state.hardware.display->setFont(u8g2_font_profont11_tf); // set font
 
     displayStatusbar();
 
-    u8g2->setCursor(34, 16);
-    u8g2->print(langstring_current_temp);
-    u8g2->setCursor(84, 16);
-    u8g2->print(g_state.process.temperature, 1);
-    u8g2->setCursor(115, 16);
-    u8g2->print(static_cast<char>(176));
-    u8g2->print("C");
-    u8g2->setCursor(34, 26);
-    u8g2->print(langstring_set_temp);
-    u8g2->setCursor(84, 26);
-    u8g2->print(g_state.process.setpoint, 1);
-    u8g2->setCursor(115, 26);
-    u8g2->print(static_cast<char>(176));
-    u8g2->print("C");
+    g_state.hardware.display->setCursor(34, 16);
+    g_state.hardware.display->print(langstring_current_temp);
+    g_state.hardware.display->setCursor(84, 16);
+    g_state.hardware.display->print(g_state.process.temperature, 1);
+    g_state.hardware.display->setCursor(115, 16);
+    g_state.hardware.display->print(static_cast<char>(176));
+    g_state.hardware.display->print("C");
+    g_state.hardware.display->setCursor(34, 26);
+    g_state.hardware.display->print(langstring_set_temp);
+    g_state.hardware.display->setCursor(84, 26);
+    g_state.hardware.display->print(g_state.process.setpoint, 1);
+    g_state.hardware.display->setCursor(115, 26);
+    g_state.hardware.display->print(static_cast<char>(176));
+    g_state.hardware.display->print("C");
 
     displayThermometerOutline(4, 62);
 
     // Draw current temp in thermometer
     if (fabs(g_state.process.temperature - g_state.process.setpoint) < 0.3) {
-        if (isrCounter < 500) {
+        if (g_state.timing.isrCounter < 500) {
             drawTemperaturebar(8, 30);
         }
     }
@@ -76,11 +76,11 @@ inline void printScreen() {
     // Brew and flush time
     if (Config::getInstance().get<bool>("hardware.switches.brew.enabled")) {
         // Show flush time
-        if (machineState == kManualFlush) {
+        if (g_state.machine.machineState == kManualFlush) {
             displayBrewTime(34, 36, langstring_manual_flush, g_state.process.currBrewTime);
         }
         // Show hot water time
-        else if (machineState == kHotWater) {
+        else if (g_state.machine.machineState == kHotWater) {
             displayBrewTime(34, 36, langstring_hot_water, currPumpOnTime);
         }
         else {
@@ -96,30 +96,30 @@ inline void printScreen() {
     }
 
     // PID values over heat bar
-    u8g2->setCursor(38, 47);
+    g_state.hardware.display->setCursor(38, 47);
 
-    u8g2->print(g_state.pid->GetKp(), 0);
-    u8g2->print("|");
+    g_state.hardware.display->print(g_state.pid->GetKp(), 0);
+    g_state.hardware.display->print("|");
 
     if (g_state.pid->GetKi() != 0) {
-        u8g2->print(g_state.pid->GetKp() / g_state.pid->GetKi(), 0);
+        g_state.hardware.display->print(g_state.pid->GetKp() / g_state.pid->GetKi(), 0);
     }
     else {
-        u8g2->print("0");
+        g_state.hardware.display->print("0");
     }
 
-    u8g2->print("|");
-    u8g2->print(g_state.pid->GetKd() / g_state.pid->GetKp(), 0);
-    u8g2->setCursor(96, 47);
+    g_state.hardware.display->print("|");
+    g_state.hardware.display->print(g_state.pid->GetKd() / g_state.pid->GetKp(), 0);
+    g_state.hardware.display->setCursor(96, 47);
 
     if (g_state.process.pidOutput < 99) {
-        u8g2->print(g_state.process.pidOutput / 10, 1);
+        g_state.hardware.display->print(g_state.process.pidOutput / 10, 1);
     }
     else {
-        u8g2->print(g_state.process.pidOutput / 10, 0);
+        g_state.hardware.display->print(g_state.process.pidOutput / 10, 0);
     }
 
-    u8g2->print("%");
+    g_state.hardware.display->print("%");
 
     // Show heater output in %
     displayProgressbar(g_state.process.pidOutput / 10, 30, 60, 98);

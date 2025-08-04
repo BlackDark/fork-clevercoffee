@@ -12,25 +12,21 @@
 
 // pidOutput moved to g_state.process.pidOutput
 
-unsigned int isrCounter = 0; // counter for ISR
-unsigned long windowStartTime;
-unsigned int windowSize = 1000;
-
 void IRAM_ATTR onTimer() {
-    timerAlarmWrite(timer, 10000, true);
+    timerAlarmWrite(g_state.machine.timer, 10000, true);
 
-    if (g_state.process.pidOutput <= isrCounter) {
-        heaterRelay->off();
+    if (g_state.process.pidOutput <= g_state.timing.isrCounter) {
+        g_state.hardware.heaterRelay->off();
     }
     else {
-        heaterRelay->on();
+        g_state.hardware.heaterRelay->on();
     }
 
-    isrCounter += 10; // += 10 because one tick = 10ms
+    g_state.timing.isrCounter += 10; // += 10 because one tick = 10ms
 
     // set PID output as relay commands
-    if (isrCounter >= windowSize) {
-        isrCounter = 0;
+    if (g_state.timing.isrCounter >= g_state.process.windowSize) {
+        g_state.timing.isrCounter = 0;
     }
 }
 
@@ -38,19 +34,19 @@ void IRAM_ATTR onTimer() {
  * @brief Initialize hardware timers
  */
 void initTimer1() {
-    timer = timerBegin(0, 80, true);
-    timerAttachInterrupt(timer, &onTimer, true);
-    timerAlarmWrite(timer, 10000, true);
+    g_state.machine.timer = timerBegin(0, 80, true);
+    timerAttachInterrupt(g_state.machine.timer, &onTimer, true);
+    timerAlarmWrite(g_state.machine.timer, 10000, true);
 }
 
 void enableTimer1() {
-    timerAlarmEnable(timer);
+    timerAlarmEnable(g_state.machine.timer);
 }
 
 void disableTimer1() {
-    timerAlarmDisable(timer);
+    timerAlarmDisable(g_state.machine.timer);
 }
 
 bool isTimer1Enabled() {
-    return timerAlarmEnabled(timer);
+    return timerAlarmEnabled(g_state.machine.timer);
 }

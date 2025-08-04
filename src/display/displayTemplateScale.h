@@ -40,7 +40,7 @@ inline void printScreen() {
     }
 
     // If no specific machine state was printed, print default:
-    u8g2->clearBuffer();
+    g_state.hardware.display->clearBuffer();
 
     displayStatusbar();
 
@@ -48,7 +48,7 @@ inline void printScreen() {
 
     // Draw current temp in thermometer
     if (fabs(g_state.process.temperature - g_state.process.setpoint) < 0.3) {
-        if (isrCounter < 500) {
+        if (g_state.timing.isrCounter < 500) {
             drawTemperaturebar(8, 30);
         }
     }
@@ -57,30 +57,30 @@ inline void printScreen() {
     }
 
     // Draw current temp and temp setpoint
-    u8g2->setFont(u8g2_font_profont11_tf);
+    g_state.hardware.display->setFont(u8g2_font_profont11_tf);
 
-    u8g2->setCursor(32, 16);
-    u8g2->print("T: ");
-    u8g2->print(g_state.process.temperature, 1);
-    u8g2->print("/");
-    u8g2->print(g_state.process.setpoint, 1);
-    u8g2->print(static_cast<char>(176));
-    u8g2->print("C");
+    g_state.hardware.display->setCursor(32, 16);
+    g_state.hardware.display->print("T: ");
+    g_state.hardware.display->print(g_state.process.temperature, 1);
+    g_state.hardware.display->print("/");
+    g_state.hardware.display->print(g_state.process.setpoint, 1);
+    g_state.hardware.display->print(static_cast<char>(176));
+    g_state.hardware.display->print("C");
 
     const bool scaleEnabled = Config::getInstance().get<bool>("hardware.sensors.scale.enabled");
 
     if (scaleEnabled) {
         // Show current weight if scale has no error
-        displayBrewWeight(32, 26, currReadingWeight, -1, scaleFailure);
+        displayBrewWeight(32, 26, g_state.sensors.currReadingWeight, -1, g_state.sensors.scaleFailure);
     }
 
     if (Config::getInstance().get<bool>("hardware.switches.brew.enabled")) {
         // Show flush time
-        if (machineState == kManualFlush) {
+        if (g_state.machine.machineState == kManualFlush) {
             displayBrewTime(32, 36, langstring_manual_flush, g_state.process.currBrewTime);
         }
         // Show hot water time
-        else if (machineState == kHotWater) {
+        else if (g_state.machine.machineState == kHotWater) {
             displayBrewTime(32, 36, langstring_hot_water, currPumpOnTime);
         }
         else if (shouldDisplayBrewTimer()) {
@@ -98,21 +98,21 @@ inline void printScreen() {
             if (scaleEnabled) {
                 if (automaticBrewingEnabled && Config::getInstance().get<bool>("brew.by_weight.enabled")) {
                     const auto targetBrewWeight = Config::getInstance().get<double>("brew.by_weight.target_weight");
-                    displayBrewWeight(32, 26, currBrewWeight, targetBrewWeight, scaleFailure);
+                    displayBrewWeight(32, 26, g_state.sensors.currBrewWeight, targetBrewWeight, g_state.sensors.scaleFailure);
                 }
                 else {
-                    displayBrewWeight(32, 26, currBrewWeight, -1, scaleFailure);
+                    displayBrewWeight(32, 26, g_state.sensors.currBrewWeight, -1, g_state.sensors.scaleFailure);
                 }
             }
         }
     }
 
     if (Config::getInstance().get<bool>("hardware.sensors.pressure.enabled")) {
-        u8g2->setCursor(32, 46);
-        u8g2->drawUTF8(32, 46, langstring_pressure);
-        int labelWidth = u8g2->getUTF8Width(langstring_pressure);
-        u8g2->setCursor(32 + labelWidth, 46);
-        u8g2->print(g_state.sensors.inputPressure, 1);
+        g_state.hardware.display->setCursor(32, 46);
+        g_state.hardware.display->drawUTF8(32, 46, langstring_pressure);
+        int labelWidth = g_state.hardware.display->getUTF8Width(langstring_pressure);
+        g_state.hardware.display->setCursor(32 + labelWidth, 46);
+        g_state.hardware.display->print(g_state.sensors.inputPressure, 1);
     }
 
     // Show heater output in %

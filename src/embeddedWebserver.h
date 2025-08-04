@@ -10,6 +10,7 @@
 #include "ota.h"
 #include "state/GlobalState.h"
 #include "utils/helperUtils.h"
+#include "utils/legacyUtils.h"
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <AsyncJson.h>
@@ -24,9 +25,6 @@ inline AsyncEventSource events("/events");
 AsyncCorsMiddleware corsMiddleware;
 AsyncAuthenticationMiddleware authMiddleware;
 
-
-// temperature moved to g_state.process.temperature
-// pidOutput moved to g_state.process.pidOutput
 
 #define JSON_BUFFER_SIZE 512
 #define PATH_BUFFER_SIZE 128

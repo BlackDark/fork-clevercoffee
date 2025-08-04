@@ -13,9 +13,6 @@
 #include <map>
 #include <memory>
 
-// Forward declarations to avoid circular dependencies
-
-
 /**
  * @class MQTTManager
  * @brief RAII wrapper for MQTT connection and message handling
@@ -172,7 +169,7 @@ class MQTTManager {
         char topicSet_[256];
 
         // Parameter and sensor mappings
-        
+
         std::map<const char*, std::string> mqttLastSent_;
 
         // Update management

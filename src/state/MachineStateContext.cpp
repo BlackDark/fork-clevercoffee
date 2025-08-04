@@ -23,19 +23,8 @@ extern bool manualFlush();
 extern bool checkHotWaterStates();
 extern bool brew();
 
-// MachineState enum - defined in GlobalState.h
-// enum moved to avoid redefinition
-
 // Forward declaration for standby timer reset function
 extern void resetStandbyTimer(LegacyMachineState state);
-
-// External global variables
-// steamON moved to g_state.machine.steamON
-// backflushOn moved to g_state.machine.backflushOn
-// emergencyStop moved to g_state.machine.emergencyStop
-extern bool waterTankFull;
-// standbyModeRemainingTimeMillis moved to g_state.standby.standbyModeRemainingTimeMillis
-extern int MQTTReCnctCount;
 
 MachineStateContext::MachineStateContext(DisplayManager* displayManager, HardwareManager* hardwareManager, SensorManager* sensorManager, CleverCoffeeWiFiManager* wifiManager, MQTTManager* mqttManager) :
     displayManager_(displayManager), hardwareManager_(hardwareManager), sensorManager_(sensorManager), wifiManager_(wifiManager), mqttManager_(mqttManager) {
@@ -106,7 +95,7 @@ bool MachineStateContext::hasTemperatureError() const {
 }
 
 bool MachineStateContext::isWaterTankFull() const {
-    return sensorManager_ ? sensorManager_->isWaterTankFull() : waterTankFull;
+    return sensorManager_ ? sensorManager_->isWaterTankFull() : g_state.machine.waterTankFull;
 }
 
 float MachineStateContext::getCurrentPressure() const {
@@ -134,6 +123,8 @@ bool MachineStateContext::hasSensorError() const {
 }
 
 // === Process Control Functions ===
+
+// TODO those are wrong the functions behind like brew() and manualFlush() are triggering those events
 
 bool MachineStateContext::isBrewActive() const {
     return brew();
@@ -255,5 +246,5 @@ void MachineStateContext::logStateExit(int stateId, const char* stateName) const
 // === MQTT Integration ===
 
 void MachineStateContext::resetMqttReconnectCount() const {
-    MQTTReCnctCount = 0;
+    g_state.network.MQTTReCnctCount = 0;
 }

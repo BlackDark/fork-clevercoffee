@@ -6,9 +6,7 @@
  */
 
 #pragma once
-
-// Forward declaration for helper function
-extern bool isMqttUpdateRunning();
+#include "utils/legacyUtils.h"
 
 enum ActivityType : uint16_t {
     ACT_DISPLAY_READY = 0x01,

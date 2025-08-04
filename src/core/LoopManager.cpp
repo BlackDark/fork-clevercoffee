@@ -8,6 +8,7 @@
 #include "../Config.h"
 #include "../control/ProcessController.h"
 #include "../hardware/Relay.h"
+#include "../hardware/LED.h"
 #include "../network/MQTTManager.h"
 #include "../sensors/SensorManager.h"
 #include "../state/StateMachine.h"
@@ -154,30 +155,30 @@ void LoopManager::updateLEDs() {
         }
 
         if (shouldTurnOn) {
-            (*g_state.hardware.statusLed)->on();
+            g_state.hardware.statusLed->turnOn();
         }
         else {
-            (*g_state.hardware.statusLed)->off();
+            g_state.hardware.statusLed->turnOff();
         }
     }
 
     // Brew LED - indicates brewing state
     if (Config::getInstance().get<bool>("hardware.leds.brew.enabled") && g_state.hardware.brewLed != nullptr) {
         if (g_state.machine.machineState == kBrew) {
-            (*g_state.hardware.brewLed)->on();
+            g_state.hardware.brewLed->turnOn();
         }
         else {
-            (*g_state.hardware.brewLed)->off();
+            g_state.hardware.brewLed->turnOff();
         }
     }
 
     // Steam LED - indicates steam mode
     if (Config::getInstance().get<bool>("hardware.leds.steam.enabled") && g_state.hardware.steamLed != nullptr) {
         if (g_state.machine.machineState == kSteam) {
-            (*g_state.hardware.steamLed)->on();
+            g_state.hardware.steamLed->turnOn();
         }
         else {
-            (*g_state.hardware.steamLed)->off();
+            g_state.hardware.steamLed->turnOff();
         }
     }
 }
@@ -218,7 +219,7 @@ void LoopManager::updateDisplay() {
             // Only update display on loops that have not had other major tasks running
             // and when not in standby display-off mode
             bool websiteCondition = !g_state.coordination.websiteUpdateRunning;
-            bool mqttCondition = (!g_state.network.mqttManager || !(*g_state.network.mqttManager)->isUpdateRunning());
+            bool mqttCondition = (!g_state.network.mqttManager || !g_state.network.mqttManager->isUpdateRunning());
             bool hassioCondition = !g_state.coordination.hassioUpdateRunning;
             bool tempCondition = !g_state.coordination.temperatureUpdateRunning;
             bool standbyCondition = (!Config::getInstance().get<bool>("standby.enabled") || g_state.standby.standbyModeRemainingTimeMillis > 0);
@@ -253,7 +254,7 @@ void LoopManager::updateDisplay() {
             // Only update display on loops that have not had other major tasks running
             // and when not in standby display-off mode
             bool websiteCondition = !g_state.coordination.websiteUpdateRunning;
-            bool mqttCondition = (!g_state.network.mqttManager || !(*g_state.network.mqttManager)->isUpdateRunning());
+            bool mqttCondition = (!g_state.network.mqttManager || !g_state.network.mqttManager->isUpdateRunning());
             bool hassioCondition = !g_state.coordination.hassioUpdateRunning;
             bool tempCondition = !g_state.coordination.temperatureUpdateRunning;
             bool standbyCondition = (!Config::getInstance().get<bool>("standby.enabled") || g_state.standby.standbyModeRemainingTimeMillis > 0);
@@ -345,33 +346,33 @@ void LoopManager::updateNetwork() {
             wifiWasConnected = true;
         }
 
-        if (g_state.network.mqttManager && (*g_state.network.mqttManager)->isEnabled()) {
-            (*g_state.network.mqttManager)->setUpdateRunning(false);
+        if (g_state.network.mqttManager && g_state.network.mqttManager->isEnabled()) {
+            g_state.network.mqttManager->setUpdateRunning(false);
 
             if (getSignalStrength() > 1) {
-                (*g_state.network.mqttManager)->checkConnection();
+                g_state.network.mqttManager->checkConnection();
 
                 // if screen is ready to refresh wait for next loop
                 if (!g_state.coordination.displayBufferReady && !g_state.coordination.temperatureUpdateRunning) {
-                    (*g_state.network.mqttManager)->writeSysParamsToMQTT(true);
+                    g_state.network.mqttManager->writeSysParamsToMQTT(true);
                 }
             }
 
             g_state.coordination.hassioUpdateRunning = false;
 
-            if ((*g_state.network.mqttManager)->isConnected()) {
-                (*g_state.network.mqttManager)->loop();
+            if (g_state.network.mqttManager->isConnected()) {
+                g_state.network.mqttManager->loop();
 
                 // resend discovery messages if not during a main function and MQTT has been disconnected but has now reconnected
-                if (!(g_state.machine.machineState >= kBrew && g_state.machine.machineState <= kBackflush) && ((!(*g_state.network.mqttManager)->wasConnected() || g_state.network.hassioFailed) && !g_state.coordination.displayBufferReady && !g_state.coordination.temperatureUpdateRunning)) {
+                if (!(g_state.machine.machineState >= kBrew && g_state.machine.machineState <= kBackflush) && ((!g_state.network.mqttManager->wasConnected() || g_state.network.hassioFailed) && !g_state.coordination.displayBufferReady && !g_state.coordination.temperatureUpdateRunning)) {
                     if (g_state.timing.hassioDiscoveryTimer) (*g_state.timing.hassioDiscoveryTimer)();
                 }
 
-                (*g_state.network.mqttManager)->setWasConnected(true);
+                g_state.network.mqttManager->setWasConnected(true);
             }
-            else if ((*g_state.network.mqttManager)->wasConnected()) {
+            else if (g_state.network.mqttManager->wasConnected()) {
                 LOG(INFO, "MQTT disconnected");
-                (*g_state.network.mqttManager)->setWasConnected(false);
+                g_state.network.mqttManager->setWasConnected(false);
             }
         }
 
@@ -400,7 +401,7 @@ void LoopManager::updateWebsite() {
     // pidOutput moved to g_state.process.pidOutput
 
     bool timeCondition = (millis() - g_state.network.lastTempEvent) > g_state.network.tempEventInterval;
-    bool mqttCondition = (!g_state.network.mqttManager || !(*g_state.network.mqttManager)->isUpdateRunning());
+    bool mqttCondition = (!g_state.network.mqttManager || !g_state.network.mqttManager->isUpdateRunning());
     bool hassioCondition = !g_state.coordination.hassioUpdateRunning;
     bool displayCondition = !g_state.coordination.displayBufferReady;
     bool tempCondition = !g_state.coordination.temperatureUpdateRunning;

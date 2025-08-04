@@ -14,8 +14,6 @@
 // Forward declarations for scale-related functions and variables
 extern void initScale(); // This is defined in scaleHandler.h but used in main.cpp
 
-
-
 SensorManager::SensorManager() :
     tempSensor_(nullptr),
     waterTankSensor_(nullptr),

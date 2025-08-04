@@ -51,9 +51,24 @@ class U8G2;
 class Relay;
 class TempSensor;
 class MQTTManager;
+class CleverCoffeeWiFiManager;
 class PID;
 class Config;
 class Switch;
+class LED;
+class GPIOPin;
+
+
+extern const char* WIFI_PASSWORD;
+constexpr unsigned long wifiConnectionDelay = WIFICONNECTIONDELAY;
+constexpr unsigned int maxWifiReconnects = MAXWIFIRECONNECTS;
+constexpr double EmergencyStopTemp = 145;
+constexpr int waterTankCountsNeeded = 3; // Number of same readings to change water tank sensing
+
+// Scale connection constants
+constexpr unsigned long SCALE_CONNECTION_CHECK_INTERVAL = 500; // Check every 500 milliseconds
+constexpr unsigned long SCALE_CONNECTION_TIMEOUT = 5000;       // 5 seconds timeout
+constexpr unsigned long SCALE_RECONNECTION_TIMEOUT = 30000;    // 30 seconds before giving up
 
 /**
  * @brief Process control related state
@@ -78,6 +93,8 @@ struct ProcessState {
         double aggbKd = 0.0;
         double aggKi = 0.0;
         double aggKd = 0.0;
+
+        int windowSize = 1000;
 };
 
 /**
@@ -89,7 +106,8 @@ struct CoordinationState {
         bool hassioUpdateRunning = false;
         bool displayUpdateRunning = false;
         bool displayBufferReady = false;
-        bool mqttUpdateRunning = false;
+        // bool mqttUpdateRunning = false;
+        bool setupDone = false;
 };
 
 /**
@@ -103,6 +121,8 @@ struct HardwareRefs {
         TempSensor* tempSensor = nullptr;
         Scale* scale = nullptr;
 
+        bool isBluetoothScale = false;
+
         // Switches and sensors
         Switch* brewSwitch = nullptr;
         Switch* steamSwitch = nullptr;
@@ -110,27 +130,37 @@ struct HardwareRefs {
         Switch* hotWaterSwitch = nullptr;
         Switch* waterTankSensor = nullptr;
 
+
+
         // LEDs
-        std::unique_ptr<Relay>* statusLed = nullptr;
-        std::unique_ptr<Relay>* brewLed = nullptr;
-        std::unique_ptr<Relay>* steamLed = nullptr;
+        GPIOPin* statusLedPin = nullptr;
+        GPIOPin* brewLedPin = nullptr;
+        GPIOPin* steamLedPin = nullptr;
+        LED* statusLed = nullptr;
+        LED* brewLed = nullptr;
+        LED* steamLed = nullptr;
 };
 
 /**
  * @brief Network and communication state
  */
 struct NetworkState {
+        CleverCoffeeWiFiManager* cleverCoffeeWiFiManager = nullptr;
+
         bool offlineMode = false;
         unsigned int wifiReconnects = 0;
         unsigned long lastWifiConnectionAttempt = 0;
         // hostname, mqtt_enabled, mqtt_hassio_enabled moved to config access only
-        bool hassioFailed = false;
-        bool mqtt_was_connected = false;
         unsigned long lastTempEvent = 0;
         unsigned long tempEventInterval = 1000;
-        std::unique_ptr<MQTTManager>* mqttManager = nullptr;
+
+        MQTTManager* mqttManager = nullptr;
         std::map<const char*, const char*, cmp_str> mqttVars;
         std::map<const char*, std::function<double()>, cmp_str> mqttSensors;
+        bool mqtt_was_connected = false;
+        unsigned int MQTTReCnctCount = 0;
+        unsigned long lastMQTTConnectionAttempt = 0;
+        bool hassioFailed = false;
 };
 
 /**
@@ -138,7 +168,6 @@ struct NetworkState {
  */
 struct TimingState {
         unsigned long previousMillistemp = 0;
-        unsigned long windowStartTime = 0;
         unsigned long previousMillisMQTT = 0;
         const unsigned long intervalPressure = 100;
         unsigned long previousMillisPressure = 0;
@@ -148,6 +177,10 @@ struct TimingState {
         Timer* loopWaterTank2 = nullptr;
         Timer* hassioDiscoveryTimer2 = nullptr;
         Timer* printDisplayTimer2 = nullptr;
+
+        // isr + windowSize
+        unsigned int isrCounter = 0;
+        unsigned long windowStartTime = 0;
 };
 
 /**
@@ -171,11 +204,25 @@ struct StandbyState {
 struct SensorState {
         float inputPressure = 0.0;
         float inputPressureFilter = 0.0;
-        bool scaleTareOn = false;
-        bool scaleCalibrationOn = false;
         double currBrewWeight = 0.0;
         double currReadingWeight = 0.0;
+
+        // scale
         bool scaleFailure = false;
+        bool scaleTareOn = false;
+        bool scaleCalibrationOn = false;
+        int shottimerCounter = 10;
+        float preBrewWeight = 0;     // weight before brew started
+        float scaleDelayValue = 2.5; // delay compensation in grams
+        bool autoTareInProgress = false;
+        unsigned long autoTareStartTime = 0;
+
+        // bluetooth scale
+        unsigned long lastScaleConnectionCheck = 0;
+        unsigned long scaleConnectionFailureTime = 0;
+        bool scaleConnectionLost = false;
+        float lastValidWeight = 0;
+        bool brewByWeightFallbackActive = false;
 
         // Pressure filter variables
         float inX = 0.0f;
@@ -202,6 +249,9 @@ struct SensorState {
         uint8_t brewSwitchReading = LOW;
         uint8_t currReadingBrewSwitch = LOW;
         bool brewSwitchWasOff = false;
+
+        // water
+        int waterTankCheckConsecutiveReads = 0;  // Counter for consecutive readings of water tank sensor
 };
 
 /**
@@ -218,6 +268,8 @@ struct MachineStateData {
         int currBackflushCycles = 1;
         bool waterTankFull = true;
         bool systemInitialized = false;
+
+        hw_timer_t* timer = nullptr;
 };
 
 /**

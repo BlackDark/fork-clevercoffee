@@ -10,15 +10,13 @@
 #include "Logger.h"
 #include <Arduino.h>
 #include <cstdio>
+#include "../utils/legacyUtils.h"
 
 // Static instance for callback
 MQTTManager* MQTTManager::instance_ = nullptr;
 
 // Forward declarations for external dependencies
-extern char* number2string(double value);
 extern bool checkBrewActive();
-extern int machineState;
-extern bool hassioFailed;
 
 MQTTManager::MQTTManager() :
     wifiClient_(std::make_unique<WiFiClient>()),
@@ -249,7 +247,7 @@ int MQTTManager::writeSysParamsToMQTT(bool continueOnError) {
     static bool inSensors = false;
 
     unsigned long currentMillisMQTT = millis();
-    unsigned long interval = (machineState == kBrew) ? intervalMQTTBrew_ : (machineState == kStandby) ? intervalMQTTStandby_ : intervalMQTT_;
+    unsigned long interval = (g_state.machine.machineState == kBrew) ? intervalMQTTBrew_ : (g_state.machine.machineState == kStandby) ? intervalMQTTStandby_ : intervalMQTT_;
 
     if ((currentMillisMQTT - previousMillisMQTT_ < interval) || !mqttEnabled_ || !mqttClient_.connected()) {
         return 0;
@@ -580,7 +578,7 @@ int MQTTManager::sendHASSIODiscoveryMsg() {
 
     if (!mqttClient_.connected()) {
         LOG(DEBUG, "[MQTT] Failed to send Hassio Discover, MQTT Client is not connected");
-        hassioFailed = true;
+        g_state.network.hassioFailed = true;
         return -1;
     }
 
@@ -632,11 +630,11 @@ int MQTTManager::sendHASSIODiscoveryMsg() {
 
     if (failures > 0) {
         LOGF(DEBUG, "Hassio failed to send %d entries", failures);
-        hassioFailed = true;
+        g_state.network.hassioFailed = true;
     }
     else {
         LOG(DEBUG, "Hassio send successful");
-        hassioFailed = false;
+        g_state.network.hassioFailed = false;
         return 0;
     }
 

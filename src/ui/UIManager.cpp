@@ -12,7 +12,6 @@
 #include <Arduino.h>
 
 int getSignalStrength();
-// extern unsigned long millis();
 
 UIManager::UIManager(DisplayManager* displayManager) :
     displayManager_(displayManager), u8g2_(nullptr), initialized_(false), bufferReady_(false), updateRunning_(false), brewTimerState_(BrewTimerState::Idle), brewEndTime_(0) {

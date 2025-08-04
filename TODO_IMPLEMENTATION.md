@@ -190,7 +190,7 @@ This TODO list breaks down the migration plan into small, incremental steps that
 - **Test**: State transitions and logic
 - **Risk**: High - State management system
 
-#### **TODO-017: Replace handleMachineState() with StateMachine**
+#### **TODO-017: Replace handleMachineState() with StateMachine** [DONE]
 - **Files**: `src/main.cpp` (lines 391-725)
 - **Action**:
   - Replace switch statement with StateMachine instance
@@ -201,7 +201,7 @@ This TODO list breaks down the migration plan into small, incremental steps that
 
 ### 2.2 Main Function Decomposition (Days 16-20)
 
-#### **TODO-018: Create ProcessController class**
+#### **TODO-018: Create ProcessController class** [DONE]
 - **Files**: Create `src/control/ProcessController.h/.cpp`
 - **Action**:
   - Move PID controller logic and tuning
@@ -211,7 +211,7 @@ This TODO list breaks down the migration plan into small, incremental steps that
 - **Test**: PID control, brewing, steaming processes
 - **Risk**: Very High - Core control algorithms
 
-#### **TODO-019: Extract loopPID() to ProcessController**
+#### **TODO-019: Extract loopPID() to ProcessController** [DONE]
 - **Files**: `src/main.cpp` (lines 1165-1405)
 - **Action**:
   - Move entire PID loop logic to ProcessController
@@ -220,7 +220,7 @@ This TODO list breaks down the migration plan into small, incremental steps that
 - **Test**: Temperature control, PID stability
 - **Risk**: Very High - Temperature control system
 
-#### **TODO-020: Create UIManager class**
+#### **TODO-020: Create UIManager class** [DONE]
 - **Files**: Create `src/ui/UIManager.h/.cpp`
 - **Action**:
   - Move display update logic
@@ -230,7 +230,7 @@ This TODO list breaks down the migration plan into small, incremental steps that
 - **Test**: Display updates, LED indicators
 - **Risk**: Medium - User interface
 
-#### **TODO-021: Extract main loop components**
+#### **TODO-021: Extract main loop components** [DONE]
 - **Files**: `src/main.cpp` (lines 1148-1163)
 - **Action**:
   - Break down main loop into manager calls
@@ -245,6 +245,7 @@ This TODO list breaks down the migration plan into small, incremental steps that
   - Reduce main.cpp to < 200 lines
   - Only setup, coordination, and cleanup
   - All business logic in appropriate managers
+  - Remove old legacy code / compatibility layers where needed
 - **Test**: Full system functionality
 - **Risk**: High - System architecture change
 

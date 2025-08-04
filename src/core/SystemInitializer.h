@@ -104,6 +104,7 @@ class SystemInitializer {
         std::unique_ptr<HardwareManager> hardwareManager_;
         std::unique_ptr<MQTTManager> mqttManager_;
         std::unique_ptr<SensorManager> sensorManager_;
+        std::unique_ptr<CleverCoffeeWiFiManager> cleverCoffeeWiFiManager_;
 
         // Initialization phases
         bool initializeLogger();

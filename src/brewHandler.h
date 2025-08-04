@@ -240,7 +240,7 @@ inline bool brew() {
             if (g_state.sensors.currBrewSwitchState == kBrewSwitchShortPressed && g_state.sensors.brewSwitchWasOff && !g_state.machine.backflushOn && g_state.machine.machineState != LegacyMachineState::kBackflush) {
                 g_state.process.startingTime = millis();
                 g_state.process.currBrewTime = 0;   // reset g_state.process.currBrewTime, last brew is still stored
-                currBrewWeight = 0; // reset currBrewWeight for new brew
+                g_state.sensors.currBrewWeight = 0; // reset currBrewWeight for new brew
 
                 LOG(INFO, "Brew started");
 
@@ -257,12 +257,12 @@ inline bool brew() {
                     Config::getInstance().get<bool>("brew.by_weight.auto_tare")) {
                     LOG(INFO, "Tare scale");
 
-                    if (scale) {
-                        scale->tare();
+                    if (g_state.hardware.scale) {
+                        g_state.hardware.scale->tare();
 
                         // Mark that auto-tare is in progress for Bluetooth scales
-                        autoTareInProgress = true;
-                        autoTareStartTime = millis();
+                        g_state.sensors.autoTareInProgress = true;
+                        g_state.sensors.autoTareStartTime = millis();
                     }
                 }
             }
@@ -305,7 +305,7 @@ inline bool brew() {
                     LOG(INFO, "Brew reached time target");
                     g_state.sensors.currBrewState = kBrewFinished;
                 }
-                else if (Config::getInstance().get<bool>("hardware.sensors.scale.enabled") && currBrewWeight > targetBrewWeight && brewByWeightEnabled) {
+                else if (Config::getInstance().get<bool>("hardware.sensors.scale.enabled") && g_state.sensors.currBrewWeight > targetBrewWeight && brewByWeightEnabled) {
                     LOG(INFO, "Brew reached weight target");
                     g_state.sensors.currBrewState = kBrewFinished;
                 }

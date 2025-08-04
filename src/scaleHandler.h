@@ -14,58 +14,28 @@
 #include "hardware/pinmapping.h"
 #include "utils/helperUtils.h"
 
-class U8G2;
-extern U8G2* u8g2;
-
 void displayScaleFailed();
 void displayWrappedMessage(const String& msg);
-
-// g_state.sensors.scaleCalibrationOn moved to g_state.sensors.g_state.sensors.scaleCalibrationOn
-// g_state.sensors.scaleTareOn moved to g_state.sensors.g_state.sensors.scaleTareOn
-inline int shottimerCounter = 10;
-inline float currReadingWeight = 0; // current weight reading
-inline float preBrewWeight = 0;     // weight before brew started
-inline float currBrewWeight = 0;    // weight of current brew
-inline float scaleDelayValue = 2.5; // delay compensation in grams
-inline bool scaleFailure = false;
-inline bool autoTareInProgress = false;
-inline unsigned long autoTareStartTime = 0;
-
-// Bluetooth scale connection handling
-inline unsigned long lastScaleConnectionCheck = 0;
-inline unsigned long scaleConnectionFailureTime = 0;
-inline bool scaleConnectionLost = false;
-inline float lastValidWeight = 0;
-inline bool brewByWeightFallbackActive = false;
-
-// Scale connection constants
-constexpr unsigned long SCALE_CONNECTION_CHECK_INTERVAL = 500; // Check every 500 milliseconds
-constexpr unsigned long SCALE_CONNECTION_TIMEOUT = 5000;       // 5 seconds timeout
-constexpr unsigned long SCALE_RECONNECTION_TIMEOUT = 30000;    // 30 seconds before giving up
-
-inline Scale* scale = nullptr;
-inline bool isBluetoothScale = false;
-
 
 /**
  * @brief Check Bluetooth scale connection status and handle failures
  */
 inline void checkBluetoothScaleConnection() {
-    if (!isBluetoothScale || !scale) {
+    if (!g_state.hardware.isBluetoothScale || !g_state.hardware.scale) {
         return;
     }
 
     // Check connection status periodically for logging/fallback logic
-    if (const unsigned long currentTime = millis(); currentTime - lastScaleConnectionCheck > SCALE_CONNECTION_CHECK_INTERVAL) {
-        static_cast<BluetoothScale*>(scale)->updateConnection();
+    if (const unsigned long currentTime = millis(); currentTime - g_state.sensors.lastScaleConnectionCheck > SCALE_CONNECTION_CHECK_INTERVAL) {
+        static_cast<BluetoothScale*>(g_state.hardware.scale)->updateConnection();
 
-        lastScaleConnectionCheck = currentTime;
+        g_state.sensors.lastScaleConnectionCheck = currentTime;
 
-        if (const bool connected = scale->isConnected(); !connected) {
-            if (!scaleConnectionLost) {
+        if (const bool connected = g_state.hardware.scale->isConnected(); !connected) {
+            if (!g_state.sensors.scaleConnectionLost) {
                 // Connection just lost
-                scaleConnectionLost = true;
-                scaleConnectionFailureTime = currentTime;
+                g_state.sensors.scaleConnectionLost = true;
+                g_state.sensors.scaleConnectionFailureTime = currentTime;
 
                 LOG(WARNING, "Bluetooth scale connection lost");
 
@@ -76,7 +46,7 @@ inline void checkBluetoothScaleConnection() {
 
                     if (brewByWeightEnabled && brewByTimeEnabled) {
                         LOG(INFO, "Activating brew-by-time fallback due to scale connection loss");
-                        brewByWeightFallbackActive = true;
+                        g_state.sensors.brewByWeightFallbackActive = true;
                     }
                     else if (brewByWeightEnabled) {
                         LOG(WARNING, "BLE Scale connection lost during brew-by-weight only mode, stopping brew");
@@ -86,19 +56,19 @@ inline void checkBluetoothScaleConnection() {
             }
 
             // Check if we should give up reconnecting
-            if (currentTime - scaleConnectionFailureTime > SCALE_RECONNECTION_TIMEOUT) {
-                if (!scaleFailure) {
+            if (currentTime - g_state.sensors.scaleConnectionFailureTime > SCALE_RECONNECTION_TIMEOUT) {
+                if (!g_state.sensors.scaleFailure) {
                     LOG(ERROR, "Bluetooth scale connection timeout - marking as failed");
-                    scaleFailure = true;
+                    g_state.sensors.scaleFailure = true;
                 }
             }
         }
         else {
             // Connection restored
-            if (scaleConnectionLost) {
-                scaleConnectionLost = false;
-                scaleFailure = false;
-                brewByWeightFallbackActive = false;
+            if (g_state.sensors.scaleConnectionLost) {
+                g_state.sensors.scaleConnectionLost = false;
+                g_state.sensors.scaleFailure = false;
+                g_state.sensors.brewByWeightFallbackActive = false;
                 LOG(INFO, "Bluetooth scale connection restored");
             }
         }
@@ -109,27 +79,27 @@ inline void checkBluetoothScaleConnection() {
  * @brief Get weight with connection error handling
  */
 inline float getScaleWeight() {
-    if (!scale) {
-        return lastValidWeight;
+    if (!g_state.hardware.scale) {
+        return g_state.sensors.lastValidWeight;
     }
 
-    if (isBluetoothScale) {
+    if (g_state.hardware.isBluetoothScale) {
         // Always check connection - even if we've marked it as failed
         checkBluetoothScaleConnection();
 
-        if (scaleConnectionLost) {
+        if (g_state.sensors.scaleConnectionLost) {
             // Return last valid weight during connection issues
-            return lastValidWeight;
+            return g_state.sensors.lastValidWeight;
         }
     }
 
-    if (scale->update()) {
-        const float weight = scale->getWeight();
-        lastValidWeight = weight;
+    if (g_state.hardware.scale->update()) {
+        const float weight = g_state.hardware.scale->getWeight();
+        g_state.sensors.lastValidWeight = weight;
         return weight;
     }
 
-    return lastValidWeight;
+    return g_state.sensors.lastValidWeight;
 }
 
 /**
@@ -137,11 +107,11 @@ inline float getScaleWeight() {
  */
 inline bool shouldUseBrewByWeight() {
     const bool brewByWeightEnabled = Config::getInstance().get<bool>("brew.by_weight.enabled");
-    return brewByWeightEnabled && !brewByWeightFallbackActive && !scaleConnectionLost;
+    return brewByWeightEnabled && !g_state.sensors.brewByWeightFallbackActive && !g_state.sensors.scaleConnectionLost;
 }
 
 inline void scaleCalibrate(const int cellNumber, const int pin) {
-    if (isBluetoothScale) {
+    if (g_state.hardware.isBluetoothScale) {
         // Bluetooth scales handle calibration internally
         displayWrappedMessage("Bluetooth scales\nhandle calibration\ninternally");
         delay(2000);
@@ -150,7 +120,7 @@ inline void scaleCalibrate(const int cellNumber, const int pin) {
 
     const int scaleSamples = Config::getInstance().get<int>("hardware.sensors.scale.samples");
 
-    auto* hx711Scale = static_cast<HX711Scale*>(scale);
+    auto* hx711Scale = static_cast<HX711Scale*>(g_state.hardware.scale);
     HX711_ADC* loadCell = hx711Scale->getLoadCell(cellNumber);
 
     if (!loadCell) {
@@ -205,17 +175,17 @@ inline float w1 = 0.0;
 inline float w2 = 0.0;
 
 inline void checkWeight() {
-    if (!scale) {
+    if (!g_state.hardware.scale) {
         return;
     }
 
-    currReadingWeight = getScaleWeight();
+    g_state.sensors.currReadingWeight = getScaleWeight();
 
-    if (scaleFailure) {
+    if (g_state.sensors.scaleFailure) {
         return;
     }
 
-    if (g_state.sensors.scaleCalibrationOn && !isBluetoothScale) {
+    if (g_state.sensors.scaleCalibrationOn && !g_state.hardware.isBluetoothScale) {
         scaleCalibrate(1, PIN_HXDAT);
 
         // Calibrate second cell
@@ -228,17 +198,17 @@ inline void checkWeight() {
 
     if (g_state.sensors.scaleTareOn) {
         g_state.sensors.scaleTareOn = false;
-        u8g2->clearBuffer();
-        u8g2->drawStr(0, 2, "Taring scale,");
-        u8g2->drawStr(0, 12, "remove any load!");
-        u8g2->drawStr(0, 22, "....");
-        u8g2->sendBuffer();
+        g_state.hardware.display->clearBuffer();
+        g_state.hardware.display->drawStr(0, 2, "Taring scale,");
+        g_state.hardware.display->drawStr(0, 12, "remove any load!");
+        g_state.hardware.display->drawStr(0, 22, "....");
+        g_state.hardware.display->sendBuffer();
         delay(2000);
 
-        scale->tare();
+        g_state.hardware.scale->tare();
 
-        u8g2->drawStr(0, 32, "done");
-        u8g2->sendBuffer();
+        g_state.hardware.display->drawStr(0, 32, "done");
+        g_state.hardware.display->sendBuffer();
         delay(2000);
     }
 }
@@ -248,18 +218,18 @@ inline void initScale() {
     const int scaleSamples = Config::getInstance().get<int>("hardware.sensors.scale.samples");
 
     // Clean up existing scale
-    if (scale) {
-        delete scale;
-        scale = nullptr;
+    if (g_state.hardware.scale) {
+        delete g_state.hardware.scale;
+        g_state.hardware.scale = nullptr;
     }
 
     if (scaleType == 2) { // Bluetooth scale
-        scale = new BluetoothScale();
-        isBluetoothScale = true;
+        g_state.hardware.scale = new BluetoothScale();
+        g_state.hardware.isBluetoothScale = true;
 
         LOG(INFO, "Initializing Bluetooth scale");
 
-        scale->init();
+        g_state.hardware.scale->init();
     }
     else {
         // HX711 scale types
@@ -267,36 +237,36 @@ inline void initScale() {
         const float cal2 = Config::getInstance().get<double>("hardware.sensors.scale.calibration2");
 
         if (scaleType == 0) { // Dual load cell
-            scale = new HX711Scale(PIN_HXDAT, PIN_HXDAT2, PIN_HXCLK, cal1, cal2);
+            g_state.hardware.scale = new HX711Scale(PIN_HXDAT, PIN_HXDAT2, PIN_HXCLK, cal1, cal2);
         }
         else {                // Single load cell
-            scale = new HX711Scale(PIN_HXDAT, PIN_HXCLK, cal1);
+            g_state.hardware.scale = new HX711Scale(PIN_HXDAT, PIN_HXCLK, cal1);
         }
 
-        isBluetoothScale = false;
+        g_state.hardware.isBluetoothScale = false;
         LOG(INFO, "Initializing HX711 scale");
 
-        if (!scale->init()) {
+        if (!g_state.hardware.scale->init()) {
             LOG(ERROR, "Scale initialization failed");
             displayScaleFailed();
             delay(5000);
-            scaleFailure = true;
-            delete scale;
-            scale = nullptr;
+            g_state.sensors.scaleFailure = true;
+            delete g_state.hardware.scale;
+            g_state.hardware.scale = nullptr;
             return;
         }
 
         // Set samples for HX711 scales
-        scale->setSamples(scaleSamples);
+        g_state.hardware.scale->setSamples(scaleSamples);
     }
 
     // Reset connection state
-    scaleConnectionLost = false;
-    scaleFailure = false;
-    brewByWeightFallbackActive = false;
-    lastScaleConnectionCheck = 0;
-    scaleConnectionFailureTime = 0;
-    lastValidWeight = 0;
+    g_state.sensors.scaleConnectionLost = false;
+    g_state.sensors.scaleFailure = false;
+    g_state.sensors.brewByWeightFallbackActive = false;
+    g_state.sensors.lastScaleConnectionCheck = 0;
+    g_state.sensors.scaleConnectionFailureTime = 0;
+    g_state.sensors.lastValidWeight = 0;
 
     g_state.sensors.scaleCalibrationOn = false;
 
@@ -310,35 +280,35 @@ inline void initScale() {
  * @brief Scale with shot timer and connection handling
  */
 inline void shotTimerScale() {
-    switch (shottimerCounter) {
+    switch (g_state.sensors.shottimerCounter) {
         case 10: // waiting step for brew switch turning on
             if (g_state.sensors.currBrewState != kBrewIdle) {
                 // For Bluetooth scales with auto-tare, wait a bit before capturing pre-brew weight
-                if (isBluetoothScale && autoTareInProgress) {
+                if (g_state.hardware.isBluetoothScale && g_state.sensors.autoTareInProgress) {
                     // Wait at least 2 seconds for Bluetooth tare to complete
-                    if (millis() - autoTareStartTime < 2000) {
+                    if (millis() - g_state.sensors.autoTareStartTime < 2000) {
                         break;
                     }
 
-                    autoTareInProgress = false;
+                    g_state.sensors.autoTareInProgress = false;
                 }
 
-                preBrewWeight = currReadingWeight;
-                shottimerCounter = 20;
+                g_state.sensors.preBrewWeight = g_state.sensors.currReadingWeight;
+                g_state.sensors.shottimerCounter = 20;
 
                 // Reset fallback state at start of new brew
-                brewByWeightFallbackActive = false;
+                g_state.sensors.brewByWeightFallbackActive = false;
             }
             break;
 
         case 20:
-            currBrewWeight = currReadingWeight - preBrewWeight;
+            g_state.sensors.currBrewWeight = g_state.sensors.currReadingWeight - g_state.sensors.preBrewWeight;
 
             if (g_state.sensors.currBrewState == kBrewIdle) {
-                shottimerCounter = 10;
+                g_state.sensors.shottimerCounter = 10;
 
                 // Reset fallback state when brew ends
-                brewByWeightFallbackActive = false;
+                g_state.sensors.brewByWeightFallbackActive = false;
             }
             break;
 
@@ -350,27 +320,27 @@ inline void shotTimerScale() {
  * @brief Get scale connection status for display
  */
 inline bool getScaleConnectionStatus() {
-    if (!isBluetoothScale || !scale) {
+    if (!g_state.hardware.isBluetoothScale || !g_state.hardware.scale) {
         return true; // Not applicable for HX711 scales
     }
 
-    return scale->isConnected();
+    return g_state.hardware.scale->isConnected();
 }
 
 /**
  * @brief Check if scale is in fallback mode
  */
 inline bool isScaleInFallbackMode() {
-    return brewByWeightFallbackActive;
+    return g_state.sensors.brewByWeightFallbackActive;
 }
 
 /**
  * @brief Check if Bluetooth scale is currently trying to connect
  */
 inline bool isBluetoothScaleConnecting() {
-    if (!isBluetoothScale || !scale) {
+    if (!g_state.hardware.isBluetoothScale || !g_state.hardware.scale) {
         return false;
     }
 
-    return static_cast<BluetoothScale*>(scale)->isConnecting();
+    return static_cast<BluetoothScale*>(g_state.hardware.scale)->isConnecting();
 }

@@ -1,8 +1,10 @@
 #pragma once
 #include "../Config.h"
 #include "../state/GlobalState.h"
+#include "../network/CleverCoffeeWiFiManager.h"
 #include "Logger.h"
 
+// This file should be removed in the future. Tight coupled functions
 
 
 inline void setRuntimePidState(const bool enabled) {
@@ -57,4 +59,88 @@ inline char const* machinestateEnumToString(const LegacyMachineState machineStat
 
 inline void printMachineState() {
     LOGF(DEBUG, "new machineState: %s -> %s", machinestateEnumToString(g_state.machine.lastmachinestate), machinestateEnumToString(g_state.machine.machineState));
+}
+
+// Helper function for timing debug
+inline bool isMqttUpdateRunning() {
+    return g_state.network.mqttManager && g_state.network.mqttManager->isUpdateRunning();
+}
+
+// Compatibility wrapper function
+inline int writeSysParamsToMQTT(bool continueOnError = true) {
+    if (g_state.network.mqttManager && g_state.network.mqttManager->isEnabled()) {
+        return g_state.network.mqttManager->writeSysParamsToMQTT(continueOnError);
+    }
+    return 0;
+}
+
+// MQTT functionality is now managed by MQTTManager
+// MQTT discovery timer callback
+inline void sendHASSIODiscoveryMsg() {
+    if (g_state.network.mqttManager && g_state.network.mqttManager->isEnabled()) {
+        g_state.network.mqttManager->sendHASSIODiscoveryMsg();
+    }
+}
+
+/**
+ * @brief Get Wifi signal strength and set signalBars for display
+ */
+inline int getSignalStrength() {
+    if (g_state.network.offlineMode) return 0;
+
+    long rssi;
+
+    if (WiFi.status() == WL_CONNECTED) {
+        rssi = WiFi.RSSI();
+    }
+    else {
+        rssi = -100;
+    }
+
+    if (rssi >= -50) {
+        return 4;
+    }
+    else if (rssi < -50 && rssi >= -65) {
+        return 3;
+    }
+    else if (rssi < -65 && rssi >= -75) {
+        return 2;
+    }
+    else if (rssi < -75 && rssi >= -80) {
+        return 1;
+    }
+
+    return 0;
+}
+
+// Emergency stop if temp is too high
+inline void testEmergencyStop() {
+    if (g_state.process.temperature > EmergencyStopTemp && g_state.machine.emergencyStop == false) {
+        g_state.machine.emergencyStop = true;
+    }
+    else if (g_state.process.temperature < (Config::getInstance().get<double>("brew.setpoint") + 5) && g_state.machine.emergencyStop == true) {
+        g_state.machine.emergencyStop = false;
+    }
+}
+
+/**
+ * @brief Switch to offline mode if maxWifiReconnects were exceeded during boot
+ */
+inline void initOfflineMode() {
+    if (Config::getInstance().get<bool>("hardware.oled.enabled")) {
+        g_state.display.displayOffline = 1;
+    }
+
+    LOG(INFO, "Start offline mode with eeprom values, no wifi :(");
+    g_state.network.offlineMode = true;
+}
+
+inline void wiFiReset() {
+    if (g_state.network.cleverCoffeeWiFiManager) {
+        g_state.network.cleverCoffeeWiFiManager->resetSettings();
+    }
+    else {
+        LOG(ERROR, "WiFiManager not initialized for reset");
+        ESP.restart();
+    }
 }
