@@ -78,8 +78,10 @@ void SensorManager::update() {
 
     // Update temperature reading
     if (tempSensor_ != nullptr) {
+        g_state.coordination.temperatureUpdateRunning = true;
         temperature_ = tempSensor_->getCurrentTemperature();
         temperature_ -= brewTempOffset_;
+        g_state.coordination.temperatureUpdateRunning = false;
     }
 
     // Update water tank sensor (handled by timer in main.cpp)

@@ -209,7 +209,6 @@ boolean setupDone = false;
 
 // Water tank sensor
 boolean waterTankFull = true;
-std::unique_ptr<Timer> loopWaterTank;    // Check water tank level every 200 ms - initialized in setup()
 int waterTankCheckConsecutiveReads = 0;  // Counter for consecutive readings of water tank sensor
 constexpr int waterTankCountsNeeded = 3; // Number of same readings to change water tank sensing
 
@@ -234,18 +233,12 @@ unsigned long previousMillisMQTT = 0;
 unsigned long lastMQTTConnectionAttempt = 0;
 
 // MQTT functionality is now managed by MQTTManager
-
-unsigned long lastTempEvent = 0;
-unsigned long tempEventInterval = 1000;
-
 // MQTT discovery timer callback
 void sendHASSIODiscoveryMsg() {
     if (mqttManager && mqttManager->isEnabled()) {
         mqttManager->sendHASSIODiscoveryMsg();
     }
 }
-
-std::unique_ptr<Timer> hassioDiscoveryTimer; // MQTT discovery timer - initialized in setup()
 
 /**
  * @brief Get Wifi signal strength and set signalBars for display
@@ -284,8 +277,6 @@ bool shouldDisplayBrewTimer();
 void u8g2_prepare();
 
 #include "display/displayTemplateManager.h"
-
-std::unique_ptr<Timer> printDisplayTimer; // Display refresh timer - initialized in setup()
 
 #include "powerHandler.h"
 #include "scaleHandler.h"
@@ -942,12 +933,15 @@ void setup() {
         else {
             LOG(ERROR, "LoopManager initialization failed!");
         }
-    }
 
-    // Initialize timers after system initialization to avoid static initialization order fiasco
-    loopWaterTank = std::make_unique<Timer>(checkWaterTank, 200);
-    hassioDiscoveryTimer = std::make_unique<Timer>(sendHASSIODiscoveryMsg, 300000);
-    printDisplayTimer = std::make_unique<Timer>(DisplayTemplateManager::printScreen, 100);
+        // Fallback legacy
+        if (!loopManager) {
+            // Initialize timers after system initialization to avoid static initialization order fiasco
+            g_state.timing.loopWaterTank = std::make_unique<Timer>(checkWaterTank, 200);
+            g_state.timing.hassioDiscoveryTimer = std::make_unique<Timer>(sendHASSIODiscoveryMsg, 300000);
+            g_state.timing.printDisplayTimer = std::make_unique<Timer>(DisplayTemplateManager::printScreen, 100);
+        }
+    }
 
     LOG(INFO, "System setup completed via SystemInitializer");
 }
@@ -963,7 +957,7 @@ void loop() {
         Logger::update();
 
         // Update water tank sensor
-        if (loopWaterTank) (*loopWaterTank)();
+        if (g_state.timing.loopWaterTank) (*g_state.timing.loopWaterTank)();
 
         // Update PID settings & machine state
         loopPid();
@@ -979,8 +973,6 @@ void loop() {
 void loopPid() {
 
     // Update the temperature using ProcessController if available
-    g_state.coordination.temperatureUpdateRunning = false;
-
     if (processController) {
         // Use ProcessController for temperature and PID management
         processController->updateProcessControl(static_cast<int>(machineState), brewPidDisabled);
@@ -1011,6 +1003,9 @@ void loopPid() {
         }
     }
 
+    // Reset temperature update flag after temperature reading is complete
+    g_state.coordination.temperatureUpdateRunning = false;
+
     static bool wifiWasConnected = false;
 
     // Only do Wifi stuff, if Wifi is connected
@@ -1040,7 +1035,7 @@ void loopPid() {
 
                 // resend discovery messages if not during a main function and MQTT has been disconnected but has now reconnected, or if last send failed
                 if (!(machineState >= kBrew && machineState <= kBackflush) && ((!mqttManager->wasConnected() || hassioFailed) && !g_state.coordination.displayBufferReady && !g_state.coordination.temperatureUpdateRunning)) {
-                    if (hassioDiscoveryTimer) (*hassioDiscoveryTimer)();
+                    if (g_state.timing.hassioDiscoveryTimer) (*g_state.timing.hassioDiscoveryTimer)();
                 }
 
                 mqttManager->setWasConnected(true);
@@ -1079,8 +1074,6 @@ void loopPid() {
         g_state.pid->Compute(); // the variable g_state.process.pidOutput now has new values from PID (will be written to heater pin in ISR.cpp)
     }
 
-    g_state.coordination.websiteUpdateRunning = false;
-
     if (Config::getInstance().get<bool>("hardware.sensors.scale.enabled")) {
         checkWeight();    // Check Weight Scale in the loop
         shotTimerScale(); // Calculation of weight of shot while brew is running
@@ -1103,8 +1096,13 @@ void loopPid() {
     }
 
     // refresh website if loop does not have anoth long running process already
-    if (((millis() - lastTempEvent) > tempEventInterval) &&
-        ((!mqttManager || !mqttManager->isUpdateRunning()) && !g_state.coordination.hassioUpdateRunning && !g_state.coordination.displayBufferReady && !g_state.coordination.temperatureUpdateRunning)) {
+    bool timeCondition = (millis() - g_state.network.lastTempEvent) > g_state.network.tempEventInterval;
+    bool mqttCondition = (!mqttManager || !mqttManager->isUpdateRunning());
+    bool hassioCondition = !g_state.coordination.hassioUpdateRunning;
+    bool displayCondition = !g_state.coordination.displayBufferReady;
+    bool tempCondition = !g_state.coordination.temperatureUpdateRunning;
+
+    if (timeCondition && mqttCondition && hassioCondition && displayCondition && tempCondition) {
         g_state.coordination.websiteUpdateRunning = true;
 
         // send temperatures to website endpoint
@@ -1114,9 +1112,11 @@ void loopPid() {
             if (Config::getInstance().get<bool>("hardware.sensors.scale.enabled")) {
                 sendWeightEvent();
             }
+
+            g_state.network.lastTempEvent = millis();
         }
 
-        lastTempEvent = millis();
+        g_state.coordination.websiteUpdateRunning = false;
 
         // PID debug logging is now handled by ProcessController
         if (!processController && Config::getInstance().get<bool>("pid.enabled")) {
@@ -1191,21 +1191,29 @@ void loopPid() {
     }
 
     // Display updates are now handled by UIManager
+    static unsigned long lastDisplayDebugTime = 0;
+    bool logDisplayDebug = (millis() - lastDisplayDebugTime > 3000);
+
     if (uiManager) {
         uiManager->setUpdateRunning(false);
+        if (logDisplayDebug) LOGF(INFO, "Display: Using UIManager path");
 
         if (Config::getInstance().get<bool>("hardware.oled.enabled")) {
-            // update display on loops that have not had other major tasks running
-            if (!g_state.coordination.websiteUpdateRunning && (!mqttManager || !mqttManager->isUpdateRunning()) && !g_state.coordination.hassioUpdateRunning && !g_state.coordination.temperatureUpdateRunning &&
-                (standbyModeRemainingTimeMillis > 0)) {
+            bool websiteCondition = !g_state.coordination.websiteUpdateRunning;
+            bool mqttCondition = (!mqttManager || !mqttManager->isUpdateRunning());
+            bool hassioCondition = !g_state.coordination.hassioUpdateRunning;
+            bool tempCondition = !g_state.coordination.temperatureUpdateRunning;
+            bool standbyCondition = (!Config::getInstance().get<bool>("standby.enabled") || standbyModeRemainingTimeMillis > 0);
 
+            // update display on loops that have not had other major tasks running
+            if (websiteCondition && mqttCondition && hassioCondition && tempCondition && standbyCondition) {
                 if (uiManager->isBufferReady()) {
                     uiManager->forceUpdate();
                     uiManager->setBufferReady(false);
                     uiManager->setUpdateRunning(true);
                 }
                 else {
-                    if (printDisplayTimer) (*printDisplayTimer)();
+                    if (g_state.timing.printDisplayTimer) (*g_state.timing.printDisplayTimer)();
                 }
             }
         }
@@ -1215,15 +1223,20 @@ void loopPid() {
         g_state.coordination.displayUpdateRunning = false;
 
         if (Config::getInstance().get<bool>("hardware.oled.enabled")) {
-            if (!g_state.coordination.websiteUpdateRunning && (!mqttManager || !mqttManager->isUpdateRunning()) && !g_state.coordination.hassioUpdateRunning && !g_state.coordination.temperatureUpdateRunning &&
-                (standbyModeRemainingTimeMillis > 0)) {
+            bool websiteCondition = !g_state.coordination.websiteUpdateRunning;
+            bool mqttCondition = (!mqttManager || !mqttManager->isUpdateRunning());
+            bool hassioCondition = !g_state.coordination.hassioUpdateRunning;
+            bool tempCondition = !g_state.coordination.temperatureUpdateRunning;
+            bool standbyCondition = (!Config::getInstance().get<bool>("standby.enabled") || standbyModeRemainingTimeMillis > 0);
+
+            if (websiteCondition && mqttCondition && hassioCondition && tempCondition && standbyCondition) {
                 if (g_state.coordination.displayBufferReady) {
                     u8g2->sendBuffer();
                     g_state.coordination.displayBufferReady = false;
                     g_state.coordination.displayUpdateRunning = true;
                 }
                 else {
-                    if (printDisplayTimer) (*printDisplayTimer)();
+                    if (g_state.timing.printDisplayTimer) (*g_state.timing.printDisplayTimer)();
                 }
             }
         }

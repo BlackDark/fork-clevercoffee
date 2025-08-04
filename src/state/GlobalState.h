@@ -10,6 +10,7 @@
 
 #include "../Config.h"
 #include "../defaults.h"
+#include "../utils/Timer.h"
 #include <Arduino.h>
 #include <memory>
 
@@ -18,7 +19,6 @@ class U8G2;
 class Relay;
 class TempSensor;
 class MQTTManager;
-class Timer;
 class PID;
 class Config;
 
@@ -103,7 +103,12 @@ struct TimingState {
         unsigned long previousMillisMQTT = 0;
         const unsigned long intervalPressure = 100;
         unsigned long previousMillisPressure = 0;
-        Timer* printDisplayTimer = nullptr;
+        std::unique_ptr<Timer> loopWaterTank = nullptr;
+        std::unique_ptr<Timer> hassioDiscoveryTimer = nullptr;
+        std::unique_ptr<Timer> printDisplayTimer = nullptr;
+        Timer* loopWaterTank2 = nullptr;
+        Timer* hassioDiscoveryTimer2 = nullptr;
+        Timer* printDisplayTimer2 = nullptr;
 };
 
 /**

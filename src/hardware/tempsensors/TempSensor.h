@@ -78,7 +78,6 @@ class TempSensor {
                 // Reset error counter and error state
                 bad_readings_ = 0;
                 error_ = false;
-                g_state.coordination.temperatureUpdateRunning = true;
 
                 // Update moving average
                 update_moving_average();

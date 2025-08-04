@@ -189,6 +189,12 @@ class LoopManager {
         bool setupWaterTankTimer();
 
         /**
+         * @brief Setup timers
+         * @return true if setup successful
+         */
+        bool setupTimers();
+
+        /**
          * @brief Water tank check callback function
          */
         void checkWaterTankLevel();

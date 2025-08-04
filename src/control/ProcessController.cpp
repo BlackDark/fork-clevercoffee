@@ -19,8 +19,8 @@
 // g_state.process.pidOutput moved to g_state.process.g_state.process.pidOutput
 // setpoint moved to g_state.process.setpoint
 extern TempSensor* tempSensor;
-extern unsigned long lastTempEvent;
-extern unsigned long tempEventInterval;
+// extern unsigned long lastTempEvent;
+//  extern unsigned long tempEventInterval;
 extern double currBrewTime;
 extern Relay* heaterRelay;
 
@@ -54,7 +54,7 @@ ProcessController::ProcessController(DisplayManager* displayManager, HardwareMan
     lastMachineStatePid_(-1),
     initialized_(false),
     lastTempEvent_(0),
-    tempEventInterval_(tempEventInterval) {
+    tempEventInterval_(1000) {
 
     LOG(INFO, "ProcessController created");
 }
@@ -83,7 +83,7 @@ bool ProcessController::initialize() {
     temperature_ = g_state.process.temperature;
     pidOutput_ = g_state.process.pidOutput;
     setpoint_ = g_state.process.setpoint;
-    lastTempEvent_ = lastTempEvent;
+    lastTempEvent_ = 0;
 
     initialized_ = true;
 
@@ -341,7 +341,7 @@ void ProcessController::updateDebugLogging() {
     }
 
     lastTempEvent_ = currentMillis;
-    lastTempEvent = lastTempEvent_; // Sync with global
+    // lastTempEvent = lastTempEvent_; // Sync with global
 
     // Log detailed PID information
     LOGF(TRACE, "Current PID mode: %s", g_state.pid->GetPonE() ? "PonE" : "PonM");
