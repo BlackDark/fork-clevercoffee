@@ -7,21 +7,12 @@
 #include "../Config.h"
 #include "../display/DisplayManager.h"
 #include "../display/bitmaps.h"
-#include "Logger.h"
+#include "../state/GlobalState.h"
+#include "../brewHandler.h"
 #include <Arduino.h>
 
-// External global variables that UIManager needs to access
-extern bool checkBrewActive();
-extern double postBrewTimerDuration;
-extern double temperature;
-// setpoint moved to g_state.process.setpoint
-extern double currBrewTime;
-// steamON moved to g_state.machine.steamON
-extern int signalBars;
-extern bool wifiReconnects;
-extern double currentWeight;
-extern double targetWeight;
-extern unsigned long uptime;
+int getSignalStrength();
+// extern unsigned long millis();
 
 UIManager::UIManager(DisplayManager* displayManager) :
     displayManager_(displayManager), u8g2_(nullptr), initialized_(false), bufferReady_(false), updateRunning_(false), brewTimerState_(BrewTimerState::Idle), brewEndTime_(0) {
@@ -184,7 +175,7 @@ void UIManager::displayBrewTime() {
     // For now, just show the current brew time
     u8g2_->setFont(u8g2_font_profont15_tf);
     char timeStr[16];
-    snprintf(timeStr, sizeof(timeStr), "%.1fs", currBrewTime / 1000.0);
+    snprintf(timeStr, sizeof(timeStr), "%.1fs", g_state.process.currBrewTime / 1000.0);
     u8g2_->drawStr(0, 20, timeStr);
 }
 
@@ -195,7 +186,7 @@ void UIManager::displayFullscreenBrewTimer() {
     u8g2_->setFont(u8g2_font_profont22_tn);
 
     char timeStr[16];
-    snprintf(timeStr, sizeof(timeStr), "%.1f", currBrewTime / 1000.0);
+    snprintf(timeStr, sizeof(timeStr), "%.1f", g_state.process.currBrewTime / 1000.0);
 
     // Center the text
     int textWidth = u8g2_->getStrWidth(timeStr);
@@ -222,15 +213,15 @@ void UIManager::displayStatusbar() {
 
     // WiFi status
     if (!g_state.network.offlineMode) {
-        for (int i = 0; i < signalBars; i++) {
+        for (int i = 0; i < getSignalStrength(); i++) {
             u8g2_->drawLine(100 + i * 2, 8 - i, 100 + i * 2, 8);
         }
     }
 
     // Show reconnection attempts
-    if (wifiReconnects > 0) {
+    if (g_state.network.wifiReconnects > 0) {
         char reconnectStr[8];
-        snprintf(reconnectStr, sizeof(reconnectStr), "R%d", wifiReconnects);
+        snprintf(reconnectStr, sizeof(reconnectStr), "R%d", g_state.network.wifiReconnects);
         u8g2_->drawStr(110, 0, reconnectStr);
     }
 }
@@ -268,7 +259,7 @@ void UIManager::displayTemperature() {
     u8g2_->setFont(u8g2_font_profont22_tn);
 
     char tempStr[16];
-    snprintf(tempStr, sizeof(tempStr), "%.1f°C", temperature);
+    snprintf(tempStr, sizeof(tempStr), "%.1f°C", g_state.process.temperature);
 
     u8g2_->drawStr(10, 32, tempStr);
 }
@@ -280,9 +271,9 @@ void UIManager::displayThermometerOutline() {
     u8g2_->drawFrame(120, 10, 6, 40);
     u8g2_->drawDisc(123, 52, 4);
 
-    // Fill based on temperature relative to setpoint
-    if (temperature > 0 && g_state.process.setpoint > 0) {
-        int fillHeight = static_cast<int>((temperature / g_state.process.setpoint) * 35);
+    // Fill based on g_state.process.temperature relative to setpoint
+    if (g_state.process.temperature > 0 && g_state.process.setpoint > 0) {
+        int fillHeight = static_cast<int>((g_state.process.temperature / g_state.process.setpoint) * 35);
         if (fillHeight > 35) fillHeight = 35;
 
         for (int i = 0; i < fillHeight; i++) {
@@ -297,7 +288,7 @@ void UIManager::displayBrewWeight() {
     u8g2_->setFont(u8g2_font_profont15_tf);
 
     char weightStr[16];
-    snprintf(weightStr, sizeof(weightStr), "%.1fg", currentWeight);
+    snprintf(weightStr, sizeof(weightStr), "%.1fg", g_state.sensors.currReadingWeight);
 
     u8g2_->drawStr(0, 50, weightStr);
 }
@@ -324,7 +315,7 @@ void UIManager::displayUptime() {
 
     u8g2_->setFont(u8g2_font_profont11_tf);
 
-    unsigned long seconds = uptime / 1000;
+    unsigned long seconds = millis() / 1000;
     unsigned long minutes = seconds / 60;
     unsigned long hours = minutes / 60;
 
@@ -346,7 +337,7 @@ void UIManager::displayMachineState() {
     if (g_state.machine.steamON) {
         stateStr = "Steam";
     }
-    else if (currBrewTime > 0) {
+    else if (g_state.process.currBrewTime > 0) {
         stateStr = "Brewing";
     }
     else {

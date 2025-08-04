@@ -14,11 +14,7 @@
 #include <memory>
 
 // Forward declarations to avoid circular dependencies
-struct cmp_str {
-        bool operator()(char const* a, char const* b) const {
-            return strcmp(a, b) < 0;
-        }
-};
+
 
 /**
  * @class MQTTManager
@@ -176,8 +172,7 @@ class MQTTManager {
         char topicSet_[256];
 
         // Parameter and sensor mappings
-        std::map<const char*, const char*, cmp_str> mqttVars_;
-        std::map<const char*, std::function<double()>, cmp_str> mqttSensors_;
+        
         std::map<const char*, std::string> mqttLastSent_;
 
         // Update management

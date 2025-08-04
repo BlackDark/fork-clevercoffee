@@ -4,13 +4,13 @@
  * @brief Handler for digital hot water switch
  */
 
+#pragma once
+
 #include "Config.h"
-
-// Backward compatibility reference
-
-uint8_t currStateHotWaterSwitch;
-
-LegacyMachineState lastMachineStateHotWaterDebug = kInit;
+#include "state/GlobalState.h"
+#include "state/MachineState.h"
+#include "hardware/Switch.h"
+#include "hardware/Relay.h"
 
 enum HotWaterSwitchState {
     kHotWaterSwitchIdle = 10,
@@ -38,20 +38,13 @@ inline unsigned long pumpStartingTime = 0; // start time of pump
  * @brief If set to publish debug messages then list what the current action is and what triggered it
  * @return void
  */
-void debugHotWaterState(String state) {
-    IFLOG(DEBUG) {
-        if (machineState != lastMachineStateHotWaterDebug || hotWaterStateDebug != lastHotWaterStateDebug) {
-            LOGF(DEBUG, "Hot water state: %s, MachineState=%s", state, machinestateEnumToString(machineState));
-            lastMachineStateHotWaterDebug = machineState;
-            lastHotWaterStateDebug = hotWaterStateDebug;
-        }
-    }
+inline void debugHotWaterState(String state) {
 }
 
 /**
  * @brief True if in an active state, false if idle or just finished
  */
-bool checkHotWaterStates() {
+inline bool checkHotWaterStates() {
     return (currHotWaterState == kHotWaterRunning);
 }
 
@@ -59,23 +52,21 @@ bool checkHotWaterStates() {
  * @brief True if in a hot water state or in eith Steam with hot water on, false otherwise
  * if in an error state it will change away from these machine states and return false
  */
-bool checkHotWaterActive() {
-    return (machineState == kHotWater || (machineState == kSteam && checkHotWaterStates()));
+inline bool checkHotWaterActive() {
+    return (g_state.machine.machineState == LegacyMachineState::kHotWater || (g_state.machine.machineState == LegacyMachineState::kSteam && checkHotWaterStates()));
 }
 
 /**
  * @brief True if in an active state, false if idle or just finished
  */
-bool checkHotWaterStops() {
+inline bool checkHotWaterStops() {
 
-    if (machineState == kWaterTankEmpty) {
-        hotWaterStateDebug = "off-we"; // turn off due to water empty
-        debugHotWaterState(hotWaterStateDebug);
+    if (g_state.machine.machineState == LegacyMachineState::kWaterTankEmpty) {
+        debugHotWaterState("off-we"); // turn off due to water empty
         return true;
     }
-    else if (machineState == kEmergencyStop || machineState == kSensorError || machineState == kEepromError) {
-        hotWaterStateDebug = "off-error"; // turn off due to error
-        debugHotWaterState(hotWaterStateDebug);
+    else if (g_state.machine.machineState == LegacyMachineState::kEmergencyStop || g_state.machine.machineState == LegacyMachineState::kSensorError) {
+        debugHotWaterState("off-error"); // turn off due to error
         return true;
     }
 
@@ -91,10 +82,10 @@ inline void checkHotWaterSwitch() {
     }
 
     static bool loggedEmptyWaterTank = false;
-    hotWaterSwitchReading = hotWaterSwitch->isPressed();
+    hotWaterSwitchReading = reinterpret_cast<Switch*>(g_state.hardware.hotWaterSwitch)->isPressed();
 
     // Block hotWaterSwitch input when water tank is empty
-    if (machineState == kWaterTankEmpty) {
+    if (g_state.machine.machineState == LegacyMachineState::kWaterTankEmpty) {
 
         if (!loggedEmptyWaterTank && (currHotWaterSwitchState == kHotWaterSwitchIdle || currHotWaterSwitchState == kHotWaterSwitchPressed)) {
             LOG(WARNING, "Hot water switch input ignored: Water tank empty");
@@ -163,7 +154,7 @@ inline void checkHotWaterSwitch() {
                     currHotWaterSwitchState = kHotWaterSwitchShortPressed;
                     LOG(DEBUG, "Hot Water switch short press detected -> got to currHotWaterSwitchState = kHotWaterSwitchShortPressed; start pump");
                 }
-                else if (currReadingHotWaterSwitch == HIGH && hotWaterSwitch->longPressDetected()) { // Hot Water switch long press detected
+                else if (currReadingHotWaterSwitch == HIGH && reinterpret_cast<Switch*>(g_state.hardware.hotWaterSwitch)->longPressDetected()) { // Hot Water switch long press detected
                     currHotWaterSwitchState = kHotWaterSwitchLongPressed;
                     LOG(DEBUG, "Hot Water switch long press detected -> got to currHotWaterSwitchState = kHotWaterSwitchLongPressed");
                 }
@@ -207,7 +198,7 @@ inline void checkHotWaterSwitch() {
  * @return pumps state
  */
 inline bool hotWaterHandler(void) {
-    if (!Config::getInstance().get<bool>("hardware.switches.hot_water.enabled") || hotWaterSwitch == nullptr) {
+    if (!Config::getInstance().get<bool>("hardware.switches.hot_water.enabled") || g_state.hardware.hotWaterSwitch == nullptr) {
         return false; // hot water switch is not enabled
     }
 
@@ -234,13 +225,12 @@ inline bool hotWaterHandler(void) {
         case kHotWaterIdle: // waiting step for hot water switch turning on
 
             if (currHotWaterSwitchState == kHotWaterSwitchShortPressed) {
-                pumpRelay->on();
+                g_state.hardware.pumpRelay->on();
                 pumpStartingTime = millis();
                 currHotWaterState = kHotWaterRunning;
                 currPumpOnTime = 0;           // reset currPumpOnTime
                 LOG(INFO, "Hot water pump started");
-                hotWaterStateDebug = "on-sw"; // turned on due to switch input
-                debugHotWaterState(hotWaterStateDebug);
+                debugHotWaterState("on-sw"); // turned on due to switch input
             }
 
             break;
@@ -249,14 +239,13 @@ inline bool hotWaterHandler(void) {
 
             if (currHotWaterSwitchState == kHotWaterSwitchIdle && !checkBrewStates()) { // switch turned off and not in brew or flush
                 currHotWaterState = kHotWaterStopped;
-                hotWaterStateDebug = "off-sw";
-                debugHotWaterState(hotWaterStateDebug);
+                debugHotWaterState("off-sw");
             }
 
             break;
 
         case kHotWaterStopped:
-            pumpRelay->off();
+            g_state.hardware.pumpRelay->off();
 
             if (!checkHotWaterStops()) {
                 currHotWaterState = kHotWaterIdle;

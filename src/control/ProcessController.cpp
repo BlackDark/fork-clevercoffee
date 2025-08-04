@@ -4,28 +4,16 @@
  */
 
 #include "ProcessController.h"
+#include "../state/GlobalState.h"
 #include "../Config.h"
 #include "../display/DisplayManager.h"
 #include "../hardware/HardwareManager.h"
 #include "../hardware/scales/Scale.h"
-#include "../hardware/tempsensors/TempSensor.h"
 #include "../network/MQTTManager.h"
 #include "../sensors/SensorManager.h"
 #include "Logger.h"
 #include <Arduino.h>
 
-// External global variables that ProcessController will manage
-// temperature moved to g_state.process.temperature
-// g_state.process.pidOutput moved to g_state.process.g_state.process.pidOutput
-// setpoint moved to g_state.process.setpoint
-extern TempSensor* tempSensor;
-// extern unsigned long lastTempEvent;
-//  extern unsigned long tempEventInterval;
-extern double currBrewTime;
-extern Relay* heaterRelay;
-
-// Forward declarations for variables from brewHandler.h
-extern bool brewPidDisabled;
 
 ProcessController::ProcessController(DisplayManager* displayManager, HardwareManager* hardwareManager, SensorManager* sensorManager, MQTTManager* mqttManager) :
     displayManager_(displayManager),
@@ -116,7 +104,7 @@ void ProcessController::update() {
     updateDebugLogging();
 }
 
-void ProcessController::updateProcessControl(int machineState, bool brewPidDisabled) {
+void ProcessController::updateProcessControl(int machineState) {
     if (!initialized_) {
         LOG(WARNING, "ProcessController::updateProcessControl() called but not initialized");
         return;
@@ -144,7 +132,7 @@ void ProcessController::updateProcessControl(int machineState, bool brewPidDisab
     updatePIDState(machineState);
 
     // Handle brew PID delay logic
-    handleBrewPIDDelay(machineState, brewPidDisabled);
+    handleBrewPIDDelay(machineState);
 
     // Update debug logging if enabled
     updateDebugLogging();
@@ -158,14 +146,14 @@ void ProcessController::updateTemperature() {
         // Use SensorManager for temperature reading (includes brew offset automatically)
         temperature_ = sensorManager_->getCurrentTemperature();
 
-        // For steam mode, get raw temperature without brew offset
-        if (g_state.machine.steamON && tempSensor != nullptr) {
-            temperature_ = tempSensor->getCurrentTemperature();
+        if (!g_state.machine.steamON) {
+            // Apply brew temperature offset if not in steam mode
+            temperature_ -= brewTempOffset_;
         }
     }
-    else if (tempSensor != nullptr) {
+    else if (hardwareManager_->getTempSensor() != nullptr) {
         // Fallback to direct sensor access
-        temperature_ = tempSensor->getCurrentTemperature();
+        temperature_ = hardwareManager_->getTempSensor()->getCurrentTemperature();
 
         // Apply brew offset if not in steam mode
         if (!g_state.machine.steamON) {
@@ -181,10 +169,8 @@ void ProcessController::computePID() {
 }
 
 void ProcessController::updatePIDState(int machineState) {
-    const bool brewPidDisabled = false; // TODO: Get this from appropriate source
-
     // Check if PID should be enabled or disabled
-    if (!shouldPIDBeEnabled(machineState, brewPidDisabled)) {
+    if (!shouldPIDBeEnabled(machineState)) {
         if (isPIDEnabled()) {
             // Force PID shutdown
             setPIDEnabled(false);
@@ -280,7 +266,7 @@ void ProcessController::updateSetpoint(bool steamActive) {
     g_state.process.setpoint = setpoint_;
 }
 
-bool ProcessController::shouldPIDBeEnabled(int machineState, bool brewPidDisabled) const {
+bool ProcessController::shouldPIDBeEnabled(int machineState) const {
     // PID should be disabled in these states
     return !(machineState == 90 ||  // kPidDisabled
              machineState == 70 ||  // kWaterTankEmpty
@@ -289,7 +275,7 @@ bool ProcessController::shouldPIDBeEnabled(int machineState, bool brewPidDisable
              machineState == 110 || // kEepromError
              machineState == 95 ||  // kStandby
              machineState == 60 ||  // kBackflush
-             brewPidDisabled);
+             g_state.process.brewPidDisabled);
 }
 
 bool ProcessController::isPIDEnabled() const {
@@ -390,30 +376,30 @@ void ProcessController::calculateBrewDetectionPIDParameters() {
     aggbKd_ = aggbTv_ * aggbKp_;
 }
 
-void ProcessController::handleBrewPIDDelay(int machineState, bool brewPidDisabled) {
+void ProcessController::handleBrewPIDDelay(int machineState) {
     // Handle brew PID delay logic
     if (machineState == 30) { // kBrew
-        if (Config::getInstance().get<double>("brew.pid_delay") > 0 && currBrewTime > 0 && currBrewTime < Config::getInstance().get<double>("brew.pid_delay") * 1000) {
+        if (Config::getInstance().get<double>("brew.pid_delay") > 0 && g_state.process.currBrewTime > 0 && g_state.process.currBrewTime < Config::getInstance().get<double>("brew.pid_delay") * 1000) {
             // disable PID for brewPidDelay seconds, enable PID again with new tunings after that
-            if (!brewPidDisabled) {
-                brewPidDisabled = true;
+            if (!g_state.process.brewPidDisabled) {
+                g_state.process.brewPidDisabled = true;
                 g_state.pid->SetMode(MANUAL);
                 pidOutput_ = 0;
                 g_state.process.pidOutput = 0;
                 if (hardwareManager_) {
                     // Turn off heater through hardware manager - for now use global heaterRelay
-                    if (heaterRelay) {
-                        heaterRelay->off();
+                    if (g_state.hardware.heaterRelay) {
+                        g_state.hardware.heaterRelay->off();
                     }
                 }
                 LOGF(DEBUG, "disabled PID, waiting for %.0f seconds before enabling PID again", Config::getInstance().get<double>("brew.pid_delay"));
             }
         }
         else {
-            if (brewPidDisabled) {
+            if (g_state.process.brewPidDisabled) {
                 // enable PID again
                 g_state.pid->SetMode(AUTOMATIC);
-                brewPidDisabled = false;
+                g_state.process.brewPidDisabled = false;
                 LOGF(DEBUG, "Enabled PID again after %.0f seconds of brew pid delay", Config::getInstance().get<double>("brew.pid_delay"));
             }
 
@@ -426,10 +412,10 @@ void ProcessController::handleBrewPIDDelay(int machineState, bool brewPidDisable
         }
     }
     // Reset brewPidDisabled if brew was aborted
-    else if (machineState != 30 && brewPidDisabled) { // not kBrew
+    else if (machineState != 30 && g_state.process.brewPidDisabled) { // not kBrew
         // enable PID again
         g_state.pid->SetMode(AUTOMATIC);
-        brewPidDisabled = false;
+        g_state.process.brewPidDisabled = false;
         LOG(DEBUG, "Enabled PID again after brew was manually stopped");
     }
 }

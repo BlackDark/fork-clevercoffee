@@ -4,6 +4,7 @@
  */
 
 #include "MQTTManager.h"
+#include "../state/GlobalState.h"
 #include "../Config.h"
 #include "../defaults.h"
 #include "Logger.h"
@@ -17,25 +18,7 @@ MQTTManager* MQTTManager::instance_ = nullptr;
 extern char* number2string(double value);
 extern bool checkBrewActive();
 extern int machineState;
-extern uint8_t steamFirstON;
 extern bool hassioFailed;
-
-// Include MachineState enum constants from main.cpp
-enum LegacyMachineState {
-    kInit = 0,
-    kPidNormal = 20,
-    kBrew = 30,
-    kManualFlush = 35,
-    kHotWater = 40,
-    kSteam = 50,
-    kBackflush = 60,
-    kWaterTankEmpty = 70,
-    kEmergencyStop = 80,
-    kPidDisabled = 90,
-    kStandby = 95,
-    kSensorError = 100,
-    kEepromError = 110
-};
 
 MQTTManager::MQTTManager() :
     wifiClient_(std::make_unique<WiFiClient>()),
@@ -194,9 +177,9 @@ void MQTTManager::messageCallback(const char* topic, const byte* data, unsigned 
 
 void MQTTManager::assignParameter(char* param, double value) {
     try {
-        const auto it = mqttVars_.find(param);
+        const auto it = g_state.network.mqttVars.find(param);
 
-        if (it == mqttVars_.end()) {
+        if (it == g_state.network.mqttVars.end()) {
             LOGF(WARNING, "MQTT topic %s not found in mapping", param);
             return;
         }
@@ -225,7 +208,7 @@ void MQTTManager::assignParameter(char* param, double value) {
             uint8_t uint8Value = static_cast<uint8_t>(value);
             success = Config::getInstance().set<uint8_t>(parameterId, uint8Value);
             if (success && strcasecmp(param, "steamON") == 0) {
-                steamFirstON = uint8Value;
+                g_state.machine.steamFirstON = uint8Value;
             }
         }
 
@@ -253,16 +236,16 @@ void MQTTManager::assignParameter(char* param, double value) {
 }
 
 void MQTTManager::registerParameter(const char* mqttTopic, const char* configParam) {
-    mqttVars_[mqttTopic] = configParam;
+    g_state.network.mqttVars[mqttTopic] = configParam;
 }
 
 void MQTTManager::registerSensor(const char* topic, std::function<double()> callback) {
-    mqttSensors_[topic] = callback;
+    g_state.network.mqttSensors[topic] = callback;
 }
 
 int MQTTManager::writeSysParamsToMQTT(bool continueOnError) {
-    static auto mqttVarsIt = mqttVars_.begin();
-    static auto mqttSensorsIt = mqttSensors_.begin();
+    static auto mqttVarsIt = g_state.network.mqttVars.begin();
+    static auto mqttSensorsIt = g_state.network.mqttSensors.begin();
     static bool inSensors = false;
 
     unsigned long currentMillisMQTT = millis();
@@ -272,7 +255,7 @@ int MQTTManager::writeSysParamsToMQTT(bool continueOnError) {
         return 0;
     }
 
-    if (!inSensors && mqttVarsIt == mqttVars_.begin()) {
+    if (!inSensors && mqttVarsIt == g_state.network.mqttVars.begin()) {
         previousMillisMQTT_ = currentMillisMQTT;
         publish("status", "online");
     }
@@ -286,7 +269,7 @@ int MQTTManager::writeSysParamsToMQTT(bool continueOnError) {
 
     // Process parameter mappings
     if (!inSensors) {
-        while (mqttVarsIt != mqttVars_.end()) {
+        while (mqttVarsIt != g_state.network.mqttVars.end()) {
             const char* mqttTopic = mqttVarsIt->first;
             const char* parameterId = mqttVarsIt->second;
 
@@ -376,12 +359,12 @@ int MQTTManager::writeSysParamsToMQTT(bool continueOnError) {
             }
         }
 
-        mqttVarsIt = mqttVars_.begin();
+        mqttVarsIt = g_state.network.mqttVars.begin();
         inSensors = true;
     }
 
     // Process sensor callbacks
-    while (mqttSensorsIt != mqttSensors_.end()) {
+    while (mqttSensorsIt != g_state.network.mqttSensors.end()) {
         const char* topic = mqttSensorsIt->first;
         const auto& sensorFunc = mqttSensorsIt->second;
         std::string value = number2string(sensorFunc());
@@ -405,7 +388,7 @@ int MQTTManager::writeSysParamsToMQTT(bool continueOnError) {
         }
     }
 
-    mqttSensorsIt = mqttSensors_.begin();
+    mqttSensorsIt = g_state.network.mqttSensors.begin();
     inSensors = false;
 
     return 0;

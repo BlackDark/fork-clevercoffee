@@ -4,6 +4,7 @@
  */
 
 #include "Config.h"
+#include "state/GlobalState.h"
 
 // Note: Global config reference removed to avoid static initialization order issues
 // Use Config::getInstance() directly in code that needs config access

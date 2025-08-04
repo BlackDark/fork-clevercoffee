@@ -24,8 +24,7 @@ inline AsyncEventSource events("/events");
 AsyncCorsMiddleware corsMiddleware;
 AsyncAuthenticationMiddleware authMiddleware;
 
-extern float currReadingWeight;
-extern float currBrewWeight;
+
 // temperature moved to g_state.process.temperature
 // pidOutput moved to g_state.process.pidOutput
 
@@ -245,12 +244,10 @@ inline String getTempString() {
 
 inline String getWeightJsonString() {
     try {
-        extern float currReadingWeight;
-
         JsonDocument doc;
 
-        doc["weight"] = round2(currReadingWeight);
-        doc["brewWeight"] = round2(currBrewWeight);
+        doc["weight"] = round2(g_state.sensors.currReadingWeight);
+        doc["brewWeight"] = round2(g_state.sensors.currBrewWeight);
 
         String json;
         if (!safeSerializeJson(doc, json)) {

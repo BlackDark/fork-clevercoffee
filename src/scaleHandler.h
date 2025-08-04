@@ -11,6 +11,11 @@
 #include "display/languages.h"
 #include "hardware/scales/BluetoothScale.h"
 #include "hardware/scales/HX711Scale.h"
+#include "hardware/pinmapping.h"
+#include "utils/helperUtils.h"
+
+class U8G2;
+extern U8G2* u8g2;
 
 void displayScaleFailed();
 void displayWrappedMessage(const String& msg);
@@ -41,7 +46,6 @@ constexpr unsigned long SCALE_RECONNECTION_TIMEOUT = 30000;    // 30 seconds bef
 inline Scale* scale = nullptr;
 inline bool isBluetoothScale = false;
 
-extern BrewState currBrewState;
 
 /**
  * @brief Check Bluetooth scale connection status and handle failures
@@ -66,7 +70,7 @@ inline void checkBluetoothScaleConnection() {
                 LOG(WARNING, "Bluetooth scale connection lost");
 
                 // During active brew, activate fallback mechanism
-                if (currBrewState != kBrewIdle && currBrewState != kBrewFinished) {
+                if (g_state.sensors.currBrewState != kBrewIdle && g_state.sensors.currBrewState != kBrewFinished) {
                     const bool brewByWeightEnabled = Config::getInstance().get<bool>("brew.by_weight.enabled");
                     const bool brewByTimeEnabled = Config::getInstance().get<bool>("brew.by_time.enabled");
 
@@ -76,7 +80,7 @@ inline void checkBluetoothScaleConnection() {
                     }
                     else if (brewByWeightEnabled) {
                         LOG(WARNING, "BLE Scale connection lost during brew-by-weight only mode, stopping brew");
-                        currBrewState = kBrewFinished;
+                        g_state.sensors.currBrewState = kBrewFinished;
                     }
                 }
             }
@@ -308,7 +312,7 @@ inline void initScale() {
 inline void shotTimerScale() {
     switch (shottimerCounter) {
         case 10: // waiting step for brew switch turning on
-            if (currBrewState != kBrewIdle) {
+            if (g_state.sensors.currBrewState != kBrewIdle) {
                 // For Bluetooth scales with auto-tare, wait a bit before capturing pre-brew weight
                 if (isBluetoothScale && autoTareInProgress) {
                     // Wait at least 2 seconds for Bluetooth tare to complete
@@ -330,7 +334,7 @@ inline void shotTimerScale() {
         case 20:
             currBrewWeight = currReadingWeight - preBrewWeight;
 
-            if (currBrewState == kBrewIdle) {
+            if (g_state.sensors.currBrewState == kBrewIdle) {
                 shottimerCounter = 10;
 
                 // Reset fallback state when brew ends

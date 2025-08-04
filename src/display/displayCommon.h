@@ -11,6 +11,14 @@
 #include "bitmaps.h"
 #include "languages.h"
 
+// Forward declarations
+extern int getSignalStrength();
+extern unsigned int isrCounter;
+
+// Include MQTT for connection check
+#include <PubSubClient.h>
+extern PubSubClient* mqtt;
+
 inline const u8g2_cb_t* getU8G2Rotation(const int rotationValue) {
     switch (rotationValue) {
         case 0:
@@ -109,7 +117,7 @@ inline void displayWiFiStatus(const int x, const int y) {
 
         u8g2->setFont(u8g2_font_profont11_tf);
         u8g2->print("RC: ");
-        u8g2->print(wifiReconnects);
+        u8g2->print(g_state.network.wifiReconnects);
     }
 }
 
@@ -506,7 +514,7 @@ inline bool displayFullscreenBrewTimer() {
             if (Config::getInstance().get<bool>("hardware.sensors.scale.enabled")) {
                 u8g2->setFont(u8g2_font_profont22_tf);
                 u8g2->setCursor(5, 70);
-                u8g2->print(currBrewTime / 1000, 1);
+                u8g2->print(g_state.process.currBrewTime / 1000, 1);
                 u8g2->print("s");
                 u8g2->setCursor(5, 100);
                 u8g2->print(currBrewWeight, 1);
@@ -514,7 +522,7 @@ inline bool displayFullscreenBrewTimer() {
                 u8g2->setFont(u8g2_font_profont11_tf);
             }
             else {
-                displayBrewtimeFs(1, 80, currBrewTime);
+                displayBrewtimeFs(1, 80, g_state.process.currBrewTime);
             }
         }
         else {
@@ -523,7 +531,7 @@ inline bool displayFullscreenBrewTimer() {
             if (Config::getInstance().get<bool>("hardware.sensors.scale.enabled")) {
                 u8g2->setFont(u8g2_font_profont22_tf);
                 u8g2->setCursor(64, 15);
-                u8g2->print(currBrewTime / 1000, 1);
+                u8g2->print(g_state.process.currBrewTime / 1000, 1);
                 u8g2->print("s");
                 u8g2->setCursor(64, 38);
                 u8g2->print(currBrewWeight, 1);
@@ -531,7 +539,7 @@ inline bool displayFullscreenBrewTimer() {
                 u8g2->setFont(u8g2_font_profont11_tf);
             }
             else {
-                displayBrewtimeFs(48, 25, currBrewTime);
+                displayBrewtimeFs(48, 25, g_state.process.currBrewTime);
             }
         }
 
@@ -550,16 +558,16 @@ inline bool displayFullscreenManualFlushTimer() {
         return false;
     }
 
-    if (machineState == kManualFlush) {
+    if (g_state.machine.machineState == kManualFlush) {
         u8g2->clearBuffer();
 
         if (Config::getInstance().get<int>("display.template") == 4) {
             u8g2->drawXBMP(12, 12, Manual_Flush_Logo_width, Manual_Flush_Logo_height, Manual_Flush_Logo);
-            displayBrewtimeFs(1, 80, currBrewTime);
+            displayBrewtimeFs(1, 80, g_state.process.currBrewTime);
         }
         else {
             u8g2->drawXBMP(0, 12, Manual_Flush_Logo_width, Manual_Flush_Logo_height, Manual_Flush_Logo);
-            displayBrewtimeFs(48, 25, currBrewTime);
+            displayBrewtimeFs(48, 25, g_state.process.currBrewTime);
         }
 
         g_state.coordination.displayBufferReady = true;
@@ -576,7 +584,7 @@ inline bool displayFullscreenHotWaterTimer() {
         return false;
     }
 
-    if (machineState == kHotWater) {
+    if (g_state.machine.machineState == kHotWater) {
         u8g2->clearBuffer();
 
         if (Config::getInstance().get<int>("display.template") == 4) {
@@ -599,9 +607,9 @@ inline bool displayFullscreenHotWaterTimer() {
  */
 inline bool displayOfflineMode() {
 
-    if (displayOffline > 0 && displayOffline < 20) {
+    if (g_state.display.displayOffline > 0 && g_state.display.displayOffline < 20) {
         displayMessage("", "", "", "", "Begin Fallback,", "No Wifi");
-        displayOffline++;
+        g_state.display.displayOffline++;
         return true;
     }
 
@@ -618,7 +626,7 @@ inline bool displayMachineState() {
     }
 
     // Show the heating logo when we are in regular PID mode and more than 5degC below the set point
-    if (Config::getInstance().get<bool>("display.heating_logo") > 0 && (machineState == kPidNormal || machineState == kSteam) && g_state.process.setpoint - g_state.process.temperature > 5.) {
+    if (Config::getInstance().get<bool>("display.heating_logo") > 0 && (g_state.machine.machineState == kPidNormal || g_state.machine.machineState == kSteam) && g_state.process.setpoint - g_state.process.temperature > 5.) {
         // For status info
         u8g2->clearBuffer();
 
@@ -635,7 +643,7 @@ inline bool displayMachineState() {
     }
 
     // Offline logo
-    if (Config::getInstance().get<bool>("display.pid_off_logo") == 1 && machineState == kPidDisabled) {
+    if (Config::getInstance().get<bool>("display.pid_off_logo") == 1 && g_state.machine.machineState == kPidDisabled) {
         u8g2->clearBuffer();
         u8g2->drawXBMP(38, 0, Off_Logo_width, Off_Logo_height, Off_Logo);
         u8g2->setCursor(0, 55);
@@ -645,7 +653,7 @@ inline bool displayMachineState() {
         return true;
     }
 
-    if (Config::getInstance().get<bool>("display.pid_off_logo") == 1 && machineState == kStandby) {
+    if (Config::getInstance().get<bool>("display.pid_off_logo") == 1 && g_state.machine.machineState == kStandby) {
         u8g2->clearBuffer();
         u8g2->drawXBMP(38, 0, Off_Logo_width, Off_Logo_height, Off_Logo);
         u8g2->setCursor(36, 55);
@@ -656,7 +664,7 @@ inline bool displayMachineState() {
     }
 
     // Steam
-    if (machineState == kSteam) {
+    if (g_state.machine.machineState == kSteam) {
         u8g2->clearBuffer();
         u8g2->drawXBMP(-1, 12, Steam_Logo_width, Steam_Logo_height, Steam_Logo);
 
@@ -667,7 +675,7 @@ inline bool displayMachineState() {
     }
 
     // Water empty
-    if (machineState == kWaterTankEmpty) {
+    if (g_state.machine.machineState == kWaterTankEmpty) {
         u8g2->clearBuffer();
         u8g2->drawXBMP(45, 0, Water_Tank_Empty_Logo_width, Water_Tank_Empty_Logo_height, Water_Tank_Empty_Logo);
         u8g2->setFont(u8g2_font_profont11_tf);
@@ -676,13 +684,13 @@ inline bool displayMachineState() {
     }
 
     // Backflush
-    if (machineState == kBackflush) {
+    if (g_state.machine.machineState == kBackflush) {
         u8g2->clearBuffer();
         u8g2->setFont(u8g2_font_fub17_tf);
         u8g2->setCursor(2, 10);
         u8g2->print("Backflush");
 
-        switch (currBackflushState) {
+        switch (g_state.sensors.currBackflushState) {
             case kBackflushIdle:
                 u8g2->setFont(u8g2_font_profont12_tf);
                 u8g2->setCursor(4, 37);
@@ -702,9 +710,9 @@ inline bool displayMachineState() {
             default:
                 u8g2->setFont(u8g2_font_fub17_tf);
                 u8g2->setCursor(42, 42);
-                u8g2->print(currBackflushCycles, 0);
+                u8g2->print(g_state.machine.currBackflushCycles, 0);
                 u8g2->print("/");
-                u8g2->print(backflushCycles, 0);
+                u8g2->print(Config::getInstance().get<double>("backflush.cycles"), 0);
                 break;
         }
 
@@ -713,7 +721,7 @@ inline bool displayMachineState() {
     }
 
     // PID Off
-    if (machineState == kEmergencyStop) {
+    if (g_state.machine.machineState == kEmergencyStop) {
         u8g2->clearBuffer();
         u8g2->setFont(u8g2_font_profont11_tf);
         u8g2->setCursor(32, 24);
@@ -743,14 +751,14 @@ inline bool displayMachineState() {
         return true;
     }
 
-    if (machineState == kSensorError) {
+    if (g_state.machine.machineState == kSensorError) {
         u8g2->clearBuffer();
         u8g2->setFont(u8g2_font_profont11_tf);
         displayMessage(langstring_error_tsensor[0], String(g_state.process.temperature), langstring_error_tsensor[1], "", "", "");
         return true;
     }
 
-    if (machineState == kEepromError) {
+    if (g_state.machine.machineState == kEepromError) {
         u8g2->clearBuffer();
         u8g2->setFont(u8g2_font_profont11_tf);
         displayMessage("EEPROM Error, please set Values", "", "", "", "", "");

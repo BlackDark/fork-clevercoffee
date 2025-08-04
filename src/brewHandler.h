@@ -14,35 +14,13 @@
 
 #include "Config.h"
 #include "brewStates.h"
+#include "state/GlobalState.h"
+#include "state/MachineState.h"
+#include "hardware/Switch.h"
+#include "hardware/Relay.h"
 
 // Backward compatibility reference
 #include "scaleHandler.h"
-
-// Brew control states
-inline BrewSwitchState currBrewSwitchState = kBrewSwitchIdle;
-inline BrewState currBrewState = kBrewIdle;
-inline ManualFlushState currManualFlushState = kManualFlushIdle;
-inline BackflushState currBackflushState = kBackflushIdle;
-
-inline uint8_t brewSwitchReading = LOW;
-inline uint8_t currReadingBrewSwitch = LOW;
-inline bool brewSwitchWasOff = false;
-
-// Brew values
-inline double targetBrewTime = TARGET_BREW_TIME;          // brew time in s
-inline double preinfusion = PRE_INFUSION_TIME;            // preinfusion time in s
-inline double preinfusionPause = PRE_INFUSION_PAUSE_TIME; // preinfusion pause time in s
-inline double totalTargetBrewTime = 0;                    // total target brew time including preinfusion and preinfusion pause
-inline double currBrewTime = 0;                           // current running total brewed time
-inline unsigned long startingTime = 0;                    // start time of brew
-inline bool brewPidDisabled = false;                      // is PID disabled for delay after brew has started?
-
-// Backflush values
-inline int backflushCycles = BACKFLUSH_CYCLES;
-inline double backflushFillTime = BACKFLUSH_FILL_TIME;
-inline double backflushFlushTime = BACKFLUSH_FLUSH_TIME;
-// g_state.machine.backflushOn moved to g_state.machine.g_state.machine.backflushOn
-inline int currBackflushCycles = 1;
 
 bool isPowerSwitchOperationAllowed();
 
@@ -50,23 +28,23 @@ bool isPowerSwitchOperationAllowed();
  * @brief True if in an intermediate brew state, false if idle or finished
  */
 inline bool checkBrewActive() {
-    return (currBrewState != kBrewIdle && currBrewState != kBrewFinished); // removed && !(machineState >= kEmergencyStop)
+    return (g_state.sensors.currBrewState != kBrewIdle && g_state.sensors.currBrewState != kBrewFinished); // removed && !(g_state.machine.machineState >= kEmergencyStop)
 }
 
 /**
  * @brief True if in a machine state related to brew or flush, false if in other states
  */
 inline bool checkBrewStates() {
-    return (machineState == kBrew || machineState == kBackflush || machineState == kManualFlush);
+    return (g_state.machine.machineState == LegacyMachineState::kEmergencyStop || g_state.machine.machineState == LegacyMachineState::kBackflush || g_state.machine.machineState == LegacyMachineState::kManualFlush);
 }
 
 /**
- * @brief turns off valve if not in an active brew state or if machineState changes away from one related to brewing or flushing
+ * @brief turns off valve if not in an active brew state or if g_state.machine.machineState changes away from one related to brewing or flushing
  */
 inline void valveSafetyShutdownCheck() {
     if (!checkBrewActive() && !checkBrewStates()) {
-        currBrewState == kBrewIdle; // reset state to idle if not in an active brew/flush state
-        valveRelay->off();
+        g_state.sensors.currBrewState == kBrewIdle; // reset state to idle if not in an active brew/flush state
+        g_state.hardware.valveRelay->off();
     }
 }
 
@@ -79,12 +57,12 @@ inline void checkBrewSwitch() {
     }
 
     static bool loggedEmptyWaterTank = false;
-    brewSwitchReading = brewSwitch->isPressed();
+    g_state.sensors.brewSwitchReading = reinterpret_cast<Switch*>(g_state.hardware.brewSwitch)->isPressed();
 
     // Block brewSwitch input when water tank is empty
-    if (machineState == kWaterTankEmpty) {
+    if (g_state.machine.machineState == LegacyMachineState::kWaterTankEmpty) {
 
-        if (!loggedEmptyWaterTank && (currBrewSwitchState == kBrewSwitchIdle || currBrewSwitchState == kBrewSwitchPressed)) {
+        if (!loggedEmptyWaterTank && (g_state.sensors.currBrewSwitchState == kBrewSwitchIdle || g_state.sensors.currBrewSwitchState == kBrewSwitchPressed)) {
             LOG(WARNING, "Brew switch input ignored: Water tank empty");
             loggedEmptyWaterTank = true;
         }
@@ -92,7 +70,7 @@ inline void checkBrewSwitch() {
     }
 
     // Block brewSwitch input while hot water is being drawn
-    if (machineState == kHotWater) {
+    if (g_state.machine.machineState == LegacyMachineState::kHotWater) {
         return;
     }
 
@@ -100,96 +78,96 @@ inline void checkBrewSwitch() {
 
     // Convert toggle brew switch input to brew switch state
     if (const int brewSwitchType = Config::getInstance().get<int>("hardware.switches.brew.type"); brewSwitchType == Switch::TOGGLE) {
-        if (currReadingBrewSwitch != brewSwitchReading) {
-            currReadingBrewSwitch = brewSwitchReading;
+        if (g_state.sensors.currReadingBrewSwitch != g_state.sensors.brewSwitchReading) {
+            g_state.sensors.currReadingBrewSwitch = g_state.sensors.brewSwitchReading;
         }
 
-        switch (currBrewSwitchState) {
+        switch (g_state.sensors.currBrewSwitchState) {
             case kBrewSwitchIdle:
-                if (currReadingBrewSwitch == HIGH) {
-                    currBrewSwitchState = kBrewSwitchShortPressed;
-                    LOG(DEBUG, "Toggle Brew switch is ON -> got to currBrewSwitchState = kBrewSwitchShortPressed");
+                if (g_state.sensors.currReadingBrewSwitch == HIGH) {
+                    g_state.sensors.currBrewSwitchState = kBrewSwitchShortPressed;
+                    LOG(DEBUG, "Toggle Brew switch is ON -> got to g_state.sensors.currBrewSwitchState = kBrewSwitchShortPressed");
                 }
                 break;
 
             case kBrewSwitchShortPressed:
-                if (currReadingBrewSwitch == LOW) {
-                    currBrewSwitchState = kBrewSwitchIdle;
-                    LOG(DEBUG, "Toggle Brew switch is OFF -> got to currBrewSwitchState = kBrewSwitchIdle");
+                if (g_state.sensors.currReadingBrewSwitch == LOW) {
+                    g_state.sensors.currBrewSwitchState = kBrewSwitchIdle;
+                    LOG(DEBUG, "Toggle Brew switch is OFF -> got to g_state.sensors.currBrewSwitchState = kBrewSwitchIdle");
                 }
-                else if (currBrewState == kBrewFinished || currBackflushState == kBackflushFinished) {
-                    currBrewSwitchState = kBrewSwitchWaitForRelease;
-                    LOG(DEBUG, "Brew reached target or backflush done -> got to currBrewSwitchState = kBrewSwitchWaitForRelease");
+                else if (g_state.sensors.currBrewState == kBrewFinished || g_state.sensors.currBackflushState == kBackflushFinished) {
+                    g_state.sensors.currBrewSwitchState = kBrewSwitchWaitForRelease;
+                    LOG(DEBUG, "Brew reached target or backflush done -> got to g_state.sensors.currBrewSwitchState = kBrewSwitchWaitForRelease");
                 }
                 break;
 
             case kBrewSwitchWaitForRelease:
-                if (currReadingBrewSwitch == LOW) {
-                    currBrewSwitchState = kBrewSwitchIdle;
-                    LOG(DEBUG, "Brew switch reset -> got to currBrewSwitchState = kBrewSwitchIdle");
+                if (g_state.sensors.currReadingBrewSwitch == LOW) {
+                    g_state.sensors.currBrewSwitchState = kBrewSwitchIdle;
+                    LOG(DEBUG, "Brew switch reset -> got to g_state.sensors.currBrewSwitchState = kBrewSwitchIdle");
                 }
                 break;
 
             default:
 
-                currBrewSwitchState = kBrewSwitchIdle;
-                LOG(DEBUG, "Unexpected switch state -> currBrewSwitchState = kBrewSwitchIdle");
+                g_state.sensors.currBrewSwitchState = kBrewSwitchIdle;
+                LOG(DEBUG, "Unexpected switch state -> g_state.sensors.currBrewSwitchState = kBrewSwitchIdle");
                 break;
         }
     }
     // Convert momentary brew switch input to brew switch state
     else if (brewSwitchType == Switch::MOMENTARY) {
-        if (currReadingBrewSwitch != brewSwitchReading) {
-            currReadingBrewSwitch = brewSwitchReading;
+        if (g_state.sensors.currReadingBrewSwitch != g_state.sensors.brewSwitchReading) {
+            g_state.sensors.currReadingBrewSwitch = g_state.sensors.brewSwitchReading;
         }
 
-        switch (currBrewSwitchState) {
+        switch (g_state.sensors.currBrewSwitchState) {
             case kBrewSwitchIdle:
-                if (currReadingBrewSwitch == HIGH) {
-                    currBrewSwitchState = kBrewSwitchPressed;
-                    LOG(DEBUG, "Brew switch press detected -> got to currBrewSwitchState = kBrewSwitchPressed");
+                if (g_state.sensors.currReadingBrewSwitch == HIGH) {
+                    g_state.sensors.currBrewSwitchState = kBrewSwitchPressed;
+                    LOG(DEBUG, "Brew switch press detected -> got to g_state.sensors.currBrewSwitchState = kBrewSwitchPressed");
                 }
                 break;
 
             case kBrewSwitchPressed:                // Brew switch pressed - check for short or long press
-                if (currReadingBrewSwitch == LOW) { // Brew switch short press detected
-                    currBrewSwitchState = kBrewSwitchShortPressed;
-                    LOG(DEBUG, "Brew switch short press detected -> got to currBrewSwitchState = kBrewSwitchShortPressed; start brew");
+                if (g_state.sensors.currReadingBrewSwitch == LOW) { // Brew switch short press detected
+                    g_state.sensors.currBrewSwitchState = kBrewSwitchShortPressed;
+                    LOG(DEBUG, "Brew switch short press detected -> got to g_state.sensors.currBrewSwitchState = kBrewSwitchShortPressed; start brew");
                 }
-                else if (currReadingBrewSwitch == HIGH && brewSwitch->longPressDetected()) { // Brew switch long press detected
-                    currBrewSwitchState = kBrewSwitchLongPressed;
-                    LOG(DEBUG, "Brew switch long press detected -> got to currBrewSwitchState = kBrewSwitchLongPressed; start manual flush");
+                else if (g_state.sensors.currReadingBrewSwitch == HIGH && reinterpret_cast<Switch*>(g_state.hardware.brewSwitch)->longPressDetected()) { // Brew switch long press detected
+                    g_state.sensors.currBrewSwitchState = kBrewSwitchLongPressed;
+                    LOG(DEBUG, "Brew switch long press detected -> got to g_state.sensors.currBrewSwitchState = kBrewSwitchLongPressed; start manual flush");
                 }
                 break;
 
             case kBrewSwitchShortPressed:
-                if (currReadingBrewSwitch == HIGH) { // Brew switch short press detected while brew is running - abort brew
-                    currBrewSwitchState = kBrewSwitchWaitForRelease;
-                    LOG(DEBUG, "Brew switch short press detected -> got to currBrewSwitchState = kBrewSwitchWaitForRelease; brew or backflush stopped manually");
+                if (g_state.sensors.currReadingBrewSwitch == HIGH) { // Brew switch short press detected while brew is running - abort brew
+                    g_state.sensors.currBrewSwitchState = kBrewSwitchWaitForRelease;
+                    LOG(DEBUG, "Brew switch short press detected -> got to g_state.sensors.currBrewSwitchState = kBrewSwitchWaitForRelease; brew or backflush stopped manually");
                 }
-                else if (currBrewState == kBrewFinished || currBackflushState == kBackflushFinished) { // Brew reached target and stopped or blackflush cycle done
-                    currBrewSwitchState = kBrewSwitchWaitForRelease;
-                    LOG(DEBUG, "Brew reached target or backflush done -> got to currBrewSwitchState = kBrewSwitchWaitForRelease");
+                else if (g_state.sensors.currBrewState == kBrewFinished || g_state.sensors.currBackflushState == kBackflushFinished) { // Brew reached target and stopped or blackflush cycle done
+                    g_state.sensors.currBrewSwitchState = kBrewSwitchWaitForRelease;
+                    LOG(DEBUG, "Brew reached target or backflush done -> got to g_state.sensors.currBrewSwitchState = kBrewSwitchWaitForRelease");
                 }
                 break;
 
             case kBrewSwitchLongPressed:
-                if (currReadingBrewSwitch == LOW) { // Brew switch got released after long press detected - reset brewswitch
-                    currBrewSwitchState = kBrewSwitchWaitForRelease;
-                    LOG(DEBUG, "Brew switch long press released -> got to currBrewSwitchState = kBrewSwitchWaitForRelease; stop manual flush");
+                if (g_state.sensors.currReadingBrewSwitch == LOW) { // Brew switch got released after long press detected - reset brewswitch
+                    g_state.sensors.currBrewSwitchState = kBrewSwitchWaitForRelease;
+                    LOG(DEBUG, "Brew switch long press released -> got to g_state.sensors.currBrewSwitchState = kBrewSwitchWaitForRelease; stop manual flush");
                 }
                 break;
 
             case kBrewSwitchWaitForRelease: // wait for brew switch got released
-                if (currReadingBrewSwitch == LOW) {
-                    currBrewSwitchState = kBrewSwitchIdle;
-                    LOG(DEBUG, "Brew switch reset -> got to currBrewSwitchState = kBrewSwitchIdle");
+                if (g_state.sensors.currReadingBrewSwitch == LOW) {
+                    g_state.sensors.currBrewSwitchState = kBrewSwitchIdle;
+                    LOG(DEBUG, "Brew switch reset -> got to g_state.sensors.currBrewSwitchState = kBrewSwitchIdle");
                 }
                 break;
 
             default:
-                currBrewSwitchState = kBrewSwitchIdle;
-                LOG(DEBUG, "Unexpected switch state -> currBrewSwitchState = kBrewSwitchIdle");
+                g_state.sensors.currBrewSwitchState = kBrewSwitchIdle;
+                LOG(DEBUG, "Unexpected switch state -> g_state.sensors.currBrewSwitchState = kBrewSwitchIdle");
                 break;
         }
     }
@@ -200,11 +178,11 @@ inline void checkBrewSwitch() {
  * @return void
  */
 inline void debugPumpState(String label, String state) {
-    hotWaterStateDebug = state;
+    g_state.debug.hotWaterStateDebug = state;
     IFLOG(DEBUG) {
-        if (hotWaterStateDebug != lastHotWaterStateDebug) {
-            LOGF(DEBUG, "Hot water state: %s - BrewHandler: %s", hotWaterStateDebug, label);
-            lastHotWaterStateDebug = hotWaterStateDebug;
+        if (g_state.debug.hotWaterStateDebug != g_state.debug.lastHotWaterStateDebug) {
+            LOGF(DEBUG, "Hot water state: %s - BrewHandler: %s", g_state.debug.hotWaterStateDebug, label);
+            g_state.debug.lastHotWaterStateDebug = g_state.debug.hotWaterStateDebug;
         }
     }
 }
@@ -214,7 +192,7 @@ inline void debugPumpState(String label, String state) {
  * @return true if brew is running, false otherwise
  */
 inline bool brew() {
-    if (!Config::getInstance().get<bool>("hardware.switches.brew.enabled") || brewSwitch == nullptr) {
+    if (!Config::getInstance().get<bool>("hardware.switches.brew.enabled") || reinterpret_cast<Switch*>(g_state.hardware.brewSwitch) == nullptr) {
         return false; // brew switch is not enabled, so no brew process running
     }
 
@@ -222,15 +200,15 @@ inline bool brew() {
     checkBrewSwitch();
 
     // abort function for state machine from every state
-    if (currBrewSwitchState == kBrewSwitchIdle && currBrewState > kBrewIdle && currBrewState < kBrewFinished) {
-        if (currBrewState != kBrewFinished) {
+    if (g_state.sensors.currBrewSwitchState == kBrewSwitchIdle && g_state.sensors.currBrewState > kBrewIdle && g_state.sensors.currBrewState < kBrewFinished) {
+        if (g_state.sensors.currBrewState != kBrewFinished) {
             LOG(INFO, "Brew stopped manually");
         }
-        currBrewState = kBrewFinished;
+        g_state.sensors.currBrewState = kBrewFinished;
     }
     // calculated brew time while brew is running
-    if (currBrewState > kBrewIdle && currBrewState < kBrewFinished) {
-        currBrewTime = currentMillisTemp - startingTime;
+    if (g_state.sensors.currBrewState > kBrewIdle && g_state.sensors.currBrewState < kBrewFinished) {
+        g_state.process.currBrewTime = currentMillisTemp - g_state.process.startingTime;
     }
 
     const int brewMode = Config::getInstance().get<int>("brew.mode");
@@ -239,40 +217,40 @@ inline bool brew() {
     const bool preinfusionEnabled = Config::getInstance().get<bool>("brew.pre_infusion.enabled");
 
     // check if brewswitch was turned off after a brew; Brew only runs once even brewswitch is still pressed
-    if (currBrewSwitchState == kBrewSwitchIdle) {
-        brewSwitchWasOff = true;
+    if (g_state.sensors.currBrewSwitchState == kBrewSwitchIdle) {
+        g_state.sensors.brewSwitchWasOff = true;
     }
 
     // set brew time every cycle, in case changes are done during brew
-    if (targetBrewTime > 0) {
-        totalTargetBrewTime = targetBrewTime * 1000;
+    if (Config::getInstance().get<double>("brew.by_time.target_time") > 0) {
+        g_state.process.totalTargetBrewTime = Config::getInstance().get<double>("brew.by_time.target_time") * 1000;
 
         if (preinfusionEnabled) {
-            totalTargetBrewTime += preinfusion * 1000 + preinfusionPause * 1000;
+            g_state.process.totalTargetBrewTime += Config::getInstance().get<double>("brew.pre_infusion.time") * 1000 + Config::getInstance().get<double>("brew.pre_infusion.pause") * 1000;
         }
     }
     else {
-        // Stop by time deactivated --> totalTargetBrewTime = 0
-        totalTargetBrewTime = 0;
+        // Stop by time deactivated --> g_state.process.totalTargetBrewTime = 0
+        g_state.process.totalTargetBrewTime = 0;
     }
 
     // state machine for brew
-    switch (currBrewState) {
+    switch (g_state.sensors.currBrewState) {
         case kBrewIdle:             // waiting step for brew switch turning on
-            if (currBrewSwitchState == kBrewSwitchShortPressed && brewSwitchWasOff && !g_state.machine.backflushOn && machineState != kBackflush) {
-                startingTime = millis();
-                currBrewTime = 0;   // reset currBrewTime, last brew is still stored
+            if (g_state.sensors.currBrewSwitchState == kBrewSwitchShortPressed && g_state.sensors.brewSwitchWasOff && !g_state.machine.backflushOn && g_state.machine.machineState != LegacyMachineState::kBackflush) {
+                g_state.process.startingTime = millis();
+                g_state.process.currBrewTime = 0;   // reset g_state.process.currBrewTime, last brew is still stored
                 currBrewWeight = 0; // reset currBrewWeight for new brew
 
                 LOG(INFO, "Brew started");
 
                 if (!preinfusionEnabled) {
                     LOG(INFO, "Brew running");
-                    currBrewState = kBrewRunning;
+                    g_state.sensors.currBrewState = kBrewRunning;
                 }
                 else {
                     LOG(INFO, "Preinfusion running");
-                    currBrewState = kPreinfusion;
+                    g_state.sensors.currBrewState = kPreinfusion;
                 }
 
                 if (Config::getInstance().get<bool>("hardware.sensors.scale.enabled") && Config::getInstance().get<int>("hardware.sensors.scale.type") == 2 && Config::getInstance().get<bool>("brew.by_weight.enabled") &&
@@ -292,65 +270,65 @@ inline bool brew() {
             break;
 
         case kPreinfusion:
-            valveRelay->on();
-            pumpRelay->on();
+            g_state.hardware.valveRelay->on();
+            g_state.hardware.pumpRelay->on();
             debugPumpState("Preinfusion", "on");
 
-            if (currBrewTime > preinfusion * 1000) {
+            if (g_state.process.currBrewTime > Config::getInstance().get<double>("brew.pre_infusion.time") * 1000) {
                 LOG(INFO, "Preinfusion pause running");
-                currBrewState = kPreinfusionPause;
+                g_state.sensors.currBrewState = kPreinfusionPause;
             }
 
             break;
 
         case kPreinfusionPause:
-            valveRelay->on();
-            pumpRelay->off();
+            g_state.hardware.valveRelay->on();
+            g_state.hardware.pumpRelay->off();
             debugPumpState("Pause", "off");
 
-            if (currBrewTime > (preinfusion + preinfusionPause) * 1000) {
+            if (g_state.process.currBrewTime > (Config::getInstance().get<double>("brew.pre_infusion.time") + Config::getInstance().get<double>("brew.pre_infusion.pause")) * 1000) {
                 LOG(INFO, "Brew running");
-                currBrewState = kBrewRunning;
+                g_state.sensors.currBrewState = kBrewRunning;
             }
 
             break;
 
         case kBrewRunning:
             {
-                valveRelay->on();
-                pumpRelay->on();
+                g_state.hardware.valveRelay->on();
+                g_state.hardware.pumpRelay->on();
                 debugPumpState("BrewRunning", "on");
 
                 const auto targetBrewWeight = Config::getInstance().get<double>("brew.by_weight.target_weight");
 
-                if (currBrewTime > totalTargetBrewTime && brewByTimeEnabled) {
+                if (g_state.process.currBrewTime > g_state.process.totalTargetBrewTime && brewByTimeEnabled) {
                     LOG(INFO, "Brew reached time target");
-                    currBrewState = kBrewFinished;
+                    g_state.sensors.currBrewState = kBrewFinished;
                 }
                 else if (Config::getInstance().get<bool>("hardware.sensors.scale.enabled") && currBrewWeight > targetBrewWeight && brewByWeightEnabled) {
                     LOG(INFO, "Brew reached weight target");
-                    currBrewState = kBrewFinished;
+                    g_state.sensors.currBrewState = kBrewFinished;
                 }
 
                 break;
             }
 
         case kBrewFinished:
-            valveRelay->off();
-            pumpRelay->off();
+            g_state.hardware.valveRelay->off();
+            g_state.hardware.pumpRelay->off();
             debugPumpState("BrewFinished", "off");
 
-            brewSwitchWasOff = false;
+            g_state.sensors.brewSwitchWasOff = false;
             LOG(INFO, "Brew finished");
-            LOGF(INFO, "Shot time: %4.1f s", currBrewTime / 1000);
+            LOGF(INFO, "Shot time: %4.1f s", g_state.process.currBrewTime / 1000);
             LOG(INFO, "Brew idle");
-            currBrewState = kBrewIdle;
+            g_state.sensors.currBrewState = kBrewIdle;
 
             break;
 
         default:
-            currBrewState = kBrewIdle;
-            LOG(DEBUG, "Unexpected brew state -> currBrewState = kBrewIdle");
+            g_state.sensors.currBrewState = kBrewIdle;
+            LOG(DEBUG, "Unexpected brew state -> g_state.sensors.currBrewState = kBrewIdle");
 
             break;
     }
@@ -363,138 +341,139 @@ inline bool brew() {
  * @return true if manual flush is running, false otherwise
  */
 inline bool manualFlush() {
-    if (!Config::getInstance().get<bool>("hardware.switches.brew.enabled") || brewSwitch == nullptr) {
+    if (!Config::getInstance().get<bool>("hardware.switches.brew.enabled") || reinterpret_cast<Switch*>(g_state.hardware.brewSwitch) == nullptr) {
         return false; // brew switch is not enabled, so no brew process running
     }
 
     const unsigned long currentMillisTemp = millis();
     checkBrewSwitch();
 
-    if (currManualFlushState == kManualFlushRunning) {
-        currBrewTime = currentMillisTemp - startingTime;
+    if (g_state.sensors.currManualFlushState == kManualFlushRunning) {
+        g_state.process.currBrewTime = currentMillisTemp - g_state.process.startingTime;
     }
 
-    switch (currManualFlushState) {
+    switch (g_state.sensors.currManualFlushState) {
         case kManualFlushIdle:
-            if (currBrewSwitchState == kBrewSwitchLongPressed) {
-                startingTime = millis();
-                valveRelay->on();
-                pumpRelay->on();
+            if (g_state.sensors.currBrewSwitchState == kBrewSwitchLongPressed) {
+                g_state.process.startingTime = millis();
+                g_state.hardware.valveRelay->on();
+                g_state.hardware.pumpRelay->on();
                 debugPumpState("ManualFlush", "on");
                 LOG(INFO, "Manual flush started");
-                currManualFlushState = kManualFlushRunning;
+                g_state.sensors.currManualFlushState = kManualFlushRunning;
             }
             break;
 
         case kManualFlushRunning:
-            if (currBrewSwitchState != kBrewSwitchLongPressed) {
-                valveRelay->off();
-                pumpRelay->off();
+            if (g_state.sensors.currBrewSwitchState != kBrewSwitchLongPressed) {
+                g_state.hardware.valveRelay->off();
+                g_state.hardware.pumpRelay->off();
                 debugPumpState("ManualFlush", "off");
                 LOG(INFO, "Manual flush stopped");
-                LOGF(INFO, "Manual flush time: %4.1f s", currBrewTime / 1000);
-                currManualFlushState = kManualFlushIdle;
+                LOGF(INFO, "Manual flush time: %4.1f s", g_state.process.currBrewTime / 1000);
+                g_state.sensors.currManualFlushState = kManualFlushIdle;
             }
             break;
 
         default:
-            currManualFlushState = kManualFlushIdle;
-            LOG(DEBUG, "Unexpected manual flush state -> currManualFlushState = kManualFlushIdle");
+            g_state.sensors.currManualFlushState = kManualFlushIdle;
+            LOG(DEBUG, "Unexpected manual flush state -> g_state.sensors.currManualFlushState = kManualFlushIdle");
 
             break;
     }
 
-    return currManualFlushState == kManualFlushRunning;
+    return g_state.sensors.currManualFlushState == kManualFlushRunning;
 }
 
 /**
  * @brief Backflush
  */
 inline void backflush() {
-    if (!Config::getInstance().get<bool>("hardware.switches.brew.enabled") || brewSwitch == nullptr) {
+    if (!Config::getInstance().get<bool>("hardware.switches.brew.enabled") || reinterpret_cast<Switch*>(g_state.hardware.brewSwitch) == nullptr) {
         return; // brew switch is not enabled, so no brew process running
     }
 
     checkBrewSwitch();
 
-    if (currBackflushState != kBackflushIdle && !g_state.machine.backflushOn) {
-        currBackflushState = kBackflushFinished; // Force reset in case g_state.machine.backflushOn is reset during backflush!
+    if (g_state.sensors.currBackflushState != kBackflushIdle && !g_state.machine.backflushOn) {
+        g_state.sensors.currBackflushState = kBackflushFinished; // Force reset in case g_state.machine.backflushOn is reset during backflush!
         LOG(INFO, "Backflush: Disabled via webinterface");
     }
-    else if (g_state.network.offlineMode || currBrewState > kBrewIdle || backflushCycles <= 0 || !g_state.machine.backflushOn) {
+    else if (g_state.network.offlineMode || g_state.sensors.currBrewState > kBrewIdle || Config::getInstance().get<double>("backflush.cycles") <= 0 || !g_state.machine.backflushOn) {
         return;
     }
 
     // abort function for state machine from every state
-    if (currBrewSwitchState == kBrewSwitchIdle && currBackflushState > kBackflushIdle && currBackflushState < kBackflushFinished) {
-        currBackflushState = kBackflushFinished;
+    if (g_state.sensors.currBrewSwitchState == kBrewSwitchIdle && g_state.sensors.currBackflushState > kBackflushIdle && g_state.sensors.currBackflushState < kBackflushFinished) {
+        g_state.sensors.currBackflushState = kBackflushFinished;
 
         LOG(INFO, "Backflush stopped manually");
     }
 
     // check if brewswitch was turned off after a backflush; Backflush only runs once even brewswitch is still pressed
-    if (currBrewSwitchState == kBrewSwitchIdle) {
-        brewSwitchWasOff = true;
+    if (g_state.sensors.currBrewSwitchState == kBrewSwitchIdle) {
+        g_state.sensors.brewSwitchWasOff = true;
     }
 
     // State machine for backflush
-    switch (currBackflushState) {
+    switch (g_state.sensors.currBackflushState) {
         case kBackflushIdle:
-            if (currBrewSwitchState == kBrewSwitchShortPressed && g_state.machine.backflushOn && brewSwitchWasOff) {
-                startingTime = millis();
-                valveRelay->on();
-                pumpRelay->on();
+            if (g_state.sensors.currBrewSwitchState == kBrewSwitchShortPressed && g_state.machine.backflushOn && g_state.sensors.brewSwitchWasOff) {
+                g_state.process.startingTime = millis();
+                g_state.hardware.valveRelay->on();
+                g_state.hardware.pumpRelay->on();
                 debugPumpState("Backflush", "on");
-                LOGF(INFO, "Start backflush cycle %d", currBackflushCycles);
+                LOGF(INFO, "Start backflush cycle %d", g_state.machine.currBackflushCycles);
                 LOG(INFO, "Backflush: filling portafilter");
-                currBackflushState = kBackflushFilling;
+                g_state.sensors.currBackflushState = kBackflushFilling;
             }
 
             break;
 
+
         case kBackflushFilling:
-            if (millis() - startingTime > backflushFillTime * 1000) {
-                startingTime = millis();
-                valveRelay->off();
-                pumpRelay->off();
+            if (millis() - g_state.process.startingTime > Config::getInstance().get<double>("backflush.fill_time") * 1000) {
+                g_state.process.startingTime = millis();
+                g_state.hardware.valveRelay->off();
+                g_state.hardware.pumpRelay->off();
                 debugPumpState("Backflush", "off");
                 LOG(INFO, "Backflush: flushing into drip tray");
-                currBackflushState = kBackflushFlushing;
+                g_state.sensors.currBackflushState = kBackflushFlushing;
             }
             break;
 
         case kBackflushFlushing:
-            if (millis() - startingTime > backflushFlushTime * 1000) {
-                if (currBackflushCycles < backflushCycles) {
-                    startingTime = millis();
-                    valveRelay->on();
-                    pumpRelay->on();
+            if (millis() - g_state.process.startingTime > Config::getInstance().get<double>("backflush.flush_time") * 1000) {
+                if (g_state.machine.currBackflushCycles < Config::getInstance().get<double>("backflush.cycles")) {
+                    g_state.process.startingTime = millis();
+                    g_state.hardware.valveRelay->on();
+                    g_state.hardware.pumpRelay->on();
                     debugPumpState("Backflush", "on");
-                    currBackflushCycles++;
-                    LOGF(INFO, "Backflush: next backflush cycle %d", currBackflushCycles);
+                    g_state.machine.currBackflushCycles++;
+                    LOGF(INFO, "Backflush: next backflush cycle %d", g_state.machine.currBackflushCycles);
                     LOG(INFO, "Backflush: filling portafilter");
-                    currBackflushState = kBackflushFilling;
+                    g_state.sensors.currBackflushState = kBackflushFilling;
                 }
                 else {
-                    currBackflushState = kBackflushFinished;
+                    g_state.sensors.currBackflushState = kBackflushFinished;
                 }
             }
             break;
 
         case kBackflushFinished:
-            valveRelay->off();
-            pumpRelay->off();
+            g_state.hardware.valveRelay->off();
+            g_state.hardware.pumpRelay->off();
             debugPumpState("Backflush", "off");
-            LOGF(INFO, "Backflush finished after %d cycles", currBackflushCycles);
-            currBackflushCycles = 1;
-            brewSwitchWasOff = false;
-            currBackflushState = kBackflushIdle;
+            LOGF(INFO, "Backflush finished after %d cycles", g_state.machine.currBackflushCycles);
+            g_state.machine.currBackflushCycles = 1;
+            g_state.sensors.brewSwitchWasOff = false;
+            g_state.sensors.currBackflushState = kBackflushIdle;
 
             break;
 
         default:
-            currBackflushState = kBackflushIdle;
-            LOG(DEBUG, "Unexpected backflush state -> currBackflushState = kBackflushIdle");
+            g_state.sensors.currBackflushState = kBackflushIdle;
+            LOG(DEBUG, "Unexpected backflush state -> g_state.sensors.currBackflushState = kBackflushIdle");
 
             break;
     }

@@ -8,11 +8,43 @@
 
 #pragma once
 
-#include "../Config.h"
 #include "../defaults.h"
 #include "../utils/Timer.h"
+#include "./brewStates.h"
 #include <Arduino.h>
 #include <memory>
+#include <map>
+#include <functional>
+#include <cstring>
+
+// standby.h
+#define TIME_TO_DISPLAY_OFF        10
+#define TIME_TO_DISPLAY_OFF_MILLIS (TIME_TO_DISPLAY_OFF * 60 * 1000)
+
+// Include MachineState enum constants from main.cpp
+enum LegacyMachineState {
+    kInit = 0,
+    kPidNormal = 20,
+    kBrew = 30,
+    kManualFlush = 35,
+    kHotWater = 40,
+    kSteam = 50,
+    kBackflush = 60,
+    kWaterTankEmpty = 70,
+    kEmergencyStop = 80,
+    kPidDisabled = 90,
+    kStandby = 95,
+    kSensorError = 100,
+    kEepromError = 110
+};
+
+struct cmp_str {
+    bool operator()(char const *a, char const *b) const {
+        return std::strcmp(a, b) < 0;
+    }
+};
+
+#include "../hardware/scales/Scale.h"
 
 // Forward declarations
 class U8G2;
@@ -21,6 +53,7 @@ class TempSensor;
 class MQTTManager;
 class PID;
 class Config;
+class Switch;
 
 /**
  * @brief Process control related state
@@ -29,9 +62,12 @@ struct ProcessState {
         double temperature = 0.0;
         double setpoint = 95.0; // Default brew setpoint
         double pidOutput = 0.0;
-        bool steamMode = false;
         bool pidEnabled = true;
+
         double currBrewTime = 0.0;
+        long startingTime = 0; // Start time of brew
+        double totalTargetBrewTime = 0.0; // Target brew time in seconds
+
         double steamSetpointValue = 120.0; // Will be initialized from config
         bool brewPidDisabled = false;
         // useBDPID, usePonM, brewPidDelay moved to config access only
@@ -65,13 +101,14 @@ struct HardwareRefs {
         Relay* pumpRelay = nullptr;
         Relay* valveRelay = nullptr;
         TempSensor* tempSensor = nullptr;
+        Scale* scale = nullptr;
 
         // Switches and sensors
-        void* brewSwitch = nullptr;
-        void* steamSwitch = nullptr;
-        void* powerSwitch = nullptr;
-        void* hotWaterSwitch = nullptr;
-        void* waterTankSensor = nullptr;
+        Switch* brewSwitch = nullptr;
+        Switch* steamSwitch = nullptr;
+        Switch* powerSwitch = nullptr;
+        Switch* hotWaterSwitch = nullptr;
+        Switch* waterTankSensor = nullptr;
 
         // LEDs
         std::unique_ptr<Relay>* statusLed = nullptr;
@@ -92,6 +129,8 @@ struct NetworkState {
         unsigned long lastTempEvent = 0;
         unsigned long tempEventInterval = 1000;
         std::unique_ptr<MQTTManager>* mqttManager = nullptr;
+        std::map<const char*, const char*, cmp_str> mqttVars;
+        std::map<const char*, std::function<double()>, cmp_str> mqttSensors;
 };
 
 /**
@@ -118,6 +157,12 @@ struct StandbyState {
         // standbyModeOn, standbyModeTime moved to config access only
         unsigned long standbyModeRemainingTimeMillis = 0;
         unsigned long standbyModeStartTimeMillis = 0;
+
+        unsigned long standbyModeRemainingTimeDisplayOffMillis = TIME_TO_DISPLAY_OFF_MILLIS;
+        unsigned long lastStandbyTimeMillis = 0;
+        unsigned long timeSinceStandbyMillis = 0;
+        //unsigned long standbyModeStartTimeMillis = millis();
+        //unsigned long standbyModeRemainingTimeMillis = static_cast<long>(Config::getInstance().get<double>("standby.time")) * 60 * 1000;
 };
 
 /**
@@ -130,18 +175,47 @@ struct SensorState {
         bool scaleCalibrationOn = false;
         double currBrewWeight = 0.0;
         double currReadingWeight = 0.0;
+        bool scaleFailure = false;
+
+        // Pressure filter variables
+        float inX = 0.0f;
+        float inY = 0.0f;
+        float inOld = 0.0f;
+        float inSum = 0.0f;
+
+        // steamHandler
+        uint8_t currStateSteamSwitch;
+
+        // powerHandler
+        bool currStatePowerSwitchPressed = false;
+        bool lastPowerSwitchPressed = false;
+        unsigned long systemInitializedTime = 0;
+        unsigned long firstSwitchPressTime = 0;
+        bool trackingPressTime = false;
+
+        // brewHandler
+        BrewSwitchState currBrewSwitchState = kBrewSwitchIdle;
+        BrewState currBrewState = kBrewIdle;
+        ManualFlushState currManualFlushState = kManualFlushIdle;
+        BackflushState currBackflushState = kBackflushIdle;
+
+        uint8_t brewSwitchReading = LOW;
+        uint8_t currReadingBrewSwitch = LOW;
+        bool brewSwitchWasOff = false;
 };
 
 /**
  * @brief Machine state and brewing
  */
 struct MachineStateData {
-        int machineState = 0; // LegacyMachineState
-        int lastmachinestate = -1;
+        LegacyMachineState machineState = LegacyMachineState::kInit; // LegacyMachineState
+        LegacyMachineState lastmachinestate = LegacyMachineState::kInit;
         int lastmachinestatepid = -1;
         bool emergencyStop = false;
         bool steamON = false;
+        bool steamFirstON = false;
         bool backflushOn = false;
+        int currBackflushCycles = 1;
         bool waterTankFull = true;
         bool systemInitialized = false;
 };
@@ -151,6 +225,14 @@ struct MachineStateData {
  */
 struct DisplayState {
         int displayOffline = 0;
+};
+
+/**
+ * @brief Legacy state for debugging purposes.
+ */
+struct DebugState {
+    String hotWaterStateDebug = "off";
+    String lastHotWaterStateDebug = "off";
 };
 
 /**
@@ -173,6 +255,7 @@ struct GlobalState {
         SensorState sensors;
         MachineStateData machine;
         DisplayState display;
+        DebugState debug;
 
         // System-wide references (initialized later)
         Config* config = nullptr;

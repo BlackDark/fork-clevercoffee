@@ -5,10 +5,14 @@
  */
 #pragma once
 
-inline uint8_t currStateSteamSwitch;
+#include "Config.h"
+#include "state/GlobalState.h"
+#include "state/MachineState.h"
+#include "hardware/Switch.h"
+
 
 inline void checkSteamSwitch() {
-    if (!Config::getInstance().get<bool>("hardware.switches.steam.enabled") || steamSwitch == nullptr) {
+    if (!Config::getInstance().get<bool>("hardware.switches.steam.enabled") || g_state.hardware.steamSwitch == nullptr) {
         return;
     }
 
@@ -16,7 +20,7 @@ inline void checkSteamSwitch() {
         return;
     }
 
-    const uint8_t steamSwitchReading = steamSwitch->isPressed();
+    const uint8_t steamSwitchReading = g_state.hardware.steamSwitch->isPressed();
 
     if (Config::getInstance().get<int>("hardware.switches.steam.type") == Switch::TOGGLE) {
         // Set g_state.machine.steamON to 1 when steamswitch is HIGH
@@ -25,16 +29,16 @@ inline void checkSteamSwitch() {
         }
 
         // if activated via web interface then steamFirstON == 1, prevent override
-        if (steamSwitchReading == LOW && !steamFirstON) {
+        if (steamSwitchReading == LOW && !g_state.machine.steamFirstON) {
             g_state.machine.steamON = false;
         }
     }
     else if (Config::getInstance().get<int>("hardware.switches.steam.type") == Switch::MOMENTARY) {
-        if (steamSwitchReading != currStateSteamSwitch) {
-            currStateSteamSwitch = steamSwitchReading;
+        if (steamSwitchReading != g_state.sensors.currStateSteamSwitch) {
+            g_state.sensors.currStateSteamSwitch = steamSwitchReading;
 
             // only toggle heating power if the new button state is HIGH
-            if (currStateSteamSwitch == HIGH) {
+            if (g_state.sensors.currStateSteamSwitch == HIGH) {
                 if (g_state.machine.steamON == 0) {
                     g_state.machine.steamON = true;
                 }

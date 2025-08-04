@@ -70,7 +70,7 @@ class SensorManager {
         // Temperature sensor interface
         /**
          * @brief Get current temperature reading
-         * @return Temperature in Celsius with brew offset applied
+         * @return Temperature in Celsius
          */
         double getCurrentTemperature() const;
 
@@ -154,7 +154,6 @@ class SensorManager {
         // Sensor state
         bool sensorsInitialized_;
         double temperature_;
-        double brewTempOffset_;
 
         // Water tank state
         bool waterTankFull_;

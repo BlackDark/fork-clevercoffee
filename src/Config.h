@@ -7,7 +7,6 @@
 
 #pragma once
 
-#include "./state/GlobalState.h"
 #include "Logger.h"
 #include "defaults.h"
 #include "utils/helperUtils.h"

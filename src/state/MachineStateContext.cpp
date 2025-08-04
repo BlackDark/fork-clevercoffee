@@ -10,6 +10,7 @@
 #include "../network/CleverCoffeeWiFiManager.h"
 #include "../network/MQTTManager.h"
 #include "../sensors/SensorManager.h"
+// #include "../hotWaterHandler.h" - removed to avoid circular dependencies
 #include "Logger.h"
 #include <Arduino.h>
 
@@ -22,22 +23,8 @@ extern bool manualFlush();
 extern bool checkHotWaterStates();
 extern bool brew();
 
-// MachineState enum - matches main.cpp definition
-enum LegacyMachineState {
-    kInit = 0,
-    kPidNormal = 20,
-    kBrew = 30,
-    kManualFlush = 35,
-    kHotWater = 40,
-    kSteam = 50,
-    kBackflush = 60,
-    kWaterTankEmpty = 70,
-    kEmergencyStop = 80,
-    kPidDisabled = 90,
-    kStandby = 95,
-    kSensorError = 100,
-    kEepromError = 110,
-};
+// MachineState enum - defined in GlobalState.h
+// enum moved to avoid redefinition
 
 // Forward declaration for standby timer reset function
 extern void resetStandbyTimer(LegacyMachineState state);
@@ -47,7 +34,7 @@ extern void resetStandbyTimer(LegacyMachineState state);
 // backflushOn moved to g_state.machine.backflushOn
 // emergencyStop moved to g_state.machine.emergencyStop
 extern bool waterTankFull;
-extern unsigned long standbyModeRemainingTimeMillis;
+// standbyModeRemainingTimeMillis moved to g_state.standby.standbyModeRemainingTimeMillis
 extern int MQTTReCnctCount;
 
 MachineStateContext::MachineStateContext(DisplayManager* displayManager, HardwareManager* hardwareManager, SensorManager* sensorManager, CleverCoffeeWiFiManager* wifiManager, MQTTManager* mqttManager) :
@@ -161,7 +148,8 @@ bool MachineStateContext::isSteamActive() const {
 }
 
 bool MachineStateContext::isHotWaterActive() const {
-    return checkHotWaterStates();
+    // Simplified implementation - check if machine is in hot water state
+    return (g_state.machine.machineState == LegacyMachineState::kHotWater);
 }
 
 bool MachineStateContext::isBackflushActive() const {
@@ -179,11 +167,11 @@ bool MachineStateContext::isEmergencyStop() const {
 }
 
 bool MachineStateContext::shouldEnterStandby() const {
-    return Config::getInstance().get<bool>("standby.enabled") && standbyModeRemainingTimeMillis == 0;
+    return Config::getInstance().get<bool>("standby.enabled") && g_state.standby.standbyModeRemainingTimeMillis == 0;
 }
 
 unsigned long MachineStateContext::getStandbyRemainingTime() const {
-    return standbyModeRemainingTimeMillis;
+    return g_state.standby.standbyModeRemainingTimeMillis;
 }
 
 // === Configuration Access ===

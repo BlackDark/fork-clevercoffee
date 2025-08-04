@@ -4,6 +4,7 @@
  */
 
 #include "SensorManager.h"
+#include "../state/GlobalState.h"
 #include "../Config.h"
 #include "../hardware/pressureSensor.h"
 #include "Logger.h"
@@ -13,18 +14,13 @@
 // Forward declarations for scale-related functions and variables
 extern void initScale(); // This is defined in scaleHandler.h but used in main.cpp
 
-// External global variables that need to be accessed (defined in scaleHandler.h as float)
-extern float currBrewWeight;
-extern float currReadingWeight;
-extern bool scaleFailure;
-extern Scale* scale;
+
 
 SensorManager::SensorManager() :
     tempSensor_(nullptr),
     waterTankSensor_(nullptr),
     sensorsInitialized_(false),
     temperature_(0.0),
-    brewTempOffset_(0.0),
     waterTankFull_(true),
     waterTankCheckConsecutiveReads_(0),
     inputPressure_(0.0f),
@@ -41,9 +37,6 @@ bool SensorManager::initialize(TempSensor* tempSensor, Switch* waterTankSensor) 
 
     tempSensor_ = tempSensor;
     waterTankSensor_ = waterTankSensor;
-
-    // Get brew temperature offset from config
-    brewTempOffset_ = Config::getInstance().get<double>("brew.temp_offset");
 
     bool success = true;
 
@@ -80,7 +73,6 @@ void SensorManager::update() {
     if (tempSensor_ != nullptr) {
         g_state.coordination.temperatureUpdateRunning = true;
         temperature_ = tempSensor_->getCurrentTemperature();
-        temperature_ -= brewTempOffset_;
         g_state.coordination.temperatureUpdateRunning = false;
     }
 
@@ -188,25 +180,26 @@ void SensorManager::updateScale() {
         return;
     }
 
+    // TODO
     // Scale update is handled by global functions in main.cpp:
     // checkWeight() and shotTimerScale()
     // These are called from the main loop
 }
 
 float SensorManager::getCurrentWeight() const {
-    return currReadingWeight;
+    return g_state.sensors.currReadingWeight;
 }
 
 float SensorManager::getCurrentBrewWeight() const {
-    return currBrewWeight;
+    return g_state.sensors.currBrewWeight;
 }
 
 bool SensorManager::hasScaleError() const {
-    return scaleFailure;
+    return g_state.sensors.scaleFailure;
 }
 
 Scale* SensorManager::getScale() const {
-    return scale;
+    return g_state.hardware.scale;
 }
 
 bool SensorManager::initializeTemperatureSensor() {
@@ -220,7 +213,6 @@ bool SensorManager::initializeTemperatureSensor() {
     // Temperature sensor is already initialized by HardwareManager
     // Just get the initial reading
     temperature_ = tempSensor_->getCurrentTemperature();
-    temperature_ -= brewTempOffset_;
 
     LOG(INFO, "Temperature sensor initialized via SensorManager");
     return true;

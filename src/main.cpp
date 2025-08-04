@@ -32,6 +32,8 @@
 
 // Utilities
 #include "utils/Timer.h"
+#include "utils/helperUtils.h"
+#include "utils/legacyUtils.h"
 
 // Hardware classes
 #include "hardware/GPIOPin.h"
@@ -48,22 +50,6 @@ hw_timer_t* timer = nullptr;
 
 #include "hardware/pressureSensor.h"
 #include <Wire.h>
-
-enum LegacyMachineState {
-    kInit = 0,
-    kPidNormal = 20,
-    kBrew = 30,
-    kManualFlush = 35,
-    kHotWater = 40,
-    kSteam = 50,
-    kBackflush = 60,
-    kWaterTankEmpty = 70,
-    kEmergencyStop = 80,
-    kPidDisabled = 90,
-    kStandby = 95,
-    kSensorError = 100,
-    kEepromError = 110,
-};
 
 LegacyMachineState machineState = kInit;
 LegacyMachineState lastmachinestate = kInit;
@@ -101,10 +87,12 @@ LED* steamLed = nullptr;
 Relay* heaterRelay = nullptr;
 Relay* pumpRelay = nullptr;
 Relay* valveRelay = nullptr;
-Switch* powerSwitch = nullptr;
-Switch* brewSwitch = nullptr;
-Switch* steamSwitch = nullptr;
-Switch* hotWaterSwitch = nullptr;
+
+// Switch* powerSwitch = nullptr;
+// Switch* brewSwitch = nullptr;
+// Switch* steamSwitch = nullptr;
+// Switch* hotWaterSwitch = nullptr;
+
 TempSensor* tempSensor = nullptr;
 
 // WiFi
@@ -181,10 +169,6 @@ void updateStandbyTimer();
 void resetStandbyTimer();
 void wiFiReset();
 
-// debugging water pump actions
-String hotWaterStateDebug = "off";
-String lastHotWaterStateDebug = "off";
-
 // system parameters
 // setpoint moved to g_state.process.setpoint
 
@@ -196,15 +180,15 @@ String lastHotWaterStateDebug = "off";
 // temperature moved to g_state.process.temperature
 // pidOutput moved to g_state.process.pidOutput
 // g_state.machine.steamON moved to g_state.machine.g_state.machine.steamON
-bool steamFirstON = false;
+
 
 #include "brewHandler.h"
 #include "hotWaterHandler.h"
 
 // Other variables
-// g_state.machine.emergencyStop moved to g_state.machine.g_state.machine.emergencyStop
+// g_state.machine.emergencyStop moved to g_state.machine.emergencyStop
 constexpr double EmergencyStopTemp = 145;     // Temp EmergencyStopTemp
-float inX = 0, inY = 0, inOld = 0, inSum = 0; // used for filterPressureValue()
+// Filter variables moved to g_state.sensors.inX/inY/inOld/inSum
 boolean setupDone = false;
 
 // Water tank sensor
@@ -357,53 +341,8 @@ void checkWifi() {
     }
 }
 
-char number2string_double[22];
-
-char* number2string(const double in) {
-    snprintf(number2string_double, sizeof(number2string_double), "%0.2f", in);
-
-    return number2string_double;
-}
-
-char number2string_float[22];
-
-char* number2string(const float in) {
-    snprintf(number2string_float, sizeof(number2string_float), "%0.2f", in);
-
-    return number2string_float;
-}
-
-char number2string_int[22];
-
-char* number2string(const int in) {
-    snprintf(number2string_int, sizeof(number2string_int), "%d", in);
-
-    return number2string_int;
-}
-
-char number2string_uint[22];
-
-char* number2string(const unsigned int in) {
-    snprintf(number2string_uint, sizeof(number2string_uint), "%u", in);
-
-    return number2string_uint;
-}
-
 /**
- * @brief Filter input value using exponential moving average filter (using fixed coefficients)
- *      After ~28 cycles the input is set to 99,66% if the real input value sum of inX and inY
- *      multiplier must be 1 increase inX multiplier to make the filter faster
- */
-float filterPressureValue(const float input) {
-    inX = static_cast<float>(input * 0.3);
-    inY = static_cast<float>(inOld * 0.7);
-    inSum = inX + inY;
-    inOld = inSum;
-
-    return inSum;
-}
-
-/**
+ * Legacy machine state handler
  * @brief Handle the different states of the machine
  */
 void handleMachineState() {
@@ -471,7 +410,7 @@ void handleMachineState() {
                 machineState = kEmergencyStop;
             }
 
-            if (Config::getInstance().get<bool>("standby.enabled") && standbyModeRemainingTimeMillis == 0) {
+            if (Config::getInstance().get<bool>("standby.enabled") && g_state.standby.standbyModeRemainingTimeMillis == 0) {
                 machineState = kStandby;
                 setRuntimePidState(false);
             }
@@ -592,7 +531,7 @@ void handleMachineState() {
                 machineState = kPidDisabled;
             }
 
-            if (!waterTankFull && (currBackflushState == kBackflushIdle || currBackflushState == kBackflushFinished)) {
+            if (!waterTankFull && (g_state.sensors.currBackflushState == kBackflushIdle || g_state.sensors.currBackflushState == kBackflushFinished)) {
                 machineState = kWaterTankEmpty;
             }
 
@@ -651,7 +590,7 @@ void handleMachineState() {
             {
                 bool oledEnabled = Config::getInstance().get<bool>("hardware.oled.enabled");
 
-                if (standbyModeRemainingTimeDisplayOffMillis == 0 && oledEnabled) {
+                if (g_state.standby.standbyModeRemainingTimeDisplayOffMillis == 0 && oledEnabled) {
                     u8g2->setPowerSave(1);
                 }
 
@@ -742,43 +681,6 @@ void handleMachineState() {
     }
 }
 
-void printMachineState() {
-    LOGF(DEBUG, "new machineState: %s -> %s", machinestateEnumToString(lastmachinestate), machinestateEnumToString(machineState));
-}
-
-char const* machinestateEnumToString(const LegacyMachineState machineState) {
-    switch (machineState) {
-        case kInit:
-            return "Init";
-        case kPidNormal:
-            return "PID Normal";
-        case kBrew:
-            return "Brew";
-        case kManualFlush:
-            return "Manual Flush";
-        case kHotWater:
-            return "Hot Water";
-        case kSteam:
-            return "Steam";
-        case kBackflush:
-            return "Backflush";
-        case kWaterTankEmpty:
-            return "Water Tank Empty";
-        case kEmergencyStop:
-            return "Emergency Stop";
-        case kPidDisabled:
-            return "PID Disabled";
-        case kStandby:
-            return "Standby Mode";
-        case kSensorError:
-            return "Sensor Error";
-        case kEepromError:
-            return "EEPROM Error";
-    }
-
-    return "Unknown";
-}
-
 /**
  * @brief Set up internal WiFi hardware
  */
@@ -859,11 +761,19 @@ void setup() {
         brewLed = hwManager->getBrewLed();
         steamLed = hwManager->getSteamLed();
 
-        powerSwitch = hwManager->getPowerSwitch();
-        brewSwitch = hwManager->getBrewSwitch();
-        steamSwitch = hwManager->getSteamSwitch();
-        hotWaterSwitch = hwManager->getHotWaterSwitch();
-        waterTankSensor = hwManager->getWaterTankSensor();
+        // Legacy
+        // powerSwitch = hwManager->getPowerSwitch();
+        // brewSwitch = hwManager->getBrewSwitch();
+        // steamSwitch = hwManager->getSteamSwitch();
+        // hotWaterSwitch = hwManager->getHotWaterSwitch();
+        // waterTankSensor = hwManager->getWaterTankSensor();
+
+        // TODO Duplicate? -> SystemInitializer already sets these
+        g_state.hardware.powerSwitch = hwManager->getPowerSwitch();
+        g_state.hardware.brewSwitch = hwManager->getBrewSwitch();
+        g_state.hardware.hotWaterSwitch = hwManager->getSteamSwitch();
+        g_state.hardware.powerSwitch = hwManager->getHotWaterSwitch();
+        g_state.hardware.waterTankSensor = hwManager->getWaterTankSensor();
 
         tempSensor = hwManager->getTempSensor();
     }
@@ -975,7 +885,7 @@ void loopPid() {
     // Update the temperature using ProcessController if available
     if (processController) {
         // Use ProcessController for temperature and PID management
-        processController->updateProcessControl(static_cast<int>(machineState), brewPidDisabled);
+        processController->updateProcessControl(static_cast<int>(machineState));
     }
     else {
         // Fallback to original temperature reading logic
@@ -1138,9 +1048,9 @@ void loopPid() {
             LOGF(TRACE, "Current PID Output: %f", g_state.process.pidOutput);
             LOGF(TRACE, "Current Machinestate: %s", machinestateEnumToString(machineState));
             // Brew
-            LOGF(TRACE, "currBrewTime %f", currBrewTime);
+            LOGF(TRACE, "currBrewTime %f", g_state.process.currBrewTime);
             LOGF(TRACE, "Brew detected %i", checkBrewActive());
-            LOGF(TRACE, "brewPidDisabled %i", brewPidDisabled);
+            LOGF(TRACE, "brewPidDisabled %i", g_state.process.brewPidDisabled);
         }
     }
 
@@ -1203,7 +1113,7 @@ void loopPid() {
             bool mqttCondition = (!mqttManager || !mqttManager->isUpdateRunning());
             bool hassioCondition = !g_state.coordination.hassioUpdateRunning;
             bool tempCondition = !g_state.coordination.temperatureUpdateRunning;
-            bool standbyCondition = (!Config::getInstance().get<bool>("standby.enabled") || standbyModeRemainingTimeMillis > 0);
+            bool standbyCondition = (!Config::getInstance().get<bool>("standby.enabled") || g_state.standby.standbyModeRemainingTimeMillis > 0);
 
             // update display on loops that have not had other major tasks running
             if (websiteCondition && mqttCondition && hassioCondition && tempCondition && standbyCondition) {
@@ -1227,7 +1137,7 @@ void loopPid() {
             bool mqttCondition = (!mqttManager || !mqttManager->isUpdateRunning());
             bool hassioCondition = !g_state.coordination.hassioUpdateRunning;
             bool tempCondition = !g_state.coordination.temperatureUpdateRunning;
-            bool standbyCondition = (!Config::getInstance().get<bool>("standby.enabled") || standbyModeRemainingTimeMillis > 0);
+            bool standbyCondition = (!Config::getInstance().get<bool>("standby.enabled") || g_state.standby.standbyModeRemainingTimeMillis > 0);
 
             if (websiteCondition && mqttCondition && hassioCondition && tempCondition && standbyCondition) {
                 if (g_state.coordination.displayBufferReady) {
@@ -1248,7 +1158,7 @@ void loopPid() {
 
         // Check if PID should run or not. If not, set to manual and force output to zero
         if (machineState == kPidDisabled || machineState == kWaterTankEmpty || machineState == kSensorError || machineState == kEmergencyStop || machineState == kEepromError || machineState == kStandby ||
-            machineState == kBackflush || brewPidDisabled) {
+            machineState == kBackflush || g_state.process.brewPidDisabled) {
             if (g_state.pid->GetMode() == 1) {
                 // Force PID shutdown
                 g_state.pid->SetMode(0);
@@ -1269,10 +1179,10 @@ void loopPid() {
 
         // Brew PID
         if (machineState == kBrew) {
-            if (Config::getInstance().get<double>("brew.pid_delay") > 0 && currBrewTime > 0 && currBrewTime < Config::getInstance().get<double>("brew.pid_delay") * 1000) {
+            if (Config::getInstance().get<double>("brew.pid_delay") > 0 && g_state.process.currBrewTime > 0 && g_state.process.currBrewTime < Config::getInstance().get<double>("brew.pid_delay") * 1000) {
                 // disable PID for brewPidDelay seconds, enable PID again with new tunings after that
-                if (!brewPidDisabled) {
-                    brewPidDisabled = true;
+                if (!g_state.process.brewPidDisabled) {
+                    g_state.process.brewPidDisabled = true;
                     g_state.pid->SetMode(MANUAL);
                     g_state.process.pidOutput = 0;
                     heaterRelay->off();
@@ -1280,10 +1190,10 @@ void loopPid() {
                 }
             }
             else {
-                if (brewPidDisabled) {
+                if (g_state.process.brewPidDisabled) {
                     // enable PID again
                     g_state.pid->SetMode(AUTOMATIC);
-                    brewPidDisabled = false;
+                    g_state.process.brewPidDisabled = false;
                     LOGF(DEBUG, "Enabled PID again after %.0f seconds of brew pid delay", Config::getInstance().get<double>("brew.pid_delay"));
                 }
 
@@ -1296,10 +1206,10 @@ void loopPid() {
             }
         }
         // Reset brewPidDisabled if brew was aborted
-        if (machineState != kBrew && brewPidDisabled) {
+        if (machineState != kBrew && g_state.process.brewPidDisabled) {
             // enable PID again
             g_state.pid->SetMode(AUTOMATIC);
-            brewPidDisabled = false;
+            g_state.process.brewPidDisabled = false;
             LOG(DEBUG, "Enabled PID again after brew was manually stopped");
         }
 
@@ -1358,22 +1268,6 @@ void checkWaterTank() {
     }
 }
 
-void setRuntimePidState(const bool enabled) {
-    // Update via config system
-    Config::getInstance().set<bool>("pid.enabled", enabled);
-}
-
-void setSteamMode(const bool steamMode) {
-    g_state.machine.steamON = steamMode;
-
-    if (g_state.machine.steamON) {
-        steamFirstON = true;
-    }
-
-    if (!g_state.machine.steamON) {
-        steamFirstON = false;
-    }
-}
 
 /**
  * @brief Safely shutdown machine operations
@@ -1387,29 +1281,29 @@ void performSafeShutdown() {
     valveRelay->off();
 
     // Reset all brew-related states
-    if (currBrewState != kBrewIdle) {
+    if (g_state.sensors.currBrewState != kBrewIdle) {
         LOG(INFO, "Stopping active brew");
-        currBrewState = kBrewIdle;
-        currBrewSwitchState = kBrewSwitchIdle;
-        currBrewTime = 0;
-        startingTime = 0;
-        brewSwitchWasOff = false;
+        g_state.sensors.currBrewState = kBrewIdle;
+        g_state.sensors.currBrewSwitchState = kBrewSwitchIdle;
+        g_state.process.currBrewTime = 0;
+        g_state.process.startingTime = 0;
+        g_state.sensors.brewSwitchWasOff = false;
     }
 
     // Reset manual flush states
-    if (currManualFlushState != kManualFlushIdle) {
+    if (g_state.sensors.currManualFlushState != kManualFlushIdle) {
         LOG(INFO, "Stopping manual group head flush");
-        currManualFlushState = kManualFlushIdle;
-        currBrewSwitchState = kBrewSwitchIdle;
-        currBrewTime = 0;
-        startingTime = 0;
+        g_state.sensors.currManualFlushState = kManualFlushIdle;
+        g_state.sensors.currBrewSwitchState = kBrewSwitchIdle;
+        g_state.process.currBrewTime = 0;
+        g_state.process.startingTime = 0;
     }
 
     // Reset backflush state
-    if (currBackflushState != kBackflushIdle) {
+    if (g_state.sensors.currBackflushState != kBackflushIdle) {
         LOG(INFO, "Stopping active backflush");
-        currBackflushState = kBackflushIdle;
-        currBackflushCycles = 1;
+        g_state.sensors.currBackflushState = kBackflushIdle;
+        g_state.machine.currBackflushCycles = 1;
     }
 
     // Reset hot water state
@@ -1425,7 +1319,7 @@ void performSafeShutdown() {
     if (g_state.machine.steamON) {
         LOG(INFO, "Disabling steam mode");
         g_state.machine.steamON = false;
-        steamFirstON = false;
+        g_state.machine.steamFirstON = false;
     }
 
     LOG(INFO, "Safe shutdown, all relays turned off");

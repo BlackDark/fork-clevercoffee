@@ -77,7 +77,7 @@ inline void printScreen() {
     if (Config::getInstance().get<bool>("hardware.switches.brew.enabled")) {
         // Show flush time
         if (machineState == kManualFlush) {
-            displayBrewTime(32, 36, langstring_manual_flush, currBrewTime);
+            displayBrewTime(32, 36, langstring_manual_flush, g_state.process.currBrewTime);
         }
         // Show hot water time
         else if (machineState == kHotWater) {
@@ -88,10 +88,10 @@ inline void printScreen() {
 
             // Time
             if (automaticBrewingEnabled && Config::getInstance().get<bool>("brew.by_time.enabled")) {
-                displayBrewTime(32, 36, langstring_brew, currBrewTime, totalTargetBrewTime);
+                displayBrewTime(32, 36, langstring_brew, g_state.process.currBrewTime, g_state.process.totalTargetBrewTime);
             }
             else {
-                displayBrewTime(32, 36, langstring_brew, currBrewTime);
+                displayBrewTime(32, 36, langstring_brew, g_state.process.currBrewTime);
             }
 
             // Weight

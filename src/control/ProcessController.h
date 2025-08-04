@@ -85,7 +85,7 @@ class ProcessController {
          * - PID state management based on machine state
          * - Debug logging
          */
-        void updateProcessControl(int machineState, bool brewPidDisabled);
+        void updateProcessControl(int machineState);
 
         /**
          * @brief Update temperature readings from sensors
@@ -140,7 +140,7 @@ class ProcessController {
          * @param brewPidDisabled Whether brew PID is disabled
          * @return true if PID should be enabled
          */
-        bool shouldPIDBeEnabled(int machineState, bool brewPidDisabled) const;
+        bool shouldPIDBeEnabled(int machineState) const;
 
         /**
          * @brief Get current temperature
@@ -210,7 +210,7 @@ class ProcessController {
          * @param machineState Current machine state
          * @param brewPidDisabled Whether brew PID is currently disabled
          */
-        void handleBrewPIDDelay(int machineState, bool brewPidDisabled);
+        void handleBrewPIDDelay(int machineState);
 
         // Manager dependencies
         DisplayManager* displayManager_;

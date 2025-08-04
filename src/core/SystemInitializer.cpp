@@ -27,31 +27,13 @@ namespace DisplayTemplateManager {
 #include <WiFi.h>
 #include <Wire.h>
 
-// Machine state constants
-enum LegacyMachineState {
-    kInit = 0,
-    kPidNormal = 20,
-    kBrew = 30,
-    kManualFlush = 35,
-    kHotWater = 40,
-    kSteam = 50,
-    kBackflush = 60,
-    kWaterTankEmpty = 70,
-    kEmergencyStop = 80,
-    kPidDisabled = 90,
-    kStandby = 95,
-    kSensorError = 100,
-    kEepromError = 110
-};
-
 // External dependencies
 extern bool setupDone;
 // temperature moved to g_state.process.temperature
 // pidOutput moved to g_state.process.pidOutput
-extern double currBrewTime;
+// currBrewTime moved to g_state.process.currBrewTime
 extern double currBrewWeight;
 extern double currReadingWeight;
-extern double standbyModeRemainingTimeMillis;
 extern unsigned long previousMillistemp;
 extern unsigned long windowStartTime;
 extern unsigned long previousMillisMQTT;
@@ -62,11 +44,6 @@ extern int machineState;
 extern PubSubClient* mqtt;
 
 // Hardware compatibility pointers
-extern Switch* powerSwitch;
-extern Switch* brewSwitch;
-extern Switch* steamSwitch;
-extern Switch* hotWaterSwitch;
-extern Switch* waterTankSensor;
 extern LED* statusLed;
 extern LED* brewLed;
 extern LED* steamLed;
@@ -248,11 +225,11 @@ bool SystemInitializer::initializeHardware() {
         brewLed = hardwareManager_->getBrewLed();
         steamLed = hardwareManager_->getSteamLed();
 
-        powerSwitch = hardwareManager_->getPowerSwitch();
-        brewSwitch = hardwareManager_->getBrewSwitch();
-        steamSwitch = hardwareManager_->getSteamSwitch();
-        hotWaterSwitch = hardwareManager_->getHotWaterSwitch();
-        waterTankSensor = hardwareManager_->getWaterTankSensor();
+        g_state.hardware.powerSwitch = hardwareManager_->getPowerSwitch();
+        g_state.hardware.brewSwitch = hardwareManager_->getBrewSwitch();
+        g_state.hardware.hotWaterSwitch = hardwareManager_->getSteamSwitch();
+        g_state.hardware.powerSwitch = hardwareManager_->getHotWaterSwitch();
+        g_state.hardware.waterTankSensor = hardwareManager_->getWaterTankSensor();
 
         tempSensor = hardwareManager_->getTempSensor();
 
@@ -395,7 +372,7 @@ bool SystemInitializer::finalizeMachineState() {
         }
         // For toggle switches, force PidOn to switch state mode
         else if (Config::getInstance().get<bool>("hardware.switches.power.enabled") && Config::getInstance().get<int>("hardware.switches.power.type") == static_cast<int>(Switch::TOGGLE)) {
-            if (powerSwitch && powerSwitch->isPressed()) {
+            if (g_state.hardware.powerSwitch && g_state.hardware.powerSwitch->isPressed()) {
                 setRuntimePidState(true);
                 machineState = kPidNormal;
                 LOG(INFO, "Machine initialized in PID Normal mode (toggle switch ON)");
@@ -491,15 +468,15 @@ void SystemInitializer::registerMQTTSensors() {
     // Core sensors
     mqttManager->registerSensor("temperature", [] { return g_state.process.temperature; });
     mqttManager->registerSensor("heaterPower", [] { return g_state.process.pidOutput / 10; });
-    mqttManager->registerSensor("standbyModeTimeRemaining", [] { return standbyModeRemainingTimeMillis / 1000; });
+    mqttManager->registerSensor("standbyModeTimeRemaining", [] { return g_state.standby.standbyModeRemainingTimeMillis / 1000; });
     mqttManager->registerSensor("currentKp", [] { return g_state.pid->GetKp(); });
     mqttManager->registerSensor("currentKi", [] { return g_state.pid->GetKi(); });
     mqttManager->registerSensor("currentKd", [] { return g_state.pid->GetKd(); });
-    mqttManager->registerSensor("machineState", [] { return machineState; });
+    mqttManager->registerSensor("machineState", [] { return static_cast<double>(g_state.machine.machineState); });
 
     // Brew-specific sensors
     if (Config::getInstance().get<bool>("hardware.switches.brew.enabled")) {
-        mqttManager->registerSensor("currBrewTime", [] { return currBrewTime / 1000; });
+        mqttManager->registerSensor("currBrewTime", [] { return g_state.process.currBrewTime / 1000; });
     }
 
     // Scale-specific sensors
