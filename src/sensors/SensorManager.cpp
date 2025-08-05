@@ -11,8 +11,8 @@
 #include <Arduino.h>
 #include <Wire.h>
 
-// Forward declarations for scale-related functions and variables
-extern void initScale(); // This is defined in scaleHandler.h but used in main.cpp
+// Scale handler functions
+#include "../scaleHandler.h"
 
 SensorManager::SensorManager() :
     tempSensor_(nullptr),

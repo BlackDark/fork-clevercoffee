@@ -35,18 +35,18 @@ enum class ParamType {
     BOOL = 6
 };
 
-// Extern declarations for option vectors (defined in Config.cpp)
-extern std::vector<std::pair<Hardware::SwitchType, String>> switchTypeOptions;
-extern std::vector<std::pair<Hardware::SwitchMode, String>> switchModeOptions;
-extern std::vector<std::pair<Hardware::RelayTriggerType, String>> relayTriggerOptions;
-extern std::vector<std::pair<System::DisplayTemplate, String>> displayTemplateOptions;
-extern std::vector<std::pair<System::Language, String>> languageOptions;
-extern std::vector<std::pair<Hardware::OLEDType, String>> oledTypeOptions;
-extern std::vector<std::pair<Hardware::OLEDAddress, String>> oledAddressOptions;
-extern std::vector<std::pair<Hardware::TemperatureSensorType, String>> temperatureSensorTypeOptions;
-extern std::vector<std::pair<Hardware::ScaleType, String>> scaleTypeOptions;
-extern std::vector<std::pair<System::LogLevel, String>> logLevelOptions;
-extern std::vector<std::pair<Process::BrewMode, String>> brewModeOptions;
+// Accessor functions for static const option vectors (defined in Config.cpp)
+extern const std::vector<std::pair<Hardware::SwitchType, String>>& getSwitchTypeOptions();
+extern const std::vector<std::pair<Hardware::SwitchMode, String>>& getSwitchModeOptions();
+extern const std::vector<std::pair<Hardware::RelayTriggerType, String>>& getRelayTriggerOptions();
+extern const std::vector<std::pair<System::DisplayTemplate, String>>& getDisplayTemplateOptions();
+extern const std::vector<std::pair<System::Language, String>>& getLanguageOptions();
+extern const std::vector<std::pair<Hardware::OLEDType, String>>& getOledTypeOptions();
+extern const std::vector<std::pair<Hardware::OLEDAddress, String>>& getOledAddressOptions();
+extern const std::vector<std::pair<Hardware::TemperatureSensorType, String>>& getTemperatureSensorTypeOptions();
+extern const std::vector<std::pair<Hardware::ScaleType, String>>& getScaleTypeOptions();
+extern const std::vector<std::pair<System::LogLevel, String>>& getLogLevelOptions();
+extern const std::vector<std::pair<Process::BrewMode, String>>& getBrewModeOptions();
 
 // Forward declarations
 template <typename T>
@@ -760,48 +760,48 @@ class Config {
         // === HARDWARE OLED PARAMETERS (Section 11) ===
         ParamDef<bool> hardwareOledEnabled{"hardware.oled.enabled", true, "Enable OLED Display", 11, 2001, "Enable or disable the OLED display"};
 
-        EnumParamDef<Hardware::OLEDType> hardwareOledType{"hardware.oled.type", Hardware::OLEDType::SSD1306, "OLED Type", 11, 2002, "Select your OLED display type", oledTypeOptions};
+        EnumParamDef<Hardware::OLEDType> hardwareOledType{"hardware.oled.type", Hardware::OLEDType::SSD1306, "OLED Type", 11, 2002, "Select your OLED display type", getOledTypeOptions()};
 
-        EnumParamDef<Hardware::OLEDAddress> hardwareOledAddress{"hardware.oled.address", Hardware::OLEDAddress::ADDR_3C, "I2C Address", 11, 2003, "I2C address of the OLED display", oledAddressOptions};
+        EnumParamDef<Hardware::OLEDAddress> hardwareOledAddress{"hardware.oled.address", Hardware::OLEDAddress::ADDR_3C, "I2C Address", 11, 2003, "I2C address of the OLED display", getOledAddressOptions()};
 
         // === HARDWARE RELAYS PARAMETERS (Section 12) ===
         EnumParamDef<Hardware::RelayTriggerType> hardwareRelaysHeaterTriggerType{
-            "hardware.relays.heater.trigger_type", Hardware::RelayTriggerType::HIGH_TRIGGER, "Heater Relay Trigger Type", 12, 2101, "Relay trigger type for heater control", relayTriggerOptions};
+            "hardware.relays.heater.trigger_type", Hardware::RelayTriggerType::HIGH_TRIGGER, "Heater Relay Trigger Type", 12, 2101, "Relay trigger type for heater control", getRelayTriggerOptions()};
 
         EnumParamDef<Hardware::RelayTriggerType> hardwareRelaysValveTriggerType{
-            "hardware.relays.valve.trigger_type", Hardware::RelayTriggerType::HIGH_TRIGGER, "Valve Relay Trigger Type", 12, 2102, "Relay trigger type for valve control", relayTriggerOptions};
+            "hardware.relays.valve.trigger_type", Hardware::RelayTriggerType::HIGH_TRIGGER, "Valve Relay Trigger Type", 12, 2102, "Relay trigger type for valve control", getRelayTriggerOptions()};
 
         EnumParamDef<Hardware::RelayTriggerType> hardwareRelaysPumpTriggerType{
-            "hardware.relays.pump.trigger_type", Hardware::RelayTriggerType::HIGH_TRIGGER, "Pump Relay Trigger Type", 12, 2103, "Relay trigger type for pump control", relayTriggerOptions};
+            "hardware.relays.pump.trigger_type", Hardware::RelayTriggerType::HIGH_TRIGGER, "Pump Relay Trigger Type", 12, 2103, "Relay trigger type for pump control", getRelayTriggerOptions()};
 
         // === HARDWARE SWITCHES PARAMETERS (Section 13) ===
         ParamDef<bool> hardwareSwitchesBrewEnabled{"hardware.switches.brew.enabled", false, "Enable Brew Switch", 13, 2201, "Enable physical brew switch"};
 
-        EnumParamDef<Hardware::SwitchType> hardwareSwitchesBrewType{"hardware.switches.brew.type", Hardware::SwitchType::TOGGLE, "Brew Switch Type", 13, 2202, "Type of brew switch connected", switchTypeOptions};
+        EnumParamDef<Hardware::SwitchType> hardwareSwitchesBrewType{"hardware.switches.brew.type", Hardware::SwitchType::TOGGLE, "Brew Switch Type", 13, 2202, "Type of brew switch connected", getSwitchTypeOptions()};
 
         EnumParamDef<Hardware::SwitchMode> hardwareSwitchesBrewMode{
-            "hardware.switches.brew.mode", Hardware::SwitchMode::NORMALLY_OPEN, "Brew Switch Mode", 13, 2203, "Electrical configuration of brew switch", switchModeOptions};
+            "hardware.switches.brew.mode", Hardware::SwitchMode::NORMALLY_OPEN, "Brew Switch Mode", 13, 2203, "Electrical configuration of brew switch", getSwitchModeOptions()};
 
         ParamDef<bool> hardwareSwitchesSteamEnabled{"hardware.switches.steam.enabled", false, "Enable Steam Switch", 13, 2211, "Enable physical steam switch"};
 
-        EnumParamDef<Hardware::SwitchType> hardwareSwitchesSteamType{"hardware.switches.steam.type", Hardware::SwitchType::TOGGLE, "Steam Switch Type", 13, 2212, "Type of steam switch connected", switchTypeOptions};
+        EnumParamDef<Hardware::SwitchType> hardwareSwitchesSteamType{"hardware.switches.steam.type", Hardware::SwitchType::TOGGLE, "Steam Switch Type", 13, 2212, "Type of steam switch connected", getSwitchTypeOptions()};
 
         EnumParamDef<Hardware::SwitchMode> hardwareSwitchesSteamMode{
-            "hardware.switches.steam.mode", Hardware::SwitchMode::NORMALLY_OPEN, "Steam Switch Mode", 13, 2213, "Electrical configuration of steam switch", switchModeOptions};
+            "hardware.switches.steam.mode", Hardware::SwitchMode::NORMALLY_OPEN, "Steam Switch Mode", 13, 2213, "Electrical configuration of steam switch", getSwitchModeOptions()};
 
         ParamDef<bool> hardwareSwitchesPowerEnabled{"hardware.switches.power.enabled", false, "Enable Power Switch", 13, 2221, "Enable physical power switch"};
 
-        EnumParamDef<Hardware::SwitchType> hardwareSwitchesPowerType{"hardware.switches.power.type", Hardware::SwitchType::TOGGLE, "Power Switch Type", 13, 2222, "Type of power switch connected", switchTypeOptions};
+        EnumParamDef<Hardware::SwitchType> hardwareSwitchesPowerType{"hardware.switches.power.type", Hardware::SwitchType::TOGGLE, "Power Switch Type", 13, 2222, "Type of power switch connected", getSwitchTypeOptions()};
 
         EnumParamDef<Hardware::SwitchMode> hardwareSwitchesPowerMode{
-            "hardware.switches.power.mode", Hardware::SwitchMode::NORMALLY_OPEN, "Power Switch Mode", 13, 2223, "Electrical configuration of power switch", switchModeOptions};
+            "hardware.switches.power.mode", Hardware::SwitchMode::NORMALLY_OPEN, "Power Switch Mode", 13, 2223, "Electrical configuration of power switch", getSwitchModeOptions()};
 
         ParamDef<bool> hardwareSwitchesHotWaterEnabled{"hardware.switches.hot_water.enabled", false, "Enable Water Switch", 13, 2231, "Enable physical water switch"};
 
-        EnumParamDef<Hardware::SwitchType> hardwareSwitchesHotWaterType{"hardware.switches.hot_water.type", Hardware::SwitchType::TOGGLE, "Water Switch Type", 13, 2232, "Type of water switch connected", switchTypeOptions};
+        EnumParamDef<Hardware::SwitchType> hardwareSwitchesHotWaterType{"hardware.switches.hot_water.type", Hardware::SwitchType::TOGGLE, "Water Switch Type", 13, 2232, "Type of water switch connected", getSwitchTypeOptions()};
 
         EnumParamDef<Hardware::SwitchMode> hardwareSwitchesHotWaterMode{
-            "hardware.switches.hot_water.mode", Hardware::SwitchMode::NORMALLY_OPEN, "Water Switch Mode", 13, 2233, "Electrical configuration of water switch", switchModeOptions};
+            "hardware.switches.hot_water.mode", Hardware::SwitchMode::NORMALLY_OPEN, "Water Switch Mode", 13, 2233, "Electrical configuration of water switch", getSwitchModeOptions()};
 
         // === HARDWARE LEDS PARAMETERS (Section 4) ===
         ParamDef<bool> hardwareLedsStatusEnabled{"hardware.leds.status.enabled", false, "Enable Status LED", 4, 2301, "Enable status indicator LED"};
@@ -818,21 +818,21 @@ class Config {
 
         // === HARDWARE SENSORS PARAMETERS (Section 15 & 4) ===
         EnumParamDef<Hardware::TemperatureSensorType> hardwareSensorsTemperatureType{
-            "hardware.sensors.temperature.type", Hardware::TemperatureSensorType::TSIC_306, "Temperature Sensor Type", 15, 2401, "Type of temperature sensor connected", temperatureSensorTypeOptions};
+            "hardware.sensors.temperature.type", Hardware::TemperatureSensorType::TSIC_306, "Temperature Sensor Type", 15, 2401, "Type of temperature sensor connected", getTemperatureSensorTypeOptions()};
 
         ParamDef<bool> hardwareSensorsPressureEnabled{"hardware.sensors.pressure.enabled", false, "Enable Pressure Sensor", 4, 2411, "Enable pressure sensor functionality"};
 
         ParamDef<bool> hardwareSensorsWatertankEnabled{"hardware.sensors.watertank.enabled", false, "Enable Water Tank Sensor", 4, 2421, "Enable water tank level sensor"};
 
         EnumParamDef<Hardware::SwitchMode> hardwareSensorsWatertankMode{
-            "hardware.sensors.watertank.mode", Hardware::SwitchMode::NORMALLY_CLOSED, "Water Tank Sensor Mode", 15, 2422, "Electrical configuration of water tank sensor", switchModeOptions};
+            "hardware.sensors.watertank.mode", Hardware::SwitchMode::NORMALLY_CLOSED, "Water Tank Sensor Mode", 15, 2422, "Electrical configuration of water tank sensor", getSwitchModeOptions()};
 
         ParamDef<bool> hardwareSensorsScaleEnabled{"hardware.sensors.scale.enabled", false, "Enable Scale", 4, 2501, "Enable scale functionality"};
 
         ParamDef<int> hardwareSensorsScaleSamples{"hardware.sensors.scale.samples", SCALE_SAMPLES, "Scale Samples", 4, 2502, "Number of samples used for calibration", SCALE_SAMPLES_MIN, SCALE_SAMPLES_MAX};
 
         EnumParamDef<Hardware::ScaleType> hardwareSensorsScaleType{
-            "hardware.sensors.scale.type", Hardware::ScaleType::HX711_DUAL, "Scale Type", 15, 2503, "Integrated HX711-based scale with different load cell configurations or Bluetooth Low Energy scales", scaleTypeOptions};
+            "hardware.sensors.scale.type", Hardware::ScaleType::HX711_DUAL, "Scale Type", 15, 2503, "Integrated HX711-based scale with different load cell configurations or Bluetooth Low Energy scales", getScaleTypeOptions()};
 
         ParamDef<double> hardwareSensorsScaleCalibration{
             "hardware.sensors.scale.calibration", SCALE_CALIBRATION_FACTOR, "Scale Calibration", 4, 2504, "Raw data is divided by this value to convert to readable data", SCALE_CALIBRATION_MIN, SCALE_CALIBRATION_MAX};
@@ -844,11 +844,11 @@ class Config {
             "hardware.sensors.scale.known_weight", SCALE_KNOWN_WEIGHT, "Scale Known Weight", 4, 2506, "Calibration weight for scale (weight of the tray)", SCALE_KNOWN_WEIGHT_MIN, SCALE_KNOWN_WEIGHT_MAX};
 
         // === DISPLAY PARAMETERS (Section 5) ===
-        EnumParamDef<System::DisplayTemplate> displayTemplate{"display.template", System::DisplayTemplate::STANDARD, "Display Template", 5, 901, "Set the display template, changes require a reboot", displayTemplateOptions};
+        EnumParamDef<System::DisplayTemplate> displayTemplate{"display.template", System::DisplayTemplate::STANDARD, "Display Template", 5, 901, "Set the display template, changes require a reboot", getDisplayTemplateOptions()};
 
         ParamDef<bool> displayInverted{"display.inverted", false, "Invert Display", 5, 902, "Set the display rotation, changes require a reboot"};
 
-        EnumParamDef<System::Language> displayLanguage{"display.language", System::Language::ENGLISH, "Display Language", 5, 903, "Set the language for the OLED display", languageOptions};
+        EnumParamDef<System::Language> displayLanguage{"display.language", System::Language::ENGLISH, "Display Language", 5, 903, "Set the language for the OLED display", getLanguageOptions()};
 
         ParamDef<bool> displayFullscreenBrewTimer{"display.fullscreen_brew_timer", false, "Enable Fullscreen Brew Timer", 3, 904, "Enable fullscreen overlay during brew"};
 
@@ -900,7 +900,7 @@ class Config {
 
         ParamDef<bool> systemOfflineMode{"system.offline_mode", false, "Offline Mode", 9, 1103, "Run in offline mode without WiFi connection"};
 
-        EnumParamDef<System::LogLevel> systemLogLevel{"system.log_level", System::LogLevel::INFO, "Log Level", 9, 1103, "Set the logging level for debug output", logLevelOptions};
+        EnumParamDef<System::LogLevel> systemLogLevel{"system.log_level", System::LogLevel::INFO, "Log Level", 9, 1103, "Set the logging level for debug output", getLogLevelOptions()};
 
         ParamDef<bool> systemAuthEnabled{"system.auth.enabled", false, "Enable Authentication", 9, 1201, "Enables authentication for accessing certain parts of the website"};
 

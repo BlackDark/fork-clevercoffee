@@ -60,13 +60,9 @@ class DisplayTemplateManager {
             }
         }
 
-        static void printScreen() {
-            if (currentPrintScreen) {
-                currentPrintScreen();
-            }
-        }
+        static void printScreen();
 
     private:
-        static inline System::DisplayTemplate currentTemplate = System::DisplayTemplate::STANDARD;
-        static inline void (*currentPrintScreen)() = nullptr;
+        static System::DisplayTemplate currentTemplate;
+        static void (*currentPrintScreen)();
 };

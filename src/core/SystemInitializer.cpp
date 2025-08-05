@@ -7,6 +7,7 @@
 #include "../Config.h"
 #include "../defaults.h"
 #include "../display/DisplayManager.h"
+#include "../utils/memoryUtils.h"
 // Forward declarations for display functions that require global state
 // These will be called from main.cpp after full system initialization
 extern void u8g2_prepare();
@@ -34,7 +35,7 @@ extern void initTimer1();
 extern void enableTimer1();
 extern void u8g2_prepare();
 extern void initLangStrings(Config& config);
-extern void initScale();
+#include "../scaleHandler.h"
 extern bool checkBrewActive();
 
 SystemInitializer::SystemInitializer() :
@@ -48,31 +49,44 @@ SystemInitializer::~SystemInitializer() {
 
 bool SystemInitializer::initialize() {
     LOG(INFO, "Starting system initialization");
+    logMemory("SystemInitializer Start");
 
     // Phase 1: Core system initialization
+    logMemoryBasic("Before Logger Init");
     if (!initializeLogger()) {
         LOG(ERROR, "Logger initialization failed");
         return false;
     }
 
+    logMemoryBasic("Before Config Init");
     if (!initializeConfiguration()) {
         LOG(ERROR, "Configuration initialization failed");
         return false;
     }
+    logMemoryBasic("After Config Init");
 
     // Phase 2: Hardware initialization
+    logMemoryBasic("Before Wire.begin()");
     Wire.begin();
+    logMemoryBasic("After Wire.begin()");
 
+    logMemoryBasic("Before Display Init");
     if (!initializeDisplay()) {
         LOG(WARNING, "Display initialization failed, continuing without display");
     }
+    logMemoryBasic("After Display Init");
 
+    logMemoryBasic("Before Timer1 Init");
     initTimer1();
+    logMemoryBasic("After Timer1 Init");
 
+    logMemoryBasic("Before Hardware Init");
     if (!initializeHardware()) {
         LOG(ERROR, "Hardware initialization failed");
+        logMemory("Hardware Init FAILED");
         return false;
     }
+    logMemoryBasic("After Hardware Init");
 
     // Phase 3: Network and services
     LOG(INFO, "Starting Phase 3: Network and services");
@@ -119,6 +133,7 @@ bool SystemInitializer::initialize() {
     g_state.coordination.setupDone = true;
     systemInitialized_ = true;
 
+    logMemory("SystemInitializer Complete");
     LOG(INFO, "System initialization completed successfully");
     return true;
 }
@@ -217,9 +232,12 @@ bool SystemInitializer::initializeDisplay() {
 
 bool SystemInitializer::initializeHardware() {
     try {
+        logMemoryBasic("Before HardwareManager Creation");
         hardwareManager_ = std::make_unique<HardwareManager>();
+        logMemoryBasic("After HardwareManager Creation");
 
         // Update compatibility pointers to reference HardwareManager components
+        logMemoryBasic("Before Hardware Pointer Updates");
         g_state.hardware.heaterRelay = &hardwareManager_->getHeaterRelay();
         g_state.hardware.pumpRelay = &hardwareManager_->getPumpRelay();
         g_state.hardware.valveRelay = &hardwareManager_->getValveRelay();
@@ -235,10 +253,12 @@ bool SystemInitializer::initializeHardware() {
         g_state.hardware.waterTankSensor = hardwareManager_->getWaterTankSensor();
 
         g_state.hardware.tempSensor = hardwareManager_->getTempSensor();
+        logMemoryBasic("After Hardware Pointer Updates");
 
         LOG(INFO, "Hardware initialization completed via HardwareManager");
         return true;
     } catch (const std::exception& e) {
+        logMemory("HardwareManager Exception");
         LOGF(ERROR, "Failed to initialize HardwareManager: %s", e.what());
         return false;
     }

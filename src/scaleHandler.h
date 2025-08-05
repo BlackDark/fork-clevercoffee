@@ -214,65 +214,7 @@ inline void checkWeight() {
     }
 }
 
-inline void initScale() {
-    const Hardware::ScaleType scaleType = Config::getInstance().hardwareSensorsScaleType.get();
-    const int scaleSamples = Config::getInstance().hardwareSensorsScaleSamples.get();
-
-    // Clean up existing scale
-    if (g_state.hardware.scale) {
-        delete g_state.hardware.scale;
-        g_state.hardware.scale = nullptr;
-    }
-
-    if (scaleType == Hardware::ScaleType::BLUETOOTH) { // Bluetooth scale
-        g_state.hardware.scale = new BluetoothScale();
-        g_state.hardware.isBluetoothScale = true;
-
-        LOG(INFO, "Initializing Bluetooth scale");
-
-        g_state.hardware.scale->init();
-    }
-    else {
-        // HX711 scale types
-        const float cal1 = Config::getInstance().hardwareSensorsScaleCalibration.get();
-        const float cal2 = Config::getInstance().hardwareSensorsScaleCalibration2.get();
-
-        if (scaleType == Hardware::ScaleType::HX711_DUAL) { // Dual load cell
-            g_state.hardware.scale = new HX711Scale(PIN_HXDAT, PIN_HXDAT2, PIN_HXCLK, cal1, cal2);
-        }
-        else {                                              // Single load cell
-            g_state.hardware.scale = new HX711Scale(PIN_HXDAT, PIN_HXCLK, cal1);
-        }
-
-        g_state.hardware.isBluetoothScale = false;
-        LOG(INFO, "Initializing HX711 scale");
-
-        if (!g_state.hardware.scale->init()) {
-            LOG(ERROR, "Scale initialization failed");
-            displayScaleFailed();
-            delay(5000);
-            g_state.sensors.scaleFailure = true;
-            delete g_state.hardware.scale;
-            g_state.hardware.scale = nullptr;
-            return;
-        }
-
-        // Set samples for HX711 scales
-        g_state.hardware.scale->setSamples(scaleSamples);
-    }
-
-    // Reset connection state
-    g_state.sensors.scaleConnectionLost = false;
-    g_state.sensors.scaleFailure = false;
-    g_state.sensors.brewByWeightFallbackActive = false;
-    g_state.sensors.lastScaleConnectionCheck = 0;
-    g_state.sensors.scaleConnectionFailureTime = 0;
-    g_state.sensors.lastValidWeight = 0;
-
-    g_state.sensors.scaleCalibrationOn = false;
-
-    LOG(INFO, "Scale initialized successfully");
-}
+void initScale();
 
 /**
  * @brief Scale with shot timer and connection handling

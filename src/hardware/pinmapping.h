@@ -38,9 +38,9 @@
 #define PIN_HEATER 2
 
 // LEDs
-#define PIN_STATUSLED 26
-#define PIN_BREWLED   19
-#define PIN_STEAMLED  1
+#define PIN_STATUSLED 26 // 25 works with logging // Moved from pin 26 (pin 26 had hardware issues)
+#define PIN_BREWLED   19  // Working correctly
+#define PIN_STEAMLED  1 // 32 works with logging // Moved from pin 1 (UART TX - conflicts with serial logging)
 
 // Periphery
 #define PIN_ZC 18 // Dimmer circuit Zero Crossing

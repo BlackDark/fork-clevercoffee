@@ -34,6 +34,7 @@
 #include "utils/Timer.h"
 #include "utils/helperUtils.h"
 #include "utils/legacyUtils.h"
+#include "utils/memoryUtils.h"
 
 // Hardware classes
 #include "hardware/GPIOPin.h"
@@ -93,15 +94,21 @@ std::unique_ptr<LoopManager> loopManager = nullptr;
 #include "steamHandler.h"
 
 void setup() {
+    logMemory("Setup Start");
+
     // Initialize system using RAII SystemInitializer
+    logMemoryBasic("Before SystemInitializer");
     systemInitializer = std::make_unique<SystemInitializer>();
 
+    logMemoryBasic("Before SystemInitializer->initialize()");
     if (!systemInitializer->initialize()) {
+        logMemory("SystemInitializer FAILED");
         LOG(ERROR, "System initialization failed!");
         Serial.println("Critical system initialization error detected!");
         Serial.flush();
         exit(0);
     }
+    logMemoryBasic("After SystemInitializer->initialize()");
 
     // Update compatibility pointers from SystemInitializer
     if (systemInitializer->getDisplayManager()) {
@@ -115,17 +122,16 @@ void setup() {
         const System::DisplayTemplate templateId = Config::getInstance().displayTemplate.get();
         DisplayTemplateManager::initializeDisplay(templateId);
 
-        // Display logo using UIManager if available, fallback to direct call
+        // Display logo using UIManager if available
         if (uiManager) {
             uiManager->displayLogo(String("Version "), g_state.systemVersion);
         }
-        else {
-            displayLogo(String("Version "), g_state.systemVersion);
-        }
     }
 
+    logMemoryBasic("Before HardwareManager Access");
     if (systemInitializer->getHardwareManager()) {
         HardwareManager* hwManager = systemInitializer->getHardwareManager();
+        logMemoryBasic("After HardwareManager Retrieved");
 
         // Update compatibility pointers
         g_state.hardware.heaterRelay = &hwManager->getHeaterRelay();
@@ -159,10 +165,9 @@ void setup() {
     // Complete initialization steps that require global dependencies
     if (Config::getInstance().hardwareSensorsScaleEnabled.get()) {
         if (sensorManager) {
+            logMemoryBasic("Before Sensor Init scales");
             sensorManager->initializeScale();
-        }
-        else {
-            initScale(); // Fallback to global function
+            logMemoryBasic("After HardwareManager Access");
         }
     }
 
@@ -218,23 +223,9 @@ void setup() {
         else {
             LOG(ERROR, "LoopManager initialization failed!");
         }
-
-        // Fallback legacy
-        if (!loopManager) {
-            // Initialize timers after system initialization to avoid static initialization order fiasco
-            g_state.timing.loopWaterTank = std::make_unique<Timer>(
-                []() {
-                    if (sensorManager) {
-                        sensorManager->updateWaterTankSensor();
-                        g_state.machine.waterTankFull = sensorManager->isWaterTankFull();
-                    }
-                },
-                200);
-            g_state.timing.hassioDiscoveryTimer = std::make_unique<Timer>(sendHASSIODiscoveryMsg, 300000);
-            g_state.timing.printDisplayTimer = std::make_unique<Timer>(DisplayTemplateManager::printScreen, 100);
-        }
     }
 
+    logMemory("Setup Complete");
     LOG(INFO, "System setup completed via SystemInitializer");
 }
 
@@ -243,39 +234,8 @@ void loop() {
         // Use modern LoopManager for coordinated main loop updates
         loopManager->update();
     }
-    else {
-        // Fallback to legacy loop implementation
-        // Accept potential connections for remote logging
-        Logger::update();
-
-        // Update water tank sensor
-        if (g_state.timing.loopWaterTank) (*g_state.timing.loopWaterTank)();
-
-        // Update PID settings & machine state
-        if (processController) {
-            processController->updateProcessControl(static_cast<int>(g_state.machine.machineState));
-        }
-        else {
-            LOG(ERROR, "ProcessController not available - temperature control may not function correctly");
-        }
-
-        // LED updates are handled by LoopManager (when available)
-
-        // print timing related data to check what is causing stutters
-        debugTimingLoop();
-    }
 }
 
-// Missing function implementations for legacy compatibility
-// Note: brew(), manualFlush(), and checkBrewActive() are already defined in brewUtils.h
-
-// Legacy wrapper functions for external modules that haven't been updated yet
-void checkWaterTank() {
-    if (sensorManager) {
-        sensorManager->updateWaterTankSensor();
-        g_state.machine.waterTankFull = sensorManager->isWaterTankFull();
-    }
-}
 
 void checkWifi() {
     if (g_state.network.cleverCoffeeWiFiManager) {

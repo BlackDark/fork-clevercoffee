@@ -35,7 +35,6 @@ namespace DisplayTemplateManager {
 
 // External function declarations
 extern bool checkBrewActive();
-extern void checkWaterTank();
 extern void sendHASSIODiscoveryMsg();
 extern void checkWifi();
 extern int getSignalStrength();
@@ -186,7 +185,6 @@ void LoopManager::updateLEDs() {
 
 void LoopManager::updateWaterTank() {
     // Water tank monitoring is handled by the timer-based system
-    // The timer calls checkWaterTank() every 200ms automatically
     if (waterTankTimer_) {
         // Advance the timer so checkWaterTank() is called at the correct interval
         (*waterTankTimer_)();
@@ -194,7 +192,8 @@ void LoopManager::updateWaterTank() {
     else {
         // Fallback: direct call to water tank check
         // This should normally not be needed if timer is set up correctly
-        checkWaterTank();
+        //checkWaterTank();
+        LOG(WARNING, "LoopManager: Water tank timer not initialized. Can not update water tank status.");
     }
 }
 
@@ -291,11 +290,11 @@ void LoopManager::updateDebugTiming() {
 
 bool LoopManager::setupTimers() {
     try {
-        g_state.timing.loopWaterTank2 = new Timer(checkWaterTank, 200);
+        // g_state.timing.loopWaterTank2 = new Timer(checkWaterTank, 200);
         g_state.timing.hassioDiscoveryTimer2 = new Timer(sendHASSIODiscoveryMsg, 300000);
         g_state.timing.printDisplayTimer2 = new Timer(DisplayTemplateManager::printScreen, 100);
 
-        g_state.timing.loopWaterTank = std::make_unique<Timer>(&checkWaterTank, 200);
+        // g_state.timing.loopWaterTank = std::make_unique<Timer>(&checkWaterTank, 200);
         g_state.timing.hassioDiscoveryTimer = std::make_unique<Timer>(&sendHASSIODiscoveryMsg, 300000);
         g_state.timing.printDisplayTimer = std::make_unique<Timer>(DisplayTemplateManager::printScreen, 100);
 
@@ -310,7 +309,7 @@ bool LoopManager::setupTimers() {
 bool LoopManager::setupWaterTankTimer() {
     try {
         // Create timer for water tank monitoring (200ms interval)
-        waterTankTimer_ = std::make_unique<Timer>(&checkWaterTank, 200);
+        waterTankTimer_ = std::make_unique<Timer>(std::bind(&LoopManager::checkWaterTankLevel, this), 200);
 
         if (!waterTankTimer_) {
             LOG(ERROR, "LoopManager: Failed to create water tank timer");
@@ -327,9 +326,10 @@ bool LoopManager::setupWaterTankTimer() {
 }
 
 void LoopManager::checkWaterTankLevel() {
-    // This method provides a member function interface to the global checkWaterTank
-    // for potential future encapsulation improvements
-    checkWaterTank();
+    if (sensorManager_) {
+        sensorManager_->updateWaterTankSensor();
+        g_state.machine.waterTankFull = sensorManager_->isWaterTankFull();
+    }
 }
 
 bool LoopManager::getPerformanceStats() const {

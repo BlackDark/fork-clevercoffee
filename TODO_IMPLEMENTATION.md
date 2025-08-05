@@ -314,6 +314,14 @@ This TODO list breaks down the migration plan into small, incremental steps that
 - **Test**: System behavior under failures
 - **Risk**: Medium - Failure handling
 
+#### **TODO-028-2: Correctly implement all states**
+- **Files**: Check `src/states`
+- **Action**:
+  - Validate all states and state transistion
+  - For every state there must be a path exiting the state
+- **Test**: State transistions
+- **Risk**: High - Wrong state transistions
+
 ### 3.3 Performance Optimization (Days 27-28)
 
 #### **TODO-029: Add move semantics to heavy objects**
