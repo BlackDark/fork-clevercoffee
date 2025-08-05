@@ -236,7 +236,7 @@ class Config {
             return true;
         }
 
-        // Type-safe parameter access
+        // Type-safe parameter access with enum class support
         template <typename T>
         T get(const ::String& path) const {
             auto it = _params.find(path.c_str());
@@ -261,12 +261,17 @@ class Config {
                     else if constexpr (std::is_same_v<T, ::String>) {
                         return *static_cast<::String*>(def.globalVar);
                     }
+                    else if constexpr (std::is_enum_v<T>) {
+                        // Type-safe enum class access - cast from stored int to enum class
+                        int intValue = *static_cast<int*>(def.globalVar);
+                        return static_cast<T>(intValue);
+                    }
                 }
             }
             return T{};
         }
 
-        // Type-safe parameter setting with validation and NVS save
+        // Type-safe parameter setting with validation and NVS save (including enum class support)
         template <typename T>
         bool set(const ::String& path, const T& value) {
             auto it = _params.find(path.c_str());
@@ -274,17 +279,38 @@ class Config {
 
             const ParamDef& def = it->second;
 
-            // Validate numeric ranges
-            if constexpr (std::is_arithmetic_v<T>) {
+            // Handle enum classes
+            if constexpr (std::is_enum_v<T>) {
+                // Convert enum class to underlying int and validate range
+                int intValue = static_cast<int>(value);
+                if (def.minValue != def.maxValue) { // Only validate if range is set
+                    if (intValue < static_cast<int>(def.minValue) || intValue > static_cast<int>(def.maxValue)) {
+                        return false;
+                    }
+                }
+
+                // Update global variable as int
+                if (def.globalVar) {
+                    LOGF_CONFIG_VERBOSE(DEBUG, "Config::set(%s): Updating enum global var to %d", path.c_str(), intValue);
+                    *static_cast<int*>(def.globalVar) = intValue;
+                    LOGF_CONFIG_VERBOSE(DEBUG, "Config::set(%s): Enum global var updated, now saving to NVS", path.c_str());
+                    saveToNVS(path.c_str(), intValue);
+                    LOGF_CONFIG_VERBOSE(DEBUG, "Config::set(%s): NVS save completed", path.c_str());
+                    return true;
+                }
+                return false;
+            }
+            // Validate numeric ranges for arithmetic types
+            else if constexpr (std::is_arithmetic_v<T>) {
                 if (def.minValue != def.maxValue) { // Only validate if range is set
                     if (value < static_cast<T>(def.minValue) || value > static_cast<T>(def.maxValue)) return false;
                 }
             }
-            if constexpr (std::is_same_v<T, ::String>) {
+            else if constexpr (std::is_same_v<T, ::String>) {
                 if (def.maxLength > 0 && value.length() > def.maxLength) return false;
             }
 
-            // Update global variable
+            // Update global variable for non-enum types
             if (def.globalVar) {
                 LOGF_CONFIG_VERBOSE(DEBUG, "Config::set(%s): Updating global var from current value to %s", path.c_str(), String(value).c_str());
                 *static_cast<T*>(def.globalVar) = value;
@@ -329,7 +355,7 @@ class Config {
             return _params.find(key.c_str()) != _params.end();
         }
 
-        // Try to get parameter value, returns false if parameter doesn't exist or type mismatch
+        // Try to get parameter value, returns false if parameter doesn't exist or type mismatch (with enum class support)
         template <typename T>
         bool tryGet(const ::String& key, T& value) const {
             auto it = _params.find(key.c_str());
@@ -343,14 +369,22 @@ class Config {
             }
 
             try {
-                if constexpr (std::is_same_v<T, bool>) {
+                if constexpr (std::is_enum_v<T>) {
+                    // Handle enum classes - convert from stored int to enum class
+                    if (def.type == ParamType::ENUM || def.type == ParamType::INT) {
+                        int intValue = *static_cast<int*>(def.globalVar);
+                        value = static_cast<T>(intValue);
+                        return true;
+                    }
+                }
+                else if constexpr (std::is_same_v<T, bool>) {
                     if (def.type == ParamType::BOOL) {
                         value = *static_cast<bool*>(def.globalVar);
                         return true;
                     }
                 }
                 else if constexpr (std::is_same_v<T, int>) {
-                    if (def.type == ParamType::INT) {
+                    if (def.type == ParamType::INT || def.type == ParamType::ENUM) {
                         value = *static_cast<int*>(def.globalVar);
                         return true;
                     }

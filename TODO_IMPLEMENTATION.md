@@ -239,7 +239,7 @@ This TODO list breaks down the migration plan into small, incremental steps that
 - **Test**: Complete system operation
 - **Risk**: High - System coordination
 
-#### **TODO-022: Minimize main.cpp to coordination only**
+#### **TODO-022: Minimize main.cpp to coordination only** [DONE]
 - **Files**: `src/main.cpp`
 - **Action**:
   - Reduce main.cpp to < 200 lines
@@ -255,7 +255,7 @@ This TODO list breaks down the migration plan into small, incremental steps that
 
 ### 3.1 Template Usage & Type Safety (Days 21-23)
 
-#### **TODO-023: Enhance Config system with type-safe enums**
+#### **TODO-023: Enhance Config system with type-safe enums** [DONE]
 - **Files**: `src/Config.h`, `src/defaults.h`
 - **Action**:
   - Define enum classes for hardware types, modes

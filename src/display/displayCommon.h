@@ -11,6 +11,7 @@
 #include "../utils/legacyUtils.h"
 #include "bitmaps.h"
 #include "languages.h"
+#include <U8g2lib.h> // Required for U8G2 display methods
 
 inline const u8g2_cb_t* getU8G2Rotation(const int rotationValue) {
     switch (rotationValue) {

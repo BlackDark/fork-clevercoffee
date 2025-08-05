@@ -7,11 +7,11 @@
 #include "../Config.h"
 #include "../brewHandler.h"
 #include "../control/ProcessController.h"
-#include "../embeddedWebserver.h"
 #include "../hardware/LED.h"
 #include "../hardware/Relay.h"
 #include "../hotWaterHandler.h"
 #include "../network/MQTTManager.h"
+#include "../network/WebSocketEvents.h" // Isolated WebSocket functions without library conflicts
 #include "../powerHandler.h"
 #include "../sensors/SensorManager.h"
 #include "../standby.h"
@@ -39,10 +39,11 @@ extern void checkWaterTank();
 extern void sendHASSIODiscoveryMsg();
 extern void checkWifi();
 extern int getSignalStrength();
-extern void sendTempEvent(double temp, double setpoint, double pidOutput);
-extern void sendWeightEvent();
 extern void disableTimer1();
 extern void enableTimer1();
+
+// WebSocket functions are now available via WebSocketEvents.h
+// No stubs needed - real functionality restored
 
 LoopManager::LoopManager(ProcessController* processController, SensorManager* sensorManager, UIManager* uiManager) :
     processController_(processController),

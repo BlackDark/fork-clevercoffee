@@ -18,6 +18,7 @@ namespace DisplayTemplateManager {
 #include "../hardware/HardwareManager.h"
 #include "../network/CleverCoffeeWiFiManager.h"
 #include "../network/MQTTManager.h"
+#include "../network/WebSocketEvents.h" // Isolated WebSocket functions
 #include "../sensors/SensorManager.h"
 #include "Logger.h"
 #include <Arduino.h>
@@ -32,7 +33,7 @@ extern void initTimer1();
 extern void enableTimer1();
 extern void u8g2_prepare();
 extern void initLangStrings(Config& config);
-extern void serverSetup();
+// serverSetup() now available via WebSocketEvents.h without library conflicts
 extern void initScale();
 extern void setRuntimePidState(bool state);
 extern bool checkBrewActive();

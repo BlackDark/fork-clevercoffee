@@ -1075,7 +1075,7 @@ void serverSetup() {
     logMemoryUsage("serverSetup complete");
 }
 
-inline void sendTempEvent(const double currentTemp, const double targetTemp, const double heaterPower) {
+void sendTempEvent(const double currentTemp, const double targetTemp, const double heaterPower) {
     try {
         tempHistory.addPoint(currentTemp, targetTemp, heaterPower);
         events.send("ping", nullptr, millis());
@@ -1085,7 +1085,7 @@ inline void sendTempEvent(const double currentTemp, const double targetTemp, con
     }
 }
 
-inline void sendWeightEvent() {
+void sendWeightEvent() {
     try {
         String weightJson = getWeightJsonString();
         events.send(weightJson.c_str(), "weight", millis());

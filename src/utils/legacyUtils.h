@@ -1,6 +1,7 @@
 #pragma once
 #include "../Config.h"
 #include "../network/CleverCoffeeWiFiManager.h"
+#include "../network/MQTTManager.h" // Required for MQTTManager methods
 #include "../state/GlobalState.h"
 #include "Logger.h"
 

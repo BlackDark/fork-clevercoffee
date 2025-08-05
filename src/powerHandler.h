@@ -12,6 +12,7 @@
 #include "state/GlobalState.h"
 #include "state/MachineState.h"
 #include "utils/legacyUtils.h"
+#include <U8g2lib.h> // Required for U8G2 display methods
 
 void performSafeShutdown();
 

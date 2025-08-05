@@ -118,6 +118,90 @@
 #define FRONTEND_PREPROCESSING true // enable preprocessing of frontend files (HTML, CSS, JS) to replace variables like {{hostname}} with actual values
 #endif
 
+// Type-safe enum classes for hardware configuration
+namespace Hardware {
+
+    // Switch types and modes (replacing integer constants)
+    enum class SwitchType : int {
+        MOMENTARY = 0,
+        TOGGLE = 1
+    };
+
+    enum class SwitchMode : int {
+        NORMALLY_OPEN = 0,
+        NORMALLY_CLOSED = 1
+    };
+
+    // Relay trigger types
+    enum class RelayTriggerType : int {
+        LOW_TRIGGER = 0,
+        HIGH_TRIGGER = 1
+    };
+
+    // OLED display types
+    enum class OLEDType : int {
+        SSD1306 = 0,
+        SH1106 = 1
+    };
+
+    enum class OLEDAddress : int {
+        ADDR_3C = 0, // 0x3C
+        ADDR_3D = 1  // 0x3D
+    };
+
+    // Temperature sensor types
+    enum class TemperatureSensorType : int {
+        TSIC_306 = 0,
+        DALLAS_DS18B20 = 1
+    };
+
+    // Scale types
+    enum class ScaleType : int {
+        HX711_DUAL = 0,   // 2 load cells
+        HX711_SINGLE = 1, // 1 load cell
+        BLUETOOTH = 2
+    };
+} // namespace Hardware
+
+namespace System {
+
+    // Display templates
+    enum class DisplayTemplate : int {
+        STANDARD = 0,
+        MINIMAL = 1,
+        TEMPERATURE_ONLY = 2,
+        SCALE = 3,
+        UPRIGHT = 4
+    };
+
+    // Languages
+    enum class Language : int {
+        ENGLISH = 0,
+        GERMAN = 1,
+        SPANISH = 2
+    };
+
+    // Log levels (matching Logger::Level)
+    enum class LogLevel : int {
+        TRACE = 0,
+        DEBUG = 1,
+        INFO = 2,
+        WARNING = 3,
+        ERROR = 4,
+        FATAL = 5,
+        SILENT = 6
+    };
+} // namespace System
+
+namespace Process {
+
+    // Brewing modes (avoiding conflict with PID library MANUAL macro)
+    enum class BrewMode : int {
+        MANUAL_BREW = 0,
+        AUTOMATIC_BREW = 1
+    };
+} // namespace Process
+
 // Debugging flags
 // #define DEBUG_CONFIG_VERBOSE true
 // #define DEBUG_NVS_VERBOSE    true

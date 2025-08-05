@@ -13,6 +13,7 @@
 #include "hardware/scales/BluetoothScale.h"
 #include "hardware/scales/HX711Scale.h"
 #include "utils/helperUtils.h"
+#include <U8g2lib.h> // Required for U8G2 display methods
 
 void displayScaleFailed();
 void displayWrappedMessage(const String& msg);
