@@ -40,7 +40,7 @@ static const char* langstring_calibrate_complete;
 inline void initLangStrings() {
 
     // English
-    if (Config::getInstance().get<int>("display.language") == 1) {
+    if (Config::getInstance().displayLanguage.get() == System::Language::GERMAN) {
         langstring_set_temp = "Set:   ";
         langstring_current_temp = "Temp:  ";
         langstring_brew = "Brew: ";
@@ -82,7 +82,7 @@ inline void initLangStrings() {
         langstring_calibrate_complete = "Calibration done!\nNew result: ";
     }
     // Espanol
-    else if (Config::getInstance().get<int>("display.language") == 2) {
+    else if (Config::getInstance().displayLanguage.get() == System::Language::SPANISH) {
         langstring_set_temp = "Obj:  ";
         langstring_current_temp = "T:    ";
         langstring_brew = "Brew: ";

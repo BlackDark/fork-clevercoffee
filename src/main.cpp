@@ -115,7 +115,7 @@ void setup() {
         u8g2_prepare();
         initLangStrings();
 
-        const int templateId = Config::getInstance().get<int>("display.template");
+        const System::DisplayTemplate templateId = Config::getInstance().displayTemplate.get();
         DisplayTemplateManager::initializeDisplay(templateId);
 
         // Display logo using UIManager if available, fallback to direct call
@@ -160,7 +160,7 @@ void setup() {
     sensorManager = systemInitializer->getSensorManager();
 
     // Complete initialization steps that require global dependencies
-    if (Config::getInstance().get<bool>("hardware.sensors.scale.enabled")) {
+    if (Config::getInstance().hardwareSensorsScaleEnabled.get()) {
         if (sensorManager) {
             sensorManager->initializeScale();
         }
@@ -184,13 +184,13 @@ void setup() {
 
         // Initialize PID parameters now that config is available
         // TODO remove?
-        g_state.process.aggbKi = (Config::getInstance().get<double>("pid.bd.tn") == 0) ? 0 : Config::getInstance().get<double>("pid.bd.kp") / Config::getInstance().get<double>("pid.bd.tn");
-        g_state.process.aggbKd = Config::getInstance().get<double>("pid.bd.tv") * Config::getInstance().get<double>("pid.bd.kp");
-        g_state.process.aggKi = (Config::getInstance().get<double>("pid.regular.tn") == 0) ? 0 : Config::getInstance().get<double>("pid.regular.kp") / Config::getInstance().get<double>("pid.regular.tn");
-        g_state.process.aggKd = Config::getInstance().get<double>("pid.regular.tv") * Config::getInstance().get<double>("pid.regular.kp");
+        g_state.process.aggbKi = (Config::getInstance().pidBdTn.get() == 0) ? 0 : Config::getInstance().pidBdKp.get() / Config::getInstance().pidBdTn.get();
+        g_state.process.aggbKd = Config::getInstance().pidBdTv.get() * Config::getInstance().pidBdKp.get();
+        g_state.process.aggKi = (Config::getInstance().pidRegularTn.get() == 0) ? 0 : Config::getInstance().pidRegularKp.get() / Config::getInstance().pidRegularTn.get();
+        g_state.process.aggKd = Config::getInstance().pidRegularTv.get() * Config::getInstance().pidRegularKp.get();
 
         // Set PID tunings now that parameters are calculated
-        g_state.pid->SetTunings(Config::getInstance().get<double>("pid.regular.kp"), g_state.process.aggKi, g_state.process.aggKd, 1);
+        g_state.pid->SetTunings(Config::getInstance().pidRegularKp.get(), g_state.process.aggKi, g_state.process.aggKd, 1);
 
         // Initialize ProcessController for PID control
         processController = std::make_unique<ProcessController>(systemInitializer->getDisplayManager(), systemInitializer->getHardwareManager(), sensorManager, systemInitializer->getMQTTManager());

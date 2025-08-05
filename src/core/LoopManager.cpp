@@ -146,7 +146,7 @@ void LoopManager::update() {
 
 void LoopManager::updateLEDs() {
     // Status LED - indicates when temperature is reached
-    if (Config::getInstance().get<bool>("hardware.leds.status.enabled") && g_state.hardware.statusLed != nullptr) {
+    if (Config::getInstance().hardwareLedsStatusEnabled.get() && g_state.hardware.statusLed != nullptr) {
         bool shouldTurnOn = false;
 
         // Turn on when at target temperature (normal or steam mode)
@@ -164,7 +164,7 @@ void LoopManager::updateLEDs() {
     }
 
     // Brew LED - indicates brewing state
-    if (Config::getInstance().get<bool>("hardware.leds.brew.enabled") && g_state.hardware.brewLed != nullptr) {
+    if (Config::getInstance().hardwareLedsBrewEnabled.get() && g_state.hardware.brewLed != nullptr) {
         if (g_state.machine.machineState == kBrew) {
             g_state.hardware.brewLed->turnOn();
         }
@@ -174,7 +174,7 @@ void LoopManager::updateLEDs() {
     }
 
     // Steam LED - indicates steam mode
-    if (Config::getInstance().get<bool>("hardware.leds.steam.enabled") && g_state.hardware.steamLed != nullptr) {
+    if (Config::getInstance().hardwareLedsSteamEnabled.get() && g_state.hardware.steamLed != nullptr) {
         if (g_state.machine.machineState == kSteam) {
             g_state.hardware.steamLed->turnOn();
         }
@@ -216,14 +216,14 @@ void LoopManager::updateDisplay() {
         LOGF(DEBUG, "LoopManager: Using UIManager path for display updates");
         uiManager_->setUpdateRunning(false);
 
-        if (Config::getInstance().get<bool>("hardware.oled.enabled")) {
+        if (Config::getInstance().hardwareOledEnabled.get()) {
             // Only update display on loops that have not had other major tasks running
             // and when not in standby display-off mode
             bool websiteCondition = !g_state.coordination.websiteUpdateRunning;
             bool mqttCondition = (!g_state.network.mqttManager || !g_state.network.mqttManager->isUpdateRunning());
             bool hassioCondition = !g_state.coordination.hassioUpdateRunning;
             bool tempCondition = !g_state.coordination.temperatureUpdateRunning;
-            bool standbyCondition = (!Config::getInstance().get<bool>("standby.enabled") || g_state.standby.standbyModeRemainingTimeMillis > 0);
+            bool standbyCondition = (!Config::getInstance().standbyEnabled.get() || g_state.standby.standbyModeRemainingTimeMillis > 0);
 
             // update display on loops that have not had other major tasks running
             if (websiteCondition && mqttCondition && hassioCondition && tempCondition && standbyCondition) {
@@ -251,14 +251,14 @@ void LoopManager::updateDisplay() {
         LOGF(DEBUG, "LoopManager: Using fallback path for display updates (no UIManager)");
         g_state.coordination.displayUpdateRunning = false;
 
-        if (Config::getInstance().get<bool>("hardware.oled.enabled")) {
+        if (Config::getInstance().hardwareOledEnabled.get()) {
             // Only update display on loops that have not had other major tasks running
             // and when not in standby display-off mode
             bool websiteCondition = !g_state.coordination.websiteUpdateRunning;
             bool mqttCondition = (!g_state.network.mqttManager || !g_state.network.mqttManager->isUpdateRunning());
             bool hassioCondition = !g_state.coordination.hassioUpdateRunning;
             bool tempCondition = !g_state.coordination.temperatureUpdateRunning;
-            bool standbyCondition = (!Config::getInstance().get<bool>("standby.enabled") || g_state.standby.standbyModeRemainingTimeMillis > 0);
+            bool standbyCondition = (!Config::getInstance().standbyEnabled.get() || g_state.standby.standbyModeRemainingTimeMillis > 0);
 
             // update display on loops that have not had other major tasks running
             if (websiteCondition && mqttCondition && hassioCondition && tempCondition && standbyCondition) {
@@ -414,10 +414,10 @@ void LoopManager::updateWebsite() {
 
         // send temperatures to website endpoint
         if (WiFi.status() == WL_CONNECTED && !g_state.network.offlineMode) {
-            LOGF(DEBUG, "LoopManager: Sending temperature event: temp=%.2f, setpoint=%.2f, output=%.2f", g_state.process.temperature, Config::getInstance().get<double>("brew.setpoint"), g_state.process.pidOutput / 10);
-            sendTempEvent(g_state.process.temperature, Config::getInstance().get<double>("brew.setpoint"), g_state.process.pidOutput / 10); // pidOutput is promill, so /10 to get percent value
+            LOGF(DEBUG, "LoopManager: Sending temperature event: temp=%.2f, setpoint=%.2f, output=%.2f", g_state.process.temperature, Config::getInstance().brewSetpoint.get(), g_state.process.pidOutput / 10);
+            sendTempEvent(g_state.process.temperature, Config::getInstance().brewSetpoint.get(), g_state.process.pidOutput / 10); // pidOutput is promill, so /10 to get percent value
 
-            if (Config::getInstance().get<bool>("hardware.sensors.scale.enabled")) {
+            if (Config::getInstance().hardwareSensorsScaleEnabled.get()) {
                 sendWeightEvent();
             }
             g_state.network.lastTempEvent = millis();
@@ -434,12 +434,12 @@ void LoopManager::updateSensors() {
     extern float measurePressure();
     extern float filterPressureValue(float input);
 
-    if (Config::getInstance().get<bool>("hardware.sensors.scale.enabled")) {
+    if (Config::getInstance().hardwareSensorsScaleEnabled.get()) {
         checkWeight();    // Check Weight Scale in the loop
         shotTimerScale(); // Calculation of weight of shot while brew is running
     }
 
-    if (Config::getInstance().get<bool>("hardware.sensors.pressure.enabled")) {
+    if (Config::getInstance().hardwareSensorsPressureEnabled.get()) {
         if (sensorManager_) {
             // Pressure reading is handled by sensorManager->update() call in ProcessController
             g_state.sensors.inputPressure = sensorManager_->getCurrentPressure();
@@ -489,7 +489,7 @@ void LoopManager::updateStateMachine() {
     // TODO: valveSafetyShutdownCheck() - requires brewHandler.h dependencies
 
     // Update brew timer display state using UIManager if available
-    if (Config::getInstance().get<bool>("hardware.switches.brew.enabled")) {
+    if (Config::getInstance().hardwareSwitchesBrewEnabled.get()) {
         if (uiManager_) {
             uiManager_->shouldDisplayBrewTimer();
         }

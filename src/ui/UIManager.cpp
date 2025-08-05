@@ -9,6 +9,7 @@
 #include "../display/DisplayManager.h"
 #include "../display/bitmaps.h"
 #include "../state/GlobalState.h"
+#include "Logger.h"
 #include <Arduino.h>
 
 int getSignalStrength();
@@ -70,11 +71,11 @@ void UIManager::prepareDisplay() {
     u8g2_->setFontPosTop();
     u8g2_->setFontDirection(0);
 
-    if (Config::getInstance().get<bool>("display.inverted")) {
+    if (Config::getInstance().displayInverted.get()) {
         rotation += 2;
     }
 
-    if (Config::getInstance().get<int>("display.template") == 4) {
+    if (Config::getInstance().displayTemplate.get() == System::DisplayTemplate::UPRIGHT) {
         rotation++;
     }
 
@@ -84,7 +85,7 @@ void UIManager::prepareDisplay() {
 void UIManager::displayLogo(const String& message1, const String& message2) {
     if (!u8g2_) return;
 
-    if (Config::getInstance().get<int>("display.template") == 4) {
+    if (Config::getInstance().displayTemplate.get() == System::DisplayTemplate::UPRIGHT) {
         int printrow = 47;
         u8g2_->clearBuffer();
 
@@ -158,7 +159,7 @@ bool UIManager::shouldDisplayBrewTimer() {
             break;
 
         case BrewTimerState::PostBrew:
-            if (millis() - brewEndTime_ > static_cast<uint32_t>(Config::getInstance().get<double>("display.post_brew_timer_duration") * 1000)) {
+            if (millis() - brewEndTime_ > static_cast<uint32_t>(Config::getInstance().displayPostBrewTimerDuration.get() * 1000)) {
                 brewTimerState_ = BrewTimerState::Idle;
             }
             break;

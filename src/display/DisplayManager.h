@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../defaults.h"
 #include <U8g2lib.h>
 #include <memory>
 
@@ -23,7 +24,7 @@ class DisplayManager {
          * @param type Display type (0 = SH1106, 1 = SSD1306)
          * @param address Display I2C address (0 = 0x3C, 1 = 0x3D)
          */
-        DisplayManager(int type, int address);
+        DisplayManager(Hardware::OLEDType type, Hardware::OLEDAddress address);
 
         /**
          * @brief Destructor - automatically cleans up display resources
@@ -79,5 +80,5 @@ class DisplayManager {
          * @param address Display I2C address
          * @return Unique pointer to created display instance
          */
-        std::unique_ptr<U8G2> createDisplay(int type, int address);
+        std::unique_ptr<U8G2> createDisplay(Hardware::OLEDType type, Hardware::OLEDAddress address);
 };

@@ -28,17 +28,17 @@ HardwareManager::HardwareManager() :
 
 void HardwareManager::initializeRelays() {
     // Initialize heater relay
-    const auto heaterTriggerType = static_cast<Relay::TriggerType>(Config::getInstance().get<int>("hardware.relays.heater.trigger_type"));
+    const auto heaterTriggerType = static_cast<Relay::TriggerType>(Config::getInstance().hardwareRelaysHeaterTriggerType.get());
     heaterRelay_ = std::make_unique<Relay>(heaterRelayPin_, heaterTriggerType);
     heaterRelay_->off();
 
     // Initialize valve relay
-    const auto valveTriggerType = static_cast<Relay::TriggerType>(Config::getInstance().get<int>("hardware.relays.valve.trigger_type"));
+    const auto valveTriggerType = static_cast<Relay::TriggerType>(Config::getInstance().hardwareRelaysValveTriggerType.get());
     valveRelay_ = std::make_unique<Relay>(valveRelayPin_, valveTriggerType);
     valveRelay_->off();
 
     // Initialize pump relay
-    const auto pumpTriggerType = static_cast<Relay::TriggerType>(Config::getInstance().get<int>("hardware.relays.pump.trigger_type"));
+    const auto pumpTriggerType = static_cast<Relay::TriggerType>(Config::getInstance().hardwareRelaysPumpTriggerType.get());
     pumpRelay_ = std::make_unique<Relay>(pumpRelayPin_, pumpTriggerType);
     pumpRelay_->off();
 
@@ -49,24 +49,24 @@ void HardwareManager::initializeLEDs() {
     const auto& config = Config::getInstance();
 
     // Initialize status LED
-    if (Config::getInstance().get<bool>("hardware.leds.status.enabled")) {
-        const bool inverted = Config::getInstance().get<bool>("hardware.leds.status.inverted");
+    if (Config::getInstance().hardwareLedsStatusEnabled.get()) {
+        const bool inverted = Config::getInstance().hardwareLedsStatusInverted.get();
         statusLedPin_ = std::make_unique<GPIOPin>(PIN_STATUSLED, GPIOPin::OUT);
         statusLed_ = std::make_unique<StandardLED>(*statusLedPin_, inverted);
         statusLed_->turnOff();
     }
 
     // Initialize brew LED
-    if (Config::getInstance().get<bool>("hardware.leds.brew.enabled")) {
-        const bool inverted = Config::getInstance().get<bool>("hardware.leds.brew.inverted");
+    if (Config::getInstance().hardwareLedsBrewEnabled.get()) {
+        const bool inverted = Config::getInstance().hardwareLedsBrewInverted.get();
         brewLedPin_ = std::make_unique<GPIOPin>(PIN_BREWLED, GPIOPin::OUT);
         brewLed_ = std::make_unique<StandardLED>(*brewLedPin_, inverted);
         brewLed_->turnOff();
     }
 
     // Initialize steam LED
-    if (Config::getInstance().get<bool>("hardware.leds.steam.enabled")) {
-        const bool inverted = Config::getInstance().get<bool>("hardware.leds.steam.inverted");
+    if (Config::getInstance().hardwareLedsSteamEnabled.get()) {
+        const bool inverted = Config::getInstance().hardwareLedsSteamInverted.get();
         steamLedPin_ = std::make_unique<GPIOPin>(PIN_STEAMLED, GPIOPin::OUT);
         steamLed_ = std::make_unique<StandardLED>(*steamLedPin_, inverted);
         steamLed_->turnOff();
@@ -79,36 +79,36 @@ void HardwareManager::initializeSwitches() {
     const auto& config = Config::getInstance();
 
     // Initialize power switch
-    if (Config::getInstance().get<bool>("hardware.switches.power.enabled")) {
-        const auto type = static_cast<Switch::Type>(Config::getInstance().get<int>("hardware.switches.power.type"));
-        const auto mode = static_cast<Switch::Mode>(Config::getInstance().get<int>("hardware.switches.power.mode"));
+    if (Config::getInstance().hardwareSwitchesPowerEnabled.get()) {
+        const auto type = static_cast<Switch::Type>(Config::getInstance().hardwareSwitchesPowerType.get());
+        const auto mode = static_cast<Switch::Mode>(Config::getInstance().hardwareSwitchesPowerMode.get());
         powerSwitch_ = std::make_unique<IOSwitch>(PIN_POWERSWITCH, GPIOPin::IN_HARDWARE, type, mode, mode);
     }
 
     // Initialize steam switch
-    if (Config::getInstance().get<bool>("hardware.switches.steam.enabled")) {
-        const auto type = static_cast<Switch::Type>(Config::getInstance().get<int>("hardware.switches.steam.type"));
-        const auto mode = static_cast<Switch::Mode>(Config::getInstance().get<int>("hardware.switches.steam.mode"));
+    if (Config::getInstance().hardwareSwitchesSteamEnabled.get()) {
+        const auto type = static_cast<Switch::Type>(Config::getInstance().hardwareSwitchesSteamType.get());
+        const auto mode = static_cast<Switch::Mode>(Config::getInstance().hardwareSwitchesSteamMode.get());
         steamSwitch_ = std::make_unique<IOSwitch>(PIN_STEAMSWITCH, GPIOPin::IN_HARDWARE, type, mode, mode);
     }
 
     // Initialize brew switch
-    if (Config::getInstance().get<bool>("hardware.switches.brew.enabled")) {
-        const auto type = static_cast<Switch::Type>(Config::getInstance().get<int>("hardware.switches.brew.type"));
-        const auto mode = static_cast<Switch::Mode>(Config::getInstance().get<int>("hardware.switches.brew.mode"));
+    if (Config::getInstance().hardwareSwitchesBrewEnabled.get()) {
+        const auto type = static_cast<Switch::Type>(Config::getInstance().hardwareSwitchesBrewType.get());
+        const auto mode = static_cast<Switch::Mode>(Config::getInstance().hardwareSwitchesBrewMode.get());
         brewSwitch_ = std::make_unique<IOSwitch>(PIN_BREWSWITCH, GPIOPin::IN_HARDWARE, type, mode, mode);
     }
 
     // Initialize hot water switch
-    if (Config::getInstance().get<bool>("hardware.switches.hot_water.enabled")) {
-        const auto type = static_cast<Switch::Type>(Config::getInstance().get<int>("hardware.switches.hot_water.type"));
-        const auto mode = static_cast<Switch::Mode>(Config::getInstance().get<int>("hardware.switches.hot_water.mode"));
+    if (Config::getInstance().hardwareSwitchesHotWaterEnabled.get()) {
+        const auto type = static_cast<Switch::Type>(Config::getInstance().hardwareSwitchesHotWaterType.get());
+        const auto mode = static_cast<Switch::Mode>(Config::getInstance().hardwareSwitchesHotWaterMode.get());
         hotWaterSwitch_ = std::make_unique<IOSwitch>(PIN_WATERSWITCH, GPIOPin::IN_HARDWARE, type, mode, mode);
     }
 
     // Initialize water tank sensor
-    if (Config::getInstance().get<bool>("hardware.sensors.watertank.enabled")) {
-        const auto mode = static_cast<Switch::Mode>(Config::getInstance().get<int>("hardware.sensors.watertank.mode"));
+    if (Config::getInstance().hardwareSensorsWatertankEnabled.get()) {
+        const auto mode = static_cast<Switch::Mode>(Config::getInstance().hardwareSensorsWatertankMode.get());
         const GPIOPin::Type pinType = (mode == Switch::NORMALLY_OPEN) ? GPIOPin::IN_PULLDOWN : GPIOPin::IN_PULLUP;
         waterTankSensor_ = std::make_unique<IOSwitch>(PIN_WATERTANKSENSOR, pinType, Switch::TOGGLE, mode, !mode);
     }
@@ -117,12 +117,12 @@ void HardwareManager::initializeSwitches() {
 }
 
 void HardwareManager::initializeTemperatureSensor() {
-    const int tempSensorType = Config::getInstance().get<int>("hardware.sensors.temperature.type");
+    const Hardware::TemperatureSensorType tempSensorType = Config::getInstance().hardwareSensorsTemperatureType.get();
 
-    if (tempSensorType == 0) {
+    if (tempSensorType == Hardware::TemperatureSensorType::TSIC_306) {
         tempSensor_ = std::make_unique<TempSensorTSIC>(PIN_TEMPSENSOR);
     }
-    else if (tempSensorType == 1) {
+    else if (tempSensorType == Hardware::TemperatureSensorType::DALLAS_DS18B20) {
         tempSensor_ = std::make_unique<TempSensorDallas>(PIN_TEMPSENSOR);
     }
 

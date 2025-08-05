@@ -7,12 +7,12 @@
 #include "../hardware/pinmapping.h"
 #include "Logger.h"
 
-DisplayManager::DisplayManager(int type, int address) {
+DisplayManager::DisplayManager(Hardware::OLEDType type, Hardware::OLEDAddress address) {
     display_ = createDisplay(type, address);
 
     if (display_) {
         // Set I2C address based on parameter
-        if (address == 0) {
+        if (address == Hardware::OLEDAddress::ADDR_3C) {
             display_->setI2CAddress(0x3C * 2);
         }
         else {
@@ -30,13 +30,13 @@ DisplayManager::DisplayManager(int type, int address) {
     }
 }
 
-std::unique_ptr<U8G2> DisplayManager::createDisplay(int type, int address) {
+std::unique_ptr<U8G2> DisplayManager::createDisplay(Hardware::OLEDType type, Hardware::OLEDAddress address) {
     switch (type) {
-        case 0:
+        case Hardware::OLEDType::SH1106:
             // SH1106 1.3" display
             return std::make_unique<U8G2_SH1106_128X64_NONAME_F_HW_I2C>(U8G2_R0, U8X8_PIN_NONE, PIN_I2CSCL, PIN_I2CSDA);
 
-        case 1:
+        case Hardware::OLEDType::SSD1306:
             // SSD1306 0.96" display
             return std::make_unique<U8G2_SSD1306_128X64_NONAME_F_HW_I2C>(U8G2_R0, U8X8_PIN_NONE, PIN_I2CSCL, PIN_I2CSDA);
 

@@ -51,7 +51,7 @@ inline void printScreen() {
     }
 
     // Draw temp, blink if feature STATUS_LED is not enabled
-    if (fabs(g_state.process.temperature - g_state.process.setpoint) < 0.3 && !Config::getInstance().get<bool>("hardware.leds.status.enabled")) {
+    if (fabs(g_state.process.temperature - g_state.process.setpoint) < 0.3 && !Config::getInstance().hardwareLedsStatusEnabled.get()) {
         if (g_state.timing.isrCounter < 500) {
             // limit to 4 characters
             g_state.hardware.display->setCursor(2, 20);
@@ -86,7 +86,7 @@ inline void printScreen() {
     g_state.hardware.display->setFont(u8g2_font_profont11_tf);
 
     // Brew time
-    if (Config::getInstance().get<bool>("hardware.switches.brew.enabled")) {
+    if (Config::getInstance().hardwareSwitchesBrewEnabled.get()) {
         // Show flush time
         if (g_state.machine.machineState == kManualFlush) {
             g_state.hardware.display->setCursor(34, 44);
@@ -105,7 +105,7 @@ inline void printScreen() {
                 g_state.hardware.display->print(langstring_brew);
                 g_state.hardware.display->print(g_state.process.currBrewTime / 1000, 0);
 
-                if (Config::getInstance().get<bool>("brew.by_time.enabled") && Config::getInstance().get<int>("brew.mode") == 1) {
+                if (Config::getInstance().brewByTimeEnabled.get() && Config::getInstance().brewMode.get() == Process::BrewMode::AUTOMATIC_BREW) {
                     g_state.hardware.display->print("/");
                     g_state.hardware.display->print(g_state.process.totalTargetBrewTime / 1000, 0);
                 }

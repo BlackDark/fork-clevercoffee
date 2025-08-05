@@ -37,20 +37,20 @@ bool MQTTManager::setup(const String& hostname) {
 
     // Load MQTT configuration
     const auto& config = Config::getInstance();
-    mqttEnabled_ = Config::getInstance().get<bool>("mqtt.enabled");
+    mqttEnabled_ = Config::getInstance().mqttEnabled.get();
 
     if (!mqttEnabled_) {
         LOG(INFO, "MQTT is disabled");
         return false;
     }
 
-    serverIP_ = Config::getInstance().get<String>("mqtt.broker");
-    serverPort_ = Config::getInstance().get<int>("mqtt.port");
-    username_ = Config::getInstance().get<String>("mqtt.username");
-    password_ = Config::getInstance().get<String>("mqtt.password");
-    topicPrefix_ = Config::getInstance().get<String>("mqtt.topic");
-    hassioEnabled_ = Config::getInstance().get<bool>("mqtt.hassio.enabled");
-    hassioDiscoveryPrefix_ = Config::getInstance().get<String>("mqtt.hassio.prefix");
+    serverIP_ = Config::getInstance().mqttBroker.get();
+    serverPort_ = Config::getInstance().mqttPort.get();
+    username_ = Config::getInstance().mqttUsername.get();
+    password_ = Config::getInstance().mqttPassword.get();
+    topicPrefix_ = Config::getInstance().mqttTopic.get();
+    hassioEnabled_ = Config::getInstance().mqttHassioEnabled.get();
+    hassioDiscoveryPrefix_ = Config::getInstance().mqttHassioPrefix.get();
 
     // Setup topics
     snprintf(topicWill_, sizeof(topicWill_), "%s%s/%s", topicPrefix_.c_str(), hostname_.c_str(), "status");
@@ -602,7 +602,7 @@ int MQTTManager::sendHASSIODiscoveryMsg() {
     failures += publishDiscovery(generateSwitchDevice("usePonM", "Use PonM"));
 
     // Conditional devices
-    if (Config::getInstance().get<bool>("hardware.switches.brew.enabled")) {
+    if (Config::getInstance().hardwareSwitchesBrewEnabled.get()) {
         failures += publishDiscovery(generateSensorDevice("currBrewTime", "Current Brew Time ", "s", "duration"));
         failures += publishDiscovery(generateNumberDevice("brewPidDelay", "Brew Pid Delay", BREW_PID_DELAY_MIN, BREW_PID_DELAY_MAX, 0.1, "s"));
         failures += publishDiscovery(generateNumberDevice("targetBrewTime", "Target Brew time", TARGET_BREW_TIME_MIN, TARGET_BREW_TIME_MAX, 0.1, "s"));
@@ -614,7 +614,7 @@ int MQTTManager::sendHASSIODiscoveryMsg() {
         failures += publishDiscovery(generateSwitchDevice("backflushOn", "Backflush"));
     }
 
-    if (Config::getInstance().get<bool>("hardware.sensors.scale.enabled")) {
+    if (Config::getInstance().hardwareSensorsScaleEnabled.get()) {
         failures += publishDiscovery(generateSensorDevice("currReadingWeight", "Weight", "g", "weight"));
         failures += publishDiscovery(generateSensorDevice("currBrewWeight", "current Brew Weight", "g", "weight"));
         failures += publishDiscovery(generateButtonDevice("scaleCalibrationOn", "Calibrate Scale"));
@@ -622,7 +622,7 @@ int MQTTManager::sendHASSIODiscoveryMsg() {
         failures += publishDiscovery(generateNumberDevice("targetBrewWeight", "Brew Weight Target", TARGET_BREW_WEIGHT_MIN, TARGET_BREW_WEIGHT_MAX, 0.1, "g"));
     }
 
-    if (Config::getInstance().get<bool>("hardware.sensors.pressure.enabled")) {
+    if (Config::getInstance().hardwareSensorsPressureEnabled.get()) {
         failures += publishDiscovery(generateSensorDevice("pressure", "Pressure", "bar", "pressure"));
     }
 

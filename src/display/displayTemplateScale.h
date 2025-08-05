@@ -67,14 +67,14 @@ inline void printScreen() {
     g_state.hardware.display->print(static_cast<char>(176));
     g_state.hardware.display->print("C");
 
-    const bool scaleEnabled = Config::getInstance().get<bool>("hardware.sensors.scale.enabled");
+    const bool scaleEnabled = Config::getInstance().hardwareSensorsScaleEnabled.get();
 
     if (scaleEnabled) {
         // Show current weight if scale has no error
         displayBrewWeight(32, 26, g_state.sensors.currReadingWeight, -1, g_state.sensors.scaleFailure);
     }
 
-    if (Config::getInstance().get<bool>("hardware.switches.brew.enabled")) {
+    if (Config::getInstance().hardwareSwitchesBrewEnabled.get()) {
         // Show flush time
         if (g_state.machine.machineState == kManualFlush) {
             displayBrewTime(32, 36, langstring_manual_flush, g_state.process.currBrewTime);
@@ -84,10 +84,10 @@ inline void printScreen() {
             displayBrewTime(32, 36, langstring_hot_water, currPumpOnTime);
         }
         else if (shouldDisplayBrewTimer()) {
-            const bool automaticBrewingEnabled = Config::getInstance().get<bool>("brew.mode") == 1;
+            const bool automaticBrewingEnabled = Config::getInstance().brewMode.get() == Process::BrewMode::AUTOMATIC_BREW;
 
             // Time
-            if (automaticBrewingEnabled && Config::getInstance().get<bool>("brew.by_time.enabled")) {
+            if (automaticBrewingEnabled && Config::getInstance().brewByTimeEnabled.get()) {
                 displayBrewTime(32, 36, langstring_brew, g_state.process.currBrewTime, g_state.process.totalTargetBrewTime);
             }
             else {
@@ -96,8 +96,8 @@ inline void printScreen() {
 
             // Weight
             if (scaleEnabled) {
-                if (automaticBrewingEnabled && Config::getInstance().get<bool>("brew.by_weight.enabled")) {
-                    const auto targetBrewWeight = Config::getInstance().get<double>("brew.by_weight.target_weight");
+                if (automaticBrewingEnabled && Config::getInstance().brewByWeightEnabled.get()) {
+                    const auto targetBrewWeight = Config::getInstance().brewByWeightTargetWeight.get();
                     displayBrewWeight(32, 26, g_state.sensors.currBrewWeight, targetBrewWeight, g_state.sensors.scaleFailure);
                 }
                 else {
@@ -107,7 +107,7 @@ inline void printScreen() {
         }
     }
 
-    if (Config::getInstance().get<bool>("hardware.sensors.pressure.enabled")) {
+    if (Config::getInstance().hardwareSensorsPressureEnabled.get()) {
         g_state.hardware.display->setCursor(32, 46);
         g_state.hardware.display->drawUTF8(32, 46, langstring_pressure);
         int labelWidth = g_state.hardware.display->getUTF8Width(langstring_pressure);

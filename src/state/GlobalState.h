@@ -192,7 +192,7 @@ struct StandbyState {
         unsigned long lastStandbyTimeMillis = 0;
         unsigned long timeSinceStandbyMillis = 0;
         // unsigned long standbyModeStartTimeMillis = millis();
-        // unsigned long standbyModeRemainingTimeMillis = static_cast<long>(Config::getInstance().get<double>("standby.time")) * 60 * 1000;
+        // unsigned long standbyModeRemainingTimeMillis = static_cast<long>(Config::getInstance().standbyTime.get()) * 60 * 1000;
 };
 
 /**

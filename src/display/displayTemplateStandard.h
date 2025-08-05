@@ -74,7 +74,7 @@ inline void printScreen() {
     }
 
     // Brew and flush time
-    if (Config::getInstance().get<bool>("hardware.switches.brew.enabled")) {
+    if (Config::getInstance().hardwareSwitchesBrewEnabled.get()) {
         // Show flush time
         if (g_state.machine.machineState == kManualFlush) {
             displayBrewTime(34, 36, langstring_manual_flush, g_state.process.currBrewTime);
@@ -85,7 +85,7 @@ inline void printScreen() {
         }
         else {
             if (shouldDisplayBrewTimer()) {
-                if (Config::getInstance().get<bool>("brew.by_time.enabled") && Config::getInstance().get<int>("brew.mode") == 1) {
+                if (Config::getInstance().brewByTimeEnabled.get() && Config::getInstance().brewMode.get() == Process::BrewMode::AUTOMATIC_BREW) {
                     displayBrewTime(34, 36, langstring_brew, g_state.process.currBrewTime, g_state.process.totalTargetBrewTime);
                 }
                 else {

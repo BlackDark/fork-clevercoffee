@@ -49,18 +49,18 @@ ProcessController::ProcessController(DisplayManager* displayManager, HardwareMan
 bool ProcessController::initialize() {
     LOG(INFO, "Initializing ProcessController");
 
-    setpoint_ = Config::getInstance().get<double>("brew.setpoint");
-    aggKp_ = Config::getInstance().get<double>("pid.regular.kp");
-    aggTn_ = Config::getInstance().get<double>("pid.regular.tn");
-    aggTv_ = Config::getInstance().get<double>("pid.regular.tv");
-    aggIMax_ = Config::getInstance().get<double>("pid.regular.i_max");
-    aggbKp_ = Config::getInstance().get<double>("pid.bd.kp");
-    aggbTn_ = Config::getInstance().get<double>("pid.bd.tn");
-    aggbTv_ = Config::getInstance().get<double>("pid.bd.tv");
-    steamKp_ = Config::getInstance().get<double>("pid.steam.kp");
-    brewSetpoint_ = Config::getInstance().get<double>("brew.setpoint");
-    steamSetpoint_ = Config::getInstance().get<double>("steam.setpoint");
-    brewTempOffset_ = Config::getInstance().get<double>("brew.temp_offset");
+    setpoint_ = Config::getInstance().brewSetpoint.get();
+    aggKp_ = Config::getInstance().pidRegularKp.get();
+    aggTn_ = Config::getInstance().pidRegularTn.get();
+    aggTv_ = Config::getInstance().pidRegularTv.get();
+    aggIMax_ = Config::getInstance().pidRegularIMax.get();
+    aggbKp_ = Config::getInstance().pidBdKp.get();
+    aggbTn_ = Config::getInstance().pidBdTn.get();
+    aggbTv_ = Config::getInstance().pidBdTv.get();
+    steamKp_ = Config::getInstance().pidSteamKp.get();
+    brewSetpoint_ = Config::getInstance().brewSetpoint.get();
+    steamSetpoint_ = Config::getInstance().steamSetpoint.get();
+    brewTempOffset_ = Config::getInstance().brewTempOffset.get();
 
     // Calculate initial PID parameters
     calculatePIDParameters();
@@ -196,26 +196,26 @@ void ProcessController::updatePIDState(int machineState) {
         switch (machineState) {
             case 20: // kPidNormal
                 LOGF(DEBUG, "new PID-Values: P=%.1f  I=%.1f  D=%.1f", aggKp_, aggKi_, aggKd_);
-                setPIDTunings(Config::getInstance().get<bool>("pid.use_ponm"));
+                setPIDTunings(Config::getInstance().pidUsePonm.get());
                 break;
             case 50: // kSteam
                 LOGF(DEBUG, "new PID-Values: P=%.1f  I=%.1f  D=%.1f", steamKp_, 0.0, 0.0);
                 setSteamPIDTunings();
                 break;
             case 30: // kBrew - may use brew detection PID
-                if (Config::getInstance().get<bool>("pid.bd.enabled")) {
+                if (Config::getInstance().pidBdEnabled.get()) {
                     LOGF(DEBUG, "new PID-Values: P=%.1f  I=%.1f  D=%.1f", aggbKp_, aggbKi_, aggbKd_);
                     setBrewDetectionPIDTunings();
                 }
                 else {
                     LOGF(DEBUG, "new PID-Values: P=%.1f  I=%.1f  D=%.1f", aggKp_, aggKi_, aggKd_);
-                    setPIDTunings(Config::getInstance().get<bool>("pid.use_ponm"));
+                    setPIDTunings(Config::getInstance().pidUsePonm.get());
                 }
                 break;
             default:
                 // Use normal tuning for other states
                 LOGF(DEBUG, "new PID-Values: P=%.1f  I=%.1f  D=%.1f", aggKp_, aggKi_, aggKd_);
-                setPIDTunings(Config::getInstance().get<bool>("pid.use_ponm"));
+                setPIDTunings(Config::getInstance().pidUsePonm.get());
                 break;
         }
     }
@@ -321,7 +321,7 @@ void ProcessController::updateDebugLogging() {
     const unsigned long currentMillis = millis();
 
     // Only log periodically and when PID is enabled
-    if (!Config::getInstance().get<bool>("pid.enabled") || (currentMillis - lastTempEvent_) <= tempEventInterval_) {
+    if (!Config::getInstance().pidEnabled.get() || (currentMillis - lastTempEvent_) <= tempEventInterval_) {
         return;
     }
 
@@ -378,7 +378,7 @@ void ProcessController::calculateBrewDetectionPIDParameters() {
 void ProcessController::handleBrewPIDDelay(int machineState) {
     // Handle brew PID delay logic
     if (machineState == 30) { // kBrew
-        if (Config::getInstance().get<double>("brew.pid_delay") > 0 && g_state.process.currBrewTime > 0 && g_state.process.currBrewTime < Config::getInstance().get<double>("brew.pid_delay") * 1000) {
+        if (Config::getInstance().brewPidDelay.get() > 0 && g_state.process.currBrewTime > 0 && g_state.process.currBrewTime < Config::getInstance().brewPidDelay.get() * 1000) {
             // disable PID for brewPidDelay seconds, enable PID again with new tunings after that
             if (!g_state.process.brewPidDisabled) {
                 g_state.process.brewPidDisabled = true;
@@ -391,7 +391,7 @@ void ProcessController::handleBrewPIDDelay(int machineState) {
                         g_state.hardware.heaterRelay->off();
                     }
                 }
-                LOGF(DEBUG, "disabled PID, waiting for %.0f seconds before enabling PID again", Config::getInstance().get<double>("brew.pid_delay"));
+                LOGF(DEBUG, "disabled PID, waiting for %.0f seconds before enabling PID again", Config::getInstance().brewPidDelay.get());
             }
         }
         else {
@@ -399,14 +399,14 @@ void ProcessController::handleBrewPIDDelay(int machineState) {
                 // enable PID again
                 g_state.pid->SetMode(AUTOMATIC);
                 g_state.process.brewPidDisabled = false;
-                LOGF(DEBUG, "Enabled PID again after %.0f seconds of brew pid delay", Config::getInstance().get<double>("brew.pid_delay"));
+                LOGF(DEBUG, "Enabled PID again after %.0f seconds of brew pid delay", Config::getInstance().brewPidDelay.get());
             }
 
-            if (Config::getInstance().get<bool>("pid.bd.enabled")) {
+            if (Config::getInstance().pidBdEnabled.get()) {
                 setBrewDetectionPIDTunings();
             }
             else {
-                setPIDTunings(Config::getInstance().get<bool>("pid.use_ponm"));
+                setPIDTunings(Config::getInstance().pidUsePonm.get());
             }
         }
     }

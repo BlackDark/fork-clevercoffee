@@ -97,7 +97,7 @@ inline void checkHotWaterSwitch() {
     loggedEmptyWaterTank = false;
 
     // Convert toggle hot water switch input to hot water switch state
-    if (const int hotWaterSwitchType = Config::getInstance().get<int>("hardware.switches.hot_water.type"); hotWaterSwitchType == Switch::TOGGLE) {
+    if (const int hotWaterSwitchType = static_cast<int>(Config::getInstance().hardwareSwitchesHotWaterType.get()); hotWaterSwitchType == Switch::TOGGLE) {
         if (currReadingHotWaterSwitch != hotWaterSwitchReading) {
             currReadingHotWaterSwitch = hotWaterSwitchReading;
         }
@@ -198,7 +198,7 @@ inline void checkHotWaterSwitch() {
  * @return pumps state
  */
 inline bool hotWaterHandler(void) {
-    if (!Config::getInstance().get<bool>("hardware.switches.hot_water.enabled") || g_state.hardware.hotWaterSwitch == nullptr) {
+    if (!Config::getInstance().hardwareSwitchesHotWaterEnabled.get() || g_state.hardware.hotWaterSwitch == nullptr) {
         return false; // hot water switch is not enabled
     }
 

@@ -14,9 +14,9 @@
  * @brief Send data to display
  */
 inline void printScreen() {
-    const bool scaleEnabled = Config::getInstance().get<bool>("hardware.sensors.scale.enabled");
-    const bool pressureEnabled = Config::getInstance().get<bool>("hardware.sensors.pressure.enabled");
-    const bool brewEnabled = Config::getInstance().get<bool>("hardware.switches.brew.enabled");
+    const bool scaleEnabled = Config::getInstance().hardwareSensorsScaleEnabled.get();
+    const bool pressureEnabled = Config::getInstance().hardwareSensorsPressureEnabled.get();
+    const bool brewEnabled = Config::getInstance().hardwareSwitchesBrewEnabled.get();
 
     if (displayFullscreenBrewTimer()) {
         // Display was updated, end here
@@ -48,7 +48,7 @@ inline void printScreen() {
         g_state.hardware.display->setFont(u8g2_font_profont11_tf);
         displayMessage(langstring_error_tsensor_ur[0], langstring_error_tsensor_ur[1], String(g_state.process.temperature), langstring_error_tsensor_ur[2], langstring_error_tsensor_ur[3], langstring_error_tsensor_ur[4]);
     }
-    else if (Config::getInstance().get<bool>("display.pid_off_logo") && g_state.machine.machineState == kStandby) {
+    else if (Config::getInstance().displayPidOffLogo.get() && g_state.machine.machineState == kStandby) {
         g_state.hardware.display->drawXBMP(6, 50, Off_Logo_width, Off_Logo_height, Off_Logo);
         g_state.hardware.display->setCursor(1, 110);
         g_state.hardware.display->setFont(u8g2_font_profont10_tf);
@@ -76,7 +76,7 @@ inline void printScreen() {
         g_state.hardware.display->drawLine(1, 126, g_state.process.pidOutput / 16.13 + 1, 126);
 
         // logos that only fill the lower half leaving temperatures, top and bottom boxes
-        if (Config::getInstance().get<bool>("display.pid_off_logo") && g_state.machine.machineState == kPidDisabled) {
+        if (Config::getInstance().displayPidOffLogo.get() && g_state.machine.machineState == kPidDisabled) {
             g_state.hardware.display->drawXBMP(6, 50, Off_Logo_width, Off_Logo_height, Off_Logo);
             g_state.hardware.display->setCursor(1, 110);
             g_state.hardware.display->setFont(u8g2_font_profont10_tf);
@@ -89,7 +89,7 @@ inline void printScreen() {
         }
 
         // Show the heating logo when we are in regular PID mode and more than 5degC below the set point
-        else if (Config::getInstance().get<bool>("display.heating_logo") && g_state.machine.machineState == kPidNormal && g_state.process.setpoint - g_state.process.temperature > 5.0) {
+        else if (Config::getInstance().displayHeatingLogo.get() && g_state.machine.machineState == kPidNormal && g_state.process.setpoint - g_state.process.temperature > 5.0) {
             // For status info
             g_state.hardware.display->drawXBMP(12, 50, Heating_Logo_width, Heating_Logo_height, Heating_Logo);
             g_state.hardware.display->setFont(u8g2_font_fub17_tf);
@@ -190,11 +190,11 @@ inline void printScreen() {
                     displayBrewTime(1, 34, langstring_hot_water_ur, currPumpOnTime);
                 }
                 else {
-                    const bool automaticBrewingEnabled = Config::getInstance().get<bool>("brew.mode") == 1;
+                    const bool automaticBrewingEnabled = Config::getInstance().brewMode.get() == Process::BrewMode::AUTOMATIC_BREW;
 
                     // Show brew time
                     if (shouldDisplayBrewTimer()) {
-                        if (automaticBrewingEnabled && Config::getInstance().get<bool>("brew.by_time.enabled")) {
+                        if (automaticBrewingEnabled && Config::getInstance().brewByTimeEnabled.get()) {
                             displayBrewTime(1, 34, langstring_brew_ur, g_state.process.currBrewTime, g_state.process.totalTargetBrewTime);
                         }
                         else {
@@ -202,8 +202,8 @@ inline void printScreen() {
                         }
 
                         if (scaleEnabled) {
-                            if (automaticBrewingEnabled && Config::getInstance().get<bool>("brew.by_weight.enabled")) {
-                                const auto targetBrewWeight = Config::getInstance().get<double>("brew.by_weight.target_weight");
+                            if (automaticBrewingEnabled && Config::getInstance().brewByWeightEnabled.get()) {
+                                const auto targetBrewWeight = Config::getInstance().brewByWeightTargetWeight.get();
                                 displayBrewWeight(1, 44, g_state.sensors.currBrewWeight, targetBrewWeight, g_state.sensors.scaleFailure);
                             }
                             else {
@@ -227,7 +227,7 @@ inline void printScreen() {
             g_state.hardware.display->print(langstring_offlinemode);
         }
 
-        if (Config::getInstance().get<bool>("hardware.sensors.scale.enabled") && Config::getInstance().get<int>("hardware.sensors.scale.type") == 2) {
+        if (Config::getInstance().hardwareSensorsScaleEnabled.get() && Config::getInstance().hardwareSensorsScaleType.get() == Hardware::ScaleType::BLUETOOTH) {
             displayBluetoothStatus(54, 1);
         }
     }

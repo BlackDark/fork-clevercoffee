@@ -96,7 +96,7 @@ bool SensorManager::areSensorsReady() const {
     // Pressure sensor doesn't have explicit error state
 
     // Scale error is handled via global scaleFailure variable
-    if (Config::getInstance().get<bool>("hardware.sensors.scale.enabled") && hasScaleError()) {
+    if (Config::getInstance().hardwareSensorsScaleEnabled.get() && hasScaleError()) {
         return false;
     }
 
@@ -120,7 +120,7 @@ bool SensorManager::isWaterTankFull() const {
 }
 
 void SensorManager::updateWaterTankSensor() {
-    if (!Config::getInstance().get<bool>("hardware.sensors.watertank.enabled") || waterTankSensor_ == nullptr) {
+    if (!Config::getInstance().hardwareSensorsWatertankEnabled.get() || waterTankSensor_ == nullptr) {
         return;
     }
 
@@ -145,7 +145,7 @@ float SensorManager::getFilteredPressure() const {
 }
 
 void SensorManager::updatePressureSensor() {
-    if (!Config::getInstance().get<bool>("hardware.sensors.pressure.enabled")) {
+    if (!Config::getInstance().hardwareSensorsPressureEnabled.get()) {
         return;
     }
 
@@ -157,7 +157,7 @@ void SensorManager::updatePressureSensor() {
 }
 
 bool SensorManager::initializeScale() {
-    if (!Config::getInstance().get<bool>("hardware.sensors.scale.enabled")) {
+    if (!Config::getInstance().hardwareSensorsScaleEnabled.get()) {
         LOG(INFO, "Scale sensor disabled in configuration");
         return true;
     }
@@ -174,7 +174,7 @@ bool SensorManager::initializeScale() {
 }
 
 void SensorManager::updateScale() {
-    if (!Config::getInstance().get<bool>("hardware.sensors.scale.enabled")) {
+    if (!Config::getInstance().hardwareSensorsScaleEnabled.get()) {
         return;
     }
 
@@ -217,7 +217,7 @@ bool SensorManager::initializeTemperatureSensor() {
 }
 
 bool SensorManager::initializeWaterTankSensor() {
-    if (!Config::getInstance().get<bool>("hardware.sensors.watertank.enabled")) {
+    if (!Config::getInstance().hardwareSensorsWatertankEnabled.get()) {
         LOG(INFO, "Water tank sensor disabled in configuration");
         return true;
     }
@@ -236,7 +236,7 @@ bool SensorManager::initializeWaterTankSensor() {
 }
 
 bool SensorManager::initializePressureSensor() {
-    if (!Config::getInstance().get<bool>("hardware.sensors.pressure.enabled")) {
+    if (!Config::getInstance().hardwareSensorsPressureEnabled.get()) {
         LOG(INFO, "Pressure sensor disabled in configuration");
         return true;
     }

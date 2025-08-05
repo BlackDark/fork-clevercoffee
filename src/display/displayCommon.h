@@ -40,11 +40,11 @@ inline void u8g2_prepare() {
     g_state.hardware.display->setFontPosTop();
     g_state.hardware.display->setFontDirection(0);
 
-    if (Config::getInstance().get<bool>("display.inverted")) {
+    if (Config::getInstance().displayInverted.get()) {
         rotation += 2;
     }
 
-    if (Config::getInstance().get<int>("display.template") == 4) {
+    if (Config::getInstance().displayTemplate.get() == System::DisplayTemplate::UPRIGHT) {
         rotation++;
     }
 
@@ -55,7 +55,7 @@ inline void u8g2_prepare() {
  * @brief print error message for scales
  */
 inline void displayScaleFailed() {
-    if (Config::getInstance().get<int>("display.template") == 4) {
+    if (Config::getInstance().displayTemplate.get() == System::DisplayTemplate::UPRIGHT) {
         g_state.hardware.display->clearBuffer();
         g_state.hardware.display->drawStr(0, 32, "Failed!");
         g_state.hardware.display->drawStr(0, 42, "Scale");
@@ -102,7 +102,7 @@ inline void displayWiFiStatus(const int x, const int y) {
     else {
         g_state.hardware.display->drawXBMP(x, y, 8, 8, Antenna_NOK_Icon);
 
-        if (Config::getInstance().get<int>("display.template") == 4) {
+        if (Config::getInstance().displayTemplate.get() == System::DisplayTemplate::UPRIGHT) {
             g_state.hardware.display->setCursor(x + 12, y - 1);
         }
         else {
@@ -119,7 +119,7 @@ inline void displayWiFiStatus(const int x, const int y) {
  * @brief Draw an MQTT status indicator at the given coordinates if MQTT is enabled
  */
 inline void displayMQTTStatus(const int x, const int y) {
-    if (Config::getInstance().get<bool>("mqtt.enabled")) {
+    if (Config::getInstance().mqttEnabled.get()) {
         if (g_state.network.mqttManager && g_state.network.mqttManager->isConnected()) {
             g_state.hardware.display->setCursor(x, y);
             g_state.hardware.display->setFont(u8g2_font_profont11_tf);
@@ -220,7 +220,7 @@ inline bool shouldDisplayBrewTimer() {
             break;
 
         case kBrewTimerPostBrew:
-            if (millis() - brewEndTime > static_cast<uint32_t>(Config::getInstance().get<double>("display.post_brew_timer_duration") * 1000)) {
+            if (millis() - brewEndTime > static_cast<uint32_t>(Config::getInstance().displayPostBrewTimerDuration.get() * 1000)) {
                 currBrewTimerState = kBrewTimerIdle;
             }
             break;
@@ -243,7 +243,7 @@ inline bool shouldDisplayBrewTimer() {
 inline void displayBrewTime(const int x, const int y, const char* label, const double currBrewTime, const double totalTargetBrewTime = -1) {
     g_state.hardware.display->setDrawColor(0);
 
-    if (Config::getInstance().get<int>("display.template") == 1) {
+    if (Config::getInstance().displayTemplate.get() == System::DisplayTemplate::MINIMAL) {
         g_state.hardware.display->drawBox(x, y, 100, 15);
     }
     else {
@@ -252,7 +252,7 @@ inline void displayBrewTime(const int x, const int y, const char* label, const d
 
     g_state.hardware.display->setDrawColor(1);
 
-    if (Config::getInstance().get<int>("display.template") == 4) {
+    if (Config::getInstance().displayTemplate.get() == System::DisplayTemplate::UPRIGHT) {
         g_state.hardware.display->setCursor(x, y);
         g_state.hardware.display->print(label);
         g_state.hardware.display->print(currBrewTime / 1000, 0);
@@ -297,7 +297,7 @@ inline void displayBrewWeight(const int x, const int y, const float weight, cons
     g_state.hardware.display->drawBox(x, y + 1, 100, 10);
     g_state.hardware.display->setDrawColor(1);
 
-    if (Config::getInstance().get<int>("display.template") == 4) {
+    if (Config::getInstance().displayTemplate.get() == System::DisplayTemplate::UPRIGHT) {
         if (fault) {
             g_state.hardware.display->setCursor(x, y);
             g_state.hardware.display->print(langstring_weight_ur);
@@ -343,7 +343,7 @@ inline void displayBrewWeight(const int x, const int y, const float weight, cons
  * @brief Draw the brew time at given position (fullscreen brewtimer)
  */
 inline void displayBrewtimeFs(const int x, const int y, const double brewtime) {
-    if (Config::getInstance().get<int>("display.template") == 4) {
+    if (Config::getInstance().displayTemplate.get() == System::DisplayTemplate::UPRIGHT) {
         g_state.hardware.display->setFont(u8g2_font_fub20_tf);
         if (brewtime < 9950.000) {
             g_state.hardware.display->setCursor(x + 15, y);
@@ -420,7 +420,7 @@ inline void displayStatusbar() {
         g_state.hardware.display->print(langstring_offlinemode);
     }
 
-    if (Config::getInstance().get<bool>("hardware.sensors.scale.enabled") && Config::getInstance().get<int>("hardware.sensors.scale.type") == 2) {
+    if (Config::getInstance().hardwareSensorsScaleEnabled.get() && Config::getInstance().hardwareSensorsScaleType.get() == Hardware::ScaleType::BLUETOOTH) {
         displayBluetoothStatus(24, 1);
     }
 
@@ -452,7 +452,7 @@ inline void displayMessage(const String& text1, const String& text2, const Strin
  * @brief print logo and message at boot
  */
 inline void displayLogo(const String& displaymessagetext, const String& displaymessagetext2) {
-    if (Config::getInstance().get<int>("display.template") == 4) {
+    if (Config::getInstance().displayTemplate.get() == System::DisplayTemplate::UPRIGHT) {
         int printrow = 47;
         g_state.hardware.display->clearBuffer();
 
@@ -495,17 +495,17 @@ inline void displayLogo(const String& displaymessagetext, const String& displaym
  * @brief display fullscreen brew timer
  */
 inline bool displayFullscreenBrewTimer() {
-    if (!Config::getInstance().get<bool>("display.fullscreen_brew_timer")) {
+    if (!Config::getInstance().displayFullscreenBrewTimer.get()) {
         return false;
     }
 
     if (shouldDisplayBrewTimer()) {
         g_state.hardware.display->clearBuffer();
 
-        if (Config::getInstance().get<int>("display.template") == 4) {
+        if (Config::getInstance().displayTemplate.get() == System::DisplayTemplate::UPRIGHT) {
             g_state.hardware.display->drawXBMP(12, 12, Brew_Cup_Logo_width, Brew_Cup_Logo_height, Brew_Cup_Logo);
 
-            if (Config::getInstance().get<bool>("hardware.sensors.scale.enabled")) {
+            if (Config::getInstance().hardwareSensorsScaleEnabled.get()) {
                 g_state.hardware.display->setFont(u8g2_font_profont22_tf);
                 g_state.hardware.display->setCursor(5, 70);
                 g_state.hardware.display->print(g_state.process.currBrewTime / 1000, 1);
@@ -522,7 +522,7 @@ inline bool displayFullscreenBrewTimer() {
         else {
             g_state.hardware.display->drawXBMP(-1, 11, Brew_Cup_Logo_width, Brew_Cup_Logo_height, Brew_Cup_Logo);
 
-            if (Config::getInstance().get<bool>("hardware.sensors.scale.enabled")) {
+            if (Config::getInstance().hardwareSensorsScaleEnabled.get()) {
                 g_state.hardware.display->setFont(u8g2_font_profont22_tf);
                 g_state.hardware.display->setCursor(64, 15);
                 g_state.hardware.display->print(g_state.process.currBrewTime / 1000, 1);
@@ -548,14 +548,14 @@ inline bool displayFullscreenBrewTimer() {
  * @brief display fullscreen manual flush timer
  */
 inline bool displayFullscreenManualFlushTimer() {
-    if (!Config::getInstance().get<bool>("display.fullscreen_manual_flush_timer")) {
+    if (!Config::getInstance().displayFullscreenManualFlushTimer.get()) {
         return false;
     }
 
     if (g_state.machine.machineState == kManualFlush) {
         g_state.hardware.display->clearBuffer();
 
-        if (Config::getInstance().get<int>("display.template") == 4) {
+        if (Config::getInstance().displayTemplate.get() == System::DisplayTemplate::UPRIGHT) {
             g_state.hardware.display->drawXBMP(12, 12, Manual_Flush_Logo_width, Manual_Flush_Logo_height, Manual_Flush_Logo);
             displayBrewtimeFs(1, 80, g_state.process.currBrewTime);
         }
@@ -574,14 +574,14 @@ inline bool displayFullscreenManualFlushTimer() {
  * @brief display fullscreen hot water on timer
  */
 inline bool displayFullscreenHotWaterTimer() {
-    if (!Config::getInstance().get<bool>("display.fullscreen_hot_water_timer")) {
+    if (!Config::getInstance().displayFullscreenHotWaterTimer.get()) {
         return false;
     }
 
     if (g_state.machine.machineState == kHotWater) {
         g_state.hardware.display->clearBuffer();
 
-        if (Config::getInstance().get<int>("display.template") == 4) {
+        if (Config::getInstance().displayTemplate.get() == System::DisplayTemplate::UPRIGHT) {
             g_state.hardware.display->drawXBMP(12, 12, Hot_Water_Logo_width, Hot_Water_Logo_height, Hot_Water_Logo);
             displayBrewtimeFs(1, 80, currPumpOnTime);
         }
@@ -620,7 +620,7 @@ inline bool displayMachineState() {
     }
 
     // Show the heating logo when we are in regular PID mode and more than 5degC below the set point
-    if (Config::getInstance().get<bool>("display.heating_logo") > 0 && (g_state.machine.machineState == kPidNormal || g_state.machine.machineState == kSteam) && g_state.process.setpoint - g_state.process.temperature > 5.) {
+    if (Config::getInstance().displayHeatingLogo.get() > 0 && (g_state.machine.machineState == kPidNormal || g_state.machine.machineState == kSteam) && g_state.process.setpoint - g_state.process.temperature > 5.) {
         // For status info
         g_state.hardware.display->clearBuffer();
 
@@ -637,7 +637,7 @@ inline bool displayMachineState() {
     }
 
     // Offline logo
-    if (Config::getInstance().get<bool>("display.pid_off_logo") == 1 && g_state.machine.machineState == kPidDisabled) {
+    if (Config::getInstance().displayPidOffLogo.get() == 1 && g_state.machine.machineState == kPidDisabled) {
         g_state.hardware.display->clearBuffer();
         g_state.hardware.display->drawXBMP(38, 0, Off_Logo_width, Off_Logo_height, Off_Logo);
         g_state.hardware.display->setCursor(0, 55);
@@ -647,7 +647,7 @@ inline bool displayMachineState() {
         return true;
     }
 
-    if (Config::getInstance().get<bool>("display.pid_off_logo") == 1 && g_state.machine.machineState == kStandby) {
+    if (Config::getInstance().displayPidOffLogo.get() == 1 && g_state.machine.machineState == kStandby) {
         g_state.hardware.display->clearBuffer();
         g_state.hardware.display->drawXBMP(38, 0, Off_Logo_width, Off_Logo_height, Off_Logo);
         g_state.hardware.display->setCursor(36, 55);
@@ -706,7 +706,7 @@ inline bool displayMachineState() {
                 g_state.hardware.display->setCursor(42, 42);
                 g_state.hardware.display->print(g_state.machine.currBackflushCycles, 0);
                 g_state.hardware.display->print("/");
-                g_state.hardware.display->print(Config::getInstance().get<double>("backflush.cycles"), 0);
+                g_state.hardware.display->print(Config::getInstance().backflushCycles.get(), 0);
                 break;
         }
 
@@ -765,7 +765,7 @@ inline bool displayMachineState() {
 inline void displayWrappedMessage(const String& message) {
     g_state.hardware.display->clearBuffer();
 
-    if (Config::getInstance().get<int>("display.template") == 4) {
+    if (Config::getInstance().displayTemplate.get() == System::DisplayTemplate::UPRIGHT) {
         g_state.hardware.display->setFont(u8g2_font_profont10_tf);
     }
     else {

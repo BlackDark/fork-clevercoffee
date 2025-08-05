@@ -132,27 +132,27 @@ bool SystemInitializer::initializeConfiguration() {
     }
 
     LOG(INFO, "Configuration system ready");
-    int level = Config::getInstance().get<int>("system.log_level");
+    System::LogLevel level = Config::getInstance().systemLogLevel.get();
     Logger::setLevel(static_cast<Logger::Level>(level));
 
     calculateDerivedValues();
 
     // TODO what is better?
-    // bPID = std::make_unique<PID>(&g_state.process.temperature, &g_state.process.pidOutput, &g_state.process.setpoint, Config::getInstance().get<double>("pid.regular.kp"), aggKi, aggKd, 1, DIRECT);
-    g_state.pid = new PID(&g_state.process.temperature, &g_state.process.pidOutput, &g_state.process.setpoint, Config::getInstance().get<double>("pid.regular.kp"), g_state.process.aggKi, g_state.process.aggKd, 1, DIRECT);
-    // g_state.pid = PID(&g_state.process.temperature, &g_state.process.pidOutput, &g_state.process.setpoint, Config::getInstance().get<double>("pid.regular.kp"), aggKi, aggKd, 1, DIRECT)*;
+    // bPID = std::make_unique<PID>(&g_state.process.temperature, &g_state.process.pidOutput, &g_state.process.setpoint, Config::getInstance().pidRegularKp.get(), aggKi, aggKd, 1, DIRECT);
+    g_state.pid = new PID(&g_state.process.temperature, &g_state.process.pidOutput, &g_state.process.setpoint, Config::getInstance().pidRegularKp.get(), g_state.process.aggKi, g_state.process.aggKd, 1, DIRECT);
+    // g_state.pid = PID(&g_state.process.temperature, &g_state.process.pidOutput, &g_state.process.setpoint, Config::getInstance().pidRegularKp.get(), aggKi, aggKd, 1, DIRECT)*;
     return true;
 }
 
 bool SystemInitializer::initializeDisplay() {
-    if (!Config::getInstance().get<bool>("hardware.oled.enabled")) {
+    if (!Config::getInstance().hardwareOledEnabled.get()) {
         LOG(INFO, "Display disabled in configuration");
         return true;
     }
 
     try {
-        const int displayType = Config::getInstance().get<int>("hardware.oled.type");
-        const int displayAddress = Config::getInstance().get<int>("hardware.oled.address");
+        const Hardware::OLEDType displayType = Config::getInstance().hardwareOledType.get();
+        const Hardware::OLEDAddress displayAddress = Config::getInstance().hardwareOledAddress.get();
 
         displayManager_ = std::make_unique<DisplayManager>(displayType, displayAddress);
 
@@ -171,7 +171,8 @@ bool SystemInitializer::initializeDisplay() {
             LOG(ERROR, "Failed to create DisplayManager");
             displayManager_.reset();
             g_state.hardware.display = nullptr;
-            Config::getInstance().set<bool>("hardware.oled.enabled", false);
+            // TODO probably wrong
+            Config::getInstance().hardwareOledEnabled.set(false);
             return false;
         }
     } catch (const std::exception& e) {
@@ -212,7 +213,7 @@ bool SystemInitializer::initializeHardware() {
 }
 
 bool SystemInitializer::initializeNetworking() {
-    if (Config::getInstance().get<bool>("system.offline_mode")) {
+    if (Config::getInstance().systemOfflineMode.get()) {
         LOG(INFO, "Offline mode enabled, skipping network initialization");
         WiFi.disconnect();
         g_state.network.offlineMode = true;
@@ -229,8 +230,8 @@ bool SystemInitializer::initializeNetworking() {
 
         // OTA Updates
         if (WiFi.status() == WL_CONNECTED) {
-            String otaPass = Config::getInstance().get<String>("system.ota_password");
-            ArduinoOTA.setHostname(Config::getInstance().get<String>("system.hostname").c_str());
+            String otaPass = Config::getInstance().systemOtaPassword.get();
+            ArduinoOTA.setHostname(Config::getInstance().systemHostname.get().c_str());
             ArduinoOTA.setPassword(otaPass.c_str());
             ArduinoOTA.begin();
             LOG(INFO, "OTA initialized");
@@ -245,7 +246,7 @@ bool SystemInitializer::initializeNetworking() {
 }
 
 bool SystemInitializer::initializeMQTT() {
-    if (g_state.network.offlineMode || !Config::getInstance().get<bool>("mqtt.enabled")) {
+    if (g_state.network.offlineMode || !Config::getInstance().mqttEnabled.get()) {
         LOG(INFO, "MQTT disabled, skipping MQTT initialization");
         return true;
     }
@@ -253,13 +254,13 @@ bool SystemInitializer::initializeMQTT() {
     try {
         mqttManager_ = std::make_unique<MQTTManager>();
 
-        if (mqttManager_->setup(Config::getInstance().get<String>("system.hostname"))) {
+        if (mqttManager_->setup(Config::getInstance().systemHostname.get())) {
             // Set compatibility variables
             // mqtt_enabled = mqttManager_->isEnabled();
-            Config::getInstance().set<bool>("mqtt.enabled", mqttManager_->isEnabled());
+            Config::getInstance().mqttEnabled.set(mqttManager_->isEnabled());
             // mqtt_hassio_enabled = true;
             //  TODO check if this is right
-            Config::getInstance().set<bool>("mqtt.hassio.enabled", true);
+            Config::getInstance().mqttHassioEnabled.set(true);
 
             // Set global reference for other parts of the system
             // mqttManager = std::move(mqttManager_);
@@ -290,7 +291,7 @@ bool SystemInitializer::initializePID() {
         g_state.pid->SetSampleTime(g_state.process.windowSize);
         g_state.pid->SetOutputLimits(0, g_state.process.windowSize);
         g_state.pid->SetIntegratorLimits(0, 55.0); // AGGIMAX constant
-        g_state.pid->SetSmoothingFactor(Config::getInstance().get<double>("pid.ema_factor"));
+        g_state.pid->SetSmoothingFactor(Config::getInstance().pidEmaFactor.get());
         g_state.pid->SetMode(AUTOMATIC);
 
         LOG(INFO, "PID controller initialized");
@@ -318,7 +319,7 @@ bool SystemInitializer::initializeSensors() {
 
             // Note: Scale initialization is still handled separately in main.cpp
             // because it requires complex global dependencies
-            if (Config::getInstance().get<bool>("hardware.sensors.scale.enabled")) {
+            if (Config::getInstance().hardwareSensorsScaleEnabled.get()) {
                 LOG(INFO, "Scale sensor will be initialized separately in main.cpp");
             }
 
@@ -337,13 +338,13 @@ bool SystemInitializer::initializeSensors() {
 bool SystemInitializer::finalizeMachineState() {
     try {
         // For momentary switches, start in normal operation mode
-        if (Config::getInstance().get<bool>("hardware.switches.power.enabled") && Config::getInstance().get<int>("hardware.switches.power.type") == static_cast<int>(Switch::MOMENTARY)) {
+        if (Config::getInstance().hardwareSwitchesPowerEnabled.get() && static_cast<int>(Config::getInstance().hardwareSwitchesPowerType.get()) == static_cast<int>(Switch::MOMENTARY)) {
             g_state.machine.machineState = kPidNormal;
             setRuntimePidState(true);
             LOG(INFO, "Machine initialized in PID Normal mode (momentary switch)");
         }
         // For toggle switches, force PidOn to switch state mode
-        else if (Config::getInstance().get<bool>("hardware.switches.power.enabled") && Config::getInstance().get<int>("hardware.switches.power.type") == static_cast<int>(Switch::TOGGLE)) {
+        else if (Config::getInstance().hardwareSwitchesPowerEnabled.get() && static_cast<int>(Config::getInstance().hardwareSwitchesPowerType.get()) == static_cast<int>(Switch::TOGGLE)) {
             if (g_state.hardware.powerSwitch && g_state.hardware.powerSwitch->isPressed()) {
                 setRuntimePidState(true);
                 g_state.machine.machineState = kPidNormal;
@@ -365,10 +366,10 @@ bool SystemInitializer::finalizeMachineState() {
 
 void SystemInitializer::calculateDerivedValues() {
     // Calculate derived PID values
-    g_state.process.aggKi = Config::getInstance().get<double>("pid.regular.tn") > 0 ? Config::getInstance().get<double>("pid.regular.kp") / Config::getInstance().get<double>("pid.regular.tn") : 0;
-    g_state.process.aggKd = Config::getInstance().get<double>("pid.regular.tv") * Config::getInstance().get<double>("pid.regular.kp");
-    g_state.process.aggbKi = Config::getInstance().get<double>("pid.bd.tn") > 0 ? Config::getInstance().get<double>("pid.bd.kp") / Config::getInstance().get<double>("pid.bd.tn") : 0;
-    g_state.process.aggbKd = Config::getInstance().get<double>("pid.bd.tv") * Config::getInstance().get<double>("pid.bd.kp");
+    g_state.process.aggKi = Config::getInstance().pidRegularTn.get() > 0 ? Config::getInstance().pidRegularKp.get() / Config::getInstance().pidRegularTn.get() : 0;
+    g_state.process.aggKd = Config::getInstance().pidRegularTv.get() * Config::getInstance().pidRegularKp.get();
+    g_state.process.aggbKi = Config::getInstance().pidBdTn.get() > 0 ? Config::getInstance().pidBdKp.get() / Config::getInstance().pidBdTn.get() : 0;
+    g_state.process.aggbKd = Config::getInstance().pidBdTv.get() * Config::getInstance().pidBdKp.get();
 
     LOG(DEBUG, "Calculated derived PID values");
 }
@@ -402,7 +403,7 @@ void SystemInitializer::registerMQTTParameters() {
     mqttManager_->registerParameter("standbyModeOn", "standby.enabled");
 
     // Brew-specific parameters
-    if (Config::getInstance().get<bool>("hardware.switches.brew.enabled")) {
+    if (Config::getInstance().hardwareSwitchesBrewEnabled.get()) {
         mqttManager_->registerParameter("aggbKp", "pid.bd.kp");
         mqttManager_->registerParameter("aggbTn", "pid.bd.tn");
         mqttManager_->registerParameter("aggbTv", "pid.bd.tv");
@@ -418,11 +419,11 @@ void SystemInitializer::registerMQTTParameters() {
     }
 
     // Scale-specific parameters
-    if (Config::getInstance().get<bool>("hardware.sensors.scale.enabled")) {
+    if (Config::getInstance().hardwareSensorsScaleEnabled.get()) {
         mqttManager_->registerParameter("targetBrewWeight", "brew.by_weight.target_weight");
         mqttManager_->registerParameter("scaleCalibration", "hardware.sensors.scale.calibration");
 
-        if (Config::getInstance().get<int>("hardware.sensors.scale.type") == 0) {
+        if (Config::getInstance().hardwareSensorsScaleType.get() == Hardware::ScaleType::HX711_DUAL) {
             mqttManager_->registerParameter("scale2Calibration", "hardware.sensors.scale.calibration2");
         }
 
@@ -447,18 +448,18 @@ void SystemInitializer::registerMQTTSensors() {
     mqttManager_->registerSensor("machineState", [] { return static_cast<double>(g_state.machine.machineState); });
 
     // Brew-specific sensors
-    if (Config::getInstance().get<bool>("hardware.switches.brew.enabled")) {
+    if (Config::getInstance().hardwareSwitchesBrewEnabled.get()) {
         mqttManager_->registerSensor("currBrewTime", [] { return g_state.process.currBrewTime / 1000; });
     }
 
     // Scale-specific sensors
-    if (Config::getInstance().get<bool>("hardware.sensors.scale.enabled")) {
+    if (Config::getInstance().hardwareSensorsScaleEnabled.get()) {
         mqttManager_->registerSensor("currReadingWeight", [] { return g_state.sensors.currReadingWeight; });
         mqttManager_->registerSensor("currBrewWeight", [] { return g_state.sensors.currBrewWeight; });
     }
 
     // Pressure sensor
-    if (Config::getInstance().get<bool>("hardware.sensors.pressure.enabled")) {
+    if (Config::getInstance().hardwareSensorsPressureEnabled.get()) {
         mqttManager_->registerSensor("pressure", [] { return g_state.sensors.inputPressureFilter; });
     }
 
@@ -471,11 +472,11 @@ CleverCoffeeWiFiManager* SystemInitializer::getWiFiManager() const {
 
 void SystemInitializer::setupWiFi() {
     try {
-        const bool oledEnabled = Config::getInstance().get<bool>("hardware.oled.enabled");
+        const bool oledEnabled = Config::getInstance().hardwareOledEnabled.get();
 
         // Don't pass display callback during system initialization - display isn't fully ready yet
         // TODO: Lost: User feedback during WiFi connection (no "Connecting to WiFi..." messages on display) with commit 271d43432fab22cc4e1c950ee107212886806b8f
-        if (!g_state.network.cleverCoffeeWiFiManager->setupAndConnect(Config::getInstance().get<String>("system.hostname"), WIFI_PASSWORD, false, nullptr)) {
+        if (!g_state.network.cleverCoffeeWiFiManager->setupAndConnect(Config::getInstance().systemHostname.get(), WIFI_PASSWORD, false, nullptr)) {
             g_state.network.offlineMode = true;
         }
 

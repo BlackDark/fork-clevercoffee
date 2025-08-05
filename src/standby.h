@@ -10,14 +10,14 @@
 #include "utils/legacyUtils.h"
 
 inline unsigned long getStandbyTimeoutMillis() {
-    return static_cast<unsigned long>(Config::getInstance().get<double>("standby.time") * 60 * 1000);
+    return static_cast<unsigned long>(Config::getInstance().standbyTime.get() * 60 * 1000);
 }
 
 /**
  * @brief Decrements the remaining standby time every second, counting down from the configured duration
  */
 inline void updateStandbyTimer() {
-    if (!Config::getInstance().get<bool>("standby.enabled")) {
+    if (!Config::getInstance().standbyEnabled.get()) {
         return;
     }
 
@@ -67,6 +67,6 @@ inline void resetStandbyTimer(const LegacyMachineState state) {
     g_state.standby.standbyModeRemainingTimeDisplayOffMillis = TIME_TO_DISPLAY_OFF_MILLIS;
     g_state.standby.standbyModeStartTimeMillis = millis();
 
-    LOGF(INFO, "Resetting standby timer to %i minutes", static_cast<int>(Config::getInstance().get<double>("standby.time")));
+    LOGF(INFO, "Resetting standby timer to %i minutes", static_cast<int>(Config::getInstance().standbyTime.get()));
     LOGF(DEBUG, "New machine state: %s", machinestateEnumToString(state));
 }

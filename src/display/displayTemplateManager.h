@@ -26,31 +26,32 @@ namespace Templates {
 
 class DisplayTemplateManager {
     public:
-        enum Template {
-            STANDARD = 0,
-            MINIMAL = 1,
-            TEMP_ONLY = 2,
-            SCALE = 3,
-            UPRIGHT = 4,
-        };
+        // TODO probably the best location is here
+        // enum Template {
+        //     STANDARD = 0,
+        //     MINIMAL = 1,
+        //     TEMP_ONLY = 2,
+        //     SCALE = 3,
+        //     UPRIGHT = 4,
+        // };
 
-        static void initializeDisplay(const int templateId) {
+        static void initializeDisplay(const System::DisplayTemplate templateId) {
             currentTemplate = templateId;
 
             switch (templateId) {
-                case STANDARD:
+                case System::DisplayTemplate::STANDARD:
                     currentPrintScreen = &Templates::Standard::printScreen;
                     break;
-                case MINIMAL:
+                case System::DisplayTemplate::MINIMAL:
                     currentPrintScreen = &Templates::Minimal::printScreen;
                     break;
-                case TEMP_ONLY:
+                case System::DisplayTemplate::TEMPERATURE_ONLY:
                     currentPrintScreen = &Templates::TempOnly::printScreen;
                     break;
-                case SCALE:
+                case System::DisplayTemplate::SCALE:
                     currentPrintScreen = &Templates::Scale::printScreen;
                     break;
-                case UPRIGHT:
+                case System::DisplayTemplate::UPRIGHT:
                     currentPrintScreen = &Templates::Upright::printScreen;
                     break;
                 default:
@@ -66,6 +67,6 @@ class DisplayTemplateManager {
         }
 
     private:
-        static inline int currentTemplate = STANDARD;
+        static inline System::DisplayTemplate currentTemplate = System::DisplayTemplate::STANDARD;
         static inline void (*currentPrintScreen)() = nullptr;
 };

@@ -151,7 +151,7 @@ bool MachineStateContext::isBackflushActive() const {
 // === System State Access ===
 
 bool MachineStateContext::isPidEnabled() const {
-    return Config::getInstance().get<bool>("pid.enabled");
+    return Config::getInstance().pidEnabled.get();
 }
 
 bool MachineStateContext::isEmergencyStop() const {
@@ -159,33 +159,11 @@ bool MachineStateContext::isEmergencyStop() const {
 }
 
 bool MachineStateContext::shouldEnterStandby() const {
-    return Config::getInstance().get<bool>("standby.enabled") && g_state.standby.standbyModeRemainingTimeMillis == 0;
+    return Config::getInstance().standbyEnabled.get() && g_state.standby.standbyModeRemainingTimeMillis == 0;
 }
 
 unsigned long MachineStateContext::getStandbyRemainingTime() const {
     return g_state.standby.standbyModeRemainingTimeMillis;
-}
-
-// === Configuration Access ===
-
-Config& MachineStateContext::getConfig() const {
-    return Config::getInstance();
-}
-
-// Template specializations for common types to avoid header dependency issues
-template <>
-bool MachineStateContext::getConfigValue<bool>(const char* key) const {
-    return getConfig().get<bool>(key);
-}
-
-template <>
-int MachineStateContext::getConfigValue<int>(const char* key) const {
-    return getConfig().get<int>(key);
-}
-
-template <>
-double MachineStateContext::getConfigValue<double>(const char* key) const {
-    return getConfig().get<double>(key);
 }
 
 // === Timing Functions ===

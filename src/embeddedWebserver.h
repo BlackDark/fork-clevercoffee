@@ -225,7 +225,7 @@ inline String getTempString() {
         JsonDocument doc;
 
         doc["currentTemp"] = g_state.process.temperature;
-        doc["targetTemp"] = Config::getInstance().get<double>("brew.setpoint");
+        doc["targetTemp"] = Config::getInstance().brewSetpoint.get();
         doc["heaterPower"] = g_state.process.pidOutput / 10;
 
         String json;
@@ -336,7 +336,7 @@ inline void handleTogglePid(AsyncWebServerRequest* request) {
     try {
         LOGF(INFO, "/api/pid requested, method: %d", request->method());
 
-        const bool currentPidState = Config::getInstance().get<bool>("pid.enabled");
+        const bool currentPidState = Config::getInstance().pidEnabled.get();
         const bool newPidState = !currentPidState;
         Config::getInstance().set<bool>("pid.enabled", newPidState);
 
@@ -928,12 +928,12 @@ inline void handleFactoryReset(AsyncWebServerRequest* request) {
 // ==================== API ROUTES SETUP ====================
 
 inline void setupApiRoutes() {
-    bool authEnabled = Config::getInstance().get<bool>("system.auth.enabled");
+    bool authEnabled = Config::getInstance().systemAuthEnabled.get();
 
     if (authEnabled) {
         LOG(INFO, "Authentication is enabled");
-        String username = Config::getInstance().get<::String>("system.auth.username");
-        String password = Config::getInstance().get<::String>("system.auth.password");
+        String username = Config::getInstance().systemAuthUsername.get();
+        String password = Config::getInstance().systemAuthPassword.get();
 
         authMiddleware.setAuthType(AsyncAuthType::AUTH_DIGEST);
         authMiddleware.setRealm("CleverCoffee");
@@ -949,7 +949,7 @@ inline void setupApiRoutes() {
     server.on("/api/pid", HTTP_POST, handleTogglePid);
     server.on("/api/backflush", HTTP_POST, handleToggleBackflush);
 
-    if (Config::getInstance().get<bool>("hardware.sensors.scale.enabled")) {
+    if (Config::getInstance().hardwareSensorsScaleEnabled.get()) {
         server.on("/api/scale/tare", HTTP_POST, handleToggleTareScale);
         server.on("/api/scale/calibration", HTTP_POST, handleToggleScaleCalibration);
     }

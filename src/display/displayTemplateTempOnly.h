@@ -48,7 +48,7 @@ inline void printScreen() {
 
     // draw (blinking) temp
     if (((fabs(g_state.process.temperature - g_state.process.setpoint) < blinkingTempDelta && blinkingTemp == 0) || fabs(g_state.process.temperature - g_state.process.setpoint) >= blinkingTempDelta) &&
-        !Config::getInstance().get<bool>("hardware.leds.status.enabled")) {
+        !Config::getInstance().hardwareLedsStatusEnabled.get()) {
         if (g_state.timing.isrCounter < 500) {
             if (g_state.process.temperature < 99.999) {
                 g_state.hardware.display->setCursor(8, 22);

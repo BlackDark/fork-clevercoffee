@@ -241,19 +241,6 @@ class MachineStateContext {
          */
         unsigned long getStandbyRemainingTime() const;
 
-        // === Configuration Access ===
-
-        /**
-         * @brief Get configuration instance
-         */
-        Config& getConfig() const;
-
-        /**
-         * @brief Check if feature is enabled
-         */
-        template <typename T>
-        T getConfigValue(const char* key) const;
-
         // === Timing Functions ===
 
         /**

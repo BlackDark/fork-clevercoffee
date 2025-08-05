@@ -9,7 +9,7 @@
 
 inline void setRuntimePidState(const bool enabled) {
     g_state.process.pidEnabled = enabled;
-    Config::getInstance().set<bool>("pid.enabled", enabled);
+    Config::getInstance().pidEnabled.set(enabled);
 }
 
 inline void setSteamMode(const bool steamMode) {
@@ -118,7 +118,7 @@ inline void testEmergencyStop() {
     if (g_state.process.temperature > EmergencyStopTemp && g_state.machine.emergencyStop == false) {
         g_state.machine.emergencyStop = true;
     }
-    else if (g_state.process.temperature < (Config::getInstance().get<double>("brew.setpoint") + 5) && g_state.machine.emergencyStop == true) {
+    else if (g_state.process.temperature < (Config::getInstance().brewSetpoint.get() + 5) && g_state.machine.emergencyStop == true) {
         g_state.machine.emergencyStop = false;
     }
 }
@@ -127,7 +127,7 @@ inline void testEmergencyStop() {
  * @brief Switch to offline mode if maxWifiReconnects were exceeded during boot
  */
 inline void initOfflineMode() {
-    if (Config::getInstance().get<bool>("hardware.oled.enabled")) {
+    if (Config::getInstance().hardwareOledEnabled.get()) {
         g_state.display.displayOffline = 1;
     }
 

@@ -13,6 +13,7 @@
 #pragma once
 
 #include "Config.h"
+#include "Logger.h"
 #include "brewStates.h"
 #include "hardware/Relay.h"
 #include "hardware/Switch.h"
@@ -77,7 +78,7 @@ inline void checkBrewSwitch() {
     loggedEmptyWaterTank = false;
 
     // Convert toggle brew switch input to brew switch state
-    if (const int brewSwitchType = Config::getInstance().get<int>("hardware.switches.brew.type"); brewSwitchType == Switch::TOGGLE) {
+    if (const int brewSwitchType = static_cast<int>(Config::getInstance().hardwareSwitchesBrewType.get()); brewSwitchType == Switch::TOGGLE) {
         if (g_state.sensors.currReadingBrewSwitch != g_state.sensors.brewSwitchReading) {
             g_state.sensors.currReadingBrewSwitch = g_state.sensors.brewSwitchReading;
         }
@@ -192,7 +193,7 @@ inline void debugPumpState(String label, String state) {
  * @return true if brew is running, false otherwise
  */
 inline bool brew() {
-    if (!Config::getInstance().get<bool>("hardware.switches.brew.enabled") || reinterpret_cast<Switch*>(g_state.hardware.brewSwitch) == nullptr) {
+    if (!Config::getInstance().hardwareSwitchesBrewEnabled.get() || reinterpret_cast<Switch*>(g_state.hardware.brewSwitch) == nullptr) {
         return false; // brew switch is not enabled, so no brew process running
     }
 
@@ -211,10 +212,10 @@ inline bool brew() {
         g_state.process.currBrewTime = currentMillisTemp - g_state.process.startingTime;
     }
 
-    const int brewMode = Config::getInstance().get<int>("brew.mode");
-    const bool brewByTimeEnabled = brewMode != 0 && Config::getInstance().get<bool>("brew.by_time.enabled");
-    const bool brewByWeightEnabled = brewMode != 0 && Config::getInstance().get<bool>("brew.by_weight.enabled");
-    const bool preinfusionEnabled = Config::getInstance().get<bool>("brew.pre_infusion.enabled");
+    const Process::BrewMode brewMode = Config::getInstance().brewMode.get();
+    const bool brewByTimeEnabled = brewMode != Process::BrewMode::MANUAL_BREW && Config::getInstance().brewByTimeEnabled.get();
+    const bool brewByWeightEnabled = brewMode != Process::BrewMode::MANUAL_BREW && Config::getInstance().brewByWeightEnabled.get();
+    const bool preinfusionEnabled = Config::getInstance().brewPreInfusionEnabled.get();
 
     // check if brewswitch was turned off after a brew; Brew only runs once even brewswitch is still pressed
     if (g_state.sensors.currBrewSwitchState == kBrewSwitchIdle) {
@@ -222,11 +223,11 @@ inline bool brew() {
     }
 
     // set brew time every cycle, in case changes are done during brew
-    if (Config::getInstance().get<double>("brew.by_time.target_time") > 0) {
-        g_state.process.totalTargetBrewTime = Config::getInstance().get<double>("brew.by_time.target_time") * 1000;
+    if (Config::getInstance().brewByTimeTargetTime.get() > 0) {
+        g_state.process.totalTargetBrewTime = Config::getInstance().brewByTimeTargetTime.get() * 1000;
 
         if (preinfusionEnabled) {
-            g_state.process.totalTargetBrewTime += Config::getInstance().get<double>("brew.pre_infusion.time") * 1000 + Config::getInstance().get<double>("brew.pre_infusion.pause") * 1000;
+            g_state.process.totalTargetBrewTime += Config::getInstance().brewPreInfusionTime.get() * 1000 + Config::getInstance().brewPreInfusionPause.get() * 1000;
         }
     }
     else {
@@ -253,8 +254,8 @@ inline bool brew() {
                     g_state.sensors.currBrewState = kPreinfusion;
                 }
 
-                if (Config::getInstance().get<bool>("hardware.sensors.scale.enabled") && Config::getInstance().get<int>("hardware.sensors.scale.type") == 2 && Config::getInstance().get<bool>("brew.by_weight.enabled") &&
-                    Config::getInstance().get<bool>("brew.by_weight.auto_tare")) {
+                if (Config::getInstance().hardwareSensorsScaleEnabled.get() && Config::getInstance().hardwareSensorsScaleType.get() == Hardware::ScaleType::BLUETOOTH && Config::getInstance().brewByWeightEnabled.get() &&
+                    Config::getInstance().brewByWeightAutoTare.get()) {
                     LOG(INFO, "Tare scale");
 
                     if (g_state.hardware.scale) {
@@ -274,7 +275,7 @@ inline bool brew() {
             g_state.hardware.pumpRelay->on();
             debugPumpState("Preinfusion", "on");
 
-            if (g_state.process.currBrewTime > Config::getInstance().get<double>("brew.pre_infusion.time") * 1000) {
+            if (g_state.process.currBrewTime > Config::getInstance().brewPreInfusionTime.get() * 1000) {
                 LOG(INFO, "Preinfusion pause running");
                 g_state.sensors.currBrewState = kPreinfusionPause;
             }
@@ -286,7 +287,7 @@ inline bool brew() {
             g_state.hardware.pumpRelay->off();
             debugPumpState("Pause", "off");
 
-            if (g_state.process.currBrewTime > (Config::getInstance().get<double>("brew.pre_infusion.time") + Config::getInstance().get<double>("brew.pre_infusion.pause")) * 1000) {
+            if (g_state.process.currBrewTime > (Config::getInstance().brewPreInfusionTime.get() + Config::getInstance().brewPreInfusionPause.get()) * 1000) {
                 LOG(INFO, "Brew running");
                 g_state.sensors.currBrewState = kBrewRunning;
             }
@@ -299,13 +300,13 @@ inline bool brew() {
                 g_state.hardware.pumpRelay->on();
                 debugPumpState("BrewRunning", "on");
 
-                const auto targetBrewWeight = Config::getInstance().get<double>("brew.by_weight.target_weight");
+                const auto targetBrewWeight = Config::getInstance().brewByWeightTargetWeight.get();
 
                 if (g_state.process.currBrewTime > g_state.process.totalTargetBrewTime && brewByTimeEnabled) {
                     LOG(INFO, "Brew reached time target");
                     g_state.sensors.currBrewState = kBrewFinished;
                 }
-                else if (Config::getInstance().get<bool>("hardware.sensors.scale.enabled") && g_state.sensors.currBrewWeight > targetBrewWeight && brewByWeightEnabled) {
+                else if (Config::getInstance().hardwareSensorsScaleEnabled.get() && g_state.sensors.currBrewWeight > targetBrewWeight && brewByWeightEnabled) {
                     LOG(INFO, "Brew reached weight target");
                     g_state.sensors.currBrewState = kBrewFinished;
                 }
@@ -341,7 +342,7 @@ inline bool brew() {
  * @return true if manual flush is running, false otherwise
  */
 inline bool manualFlush() {
-    if (!Config::getInstance().get<bool>("hardware.switches.brew.enabled") || reinterpret_cast<Switch*>(g_state.hardware.brewSwitch) == nullptr) {
+    if (!Config::getInstance().hardwareSwitchesBrewEnabled.get() || reinterpret_cast<Switch*>(g_state.hardware.brewSwitch) == nullptr) {
         return false; // brew switch is not enabled, so no brew process running
     }
 
@@ -389,7 +390,7 @@ inline bool manualFlush() {
  * @brief Backflush
  */
 inline void backflush() {
-    if (!Config::getInstance().get<bool>("hardware.switches.brew.enabled") || reinterpret_cast<Switch*>(g_state.hardware.brewSwitch) == nullptr) {
+    if (!Config::getInstance().hardwareSwitchesBrewEnabled.get() || reinterpret_cast<Switch*>(g_state.hardware.brewSwitch) == nullptr) {
         return; // brew switch is not enabled, so no brew process running
     }
 
@@ -399,7 +400,7 @@ inline void backflush() {
         g_state.sensors.currBackflushState = kBackflushFinished; // Force reset in case g_state.machine.backflushOn is reset during backflush!
         LOG(INFO, "Backflush: Disabled via webinterface");
     }
-    else if (g_state.network.offlineMode || g_state.sensors.currBrewState > kBrewIdle || Config::getInstance().get<double>("backflush.cycles") <= 0 || !g_state.machine.backflushOn) {
+    else if (g_state.network.offlineMode || g_state.sensors.currBrewState > kBrewIdle || Config::getInstance().backflushCycles.get() <= 0 || !g_state.machine.backflushOn) {
         return;
     }
 
@@ -431,7 +432,7 @@ inline void backflush() {
             break;
 
         case kBackflushFilling:
-            if (millis() - g_state.process.startingTime > Config::getInstance().get<double>("backflush.fill_time") * 1000) {
+            if (millis() - g_state.process.startingTime > Config::getInstance().backflushFillTime.get() * 1000) {
                 g_state.process.startingTime = millis();
                 g_state.hardware.valveRelay->off();
                 g_state.hardware.pumpRelay->off();
@@ -442,8 +443,8 @@ inline void backflush() {
             break;
 
         case kBackflushFlushing:
-            if (millis() - g_state.process.startingTime > Config::getInstance().get<double>("backflush.flush_time") * 1000) {
-                if (g_state.machine.currBackflushCycles < Config::getInstance().get<double>("backflush.cycles")) {
+            if (millis() - g_state.process.startingTime > Config::getInstance().backflushFlushTime.get() * 1000) {
+                if (g_state.machine.currBackflushCycles < Config::getInstance().backflushCycles.get()) {
                     g_state.process.startingTime = millis();
                     g_state.hardware.valveRelay->on();
                     g_state.hardware.pumpRelay->on();

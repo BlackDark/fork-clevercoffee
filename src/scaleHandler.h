@@ -42,8 +42,8 @@ inline void checkBluetoothScaleConnection() {
 
                 // During active brew, activate fallback mechanism
                 if (g_state.sensors.currBrewState != kBrewIdle && g_state.sensors.currBrewState != kBrewFinished) {
-                    const bool brewByWeightEnabled = Config::getInstance().get<bool>("brew.by_weight.enabled");
-                    const bool brewByTimeEnabled = Config::getInstance().get<bool>("brew.by_time.enabled");
+                    const bool brewByWeightEnabled = Config::getInstance().brewByWeightEnabled.get();
+                    const bool brewByTimeEnabled = Config::getInstance().brewByTimeEnabled.get();
 
                     if (brewByWeightEnabled && brewByTimeEnabled) {
                         LOG(INFO, "Activating brew-by-time fallback due to scale connection loss");
@@ -107,7 +107,7 @@ inline float getScaleWeight() {
  * @brief Check if brew-by-weight should be used (considering fallback state)
  */
 inline bool shouldUseBrewByWeight() {
-    const bool brewByWeightEnabled = Config::getInstance().get<bool>("brew.by_weight.enabled");
+    const bool brewByWeightEnabled = Config::getInstance().brewByWeightEnabled.get();
     return brewByWeightEnabled && !g_state.sensors.brewByWeightFallbackActive && !g_state.sensors.scaleConnectionLost;
 }
 
@@ -119,7 +119,7 @@ inline void scaleCalibrate(const int cellNumber, const int pin) {
         return;
     }
 
-    const int scaleSamples = Config::getInstance().get<int>("hardware.sensors.scale.samples");
+    const int scaleSamples = Config::getInstance().hardwareSensorsScaleSamples.get();
 
     auto* hx711Scale = static_cast<HX711Scale*>(g_state.hardware.scale);
     HX711_ADC* loadCell = hx711Scale->getLoadCell(cellNumber);
@@ -141,7 +141,7 @@ inline void scaleCalibrate(const int cellNumber, const int pin) {
 
     LOGF(INFO, "Put load on scale %d within the next 10 seconds", pin);
 
-    const auto scaleKnownWeight = Config::getInstance().get<double>("hardware.sensors.scale.known_weight");
+    const auto scaleKnownWeight = Config::getInstance().hardwareSensorsScaleKnownWeight.get();
 
     msg = langstring_calibrate_in_progress + String(number2string(scaleKnownWeight)) + "g\n";
     displayWrappedMessage(msg);
@@ -161,10 +161,10 @@ inline void scaleCalibrate(const int cellNumber, const int pin) {
 
     // Save calibration to config system
     if (cellNumber == 2) {
-        Config::getInstance().set<double>("hardware.sensors.scale.calibration2", calibration);
+        Config::getInstance().hardwareSensorsScaleCalibration2.set(calibration);
     }
     else {
-        Config::getInstance().set<double>("hardware.sensors.scale.calibration", calibration);
+        Config::getInstance().hardwareSensorsScaleCalibration.set(calibration);
     }
 
     msg = langstring_calibrate_complete + String(number2string(calibration)) + "\n";
@@ -190,7 +190,7 @@ inline void checkWeight() {
         scaleCalibrate(1, PIN_HXDAT);
 
         // Calibrate second cell
-        if (const int scaleType = Config::getInstance().get<int>("hardware.sensors.scale.type"); scaleType == 0) {
+        if (const Hardware::ScaleType scaleType = Config::getInstance().hardwareSensorsScaleType.get(); scaleType == Hardware::ScaleType::HX711_DUAL) {
             scaleCalibrate(2, PIN_HXDAT2);
         }
 
@@ -215,8 +215,8 @@ inline void checkWeight() {
 }
 
 inline void initScale() {
-    const int scaleType = Config::getInstance().get<int>("hardware.sensors.scale.type");
-    const int scaleSamples = Config::getInstance().get<int>("hardware.sensors.scale.samples");
+    const Hardware::ScaleType scaleType = Config::getInstance().hardwareSensorsScaleType.get();
+    const int scaleSamples = Config::getInstance().hardwareSensorsScaleSamples.get();
 
     // Clean up existing scale
     if (g_state.hardware.scale) {
@@ -224,7 +224,7 @@ inline void initScale() {
         g_state.hardware.scale = nullptr;
     }
 
-    if (scaleType == 2) { // Bluetooth scale
+    if (scaleType == Hardware::ScaleType::BLUETOOTH) { // Bluetooth scale
         g_state.hardware.scale = new BluetoothScale();
         g_state.hardware.isBluetoothScale = true;
 
@@ -234,13 +234,13 @@ inline void initScale() {
     }
     else {
         // HX711 scale types
-        const float cal1 = Config::getInstance().get<double>("hardware.sensors.scale.calibration");
-        const float cal2 = Config::getInstance().get<double>("hardware.sensors.scale.calibration2");
+        const float cal1 = Config::getInstance().hardwareSensorsScaleCalibration.get();
+        const float cal2 = Config::getInstance().hardwareSensorsScaleCalibration2.get();
 
-        if (scaleType == 0) { // Dual load cell
+        if (scaleType == Hardware::ScaleType::HX711_DUAL) { // Dual load cell
             g_state.hardware.scale = new HX711Scale(PIN_HXDAT, PIN_HXDAT2, PIN_HXCLK, cal1, cal2);
         }
-        else {                // Single load cell
+        else {                                              // Single load cell
             g_state.hardware.scale = new HX711Scale(PIN_HXDAT, PIN_HXCLK, cal1);
         }
 

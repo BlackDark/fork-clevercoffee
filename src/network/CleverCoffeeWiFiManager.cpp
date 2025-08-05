@@ -24,7 +24,7 @@ CleverCoffeeWiFiManager::CleverCoffeeWiFiManager() :
     customHostname_(nullptr), restartAfterAP_(false) {
 
     // Create custom hostname parameter
-    const String hostname = Config::getInstance().get<String>("system.hostname");
+    const String hostname = Config::getInstance().systemHostname.get();
     customHostname_ = new WiFiManagerParameter("hostname", "Hostname", hostname.c_str(), 30);
 }
 
@@ -64,7 +64,7 @@ bool CleverCoffeeWiFiManager::attemptConnection(const String& hostname, const St
         wifiConnected = wifiManager_.startConfigPortal(hostname.c_str(), password.c_str());
         wifiManager_.setConfigPortalTimeout(60); // sec timeout for captive portal
 
-        if (Config::getInstance().get<bool>("hardware.oled.enabled") && displayCallback) {
+        if (Config::getInstance().hardwareOledEnabled.get() && displayCallback) {
             displayCallback("Starting Portal AP", hostname.c_str());
         }
 
@@ -112,11 +112,11 @@ void CleverCoffeeWiFiManager::handleConnectionFailure(bool oledEnabled, std::fun
 void CleverCoffeeWiFiManager::updateHostnameFromPortal() {
     // Read hostname from portal and store in config
     String newHostname = String(customHostname_->getValue());
-    const String currentHostname = Config::getInstance().get<String>("system.hostname");
+    const String currentHostname = Config::getInstance().systemHostname.get();
 
     if (newHostname.length() > 0 && newHostname != currentHostname) {
         // Update the config system - this will automatically save to NVS
-        Config::getInstance().set<String>("system.hostname", newHostname);
+        Config::getInstance().systemHostname.set(newHostname);
         LOG(INFO, "Hostname updated from configuration portal");
     }
 }

@@ -11,7 +11,7 @@
 #include "state/MachineState.h"
 
 inline void checkSteamSwitch() {
-    if (!Config::getInstance().get<bool>("hardware.switches.steam.enabled") || g_state.hardware.steamSwitch == nullptr) {
+    if (!Config::getInstance().hardwareSwitchesSteamEnabled.get() || g_state.hardware.steamSwitch == nullptr) {
         return;
     }
 
@@ -21,7 +21,7 @@ inline void checkSteamSwitch() {
 
     const uint8_t steamSwitchReading = g_state.hardware.steamSwitch->isPressed();
 
-    if (Config::getInstance().get<int>("hardware.switches.steam.type") == Switch::TOGGLE) {
+    if (static_cast<int>(Config::getInstance().hardwareSwitchesSteamType.get()) == Switch::TOGGLE) {
         // Set g_state.machine.steamON to 1 when steamswitch is HIGH
         if (steamSwitchReading == HIGH) {
             g_state.machine.steamON = true;
@@ -32,7 +32,7 @@ inline void checkSteamSwitch() {
             g_state.machine.steamON = false;
         }
     }
-    else if (Config::getInstance().get<int>("hardware.switches.steam.type") == Switch::MOMENTARY) {
+    else if (static_cast<int>(Config::getInstance().hardwareSwitchesSteamType.get()) == Switch::MOMENTARY) {
         if (steamSwitchReading != g_state.sensors.currStateSteamSwitch) {
             g_state.sensors.currStateSteamSwitch = steamSwitchReading;
 

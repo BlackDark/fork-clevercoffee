@@ -17,7 +17,7 @@
 void performSafeShutdown();
 
 inline void checkPowerSwitch() {
-    if (!Config::getInstance().get<bool>("hardware.switches.power.enabled") || g_state.hardware.powerSwitch == nullptr) {
+    if (!Config::getInstance().hardwareSwitchesPowerEnabled.get() || g_state.hardware.powerSwitch == nullptr) {
         return;
     }
 
@@ -29,7 +29,7 @@ inline void checkPowerSwitch() {
         g_state.sensors.systemInitializedTime = currentMillis;
     }
 
-    if (const int powerSwitchType = Config::getInstance().get<int>("hardware.switches.power.type"); powerSwitchType == Switch::TOGGLE) {
+    if (const int powerSwitchType = static_cast<int>(Config::getInstance().hardwareSwitchesPowerType.get()); powerSwitchType == Switch::TOGGLE) {
         if (powerSwitchPressed != g_state.sensors.lastPowerSwitchPressed) {
             g_state.sensors.lastPowerSwitchPressed = powerSwitchPressed;
 
@@ -111,11 +111,11 @@ inline void checkPowerSwitch() {
  * @return true if operation is allowed, false otherwise
  */
 inline bool isPowerSwitchOperationAllowed() {
-    if (!Config::getInstance().get<bool>("hardware.switches.power.enabled") || g_state.hardware.powerSwitch == nullptr) {
+    if (!Config::getInstance().hardwareSwitchesPowerEnabled.get() || g_state.hardware.powerSwitch == nullptr) {
         return true; // No power switch configured, allow operation
     }
 
-    if (const int powerSwitchType = Config::getInstance().get<int>("hardware.switches.power.type"); powerSwitchType == Switch::TOGGLE) {
+    if (const int powerSwitchType = static_cast<int>(Config::getInstance().hardwareSwitchesPowerType.get()); powerSwitchType == Switch::TOGGLE) {
         return reinterpret_cast<Switch*>(g_state.hardware.powerSwitch)->isPressed();
     }
     else if (powerSwitchType == Switch::MOMENTARY) {
