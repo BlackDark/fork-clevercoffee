@@ -8,6 +8,7 @@
 
 #include "../Config.h"
 #include "../state/GlobalState.h"
+#include "../network/CleverCoffeeWiFiManager.h"
 #include "../utils/legacyUtils.h"
 #include "bitmaps.h"
 #include "languages.h"
@@ -95,7 +96,7 @@ inline void displayWiFiStatus(const int x, const int y) {
     if (WiFi.status() == WL_CONNECTED) {
         g_state.hardware.display->drawXBMP(x, y, 8, 8, Antenna_OK_Icon);
 
-        for (int b = 0; b <= getSignalStrength(); b++) {
+        for (int b = 0; b <= g_state.network.cleverCoffeeWiFiManager->getSignalStrength(); b++) {
             g_state.hardware.display->drawVLine(x + 5 + b * 2, y + 8 - b * 2, b * 2);
         }
     }
@@ -125,7 +126,7 @@ inline void displayMQTTStatus(const int x, const int y) {
             g_state.hardware.display->setFont(u8g2_font_profont11_tf);
             g_state.hardware.display->print("MQTT");
 
-            if (getSignalStrength() <= 1) {
+            if (g_state.network.cleverCoffeeWiFiManager->getSignalStrength() <= 1) {
                 g_state.hardware.display->print("!");
             }
         }

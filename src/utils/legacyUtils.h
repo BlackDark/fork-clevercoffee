@@ -1,6 +1,5 @@
 #pragma once
 #include "../Config.h"
-#include "../network/CleverCoffeeWiFiManager.h"
 #include "../network/MQTTManager.h" // Required for MQTTManager methods
 #include "../state/GlobalState.h"
 #include "Logger.h"
@@ -67,12 +66,12 @@ inline bool isMqttUpdateRunning() {
 }
 
 // Compatibility wrapper function
-inline int writeSysParamsToMQTT(bool continueOnError = true) {
-    if (g_state.network.mqttManager && g_state.network.mqttManager->isEnabled()) {
-        return g_state.network.mqttManager->writeSysParamsToMQTT(continueOnError);
-    }
-    return 0;
-}
+// inline int writeSysParamsToMQTT(bool continueOnError = true) {
+//     if (g_state.network.mqttManager && g_state.network.mqttManager->isEnabled()) {
+//         return g_state.network.mqttManager->writeSysParamsToMQTT(continueOnError);
+//     }
+//     return 0;
+// }
 
 // MQTT functionality is now managed by MQTTManager
 // MQTT discovery timer callback
@@ -80,37 +79,6 @@ inline void sendHASSIODiscoveryMsg() {
     if (g_state.network.mqttManager && g_state.network.mqttManager->isEnabled()) {
         g_state.network.mqttManager->sendHASSIODiscoveryMsg();
     }
-}
-
-/**
- * @brief Get Wifi signal strength and set signalBars for display
- */
-inline int getSignalStrength() {
-    if (g_state.network.offlineMode) return 0;
-
-    long rssi;
-
-    if (WiFi.status() == WL_CONNECTED) {
-        rssi = WiFi.RSSI();
-    }
-    else {
-        rssi = -100;
-    }
-
-    if (rssi >= -50) {
-        return 4;
-    }
-    else if (rssi < -50 && rssi >= -65) {
-        return 3;
-    }
-    else if (rssi < -65 && rssi >= -75) {
-        return 2;
-    }
-    else if (rssi < -75 && rssi >= -80) {
-        return 1;
-    }
-
-    return 0;
 }
 
 // Emergency stop if temp is too high
@@ -133,14 +101,4 @@ inline void initOfflineMode() {
 
     LOG(INFO, "Start offline mode with eeprom values, no wifi :(");
     g_state.network.offlineMode = true;
-}
-
-inline void wiFiReset() {
-    if (g_state.network.cleverCoffeeWiFiManager) {
-        g_state.network.cleverCoffeeWiFiManager->resetSettings();
-    }
-    else {
-        LOG(ERROR, "WiFiManager not initialized for reset");
-        ESP.restart();
-    }
 }

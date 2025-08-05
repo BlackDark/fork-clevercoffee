@@ -18,8 +18,9 @@ namespace DisplayTemplateManager {
 #include "../hardware/HardwareManager.h"
 #include "../network/CleverCoffeeWiFiManager.h"
 #include "../network/MQTTManager.h"
-#include "../network/WebSocketEvents.h" // Isolated WebSocket functions
+#include "../network/WebServerManager.h"
 #include "../sensors/SensorManager.h"
+#include "../utils/legacyUtils.h"
 #include "Logger.h"
 #include <Arduino.h>
 #include <ArduinoOTA.h>
@@ -33,13 +34,16 @@ extern void initTimer1();
 extern void enableTimer1();
 extern void u8g2_prepare();
 extern void initLangStrings(Config& config);
-// serverSetup() now available via WebSocketEvents.h without library conflicts
 extern void initScale();
-extern void setRuntimePidState(bool state);
 extern bool checkBrewActive();
 
 SystemInitializer::SystemInitializer() :
     systemInitialized_(false), displayManager_(nullptr), hardwareManager_(nullptr), mqttManager_(nullptr), sensorManager_(nullptr) {
+}
+
+SystemInitializer::~SystemInitializer() {
+    // Destructor implementation - unique_ptr will automatically clean up resources
+    // This needs to be defined in the .cpp file where complete type definitions are available
 }
 
 bool SystemInitializer::initialize() {
@@ -71,31 +75,41 @@ bool SystemInitializer::initialize() {
     }
 
     // Phase 3: Network and services
+    LOG(INFO, "Starting Phase 3: Network and services");
     if (!initializeNetworking()) {
         LOG(WARNING, "Network initialization failed, continuing in offline mode");
         g_state.network.offlineMode = true;
     }
 
+    LOG(INFO, "Starting MQTT initialization");
     if (!initializeMQTT()) {
         LOG(WARNING, "MQTT initialization failed, continuing without MQTT");
     }
 
     // Phase 4: PID and sensors
+    LOG(INFO, "Starting Phase 4: PID and sensors");
     if (!initializePID()) {
         LOG(ERROR, "PID initialization failed");
         return false;
     }
 
+    LOG(INFO, "Starting sensor initialization");
     if (!initializeSensors()) {
         LOG(WARNING, "Sensor initialization incomplete");
     }
 
     // Phase 5: Finalization
+    LOG(INFO, "Starting Phase 5: Finalization");
     setupTiming();
     enableTimer1();
 
-    double fsUsage = (static_cast<double>(LittleFS.usedBytes()) / LittleFS.totalBytes()) * 100;
-    LOGF(INFO, "LittleFS: %d%% (used %ld bytes from %ld bytes)", static_cast<int>(ceil(fsUsage)), LittleFS.usedBytes(), LittleFS.totalBytes());
+    // Report LittleFS usage only if it was successfully initialized
+    if (LittleFS.totalBytes() > 0) {
+        double fsUsage = (static_cast<double>(LittleFS.usedBytes()) / LittleFS.totalBytes()) * 100;
+        LOGF(INFO, "LittleFS: %d%% (used %ld bytes from %ld bytes)", static_cast<int>(ceil(fsUsage)), LittleFS.usedBytes(), LittleFS.totalBytes());
+    } else {
+        LOG(WARNING, "LittleFS not available or not initialized");
+    }
 
     if (!finalizeMachineState()) {
         LOG(ERROR, "Machine state finalization failed");
@@ -132,8 +146,26 @@ bool SystemInitializer::initializeConfiguration() {
     }
 
     LOG(INFO, "Configuration system ready");
-    System::LogLevel level = Config::getInstance().systemLogLevel.get();
-    Logger::setLevel(static_cast<Logger::Level>(level));
+
+    // Set logger level - temporarily disabled due to enum conversion issues
+    // TODO: Fix System::LogLevel to Logger::Level conversion
+    /*
+    int systemLevelInt = static_cast<int>(Config::getInstance().systemLogLevel.get());
+    Logger::Level loggerLevel = Logger::Level::INFO; // default
+
+    if (systemLevelInt == 0) loggerLevel = Logger::Level::TRACE;
+    else if (systemLevelInt == 1) loggerLevel = Logger::Level::DEBUG;
+    else if (systemLevelInt == 2) loggerLevel = Logger::Level::INFO;
+    else if (systemLevelInt == 3) loggerLevel = Logger::Level::WARNING;
+    else if (systemLevelInt == 4) loggerLevel = Logger::Level::ERROR;
+    else if (systemLevelInt == 5) loggerLevel = Logger::Level::FATAL;
+    else if (systemLevelInt == 6) loggerLevel = Logger::Level::SILENT;
+
+    Logger::setLevel(loggerLevel);
+    */
+
+    // Use default log level for now
+    Logger::setLevel(Logger::Level::INFO);
 
     calculateDerivedValues();
 
@@ -226,7 +258,26 @@ bool SystemInitializer::initializeNetworking() {
         g_state.network.cleverCoffeeWiFiManager = cleverCoffeeWiFiManager_.get();
 
         setupWiFi();
-        serverSetup();
+
+        LOG(INFO, "About to initialize WebServerManager");
+
+        // Initialize LittleFS first - this was causing the hang
+        if (!LittleFS.begin()) {
+            LOG(WARNING, "LittleFS initialization failed, web server will run without file system");
+        } else {
+            LOG(INFO, "LittleFS initialized successfully");
+        }
+
+        // Initialize WebServerManager
+        webServerManager_ = std::make_unique<WebServerManager>(80);
+        g_state.network.webServerManager = webServerManager_.get();
+
+        if (!webServerManager_->initialize(true)) {
+            LOG(ERROR, "WebServerManager initialization failed");
+            webServerManager_.reset();
+        } else {
+            LOG(INFO, "WebServerManager initialized successfully");
+        }
 
         // OTA Updates
         if (WiFi.status() == WL_CONNECTED) {

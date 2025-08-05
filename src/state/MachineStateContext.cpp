@@ -12,13 +12,12 @@
 #include "../sensors/SensorManager.h"
 // #include "../hotWaterHandler.h" - removed to avoid circular dependencies
 #include "../utils/brewUtils.h"
+#include "../utils/legacyUtils.h"
 #include "Logger.h"
 #include <Arduino.h>
 
 // Forward declarations to avoid circular dependencies
 // These functions are defined in main.cpp and various handler files
-extern void setSteamMode(const bool steamMode);
-extern void setRuntimePidState(bool enabled);
 extern void performSafeShutdown();
 extern bool manualFlush();
 extern bool checkHotWaterStates();

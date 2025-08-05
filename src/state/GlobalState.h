@@ -52,6 +52,7 @@ class Relay;
 class TempSensor;
 class MQTTManager;
 class CleverCoffeeWiFiManager;
+class WebServerManager;
 class PID;
 class Config;
 class Switch;
@@ -143,6 +144,7 @@ struct HardwareRefs {
  */
 struct NetworkState {
         CleverCoffeeWiFiManager* cleverCoffeeWiFiManager = nullptr;
+        WebServerManager* webServerManager = nullptr;
 
         bool offlineMode = false;
         unsigned int wifiReconnects = 0;

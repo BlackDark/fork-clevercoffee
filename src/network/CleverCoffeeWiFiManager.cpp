@@ -9,6 +9,7 @@
 #include "Logger.h"
 #include <ESP.h>
 #include <WiFi.h>
+#include <WiFiManager.h>
 
 // Helper function to convert byte to hex string
 static String byteToHex(byte value) {
@@ -21,11 +22,18 @@ static String byteToHex(byte value) {
 }
 
 CleverCoffeeWiFiManager::CleverCoffeeWiFiManager() :
-    customHostname_(nullptr), restartAfterAP_(false) {
+    wifiManager_(std::make_unique<WiFiManager>()), customHostname_(nullptr), restartAfterAP_(false) {
 
     // Create custom hostname parameter
     const String hostname = Config::getInstance().systemHostname.get();
     customHostname_ = new WiFiManagerParameter("hostname", "Hostname", hostname.c_str(), 30);
+}
+
+CleverCoffeeWiFiManager::~CleverCoffeeWiFiManager() {
+    // Destructor implementation - unique_ptr will automatically clean up WiFiManager
+    // This needs to be defined in the .cpp file where WiFiManager is fully defined
+    delete customHostname_;
+    customHostname_ = nullptr;
 }
 
 bool CleverCoffeeWiFiManager::setupAndConnect(const String& hostname, const String& password, bool oledEnabled, std::function<void(const char*, const char*)> displayCallback) {
@@ -42,33 +50,33 @@ bool CleverCoffeeWiFiManager::setupAndConnect(const String& hostname, const Stri
 }
 
 void CleverCoffeeWiFiManager::configureWiFiManager(const String& hostname, const String& password) {
-    wifiManager_.addParameter(customHostname_);
-    wifiManager_.setCleanConnect(true);
-    wifiManager_.setConnectTimeout(10); // using 10s to connect to WLAN, 5s is sometimes too short!
-    wifiManager_.setBreakAfterConfig(true);
-    wifiManager_.setConnectRetries(3);
-    wifiManager_.setHostname(hostname.c_str());
+    wifiManager_->addParameter(customHostname_);
+    wifiManager_->setCleanConnect(true);
+    wifiManager_->setConnectTimeout(10); // using 10s to connect to WLAN, 5s is sometimes too short!
+    wifiManager_->setBreakAfterConfig(true);
+    wifiManager_->setConnectRetries(3);
+    wifiManager_->setHostname(hostname.c_str());
 }
 
 bool CleverCoffeeWiFiManager::attemptConnection(const String& hostname, const String& password, std::function<void(const char*, const char*)> displayCallback) {
-    if (wifiManager_.getWiFiIsSaved()) {
+    if (wifiManager_->getWiFiIsSaved()) {
         LOG(INFO, "Connecting to WiFi");
     }
 
-    wifiManager_.setEnableConfigPortal(false); // doesn't start config portal within autoconnect
-    wifiManager_.setDisableConfigPortal(true); // disables config portal on wifi save
-    bool wifiConnected = wifiManager_.autoConnect(hostname.c_str(), password.c_str());
+    wifiManager_->setEnableConfigPortal(false); // doesn't start config portal within autoconnect
+    wifiManager_->setDisableConfigPortal(true); // disables config portal on wifi save
+    bool wifiConnected = wifiManager_->autoConnect(hostname.c_str(), password.c_str());
 
     if (!wifiConnected) {
-        wifiManager_.setConfigPortalTimeout(1);  // prompt config portal to update password
-        wifiConnected = wifiManager_.startConfigPortal(hostname.c_str(), password.c_str());
-        wifiManager_.setConfigPortalTimeout(60); // sec timeout for captive portal
+        wifiManager_->setConfigPortalTimeout(1);  // prompt config portal to update password
+        wifiConnected = wifiManager_->startConfigPortal(hostname.c_str(), password.c_str());
+        wifiManager_->setConfigPortalTimeout(60); // sec timeout for captive portal
 
         if (Config::getInstance().hardwareOledEnabled.get() && displayCallback) {
             displayCallback("Starting Portal AP", hostname.c_str());
         }
 
-        wifiConnected = wifiManager_.startConfigPortal(hostname.c_str(), password.c_str());
+        wifiConnected = wifiManager_->startConfigPortal(hostname.c_str(), password.c_str());
         if (wifiConnected) {
             restartAfterAP_ = true;
             updateHostnameFromPortal();
@@ -88,7 +96,7 @@ void CleverCoffeeWiFiManager::handleSuccessfulConnection(bool oledEnabled, std::
     LOGF(DEBUG, "MAC-ADDRESS: %s", completemac.c_str());
 
     if (oledEnabled && displayCallback) {
-        displayCallback("WiFi Connected", wifiManager_.getWiFiSSID(true).c_str());
+        displayCallback("WiFi Connected", wifiManager_->getWiFiSSID(true).c_str());
     }
 
     if (restartAfterAP_) {
@@ -105,7 +113,7 @@ void CleverCoffeeWiFiManager::handleConnectionFailure(bool oledEnabled, std::fun
         displayCallback("No WiFi", "Offline Mode");
     }
 
-    wifiManager_.disconnect();
+    wifiManager_->disconnect();
     delay(1000);
 }
 
@@ -122,7 +130,7 @@ void CleverCoffeeWiFiManager::updateHostnameFromPortal() {
 }
 
 void CleverCoffeeWiFiManager::resetSettings() {
-    wifiManager_.resetSettings();
+    wifiManager_->resetSettings();
     delay(500);
     ESP.restart();
 }
@@ -132,7 +140,7 @@ bool CleverCoffeeWiFiManager::isConnected() const {
 }
 
 String CleverCoffeeWiFiManager::getSSID() const {
-    return const_cast<::WiFiManager&>(wifiManager_).getWiFiSSID(true);
+    return wifiManager_->getWiFiSSID(true);
 }
 
 void CleverCoffeeWiFiManager::checkAndMaintainConnection() {
@@ -188,4 +196,32 @@ void CleverCoffeeWiFiManager::checkAndMaintainConnection() {
             g_state.network.wifiReconnects = 0;
         }
     }
+}
+
+int CleverCoffeeWiFiManager::getSignalStrength() {
+    if (g_state.network.offlineMode) return 0;
+
+    long rssi;
+
+    if (WiFi.status() == WL_CONNECTED) {
+        rssi = WiFi.RSSI();
+    }
+    else {
+        rssi = -100;
+    }
+
+    if (rssi >= -50) {
+        return 4;
+    }
+    else if (rssi < -50 && rssi >= -65) {
+        return 3;
+    }
+    else if (rssi < -65 && rssi >= -75) {
+        return 2;
+    }
+    else if (rssi < -75 && rssi >= -80) {
+        return 1;
+    }
+
+    return 0;
 }

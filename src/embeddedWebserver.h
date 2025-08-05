@@ -338,7 +338,7 @@ inline void handleTogglePid(AsyncWebServerRequest* request) {
 
         const bool currentPidState = Config::getInstance().pidEnabled.get();
         const bool newPidState = !currentPidState;
-        Config::getInstance().set<bool>("pid.enabled", newPidState);
+        Config::getInstance().pidEnabled.set(newPidState);
 
         LOGF(INFO, "Toggle PID state: %d\n", newPidState);
 
@@ -389,7 +389,6 @@ inline void handleParameters(AsyncWebServerRequest* request) {
         if (request->method() == 1) { // HTTP_GET
             // Use the unified Config system for API
             auto& config = Config::getInstance();
-            const auto& parameters = Config::getInstance().getParameters();
 
             String filterType = "";
             if (request->hasParam("filter")) {
@@ -399,62 +398,10 @@ inline void handleParameters(AsyncWebServerRequest* request) {
             AsyncJsonResponse* response = new AsyncJsonResponse(false);
             JsonArray array = response->getRoot().to<JsonArray>();
 
-            int filteredParameterCount = 0;
+            // Use the public getAllParameters method
+            Config::getInstance().getAllParameters(array, filterType);
 
-            for (const auto& param : parameters) {
-                const std::string& name = param.first;
-                const ParamDef& paramDef = param.second;
-                int section = paramDef.section;
-
-                bool includeParam = false;
-
-#if FRONTEND_PREPROCESSING
-                // old style parameter condition
-                if (!paramDef.showCondition()) continue;
-
-                if (filterType == "hardware") {
-                    includeParam = section >= 11 && section <= 15;
-                }
-                else if (filterType == "behavior") {
-                    includeParam = section >= 0 && section <= 9;
-                }
-                else if (filterType == "other") {
-                    includeParam = section == 10;
-                }
-                else if (filterType == "all") {
-                    includeParam = true;
-                }
-                else {
-                    includeParam = section == 0 || section == 1 || section == 10;
-                }
-#else
-                // new style conditions. We probably do not need filtering at all
-                if (filterType == "hardware") {
-                    includeParam = section == 4; // Hardware section
-                }
-                else if (filterType == "behavior") {
-                    includeParam = section >= 0 && section <= 3;
-                }
-                else if (filterType == "other") {
-                    includeParam = section == 5 || section == 6 || section == 7;
-                }
-                else if (filterType == "all") {
-                    includeParam = true;
-                }
-                else {
-                    includeParam = section == 0 || section == 1 || section == 3;
-                }
-#endif
-
-                if (includeParam) {
-                    // Use the ParamDef's toJson method directly
-                    JsonObject result = array.add<JsonObject>();
-                    paramDef.toJson(result, String(name.c_str()));
-                    filteredParameterCount++;
-                }
-            }
-
-            LOGF(INFO, "/parameters returning %d parameters", filteredParameterCount);
+            LOGF(INFO, "/parameters returning %d parameters", array.size());
             response->setLength();
             request->send(response);
         }
@@ -482,38 +429,23 @@ inline void handleParameters(AsyncWebServerRequest* request) {
                     LOGF(INFO, "handleParameters POST: Processing parameter '%s' = '%s'", varName.c_str(), value.c_str());
 
                     try {
-                        // Use unified config system to update parameters
-                        LOGF(INFO, "handleParameters POST: Updating parameter '%s' = '%s'", varName.c_str(), value.c_str());
+                        // Use the same pattern as MQTTManager - find parameter and use fromJson
+                        BaseParamDef* paramDef = Config::getInstance().findParameter(varName);
 
-                        // Try to determine parameter type and update accordingly
-                        // For now, try different types until one succeeds
-                        bool updateSuccess = false;
+                        if (paramDef) {
+                            // Create a JsonVariant with the value
+                            JsonDocument tempDoc;
+                            tempDoc.set(value);
+                            JsonVariant valueVariant = tempDoc.as<JsonVariant>();
 
-                        // Try boolean first (common case)
-                        if (value == "true" || value == "false" || value == "1" || value == "0") {
-                            bool boolValue = (value == "true" || value == "1");
-                            updateSuccess = Config::getInstance().set<bool>(varName, boolValue);
-                        }
+                            bool updateSuccess = paramDef->fromJson(valueVariant);
 
-                        // Try integer if boolean failed
-                        if (!updateSuccess && isValidNumber(value) && value.indexOf('.') == -1) {
-                            int intValue = value.toInt();
-                            updateSuccess = Config::getInstance().set<int>(varName, intValue);
-                        }
-
-                        // Try double if integer failed
-                        if (!updateSuccess && isValidNumber(value)) {
-                            double doubleValue = value.toDouble();
-                            updateSuccess = Config::getInstance().set<double>(varName, doubleValue);
-                        }
-
-                        // Try string if numeric types failed
-                        if (!updateSuccess) {
-                            updateSuccess = Config::getInstance().set<::String>(varName, value);
-                        }
-
-                        if (!updateSuccess) {
-                            LOGF(WARNING, "Failed to update parameter '%s'", varName.c_str());
+                            if (!updateSuccess) {
+                                LOGF(WARNING, "Failed to update parameter '%s'", varName.c_str());
+                                hasErrors = true;
+                            }
+                        } else {
+                            LOGF(WARNING, "Parameter '%s' not found", varName.c_str());
                             hasErrors = true;
                         }
                     } catch (const std::exception& e) {
@@ -551,18 +483,16 @@ inline void handleParameterHelp(AsyncWebServerRequest* request) {
         }
 
         const String& paramName = p->value();
-        auto& config = Config::getInstance();
-        const auto& parameters = Config::getInstance().getParameters();
+        BaseParamDef* paramDef = Config::getInstance().findParameter(paramName);
 
-        auto it = parameters.find(paramName.c_str());
-        if (it == parameters.end()) {
+        if (paramDef == nullptr) {
             request->send(404, "application/json", JsonResponseBuilder::createErrorResponse("parameter not found"));
             return;
         }
 
         JsonDocument doc;
         doc["name"] = paramName;
-        doc["helpText"] = it->second.helpText;
+        doc["helpText"] = paramDef->getHelpText();
 
         String helpJson;
         if (!safeSerializeJson(doc, helpJson)) {
@@ -625,8 +555,8 @@ inline void handleWifiReset(AsyncWebServerRequest* request) {
 
 inline void handleConfigDownload(AsyncWebServerRequest* request) {
     try {
-        // Generate JSON config from current parameter values
-        String configJson = Config::getInstance().generateJsonConfig();
+        // Generate JSON config from current parameter values using exportToJson
+        String configJson = Config::getInstance().exportToJson();
 
         if (configJson.isEmpty()) {
             request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("Failed to generate config"));
@@ -675,11 +605,8 @@ inline void handleConfigUpload(AsyncWebServerRequest* request, const String& fil
         if (final) {
             LOGF(INFO, "Config upload finished: %s, total size: %u bytes", filename.c_str(), totalSize);
 
-            if (bool isValid = Config::getInstance().validateAndApplyFromJson(uploadBuffer)) {
+            if (bool isValid = Config::getInstance().importFromJson(uploadBuffer)) {
                 LOG(INFO, "Configuration validated and applied successfully");
-
-                // Sync to global variables (NVS save already handled by validateAndApplyFromJson)
-                Config::getInstance().syncGlobalVariables();
 
                 AsyncWebServerResponse* response = request->beginResponse(200, "application/json", R"({"success": true, "message": "Configuration validated and applied successfully.", "restart": true})");
 
@@ -721,173 +648,23 @@ inline void handleNvsDebug(AsyncWebServerRequest* request) {
         Preferences prefs;
         prefs.begin(STORAGE_NAMESPACE, true); // Read-only mode - use correct namespace
 
-        // NVS cleanup is now handled by the unified config system
-        // The Config system manages its own NVS keys
-        LOGF(INFO, "NVS cleanup handled by unified config system");
-
-        JsonObject storedValues = nvsData["stored_values"].to<JsonObject>();
-        JsonArray missingParams = nvsData["missing_parameters"].to<JsonArray>();
         JsonObject metadata = nvsData["metadata"].to<JsonObject>();
 
-        int totalParams = 0;
-        int storedParams = 0;
+        // Get basic NVS information without complex parameter iteration
+        // since the getAllParamDefs method is private
+        JsonArray allParamsArray = doc.to<JsonArray>();
+        Config::getInstance().getAllParameters(allParamsArray, "all");
 
-        auto& config = Config::getInstance();
-        const auto& parameters = Config::getInstance().getParameters();
-
-        for (const auto& param : parameters) {
-            const std::string& paramId = param.first;
-            const ParamDef& paramDef = param.second;
-            totalParams++;
-
-            // Generate hashed NVS key for the parameter (same method as Config system)
-            String nvsKey = Config::getInstance().generateNvsKey(paramId.c_str());
-
-            // Check if this parameter exists in NVS using the hashed key
-            bool existsInNvs = false;
-            JsonVariant value;
-
-            switch (paramDef.type) {
-                case ParamType::BOOL:
-                    {
-                        if (prefs.isKey(nvsKey.c_str())) {
-                            bool boolVal = prefs.getBool(nvsKey.c_str());
-                            storedValues[paramId.c_str()]["value"] = boolVal;
-                            storedValues[paramId.c_str()]["type"] = "bool";
-                            storedValues[paramId.c_str()]["nvs_key"] = nvsKey;
-                            existsInNvs = true;
-                            storedParams++;
-                        }
-                        break;
-                    }
-                case ParamType::INT:
-                case ParamType::ENUM:
-                    {
-                        if (prefs.isKey(nvsKey.c_str())) {
-                            int intVal = prefs.getInt(nvsKey.c_str());
-                            storedValues[paramId.c_str()]["value"] = intVal;
-                            storedValues[paramId.c_str()]["type"] = "int";
-                            storedValues[paramId.c_str()]["nvs_key"] = nvsKey;
-                            existsInNvs = true;
-                            storedParams++;
-                        }
-                        break;
-                    }
-                case ParamType::UINT8:
-                    {
-                        if (prefs.isKey(nvsKey.c_str())) {
-                            uint8_t uintVal = prefs.getUChar(nvsKey.c_str());
-                            storedValues[paramId.c_str()]["value"] = static_cast<int>(uintVal);
-                            storedValues[paramId.c_str()]["type"] = "uint8";
-                            storedValues[paramId.c_str()]["nvs_key"] = nvsKey;
-                            existsInNvs = true;
-                            storedParams++;
-                        }
-                        break;
-                    }
-                case ParamType::DOUBLE:
-                    {
-                        if (prefs.isKey(nvsKey.c_str())) {
-                            double doubleVal = prefs.getDouble(nvsKey.c_str());
-                            storedValues[paramId.c_str()]["value"] = doubleVal;
-                            storedValues[paramId.c_str()]["type"] = "double";
-                            storedValues[paramId.c_str()]["nvs_key"] = nvsKey;
-                            existsInNvs = true;
-                            storedParams++;
-                        }
-                        break;
-                    }
-                case ParamType::FLOAT:
-                    {
-                        if (prefs.isKey(nvsKey.c_str())) {
-                            float floatVal = prefs.getFloat(nvsKey.c_str());
-                            storedValues[paramId.c_str()]["value"] = floatVal;
-                            storedValues[paramId.c_str()]["type"] = "float";
-                            storedValues[paramId.c_str()]["nvs_key"] = nvsKey;
-                            existsInNvs = true;
-                            storedParams++;
-                        }
-                        break;
-                    }
-                case ParamType::STRING:
-                    {
-                        if (prefs.isKey(nvsKey.c_str())) {
-                            String stringVal = prefs.getString(nvsKey.c_str());
-                            storedValues[paramId.c_str()]["value"] = stringVal;
-                            storedValues[paramId.c_str()]["type"] = "string";
-                            storedValues[paramId.c_str()]["nvs_key"] = nvsKey;
-                            existsInNvs = true;
-                            storedParams++;
-                        }
-                        break;
-                    }
-            }
-
-            if (existsInNvs) {
-                // Add current global variable value for comparison
-                switch (paramDef.type) {
-                    case ParamType::BOOL:
-                        storedValues[paramId.c_str()]["current_global"] = *static_cast<bool*>(paramDef.globalVar);
-                        break;
-                    case ParamType::STRING:
-                        storedValues[paramId.c_str()]["current_global"] = static_cast<::String*>(paramDef.globalVar)->c_str();
-                        break;
-                    case ParamType::INT:
-                    case ParamType::ENUM:
-                        storedValues[paramId.c_str()]["current_global"] = *static_cast<int*>(paramDef.globalVar);
-                        break;
-                    case ParamType::UINT8:
-                        storedValues[paramId.c_str()]["current_global"] = *static_cast<uint8_t*>(paramDef.globalVar);
-                        break;
-                    case ParamType::DOUBLE:
-                        storedValues[paramId.c_str()]["current_global"] = *static_cast<double*>(paramDef.globalVar);
-                        break;
-                    case ParamType::FLOAT:
-                        storedValues[paramId.c_str()]["current_global"] = *static_cast<float*>(paramDef.globalVar);
-                        break;
-                }
-                storedValues[paramId.c_str()]["display_name"] = paramDef.displayName;
-            }
-            else {
-                JsonObject missingParam = missingParams.add<JsonObject>();
-                missingParam["id"] = paramId.c_str();
-                missingParam["display_name"] = paramDef.displayName;
-                missingParam["type"] = static_cast<int>(paramDef.type);
-                missingParam["expected_nvs_key"] = nvsKey.c_str();
-                switch (paramDef.type) {
-                    case ParamType::BOOL:
-                        missingParam["current_value"] = *static_cast<bool*>(paramDef.globalVar);
-                        break;
-                    case ParamType::STRING:
-                        missingParam["current_value"] = static_cast<::String*>(paramDef.globalVar)->c_str();
-                        break;
-                    case ParamType::INT:
-                    case ParamType::ENUM:
-                        missingParam["current_value"] = *static_cast<int*>(paramDef.globalVar);
-                        break;
-                    case ParamType::UINT8:
-                        missingParam["current_value"] = *static_cast<uint8_t*>(paramDef.globalVar);
-                        break;
-                    case ParamType::DOUBLE:
-                        missingParam["current_value"] = *static_cast<double*>(paramDef.globalVar);
-                        break;
-                    case ParamType::FLOAT:
-                        missingParam["current_value"] = *static_cast<float*>(paramDef.globalVar);
-                        break;
-                }
-            }
-        }
-
-        prefs.end();
-
-        // Add metadata
-        metadata["total_parameters"] = totalParams;
-        metadata["stored_parameters"] = storedParams;
-        metadata["missing_parameters"] = totalParams - storedParams;
-        metadata["storage_percentage"] = totalParams > 0 ? (storedParams * 100) / totalParams : 0;
+        metadata["total_parameters"] = allParamsArray.size();
         metadata["nvs_namespace"] = STORAGE_NAMESPACE;
         metadata["free_heap"] = ESP.getFreeHeap();
         metadata["min_free_heap"] = ESP.getMinFreeHeap();
+
+        // For now, provide basic info rather than detailed NVS analysis
+        nvsData["message"] = "NVS debugging simplified - parameter details available via /api/parameters";
+        nvsData["parameters_count"] = allParamsArray.size();
+
+        prefs.end();
 
         String debugJson;
         if (!safeSerializeJson(doc, debugJson)) {
@@ -895,7 +672,7 @@ inline void handleNvsDebug(AsyncWebServerRequest* request) {
             return;
         }
 
-        LOGF(INFO, "NVS Debug: %d/%d parameters stored in NVS", storedParams, totalParams);
+        LOGF(INFO, "NVS Debug: basic info returned for %d parameters", allParamsArray.size());
         request->send(200, "application/json", debugJson);
 
     } catch (const std::exception& e) {
@@ -1008,8 +785,10 @@ inline void handleNotFound(AsyncWebServerRequest* request) {
 
 void serverSetup() {
     logMemoryUsage("serverSetup start");
+    LOG(INFO, "Starting serverSetup - about to call setupApiRoutes()");
 
     setupApiRoutes();
+    LOG(INFO, "setupApiRoutes() completed successfully");
 
 #if FRONTEND_PREPROCESSING
     server.serveStatic("/css", LittleFS, "/css/", "max-age=604800"); // cache for one week
@@ -1063,13 +842,19 @@ void serverSetup() {
     });
 
     server.addHandler(&events);
+    LOG(INFO, "Added event handler to server");
 
-    LittleFS.begin();
+    // LittleFS is now initialized earlier in SystemInitializer
+    // LittleFS.begin(); // Removed - already initialized
+    LOG(INFO, "Using already initialized LittleFS");
 
     server.addMiddleware(&corsMiddleware);
+    LOG(INFO, "Added CORS middleware");
     server.addMiddleware(&authMiddleware);
+    LOG(INFO, "Added auth middleware");
 
     server.begin();
+    LOG(INFO, "Server.begin() called successfully");
 
     LOG(INFO, ("Server started at " + WiFi.localIP().toString()).c_str());
     logMemoryUsage("serverSetup complete");

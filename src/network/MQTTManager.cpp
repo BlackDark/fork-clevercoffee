@@ -8,7 +8,7 @@
 #include "../defaults.h"
 #include "../state/GlobalState.h"
 #include "../utils/brewUtils.h"
-#include "../utils/legacyUtils.h"
+#include "../utils/helperUtils.h"
 #include "Logger.h"
 #include <Arduino.h>
 #include <cstdio>
@@ -181,43 +181,48 @@ void MQTTManager::assignParameter(char* param, double value) {
         }
 
         const char* parameterId = it->second;
-        auto& config = Config::getInstance();
 
-        LOGF(DEBUG, "Getting MQTT parameter: %s", parameterId);
+        LOGF(DEBUG, "Setting MQTT parameter: %s", parameterId);
 
-        bool success = false;
-
-        // Try boolean first
-        if (value == 0.0 || value == 1.0) {
-            bool boolValue = (value == 1.0);
-            success = Config::getInstance().set<bool>(parameterId, boolValue);
+        // Handle special cases that don't map to config parameters
+        if (strcmp(parameterId, "STEAM_MODE") == 0) {
+            g_state.machine.steamFirstON = static_cast<bool>(value);
+            publish(param, number2string(value), true);
+            LOGF(DEBUG, "MQTT special parameter %s updated to %f", param, value);
+            return;
+        }
+        else if (strcmp(parameterId, "BACKFLUSH_ON") == 0) {
+            g_state.machine.backflushOn = static_cast<bool>(value);
+            publish(param, number2string(value), true);
+            LOGF(DEBUG, "MQTT special parameter %s updated to %f", param, value);
+            return;
+        }
+        else if (strcmp(parameterId, "TARE_ON") == 0) {
+            g_state.sensors.scaleTareOn = static_cast<bool>(value);
+            publish(param, number2string(value), true);
+            LOGF(DEBUG, "MQTT special parameter %s updated to %f", param, value);
+            return;
+        }
+        else if (strcmp(parameterId, "CALIBRATION_ON") == 0) {
+            g_state.sensors.scaleCalibrationOn = static_cast<bool>(value);
+            publish(param, number2string(value), true);
+            LOGF(DEBUG, "MQTT special parameter %s updated to %f", param, value);
+            return;
         }
 
-        // Try integer if boolean failed
-        if (!success && value == static_cast<int>(value)) {
-            int intValue = static_cast<int>(value);
-            success = Config::getInstance().set<int>(parameterId, intValue);
+        // Find the parameter definition for regular config parameters
+        ConfigParamDef* paramDef = Config::getInstance().findConfigParameter(parameterId);
+        if (!paramDef) {
+            LOGF(WARNING, "MQTT parameter %s not found in config", parameterId);
+            return;
         }
 
-        // Try uint8 if integer failed
-        if (!success && value >= 0 && value <= 255 && value == static_cast<uint8_t>(value)) {
-            uint8_t uint8Value = static_cast<uint8_t>(value);
-            success = Config::getInstance().set<uint8_t>(parameterId, uint8Value);
-            if (success && strcasecmp(param, "steamON") == 0) {
-                g_state.machine.steamFirstON = uint8Value;
-            }
-        }
+        // Use JsonVariant to set the value (this will handle type conversion)
+        JsonDocument valueDoc;
+        valueDoc.set(value);
+        JsonVariant valueVariant = valueDoc.as<JsonVariant>();
 
-        // Try float if uint8 failed
-        if (!success) {
-            float floatValue = static_cast<float>(value);
-            success = Config::getInstance().set<float>(parameterId, floatValue);
-        }
-
-        // Try double if float failed
-        if (!success) {
-            success = Config::getInstance().set<double>(parameterId, value);
-        }
+        bool success = paramDef->fromString(valueVariant);
 
         if (success) {
             publish(param, number2string(value), true);
@@ -272,46 +277,61 @@ int MQTTManager::writeSysParamsToMQTT(bool continueOnError) {
             bool paramFound = false;
 
             try {
-                if (Config::getInstance().hasParameter(parameterId)) {
-                    // Try different types
-                    bool boolVal;
-                    if (Config::getInstance().tryGet<bool>(parameterId, boolVal)) {
-                        snprintf(data, sizeof(data), "%d", boolVal ? 1 : 0);
-                        paramFound = true;
+                // Handle special cases that don't map to config parameters
+                if (strcmp(parameterId, "STEAM_MODE") == 0) {
+                    snprintf(data, sizeof(data), "%d", g_state.machine.steamFirstON ? 1 : 0);
+                    paramFound = true;
+                }
+                else if (strcmp(parameterId, "BACKFLUSH_ON") == 0) {
+                    snprintf(data, sizeof(data), "%d", g_state.machine.backflushOn ? 1 : 0);
+                    paramFound = true;
+                }
+                else if (strcmp(parameterId, "TARE_ON") == 0) {
+                    snprintf(data, sizeof(data), "%d", g_state.sensors.scaleTareOn ? 1 : 0);
+                    paramFound = true;
+                }
+                else if (strcmp(parameterId, "CALIBRATION_ON") == 0) {
+                    snprintf(data, sizeof(data), "%d", g_state.sensors.scaleCalibrationOn ? 1 : 0);
+                    paramFound = true;
+                }
+                else {
+                    ConfigParamDef* paramDef = Config::getInstance().findConfigParameter(parameterId);
+                    if (!paramDef) {
+                        if (!continueOnError) {
+                            LOGF(ERROR, "Parameter %s not found for MQTT topic %s", parameterId, mqttTopic);
+                            return 1;
+                        }
+                        LOGF(WARNING, "Parameter %s not found for MQTT topic %s, skipping", parameterId, mqttTopic);
+                        ++mqttVarsIt;
+                        continue;
                     }
-                    else {
-                        int intVal;
-                        if (Config::getInstance().tryGet<int>(parameterId, intVal)) {
-                            snprintf(data, sizeof(data), "%d", intVal);
+
+                    // Get the value as JSON and convert to string
+                    JsonDocument paramDoc;
+                    JsonObject paramObj = paramDoc.to<JsonObject>();
+                    paramDef->toJson(paramObj);
+
+                    if (paramObj["value"].is<JsonVariant>()) {
+                        JsonVariant valueVariant = paramObj["value"];
+                        if (valueVariant.is<bool>()) {
+                            snprintf(data, sizeof(data), "%d", valueVariant.as<bool>() ? 1 : 0);
                             paramFound = true;
                         }
-                        else {
-                            uint8_t uint8Val;
-                            if (Config::getInstance().tryGet<uint8_t>(parameterId, uint8Val)) {
-                                snprintf(data, sizeof(data), "%u", uint8Val);
-                                paramFound = true;
-                            }
-                            else {
-                                double doubleVal;
-                                if (Config::getInstance().tryGet<double>(parameterId, doubleVal)) {
-                                    snprintf(data, sizeof(data), "%.2f", doubleVal);
-                                    paramFound = true;
-                                }
-                                else {
-                                    float floatVal;
-                                    if (Config::getInstance().tryGet<float>(parameterId, floatVal)) {
-                                        snprintf(data, sizeof(data), "%.2f", floatVal);
-                                        paramFound = true;
-                                    }
-                                    else {
-                                        String stringVal;
-                                        if (Config::getInstance().tryGet<String>(parameterId, stringVal)) {
-                                            snprintf(data, sizeof(data), "%s", stringVal.c_str());
-                                            paramFound = true;
-                                        }
-                                    }
-                                }
-                            }
+                        else if (valueVariant.is<int>()) {
+                            snprintf(data, sizeof(data), "%d", valueVariant.as<int>());
+                            paramFound = true;
+                        }
+                        else if (valueVariant.is<double>()) {
+                            snprintf(data, sizeof(data), "%.2f", valueVariant.as<double>());
+                            paramFound = true;
+                        }
+                        else if (valueVariant.is<float>()) {
+                            snprintf(data, sizeof(data), "%.2f", valueVariant.as<float>());
+                            paramFound = true;
+                        }
+                        else if (valueVariant.is<const char*>()) {
+                            snprintf(data, sizeof(data), "%s", valueVariant.as<const char*>());
+                            paramFound = true;
                         }
                     }
                 }

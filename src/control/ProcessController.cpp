@@ -11,6 +11,7 @@
 #include "../network/MQTTManager.h"
 #include "../sensors/SensorManager.h"
 #include "../state/GlobalState.h"
+#include "../utils/legacyUtils.h"
 #include "Logger.h"
 #include <Arduino.h>
 
@@ -421,7 +422,6 @@ void ProcessController::handleBrewPIDDelay(int machineState) {
 
 void ProcessController::performSafeShutdown() {
     // Disable PID control
-    extern void setRuntimePidState(bool state);
     setRuntimePidState(false);
 
     // Turn off all relays

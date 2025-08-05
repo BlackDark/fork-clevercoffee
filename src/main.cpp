@@ -86,9 +86,6 @@ std::unique_ptr<LoopManager> loopManager = nullptr;
 #include "hotWaterHandler.h"
 #include "standby.h"
 
-// External functions from other modules
-extern void serverSetup();
-
 #include "display/displayTemplateManager.h"
 
 #include "powerHandler.h"

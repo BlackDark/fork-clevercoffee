@@ -11,7 +11,7 @@
 #include "../hardware/Relay.h"
 #include "../hotWaterHandler.h"
 #include "../network/MQTTManager.h"
-#include "../network/WebSocketEvents.h" // Isolated WebSocket functions without library conflicts
+#include "../network/WebServerManager.h"
 #include "../powerHandler.h"
 #include "../sensors/SensorManager.h"
 #include "../standby.h"
@@ -350,7 +350,7 @@ void LoopManager::updateNetwork() {
         if (g_state.network.mqttManager && g_state.network.mqttManager->isEnabled()) {
             g_state.network.mqttManager->setUpdateRunning(false);
 
-            if (getSignalStrength() > 1) {
+            if (g_state.network.cleverCoffeeWiFiManager->getSignalStrength() > 1) {
                 g_state.network.mqttManager->checkConnection();
 
                 // if screen is ready to refresh wait for next loop
@@ -415,10 +415,10 @@ void LoopManager::updateWebsite() {
         // send temperatures to website endpoint
         if (WiFi.status() == WL_CONNECTED && !g_state.network.offlineMode) {
             LOGF(DEBUG, "LoopManager: Sending temperature event: temp=%.2f, setpoint=%.2f, output=%.2f", g_state.process.temperature, Config::getInstance().brewSetpoint.get(), g_state.process.pidOutput / 10);
-            sendTempEvent(g_state.process.temperature, Config::getInstance().brewSetpoint.get(), g_state.process.pidOutput / 10); // pidOutput is promill, so /10 to get percent value
+            g_state.network.webServerManager->sendTempEvent(g_state.process.temperature, Config::getInstance().brewSetpoint.get(), g_state.process.pidOutput / 10); // pidOutput is promill, so /10 to get percent value
 
             if (Config::getInstance().hardwareSensorsScaleEnabled.get()) {
-                sendWeightEvent();
+                g_state.network.webServerManager->sendWeightEvent();
             }
             g_state.network.lastTempEvent = millis();
         }

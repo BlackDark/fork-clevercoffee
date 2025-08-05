@@ -14,6 +14,7 @@
 
 #include "defaults.h"
 #include "state/GlobalState.h"
+#include "Logger.h"
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <Preferences.h>
@@ -21,6 +22,7 @@
 #include <map>
 #include <memory>
 #include <type_traits>
+#include <vector>
 
 // ParamType enum for compatibility with old Config system
 enum class ParamType {
@@ -81,10 +83,6 @@ class BaseParamDef {
         }
 
         virtual void toJson(JsonObject& obj) const = 0;
-        virtual bool fromJson(const JsonVariant& value) = 0;
-        virtual bool loadFromNvs(Preferences& prefs) = 0;
-        virtual bool saveToNvs(Preferences& prefs) const = 0;
-        virtual void resetToDefault() = 0;
         virtual ParamType getParamType() const = 0;
 
     protected:
@@ -93,16 +91,45 @@ class BaseParamDef {
         int section_;
         int order_;
         String helpText_;
+
+        const void toJsonBase(JsonObject& obj) const {
+            obj["name"] = key_;
+            obj["label"] = displayName_;
+            obj["section"] = section_;
+            obj["order"] = order_;
+            obj["helpText"] = helpText_;
+            obj["type"] = static_cast<int>(getParamType());
+            //obj["id"] = key_;
+            //obj["key"] = key_;
+            // obj["type"] = getTypeName();
+        }
+};
+
+/**
+ * @brief Base class for all parameter definitions
+ */
+class ConfigParamDef : public BaseParamDef {
+    public:
+        ConfigParamDef(const String& key, const String& displayName, int section, int order, const String& helpText) :
+            BaseParamDef(key, displayName, section, order, helpText){
+        }
+
+        virtual ~ConfigParamDef() = default;
+
+        virtual bool fromString(const String& value) = 0;
+        virtual bool loadFromNvs(Preferences& prefs) = 0;
+        virtual bool saveToNvs(Preferences& prefs) const = 0;
+        virtual void resetToDefault() = 0;
 };
 
 /**
  * @brief Type-safe parameter definition for editable configuration values
  */
 template <typename T>
-class ParamDef : public BaseParamDef {
+class ParamDef : public ConfigParamDef {
     public:
         ParamDef(const String& key, T defaultValue, const String& displayName, int section, int order, const String& helpText, T minValue = T{}, T maxValue = T{}, std::function<bool()> showCondition = nullptr) :
-            BaseParamDef(key, displayName, section, order, helpText), defaultValue_(defaultValue), currentValue_(defaultValue), minValue_(minValue), maxValue_(maxValue), showCondition_(showCondition) {
+            ConfigParamDef(key, displayName, section, order, helpText), defaultValue_(defaultValue), currentValue_(defaultValue), minValue_(minValue), maxValue_(maxValue), showCondition_(showCondition) {
         }
 
         // Type-safe getter
@@ -113,25 +140,42 @@ class ParamDef : public BaseParamDef {
         // Type-safe setter with validation
         bool set(const T& value) {
             if (!isValid(value)) {
+                LOGF(WARNING, "Invalid value for parameter '%s'", key_.c_str());
                 return false;
             }
             currentValue_ = value;
-            markDirty();
-            return true;
-        }
 
-        // Validation
+            // Automatically save to NVS
+            Preferences prefs;
+            if (prefs.begin(STORAGE_NAMESPACE, false)) { // Read-write mode
+                bool saveSuccess = saveToNvs(prefs);
+                prefs.end();
+                if (!saveSuccess) {
+                    LOGF(ERROR, "Failed to save parameter '%s' to NVS", key_.c_str());
+                    return false;
+                } else {
+                    LOGF(DEBUG, "Parameter '%s' successfully saved to NVS", key_.c_str());
+                }
+            } else {
+                LOGF(ERROR, "Failed to open NVS namespace '%s' for parameter '%s'", STORAGE_NAMESPACE, key_.c_str());
+                return false;
+            }
+
+            return true;
+        }        // Validation
         bool isValid(const T& value) const {
-            if constexpr (std::is_arithmetic_v<T>) {
+            if constexpr (std::is_same_v<T, bool>) {
+                return true; // Boolean values are always valid
+            }
+            else if constexpr (std::is_arithmetic_v<T>) {
                 return value >= minValue_ && value <= maxValue_;
             }
-            return true; // String and bool types are always valid if they parse correctly
+            return true; // String and enum types are always valid if they parse correctly
         }
 
         // Reset to default
         void resetToDefault() override {
             currentValue_ = defaultValue_;
-            markDirty();
         }
 
         // Condition for showing in UI
@@ -155,13 +199,16 @@ class ParamDef : public BaseParamDef {
 
         // JSON serialization
         void toJson(JsonObject& obj) const override {
-            obj["key"] = key_;
-            obj["displayName"] = displayName_;
-            obj["section"] = section_;
-            obj["order"] = order_;
-            obj["helpText"] = helpText_;
-            obj["type"] = getTypeName();
-            obj["paramType"] = static_cast<int>(getParamType());
+            toJsonBase(obj);
+            //obj["id"] = key_;
+            //obj["key"] = key_;
+            // obj["name"] = key_;
+            // obj["label"] = displayName_;
+            // obj["section"] = section_;
+            // obj["order"] = order_;
+            // obj["helpText"] = helpText_;
+            // obj["type"] = getTypeName();
+            //obj["type"] = static_cast<int>(getParamType());
 
             if constexpr (std::is_same_v<T, bool>) {
                 obj["value"] = currentValue_;
@@ -179,25 +226,30 @@ class ParamDef : public BaseParamDef {
             }
         }
 
-        // JSON deserialization
-        bool fromJson(const JsonVariant& value) override {
+        // String deserialization - convert string to appropriate type
+        bool fromString(const String& value) override {
             T newValue;
             if constexpr (std::is_same_v<T, bool>) {
-                newValue = value.as<bool>();
+                // Convert string "true"/"false"/"1"/"0" to boolean
+                newValue = value.equalsIgnoreCase("true") || value == "1";
             }
             else if constexpr (std::is_same_v<T, int>) {
-                newValue = value.as<int>();
+                // Convert string to integer
+                newValue = value.toInt();
             }
             else if constexpr (std::is_same_v<T, double>) {
-                newValue = value.as<double>();
+                // Convert string to double
+                newValue = value.toDouble();
             }
             else if constexpr (std::is_same_v<T, String>) {
-                newValue = value.as<String>();
+                // Keep as string
+                newValue = value;
             }
             else {
                 return false;
             }
 
+            // Validate and set (which will auto-save)
             return set(newValue);
         }
 
@@ -230,26 +282,29 @@ class ParamDef : public BaseParamDef {
         }
 
         bool saveToNvs(Preferences& prefs) const override {
-            if (!isDirty_) {
-                return true; // No need to save
-            }
-
             String nvsKey = generateNvsKey();
 
+            bool success = false;
             if constexpr (std::is_same_v<T, bool>) {
-                return prefs.putBool(nvsKey.c_str(), currentValue_);
+                success = prefs.putBool(nvsKey.c_str(), currentValue_);
             }
             else if constexpr (std::is_same_v<T, int>) {
-                return prefs.putInt(nvsKey.c_str(), currentValue_);
+                success = prefs.putInt(nvsKey.c_str(), currentValue_);
             }
             else if constexpr (std::is_same_v<T, double>) {
-                return prefs.putDouble(nvsKey.c_str(), currentValue_);
+                success = prefs.putDouble(nvsKey.c_str(), currentValue_);
             }
             else if constexpr (std::is_same_v<T, String>) {
-                return prefs.putString(nvsKey.c_str(), currentValue_);
+                success = prefs.putString(nvsKey.c_str(), currentValue_);
             }
 
-            return false;
+            if (!success) {
+                LOGF(ERROR, "NVS write failed for parameter '%s' with key '%s'", key_.c_str(), nvsKey.c_str());
+            } else {
+                LOGF(DEBUG, "NVS write successful for parameter '%s' with key '%s'", key_.c_str(), nvsKey.c_str());
+            }
+
+            return success;
         }
 
     private:
@@ -258,14 +313,10 @@ class ParamDef : public BaseParamDef {
         T minValue_;
         T maxValue_;
         std::function<bool()> showCondition_;
-        mutable bool isDirty_ = false;
-
-        void markDirty() const {
-            isDirty_ = true;
-        }
 
         String generateNvsKey() const {
             // Generate short hash-based key for NVS (max 15 chars)
+            // Format: "p" + 8-char hex = 9 chars total (well under 15-char limit)
             uint32_t hash = fnv1a_hash(key_.c_str());
             return "p" + String(hash, HEX);
         }
@@ -297,13 +348,13 @@ class ParamDef : public BaseParamDef {
  * @brief Specialized parameter definition for enum types
  */
 template <typename E>
-class EnumParamDef : public BaseParamDef {
+class EnumParamDef : public ConfigParamDef {
         static_assert(std::is_enum_v<E>, "EnumParamDef requires an enum type");
 
     public:
         EnumParamDef(
             const String& key, E defaultValue, const String& displayName, int section, int order, const String& helpText, std::vector<std::pair<E, String>> options = {}, std::function<bool()> showCondition = nullptr) :
-            BaseParamDef(key, displayName, section, order, helpText), defaultValue_(defaultValue), currentValue_(defaultValue), options_(options), showCondition_(showCondition) {
+            ConfigParamDef(key, displayName, section, order, helpText), defaultValue_(defaultValue), currentValue_(defaultValue), options_(options), showCondition_(showCondition) {
         }
 
         E get() const {
@@ -312,14 +363,29 @@ class EnumParamDef : public BaseParamDef {
 
         bool set(const E& value) {
             if (!isValid(value)) {
+                LOGF(WARNING, "Invalid value for enum parameter '%s'", key_.c_str());
                 return false;
             }
             currentValue_ = value;
-            markDirty();
-            return true;
-        }
 
-        bool isValid(const E& value) const {
+            // Automatically save to NVS
+            Preferences prefs;
+            if (prefs.begin(STORAGE_NAMESPACE, false)) { // Read-write mode
+                bool saveSuccess = saveToNvs(prefs);
+                prefs.end();
+                if (!saveSuccess) {
+                    LOGF(ERROR, "Failed to save enum parameter '%s' to NVS", key_.c_str());
+                    return false;
+                } else {
+                    LOGF(DEBUG, "Enum parameter '%s' successfully saved to NVS", key_.c_str());
+                }
+            } else {
+                LOGF(ERROR, "Failed to open NVS namespace '%s' for enum parameter '%s'", STORAGE_NAMESPACE, key_.c_str());
+                return false;
+            }
+
+            return true;
+        }        bool isValid(const E& value) const {
             if (options_.empty()) {
                 return true; // No restrictions
             }
@@ -333,7 +399,6 @@ class EnumParamDef : public BaseParamDef {
 
         void resetToDefault() override {
             currentValue_ = defaultValue_;
-            markDirty();
         }
 
         bool shouldShow() const {
@@ -346,13 +411,8 @@ class EnumParamDef : public BaseParamDef {
         }
 
         void toJson(JsonObject& obj) const override {
-            obj["key"] = key_;
-            obj["displayName"] = displayName_;
-            obj["section"] = section_;
-            obj["order"] = order_;
-            obj["helpText"] = helpText_;
-            obj["type"] = "enum";
-            obj["paramType"] = static_cast<int>(ParamType::ENUM);
+            toJsonBase(obj);
+
             obj["value"] = static_cast<int>(currentValue_);
             obj["default"] = static_cast<int>(defaultValue_);
 
@@ -366,9 +426,24 @@ class EnumParamDef : public BaseParamDef {
             }
         }
 
-        bool fromJson(const JsonVariant& value) override {
-            int intValue = value.as<int>();
-            return set(static_cast<E>(intValue));
+        bool fromString(const String& value) override {
+            // For enum types, try to parse as integer first
+            int intValue = value.toInt();
+
+            // Check if the integer value is valid for this enum
+            E enumValue = static_cast<E>(intValue);
+            if (isValid(enumValue)) {
+                return set(enumValue);
+            }
+
+            // If integer parsing failed or is invalid, try to match by label
+            for (const auto& option : options_) {
+                if (option.second.equalsIgnoreCase(value)) {
+                    return set(option.first);
+                }
+            }
+
+            return false; // No valid conversion found
         }
 
         bool loadFromNvs(Preferences& prefs) override {
@@ -383,12 +458,16 @@ class EnumParamDef : public BaseParamDef {
         }
 
         bool saveToNvs(Preferences& prefs) const override {
-            if (!isDirty_) {
-                return true;
+            String nvsKey = generateNvsKey();
+            bool success = prefs.putInt(nvsKey.c_str(), static_cast<int>(currentValue_));
+
+            if (!success) {
+                LOGF(ERROR, "NVS write failed for enum parameter '%s' with key '%s'", key_.c_str(), nvsKey.c_str());
+            } else {
+                LOGF(DEBUG, "NVS write successful for enum parameter '%s' with key '%s'", key_.c_str(), nvsKey.c_str());
             }
 
-            String nvsKey = generateNvsKey();
-            return prefs.putInt(nvsKey.c_str(), static_cast<int>(currentValue_));
+            return success;
         }
 
     private:
@@ -396,13 +475,10 @@ class EnumParamDef : public BaseParamDef {
         E currentValue_;
         std::vector<std::pair<E, String>> options_;
         std::function<bool()> showCondition_;
-        mutable bool isDirty_ = false;
-
-        void markDirty() const {
-            isDirty_ = true;
-        }
 
         String generateNvsKey() const {
+            // Generate short hash-based key for NVS (max 15 chars)
+            // Format: "e" + 8-char hex = 9 chars total (well under 15-char limit)
             uint32_t hash = fnv1a_hash(key_.c_str());
             return "e" + String(hash, HEX);
         }
@@ -428,7 +504,7 @@ class EnumParamDef : public BaseParamDef {
  * 5. Hardware info (firmware version, MAC address)
  */
 template <typename T>
-class StateParamDef {
+class StateParamDef : public BaseParamDef {
     public:
         enum class UpdateFrequency {
             REALTIME,   // Updated every loop (temperature, PID output)
@@ -470,19 +546,28 @@ class StateParamDef {
         }
 
         // JSON serialization for web interface
-        void toJson(JsonObject& obj) const {
-            obj["key"] = key_;
-            obj["displayName"] = displayName_;
-            obj["section"] = section_;
-            obj["order"] = order_;
-            obj["helpText"] = helpText_;
-            obj["type"] = getTypeName();
+        void toJson(JsonObject& obj) const override {
+            toJsonBase(obj);
+
             obj["value"] = get();
             obj["readonly"] = true;
             obj["frequency"] = static_cast<int>(frequency_);
             if (!unit_.isEmpty()) {
                 obj["unit"] = unit_;
             }
+        }
+
+        ParamType getParamType() const override {
+            if constexpr (std::is_same_v<T, bool>)
+                return ParamType::BOOL;
+            else if constexpr (std::is_same_v<T, int>)
+                return ParamType::INT;
+            else if constexpr (std::is_same_v<T, double>)
+                return ParamType::DOUBLE;
+            else if constexpr (std::is_same_v<T, String>)
+                return ParamType::STRING;
+            else
+                return ParamType::INT; // fallback
         }
 
         const String& getKey() const {
@@ -542,7 +627,7 @@ class StateParamDef {
  * Example: PID Ki value computed from Kp and Tn
  */
 template <typename T>
-class ComputedParamDef {
+class ComputedParamDef : public BaseParamDef {
     public:
         ComputedParamDef(const String& key, const String& displayName, int section, int order, const String& helpText, std::function<T()> computation, const String& unit = "") :
             key_(key), displayName_(displayName), section_(section), order_(order), helpText_(helpText), computation_(computation), unit_(unit) {
@@ -552,19 +637,27 @@ class ComputedParamDef {
             return computation_();
         }
 
-        void toJson(JsonObject& obj) const {
-            obj["key"] = key_;
-            obj["displayName"] = displayName_;
-            obj["section"] = section_;
-            obj["order"] = order_;
-            obj["helpText"] = helpText_;
-            obj["type"] = getTypeName();
+        void toJson(JsonObject& obj) const override {
+            toJsonBase(obj);
             obj["value"] = get();
             obj["readonly"] = true;
             obj["computed"] = true;
             if (!unit_.isEmpty()) {
                 obj["unit"] = unit_;
             }
+        }
+
+        ParamType getParamType() const override {
+            if constexpr (std::is_same_v<T, bool>)
+                return ParamType::BOOL;
+            else if constexpr (std::is_same_v<T, int>)
+                return ParamType::INT;
+            else if constexpr (std::is_same_v<T, double>)
+                return ParamType::DOUBLE;
+            else if constexpr (std::is_same_v<T, String>)
+                return ParamType::STRING;
+            else
+                return ParamType::INT; // fallback
         }
 
         const String& getKey() const {
@@ -950,7 +1043,7 @@ class Config {
         void getAllStateParams(JsonArray& array);
 
         // Parameter lookup by key (for web interface)
-        BaseParamDef* findParameter(const String& key);
+        ConfigParamDef* findConfigParameter(const String& key);
 
     private:
         Config() = default;
@@ -958,5 +1051,5 @@ class Config {
         Config(const Config&) = delete;
         Config& operator=(const Config&) = delete;
 
-        std::vector<BaseParamDef*> getAllParamDefs();
+        std::vector<ConfigParamDef*> getAllConfigParams();
 };

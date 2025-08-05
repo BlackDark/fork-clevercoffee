@@ -5,10 +5,13 @@
 
 #pragma once
 
-#include <String>
-#include <WiFiManager.h>
+#include <Arduino.h>
 #include <functional>
 #include <memory>
+
+// Forward declarations
+class WiFiManager;
+class WiFiManagerParameter;
 
 /**
  * @class WiFiManager
@@ -27,7 +30,7 @@ class CleverCoffeeWiFiManager {
         /**
          * @brief Destructor - automatically cleans up WiFi resources
          */
-        ~CleverCoffeeWiFiManager() = default;
+        ~CleverCoffeeWiFiManager();
 
         // Disable copy constructor and assignment operator
         CleverCoffeeWiFiManager(const CleverCoffeeWiFiManager&) = delete;
@@ -83,8 +86,15 @@ class CleverCoffeeWiFiManager {
          */
         void checkAndMaintainConnection();
 
+        /**
+         * @brief Get the current signal strength in dBm
+         * @return Signal strength in dBm
+         */
+        int getSignalStrength();
+
     private:
-        ::WiFiManager wifiManager_; // Use global scope to avoid naming conflict
+        // ::WiFiManager wifiManager_; // Use global scope to avoid naming conflict
+        std::unique_ptr<WiFiManager> wifiManager_;
         WiFiManagerParameter* customHostname_;
         bool restartAfterAP_;
 

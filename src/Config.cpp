@@ -52,7 +52,7 @@ bool Config::loadAll() {
         return false;
     }
 
-    auto allParams = getAllParamDefs();
+    auto allParams = getAllConfigParams();
     int loadedCount = 0;
 
     for (auto* param : allParams) {
@@ -74,7 +74,7 @@ bool Config::saveAll() {
         return false;
     }
 
-    auto allParams = getAllParamDefs();
+    auto allParams = getAllConfigParams();
     int savedCount = 0;
 
     for (auto* param : allParams) {
@@ -92,25 +92,28 @@ bool Config::saveAll() {
 void Config::resetAllToDefaults() {
     LOG(INFO, "Config: Resetting all parameters to defaults");
 
-    auto allParams = getAllParamDefs();
-    for (auto* param : allParams) {
-        param->resetToDefault();
-    }
-
-    // Clear NVS storage
+    // Clear NVS storage first
     Preferences prefs;
     if (prefs.begin(STORAGE_NAMESPACE, false)) {
         prefs.clear();
         prefs.end();
         LOG(INFO, "Config: Cleared NVS storage");
     }
+
+    // Reset all parameters to defaults (this only updates memory)
+    auto allParams = getAllConfigParams();
+    for (auto* param : allParams) {
+        param->resetToDefault();
+    }
+
+    LOG(INFO, "Config: All parameters reset to defaults");
 }
 
 String Config::exportToJson() {
     JsonDocument doc;
     JsonObject root = doc.to<JsonObject>();
 
-    auto allParams = getAllParamDefs();
+    auto allParams = getAllConfigParams();
     for (auto* param : allParams) {
         JsonObject paramObj = root[param->getKey()].to<JsonObject>();
         param->toJson(paramObj);
@@ -133,14 +136,14 @@ bool Config::importFromJson(const String& json) {
         return false;
     }
 
-    auto allParams = getAllParamDefs();
+    auto allParams = getAllConfigParams();
     int updatedCount = 0;
 
     for (auto* param : allParams) {
-        if (doc.containsKey(param->getKey())) {
+        if (doc[param->getKey()].is<JsonObject>()) {
             JsonObject paramObj = doc[param->getKey()];
-            if (paramObj.containsKey("value")) {
-                if (param->fromJson(paramObj["value"])) {
+            if (paramObj["value"].is<JsonVariant>()) {
+                if (param->fromString(paramObj["value"])) {
                     updatedCount++;
                 }
                 else {
@@ -152,14 +155,11 @@ bool Config::importFromJson(const String& json) {
 
     LOGF(INFO, "Config: Imported %d/%d parameters from JSON", updatedCount, allParams.size());
 
-    // Save updated values
-    saveAll();
-
     return updatedCount > 0;
 }
 
 void Config::getAllParameters(JsonArray& array, const String& filter) {
-    auto allParams = getAllParamDefs();
+    auto allParams = getAllConfigParams();
 
     for (auto* param : allParams) {
         // Apply filter logic if needed
@@ -208,8 +208,8 @@ void Config::getAllStateParams(JsonArray& array) {
     */
 }
 
-BaseParamDef* Config::findParameter(const String& key) {
-    auto allParams = getAllParamDefs();
+ConfigParamDef* Config::findConfigParameter(const String& key) {
+    auto allParams = getAllConfigParams();
 
     for (auto* param : allParams) {
         if (param->getKey() == key) {
@@ -220,7 +220,7 @@ BaseParamDef* Config::findParameter(const String& key) {
     return nullptr;
 }
 
-std::vector<BaseParamDef*> Config::getAllParamDefs() {
+std::vector<ConfigParamDef*> Config::getAllConfigParams() {
     return {
         // === PID PARAMETERS (Section 0) ===
         &pidEnabled,

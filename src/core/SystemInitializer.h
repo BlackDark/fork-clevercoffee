@@ -14,6 +14,8 @@ class DisplayManager;
 class HardwareManager;
 class MQTTManager;
 class SensorManager;
+class WebServerManager;
+class CleverCoffeeWiFiManager;
 
 /**
  * @class SystemInitializer
@@ -32,7 +34,7 @@ class SystemInitializer {
         /**
          * @brief Destructor - automatically cleans up resources
          */
-        ~SystemInitializer() = default;
+        ~SystemInitializer();
 
         // Disable copy constructor and assignment operator
         SystemInitializer(const SystemInitializer&) = delete;
@@ -94,6 +96,14 @@ class SystemInitializer {
          */
         class CleverCoffeeWiFiManager* getWiFiManager() const;
 
+        /**
+         * @brief Get web server manager
+         * @return Pointer to web server manager (may be null)
+         */
+        WebServerManager* getWebServerManager() const {
+            return webServerManager_.get();
+        }
+
     private:
         // Initialization state
         bool systemInitialized_;
@@ -105,6 +115,7 @@ class SystemInitializer {
         std::unique_ptr<MQTTManager> mqttManager_;
         std::unique_ptr<SensorManager> sensorManager_;
         std::unique_ptr<CleverCoffeeWiFiManager> cleverCoffeeWiFiManager_;
+        std::unique_ptr<WebServerManager> webServerManager_;
 
         // Initialization phases
         bool initializeLogger();
