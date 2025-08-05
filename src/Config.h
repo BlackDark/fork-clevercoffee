@@ -12,9 +12,9 @@
 
 #pragma once
 
+#include "Logger.h"
 #include "defaults.h"
 #include "state/GlobalState.h"
-#include "Logger.h"
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <Preferences.h>
@@ -99,9 +99,9 @@ class BaseParamDef {
             obj["order"] = order_;
             obj["helpText"] = helpText_;
             obj["type"] = static_cast<int>(getParamType());
-            //obj["id"] = key_;
-            //obj["key"] = key_;
-            // obj["type"] = getTypeName();
+            // obj["id"] = key_;
+            // obj["key"] = key_;
+            //  obj["type"] = getTypeName();
         }
 };
 
@@ -111,7 +111,7 @@ class BaseParamDef {
 class ConfigParamDef : public BaseParamDef {
     public:
         ConfigParamDef(const String& key, const String& displayName, int section, int order, const String& helpText) :
-            BaseParamDef(key, displayName, section, order, helpText){
+            BaseParamDef(key, displayName, section, order, helpText) {
         }
 
         virtual ~ConfigParamDef() = default;
@@ -153,16 +153,18 @@ class ParamDef : public ConfigParamDef {
                 if (!saveSuccess) {
                     LOGF(ERROR, "Failed to save parameter '%s' to NVS", key_.c_str());
                     return false;
-                } else {
+                }
+                else {
                     LOGF(DEBUG, "Parameter '%s' successfully saved to NVS", key_.c_str());
                 }
-            } else {
+            }
+            else {
                 LOGF(ERROR, "Failed to open NVS namespace '%s' for parameter '%s'", STORAGE_NAMESPACE, key_.c_str());
                 return false;
             }
 
             return true;
-        }        // Validation
+        } // Validation
         bool isValid(const T& value) const {
             if constexpr (std::is_same_v<T, bool>) {
                 return true; // Boolean values are always valid
@@ -200,15 +202,15 @@ class ParamDef : public ConfigParamDef {
         // JSON serialization
         void toJson(JsonObject& obj) const override {
             toJsonBase(obj);
-            //obj["id"] = key_;
-            //obj["key"] = key_;
-            // obj["name"] = key_;
-            // obj["label"] = displayName_;
-            // obj["section"] = section_;
-            // obj["order"] = order_;
-            // obj["helpText"] = helpText_;
-            // obj["type"] = getTypeName();
-            //obj["type"] = static_cast<int>(getParamType());
+            // obj["id"] = key_;
+            // obj["key"] = key_;
+            //  obj["name"] = key_;
+            //  obj["label"] = displayName_;
+            //  obj["section"] = section_;
+            //  obj["order"] = order_;
+            //  obj["helpText"] = helpText_;
+            //  obj["type"] = getTypeName();
+            // obj["type"] = static_cast<int>(getParamType());
 
             if constexpr (std::is_same_v<T, bool>) {
                 obj["value"] = currentValue_;
@@ -300,7 +302,8 @@ class ParamDef : public ConfigParamDef {
 
             if (!success) {
                 LOGF(ERROR, "NVS write failed for parameter '%s' with key '%s'", key_.c_str(), nvsKey.c_str());
-            } else {
+            }
+            else {
                 LOGF(DEBUG, "NVS write successful for parameter '%s' with key '%s'", key_.c_str(), nvsKey.c_str());
             }
 
@@ -376,16 +379,19 @@ class EnumParamDef : public ConfigParamDef {
                 if (!saveSuccess) {
                     LOGF(ERROR, "Failed to save enum parameter '%s' to NVS", key_.c_str());
                     return false;
-                } else {
+                }
+                else {
                     LOGF(DEBUG, "Enum parameter '%s' successfully saved to NVS", key_.c_str());
                 }
-            } else {
+            }
+            else {
                 LOGF(ERROR, "Failed to open NVS namespace '%s' for enum parameter '%s'", STORAGE_NAMESPACE, key_.c_str());
                 return false;
             }
 
             return true;
-        }        bool isValid(const E& value) const {
+        }
+        bool isValid(const E& value) const {
             if (options_.empty()) {
                 return true; // No restrictions
             }
@@ -463,7 +469,8 @@ class EnumParamDef : public ConfigParamDef {
 
             if (!success) {
                 LOGF(ERROR, "NVS write failed for enum parameter '%s' with key '%s'", key_.c_str(), nvsKey.c_str());
-            } else {
+            }
+            else {
                 LOGF(DEBUG, "NVS write successful for enum parameter '%s' with key '%s'", key_.c_str(), nvsKey.c_str());
             }
 
@@ -779,26 +786,27 @@ class Config {
 
         EnumParamDef<Hardware::SwitchType> hardwareSwitchesBrewType{"hardware.switches.brew.type", Hardware::SwitchType::TOGGLE, "Brew Switch Type", 13, 2202, "Type of brew switch connected", getSwitchTypeOptions()};
 
-        EnumParamDef<Hardware::SwitchMode> hardwareSwitchesBrewMode{
-            "hardware.switches.brew.mode", Hardware::SwitchMode::NORMALLY_OPEN, "Brew Switch Mode", 13, 2203, "Electrical configuration of brew switch", getSwitchModeOptions()};
+        EnumParamDef<Hardware::SwitchMode> hardwareSwitchesBrewMode{"hardware.switches.brew.mode", Hardware::SwitchMode::NORMALLY_OPEN, "Brew Switch Mode", 13, 2203, "Electrical configuration of brew switch",
+                                                                    getSwitchModeOptions()};
 
         ParamDef<bool> hardwareSwitchesSteamEnabled{"hardware.switches.steam.enabled", false, "Enable Steam Switch", 13, 2211, "Enable physical steam switch"};
 
         EnumParamDef<Hardware::SwitchType> hardwareSwitchesSteamType{"hardware.switches.steam.type", Hardware::SwitchType::TOGGLE, "Steam Switch Type", 13, 2212, "Type of steam switch connected", getSwitchTypeOptions()};
 
-        EnumParamDef<Hardware::SwitchMode> hardwareSwitchesSteamMode{
-            "hardware.switches.steam.mode", Hardware::SwitchMode::NORMALLY_OPEN, "Steam Switch Mode", 13, 2213, "Electrical configuration of steam switch", getSwitchModeOptions()};
+        EnumParamDef<Hardware::SwitchMode> hardwareSwitchesSteamMode{"hardware.switches.steam.mode", Hardware::SwitchMode::NORMALLY_OPEN, "Steam Switch Mode", 13, 2213, "Electrical configuration of steam switch",
+                                                                     getSwitchModeOptions()};
 
         ParamDef<bool> hardwareSwitchesPowerEnabled{"hardware.switches.power.enabled", false, "Enable Power Switch", 13, 2221, "Enable physical power switch"};
 
         EnumParamDef<Hardware::SwitchType> hardwareSwitchesPowerType{"hardware.switches.power.type", Hardware::SwitchType::TOGGLE, "Power Switch Type", 13, 2222, "Type of power switch connected", getSwitchTypeOptions()};
 
-        EnumParamDef<Hardware::SwitchMode> hardwareSwitchesPowerMode{
-            "hardware.switches.power.mode", Hardware::SwitchMode::NORMALLY_OPEN, "Power Switch Mode", 13, 2223, "Electrical configuration of power switch", getSwitchModeOptions()};
+        EnumParamDef<Hardware::SwitchMode> hardwareSwitchesPowerMode{"hardware.switches.power.mode", Hardware::SwitchMode::NORMALLY_OPEN, "Power Switch Mode", 13, 2223, "Electrical configuration of power switch",
+                                                                     getSwitchModeOptions()};
 
         ParamDef<bool> hardwareSwitchesHotWaterEnabled{"hardware.switches.hot_water.enabled", false, "Enable Water Switch", 13, 2231, "Enable physical water switch"};
 
-        EnumParamDef<Hardware::SwitchType> hardwareSwitchesHotWaterType{"hardware.switches.hot_water.type", Hardware::SwitchType::TOGGLE, "Water Switch Type", 13, 2232, "Type of water switch connected", getSwitchTypeOptions()};
+        EnumParamDef<Hardware::SwitchType> hardwareSwitchesHotWaterType{"hardware.switches.hot_water.type", Hardware::SwitchType::TOGGLE, "Water Switch Type", 13, 2232,
+                                                                        "Type of water switch connected",   getSwitchTypeOptions()};
 
         EnumParamDef<Hardware::SwitchMode> hardwareSwitchesHotWaterMode{
             "hardware.switches.hot_water.mode", Hardware::SwitchMode::NORMALLY_OPEN, "Water Switch Mode", 13, 2233, "Electrical configuration of water switch", getSwitchModeOptions()};
@@ -817,8 +825,8 @@ class Config {
         ParamDef<bool> hardwareLedsSteamInverted{"hardware.leds.steam.inverted", false, "Invert Steam LED", 4, 2322, "Invert the steam LED logic"};
 
         // === HARDWARE SENSORS PARAMETERS (Section 15 & 4) ===
-        EnumParamDef<Hardware::TemperatureSensorType> hardwareSensorsTemperatureType{
-            "hardware.sensors.temperature.type", Hardware::TemperatureSensorType::TSIC_306, "Temperature Sensor Type", 15, 2401, "Type of temperature sensor connected", getTemperatureSensorTypeOptions()};
+        EnumParamDef<Hardware::TemperatureSensorType> hardwareSensorsTemperatureType{"hardware.sensors.temperature.type",    Hardware::TemperatureSensorType::TSIC_306, "Temperature Sensor Type", 15, 2401,
+                                                                                     "Type of temperature sensor connected", getTemperatureSensorTypeOptions()};
 
         ParamDef<bool> hardwareSensorsPressureEnabled{"hardware.sensors.pressure.enabled", false, "Enable Pressure Sensor", 4, 2411, "Enable pressure sensor functionality"};
 
@@ -832,7 +840,8 @@ class Config {
         ParamDef<int> hardwareSensorsScaleSamples{"hardware.sensors.scale.samples", SCALE_SAMPLES, "Scale Samples", 4, 2502, "Number of samples used for calibration", SCALE_SAMPLES_MIN, SCALE_SAMPLES_MAX};
 
         EnumParamDef<Hardware::ScaleType> hardwareSensorsScaleType{
-            "hardware.sensors.scale.type", Hardware::ScaleType::HX711_DUAL, "Scale Type", 15, 2503, "Integrated HX711-based scale with different load cell configurations or Bluetooth Low Energy scales", getScaleTypeOptions()};
+            "hardware.sensors.scale.type", Hardware::ScaleType::HX711_DUAL, "Scale Type", 15, 2503, "Integrated HX711-based scale with different load cell configurations or Bluetooth Low Energy scales",
+            getScaleTypeOptions()};
 
         ParamDef<double> hardwareSensorsScaleCalibration{
             "hardware.sensors.scale.calibration", SCALE_CALIBRATION_FACTOR, "Scale Calibration", 4, 2504, "Raw data is divided by this value to convert to readable data", SCALE_CALIBRATION_MIN, SCALE_CALIBRATION_MAX};
@@ -844,7 +853,8 @@ class Config {
             "hardware.sensors.scale.known_weight", SCALE_KNOWN_WEIGHT, "Scale Known Weight", 4, 2506, "Calibration weight for scale (weight of the tray)", SCALE_KNOWN_WEIGHT_MIN, SCALE_KNOWN_WEIGHT_MAX};
 
         // === DISPLAY PARAMETERS (Section 5) ===
-        EnumParamDef<System::DisplayTemplate> displayTemplate{"display.template", System::DisplayTemplate::STANDARD, "Display Template", 5, 901, "Set the display template, changes require a reboot", getDisplayTemplateOptions()};
+        EnumParamDef<System::DisplayTemplate> displayTemplate{"display.template",         System::DisplayTemplate::STANDARD, "Display Template", 5, 901, "Set the display template, changes require a reboot",
+                                                              getDisplayTemplateOptions()};
 
         ParamDef<bool> displayInverted{"display.inverted", false, "Invert Display", 5, 902, "Set the display rotation, changes require a reboot"};
 

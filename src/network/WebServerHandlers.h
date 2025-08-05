@@ -6,9 +6,9 @@
 #pragma once
 
 #include "Config.h"
+#include "Logger.h"
 #include "state/GlobalState.h"
 #include "utils/legacyUtils.h"
-#include "Logger.h"
 
 /**
  * @brief Start brewing process
@@ -24,7 +24,8 @@ inline void handleBrewStart() {
         g_state.sensors.currBrewSwitchState = kBrewSwitchShortPressed;
         g_state.sensors.brewSwitchWasOff = true;
         LOG(INFO, "Brew started via web API");
-    } else {
+    }
+    else {
         LOG(WARNING, "Cannot start brew - already brewing or not idle");
     }
 }
@@ -43,7 +44,8 @@ inline void handleBrewStop() {
         g_state.sensors.currBrewSwitchState = kBrewSwitchIdle;
         g_state.sensors.currBrewState = kBrewFinished;
         LOG(INFO, "Brew stopped via web API");
-    } else {
+    }
+    else {
         LOG(WARNING, "No active brew to stop");
     }
 }
@@ -55,7 +57,8 @@ inline void handleSteamStart() {
     if (!g_state.machine.steamON) {
         setSteamMode(true);
         LOG(INFO, "Steam mode started via web API");
-    } else {
+    }
+    else {
         LOG(WARNING, "Steam mode already active");
     }
 }
@@ -67,7 +70,8 @@ inline void handleSteamStop() {
     if (g_state.machine.steamON) {
         setSteamMode(false);
         LOG(INFO, "Steam mode stopped via web API");
-    } else {
+    }
+    else {
         LOG(WARNING, "Steam mode not active");
     }
 }
@@ -89,7 +93,8 @@ inline void handleHotWaterStop() {
     if (g_state.machine.machineState == LegacyMachineState::kHotWater) {
         g_state.machine.machineState = LegacyMachineState::kPidNormal;
         LOG(INFO, "Hot water mode stopped via web API");
-    } else {
+    }
+    else {
         LOG(WARNING, "Hot water mode not active");
     }
 }

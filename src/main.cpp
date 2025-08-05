@@ -236,7 +236,6 @@ void loop() {
     }
 }
 
-
 void checkWifi() {
     if (g_state.network.cleverCoffeeWiFiManager) {
         g_state.network.cleverCoffeeWiFiManager->checkAndMaintainConnection();

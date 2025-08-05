@@ -7,8 +7,8 @@
 #pragma once
 
 #include "../Config.h"
-#include "../state/GlobalState.h"
 #include "../network/CleverCoffeeWiFiManager.h"
+#include "../state/GlobalState.h"
 #include "../utils/legacyUtils.h"
 #include "bitmaps.h"
 #include "languages.h"

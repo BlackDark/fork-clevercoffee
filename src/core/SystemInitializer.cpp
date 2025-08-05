@@ -121,7 +121,8 @@ bool SystemInitializer::initialize() {
     if (LittleFS.totalBytes() > 0) {
         double fsUsage = (static_cast<double>(LittleFS.usedBytes()) / LittleFS.totalBytes()) * 100;
         LOGF(INFO, "LittleFS: %d%% (used %ld bytes from %ld bytes)", static_cast<int>(ceil(fsUsage)), LittleFS.usedBytes(), LittleFS.totalBytes());
-    } else {
+    }
+    else {
         LOG(WARNING, "LittleFS not available or not initialized");
     }
 
@@ -284,7 +285,8 @@ bool SystemInitializer::initializeNetworking() {
         // Initialize LittleFS first - this was causing the hang
         if (!LittleFS.begin()) {
             LOG(WARNING, "LittleFS initialization failed, web server will run without file system");
-        } else {
+        }
+        else {
             LOG(INFO, "LittleFS initialized successfully");
         }
 
@@ -295,7 +297,8 @@ bool SystemInitializer::initializeNetworking() {
         if (!webServerManager_->initialize(true)) {
             LOG(ERROR, "WebServerManager initialization failed");
             webServerManager_.reset();
-        } else {
+        }
+        else {
             LOG(INFO, "WebServerManager initialized successfully");
         }
 

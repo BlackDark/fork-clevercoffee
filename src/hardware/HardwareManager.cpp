@@ -5,9 +5,9 @@
 
 #include "HardwareManager.h"
 #include "../Config.h"
+#include "../utils/memoryUtils.h"
 #include "Logger.h"
 #include "pinmapping.h"
-#include "../utils/memoryUtils.h"
 
 HardwareManager::HardwareManager() :
     heaterRelayPin_(PIN_HEATER, GPIOPin::OUT), pumpRelayPin_(PIN_PUMP, GPIOPin::OUT), valveRelayPin_(PIN_VALVE, GPIOPin::OUT) {

@@ -444,7 +444,8 @@ inline void handleParameters(AsyncWebServerRequest* request) {
                                 LOGF(WARNING, "Failed to update parameter '%s'", varName.c_str());
                                 hasErrors = true;
                             }
-                        } else {
+                        }
+                        else {
                             LOGF(WARNING, "Parameter '%s' not found", varName.c_str());
                             hasErrors = true;
                         }

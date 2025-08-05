@@ -192,7 +192,7 @@ void LoopManager::updateWaterTank() {
     else {
         // Fallback: direct call to water tank check
         // This should normally not be needed if timer is set up correctly
-        //checkWaterTank();
+        // checkWaterTank();
         LOG(WARNING, "LoopManager: Water tank timer not initialized. Can not update water tank status.");
     }
 }

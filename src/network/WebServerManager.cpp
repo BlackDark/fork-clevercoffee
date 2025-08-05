@@ -5,11 +5,11 @@
 
 #include "WebServerManager.h"
 #include "../Config.h"
+#include "../network/CleverCoffeeWiFiManager.h"
 #include "../state/GlobalState.h"
 #include "../utils/helperUtils.h"
-#include "WebServerHandlers.h"
-#include "../network/CleverCoffeeWiFiManager.h"
 #include "Logger.h"
+#include "WebServerHandlers.h"
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <FS.h>
@@ -154,9 +154,8 @@ bool safeSerializeJson(const JsonDocument& doc, String& output) {
     }
 }
 
-WebServerManager::WebServerManager(uint16_t port)
-    : server_(nullptr), events_(nullptr), corsMiddleware_(nullptr), authMiddleware_(nullptr),
-      port_(port), isRunning_(false), littleFSAvailable_(false) {
+WebServerManager::WebServerManager(uint16_t port) :
+    server_(nullptr), events_(nullptr), corsMiddleware_(nullptr), authMiddleware_(nullptr), port_(port), isRunning_(false), littleFSAvailable_(false) {
 }
 
 WebServerManager::~WebServerManager() {
@@ -181,7 +180,8 @@ bool WebServerManager::initialize(bool littleFSReady) {
         if (LittleFS.begin()) {
             littleFSAvailable_ = true;
             LOG(INFO, "LittleFS initialized by WebServerManager");
-        } else {
+        }
+        else {
             LOG(WARNING, "LittleFS not available - static files will not be served");
         }
     }
@@ -209,9 +209,7 @@ bool WebServerManager::initialize(bool littleFSReady) {
         }
 
         // Handle 404 errors
-        server_->onNotFound([this](AsyncWebServerRequest* request) {
-            handleNotFound(request);
-        });
+        server_->onNotFound([this](AsyncWebServerRequest* request) { handleNotFound(request); });
 
         // Start server
         server_->begin();
@@ -269,7 +267,8 @@ void WebServerManager::setupMiddleware() {
             authMiddleware_->setRealm("CleverCoffee");
             server_->addMiddleware(authMiddleware_);
             LOG(INFO, "Web authentication enabled");
-        } else {
+        }
+        else {
             LOG(WARNING, "Web authentication enabled but credentials not set");
         }
     }
@@ -287,7 +286,8 @@ void WebServerManager::setupEventSource() {
     events_->onConnect([](AsyncEventSourceClient* client) {
         if (client->lastId()) {
             LOGF(DEBUG, "Client reconnected with last message ID: %u", client->lastId());
-        } else {
+        }
+        else {
             LOG(DEBUG, "New client connected to event source");
         }
 
@@ -337,10 +337,12 @@ void WebServerManager::setupApiRoutes() {
             String body = request->getParam("body", true)->value();
             if (Config::getInstance().importFromJson(body)) {
                 request->send(200, "application/json", "{\"success\":true}");
-            } else {
+            }
+            else {
                 request->send(400, "application/json", "{\"error\":\"Invalid configuration\"}");
             }
-        } else {
+        }
+        else {
             request->send(400, "application/json", "{\"error\":\"No body provided\"}");
         }
     });
@@ -412,18 +414,18 @@ void WebServerManager::setupApiRoutes() {
                 g_state.process.setpoint = newSetpoint;
                 Config::getInstance().brewSetpoint.set(newSetpoint);
                 request->send(200, "application/json", "{\"success\":true}");
-            } else {
+            }
+            else {
                 request->send(400, "application/json", "{\"error\":\"Invalid setpoint value\"}");
             }
-        } else {
+        }
+        else {
             request->send(400, "application/json", "{\"error\":\"No value provided\"}");
         }
     });
 
     // Health check endpoint
-    server_->on("/api/health", HTTP_GET, [](AsyncWebServerRequest* request) {
-        request->send(200);
-    });
+    server_->on("/api/health", HTTP_GET, [](AsyncWebServerRequest* request) { request->send(200); });
 
     // Steam control endpoints
     server_->on("/api/steam", HTTP_POST, [](AsyncWebServerRequest* request) {
@@ -706,7 +708,8 @@ void WebServerManager::setupApiRoutes() {
     });
 
     // Config upload endpoint with file upload handler
-    server_->on("/api/config/upload", HTTP_POST,
+    server_->on(
+        "/api/config/upload", HTTP_POST,
         [](AsyncWebServerRequest* request) {
             // Response handled by upload handler
         },
@@ -734,16 +737,16 @@ void WebServerManager::setupApiRoutes() {
                     if (bool isValid = Config::getInstance().importFromJson(uploadBuffer)) {
                         LOG(INFO, "Configuration validated and applied successfully");
 
-                        AsyncWebServerResponse* response = request->beginResponse(200, "application/json",
-                            R"({"success": true, "message": "Configuration validated and applied successfully.", "restart": true})");
+                        AsyncWebServerResponse* response = request->beginResponse(200, "application/json", R"({"success": true, "message": "Configuration validated and applied successfully.", "restart": true})");
 
                         response->addHeader("Connection", "close");
                         request->send(response);
-                    } else {
+                    }
+                    else {
                         LOG(ERROR, "Configuration validation failed - invalid data or out of range values");
 
-                        AsyncWebServerResponse* response = request->beginResponse(400, "application/json",
-                            R"({"success": false, "message": "Configuration validation failed. Please check that all parameter values are within valid ranges.", "restart": true})");
+                        AsyncWebServerResponse* response = request->beginResponse(
+                            400, "application/json", R"({"success": false, "message": "Configuration validation failed. Please check that all parameter values are within valid ranges.", "restart": true})");
 
                         response->addHeader("Connection", "close");
                         request->send(response);
@@ -818,7 +821,8 @@ void WebServerManager::setupApiRoutes() {
                 }
 
                 request->send(200, "application/json", json);
-            } else if (request->method() == HTTP_POST) {
+            }
+            else if (request->method() == HTTP_POST) {
                 // Update parameters from form data
                 int requestParams = request->params();
                 LOGF(INFO, "handleParameters POST: Received %d parameters", requestParams);
@@ -843,11 +847,13 @@ void WebServerManager::setupApiRoutes() {
                                 if (updateSuccess) {
                                     hasUpdates = true;
                                     LOGF(INFO, "handleParameters POST: Successfully updated and saved parameter '%s' to '%s'", varName.c_str(), value.c_str());
-                                } else {
+                                }
+                                else {
                                     LOGF(WARNING, "Failed to update parameter '%s'", varName.c_str());
                                     hasErrors = true;
                                 }
-                            } else {
+                            }
+                            else {
                                 LOGF(WARNING, "Parameter '%s' not found", varName.c_str());
                                 hasErrors = true;
                             }
@@ -860,12 +866,15 @@ void WebServerManager::setupApiRoutes() {
 
                 if (hasErrors) {
                     request->send(400, "application/json", "{\"error\":\"Some parameter updates failed\"}");
-                } else if (hasUpdates) {
+                }
+                else if (hasUpdates) {
                     request->send(200, "application/json", "{\"success\":true,\"message\":\"Parameters updated and saved\"}");
-                } else {
+                }
+                else {
                     request->send(200, "application/json", "{\"success\":true,\"message\":\"No parameters updated\"}");
                 }
-            } else {
+            }
+            else {
                 request->send(405, "application/json", "{\"error\":\"Method not allowed\"}");
             }
         } catch (const std::exception& e) {
@@ -876,7 +885,6 @@ void WebServerManager::setupApiRoutes() {
 
     LOG(INFO, "API routes setup complete");
 }
-
 
 #if !FRONTEND_PREPROCESSING
 bool WebServerManager::serveGzippedFile(AsyncWebServerRequest* request, const String& path) {
@@ -1018,13 +1026,17 @@ String WebServerManager::templateProcessor(const String& var) {
     // Process template variables for HTML files
     if (var == "HOSTNAME") {
         return Config::getInstance().systemHostname.get();
-    } else if (var == "VERSION") {
+    }
+    else if (var == "VERSION") {
         return "CleverCoffee v2.0";
-    } else if (var == "TEMP") {
+    }
+    else if (var == "TEMP") {
         return String(g_state.process.temperature, 1);
-    } else if (var == "SETPOINT") {
+    }
+    else if (var == "SETPOINT") {
         return String(g_state.process.setpoint, 1);
-    } else if (var == "UPTIME") {
+    }
+    else if (var == "UPTIME") {
         unsigned long uptimeMillis = millis();
         unsigned long uptimeSeconds = uptimeMillis / 1000;
         unsigned long days = uptimeSeconds / 86400;
@@ -1053,13 +1065,9 @@ String WebServerManager::getValue(const String& varName) {
 
 String WebServerManager::getHeader(const String& varName) {
     static const std::unordered_map<std::string, const char*> headers = {
-        {"FONTAWESOME", R"(<link href="/css/fontawesome-6.2.1.min.css" rel="stylesheet">)"},
-        {"BOOTSTRAP", R"(<link href="/css/bootstrap-5.2.3.min.css" rel="stylesheet">)"},
-        {"BOOTSTRAP_BUNDLE", "<script src=\"/js/bootstrap.bundle.5.2.3.min.js\"></script>"},
-        {"VUEJS", "<script src=\"/js/vue.3.2.47.min.js\"></script>"},
-        {"VUE_NUMBER_INPUT", "<script src=\"/js/vue-number-input.min.js\"></script>"},
-        {"UPLOT", R"(<script src="/js/uPlot.1.6.28.min.js"></script><link rel="stylesheet" href="/css/uPlot.min.css">)"}
-    };
+        {"FONTAWESOME", R"(<link href="/css/fontawesome-6.2.1.min.css" rel="stylesheet">)"}, {"BOOTSTRAP", R"(<link href="/css/bootstrap-5.2.3.min.css" rel="stylesheet">)"},
+        {"BOOTSTRAP_BUNDLE", "<script src=\"/js/bootstrap.bundle.5.2.3.min.js\"></script>"}, {"VUEJS", "<script src=\"/js/vue.3.2.47.min.js\"></script>"},
+        {"VUE_NUMBER_INPUT", "<script src=\"/js/vue-number-input.min.js\"></script>"},       {"UPLOT", R"(<script src="/js/uPlot.1.6.28.min.js"></script><link rel="stylesheet" href="/css/uPlot.min.css">)"}};
 
     const auto it = headers.find(varName.c_str());
     return it != headers.end() ? String(it->second) : String("");

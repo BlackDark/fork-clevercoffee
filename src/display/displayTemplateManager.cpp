@@ -8,11 +8,12 @@
 
 // Forward declaration to avoid circular includes
 class DisplayTemplateManager {
-public:
-    static void printScreen();
-private:
-    static System::DisplayTemplate currentTemplate;
-    static void (*currentPrintScreen)();
+    public:
+        static void printScreen();
+
+    private:
+        static System::DisplayTemplate currentTemplate;
+        static void (*currentPrintScreen)();
 };
 
 // Static member definitions

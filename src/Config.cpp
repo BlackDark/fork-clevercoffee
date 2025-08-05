@@ -10,83 +10,70 @@
 #include <ArduinoJson.h>
 
 // Optimized static const enum option vectors (single instance + read-only memory)
-static const std::vector<std::pair<Hardware::SwitchType, String>> switchTypeOptions = {
-    {Hardware::SwitchType::MOMENTARY, "Momentary"}, 
-    {Hardware::SwitchType::TOGGLE, "Toggle"}
-};
+static const std::vector<std::pair<Hardware::SwitchType, String>> switchTypeOptions = {{Hardware::SwitchType::MOMENTARY, "Momentary"}, {Hardware::SwitchType::TOGGLE, "Toggle"}};
 
-static const std::vector<std::pair<Hardware::SwitchMode, String>> switchModeOptions = {
-    {Hardware::SwitchMode::NORMALLY_OPEN, "Normally Open"}, 
-    {Hardware::SwitchMode::NORMALLY_CLOSED, "Normally Closed"}
-};
+static const std::vector<std::pair<Hardware::SwitchMode, String>> switchModeOptions = {{Hardware::SwitchMode::NORMALLY_OPEN, "Normally Open"}, {Hardware::SwitchMode::NORMALLY_CLOSED, "Normally Closed"}};
 
-static const std::vector<std::pair<Hardware::RelayTriggerType, String>> relayTriggerOptions = {
-    {Hardware::RelayTriggerType::LOW_TRIGGER, "Low Trigger"}, 
-    {Hardware::RelayTriggerType::HIGH_TRIGGER, "High Trigger"}
-};
+static const std::vector<std::pair<Hardware::RelayTriggerType, String>> relayTriggerOptions = {{Hardware::RelayTriggerType::LOW_TRIGGER, "Low Trigger"}, {Hardware::RelayTriggerType::HIGH_TRIGGER, "High Trigger"}};
 
-static const std::vector<std::pair<System::DisplayTemplate, String>> displayTemplateOptions = {
-    {System::DisplayTemplate::STANDARD, "Standard"},
-    {System::DisplayTemplate::MINIMAL, "Minimal"},
-    {System::DisplayTemplate::TEMPERATURE_ONLY, "Temperature Only"},
-    {System::DisplayTemplate::SCALE, "Scale"},
-    {System::DisplayTemplate::UPRIGHT, "Upright"}
-};
+static const std::vector<std::pair<System::DisplayTemplate, String>> displayTemplateOptions = {{System::DisplayTemplate::STANDARD, "Standard"},
+                                                                                               {System::DisplayTemplate::MINIMAL, "Minimal"},
+                                                                                               {System::DisplayTemplate::TEMPERATURE_ONLY, "Temperature Only"},
+                                                                                               {System::DisplayTemplate::SCALE, "Scale"},
+                                                                                               {System::DisplayTemplate::UPRIGHT, "Upright"}};
 
-static const std::vector<std::pair<System::Language, String>> languageOptions = {
-    {System::Language::ENGLISH, "English"}, 
-    {System::Language::GERMAN, "German"}, 
-    {System::Language::SPANISH, "Spanish"}
-};
+static const std::vector<std::pair<System::Language, String>> languageOptions = {{System::Language::ENGLISH, "English"}, {System::Language::GERMAN, "German"}, {System::Language::SPANISH, "Spanish"}};
 
-static const std::vector<std::pair<Hardware::OLEDType, String>> oledTypeOptions = {
-    {Hardware::OLEDType::SSD1306, "SSD1306"}, 
-    {Hardware::OLEDType::SH1106, "SH1106"}
-};
+static const std::vector<std::pair<Hardware::OLEDType, String>> oledTypeOptions = {{Hardware::OLEDType::SSD1306, "SSD1306"}, {Hardware::OLEDType::SH1106, "SH1106"}};
 
-static const std::vector<std::pair<Hardware::OLEDAddress, String>> oledAddressOptions = {
-    {Hardware::OLEDAddress::ADDR_3C, "0x3C"}, 
-    {Hardware::OLEDAddress::ADDR_3D, "0x3D"}
-};
+static const std::vector<std::pair<Hardware::OLEDAddress, String>> oledAddressOptions = {{Hardware::OLEDAddress::ADDR_3C, "0x3C"}, {Hardware::OLEDAddress::ADDR_3D, "0x3D"}};
 
-static const std::vector<std::pair<Hardware::TemperatureSensorType, String>> temperatureSensorTypeOptions = {
-    {Hardware::TemperatureSensorType::TSIC_306, "TSIC 306"},
-    {Hardware::TemperatureSensorType::DALLAS_DS18B20, "Dallas DS18B20"}
-};
+static const std::vector<std::pair<Hardware::TemperatureSensorType, String>> temperatureSensorTypeOptions = {{Hardware::TemperatureSensorType::TSIC_306, "TSIC 306"},
+                                                                                                             {Hardware::TemperatureSensorType::DALLAS_DS18B20, "Dallas DS18B20"}};
 
 static const std::vector<std::pair<Hardware::ScaleType, String>> scaleTypeOptions = {
-    {Hardware::ScaleType::HX711_DUAL, "HX711 (2 load cells)"}, 
-    {Hardware::ScaleType::HX711_SINGLE, "HX711 (1 load cell)"}, 
-    {Hardware::ScaleType::BLUETOOTH, "Bluetooth"}
-};
+    {Hardware::ScaleType::HX711_DUAL, "HX711 (2 load cells)"}, {Hardware::ScaleType::HX711_SINGLE, "HX711 (1 load cell)"}, {Hardware::ScaleType::BLUETOOTH, "Bluetooth"}};
 
-static const std::vector<std::pair<System::LogLevel, String>> logLevelOptions = {
-    {System::LogLevel::TRACE, "TRACE"}, 
-    {System::LogLevel::DEBUG, "DEBUG"}, 
-    {System::LogLevel::INFO, "INFO"},
-    {System::LogLevel::WARNING, "WARNING"},
-    {System::LogLevel::ERROR, "ERROR"}, 
-    {System::LogLevel::FATAL, "FATAL"}, 
-    {System::LogLevel::SILENT, "SILENT"}
-};
+static const std::vector<std::pair<System::LogLevel, String>> logLevelOptions = {{System::LogLevel::TRACE, "TRACE"},     {System::LogLevel::DEBUG, "DEBUG"}, {System::LogLevel::INFO, "INFO"},
+                                                                                 {System::LogLevel::WARNING, "WARNING"}, {System::LogLevel::ERROR, "ERROR"}, {System::LogLevel::FATAL, "FATAL"},
+                                                                                 {System::LogLevel::SILENT, "SILENT"}};
 
-static const std::vector<std::pair<Process::BrewMode, String>> brewModeOptions = {
-    {Process::BrewMode::MANUAL_BREW, "Manual"},
-    {Process::BrewMode::AUTOMATIC_BREW, "Automatic"}
-};
+static const std::vector<std::pair<Process::BrewMode, String>> brewModeOptions = {{Process::BrewMode::MANUAL_BREW, "Manual"}, {Process::BrewMode::AUTOMATIC_BREW, "Automatic"}};
 
 // Accessor functions for static const vectors
-const std::vector<std::pair<Hardware::SwitchType, String>>& getSwitchTypeOptions() { return switchTypeOptions; }
-const std::vector<std::pair<Hardware::SwitchMode, String>>& getSwitchModeOptions() { return switchModeOptions; }
-const std::vector<std::pair<Hardware::RelayTriggerType, String>>& getRelayTriggerOptions() { return relayTriggerOptions; }
-const std::vector<std::pair<System::DisplayTemplate, String>>& getDisplayTemplateOptions() { return displayTemplateOptions; }
-const std::vector<std::pair<System::Language, String>>& getLanguageOptions() { return languageOptions; }
-const std::vector<std::pair<Hardware::OLEDType, String>>& getOledTypeOptions() { return oledTypeOptions; }
-const std::vector<std::pair<Hardware::OLEDAddress, String>>& getOledAddressOptions() { return oledAddressOptions; }
-const std::vector<std::pair<Hardware::TemperatureSensorType, String>>& getTemperatureSensorTypeOptions() { return temperatureSensorTypeOptions; }
-const std::vector<std::pair<Hardware::ScaleType, String>>& getScaleTypeOptions() { return scaleTypeOptions; }
-const std::vector<std::pair<System::LogLevel, String>>& getLogLevelOptions() { return logLevelOptions; }
-const std::vector<std::pair<Process::BrewMode, String>>& getBrewModeOptions() { return brewModeOptions; }
+const std::vector<std::pair<Hardware::SwitchType, String>>& getSwitchTypeOptions() {
+    return switchTypeOptions;
+}
+const std::vector<std::pair<Hardware::SwitchMode, String>>& getSwitchModeOptions() {
+    return switchModeOptions;
+}
+const std::vector<std::pair<Hardware::RelayTriggerType, String>>& getRelayTriggerOptions() {
+    return relayTriggerOptions;
+}
+const std::vector<std::pair<System::DisplayTemplate, String>>& getDisplayTemplateOptions() {
+    return displayTemplateOptions;
+}
+const std::vector<std::pair<System::Language, String>>& getLanguageOptions() {
+    return languageOptions;
+}
+const std::vector<std::pair<Hardware::OLEDType, String>>& getOledTypeOptions() {
+    return oledTypeOptions;
+}
+const std::vector<std::pair<Hardware::OLEDAddress, String>>& getOledAddressOptions() {
+    return oledAddressOptions;
+}
+const std::vector<std::pair<Hardware::TemperatureSensorType, String>>& getTemperatureSensorTypeOptions() {
+    return temperatureSensorTypeOptions;
+}
+const std::vector<std::pair<Hardware::ScaleType, String>>& getScaleTypeOptions() {
+    return scaleTypeOptions;
+}
+const std::vector<std::pair<System::LogLevel, String>>& getLogLevelOptions() {
+    return logLevelOptions;
+}
+const std::vector<std::pair<Process::BrewMode, String>>& getBrewModeOptions() {
+    return brewModeOptions;
+}
 
 bool Config::begin() {
     LOG(INFO, "Config: Initializing next-generation configuration system");
