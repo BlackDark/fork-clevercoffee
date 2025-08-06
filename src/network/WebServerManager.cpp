@@ -1044,7 +1044,9 @@ String WebServerManager::templateProcessor(const String& var) {
         unsigned long minutes = (uptimeSeconds % 3600) / 60;
         unsigned long seconds = uptimeSeconds % 60;
 
-        return String(days) + "d " + String(hours) + "h " + String(minutes) + "m " + String(seconds) + "s";
+        char uptime_buffer[32];
+        snprintf(uptime_buffer, sizeof(uptime_buffer), "%lud %luh %lum %lus", days, hours, minutes, seconds);
+        return String(uptime_buffer);
     }
 
     return String(); // Return empty string if variable not found

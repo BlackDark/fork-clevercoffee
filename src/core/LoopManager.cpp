@@ -257,11 +257,7 @@ void LoopManager::updateDebugTiming() {
 
 bool LoopManager::setupTimers() {
     try {
-        // g_state.timing.loopWaterTank2 = new Timer(checkWaterTank, 200);
-        g_state.timing.hassioDiscoveryTimer2 = new Timer(sendHASSIODiscoveryMsg, 300000);
-        g_state.timing.printDisplayTimer2 = new Timer(DisplayTemplateManager::printScreen, 100);
-
-        // g_state.timing.loopWaterTank = std::make_unique<Timer>(&checkWaterTank, 200);
+        // Use unique_ptr for automatic memory management
         g_state.timing.hassioDiscoveryTimer = std::make_unique<Timer>(&sendHASSIODiscoveryMsg, 300000);
         g_state.timing.printDisplayTimer = std::make_unique<Timer>(DisplayTemplateManager::printScreen, 100);
 

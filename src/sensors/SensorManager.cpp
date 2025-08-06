@@ -197,7 +197,7 @@ bool SensorManager::hasScaleError() const {
 }
 
 Scale* SensorManager::getScale() const {
-    return g_state.hardware.scale;
+    return g_state.hardware.scale.get();
 }
 
 bool SensorManager::initializeTemperatureSensor() {

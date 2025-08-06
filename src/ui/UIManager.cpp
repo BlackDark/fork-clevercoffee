@@ -351,7 +351,7 @@ void UIManager::displayScaleFailed() {
     displayMessage("Scale", "Failed", "Check", "Connection", "", "");
 }
 
-void UIManager::displayWrappedMessage(const String& message) {
+void UIManager::displayWrappedMessage(const char* message) {
     if (!u8g2_) return;
 
     u8g2_->clearBuffer();

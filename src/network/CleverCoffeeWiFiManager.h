@@ -95,7 +95,7 @@ class CleverCoffeeWiFiManager {
     private:
         // ::WiFiManager wifiManager_; // Use global scope to avoid naming conflict
         std::unique_ptr<WiFiManager> wifiManager_;
-        WiFiManagerParameter* customHostname_;
+        std::unique_ptr<WiFiManagerParameter> customHostname_;
         bool restartAfterAP_;
 
         /**

@@ -22,14 +22,11 @@ void initScale() {
     const Hardware::ScaleType scaleType = Config::getInstance().hardwareSensorsScaleType.get();
     const int scaleSamples = Config::getInstance().hardwareSensorsScaleSamples.get();
 
-    // Clean up existing scale
-    if (g_state.hardware.scale) {
-        delete g_state.hardware.scale;
-        g_state.hardware.scale = nullptr;
-    }
+    // Clean up existing scale (unique_ptr automatically deletes)
+    g_state.hardware.scale.reset();
 
     if (scaleType == Hardware::ScaleType::BLUETOOTH) { // Bluetooth scale
-        g_state.hardware.scale = new BluetoothScale();
+        g_state.hardware.scale = std::make_unique<BluetoothScale>();
         g_state.hardware.isBluetoothScale = true;
 
         LOG(INFO, "Initializing Bluetooth scale");
@@ -42,10 +39,10 @@ void initScale() {
         const float cal2 = Config::getInstance().hardwareSensorsScaleCalibration2.get();
 
         if (scaleType == Hardware::ScaleType::HX711_DUAL) { // Dual load cell
-            g_state.hardware.scale = new HX711Scale(PIN_HXDAT, PIN_HXDAT2, PIN_HXCLK, cal1, cal2);
+            g_state.hardware.scale = std::make_unique<HX711Scale>(PIN_HXDAT, PIN_HXDAT2, PIN_HXCLK, cal1, cal2);
         }
         else {                                              // Single load cell
-            g_state.hardware.scale = new HX711Scale(PIN_HXDAT, PIN_HXCLK, cal1);
+            g_state.hardware.scale = std::make_unique<HX711Scale>(PIN_HXDAT, PIN_HXCLK, cal1);
         }
 
         g_state.hardware.isBluetoothScale = false;
@@ -56,8 +53,7 @@ void initScale() {
             displayScaleFailed();
             delay(5000);
             g_state.sensors.scaleFailure = true;
-            delete g_state.hardware.scale;
-            g_state.hardware.scale = nullptr;
+            g_state.hardware.scale.reset();
             return;
         }
 

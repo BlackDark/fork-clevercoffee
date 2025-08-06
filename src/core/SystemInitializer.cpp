@@ -37,7 +37,15 @@ extern void enableTimer1();
 extern bool checkBrewActive();
 
 SystemInitializer::SystemInitializer() :
-    systemInitialized_(false), displayManager_(nullptr), hardwareManager_(nullptr), mqttManager_(nullptr), sensorManager_(nullptr) {
+    systemInitialized_(false),
+    hostname_(),
+    displayManager_(nullptr),
+    uiManager_(nullptr),
+    hardwareManager_(nullptr),
+    mqttManager_(nullptr),
+    sensorManager_(nullptr),
+    cleverCoffeeWiFiManager_(nullptr),
+    webServerManager_(nullptr) {
 }
 
 SystemInitializer::~SystemInitializer() {
@@ -73,7 +81,7 @@ bool SystemInitializer::initialize() {
         LOG(WARNING, "Display initialization failed, continuing without display");
     }
     else {
-        uiManager_->displayLogo(String("Version "), g_state.sysVersion);
+        uiManager_->displayLogo("Version ", g_state.sysVersion);
     }
 
     logMemoryBasic("After Display Init");

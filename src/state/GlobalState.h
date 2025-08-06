@@ -121,7 +121,7 @@ struct HardwareRefs {
         Relay* pumpRelay = nullptr;
         Relay* valveRelay = nullptr;
         TempSensor* tempSensor = nullptr;
-        Scale* scale = nullptr;
+        std::unique_ptr<Scale> scale = nullptr;
 
         bool isBluetoothScale = false;
 
@@ -170,7 +170,7 @@ struct NetworkState {
 struct TimingState {
         unsigned long previousMillistemp = 0;
         unsigned long previousMillisMQTT = 0;
-        const unsigned long intervalPressure = 100;
+        static constexpr unsigned long intervalPressure = 100;
         unsigned long previousMillisPressure = 0;
         std::unique_ptr<Timer> loopWaterTank = nullptr;
         std::unique_ptr<Timer> hassioDiscoveryTimer = nullptr;
@@ -214,7 +214,7 @@ struct SensorState {
         bool scaleCalibrationOn = false;
         int shottimerCounter = 10;
         float preBrewWeight = 0;     // weight before brew started
-        float scaleDelayValue = 2.5; // delay compensation in grams
+        static constexpr float scaleDelayValue = 2.5; // delay compensation in grams
         bool autoTareInProgress = false;
         unsigned long autoTareStartTime = 0;
 

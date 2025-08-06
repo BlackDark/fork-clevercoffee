@@ -199,7 +199,7 @@ class UIManager {
          * @brief Display wrapped text message
          * @param message Text to display with wrapping
          */
-        void displayWrappedMessage(const String& message);
+        void displayWrappedMessage(const char* message);
 
         // === Display Buffer Management ===
 

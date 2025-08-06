@@ -412,7 +412,7 @@ inline void displayStatusbar() {
 /**
  * @brief print message
  */
-inline void displayMessage(const String& text1, const String& text2, const String& text3, const String& text4, const String& text5, const String& text6) {
+inline void displayMessage(const char* text1, const char* text2, const char* text3, const char* text4, const char* text5, const char* text6) {
     g_state.hardware.display->clearBuffer();
     g_state.hardware.display->setCursor(0, 0);
     g_state.hardware.display->print(text1);
@@ -432,23 +432,26 @@ inline void displayMessage(const String& text1, const String& text2, const Strin
 /**
  * @brief print logo and message at boot
  */
-inline void displayLogo(const String& displaymessagetext, const String& displaymessagetext2) {
+inline void displayLogo(const char* displaymessagetext, const char* displaymessagetext2) {
     if (Config::getInstance().displayTemplate.get() == System::DisplayTemplate::UPRIGHT) {
         int printrow = 47;
         g_state.hardware.display->clearBuffer();
 
-        // Create modifiable copies
-        char text1[displaymessagetext.length() + 1];
-        char text2[displaymessagetext2.length() + 1];
+        // Use stack allocation for tokenization buffers
+        constexpr size_t MAX_MSG_LEN = 64;
+        char text1[MAX_MSG_LEN];
+        char text2[MAX_MSG_LEN];
 
-        strcpy(text1, displaymessagetext.c_str());
-        strcpy(text2, displaymessagetext2.c_str());
+        strncpy(text1, displaymessagetext, MAX_MSG_LEN - 1);
+        text1[MAX_MSG_LEN - 1] = '\0';
+        strncpy(text2, displaymessagetext2, MAX_MSG_LEN - 1);
+        text2[MAX_MSG_LEN - 1] = '\0';
 
         char* token = strtok(text1, " ");
 
         while (token != nullptr) {
             g_state.hardware.display->drawStr(0, printrow, token);
-            token = strtok(nullptr, " "); // Get the next token
+            token = strtok(nullptr, " ");
             printrow += 10;
         }
 
@@ -456,7 +459,7 @@ inline void displayLogo(const String& displaymessagetext, const String& displaym
 
         while (token != nullptr) {
             g_state.hardware.display->drawStr(0, printrow, token);
-            token = strtok(nullptr, " "); // Get the next token
+            token = strtok(nullptr, " ");
             printrow += 10;
         }
 
@@ -464,8 +467,8 @@ inline void displayLogo(const String& displaymessagetext, const String& displaym
     }
     else {
         g_state.hardware.display->clearBuffer();
-        g_state.hardware.display->drawStr(0, 45, displaymessagetext.c_str());
-        g_state.hardware.display->drawStr(0, 55, displaymessagetext2.c_str());
+        g_state.hardware.display->drawStr(0, 45, displaymessagetext);
+        g_state.hardware.display->drawStr(0, 55, displaymessagetext2);
         g_state.hardware.display->drawXBMP(38, 0, CleverCoffee_Logo_width, CleverCoffee_Logo_height, CleverCoffee_Logo);
     }
 
@@ -729,7 +732,11 @@ inline bool displayMachineState() {
     if (g_state.machine.machineState == kSensorError) {
         g_state.hardware.display->clearBuffer();
         g_state.hardware.display->setFont(u8g2_font_profont11_tf);
-        displayMessage(langstring_error_tsensor[0], String(g_state.process.temperature), langstring_error_tsensor[1], "", "", "");
+        
+        // Use buffer for temperature conversion to avoid String allocation
+        char tempBuffer[16];
+        snprintf(tempBuffer, sizeof(tempBuffer), "%.1f", g_state.process.temperature);
+        displayMessage(langstring_error_tsensor[0], tempBuffer, langstring_error_tsensor[1], "", "", "");
         return true;
     }
 
@@ -743,7 +750,7 @@ inline bool displayMachineState() {
     return false;
 }
 
-inline void displayWrappedMessage(const String& message) {
+inline void displayWrappedMessage(const char* message) {
     g_state.hardware.display->clearBuffer();
 
     if (Config::getInstance().displayTemplate.get() == System::DisplayTemplate::UPRIGHT) {
@@ -753,60 +760,70 @@ inline void displayWrappedMessage(const String& message) {
         g_state.hardware.display->setFont(u8g2_font_profont11_tf);
     }
 
-    int lineHeight = g_state.hardware.display->getMaxCharHeight() + 2;
-    int displayWidth = g_state.hardware.display->getDisplayWidth();
-    int displayHeight = g_state.hardware.display->getDisplayHeight();
-    int maxLines = displayHeight / lineHeight;
+    const int lineHeight = g_state.hardware.display->getMaxCharHeight() + 2;
+    const int displayWidth = g_state.hardware.display->getDisplayWidth();
+    const int displayHeight = g_state.hardware.display->getDisplayHeight();
 
     int x = 0;
     int y = 0;
     int wordCount = 0;
 
-    String word;
-    String line;
+    // Use fixed-size buffers to avoid String allocation
+    constexpr size_t MAX_WORD_LEN = 32;
+    constexpr size_t MAX_LINE_LEN = 128;
+    char word[MAX_WORD_LEN] = {0};
+    char line[MAX_LINE_LEN] = {0};
+    char testLine[MAX_LINE_LEN] = {0};
+    
+    size_t wordIdx = 0;
+    size_t lineLen = 0;
+    const size_t msgLen = strlen(message);
 
-    for (size_t i = 0; i <= message.length(); ++i) {
-        char c = message[i];
+    for (size_t i = 0; i <= msgLen; ++i) {
+        const char c = (i < msgLen) ? message[i] : '\0';
 
         if (c == ' ' || c == '\n' || c == '\0') {
-            if (g_state.hardware.display->getUTF8Width((line + word).c_str()) > displayWidth) {
-                g_state.hardware.display->setCursor(x, y);
-
-                if (wordCount == 0) {
-                    g_state.hardware.display->drawUTF8(x, y, word.c_str());
-                    y += lineHeight;
-                    line = "";
-                }
-                else {
-                    g_state.hardware.display->drawUTF8(x, y, line.c_str());
-                    y += lineHeight;
-                    line = word + " ";
-                    wordCount = 1;
-                }
+            word[wordIdx] = '\0';
+            
+            // Test if adding word would exceed display width
+            snprintf(testLine, MAX_LINE_LEN, "%s%s", line, word);
+            
+            if (g_state.hardware.display->getUTF8Width(testLine) > displayWidth && lineLen > 0) {
+                // Draw current line and start new line with word
+                g_state.hardware.display->drawUTF8(x, y, line);
+                y += lineHeight;
+                snprintf(line, MAX_LINE_LEN, "%s ", word);
+                lineLen = strlen(line);
+                wordCount = 1;
             }
             else {
-                line += word + " ";
-                wordCount += 1;
+                // Add word to current line
+                if (lineLen > 0) {
+                    strncat(line, " ", MAX_LINE_LEN - lineLen - 1);
+                    lineLen++;
+                }
+                strncat(line, word, MAX_LINE_LEN - lineLen - 1);
+                lineLen += strlen(word);
+                wordCount++;
             }
 
-            word = "";
+            wordIdx = 0;
 
             if (c == '\n') {
-                g_state.hardware.display->setCursor(x, y);
-                g_state.hardware.display->drawUTF8(x, y, line.c_str());
+                g_state.hardware.display->drawUTF8(x, y, line);
                 y += lineHeight;
-                line = "";
+                line[0] = '\0';
+                lineLen = 0;
                 wordCount = 0;
             }
         }
-        else {
-            word += c;
+        else if (wordIdx < MAX_WORD_LEN - 1) {
+            word[wordIdx++] = c;
         }
     }
 
-    if (line.length() > 0 && y + lineHeight <= displayHeight) {
-        g_state.hardware.display->setCursor(x, y);
-        g_state.hardware.display->drawUTF8(x, y, line.c_str());
+    if (lineLen > 0 && y + lineHeight <= displayHeight) {
+        g_state.hardware.display->drawUTF8(x, y, line);
     }
 
     g_state.hardware.display->sendBuffer();

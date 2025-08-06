@@ -23,18 +23,16 @@ static String byteToHex(byte value) {
 }
 
 CleverCoffeeWiFiManager::CleverCoffeeWiFiManager() :
-    wifiManager_(std::make_unique<WiFiManager>()), customHostname_(nullptr), restartAfterAP_(false) {
+    wifiManager_(std::make_unique<WiFiManager>()), restartAfterAP_(false) {
 
     // Create custom hostname parameter
     const String hostname = Config::getInstance().systemHostname.get();
-    customHostname_ = new WiFiManagerParameter("hostname", "Hostname", hostname.c_str(), 30);
+    customHostname_ = std::make_unique<WiFiManagerParameter>("hostname", "Hostname", hostname.c_str(), 30);
 }
 
 CleverCoffeeWiFiManager::~CleverCoffeeWiFiManager() {
-    // Destructor implementation - unique_ptr will automatically clean up WiFiManager
+    // Destructor implementation - unique_ptr automatically cleans up WiFiManager and customHostname_
     // This needs to be defined in the .cpp file where WiFiManager is fully defined
-    delete customHostname_;
-    customHostname_ = nullptr;
 }
 
 bool CleverCoffeeWiFiManager::setupAndConnect(const String& hostname, const String& password, bool oledEnabled, std::function<void(const char*, const char*)> displayCallback) {
@@ -51,7 +49,7 @@ bool CleverCoffeeWiFiManager::setupAndConnect(const String& hostname, const Stri
 }
 
 void CleverCoffeeWiFiManager::configureWiFiManager(const String& hostname, const String& password) {
-    wifiManager_->addParameter(customHostname_);
+    wifiManager_->addParameter(customHostname_.get());
     wifiManager_->setCleanConnect(true);
     wifiManager_->setConnectTimeout(10); // using 10s to connect to WLAN, 5s is sometimes too short!
     wifiManager_->setBreakAfterConfig(true);
@@ -92,9 +90,11 @@ void CleverCoffeeWiFiManager::handleSuccessfulConnection(bool oledEnabled, std::
 
     byte mac[6];
     WiFi.macAddress(mac);
-    const String completemac = byteToHex(mac[0]) + byteToHex(mac[1]) + byteToHex(mac[2]) + byteToHex(mac[3]) + byteToHex(mac[4]) + byteToHex(mac[5]);
+    char completemac[18]; // XX:XX:XX:XX:XX:XX + null terminator
+    snprintf(completemac, sizeof(completemac), "%02X%02X%02X%02X%02X%02X", 
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 
-    LOGF(DEBUG, "MAC-ADDRESS: %s", completemac.c_str());
+    LOGF(DEBUG, "MAC-ADDRESS: %s", completemac);
 
     if (oledEnabled && displayCallback) {
         displayCallback(langstring_connectwifi1, wifiManager_->getWiFiSSID(true).c_str());

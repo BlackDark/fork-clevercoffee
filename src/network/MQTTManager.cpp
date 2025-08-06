@@ -413,15 +413,25 @@ int MQTTManager::writeSysParamsToMQTT(bool continueOnError) {
 // Home Assistant Discovery Implementation
 
 MQTTManager::DiscoveryObject MQTTManager::generateSwitchDevice(const String& name, const String& displayName, const String& payload_on, const String& payload_off) {
-    String mqtt_topic = String(topicPrefix_) + hostname_;
     DiscoveryObject switch_device;
-    String unique_id = "clevercoffee-" + hostname_;
-    String SwitchDiscoveryTopic = hassioDiscoveryPrefix_ + "/switch/";
+    
+    // Use fixed-size buffers to avoid String concatenation
+    constexpr size_t TOPIC_BUFFER_SIZE = 128;
+    char mqtt_topic[TOPIC_BUFFER_SIZE];
+    char unique_id[TOPIC_BUFFER_SIZE];
+    char switch_discovery_topic[TOPIC_BUFFER_SIZE];
+    char switch_command_topic[TOPIC_BUFFER_SIZE];
+    char switch_state_topic[TOPIC_BUFFER_SIZE];
 
-    String switch_command_topic = mqtt_topic + "/" + name + "/set";
-    String switch_state_topic = mqtt_topic + "/" + name;
+    snprintf(mqtt_topic, TOPIC_BUFFER_SIZE, "%s%s", topicPrefix_.c_str(), hostname_.c_str());
+    snprintf(unique_id, TOPIC_BUFFER_SIZE, "clevercoffee-%s", hostname_.c_str());
+    snprintf(switch_discovery_topic, TOPIC_BUFFER_SIZE, "%s/switch/", hassioDiscoveryPrefix_.c_str());
+    snprintf(switch_command_topic, TOPIC_BUFFER_SIZE, "%s/%s/set", mqtt_topic, name.c_str());
+    snprintf(switch_state_topic, TOPIC_BUFFER_SIZE, "%s/%s", mqtt_topic, name.c_str());
 
-    switch_device.discovery_topic = SwitchDiscoveryTopic + unique_id + "/" + name + "/config";
+    char discovery_topic_full[TOPIC_BUFFER_SIZE];
+    snprintf(discovery_topic_full, TOPIC_BUFFER_SIZE, "%s%s/%s/config", switch_discovery_topic, unique_id, name.c_str());
+    switch_device.discovery_topic = discovery_topic_full;
 
     JsonDocument deviceMapDoc;
     deviceMapDoc["identifiers"] = hostname_;
@@ -432,12 +442,17 @@ MQTTManager::DiscoveryObject MQTTManager::generateSwitchDevice(const String& nam
     switchConfigDoc["name"] = displayName;
     switchConfigDoc["command_topic"] = switch_command_topic;
     switchConfigDoc["state_topic"] = switch_state_topic;
-    switchConfigDoc["unique_id"] = unique_id + "-" + name;
+    char unique_id_full[TOPIC_BUFFER_SIZE];
+    char availability_topic[TOPIC_BUFFER_SIZE];
+    snprintf(unique_id_full, TOPIC_BUFFER_SIZE, "%s-%s", unique_id, name.c_str());
+    snprintf(availability_topic, TOPIC_BUFFER_SIZE, "%s/status", mqtt_topic);
+    
+    switchConfigDoc["unique_id"] = unique_id_full;
     switchConfigDoc["payload_on"] = payload_on;
     switchConfigDoc["payload_off"] = payload_off;
     switchConfigDoc["payload_available"] = "online";
     switchConfigDoc["payload_not_available"] = "offline";
-    switchConfigDoc["availability_topic"] = mqtt_topic + "/status";
+    switchConfigDoc["availability_topic"] = availability_topic;
 
     auto switchDeviceField = switchConfigDoc["device"].to<JsonObject>();
 

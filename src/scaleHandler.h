@@ -16,7 +16,7 @@
 #include <U8g2lib.h> // Required for U8G2 display methods
 
 void displayScaleFailed();
-void displayWrappedMessage(const String& msg);
+void displayWrappedMessage(const char* msg);
 
 /**
  * @brief Check Bluetooth scale connection status and handle failures
@@ -28,7 +28,7 @@ inline void checkBluetoothScaleConnection() {
 
     // Check connection status periodically for logging/fallback logic
     if (const unsigned long currentTime = millis(); currentTime - g_state.sensors.lastScaleConnectionCheck > SCALE_CONNECTION_CHECK_INTERVAL) {
-        static_cast<BluetoothScale*>(g_state.hardware.scale)->updateConnection();
+        static_cast<BluetoothScale*>(g_state.hardware.scale.get())->updateConnection();
 
         g_state.sensors.lastScaleConnectionCheck = currentTime;
 
@@ -121,7 +121,7 @@ inline void scaleCalibrate(const int cellNumber, const int pin) {
 
     const int scaleSamples = Config::getInstance().hardwareSensorsScaleSamples.get();
 
-    auto* hx711Scale = static_cast<HX711Scale*>(g_state.hardware.scale);
+    auto* hx711Scale = static_cast<HX711Scale*>(g_state.hardware.scale.get());
     HX711_ADC* loadCell = hx711Scale->getLoadCell(cellNumber);
 
     if (!loadCell) {
@@ -130,8 +130,10 @@ inline void scaleCalibrate(const int cellNumber, const int pin) {
 
     loadCell->setCalFactor(1.0);
 
-    String msg = langstring_calibrate_start + String(cellNumber) + "\n";
-    displayWrappedMessage(msg);
+    // Use buffer for message formatting to avoid String allocation
+    char msgBuffer[128];
+    snprintf(msgBuffer, sizeof(msgBuffer), "%s%d\n", langstring_calibrate_start, cellNumber);
+    displayWrappedMessage(msgBuffer);
     delay(2000);
 
     LOGF(INFO, "Taking scale %d, pin %d to zero point", cellNumber, pin);
@@ -143,8 +145,8 @@ inline void scaleCalibrate(const int cellNumber, const int pin) {
 
     const auto scaleKnownWeight = Config::getInstance().hardwareSensorsScaleKnownWeight.get();
 
-    msg = langstring_calibrate_in_progress + String(number2string(scaleKnownWeight)) + "g\n";
-    displayWrappedMessage(msg);
+    snprintf(msgBuffer, sizeof(msgBuffer), "%s%sg\n", langstring_calibrate_in_progress, number2string(scaleKnownWeight));
+    displayWrappedMessage(msgBuffer);
     delay(10000);
 
     LOG(INFO, "Taking scale load point");
@@ -167,8 +169,8 @@ inline void scaleCalibrate(const int cellNumber, const int pin) {
         Config::getInstance().hardwareSensorsScaleCalibration.set(calibration);
     }
 
-    msg = langstring_calibrate_complete + String(number2string(calibration)) + "\n";
-    displayWrappedMessage(msg);
+    snprintf(msgBuffer, sizeof(msgBuffer), "%s%s\n", langstring_calibrate_complete, number2string(calibration));
+    displayWrappedMessage(msgBuffer);
     delay(2000);
 }
 
@@ -285,5 +287,5 @@ inline bool isBluetoothScaleConnecting() {
         return false;
     }
 
-    return static_cast<BluetoothScale*>(g_state.hardware.scale)->isConnecting();
+    return static_cast<BluetoothScale*>(g_state.hardware.scale.get())->isConnecting();
 }

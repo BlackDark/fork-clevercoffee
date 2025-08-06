@@ -46,7 +46,11 @@ inline void printScreen() {
     }
     else if (g_state.machine.machineState == kSensorError) {
         g_state.hardware.display->setFont(u8g2_font_profont11_tf);
-        displayMessage(langstring_error_tsensor_ur[0], langstring_error_tsensor_ur[1], String(g_state.process.temperature), langstring_error_tsensor_ur[2], langstring_error_tsensor_ur[3], langstring_error_tsensor_ur[4]);
+        
+        // Use buffer for temperature conversion to avoid String allocation
+        char tempBuffer[16];
+        snprintf(tempBuffer, sizeof(tempBuffer), "%.1f", g_state.process.temperature);
+        displayMessage(langstring_error_tsensor_ur[0], langstring_error_tsensor_ur[1], tempBuffer, langstring_error_tsensor_ur[2], langstring_error_tsensor_ur[3], langstring_error_tsensor_ur[4]);
     }
     else if (Config::getInstance().displayPidOffLogo.get() && g_state.machine.machineState == kStandby) {
         g_state.hardware.display->drawXBMP(6, 50, Off_Logo_width, Off_Logo_height, Off_Logo);
