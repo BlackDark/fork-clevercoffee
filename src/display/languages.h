@@ -38,7 +38,6 @@ static const char* langstring_calibrate_in_progress;
 static const char* langstring_calibrate_complete;
 
 inline void initLangStrings() {
-
     // English
     if (Config::getInstance().displayLanguage.get() == System::Language::GERMAN) {
         langstring_set_temp = "Set:   ";

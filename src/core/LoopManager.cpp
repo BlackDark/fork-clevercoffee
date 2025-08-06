@@ -244,41 +244,8 @@ void LoopManager::updateDisplay() {
                 }
             }
         }
-    }
-    else {
-        // Fallback to original display logic when UIManager is not available
-        LOGF(DEBUG, "LoopManager: Using fallback path for display updates (no UIManager)");
-        g_state.coordination.displayUpdateRunning = false;
-
-        if (Config::getInstance().hardwareOledEnabled.get()) {
-            // Only update display on loops that have not had other major tasks running
-            // and when not in standby display-off mode
-            bool websiteCondition = !g_state.coordination.websiteUpdateRunning;
-            bool mqttCondition = (!g_state.network.mqttManager || !g_state.network.mqttManager->isUpdateRunning());
-            bool hassioCondition = !g_state.coordination.hassioUpdateRunning;
-            bool tempCondition = !g_state.coordination.temperatureUpdateRunning;
-            bool standbyCondition = (!Config::getInstance().standbyEnabled.get() || g_state.standby.standbyModeRemainingTimeMillis > 0);
-
-            // update display on loops that have not had other major tasks running
-            if (websiteCondition && mqttCondition && hassioCondition && tempCondition && standbyCondition) {
-                if (g_state.coordination.displayBufferReady) {
-                    g_state.hardware.display->sendBuffer();
-                    g_state.coordination.displayBufferReady = false;
-                    g_state.coordination.displayUpdateRunning = true;
-                }
-                else {
-                    // This is the critical call that was missing!
-                    // It triggers the display template rendering which sets displayBufferReady = true
-                    if (g_state.timing.printDisplayTimer) {
-                        LOGF(DEBUG, "LoopManager: Calling printDisplayTimer (fallback path)");
-                        (*g_state.timing.printDisplayTimer)();
-                    }
-                    else {
-                        LOGF(WARNING, "LoopManager: printDisplayTimer is null in fallback!");
-                    }
-                }
-            }
-        }
+    } else {
+        LOGF(WARNING, "LoopManager: UIManager not available, skipping display update");
     }
 }
 

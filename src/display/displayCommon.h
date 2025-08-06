@@ -10,8 +10,11 @@
 #include "../network/CleverCoffeeWiFiManager.h"
 #include "../state/GlobalState.h"
 #include "../utils/legacyUtils.h"
+#include "../brewHandler.h"
+#include "../hotWaterHandler.h"
 #include "bitmaps.h"
 #include "languages.h"
+#include <PID_v1.h> // Required for PID methods in display templates
 #include <U8g2lib.h> // Required for U8G2 display methods
 
 inline const u8g2_cb_t* getU8G2Rotation(const int rotationValue) {
@@ -27,29 +30,6 @@ inline const u8g2_cb_t* getU8G2Rotation(const int rotationValue) {
         default:
             return U8G2_R0;
     }
-}
-
-/**
- * @brief initialize display
- */
-inline void u8g2_prepare() {
-    int rotation = 0;
-    g_state.hardware.display->clearBuffer();
-    g_state.hardware.display->setFont(u8g2_font_profont11_tf);
-    g_state.hardware.display->setFontRefHeightExtendedText();
-    g_state.hardware.display->setDrawColor(1);
-    g_state.hardware.display->setFontPosTop();
-    g_state.hardware.display->setFontDirection(0);
-
-    if (Config::getInstance().displayInverted.get()) {
-        rotation += 2;
-    }
-
-    if (Config::getInstance().displayTemplate.get() == System::DisplayTemplate::UPRIGHT) {
-        rotation++;
-    }
-
-    g_state.hardware.display->setDisplayRotation(getU8G2Rotation(rotation));
 }
 
 /**

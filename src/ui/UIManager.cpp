@@ -28,7 +28,7 @@ bool UIManager::initialize() {
         return false;
     }
 
-    u8g2_ = displayManager_->get();
+    u8g2_ = displayManager_->getDisplay();
     if (!u8g2_) {
         LOG(ERROR, "UIManager: Failed to get U8G2 instance from DisplayManager");
         return false;

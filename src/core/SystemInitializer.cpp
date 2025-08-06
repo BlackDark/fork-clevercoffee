@@ -7,15 +7,10 @@
 #include "../Config.h"
 #include "../defaults.h"
 #include "../display/DisplayManager.h"
+#include "../display/displayTemplateManager.h"
+#include "../display/languages.h"
+#include "../ui/UIManager.h"
 #include "../utils/memoryUtils.h"
-// Forward declarations for display functions that require global state
-// These will be called from main.cpp after full system initialization
-extern void u8g2_prepare();
-extern void initLangStrings(Config& config);
-extern void displayLogo(const String& text1, const String& text2);
-namespace DisplayTemplateManager {
-    extern void initializeDisplay(int templateId);
-}
 #include "../hardware/HardwareManager.h"
 #include "../network/CleverCoffeeWiFiManager.h"
 #include "../network/MQTTManager.h"
@@ -33,8 +28,11 @@ namespace DisplayTemplateManager {
 // Forward declarations
 extern void initTimer1();
 extern void enableTimer1();
-extern void u8g2_prepare();
-extern void initLangStrings(Config& config);
+
+// namespace DisplayTemplateManager {
+//     extern void initializeDisplay(int templateId);
+// }
+
 #include "../scaleHandler.h"
 extern bool checkBrewActive();
 
@@ -73,7 +71,10 @@ bool SystemInitializer::initialize() {
     logMemoryBasic("Before Display Init");
     if (!initializeDisplay()) {
         LOG(WARNING, "Display initialization failed, continuing without display");
+    } else {
+        uiManager_->displayLogo(String("Version "), g_state.sysVersion);
     }
+
     logMemoryBasic("After Display Init");
 
     logMemoryBasic("Before Timer1 Init");
@@ -84,8 +85,10 @@ bool SystemInitializer::initialize() {
     if (!initializeHardware()) {
         LOG(ERROR, "Hardware initialization failed");
         logMemory("Hardware Init FAILED");
+        uiManager_->displayLogo(String("Error "), "Hardware initialization failed");
         return false;
     }
+
     logMemoryBasic("After Hardware Init");
 
     // Phase 3: Network and services
@@ -133,6 +136,8 @@ bool SystemInitializer::initialize() {
 
     g_state.coordination.setupDone = true;
     systemInitialized_ = true;
+
+    // System initialization complete
 
     logMemory("SystemInitializer Complete");
     LOG(INFO, "System initialization completed successfully");
@@ -206,12 +211,24 @@ bool SystemInitializer::initializeDisplay() {
 
         if (displayManager_ && displayManager_->isInitialized()) {
             // Set compatibility pointer for existing code
-            g_state.hardware.display = displayManager_->get();
+            g_state.hardware.display = displayManager_->getDisplay();
 
             // Basic display setup - full initialization will be done in main.cpp
             // The display is now ready for basic operations but NOT for complex display functions
             // that depend on global state (like language strings, templates, etc.)
 
+            // TODO maybe separated
+            uiManager_ = std::make_unique<UIManager>(displayManager_.get());
+
+            if (uiManager_->initialize()) {
+                LOG(INFO, "UIManager initialized successfully");
+            }
+            else {
+                LOG(ERROR, "UIManager initialization failed!");
+            }
+
+            const System::DisplayTemplate templateId = Config::getInstance().displayTemplate.get();
+            DisplayTemplateManager::initializeDisplay(templateId);
             LOG(INFO, "Display initialization completed");
             return true;
         }
@@ -548,10 +565,21 @@ void SystemInitializer::setupWiFi() {
     try {
         const bool oledEnabled = Config::getInstance().hardwareOledEnabled.get();
 
-        // Don't pass display callback during system initialization - display isn't fully ready yet
-        // TODO: Lost: User feedback during WiFi connection (no "Connecting to WiFi..." messages on display) with commit 271d43432fab22cc4e1c950ee107212886806b8f
-        if (!g_state.network.cleverCoffeeWiFiManager->setupAndConnect(Config::getInstance().systemHostname.get(), WIFI_PASSWORD, false, nullptr)) {
+
+
+        // Create a display callback for WiFi status updates
+        std::function<void(const char*, const char*)> displayCallback = nullptr;
+
+        displayCallback = [this](const char* line1, const char* line2) {
+            uiManager_->displayLogo(String(line1), line2 ? String(line2) : String(""));
+        };
+
+        // Setup WiFi with display feedback
+        if (!g_state.network.cleverCoffeeWiFiManager->setupAndConnect(Config::getInstance().systemHostname.get(), WIFI_PASSWORD, false, displayCallback)) {
             g_state.network.offlineMode = true;
+            uiManager_->displayLogo(langstring_nowifi[0], langstring_nowifi[1]);
+        } else {
+            uiManager_->displayLogo("WiFi Connected", WiFi.localIP().toString());
         }
 
         // Check if restart is required after AP configuration
@@ -563,5 +591,6 @@ void SystemInitializer::setupWiFi() {
     } catch (const std::exception& e) {
         LOG(ERROR, "Failed to initialize WiFiManager");
         g_state.network.offlineMode = true;
+        uiManager_->displayLogo(langstring_nowifi[0], langstring_nowifi[1]);
     }
 }

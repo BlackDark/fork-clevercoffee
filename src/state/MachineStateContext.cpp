@@ -193,7 +193,7 @@ void MachineStateContext::performSafeShutdown() const {
 // === Display Functions ===
 
 U8G2* MachineStateContext::getDisplay() const {
-    return displayManager_ ? displayManager_->get() : nullptr;
+    return displayManager_ ? displayManager_->getDisplay() : nullptr;
 }
 
 void MachineStateContext::setDisplayPowerSave(int mode) const {

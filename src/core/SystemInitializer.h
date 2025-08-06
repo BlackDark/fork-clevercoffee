@@ -11,6 +11,7 @@
 
 // Forward declarations
 class DisplayManager;
+class UIManager;
 class HardwareManager;
 class MQTTManager;
 class SensorManager;
@@ -67,6 +68,14 @@ class SystemInitializer {
         }
 
         /**
+         * @brief Get display manager
+         * @return Pointer to display manager (may be null)
+         */
+        UIManager* getUIManager() const {
+            return uiManager_.get();
+        }
+
+        /**
          * @brief Get hardware manager
          * @return Pointer to hardware manager (may be null)
          */
@@ -104,6 +113,7 @@ class SystemInitializer {
             return webServerManager_.get();
         }
 
+
     private:
         // Initialization state
         bool systemInitialized_;
@@ -111,6 +121,7 @@ class SystemInitializer {
 
         // Manager instances
         std::unique_ptr<DisplayManager> displayManager_;
+        std::unique_ptr<UIManager> uiManager_;
         std::unique_ptr<HardwareManager> hardwareManager_;
         std::unique_ptr<MQTTManager> mqttManager_;
         std::unique_ptr<SensorManager> sensorManager_;

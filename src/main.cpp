@@ -75,9 +75,6 @@ std::unique_ptr<StateMachine> stateMachine = nullptr;
 #include "control/ProcessController.h"
 std::unique_ptr<ProcessController> processController = nullptr;
 
-// Modern UI management
-#include "ui/UIManager.h"
-std::unique_ptr<UIManager> uiManager = nullptr;
 
 // Modern loop management
 #include "core/LoopManager.h"
@@ -110,23 +107,6 @@ void setup() {
     }
     logMemoryBasic("After SystemInitializer->initialize()");
 
-    // Update compatibility pointers from SystemInitializer
-    if (systemInitializer->getDisplayManager()) {
-        g_state.hardware.display = systemInitializer->getDisplayManager()->get();
-
-        // Complete display initialization that requires global dependencies
-        // This must be done AFTER SystemInitializer to avoid crashes during WiFi setup
-        u8g2_prepare();
-        initLangStrings();
-
-        const System::DisplayTemplate templateId = Config::getInstance().displayTemplate.get();
-        DisplayTemplateManager::initializeDisplay(templateId);
-
-        // Display logo using UIManager if available
-        if (uiManager) {
-            uiManager->displayLogo(String("Version "), g_state.systemVersion);
-        }
-    }
 
     logMemoryBasic("Before HardwareManager Access");
     if (systemInitializer->getHardwareManager()) {
@@ -204,18 +184,9 @@ void setup() {
             LOG(ERROR, "ProcessController initialization failed!");
         }
 
-        // Initialize UIManager for display management
-        uiManager = std::make_unique<UIManager>(systemInitializer->getDisplayManager());
-
-        if (uiManager->initialize()) {
-            LOG(INFO, "UIManager initialized successfully");
-        }
-        else {
-            LOG(ERROR, "UIManager initialization failed!");
-        }
 
         // Initialize LoopManager for main loop coordination
-        loopManager = std::make_unique<LoopManager>(processController.get(), sensorManager, uiManager.get());
+        loopManager = std::make_unique<LoopManager>(processController.get(), sensorManager, systemInitializer->getUIManager());
 
         if (loopManager->initialize()) {
             LOG(INFO, "LoopManager initialized successfully");

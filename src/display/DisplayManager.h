@@ -24,10 +24,10 @@ class DisplayManager {
          * @param type Display type (0 = SH1106, 1 = SSD1306)
          * @param address Display I2C address (0 = 0x3C, 1 = 0x3D)
          */
-        DisplayManager(Hardware::OLEDType type, Hardware::OLEDAddress address);
+         explicit DisplayManager(Hardware::OLEDType type, Hardware::OLEDAddress address);
 
         /**
-         * @brief Destructor - automatically cleans up display resources
+         * @brief Destructor
          */
         ~DisplayManager() = default;
 
@@ -43,7 +43,7 @@ class DisplayManager {
          * @brief Get raw U8G2 pointer for compatibility with existing code
          * @return Pointer to U8G2 instance, or nullptr if not initialized
          */
-        U8G2* get() const {
+        U8G2* getDisplay() const {
             return display_.get();
         }
 
@@ -53,22 +53,6 @@ class DisplayManager {
          */
         bool isInitialized() const {
             return display_ != nullptr;
-        }
-
-        /**
-         * @brief Arrow operator for direct access to U8G2 methods
-         * @return Pointer to U8G2 instance
-         */
-        U8G2* operator->() const {
-            return display_.get();
-        }
-
-        /**
-         * @brief Dereference operator for direct access to U8G2 object
-         * @return Reference to U8G2 instance
-         */
-        U8G2& operator*() const {
-            return *display_;
         }
 
     private:

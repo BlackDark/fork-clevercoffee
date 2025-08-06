@@ -12,6 +12,7 @@
 #include "state/GlobalState.h"
 #include "state/MachineState.h"
 
+// TODO
 enum HotWaterSwitchState {
     kHotWaterSwitchIdle = 10,
     kHotWaterSwitchPressed = 20,

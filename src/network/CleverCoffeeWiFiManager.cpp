@@ -10,6 +10,7 @@
 #include <ESP.h>
 #include <WiFi.h>
 #include <WiFiManager.h>
+#include "../display/languages.h"
 
 // Helper function to convert byte to hex string
 static String byteToHex(byte value) {
@@ -96,7 +97,7 @@ void CleverCoffeeWiFiManager::handleSuccessfulConnection(bool oledEnabled, std::
     LOGF(DEBUG, "MAC-ADDRESS: %s", completemac.c_str());
 
     if (oledEnabled && displayCallback) {
-        displayCallback("WiFi Connected", wifiManager_->getWiFiSSID(true).c_str());
+        displayCallback(langstring_connectwifi1, wifiManager_->getWiFiSSID(true).c_str());
     }
 
     if (restartAfterAP_) {
