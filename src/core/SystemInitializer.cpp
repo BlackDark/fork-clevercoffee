@@ -18,6 +18,10 @@
 #include "../utils/legacyUtils.h"
 #include "../utils/memoryUtils.h"
 #include "Logger.h"
+
+#if __cplusplus >= 202300L
+#include <expected>
+#endif
 #include <Arduino.h>
 #include <ArduinoOTA.h>
 #include <LittleFS.h>
@@ -600,3 +604,267 @@ void SystemInitializer::setupWiFi() {
         uiManager_->displayLogo(langstring_nowifi[0], langstring_nowifi[1]);
     }
 }
+
+#if __cplusplus >= 202300L
+// ============================================================================
+// C++23 Enhanced Initialization with std::expected
+// ============================================================================
+
+std::expected<void, InitError> SystemInitializer::initializeModern() {
+    MODERN_LOG(INFO, "Starting C++23 enhanced system initialization");
+    logMemory("SystemInitializer Start");
+
+    // Phase 1: Core system initialization with detailed error reporting
+    logMemoryBasic("Before Logger Init");
+    if (auto result = initializeLoggerModern(); !result) {
+        return std::unexpected{result.error()};
+    }
+
+    logMemoryBasic("Before Config Init");
+    if (auto result = initializeConfigurationModern(); !result) {
+        return std::unexpected{result.error()};
+    }
+    logMemoryBasic("After Config Init");
+
+    // Phase 2: Hardware initialization
+    logMemoryBasic("Before Wire.begin()");
+    Wire.begin();
+    logMemoryBasic("After Wire.begin()");
+
+    logMemoryBasic("Before Display Init");
+    if (auto result = initializeDisplayModern(); !result) {
+        return std::unexpected{result.error()};
+    }
+    logMemoryBasic("After Display Init");
+
+    logMemoryBasic("Before Hardware Init");
+    if (auto result = initializeHardwareModern(); !result) {
+        return std::unexpected{result.error()};
+    }
+    logMemoryBasic("After Hardware Init");
+
+    // Phase 3: Network and communications
+    logMemoryBasic("Before Networking Init");
+    if (auto result = initializeNetworkingModern(); !result) {
+        // Network failure is not fatal - continue in offline mode
+        MODERN_LOG(WARNING, "Network initialization failed: {}. Continuing in offline mode.", 
+                  static_cast<int>(result.error()));
+        g_state.network.offlineMode = true;
+    }
+    logMemoryBasic("After Networking Init");
+
+    logMemoryBasic("Before MQTT Init");
+    if (auto result = initializeMQTTModern(); !result) {
+        // MQTT failure is not fatal if networking failed
+        MODERN_LOG(WARNING, "MQTT initialization failed: {}. Continuing without MQTT.", 
+                  static_cast<int>(result.error()));
+    }
+    logMemoryBasic("After MQTT Init");
+
+    // Phase 4: Process control
+    logMemoryBasic("Before PID Init");
+    if (auto result = initializePIDModern(); !result) {
+        return std::unexpected{result.error()};
+    }
+    logMemoryBasic("After PID Init");
+
+    logMemoryBasic("Before Sensor Init");
+    if (auto result = initializeSensorsModern(); !result) {
+        return std::unexpected{result.error()};
+    }
+    logMemoryBasic("After Sensor Init");
+
+    // Finalize
+    systemInitialized_ = true;
+    
+    logMemory("SystemInitializer Complete");
+    MODERN_LOG(INFO, "C++23 enhanced system initialization completed successfully!");
+    return {};
+}
+
+std::expected<void, InitError> SystemInitializer::initializeLoggerModern() {
+    try {
+        Logger::Config logConfig;
+        logConfig.enableSerial = true;
+        logConfig.enableWiFi = true;
+        logConfig.initialLevel = Logger::Level::INFO;
+        Logger::init(logConfig);
+        
+        if (!Logger::begin()) {
+            return std::unexpected{InitError::LoggerInitFailed};
+        }
+        
+        MODERN_LOG(INFO, "Logger initialized successfully with C++23 features");
+        return {};
+    } catch (...) {
+        return std::unexpected{InitError::LoggerInitFailed};
+    }
+}
+
+std::expected<void, InitError> SystemInitializer::initializeConfigurationModern() {
+    try {
+        if (!Config::getInstance().begin()) {
+            return std::unexpected{InitError::ConfigInitFailed};
+        }
+        
+        MODERN_LOG(INFO, "Configuration initialized with {} parameters", 
+                  /* you can add parameter count here if available */);
+        return {};
+    } catch (...) {
+        return std::unexpected{InitError::ConfigInitFailed};
+    }
+}
+
+std::expected<void, InitError> SystemInitializer::initializeDisplayModern() {
+    try {
+        displayManager_ = std::make_unique<DisplayManager>();
+        if (!displayManager_) {
+            return std::unexpected{InitError::MemoryAllocationFailed};
+        }
+        
+        if (!displayManager_->initialize()) {
+            return std::unexpected{InitError::DisplayInitFailed};
+        }
+        
+        uiManager_ = std::make_unique<UIManager>(displayManager_.get());
+        if (!uiManager_) {
+            return std::unexpected{InitError::MemoryAllocationFailed};
+        }
+        
+        MODERN_LOG(INFO, "Display system initialized: type={}, address=0x{:02X}", 
+                  static_cast<int>(Config::getInstance().hardwareOledType.get()),
+                  static_cast<int>(Config::getInstance().hardwareOledAddress.get()));
+        return {};
+    } catch (const std::bad_alloc&) {
+        return std::unexpected{InitError::MemoryAllocationFailed};
+    } catch (...) {
+        return std::unexpected{InitError::DisplayInitFailed};
+    }
+}
+
+std::expected<void, InitError> SystemInitializer::initializeHardwareModern() {
+    try {
+        hardwareManager_ = std::make_unique<HardwareManager>();
+        if (!hardwareManager_) {
+            return std::unexpected{InitError::MemoryAllocationFailed};
+        }
+        
+        if (!hardwareManager_->isInitialized()) {
+            return std::unexpected{InitError::HardwareInitFailed};
+        }
+        
+        MODERN_LOG(INFO, "Hardware manager initialized: relays=3, LEDs={}, switches={}", 
+                  Config::getInstance().hardwareLedsStatusEnabled.get() ? "3" : "0",
+                  Config::getInstance().hardwareSwitchesBrewEnabled.get() ? "enabled" : "disabled");
+        return {};
+    } catch (const std::bad_alloc&) {
+        return std::unexpected{InitError::MemoryAllocationFailed};
+    } catch (...) {
+        return std::unexpected{InitError::HardwareInitFailed};
+    }
+}
+
+std::expected<void, InitError> SystemInitializer::initializeNetworkingModern() {
+    try {
+        cleverCoffeeWiFiManager_ = std::make_unique<CleverCoffeeWiFiManager>();
+        if (!cleverCoffeeWiFiManager_) {
+            return std::unexpected{InitError::MemoryAllocationFailed};
+        }
+        
+        webServerManager_ = std::make_unique<WebServerManager>();
+        if (!webServerManager_) {
+            return std::unexpected{InitError::MemoryAllocationFailed};
+        }
+        
+        // Store references in global state
+        g_state.network.cleverCoffeeWiFiManager = cleverCoffeeWiFiManager_.get();
+        g_state.network.webServerManager = webServerManager_.get();
+        
+        MODERN_LOG(INFO, "Network managers created - WiFi setup in progress");
+        setupWiFi(); // This may set offline mode if connection fails
+        
+        return {};
+    } catch (const std::bad_alloc&) {
+        return std::unexpected{InitError::MemoryAllocationFailed};
+    } catch (...) {
+        return std::unexpected{InitError::NetworkingInitFailed};
+    }
+}
+
+std::expected<void, InitError> SystemInitializer::initializeMQTTModern() {
+    if (!Config::getInstance().mqttEnabled.get()) {
+        MODERN_LOG(INFO, "MQTT disabled in configuration");
+        return {};
+    }
+    
+    try {
+        mqttManager_ = std::make_unique<MQTTManager>();
+        if (!mqttManager_) {
+            return std::unexpected{InitError::MemoryAllocationFailed};
+        }
+        
+        if (!mqttManager_->initialize()) {
+            return std::unexpected{InitError::MQTTInitFailed};
+        }
+        
+        g_state.network.mqttManager = mqttManager_.get();
+        
+        MODERN_LOG(INFO, "MQTT initialized: broker={}, port={}", 
+                  Config::getInstance().mqttBroker.get().c_str(),
+                  Config::getInstance().mqttPort.get());
+        return {};
+    } catch (const std::bad_alloc&) {
+        return std::unexpected{InitError::MemoryAllocationFailed};
+    } catch (...) {
+        return std::unexpected{InitError::MQTTInitFailed};
+    }
+}
+
+std::expected<void, InitError> SystemInitializer::initializePIDModern() {
+    try {
+        if (!Config::getInstance().pidEnabled.get()) {
+            MODERN_LOG(INFO, "PID controller disabled in configuration");
+            return {};
+        }
+        
+        // Initialize PID with configured parameters
+        double kp = Config::getInstance().pidRegularKp.get();
+        double ki = (Config::getInstance().pidRegularTn.get() == 0) ? 0 : 
+                   kp / Config::getInstance().pidRegularTn.get();
+        double kd = Config::getInstance().pidRegularTv.get() * kp;
+        
+        g_state.pid->SetTunings(kp, ki, kd, 1);
+        g_state.pid->SetOutputLimits(0, 1000); // 0-1000 promille
+        g_state.pid->SetMode(AUTOMATIC);
+        
+        MODERN_LOG(INFO, "PID initialized: Kp={:.3f}, Ki={:.3f}, Kd={:.3f}", kp, ki, kd);
+        return {};
+    } catch (...) {
+        return std::unexpected{InitError::PIDInitFailed};
+    }
+}
+
+std::expected<void, InitError> SystemInitializer::initializeSensorsModern() {
+    try {
+        sensorManager_ = std::make_unique<SensorManager>(hardwareManager_.get());
+        if (!sensorManager_) {
+            return std::unexpected{InitError::MemoryAllocationFailed};
+        }
+        
+        if (!sensorManager_->initialize()) {
+            return std::unexpected{InitError::SensorInitFailed};
+        }
+        
+        MODERN_LOG(INFO, "Sensor manager initialized: temp={}, pressure={}, scale={}", 
+                  sensorManager_->isTemperatureSensorAvailable() ? "available" : "unavailable",
+                  Config::getInstance().hardwareSensorsPressureEnabled.get() ? "enabled" : "disabled",
+                  Config::getInstance().hardwareSensorsScaleEnabled.get() ? "enabled" : "disabled");
+        return {};
+    } catch (const std::bad_alloc&) {
+        return std::unexpected{InitError::MemoryAllocationFailed};
+    } catch (...) {
+        return std::unexpected{InitError::SensorInitFailed};
+    }
+}
+
+#endif // __cplusplus >= 202300L

@@ -9,6 +9,26 @@
 #include <functional>
 #include <memory>
 
+#if __cplusplus >= 202300L
+#include <expected>
+#endif
+
+// C++23 Error handling for initialization
+#if __cplusplus >= 202300L
+enum class InitError {
+    LoggerInitFailed,
+    ConfigInitFailed, 
+    DisplayInitFailed,
+    HardwareInitFailed,
+    NetworkingInitFailed,
+    MQTTInitFailed,
+    PIDInitFailed,
+    SensorInitFailed,
+    I2CInitFailed,
+    MemoryAllocationFailed
+};
+#endif
+
 // Forward declarations
 class DisplayManager;
 class UIManager;
@@ -50,6 +70,14 @@ class SystemInitializer {
          * @return true if initialization successful
          */
         bool initialize();
+
+#if __cplusplus >= 202300L
+        /**
+         * @brief Initialize complete system with detailed error reporting (C++23)
+         * @return Success or specific initialization error
+         */
+        std::expected<void, InitError> initializeModern();
+#endif
 
         /**
          * @brief Check if system is initialized
@@ -137,6 +165,18 @@ class SystemInitializer {
         bool initializePID();
         bool initializeSensors();
         bool finalizeMachineState();
+
+#if __cplusplus >= 202300L
+        // C++23 initialization phases with detailed error reporting
+        std::expected<void, InitError> initializeLoggerModern();
+        std::expected<void, InitError> initializeConfigurationModern();
+        std::expected<void, InitError> initializeDisplayModern();
+        std::expected<void, InitError> initializeHardwareModern();
+        std::expected<void, InitError> initializeNetworkingModern();
+        std::expected<void, InitError> initializeMQTTModern();
+        std::expected<void, InitError> initializePIDModern();
+        std::expected<void, InitError> initializeSensorsModern();
+#endif
 
         // Network setup helpers
         void setupWiFi();
