@@ -2,6 +2,10 @@
 
 #include "displayCommon.h"
 
+#if __cplusplus >= 202002L
+#include "ModernDisplayTemplate.h"
+#endif
+
 namespace Templates {
     namespace Standard {
 #include "displayTemplateStandard.h"
@@ -36,6 +40,11 @@ class DisplayTemplateManager {
         // };
 
         static void initializeDisplay(const System::DisplayTemplate templateId) {
+#if __cplusplus >= 202002L
+            // Use modern C++23 template system with "deducing this"
+            ModernDisplayTemplateManager::setTemplate(templateId);
+#else
+            // Fallback to traditional function pointer system
             currentTemplate = templateId;
 
             switch (templateId) {
@@ -58,6 +67,7 @@ class DisplayTemplateManager {
                     currentPrintScreen = &Templates::Standard::printScreen;
                     break;
             }
+#endif
         }
 
         static void printScreen();
