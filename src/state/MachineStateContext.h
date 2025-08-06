@@ -266,6 +266,66 @@ class MachineStateContext {
         void setPidRuntimeState(bool enabled) const;
 
         /**
+         * @brief Set manual flush state
+         */
+        void setManualFlushState(bool active) const;
+
+        /**
+         * @brief Set hot water state
+         */
+        void setHotWaterState(bool active) const;
+
+        /**
+         * @brief Set steam state
+         */
+        void setSteamState(bool active) const;
+
+        /**
+         * @brief Set backflush state
+         */
+        void setBackflushState(bool active) const;
+
+        /**
+         * @brief Disable water-dependent operations for safety
+         */
+        void disableWaterOperations() const;
+
+        /**
+         * @brief Enable water-dependent operations
+         */
+        void enableWaterOperations() const;
+
+        /**
+         * @brief Enter safe mode (disable critical operations)
+         */
+        void enterSafeMode() const;
+
+        /**
+         * @brief Exit safe mode (re-enable operations)
+         */
+        void exitSafeMode() const;
+
+        /**
+         * @brief Enter standby mode (power saving)
+         */
+        void enterStandbyMode() const;
+
+        /**
+         * @brief Exit standby mode
+         */
+        void exitStandbyMode() const;
+
+        /**
+         * @brief Check if user activity detected
+         */
+        bool hasUserActivity() const;
+
+        /**
+         * @brief Check if should exit standby
+         */
+        bool shouldExitStandby() const;
+
+        /**
          * @brief Perform safe shutdown
          */
         void performSafeShutdown() const;

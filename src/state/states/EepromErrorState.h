@@ -1,6 +1,6 @@
 /**
- * @file SteamState.h
- * @brief Steam state - placeholder implementation
+ * @file EepromErrorState.h
+ * @brief EEPROM error state for configuration storage errors
  */
 
 #pragma once
@@ -8,10 +8,10 @@
 #include "../MachineState.h"
 #include "../MachineStateIds.h"
 
-class SteamState : public MachineState {
+class EepromErrorState : public MachineState {
     public:
-        SteamState() = default;
-        ~SteamState() override = default;
+        EepromErrorState() = default;
+        ~EepromErrorState() override = default;
 
         void onEntry(MachineStateContext& context) override;
         void onExit(MachineStateContext& context) override;
@@ -19,9 +19,9 @@ class SteamState : public MachineState {
         std::unique_ptr<MachineState> checkTransitions(MachineStateContext& context) override;
 
         int getStateId() const override {
-            return MachineStateIds::STEAM;
+            return MachineStateIds::EEPROM_ERROR;
         }
         const char* getStateName() const override {
-            return "Steam";
+            return "EEPROM Error";
         }
 };

@@ -49,24 +49,32 @@ std::unique_ptr<MachineState> BrewState::checkTransitions(MachineStateContext& c
     // Check emergency conditions first
     if (checkEmergencyConditions(context)) {
         context.logStateTransition(getStateId(), MachineStateIds::EMERGENCY_STOP, "Emergency during brewing");
+        // Reset MQTT reconnect count when exiting brew mode (matches original logic)
+        context.resetMqttReconnectCount();
         return std::make_unique<EmergencyStopState>();
     }
 
     // Check if PID was disabled during brewing
     if (!isPidStillEnabled(context)) {
         context.logStateTransition(getStateId(), MachineStateIds::PID_DISABLED, "PID disabled during brewing");
+        // Reset MQTT reconnect count when exiting brew mode (matches original logic)
+        context.resetMqttReconnectCount();
         return std::make_unique<PidDisabledState>();
     }
 
     // Check for sensor errors during brewing
     if (checkSensorErrors(context)) {
         context.logStateTransition(getStateId(), MachineStateIds::SENSOR_ERROR, "Sensor error during brewing");
+        // Reset MQTT reconnect count when exiting brew mode (matches original logic)
+        context.resetMqttReconnectCount();
         return std::make_unique<SensorErrorState>();
     }
 
     // Check if brew process is complete or was stopped
     if (!isBrewStillActive(context)) {
         context.logStateTransition(getStateId(), MachineStateIds::PID_NORMAL, "Brew process completed");
+        // Reset MQTT reconnect count when exiting brew mode (matches original logic)
+        context.resetMqttReconnectCount();
         return std::make_unique<PidNormalState>();
     }
 

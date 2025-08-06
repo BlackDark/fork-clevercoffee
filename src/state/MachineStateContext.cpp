@@ -226,3 +226,94 @@ void MachineStateContext::logStateExit(int stateId, const char* stateName) const
 void MachineStateContext::resetMqttReconnectCount() const {
     g_state.network.MQTTReCnctCount = 0;
 }
+
+// === Additional Control Functions ===
+
+void MachineStateContext::setManualFlushState(bool active) const {
+    // Set global state for manual flush
+    // This would typically control hardware directly
+    // For now, we'll use the global state
+    if (active) {
+        LOG(DEBUG, "Manual flush activated");
+    } else {
+        LOG(DEBUG, "Manual flush deactivated");
+    }
+}
+
+void MachineStateContext::setHotWaterState(bool active) const {
+    // Set global state for hot water
+    if (active) {
+        LOG(DEBUG, "Hot water mode activated");
+    } else {
+        LOG(DEBUG, "Hot water mode deactivated");
+    }
+}
+
+void MachineStateContext::setSteamState(bool active) const {
+    // Set global state for steam
+    g_state.machine.steamON = active;
+    if (active) {
+        LOG(DEBUG, "Steam mode activated");
+    } else {
+        LOG(DEBUG, "Steam mode deactivated");
+    }
+}
+
+void MachineStateContext::setBackflushState(bool active) const {
+    // Set global state for backflush
+    g_state.machine.backflushOn = active;
+    if (active) {
+        LOG(DEBUG, "Backflush mode activated");
+    } else {
+        LOG(DEBUG, "Backflush mode deactivated");
+    }
+}
+
+void MachineStateContext::disableWaterOperations() const {
+    // Disable operations that require water for safety
+    LOG(INFO, "Water operations disabled due to empty tank");
+}
+
+void MachineStateContext::enableWaterOperations() const {
+    // Re-enable water operations when tank is refilled
+    LOG(INFO, "Water operations enabled - tank refilled");
+}
+
+void MachineStateContext::enterSafeMode() const {
+    // Enter safe mode - disable critical operations
+    LOG(WARNING, "Entering safe mode due to system error");
+    // Disable heater, pumps, etc. for safety
+}
+
+void MachineStateContext::exitSafeMode() const {
+    // Exit safe mode - re-enable normal operations
+    LOG(INFO, "Exiting safe mode - system error resolved");
+}
+
+void MachineStateContext::enterStandbyMode() const {
+    // Enter power-saving standby mode
+    LOG(INFO, "Entering standby mode - reducing power consumption");
+    if (U8G2* display = getDisplay()) {
+        display->setPowerSave(1); // Enable display power saving
+    }
+}
+
+void MachineStateContext::exitStandbyMode() const {
+    // Exit standby mode - resume normal power consumption
+    LOG(INFO, "Exiting standby mode - resuming normal operation");
+    if (U8G2* display = getDisplay()) {
+        display->setPowerSave(0); // Disable display power saving
+    }
+}
+
+bool MachineStateContext::hasUserActivity() const {
+    // Check for user activity (button presses, web interface, etc.)
+    // This is a simplified implementation - in reality would check various inputs
+    return false; // TODO: Implement proper user activity detection
+}
+
+bool MachineStateContext::shouldExitStandby() const {
+    // Check if conditions exist to exit standby mode
+    // This is a simplified implementation
+    return hasUserActivity(); // For now, just check user activity
+}

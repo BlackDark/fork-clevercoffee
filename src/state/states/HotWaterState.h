@@ -13,15 +13,10 @@ class HotWaterState : public MachineState {
         HotWaterState() = default;
         ~HotWaterState() override = default;
 
-        void onEntry(MachineStateContext& context) override {
-        }
-        void onExit(MachineStateContext& context) override {
-        }
-        void update(MachineStateContext& context) override {
-        }
-        std::unique_ptr<MachineState> checkTransitions(MachineStateContext& context) override {
-            return nullptr;
-        }
+        void onEntry(MachineStateContext& context) override;
+        void onExit(MachineStateContext& context) override;
+        void update(MachineStateContext& context) override;
+        std::unique_ptr<MachineState> checkTransitions(MachineStateContext& context) override;
 
         int getStateId() const override {
             return MachineStateIds::HOT_WATER;

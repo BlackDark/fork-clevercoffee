@@ -13,15 +13,10 @@ class StandbyState : public MachineState {
         StandbyState() = default;
         ~StandbyState() override = default;
 
-        void onEntry(MachineStateContext& context) override {
-        }
-        void onExit(MachineStateContext& context) override {
-        }
-        void update(MachineStateContext& context) override {
-        }
-        std::unique_ptr<MachineState> checkTransitions(MachineStateContext& context) override {
-            return nullptr;
-        }
+        void onEntry(MachineStateContext& context) override;
+        void onExit(MachineStateContext& context) override;
+        void update(MachineStateContext& context) override;
+        std::unique_ptr<MachineState> checkTransitions(MachineStateContext& context) override;
 
         int getStateId() const override {
             return MachineStateIds::STANDBY;

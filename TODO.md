@@ -314,7 +314,7 @@ This TODO list breaks down the migration plan into small, incremental steps that
 - **Test**: System behavior under failures
 - **Risk**: Medium - Failure handling
 
-#### **TODO-028-2: Correctly implement all states**
+#### **TODO-029: Correctly implement all states**
 - **Files**: Check `src/states`
 - **Action**:
   - Validate all states and state transistion
@@ -324,7 +324,7 @@ This TODO list breaks down the migration plan into small, incremental steps that
 
 ### 3.3 Performance Optimization (Days 27-28)
 
-#### **TODO-029: Add move semantics to heavy objects**
+#### **TODO-030: Add move semantics to heavy objects**
 - **Files**: Configuration classes, String handling
 - **Action**:
   - Add move constructors and assignment operators
@@ -333,7 +333,7 @@ This TODO list breaks down the migration plan into small, incremental steps that
 - **Test**: Performance measurement, functionality
 - **Risk**: Low - Performance optimization
 
-#### **TODO-030: Optimize memory allocations**
+#### **TODO-031: Optimize memory allocations**
 - **Files**: Display buffers, sensor data structures
 - **Action**:
   - Use stack allocation where possible
@@ -348,7 +348,7 @@ This TODO list breaks down the migration plan into small, incremental steps that
 
 ### 4.1 Testing Infrastructure (Days 29-32)
 
-#### **TODO-031: Add Google Test framework**
+#### **TODO-032: Add Google Test framework**
 - **Files**: `platformio.ini`, create `test/` structure
 - **Action**:
   - Configure PlatformIO for unit testing
@@ -357,7 +357,7 @@ This TODO list breaks down the migration plan into small, incremental steps that
 - **Test**: Sample test compilation and execution
 - **Risk**: Low - Testing framework setup
 
-#### **TODO-032: Create hardware mocks**
+#### **TODO-033: Create hardware mocks**
 - **Files**: Create `test/mocks/` directory
 - **Action**:
   - Mock GPIO operations
@@ -367,7 +367,7 @@ This TODO list breaks down the migration plan into small, incremental steps that
 - **Test**: Mock functionality and test execution
 - **Risk**: Medium - Testing infrastructure
 
-#### **TODO-033: Add unit tests for core classes**
+#### **TODO-034: Add unit tests for core classes**
 - **Files**: Create tests for each major class
 - **Action**:
   - Test Config system thoroughly
@@ -377,7 +377,7 @@ This TODO list breaks down the migration plan into small, incremental steps that
 - **Test**: Unit test coverage and correctness
 - **Risk**: Medium - Test implementation
 
-#### **TODO-034: Add integration tests**
+#### **TODO-035: Add integration tests**
 - **Files**: Create `test/integration/` directory
 - **Action**:
   - Test complete brewing process
@@ -388,7 +388,7 @@ This TODO list breaks down the migration plan into small, incremental steps that
 
 ### 4.2 Quality Assurance (Days 33-35)
 
-#### **TODO-035: Configure static analysis**
+#### **TODO-036: Configure static analysis**
 - **Files**: `.clang-tidy`, `platformio.ini`
 - **Action**:
   - Configure clang-tidy for C++ checks
@@ -397,7 +397,7 @@ This TODO list breaks down the migration plan into small, incremental steps that
 - **Test**: Static analysis clean build
 - **Risk**: Low - Code quality tools
 
-#### **TODO-036: Add code formatting**
+#### **TODO-037: Add code formatting**
 - **Files**: `.clang-format`, format scripts
 - **Action**:
   - Configure consistent code formatting
@@ -406,7 +406,7 @@ This TODO list breaks down the migration plan into small, incremental steps that
 - **Test**: Consistent code formatting
 - **Risk**: Low - Code formatting
 
-#### **TODO-037: Improve documentation**
+#### **TODO-038: Improve documentation**
 - **Files**: All public interfaces
 - **Action**:
   - Add Doxygen comments to public APIs
@@ -415,7 +415,7 @@ This TODO list breaks down the migration plan into small, incremental steps that
 - **Test**: Documentation generation
 - **Risk**: Low - Documentation improvement
 
-#### **TODO-038: Restore WiFi connection status display during system initialization**
+#### **TODO-039: Restore WiFi connection status display during system initialization**
 - **Files**: `src/core/SystemInitializer.cpp`, `src/main.cpp`, `src/network/WiFiManager.cpp`
 - **Action**:
   - Create a safe, early-stage display message function that doesn't depend on full display initialization

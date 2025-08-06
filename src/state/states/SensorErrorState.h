@@ -13,15 +13,10 @@ class SensorErrorState : public MachineState {
         SensorErrorState() = default;
         ~SensorErrorState() override = default;
 
-        void onEntry(MachineStateContext& context) override {
-        }
-        void onExit(MachineStateContext& context) override {
-        }
-        void update(MachineStateContext& context) override {
-        }
-        std::unique_ptr<MachineState> checkTransitions(MachineStateContext& context) override {
-            return nullptr;
-        }
+        void onEntry(MachineStateContext& context) override;
+        void onExit(MachineStateContext& context) override;
+        void update(MachineStateContext& context) override;
+        std::unique_ptr<MachineState> checkTransitions(MachineStateContext& context) override;
 
         int getStateId() const override {
             return MachineStateIds::SENSOR_ERROR;
@@ -29,4 +24,7 @@ class SensorErrorState : public MachineState {
         const char* getStateName() const override {
             return "Sensor Error";
         }
+
+    private:
+        unsigned long errorStartTime_ = 0; ///< Time when error was first detected
 };
