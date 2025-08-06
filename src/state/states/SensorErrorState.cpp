@@ -6,17 +6,17 @@
 #include "SensorErrorState.h"
 #include "../MachineStateContext.h"
 #include "EmergencyStopState.h"
+#include "Logger.h"
 #include "PidDisabledState.h"
 #include "PidNormalState.h"
-#include "Logger.h"
 
 void SensorErrorState::onEntry(MachineStateContext& context) {
     context.logStateEntry(getStateId(), getStateName());
     LOG(ERROR, "Sensor error detected - entering safe mode");
-    
+
     // Disable critical operations for safety
     context.enterSafeMode();
-    
+
     // Reset error recovery timer
     errorStartTime_ = millis();
 }
@@ -24,7 +24,7 @@ void SensorErrorState::onEntry(MachineStateContext& context) {
 void SensorErrorState::onExit(MachineStateContext& context) {
     context.logStateExit(getStateId(), getStateName());
     LOG(INFO, "Sensor error resolved - exiting safe mode");
-    
+
     // Re-enable normal operations
     context.exitSafeMode();
 }
@@ -33,10 +33,8 @@ void SensorErrorState::update(MachineStateContext& context) {
     // Monitor sensor status and attempt recovery
     unsigned long currentTime = millis();
     unsigned long errorDuration = currentTime - errorStartTime_;
-    
-    LOGF(DEBUG, "Sensor Error: Duration=%lums, Recovery=%s", 
-         errorDuration,
-         context.hasSensorError() ? "PENDING" : "RESOLVED");
+
+    LOGF(DEBUG, "Sensor Error: Duration=%lums, Recovery=%s", errorDuration, context.hasSensorError() ? "PENDING" : "RESOLVED");
 }
 
 std::unique_ptr<MachineState> SensorErrorState::checkTransitions(MachineStateContext& context) {
@@ -47,8 +45,7 @@ std::unique_ptr<MachineState> SensorErrorState::checkTransitions(MachineStateCon
 
     // Check emergency conditions first
     if (context.isEmergencyStop()) {
-        context.logStateTransition(getStateId(), MachineStateIds::EMERGENCY_STOP, 
-                                   "Emergency condition during sensor error");
+        context.logStateTransition(getStateId(), MachineStateIds::EMERGENCY_STOP, "Emergency condition during sensor error");
         return std::make_unique<EmergencyStopState>();
     }
 
@@ -57,20 +54,20 @@ std::unique_ptr<MachineState> SensorErrorState::checkTransitions(MachineStateCon
         // Allow some time for sensor stability before returning to normal
         unsigned long errorDuration = millis() - errorStartTime_;
         constexpr unsigned long RECOVERY_DELAY_MS = 5000; // 5 seconds
-        
+
         if (errorDuration > RECOVERY_DELAY_MS) {
             // Check if we should return to normal PID or stay disabled
             if (context.isPidEnabled()) {
-                context.logStateTransition(getStateId(), MachineStateIds::PID_NORMAL, 
-                                           "Sensor error resolved - returning to normal operation");
+                context.logStateTransition(getStateId(), MachineStateIds::PID_NORMAL, "Sensor error resolved - returning to normal operation");
                 return std::make_unique<PidNormalState>();
-            } else {
-                context.logStateTransition(getStateId(), MachineStateIds::PID_DISABLED, 
-                                           "Sensor error resolved but PID disabled");
+            }
+            else {
+                context.logStateTransition(getStateId(), MachineStateIds::PID_DISABLED, "Sensor error resolved but PID disabled");
                 return std::make_unique<PidDisabledState>();
             }
         }
-    } else {
+    }
+    else {
         // Reset recovery timer if error is still present
         errorStartTime_ = millis();
     }
@@ -78,10 +75,9 @@ std::unique_ptr<MachineState> SensorErrorState::checkTransitions(MachineStateCon
     // Check for persistent error - fallback to PID disabled for safety
     unsigned long errorDuration = millis() - errorStartTime_;
     constexpr unsigned long MAX_ERROR_DURATION_MS = 60000; // 1 minute
-    
+
     if (errorDuration > MAX_ERROR_DURATION_MS) {
-        context.logStateTransition(getStateId(), MachineStateIds::PID_DISABLED, 
-                                   "Persistent sensor error - disabling PID for safety");
+        context.logStateTransition(getStateId(), MachineStateIds::PID_DISABLED, "Persistent sensor error - disabling PID for safety");
         context.setPidRuntimeState(false);
         return std::make_unique<PidDisabledState>();
     }

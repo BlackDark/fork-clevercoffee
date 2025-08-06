@@ -24,7 +24,7 @@ class DisplayManager {
          * @param type Display type (0 = SH1106, 1 = SSD1306)
          * @param address Display I2C address (0 = 0x3C, 1 = 0x3D)
          */
-         explicit DisplayManager(Hardware::OLEDType type, Hardware::OLEDAddress address);
+        explicit DisplayManager(Hardware::OLEDType type, Hardware::OLEDAddress address);
 
         /**
          * @brief Destructor

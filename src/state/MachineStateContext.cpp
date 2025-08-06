@@ -5,12 +5,14 @@
 
 #include "MachineStateContext.h"
 #include "../Config.h"
+#include "../control/ProcessController.h"
 #include "../display/DisplayManager.h"
 #include "../hardware/HardwareManager.h"
 #include "../network/CleverCoffeeWiFiManager.h"
 #include "../network/MQTTManager.h"
 #include "../sensors/SensorManager.h"
 // #include "../hotWaterHandler.h" - removed to avoid circular dependencies
+#include "../state/GlobalState.h"
 #include "../utils/brewUtils.h"
 #include "../utils/legacyUtils.h"
 #include "Logger.h"
@@ -18,12 +20,9 @@
 
 // Forward declarations to avoid circular dependencies
 // These functions are defined in main.cpp and various handler files
-extern void performSafeShutdown();
 extern bool manualFlush();
 extern bool checkHotWaterStates();
 extern bool brew();
-
-// Forward declaration for standby timer reset function
 extern void resetStandbyTimer(LegacyMachineState state);
 
 MachineStateContext::MachineStateContext(DisplayManager* displayManager, HardwareManager* hardwareManager, SensorManager* sensorManager, CleverCoffeeWiFiManager* wifiManager, MQTTManager* mqttManager) :
@@ -187,7 +186,7 @@ void MachineStateContext::setPidRuntimeState(bool enabled) const {
 }
 
 void MachineStateContext::performSafeShutdown() const {
-    ::performSafeShutdown();
+    g_state.coordination.processController->performSafeShutdown();
 }
 
 // === Display Functions ===
@@ -235,7 +234,8 @@ void MachineStateContext::setManualFlushState(bool active) const {
     // For now, we'll use the global state
     if (active) {
         LOG(DEBUG, "Manual flush activated");
-    } else {
+    }
+    else {
         LOG(DEBUG, "Manual flush deactivated");
     }
 }
@@ -244,7 +244,8 @@ void MachineStateContext::setHotWaterState(bool active) const {
     // Set global state for hot water
     if (active) {
         LOG(DEBUG, "Hot water mode activated");
-    } else {
+    }
+    else {
         LOG(DEBUG, "Hot water mode deactivated");
     }
 }
@@ -254,7 +255,8 @@ void MachineStateContext::setSteamState(bool active) const {
     g_state.machine.steamON = active;
     if (active) {
         LOG(DEBUG, "Steam mode activated");
-    } else {
+    }
+    else {
         LOG(DEBUG, "Steam mode deactivated");
     }
 }
@@ -264,7 +266,8 @@ void MachineStateContext::setBackflushState(bool active) const {
     g_state.machine.backflushOn = active;
     if (active) {
         LOG(DEBUG, "Backflush mode activated");
-    } else {
+    }
+    else {
         LOG(DEBUG, "Backflush mode deactivated");
     }
 }

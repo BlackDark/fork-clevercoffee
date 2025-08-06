@@ -75,7 +75,6 @@ std::unique_ptr<StateMachine> stateMachine = nullptr;
 #include "control/ProcessController.h"
 std::unique_ptr<ProcessController> processController = nullptr;
 
-
 // Modern loop management
 #include "core/LoopManager.h"
 std::unique_ptr<LoopManager> loopManager = nullptr;
@@ -106,7 +105,6 @@ void setup() {
         exit(0);
     }
     logMemoryBasic("After SystemInitializer->initialize()");
-
 
     logMemoryBasic("Before HardwareManager Access");
     if (systemInitializer->getHardwareManager()) {
@@ -177,13 +175,14 @@ void setup() {
         // Initialize ProcessController for PID control
         processController = std::make_unique<ProcessController>(systemInitializer->getDisplayManager(), systemInitializer->getHardwareManager(), sensorManager, systemInitializer->getMQTTManager());
 
+        g_state.coordination.processController = processController.get();
+
         if (processController->initialize()) {
             LOG(INFO, "ProcessController initialized successfully");
         }
         else {
             LOG(ERROR, "ProcessController initialization failed!");
         }
-
 
         // Initialize LoopManager for main loop coordination
         loopManager = std::make_unique<LoopManager>(processController.get(), sensorManager, systemInitializer->getUIManager());
@@ -204,17 +203,5 @@ void loop() {
     if (loopManager) {
         // Use modern LoopManager for coordinated main loop updates
         loopManager->update();
-    }
-}
-
-void checkWifi() {
-    if (g_state.network.cleverCoffeeWiFiManager) {
-        g_state.network.cleverCoffeeWiFiManager->checkAndMaintainConnection();
-    }
-}
-
-void performSafeShutdown() {
-    if (processController) {
-        processController->performSafeShutdown();
     }
 }

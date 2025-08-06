@@ -9,14 +9,14 @@
 #include "../display/DisplayManager.h"
 #include "../display/displayTemplateManager.h"
 #include "../display/languages.h"
-#include "../ui/UIManager.h"
-#include "../utils/memoryUtils.h"
 #include "../hardware/HardwareManager.h"
 #include "../network/CleverCoffeeWiFiManager.h"
 #include "../network/MQTTManager.h"
 #include "../network/WebServerManager.h"
 #include "../sensors/SensorManager.h"
+#include "../ui/UIManager.h"
 #include "../utils/legacyUtils.h"
+#include "../utils/memoryUtils.h"
 #include "Logger.h"
 #include <Arduino.h>
 #include <ArduinoOTA.h>
@@ -71,7 +71,8 @@ bool SystemInitializer::initialize() {
     logMemoryBasic("Before Display Init");
     if (!initializeDisplay()) {
         LOG(WARNING, "Display initialization failed, continuing without display");
-    } else {
+    }
+    else {
         uiManager_->displayLogo(String("Version "), g_state.sysVersion);
     }
 
@@ -565,20 +566,17 @@ void SystemInitializer::setupWiFi() {
     try {
         const bool oledEnabled = Config::getInstance().hardwareOledEnabled.get();
 
-
-
         // Create a display callback for WiFi status updates
         std::function<void(const char*, const char*)> displayCallback = nullptr;
 
-        displayCallback = [this](const char* line1, const char* line2) {
-            uiManager_->displayLogo(String(line1), line2 ? String(line2) : String(""));
-        };
+        displayCallback = [this](const char* line1, const char* line2) { uiManager_->displayLogo(String(line1), line2 ? String(line2) : String("")); };
 
         // Setup WiFi with display feedback
         if (!g_state.network.cleverCoffeeWiFiManager->setupAndConnect(Config::getInstance().systemHostname.get(), WIFI_PASSWORD, false, displayCallback)) {
             g_state.network.offlineMode = true;
             uiManager_->displayLogo(langstring_nowifi[0], langstring_nowifi[1]);
-        } else {
+        }
+        else {
             uiManager_->displayLogo("WiFi Connected", WiFi.localIP().toString());
         }
 

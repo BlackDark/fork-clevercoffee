@@ -7,14 +7,14 @@
 #pragma once
 
 #include "../Config.h"
+#include "../brewHandler.h"
+#include "../hotWaterHandler.h"
 #include "../network/CleverCoffeeWiFiManager.h"
 #include "../state/GlobalState.h"
 #include "../utils/legacyUtils.h"
-#include "../brewHandler.h"
-#include "../hotWaterHandler.h"
 #include "bitmaps.h"
 #include "languages.h"
-#include <PID_v1.h> // Required for PID methods in display templates
+#include <PID_v1.h>  // Required for PID methods in display templates
 #include <U8g2lib.h> // Required for U8G2 display methods
 
 inline const u8g2_cb_t* getU8G2Rotation(const int rotationValue) {

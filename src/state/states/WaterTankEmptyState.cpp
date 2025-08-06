@@ -6,14 +6,14 @@
 #include "WaterTankEmptyState.h"
 #include "../MachineStateContext.h"
 #include "EmergencyStopState.h"
+#include "Logger.h"
 #include "PidNormalState.h"
 #include "SensorErrorState.h"
-#include "Logger.h"
 
 void WaterTankEmptyState::onEntry(MachineStateContext& context) {
     context.logStateEntry(getStateId(), getStateName());
     LOG(WARNING, "Water tank is empty - operations suspended");
-    
+
     // Disable operations that require water
     context.disableWaterOperations();
 }
@@ -21,15 +21,14 @@ void WaterTankEmptyState::onEntry(MachineStateContext& context) {
 void WaterTankEmptyState::onExit(MachineStateContext& context) {
     context.logStateExit(getStateId(), getStateName());
     LOG(INFO, "Water tank refilled - operations resuming");
-    
+
     // Re-enable water operations
     context.enableWaterOperations();
 }
 
 void WaterTankEmptyState::update(MachineStateContext& context) {
     // Monitor water tank status
-    LOGF(DEBUG, "Water Tank Empty: Monitoring tank level, Sensors=%s", 
-         context.hasSensorError() ? "ERROR" : "OK");
+    LOGF(DEBUG, "Water Tank Empty: Monitoring tank level, Sensors=%s", context.hasSensorError() ? "ERROR" : "OK");
 }
 
 std::unique_ptr<MachineState> WaterTankEmptyState::checkTransitions(MachineStateContext& context) {
@@ -40,22 +39,19 @@ std::unique_ptr<MachineState> WaterTankEmptyState::checkTransitions(MachineState
 
     // Check emergency conditions first
     if (context.isEmergencyStop()) {
-        context.logStateTransition(getStateId(), MachineStateIds::EMERGENCY_STOP, 
-                                   "Emergency condition detected with empty water tank");
+        context.logStateTransition(getStateId(), MachineStateIds::EMERGENCY_STOP, "Emergency condition detected with empty water tank");
         return std::make_unique<EmergencyStopState>();
     }
 
     // Check for sensor errors
     if (context.hasSensorError() || context.hasTemperatureError()) {
-        context.logStateTransition(getStateId(), MachineStateIds::SENSOR_ERROR, 
-                                   "Sensor error detected with empty water tank");
+        context.logStateTransition(getStateId(), MachineStateIds::SENSOR_ERROR, "Sensor error detected with empty water tank");
         return std::make_unique<SensorErrorState>();
     }
 
     // Check if water tank has been refilled
     if (context.isWaterTankFull()) {
-        context.logStateTransition(getStateId(), MachineStateIds::PID_NORMAL, 
-                                   "Water tank refilled - resuming normal operation");
+        context.logStateTransition(getStateId(), MachineStateIds::PID_NORMAL, "Water tank refilled - resuming normal operation");
         return std::make_unique<PidNormalState>();
     }
 

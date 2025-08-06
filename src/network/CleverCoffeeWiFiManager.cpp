@@ -5,12 +5,12 @@
 
 #include "CleverCoffeeWiFiManager.h"
 #include "../Config.h"
+#include "../display/languages.h"
 #include "../utils/brewUtils.h"
 #include "Logger.h"
 #include <ESP.h>
 #include <WiFi.h>
 #include <WiFiManager.h>
-#include "../display/languages.h"
 
 // Helper function to convert byte to hex string
 static String byteToHex(byte value) {

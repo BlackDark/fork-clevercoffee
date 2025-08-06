@@ -14,8 +14,6 @@
 #include "utils/legacyUtils.h"
 #include <U8g2lib.h> // Required for U8G2 display methods
 
-void performSafeShutdown();
-
 inline void checkPowerSwitch() {
     if (!Config::getInstance().hardwareSwitchesPowerEnabled.get() || g_state.hardware.powerSwitch == nullptr) {
         return;
@@ -43,7 +41,7 @@ inline void checkPowerSwitch() {
             }
             else {
                 if (g_state.machine.machineState != LegacyMachineState::kStandby) {
-                    performSafeShutdown();
+                    g_state.coordination.processController->performSafeShutdown();
                     g_state.machine.machineState = LegacyMachineState::kStandby;
                     g_state.standby.standbyModeRemainingTimeMillis = 0;
                 }
@@ -68,7 +66,7 @@ inline void checkPowerSwitch() {
                     g_state.hardware.display->setPowerSave(0);
                 }
                 else {
-                    performSafeShutdown();
+                    g_state.coordination.processController->performSafeShutdown();
                     g_state.machine.machineState = LegacyMachineState::kStandby;
                     g_state.standby.standbyModeRemainingTimeMillis = 0;
                 }
@@ -96,7 +94,7 @@ inline void checkPowerSwitch() {
             displayMessage("REBOOTING", "Please wait...", "", "", "", "");
             delay(1000);
 
-            performSafeShutdown();
+            g_state.coordination.processController->performSafeShutdown();
 
             LOG(INFO, "System reboot initiated");
             delay(500);

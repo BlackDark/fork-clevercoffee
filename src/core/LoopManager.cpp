@@ -36,7 +36,6 @@ namespace DisplayTemplateManager {
 // External function declarations
 extern bool checkBrewActive();
 extern void sendHASSIODiscoveryMsg();
-extern void checkWifi();
 extern int getSignalStrength();
 extern void disableTimer1();
 extern void enableTimer1();
@@ -244,7 +243,8 @@ void LoopManager::updateDisplay() {
                 }
             }
         }
-    } else {
+    }
+    else {
         LOGF(WARNING, "LoopManager: UIManager not available, skipping display update");
     }
 }
@@ -361,7 +361,9 @@ void LoopManager::updateNetwork() {
     }
     else {
         wifiWasConnected = false;
-        checkWifi();
+        if (g_state.network.cleverCoffeeWiFiManager) {
+            g_state.network.cleverCoffeeWiFiManager->checkAndMaintainConnection();
+        }
     }
 }
 

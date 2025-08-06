@@ -113,7 +113,6 @@ class SystemInitializer {
             return webServerManager_.get();
         }
 
-
     private:
         // Initialization state
         bool systemInitialized_;

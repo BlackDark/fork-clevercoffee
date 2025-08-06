@@ -51,6 +51,7 @@ class U8G2;
 class Relay;
 class TempSensor;
 class MQTTManager;
+class ProcessController;
 class CleverCoffeeWiFiManager;
 class WebServerManager;
 class PID;
@@ -108,6 +109,7 @@ struct CoordinationState {
         bool displayBufferReady = false;
         // bool mqttUpdateRunning = false;
         bool setupDone = false;
+        ProcessController* processController = nullptr;
 };
 
 /**
