@@ -10,7 +10,15 @@
 
 namespace OTA {
 
-    // Static variables for tracking OTA state
+#if __cplusplus >= 202002L
+    // Use modern C++20/23 RAII singleton for state management
+    namespace {
+        constexpr auto& getOTAState() noexcept {
+            return OTAStateManager::getInstance();
+        }
+    }
+#else
+    // Fallback: Static variables for tracking OTA state (C++17 compatibility)
     static bool updateStarted = false;
     static size_t totalSize = 0;
     static size_t uploadedSize = 0;
@@ -20,6 +28,7 @@ namespace OTA {
     static String updateStatus = "idle"; // idle, uploading, processing, complete, error
     static String updateType = "";       // firmware, filesystem, url
     static unsigned long lastStatusUpdate = 0;
+#endif
 
     // Filesystem partition label (SPIFFS partition name)
     // This should match the partition table configuration
@@ -28,6 +37,9 @@ namespace OTA {
     static const char* FILESYSTEM_PARTITION_LABEL = "spiffs";
 
     void resetStatus() {
+#if __cplusplus >= 202002L
+        getOTAState().resetState();
+#else
         updateStarted = false;
         totalSize = 0;
         uploadedSize = 0;
@@ -37,26 +49,38 @@ namespace OTA {
         updateStatus = "idle";
         updateType = "";
         lastStatusUpdate = 0;
+#endif
     }
 
     bool updateFromURL(const String& url) {
         if (url.isEmpty()) {
             LOG(ERROR, "OTA update URL is empty");
+#if __cplusplus >= 202002L
+            getOTAState().setUpdateError(true, "OTA update URL is empty");
+#else
             errorMessage = "OTA update URL is empty";
             updateError = true;
             updateStatus = "error";
             lastStatusUpdate = millis();
+#endif
             return false;
         }
 
         LOGF(INFO, "Starting OTA update from URL: %s", url.c_str());
 
         // Reset error state
+#if __cplusplus >= 202002L
+        auto& state = getOTAState();
+        state.setUpdateError(false);
+        state.setCurrentProgress(0);
+        state.setUpdateStatus("downloading");
+#else
         updateError = false;
         errorMessage = "";
         currentProgress = 0;
         updateStatus = "downloading";
         lastStatusUpdate = millis();
+#endif
 
         WiFiClient client;
         HTTPClient http;
@@ -553,6 +577,34 @@ namespace OTA {
 
     void handleStatus(AsyncWebServerRequest* request) {
         // Auto-reset status after 30 seconds of inactivity for completed/error states (internal cleanup)
+#if __cplusplus >= 202002L
+        auto& state = getOTAState();
+        const auto& status = state.getUpdateStatus();
+        auto lastUpdate = state.getLastStatusUpdate();
+        if ((status == "complete" || status == "error") && lastUpdate > 0 && (millis() - lastUpdate > 30000)) {
+            resetStatus();
+        }
+
+        JsonDocument doc;
+        doc["updating"] = Update.isRunning() || state.isUpdateStarted();
+        doc["updateInProgress"] = isUpdateInProgress();
+        doc["progress"] = state.getCurrentProgress();
+        doc["status"] = state.getUpdateStatus();
+        doc["type"] = state.getUpdateType();
+        doc["uploadedSize"] = state.getUploadedSize();
+        doc["totalSize"] = state.getTotalSize();
+        doc["filesystemPartition"] = FILESYSTEM_PARTITION_LABEL;
+
+        if (state.hasUpdateError() || Update.hasError()) {
+            const auto& message = state.getErrorMessage();
+            if (!message.isEmpty()) {
+                doc["error"] = message;
+            }
+            else {
+                doc["error"] = Update.errorString();
+            }
+        }
+#else
         if ((updateStatus == "complete" || updateStatus == "error") && lastStatusUpdate > 0 && (millis() - lastStatusUpdate > 30000)) {
             resetStatus();
         }
@@ -575,6 +627,7 @@ namespace OTA {
                 doc["error"] = Update.errorString();
             }
         }
+#endif
 
         String response;
         serializeJson(doc, response);
@@ -582,15 +635,27 @@ namespace OTA {
     }
 
     uint8_t getProgress() {
+#if __cplusplus >= 202002L
+        return getOTAState().getCurrentProgress();
+#else
         return currentProgress;
+#endif
     }
 
     bool isRunning() {
+#if __cplusplus >= 202002L
+        return Update.isRunning() || getOTAState().isUpdateStarted();
+#else
         return Update.isRunning() || updateStarted;
+#endif
     }
 
     bool isUpdateInProgress() {
+#if __cplusplus >= 202002L
+        return getOTAState().isUpdateInProgress();
+#else
         return updateStarted || Update.isRunning() || (updateStatus != "idle" && updateStatus != "complete" && updateStatus != "error");
+#endif
     }
 
     const char* getFilesystemPartitionLabel() {
@@ -598,13 +663,24 @@ namespace OTA {
     }
 
     bool hasError() {
+#if __cplusplus >= 202002L
+        return getOTAState().hasUpdateError() || Update.hasError();
+#else
         return updateError || Update.hasError();
+#endif
     }
 
     String getErrorMessage() {
+#if __cplusplus >= 202002L
+        const auto& message = getOTAState().getErrorMessage();
+        if (!message.isEmpty()) {
+            return message;
+        }
+#else
         if (!errorMessage.isEmpty()) {
             return errorMessage;
         }
+#endif
         return Update.errorString();
     }
 

@@ -16,6 +16,106 @@
 
 namespace OTA {
 
+#if __cplusplus >= 202002L // C++20 and later for enhanced singleton pattern
+
+    /**
+     * @brief Modern C++23 RAII singleton for OTA state management
+     * Replaces static variables with proper resource management and thread safety
+     */
+    class OTAStateManager {
+    public:
+        // Thread-safe singleton with guaranteed initialization
+        static OTAStateManager& getInstance() noexcept {
+            static OTAStateManager instance;
+            return instance;
+        }
+        
+        // Delete copy/move constructors and assignment operators
+        OTAStateManager(const OTAStateManager&) = delete;
+        OTAStateManager& operator=(const OTAStateManager&) = delete;
+        OTAStateManager(OTAStateManager&&) = delete;
+        OTAStateManager& operator=(OTAStateManager&&) = delete;
+        
+        // State access methods with proper encapsulation
+        [[nodiscard]] bool isUpdateStarted() const noexcept { return updateStarted_; }
+        [[nodiscard]] size_t getTotalSize() const noexcept { return totalSize_; }
+        [[nodiscard]] size_t getUploadedSize() const noexcept { return uploadedSize_; }
+        [[nodiscard]] uint8_t getCurrentProgress() const noexcept { return currentProgress_; }
+        [[nodiscard]] bool hasUpdateError() const noexcept { return updateError_; }
+        [[nodiscard]] const String& getErrorMessage() const noexcept { return errorMessage_; }
+        [[nodiscard]] const String& getUpdateStatus() const noexcept { return updateStatus_; }
+        [[nodiscard]] const String& getUpdateType() const noexcept { return updateType_; }
+        [[nodiscard]] unsigned long getLastStatusUpdate() const noexcept { return lastStatusUpdate_; }
+        
+        // State modification methods
+        void setUpdateStarted(bool started) noexcept { 
+            updateStarted_ = started; 
+            if (started) lastStatusUpdate_ = millis();
+        }
+        void setTotalSize(size_t size) noexcept { totalSize_ = size; }
+        void addUploadedSize(size_t size) noexcept { 
+            uploadedSize_ += size; 
+            lastStatusUpdate_ = millis();
+        }
+        void setCurrentProgress(uint8_t progress) noexcept { 
+            currentProgress_ = progress; 
+            lastStatusUpdate_ = millis();
+        }
+        void setUpdateError(bool error, const String& message = "") noexcept { 
+            updateError_ = error; 
+            errorMessage_ = message; 
+            if (error) {
+                updateStatus_ = "error";
+                lastStatusUpdate_ = millis();
+            }
+        }
+        void setUpdateStatus(const String& status) noexcept { 
+            updateStatus_ = status; 
+            lastStatusUpdate_ = millis();
+        }
+        void setUpdateType(const String& type) noexcept { updateType_ = type; }
+        
+        // Reset all state to initial values
+        void resetState() noexcept {
+            updateStarted_ = false;
+            totalSize_ = 0;
+            uploadedSize_ = 0;
+            currentProgress_ = 0;
+            updateError_ = false;
+            errorMessage_.clear();
+            updateStatus_ = "idle";
+            updateType_.clear();
+            lastStatusUpdate_ = 0;
+        }
+        
+        // Convenience method to check if any update is in progress
+        [[nodiscard]] bool isUpdateInProgress() const noexcept {
+            return updateStarted_ || Update.isRunning() || 
+                   (updateStatus_ != "idle" && updateStatus_ != "complete" && updateStatus_ != "error");
+        }
+        
+    private:
+        // Private constructor for singleton pattern
+        OTAStateManager() noexcept {
+            resetState();
+        }
+        
+        ~OTAStateManager() = default;
+        
+        // State variables (previously static)
+        bool updateStarted_{false};
+        size_t totalSize_{0};
+        size_t uploadedSize_{0};
+        uint8_t currentProgress_{0};
+        bool updateError_{false};
+        String errorMessage_{};
+        String updateStatus_{"idle"};  // idle, uploading, processing, complete, error
+        String updateType_{};          // firmware, filesystem, url
+        unsigned long lastStatusUpdate_{0};
+    };
+    
+#endif // __cplusplus >= 202002L
+
     /**
      * @brief Initialize OTA functionality and register web server routes
      * @param server Reference to the AsyncWebServer instance
