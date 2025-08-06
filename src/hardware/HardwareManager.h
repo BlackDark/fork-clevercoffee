@@ -16,6 +16,43 @@
 #include "tempsensors/TempSensorTSIC.h"
 #include <memory>
 
+#if __cplusplus >= 202002L
+#include <expected>
+
+/**
+ * @enum HardwareInitError
+ * @brief Specific hardware initialization error types for std::expected
+ */
+enum class HardwareInitError {
+    RelayInitFailed,         ///< Relay initialization failed (heater, pump, or valve)
+    LEDInitFailed,           ///< LED initialization failed (status, brew, or steam)
+    SwitchInitFailed,        ///< Switch initialization failed (power, brew, steam, hot water)
+    TemperatureSensorFailed, ///< Temperature sensor initialization failed
+    MemoryAllocationFailed,  ///< Insufficient memory for component allocation
+    ConfigurationError,      ///< Invalid configuration parameters
+    GPIOInitFailed,          ///< GPIO pin initialization failed
+    UnknownComponentType     ///< Unknown or unsupported component type
+};
+
+/**
+ * @brief Convert HardwareInitError to human-readable string
+ */
+constexpr const char* hardwareErrorToString(HardwareInitError error) noexcept {
+    switch (error) {
+        case HardwareInitError::RelayInitFailed: return "Relay initialization failed";
+        case HardwareInitError::LEDInitFailed: return "LED initialization failed";
+        case HardwareInitError::SwitchInitFailed: return "Switch initialization failed";
+        case HardwareInitError::TemperatureSensorFailed: return "Temperature sensor initialization failed";
+        case HardwareInitError::MemoryAllocationFailed: return "Memory allocation failed";
+        case HardwareInitError::ConfigurationError: return "Configuration error";
+        case HardwareInitError::GPIOInitFailed: return "GPIO initialization failed";
+        case HardwareInitError::UnknownComponentType: return "Unknown component type";
+    }
+    return "Unknown hardware error";
+}
+
+#endif
+
 /**
  * @class HardwareManager
  * @brief RAII wrapper for hardware components with automatic resource management
@@ -30,6 +67,20 @@ class HardwareManager {
          * @brief Constructor - initializes all hardware components
          */
         HardwareManager();
+
+#if __cplusplus >= 202002L
+        /**
+         * @brief Create HardwareManager with modern C++23 error handling
+         * @return HardwareManager instance or specific error information
+         */
+        static std::expected<std::unique_ptr<HardwareManager>, HardwareInitError> createModern();
+        
+        /**
+         * @brief Initialize hardware with detailed error context
+         * @return Success or specific initialization error
+         */
+        std::expected<void, HardwareInitError> initializeModern();
+#endif
 
         /**
          * @brief Destructor - automatically cleans up hardware resources
@@ -149,4 +200,31 @@ class HardwareManager {
          * @brief Initialize temperature sensor
          */
         void initializeTemperatureSensor();
+
+#if __cplusplus >= 202002L
+        /**
+         * @brief Modern relay initialization with std::expected
+         */
+        std::expected<void, HardwareInitError> initializeRelaysModern();
+
+        /**
+         * @brief Modern LED initialization with std::expected
+         */
+        std::expected<void, HardwareInitError> initializeLEDsModern();
+
+        /**
+         * @brief Modern switch initialization with std::expected
+         */
+        std::expected<void, HardwareInitError> initializeSwitchesModern();
+
+        /**
+         * @brief Modern temperature sensor initialization with std::expected
+         */
+        std::expected<void, HardwareInitError> initializeTemperatureSensorModern();
+
+        /**
+         * @brief Private constructor for createModern() factory method
+         */
+        explicit HardwareManager(bool modernInit);
+#endif
 };

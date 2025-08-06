@@ -744,6 +744,31 @@ std::expected<void, InitError> SystemInitializer::initializeDisplayModern() {
 
 std::expected<void, InitError> SystemInitializer::initializeHardwareModern() {
     try {
+#if __cplusplus >= 202002L
+        // Use modern C++23 error handling for HardwareManager
+        auto hardwareResult = HardwareManager::createModern();
+        if (!hardwareResult) {
+            // Map HardwareInitError to InitError with detailed logging
+            switch (hardwareResult.error()) {
+                case HardwareInitError::RelayInitFailed:
+                case HardwareInitError::LEDInitFailed:
+                case HardwareInitError::SwitchInitFailed:
+                case HardwareInitError::TemperatureSensorFailed:
+                case HardwareInitError::GPIOInitFailed:
+                case HardwareInitError::ConfigurationError:
+                case HardwareInitError::UnknownComponentType:
+                    MODERN_LOG(ERROR, "Hardware initialization failed: {}", 
+                              hardwareErrorToString(hardwareResult.error()));
+                    return std::unexpected{InitError::HardwareInitFailed};
+                case HardwareInitError::MemoryAllocationFailed:
+                    MODERN_LOG(ERROR, "Memory allocation failed during hardware initialization");
+                    return std::unexpected{InitError::MemoryAllocationFailed};
+            }
+        }
+        
+        hardwareManager_ = std::move(hardwareResult.value());
+#else
+        // Fallback to traditional initialization
         hardwareManager_ = std::make_unique<HardwareManager>();
         if (!hardwareManager_) {
             return std::unexpected{InitError::MemoryAllocationFailed};
@@ -752,11 +777,30 @@ std::expected<void, InitError> SystemInitializer::initializeHardwareModern() {
         if (!hardwareManager_->isInitialized()) {
             return std::unexpected{InitError::HardwareInitFailed};
         }
+#endif
+        
+        // Update compatibility pointers to reference HardwareManager components
+        g_state.hardware.heaterRelay = &hardwareManager_->getHeaterRelay();
+        g_state.hardware.pumpRelay = &hardwareManager_->getPumpRelay();
+        g_state.hardware.valveRelay = &hardwareManager_->getValveRelay();
+
+        g_state.hardware.statusLed = hardwareManager_->getStatusLed();
+        g_state.hardware.brewLed = hardwareManager_->getBrewLed();
+        g_state.hardware.steamLed = hardwareManager_->getSteamLed();
+
+        g_state.hardware.powerSwitch = hardwareManager_->getPowerSwitch();
+        g_state.hardware.brewSwitch = hardwareManager_->getBrewSwitch();
+        g_state.hardware.steamSwitch = hardwareManager_->getSteamSwitch();
+        g_state.hardware.hotWaterSwitch = hardwareManager_->getHotWaterSwitch();
+        g_state.hardware.waterTankSensor = hardwareManager_->getWaterTankSensor();
+
+        g_state.hardware.tempSensor = hardwareManager_->getTempSensor();
         
         MODERN_LOG(INFO, "Hardware manager initialized: relays=3, LEDs={}, switches={}", 
                   Config::getInstance().hardwareLedsStatusEnabled.get() ? "3" : "0",
                   Config::getInstance().hardwareSwitchesBrewEnabled.get() ? "enabled" : "disabled");
         return {};
+        
     } catch (const std::bad_alloc&) {
         return std::unexpected{InitError::MemoryAllocationFailed};
     } catch (...) {
