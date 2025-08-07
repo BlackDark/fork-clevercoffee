@@ -47,7 +47,7 @@ class WebServerManager {
          * @brief Check if the server is running
          * @return true if running, false otherwise
          */
-        bool isRunning() const {
+        bool isRunning() const noexcept {
             return isRunning_;
         }
 
@@ -55,7 +55,7 @@ class WebServerManager {
          * @brief Get the server port
          * @return Server port number
          */
-        uint16_t getPort() const {
+        uint16_t getPort() const noexcept {
             return port_;
         }
 

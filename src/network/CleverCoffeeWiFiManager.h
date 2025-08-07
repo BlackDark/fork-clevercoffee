@@ -71,7 +71,7 @@ class CleverCoffeeWiFiManager {
          * @brief Check if restart is required after AP configuration
          * @return true if restart is needed
          */
-        bool requiresRestart() const {
+        bool requiresRestart() const noexcept {
             return restartAfterAP_;
         }
 

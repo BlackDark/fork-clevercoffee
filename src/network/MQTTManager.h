@@ -74,7 +74,7 @@ class MQTTManager {
          * @brief Check if MQTT is enabled
          * @return true if MQTT is enabled
          */
-        bool isEnabled() const {
+        bool isEnabled() const noexcept {
             return mqttEnabled_;
         }
 
@@ -82,7 +82,7 @@ class MQTTManager {
          * @brief Check if MQTT is connected
          * @return true if connected
          */
-        bool isConnected() const {
+        bool isConnected() const noexcept {
             return const_cast<PubSubClient&>(mqttClient_).connected();
         }
 
@@ -104,7 +104,7 @@ class MQTTManager {
          * @brief Set update running flag
          * @param running Whether update is running
          */
-        void setUpdateRunning(bool running) {
+        void setUpdateRunning(bool running) noexcept {
             mqttUpdateRunning_ = running;
         }
 
@@ -112,7 +112,7 @@ class MQTTManager {
          * @brief Check if update is running
          * @return true if update is running
          */
-        bool isUpdateRunning() const {
+        bool isUpdateRunning() const noexcept {
             return mqttUpdateRunning_;
         }
 
@@ -120,7 +120,7 @@ class MQTTManager {
          * @brief Check if was connected previously
          * @return true if was connected
          */
-        bool wasConnected() const {
+        bool wasConnected() const noexcept {
             return mqttWasConnected_;
         }
 
@@ -128,7 +128,7 @@ class MQTTManager {
          * @brief Set was connected flag
          * @param connected Connection state
          */
-        void setWasConnected(bool connected) {
+        void setWasConnected(bool connected) noexcept {
             mqttWasConnected_ = connected;
         }
 
@@ -136,7 +136,7 @@ class MQTTManager {
          * @brief Get reference to MQTT client for compatibility
          * @return Reference to PubSubClient
          */
-        PubSubClient& getClient() {
+        PubSubClient& getClient() noexcept {
             return mqttClient_;
         }
 

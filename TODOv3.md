@@ -22,14 +22,14 @@ void pause() noexcept { running_ = false; }
 void resume() noexcept { running_ = true; }
 bool isRunning() const noexcept { return running_; }
 
-// src/hardware/GPIOPin.h  
+// src/hardware/GPIOPin.h
 int read() const noexcept;
 Type getType() const noexcept { return pinType; }
 ```
 
 ### 2. String Performance - Replace String with std::string_view
 
-**Files affected:** 
+**Files affected:**
 - `src/Config.h` and `src/Config.cpp`
 - `lib/Logger/Logger.h` and `lib/Logger/Logger.cpp`
 - `src/utils/CustomFormatters.h`
@@ -49,7 +49,7 @@ static std::string_view getLevelString(Level level) noexcept;
 ### 3. Compile-time Optimization - Enhanced constexpr Usage
 
 **Files affected:**
-- `src/Config.h` 
+- `src/Config.h`
 - `src/utils/CustomFormatters.h`
 - `src/hardware/pinmapping.h`
 
@@ -79,7 +79,7 @@ constexpr bool isValidPin(int pin) noexcept {
 
 **Files affected:**
 - `src/Config.h`
-- `src/hardware/HardwareManager.h`  
+- `src/hardware/HardwareManager.h`
 - `src/state/StateMachine.h`
 
 **Benefits:** Better compile-time error messages, enforced type constraints
@@ -90,8 +90,8 @@ constexpr bool isValidPin(int pin) noexcept {
 template<typename T>
 concept Numeric = std::is_arithmetic_v<T>;
 
-template<typename T>  
-concept ConfigurableType = std::same_as<T, bool> || std::same_as<T, int> || 
+template<typename T>
+concept ConfigurableType = std::same_as<T, bool> || std::same_as<T, int> ||
                           std::same_as<T, double> || std::same_as<T, String>;
 
 template<ConfigurableType T>
@@ -141,13 +141,13 @@ void processSensorData(std::span<const SensorReading> readings) noexcept;
 #include <variant>
 
 using MachineStateVariant = std::variant<
-    InitState, ColdStartState, PidNormalState, BrewState, 
+    InitState, ColdStartState, PidNormalState, BrewState,
     SteamState, EmergencyState, StandbyState
 >;
 
 class ModernStateMachine {
     MachineStateVariant currentState_;
-    
+
 public:
     template<typename NewState>
     void transitionTo(NewState&& newState) {
@@ -155,9 +155,9 @@ public:
         currentState_ = std::forward<NewState>(newState);
         std::visit([](auto& state) { state.onEntry(); }, currentState_);
     }
-    
+
     void update() {
-        std::visit([this](auto& state) { 
+        std::visit([this](auto& state) {
             state.update(context_);
         }, currentState_);
     }
@@ -182,25 +182,25 @@ class ModernTimer {
 public:
     using ClockType = std::chrono::steady_clock;
     using TimePoint = ClockType::time_point;
-    
-    ModernTimer(std::function<void()> callback, Duration interval, 
+
+    ModernTimer(std::function<void()> callback, Duration interval,
                 bool start_paused = false) noexcept
         : callback_(std::move(callback))
         , interval_(interval)
         , next_(ClockType::now() + interval)
         , running_(!start_paused) {}
-    
+
     void operator()() {
         if (running_ && ClockType::now() >= next_) {
             next_ += interval_;
             callback_();
         }
     }
-    
+
     void pause() noexcept { running_ = false; }
     void resume() noexcept { running_ = true; }
     void reset() noexcept { next_ = ClockType::now(); }
-    
+
 private:
     std::function<void()> callback_;
     Duration interval_;
@@ -223,7 +223,7 @@ enum class PinType : uint8_t {
     Output,
     InputStandard,
     InputPullup,
-    InputPulldown, 
+    InputPulldown,
     InputHardware,
     InputAnalog
 };
@@ -235,11 +235,11 @@ public:
         static_assert(pinNumber >= 0 && pinNumber < MAX_GPIO_PINS);
         configure();
     }
-    
+
     // Type-safe operations only available for appropriate pin types
     void write(bool value) const noexcept requires (Type == PinType::Output);
     int read() const noexcept requires (Type != PinType::Output);
-    
+
 private:
     int pin_;
     void configure() const noexcept;
@@ -269,11 +269,11 @@ struct Task {
         std::suspend_never final_suspend() noexcept { return {}; }
         void return_value(T value) { result_ = std::move(value); }
         void unhandled_exception() { exception_ = std::current_exception(); }
-        
+
         T result_;
         std::exception_ptr exception_;
     };
-    
+
     std::coroutine_handle<promise_type> coro_;
     explicit Task(std::coroutine_handle<promise_type> h) : coro_(h) {}
 };
@@ -282,13 +282,13 @@ struct Task {
 Task<std::expected<void, InitError>> initializeHardwareAsync() {
     // Yield periodically to prevent watchdog timeout
     co_await std::suspend_never{};
-    
+
     auto relayResult = co_await initializeRelaysAsync();
     if (!relayResult) co_return std::unexpected(relayResult.error());
-    
+
     auto sensorResult = co_await initializeSensorsAsync();
     if (!sensorResult) co_return std::unexpected(sensorResult.error());
-    
+
     co_return {};
 }
 ```
@@ -309,7 +309,7 @@ template<std::size_t BlockSize, std::size_t PoolSize>
 class MemoryPool {
     alignas(std::max_align_t) std::array<std::byte, BlockSize * PoolSize> pool_;
     std::bitset<PoolSize> allocated_;
-    
+
 public:
     void* allocate() noexcept {
         for (size_t i = 0; i < PoolSize; ++i) {
@@ -320,7 +320,7 @@ public:
         }
         return nullptr;
     }
-    
+
     void deallocate(void* ptr) noexcept {
         if (!ptr) return;
         auto offset = static_cast<std::byte*>(ptr) - pool_.data();
@@ -351,9 +351,9 @@ inline MemoryPool<256, 50> logMessagePool;
 #include <ranges>
 
 auto getValidReadings() const {
-    return sensorReadings_ 
-        | std::views::filter([](const auto& reading) { 
-            return reading.isValid(); 
+    return sensorReadings_
+        | std::views::filter([](const auto& reading) {
+            return reading.isValid();
         })
         | std::views::transform([](const auto& reading) {
             return reading.getValue();
@@ -362,8 +362,8 @@ auto getValidReadings() const {
 
 // src/state/StateMachine.h - Transition history with ranges
 auto getRecentTransitions(size_t count = 10) const {
-    return transitionHistory_ 
-        | std::views::reverse 
+    return transitionHistory_
+        | std::views::reverse
         | std::views::take(count);
 }
 ```
@@ -407,7 +407,7 @@ std::expected<void, HardwareError> calibrateSensor();
 3. Enhanced `constexpr` usage
 4. Basic concepts introduction
 
-### Phase 2 (Short Term - Medium Risk)  
+### Phase 2 (Short Term - Medium Risk)
 5. std::span for array handling
 6. std::chrono for Timer class
 7. Strong typing for GPIO pins
@@ -415,7 +415,7 @@ std::expected<void, HardwareError> calibrateSensor();
 
 ### Phase 3 (Long Term - Higher Risk)
 9. Modern state machine with std::variant
-10. Async initialization with coroutines  
+10. Async initialization with coroutines
 11. Memory pools
 12. Ranges integration
 
