@@ -9,11 +9,11 @@ Timer::Timer(std::function<void()> func, const unsigned long interval, bool star
     callback_(std::move(func)), interval_(interval), next_(millis()), running_(!start_paused) {
 }
 
-void Timer::pause() {
+void Timer::pause() noexcept {
     running_ = false;
 }
 
-void Timer::resume() {
+void Timer::resume() noexcept {
     running_ = true;
 }
 
@@ -29,6 +29,6 @@ void Timer::operator()() {
     }
 }
 
-void Timer::reset() {
+void Timer::reset() noexcept {
     next_ = millis();
 }

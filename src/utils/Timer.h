@@ -34,17 +34,17 @@ class Timer {
          * @brief Reset the timer
          * @details This resets the timer such that the callback will be executed directly upon its next invocation
          */
-        void reset();
+        void reset() noexcept;
 
         /**
          * @brief Temporarily pause the timer
          */
-        void pause();
+        void pause() noexcept;
 
         /**
          * @brief (Re-) start the timer
          */
-        void resume();
+        void resume() noexcept;
 
     private:
         // Callback to be executed when timer runs out:
