@@ -43,7 +43,7 @@ class DisplayManager {
          * @brief Get raw U8G2 pointer for compatibility with existing code
          * @return Pointer to U8G2 instance, or nullptr if not initialized
          */
-        U8G2* getDisplay() const {
+        U8G2* getDisplay() const noexcept {
             return display_.get();
         }
 
@@ -51,7 +51,7 @@ class DisplayManager {
          * @brief Check if display is successfully initialized
          * @return true if display is ready for use
          */
-        bool isInitialized() const {
+        bool isInitialized() const noexcept {
             return display_ != nullptr;
         }
 

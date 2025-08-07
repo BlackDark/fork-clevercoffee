@@ -9,6 +9,20 @@
 
 #if __cplusplus >= 202002L
 
+#include <concepts>
+
+// C++20 concept for display templates
+template<typename T>
+concept DisplayTemplate = requires(T t) {
+    { t.renderNormalDisplay() } -> std::same_as<void>;
+    { t.getTemperatureCoords(0, 0) } -> std::same_as<typename ModernDisplayTemplate<T>::TemperatureCoords>;
+    { t.getPIDCoords(0, 0) } -> std::same_as<typename ModernDisplayTemplate<T>::PIDCoords>;
+    { t.getBrewCoords(0, 0) } -> std::same_as<typename ModernDisplayTemplate<T>::BrewCoords>;
+    { t.getCurrentTempLabel() } -> std::convertible_to<const char*>;
+    { t.getSetTempLabel() } -> std::convertible_to<const char*>;
+    { t.getPIDSeparator() } -> std::convertible_to<const char*>;
+};
+
 /**
  * @brief Modern C++20 display template base using CRTP
  * 
@@ -218,24 +232,24 @@ public:
     }
     
     // Template-specific configuration methods
-    TemperatureCoords getTemperatureCoords(int baseX, int baseY) const {
+    TemperatureCoords getTemperatureCoords(int baseX, int baseY) const noexcept {
         return {baseX, baseY, 84, baseX, baseY + 10, 84};
     }
     
-    PIDCoords getPIDCoords(int baseX, int baseY) const {
+    PIDCoords getPIDCoords(int baseX, int baseY) const noexcept {
         return {baseX, baseY, 96, baseY};
     }
     
-    BrewCoords getBrewCoords(int baseX, int baseY) const {
+    BrewCoords getBrewCoords(int baseX, int baseY) const noexcept {
         return {baseX, baseY};
     }
     
-    const char* getCurrentTempLabel() const { return langstring_current_temp; }
-    const char* getSetTempLabel() const { return langstring_set_temp; }
-    const char* getBrewLabel() const { return langstring_brew; }
-    const char* getManualFlushLabel() const { return langstring_manual_flush; }
-    const char* getHotWaterLabel() const { return langstring_hot_water; }
-    const char* getPIDSeparator() const { return "|"; }
+    const char* getCurrentTempLabel() const noexcept { return langstring_current_temp; }
+    const char* getSetTempLabel() const noexcept { return langstring_set_temp; }
+    const char* getBrewLabel() const noexcept { return langstring_brew; }
+    const char* getManualFlushLabel() const noexcept { return langstring_manual_flush; }
+    const char* getHotWaterLabel() const noexcept { return langstring_hot_water; }
+    const char* getPIDSeparator() const noexcept { return "|"; }
 };
 
 /**
@@ -360,24 +374,24 @@ private:
     
 public:
     // Template-specific configuration methods
-    TemperatureCoords getTemperatureCoords(int baseX, int baseY) const {
+    TemperatureCoords getTemperatureCoords(int baseX, int baseY) const noexcept {
         return {baseX, baseY, baseX + 50, baseX, baseY + 10, baseX + 50};
     }
     
-    PIDCoords getPIDCoords(int baseX, int baseY) const {
+    PIDCoords getPIDCoords(int baseX, int baseY) const noexcept {
         return {baseX, baseY, baseX, baseY + 27};
     }
     
-    BrewCoords getBrewCoords(int baseX, int baseY) const {
+    BrewCoords getBrewCoords(int baseX, int baseY) const noexcept {
         return {baseX, baseY};
     }
     
-    const char* getCurrentTempLabel() const { return langstring_current_temp_ur; }
-    const char* getSetTempLabel() const { return langstring_set_temp_ur; }
-    const char* getBrewLabel() const { return langstring_brew_ur; }
-    const char* getManualFlushLabel() const { return langstring_manual_flush_ur; }
-    const char* getHotWaterLabel() const { return langstring_hot_water_ur; }
-    const char* getPIDSeparator() const { return " "; }
+    const char* getCurrentTempLabel() const noexcept { return langstring_current_temp_ur; }
+    const char* getSetTempLabel() const noexcept { return langstring_set_temp_ur; }
+    const char* getBrewLabel() const noexcept { return langstring_brew_ur; }
+    const char* getManualFlushLabel() const noexcept { return langstring_manual_flush_ur; }
+    const char* getHotWaterLabel() const noexcept { return langstring_hot_water_ur; }
+    const char* getPIDSeparator() const noexcept { return " "; }
 };
 
 /**
