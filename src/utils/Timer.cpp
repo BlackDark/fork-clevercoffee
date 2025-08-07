@@ -32,3 +32,12 @@ void Timer::operator()() {
 void Timer::reset() noexcept {
     next_ = millis();
 }
+
+unsigned long Timer::getTimeRemaining() const noexcept {
+    if (!running_) return 0;
+    
+    unsigned long now = millis();
+    if (now >= next_) return 0;
+    
+    return next_ - now;
+}

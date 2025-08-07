@@ -7,8 +7,10 @@
 #pragma once
 
 #include "Arduino.h"
+#include "ModernTimer.h"
 
 #include <functional>
+#include <chrono>
 
 class Timer {
     public:
@@ -45,6 +47,24 @@ class Timer {
          * @brief (Re-) start the timer
          */
         void resume() noexcept;
+        
+        /**
+         * @brief Get time remaining until next execution (legacy compatibility)
+         * @return milliseconds until next execution
+         */
+        unsigned long getTimeRemaining() const noexcept;
+        
+        /**
+         * @brief Check if timer is currently running
+         * @return true if running, false if paused
+         */
+        bool isRunning() const noexcept { return running_; }
+        
+        /**
+         * @brief Get the configured interval
+         * @return Timer interval in milliseconds
+         */
+        unsigned long getInterval() const noexcept { return interval_; }
 
     private:
         // Callback to be executed when timer runs out:
