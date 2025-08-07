@@ -103,11 +103,11 @@ namespace InitHelpers {
      * @param success Success status
      * @return Success status
      */
-    inline bool logInitResult(std::string_view component, bool success) noexcept {
+    inline bool logInitResult(const char* component, bool success) noexcept {
         if (success) {
-            MODERN_LOG(INFO, "{} initialized successfully", component.data());
+            MODERN_LOG(INFO, "%s initialized successfully", component);
         } else {
-            MODERN_LOG(ERROR, "{} initialization failed!", component.data());
+            MODERN_LOG(ERROR, "%s initialization failed!", component);
         }
         return success;
     }
