@@ -10,6 +10,10 @@
 #include <Arduino.h>
 #include <functional>
 #include <memory>
+#include <vector>
+#include <array>
+#include <algorithm>
+#include <numeric>
 
 // Forward declarations
 class Scale;
@@ -146,6 +150,21 @@ class SensorManager {
          */
         Scale* getScale() const;
 
+        // Modern C++23 sensor processing methods
+        /**
+         * @brief Process multiple sensor readings using std::ranges
+         * @param readings Vector of sensor readings to process
+         * @return Filtered average of valid readings
+         */
+        double processTemperatureReadings(const std::vector<double>& readings) const;
+
+        /**
+         * @brief Process pressure readings with ranges-based filtering
+         * @param readings Array of pressure readings
+         * @return Smoothed pressure value from valid readings
+         */
+        float processPressureReadings(const std::array<float, 10>& readings) const;
+
     private:
         // Sensor references (not owned by this class)
         TempSensor* tempSensor_;
@@ -168,6 +187,14 @@ class SensorManager {
         static constexpr unsigned long intervalPressure_ = 100;
 
         // Scale state (these are global variables, not instance variables)
+
+        // Modern C++23 sensor processing state
+        static constexpr size_t PRESSURE_HISTORY_SIZE = 10;
+        static constexpr size_t TEMP_HISTORY_SIZE = 5;
+        mutable std::array<float, PRESSURE_HISTORY_SIZE> pressureHistory_;
+        mutable std::array<double, TEMP_HISTORY_SIZE> tempHistory_;
+        mutable size_t pressureHistoryIndex_;
+        mutable size_t tempHistoryIndex_;
 
         /**
          * @brief Initialize temperature sensor
