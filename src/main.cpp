@@ -9,6 +9,7 @@
 // STL includes
 #include <map>
 #include <memory>
+#include <string_view>
 
 // Libraries & Dependencies
 #include "Logger.h"
@@ -93,6 +94,24 @@ std::unique_ptr<LoopManager> loopManager = nullptr;
 #include "powerHandler.h"
 #include "scaleHandler.h"
 #include "steamHandler.h"
+
+// Modern C++ initialization helpers
+namespace InitHelpers {
+    /**
+     * @brief Check if initialization was successful with detailed logging
+     * @param component Component name for logging
+     * @param success Success status
+     * @return Success status
+     */
+    inline bool logInitResult(std::string_view component, bool success) noexcept {
+        if (success) {
+            MODERN_LOG(INFO, "{} initialized successfully", component.data());
+        } else {
+            MODERN_LOG(ERROR, "{} initialization failed!", component.data());
+        }
+        return success;
+    }
+}
 
 void setup() {
     logMemory("Setup Start");
@@ -198,12 +217,7 @@ void setup() {
     if (g_state.machine.systemInitialized) {
         stateMachine = std::make_unique<StateMachine>(systemInitializer->getDisplayManager(), systemInitializer->getHardwareManager(), sensorManager, systemInitializer->getWiFiManager(), systemInitializer->getMQTTManager());
 
-        if (stateMachine->initialize()) {
-            LOG(INFO, "StateMachine initialized successfully");
-        }
-        else {
-            LOG(ERROR, "StateMachine initialization failed!");
-        }
+        InitHelpers::logInitResult("StateMachine", stateMachine->initialize());
 
         // Initialize PID parameters now that config is available
         // TODO remove?
@@ -224,22 +238,12 @@ void setup() {
 
         g_state.coordination.processController = processController.get();
 
-        if (processController->initialize()) {
-            MODERN_LOG(INFO, "ProcessController initialized successfully");
-        }
-        else {
-            MODERN_LOG(ERROR, "ProcessController initialization failed! Check sensor connections.");
-        }
+        InitHelpers::logInitResult("ProcessController", processController->initialize());
 
         // Initialize LoopManager for main loop coordination
         loopManager = std::make_unique<LoopManager>(processController.get(), sensorManager, systemInitializer->getUIManager());
 
-        if (loopManager->initialize()) {
-            MODERN_LOG(INFO, "LoopManager initialized successfully - ready for main loop");
-        }
-        else {
-            MODERN_LOG(ERROR, "LoopManager initialization failed! System may not function correctly.");
-        }
+        InitHelpers::logInitResult("LoopManager", loopManager->initialize());
     }
 
     logMemory("Setup Complete");
