@@ -72,7 +72,7 @@ uint16_t Logger::getPort() {
     return getInstance().config_.port;
 }
 
-std::string_view Logger::getLevelString(Level level) noexcept {
+const char* Logger::getLevelString(Level level) noexcept {
     switch (level) {
         case Level::TRACE: return "TRACE";
         case Level::DEBUG: return "DEBUG";
@@ -90,29 +90,62 @@ bool Logger::formatTimestamp(char* buffer, size_t bufferSize) const {
     if (now == -1) {
         return false;
     }
-    
+
     auto tm = *localtime(&now);
     snprintf(buffer, bufferSize, "%02d:%02d:%02d", tm.tm_hour, tm.tm_min, tm.tm_sec);
     return true;
 }
 
 bool Logger::formatLogMessage(Level level, const char* file, const char* function, uint32_t line, const char* message, char* buffer, size_t bufferSize) const {
-    bool hasTimestamp = formatTimestamp(timestampBuffer_, TIMESTAMP_BUFFER_SIZE);
-    
-    if (hasTimestamp) {
-        snprintf(buffer, bufferSize, "[%s] [%s] %s\r\n", 
-                 timestampBuffer_, getLevelString(level), message);
-    } else {
-        snprintf(buffer, bufferSize, "[%s] %s\r\n", 
-                 getLevelString(level), message);
+    // Safety checks
+    if (!buffer || bufferSize == 0) {
+        return false;
     }
-    
+
+    // Ensure message is not null
+    const char* safeMessage = message ? message : "[NULL_MESSAGE]";
+
+    bool hasTimestamp = formatTimestamp(timestampBuffer_, TIMESTAMP_BUFFER_SIZE);
+
+    if (hasTimestamp) {
+        int result = snprintf(buffer, bufferSize, "[%s] [%s] %s\r\n",
+                             timestampBuffer_, getLevelString(level), safeMessage);
+        // Check for truncation or error
+        if (result < 0 || static_cast<size_t>(result) >= bufferSize) {
+            // Buffer too small, add truncation marker
+            if (bufferSize > 4) {
+                buffer[bufferSize - 4] = '.';
+                buffer[bufferSize - 3] = '.';
+                buffer[bufferSize - 2] = '.';
+                buffer[bufferSize - 1] = '\0';
+            }
+        }
+    } else {
+        int result = snprintf(buffer, bufferSize, "[%s] %s\r\n",
+                             getLevelString(level), safeMessage);
+        // Check for truncation or error
+        if (result < 0 || static_cast<size_t>(result) >= bufferSize) {
+            // Buffer too small, add truncation marker
+            if (bufferSize > 4) {
+                buffer[bufferSize - 4] = '.';
+                buffer[bufferSize - 3] = '.';
+                buffer[bufferSize - 2] = '.';
+                buffer[bufferSize - 1] = '\0';
+            }
+        }
+    }
+
     return true;
 }
 
 void Logger::sendLogMessage(const char* message) {
+    // Safety check for null message
+    if (!message) {
+        return;
+    }
+
     auto start_time = micros();
-    
+
     // Send to serial if enabled
     if (config_.enableSerial) {
         Serial.print(message);
@@ -120,9 +153,14 @@ void Logger::sendLogMessage(const char* message) {
 
     // Send to WiFi client if connected
     if (config_.enableWiFi && client_ && client_.connected()) {
-        client_.write(message);
+        try {
+            client_.write(message);
+        } catch (...) {
+            // Network error occurred, increment error counter
+            ++stats_.networkErrors;
+        }
     }
-    
+
     // Update statistics
     auto end_time = micros();
     stats_.totalTime += (end_time - start_time);
@@ -132,6 +170,11 @@ void Logger::sendLogMessage(const char* message) {
 void Logger::log(const Level level, const char* file, const char* function, uint32_t line, const char* logmsg) {
     if (level < level_) {
         return;
+    }
+
+    // Safety check for null message
+    if (!logmsg) {
+        logmsg = "[NULL_LOG_MESSAGE]";
     }
 
     char fullMessage[LOG_BUFFER_SIZE + 64]; // Extra space for timestamp and level
@@ -144,20 +187,39 @@ void Logger::logf(const Level level, const char* file, const char* function, uin
         return;
     }
 
+    // Safety check for null format
+    if (!format) {
+        log(level, file, function, line, "[NULL_FORMAT_STRING]");
+        return;
+    }
+
     va_list args;
     va_start(args, format);
-    vsnprintf(logBuffer_, LOG_BUFFER_SIZE - 1, format, args);
+    int result = vsnprintf(logBuffer_, LOG_BUFFER_SIZE - 1, format, args);
     va_end(args);
-    
-    logBuffer_[LOG_BUFFER_SIZE - 1] = '\0'; // Ensure null termination
-    
+
+    // Check for formatting errors or truncation
+    if (result < 0) {
+        // Formatting error occurred
+        strcpy(logBuffer_, "[FORMAT_ERROR]");
+    } else if (result >= LOG_BUFFER_SIZE - 1) {
+        // Output was truncated, add truncation marker
+        logBuffer_[LOG_BUFFER_SIZE - 4] = '.';
+        logBuffer_[LOG_BUFFER_SIZE - 3] = '.';
+        logBuffer_[LOG_BUFFER_SIZE - 2] = '.';
+        logBuffer_[LOG_BUFFER_SIZE - 1] = '\0';
+    } else {
+        // Ensure null termination
+        logBuffer_[LOG_BUFFER_SIZE - 1] = '\0';
+    }
+
     log(level, file, function, line, logBuffer_);
 }
 
-#if __cplusplus >= 202300L
+#if __cplusplus >= 202300L && __has_include(<format>)
 void Logger::sendFormattedMessage(Level level, const char* file, const char* function, uint32_t line, const char* message) {
     char fullMessage[LOG_BUFFER_SIZE + 64]; // Extra space for timestamp and level
     formatLogMessage(level, file, function, line, message, fullMessage, sizeof(fullMessage));
     sendLogMessage(fullMessage);
 }
-#endif
+#endif // C++23 && <format> available

@@ -14,6 +14,9 @@
  * @param location Descriptive location string for logging context
  */
 inline void logMemory(const char* location) {
+    // Safety check for null location
+    const char* safeLocation = location ? location : "UNKNOWN";
+
     // Get heap information
     const size_t freeHeap = esp_get_free_heap_size();
     const size_t minFreeHeap = esp_get_minimum_free_heap_size();
@@ -28,14 +31,14 @@ inline void logMemory(const char* location) {
     const size_t freePSRAM = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
     const size_t totalPSRAM = heap_caps_get_total_size(MALLOC_CAP_SPIRAM);
 
-    // Calculate percentages
+    // Calculate percentages - with division by zero protection
     const float heapUsagePercent = totalHeap > 0 ? (float)usedHeap * 100.0f / totalHeap : 0.0f;
     const float dramUsagePercent = totalDRAM > 0 ? (float)usedDRAM * 100.0f / totalDRAM : 0.0f;
 
     // Get largest free block
     const size_t largestFreeBlock = heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT);
 
-    LOGF(INFO, "=== MEMORY @ %s ===", location);
+    LOGF(INFO, "=== MEMORY @ %s ===", safeLocation);
     LOGF(INFO, "Heap: %u/%u bytes (%.1f%% used), Min: %u bytes", usedHeap, totalHeap, heapUsagePercent, minFreeHeap);
     LOGF(INFO, "DRAM: %u/%u bytes (%.1f%% used)", usedDRAM, totalDRAM, dramUsagePercent);
 
@@ -70,10 +73,13 @@ inline void logMemory(const char* location) {
  * @param location Descriptive location string for logging context
  */
 inline void logMemoryBasic(const char* location) {
+    // Safety check for null location
+    const char* safeLocation = location ? location : "UNKNOWN";
+
     const size_t freeHeap = esp_get_free_heap_size();
     const size_t largestFreeBlock = heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT);
 
-    LOGF(INFO, "MEM @ %s: Free: %u, Block: %u", location, freeHeap, largestFreeBlock);
+    LOGF(INFO, "MEM @ %s: Free: %u, Block: %u", safeLocation, freeHeap, largestFreeBlock);
 
     if (freeHeap < 10000) {
         LOG(WARNING, "LOW MEMORY!");

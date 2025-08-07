@@ -1,10 +1,10 @@
 /**
  * @file Logger.h
  * @brief C++23 modernized Logger with std::print compatibility for ESP32
- * 
+ *
  * This is a drop-in replacement for the original Logger that uses C++23 features
  * while maintaining full compatibility with the existing codebase.
- * 
+ *
  * Key improvements:
  * - Type-safe formatting with compile-time validation
  * - 15-25% faster performance than printf-based logging
@@ -24,7 +24,7 @@
 
 // Forward declarations for CleverCoffee types that we'll add formatters for
 struct SensorReading;
-struct MemoryInfo; 
+struct MemoryInfo;
 struct ProcessState;
 
 class Logger {
@@ -110,18 +110,18 @@ class Logger {
         void logf(const Level level, const char* file, const char* function, uint32_t line, const char* format, ...);
 
         // C++23 Enhanced logging methods with type safety
-        #if __cplusplus >= 202300L
+        #if __cplusplus >= 202300L && __has_include(<format>)
         /**
          * @brief Type-safe C++23 logging with std::format
          * @param level Log level
-         * @param file The file name 
+         * @param file The file name
          * @param function The function name
          * @param line The line number
          * @param fmt Format string (compile-time validated)
          * @param args Arguments to format
          */
         template<typename... Args>
-        void log_modern(Level level, const char* file, const char* function, uint32_t line, 
+        void log_modern(Level level, const char* file, const char* function, uint32_t line,
                        std::format_string<Args...> fmt, Args&&... args) {
             if (level < level_) return;
 
@@ -129,11 +129,14 @@ class Logger {
                 // Use std::format_to_n for safe, bounded formatting - much faster than snprintf
                 auto result = std::format_to_n(logBuffer_, LOG_BUFFER_SIZE - 1, fmt, std::forward<Args>(args)...);
                 *result.out = '\0';
-                
+
                 sendFormattedMessage(level, file, function, line, logBuffer_);
             } catch (const std::format_error&) {
                 // Fallback to traditional logging on format error
                 log(level, file, function, line, "[FORMAT_ERROR] Invalid format string");
+            } catch (...) {
+                // Fallback for any other exception
+                log(level, file, function, line, "[FORMAT_ERROR] Exception in std::format");
             }
         }
 
@@ -142,8 +145,8 @@ class Logger {
          */
         void logTemperature(Level level, const char* file, const char* function, uint32_t line,
                            double current, double target) {
-            log_modern(level, file, function, line, 
-                      "Temperature: {:.2f}°C (target: {:.2f}°C) Δ{:+.2f}°C", 
+            log_modern(level, file, function, line,
+                      "Temperature: {:.2f}°C (target: {:.2f}°C) Δ{:+.2f}°C",
                       current, target, current - target);
         }
 
@@ -157,7 +160,7 @@ class Logger {
                       "Memory: {}/{} bytes ({:.1f}% used), largest block: {} bytes",
                       used, total, percent, largestBlock);
         }
-        #endif
+        #endif // C++23 && <format> available
 
         static void setLevel(Level level) {
             getInstance().level_ = level;
@@ -167,7 +170,7 @@ class Logger {
             return getInstance().level_;
         }
 
-        static std::string_view getLevelString(Level level) noexcept;
+        static const char* getLevelString(Level level) noexcept;
 
         // Performance statistics
         struct Stats {
@@ -175,7 +178,7 @@ class Logger {
             size_t networkErrors = 0;
             unsigned long totalTime = 0; // microseconds
         };
-        
+
         const Stats& getStats() const { return stats_; }
         void resetStats() { stats_ = {}; }
 
@@ -193,8 +196,8 @@ class Logger {
         bool formatTimestamp(char* buffer, size_t bufferSize) const;
         bool formatLogMessage(Level level, const char* file, const char* function, uint32_t line, const char* message, char* buffer, size_t bufferSize) const;
         void sendLogMessage(const char* message);
-        
-        #if __cplusplus >= 202300L
+
+        #if __cplusplus >= 202300L && __has_include(<format>)
         void sendFormattedMessage(Level level, const char* file, const char* function, uint32_t line, const char* message);
         #endif
 
@@ -245,7 +248,7 @@ class Logger {
     } while (0)
 
 // C++23 Enhanced macros - faster and type-safe
-#if __cplusplus >= 202300L
+#if __cplusplus >= 202300L && __has_include(<format>)
 #include <format>
 
 #define MODERN_LOG(level, ...)                                                                                                                                                                                              \
@@ -271,7 +274,7 @@ class Logger {
     } while (0)
 
 #else
-// Fallback macros for C++17 - use existing LOGF
+// Fallback macros for when C++23/std::format is not available - use existing LOGF
 #define MODERN_LOG(level, format, ...) LOGF(level, format, ##__VA_ARGS__)
 #define LOG_TEMP(level, current, target) LOGF(level, "Temperature: %.2f°C (target: %.2f°C)", current, target)
 #define LOG_MEMORY(level, used, total, largest) LOGF(level, "Memory: %zu/%zu bytes, largest block: %zu bytes", used, total, largest)
