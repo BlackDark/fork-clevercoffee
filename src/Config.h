@@ -325,10 +325,10 @@ class ParamDef : public ConfigParamDef {
             return "p" + String(hash, HEX);
         }
 
-        uint32_t fnv1a_hash(const char* str) const {
+        constexpr uint32_t fnv1a_hash(const char* str) const noexcept {
             uint32_t hash = 2166136261u;
             while (*str) {
-                hash ^= *str++;
+                hash ^= static_cast<uint32_t>(*str++);
                 hash *= 16777619u;
             }
             return hash;
@@ -552,10 +552,10 @@ class ValidatedParamDef : public ConfigParamDef {
             return "v" + String(hash, HEX); // 'v' prefix for validated params
         }
 
-        uint32_t fnv1a_hash(const char* str) const {
+        constexpr uint32_t fnv1a_hash(const char* str) const noexcept {
             uint32_t hash = 2166136261u;
             while (*str) {
-                hash ^= *str++;
+                hash ^= static_cast<uint32_t>(*str++);
                 hash *= 16777619u;
             }
             return hash;
@@ -714,10 +714,10 @@ class EnumParamDef : public ConfigParamDef {
             return "e" + String(hash, HEX);
         }
 
-        uint32_t fnv1a_hash(const char* str) const {
+        constexpr uint32_t fnv1a_hash(const char* str) const noexcept {
             uint32_t hash = 2166136261u;
             while (*str) {
-                hash ^= *str++;
+                hash ^= static_cast<uint32_t>(*str++);
                 hash *= 16777619u;
             }
             return hash;
