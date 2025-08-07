@@ -9,7 +9,7 @@
 #pragma once
 
 #include "../defaults.h"
-#include "../utils/Timer.h"
+#include "../utils/ModernTimer.h"
 #include "./brewStates.h"
 #include <Arduino.h>
 #include <cstring>
@@ -172,12 +172,12 @@ struct TimingState {
         unsigned long previousMillisMQTT = 0;
         static constexpr unsigned long intervalPressure = 100;
         unsigned long previousMillisPressure = 0;
-        std::unique_ptr<Timer> loopWaterTank = nullptr;
-        std::unique_ptr<Timer> hassioDiscoveryTimer = nullptr;
-        std::unique_ptr<Timer> printDisplayTimer = nullptr;
-        Timer* loopWaterTank2 = nullptr;
-        Timer* hassioDiscoveryTimer2 = nullptr;
-        Timer* printDisplayTimer2 = nullptr;
+        std::unique_ptr<MillisecondTimer> loopWaterTank = nullptr;
+        std::unique_ptr<MillisecondTimer> hassioDiscoveryTimer = nullptr;
+        std::unique_ptr<MillisecondTimer> printDisplayTimer = nullptr;
+        MillisecondTimer* loopWaterTank2 = nullptr;
+        MillisecondTimer* hassioDiscoveryTimer2 = nullptr;
+        MillisecondTimer* printDisplayTimer2 = nullptr;
 
         // isr + windowSize
         unsigned int isrCounter = 0;

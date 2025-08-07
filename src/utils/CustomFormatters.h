@@ -8,8 +8,6 @@
 #include "../defaults.h"
 #include "../state/GlobalState.h"
 
-#if __cplusplus >= 202002L && __has_include(<format>)
-
 #include <format>
 
 /**
@@ -418,4 +416,3 @@ namespace CleverCoffee::Formatters {
     }
 }
 
-#endif // __cplusplus >= 202002L && __has_include(<format>)

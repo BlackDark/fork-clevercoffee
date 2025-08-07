@@ -15,13 +15,11 @@
 #include "../network/WebServerManager.h"
 #include "../sensors/SensorManager.h"
 #include "../ui/UIManager.h"
-#include "../utils/legacyUtils.h"
+#include "../utils/SystemUtils.h"
 #include "../utils/memoryUtils.h"
 #include "Logger.h"
 
-#if __cplusplus >= 202300L
-#include <expected>
-#endif
+// #include <expected>  // Not available on ESP32
 #include <Arduino.h>
 #include <ArduinoOTA.h>
 #include <LittleFS.h>

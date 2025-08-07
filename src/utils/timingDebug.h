@@ -6,7 +6,7 @@
  */
 
 #pragma once
-#include "utils/legacyUtils.h"
+#include "utils/SystemUtils.h"
 
 enum ActivityType : uint16_t {
     ACT_DISPLAY_READY = 0x01,

@@ -11,7 +11,7 @@
 #include "../network/MQTTManager.h"
 #include "../sensors/SensorManager.h"
 #include "../state/GlobalState.h"
-#include "../utils/legacyUtils.h"
+#include "../utils/SystemUtils.h"
 #include "Logger.h"
 #include <Arduino.h>
 

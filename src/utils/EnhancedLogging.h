@@ -8,8 +8,6 @@
 #include "CustomFormatters.h"
 #include "../../lib/Logger/Logger.h"
 
-#if __cplusplus >= 202002L && __has_include(<format>)
-
 namespace CleverCoffee::Logging {
 
 /**
@@ -207,5 +205,3 @@ inline void logSystemStatus() {
 #define LOG_PID_TUNING(context) CleverCoffee::Logging::logPIDTuning(context)
 #define LOG_STATE_TRANSITION(old, new, reason) CleverCoffee::Logging::logStateTransition(old, new, reason)
 #define LOG_SYSTEM_STATUS() CleverCoffee::Logging::logSystemStatus()
-
-#endif // __cplusplus >= 202002L && __has_include(<format>)

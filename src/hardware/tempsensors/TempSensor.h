@@ -10,7 +10,7 @@
 #include <cmath>
 #include <numeric>
 
-#if __cplusplus >= 202002L
+#if __has_include(<concepts>)
 #include <concepts>
 
 // C++20 concept for temperature values
@@ -23,7 +23,7 @@ concept TemperatureValue = std::floating_point<T> && requires(T t) {
 
 #include "./state/GlobalState.h"
 #include "Logger.h"
-#include "utils/Timer.h"
+#include "utils/ModernTimer.h"
 
 class TempSensor {
     public:
@@ -34,7 +34,7 @@ class TempSensor {
          *          to detect consecutive reading errors
          */
         TempSensor() :
-            update_temperature([this] { update_temperature_reading(); }, 400) {
+            update_temperature([this] { update_temperature_reading(); }, std::chrono::milliseconds(400)) {
         }
 
         /**
@@ -126,7 +126,7 @@ class TempSensor {
             }
         }
 
-        Timer update_temperature;
+        MillisecondTimer update_temperature;
         double last_temperature_{};
         int bad_readings_{0};
         int max_bad_treadings_{10};

@@ -8,7 +8,7 @@
 #include "Config.h"
 #include "Logger.h"
 #include "state/GlobalState.h"
-#include "utils/legacyUtils.h"
+#include "utils/SystemUtils.h"
 
 /**
  * @brief Start brewing process

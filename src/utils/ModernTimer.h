@@ -12,7 +12,7 @@
 #include <functional>
 #include <type_traits>
 
-#if __cplusplus >= 202002L
+#if __has_include(<concepts>)
 #include <concepts>
 
 template<typename T>
@@ -23,6 +23,11 @@ concept DurationType = requires {
     std::is_same_v<T, std::chrono::seconds> ||
     std::is_same_v<T, std::chrono::minutes>;
 };
+
+#define HAS_DURATION_CONCEPT
+#else
+// Fallback for platforms without concepts support
+#define HAS_DURATION_CONCEPT
 #endif
 
 /**
@@ -31,9 +36,6 @@ concept DurationType = requires {
  * @tparam Duration Duration type (defaults to std::chrono::milliseconds)
  */
 template<typename Duration = std::chrono::milliseconds>
-#if __cplusplus >= 202002L
-requires DurationType<Duration>
-#endif
 class ModernTimer {
 public:
     using ClockType = std::chrono::steady_clock;

@@ -15,10 +15,8 @@
 #include "Logger.h"
 #include "core/SystemInitializer.h"
 
-#if __cplusplus >= 202300L
-// C++23 enhanced error handling
-#include <expected>
-#endif
+// C++23 enhanced error handling (commented out - not available on ESP32)
+// #include <expected>
 #include "network/CleverCoffeeWiFiManager.h"
 #include "network/MQTTManager.h"
 #include <ArduinoOTA.h>
@@ -37,9 +35,9 @@
 #include "state/GlobalState.h"
 
 // Utilities
-#include "utils/Timer.h"
+#include "utils/ModernTimer.h"
 #include "utils/helperUtils.h"
-#include "utils/legacyUtils.h"
+#include "utils/SystemUtils.h"
 #include "utils/memoryUtils.h"
 
 // Hardware classes

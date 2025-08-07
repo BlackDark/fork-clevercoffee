@@ -19,7 +19,7 @@
 #include "../state/StateMachine.h"
 #include "../steamHandler.h"
 #include "../ui/UIManager.h"
-#include "../utils/Timer.h"
+#include "../utils/ModernTimer.h"
 #include "Logger.h"
 #include <Arduino.h>
 #include <ArduinoOTA.h>
@@ -258,8 +258,8 @@ void LoopManager::updateDebugTiming() {
 bool LoopManager::setupTimers() {
     try {
         // Use unique_ptr for automatic memory management
-        g_state.timing.hassioDiscoveryTimer = std::make_unique<Timer>(&sendHASSIODiscoveryMsg, 300000);
-        g_state.timing.printDisplayTimer = std::make_unique<Timer>(DisplayTemplateManager::printScreen, 100);
+        g_state.timing.hassioDiscoveryTimer = std::make_unique<MillisecondTimer>(&sendHASSIODiscoveryMsg, std::chrono::milliseconds(300000));
+        g_state.timing.printDisplayTimer = std::make_unique<MillisecondTimer>(DisplayTemplateManager::printScreen, std::chrono::milliseconds(100));
 
         LOG(INFO, "LoopManager: Initialized timers");
         return true;
@@ -272,7 +272,7 @@ bool LoopManager::setupTimers() {
 bool LoopManager::setupWaterTankTimer() {
     try {
         // Create timer for water tank monitoring (200ms interval)
-        waterTankTimer_ = std::make_unique<Timer>(std::bind(&LoopManager::checkWaterTankLevel, this), 200);
+        waterTankTimer_ = std::make_unique<MillisecondTimer>(std::bind(&LoopManager::checkWaterTankLevel, this), std::chrono::milliseconds(200));
 
         if (!waterTankTimer_) {
             LOG(ERROR, "LoopManager: Failed to create water tank timer");
@@ -431,8 +431,6 @@ void LoopManager::updateSwitchesAndStandby() {
 void LoopManager::updateStateMachine() {
     // State machine updates extracted from loopPid()
     extern std::unique_ptr<StateMachine> stateMachine;
-    extern void printMachineState();
-
     // Update state machine (replaces handleMachineState())
     if (stateMachine && stateMachine->isInitialized()) {
         stateMachine->update();
@@ -440,9 +438,10 @@ void LoopManager::updateStateMachine() {
         // Update compatibility variables for existing code
         const int newStateId = stateMachine->getCurrentStateId();
         if (newStateId != g_state.machine.machineState) {
+            const auto oldState = g_state.machine.machineState;
             g_state.machine.lastmachinestate = static_cast<LegacyMachineState>(g_state.machine.machineState);
             g_state.machine.machineState = static_cast<LegacyMachineState>(newStateId);
-            printMachineState();
+            LOGF(DEBUG, "State transition: %d -> %d", oldState, newStateId);
         }
     }
     else {

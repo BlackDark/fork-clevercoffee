@@ -7,7 +7,6 @@
 #pragma once
 
 #include "Config.h"
-#include "utils/legacyUtils.h"
 
 inline unsigned long getStandbyTimeoutMillis() {
     return static_cast<unsigned long>(Config::getInstance().standbyTime.get() * 60 * 1000);
@@ -68,5 +67,5 @@ inline void resetStandbyTimer(const LegacyMachineState state) {
     g_state.standby.standbyModeStartTimeMillis = millis();
 
     LOGF(INFO, "Resetting standby timer to %i minutes", static_cast<int>(Config::getInstance().standbyTime.get()));
-    LOGF(DEBUG, "New machine state: %s", machinestateEnumToString(state));
+    LOGF(DEBUG, "New machine state: %d", state);
 }

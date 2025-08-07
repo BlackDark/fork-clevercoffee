@@ -11,7 +11,7 @@
 #include "../hotWaterHandler.h"
 #include "../network/CleverCoffeeWiFiManager.h"
 #include "../state/GlobalState.h"
-#include "../utils/legacyUtils.h"
+#include "../utils/SystemUtils.h"
 #include "bitmaps.h"
 #include "languages.h"
 #include <PID_v1.h>  // Required for PID methods in display templates

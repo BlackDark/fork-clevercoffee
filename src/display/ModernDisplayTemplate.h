@@ -7,8 +7,7 @@
 
 #include "displayCommon.h"
 
-#if __cplusplus >= 202002L
-
+#if __has_include(<concepts>)
 #include <concepts>
 
 // C++20 concept for display templates
@@ -22,6 +21,8 @@ concept DisplayTemplate = requires(T t) {
     { t.getSetTempLabel() } -> std::convertible_to<const char*>;
     { t.getPIDSeparator() } -> std::convertible_to<const char*>;
 };
+
+#endif
 
 /**
  * @brief Modern C++20 display template base using CRTP
@@ -62,13 +63,8 @@ public:
         if (displayFullscreenManualFlushTimer()) return true;
         if (displayFullscreenHotWaterTimer()) return true;
         
-        // Template-specific offline mode handling
-        auto* derived = static_cast<Derived*>(this);
-        if constexpr (requires { derived->handleOfflineMode(); }) {
-            if (derived->handleOfflineMode()) return true;
-        } else {
-            if (displayOfflineMode()) return true;
-        }
+        // Default offline mode handling
+        if (displayOfflineMode()) return true;
         
         return false;
     }
@@ -77,13 +73,8 @@ public:
      * @brief Handle machine state displays (common logic, template-specific rendering)
      */
     bool handleMachineStates() {
-        // Template-specific machine state handling
-        auto* derived = static_cast<Derived*>(this);
-        if constexpr (requires { derived->handleMachineState(); }) {
-            return derived->handleMachineState();
-        } else {
-            return displayMachineState();
-        }
+        // Default machine state handling
+        return displayMachineState();
     }
     
     /**
@@ -212,7 +203,7 @@ public:
         g_state.hardware.display->clearBuffer();
         
         displayStatusbar();
-        displayTemperatureInfo(*this, 34, 16);
+        displayTemperatureInfo(34, 16);
         
         // Thermometer
         displayThermometerOutline(4, 62);
@@ -224,8 +215,8 @@ public:
             drawTemperaturebar(8, 30);
         }
         
-        displayBrewInfo(*this, 34, 36);
-        displayPIDInfo(*this, 38, 47);
+        displayBrewInfo(34, 36);
+        displayPIDInfo(38, 47);
         
         // Heat bar
         displayProgressbar(g_state.process.pidOutput / 10, 30, 60, 98);
@@ -263,10 +254,10 @@ public:
         if (handleSpecialStates()) return;
         
         // Normal display
-        displayTemperatureInfo(*this, 1, 14);
+        displayTemperatureInfo(1, 14);
         displayHeatBar();
         displayMainStatus();
-        displayBrewInfo(*this, 1, 34);
+        displayBrewInfo(1, 34);
         displaySensorInfo();
         displayStatusBar();
     }
@@ -417,8 +408,8 @@ public:
         }
     }
     
-    static void setTemplate(System::DisplayTemplate template) {
-        currentTemplate_ = template;
+    static void setTemplate(System::DisplayTemplate templateId) {
+        currentTemplate_ = templateId;
     }
     
 private:
@@ -427,4 +418,3 @@ private:
     static inline UprightTemplate uprightTemplate_;
 };
 
-#endif // __cplusplus >= 202002L

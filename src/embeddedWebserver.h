@@ -10,7 +10,7 @@
 #include "ota.h"
 #include "state/GlobalState.h"
 #include "utils/helperUtils.h"
-#include "utils/legacyUtils.h"
+#include "utils/SystemUtils.h"
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <AsyncJson.h>

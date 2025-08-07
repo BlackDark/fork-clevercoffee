@@ -5,7 +5,7 @@
 
 #pragma once
 
-#include "../utils/Timer.h"
+#include "../utils/ModernTimer.h"
 #include <functional>
 #include <memory>
 
@@ -208,7 +208,7 @@ class LoopManager {
         bool initialized_;
 
         // Water tank monitoring
-        std::unique_ptr<Timer> waterTankTimer_;
+        std::unique_ptr<MillisecondTimer> waterTankTimer_;
         bool waterTankTimerInitialized_;
 
         // Performance monitoring

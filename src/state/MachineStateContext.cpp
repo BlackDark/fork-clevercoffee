@@ -14,7 +14,7 @@
 // #include "../hotWaterHandler.h" - removed to avoid circular dependencies
 #include "../state/GlobalState.h"
 #include "../utils/brewUtils.h"
-#include "../utils/legacyUtils.h"
+#include "../utils/SystemUtils.h"
 #include "Logger.h"
 #include <Arduino.h>
 
