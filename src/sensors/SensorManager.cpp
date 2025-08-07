@@ -88,7 +88,7 @@ void SensorManager::update() {
     // updateScale(); - Called from main loop
 }
 
-bool SensorManager::areSensorsReady() const {
+bool SensorManager::areSensorsReady() const noexcept {
     // Check if any enabled sensor has an error
     // Temperature sensor is always enabled, just check for errors
     if (hasTemperatureError()) {
@@ -107,19 +107,19 @@ bool SensorManager::areSensorsReady() const {
     return true;
 }
 
-bool SensorManager::hasSensorError() const {
+bool SensorManager::hasSensorError() const noexcept {
     return !areSensorsReady();
 }
 
-double SensorManager::getCurrentTemperature() const {
+double SensorManager::getCurrentTemperature() const noexcept {
     return temperature_;
 }
 
-bool SensorManager::hasTemperatureError() const {
+bool SensorManager::hasTemperatureError() const noexcept {
     return tempSensor_ != nullptr && tempSensor_->hasError();
 }
 
-bool SensorManager::isWaterTankFull() const {
+bool SensorManager::isWaterTankFull() const noexcept {
     return waterTankFull_;
 }
 
@@ -140,11 +140,11 @@ void SensorManager::updateWaterTankSensor() {
     }
 }
 
-float SensorManager::getCurrentPressure() const {
+float SensorManager::getCurrentPressure() const noexcept {
     return inputPressure_;
 }
 
-float SensorManager::getFilteredPressure() const {
+float SensorManager::getFilteredPressure() const noexcept {
     return inputPressureFilter_;
 }
 
@@ -188,19 +188,19 @@ void SensorManager::updateScale() {
     // These are called from the main loop
 }
 
-float SensorManager::getCurrentWeight() const {
+float SensorManager::getCurrentWeight() const noexcept {
     return g_state.sensors.currReadingWeight;
 }
 
-float SensorManager::getCurrentBrewWeight() const {
+float SensorManager::getCurrentBrewWeight() const noexcept {
     return g_state.sensors.currBrewWeight;
 }
 
-bool SensorManager::hasScaleError() const {
+bool SensorManager::hasScaleError() const noexcept {
     return g_state.sensors.scaleFailure;
 }
 
-Scale* SensorManager::getScale() const {
+Scale* SensorManager::getScale() const noexcept {
     return g_state.hardware.scale.get();
 }
 

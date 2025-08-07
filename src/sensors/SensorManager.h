@@ -63,33 +63,33 @@ class SensorManager {
          * @brief Check if sensors are ready
          * @return true if all enabled sensors are functional
          */
-        bool areSensorsReady() const;
+        bool areSensorsReady() const noexcept;
 
         /**
          * @brief Check if any sensor has an error
          * @return true if any enabled sensor has an error
          */
-        bool hasSensorError() const;
+        bool hasSensorError() const noexcept;
 
         // Temperature sensor interface
         /**
          * @brief Get current temperature reading
          * @return Temperature in Celsius
          */
-        double getCurrentTemperature() const;
+        double getCurrentTemperature() const noexcept;
 
         /**
          * @brief Check if temperature sensor has an error
          * @return true if temperature sensor has an error
          */
-        bool hasTemperatureError() const;
+        bool hasTemperatureError() const noexcept;
 
         // Water tank sensor interface
         /**
          * @brief Check if water tank is full
          * @return true if water tank has water
          */
-        bool isWaterTankFull() const;
+        bool isWaterTankFull() const noexcept;
 
         /**
          * @brief Update water tank sensor reading
@@ -101,13 +101,13 @@ class SensorManager {
          * @brief Get current pressure reading
          * @return Raw pressure value
          */
-        float getCurrentPressure() const;
+        float getCurrentPressure() const noexcept;
 
         /**
          * @brief Get filtered pressure reading
          * @return Filtered pressure value
          */
-        float getFilteredPressure() const;
+        float getFilteredPressure() const noexcept;
 
         /**
          * @brief Update pressure sensor reading
@@ -130,25 +130,25 @@ class SensorManager {
          * @brief Get current scale reading
          * @return Current weight reading
          */
-        float getCurrentWeight() const;
+        float getCurrentWeight() const noexcept;
 
         /**
          * @brief Get current brew weight
          * @return Current brew weight reading
          */
-        float getCurrentBrewWeight() const;
+        float getCurrentBrewWeight() const noexcept;
 
         /**
          * @brief Check if scale has an error
          * @return true if scale has an error
          */
-        bool hasScaleError() const;
+        bool hasScaleError() const noexcept;
 
         /**
          * @brief Get scale instance for direct access
          * @return Pointer to scale instance (may be null)
          */
-        Scale* getScale() const;
+        Scale* getScale() const noexcept;
 
         // Modern C++23 sensor processing methods
         /**

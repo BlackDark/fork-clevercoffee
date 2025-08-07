@@ -108,7 +108,7 @@ bool BluetoothScale::update() {
     return false;
 }
 
-float BluetoothScale::getWeight() const {
+float BluetoothScale::getWeight() const noexcept {
     return currentWeight;
 }
 
@@ -122,6 +122,6 @@ void BluetoothScale::setSamples(int samples) {
     // Most BLE scales handle sampling internally
 }
 
-bool BluetoothScale::isConnected() const {
+bool BluetoothScale::isConnected() const noexcept {
     return connected;
 }

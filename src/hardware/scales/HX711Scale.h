@@ -47,7 +47,7 @@ class HX711Scale : public Scale {
 
         bool init() override;
         bool update() override;
-        [[nodiscard]] float getWeight() const override;
+        [[nodiscard]] float getWeight() const noexcept override;
         void tare() override;
         void setSamples(int samples) override;
 
@@ -56,7 +56,7 @@ class HX711Scale : public Scale {
          * @param cellNumber Cell number (1 or 2)
          * @return Calibration factor
          */
-        [[nodiscard]] float getCalibrationFactor(int cellNumber = 1) const;
+        [[nodiscard]] float getCalibrationFactor(int cellNumber = 1) const noexcept;
 
         /**
          * @brief Set calibration factor for specific cell
@@ -70,7 +70,7 @@ class HX711Scale : public Scale {
          * @param cellNumber Cell number (1 or 2)
          * @return Pointer to HX711_ADC object or nullptr if invalid
          */
-        [[nodiscard]] HX711_ADC* getLoadCell(int cellNumber = 1) const;
+        [[nodiscard]] HX711_ADC* getLoadCell(int cellNumber = 1) const noexcept;
 
     private:
         HX711_ADC* loadCell1;

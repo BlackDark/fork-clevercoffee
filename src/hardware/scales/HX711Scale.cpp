@@ -108,7 +108,7 @@ bool HX711Scale::update() {
     return false;
 }
 
-float HX711Scale::getWeight() const {
+float HX711Scale::getWeight() const noexcept {
     return currentWeight;
 }
 
@@ -131,7 +131,7 @@ void HX711Scale::setSamples(const int samples) {
     }
 }
 
-float HX711Scale::getCalibrationFactor(const int cellNumber) const {
+float HX711Scale::getCalibrationFactor(const int cellNumber) const noexcept {
     return cellNumber == 1 ? calibrationFactor1 : calibrationFactor2;
 }
 
@@ -152,7 +152,7 @@ void HX711Scale::setCalibrationFactor(const float factor, const int cellNumber) 
     }
 }
 
-HX711_ADC* HX711Scale::getLoadCell(const int cellNumber) const {
+HX711_ADC* HX711Scale::getLoadCell(const int cellNumber) const noexcept {
     if (cellNumber == 1) {
         return loadCell1;
     }
