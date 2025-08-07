@@ -5,6 +5,7 @@
 #include <WiFiServer.h>
 #include <ctime>
 #include <stdint.h>
+#include <string_view>
 
 class Logger {
     public:
@@ -96,7 +97,7 @@ class Logger {
             return getInstance().level_;
         }
 
-        static const char* getLevelString(Level level);
+        static std::string_view getLevelString(Level level) noexcept;
 
     private:
         static Logger& getInstanceImpl();

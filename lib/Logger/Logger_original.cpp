@@ -137,7 +137,7 @@ bool Logger::formatLogMessage(Level level, const char* file, const char* functio
         return false;
     }
 
-    const char* levelStr = getLevelString(level);
+    auto levelStr = getLevelString(level);
     size_t pos = 0;
 
     // Add timestamp
@@ -146,7 +146,7 @@ bool Logger::formatLogMessage(Level level, const char* file, const char* functio
     pos += result;
 
     // Add log level
-    result = snprintf(buffer + pos, bufferSize - pos, "%s ", levelStr);
+    result = snprintf(buffer + pos, bufferSize - pos, "%s ", levelStr.data());
     if (result < 0 || static_cast<size_t>(result) >= bufferSize - pos) return false;
     pos += result;
 
@@ -177,7 +177,7 @@ void Logger::sendLogMessage(const char* message) {
     }
 }
 
-const char* Logger::getLevelString(Level level) {
+std::string_view Logger::getLevelString(Level level) noexcept {
     switch (level) {
         case Level::TRACE:
             return "  TRACE";

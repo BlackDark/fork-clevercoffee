@@ -72,7 +72,7 @@ uint16_t Logger::getPort() {
     return getInstance().config_.port;
 }
 
-const char* Logger::getLevelString(Level level) {
+std::string_view Logger::getLevelString(Level level) noexcept {
     switch (level) {
         case Level::TRACE: return "TRACE";
         case Level::DEBUG: return "DEBUG";

@@ -167,7 +167,7 @@ class Logger {
             return getInstance().level_;
         }
 
-        static const char* getLevelString(Level level);
+        static std::string_view getLevelString(Level level) noexcept;
 
         // Performance statistics
         struct Stats {
