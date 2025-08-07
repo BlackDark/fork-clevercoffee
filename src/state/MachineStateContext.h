@@ -46,35 +46,35 @@ class MachineStateContext {
         /**
          * @brief Get display manager
          */
-        DisplayManager* getDisplayManager() const {
+        DisplayManager* getDisplayManager() const noexcept {
             return displayManager_;
         }
 
         /**
          * @brief Get hardware manager
          */
-        HardwareManager* getHardwareManager() const {
+        HardwareManager* getHardwareManager() const noexcept {
             return hardwareManager_;
         }
 
         /**
          * @brief Get sensor manager
          */
-        SensorManager* getSensorManager() const {
+        SensorManager* getSensorManager() const noexcept {
             return sensorManager_;
         }
 
         /**
          * @brief Get WiFi manager
          */
-        CleverCoffeeWiFiManager* getWiFiManager() const {
+        CleverCoffeeWiFiManager* getWiFiManager() const noexcept {
             return wifiManager_;
         }
 
         /**
          * @brief Get MQTT manager
          */
-        MQTTManager* getMQTTManager() const {
+        MQTTManager* getMQTTManager() const noexcept {
             return mqttManager_;
         }
 

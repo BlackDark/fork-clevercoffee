@@ -8,14 +8,15 @@
 #include "MachineStateIds.h"
 #include "states/InitState.h"
 #include <Arduino.h>
+#include <chrono>
 
 StateMachine::StateMachine(DisplayManager* displayManager, HardwareManager* hardwareManager, SensorManager* sensorManager, CleverCoffeeWiFiManager* wifiManager, MQTTManager* mqttManager) :
     currentState_(nullptr),
     context_(displayManager, hardwareManager, sensorManager, wifiManager, mqttManager),
     initialized_(false),
     lastStateId_(-1),
-    lastUpdateTime_(0),
-    stateEntryTime_(0),
+    lastUpdateTime_(std::chrono::steady_clock::now()),
+    stateEntryTime_(std::chrono::steady_clock::now()),
     totalStateTransitions_(0),
     totalUpdates_(0) {
 
@@ -40,8 +41,9 @@ bool StateMachine::initialize(std::unique_ptr<MachineState> initialState) {
     }
 
     // Initialize timing
-    lastUpdateTime_ = millis();
-    stateEntryTime_ = lastUpdateTime_;
+    auto now = std::chrono::steady_clock::now();
+    lastUpdateTime_ = now;
+    stateEntryTime_ = now;
     lastStateId_ = currentState_->getStateId();
 
     // Call state entry callback
@@ -63,7 +65,7 @@ void StateMachine::update() {
     }
 
     totalUpdates_++;
-    unsigned long currentTime = millis();
+    auto currentTime = std::chrono::steady_clock::now();
 
     // Update current state
     currentState_->update(context_);
@@ -76,8 +78,10 @@ void StateMachine::update() {
     lastUpdateTime_ = currentTime;
 
     // Periodic logging for debugging (every 10 seconds when state changes or first run)
-    static unsigned long lastLogTime = 0;
-    if (currentTime - lastLogTime > 10000 || lastStateId_ != getCurrentStateId()) {
+    static auto lastLogTime = std::chrono::steady_clock::now();
+    static constexpr auto LOG_INTERVAL = std::chrono::seconds(10);
+    
+    if ((currentTime - lastLogTime) > LOG_INTERVAL || lastStateId_ != getCurrentStateId()) {
         logStateMachineStatus();
         lastLogTime = currentTime;
         lastStateId_ = getCurrentStateId();
@@ -117,7 +121,7 @@ void StateMachine::executeTransition(std::unique_ptr<MachineState> newState, con
 
     // Transition to new state
     currentState_ = std::move(newState);
-    stateEntryTime_ = millis();
+    stateEntryTime_ = std::chrono::steady_clock::now();
     totalStateTransitions_++;
 
     // Call entry callback on new state
@@ -126,15 +130,15 @@ void StateMachine::executeTransition(std::unique_ptr<MachineState> newState, con
     }
 }
 
-int StateMachine::getCurrentStateId() const {
+int StateMachine::getCurrentStateId() const noexcept {
     return currentState_ ? currentState_->getStateId() : -1;
 }
 
-const char* StateMachine::getCurrentStateName() const {
+const char* StateMachine::getCurrentStateName() const noexcept {
     return currentState_ ? currentState_->getStateName() : "None";
 }
 
-bool StateMachine::isInitialized() const {
+bool StateMachine::isInitialized() const noexcept {
     return initialized_ && currentState_ != nullptr;
 }
 
@@ -144,14 +148,14 @@ void StateMachine::logStateMachineStatus() const {
         return;
     }
 
-    unsigned long currentTime = millis();
-    unsigned long timeInState = currentTime - stateEntryTime_;
-    unsigned long uptime = currentTime; // Assuming Arduino millis() from start
+    auto now = std::chrono::steady_clock::now();
+    auto timeInState = std::chrono::duration_cast<std::chrono::milliseconds>(now - stateEntryTime_);
+    auto uptime = std::chrono::duration_cast<std::chrono::seconds>(now - lastUpdateTime_);
 
     LOGF(INFO,
-         "StateMachine status: State=%d (%s), TimeInState=%lums, "
-         "Transitions=%lu, Updates=%lu, Uptime=%lus",
-         getCurrentStateId(), getCurrentStateName(), timeInState, totalStateTransitions_, totalUpdates_, uptime / 1000);
+         "StateMachine status: State=%d (%s), TimeInState=%lldms, "
+         "Transitions=%zu, Updates=%zu, Uptime=%llds",
+         getCurrentStateId(), getCurrentStateName(), timeInState.count(), totalStateTransitions_, totalUpdates_, uptime.count());
 
     // Log context status for debugging
     LOGF(DEBUG, "Context status: Temp=%.1f°C, Tank=%s, Sensors=%s, PID=%s", context_.getCurrentTemperature(), context_.isWaterTankFull() ? "Full" : "Empty", context_.hasSensorError() ? "Error" : "OK",

@@ -8,6 +8,7 @@
 #include "MachineState.h"
 #include "MachineStateContext.h"
 #include <memory>
+#include <chrono>
 
 // Forward declarations
 class DisplayManager;
@@ -78,19 +79,19 @@ class StateMachine {
          * @brief Get current state ID
          * @return Current state identifier, or -1 if no state
          */
-        int getCurrentStateId() const;
+        int getCurrentStateId() const noexcept;
 
         /**
          * @brief Get current state name
          * @return Current state name, or "None" if no state
          */
-        const char* getCurrentStateName() const;
+        const char* getCurrentStateName() const noexcept;
 
         /**
          * @brief Check if state machine is initialized
          * @return true if state machine has a current state
          */
-        bool isInitialized() const;
+        bool isInitialized() const noexcept;
 
         /**
          * @brief Get state context for external access
@@ -99,7 +100,7 @@ class StateMachine {
          * This allows external code to access the context for specific
          * operations that don't require state transitions.
          */
-        MachineStateContext& getContext() {
+        MachineStateContext& getContext() noexcept {
             return context_;
         }
 
@@ -107,7 +108,7 @@ class StateMachine {
          * @brief Get state context for external access (const version)
          * @return Const reference to the state context
          */
-        const MachineStateContext& getContext() const {
+        const MachineStateContext& getContext() const noexcept {
             return context_;
         }
 
@@ -117,7 +118,7 @@ class StateMachine {
          *
          * This is primarily for debugging and testing purposes.
          */
-        const MachineState* getCurrentState() const {
+        const MachineState* getCurrentState() const noexcept {
             return currentState_.get();
         }
 
@@ -141,10 +142,28 @@ class StateMachine {
         // State machine status
         bool initialized_;             ///< True if state machine is initialized
         int lastStateId_;              ///< Last state ID for change detection
-        unsigned long lastUpdateTime_; ///< Last update timestamp for timing debug
-        unsigned long stateEntryTime_; ///< Time when current state was entered
+        std::chrono::steady_clock::time_point lastUpdateTime_; ///< Last update timestamp for timing debug
+        std::chrono::steady_clock::time_point stateEntryTime_; ///< Time when current state was entered
 
         // Statistics for debugging and monitoring
-        unsigned long totalStateTransitions_; ///< Total number of state transitions
-        unsigned long totalUpdates_;          ///< Total number of update calls
+        std::size_t totalStateTransitions_; ///< Total number of state transitions
+        std::size_t totalUpdates_;          ///< Total number of update calls
+        
+        /**
+         * @brief Get time spent in current state
+         * @return Duration in current state
+         */
+        std::chrono::milliseconds getTimeInCurrentState() const noexcept {
+            return std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - stateEntryTime_);
+        }
+        
+        /**
+         * @brief Get total uptime of state machine
+         * @return Duration since initialization
+         */
+        std::chrono::seconds getUptime() const noexcept {
+            return std::chrono::duration_cast<std::chrono::seconds>(
+                std::chrono::steady_clock::now() - lastUpdateTime_);
+        }
 };
