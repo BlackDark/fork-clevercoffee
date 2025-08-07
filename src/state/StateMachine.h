@@ -144,6 +144,7 @@ class StateMachine {
         int lastStateId_;              ///< Last state ID for change detection
         std::chrono::steady_clock::time_point lastUpdateTime_; ///< Last update timestamp for timing debug
         std::chrono::steady_clock::time_point stateEntryTime_; ///< Time when current state was entered
+        std::chrono::steady_clock::time_point startTime_; // <-- Add this member
 
         // Statistics for debugging and monitoring
         std::size_t totalStateTransitions_; ///< Total number of state transitions

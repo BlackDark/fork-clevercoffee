@@ -17,6 +17,7 @@ StateMachine::StateMachine(DisplayManager* displayManager, HardwareManager* hard
     lastStateId_(-1),
     lastUpdateTime_(std::chrono::steady_clock::now()),
     stateEntryTime_(std::chrono::steady_clock::now()),
+    startTime_(std::chrono::steady_clock::now()), // <-- Add this line
     totalStateTransitions_(0),
     totalUpdates_(0) {
 
@@ -44,6 +45,7 @@ bool StateMachine::initialize(std::unique_ptr<MachineState> initialState) {
     auto now = std::chrono::steady_clock::now();
     lastUpdateTime_ = now;
     stateEntryTime_ = now;
+    startTime_ = now; // <-- Set start time on initialize
     lastStateId_ = currentState_->getStateId();
 
     // Call state entry callback
@@ -147,11 +149,9 @@ void StateMachine::logStateMachineStatus() const {
         LOG(WARNING, "StateMachine status: Not initialized");
         return;
     }
-
     auto now = std::chrono::steady_clock::now();
     auto timeInState = std::chrono::duration_cast<std::chrono::milliseconds>(now - stateEntryTime_);
-    auto uptime = std::chrono::duration_cast<std::chrono::seconds>(now - lastUpdateTime_);
-
+    auto uptime = std::chrono::duration_cast<std::chrono::seconds>(now - startTime_); // <-- Use startTime_ for uptime
     LOGF(INFO,
          "StateMachine status: State=%d (%s), TimeInState=%lldms, "
          "Transitions=%zu, Updates=%zu, Uptime=%llds",
