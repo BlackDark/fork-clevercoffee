@@ -27,6 +27,10 @@
 
 #if __cplusplus >= 202002L
 #include <concepts>
+#include <span>
+#endif
+
+#if __cplusplus >= 202002L
 
 // C++20 Concepts for type safety
 template<typename T>
@@ -42,6 +46,17 @@ concept EnumType = std::is_enum_v<T>;
 
 template<typename T>
 concept StringLike = std::convertible_to<T, String> || std::convertible_to<T, std::string>;
+
+// Helper functions for std::span usage
+template<typename T>
+std::span<const std::pair<T, String>> getEnumOptionsAsSpan(const std::vector<std::pair<T, String>>& options) noexcept {
+    return std::span<const std::pair<T, String>>(options);
+}
+
+template<typename T>
+std::span<const T> getConfigArrayAsSpan(const std::vector<T>& array) noexcept {
+    return std::span<const T>(array);
+}
 
 #endif
 
@@ -68,6 +83,15 @@ extern const std::vector<std::pair<Hardware::TemperatureSensorType, String>>& ge
 extern const std::vector<std::pair<Hardware::ScaleType, String>>& getScaleTypeOptions();
 extern const std::vector<std::pair<System::LogLevel, String>>& getLogLevelOptions();
 extern const std::vector<std::pair<Process::BrewMode, String>>& getBrewModeOptions();
+
+#if __cplusplus >= 202002L
+// C++20 span-based accessors for better performance
+std::span<const std::pair<Hardware::SwitchType, String>> getSwitchTypeOptionsSpan() noexcept;
+std::span<const std::pair<Hardware::SwitchMode, String>> getSwitchModeOptionsSpan() noexcept;
+std::span<const std::pair<Hardware::RelayTriggerType, String>> getRelayTriggerOptionsSpan() noexcept;
+std::span<const std::pair<System::DisplayTemplate, String>> getDisplayTemplateOptionsSpan() noexcept;
+std::span<const std::pair<System::Language, String>> getLanguageOptionsSpan() noexcept;
+#endif
 
 // Forward declarations
 template <typename T>
@@ -616,6 +640,13 @@ class EnumParamDef : public ConfigParamDef {
         E get() const {
             return currentValue_;
         }
+
+#if __cplusplus >= 202002L
+        // C++20 span-based options access for better performance
+        std::span<const std::pair<E, String>> getOptionsSpan() const noexcept {
+            return std::span<const std::pair<E, String>>(options_);
+        }
+#endif
 
         bool set(const E& value) {
             if (!isValid(value)) {
