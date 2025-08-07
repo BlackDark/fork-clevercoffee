@@ -11,7 +11,7 @@ Relay::Relay(GPIOPin& gpioInstance, const TriggerType trigger) :
     gpio(gpioInstance), relayTrigger(trigger) {
 }
 
-void Relay::on() const {
+void Relay::on() const noexcept {
     if (relayTrigger == HIGH_TRIGGER) {
         gpio.write(HIGH);
     }
@@ -20,7 +20,7 @@ void Relay::on() const {
     }
 }
 
-void Relay::off() const {
+void Relay::off() const noexcept {
     if (relayTrigger == HIGH_TRIGGER) {
         gpio.write(LOW);
     }
@@ -29,6 +29,6 @@ void Relay::off() const {
     }
 }
 
-GPIOPin& Relay::getGPIOInstance() const {
+GPIOPin& Relay::getGPIOInstance() const noexcept {
     return gpio;
 }

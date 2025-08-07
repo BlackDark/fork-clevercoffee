@@ -7,6 +7,7 @@
 #pragma once
 
 #include <cstdint>
+#include <chrono>
 
 #include "GPIOPin.h"
 #include "Switch.h"
@@ -48,11 +49,12 @@ class IOSwitch final : public Switch {
         uint8_t lastState;
         uint8_t currentState;
 
-        // Debouncing and long-press detection
-        unsigned long lastStateChangeTime{0};
-        unsigned long pressStartTime{0};
+        // Debouncing and long-press detection with std::chrono
+        std::chrono::steady_clock::time_point lastStateChangeTime{};
+        std::chrono::steady_clock::time_point pressStartTime{};
+        std::chrono::steady_clock::time_point lastDebounceTime{};
         bool longPressTriggered{false};
-        unsigned long lastDebounceTime{0};
-        const unsigned long debounceDelay{20};
-        const unsigned long longPressDuration{500};
+        
+        static constexpr std::chrono::milliseconds debounceDelay{20};
+        static constexpr std::chrono::milliseconds longPressDuration{500};
 };

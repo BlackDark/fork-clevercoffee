@@ -5,6 +5,8 @@
  */
 #pragma once
 
+#include <cstdint>
+
 // Forward declaration of GPIOPin class
 class GPIOPin;
 
@@ -19,7 +21,7 @@ class Relay {
          * @brief Type of trigger for this relay
          * @details Relays can either trigger in HIGH or LOW setting of their control input
          */
-        enum TriggerType {
+        enum TriggerType : uint8_t {
             LOW_TRIGGER,
             HIGH_TRIGGER
         };
@@ -35,18 +37,24 @@ class Relay {
         /**
          * @brief Switch relay on
          */
-        void on() const;
+        void on() const noexcept;
 
         /**
          * @brief Switch relay off
          */
-        void off() const;
+        void off() const noexcept;
 
         /**
          * @brief Get the GPIO pin this relay is connected to
          * @return GPIO pin of the relay
          */
-        [[nodiscard]] GPIOPin& getGPIOInstance() const;
+        [[nodiscard]] GPIOPin& getGPIOInstance() const noexcept;
+        
+        /**
+         * @brief Get the trigger type of this relay
+         * @return Trigger type
+         */
+        [[nodiscard]] constexpr TriggerType getTriggerType() const noexcept { return relayTrigger; }
 
     private:
         GPIOPin& gpio;

@@ -14,21 +14,21 @@ IOSwitch::IOSwitch(const int pinNumber, const GPIOPin::Type pinType, const Type 
 
 bool IOSwitch::isPressed() {
     const uint8_t reading = gpio.read();
-    const unsigned long currentMillis = millis();
+    const auto currentTime = std::chrono::steady_clock::now();
 
     if (reading != lastState) {
-        lastDebounceTime = currentMillis;
+        lastDebounceTime = currentTime;
     }
 
-    if (currentMillis - lastDebounceTime > debounceDelay) {
+    if (currentTime - lastDebounceTime > debounceDelay) {
         if ((reading ^ mode_) != currentState) {
             currentState = reading ^ mode_;
 
             if (currentState == LOW) {
-                lastStateChangeTime = currentMillis;
+                lastStateChangeTime = currentTime;
             }
             else {
-                pressStartTime = currentMillis;
+                pressStartTime = currentTime;
             }
         }
     }
@@ -36,10 +36,10 @@ bool IOSwitch::isPressed() {
     lastState = reading;
 
     if (type_ == MOMENTARY) {
-        if (currentState == HIGH && pressStartTime + longPressDuration <= currentMillis) {
+        if (currentState == HIGH && (currentTime - pressStartTime) >= longPressDuration) {
             longPressTriggered = true;
         }
-        else if (currentState == LOW && lastStateChangeTime == currentMillis) {
+        else if (currentState == LOW && lastStateChangeTime == currentTime) {
             longPressTriggered = false;
         }
     }
