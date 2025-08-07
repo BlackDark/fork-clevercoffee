@@ -25,6 +25,26 @@
 #include <type_traits>
 #include <vector>
 
+#if __cplusplus >= 202002L
+#include <concepts>
+
+// C++20 Concepts for type safety
+template<typename T>
+concept Numeric = std::is_arithmetic_v<T>;
+
+template<typename T>
+concept ConfigurableType = std::same_as<T, bool> || std::same_as<T, int> || 
+                          std::same_as<T, double> || std::same_as<T, float> || 
+                          std::same_as<T, String>;
+
+template<typename T>
+concept EnumType = std::is_enum_v<T>;
+
+template<typename T>
+concept StringLike = std::convertible_to<T, String> || std::convertible_to<T, std::string>;
+
+#endif
+
 // ParamType enum for compatibility with old Config system
 enum class ParamType {
     INT = 0,
@@ -127,6 +147,9 @@ class ConfigParamDef : public BaseParamDef {
  * @brief Type-safe parameter definition for editable configuration values
  */
 template <typename T>
+#if __cplusplus >= 202002L
+requires ConfigurableType<T>
+#endif
 class ParamDef : public ConfigParamDef {
     public:
         ParamDef(const String& key, T defaultValue, const String& displayName, int section, int order, const String& helpText, T minValue = T{}, T maxValue = T{}, std::function<bool()> showCondition = nullptr) :
@@ -353,6 +376,9 @@ class ParamDef : public ConfigParamDef {
  * @brief C++20/23 enhanced parameter definition with compile-time validation
  */
 template <typename T, auto ValidatorFunc = nullptr>
+#if __cplusplus >= 202002L
+requires ConfigurableType<T>
+#endif
 class ValidatedParamDef : public ConfigParamDef {
     public:
         constexpr ValidatedParamDef(const String& key, T defaultValue, const String& displayName, 
@@ -575,6 +601,9 @@ using ValidatedPidTvParam = ValidatedParamDef<double, CleverCoffee::Validation::
  * @brief Specialized parameter definition for enum types
  */
 template <typename E>
+#if __cplusplus >= 202002L
+requires EnumType<E>
+#endif
 class EnumParamDef : public ConfigParamDef {
         static_assert(std::is_enum_v<E>, "EnumParamDef requires an enum type");
 
@@ -735,6 +764,9 @@ class EnumParamDef : public ConfigParamDef {
  * 5. Hardware info (firmware version, MAC address)
  */
 template <typename T>
+#if __cplusplus >= 202002L
+requires ConfigurableType<T>
+#endif
 class StateParamDef : public BaseParamDef {
     public:
         enum class UpdateFrequency {
@@ -858,6 +890,9 @@ class StateParamDef : public BaseParamDef {
  * Example: PID Ki value computed from Kp and Tn
  */
 template <typename T>
+#if __cplusplus >= 202002L
+requires ConfigurableType<T>
+#endif
 class ComputedParamDef : public BaseParamDef {
     public:
         ComputedParamDef(const String& key, const String& displayName, int section, int order, const String& helpText, std::function<T()> computation, const String& unit = "") :
