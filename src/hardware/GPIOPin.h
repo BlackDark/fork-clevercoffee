@@ -43,7 +43,7 @@ class GPIOPin {
          *
          * @param value Boolean value to set the pin to
          */
-        void write(bool value) const;
+        void write(bool value) const noexcept;
 
         /**
          * @brief Read value from pin
@@ -51,13 +51,13 @@ class GPIOPin {
          *          value
          * @return Value read from GPIO pin
          */
-        [[nodiscard]] int read() const;
+        [[nodiscard]] int read() const noexcept;
 
         /**
          * @brief Returns configured type of this GPIO pin
          * @return Configured type of this pin
          */
-        [[nodiscard]] Type getType() const;
+        [[nodiscard]] Type getType() const noexcept;
 
     private:
         /**
