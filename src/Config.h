@@ -67,19 +67,19 @@ class BaseParamDef {
 
         virtual ~BaseParamDef() = default;
 
-        const String& getKey() const {
+        const String& getKey() const noexcept {
             return key_;
         }
-        const String& getDisplayName() const {
+        const String& getDisplayName() const noexcept {
             return displayName_;
         }
-        int getSection() const {
+        int getSection() const noexcept {
             return section_;
         }
-        int getOrder() const {
+        int getOrder() const noexcept {
             return order_;
         }
-        const String& getHelpText() const {
+        const String& getHelpText() const noexcept {
             return helpText_;
         }
 
@@ -134,7 +134,7 @@ class ParamDef : public ConfigParamDef {
         }
 
         // Type-safe getter
-        T get() const {
+        T get() const noexcept {
             return currentValue_;
         }
 
@@ -334,7 +334,7 @@ class ParamDef : public ConfigParamDef {
             return hash;
         }
 
-        const char* getTypeName() const {
+        const char* getTypeName() const noexcept {
             if constexpr (std::is_same_v<T, bool>)
                 return "bool";
             else if constexpr (std::is_same_v<T, int>)
@@ -750,7 +750,7 @@ class StateParamDef : public BaseParamDef {
         }
 
         // Read-only access
-        T get() const {
+        T get() const noexcept {
             return valueProvider_();
         }
 
@@ -801,25 +801,25 @@ class StateParamDef : public BaseParamDef {
                 return ParamType::INT; // fallback
         }
 
-        const String& getKey() const {
+        const String& getKey() const noexcept {
             return key_;
         }
-        const String& getDisplayName() const {
+        const String& getDisplayName() const noexcept {
             return displayName_;
         }
-        int getSection() const {
+        int getSection() const noexcept {
             return section_;
         }
-        int getOrder() const {
+        int getOrder() const noexcept {
             return order_;
         }
-        const String& getHelpText() const {
+        const String& getHelpText() const noexcept {
             return helpText_;
         }
-        const String& getUnit() const {
+        const String& getUnit() const noexcept {
             return unit_;
         }
-        UpdateFrequency getFrequency() const {
+        UpdateFrequency getFrequency() const noexcept {
             return frequency_;
         }
 
@@ -838,7 +838,7 @@ class StateParamDef : public BaseParamDef {
         mutable unsigned long lastUpdate_ = 0;
         mutable bool hasCachedValue_ = false;
 
-        const char* getTypeName() const {
+        const char* getTypeName() const noexcept {
             if constexpr (std::is_same_v<T, bool>)
                 return "bool";
             else if constexpr (std::is_same_v<T, int>)
@@ -864,7 +864,7 @@ class ComputedParamDef : public BaseParamDef {
             key_(key), displayName_(displayName), section_(section), order_(order), helpText_(helpText), computation_(computation), unit_(unit) {
         }
 
-        T get() const {
+        T get() const noexcept {
             return computation_();
         }
 
@@ -891,7 +891,7 @@ class ComputedParamDef : public BaseParamDef {
                 return ParamType::INT; // fallback
         }
 
-        const String& getKey() const {
+        const String& getKey() const noexcept {
             return key_;
         }
 
@@ -904,7 +904,7 @@ class ComputedParamDef : public BaseParamDef {
         String unit_;
         std::function<T()> computation_;
 
-        const char* getTypeName() const {
+        const char* getTypeName() const noexcept {
             if constexpr (std::is_same_v<T, bool>)
                 return "bool";
             else if constexpr (std::is_same_v<T, int>)
