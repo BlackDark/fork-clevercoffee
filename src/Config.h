@@ -14,7 +14,6 @@
 
 #include "Logger.h"
 #include "defaults.h"
-#include "constexpr_validation.h"
 #include "state/GlobalState.h"
 #include <Arduino.h>
 #include <ArduinoJson.h>
@@ -130,9 +129,9 @@ class ConfigParamDef : public BaseParamDef {
  */
 template <typename T>
 class ParamDef : public ConfigParamDef {
-    static_assert(std::is_same_v<T, bool> || std::is_same_v<T, int> || 
-                  std::is_same_v<T, double> || std::is_same_v<T, float> || 
-                  std::is_same_v<T, String>, 
+    static_assert(std::is_same_v<T, bool> || std::is_same_v<T, int> ||
+                  std::is_same_v<T, double> || std::is_same_v<T, float> ||
+                  std::is_same_v<T, String>,
                   "ParamDef only supports bool, int, double, float, or String types");
     public:
         ParamDef(const String& key, T defaultValue, const String& displayName, int section, int order, const String& helpText, T minValue = T{}, T maxValue = T{}, std::function<bool()> showCondition = nullptr) :
@@ -521,9 +520,9 @@ class EnumParamDef : public ConfigParamDef {
  */
 template <typename T>
 class StateParamDef : public BaseParamDef {
-    static_assert(std::is_same_v<T, bool> || std::is_same_v<T, int> || 
-                  std::is_same_v<T, double> || std::is_same_v<T, float> || 
-                  std::is_same_v<T, String>, 
+    static_assert(std::is_same_v<T, bool> || std::is_same_v<T, int> ||
+                  std::is_same_v<T, double> || std::is_same_v<T, float> ||
+                  std::is_same_v<T, String>,
                   "StateParamDef only supports bool, int, double, float, or String types");
     public:
         enum class UpdateFrequency {
@@ -648,9 +647,9 @@ class StateParamDef : public BaseParamDef {
  */
 template <typename T>
 class ComputedParamDef : public BaseParamDef {
-    static_assert(std::is_same_v<T, bool> || std::is_same_v<T, int> || 
-                  std::is_same_v<T, double> || std::is_same_v<T, float> || 
-                  std::is_same_v<T, String>, 
+    static_assert(std::is_same_v<T, bool> || std::is_same_v<T, int> ||
+                  std::is_same_v<T, double> || std::is_same_v<T, float> ||
+                  std::is_same_v<T, String>,
                   "ComputedParamDef only supports bool, int, double, float, or String types");
     public:
         ComputedParamDef(const String& key, const String& displayName, int section, int order, const String& helpText, std::function<T()> computation, const String& unit = "") :
