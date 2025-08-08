@@ -9,7 +9,7 @@
 #include "../src/constexpr_validation.h"
 #include "../src/Config.h"
 
-#if __cplusplus >= 202002L
+#if __has_include(<concepts>) && defined(__cpp_consteval)
 
 using namespace CleverCoffee::Validation;
 
@@ -79,7 +79,7 @@ void demonstrateValidatedParameters() {
     // Access the new validated parameters from Config
     auto& config = Config::getInstance();
     
-#if __cplusplus >= 202002L
+#if __has_include(<concepts>) && defined(__cpp_consteval)
     // C++23 validated parameters provide additional safety
     double brewTemp = config.brewSetpointValidated.get();
     double steamTemp = config.steamSetpointValidated.get(); 
@@ -182,7 +182,7 @@ void initializePIDWithValidation() {
 void setup() {
     // ... other initialization ...
     
-#if __cplusplus >= 202002L
+#if __has_include(<concepts>) && defined(__cpp_consteval)
     ConstexprDemo::demonstrateValidatedParameters();
     ConstexprDemo::initializePIDWithValidation();
 #endif

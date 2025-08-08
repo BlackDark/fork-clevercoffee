@@ -14,9 +14,6 @@
 // Libraries & Dependencies
 #include "Logger.h"
 #include "core/SystemInitializer.h"
-
-// C++23 enhanced error handling (commented out - not available on ESP32)
-// #include <expected>
 #include "network/CleverCoffeeWiFiManager.h"
 #include "network/MQTTManager.h"
 #include <ArduinoOTA.h>
@@ -103,9 +100,9 @@ namespace InitHelpers {
      */
     inline bool logInitResult(const char* component, bool success) noexcept {
         if (success) {
-            MODERN_LOG(INFO, "%s initialized successfully", component);
+            LOGF(INFO, "%s initialized successfully", component);
         } else {
-            MODERN_LOG(ERROR, "%s initialization failed!", component);
+            LOGF(ERROR, "%s initialization failed!", component);
         }
         return success;
     }
@@ -119,51 +116,16 @@ void setup() {
     systemInitializer = std::make_unique<SystemInitializer>();
 
     logMemoryBasic("Before SystemInitializer->initialize()");
-    
-#if __cplusplus >= 202300L
-    // C++23 enhanced initialization with detailed error reporting
-    if (auto result = systemInitializer->initializeModern(); !result) {
-        logMemory("SystemInitializer FAILED");
-        
-        // Handle specific initialization errors
-        switch (result.error()) {
-            case InitError::LoggerInitFailed:
-                MODERN_LOG(ERROR, "Logger initialization failed! Check serial/network configuration.");
-                break;
-            case InitError::ConfigInitFailed:
-                MODERN_LOG(ERROR, "Configuration initialization failed! Check EEPROM/NVS.");
-                break;
-            case InitError::DisplayInitFailed:
-                MODERN_LOG(ERROR, "Display initialization failed! Check I2C connections and OLED.");
-                break;
-            case InitError::HardwareInitFailed:
-                MODERN_LOG(ERROR, "Hardware initialization failed! Check relay/sensor connections.");
-                break;
-            case InitError::SensorInitFailed:
-                MODERN_LOG(ERROR, "Sensor initialization failed! Check temperature sensor wiring.");
-                break;
-            case InitError::MemoryAllocationFailed:
-                MODERN_LOG(ERROR, "Memory allocation failed! Insufficient heap memory.");
-                break;
-            default:
-                MODERN_LOG(ERROR, "Unknown initialization error: {}", static_cast<int>(result.error()));
-        }
-        
-        Serial.println("Critical system initialization error detected!");
-        Serial.flush();
-        exit(0);
-    }
-#else
-    // C++17 fallback - traditional boolean error handling
+
+    // Traditional boolean error handling
     if (!systemInitializer->initialize()) {
         logMemory("SystemInitializer FAILED");
-        MODERN_LOG(ERROR, "System initialization failed! Check hardware connections.");
+        LOGF(ERROR, "System initialization failed! Check hardware connections.");
         Serial.println("Critical system initialization error detected!");
         Serial.flush();
         exit(0);
     }
-#endif
-    
+
     logMemoryBasic("After SystemInitializer->initialize()");
 
     logMemoryBasic("Before HardwareManager Access");
@@ -223,9 +185,9 @@ void setup() {
         g_state.process.aggbKd = Config::getInstance().pidBdTv.get() * Config::getInstance().pidBdKp.get();
         g_state.process.aggKi = (Config::getInstance().pidRegularTn.get() == 0) ? 0 : Config::getInstance().pidRegularKp.get() / Config::getInstance().pidRegularTn.get();
         g_state.process.aggKd = Config::getInstance().pidRegularTv.get() * Config::getInstance().pidRegularKp.get();
-        
+
         // C++23 enhanced logging - shows PID parameters clearly
-        MODERN_LOG(INFO, "PID initialized: Kp={:.3f}, Ki={:.3f}, Kd={:.3f}", 
+        LOGF(INFO, "PID initialized: Kp={:.3f}, Ki={:.3f}, Kd={:.3f}",
                   Config::getInstance().pidRegularKp.get(), g_state.process.aggKi, g_state.process.aggKd);
 
         // Set PID tunings now that parameters are calculated
@@ -245,7 +207,7 @@ void setup() {
     }
 
     logMemory("Setup Complete");
-    MODERN_LOG(INFO, "System setup completed via SystemInitializer - CleverCoffee ready!");
+    LOGF(INFO, "System setup completed via SystemInitializer - CleverCoffee ready!");
 }
 
 void loop() {

@@ -11,6 +11,7 @@
 
 inline void setRuntimePidState(const bool enabled) {
     g_state.process.pidEnabled = enabled;
+    // TODO probably wrong
     Config::getInstance().pidEnabled.set(enabled);
 }
 

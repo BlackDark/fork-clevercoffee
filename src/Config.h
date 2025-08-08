@@ -25,40 +25,6 @@
 #include <type_traits>
 #include <vector>
 
-#if __cplusplus >= 202002L
-#include <concepts>
-#include <span>
-#endif
-
-#if __cplusplus >= 202002L
-
-// C++20 Concepts for type safety
-template<typename T>
-concept Numeric = std::is_arithmetic_v<T>;
-
-template<typename T>
-concept ConfigurableType = std::same_as<T, bool> || std::same_as<T, int> || 
-                          std::same_as<T, double> || std::same_as<T, float> || 
-                          std::same_as<T, String>;
-
-template<typename T>
-concept EnumType = std::is_enum_v<T>;
-
-template<typename T>
-concept StringLike = std::convertible_to<T, String> || std::convertible_to<T, std::string>;
-
-// Helper functions for std::span usage
-template<typename T>
-std::span<const std::pair<T, String>> getEnumOptionsAsSpan(const std::vector<std::pair<T, String>>& options) noexcept {
-    return std::span<const std::pair<T, String>>(options);
-}
-
-template<typename T>
-std::span<const T> getConfigArrayAsSpan(const std::vector<T>& array) noexcept {
-    return std::span<const T>(array);
-}
-
-#endif
 
 // ParamType enum for compatibility with old Config system
 enum class ParamType {
@@ -84,14 +50,6 @@ extern const std::vector<std::pair<Hardware::ScaleType, String>>& getScaleTypeOp
 extern const std::vector<std::pair<System::LogLevel, String>>& getLogLevelOptions();
 extern const std::vector<std::pair<Process::BrewMode, String>>& getBrewModeOptions();
 
-#if __cplusplus >= 202002L
-// C++20 span-based accessors for better performance
-std::span<const std::pair<Hardware::SwitchType, String>> getSwitchTypeOptionsSpan() noexcept;
-std::span<const std::pair<Hardware::SwitchMode, String>> getSwitchModeOptionsSpan() noexcept;
-std::span<const std::pair<Hardware::RelayTriggerType, String>> getRelayTriggerOptionsSpan() noexcept;
-std::span<const std::pair<System::DisplayTemplate, String>> getDisplayTemplateOptionsSpan() noexcept;
-std::span<const std::pair<System::Language, String>> getLanguageOptionsSpan() noexcept;
-#endif
 
 // Forward declarations
 template <typename T>
@@ -171,10 +129,11 @@ class ConfigParamDef : public BaseParamDef {
  * @brief Type-safe parameter definition for editable configuration values
  */
 template <typename T>
-#if __cplusplus >= 202002L
-requires ConfigurableType<T>
-#endif
 class ParamDef : public ConfigParamDef {
+    static_assert(std::is_same_v<T, bool> || std::is_same_v<T, int> || 
+                  std::is_same_v<T, double> || std::is_same_v<T, float> || 
+                  std::is_same_v<T, String>, 
+                  "ParamDef only supports bool, int, double, float, or String types");
     public:
         ParamDef(const String& key, T defaultValue, const String& displayName, int section, int order, const String& helpText, T minValue = T{}, T maxValue = T{}, std::function<bool()> showCondition = nullptr) :
             ConfigParamDef(key, displayName, section, order, helpText), defaultValue_(defaultValue), currentValue_(defaultValue), minValue_(minValue), maxValue_(maxValue), showCondition_(showCondition) {
@@ -395,239 +354,11 @@ class ParamDef : public ConfigParamDef {
         }
 };
 
-#if __cplusplus >= 202002L
-/**
- * @brief C++20/23 enhanced parameter definition with compile-time validation
- */
-template <typename T, auto ValidatorFunc = nullptr>
-#if __cplusplus >= 202002L
-requires ConfigurableType<T>
-#endif
-class ValidatedParamDef : public ConfigParamDef {
-    public:
-        constexpr ValidatedParamDef(const String& key, T defaultValue, const String& displayName, 
-                                   int section, int order, const String& helpText, 
-                                   T minValue = T{}, T maxValue = T{}, 
-                                   std::function<bool()> showCondition = nullptr) 
-            requires (ValidatorFunc == nullptr || ValidatorFunc(defaultValue))
-            : ConfigParamDef(key, displayName, section, order, helpText), 
-              defaultValue_(defaultValue), currentValue_(defaultValue), 
-              minValue_(minValue), maxValue_(maxValue), showCondition_(showCondition) {
-            
-            // Compile-time validation of default value
-            if constexpr (ValidatorFunc != nullptr) {
-                static_assert(ValidatorFunc(defaultValue), "Default value fails validation at compile time");
-            }
-        }
-
-        // Type-safe getter
-        constexpr T get() const noexcept {
-            return currentValue_;
-        }
-
-        // Type-safe setter with compile-time and runtime validation
-        constexpr bool set(const T& value) {
-            // Compile-time validation if value is constexpr
-            if constexpr (ValidatorFunc != nullptr) {
-                if constexpr (std::is_constant_evaluated()) {
-                    static_assert(ValidatorFunc(value), "Value fails compile-time validation");
-                }
-                
-                // Runtime validation
-                if (!ValidatorFunc(value)) {
-                    MODERN_LOG(WARNING, "Invalid value {} for parameter '{}'", 
-                              static_cast<double>(value), key_.c_str());
-                    return false;
-                }
-            }
-            
-            // Range validation
-            if (!isInRange(value)) {
-                MODERN_LOG(WARNING, "Value {} outside range [{}, {}] for parameter '{}'",
-                          static_cast<double>(value), static_cast<double>(minValue_), 
-                          static_cast<double>(maxValue_), key_.c_str());
-                return false;
-            }
-            
-            currentValue_ = value;
-            
-            // Auto-save to NVS
-            Preferences prefs;
-            if (prefs.begin(STORAGE_NAMESPACE, false)) {
-                bool saveSuccess = saveToNvs(prefs);
-                prefs.end();
-                return saveSuccess;
-            }
-            return false;
-        }
-
-        // Compile-time validation check
-        constexpr bool isValid(const T& value) const noexcept {
-            if constexpr (ValidatorFunc != nullptr) {
-                return ValidatorFunc(value) && isInRange(value);
-            } else {
-                return isInRange(value);
-            }
-        }
-
-        constexpr bool isInRange(const T& value) const noexcept {
-            if constexpr (std::is_arithmetic_v<T>) {
-                return value >= minValue_ && value <= maxValue_;
-            }
-            return true;
-        }
-
-        void resetToDefault() override {
-            currentValue_ = defaultValue_;
-        }
-
-        bool shouldShow() const {
-            return !showCondition_ || showCondition_();
-        }
-
-        ParamType getParamType() const override {
-            if constexpr (std::is_same_v<T, bool>)
-                return ParamType::BOOL;
-            else if constexpr (std::is_same_v<T, int>)
-                return ParamType::INT;
-            else if constexpr (std::is_same_v<T, double>)
-                return ParamType::DOUBLE;
-            else if constexpr (std::is_same_v<T, String>)
-                return ParamType::STRING;
-            else
-                return ParamType::INT;
-        }
-
-        void toJson(JsonObject& obj) const override {
-            toJsonBase(obj);
-            obj["value"] = currentValue_;
-            obj["default"] = defaultValue_;
-            
-            if constexpr (std::is_arithmetic_v<T>) {
-                obj["min"] = minValue_;
-                obj["max"] = maxValue_;
-            }
-            
-            obj["validated"] = true; // Mark as compile-time validated
-        }
-
-        bool fromString(const String& value) override {
-            T newValue;
-            if constexpr (std::is_same_v<T, bool>) {
-                newValue = value.equalsIgnoreCase("true") || value == "1";
-            }
-            else if constexpr (std::is_same_v<T, int>) {
-                newValue = value.toInt();
-            }
-            else if constexpr (std::is_same_v<T, double>) {
-                newValue = value.toDouble();
-            }
-            else if constexpr (std::is_same_v<T, String>) {
-                newValue = value;
-            }
-            else {
-                return false;
-            }
-
-            return set(newValue);
-        }
-
-        bool loadFromNvs(Preferences& prefs) override {
-            String nvsKey = generateNvsKey();
-            if (!prefs.isKey(nvsKey.c_str())) {
-                return false;
-            }
-
-            T value;
-            if constexpr (std::is_same_v<T, bool>) {
-                value = prefs.getBool(nvsKey.c_str());
-            }
-            else if constexpr (std::is_same_v<T, int>) {
-                value = prefs.getInt(nvsKey.c_str());
-            }
-            else if constexpr (std::is_same_v<T, double>) {
-                value = prefs.getDouble(nvsKey.c_str());
-            }
-            else if constexpr (std::is_same_v<T, String>) {
-                value = prefs.getString(nvsKey.c_str());
-            }
-            else {
-                return false;
-            }
-
-            if (isValid(value)) {
-                currentValue_ = value;
-                return true;
-            } else {
-                MODERN_LOG(WARNING, "Invalid value loaded from NVS for '{}', using default", key_.c_str());
-                return false;
-            }
-        }
-
-        bool saveToNvs(Preferences& prefs) const override {
-            String nvsKey = generateNvsKey();
-            
-            bool success = false;
-            if constexpr (std::is_same_v<T, bool>) {
-                success = prefs.putBool(nvsKey.c_str(), currentValue_);
-            }
-            else if constexpr (std::is_same_v<T, int>) {
-                success = prefs.putInt(nvsKey.c_str(), currentValue_);
-            }
-            else if constexpr (std::is_same_v<T, double>) {
-                success = prefs.putDouble(nvsKey.c_str(), currentValue_);
-            }
-            else if constexpr (std::is_same_v<T, String>) {
-                success = prefs.putString(nvsKey.c_str(), currentValue_);
-            }
-
-            if (success) {
-                MODERN_LOG(DEBUG, "Validated parameter '{}' saved to NVS", key_.c_str());
-            } else {
-                MODERN_LOG(ERROR, "Failed to save validated parameter '{}' to NVS", key_.c_str());
-            }
-
-            return success;
-        }
-
-    private:
-        T defaultValue_;
-        T currentValue_;
-        T minValue_;
-        T maxValue_;
-        std::function<bool()> showCondition_;
-
-        String generateNvsKey() const {
-            uint32_t hash = fnv1a_hash(key_.c_str());
-            return "v" + String(hash, HEX); // 'v' prefix for validated params
-        }
-
-        constexpr uint32_t fnv1a_hash(const char* str) const noexcept {
-            uint32_t hash = 2166136261u;
-            while (*str) {
-                hash ^= static_cast<uint32_t>(*str++);
-                hash *= 16777619u;
-            }
-            return hash;
-        }
-};
-
-// Convenience type aliases with validation
-using ValidatedBrewTempParam = ValidatedParamDef<double, CleverCoffee::Validation::isValidBrewTemperature>;
-using ValidatedSteamTempParam = ValidatedParamDef<double, CleverCoffee::Validation::isValidSteamTemperature>;
-using ValidatedPidKpParam = ValidatedParamDef<double, CleverCoffee::Validation::isValidPidKp>;
-using ValidatedPidTnParam = ValidatedParamDef<double, CleverCoffee::Validation::isValidPidTn>;
-using ValidatedPidTvParam = ValidatedParamDef<double, CleverCoffee::Validation::isValidPidTv>;
-
-#endif // __cplusplus >= 202002L
 
 /**
  * @brief Specialized parameter definition for enum types
  */
 template <typename E>
-#if __cplusplus >= 202002L
-requires EnumType<E>
-#endif
 class EnumParamDef : public ConfigParamDef {
         static_assert(std::is_enum_v<E>, "EnumParamDef requires an enum type");
 
@@ -641,12 +372,6 @@ class EnumParamDef : public ConfigParamDef {
             return currentValue_;
         }
 
-#if __cplusplus >= 202002L
-        // C++20 span-based options access for better performance
-        std::span<const std::pair<E, String>> getOptionsSpan() const noexcept {
-            return std::span<const std::pair<E, String>>(options_);
-        }
-#endif
 
         bool set(const E& value) {
             if (!isValid(value)) {
@@ -795,10 +520,11 @@ class EnumParamDef : public ConfigParamDef {
  * 5. Hardware info (firmware version, MAC address)
  */
 template <typename T>
-#if __cplusplus >= 202002L
-requires ConfigurableType<T>
-#endif
 class StateParamDef : public BaseParamDef {
+    static_assert(std::is_same_v<T, bool> || std::is_same_v<T, int> || 
+                  std::is_same_v<T, double> || std::is_same_v<T, float> || 
+                  std::is_same_v<T, String>, 
+                  "StateParamDef only supports bool, int, double, float, or String types");
     public:
         enum class UpdateFrequency {
             REALTIME,   // Updated every loop (temperature, PID output)
@@ -921,10 +647,11 @@ class StateParamDef : public BaseParamDef {
  * Example: PID Ki value computed from Kp and Tn
  */
 template <typename T>
-#if __cplusplus >= 202002L
-requires ConfigurableType<T>
-#endif
 class ComputedParamDef : public BaseParamDef {
+    static_assert(std::is_same_v<T, bool> || std::is_same_v<T, int> || 
+                  std::is_same_v<T, double> || std::is_same_v<T, float> || 
+                  std::is_same_v<T, String>, 
+                  "ComputedParamDef only supports bool, int, double, float, or String types");
     public:
         ComputedParamDef(const String& key, const String& displayName, int section, int order, const String& helpText, std::function<T()> computation, const String& unit = "") :
             key_(key), displayName_(displayName), section_(section), order_(order), helpText_(helpText), computation_(computation), unit_(unit) {
@@ -1015,29 +742,15 @@ class Config {
 
         ParamDef<double> pidSteamKp{"pid.steam.kp", STEAMKP, "Steam Kp", 0, 116, "Proportional gain for the steaming mode", PID_KP_STEAM_MIN, PID_KP_STEAM_MAX};
 
-#if __cplusplus >= 202002L
-        // === C++23 VALIDATED PARAMETERS (Enhanced versions) ===
-        ValidatedPidKpParam pidRegularKpValidated{"pid.regular.kp_validated", AGGKP, "PID Kp (Validated)", 0, 117, "Compile-time validated PID Kp parameter", PID_KP_REGULAR_MIN, PID_KP_REGULAR_MAX};
-        
-        ValidatedPidTnParam pidRegularTnValidated{"pid.regular.tn_validated", AGGTN, "PID Tn (Validated)", 0, 118, "Compile-time validated PID Tn parameter", PID_TN_REGULAR_MIN, PID_TN_REGULAR_MAX};
-
-        ValidatedPidTvParam pidRegularTvValidated{"pid.regular.tv_validated", AGGTV, "PID Tv (Validated)", 0, 119, "Compile-time validated PID Tv parameter", PID_TV_REGULAR_MIN, PID_TV_REGULAR_MAX};
-#endif
 
         // === BREW PARAMETERS (Section 1) ===
         ParamDef<double> brewSetpoint{"brew.setpoint", SETPOINT, "Setpoint (°C)", 1, 201, "The temperature that the PID will attempt to reach and hold", BREW_SETPOINT_MIN, BREW_SETPOINT_MAX};
 
-#if __cplusplus >= 202002L
-        ValidatedBrewTempParam brewSetpointValidated{"brew.setpoint_validated", SETPOINT, "Brew Setpoint (Validated)", 1, 202, "Compile-time validated brew temperature setpoint", BREW_SETPOINT_MIN, BREW_SETPOINT_MAX};
-#endif
 
         ParamDef<double> brewTempOffset{"brew.temp_offset", TEMPOFFSET, "Offset (°C)", 1, 202, "Optional offset added to the user-visible setpoint to compensate sensor offsets", BREW_TEMP_OFFSET_MIN, BREW_TEMP_OFFSET_MAX};
 
         ParamDef<double> steamSetpoint{"steam.setpoint", STEAMSETPOINT, "Steam Setpoint (°C)", 1, 203, "The temperature that the PID will use for steam mode", STEAM_SETPOINT_MIN, STEAM_SETPOINT_MAX};
 
-#if __cplusplus >= 202002L
-        ValidatedSteamTempParam steamSetpointValidated{"steam.setpoint_validated", STEAMSETPOINT, "Steam Setpoint (Validated)", 1, 204, "Compile-time validated steam temperature setpoint", STEAM_SETPOINT_MIN, STEAM_SETPOINT_MAX};
-#endif
 
         // === BREW DETECTION PID PARAMETERS (Section 2) ===
         ParamDef<bool> pidBdEnabled{"pid.bd.enabled", false, "Enable Brew PID", 2, 701, "Use separate PID parameters while brew is running"};

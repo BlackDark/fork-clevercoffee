@@ -215,11 +215,3 @@ void Logger::logf(const Level level, const char* file, const char* function, uin
 
     log(level, file, function, line, logBuffer_);
 }
-
-#if __cplusplus >= 202300L && __has_include(<format>)
-void Logger::sendFormattedMessage(Level level, const char* file, const char* function, uint32_t line, const char* message) {
-    char fullMessage[LOG_BUFFER_SIZE + 64]; // Extra space for timestamp and level
-    formatLogMessage(level, file, function, line, message, fullMessage, sizeof(fullMessage));
-    sendLogMessage(fullMessage);
-}
-#endif // C++23 && <format> available

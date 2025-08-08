@@ -10,16 +10,6 @@
 #include <cmath>
 #include <numeric>
 
-#if __has_include(<concepts>)
-#include <concepts>
-
-// C++20 concept for temperature values
-template<typename T>
-concept TemperatureValue = std::floating_point<T> && requires(T t) {
-    { t >= -273.15 } -> std::convertible_to<bool>; // Above absolute zero
-    { t <= 200.0 } -> std::convertible_to<bool>;   // Reasonable max for coffee
-};
-#endif
 
 #include "./state/GlobalState.h"
 #include "Logger.h"
@@ -67,26 +57,14 @@ class TempSensor {
             return error_;
         }
 
-#if __cplusplus >= 202002L
         /**
-         * @brief Validate temperature reading with concepts
-         * @param temp Temperature value to validate
-         * @return true if temperature is within valid range
-         */
-        template<TemperatureValue T>
-        static constexpr bool isValidTemperature(T temp) noexcept {
-            return temp >= -50.0 && temp <= 150.0; // Practical range for coffee machines
-        }
-#else
-        /**
-         * @brief Validate temperature reading (C++17 fallback)
+         * @brief Validate temperature reading
          * @param temp Temperature value to validate
          * @return true if temperature is within valid range
          */
         static constexpr bool isValidTemperature(double temp) noexcept {
             return temp >= -50.0 && temp <= 150.0; // Practical range for coffee machines
         }
-#endif
 
     protected:
         /**

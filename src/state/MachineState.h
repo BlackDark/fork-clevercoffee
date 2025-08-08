@@ -7,18 +7,6 @@
 
 #include <memory>
 
-#if __cplusplus >= 202002L
-#include <concepts>
-
-// C++20 concept for state validation
-template<typename T>
-concept StateLike = requires(T& state, MachineStateContext& ctx) {
-    { state.getStateId() } -> std::convertible_to<int>;
-    { state.getStateName() } -> std::convertible_to<const char*>;
-    { state.update(ctx) } -> std::same_as<void>;
-    { state.checkTransitions(ctx) } -> std::convertible_to<std::unique_ptr<MachineState>>;
-};
-#endif
 
 // Forward declaration
 class MachineStateContext;

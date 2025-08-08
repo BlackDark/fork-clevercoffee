@@ -7,26 +7,10 @@
 
 #include "displayCommon.h"
 
-#if __has_include(<concepts>)
-#include <concepts>
-
-// C++20 concept for display templates
-template<typename T>
-concept DisplayTemplate = requires(T t) {
-    { t.renderNormalDisplay() } -> std::same_as<void>;
-    { t.getTemperatureCoords(0, 0) } -> std::same_as<typename ModernDisplayTemplate<T>::TemperatureCoords>;
-    { t.getPIDCoords(0, 0) } -> std::same_as<typename ModernDisplayTemplate<T>::PIDCoords>;
-    { t.getBrewCoords(0, 0) } -> std::same_as<typename ModernDisplayTemplate<T>::BrewCoords>;
-    { t.getCurrentTempLabel() } -> std::convertible_to<const char*>;
-    { t.getSetTempLabel() } -> std::convertible_to<const char*>;
-    { t.getPIDSeparator() } -> std::convertible_to<const char*>;
-};
-
-#endif
 
 /**
  * @brief Modern C++20 display template base using CRTP
- * 
+ *
  * This eliminates code duplication across display templates by providing
  * common functionality while allowing specialized template behavior.
  * Uses traditional CRTP for maximum compatibility with zero-cost abstractions.
@@ -42,19 +26,19 @@ public:
         if (handleFullscreenModes()) {
             return;
         }
-        
+
         // Handle machine-specific states
         if (handleMachineStates()) {
             return;
         }
-        
+
         // Render normal template-specific display
         static_cast<Derived*>(this)->renderNormalDisplay();
-        
+
         // Common finalization
         g_state.coordination.displayBufferReady = true;
     }
-    
+
     /**
      * @brief Handle fullscreen display modes (common across all templates)
      */
@@ -62,13 +46,13 @@ public:
         if (displayFullscreenBrewTimer()) return true;
         if (displayFullscreenManualFlushTimer()) return true;
         if (displayFullscreenHotWaterTimer()) return true;
-        
+
         // Default offline mode handling
         if (displayOfflineMode()) return true;
-        
+
         return false;
     }
-    
+
     /**
      * @brief Handle machine state displays (common logic, template-specific rendering)
      */
@@ -76,16 +60,16 @@ public:
         // Default machine state handling
         return displayMachineState();
     }
-    
+
     /**
      * @brief Common temperature display with template-specific positioning
      */
     void displayTemperatureInfo(int baseX, int baseY) {
         g_state.hardware.display->setFont(u8g2_font_profont11_tf);
-        
+
         auto* derived = static_cast<Derived*>(this);
         const auto& coords = derived->getTemperatureCoords(baseX, baseY);
-        
+
         // Current temperature
         g_state.hardware.display->setCursor(coords.currentTempX, coords.currentTempY);
         g_state.hardware.display->print(derived->getCurrentTempLabel());
@@ -94,7 +78,7 @@ public:
         g_state.hardware.display->print(" ");
         g_state.hardware.display->print(static_cast<char>(176));
         g_state.hardware.display->print("C");
-        
+
         // Set temperature
         g_state.hardware.display->setCursor(coords.setTempX, coords.setTempY);
         g_state.hardware.display->print(derived->getSetTempLabel());
@@ -104,27 +88,27 @@ public:
         g_state.hardware.display->print(static_cast<char>(176));
         g_state.hardware.display->print("C");
     }
-    
+
     /**
      * @brief Common PID display with template-specific formatting
      */
     void displayPIDInfo(int baseX, int baseY) {
         auto* derived = static_cast<Derived*>(this);
         const auto& coords = derived->getPIDCoords(baseX, baseY);
-        
+
         g_state.hardware.display->setCursor(coords.pidX, coords.pidY);
         g_state.hardware.display->print(g_state.pid->GetKp(), 0);
         g_state.hardware.display->print(derived->getPIDSeparator());
-        
+
         if (g_state.pid->GetKi() != 0) {
             g_state.hardware.display->print(g_state.pid->GetKp() / g_state.pid->GetKi(), 0);
         } else {
             g_state.hardware.display->print("0");
         }
-        
+
         g_state.hardware.display->print(derived->getPIDSeparator());
         g_state.hardware.display->print(g_state.pid->GetKd() / g_state.pid->GetKp(), 0);
-        
+
         // Output percentage
         g_state.hardware.display->setCursor(coords.outputX, coords.outputY);
         if (g_state.process.pidOutput < 99) {
@@ -134,40 +118,40 @@ public:
         }
         g_state.hardware.display->print("%");
     }
-    
+
     /**
      * @brief Common brew time display with template-specific positioning
      */
     void displayBrewInfo(int baseX, int baseY) {
         if (!Config::getInstance().hardwareSwitchesBrewEnabled.get()) return;
-        
+
         auto* derived = static_cast<Derived*>(this);
         const auto& coords = derived->getBrewCoords(baseX, baseY);
-        
+
         // Show flush time
         if (g_state.machine.machineState == kManualFlush) {
-            displayBrewTime(coords.brewX, coords.brewY, 
-                           derived->getManualFlushLabel(), 
+            displayBrewTime(coords.brewX, coords.brewY,
+                           derived->getManualFlushLabel(),
                            g_state.process.currBrewTime);
         }
         // Show hot water time
         else if (g_state.machine.machineState == kHotWater) {
-            displayBrewTime(coords.brewX, coords.brewY, 
-                           derived->getHotWaterLabel(), 
+            displayBrewTime(coords.brewX, coords.brewY,
+                           derived->getHotWaterLabel(),
                            currPumpOnTime);
         }
         else if (shouldDisplayBrewTimer()) {
             const bool isAutomatic = Config::getInstance().brewMode.get() == Process::BrewMode::AUTOMATIC_BREW;
             const bool brewByTime = Config::getInstance().brewByTimeEnabled.get();
-            
+
             if (isAutomatic && brewByTime) {
-                displayBrewTime(coords.brewX, coords.brewY, 
-                               derived->getBrewLabel(), 
-                               g_state.process.currBrewTime, 
+                displayBrewTime(coords.brewX, coords.brewY,
+                               derived->getBrewLabel(),
+                               g_state.process.currBrewTime,
                                g_state.process.totalTargetBrewTime);
             } else {
-                displayBrewTime(coords.brewX, coords.brewY, 
-                               derived->getBrewLabel(), 
+                displayBrewTime(coords.brewX, coords.brewY,
+                               derived->getBrewLabel(),
                                g_state.process.currBrewTime);
             }
         }
@@ -183,12 +167,12 @@ protected:
         int setTempX, setTempY;
         int setValueX;
     };
-    
+
     struct PIDCoords {
         int pidX, pidY;
         int outputX, outputY;
     };
-    
+
     struct BrewCoords {
         int brewX, brewY;
     };
@@ -201,10 +185,10 @@ class StandardTemplate : public ModernDisplayTemplate<StandardTemplate> {
 public:
     void renderNormalDisplay() {
         g_state.hardware.display->clearBuffer();
-        
+
         displayStatusbar();
         displayTemperatureInfo(34, 16);
-        
+
         // Thermometer
         displayThermometerOutline(4, 62);
         if (fabs(g_state.process.temperature - g_state.process.setpoint) < 0.3) {
@@ -214,27 +198,27 @@ public:
         } else {
             drawTemperaturebar(8, 30);
         }
-        
+
         displayBrewInfo(34, 36);
         displayPIDInfo(38, 47);
-        
+
         // Heat bar
         displayProgressbar(g_state.process.pidOutput / 10, 30, 60, 98);
     }
-    
+
     // Template-specific configuration methods
     TemperatureCoords getTemperatureCoords(int baseX, int baseY) const noexcept {
         return {baseX, baseY, 84, baseX, baseY + 10, 84};
     }
-    
+
     PIDCoords getPIDCoords(int baseX, int baseY) const noexcept {
         return {baseX, baseY, 96, baseY};
     }
-    
+
     BrewCoords getBrewCoords(int baseX, int baseY) const noexcept {
         return {baseX, baseY};
     }
-    
+
     const char* getCurrentTempLabel() const noexcept { return langstring_current_temp; }
     const char* getSetTempLabel() const noexcept { return langstring_set_temp; }
     const char* getBrewLabel() const noexcept { return langstring_brew; }
@@ -250,9 +234,9 @@ class UprightTemplate : public ModernDisplayTemplate<UprightTemplate> {
 public:
     void renderNormalDisplay() {
         g_state.hardware.display->clearBuffer();
-        
+
         if (handleSpecialStates()) return;
-        
+
         // Normal display
         displayTemperatureInfo(1, 14);
         displayHeatBar();
@@ -261,24 +245,24 @@ public:
         displaySensorInfo();
         displayStatusBar();
     }
-    
+
     bool handleSpecialStates() {
         if (g_state.machine.machineState == kWaterTankEmpty) {
-            g_state.hardware.display->drawXBMP(8, 50, Water_Tank_Empty_Logo_width, 
+            g_state.hardware.display->drawXBMP(8, 50, Water_Tank_Empty_Logo_width,
                                               Water_Tank_Empty_Logo_height, Water_Tank_Empty_Logo);
             return true;
         }
-        
+
         if (g_state.machine.machineState == kSensorError) {
             g_state.hardware.display->setFont(u8g2_font_profont11_tf);
             char tempBuffer[16];
             snprintf(tempBuffer, sizeof(tempBuffer), "%.1f", g_state.process.temperature);
-            displayMessage(langstring_error_tsensor_ur[0], langstring_error_tsensor_ur[1], 
-                          tempBuffer, langstring_error_tsensor_ur[2], 
+            displayMessage(langstring_error_tsensor_ur[0], langstring_error_tsensor_ur[1],
+                          tempBuffer, langstring_error_tsensor_ur[2],
                           langstring_error_tsensor_ur[3], langstring_error_tsensor_ur[4]);
             return true;
         }
-        
+
         if (Config::getInstance().displayPidOffLogo.get() && g_state.machine.machineState == kStandby) {
             g_state.hardware.display->drawXBMP(6, 50, Off_Logo_width, Off_Logo_height, Off_Logo);
             g_state.hardware.display->setCursor(1, 110);
@@ -286,25 +270,25 @@ public:
             g_state.hardware.display->print("Standby mode");
             return true;
         }
-        
+
         return false;
     }
-    
+
 private:
     void displayHeatBar() {
         g_state.hardware.display->drawFrame(0, 124, 64, 4);
         g_state.hardware.display->drawLine(1, 125, g_state.process.pidOutput / 16.13 + 1, 125);
         g_state.hardware.display->drawLine(1, 126, g_state.process.pidOutput / 16.13 + 1, 126);
     }
-    
+
     void displayMainStatus() {
         const bool scaleEnabled = Config::getInstance().hardwareSensorsScaleEnabled.get();
         const bool pressureEnabled = Config::getInstance().hardwareSensorsPressureEnabled.get();
-        
+
         int yPos = scaleEnabled && pressureEnabled ? 65 : (scaleEnabled || pressureEnabled ? 60 : 55);
         g_state.hardware.display->setCursor(1, yPos);
         g_state.hardware.display->setFont(u8g2_font_profont22_tf);
-        
+
         if (g_state.machine.machineState == kManualFlush) {
             g_state.hardware.display->print("FLUSH");
         } else if (shouldDisplayBrewTimer()) {
@@ -317,15 +301,15 @@ private:
             g_state.hardware.display->print("WAIT");
         }
     }
-    
+
     void displaySensorInfo() {
         const bool scaleEnabled = Config::getInstance().hardwareSensorsScaleEnabled.get();
         const bool pressureEnabled = Config::getInstance().hardwareSensorsPressureEnabled.get();
-        
+
         if (scaleEnabled && shouldDisplayBrewTimer()) {
             const bool isAutomatic = Config::getInstance().brewMode.get() == Process::BrewMode::AUTOMATIC_BREW;
             const bool brewByWeight = Config::getInstance().brewByWeightEnabled.get();
-            
+
             if (isAutomatic && brewByWeight) {
                 const auto targetWeight = Config::getInstance().brewByWeightTargetWeight.get();
                 displayBrewWeight(1, 44, g_state.sensors.currBrewWeight, targetWeight, g_state.sensors.scaleFailure);
@@ -335,7 +319,7 @@ private:
         } else if (scaleEnabled) {
             displayBrewWeight(1, 44, g_state.sensors.currReadingWeight, -1, g_state.sensors.scaleFailure);
         }
-        
+
         if (pressureEnabled) {
             g_state.hardware.display->setFont(u8g2_font_profont11_tf);
             int yPos = scaleEnabled ? 54 : 44;
@@ -345,7 +329,7 @@ private:
             g_state.hardware.display->print(" bar");
         }
     }
-    
+
     void displayStatusBar() {
         g_state.hardware.display->drawLine(0, 12, 64, 12);
         if (!g_state.network.offlineMode) {
@@ -356,27 +340,27 @@ private:
             g_state.hardware.display->setFont(u8g2_font_profont11_tf);
             g_state.hardware.display->print(langstring_offlinemode);
         }
-        
-        if (Config::getInstance().hardwareSensorsScaleEnabled.get() && 
+
+        if (Config::getInstance().hardwareSensorsScaleEnabled.get() &&
             Config::getInstance().hardwareSensorsScaleType.get() == Hardware::ScaleType::BLUETOOTH) {
             displayBluetoothStatus(54, 1);
         }
     }
-    
+
 public:
     // Template-specific configuration methods
     TemperatureCoords getTemperatureCoords(int baseX, int baseY) const noexcept {
         return {baseX, baseY, baseX + 50, baseX, baseY + 10, baseX + 50};
     }
-    
+
     PIDCoords getPIDCoords(int baseX, int baseY) const noexcept {
         return {baseX, baseY, baseX, baseY + 27};
     }
-    
+
     BrewCoords getBrewCoords(int baseX, int baseY) const noexcept {
         return {baseX, baseY};
     }
-    
+
     const char* getCurrentTempLabel() const noexcept { return langstring_current_temp_ur; }
     const char* getSetTempLabel() const noexcept { return langstring_set_temp_ur; }
     const char* getBrewLabel() const noexcept { return langstring_brew_ur; }
@@ -407,11 +391,11 @@ public:
                 break;
         }
     }
-    
+
     static void setTemplate(System::DisplayTemplate templateId) {
         currentTemplate_ = templateId;
     }
-    
+
 private:
     static inline System::DisplayTemplate currentTemplate_ = System::DisplayTemplate::STANDARD;
     static inline StandardTemplate standardTemplate_;

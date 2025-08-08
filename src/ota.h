@@ -16,10 +16,8 @@
 
 namespace OTA {
 
-#if __cplusplus >= 202002L // C++20 and later for enhanced singleton pattern
-
     /**
-     * @brief Modern C++23 RAII singleton for OTA state management
+     * @brief Modern RAII singleton for OTA state management
      * Replaces static variables with proper resource management and thread safety
      */
     class OTAStateManager {
@@ -113,8 +111,6 @@ namespace OTA {
         String updateType_{};          // firmware, filesystem, url
         unsigned long lastStatusUpdate_{0};
     };
-    
-#endif // __cplusplus >= 202002L
 
     /**
      * @brief Initialize OTA functionality and register web server routes

@@ -6,16 +6,6 @@
 
 #pragma once
 
-#if __cplusplus >= 202002L
-#include <concepts>
-
-// C++20 concept for weight values
-template<typename T>
-concept WeightValue = std::floating_point<T> && requires(T t) {
-    { t >= -1000.0f } -> std::convertible_to<bool>; // Reasonable minimum (tare offset)
-    { t <= 10000.0f } -> std::convertible_to<bool>; // Reasonable maximum in grams
-};
-#endif
 
 /**
  * @brief Abstract base class for scale implementations
@@ -61,24 +51,12 @@ class Scale {
             return true;
         }
 
-#if __cplusplus >= 202002L
         /**
-         * @brief Validate weight reading with concepts
-         * @param weight Weight value to validate
-         * @return true if weight is within valid range
-         */
-        template<WeightValue T>
-        static constexpr bool isValidWeight(T weight) noexcept {
-            return weight >= -500.0f && weight <= 5000.0f; // Practical range for coffee scales
-        }
-#else
-        /**
-         * @brief Validate weight reading (C++17 fallback)
+         * @brief Validate weight reading
          * @param weight Weight value to validate
          * @return true if weight is within valid range
          */
         static constexpr bool isValidWeight(float weight) noexcept {
             return weight >= -500.0f && weight <= 5000.0f; // Practical range for coffee scales
         }
-#endif
 };

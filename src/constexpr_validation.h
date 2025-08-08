@@ -1,7 +1,7 @@
 /**
  * @file constexpr_validation.h
  * @brief C++23 compile-time validation for CleverCoffee configuration parameters
- * 
+ *
  * This header provides constexpr validation functions that catch invalid
  * configuration values at compile time instead of runtime.
  */
@@ -11,7 +11,7 @@
 #include "defaults.h"
 #include <type_traits>
 
-#if __cplusplus >= 202002L  // C++20 and later
+#if __has_include(<type_traits>) && defined(__cpp_consteval)  // C++20 consteval support
 
 namespace CleverCoffee::Validation {
 
@@ -163,21 +163,21 @@ constexpr bool isValidPostBrewTimerDuration(double duration) noexcept {
 constexpr bool validateAllDefaults() noexcept {
     // Temperature defaults
     static_assert(isValidBrewTemperature(SETPOINT), "SETPOINT is outside valid range");
-    static_assert(isValidTemperatureOffset(TEMPOFFSET), "TEMPOFFSET is outside valid range");  
+    static_assert(isValidTemperatureOffset(TEMPOFFSET), "TEMPOFFSET is outside valid range");
     static_assert(isValidSteamTemperature(STEAMSETPOINT), "STEAMSETPOINT is outside valid range");
-    
+
     // PID defaults
     static_assert(isValidPidKp(AGGKP), "AGGKP is outside valid range");
     static_assert(isValidPidTn(AGGTN), "AGGTN is outside valid range");
     static_assert(isValidPidTv(AGGTV), "AGGTV is outside valid range");
     static_assert(isValidPidIMax(AGGIMAX), "AGGIMAX is outside valid range");
     static_assert(isValidPidBdKp(AGGBKP), "AGGBKP is outside valid range");
-    
-    // Scale defaults  
+
+    // Scale defaults
     static_assert(isValidScaleCalibration(SCALE_CALIBRATION_FACTOR), "SCALE_CALIBRATION_FACTOR is outside valid range");
     static_assert(isValidScaleKnownWeight(SCALE_KNOWN_WEIGHT), "SCALE_KNOWN_WEIGHT is outside valid range");
     static_assert(isValidScaleSamples(SCALE_SAMPLES), "SCALE_SAMPLES is outside valid range");
-    
+
     return true;
 }
 
@@ -216,17 +216,17 @@ constexpr bool validateRange(T value, T min, T max) noexcept {
 template<typename T, auto ValidatorFunc>
 struct ValidatedValue {
     T value_;
-    
+
     constexpr ValidatedValue(T val) noexcept : value_(val) {
         if constexpr (std::is_constant_evaluated()) {
             // Compile-time validation
             static_assert(ValidatorFunc(val), "Value fails validation at compile time");
         }
     }
-    
+
     constexpr T get() const noexcept { return value_; }
     constexpr operator T() const noexcept { return value_; }
-    
+
     constexpr bool isValid() const noexcept {
         return ValidatorFunc(value_);
     }
@@ -234,7 +234,7 @@ struct ValidatedValue {
 
 // Convenience type aliases
 using ValidatedBrewTemp = ValidatedValue<double, isValidBrewTemperature>;
-using ValidatedSteamTemp = ValidatedValue<double, isValidSteamTemperature>;  
+using ValidatedSteamTemp = ValidatedValue<double, isValidSteamTemperature>;
 using ValidatedPidKp = ValidatedValue<double, isValidPidKp>;
 using ValidatedPidTn = ValidatedValue<double, isValidPidTn>;
 using ValidatedPidTv = ValidatedValue<double, isValidPidTv>;
@@ -265,4 +265,4 @@ public:
 };
 */
 
-#endif // __cplusplus >= 202002L
+#endif // consteval support
