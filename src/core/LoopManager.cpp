@@ -25,8 +25,6 @@
 #include <ArduinoOTA.h>
 #include <WiFi.h>
 
-// Forward declaration for debug timing function
-extern void debugTimingLoop();
 
 // Forward declaration for display template function
 namespace DisplayTemplateManager {
@@ -250,9 +248,8 @@ void LoopManager::updateDisplay() {
 }
 
 void LoopManager::updateDebugTiming() {
-    // Call the global debug timing function
-    // This monitors loop performance and logs slow operations
-    debugTimingLoop();
+    // Debug timing function removed - was unused
+    // This function is kept for API compatibility but does nothing
 }
 
 bool LoopManager::setupTimers() {

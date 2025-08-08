@@ -50,7 +50,6 @@
 
 #include "hardware/pressureSensor.h"
 #include "isr.h"
-#include "utils/timingDebug.h"
 #include <Wire.h>
 
 // System initializer
