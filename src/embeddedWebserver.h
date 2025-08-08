@@ -45,22 +45,36 @@ void logMemoryUsage(const char* location) {
 
 #if !FRONTEND_PREPROCESSING
 const char* getContentType(const String& path) {
-    if (path.endsWith(".html")) return "text/html";
-    if (path.endsWith(".css")) return "text/css";
-    if (path.endsWith(".js")) return "application/javascript";
-    if (path.endsWith(".json")) return "application/json";
-    if (path.endsWith(".png")) return "image/png";
-    if (path.endsWith(".jpg") || path.endsWith(".jpeg")) return "image/jpeg";
-    if (path.endsWith(".gif")) return "image/gif";
-    if (path.endsWith(".svg")) return "image/svg+xml";
-    if (path.endsWith(".ico")) return "image/x-icon";
-    if (path.endsWith(".woff")) return "font/woff";
-    if (path.endsWith(".woff2")) return "font/woff2";
-    if (path.endsWith(".ttf")) return "font/ttf";
-    if (path.endsWith(".eot")) return "application/vnd.ms-fontobject";
-    if (path.endsWith(".webp")) return "image/webp";
-    if (path.endsWith(".avif")) return "image/avif";
-    if (path.endsWith(".webm")) return "video/webm";
+    // Find last dot to get extension
+    int lastDot = path.lastIndexOf('.');
+    if (lastDot == -1) return "text/plain";
+    
+    // Get extension as c_str for efficient comparison
+    const char* ext = path.c_str() + lastDot + 1;
+    
+    // Use switch-like structure for better performance
+    switch (ext[0]) {
+        case 'h': if (strcmp(ext, "html") == 0) return "text/html"; break;
+        case 'c': if (strcmp(ext, "css") == 0) return "text/css"; break;
+        case 'j': 
+            if (strcmp(ext, "js") == 0) return "application/javascript";
+            if (strcmp(ext, "json") == 0) return "application/json";
+            if (strcmp(ext, "jpg") == 0 || strcmp(ext, "jpeg") == 0) return "image/jpeg";
+            break;
+        case 'p': if (strcmp(ext, "png") == 0) return "image/png"; break;
+        case 'g': if (strcmp(ext, "gif") == 0) return "image/gif"; break;
+        case 's': if (strcmp(ext, "svg") == 0) return "image/svg+xml"; break;
+        case 'i': if (strcmp(ext, "ico") == 0) return "image/x-icon"; break;
+        case 'w': 
+            if (strcmp(ext, "woff") == 0) return "font/woff";
+            if (strcmp(ext, "woff2") == 0) return "font/woff2";
+            if (strcmp(ext, "webp") == 0) return "image/webp";
+            if (strcmp(ext, "webm") == 0) return "video/webm";
+            break;
+        case 't': if (strcmp(ext, "ttf") == 0) return "font/ttf"; break;
+        case 'e': if (strcmp(ext, "eot") == 0) return "application/vnd.ms-fontobject"; break;
+        case 'a': if (strcmp(ext, "avif") == 0) return "image/avif"; break;
+    }
 
     return "text/plain";
 }
@@ -285,19 +299,27 @@ inline String getHeader(const String& varName) {
 
 inline String staticProcessor(const String& var) {
     try {
-        if (var.startsWith("VAR_SHOW_")) {
-            return getValue(var.substring(9));
+        // Avoid substring() calls by using direct pointer arithmetic
+        const char* varStr = var.c_str();
+        
+        if (strncmp(varStr, "VAR_SHOW_", 9) == 0) {
+            return getValue(String(varStr + 9));
         }
 
-        if (var.startsWith("VAR_HEADER_")) {
-            return getHeader(var.substring(11));
+        if (strncmp(varStr, "VAR_HEADER_", 11) == 0) {
+            return getHeader(String(varStr + 11));
         }
 
-        static String fragmentPath;
-        fragmentPath = "/html_fragments/";
-        fragmentPath += var;
-        fragmentPath.toLowerCase();
-        fragmentPath += ".html";
+        // Pre-allocate and reuse buffer to avoid repeated allocations
+        static char fragmentPath[128];
+        static String lowerVar;
+        
+        // Build path more efficiently
+        strcpy(fragmentPath, "/html_fragments/");
+        lowerVar = var;
+        lowerVar.toLowerCase();
+        strcat(fragmentPath, lowerVar.c_str());
+        strcat(fragmentPath, ".html");
 
         if (File file = LittleFS.open(fragmentPath, "r")) {
             if (file.size() * 2 < ESP.getFreeHeap()) {
@@ -857,7 +879,7 @@ void serverSetup() {
     server.begin();
     LOG(INFO, "Server.begin() called successfully");
 
-    LOG(INFO, ("Server started at " + WiFi.localIP().toString()).c_str());
+    LOGF(INFO, "Server started at %s", WiFi.localIP().toString().c_str());
     logMemoryUsage("serverSetup complete");
 }
 
