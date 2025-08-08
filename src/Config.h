@@ -14,7 +14,6 @@
 
 #include "Logger.h"
 #include "defaults.h"
-#include "state/GlobalState.h"
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <Preferences.h>
