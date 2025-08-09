@@ -164,7 +164,8 @@ void CleverCoffeeWiFiManager::checkAndMaintainConnection() {
                 WiFi.begin();
             }
 
-            delay(20);                      // give WIFI some time to connect
+            // Use yield() instead of delay() to avoid blocking other tasks
+            yield();
 
             if (WiFi.status() != WL_CONNECTED && connectionAttemptCounter < 100) {
                 connectionAttemptCounter++; // reconnect counter, maximum waiting time = 20*100ms plus loop times

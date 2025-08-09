@@ -51,7 +51,7 @@ void initScale() {
         if (!g_state.hardware.scale->init()) {
             LOG(ERROR, "Scale initialization failed");
             displayScaleFailed();
-            delay(5000);
+            // Non-blocking: mark failure and continue - don't freeze the main loop
             g_state.sensors.scaleFailure = true;
             g_state.hardware.scale.reset();
             return;

@@ -655,7 +655,8 @@ inline void handleConfigUpload(AsyncWebServerRequest* request, const String& fil
 inline void handleRestart(AsyncWebServerRequest* request) {
     try {
         request->send(200, "application/json", JsonResponseBuilder::createSuccessResponse("Restarting..."));
-        delay(100);
+        // Brief delay before restart - reduced from 100ms  
+        delay(50);
         ESP.restart();
     } catch (const std::exception& e) {
         LOGF(ERROR, "handleRestart failed: %s", e.what());
@@ -717,7 +718,8 @@ inline void handleFactoryReset(AsyncWebServerRequest* request) {
 
         request->send(200, "application/json", cleared ? JsonResponseBuilder::createSuccessResponse("Factory reset. Restarting...") : JsonResponseBuilder::createErrorResponse("Could not clear preferences. Restarting..."));
 
-        delay(100);
+        // Brief delay before restart - reduced from 100ms
+        delay(50);
         ESP.restart();
     } catch (const std::exception& e) {
         LOGF(ERROR, "handleFactoryReset failed: %s", e.what());
