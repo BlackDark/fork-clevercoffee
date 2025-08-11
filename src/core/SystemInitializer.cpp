@@ -200,10 +200,11 @@ bool SystemInitializer::initializeConfiguration() {
 
     calculateDerivedValues();
 
-    // TODO what is better?
-    // bPID = std::make_unique<PID>(&g_state.process.temperature, &g_state.process.pidOutput, &g_state.process.setpoint, Config::getInstance().pidRegularKp.get(), aggKi, aggKd, 1, DIRECT);
-    g_state.pid = new PID(&g_state.process.temperature, &g_state.process.pidOutput, &g_state.process.setpoint, Config::getInstance().pidRegularKp.get(), g_state.process.aggKi, g_state.process.aggKd, 1, DIRECT);
-    // g_state.pid = PID(&g_state.process.temperature, &g_state.process.pidOutput, &g_state.process.setpoint, Config::getInstance().pidRegularKp.get(), aggKi, aggKd, 1, DIRECT)*;
+    // Use make_unique for proper RAII and exception safety
+    pidController_ = std::make_unique<PID>(&g_state.process.temperature, &g_state.process.pidOutput, &g_state.process.setpoint, Config::getInstance().pidRegularKp.get(), g_state.process.aggKi, g_state.process.aggKd, 1, DIRECT);
+    
+    // Set global reference for backward compatibility
+    g_state.pid = pidController_.get();
     return true;
 }
 

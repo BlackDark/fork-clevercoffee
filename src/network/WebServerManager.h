@@ -147,8 +147,8 @@ class WebServerManager {
         // Web server components
         std::unique_ptr<AsyncWebServer> server_;
         std::unique_ptr<AsyncEventSource> events_;
-        AsyncCorsMiddleware* corsMiddleware_;
-        AsyncAuthenticationMiddleware* authMiddleware_;
+        std::unique_ptr<AsyncCorsMiddleware> corsMiddleware_;
+        std::unique_ptr<AsyncAuthenticationMiddleware> authMiddleware_;
 
         // Server state
         uint16_t port_;

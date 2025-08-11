@@ -17,6 +17,7 @@ class MQTTManager;
 class SensorManager;
 class WebServerManager;
 class CleverCoffeeWiFiManager;
+class PID;
 
 /**
  * @class SystemInitializer
@@ -127,6 +128,7 @@ class SystemInitializer {
         std::unique_ptr<SensorManager> sensorManager_;
         std::unique_ptr<CleverCoffeeWiFiManager> cleverCoffeeWiFiManager_;
         std::unique_ptr<WebServerManager> webServerManager_;
+        std::unique_ptr<PID> pidController_;
 
         // Initialization phases
         bool initializeLogger();

@@ -160,8 +160,7 @@ WebServerManager::WebServerManager(uint16_t port) :
 
 WebServerManager::~WebServerManager() {
     stop();
-    delete corsMiddleware_;
-    delete authMiddleware_;
+    // Smart pointers automatically clean up
 }
 
 bool WebServerManager::initialize(bool littleFSReady) {
@@ -249,11 +248,11 @@ void WebServerManager::setupMiddleware() {
     LOG(DEBUG, "Setting up middleware");
 
     // CORS middleware - allow all origins for development
-    corsMiddleware_ = new AsyncCorsMiddleware();
+    corsMiddleware_ = std::make_unique<AsyncCorsMiddleware>();
     corsMiddleware_->setOrigin("*");
     corsMiddleware_->setMethods("GET,POST,PUT,DELETE,OPTIONS");
     corsMiddleware_->setHeaders("Content-Type,Authorization,X-Requested-With");
-    server_->addMiddleware(corsMiddleware_);
+    server_->addMiddleware(corsMiddleware_.get());
 
     // Authentication middleware (if enabled)
     if (Config::getInstance().systemAuthEnabled.get()) {
@@ -261,11 +260,11 @@ void WebServerManager::setupMiddleware() {
         String password = Config::getInstance().systemAuthPassword.get();
 
         if (!username.isEmpty() && !password.isEmpty()) {
-            authMiddleware_ = new AsyncAuthenticationMiddleware();
+            authMiddleware_ = std::make_unique<AsyncAuthenticationMiddleware>();
             authMiddleware_->setUsername(username.c_str());
             authMiddleware_->setPassword(password.c_str());
             authMiddleware_->setRealm("CleverCoffee");
-            server_->addMiddleware(authMiddleware_);
+            server_->addMiddleware(authMiddleware_.get());
             LOG(INFO, "Web authentication enabled");
         }
         else {
