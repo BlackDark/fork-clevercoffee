@@ -389,7 +389,7 @@ inline void displayBluetoothStatus(const int x, const int y) {
  */
 inline void displayStatusbar() {
     // For status info
-    g_state.hardware.display->drawLine(0, 12, 128, 12);
+    g_state.hardware.display->drawLine(0, STATUS_BAR_Y_POS, DISPLAY_WIDTH, STATUS_BAR_Y_POS);
 
     if (!g_state.network.offlineMode) {
         displayWiFiStatus(4, 1);
@@ -438,7 +438,7 @@ inline void displayLogo(const char* displaymessagetext, const char* displaymessa
         g_state.hardware.display->clearBuffer();
 
         // Use stack allocation for tokenization buffers
-        constexpr size_t MAX_MSG_LEN = 64;
+        constexpr size_t MAX_MSG_LEN = SHORT_MESSAGE_SIZE;
         char text1[MAX_MSG_LEN];
         char text2[MAX_MSG_LEN];
 
@@ -508,10 +508,10 @@ inline bool displayFullscreenBrewTimer() {
 
             if (Config::getInstance().hardwareSensorsScaleEnabled.get()) {
                 g_state.hardware.display->setFont(u8g2_font_profont22_tf);
-                g_state.hardware.display->setCursor(64, 15);
+                g_state.hardware.display->setCursor(DISPLAY_WIDTH/2, 15);
                 g_state.hardware.display->print(g_state.process.currBrewTime / 1000, 1);
                 g_state.hardware.display->print("s");
-                g_state.hardware.display->setCursor(64, 38);
+                g_state.hardware.display->setCursor(DISPLAY_WIDTH/2, 38);
                 g_state.hardware.display->print(g_state.sensors.currBrewWeight, 1);
                 g_state.hardware.display->print("g");
                 g_state.hardware.display->setFont(u8g2_font_profont11_tf);
@@ -770,7 +770,7 @@ inline void displayWrappedMessage(const char* message) {
 
     // Use fixed-size buffers to avoid String allocation
     constexpr size_t MAX_WORD_LEN = 32;
-    constexpr size_t MAX_LINE_LEN = 128;
+    constexpr size_t MAX_LINE_LEN = MESSAGE_BUFFER_SIZE;
     char word[MAX_WORD_LEN] = {0};
     char line[MAX_LINE_LEN] = {0};
     char testLine[MAX_LINE_LEN] = {0};

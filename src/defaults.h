@@ -202,6 +202,17 @@ namespace Process {
     };
 } // namespace Process
 
+// Display constants
+#define DISPLAY_WIDTH           128
+#define DISPLAY_HEIGHT          64
+#define STATUS_BAR_HEIGHT       12
+#define STATUS_BAR_Y_POS        12
+
+// Buffer sizes
+#define OTA_BUFFER_SIZE         1024
+#define MESSAGE_BUFFER_SIZE     128
+#define SHORT_MESSAGE_SIZE      64
+
 // Debugging flags
 // #define DEBUG_CONFIG_VERBOSE true
 // #define DEBUG_NVS_VERBOSE    true

@@ -79,7 +79,7 @@ namespace OTA {
 
         WiFiClient* stream = http.getStreamPtr();
         size_t written = 0;
-        uint8_t buffer[1024];
+        uint8_t buffer[OTA_BUFFER_SIZE];
 
         while (http.connected() && (written < contentLength)) {
             size_t available = stream->available();
@@ -196,7 +196,7 @@ namespace OTA {
 
         WiFiClient* stream = http.getStreamPtr();
         size_t written = 0;
-        uint8_t buffer[1024];
+        uint8_t buffer[OTA_BUFFER_SIZE];
 
         while (http.connected() && (written < contentLength)) {
             size_t available = stream->available();
