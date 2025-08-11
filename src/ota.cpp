@@ -25,6 +25,118 @@ namespace OTA {
     // To change this label, update both this value and your partition table (partitions.csv)
     static const char* FILESYSTEM_PARTITION_LABEL = "spiffs";
 
+    // Helper function to handle HTTP GET request for OTA updates
+    struct HTTPUpdateResult {
+        bool success = false;
+        int contentLength = 0;
+        WiFiClient* stream = nullptr;
+        HTTPClient* http = nullptr;
+    };
+
+    HTTPUpdateResult initHttpUpdate(const String& url, HTTPClient& http, WiFiClient& client) {
+        HTTPUpdateResult result;
+        
+        http.begin(client, url);
+        http.addHeader("User-Agent", "ESP32-CleverCoffee-OTA");
+        
+        int httpCode = http.GET();
+        if (httpCode != HTTP_CODE_OK) {
+            LOGF(ERROR, "HTTP GET failed, error: %d", httpCode);
+            getOTAState().setUpdateError(true, "HTTP GET failed, error: " + String(httpCode));
+            http.end();
+            return result;
+        }
+        
+        result.contentLength = http.getSize();
+        if (result.contentLength <= 0) {
+            LOG(ERROR, "Content-Length not found or zero");
+            getOTAState().setUpdateError(true, "Content-Length not found or zero");
+            http.end();
+            return result;
+        }
+        
+        result.stream = http.getStreamPtr();
+        result.http = &http;
+        result.success = true;
+        return result;
+    }
+
+    // Helper function to download and write OTA data
+    bool downloadAndWrite(WiFiClient* stream, HTTPClient& http, int contentLength) {
+        size_t written = 0;
+        uint8_t buffer[OTA_BUFFER_SIZE];
+        
+        while (http.connected() && (written < contentLength)) {
+            size_t available = stream->available();
+            if (available > 0) {
+                size_t toRead = min(available, sizeof(buffer));
+                size_t bytesRead = stream->readBytes(buffer, toRead);
+                
+                if (Update.write(buffer, bytesRead) != bytesRead) {
+                    LOGF(ERROR, "Write failed at byte %d", written);
+                    getOTAState().setUpdateError(true, "Write failed at byte " + String(written));
+                    Update.abort();
+                    return false;
+                }
+                
+                written += bytesRead;
+                getOTAState().setCurrentProgress((written * 100) / contentLength);
+                
+                // Log progress every 10%
+                if (written % (contentLength / 10) == 0) {
+                    LOGF(INFO, "OTA Progress: %d%%", getOTAState().getCurrentProgress());
+                }
+            }
+            delay(1);
+        }
+        
+        if (written != contentLength) {
+            LOGF(ERROR, "Written %d bytes, expected %d", written, contentLength);
+            getOTAState().setUpdateError(true, "Incomplete download: written " + String(written) + " bytes, expected " + String(contentLength));
+            Update.abort();
+            return false;
+        }
+        
+        return true;
+    }
+
+    // Helper function to validate file extension
+    bool validateFileExtension(const String& filename, bool isFilesystem) {
+        String path = filename;
+        path.toLowerCase();
+        
+        if (isFilesystem) {
+            return path.endsWith(".bin") || path.endsWith(".img");
+        } else {
+            return path.endsWith(".bin");
+        }
+    }
+
+    // Helper function to handle upload chunk processing
+    bool processUploadChunk(AsyncWebServerRequest* request, size_t index, uint8_t* data, size_t len, bool isFilesystem) {
+        if (getOTAState().isUpdateStarted()) {
+            if (Update.write(data, len) != len) {
+                const String errorType = isFilesystem ? "filesystem" : "firmware";
+                LOGF(ERROR, "OTA %s update write failed at byte %d", errorType.c_str(), index + len);
+                getOTAState().setUpdateError(true, "OTA " + errorType + " update write failed at byte " + String(index + len));
+                Update.abort();
+                getOTAState().setUpdateStarted(false);
+                request->send(500, "application/json", R"({"success": false, "message": "Write failed"})");
+                return false;
+            }
+            
+            getOTAState().addUploadedSize(len);
+            getOTAState().setTotalSize(index + len);
+            
+            // Update progress - estimate based on uploaded data
+            if (getOTAState().getUploadedSize() > 0) {
+                const size_t minSize = isFilesystem ? (256 * 1024) : (512 * 1024);
+                getOTAState().setCurrentProgress(min(90, (int)((getOTAState().getUploadedSize() * 90) / max(getOTAState().getUploadedSize(), minSize))));
+            }
+        }
+        return true;
+    }
+
     void resetStatus() {
         getOTAState().resetState();
     }
@@ -46,76 +158,29 @@ namespace OTA {
 
         WiFiClient client;
         HTTPClient http;
-
-        http.begin(client, url);
-        http.addHeader("User-Agent", "ESP32-CleverCoffee-OTA");
-
-        int httpCode = http.GET();
-
-        if (httpCode != HTTP_CODE_OK) {
-            LOGF(ERROR, "HTTP GET failed, error: %d", httpCode);
-            getOTAState().setUpdateError(true, "HTTP GET failed, error: " + String(httpCode));
-            http.end();
+        
+        // Initialize HTTP connection
+        HTTPUpdateResult httpResult = initHttpUpdate(url, http, client);
+        if (!httpResult.success) {
             return false;
         }
 
-        int contentLength = http.getSize();
+        LOGF(INFO, "Starting OTA update, firmware size: %d bytes", httpResult.contentLength);
 
-        if (contentLength <= 0) {
-            LOG(ERROR, "Content-Length not found or zero");
-            getOTAState().setUpdateError(true, "Content-Length not found or zero");
-            http.end();
-            return false;
-        }
-
-        LOGF(INFO, "Starting OTA update, firmware size: %d bytes", contentLength);
-
-        if (!Update.begin(contentLength)) {
+        if (!Update.begin(httpResult.contentLength)) {
             LOGF(ERROR, "Cannot begin OTA update: %s", Update.errorString());
             getOTAState().setUpdateError(true, "Cannot begin OTA update: " + String(Update.errorString()));
             http.end();
             return false;
         }
 
-        WiFiClient* stream = http.getStreamPtr();
-        size_t written = 0;
-        uint8_t buffer[OTA_BUFFER_SIZE];
-
-        while (http.connected() && (written < contentLength)) {
-            size_t available = stream->available();
-            if (available > 0) {
-                size_t toRead = min(available, sizeof(buffer));
-                size_t bytesRead = stream->readBytes(buffer, toRead);
-
-                if (Update.write(buffer, bytesRead) != bytesRead) {
-                    LOGF(ERROR, "Write failed at byte %d", written);
-                    getOTAState().setUpdateError(true, "Write failed at byte " + String(written));
-                    Update.abort();
-                    http.end();
-                    return false;
-                }
-
-                written += bytesRead;
-
-                // Update progress
-                getOTAState().setCurrentProgress((written * 100) / contentLength);
-
-                // Log progress every 10%
-                if (written % (contentLength / 10) == 0) {
-                    LOGF(INFO, "OTA Progress: %d%%", getOTAState().getCurrentProgress());
-                }
-            }
-            delay(1);
+        // Download and write firmware
+        if (!downloadAndWrite(httpResult.stream, http, httpResult.contentLength)) {
+            http.end();
+            return false;
         }
 
         http.end();
-
-        if (written != contentLength) {
-            LOGF(ERROR, "Written %d bytes, expected %d", written, contentLength);
-            getOTAState().setUpdateError(true, "Incomplete download: written " + String(written) + " bytes, expected " + String(contentLength));
-            Update.abort();
-            return false;
-        }
 
         if (Update.end()) {
             if (Update.isFinished()) {
@@ -152,41 +217,23 @@ namespace OTA {
         getOTAState().setCurrentProgress(0);
         getOTAState().setUpdateStatus("downloading");
 
+        // Validate file extension
+        if (!validateFileExtension(url, true)) {
+            LOGF(ERROR, "Invalid filesystem file extension: %s", url.c_str());
+            getOTAState().setUpdateError(true, "Invalid filesystem file extension (.bin or .img required)");
+            return false;
+        }
+
         WiFiClient client;
         HTTPClient http;
-
-        http.begin(client, url);
-        http.addHeader("User-Agent", "ESP32-CleverCoffee-OTA");
-
-        int httpCode = http.GET();
-
-        if (httpCode != HTTP_CODE_OK) {
-            LOGF(ERROR, "HTTP GET failed, error: %d", httpCode);
-            getOTAState().setUpdateError(true, "HTTP GET failed, error: " + String(httpCode));
-            http.end();
+        
+        // Initialize HTTP connection
+        HTTPUpdateResult httpResult = initHttpUpdate(url, http, client);
+        if (!httpResult.success) {
             return false;
         }
 
-        int contentLength = http.getSize();
-
-        if (contentLength <= 0) {
-            LOG(ERROR, "Content-Length not found or zero");
-            getOTAState().setUpdateError(true, "Content-Length not found or zero");
-            http.end();
-            return false;
-        }
-
-        // Validate extension
-        String path = url;
-        path.toLowerCase();
-        if (!path.endsWith(".bin") && !path.endsWith(".img")) {
-            LOGF(ERROR, "Invalid filesystem file extension: %s", path.c_str());
-            getOTAState().setUpdateError(true, "Invalid filesystem file extension (.bin or .img required)");
-            http.end();
-            return false;
-        }
-
-        LOGF(INFO, "Starting OTA filesystem update, size: %d bytes", contentLength);
+        LOGF(INFO, "Starting OTA filesystem update, size: %d bytes", httpResult.contentLength);
         if (!Update.begin(UPDATE_SIZE_UNKNOWN, U_SPIFFS, -1, LOW, FILESYSTEM_PARTITION_LABEL)) {
             LOGF(ERROR, "Cannot begin OTA filesystem update: %s", Update.errorString());
             getOTAState().setUpdateError(true, "Cannot begin OTA filesystem update: " + String(Update.errorString()));
@@ -194,41 +241,13 @@ namespace OTA {
             return false;
         }
 
-        WiFiClient* stream = http.getStreamPtr();
-        size_t written = 0;
-        uint8_t buffer[OTA_BUFFER_SIZE];
-
-        while (http.connected() && (written < contentLength)) {
-            size_t available = stream->available();
-            if (available > 0) {
-                size_t toRead = min(available, sizeof(buffer));
-                size_t bytesRead = stream->readBytes(buffer, toRead);
-
-                if (Update.write(buffer, bytesRead) != bytesRead) {
-                    LOGF(ERROR, "Filesystem write failed at byte %d", written);
-                    getOTAState().setUpdateError(true, "Filesystem write failed at byte " + String(written));
-                    Update.abort();
-                    http.end();
-                    return false;
-                }
-
-                written += bytesRead;
-                getOTAState().setCurrentProgress((written * 100) / contentLength);
-                if (written % (contentLength / 10) == 0) {
-                    LOGF(INFO, "Filesystem OTA Progress: %d%%", getOTAState().getCurrentProgress());
-                }
-            }
-            delay(1);
+        // Download and write filesystem data
+        if (!downloadAndWrite(httpResult.stream, http, httpResult.contentLength)) {
+            http.end();
+            return false;
         }
 
         http.end();
-
-        if (written != contentLength) {
-            LOGF(ERROR, "Written %d bytes, expected %d", written, contentLength);
-            getOTAState().setUpdateError(true, "Incomplete download: written " + String(written) + " bytes, expected " + String(contentLength));
-            Update.abort();
-            return false;
-        }
 
         if (Update.end(true)) {
             if (Update.isFinished()) {
@@ -255,7 +274,7 @@ namespace OTA {
         LOGF(INFO, "handleFirmwareUpload called: filename=%s, index=%d, len=%d, final=%d", filename.c_str(), static_cast<int>(index), static_cast<int>(len), final);
 
         // Validate that this is a firmware file (check file extension) - only on first chunk
-        if (index == 0 && !filename.endsWith(".bin")) {
+        if (index == 0 && !validateFileExtension(filename, false)) {
             LOGF(ERROR, "Invalid firmware file: %s (expected .bin extension)", filename.c_str());
             request->send(400, "application/json", R"({"success": false, "message": "Invalid firmware file. Expected .bin extension."})");
             return;
@@ -288,24 +307,8 @@ namespace OTA {
             getOTAState().setUpdateStarted(true);
         }
 
-        if (getOTAState().isUpdateStarted()) {
-            if (Update.write(data, len) != len) {
-                LOGF(ERROR, "OTA update write failed at byte %d", index + len);
-                getOTAState().setUpdateError(true, "OTA update write failed at byte " + String(index + len));
-                Update.abort();
-                getOTAState().setUpdateStarted(false);
-                request->send(500, "application/json", R"({"success": false, "message": "Write failed"})");
-                return;
-            }
-            getOTAState().addUploadedSize(len);
-            getOTAState().setTotalSize(index + len); // Track total uploaded so far
-
-            // Update progress - more accurate calculation
-            // For file uploads, we can't know the total size in advance, so estimate based on uploaded data
-            if (getOTAState().getUploadedSize() > 0) {
-                // Show progress up to 90% during upload, reserve 10% for processing
-                getOTAState().setCurrentProgress(min(90, (int)((getOTAState().getUploadedSize() * 90) / max(getOTAState().getUploadedSize(), (size_t)(512 * 1024))))) ; // Assume min 512KB firmware
-            }
+        if (!processUploadChunk(request, index, data, len, false)) {
+            return;
         }
 
         if (final) {
@@ -335,7 +338,7 @@ namespace OTA {
         LOGF(INFO, "handleFilesystemUpload called: filename=%s, index=%d, len=%d, final=%d", filename.c_str(), static_cast<int>(index), static_cast<int>(len), final);
 
         // Validate that this is a filesystem file (check file extension) - only on first chunk
-        if (index == 0 && !filename.endsWith(".bin") && !filename.endsWith(".img")) {
+        if (index == 0 && !validateFileExtension(filename, true)) {
             LOGF(ERROR, "Invalid filesystem file: %s (expected .bin or .img extension)", filename.c_str());
             request->send(400, "application/json", R"({"success": false, "message": "Invalid filesystem file. Expected .bin or .img extension."})");
             return;
@@ -369,24 +372,8 @@ namespace OTA {
             getOTAState().setUpdateStarted(true);
         }
 
-        if (getOTAState().isUpdateStarted()) {
-            if (Update.write(data, len) != len) {
-                LOGF(ERROR, "OTA filesystem update write failed at byte %d", index + len);
-                getOTAState().setUpdateError(true, "OTA filesystem update write failed at byte " + String(index + len));
-                Update.abort();
-                getOTAState().setUpdateStarted(false);
-                request->send(500, "application/json", R"({"success": false, "message": "Filesystem write failed"})");
-                return;
-            }
-            getOTAState().addUploadedSize(len);
-            getOTAState().setTotalSize(index + len); // Track total uploaded so far
-
-            // Update progress - more accurate calculation
-            // For file uploads, we can't know the total size in advance, so estimate based on uploaded data
-            if (getOTAState().getUploadedSize() > 0) {
-                // Show progress up to 90% during upload, reserve 10% for processing
-                getOTAState().setCurrentProgress(min(90, (int)((getOTAState().getUploadedSize() * 90) / max(getOTAState().getUploadedSize(), (size_t)(256 * 1024))))); // Assume min 256KB filesystem
-            }
+        if (!processUploadChunk(request, index, data, len, true)) {
+            return;
         }
 
         if (final) {

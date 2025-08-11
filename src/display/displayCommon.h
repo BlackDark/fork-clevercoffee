@@ -750,15 +750,59 @@ inline bool displayMachineState() {
     return false;
 }
 
-inline void displayWrappedMessage(const char* message) {
-    g_state.hardware.display->clearBuffer();
-
+/**
+ * @brief Set appropriate font for current display template
+ */
+inline void setDisplayFont() {
     if (Config::getInstance().displayTemplate.get() == System::DisplayTemplate::UPRIGHT) {
         g_state.hardware.display->setFont(u8g2_font_profont10_tf);
     }
     else {
         g_state.hardware.display->setFont(u8g2_font_profont11_tf);
     }
+}
+
+/**
+ * @brief Check if a word fits on the current line
+ */
+inline bool wordFitsOnLine(const char* line, const char* word, int displayWidth) {
+    constexpr size_t MAX_TEST_LINE = MESSAGE_BUFFER_SIZE;
+    char testLine[MAX_TEST_LINE];
+    snprintf(testLine, MAX_TEST_LINE, "%s%s", line, word);
+    return g_state.hardware.display->getUTF8Width(testLine) <= displayWidth;
+}
+
+/**
+ * @brief Add word to current line buffer
+ */
+inline void addWordToLine(char* line, size_t& lineLen, const char* word, size_t maxLineLen) {
+    if (lineLen > 0) {
+        strncat(line, " ", maxLineLen - lineLen - 1);
+        lineLen++;
+    }
+    strncat(line, word, maxLineLen - lineLen - 1);
+    lineLen += strlen(word);
+}
+
+/**
+ * @brief Draw line and move to next line
+ */
+inline void drawLineAndAdvance(const char* line, int x, int& y, int lineHeight) {
+    g_state.hardware.display->drawUTF8(x, y, line);
+    y += lineHeight;
+}
+
+/**
+ * @brief Start new line with given word
+ */
+inline void startNewLineWithWord(char* line, size_t& lineLen, const char* word, size_t maxLineLen) {
+    snprintf(line, maxLineLen, "%s ", word);
+    lineLen = strlen(line);
+}
+
+inline void displayWrappedMessage(const char* message) {
+    g_state.hardware.display->clearBuffer();
+    setDisplayFont();
 
     const int lineHeight = g_state.hardware.display->getMaxCharHeight() + 2;
     const int displayWidth = g_state.hardware.display->getDisplayWidth();
@@ -773,7 +817,6 @@ inline void displayWrappedMessage(const char* message) {
     constexpr size_t MAX_LINE_LEN = MESSAGE_BUFFER_SIZE;
     char word[MAX_WORD_LEN] = {0};
     char line[MAX_LINE_LEN] = {0};
-    char testLine[MAX_LINE_LEN] = {0};
     
     size_t wordIdx = 0;
     size_t lineLen = 0;
@@ -785,33 +828,22 @@ inline void displayWrappedMessage(const char* message) {
         if (c == ' ' || c == '\n' || c == '\0') {
             word[wordIdx] = '\0';
             
-            // Test if adding word would exceed display width
-            snprintf(testLine, MAX_LINE_LEN, "%s%s", line, word);
-            
-            if (g_state.hardware.display->getUTF8Width(testLine) > displayWidth && lineLen > 0) {
+            if (!wordFitsOnLine(line, word, displayWidth) && lineLen > 0) {
                 // Draw current line and start new line with word
-                g_state.hardware.display->drawUTF8(x, y, line);
-                y += lineHeight;
-                snprintf(line, MAX_LINE_LEN, "%s ", word);
-                lineLen = strlen(line);
+                drawLineAndAdvance(line, x, y, lineHeight);
+                startNewLineWithWord(line, lineLen, word, MAX_LINE_LEN);
                 wordCount = 1;
             }
             else {
                 // Add word to current line
-                if (lineLen > 0) {
-                    strncat(line, " ", MAX_LINE_LEN - lineLen - 1);
-                    lineLen++;
-                }
-                strncat(line, word, MAX_LINE_LEN - lineLen - 1);
-                lineLen += strlen(word);
+                addWordToLine(line, lineLen, word, MAX_LINE_LEN);
                 wordCount++;
             }
 
             wordIdx = 0;
 
             if (c == '\n') {
-                g_state.hardware.display->drawUTF8(x, y, line);
-                y += lineHeight;
+                drawLineAndAdvance(line, x, y, lineHeight);
                 line[0] = '\0';
                 lineLen = 0;
                 wordCount = 0;
@@ -822,6 +854,7 @@ inline void displayWrappedMessage(const char* message) {
         }
     }
 
+    // Draw final line if it has content and fits
     if (lineLen > 0 && y + lineHeight <= displayHeight) {
         g_state.hardware.display->drawUTF8(x, y, line);
     }
