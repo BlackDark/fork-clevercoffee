@@ -1,50 +1,42 @@
 /**
  * @file steamHandler.h
- *
- * @brief Handler for digital steam switch
+ * @brief Handler for digital steam switch using modern abstractions
  */
 #pragma once
 
+#include "handlers/BaseHandler.h"
 #include "Config.h"
-#include "hardware/Switch.h"
-#include "state/GlobalState.h"
-#include "state/MachineState.h"
 
+/**
+ * @class SteamHandler
+ * @brief Steam switch handler using modern base class abstractions
+ */
+class SteamHandler : public SwitchBasedHandler {
+public:
+    SteamHandler() : SwitchBasedHandler("SteamHandler", g_state.hardware.steamSwitch) {}
+    
+protected:
+    bool isEnabled() const override {
+        return Config::getInstance().hardwareSwitchesSteamEnabled.get();
+    }
+    
+    void processImpl() override {
+        const uint8_t reading = getSwitchReading();
+        const int switchType = static_cast<int>(Config::getInstance().hardwareSwitchesSteamType.get());
+        
+        if (switchType == Switch::TOGGLE) {
+            processToggleSwitch(reading, g_state.machine.steamON, g_state.machine.steamFirstON);
+        }
+        else if (switchType == Switch::MOMENTARY) {
+            processMomentarySwitch(reading, g_state.sensors.currStateSteamSwitch, g_state.machine.steamON);
+        }
+    }
+};
+
+// Global instance
+inline SteamHandler g_steamHandler;
+
+// Public interface function
 inline void checkSteamSwitch() {
-    if (!Config::getInstance().hardwareSwitchesSteamEnabled.get() || g_state.hardware.steamSwitch == nullptr) {
-        return;
-    }
-
-    if (!isPowerSwitchOperationAllowed()) {
-        return;
-    }
-
-    const uint8_t steamSwitchReading = g_state.hardware.steamSwitch->isPressed();
-
-    if (static_cast<int>(Config::getInstance().hardwareSwitchesSteamType.get()) == Switch::TOGGLE) {
-        // Set g_state.machine.steamON to 1 when steamswitch is HIGH
-        if (steamSwitchReading == HIGH) {
-            g_state.machine.steamON = true;
-        }
-
-        // if activated via web interface then steamFirstON == 1, prevent override
-        if (steamSwitchReading == LOW && !g_state.machine.steamFirstON) {
-            g_state.machine.steamON = false;
-        }
-    }
-    else if (static_cast<int>(Config::getInstance().hardwareSwitchesSteamType.get()) == Switch::MOMENTARY) {
-        if (steamSwitchReading != g_state.sensors.currStateSteamSwitch) {
-            g_state.sensors.currStateSteamSwitch = steamSwitchReading;
-
-            // only toggle heating power if the new button state is HIGH
-            if (g_state.sensors.currStateSteamSwitch == HIGH) {
-                if (g_state.machine.steamON == 0) {
-                    g_state.machine.steamON = true;
-                }
-                else {
-                    g_state.machine.steamON = false;
-                }
-            }
-        }
-    }
+    g_steamHandler.process();
 }

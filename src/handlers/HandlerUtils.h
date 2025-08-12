@@ -8,7 +8,7 @@
 #include "../Config.h"
 #include "../hardware/Switch.h"
 #include "../hardware/Relay.h"
-#include "../Logger.h"
+#include "Logger.h"
 #include <functional>
 
 namespace HandlerUtils {

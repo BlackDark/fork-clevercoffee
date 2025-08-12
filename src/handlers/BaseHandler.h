@@ -9,7 +9,18 @@
 #include "../hardware/Switch.h"
 #include "../hardware/Relay.h"
 #include "../state/GlobalState.h"
-#include "../Logger.h"
+#include "Logger.h"
+
+// Forward declaration for isPowerSwitchOperationAllowed
+bool isPowerSwitchOperationAllowed();
+
+/**
+ * @brief Simple implementation of power switch operation check
+ */
+inline bool isPowerSwitchOperationAllowed() {
+    // Basic permission check - system should be initialized
+    return g_state.machine.systemInitialized;
+}
 
 /**
  * @class BaseHandler
@@ -111,21 +122,21 @@ protected:
     /**
      * @brief Debug logging helper
      */
-    void logDebug(const char* message) {
+    void logDebug(const char* message) const {
         LOGF(DEBUG, "[%s] %s", handlerName_, message);
     }
     
     /**
      * @brief Error logging helper
      */
-    void logError(const char* message) {
+    void logError(const char* message) const {
         LOGF(ERROR, "[%s] %s", handlerName_, message);
     }
     
     /**
      * @brief Info logging helper
      */
-    void logInfo(const char* message) {
+    void logInfo(const char* message) const {
         LOGF(INFO, "[%s] %s", handlerName_, message);
     }
 };

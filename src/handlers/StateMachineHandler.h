@@ -104,33 +104,4 @@ private:
     }
 };
 
-/**
- * @brief Create a hot water state machine handler
- */
-inline StateMachineHandler<HotWaterState> createHotWaterStateMachine(HotWaterState& currentState) {
-    auto stateMachine = StateMachineHandler<HotWaterState>(currentState);
-    
-    // Register state handlers
-    stateMachine.registerStateHandler(kHotWaterIdle, []() -> HotWaterState {
-        // Idle state logic - check for trigger to start hot water
-        if (g_state.hardware.hotWaterSwitch && g_state.hardware.hotWaterSwitch->isPressed()) {
-            return kHotWaterRunning;
-        }
-        return kHotWaterIdle;
-    });
-    
-    stateMachine.registerStateHandler(kHotWaterRunning, []() -> HotWaterState {
-        // Running state logic - check for conditions to stop
-        if (!g_state.hardware.hotWaterSwitch || !g_state.hardware.hotWaterSwitch->isPressed()) {
-            return kHotWaterStopped;
-        }
-        return kHotWaterRunning;
-    });
-    
-    stateMachine.registerStateHandler(kHotWaterStopped, []() -> HotWaterState {
-        // Stopped state logic - return to idle
-        return kHotWaterIdle;
-    });
-    
-    return stateMachine;
-}
+// Removed createHotWaterStateMachine - specific implementations are now in individual handlers

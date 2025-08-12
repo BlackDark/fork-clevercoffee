@@ -446,7 +446,7 @@ void LoopManager::updateStateMachine() {
         LOG(WARNING, "StateMachine not available for state updates");
     }
 
-    hotWaterHandler();
+    checkHotWaterSwitch();
     // TODO: valveSafetyShutdownCheck() - requires brewHandler.h dependencies
 
     // Update brew timer display state using UIManager if available
