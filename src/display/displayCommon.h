@@ -10,9 +10,11 @@
 #include "../brewHandler.h"
 #include "../hotWaterHandler.h"
 #include "../network/CleverCoffeeWiFiManager.h"
+#include "../network/MQTTManager.h"
 #include "../state/GlobalState.h"
 #include "../utils/SystemUtils.h"
 #include "bitmaps.h"
+#include "IDisplay.h"
 #include "languages.h"
 #include <PID_v1.h>  // Required for PID methods in display templates
 #include <U8g2lib.h> // Required for U8G2 display methods
@@ -35,27 +37,27 @@ inline const u8g2_cb_t* getU8G2Rotation(const int rotationValue) {
 /**
  * @brief print error message for scales
  */
-inline void displayScaleFailed() {
+inline void displayScaleFailed(IDisplay* display) {
     if (Config::getInstance().displayTemplate.get() == System::DisplayTemplate::UPRIGHT) {
-        g_state.hardware.display->clearBuffer();
-        g_state.hardware.display->drawStr(0, 32, "Failed!");
-        g_state.hardware.display->drawStr(0, 42, "Scale");
-        g_state.hardware.display->drawStr(0, 52, "not");
-        g_state.hardware.display->drawStr(0, 62, "working...");
-        g_state.hardware.display->sendBuffer();
+        display->clearBuffer();
+        display->drawStr(0, 32, "Failed!");
+        display->drawStr(0, 42, "Scale");
+        display->drawStr(0, 52, "not");
+        display->drawStr(0, 62, "working...");
+        display->sendBuffer();
     }
     else {
-        g_state.hardware.display->clearBuffer();
-        g_state.hardware.display->drawStr(0, 32, "failed!");
-        g_state.hardware.display->drawStr(0, 42, "Scale not working..."); // scale timeout will most likely trigger after OTA update, but will still work after boot
-        g_state.hardware.display->sendBuffer();
+        display->clearBuffer();
+        display->drawStr(0, 32, "failed!");
+        display->drawStr(0, 42, "Scale not working..."); // scale timeout will most likely trigger after OTA update, but will still work after boot
+        display->sendBuffer();
     }
 }
 
 /**
  * @brief Draw the system uptime at the given coordinates
  */
-inline void displayUptime(const int x, const int y, const char* format) {
+inline void displayUptime(IDisplay* display, const int x, const int y, const char* format) {
     // Show uptime of machine
     unsigned long seconds = millis() / 1000;
     const unsigned long hours = seconds / 3600;
@@ -65,109 +67,113 @@ inline void displayUptime(const int x, const int y, const char* format) {
     char uptimeString[9];
     snprintf(uptimeString, sizeof(uptimeString), format, hours, minutes, seconds);
 
-    g_state.hardware.display->setFont(u8g2_font_profont11_tf);
-    g_state.hardware.display->drawStr(x, y, uptimeString);
+    display->setFont(u8g2_font_profont11_tf);
+    display->drawStr(x, y, uptimeString);
 }
 
 /**
  * @brief Draw a WiFi signal strength indicator at the given coordinates
  */
-inline void displayWiFiStatus(const int x, const int y) {
+inline void displayWiFiStatus(IDisplay* display, CleverCoffeeWiFiManager* wifiManager, int wifiReconnects, const int x, const int y) {
     if (WiFi.status() == WL_CONNECTED) {
-        g_state.hardware.display->drawXBMP(x, y, 8, 8, Antenna_OK_Icon);
+        display->drawXBMP(x, y, 8, 8, Antenna_OK_Icon);
 
-        for (int b = 0; b <= g_state.network.cleverCoffeeWiFiManager->getSignalStrength(); b++) {
-            g_state.hardware.display->drawVLine(x + 5 + b * 2, y + 8 - b * 2, b * 2);
+        if (wifiManager) {
+            for (int b = 0; b <= wifiManager->getSignalStrength(); b++) {
+                display->drawVLine(x + 5 + b * 2, y + 8 - b * 2, b * 2);
+            }
         }
     }
     else {
-        g_state.hardware.display->drawXBMP(x, y, 8, 8, Antenna_NOK_Icon);
+        display->drawXBMP(x, y, 8, 8, Antenna_NOK_Icon);
 
         if (Config::getInstance().displayTemplate.get() == System::DisplayTemplate::UPRIGHT) {
-            g_state.hardware.display->setCursor(x + 12, y - 1);
+            display->setCursor(x + 12, y - 1);
         }
         else {
-            g_state.hardware.display->setCursor(x + 36, y - 1);
+            display->setCursor(x + 36, y - 1);
         }
 
-        g_state.hardware.display->setFont(u8g2_font_profont11_tf);
-        g_state.hardware.display->print("RC: ");
-        g_state.hardware.display->print(g_state.network.wifiReconnects);
+        display->setFont(u8g2_font_profont11_tf);
+        display->print("RC: ");
+        display->print(wifiReconnects);
     }
 }
 
 /**
  * @brief Draw an MQTT status indicator at the given coordinates if MQTT is enabled
  */
-inline void displayMQTTStatus(const int x, const int y) {
-    if (Config::getInstance().mqttEnabled.get()) {
-        if (g_state.network.mqttManager && g_state.network.mqttManager->isConnected()) {
-            g_state.hardware.display->setCursor(x, y);
-            g_state.hardware.display->setFont(u8g2_font_profont11_tf);
-            g_state.hardware.display->print("MQTT");
-
-            if (g_state.network.cleverCoffeeWiFiManager->getSignalStrength() <= 1) {
-                g_state.hardware.display->print("!");
-            }
+inline void displayMQTTStatus(IDisplay* display, MQTTManager* mqttManager, CleverCoffeeWiFiManager* wifiManager, const int x, const int y) {
+    if (!Config::getInstance().mqttEnabled.get()) {
+        return;
+    }
+    
+    if (mqttManager && mqttManager->isConnected()) {
+        display->setCursor(x, y);
+        display->setFont(u8g2_font_profont11_tf);
+        display->print("MQTT");
+        
+        if (wifiManager && wifiManager->getSignalStrength() <= 1) {
+            display->print("!");
         }
-        else {
-            g_state.hardware.display->setCursor(x, y);
-            g_state.hardware.display->print("");
-        }
+    }
+    else {
+        display->setCursor(x, y);
+        display->print("");
     }
 }
 
 /**
  * @brief Draw the outline of a thermometer for use in conjunction with the drawTemperaturebar method
  */
-inline void displayThermometerOutline(const int x, const int y) {
-    g_state.hardware.display->drawLine(x + 3, y - 9, x + 3, y - 42);
-    g_state.hardware.display->drawLine(x + 9, y - 9, x + 9, y - 42);
-    g_state.hardware.display->drawPixel(x + 4, y - 43);
-    g_state.hardware.display->drawPixel(x + 8, y - 43);
-    g_state.hardware.display->drawLine(x + 5, y - 44, x + 7, y - 44);
-    g_state.hardware.display->drawDisc(x + 6, y - 5, 6);
+inline void displayThermometerOutline(IDisplay* display, double setpoint, const int x, const int y) {
+    display->drawLine(x + 3, y - 9, x + 3, y - 42);
+    display->drawLine(x + 9, y - 9, x + 9, y - 42);
+    display->drawPixel(x + 4, y - 43);
+    display->drawPixel(x + 8, y - 43);
+    display->drawLine(x + 5, y - 44, x + 7, y - 44);
+    display->drawDisc(x + 6, y - 5, 6);
 
     // draw setpoint line
-    const int height = map(static_cast<int>(g_state.process.setpoint), 0, 100, y - 9, y - 39);
-    g_state.hardware.display->drawLine(x + 11, height, x + 16, height);
+    const int height = map(static_cast<int>(setpoint), 0, 100, y - 9, y - 39);
+    display->drawLine(x + 11, height, x + 16, height);
 }
 
 /**
  * @brief Draw temperature bar, e.g. inside the thermometer outline.
  *        Add 4 pixels to the x-coordinate and subtract 12 pixels from the y-coordinate of the thermometer.
  */
-inline void drawTemperaturebar(const int x, const int heightRange) {
+inline void drawTemperaturebar(IDisplay* display, double temperature, const int x, const int heightRange) {
     const int width = x + 5;
 
     for (int i = x; i < width; i++) {
-        const int height = map(static_cast<int>(g_state.process.temperature), 0, 100, 0, heightRange);
-        g_state.hardware.display->drawVLine(i, 52 - height, height);
+        const int height = map(static_cast<int>(temperature), 0, 100, 0, heightRange);
+        display->drawVLine(i, 52 - height, height);
     }
 
-    if (g_state.process.temperature > 100) {
-        g_state.hardware.display->drawLine(x, heightRange - 11, x + 3, heightRange - 11);
-        g_state.hardware.display->drawLine(x, heightRange - 10, x + 4, heightRange - 10);
-        g_state.hardware.display->drawLine(x, heightRange - 9, x + 4, heightRange - 9);
+    if (temperature > 100) {
+        display->drawLine(x, heightRange - 11, x + 3, heightRange - 11);
+        display->drawLine(x, heightRange - 10, x + 4, heightRange - 10);
+        display->drawLine(x, heightRange - 9, x + 4, heightRange - 9);
     }
 }
 
 /**
  * @brief Draw the temperature in big font at given position
  */
-inline void displayTemperature(const int x, const int y) {
-    g_state.hardware.display->setFont(u8g2_font_fub30_tf);
+inline void displayTemperature(IDisplay* display, double temperature, const int x, const int y) {
+    display->setFont(u8g2_font_fub30_tf);
 
-    if (g_state.process.temperature < 99.499) {
-        g_state.hardware.display->setCursor(x + 20, y);
-        g_state.hardware.display->print(g_state.process.temperature, 0);
+    if (temperature < 99.499) {
+        display->setCursor(x + 20, y);
+        display->print(temperature, 0);
     }
     else {
-        g_state.hardware.display->setCursor(x, y);
-        g_state.hardware.display->print(g_state.process.temperature, 0);
+        display->setCursor(x, y);
+        display->print(temperature, 0);
     }
 
-    g_state.hardware.display->drawCircle(x + 72, y + 4, 3);
+    display->drawCircle(x + 72, y + 4, 3);
 }
 
 /**
@@ -753,23 +759,23 @@ inline bool displayMachineState() {
 /**
  * @brief Set appropriate font for current display template
  */
-inline void setDisplayFont() {
+inline void setDisplayFont(IDisplay* display) {
     if (Config::getInstance().displayTemplate.get() == System::DisplayTemplate::UPRIGHT) {
-        g_state.hardware.display->setFont(u8g2_font_profont10_tf);
+        display->setFont(u8g2_font_profont10_tf);
     }
     else {
-        g_state.hardware.display->setFont(u8g2_font_profont11_tf);
+        display->setFont(u8g2_font_profont11_tf);
     }
 }
 
 /**
  * @brief Check if a word fits on the current line
  */
-inline bool wordFitsOnLine(const char* line, const char* word, int displayWidth) {
+inline bool wordFitsOnLine(IDisplay* display, const char* line, const char* word, int displayWidth) {
     constexpr size_t MAX_TEST_LINE = MESSAGE_BUFFER_SIZE;
     char testLine[MAX_TEST_LINE];
     snprintf(testLine, MAX_TEST_LINE, "%s%s", line, word);
-    return g_state.hardware.display->getUTF8Width(testLine) <= displayWidth;
+    return display->getUTF8Width(testLine) <= displayWidth;
 }
 
 /**
@@ -787,8 +793,8 @@ inline void addWordToLine(char* line, size_t& lineLen, const char* word, size_t 
 /**
  * @brief Draw line and move to next line
  */
-inline void drawLineAndAdvance(const char* line, int x, int& y, int lineHeight) {
-    g_state.hardware.display->drawUTF8(x, y, line);
+inline void drawLineAndAdvance(IDisplay* display, const char* line, int x, int& y, int lineHeight) {
+    display->drawUTF8(x, y, line);
     y += lineHeight;
 }
 
@@ -800,13 +806,13 @@ inline void startNewLineWithWord(char* line, size_t& lineLen, const char* word, 
     lineLen = strlen(line);
 }
 
-inline void displayWrappedMessage(const char* message) {
-    g_state.hardware.display->clearBuffer();
-    setDisplayFont();
+inline void displayWrappedMessage(IDisplay* display, const char* message) {
+    display->clearBuffer();
+    setDisplayFont(display);
 
-    const int lineHeight = g_state.hardware.display->getMaxCharHeight() + 2;
-    const int displayWidth = g_state.hardware.display->getDisplayWidth();
-    const int displayHeight = g_state.hardware.display->getDisplayHeight();
+    const int lineHeight = display->getMaxCharHeight() + 2;
+    const int displayWidth = display->getDisplayWidth();
+    const int displayHeight = display->getDisplayHeight();
 
     int x = 0;
     int y = 0;
@@ -828,9 +834,9 @@ inline void displayWrappedMessage(const char* message) {
         if (c == ' ' || c == '\n' || c == '\0') {
             word[wordIdx] = '\0';
             
-            if (!wordFitsOnLine(line, word, displayWidth) && lineLen > 0) {
+            if (!wordFitsOnLine(display, line, word, displayWidth) && lineLen > 0) {
                 // Draw current line and start new line with word
-                drawLineAndAdvance(line, x, y, lineHeight);
+                drawLineAndAdvance(display, line, x, y, lineHeight);
                 startNewLineWithWord(line, lineLen, word, MAX_LINE_LEN);
                 wordCount = 1;
             }
@@ -843,7 +849,7 @@ inline void displayWrappedMessage(const char* message) {
             wordIdx = 0;
 
             if (c == '\n') {
-                drawLineAndAdvance(line, x, y, lineHeight);
+                drawLineAndAdvance(display, line, x, y, lineHeight);
                 line[0] = '\0';
                 lineLen = 0;
                 wordCount = 0;
@@ -856,8 +862,8 @@ inline void displayWrappedMessage(const char* message) {
 
     // Draw final line if it has content and fits
     if (lineLen > 0 && y + lineHeight <= displayHeight) {
-        g_state.hardware.display->drawUTF8(x, y, line);
+        display->drawUTF8(x, y, line);
     }
 
-    g_state.hardware.display->sendBuffer();
+    display->sendBuffer();
 }

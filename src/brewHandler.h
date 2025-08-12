@@ -26,10 +26,24 @@
 bool isPowerSwitchOperationAllowed();
 
 /**
+ * @brief True if in an intermediate brew state, false if idle or finished (injected version)
+ */
+inline bool isBrewStateActive(BrewState brewState) {
+    return (brewState != kBrewIdle && brewState != kBrewFinished);
+}
+
+/**
  * @brief True if in an intermediate brew state, false if idle or finished
  */
 inline bool checkBrewActive() {
-    return (g_state.sensors.currBrewState != kBrewIdle && g_state.sensors.currBrewState != kBrewFinished); // removed && !(g_state.machine.machineState >= kEmergencyStop)
+    return (g_state.sensors.currBrewState != kBrewIdle && g_state.sensors.currBrewState != kBrewFinished);
+}
+
+/**
+ * @brief True if in a machine state related to brew or flush, false if in other states (injected version)
+ */
+inline bool isMachineStateBrewRelated(LegacyMachineState machineState) {
+    return (machineState == LegacyMachineState::kEmergencyStop || machineState == LegacyMachineState::kBackflush || machineState == LegacyMachineState::kManualFlush);
 }
 
 /**
@@ -37,6 +51,18 @@ inline bool checkBrewActive() {
  */
 inline bool checkBrewStates() {
     return (g_state.machine.machineState == LegacyMachineState::kEmergencyStop || g_state.machine.machineState == LegacyMachineState::kBackflush || g_state.machine.machineState == LegacyMachineState::kManualFlush);
+}
+
+/**
+ * @brief turns off valve if not in an active brew state or if machine state changes away from one related to brewing or flushing (injected version)
+ */
+inline void performValveSafetyShutdown(BrewState& brewState, LegacyMachineState machineState, Relay* valveRelay) {
+    if (!isBrewStateActive(brewState) && !isMachineStateBrewRelated(machineState)) {
+        brewState = kBrewIdle; // reset state to idle if not in an active brew/flush state
+        if (valveRelay) {
+            valveRelay->off();
+        }
+    }
 }
 
 /**
