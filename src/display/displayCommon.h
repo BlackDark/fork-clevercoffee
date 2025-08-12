@@ -567,11 +567,11 @@ inline bool displayFullscreenHotWaterTimer() {
 
         if (Config::getInstance().displayTemplate.get() == System::DisplayTemplate::UPRIGHT) {
             g_state.hardware.display->drawXBMP(12, 12, Hot_Water_Logo_width, Hot_Water_Logo_height, Hot_Water_Logo);
-            displayBrewtimeFs(1, 80, currPumpOnTime);
+            displayBrewtimeFs(1, 80, g_state.sensors.currPumpOnTime);
         }
         else {
             g_state.hardware.display->drawXBMP(0, 12, Hot_Water_Logo_width, Hot_Water_Logo_height, Hot_Water_Logo);
-            displayBrewtimeFs(48, 25, currPumpOnTime);
+            displayBrewtimeFs(48, 25, g_state.sensors.currPumpOnTime);
         }
 
         g_state.coordination.displayBufferReady = true;

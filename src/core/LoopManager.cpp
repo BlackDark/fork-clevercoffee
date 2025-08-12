@@ -41,10 +41,11 @@ extern void enableTimer1();
 // WebSocket functions are now available via WebSocketEvents.h
 // No stubs needed - real functionality restored
 
-LoopManager::LoopManager(ProcessController* processController, SensorManager* sensorManager, UIManager* uiManager) :
+LoopManager::LoopManager(ProcessController* processController, SensorManager* sensorManager, UIManager* uiManager, HotWaterHandler* hotWaterHandler) :
     processController_(processController),
     sensorManager_(sensorManager),
     uiManager_(uiManager),
+    hotWaterHandler_(hotWaterHandler),
     initialized_(false),
     waterTankTimerInitialized_(false),
     performanceMonitoringEnabled_(false),
@@ -446,7 +447,10 @@ void LoopManager::updateStateMachine() {
         LOG(WARNING, "StateMachine not available for state updates");
     }
 
-    checkHotWaterSwitch();
+    // Update hot water handler if available
+    if (hotWaterHandler_) {
+        hotWaterHandler_->process();
+    }
     // TODO: valveSafetyShutdownCheck() - requires brewHandler.h dependencies
 
     // Update brew timer display state using UIManager if available

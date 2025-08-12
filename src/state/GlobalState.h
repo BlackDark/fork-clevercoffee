@@ -251,6 +251,14 @@ struct SensorState {
         uint8_t currReadingBrewSwitch = LOW;
         bool brewSwitchWasOff = false;
 
+        // hotWaterHandler
+        HotWaterSwitchState currHotWaterSwitchState = kHotWaterSwitchIdle;
+        HotWaterState currHotWaterState = kHotWaterIdle;
+        uint8_t hotWaterSwitchReading = LOW;
+        uint8_t currReadingHotWaterSwitch = LOW;
+        double currPumpOnTime = 0.0;
+        unsigned long pumpStartingTime = 0;
+
         // water
         int waterTankCheckConsecutiveReads = 0; // Counter for consecutive readings of water tank sensor
 };

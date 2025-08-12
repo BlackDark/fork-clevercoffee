@@ -32,3 +32,17 @@ enum BackflushState {
     kBackflushFlushing = 30,
     kBackflushFinished = 40
 };
+
+enum HotWaterSwitchState {
+    kHotWaterSwitchIdle = 10,
+    kHotWaterSwitchPressed = 20,
+    kHotWaterSwitchShortPressed = 30,
+    kHotWaterSwitchLongPressed = 40,
+    kHotWaterSwitchWaitForRelease = 50
+};
+
+enum HotWaterState {
+    kHotWaterIdle = 10,
+    kHotWaterRunning = 20,
+    kHotWaterStopped = 30,
+};

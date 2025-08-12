@@ -10,22 +10,7 @@
 #include "handlers/HandlerUtils.h"
 #include "Config.h"
 #include "state/MachineState.h"
-
-// Hot water states
-enum HotWaterState {
-    kHotWaterIdle = 10,
-    kHotWaterRunning = 20,
-    kHotWaterStopped = 30,
-};
-
-// Switch states  
-enum HotWaterSwitchState {
-    kHotWaterSwitchIdle = 10,
-    kHotWaterSwitchPressed = 20,
-    kHotWaterSwitchShortPressed = 30,
-    kHotWaterSwitchLongPressed = 40,
-    kHotWaterSwitchWaitForRelease = 50
-};
+#include "brewStates.h"
 
 /**
  * @class HotWaterHandler  
@@ -35,24 +20,19 @@ class HotWaterHandler : public SwitchBasedHandler {
 private:
     StateMachineHandler<HotWaterState> stateMachine_;
     HandlerUtils::PumpTimer pumpTimer_;
-    HotWaterState currentHotWaterState_;
-    HotWaterSwitchState currentSwitchState_;
-    uint8_t lastSwitchReading_;
+    uint8_t lastSwitchReading_ = LOW;
     
 public:
     HotWaterHandler() 
         : SwitchBasedHandler("HotWaterHandler", g_state.hardware.hotWaterSwitch)
-        , stateMachine_(currentHotWaterState_)
-        , pumpTimer_(60000) // 60 second max run time
-        , currentHotWaterState_(kHotWaterIdle)
-        , currentSwitchState_(kHotWaterSwitchIdle)
-        , lastSwitchReading_(LOW) {
+        , stateMachine_(g_state.sensors.currHotWaterState)
+        , pumpTimer_(60000) { // 60 second max run time
         
         initializeStateMachine();
     }
     
     bool isHotWaterActive() const {
-        return currentHotWaterState_ == kHotWaterRunning;
+        return g_state.sensors.currHotWaterState == kHotWaterRunning;
     }
     
     bool checkHotWaterStates() const {
@@ -62,6 +42,10 @@ public:
     bool checkHotWaterActive() const {
         return (g_state.machine.machineState == LegacyMachineState::kHotWater || 
                 (g_state.machine.machineState == LegacyMachineState::kSteam && isHotWaterActive()));
+    }
+    
+    double getCurrentPumpOnTime() const {
+        return g_state.sensors.currPumpOnTime;
     }
     
 protected:
@@ -102,7 +86,7 @@ private:
     void initializeStateMachine() {
         // Idle state
         stateMachine_.registerStateHandler(kHotWaterIdle, [this]() -> HotWaterState {
-            if (currentSwitchState_ == kHotWaterSwitchShortPressed) {
+            if (g_state.sensors.currHotWaterSwitchState == kHotWaterSwitchShortPressed) {
                 startHotWater();
                 return kHotWaterRunning;
             }
@@ -142,60 +126,60 @@ private:
     }
     
     void processToggleSwitchState(uint8_t reading) {
-        switch (currentSwitchState_) {
+        switch (g_state.sensors.currHotWaterSwitchState) {
             case kHotWaterSwitchIdle:
                 if (reading == HIGH) {
-                    currentSwitchState_ = kHotWaterSwitchShortPressed;
+                    g_state.sensors.currHotWaterSwitchState = kHotWaterSwitchShortPressed;
                     logDebug("Toggle switch ON -> ShortPressed");
                 }
                 break;
                 
             case kHotWaterSwitchShortPressed:
                 if (reading == LOW) {
-                    currentSwitchState_ = kHotWaterSwitchIdle;
+                    g_state.sensors.currHotWaterSwitchState = kHotWaterSwitchIdle;
                     logDebug("Toggle switch OFF -> Idle");
-                } else if (currentHotWaterState_ == kHotWaterStopped) {
-                    currentSwitchState_ = kHotWaterSwitchWaitForRelease;
+                } else if (g_state.sensors.currHotWaterState == kHotWaterStopped) {
+                    g_state.sensors.currHotWaterSwitchState = kHotWaterSwitchWaitForRelease;
                     logDebug("Hot water stopped -> WaitForRelease");
                 }
                 break;
                 
             case kHotWaterSwitchWaitForRelease:
                 if (reading == LOW) {
-                    currentSwitchState_ = kHotWaterSwitchIdle;
+                    g_state.sensors.currHotWaterSwitchState = kHotWaterSwitchIdle;
                     logDebug("Switch released -> Idle");
                 }
                 break;
                 
             default:
-                currentSwitchState_ = kHotWaterSwitchIdle;
+                g_state.sensors.currHotWaterSwitchState = kHotWaterSwitchIdle;
                 break;
         }
     }
     
     void processMomentarySwitchState(uint8_t reading) {
-        switch (currentSwitchState_) {
+        switch (g_state.sensors.currHotWaterSwitchState) {
             case kHotWaterSwitchIdle:
                 if (reading == HIGH && lastSwitchReading_ == LOW) {
-                    currentSwitchState_ = kHotWaterSwitchPressed;
+                    g_state.sensors.currHotWaterSwitchState = kHotWaterSwitchPressed;
                     logDebug("Momentary press detected");
                 }
                 break;
                 
             case kHotWaterSwitchPressed:
                 if (reading == LOW) {
-                    currentSwitchState_ = kHotWaterSwitchShortPressed;
+                    g_state.sensors.currHotWaterSwitchState = kHotWaterSwitchShortPressed;
                     logDebug("Short press confirmed");
                 }
                 break;
                 
             case kHotWaterSwitchShortPressed:
                 // Action handled by state machine
-                currentSwitchState_ = kHotWaterSwitchIdle;
+                g_state.sensors.currHotWaterSwitchState = kHotWaterSwitchIdle;
                 break;
                 
             default:
-                currentSwitchState_ = kHotWaterSwitchIdle;
+                g_state.sensors.currHotWaterSwitchState = kHotWaterSwitchIdle;
                 break;
         }
     }
@@ -214,7 +198,7 @@ private:
     
     bool shouldStopHotWater() const {
         // Stop conditions
-        if (currentSwitchState_ == kHotWaterSwitchIdle && 
+        if (g_state.sensors.currHotWaterSwitchState == kHotWaterSwitchIdle && 
             static_cast<int>(Config::getInstance().hardwareSwitchesHotWaterType.get()) == Switch::TOGGLE) {
             return true;
         }
@@ -228,32 +212,3 @@ private:
         return false;
     }
 };
-
-// Global instance and compatibility variables
-inline HotWaterHandler g_hotWaterHandler;
-
-// Legacy compatibility variables
-inline HotWaterSwitchState currHotWaterSwitchState = kHotWaterSwitchIdle;
-inline HotWaterState currHotWaterState = kHotWaterIdle;
-inline uint8_t hotWaterSwitchReading = LOW;
-inline uint8_t currReadingHotWaterSwitch = LOW;
-inline double currPumpOnTime = 0;
-inline unsigned long pumpStartingTime = 0;
-
-// Public interface functions
-inline void checkHotWaterSwitch() {
-    g_hotWaterHandler.process();
-}
-
-inline bool checkHotWaterStates() {
-    return g_hotWaterHandler.checkHotWaterStates();
-}
-
-inline bool checkHotWaterActive() {
-    return g_hotWaterHandler.checkHotWaterActive();
-}
-
-inline void debugHotWaterState(String state) {
-    // Modern handlers use structured logging instead
-    LOGF(DEBUG, "[HotWaterHandler] State: %s", state.c_str());
-}

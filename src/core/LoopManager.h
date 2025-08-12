@@ -13,6 +13,7 @@
 class ProcessController;
 class SensorManager;
 class UIManager;
+class HotWaterHandler;
 
 /**
  * @class LoopManager
@@ -37,8 +38,9 @@ class LoopManager {
          * @param processController Process control manager (optional)
          * @param sensorManager Sensor management system (optional)
          * @param uiManager UI management system (optional)
+         * @param hotWaterHandler Hot water handler (optional)
          */
-        explicit LoopManager(ProcessController* processController = nullptr, SensorManager* sensorManager = nullptr, UIManager* uiManager = nullptr);
+        explicit LoopManager(ProcessController* processController = nullptr, SensorManager* sensorManager = nullptr, UIManager* uiManager = nullptr, HotWaterHandler* hotWaterHandler = nullptr);
 
         /**
          * @brief Destructor
@@ -176,6 +178,14 @@ class LoopManager {
         }
 
         /**
+         * @brief Set the hot water handler
+         * @param handler Hot water handler instance
+         */
+        void setHotWaterHandler(HotWaterHandler* handler) {
+            hotWaterHandler_ = handler;
+        }
+
+        /**
          * @brief Get loop performance statistics
          * @return true if performance data is available
          */
@@ -203,6 +213,7 @@ class LoopManager {
         ProcessController* processController_;
         SensorManager* sensorManager_;
         UIManager* uiManager_;
+        HotWaterHandler* hotWaterHandler_;
 
         // Initialization state
         bool initialized_;

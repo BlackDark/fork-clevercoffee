@@ -138,7 +138,7 @@ public:
         else if (g_state.machine.machineState == kHotWater) {
             displayBrewTime(coords.brewX, coords.brewY,
                            derived->getHotWaterLabel(),
-                           currPumpOnTime);
+                           g_state.sensors.currPumpOnTime);
         }
         else if (shouldDisplayBrewTimer()) {
             const bool isAutomatic = Config::getInstance().brewMode.get() == Process::BrewMode::AUTOMATIC_BREW;
