@@ -19,7 +19,7 @@ inline void handleBrewStart() {
         return;
     }
 
-    if (g_state.sensors.currBrewState == MachineStateId::BREW_IDLE) {
+    if (g_state.machine.machineState == MachineStateId::BREW_IDLE) {
         // Trigger brew start by setting the brew switch state
         g_state.sensors.currBrewSwitchState = SwitchState::SHORT_PRESSED;
         g_state.sensors.brewSwitchWasOff = true;
@@ -39,10 +39,10 @@ inline void handleBrewStop() {
         return;
     }
 
-    if (g_state.sensors.currBrewState != MachineStateId::BREW_IDLE && g_state.sensors.currBrewState != MachineStateId::BREW_FINISHED) {
+    if (isBrewState(g_state.machine.machineState) && g_state.machine.machineState != MachineStateId::BREW_IDLE && g_state.machine.machineState != MachineStateId::BREW_FINISHED) {
         // Stop brew by resetting brew switch state
         g_state.sensors.currBrewSwitchState = SwitchState::IDLE;
-        g_state.sensors.currBrewState = MachineStateId::BREW_FINISHED;
+        g_state.machine.machineState = MachineStateId::BREW_FINISHED;
         LOG(INFO, "Brew stopped via web API");
     }
     else {
@@ -81,8 +81,8 @@ inline void handleSteamStop() {
  */
 inline void handleHotWaterStart() {
     // Set machine state to hot water mode
-    // Set hot water state instead of main machine state
-    g_state.sensors.currHotWaterState = MachineStateId::HOT_WATER_RUNNING;
+    // Set machine state to hot water mode
+    g_state.machine.machineState = MachineStateId::HOT_WATER_RUNNING;
     LOG(INFO, "Hot water mode started via web API");
 }
 
@@ -91,8 +91,8 @@ inline void handleHotWaterStart() {
  */
 inline void handleHotWaterStop() {
     // Return to normal PID mode if in hot water mode
-    if (g_state.sensors.currHotWaterState == MachineStateId::HOT_WATER_RUNNING) {
-        g_state.sensors.currHotWaterState = MachineStateId::HOT_WATER_IDLE;
+    if (g_state.machine.machineState == MachineStateId::HOT_WATER_RUNNING) {
+        g_state.machine.machineState = MachineStateId::HOT_WATER_IDLE;
         LOG(INFO, "Hot water mode stopped via web API");
     }
     else {

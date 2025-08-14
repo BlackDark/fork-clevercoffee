@@ -41,7 +41,7 @@ inline void checkBluetoothScaleConnection() {
                 LOG(WARNING, "Bluetooth scale connection lost");
 
                 // During active brew, activate fallback mechanism
-                if (g_state.sensors.currBrewState != MachineStateId::BREW_IDLE && g_state.sensors.currBrewState != MachineStateId::BREW_FINISHED) {
+                if (isBrewState(g_state.machine.machineState) && g_state.machine.machineState != MachineStateId::BREW_IDLE && g_state.machine.machineState != MachineStateId::BREW_FINISHED) {
                     const bool brewByWeightEnabled = Config::getInstance().brewByWeightEnabled.get();
                     const bool brewByTimeEnabled = Config::getInstance().brewByTimeEnabled.get();
 
@@ -51,7 +51,7 @@ inline void checkBluetoothScaleConnection() {
                     }
                     else if (brewByWeightEnabled) {
                         LOG(WARNING, "BLE Scale connection lost during brew-by-weight only mode, stopping brew");
-                        g_state.sensors.currBrewState = MachineStateId::BREW_FINISHED;
+                        g_state.machine.machineState = MachineStateId::BREW_FINISHED;
                     }
                 }
             }
@@ -227,7 +227,7 @@ void initScale();
 inline void shotTimerScale() {
     switch (g_state.sensors.shottimerCounter) {
         case 10: // waiting step for brew switch turning on
-            if (g_state.sensors.currBrewState != MachineStateId::BREW_IDLE) {
+            if (g_state.machine.machineState != MachineStateId::BREW_IDLE) {
                 // For Bluetooth scales with auto-tare, wait a bit before capturing pre-brew weight
                 if (g_state.hardware.isBluetoothScale && g_state.sensors.autoTareInProgress) {
                     // Wait at least 2 seconds for Bluetooth tare to complete
@@ -249,7 +249,7 @@ inline void shotTimerScale() {
         case 20:
             g_state.sensors.currBrewWeight = g_state.sensors.currReadingWeight - g_state.sensors.preBrewWeight;
 
-            if (g_state.sensors.currBrewState == MachineStateId::BREW_IDLE) {
+            if (g_state.machine.machineState == MachineStateId::BREW_IDLE) {
                 g_state.sensors.shottimerCounter = 10;
 
                 // Reset fallback state when brew ends

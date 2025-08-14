@@ -327,10 +327,10 @@ void LoopManager::updateNetwork() {
 
                 // resend discovery messages if not during a main function and MQTT has been disconnected but has now reconnected
                 // Check if machine is not in active operational states
-                bool isOperational = (g_state.sensors.currBrewState != MachineStateId::BREW_IDLE || 
-                                    g_state.sensors.currHotWaterState != MachineStateId::HOT_WATER_IDLE ||
-                                    g_state.sensors.currManualFlushState != MachineStateId::MANUAL_FLUSH_IDLE ||
-                                    g_state.sensors.currBackflushState != MachineStateId::BACKFLUSH_IDLE);
+                bool isOperational = (isBrewState(g_state.machine.machineState) && g_state.machine.machineState != MachineStateId::BREW_IDLE) ||
+                                   isHotWaterState(g_state.machine.machineState) && g_state.machine.machineState != MachineStateId::HOT_WATER_IDLE ||
+                                   isManualFlushState(g_state.machine.machineState) && g_state.machine.machineState != MachineStateId::MANUAL_FLUSH_IDLE ||
+                                   isBackflushState(g_state.machine.machineState) && g_state.machine.machineState != MachineStateId::BACKFLUSH_IDLE;
                 if (!isOperational &&
                     ((!g_state.network.mqttManager->wasConnected() || g_state.network.hassioFailed) && !g_state.coordination.displayBufferReady && !g_state.coordination.temperatureUpdateRunning)) {
                     if (g_state.timing.hassioDiscoveryTimer) (*g_state.timing.hassioDiscoveryTimer)();

@@ -240,16 +240,12 @@ struct SensorState {
         bool trackingPressTime = false;
 
         SwitchState currBrewSwitchState = SwitchState::IDLE;
-        MachineStateId currBrewState = MachineStateId::BREW_IDLE;
-        MachineStateId currManualFlushState = MachineStateId::MANUAL_FLUSH_IDLE;
-        MachineStateId currBackflushState = MachineStateId::BACKFLUSH_IDLE;
 
         uint8_t brewSwitchReading = LOW;
         uint8_t currReadingBrewSwitch = LOW;
         bool brewSwitchWasOff = false;
 
         SwitchState currHotWaterSwitchState = SwitchState::IDLE;
-        MachineStateId currHotWaterState = MachineStateId::HOT_WATER_IDLE;
         uint8_t hotWaterSwitchReading = LOW;
         uint8_t currReadingHotWaterSwitch = LOW;
         double currPumpOnTime = 0.0;

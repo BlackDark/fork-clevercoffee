@@ -28,7 +28,7 @@ public:
     }
     
     bool isHotWaterActive() const {
-        return g_state.sensors.currHotWaterState == MachineStateId::HOT_WATER_RUNNING;
+        return g_state.machine.machineState == MachineStateId::HOT_WATER_RUNNING;
     }
     
 protected:
@@ -80,7 +80,7 @@ private:
     void checkPumpTimeout() {
         if (pumpTimer_.isExpired() && isHotWaterActive()) {
             logError("Hot water pump timeout - stopping for safety");
-            g_state.sensors.currHotWaterState = MachineStateId::HOT_WATER_STOPPED;
+            g_state.machine.machineState = MachineStateId::HOT_WATER_STOPPED;
         }
     }
 };

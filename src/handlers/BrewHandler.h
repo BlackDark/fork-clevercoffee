@@ -32,8 +32,9 @@ public:
     }
     
     bool isBrewActive() const {
-        return (g_state.sensors.currBrewState != MachineStateId::BREW_IDLE && 
-                g_state.sensors.currBrewState != MachineStateId::BREW_FINISHED);
+        return (isBrewState(g_state.machine.machineState) && 
+                g_state.machine.machineState != MachineStateId::BREW_IDLE && 
+                g_state.machine.machineState != MachineStateId::BREW_FINISHED);
     }
     
     void valveSafetyShutdownCheck() {
@@ -58,7 +59,7 @@ protected:
         }
         
         // Check if hot water is active (detailed state check)
-        if (g_state.sensors.currHotWaterState == MachineStateId::HOT_WATER_RUNNING) {
+        if (g_state.machine.machineState == MachineStateId::HOT_WATER_RUNNING) {
             return false;
         }
         
@@ -100,7 +101,7 @@ private:
     void checkPumpTimeout() {
         if (pumpTimer_.isExpired() && isBrewActive()) {
             logError("Pump timeout - stopping for safety");
-            g_state.sensors.currBrewState = MachineStateId::BREW_FINISHED;
+            g_state.machine.machineState = MachineStateId::BREW_FINISHED;
         }
     }
 };

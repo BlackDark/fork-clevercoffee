@@ -130,8 +130,8 @@ bool MachineStateContext::isBrewActive() const {
 }
 
 bool MachineStateContext::isManualFlushActive() const {
-    // Manual flush state is checked via brew handler
-    return g_state.sensors.currManualFlushState != MachineStateId::MANUAL_FLUSH_IDLE;
+    // Manual flush state is checked via machine state
+    return isManualFlushState(g_state.machine.machineState) && g_state.machine.machineState != MachineStateId::MANUAL_FLUSH_IDLE;
 }
 
 bool MachineStateContext::isSteamActive() const {
@@ -140,7 +140,7 @@ bool MachineStateContext::isSteamActive() const {
 
 bool MachineStateContext::isHotWaterActive() const {
     // Simplified implementation - check if machine is in hot water state
-    return (g_state.sensors.currHotWaterState == MachineStateId::HOT_WATER_RUNNING);
+    return (g_state.machine.machineState == MachineStateId::HOT_WATER_RUNNING);
 }
 
 bool MachineStateContext::isBackflushActive() const {

@@ -251,7 +251,7 @@ int MQTTManager::writeSysParamsToMQTT(bool continueOnError) {
 
     unsigned long currentMillisMQTT = millis();
     // Check if brewing is active (any non-idle brew state)
-    bool isBrewActive = (g_state.sensors.currBrewState != MachineStateId::BREW_IDLE);
+    bool isBrewActive = (isBrewState(g_state.machine.machineState) && g_state.machine.machineState != MachineStateId::BREW_IDLE);
     unsigned long interval = isBrewActive ? intervalMQTTBrew_ : (g_state.machine.machineState == MachineStateId::STANDBY) ? intervalMQTTStandby_ : intervalMQTT_;
 
     if ((currentMillisMQTT - previousMillisMQTT_ < interval) || !mqttEnabled_ || !mqttClient_.connected()) {

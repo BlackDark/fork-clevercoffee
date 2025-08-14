@@ -438,9 +438,9 @@ void ProcessController::performSafeShutdown() {
     }
 
     // Reset all brew-related states
-    if (g_state.sensors.currBrewState != MachineStateId::BREW_IDLE) {
+    if (isBrewState(g_state.machine.machineState) && g_state.machine.machineState != MachineStateId::BREW_IDLE) {
         LOG(INFO, "Stopping active brew during safe shutdown");
-        g_state.sensors.currBrewState = MachineStateId::BREW_IDLE;
+        g_state.machine.machineState = MachineStateId::BREW_IDLE;
         g_state.sensors.currBrewSwitchState = SwitchState::IDLE;
         g_state.process.currBrewTime = 0;
         g_state.process.startingTime = 0;
@@ -448,18 +448,18 @@ void ProcessController::performSafeShutdown() {
     }
 
     // Reset manual flush states
-    if (g_state.sensors.currManualFlushState != MachineStateId::MANUAL_FLUSH_IDLE) {
+    if (isManualFlushState(g_state.machine.machineState) && g_state.machine.machineState != MachineStateId::MANUAL_FLUSH_IDLE) {
         LOG(INFO, "Stopping manual group head flush during safe shutdown");
-        g_state.sensors.currManualFlushState = MachineStateId::MANUAL_FLUSH_IDLE;
+        g_state.machine.machineState = MachineStateId::MANUAL_FLUSH_IDLE;
         g_state.sensors.currBrewSwitchState = SwitchState::IDLE;
         g_state.process.currBrewTime = 0;
         g_state.process.startingTime = 0;
     }
 
     // Reset backflush state
-    if (g_state.sensors.currBackflushState != MachineStateId::BACKFLUSH_IDLE) {
+    if (isBackflushState(g_state.machine.machineState) && g_state.machine.machineState != MachineStateId::BACKFLUSH_IDLE) {
         LOG(INFO, "Stopping active backflush during safe shutdown");
-        g_state.sensors.currBackflushState = MachineStateId::BACKFLUSH_IDLE;
+        g_state.machine.machineState = MachineStateId::BACKFLUSH_IDLE;
         g_state.machine.currBackflushCycles = 1;
     }
 
