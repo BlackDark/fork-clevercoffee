@@ -7,10 +7,11 @@
 #pragma once
 
 #include "../Config.h"
-#include "../brewHandler.h"
-#include "../hotWaterHandler.h"
+#include "../handlers/BrewHandler.h"
+#include "../handlers/HotWaterHandler.h"
 #include "../network/CleverCoffeeWiFiManager.h"
 #include "../state/GlobalState.h"
+#include "../state/MachineStateIds.h"
 #include "../utils/SystemUtils.h"
 #include "bitmaps.h"
 #include "languages.h"
@@ -188,13 +189,13 @@ inline bool shouldDisplayBrewTimer() {
 
     switch (currBrewTimerState) {
         case kBrewTimerIdle:
-            if (checkBrewActive()) {
+            if (g_state.handlers.brewHandler && g_state.handlers.brewHandler->isBrewActive()) {
                 currBrewTimerState = kBrewTimerRunning;
             }
             break;
 
         case kBrewTimerRunning:
-            if (!checkBrewActive()) {
+            if (!g_state.handlers.brewHandler || !g_state.handlers.brewHandler->isBrewActive()) {
                 currBrewTimerState = kBrewTimerPostBrew;
                 brewEndTime = millis();
             }
@@ -536,7 +537,7 @@ inline bool displayFullscreenManualFlushTimer() {
         return false;
     }
 
-    if (g_state.machine.machineState == kManualFlush) {
+    if (isManualFlushState(g_state.machine.machineState) && g_state.machine.machineState == MachineStateId::MANUAL_FLUSH_RUNNING) {
         g_state.hardware.display->clearBuffer();
 
         if (Config::getInstance().displayTemplate.get() == System::DisplayTemplate::UPRIGHT) {
@@ -562,7 +563,7 @@ inline bool displayFullscreenHotWaterTimer() {
         return false;
     }
 
-    if (g_state.machine.machineState == kHotWater) {
+    if (isHotWaterState(g_state.machine.machineState) && g_state.machine.machineState == MachineStateId::HOT_WATER_RUNNING) {
         g_state.hardware.display->clearBuffer();
 
         if (Config::getInstance().displayTemplate.get() == System::DisplayTemplate::UPRIGHT) {
@@ -604,7 +605,7 @@ inline bool displayMachineState() {
     }
 
     // Show the heating logo when we are in regular PID mode and more than 5degC below the set point
-    if (Config::getInstance().displayHeatingLogo.get() > 0 && (g_state.machine.machineState == kPidNormal || g_state.machine.machineState == kSteam) && g_state.process.setpoint - g_state.process.temperature > 5.) {
+    if (Config::getInstance().displayHeatingLogo.get() > 0 && (g_state.machine.machineState == MachineStateId::PID_NORMAL) && g_state.process.setpoint - g_state.process.temperature > 5.) {
         // For status info
         g_state.hardware.display->clearBuffer();
 
@@ -621,7 +622,7 @@ inline bool displayMachineState() {
     }
 
     // Offline logo
-    if (Config::getInstance().displayPidOffLogo.get() == 1 && g_state.machine.machineState == kPidDisabled) {
+    if (Config::getInstance().displayPidOffLogo.get() == 1 && g_state.machine.machineState == MachineStateId::PID_DISABLED) {
         g_state.hardware.display->clearBuffer();
         g_state.hardware.display->drawXBMP(38, 0, Off_Logo_width, Off_Logo_height, Off_Logo);
         g_state.hardware.display->setCursor(0, 55);
@@ -631,7 +632,7 @@ inline bool displayMachineState() {
         return true;
     }
 
-    if (Config::getInstance().displayPidOffLogo.get() == 1 && g_state.machine.machineState == kStandby) {
+    if (Config::getInstance().displayPidOffLogo.get() == 1 && g_state.machine.machineState == MachineStateId::STANDBY) {
         g_state.hardware.display->clearBuffer();
         g_state.hardware.display->drawXBMP(38, 0, Off_Logo_width, Off_Logo_height, Off_Logo);
         g_state.hardware.display->setCursor(36, 55);
@@ -642,7 +643,7 @@ inline bool displayMachineState() {
     }
 
     // Steam
-    if (g_state.machine.machineState == kSteam) {
+    if (isSteamState(g_state.machine.machineState)) {
         g_state.hardware.display->clearBuffer();
         g_state.hardware.display->drawXBMP(-1, 12, Steam_Logo_width, Steam_Logo_height, Steam_Logo);
 
@@ -653,7 +654,7 @@ inline bool displayMachineState() {
     }
 
     // Water empty
-    if (g_state.machine.machineState == kWaterTankEmpty) {
+    if (g_state.machine.machineState == MachineStateId::WATER_TANK_EMPTY) {
         g_state.hardware.display->clearBuffer();
         g_state.hardware.display->drawXBMP(45, 0, Water_Tank_Empty_Logo_width, Water_Tank_Empty_Logo_height, Water_Tank_Empty_Logo);
         g_state.hardware.display->setFont(u8g2_font_profont11_tf);
@@ -662,14 +663,14 @@ inline bool displayMachineState() {
     }
 
     // Backflush
-    if (g_state.machine.machineState == kBackflush) {
+    if (isBackflushState(g_state.machine.machineState)) {
         g_state.hardware.display->clearBuffer();
         g_state.hardware.display->setFont(u8g2_font_fub17_tf);
         g_state.hardware.display->setCursor(2, 10);
         g_state.hardware.display->print("Backflush");
 
-        switch (g_state.sensors.currBackflushState) {
-            case kBackflushIdle:
+        switch (g_state.machine.machineState) {
+            case MachineStateId::BACKFLUSH_IDLE:
                 g_state.hardware.display->setFont(u8g2_font_profont12_tf);
                 g_state.hardware.display->setCursor(4, 37);
                 g_state.hardware.display->print(langstring_backflush_press);
@@ -677,7 +678,7 @@ inline bool displayMachineState() {
                 g_state.hardware.display->print(langstring_backflush_start);
                 break;
 
-            case kBackflushFinished:
+            case MachineStateId::BACKFLUSH_FINISHED:
                 g_state.hardware.display->setFont(u8g2_font_profont12_tf);
                 g_state.hardware.display->setCursor(4, 37);
                 g_state.hardware.display->print(langstring_backflush_press);
@@ -699,7 +700,7 @@ inline bool displayMachineState() {
     }
 
     // PID Off
-    if (g_state.machine.machineState == kEmergencyStop) {
+    if (g_state.machine.machineState == MachineStateId::EMERGENCY_STOP) {
         g_state.hardware.display->clearBuffer();
         g_state.hardware.display->setFont(u8g2_font_profont11_tf);
         g_state.hardware.display->setCursor(32, 24);
@@ -729,7 +730,7 @@ inline bool displayMachineState() {
         return true;
     }
 
-    if (g_state.machine.machineState == kSensorError) {
+    if (g_state.machine.machineState == MachineStateId::SENSOR_ERROR) {
         g_state.hardware.display->clearBuffer();
         g_state.hardware.display->setFont(u8g2_font_profont11_tf);
         
@@ -740,7 +741,7 @@ inline bool displayMachineState() {
         return true;
     }
 
-    if (g_state.machine.machineState == kEepromError) {
+    if (g_state.machine.machineState == MachineStateId::EEPROM_ERROR) {
         g_state.hardware.display->clearBuffer();
         g_state.hardware.display->setFont(u8g2_font_profont11_tf);
         displayMessage("EEPROM Error, please set Values", "", "", "", "", "");

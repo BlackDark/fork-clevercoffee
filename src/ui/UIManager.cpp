@@ -5,7 +5,7 @@
 
 #include "UIManager.h"
 #include "../Config.h"
-#include "../brewHandler.h"
+#include "../handlers/BrewHandler.h"
 #include "../display/DisplayManager.h"
 #include "../display/bitmaps.h"
 #include "../state/GlobalState.h"
@@ -146,13 +146,13 @@ void UIManager::displayMessage(const String& text1, const String& text2, const S
 bool UIManager::shouldDisplayBrewTimer() {
     switch (brewTimerState_) {
         case BrewTimerState::Idle:
-            if (checkBrewActive()) {
+            if (g_state.handlers.brewHandler && g_state.handlers.brewHandler->isBrewActive()) {
                 brewTimerState_ = BrewTimerState::Running;
             }
             break;
 
         case BrewTimerState::Running:
-            if (!checkBrewActive()) {
+            if (!g_state.handlers.brewHandler || !g_state.handlers.brewHandler->isBrewActive()) {
                 brewTimerState_ = BrewTimerState::PostBrew;
                 brewEndTime_ = millis();
             }

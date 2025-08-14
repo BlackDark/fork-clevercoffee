@@ -18,8 +18,8 @@ class SensorErrorState : public MachineState {
         void update(MachineStateContext& context) override;
         std::unique_ptr<MachineState> checkTransitions(MachineStateContext& context) override;
 
-        int getStateId() const override {
-            return MachineStateIds::SENSOR_ERROR;
+        MachineStateId getStateId() const override {
+            return MachineStateId::SENSOR_ERROR;
         }
         const char* getStateName() const override {
             return "Sensor Error";

@@ -7,6 +7,7 @@
 
 #include <PID_v1.h>
 #include <memory>
+#include "state/MachineStateIds.h"
 
 // Forward declarations
 class DisplayManager;
@@ -85,7 +86,7 @@ class ProcessController {
          * - PID state management based on machine state
          * - Debug logging
          */
-        void updateProcessControl(int machineState);
+        void updateProcessControl(MachineStateId machineState);
 
         /**
          * @brief Update temperature readings from sensors
@@ -110,7 +111,7 @@ class ProcessController {
          * Enables/disables PID and sets appropriate tuning parameters
          * based on the current machine state.
          */
-        void updatePIDState(int machineState);
+        void updatePIDState(MachineStateId machineState);
 
         /**
          * @brief Set PID tuning parameters for normal operation
@@ -140,7 +141,7 @@ class ProcessController {
          * @param brewPidDisabled Whether brew PID is disabled
          * @return true if PID should be enabled
          */
-        bool shouldPIDBeEnabled(int machineState) const;
+        bool shouldPIDBeEnabled(MachineStateId machineState) const;
 
         /**
          * @brief Get current temperature
@@ -224,7 +225,7 @@ class ProcessController {
          * @param machineState Current machine state
          * @param brewPidDisabled Whether brew PID is currently disabled
          */
-        void handleBrewPIDDelay(int machineState);
+        void handleBrewPIDDelay(MachineStateId machineState);
 
         // Manager dependencies
         DisplayManager* displayManager_;
@@ -260,7 +261,7 @@ class ProcessController {
         double brewTempOffset_; ///< Temperature offset for brewing
 
         // State tracking
-        int lastMachineStatePid_; ///< Last machine state for PID logging
+        MachineStateId lastMachineStatePid_; ///< Last machine state for PID logging
         bool initialized_;        ///< Whether controller is initialized
 
         // Timing

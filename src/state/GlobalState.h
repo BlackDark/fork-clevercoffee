@@ -10,7 +10,7 @@
 
 #include "../defaults.h"
 #include "../utils/ModernTimer.h"
-#include "./brewStates.h"
+#include "./MachineStateIds.h"
 #include <Arduino.h>
 #include <cstring>
 #include <functional>
@@ -21,22 +21,6 @@
 #define TIME_TO_DISPLAY_OFF        10
 #define TIME_TO_DISPLAY_OFF_MILLIS (TIME_TO_DISPLAY_OFF * 60 * 1000)
 
-// Include MachineState enum constants from main.cpp
-enum LegacyMachineState {
-    kInit = 0,
-    kPidNormal = 20,
-    kBrew = 30,
-    kManualFlush = 35,
-    kHotWater = 40,
-    kSteam = 50,
-    kBackflush = 60,
-    kWaterTankEmpty = 70,
-    kEmergencyStop = 80,
-    kPidDisabled = 90,
-    kStandby = 95,
-    kSensorError = 100,
-    kEepromError = 110
-};
 
 struct cmp_str {
         bool operator()(char const* a, char const* b) const {
@@ -59,6 +43,10 @@ class Config;
 class Switch;
 class LED;
 class GPIOPin;
+class BrewHandler;
+class HotWaterHandler;
+class PowerHandler;
+class SteamHandler;
 
 extern const char* WIFI_PASSWORD;
 constexpr unsigned long wifiConnectionDelay = WIFICONNECTIONDELAY;
@@ -110,6 +98,16 @@ struct CoordinationState {
         // bool mqttUpdateRunning = false;
         bool setupDone = false;
         ProcessController* processController = nullptr;
+};
+
+/**
+ * @brief Handler instances for organized control
+ */
+struct HandlerRefs {
+        BrewHandler* brewHandler = nullptr;
+        HotWaterHandler* hotWaterHandler = nullptr;
+        PowerHandler* powerHandler = nullptr;
+        SteamHandler* steamHandler = nullptr;
 };
 
 /**
@@ -231,29 +229,27 @@ struct SensorState {
         float inOld = 0.0f;
         float inSum = 0.0f;
 
-        // steamHandler
+        // Handler state - kept for backward compatibility during transition
+        // TODO: Move these into handler classes gradually
         uint8_t currStateSteamSwitch;
-
-        // powerHandler
+        
         bool currStatePowerSwitchPressed = false;
         bool lastPowerSwitchPressed = false;
         unsigned long systemInitializedTime = 0;
         unsigned long firstSwitchPressTime = 0;
         bool trackingPressTime = false;
 
-        // brewHandler
-        BrewSwitchState currBrewSwitchState = kBrewSwitchIdle;
-        BrewState currBrewState = kBrewIdle;
-        ManualFlushState currManualFlushState = kManualFlushIdle;
-        BackflushState currBackflushState = kBackflushIdle;
+        SwitchState currBrewSwitchState = SwitchState::IDLE;
+        MachineStateId currBrewState = MachineStateId::BREW_IDLE;
+        MachineStateId currManualFlushState = MachineStateId::MANUAL_FLUSH_IDLE;
+        MachineStateId currBackflushState = MachineStateId::BACKFLUSH_IDLE;
 
         uint8_t brewSwitchReading = LOW;
         uint8_t currReadingBrewSwitch = LOW;
         bool brewSwitchWasOff = false;
 
-        // hotWaterHandler
-        HotWaterSwitchState currHotWaterSwitchState = kHotWaterSwitchIdle;
-        HotWaterState currHotWaterState = kHotWaterIdle;
+        SwitchState currHotWaterSwitchState = SwitchState::IDLE;
+        MachineStateId currHotWaterState = MachineStateId::HOT_WATER_IDLE;
         uint8_t hotWaterSwitchReading = LOW;
         uint8_t currReadingHotWaterSwitch = LOW;
         double currPumpOnTime = 0.0;
@@ -267,8 +263,8 @@ struct SensorState {
  * @brief Machine state and brewing
  */
 struct MachineStateData {
-        LegacyMachineState machineState = LegacyMachineState::kInit; // LegacyMachineState
-        LegacyMachineState lastmachinestate = LegacyMachineState::kInit;
+        MachineStateId machineState = MachineStateId::INIT;
+        MachineStateId lastmachinestate = MachineStateId::INIT;
         int lastmachinestatepid = -1;
         bool emergencyStop = false;
         bool steamON = false;
@@ -309,6 +305,7 @@ struct DebugState {
 struct GlobalState {
         ProcessState process;
         CoordinationState coordination;
+        HandlerRefs handlers;
         HardwareRefs hardware;
         NetworkState network;
         TimingState timing;
@@ -329,3 +326,6 @@ struct GlobalState {
 
 // Single global state instance - replaces all scattered globals
 extern GlobalState g_state;
+
+// Handler initialization function
+void initializeHandlers();

@@ -11,7 +11,7 @@
 #include "SensorErrorState.h"
 
 void PidDisabledState::onEntry(MachineStateContext& context) {
-    context.logStateEntry(getStateId(), getStateName());
+    context.logStateEntry(static_cast<int>(getStateId()), getStateName());
     LOG(INFO, "PID disabled - heater control off");
 
     // Ensure PID is disabled and heater is off
@@ -19,7 +19,7 @@ void PidDisabledState::onEntry(MachineStateContext& context) {
 }
 
 void PidDisabledState::onExit(MachineStateContext& context) {
-    context.logStateExit(getStateId(), getStateName());
+    context.logStateExit(static_cast<int>(getStateId()), getStateName());
     LOG(INFO, "Exiting PID disabled state");
 }
 
@@ -38,19 +38,19 @@ std::unique_ptr<MachineState> PidDisabledState::checkTransitions(MachineStateCon
 
     // Check for emergency stop (highest priority)
     if (context.isEmergencyStop()) {
-        context.logStateTransition(getStateId(), MachineStateIds::EMERGENCY_STOP, "Emergency stop activated");
+        context.logStateTransition(static_cast<int>(getStateId()), static_cast<int>(MachineStateId::EMERGENCY_STOP), "Emergency stop activated");
         return std::make_unique<EmergencyStopState>();
     }
 
     // Check for sensor errors
     if (context.hasSensorError()) {
-        context.logStateTransition(getStateId(), MachineStateIds::SENSOR_ERROR, "Sensor error detected");
+        context.logStateTransition(static_cast<int>(getStateId()), static_cast<int>(MachineStateId::SENSOR_ERROR), "Sensor error detected");
         return std::make_unique<SensorErrorState>();
     }
 
     // Check if PID was re-enabled
     if (context.isPidEnabled()) {
-        context.logStateTransition(getStateId(), MachineStateIds::PID_NORMAL, "PID re-enabled");
+        context.logStateTransition(static_cast<int>(getStateId()), static_cast<int>(MachineStateId::PID_NORMAL), "PID re-enabled");
         return std::make_unique<PidNormalState>();
     }
 

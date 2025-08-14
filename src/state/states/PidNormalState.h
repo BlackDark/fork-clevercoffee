@@ -67,8 +67,8 @@ class PidNormalState : public MachineState {
          * @brief Get state ID
          * @return State identifier
          */
-        int getStateId() const override {
-            return MachineStateIds::PID_NORMAL;
+        MachineStateId getStateId() const override {
+            return MachineStateId::PID_NORMAL;
         }
 
         /**

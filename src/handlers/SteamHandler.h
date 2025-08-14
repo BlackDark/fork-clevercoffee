@@ -1,15 +1,17 @@
 /**
- * @file steamHandler.h
- * @brief Handler for digital steam switch using modern abstractions
+ * @file SteamHandler.h
+ * @brief Handler for steam operations using modern C++ patterns
  */
 #pragma once
 
-#include "handlers/BaseHandler.h"
-#include "Config.h"
+#include "BaseHandler.h"
+#include "../Config.h"
+#include <Logger.h>
+#include "../state/GlobalState.h"
 
 /**
  * @class SteamHandler
- * @brief Steam switch handler using modern base class abstractions
+ * @brief Modern steam handler using class-based architecture
  */
 class SteamHandler : public SwitchBasedHandler {
 public:
@@ -33,10 +35,3 @@ protected:
     }
 };
 
-// Global instance
-inline SteamHandler g_steamHandler;
-
-// Public interface function
-inline void checkSteamSwitch() {
-    g_steamHandler.process();
-}

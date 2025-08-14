@@ -6,6 +6,7 @@
 #pragma once
 
 #include "displayCommon.h"
+#include "../state/MachineStateIds.h"
 
 
 /**
@@ -129,13 +130,13 @@ public:
         const auto& coords = derived->getBrewCoords(baseX, baseY);
 
         // Show flush time
-        if (g_state.machine.machineState == kManualFlush) {
+        if (isManualFlushState(g_state.machine.machineState)) {
             displayBrewTime(coords.brewX, coords.brewY,
                            derived->getManualFlushLabel(),
                            g_state.process.currBrewTime);
         }
         // Show hot water time
-        else if (g_state.machine.machineState == kHotWater) {
+        else if (isHotWaterState(g_state.machine.machineState)) {
             displayBrewTime(coords.brewX, coords.brewY,
                            derived->getHotWaterLabel(),
                            g_state.sensors.currPumpOnTime);
@@ -247,13 +248,13 @@ public:
     }
 
     bool handleSpecialStates() {
-        if (g_state.machine.machineState == kWaterTankEmpty) {
+        if (g_state.machine.machineState == MachineStateId::WATER_TANK_EMPTY) {
             g_state.hardware.display->drawXBMP(8, 50, Water_Tank_Empty_Logo_width,
                                               Water_Tank_Empty_Logo_height, Water_Tank_Empty_Logo);
             return true;
         }
 
-        if (g_state.machine.machineState == kSensorError) {
+        if (g_state.machine.machineState == MachineStateId::SENSOR_ERROR) {
             g_state.hardware.display->setFont(u8g2_font_profont11_tf);
             char tempBuffer[16];
             snprintf(tempBuffer, sizeof(tempBuffer), "%.1f", g_state.process.temperature);
@@ -263,7 +264,7 @@ public:
             return true;
         }
 
-        if (Config::getInstance().displayPidOffLogo.get() && g_state.machine.machineState == kStandby) {
+        if (Config::getInstance().displayPidOffLogo.get() && g_state.machine.machineState == MachineStateId::STANDBY) {
             g_state.hardware.display->drawXBMP(6, 50, Off_Logo_width, Off_Logo_height, Off_Logo);
             g_state.hardware.display->setCursor(1, 110);
             g_state.hardware.display->setFont(u8g2_font_profont10_tf);
@@ -289,7 +290,7 @@ private:
         g_state.hardware.display->setCursor(1, yPos);
         g_state.hardware.display->setFont(u8g2_font_profont22_tf);
 
-        if (g_state.machine.machineState == kManualFlush) {
+        if (isManualFlushState(g_state.machine.machineState)) {
             g_state.hardware.display->print("FLUSH");
         } else if (shouldDisplayBrewTimer()) {
             g_state.hardware.display->print("BREW");

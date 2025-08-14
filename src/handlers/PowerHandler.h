@@ -1,20 +1,21 @@
 /**
- * @file powerHandler.h
- * @brief Handler for power switch using modern abstractions
+ * @file PowerHandler.h
+ * @brief Handler for power operations using modern C++ patterns
  */
 #pragma once
 
-#include "handlers/BaseHandler.h"
-#include "Config.h"
-#include "display/displayCommon.h"
-#include "standby.h"
-#include "state/GlobalState.h"
-#include "state/MachineState.h"
-#include "utils/SystemUtils.h"
+#include "BaseHandler.h"
+#include "../Config.h"
+#include <Logger.h>
+#include "../display/displayCommon.h"
+#include "../standby.h"
+#include "../state/GlobalState.h"
+#include "../state/MachineState.h"
+#include "../utils/SystemUtils.h"
 
 /**
  * @class PowerHandler
- * @brief Power switch handler using modern base class abstractions
+ * @brief Modern power handler using class-based architecture
  */
 class PowerHandler : public SwitchBasedHandler {
 private:
@@ -100,7 +101,7 @@ private:
         }
         
         // Toggle power state
-        if (g_state.machine.machineState == LegacyMachineState::kStandby) {
+        if (g_state.machine.machineState == MachineStateId::STANDBY) {
             powerOn();
         } else {
             powerOff();
@@ -127,11 +128,11 @@ private:
     }
     
     void powerOn() {
-        if (g_state.machine.machineState == LegacyMachineState::kStandby || 
-            g_state.machine.machineState == LegacyMachineState::kPidDisabled) {
+        if (g_state.machine.machineState == MachineStateId::STANDBY || 
+            g_state.machine.machineState == MachineStateId::PID_DISABLED) {
             
-            g_state.machine.machineState = LegacyMachineState::kPidNormal;
-            resetStandbyTimer(LegacyMachineState::kPidNormal);
+            g_state.machine.machineState = MachineStateId::PID_NORMAL;
+            resetStandbyTimer(static_cast<int>(MachineStateId::PID_NORMAL));
             setRuntimePidState(true);
             g_state.hardware.display->setPowerSave(0);
             logInfo("System powered on");
@@ -139,9 +140,9 @@ private:
     }
     
     void powerOff() {
-        if (g_state.machine.machineState != LegacyMachineState::kStandby) {
+        if (g_state.machine.machineState != MachineStateId::STANDBY) {
             g_state.coordination.processController->performSafeShutdown();
-            g_state.machine.machineState = LegacyMachineState::kStandby;
+            g_state.machine.machineState = MachineStateId::STANDBY;
             g_state.standby.standbyModeRemainingTimeMillis = 0;
             logInfo("System powered off");
         }
@@ -163,10 +164,3 @@ private:
     }
 };
 
-// Global instance
-inline PowerHandler g_powerHandler;
-
-// Public interface function
-inline void checkPowerSwitch() {
-    g_powerHandler.process();
-}

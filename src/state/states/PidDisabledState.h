@@ -18,8 +18,8 @@ class PidDisabledState : public MachineState {
         void update(MachineStateContext& context) override;
         std::unique_ptr<MachineState> checkTransitions(MachineStateContext& context) override;
 
-        int getStateId() const override {
-            return MachineStateIds::PID_DISABLED;
+        MachineStateId getStateId() const override {
+            return MachineStateId::PID_DISABLED;
         }
         const char* getStateName() const override {
             return "PID Disabled";

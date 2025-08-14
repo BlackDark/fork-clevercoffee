@@ -8,18 +8,18 @@
 #include "../MachineState.h"
 #include "../MachineStateIds.h"
 
-class ManualFlushState : public MachineState {
+class ManualFlushIdleState : public MachineState {
     public:
-        ManualFlushState() = default;
-        ~ManualFlushState() override = default;
+        ManualFlushIdleState() = default;
+        ~ManualFlushIdleState() override = default;
 
         void onEntry(MachineStateContext& context) override;
         void onExit(MachineStateContext& context) override;
         void update(MachineStateContext& context) override;
         std::unique_ptr<MachineState> checkTransitions(MachineStateContext& context) override;
 
-        int getStateId() const override {
-            return MachineStateIds::MANUAL_FLUSH;
+        MachineStateId getStateId() const override {
+            return MachineStateId::MANUAL_FLUSH_IDLE;
         }
         const char* getStateName() const override {
             return "Manual Flush";

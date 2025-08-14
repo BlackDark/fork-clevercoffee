@@ -19,9 +19,9 @@ inline void handleBrewStart() {
         return;
     }
 
-    if (g_state.sensors.currBrewState == kBrewIdle) {
+    if (g_state.sensors.currBrewState == MachineStateId::BREW_IDLE) {
         // Trigger brew start by setting the brew switch state
-        g_state.sensors.currBrewSwitchState = kBrewSwitchShortPressed;
+        g_state.sensors.currBrewSwitchState = SwitchState::SHORT_PRESSED;
         g_state.sensors.brewSwitchWasOff = true;
         LOG(INFO, "Brew started via web API");
     }
@@ -39,10 +39,10 @@ inline void handleBrewStop() {
         return;
     }
 
-    if (g_state.sensors.currBrewState != kBrewIdle && g_state.sensors.currBrewState != kBrewFinished) {
+    if (g_state.sensors.currBrewState != MachineStateId::BREW_IDLE && g_state.sensors.currBrewState != MachineStateId::BREW_FINISHED) {
         // Stop brew by resetting brew switch state
-        g_state.sensors.currBrewSwitchState = kBrewSwitchIdle;
-        g_state.sensors.currBrewState = kBrewFinished;
+        g_state.sensors.currBrewSwitchState = SwitchState::IDLE;
+        g_state.sensors.currBrewState = MachineStateId::BREW_FINISHED;
         LOG(INFO, "Brew stopped via web API");
     }
     else {
@@ -81,7 +81,8 @@ inline void handleSteamStop() {
  */
 inline void handleHotWaterStart() {
     // Set machine state to hot water mode
-    g_state.machine.machineState = LegacyMachineState::kHotWater;
+    // Set hot water state instead of main machine state
+    g_state.sensors.currHotWaterState = MachineStateId::HOT_WATER_RUNNING;
     LOG(INFO, "Hot water mode started via web API");
 }
 
@@ -90,8 +91,8 @@ inline void handleHotWaterStart() {
  */
 inline void handleHotWaterStop() {
     // Return to normal PID mode if in hot water mode
-    if (g_state.machine.machineState == LegacyMachineState::kHotWater) {
-        g_state.machine.machineState = LegacyMachineState::kPidNormal;
+    if (g_state.sensors.currHotWaterState == MachineStateId::HOT_WATER_RUNNING) {
+        g_state.sensors.currHotWaterState = MachineStateId::HOT_WATER_IDLE;
         LOG(INFO, "Hot water mode stopped via web API");
     }
     else {

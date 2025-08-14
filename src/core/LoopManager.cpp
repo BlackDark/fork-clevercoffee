@@ -5,19 +5,19 @@
 
 #include "LoopManager.h"
 #include "../Config.h"
-#include "../brewHandler.h"
+#include "../handlers/BrewHandler.h"
 #include "../control/ProcessController.h"
 #include "../hardware/LED.h"
 #include "../hardware/Relay.h"
-#include "../hotWaterHandler.h"
+#include "../handlers/HotWaterHandler.h"
 #include "../network/MQTTManager.h"
 #include "../network/WebServerManager.h"
-#include "../powerHandler.h"
+#include "../handlers/PowerHandler.h"
 #include "../sensors/SensorManager.h"
 #include "../standby.h"
 #include "../state/GlobalState.h"
 #include "../state/StateMachine.h"
-#include "../steamHandler.h"
+#include "../handlers/SteamHandler.h"
 #include "../ui/UIManager.h"
 #include "../utils/ModernTimer.h"
 #include "Logger.h"
@@ -32,7 +32,7 @@ namespace DisplayTemplateManager {
 }
 
 // External function declarations
-extern bool checkBrewActive();
+// checkBrewActive removed - now accessed via g_state.handlers.brewHandler
 extern void sendHASSIODiscoveryMsg();
 extern int getSignalStrength();
 extern void disableTimer1();
@@ -147,7 +147,7 @@ void LoopManager::updateLEDs() {
         bool shouldTurnOn = false;
 
         // Turn on when at target temperature (normal or steam mode)
-        if ((g_state.machine.machineState == kPidNormal && (fabs(g_state.process.temperature - g_state.process.setpoint) < 0.3)) ||
+        if ((g_state.machine.machineState == MachineStateId::PID_NORMAL && (fabs(g_state.process.temperature - g_state.process.setpoint) < 0.3)) ||
             (g_state.process.temperature > 115 && fabs(g_state.process.temperature - g_state.process.setpoint) < 5)) {
             shouldTurnOn = true;
         }
@@ -162,7 +162,7 @@ void LoopManager::updateLEDs() {
 
     // Brew LED - indicates brewing state
     if (Config::getInstance().hardwareLedsBrewEnabled.get() && g_state.hardware.brewLed != nullptr) {
-        if (g_state.machine.machineState == kBrew) {
+        if (isBrewState(g_state.machine.machineState)) {
             g_state.hardware.brewLed->turnOn();
         }
         else {
@@ -172,7 +172,7 @@ void LoopManager::updateLEDs() {
 
     // Steam LED - indicates steam mode
     if (Config::getInstance().hardwareLedsSteamEnabled.get() && g_state.hardware.steamLed != nullptr) {
-        if (g_state.machine.machineState == kSteam) {
+        if (isSteamState(g_state.machine.machineState)) {
             g_state.hardware.steamLed->turnOn();
         }
         else {
@@ -326,7 +326,12 @@ void LoopManager::updateNetwork() {
                 g_state.network.mqttManager->loop();
 
                 // resend discovery messages if not during a main function and MQTT has been disconnected but has now reconnected
-                if (!(g_state.machine.machineState >= kBrew && g_state.machine.machineState <= kBackflush) &&
+                // Check if machine is not in active operational states
+                bool isOperational = (g_state.sensors.currBrewState != MachineStateId::BREW_IDLE || 
+                                    g_state.sensors.currHotWaterState != MachineStateId::HOT_WATER_IDLE ||
+                                    g_state.sensors.currManualFlushState != MachineStateId::MANUAL_FLUSH_IDLE ||
+                                    g_state.sensors.currBackflushState != MachineStateId::BACKFLUSH_IDLE);
+                if (!isOperational &&
                     ((!g_state.network.mqttManager->wasConnected() || g_state.network.hassioFailed) && !g_state.coordination.displayBufferReady && !g_state.coordination.temperatureUpdateRunning)) {
                     if (g_state.timing.hassioDiscoveryTimer) (*g_state.timing.hassioDiscoveryTimer)();
                 }
@@ -421,8 +426,12 @@ void LoopManager::updateSensors() {
 
 void LoopManager::updateSwitchesAndStandby() {
     // Switch handling and standby management extracted from loopPid()
-    checkSteamSwitch();
-    checkPowerSwitch();
+    if (g_state.handlers.steamHandler) {
+        g_state.handlers.steamHandler->process();
+    }
+    if (g_state.handlers.powerHandler) {
+        g_state.handlers.powerHandler->process();
+    }
     updateStandbyTimer();
 }
 
@@ -433,13 +442,13 @@ void LoopManager::updateStateMachine() {
     if (stateMachine && stateMachine->isInitialized()) {
         stateMachine->update();
 
-        // Update compatibility variables for existing code
-        const int newStateId = stateMachine->getCurrentStateId();
-        if (newStateId != g_state.machine.machineState) {
+        // Update machine state
+        const MachineStateId newState = stateMachine->getCurrentStateId();
+        if (newState != g_state.machine.machineState) {
             const auto oldState = g_state.machine.machineState;
-            g_state.machine.lastmachinestate = static_cast<LegacyMachineState>(g_state.machine.machineState);
-            g_state.machine.machineState = static_cast<LegacyMachineState>(newStateId);
-            LOGF(DEBUG, "State transition: %d -> %d", oldState, newStateId);
+            g_state.machine.lastmachinestate = g_state.machine.machineState;
+            g_state.machine.machineState = newState;
+            LOGF(DEBUG, "State transition: %d -> %d", static_cast<int>(oldState), static_cast<int>(newState));
         }
     }
     else {
@@ -447,11 +456,14 @@ void LoopManager::updateStateMachine() {
         LOG(WARNING, "StateMachine not available for state updates");
     }
 
-    // Update hot water handler if available
-    if (hotWaterHandler_) {
-        hotWaterHandler_->process();
+    // Update handlers
+    if (g_state.handlers.hotWaterHandler) {
+        g_state.handlers.hotWaterHandler->process();
     }
-    // TODO: valveSafetyShutdownCheck() - requires brewHandler.h dependencies
+    if (g_state.handlers.brewHandler) {
+        g_state.handlers.brewHandler->process();
+        g_state.handlers.brewHandler->valveSafetyShutdownCheck();
+    }
 
     // Update brew timer display state using UIManager if available
     if (Config::getInstance().hardwareSwitchesBrewEnabled.get()) {

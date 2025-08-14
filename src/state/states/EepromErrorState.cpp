@@ -10,7 +10,7 @@
 #include "PidDisabledState.h"
 
 void EepromErrorState::onEntry(MachineStateContext& context) {
-    context.logStateEntry(getStateId(), getStateName());
+    context.logStateEntry(static_cast<int>(getStateId()), getStateName());
     LOG(ERROR, "EEPROM error detected - configuration may be corrupted");
 
     // Enter safe mode - disable operations that depend on configuration
@@ -19,7 +19,7 @@ void EepromErrorState::onEntry(MachineStateContext& context) {
 }
 
 void EepromErrorState::onExit(MachineStateContext& context) {
-    context.logStateExit(getStateId(), getStateName());
+    context.logStateExit(static_cast<int>(getStateId()), getStateName());
     LOG(INFO, "EEPROM error resolved - configuration restored");
 
     // Exit safe mode
@@ -38,7 +38,7 @@ std::unique_ptr<MachineState> EepromErrorState::checkTransitions(MachineStateCon
 
     // Check emergency conditions first
     if (context.isEmergencyStop()) {
-        context.logStateTransition(getStateId(), MachineStateIds::EMERGENCY_STOP, "Emergency condition during EEPROM error");
+        context.logStateTransition(static_cast<int>(getStateId()), static_cast<int>(MachineStateId::EMERGENCY_STOP), "Emergency condition during EEPROM error");
         return std::make_unique<EmergencyStopState>();
     }
 

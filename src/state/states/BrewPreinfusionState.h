@@ -1,6 +1,6 @@
 /**
- * @file HotWaterState.h
- * @brief Hot water idle state - waiting for activation
+ * @file BrewPreinfusionState.h
+ * @brief Brew preinfusion state
  */
 
 #pragma once
@@ -8,10 +8,10 @@
 #include "../MachineState.h"
 #include "../MachineStateIds.h"
 
-class HotWaterIdleState : public MachineState {
+class BrewPreinfusionState : public MachineState {
 public:
-    HotWaterIdleState() = default;
-    ~HotWaterIdleState() override = default;
+    BrewPreinfusionState() = default;
+    ~BrewPreinfusionState() override = default;
 
     void onEntry(MachineStateContext& context) override;
     void onExit(MachineStateContext& context) override;
@@ -19,10 +19,10 @@ public:
     std::unique_ptr<MachineState> checkTransitions(MachineStateContext& context) override;
 
     MachineStateId getStateId() const override {
-        return MachineStateId::HOT_WATER_IDLE;
+        return MachineStateId::BREW_PREINFUSION;
     }
     
     const char* getStateName() const override {
-        return "Hot Water Idle";
+        return "Brew Preinfusion";
     }
 };

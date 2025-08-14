@@ -14,7 +14,7 @@ StateMachine::StateMachine(DisplayManager* displayManager, HardwareManager* hard
     currentState_(nullptr),
     context_(displayManager, hardwareManager, sensorManager, wifiManager, mqttManager),
     initialized_(false),
-    lastStateId_(-1),
+    lastStateId_(MachineStateId::INIT),
     lastUpdateTime_(std::chrono::steady_clock::now()),
     stateEntryTime_(std::chrono::steady_clock::now()),
     startTime_(std::chrono::steady_clock::now()), // <-- Add this line
@@ -55,7 +55,7 @@ bool StateMachine::initialize(std::unique_ptr<MachineState> initialState) {
     initialized_ = true;
     totalStateTransitions_ = 1; // Count initial state as first transition
 
-    LOGF(INFO, "StateMachine initialized in state %d (%s)", getCurrentStateId(), getCurrentStateName());
+    LOGF(INFO, "StateMachine initialized in state %d (%s)", static_cast<int>(getCurrentStateId()), getCurrentStateName());
 
     return true;
 }
@@ -107,14 +107,14 @@ void StateMachine::executeTransition(std::unique_ptr<MachineState> newState, con
     }
 
     // Log transition
-    const int oldStateId = currentState_ ? currentState_->getStateId() : -1;
+    const MachineStateId oldStateId = currentState_ ? currentState_->getStateId() : MachineStateId::INIT;
     const char* oldStateName = currentState_ ? currentState_->getStateName() : "None";
-    const int newStateId = newState->getStateId();
+    const MachineStateId newStateId = newState->getStateId();
     const char* newStateName = newState->getStateName();
 
-    LOGF(INFO, "State transition: %d (%s) -> %d (%s) [%s]", oldStateId, oldStateName, newStateId, newStateName, reason ? reason : "State logic");
+    LOGF(INFO, "State transition: %d (%s) -> %d (%s) [%s]", static_cast<int>(oldStateId), oldStateName, static_cast<int>(newStateId), newStateName, reason ? reason : "State logic");
 
-    context_.logStateTransition(oldStateId, newStateId, reason);
+    context_.logStateTransition(static_cast<int>(oldStateId), static_cast<int>(newStateId), reason);
 
     // Call exit callback on current state
     if (currentState_) {
@@ -132,8 +132,8 @@ void StateMachine::executeTransition(std::unique_ptr<MachineState> newState, con
     }
 }
 
-int StateMachine::getCurrentStateId() const noexcept {
-    return currentState_ ? currentState_->getStateId() : -1;
+MachineStateId StateMachine::getCurrentStateId() const noexcept {
+    return currentState_ ? currentState_->getStateId() : MachineStateId::INIT;
 }
 
 const char* StateMachine::getCurrentStateName() const noexcept {
@@ -155,7 +155,7 @@ void StateMachine::logStateMachineStatus() const {
     LOGF(INFO,
          "StateMachine status: State=%d (%s), TimeInState=%lldms, "
          "Transitions=%zu, Updates=%zu, Uptime=%llds",
-         getCurrentStateId(), getCurrentStateName(), timeInState.count(), totalStateTransitions_, totalUpdates_, uptime.count());
+         static_cast<int>(getCurrentStateId()), getCurrentStateName(), timeInState.count(), totalStateTransitions_, totalUpdates_, uptime.count());
 
     // Log context status for debugging
     LOGF(DEBUG, "Context status: Temp=%.1f°C, Tank=%s, Sensors=%s, PID=%s", context_.getCurrentTemperature(), context_.isWaterTankFull() ? "Full" : "Empty", context_.hasSensorError() ? "Error" : "OK",

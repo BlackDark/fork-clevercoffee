@@ -35,7 +35,7 @@ extern void enableTimer1();
 // }
 
 #include "../scaleHandler.h"
-extern bool checkBrewActive();
+// checkBrewActive removed - now accessed via g_state.handlers.brewHandler
 
 SystemInitializer::SystemInitializer() :
     systemInitialized_(false),
@@ -441,7 +441,7 @@ bool SystemInitializer::finalizeMachineState() {
     try {
         // For momentary switches, start in normal operation mode
         if (Config::getInstance().hardwareSwitchesPowerEnabled.get() && static_cast<int>(Config::getInstance().hardwareSwitchesPowerType.get()) == static_cast<int>(Switch::MOMENTARY)) {
-            g_state.machine.machineState = kPidNormal;
+            g_state.machine.machineState = MachineStateId::PID_NORMAL;
             setRuntimePidState(true);
             LOG(INFO, "Machine initialized in PID Normal mode (momentary switch)");
         }
@@ -449,12 +449,12 @@ bool SystemInitializer::finalizeMachineState() {
         else if (Config::getInstance().hardwareSwitchesPowerEnabled.get() && static_cast<int>(Config::getInstance().hardwareSwitchesPowerType.get()) == static_cast<int>(Switch::TOGGLE)) {
             if (g_state.hardware.powerSwitch && g_state.hardware.powerSwitch->isPressed()) {
                 setRuntimePidState(true);
-                g_state.machine.machineState = kPidNormal;
+                g_state.machine.machineState = MachineStateId::PID_NORMAL;
                 LOG(INFO, "Machine initialized in PID Normal mode (toggle switch ON)");
             }
             else {
                 setRuntimePidState(false);
-                g_state.machine.machineState = kPidDisabled;
+                g_state.machine.machineState = MachineStateId::PID_DISABLED;
                 LOG(INFO, "Machine initialized in PID Disabled mode (toggle switch OFF)");
             }
         }
@@ -462,7 +462,7 @@ bool SystemInitializer::finalizeMachineState() {
         else {
             const bool configPidEnabled = Config::getInstance().pidEnabled.get();
             setRuntimePidState(configPidEnabled);
-            g_state.machine.machineState = configPidEnabled ? kPidNormal : kPidDisabled;
+            g_state.machine.machineState = configPidEnabled ? MachineStateId::PID_NORMAL : MachineStateId::PID_DISABLED;
             LOG(INFO, configPidEnabled ? "Machine initialized in PID Normal mode (config enabled)" :
                                         "Machine initialized in PID Disabled mode (config disabled)");
         }

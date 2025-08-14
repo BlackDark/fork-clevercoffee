@@ -60,8 +60,8 @@ class InitState : public MachineState {
          * @brief Get state ID
          * @return State identifier
          */
-        int getStateId() const override {
-            return MachineStateIds::INIT;
+        MachineStateId getStateId() const override {
+            return MachineStateId::INIT;
         }
 
         /**

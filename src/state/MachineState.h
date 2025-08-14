@@ -6,6 +6,7 @@
 #pragma once
 
 #include <memory>
+#include "MachineStateIds.h"
 
 
 // Forward declaration
@@ -57,7 +58,7 @@ class MachineState {
          * @brief Get the state ID for debugging and logging
          * @return State identifier
          */
-        virtual int getStateId() const = 0;
+        virtual MachineStateId getStateId() const = 0;
 
         /**
          * @brief Get human-readable state name for debugging

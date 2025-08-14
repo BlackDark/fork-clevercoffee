@@ -39,7 +39,7 @@ ProcessController::ProcessController(DisplayManager* displayManager, HardwareMan
     brewSetpoint_(0.0),
     steamSetpoint_(0.0),
     brewTempOffset_(0.0),
-    lastMachineStatePid_(-1),
+    lastMachineStatePid_(MachineStateId::INIT),
     initialized_(false),
     lastTempEvent_(0),
     tempEventInterval_(1000) {
@@ -104,7 +104,7 @@ void ProcessController::update() {
     updateDebugLogging();
 }
 
-void ProcessController::updateProcessControl(int machineState) {
+void ProcessController::updateProcessControl(MachineStateId machineState) {
     if (!initialized_) {
         LOG(WARNING, "ProcessController::updateProcessControl() called but not initialized");
         return;
@@ -168,7 +168,7 @@ void ProcessController::computePID() {
     pidOutput_ = g_state.process.pidOutput; // Sync from global variable updated by g_state.pid->Compute()
 }
 
-void ProcessController::updatePIDState(int machineState) {
+void ProcessController::updatePIDState(MachineStateId machineState) {
     // Check if PID should be enabled or disabled
     if (!shouldPIDBeEnabled(machineState)) {
         if (isPIDEnabled()) {
@@ -195,15 +195,21 @@ void ProcessController::updatePIDState(int machineState) {
 
         // Set appropriate PID tuning based on machine state
         switch (machineState) {
-            case 20: // kPidNormal
+            case MachineStateId::PID_NORMAL:
                 LOGF(DEBUG, "new PID-Values: P=%.1f  I=%.1f  D=%.1f", aggKp_, aggKi_, aggKd_);
                 setPIDTunings(Config::getInstance().pidUsePonm.get());
                 break;
-            case 50: // kSteam
+            case MachineStateId::STEAM_IDLE:
+            case MachineStateId::STEAM_RUNNING:
+            case MachineStateId::STEAM_STOPPED:
                 LOGF(DEBUG, "new PID-Values: P=%.1f  I=%.1f  D=%.1f", steamKp_, 0.0, 0.0);
                 setSteamPIDTunings();
                 break;
-            case 30: // kBrew - may use brew detection PID
+            case MachineStateId::BREW_IDLE:
+            case MachineStateId::BREW_PREINFUSION:
+            case MachineStateId::BREW_PREINFUSION_PAUSE:
+            case MachineStateId::BREW_RUNNING:
+            case MachineStateId::BREW_FINISHED: // may use brew detection PID
                 if (Config::getInstance().pidBdEnabled.get()) {
                     LOGF(DEBUG, "new PID-Values: P=%.1f  I=%.1f  D=%.1f", aggbKp_, aggbKi_, aggbKd_);
                     setBrewDetectionPIDTunings();
@@ -266,15 +272,15 @@ void ProcessController::updateSetpoint(bool steamActive) {
     g_state.process.setpoint = setpoint_;
 }
 
-bool ProcessController::shouldPIDBeEnabled(int machineState) const {
+bool ProcessController::shouldPIDBeEnabled(MachineStateId machineState) const {
     // PID should be disabled in these states
-    return !(machineState == 90 ||  // kPidDisabled
-             machineState == 70 ||  // kWaterTankEmpty
-             machineState == 100 || // kSensorError
-             machineState == 80 ||  // kEmergencyStop
-             machineState == 110 || // kEepromError
-             machineState == 95 ||  // kStandby
-             machineState == 60 ||  // kBackflush
+    return !(machineState == MachineStateId::PID_DISABLED ||
+             machineState == MachineStateId::WATER_TANK_EMPTY ||
+             machineState == MachineStateId::SENSOR_ERROR ||
+             machineState == MachineStateId::EMERGENCY_STOP ||
+             machineState == MachineStateId::EEPROM_ERROR ||
+             machineState == MachineStateId::STANDBY ||
+             isBackflushState(machineState) ||
              g_state.process.brewPidDisabled);
 }
 
@@ -376,9 +382,9 @@ void ProcessController::calculateBrewDetectionPIDParameters() {
     aggbKd_ = aggbTv_ * aggbKp_;
 }
 
-void ProcessController::handleBrewPIDDelay(int machineState) {
+void ProcessController::handleBrewPIDDelay(MachineStateId machineState) {
     // Handle brew PID delay logic
-    if (machineState == 30) { // kBrew
+    if (isBrewState(machineState)) {
         if (Config::getInstance().brewPidDelay.get() > 0 && g_state.process.currBrewTime > 0 && g_state.process.currBrewTime < Config::getInstance().brewPidDelay.get() * 1000) {
             // disable PID for brewPidDelay seconds, enable PID again with new tunings after that
             if (!g_state.process.brewPidDisabled) {
@@ -412,7 +418,7 @@ void ProcessController::handleBrewPIDDelay(int machineState) {
         }
     }
     // Reset brewPidDisabled if brew was aborted
-    else if (machineState != 30 && g_state.process.brewPidDisabled) { // not kBrew
+    else if (!isBrewState(machineState) && g_state.process.brewPidDisabled) { // not BREW
         // enable PID again
         g_state.pid->SetMode(AUTOMATIC);
         g_state.process.brewPidDisabled = false;
@@ -432,28 +438,28 @@ void ProcessController::performSafeShutdown() {
     }
 
     // Reset all brew-related states
-    if (g_state.sensors.currBrewState != kBrewIdle) {
+    if (g_state.sensors.currBrewState != MachineStateId::BREW_IDLE) {
         LOG(INFO, "Stopping active brew during safe shutdown");
-        g_state.sensors.currBrewState = kBrewIdle;
-        g_state.sensors.currBrewSwitchState = kBrewSwitchIdle;
+        g_state.sensors.currBrewState = MachineStateId::BREW_IDLE;
+        g_state.sensors.currBrewSwitchState = SwitchState::IDLE;
         g_state.process.currBrewTime = 0;
         g_state.process.startingTime = 0;
         g_state.sensors.brewSwitchWasOff = false;
     }
 
     // Reset manual flush states
-    if (g_state.sensors.currManualFlushState != kManualFlushIdle) {
+    if (g_state.sensors.currManualFlushState != MachineStateId::MANUAL_FLUSH_IDLE) {
         LOG(INFO, "Stopping manual group head flush during safe shutdown");
-        g_state.sensors.currManualFlushState = kManualFlushIdle;
-        g_state.sensors.currBrewSwitchState = kBrewSwitchIdle;
+        g_state.sensors.currManualFlushState = MachineStateId::MANUAL_FLUSH_IDLE;
+        g_state.sensors.currBrewSwitchState = SwitchState::IDLE;
         g_state.process.currBrewTime = 0;
         g_state.process.startingTime = 0;
     }
 
     // Reset backflush state
-    if (g_state.sensors.currBackflushState != kBackflushIdle) {
+    if (g_state.sensors.currBackflushState != MachineStateId::BACKFLUSH_IDLE) {
         LOG(INFO, "Stopping active backflush during safe shutdown");
-        g_state.sensors.currBackflushState = kBackflushIdle;
+        g_state.sensors.currBackflushState = MachineStateId::BACKFLUSH_IDLE;
         g_state.machine.currBackflushCycles = 1;
     }
 

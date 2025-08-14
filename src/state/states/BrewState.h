@@ -1,6 +1,6 @@
 /**
  * @file BrewState.h
- * @brief Brewing operation state
+ * @brief Brew idle state - waiting for brew to start
  */
 
 #pragma once
@@ -9,97 +9,29 @@
 #include "../MachineStateIds.h"
 
 /**
- * @class BrewState
- * @brief Handles active brewing operations
+ * @class BrewIdleState
+ * @brief Handles brew idle state - waiting for brew switch activation
  *
- * This state manages the brewing process including:
- * - Monitoring brew switch status
- * - Controlling pump and valve operations
- * - Managing brew timing and weight targets
- * - Handling pre-infusion sequences
- * - Monitoring for completion or abort conditions
- * - Handling emergency stops during brewing
- * - Managing MQTT reconnection allowance
+ * This state monitors:
+ * - Brew switch status
+ * - Conditions for starting brew/backflush
+ * - Transitions to appropriate brew substates
  */
-class BrewState : public MachineState {
-    public:
-        /**
-         * @brief Constructor
-         */
-        BrewState() = default;
+class BrewIdleState : public MachineState {
+public:
+    BrewIdleState() = default;
+    ~BrewIdleState() override = default;
 
-        /**
-         * @brief Destructor
-         */
-        ~BrewState() override = default;
+    void onEntry(MachineStateContext& context) override;
+    void onExit(MachineStateContext& context) override;
+    void update(MachineStateContext& context) override;
+    std::unique_ptr<MachineState> checkTransitions(MachineStateContext& context) override;
 
-        /**
-         * @brief Called when entering brew state
-         * @param context Machine state context
-         */
-        void onEntry(MachineStateContext& context) override;
+    MachineStateId getStateId() const override {
+        return MachineStateId::BREW_IDLE;
+    }
 
-        /**
-         * @brief Called when exiting brew state
-         * @param context Machine state context
-         */
-        void onExit(MachineStateContext& context) override;
-
-        /**
-         * @brief Update brewing process
-         * @param context Machine state context
-         */
-        void update(MachineStateContext& context) override;
-
-        /**
-         * @brief Check for state transitions during brewing
-         * @param context Machine state context
-         * @return New state to transition to, or nullptr if continuing to brew
-         */
-        std::unique_ptr<MachineState> checkTransitions(MachineStateContext& context) override;
-
-        /**
-         * @brief Get state ID
-         * @return State identifier
-         */
-        int getStateId() const override {
-            return MachineStateIds::BREW;
-        }
-
-        /**
-         * @brief Get state name
-         * @return State name string
-         */
-        const char* getStateName() const override {
-            return "Brew";
-        }
-
-    private:
-        /**
-         * @brief Check if brew process is still active
-         * @param context Machine state context
-         * @return true if brewing should continue
-         */
-        bool isBrewStillActive(MachineStateContext& context) const;
-
-        /**
-         * @brief Check for emergency conditions during brewing
-         * @param context Machine state context
-         * @return true if emergency stop required
-         */
-        bool checkEmergencyConditions(MachineStateContext& context) const;
-
-        /**
-         * @brief Check for sensor errors during brewing
-         * @param context Machine state context
-         * @return true if sensor errors detected
-         */
-        bool checkSensorErrors(MachineStateContext& context) const;
-
-        /**
-         * @brief Check if PID is still enabled
-         * @param context Machine state context
-         * @return true if PID is enabled
-         */
-        bool isPidStillEnabled(MachineStateContext& context) const;
+    const char* getStateName() const override {
+        return "Brew Idle";
+    }
 };

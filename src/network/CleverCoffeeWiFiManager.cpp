@@ -6,7 +6,8 @@
 #include "CleverCoffeeWiFiManager.h"
 #include "../Config.h"
 #include "../display/languages.h"
-#include "../utils/brewUtils.h"
+#include "../state/GlobalState.h"
+#include "../handlers/BrewHandler.h"
 #include "Logger.h"
 #include <ESP.h>
 #include <WiFi.h>
@@ -149,10 +150,10 @@ void CleverCoffeeWiFiManager::checkAndMaintainConnection() {
     static bool wifiConnectedHandled = false;
 
     // Don't attempt reconnection if in offline mode or brewing is active
-    if (g_state.network.offlineMode || checkBrewActive()) return;
+    if (g_state.network.offlineMode || (g_state.handlers.brewHandler && g_state.handlers.brewHandler->isBrewActive())) return;
 
     // Try to connect and if it does not succeed, enter offline mode
-    if ((millis() - g_state.network.lastWifiConnectionAttempt >= wifiConnectionDelay) && (g_state.network.wifiReconnects <= maxWifiReconnects)) {
+    if ((millis() - g_state.network.lastWifiConnectionAttempt >= ::wifiConnectionDelay) && (g_state.network.wifiReconnects <= ::maxWifiReconnects)) {
 
         if (WiFi.status() != WL_CONNECTED) { // check WiFi connection status
             wifiConnectedHandled = false;
@@ -188,7 +189,7 @@ void CleverCoffeeWiFiManager::checkAndMaintainConnection() {
     }
 
     // Enter offline mode if maximum reconnection attempts reached
-    if (g_state.network.wifiReconnects >= maxWifiReconnects && WiFi.status() != WL_CONNECTED) {
+    if (g_state.network.wifiReconnects >= ::maxWifiReconnects && WiFi.status() != WL_CONNECTED) {
         // no wifi connection after trying connection, initiate offline mode
         g_state.network.offlineMode = true;
         LOG(INFO, "Entered offline mode after maximum WiFi reconnection attempts");

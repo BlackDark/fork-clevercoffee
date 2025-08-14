@@ -18,8 +18,8 @@ class EepromErrorState : public MachineState {
         void update(MachineStateContext& context) override;
         std::unique_ptr<MachineState> checkTransitions(MachineStateContext& context) override;
 
-        int getStateId() const override {
-            return MachineStateIds::EEPROM_ERROR;
+        MachineStateId getStateId() const override {
+            return MachineStateId::EEPROM_ERROR;
         }
         const char* getStateName() const override {
             return "EEPROM Error";

@@ -11,7 +11,7 @@
 #include "SensorErrorState.h"
 
 void StandbyState::onEntry(MachineStateContext& context) {
-    context.logStateEntry(getStateId(), getStateName());
+    context.logStateEntry(static_cast<int>(getStateId()), getStateName());
     LOG(INFO, "Entering standby mode - reducing power consumption");
 
     // Enter power-saving mode
@@ -22,7 +22,7 @@ void StandbyState::onEntry(MachineStateContext& context) {
 }
 
 void StandbyState::onExit(MachineStateContext& context) {
-    context.logStateExit(getStateId(), getStateName());
+    context.logStateExit(static_cast<int>(getStateId()), getStateName());
     LOG(INFO, "Exiting standby mode - resuming normal operation");
 
     // Exit power-saving mode
@@ -45,13 +45,13 @@ std::unique_ptr<MachineState> StandbyState::checkTransitions(MachineStateContext
 
     // Check emergency conditions first
     if (context.isEmergencyStop()) {
-        context.logStateTransition(getStateId(), MachineStateIds::EMERGENCY_STOP, "Emergency condition detected in standby");
+        context.logStateTransition(static_cast<int>(getStateId()), static_cast<int>(MachineStateId::EMERGENCY_STOP), "Emergency condition detected in standby");
         return std::make_unique<EmergencyStopState>();
     }
 
     // Check for user activity to wake up from standby
     if (context.hasUserActivity() || context.shouldExitStandby()) {
-        context.logStateTransition(getStateId(), MachineStateIds::PID_NORMAL, "User activity detected - exiting standby");
+        context.logStateTransition(static_cast<int>(getStateId()), static_cast<int>(MachineStateId::PID_NORMAL), "User activity detected - exiting standby");
         // Reset MQTT reconnect count when exiting standby (matches original logic)
         context.resetMqttReconnectCount();
         return std::make_unique<PidNormalState>();
@@ -59,7 +59,7 @@ std::unique_ptr<MachineState> StandbyState::checkTransitions(MachineStateContext
 
     // Check for sensor errors (even in standby, we should monitor)
     if (context.hasSensorError() || context.hasTemperatureError()) {
-        context.logStateTransition(getStateId(), MachineStateIds::SENSOR_ERROR, "Sensor error detected in standby");
+        context.logStateTransition(static_cast<int>(getStateId()), static_cast<int>(MachineStateId::SENSOR_ERROR), "Sensor error detected in standby");
         // Reset MQTT reconnect count when exiting standby (matches original logic)
         context.resetMqttReconnectCount();
         return std::make_unique<SensorErrorState>();

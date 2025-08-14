@@ -63,8 +63,8 @@ class EmergencyStopState : public MachineState {
          * @brief Get state ID
          * @return State identifier
          */
-        int getStateId() const override {
-            return MachineStateIds::EMERGENCY_STOP;
+        MachineStateId getStateId() const override {
+            return MachineStateId::EMERGENCY_STOP;
         }
 
         /**

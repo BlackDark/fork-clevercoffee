@@ -7,23 +7,23 @@
 #include "../Config.h"
 #include "../control/ProcessController.h"
 #include "../display/DisplayManager.h"
+#include "../handlers/BrewHandler.h"
 #include "../hardware/HardwareManager.h"
 #include "../network/CleverCoffeeWiFiManager.h"
 #include "../network/MQTTManager.h"
 #include "../sensors/SensorManager.h"
 // #include "../hotWaterHandler.h" - removed to avoid circular dependencies
 #include "../state/GlobalState.h"
-#include "../utils/brewUtils.h"
+#include "../state/MachineStateIds.h"
 #include "../utils/SystemUtils.h"
 #include "Logger.h"
 #include <Arduino.h>
 
 // Forward declarations to avoid circular dependencies
 // These functions are defined in main.cpp and various handler files
-extern bool manualFlush();
 extern bool checkHotWaterStates();
-extern bool brew();
-extern void resetStandbyTimer(LegacyMachineState state);
+// Handler functions now accessed via g_state.handlers
+extern void resetStandbyTimer(int state);
 
 MachineStateContext::MachineStateContext(DisplayManager* displayManager, HardwareManager* hardwareManager, SensorManager* sensorManager, CleverCoffeeWiFiManager* wifiManager, MQTTManager* mqttManager) :
     displayManager_(displayManager), hardwareManager_(hardwareManager), sensorManager_(sensorManager), wifiManager_(wifiManager), mqttManager_(mqttManager) {
@@ -126,11 +126,12 @@ bool MachineStateContext::hasSensorError() const {
 // TODO those are wrong the functions behind like brew() and manualFlush() are triggering those events
 
 bool MachineStateContext::isBrewActive() const {
-    return brew();
+    return g_state.handlers.brewHandler ? g_state.handlers.brewHandler->isBrewActive() : false;
 }
 
 bool MachineStateContext::isManualFlushActive() const {
-    return manualFlush();
+    // Manual flush state is checked via brew handler
+    return g_state.sensors.currManualFlushState != MachineStateId::MANUAL_FLUSH_IDLE;
 }
 
 bool MachineStateContext::isSteamActive() const {
@@ -139,7 +140,7 @@ bool MachineStateContext::isSteamActive() const {
 
 bool MachineStateContext::isHotWaterActive() const {
     // Simplified implementation - check if machine is in hot water state
-    return (g_state.machine.machineState == LegacyMachineState::kHotWater);
+    return (g_state.sensors.currHotWaterState == MachineStateId::HOT_WATER_RUNNING);
 }
 
 bool MachineStateContext::isBackflushActive() const {
@@ -172,7 +173,7 @@ unsigned long MachineStateContext::getCurrentTime() const {
 
 void MachineStateContext::resetStandbyTimer(int stateId) const {
     // Convert state ID to MachineState enum and call existing function
-    resetStandbyTimer(static_cast<LegacyMachineState>(stateId));
+    resetStandbyTimer(stateId);
 }
 
 // === Control Functions ===

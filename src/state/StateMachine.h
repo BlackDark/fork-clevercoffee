@@ -77,9 +77,9 @@ class StateMachine {
 
         /**
          * @brief Get current state ID
-         * @return Current state identifier, or -1 if no state
+         * @return Current state identifier, or INIT if no state
          */
-        int getCurrentStateId() const noexcept;
+        MachineStateId getCurrentStateId() const noexcept;
 
         /**
          * @brief Get current state name
@@ -141,7 +141,7 @@ class StateMachine {
 
         // State machine status
         bool initialized_;             ///< True if state machine is initialized
-        int lastStateId_;              ///< Last state ID for change detection
+        MachineStateId lastStateId_;   ///< Last state ID for change detection
         std::chrono::steady_clock::time_point lastUpdateTime_; ///< Last update timestamp for timing debug
         std::chrono::steady_clock::time_point stateEntryTime_; ///< Time when current state was entered
         std::chrono::steady_clock::time_point startTime_; // <-- Add this member

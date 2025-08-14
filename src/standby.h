@@ -61,7 +61,7 @@ inline void updateStandbyTimer() {
     }
 }
 
-inline void resetStandbyTimer(const LegacyMachineState state) {
+inline void resetStandbyTimer(const int state) {
     g_state.standby.standbyModeRemainingTimeMillis = getStandbyTimeoutMillis();
     g_state.standby.standbyModeRemainingTimeDisplayOffMillis = TIME_TO_DISPLAY_OFF_MILLIS;
     g_state.standby.standbyModeStartTimeMillis = millis();

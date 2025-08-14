@@ -18,8 +18,8 @@ class StandbyState : public MachineState {
         void update(MachineStateContext& context) override;
         std::unique_ptr<MachineState> checkTransitions(MachineStateContext& context) override;
 
-        int getStateId() const override {
-            return MachineStateIds::STANDBY;
+        MachineStateId getStateId() const override {
+            return MachineStateId::STANDBY;
         }
         const char* getStateName() const override {
             return "Standby";

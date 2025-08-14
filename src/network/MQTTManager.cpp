@@ -4,10 +4,10 @@
  */
 
 #include "MQTTManager.h"
+#include "../handlers/BrewHandler.h"
 #include "../Config.h"
 #include "../defaults.h"
 #include "../state/GlobalState.h"
-#include "../utils/brewUtils.h"
 #include "../utils/helperUtils.h"
 #include "Logger.h"
 #include <Arduino.h>
@@ -70,7 +70,7 @@ void MQTTManager::initializeClient() {
 }
 
 void MQTTManager::checkConnection() {
-    if (g_state.network.offlineMode || checkBrewActive()) {
+    if (g_state.network.offlineMode || (g_state.handlers.brewHandler && g_state.handlers.brewHandler->isBrewActive())) {
         return;
     }
 
@@ -250,7 +250,9 @@ int MQTTManager::writeSysParamsToMQTT(bool continueOnError) {
     static bool inSensors = false;
 
     unsigned long currentMillisMQTT = millis();
-    unsigned long interval = (g_state.machine.machineState == kBrew) ? intervalMQTTBrew_ : (g_state.machine.machineState == kStandby) ? intervalMQTTStandby_ : intervalMQTT_;
+    // Check if brewing is active (any non-idle brew state)
+    bool isBrewActive = (g_state.sensors.currBrewState != MachineStateId::BREW_IDLE);
+    unsigned long interval = isBrewActive ? intervalMQTTBrew_ : (g_state.machine.machineState == MachineStateId::STANDBY) ? intervalMQTTStandby_ : intervalMQTT_;
 
     if ((currentMillisMQTT - previousMillisMQTT_ < interval) || !mqttEnabled_ || !mqttClient_.connected()) {
         return 0;

@@ -18,8 +18,8 @@ class WaterTankEmptyState : public MachineState {
         void update(MachineStateContext& context) override;
         std::unique_ptr<MachineState> checkTransitions(MachineStateContext& context) override;
 
-        int getStateId() const override {
-            return MachineStateIds::WATER_TANK_EMPTY;
+        MachineStateId getStateId() const override {
+            return MachineStateId::WATER_TANK_EMPTY;
         }
         const char* getStateName() const override {
             return "Water Tank Empty";

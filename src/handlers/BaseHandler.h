@@ -9,11 +9,13 @@
 #include "../hardware/Switch.h"
 #include "../hardware/Relay.h"
 #include "../state/GlobalState.h"
-#include "Logger.h"
+#include <Logger.h>
 
+// TODO do we need this globally?
 // Forward declaration for isPowerSwitchOperationAllowed
 bool isPowerSwitchOperationAllowed();
 
+// TODO do we need this globally?
 /**
  * @brief Simple implementation of power switch operation check
  */
@@ -25,7 +27,7 @@ inline bool isPowerSwitchOperationAllowed() {
 /**
  * @class BaseHandler
  * @brief Base class for all handlers providing common functionality
- * 
+ *
  * This class eliminates duplication by providing:
  * - Common permission checks
  * - Hardware validation
@@ -35,11 +37,11 @@ inline bool isPowerSwitchOperationAllowed() {
 class BaseHandler {
 protected:
     const char* handlerName_;
-    
+
 public:
     explicit BaseHandler(const char* name) : handlerName_(name) {}
     virtual ~BaseHandler() = default;
-    
+
     /**
      * @brief Main processing function - template method pattern
      */
@@ -47,26 +49,26 @@ public:
         if (!isEnabled()) {
             return;
         }
-        
+
         if (!hasPermission()) {
             return;
         }
-        
+
         if (!isHardwareValid()) {
             logError("Hardware validation failed");
             return;
         }
-        
+
         processImpl();
     }
-    
+
 protected:
     /**
      * @brief Check if this handler is enabled in configuration
      * Override in derived classes
      */
     virtual bool isEnabled() const = 0;
-    
+
     /**
      * @brief Check if operations are permitted
      * Override for custom permission logic
@@ -74,19 +76,19 @@ protected:
     virtual bool hasPermission() const {
         return isPowerSwitchOperationAllowed();
     }
-    
+
     /**
      * @brief Validate hardware components
      * Override in derived classes
      */
     virtual bool isHardwareValid() const = 0;
-    
+
     /**
      * @brief Actual handler implementation
      * Override in derived classes
      */
     virtual void processImpl() = 0;
-    
+
     /**
      * @brief Helper to check switch state change
      */
@@ -97,7 +99,7 @@ protected:
         }
         return false;
     }
-    
+
     /**
      * @brief Helper to toggle boolean state
      */
@@ -105,7 +107,7 @@ protected:
         state = !state;
         logDebug(state ? "State activated" : "State deactivated");
     }
-    
+
     /**
      * @brief Helper to set relay state safely
      */
@@ -118,21 +120,21 @@ protected:
             }
         }
     }
-    
+
     /**
      * @brief Debug logging helper
      */
     void logDebug(const char* message) const {
         LOGF(DEBUG, "[%s] %s", handlerName_, message);
     }
-    
+
     /**
      * @brief Error logging helper
      */
     void logError(const char* message) const {
         LOGF(ERROR, "[%s] %s", handlerName_, message);
     }
-    
+
     /**
      * @brief Info logging helper
      */
@@ -148,29 +150,29 @@ protected:
 class SwitchBasedHandler : public BaseHandler {
 protected:
     Switch* switch_;
-    
+
 public:
-    SwitchBasedHandler(const char* name, Switch* sw) 
+    SwitchBasedHandler(const char* name, Switch* sw)
         : BaseHandler(name), switch_(sw) {}
-    
+
 protected:
     bool isHardwareValid() const override {
         return switch_ != nullptr;
     }
-    
+
     /**
      * @brief Get current switch reading
      */
     uint8_t getSwitchReading() const {
         return switch_ ? switch_->isPressed() : LOW;
     }
-    
+
     /**
      * @brief Process toggle switch behavior
      */
     bool processToggleSwitch(uint8_t reading, bool& targetState, bool& firstActivation) {
         bool changed = false;
-        
+
         if (reading == HIGH) {
             if (!targetState) {
                 targetState = true;
@@ -185,10 +187,10 @@ protected:
                 logDebug("Toggle switch deactivated");
             }
         }
-        
+
         return changed;
     }
-    
+
     /**
      * @brief Process momentary switch behavior
      */
