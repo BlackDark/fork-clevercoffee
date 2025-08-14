@@ -26,3 +26,6 @@ public:
         return "Hot Water Idle";
     }
 };
+
+// Alias for backward compatibility
+using HotWaterState = HotWaterIdleState;

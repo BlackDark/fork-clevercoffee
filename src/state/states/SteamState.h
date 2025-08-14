@@ -25,3 +25,6 @@ class SteamIdleState : public MachineState {
             return "Steam";
         }
 };
+
+// Alias for backward compatibility
+using SteamState = SteamIdleState;

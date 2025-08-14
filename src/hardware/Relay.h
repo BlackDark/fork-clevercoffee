@@ -6,6 +6,7 @@
 #pragma once
 
 #include <cstdint>
+#include "defaults.h"
 
 // Forward declaration of GPIOPin class
 class GPIOPin;
@@ -17,22 +18,12 @@ class GPIOPin;
 class Relay {
     public:
         /**
-         * @enum TriggerType
-         * @brief Type of trigger for this relay
-         * @details Relays can either trigger in HIGH or LOW setting of their control input
-         */
-        enum TriggerType : uint8_t {
-            LOW_TRIGGER,
-            HIGH_TRIGGER
-        };
-
-        /**
          * @brief Constructor
          *
          * @param gpioInstance GPIO pin this relay is connected to
          * @param trigger Trigger type this relay requires
          */
-        explicit Relay(GPIOPin& gpioInstance, TriggerType trigger = HIGH_TRIGGER);
+        explicit Relay(GPIOPin& gpioInstance, Hardware::RelayTriggerType trigger = Hardware::RelayTriggerType::HIGH_TRIGGER);
 
         /**
          * @brief Switch relay on
@@ -49,14 +40,14 @@ class Relay {
          * @return GPIO pin of the relay
          */
         [[nodiscard]] GPIOPin& getGPIOInstance() const noexcept;
-        
+
         /**
          * @brief Get the trigger type of this relay
          * @return Trigger type
          */
-        [[nodiscard]] constexpr TriggerType getTriggerType() const noexcept { return relayTrigger; }
+        [[nodiscard]] constexpr Hardware::RelayTriggerType getTriggerType() const noexcept { return relayTrigger; }
 
     private:
         GPIOPin& gpio;
-        TriggerType relayTrigger;
+        Hardware::RelayTriggerType relayTrigger;
 };

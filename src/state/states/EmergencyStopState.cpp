@@ -9,7 +9,7 @@
 #include "Logger.h"
 
 void EmergencyStopState::onEntry(MachineStateContext& context) {
-    context.logStateEntry(static_cast<int>(getStateId()), getStateName());
+    context.logStateEntry(getStateId(), getStateName());
     LOG(ERROR, "EMERGENCY STOP ACTIVATED - System entering safe mode");
 
     // Immediately perform emergency shutdown
@@ -20,7 +20,7 @@ void EmergencyStopState::onEntry(MachineStateContext& context) {
 }
 
 void EmergencyStopState::onExit(MachineStateContext& context) {
-    context.logStateExit(static_cast<int>(getStateId()), getStateName());
+    context.logStateExit(getStateId(), getStateName());
     LOG(INFO, "Emergency stop cleared - System ready for restart");
 }
 
@@ -40,7 +40,7 @@ std::unique_ptr<MachineState> EmergencyStopState::checkTransitions(MachineStateC
     // and system is safe to restart
 
     if (isEmergencyCleared(context)) {
-        context.logStateTransition(static_cast<int>(getStateId()), static_cast<int>(MachineStateId::INIT), "Emergency condition cleared - restarting");
+        context.logStateTransition(getStateId(), MachineStateId::INIT, "Emergency condition cleared - restarting");
         return getRecoveryState(context);
     }
 

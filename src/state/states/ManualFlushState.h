@@ -25,3 +25,6 @@ class ManualFlushIdleState : public MachineState {
             return "Manual Flush";
         }
 };
+
+// Alias for backward compatibility
+using ManualFlushState = ManualFlushIdleState;

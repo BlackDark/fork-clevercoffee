@@ -25,3 +25,6 @@ class BackflushIdleState : public MachineState {
             return "Backflush";
         }
 };
+
+// Alias for backward compatibility
+using BackflushState = BackflushIdleState;

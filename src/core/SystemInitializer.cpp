@@ -202,7 +202,7 @@ bool SystemInitializer::initializeConfiguration() {
 
     // Use make_unique for proper RAII and exception safety
     pidController_ = std::make_unique<PID>(&g_state.process.temperature, &g_state.process.pidOutput, &g_state.process.setpoint, Config::getInstance().pidRegularKp.get(), g_state.process.aggKi, g_state.process.aggKd, 1, DIRECT);
-    
+
     // Set global reference for backward compatibility
     g_state.pid = pidController_.get();
     return true;
@@ -440,13 +440,13 @@ bool SystemInitializer::initializeSensors() {
 bool SystemInitializer::finalizeMachineState() {
     try {
         // For momentary switches, start in normal operation mode
-        if (Config::getInstance().hardwareSwitchesPowerEnabled.get() && static_cast<int>(Config::getInstance().hardwareSwitchesPowerType.get()) == static_cast<int>(Switch::MOMENTARY)) {
+        if (Config::getInstance().hardwareSwitchesPowerEnabled.get() && static_cast<int>(Config::getInstance().hardwareSwitchesPowerType.get()) == static_cast<int>(Hardware::SwitchType::MOMENTARY)) {
             g_state.machine.machineState = MachineStateId::PID_NORMAL;
             setRuntimePidState(true);
             LOG(INFO, "Machine initialized in PID Normal mode (momentary switch)");
         }
         // For toggle switches, force PidOn to switch state mode
-        else if (Config::getInstance().hardwareSwitchesPowerEnabled.get() && static_cast<int>(Config::getInstance().hardwareSwitchesPowerType.get()) == static_cast<int>(Switch::TOGGLE)) {
+        else if (Config::getInstance().hardwareSwitchesPowerEnabled.get() && static_cast<int>(Config::getInstance().hardwareSwitchesPowerType.get()) == static_cast<int>(Hardware::SwitchType::TOGGLE)) {
             if (g_state.hardware.powerSwitch && g_state.hardware.powerSwitch->isPressed()) {
                 setRuntimePidState(true);
                 g_state.machine.machineState = MachineStateId::PID_NORMAL;

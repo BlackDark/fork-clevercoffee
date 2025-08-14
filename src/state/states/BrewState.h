@@ -35,3 +35,6 @@ public:
         return "Brew Idle";
     }
 };
+
+// Alias for backward compatibility
+using BrewState = BrewIdleState;

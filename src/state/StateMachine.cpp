@@ -114,7 +114,7 @@ void StateMachine::executeTransition(std::unique_ptr<MachineState> newState, con
 
     LOGF(INFO, "State transition: %d (%s) -> %d (%s) [%s]", static_cast<int>(oldStateId), oldStateName, static_cast<int>(newStateId), newStateName, reason ? reason : "State logic");
 
-    context_.logStateTransition(static_cast<int>(oldStateId), static_cast<int>(newStateId), reason);
+    context_.logStateTransition(oldStateId, newStateId, reason);
 
     // Call exit callback on current state
     if (currentState_) {

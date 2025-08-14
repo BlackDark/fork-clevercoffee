@@ -51,7 +51,7 @@ inline void checkBluetoothScaleConnection() {
                     }
                     else if (brewByWeightEnabled) {
                         LOG(WARNING, "BLE Scale connection lost during brew-by-weight only mode, stopping brew");
-                        g_state.machine.machineState = MachineStateId::BREW_FINISHED;
+                        g_state.machine.flags.requestBrewStop = true;  // Use condition flag instead of direct state assignment
                     }
                 }
             }

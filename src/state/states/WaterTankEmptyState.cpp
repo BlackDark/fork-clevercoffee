@@ -11,7 +11,7 @@
 #include "SensorErrorState.h"
 
 void WaterTankEmptyState::onEntry(MachineStateContext& context) {
-    context.logStateEntry(static_cast<int>(getStateId()), getStateName());
+    context.logStateEntry(getStateId(), getStateName());
     LOG(WARNING, "Water tank is empty - operations suspended");
 
     // Disable operations that require water
@@ -19,7 +19,7 @@ void WaterTankEmptyState::onEntry(MachineStateContext& context) {
 }
 
 void WaterTankEmptyState::onExit(MachineStateContext& context) {
-    context.logStateExit(static_cast<int>(getStateId()), getStateName());
+    context.logStateExit(getStateId(), getStateName());
     LOG(INFO, "Water tank refilled - operations resuming");
 
     // Re-enable water operations
@@ -39,19 +39,19 @@ std::unique_ptr<MachineState> WaterTankEmptyState::checkTransitions(MachineState
 
     // Check emergency conditions first
     if (context.isEmergencyStop()) {
-        context.logStateTransition(static_cast<int>(getStateId()), static_cast<int>(MachineStateId::EMERGENCY_STOP), "Emergency condition detected with empty water tank");
+        context.logStateTransition(getStateId(), MachineStateId::EMERGENCY_STOP, "Emergency condition detected with empty water tank");
         return std::make_unique<EmergencyStopState>();
     }
 
     // Check for sensor errors
     if (context.hasSensorError() || context.hasTemperatureError()) {
-        context.logStateTransition(static_cast<int>(getStateId()), static_cast<int>(MachineStateId::SENSOR_ERROR), "Sensor error detected with empty water tank");
+        context.logStateTransition(getStateId(), MachineStateId::SENSOR_ERROR, "Sensor error detected with empty water tank");
         return std::make_unique<SensorErrorState>();
     }
 
     // Check if water tank has been refilled
     if (context.isWaterTankFull()) {
-        context.logStateTransition(static_cast<int>(getStateId()), static_cast<int>(MachineStateId::PID_NORMAL), "Water tank refilled - resuming normal operation");
+        context.logStateTransition(getStateId(), MachineStateId::PID_NORMAL, "Water tank refilled - resuming normal operation");
         return std::make_unique<PidNormalState>();
     }
 

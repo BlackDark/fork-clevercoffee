@@ -18,12 +18,7 @@
 #include "../utils/SystemUtils.h"
 #include "Logger.h"
 #include <Arduino.h>
-
-// Forward declarations to avoid circular dependencies
-// These functions are defined in main.cpp and various handler files
-extern bool checkHotWaterStates();
-// Handler functions now accessed via g_state.handlers
-extern void resetStandbyTimer(int state);
+#include "standby.h"
 
 MachineStateContext::MachineStateContext(DisplayManager* displayManager, HardwareManager* hardwareManager, SensorManager* sensorManager, CleverCoffeeWiFiManager* wifiManager, MQTTManager* mqttManager) :
     displayManager_(displayManager), hardwareManager_(hardwareManager), sensorManager_(sensorManager), wifiManager_(wifiManager), mqttManager_(mqttManager) {
@@ -171,9 +166,9 @@ unsigned long MachineStateContext::getCurrentTime() const {
     return millis();
 }
 
-void MachineStateContext::resetStandbyTimer(int stateId) const {
-    // Convert state ID to MachineState enum and call existing function
-    resetStandbyTimer(stateId);
+void MachineStateContext::resetStandbyTimer(MachineStateId stateId) const {
+    // Convert state ID to int and call existing function
+    ::resetStandbyTimer();
 }
 
 // === Control Functions ===
@@ -204,21 +199,21 @@ void MachineStateContext::setDisplayPowerSave(int mode) const {
 
 // === Logging Functions ===
 
-void MachineStateContext::logStateTransition(int fromState, int toState, const char* reason) const {
+void MachineStateContext::logStateTransition(MachineStateId fromState, MachineStateId toState, const char* reason) const {
     if (reason) {
-        LOGF(INFO, "State transition: %d -> %d (%s)", fromState, toState, reason);
+        LOGF(INFO, "State transition: %d -> %d (%s)", static_cast<int>(fromState), static_cast<int>(toState), reason);
     }
     else {
-        LOGF(INFO, "State transition: %d -> %d", fromState, toState);
+        LOGF(INFO, "State transition: %d -> %d", static_cast<int>(fromState), static_cast<int>(toState));
     }
 }
 
-void MachineStateContext::logStateEntry(int stateId, const char* stateName) const {
-    LOGF(INFO, "Entering state %d (%s)", stateId, stateName);
+void MachineStateContext::logStateEntry(MachineStateId stateId, const char* stateName) const {
+    LOGF(INFO, "Entering state %d (%s)", static_cast<int>(stateId), stateName);
 }
 
-void MachineStateContext::logStateExit(int stateId, const char* stateName) const {
-    LOGF(INFO, "Exiting state %d (%s)", stateId, stateName);
+void MachineStateContext::logStateExit(MachineStateId stateId, const char* stateName) const {
+    LOGF(INFO, "Exiting state %d (%s)", static_cast<int>(stateId), stateName);
 }
 
 // === MQTT Integration ===

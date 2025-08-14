@@ -9,9 +9,11 @@
 #include "Logger.h"
 #include "PidNormalState.h"
 #include "SensorErrorState.h"
+#include "../GlobalState.h"
+
 
 void PidDisabledState::onEntry(MachineStateContext& context) {
-    context.logStateEntry(static_cast<int>(getStateId()), getStateName());
+    context.logStateEntry(getStateId(), getStateName());
     LOG(INFO, "PID disabled - heater control off");
 
     // Ensure PID is disabled and heater is off
@@ -19,7 +21,7 @@ void PidDisabledState::onEntry(MachineStateContext& context) {
 }
 
 void PidDisabledState::onExit(MachineStateContext& context) {
-    context.logStateExit(static_cast<int>(getStateId()), getStateName());
+    context.logStateExit(getStateId(), getStateName());
     LOG(INFO, "Exiting PID disabled state");
 }
 
@@ -34,23 +36,31 @@ std::unique_ptr<MachineState> PidDisabledState::checkTransitions(MachineStateCon
     // Priority order for transitions:
     // 1. Emergency stop (highest priority - immediate safety)
     // 2. System errors (sensors)
-    // 3. PID re-enabled (return to normal operation)
+    // 3. Normal operation request (user/external request)
+    // 4. PID re-enabled (return to normal operation)
 
     // Check for emergency stop (highest priority)
     if (context.isEmergencyStop()) {
-        context.logStateTransition(static_cast<int>(getStateId()), static_cast<int>(MachineStateId::EMERGENCY_STOP), "Emergency stop activated");
+        context.logStateTransition(getStateId(), MachineStateId::EMERGENCY_STOP, "Emergency stop activated");
         return std::make_unique<EmergencyStopState>();
     }
 
     // Check for sensor errors
     if (context.hasSensorError()) {
-        context.logStateTransition(static_cast<int>(getStateId()), static_cast<int>(MachineStateId::SENSOR_ERROR), "Sensor error detected");
+        context.logStateTransition(getStateId(), MachineStateId::SENSOR_ERROR, "Sensor error detected");
         return std::make_unique<SensorErrorState>();
+    }
+
+    // Check for normal operation request
+    if (g_state.machine.flags.requestNormalOperation) {
+        g_state.machine.flags.requestNormalOperation = false;
+        context.logStateTransition(getStateId(), MachineStateId::PID_NORMAL, "Normal operation requested");
+        return std::make_unique<PidNormalState>();
     }
 
     // Check if PID was re-enabled
     if (context.isPidEnabled()) {
-        context.logStateTransition(static_cast<int>(getStateId()), static_cast<int>(MachineStateId::PID_NORMAL), "PID re-enabled");
+        context.logStateTransition(getStateId(), MachineStateId::PID_NORMAL, "PID re-enabled");
         return std::make_unique<PidNormalState>();
     }
 

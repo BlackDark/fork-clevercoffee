@@ -9,12 +9,12 @@
 #include "../state/GlobalState.h"
 #include "../utils/helperUtils.h"
 #include "Logger.h"
-#include "WebServerHandlers.h"
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <FS.h>
 #include <Preferences.h>
 #include <unordered_map>
+#include "../utils/SystemUtils.h"
 
 #define JSON_BUFFER_SIZE 512
 #define PATH_BUFFER_SIZE 128
@@ -346,65 +346,6 @@ void WebServerManager::setupApiRoutes() {
         }
     });
 
-    // Brew control endpoints
-    if (Config::getInstance().hardwareSwitchesBrewEnabled.get()) {
-        server_->on("/api/brew/start", HTTP_POST, [](AsyncWebServerRequest* request) {
-            handleBrewStart();
-            request->send(200, "application/json", "{\"success\":true}");
-        });
-
-        server_->on("/api/brew/stop", HTTP_POST, [](AsyncWebServerRequest* request) {
-            handleBrewStop();
-            request->send(200, "application/json", "{\"success\":true}");
-        });
-    }
-
-    // Steam control endpoints
-    server_->on("/api/steam/start", HTTP_POST, [](AsyncWebServerRequest* request) {
-        handleSteamStart();
-        request->send(200, "application/json", "{\"success\":true}");
-    });
-
-    server_->on("/api/steam/stop", HTTP_POST, [](AsyncWebServerRequest* request) {
-        handleSteamStop();
-        request->send(200, "application/json", "{\"success\":true}");
-    });
-
-    // Hot water control endpoints
-    server_->on("/api/hotwater/start", HTTP_POST, [](AsyncWebServerRequest* request) {
-        handleHotWaterStart();
-        request->send(200, "application/json", "{\"success\":true}");
-    });
-
-    server_->on("/api/hotwater/stop", HTTP_POST, [](AsyncWebServerRequest* request) {
-        handleHotWaterStop();
-        request->send(200, "application/json", "{\"success\":true}");
-    });
-
-    // Scale control endpoints
-    if (Config::getInstance().hardwareSensorsScaleEnabled.get()) {
-        server_->on("/api/scale/tare", HTTP_POST, [](AsyncWebServerRequest* request) {
-            handleTare();
-            request->send(200, "application/json", "{\"success\":true}");
-        });
-
-        server_->on("/api/scale/calibrate", HTTP_POST, [](AsyncWebServerRequest* request) {
-            handleCalibration();
-            request->send(200, "application/json", "{\"success\":true}");
-        });
-    }
-
-    // PID control
-    server_->on("/api/pid/enable", HTTP_POST, [](AsyncWebServerRequest* request) {
-        g_state.process.pidEnabled = true;
-        request->send(200, "application/json", "{\"success\":true}");
-    });
-
-    server_->on("/api/pid/disable", HTTP_POST, [](AsyncWebServerRequest* request) {
-        g_state.process.pidEnabled = false;
-        request->send(200, "application/json", "{\"success\":true}");
-    });
-
     // Setpoint adjustment
     server_->on("/api/setpoint", HTTP_POST, [](AsyncWebServerRequest* request) {
         if (request->hasParam("value", true)) {
@@ -430,23 +371,13 @@ void WebServerManager::setupApiRoutes() {
     server_->on("/api/steam", HTTP_POST, [](AsyncWebServerRequest* request) {
         try {
             const bool steamMode = !g_state.machine.steamON;
-            handleSteamStart(); // This should set steam mode
+            setSteamMode(steamMode);
             LOGF(INFO, "Toggle steam mode: %s", g_state.machine.steamON ? "on" : "off");
             request->send(200, "application/json", JsonResponseBuilder::createBoolResponse("steamMode", g_state.machine.steamON));
         } catch (const std::exception& e) {
             LOGF(ERROR, "API steam toggle failed: %s", e.what());
             request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("Internal server error"));
         }
-    });
-
-    server_->on("/api/steam/start", HTTP_POST, [](AsyncWebServerRequest* request) {
-        handleSteamStart();
-        request->send(200, "application/json", "{\"success\":true}");
-    });
-
-    server_->on("/api/steam/stop", HTTP_POST, [](AsyncWebServerRequest* request) {
-        handleSteamStop();
-        request->send(200, "application/json", "{\"success\":true}");
     });
 
     // PID control endpoints
@@ -466,18 +397,6 @@ void WebServerManager::setupApiRoutes() {
             LOGF(ERROR, "API PID toggle failed: %s", e.what());
             request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("Internal server error"));
         }
-    });
-
-    server_->on("/api/pid/enable", HTTP_POST, [](AsyncWebServerRequest* request) {
-        g_state.process.pidEnabled = true;
-        Config::getInstance().pidEnabled.set(true);
-        request->send(200, "application/json", "{\"success\":true}");
-    });
-
-    server_->on("/api/pid/disable", HTTP_POST, [](AsyncWebServerRequest* request) {
-        g_state.process.pidEnabled = false;
-        Config::getInstance().pidEnabled.set(false);
-        request->send(200, "application/json", "{\"success\":true}");
     });
 
     // Backflush endpoint
@@ -504,7 +423,6 @@ void WebServerManager::setupApiRoutes() {
         server_->on("/api/scale/tare", HTTP_POST, [](AsyncWebServerRequest* request) {
             try {
                 g_state.sensors.scaleTareOn = !g_state.sensors.scaleTareOn;
-                handleTare();
                 LOGF(INFO, "Toggle scale tare mode: %s", g_state.sensors.scaleTareOn ? "on" : "off");
                 request->send(200, "application/json", JsonResponseBuilder::createBoolResponse("scaleTareOn", g_state.sensors.scaleTareOn));
             } catch (const std::exception& e) {
@@ -516,7 +434,6 @@ void WebServerManager::setupApiRoutes() {
         server_->on("/api/scale/calibrate", HTTP_POST, [](AsyncWebServerRequest* request) {
             try {
                 g_state.sensors.scaleCalibrationOn = !g_state.sensors.scaleCalibrationOn;
-                handleCalibration();
                 LOGF(INFO, "Toggle scale calibration mode: %s", g_state.sensors.scaleCalibrationOn ? "on" : "off");
                 request->send(200, "application/json", JsonResponseBuilder::createBoolResponse("scaleCalibrationOn", g_state.sensors.scaleCalibrationOn));
             } catch (const std::exception& e) {
@@ -528,7 +445,6 @@ void WebServerManager::setupApiRoutes() {
         server_->on("/api/scale/calibration", HTTP_POST, [](AsyncWebServerRequest* request) {
             try {
                 g_state.sensors.scaleCalibrationOn = !g_state.sensors.scaleCalibrationOn;
-                handleCalibration();
                 LOGF(INFO, "Toggle scale calibration mode: %s", g_state.sensors.scaleCalibrationOn ? "on" : "off");
                 request->send(200, "application/json", JsonResponseBuilder::createBoolResponse("scaleCalibrationOn", g_state.sensors.scaleCalibrationOn));
             } catch (const std::exception& e) {

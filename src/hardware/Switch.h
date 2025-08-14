@@ -14,36 +14,12 @@
 class Switch {
     public:
         /**
-         * TODO could be removed
-         * @enum Type
-         * @brief Type of switch
-         * @details Supported switches are toggle switches which remain on until toggled back, or momentary switches which
-         *          only provide a single trigger impulse.
-         */
-        enum Type : int {
-            MOMENTARY = static_cast<int>(Hardware::SwitchType::MOMENTARY),
-            TOGGLE = static_cast<int>(Hardware::SwitchType::TOGGLE),
-        };
-
-        /**
-         * TODO could be removed
-         * @enum Mode
-         * @brief Switch mode, normally-open or normally-closed
-         * @details There are two types of switches, the ones that are closed by default (normally-closed, NC) or open
-         *          (normally-open, NO)
-         */
-        enum Mode : int {
-            NORMALLY_OPEN = static_cast<int>(Hardware::SwitchMode::NORMALLY_OPEN),
-            NORMALLY_CLOSED = static_cast<int>(Hardware::SwitchMode::NORMALLY_CLOSED),
-        };
-
-        /**
          * @brief Constructor for a new switch
          *
          * @param type Switch type
          * @param mode Operation mode
          */
-        Switch(const Type type, const Mode mode) :
+        Switch(const Hardware::SwitchType type, const Hardware::SwitchMode mode) :
             type_(type), mode_(mode) {
         }
 
@@ -54,6 +30,6 @@ class Switch {
         virtual bool longPressDetected() = 0;
 
     protected:
-        Type type_;
-        Mode mode_;
+        Hardware::SwitchType type_;
+        Hardware::SwitchMode mode_;
 };

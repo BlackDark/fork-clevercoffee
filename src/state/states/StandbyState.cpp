@@ -5,13 +5,15 @@
 
 #include "StandbyState.h"
 #include "../MachineStateContext.h"
+#include "../GlobalState.h"
 #include "EmergencyStopState.h"
 #include "Logger.h"
 #include "PidNormalState.h"
 #include "SensorErrorState.h"
 
+
 void StandbyState::onEntry(MachineStateContext& context) {
-    context.logStateEntry(static_cast<int>(getStateId()), getStateName());
+    context.logStateEntry(getStateId(), getStateName());
     LOG(INFO, "Entering standby mode - reducing power consumption");
 
     // Enter power-saving mode
@@ -22,7 +24,7 @@ void StandbyState::onEntry(MachineStateContext& context) {
 }
 
 void StandbyState::onExit(MachineStateContext& context) {
-    context.logStateExit(static_cast<int>(getStateId()), getStateName());
+    context.logStateExit(getStateId(), getStateName());
     LOG(INFO, "Exiting standby mode - resuming normal operation");
 
     // Exit power-saving mode
@@ -40,18 +42,28 @@ void StandbyState::update(MachineStateContext& context) {
 std::unique_ptr<MachineState> StandbyState::checkTransitions(MachineStateContext& context) {
     // Priority order for transitions:
     // 1. Emergency stop (highest priority - immediate safety)
-    // 2. User activity detected (power button, switches, web interface)
-    // 3. Sensor errors (system integrity)
+    // 2. Normal operation request (user/external request)
+    // 3. User activity detected (power button, switches, web interface)
+    // 4. Sensor errors (system integrity)
 
     // Check emergency conditions first
     if (context.isEmergencyStop()) {
-        context.logStateTransition(static_cast<int>(getStateId()), static_cast<int>(MachineStateId::EMERGENCY_STOP), "Emergency condition detected in standby");
+        context.logStateTransition(getStateId(), MachineStateId::EMERGENCY_STOP, "Emergency condition detected in standby");
         return std::make_unique<EmergencyStopState>();
+    }
+
+    // Check for normal operation request
+    if (g_state.machine.flags.requestNormalOperation) {
+        g_state.machine.flags.requestNormalOperation = false;
+        context.logStateTransition(getStateId(), MachineStateId::PID_NORMAL, "Normal operation requested");
+        // Reset MQTT reconnect count when exiting standby (matches original logic)
+        context.resetMqttReconnectCount();
+        return std::make_unique<PidNormalState>();
     }
 
     // Check for user activity to wake up from standby
     if (context.hasUserActivity() || context.shouldExitStandby()) {
-        context.logStateTransition(static_cast<int>(getStateId()), static_cast<int>(MachineStateId::PID_NORMAL), "User activity detected - exiting standby");
+        context.logStateTransition(getStateId(), MachineStateId::PID_NORMAL, "User activity detected - exiting standby");
         // Reset MQTT reconnect count when exiting standby (matches original logic)
         context.resetMqttReconnectCount();
         return std::make_unique<PidNormalState>();
@@ -59,7 +71,7 @@ std::unique_ptr<MachineState> StandbyState::checkTransitions(MachineStateContext
 
     // Check for sensor errors (even in standby, we should monitor)
     if (context.hasSensorError() || context.hasTemperatureError()) {
-        context.logStateTransition(static_cast<int>(getStateId()), static_cast<int>(MachineStateId::SENSOR_ERROR), "Sensor error detected in standby");
+        context.logStateTransition(getStateId(), MachineStateId::SENSOR_ERROR, "Sensor error detected in standby");
         // Reset MQTT reconnect count when exiting standby (matches original logic)
         context.resetMqttReconnectCount();
         return std::make_unique<SensorErrorState>();

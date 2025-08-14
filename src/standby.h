@@ -61,11 +61,10 @@ inline void updateStandbyTimer() {
     }
 }
 
-inline void resetStandbyTimer(const int state) {
+inline void resetStandbyTimer() {
     g_state.standby.standbyModeRemainingTimeMillis = getStandbyTimeoutMillis();
     g_state.standby.standbyModeRemainingTimeDisplayOffMillis = TIME_TO_DISPLAY_OFF_MILLIS;
     g_state.standby.standbyModeStartTimeMillis = millis();
 
     LOGF(INFO, "Resetting standby timer to %i minutes", static_cast<int>(Config::getInstance().standbyTime.get()));
-    LOGF(DEBUG, "New machine state: %d", state);
 }

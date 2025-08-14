@@ -12,12 +12,12 @@
 #include "WaterTankEmptyState.h"
 
 void InitState::onEntry(MachineStateContext& context) {
-    context.logStateEntry(static_cast<int>(getStateId()), getStateName());
+    context.logStateEntry(getStateId(), getStateName());
     LOG(INFO, "System initializing - performing startup checks");
 }
 
 void InitState::onExit(MachineStateContext& context) {
-    context.logStateExit(static_cast<int>(getStateId()), getStateName());
+    context.logStateExit(getStateId(), getStateName());
     LOG(INFO, "System initialization complete");
 }
 
@@ -37,23 +37,23 @@ std::unique_ptr<MachineState> InitState::checkTransitions(MachineStateContext& c
 
     // Check water tank first - critical for safety
     if (!checkWaterTank(context)) {
-        context.logStateTransition(static_cast<int>(getStateId()), static_cast<int>(MachineStateId::WATER_TANK_EMPTY), "Water tank empty");
+        context.logStateTransition(getStateId(), MachineStateId::WATER_TANK_EMPTY, "Water tank empty");
         return std::make_unique<WaterTankEmptyState>();
     }
 
     // Check sensors - critical for temperature control
     if (!checkSensors(context)) {
-        context.logStateTransition(static_cast<int>(getStateId()), static_cast<int>(MachineStateId::SENSOR_ERROR), "Sensor error detected");
+        context.logStateTransition(getStateId(), MachineStateId::SENSOR_ERROR, "Sensor error detected");
         return std::make_unique<SensorErrorState>();
     }
 
     // Determine normal operation state based on PID setting
     if (!checkPidEnabled(context)) {
-        context.logStateTransition(static_cast<int>(getStateId()), static_cast<int>(MachineStateId::PID_DISABLED), "PID disabled");
+        context.logStateTransition(getStateId(), MachineStateId::PID_DISABLED, "PID disabled");
         return std::make_unique<PidDisabledState>();
     }
     else {
-        context.logStateTransition(static_cast<int>(getStateId()), static_cast<int>(MachineStateId::PID_NORMAL), "PID enabled - entering normal operation");
+        context.logStateTransition(getStateId(), MachineStateId::PID_NORMAL, "PID enabled - entering normal operation");
         return std::make_unique<PidNormalState>();
     }
 }

@@ -8,8 +8,8 @@
 
 #include <cstdint>
 #include <chrono>
-
 #include "GPIOPin.h"
+#include "defaults.h"
 #include "Switch.h"
 
 class IOSwitch final : public Switch {
@@ -25,7 +25,7 @@ class IOSwitch final : public Switch {
          * @param mode Operation mode of the switch
          * @param initialState
          */
-        IOSwitch(int pinNumber, GPIOPin::Type pinType, Type switchType = MOMENTARY, Mode mode = NORMALLY_OPEN, uint8_t initialState = LOW);
+        IOSwitch(int pinNumber, GPIOPin::Type pinType, Hardware::SwitchType switchType = Hardware::SwitchType::MOMENTARY, Hardware::SwitchMode mode = Hardware::SwitchMode::NORMALLY_OPEN, uint8_t initialState = LOW);
 
         /**
          * @brief Switch reading (pressed, not pressed)
@@ -54,7 +54,7 @@ class IOSwitch final : public Switch {
         std::chrono::steady_clock::time_point pressStartTime{};
         std::chrono::steady_clock::time_point lastDebounceTime{};
         bool longPressTriggered{false};
-        
+
         static constexpr std::chrono::milliseconds debounceDelay{20};
         static constexpr std::chrono::milliseconds longPressDuration{500};
 };

@@ -59,6 +59,9 @@ constexpr unsigned long SCALE_CONNECTION_CHECK_INTERVAL = 500; // Check every 50
 constexpr unsigned long SCALE_CONNECTION_TIMEOUT = 5000;       // 5 seconds timeout
 constexpr unsigned long SCALE_RECONNECTION_TIMEOUT = 30000;    // 30 seconds before giving up
 
+
+namespace GlobalStateNamespace {
+
 /**
  * @brief Process control related state
  */
@@ -232,7 +235,7 @@ struct SensorState {
         // Handler state - kept for backward compatibility during transition
         // TODO: Move these into handler classes gradually
         uint8_t currStateSteamSwitch;
-        
+
         bool currStatePowerSwitchPressed = false;
         bool lastPowerSwitchPressed = false;
         unsigned long systemInitializedTime = 0;
@@ -255,6 +258,22 @@ struct SensorState {
         int waterTankCheckConsecutiveReads = 0; // Counter for consecutive readings of water tank sensor
 };
 
+struct MachineStateFlags {
+    bool requestBrewStart = false;
+    bool requestBrewStop = false;
+    bool requestHotWaterStart = false;
+    bool requestHotWaterStop = false;
+    bool requestManualFlushStart = false;
+    bool requestManualFlushStop = false;
+    bool requestBackflushStart = false;
+    bool requestBackflushStop = false;
+    bool requestSteamStart = false;
+    bool requestSteamStop = false;
+    bool requestShutdown = false;
+    bool requestStandby = false;
+    bool requestNormalOperation = false;
+};
+
 /**
  * @brief Machine state and brewing
  */
@@ -269,6 +288,8 @@ struct MachineStateData {
         int currBackflushCycles = 1;
         bool waterTankFull = true;
         bool systemInitialized = false;
+
+        MachineStateFlags flags = MachineStateFlags();
 
         hw_timer_t* timer = nullptr;
 };
@@ -287,6 +308,8 @@ struct DebugState {
         String hotWaterStateDebug = "off";
         String lastHotWaterStateDebug = "off";
 };
+} // namespace GlobalState
+
 
 /**
  * @brief Central global state container
@@ -299,17 +322,17 @@ struct DebugState {
  * 4. Reduce this struct to only truly shared state
  */
 struct GlobalState {
-        ProcessState process;
-        CoordinationState coordination;
-        HandlerRefs handlers;
-        HardwareRefs hardware;
-        NetworkState network;
-        TimingState timing;
-        StandbyState standby;
-        SensorState sensors;
-        MachineStateData machine;
-        DisplayState display;
-        DebugState debug;
+        GlobalStateNamespace::ProcessState process;
+        GlobalStateNamespace::CoordinationState coordination;
+        GlobalStateNamespace::HandlerRefs handlers;
+        GlobalStateNamespace::HardwareRefs hardware;
+        GlobalStateNamespace::NetworkState network;
+        GlobalStateNamespace::TimingState timing;
+        GlobalStateNamespace::StandbyState standby;
+        GlobalStateNamespace::SensorState sensors;
+        GlobalStateNamespace::MachineStateData machine;
+        GlobalStateNamespace::DisplayState display;
+        GlobalStateNamespace::DebugState debug;
 
         // System-wide references (initialized later)
         Config* config = nullptr;

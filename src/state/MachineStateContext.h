@@ -6,6 +6,7 @@
 #pragma once
 
 #include <memory>
+#include "MachineStateIds.h"
 
 // Forward declarations
 class Config;
@@ -251,7 +252,7 @@ class MachineStateContext {
         /**
          * @brief Reset standby timer for given state
          */
-        void resetStandbyTimer(int stateId) const;
+        void resetStandbyTimer(MachineStateId stateId) const;
 
         // === Control Functions ===
 
@@ -347,17 +348,17 @@ class MachineStateContext {
         /**
          * @brief Log state transition
          */
-        void logStateTransition(int fromState, int toState, const char* reason = nullptr) const;
+        void logStateTransition(MachineStateId fromState, MachineStateId toState, const char* reason = nullptr) const;
 
         /**
          * @brief Log state entry
          */
-        void logStateEntry(int stateId, const char* stateName) const;
+        void logStateEntry(MachineStateId stateId, const char* stateName) const;
 
         /**
          * @brief Log state exit
          */
-        void logStateExit(int stateId, const char* stateName) const;
+        void logStateExit(MachineStateId stateId, const char* stateName) const;
 
         // === MQTT Integration ===
 
