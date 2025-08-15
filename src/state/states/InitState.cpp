@@ -5,20 +5,13 @@
 
 #include "InitState.h"
 #include "../MachineStateContext.h"
+#include "../StateTransitionHelper.h"
 #include "Logger.h"
-#include "PidDisabledState.h"
+#include "SystemStates.h"
 #include "PidNormalState.h"
-#include "SensorErrorState.h"
-#include "WaterTankEmptyState.h"
 
-void InitState::onEntry(MachineStateContext& context) {
-    context.logStateEntry(getStateId(), getStateName());
+void InitState::onEntryImpl(MachineStateContext& context) {
     LOG(INFO, "System initializing - performing startup checks");
-}
-
-void InitState::onExit(MachineStateContext& context) {
-    context.logStateExit(getStateId(), getStateName());
-    LOG(INFO, "System initialization complete");
 }
 
 void InitState::update(MachineStateContext& context) {
@@ -26,29 +19,17 @@ void InitState::update(MachineStateContext& context) {
     // The actual transition logic is handled in checkTransitions()
 
     // Log current system status for debugging
-    LOGF(DEBUG, "Init state: Water tank: %s, Sensors: %s, PID: %s", checkWaterTank(context) ? "OK" : "EMPTY", checkSensors(context) ? "OK" : "ERROR", checkPidEnabled(context) ? "ENABLED" : "DISABLED");
+    LOGF(DEBUG, "Init state: Water tank: %s, Sensors: %s, PID: %s", checkWaterTank(context) ? "OK" : "EMPTY", checkSensors(context) ? "OK" : "ERROR", checkPidConfig(context) ? "ENABLED" : "DISABLED");
 }
 
-std::unique_ptr<MachineState> InitState::checkTransitions(MachineStateContext& context) {
-    // Priority order for state transitions:
-    // 1. Water tank empty (highest priority - safety)
-    // 2. Sensor errors (critical for operation)
-    // 3. PID disabled/enabled (normal operation states)
-
-    // Check water tank first - critical for safety
-    if (!checkWaterTank(context)) {
-        context.logStateTransition(getStateId(), MachineStateId::WATER_TANK_EMPTY, "Water tank empty");
-        return std::make_unique<WaterTankEmptyState>();
+std::unique_ptr<MachineState> InitState::checkSpecificTransitions(MachineStateContext& context) {
+    // Check common safety transitions first
+    if (auto state = StateTransitionHelper::checkCommonSafetyTransitions(context, getStateId())) {
+        return state;
     }
-
-    // Check sensors - critical for temperature control
-    if (!checkSensors(context)) {
-        context.logStateTransition(getStateId(), MachineStateId::SENSOR_ERROR, "Sensor error detected");
-        return std::make_unique<SensorErrorState>();
-    }
-
+    
     // Determine normal operation state based on PID setting
-    if (!checkPidEnabled(context)) {
+    if (!checkPidConfig(context)) {
         context.logStateTransition(getStateId(), MachineStateId::PID_DISABLED, "PID disabled");
         return std::make_unique<PidDisabledState>();
     }
@@ -76,6 +57,6 @@ bool InitState::checkSensors(MachineStateContext& context) const {
     return true;
 }
 
-bool InitState::checkPidEnabled(MachineStateContext& context) const {
+bool InitState::checkPidConfig(MachineStateContext& context) const {
     return context.isPidEnabled();
 }

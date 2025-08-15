@@ -6,25 +6,17 @@
 #include "PidNormalState.h"
 #include "../MachineStateContext.h"
 #include "../GlobalState.h"
+#include "../StateTransitionHelper.h"
 #include "Logger.h"
-#include "BrewState.h"
-#include "HotWaterState.h"
-#include "SteamState.h"
-#include "BackflushState.h"
-#include "ManualFlushState.h"
-#include "EmergencyStopState.h"
-#include "SensorErrorState.h"
-#include "StandbyState.h"
+#include "BrewStates.h"
+#include "WaterSteamStates.h"
+#include "BackflushStates.h"
+#include "SystemStates.h"
 
 
-void PidNormalState::onEntry(MachineStateContext& context) {
-    context.logStateEntry(getStateId(), getStateName());
+void PidNormalState::onEntryImpl(MachineStateContext& context) {
     LOG(INFO, "PID Normal mode active - ready for operation");
     resetStandbyTimerIfNeeded(context);
-}
-
-void PidNormalState::onExit(MachineStateContext& context) {
-    context.logStateExit(getStateId(), getStateName());
 }
 
 void PidNormalState::update(MachineStateContext& context) {
@@ -33,17 +25,10 @@ void PidNormalState::update(MachineStateContext& context) {
     resetStandbyTimerIfNeeded(context);
 }
 
-std::unique_ptr<MachineState> PidNormalState::checkTransitions(MachineStateContext& context) {
-    // Check for emergency conditions first
-    if (checkEmergencyConditions(context)) {
-        context.logStateTransition(getStateId(), MachineStateId::EMERGENCY_STOP, "Emergency condition detected");
-        return std::make_unique<EmergencyStopState>();
-    }
-
-    // Check for sensor errors
-    if (checkSystemErrors(context)) {
-        context.logStateTransition(getStateId(), MachineStateId::SENSOR_ERROR, "System error detected");
-        return std::make_unique<SensorErrorState>();
+std::unique_ptr<MachineState> PidNormalState::checkSpecificTransitions(MachineStateContext& context) {
+    // Check common safety transitions first
+    if (auto state = StateTransitionHelper::checkCommonSafetyTransitions(context, getStateId())) {
+        return state;
     }
 
     // Check for condition flags (user/external requests)
@@ -51,21 +36,35 @@ std::unique_ptr<MachineState> PidNormalState::checkTransitions(MachineStateConte
     if (g_state.machine.flags.requestBrewStart) {
         g_state.machine.flags.requestBrewStart = false;
         context.logStateTransition(getStateId(), MachineStateId::BREW_IDLE, "Brew start requested");
-        return std::make_unique<BrewState>();
+        return std::make_unique<BrewIdleState>();
     }
 
     // Check for hot water start request
     if (g_state.machine.flags.requestHotWaterStart) {
         g_state.machine.flags.requestHotWaterStart = false;
         context.logStateTransition(getStateId(), MachineStateId::HOT_WATER_IDLE, "Hot water start requested");
-        return std::make_unique<HotWaterState>();
+        return std::make_unique<HotWaterIdleState>();
     }
 
     // Check for steam start request
     if (g_state.machine.flags.requestSteamStart) {
         g_state.machine.flags.requestSteamStart = false;
         context.logStateTransition(getStateId(), MachineStateId::STEAM_IDLE, "Steam start requested");
-        return std::make_unique<SteamState>();
+        return std::make_unique<SteamIdleState>();
+    }
+
+    // Check for manual flush start request
+    if (g_state.machine.flags.requestManualFlushStart) {
+        g_state.machine.flags.requestManualFlushStart = false;
+        context.logStateTransition(getStateId(), MachineStateId::MANUAL_FLUSH_IDLE, "Manual flush start requested");
+        return std::make_unique<ManualFlushIdleState>();
+    }
+
+    // Check for backflush start request
+    if (g_state.machine.flags.requestBackflushStart) {
+        g_state.machine.flags.requestBackflushStart = false;
+        context.logStateTransition(getStateId(), MachineStateId::BACKFLUSH_IDLE, "Backflush start requested");
+        return std::make_unique<BackflushState>();
     }
 
     // Check for standby request
@@ -85,16 +84,8 @@ std::unique_ptr<MachineState> PidNormalState::checkTransitions(MachineStateConte
     return nullptr;
 }
 
-bool PidNormalState::checkEmergencyConditions(MachineStateContext& context) const {
-    return context.isEmergencyStop();
-}
-
 bool PidNormalState::shouldEnterStandby(MachineStateContext& context) const {
     return context.shouldEnterStandby();
-}
-
-bool PidNormalState::checkSystemErrors(MachineStateContext& context) const {
-    return context.hasSensorError();
 }
 
 void PidNormalState::resetStandbyTimerIfNeeded(MachineStateContext& context) const {

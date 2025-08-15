@@ -5,11 +5,11 @@
 
 #include "EmergencyStopState.h"
 #include "../MachineStateContext.h"
+#include "../StateTransitionHelper.h"
 #include "InitState.h"
 #include "Logger.h"
 
-void EmergencyStopState::onEntry(MachineStateContext& context) {
-    context.logStateEntry(getStateId(), getStateName());
+void EmergencyStopState::onEntryImpl(MachineStateContext& context) {
     LOG(ERROR, "EMERGENCY STOP ACTIVATED - System entering safe mode");
 
     // Immediately perform emergency shutdown
@@ -19,8 +19,7 @@ void EmergencyStopState::onEntry(MachineStateContext& context) {
     LOGF(ERROR, "Emergency conditions: Temp=%.1f°C, EmergencyStop=%s", context.getCurrentTemperature(), context.isEmergencyStop() ? "ACTIVE" : "INACTIVE");
 }
 
-void EmergencyStopState::onExit(MachineStateContext& context) {
-    context.logStateExit(getStateId(), getStateName());
+void EmergencyStopState::onExitImpl(MachineStateContext& context) {
     LOG(INFO, "Emergency stop cleared - System ready for restart");
 }
 
@@ -35,7 +34,7 @@ void EmergencyStopState::update(MachineStateContext& context) {
     performEmergencyShutdown(context);
 }
 
-std::unique_ptr<MachineState> EmergencyStopState::checkTransitions(MachineStateContext& context) {
+std::unique_ptr<MachineState> EmergencyStopState::checkSpecificTransitions(MachineStateContext& context) {
     // Only transition out of emergency stop when condition is fully cleared
     // and system is safe to restart
 

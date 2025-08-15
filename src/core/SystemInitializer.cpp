@@ -178,24 +178,7 @@ bool SystemInitializer::initializeConfiguration() {
 
     LOG(INFO, "Configuration system ready");
 
-    // Set logger level - temporarily disabled due to enum conversion issues
-    // TODO: Fix System::LogLevel to Logger::Level conversion
-    /*
-    int systemLevelInt = static_cast<int>(Config::getInstance().systemLogLevel.get());
-    Logger::Level loggerLevel = Logger::Level::INFO; // default
-
-    if (systemLevelInt == 0) loggerLevel = Logger::Level::TRACE;
-    else if (systemLevelInt == 1) loggerLevel = Logger::Level::DEBUG;
-    else if (systemLevelInt == 2) loggerLevel = Logger::Level::INFO;
-    else if (systemLevelInt == 3) loggerLevel = Logger::Level::WARNING;
-    else if (systemLevelInt == 4) loggerLevel = Logger::Level::ERROR;
-    else if (systemLevelInt == 5) loggerLevel = Logger::Level::FATAL;
-    else if (systemLevelInt == 6) loggerLevel = Logger::Level::SILENT;
-
-    Logger::setLevel(loggerLevel);
-    */
-
-    // Use default log level for now
+    // Use default log level
     Logger::setLevel(Logger::Level::INFO);
 
     calculateDerivedValues();

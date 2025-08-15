@@ -141,18 +141,11 @@ void setup() {
         g_state.hardware.brewLed = hwManager->getBrewLed();
         g_state.hardware.steamLed = hwManager->getSteamLed();
 
-        // Legacy
-        // powerSwitch = hwManager->getPowerSwitch();
-        // brewSwitch = hwManager->getBrewSwitch();
-        // steamSwitch = hwManager->getSteamSwitch();
-        // hotWaterSwitch = hwManager->getHotWaterSwitch();
-        // waterTankSensor = hwManager->getWaterTankSensor();
-
-        // TODO Duplicate? -> SystemInitializer already sets these
+        // Hardware switch and sensor assignments
         g_state.hardware.powerSwitch = hwManager->getPowerSwitch();
         g_state.hardware.brewSwitch = hwManager->getBrewSwitch();
-        g_state.hardware.hotWaterSwitch = hwManager->getSteamSwitch();
-        g_state.hardware.powerSwitch = hwManager->getHotWaterSwitch();
+        g_state.hardware.steamSwitch = hwManager->getSteamSwitch();
+        g_state.hardware.hotWaterSwitch = hwManager->getHotWaterSwitch();
         g_state.hardware.waterTankSensor = hwManager->getWaterTankSensor();
 
         g_state.hardware.tempSensor = hwManager->getTempSensor();
