@@ -6,7 +6,7 @@
 #include "clevercoffee/network/WebServerManager.h"
 #include "clevercoffee/Config.h"
 #include "clevercoffee/network/CleverCoffeeWiFiManager.h"
-#include "clevercoffee/state/GlobalState.h"
+#include "clevercoffee/GlobalState.h"
 #include "clevercoffee/utils/helperUtils.h"
 #include "clevercoffee/Logger.h"
 #include <Arduino.h>

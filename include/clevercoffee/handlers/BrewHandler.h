@@ -10,7 +10,7 @@
 #include <Logger.h>
 #include "clevercoffee/hardware/Relay.h"
 #include "clevercoffee/hardware/Switch.h"
-#include "clevercoffee/state/GlobalState.h"
+#include "clevercoffee/GlobalState.h"
 #include "clevercoffee/state/MachineState.h"
 #include "clevercoffee/scaleHandler.h"
 #include "clevercoffee/handlers/PumpTimer.h"

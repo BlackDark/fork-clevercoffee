@@ -3,7 +3,7 @@
  * @brief Global state instance definition and handler initialization
  */
 
-#include "clevercoffee/state/GlobalState.h"
+#include "clevercoffee/GlobalState.h"
 #include "clevercoffee/defaults.h"
 #include "clevercoffee/control/ProcessController.h"
 #include "clevercoffee/handlers/BrewHandler.h"

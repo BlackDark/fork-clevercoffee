@@ -10,7 +10,7 @@
 #include "clevercoffee/hardware/scales/Scale.h"
 #include "clevercoffee/network/MQTTManager.h"
 #include "clevercoffee/sensors/SensorManager.h"
-#include "clevercoffee/state/GlobalState.h"
+#include "clevercoffee/GlobalState.h"
 #include "clevercoffee/utils/SystemUtils.h"
 #include "clevercoffee/Logger.h"
 #include <Arduino.h>

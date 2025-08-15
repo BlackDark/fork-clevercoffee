@@ -5,7 +5,7 @@
 
 #pragma once
 
-#include "clevercoffee/state/GlobalState.h"
+#include "clevercoffee/GlobalState.h"
 #include <Arduino.h>
 #include <cmath>
 #include <mutex>

@@ -5,8 +5,8 @@
 
 #include "clevercoffee/state/states/ErrorStates.h"
 #include "clevercoffee/state/states/EmergencyStopState.h"
-#include "clevercoffee/state/states/clevercoffee/MachineStateContext.h"
-#include "clevercoffee/state/states/clevercoffee/StateTransitionHelper.h"
+#include "clevercoffee/state/MachineStateContext.h"
+#include "clevercoffee/state/StateTransitionHelper.h"
 #include "clevercoffee/Logger.h"
 
 // SensorErrorState Implementation

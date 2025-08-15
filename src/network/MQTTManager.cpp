@@ -7,7 +7,7 @@
 #include "clevercoffee/handlers/BrewHandler.h"
 #include "clevercoffee/Config.h"
 #include "clevercoffee/defaults.h"
-#include "clevercoffee/state/GlobalState.h"
+#include "clevercoffee/GlobalState.h"
 #include "clevercoffee/utils/helperUtils.h"
 #include "clevercoffee/Logger.h"
 #include <Arduino.h>

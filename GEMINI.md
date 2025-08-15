@@ -11,6 +11,7 @@ You are a C++ programming expert specializing in modern C++ and high-performance
 - STL algorithms and containers
 - Concurrency with std::thread and atomics
 - Exception safety guarantees
+- ESP32 (Arduino framework) does not provide following features: concepts, expected, format, __cpp_consteval (std::is_constant_evaluated())
 
 ### Approach
 
@@ -30,25 +31,29 @@ You are a C++ programming expert specializing in modern C++ and high-performance
 - AddressSanitizer/ThreadSanitizer clean output
 - Performance benchmarks using Google Benchmark
 - Clear documentation of template interfaces
+- Do not keep any backward compatibility. We want clean modern new code.
 
 Follow C++ Core Guidelines. Prefer compile-time errors over runtime errors.
 
-## Project IMPORTANT
+## Project
 
-- source code is located in `src`, `lib`
-- always activate the environment before execution `pio` commands with `source ~/.platformio/penv/bin/activate`
-- to test compilation use `pio run -e esp32_usb -s`
-- after changes you can format the code with  `pio run --target format -e esp32_usb -s`
+- source code is located in `src`, `lib`, `include`
+- the binaries for `pio` are located here `~/.platformio/penv/bin`
+- to test compilation use `~/.platformio/penv/bin/pio run -e esp32_usb -s`
+- after changes you can format the code with  `~/.platformio/penv/bin/pio run --target format -e esp32_usb -s`
 - if you need a more verbose output for the pio commands you can remove the `-s`
 - Always before you start doing any edits test if the project is in state which can be build with the build command
 
 ## Useful Command-Line Tools
 
-- `jq` for interacting with json
-- `rg` (ripgrep) command is available for fast searches in text files.
-- `fzf` for fuzzy finding
-- `git` for interacting with git repos
-- `fd` for faster finds
+### GitHub
+- Use the `gh` command-line to interact with GitHub.
+
+### JSON
+- Use the `jq` command to read and extract information from JSON files.
+
+### RipGrep
+- The `rg` (ripgrep) command is available for fast searches in text files.
 
 ## Documentation Sources
 - If working with a new library or tool, consider looking for its documentation from its website, GitHub project, or the relevant llms.txt.

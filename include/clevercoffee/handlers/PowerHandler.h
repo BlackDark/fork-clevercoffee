@@ -9,7 +9,7 @@
 #include <Logger.h>
 #include "clevercoffee/display/displayCommon.h"
 #include "clevercoffee/standby.h"
-#include "clevercoffee/state/GlobalState.h"
+#include "clevercoffee/GlobalState.h"
 #include "clevercoffee/state/MachineState.h"
 #include "clevercoffee/utils/SystemUtils.h"
 

@@ -4,8 +4,8 @@
  */
 
 #include "clevercoffee/state/states/InitState.h"
-#include "clevercoffee/state/states/clevercoffee/MachineStateContext.h"
-#include "clevercoffee/state/states/clevercoffee/StateTransitionHelper.h"
+#include "clevercoffee/state/MachineStateContext.h"
+#include "clevercoffee/state/StateTransitionHelper.h"
 #include "clevercoffee/Logger.h"
 #include "clevercoffee/state/states/SystemStates.h"
 #include "clevercoffee/state/states/PidNormalState.h"

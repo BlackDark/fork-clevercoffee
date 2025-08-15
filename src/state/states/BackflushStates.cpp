@@ -4,7 +4,7 @@
  */
 
 #include "clevercoffee/state/states/BackflushStates.h"
-#include "clevercoffee/state/states/clevercoffee/MachineStateContext.h"
+#include "clevercoffee/state/MachineStateContext.h"
 #include "clevercoffee/Logger.h"
 
 // BackflushState Implementation

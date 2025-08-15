@@ -6,7 +6,7 @@
 #include "clevercoffee/network/CleverCoffeeWiFiManager.h"
 #include "clevercoffee/Config.h"
 #include "clevercoffee/display/languages.h"
-#include "clevercoffee/state/GlobalState.h"
+#include "clevercoffee/GlobalState.h"
 #include "clevercoffee/handlers/BrewHandler.h"
 #include "clevercoffee/Logger.h"
 #include <ESP.h>

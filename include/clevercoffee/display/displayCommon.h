@@ -10,7 +10,7 @@
 #include "clevercoffee/handlers/BrewHandler.h"
 #include "clevercoffee/handlers/HotWaterHandler.h"
 #include "clevercoffee/network/CleverCoffeeWiFiManager.h"
-#include "clevercoffee/state/GlobalState.h"
+#include "clevercoffee/GlobalState.h"
 #include "clevercoffee/state/MachineStateIds.h"
 #include "clevercoffee/utils/SystemUtils.h"
 #include "clevercoffee/display/bitmaps.h"
@@ -733,7 +733,7 @@ inline bool displayMachineState() {
     if (g_state.machine.machineState == MachineStateId::SENSOR_ERROR) {
         g_state.hardware.display->clearBuffer();
         g_state.hardware.display->setFont(u8g2_font_profont11_tf);
-        
+
         // Use buffer for temperature conversion to avoid String allocation
         char tempBuffer[16];
         snprintf(tempBuffer, sizeof(tempBuffer), "%.1f", g_state.process.temperature);
@@ -818,7 +818,7 @@ inline void displayWrappedMessage(const char* message) {
     constexpr size_t MAX_LINE_LEN = MESSAGE_BUFFER_SIZE;
     char word[MAX_WORD_LEN] = {0};
     char line[MAX_LINE_LEN] = {0};
-    
+
     size_t wordIdx = 0;
     size_t lineLen = 0;
     const size_t msgLen = strlen(message);
@@ -828,7 +828,7 @@ inline void displayWrappedMessage(const char* message) {
 
         if (c == ' ' || c == '\n' || c == '\0') {
             word[wordIdx] = '\0';
-            
+
             if (!wordFitsOnLine(line, word, displayWidth) && lineLen > 0) {
                 // Draw current line and start new line with word
                 drawLineAndAdvance(line, x, y, lineHeight);

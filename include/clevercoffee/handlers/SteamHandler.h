@@ -7,7 +7,7 @@
 #include "clevercoffee/handlers/BaseHandler.h"
 #include "clevercoffee/Config.h"
 #include <Logger.h>
-#include "clevercoffee/state/GlobalState.h"
+#include "clevercoffee/GlobalState.h"
 
 /**
  * @class SteamHandler

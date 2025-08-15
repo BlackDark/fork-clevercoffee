@@ -5,12 +5,12 @@
 
 #pragma once
 
-#include "clevercoffee/state/states/clevercoffee/BaseState.h"
+#include "clevercoffee/state/BaseState.h"
 
 class InitState : public BaseState<MachineStateId::INIT, InitState> {
 public:
     static constexpr const char* STATE_NAME = "Init";
-    
+
     void update(MachineStateContext& context) override;
     void onEntryImpl(MachineStateContext& context) override;
     std::unique_ptr<MachineState> checkSpecificTransitions(MachineStateContext& context) override;

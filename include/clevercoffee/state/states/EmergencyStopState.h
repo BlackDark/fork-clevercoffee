@@ -5,12 +5,12 @@
 
 #pragma once
 
-#include "clevercoffee/state/states/clevercoffee/BaseState.h"
+#include "clevercoffee/state/BaseState.h"
 
 class EmergencyStopState : public BaseState<MachineStateId::EMERGENCY_STOP, EmergencyStopState> {
 public:
     static constexpr const char* STATE_NAME = "Emergency Stop";
-    
+
     void update(MachineStateContext& context) override;
     void onEntryImpl(MachineStateContext& context) override;
     void onExitImpl(MachineStateContext& context) override;

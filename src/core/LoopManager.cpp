@@ -15,7 +15,7 @@
 #include "clevercoffee/handlers/PowerHandler.h"
 #include "clevercoffee/sensors/SensorManager.h"
 #include "clevercoffee/standby.h"
-#include "clevercoffee/state/GlobalState.h"
+#include "clevercoffee/GlobalState.h"
 #include "clevercoffee/state/StateMachine.h"
 #include "clevercoffee/handlers/SteamHandler.h"
 #include "clevercoffee/ui/UIManager.h"

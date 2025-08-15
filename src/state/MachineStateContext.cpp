@@ -13,12 +13,12 @@
 #include "clevercoffee/network/MQTTManager.h"
 #include "clevercoffee/sensors/SensorManager.h"
 // #include "../hotWaterHandler.h" - removed to avoid circular dependencies
-#include "clevercoffee/state/GlobalState.h"
+#include "clevercoffee/GlobalState.h"
 #include "clevercoffee/state/MachineStateIds.h"
 #include "clevercoffee/utils/SystemUtils.h"
 #include "clevercoffee/Logger.h"
+#include "clevercoffee/standby.h"
 #include <Arduino.h>
-#include "clevercoffee/state/standby.h"
 
 MachineStateContext::MachineStateContext(DisplayManager* displayManager, HardwareManager* hardwareManager, SensorManager* sensorManager, CleverCoffeeWiFiManager* wifiManager, MQTTManager* mqttManager) :
     displayManager_(displayManager), hardwareManager_(hardwareManager), sensorManager_(sensorManager), wifiManager_(wifiManager), mqttManager_(mqttManager) {

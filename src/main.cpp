@@ -29,7 +29,7 @@
 
 // Includes
 #include "clevercoffee/Config.h"
-#include "clevercoffee/state/GlobalState.h"
+#include "clevercoffee/GlobalState.h"
 
 // Utilities
 #include "clevercoffee/utils/ModernTimer.h"

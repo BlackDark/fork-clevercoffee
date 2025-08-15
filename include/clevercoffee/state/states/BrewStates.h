@@ -5,8 +5,8 @@
 
 #pragma once
 
-#include "clevercoffee/state/states/clevercoffee/BaseState.h"
-#include "clevercoffee/state/states/clevercoffee/GlobalState.h"
+#include "clevercoffee/state/BaseState.h"
+#include "clevercoffee/GlobalState.h"
 
 /**
  * @brief Brew idle state - ready to start brewing
@@ -14,7 +14,7 @@
 class BrewIdleState : public BaseState<MachineStateId::BREW_IDLE, BrewIdleState> {
 public:
     static constexpr const char* STATE_NAME = "Brew Idle";
-    
+
     void update(MachineStateContext& context) override;
     void onEntryImpl(MachineStateContext& context) override;
     std::unique_ptr<MachineState> checkSpecificTransitions(MachineStateContext& context) override;
@@ -26,7 +26,7 @@ public:
 class BrewPreinfusionState : public BaseState<MachineStateId::BREW_PREINFUSION, BrewPreinfusionState> {
 public:
     static constexpr const char* STATE_NAME = "Brew Preinfusion";
-    
+
     void update(MachineStateContext& context) override;
     void onEntryImpl(MachineStateContext& context) override;
     std::unique_ptr<MachineState> checkSpecificTransitions(MachineStateContext& context) override;
@@ -38,7 +38,7 @@ public:
 class BrewPreinfusionPauseState : public BaseState<MachineStateId::BREW_PREINFUSION_PAUSE, BrewPreinfusionPauseState> {
 public:
     static constexpr const char* STATE_NAME = "Brew Preinfusion Pause";
-    
+
     void update(MachineStateContext& context) override;
     void onEntryImpl(MachineStateContext& context) override;
     std::unique_ptr<MachineState> checkSpecificTransitions(MachineStateContext& context) override;
@@ -50,7 +50,7 @@ public:
 class BrewRunningState : public BaseState<MachineStateId::BREW_RUNNING, BrewRunningState> {
 public:
     static constexpr const char* STATE_NAME = "Brew Running";
-    
+
     void update(MachineStateContext& context) override;
     void onEntryImpl(MachineStateContext& context) override;
     std::unique_ptr<MachineState> checkSpecificTransitions(MachineStateContext& context) override;
@@ -62,7 +62,7 @@ public:
 class BrewFinishedState : public BaseState<MachineStateId::BREW_FINISHED, BrewFinishedState> {
 public:
     static constexpr const char* STATE_NAME = "Brew Finished";
-    
+
     void update(MachineStateContext& context) override;
     void onEntryImpl(MachineStateContext& context) override;
     std::unique_ptr<MachineState> checkSpecificTransitions(MachineStateContext& context) override;

@@ -8,7 +8,7 @@
 #include "clevercoffee/Config.h"
 #include "clevercoffee/hardware/Switch.h"
 #include "clevercoffee/hardware/Relay.h"
-#include "clevercoffee/state/GlobalState.h"
+#include "clevercoffee/GlobalState.h"
 #include <Logger.h>
 
 // TODO do we need this globally?

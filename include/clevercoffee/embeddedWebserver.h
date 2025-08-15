@@ -8,7 +8,7 @@
 #include "clevercoffee/FS.h"
 #include "clevercoffee/LittleFS.h"
 #include "clevercoffee/ota.h"
-#include "clevercoffee/state/GlobalState.h"
+#include "clevercoffee/GlobalState.h"
 #include "clevercoffee/utils/helperUtils.h"
 #include "clevercoffee/utils/SystemUtils.h"
 #include <Arduino.h>
@@ -48,15 +48,15 @@ const char* getContentType(const String& path) {
     // Find last dot to get extension
     int lastDot = path.lastIndexOf('.');
     if (lastDot == -1) return "text/plain";
-    
+
     // Get extension as c_str for efficient comparison
     const char* ext = path.c_str() + lastDot + 1;
-    
+
     // Use switch-like structure for better performance
     switch (ext[0]) {
         case 'h': if (strcmp(ext, "html") == 0) return "text/html"; break;
         case 'c': if (strcmp(ext, "css") == 0) return "text/css"; break;
-        case 'j': 
+        case 'j':
             if (strcmp(ext, "js") == 0) return "application/javascript";
             if (strcmp(ext, "json") == 0) return "application/json";
             if (strcmp(ext, "jpg") == 0 || strcmp(ext, "jpeg") == 0) return "image/jpeg";
@@ -65,7 +65,7 @@ const char* getContentType(const String& path) {
         case 'g': if (strcmp(ext, "gif") == 0) return "image/gif"; break;
         case 's': if (strcmp(ext, "svg") == 0) return "image/svg+xml"; break;
         case 'i': if (strcmp(ext, "ico") == 0) return "image/x-icon"; break;
-        case 'w': 
+        case 'w':
             if (strcmp(ext, "woff") == 0) return "font/woff";
             if (strcmp(ext, "woff2") == 0) return "font/woff2";
             if (strcmp(ext, "webp") == 0) return "image/webp";
@@ -301,7 +301,7 @@ inline String staticProcessor(const String& var) {
     try {
         // Avoid substring() calls by using direct pointer arithmetic
         const char* varStr = var.c_str();
-        
+
         if (strncmp(varStr, "VAR_SHOW_", 9) == 0) {
             return getValue(String(varStr + 9));
         }
@@ -313,7 +313,7 @@ inline String staticProcessor(const String& var) {
         // Pre-allocate and reuse buffer to avoid repeated allocations
         static char fragmentPath[128];
         static String lowerVar;
-        
+
         // Build path more efficiently
         strcpy(fragmentPath, "/html_fragments/");
         lowerVar = var;
@@ -655,7 +655,7 @@ inline void handleConfigUpload(AsyncWebServerRequest* request, const String& fil
 inline void handleRestart(AsyncWebServerRequest* request) {
     try {
         request->send(200, "application/json", JsonResponseBuilder::createSuccessResponse("Restarting..."));
-        // Brief delay before restart - reduced from 100ms  
+        // Brief delay before restart - reduced from 100ms
         delay(50);
         ESP.restart();
     } catch (const std::exception& e) {

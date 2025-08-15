@@ -5,7 +5,7 @@
 
 #include "clevercoffee/Config.h"
 #include "clevercoffee/Logger.h"
-#include "clevercoffee/state/GlobalState.h"
+#include "clevercoffee/GlobalState.h"
 #include "clevercoffee/utils/memoryUtils.h"
 #include <ArduinoJson.h>
 

@@ -5,8 +5,8 @@
 
 #pragma once
 
-#include "clevercoffee/state/states/clevercoffee/BaseState.h"
-#include "clevercoffee/state/states/clevercoffee/GlobalState.h"
+#include "clevercoffee/state/BaseState.h"
+#include "clevercoffee/GlobalState.h"
 
 /**
  * @brief Sensor error state - sensor malfunction detected
@@ -14,7 +14,7 @@
 class SensorErrorState : public BaseState<MachineStateId::SENSOR_ERROR, SensorErrorState> {
 public:
     static constexpr const char* STATE_NAME = "Sensor Error";
-    
+
     void update(MachineStateContext& context) override;
     void onEntryImpl(MachineStateContext& context) override;
     void onExitImpl(MachineStateContext& context) override;
@@ -32,7 +32,7 @@ private:
 class WaterTankEmptyState : public BaseState<MachineStateId::WATER_TANK_EMPTY, WaterTankEmptyState> {
 public:
     static constexpr const char* STATE_NAME = "Water Tank Empty";
-    
+
     void update(MachineStateContext& context) override;
     void onEntryImpl(MachineStateContext& context) override;
     std::unique_ptr<MachineState> checkSpecificTransitions(MachineStateContext& context) override;
@@ -44,7 +44,7 @@ public:
 class EepromErrorState : public BaseState<MachineStateId::EEPROM_ERROR, EepromErrorState> {
 public:
     static constexpr const char* STATE_NAME = "EEPROM Error";
-    
+
     void update(MachineStateContext& context) override;
     void onEntryImpl(MachineStateContext& context) override;
     void onExitImpl(MachineStateContext& context) override;

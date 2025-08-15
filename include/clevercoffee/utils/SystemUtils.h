@@ -2,7 +2,7 @@
 
 #include "clevercoffee/Config.h"
 #include "clevercoffee/network/MQTTManager.h"
-#include "clevercoffee/state/GlobalState.h"
+#include "clevercoffee/GlobalState.h"
 #include <mutex>
 
 /**
@@ -13,7 +13,7 @@
 inline void setRuntimePidState(const bool enabled) {
     static std::mutex pid_mutex;
     std::lock_guard<std::mutex> lock(pid_mutex);
-    
+
     g_state.process.pidEnabled = enabled;
     // TODO probably wrong
     Config::getInstance().pidEnabled.set(enabled);
@@ -22,7 +22,7 @@ inline void setRuntimePidState(const bool enabled) {
 inline void setSteamMode(const bool steamMode) {
     static std::mutex steam_mutex;
     std::lock_guard<std::mutex> lock(steam_mutex);
-    
+
     g_state.machine.steamON = steamMode;
 
     if (g_state.machine.steamON) {
@@ -48,7 +48,7 @@ inline void sendHASSIODiscoveryMsg() {
 inline void testEmergencyStop() {
     static std::mutex emergency_mutex;
     std::lock_guard<std::mutex> lock(emergency_mutex);
-    
+
     if (g_state.process.temperature > EmergencyStopTemp && g_state.machine.emergencyStop == false) {
         g_state.machine.emergencyStop = true;
     }
@@ -63,7 +63,7 @@ inline void testEmergencyStop() {
 inline void initOfflineMode() {
     static std::mutex offline_mutex;
     std::lock_guard<std::mutex> lock(offline_mutex);
-    
+
     if (Config::getInstance().hardwareOledEnabled.get()) {
         g_state.display.displayOffline = 1;
     }

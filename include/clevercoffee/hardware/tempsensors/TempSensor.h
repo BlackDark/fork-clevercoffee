@@ -11,7 +11,7 @@
 #include <numeric>
 
 
-#include "clevercoffee/state/GlobalState.h"
+#include "clevercoffee/GlobalState.h"
 #include "clevercoffee/Logger.h"
 #include "clevercoffee/utils/ModernTimer.h"
 

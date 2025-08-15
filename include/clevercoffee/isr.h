@@ -8,7 +8,7 @@
 #pragma once
 
 #include "clevercoffee/hardware/Relay.h"
-#include "clevercoffee/state/GlobalState.h"
+#include "clevercoffee/GlobalState.h"
 
 // pidOutput moved to g_state.process.pidOutput
 

@@ -9,7 +9,7 @@
 #include "clevercoffee/hardware/pinmapping.h"
 #include "clevercoffee/hardware/scales/BluetoothScale.h"
 #include "clevercoffee/hardware/scales/HX711Scale.h"
-#include "clevercoffee/state/GlobalState.h"
+#include "clevercoffee/GlobalState.h"
 
 // Simple stub to avoid circular dependency with displayCommon.h
 void displayScaleFailed() {

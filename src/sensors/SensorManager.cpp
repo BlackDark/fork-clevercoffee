@@ -6,7 +6,7 @@
 #include "clevercoffee/sensors/SensorManager.h"
 #include "clevercoffee/Config.h"
 #include "clevercoffee/hardware/pressureSensor.h"
-#include "clevercoffee/state/GlobalState.h"
+#include "clevercoffee/GlobalState.h"
 #include "clevercoffee/Logger.h"
 #include <Arduino.h>
 #include <Wire.h>
