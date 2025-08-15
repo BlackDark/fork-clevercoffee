@@ -4,7 +4,7 @@
  * @brief Abstraction of a GPIO pin
  */
 
-#include "GPIOPin.h"
+#include "clevercoffee/hardware/GPIOPin.h"
 
 GPIOPin::GPIOPin(const int pinNumber, const Type pinType) :
     pin(pinNumber), pinType(pinType) {

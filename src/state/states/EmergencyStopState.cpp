@@ -3,11 +3,11 @@
  * @brief Implementation of EmergencyStopState for safety conditions
  */
 
-#include "EmergencyStopState.h"
-#include "../MachineStateContext.h"
-#include "../StateTransitionHelper.h"
-#include "InitState.h"
-#include "Logger.h"
+#include "clevercoffee/state/states/EmergencyStopState.h"
+#include "clevercoffee/state/states/clevercoffee/MachineStateContext.h"
+#include "clevercoffee/state/states/clevercoffee/StateTransitionHelper.h"
+#include "clevercoffee/state/states/InitState.h"
+#include "clevercoffee/Logger.h"
 
 void EmergencyStopState::onEntryImpl(MachineStateContext& context) {
     LOG(ERROR, "EMERGENCY STOP ACTIVATED - System entering safe mode");

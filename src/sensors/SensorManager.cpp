@@ -3,16 +3,16 @@
  * @brief Implementation of RAII wrapper for sensor management
  */
 
-#include "SensorManager.h"
-#include "../Config.h"
-#include "../hardware/pressureSensor.h"
-#include "../state/GlobalState.h"
-#include "Logger.h"
+#include "clevercoffee/sensors/SensorManager.h"
+#include "clevercoffee/Config.h"
+#include "clevercoffee/hardware/pressureSensor.h"
+#include "clevercoffee/state/GlobalState.h"
+#include "clevercoffee/Logger.h"
 #include <Arduino.h>
 #include <Wire.h>
 
 // Scale handler functions
-#include "../scaleHandler.h"
+#include "clevercoffee/scaleHandler.h"
 
 SensorManager::SensorManager() :
     tempSensor_(nullptr),

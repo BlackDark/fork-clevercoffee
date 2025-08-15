@@ -12,10 +12,10 @@
 #include <string_view>
 
 // Libraries & Dependencies
-#include "Logger.h"
-#include "core/SystemInitializer.h"
-#include "network/CleverCoffeeWiFiManager.h"
-#include "network/MQTTManager.h"
+#include "clevercoffee/Logger.h"
+#include "clevercoffee/core/SystemInitializer.h"
+#include "clevercoffee/network/CleverCoffeeWiFiManager.h"
+#include "clevercoffee/network/MQTTManager.h"
 #include <ArduinoOTA.h>
 #include <LittleFS.h>
 #include <PID_v1.h>  // for PID calculation
@@ -25,69 +25,69 @@
 #include <os.h>
 
 // Defaults
-#include "defaults.h"
+#include "clevercoffee/defaults.h"
 
 // Includes
-#include "Config.h"
-#include "state/GlobalState.h"
+#include "clevercoffee/Config.h"
+#include "clevercoffee/state/GlobalState.h"
 
 // Utilities
-#include "utils/ModernTimer.h"
-#include "utils/helperUtils.h"
-#include "utils/SystemUtils.h"
-#include "utils/memoryUtils.h"
+#include "clevercoffee/utils/ModernTimer.h"
+#include "clevercoffee/utils/helperUtils.h"
+#include "clevercoffee/utils/SystemUtils.h"
+#include "clevercoffee/utils/memoryUtils.h"
 
 // Hardware classes
-#include "hardware/GPIOPin.h"
-#include "hardware/IOSwitch.h"
-#include "hardware/LED.h"
-#include "hardware/Relay.h"
-#include "hardware/StandardLED.h"
-#include "hardware/Switch.h"
-#include "hardware/pinmapping.h"
-#include "hardware/tempsensors/TempSensorDallas.h"
-#include "hardware/tempsensors/TempSensorTSIC.h"
+#include "clevercoffee/hardware/GPIOPin.h"
+#include "clevercoffee/hardware/IOSwitch.h"
+#include "clevercoffee/hardware/LED.h"
+#include "clevercoffee/hardware/Relay.h"
+#include "clevercoffee/hardware/StandardLED.h"
+#include "clevercoffee/hardware/Switch.h"
+#include "clevercoffee/hardware/pinmapping.h"
+#include "clevercoffee/hardware/tempsensors/TempSensorDallas.h"
+#include "clevercoffee/hardware/tempsensors/TempSensorTSIC.h"
 
-#include "hardware/pressureSensor.h"
-#include "isr.h"
+#include "clevercoffee/hardware/pressureSensor.h"
+#include "clevercoffee/isr.h"
 #include <Wire.h>
 
 // System initializer
 std::unique_ptr<SystemInitializer> systemInitializer = nullptr;
 
 // Display Manager
-#include "display/DisplayManager.h"
+#include "clevercoffee/display/DisplayManager.h"
 std::unique_ptr<DisplayManager> displayManager = nullptr;
 
 // Hardware Manager
-#include "hardware/HardwareManager.h"
+#include "clevercoffee/hardware/HardwareManager.h"
 std::unique_ptr<HardwareManager> hardwareManager = nullptr;
 
 // Modern sensor management
-#include "sensors/SensorManager.h"
+#include "clevercoffee/sensors/SensorManager.h"
 SensorManager* sensorManager = nullptr;
 
 // Modern state machine
-#include "state/StateMachine.h"
+#include "clevercoffee/state/StateMachine.h"
 std::unique_ptr<StateMachine> stateMachine = nullptr;
 
 // Modern process control
-#include "control/ProcessController.h"
+#include "clevercoffee/control/ProcessController.h"
 std::unique_ptr<ProcessController> processController = nullptr;
 
 // Modern loop management
-#include "core/LoopManager.h"
+#include "clevercoffee/core/LoopManager.h"
 std::unique_ptr<LoopManager> loopManager = nullptr;
 
-#include "handlers/BrewHandler.h"
-#include "handlers/HotWaterHandler.h"
-#include "handlers/PowerHandler.h"
-#include "handlers/SteamHandler.h"
-#include "standby.h"
+#include "clevercoffee/handlers/BrewHandler.h"
+#include "clevercoffee/handlers/HotWaterHandler.h"
+#include "clevercoffee/handlers/PowerHandler.h"
+#include "clevercoffee/handlers/SteamHandler.h"
+#include "clevercoffee/standby.h"
 
-#include "display/displayTemplateManager.h"
+#include "clevercoffee/display/displayTemplateManager.h"
 
-#include "scaleHandler.h"
+#include "clevercoffee/scaleHandler.h"
 
 // Modern C++ initialization helpers
 namespace InitHelpers {

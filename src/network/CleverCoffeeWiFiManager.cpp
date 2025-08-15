@@ -3,12 +3,12 @@
  * @brief Implementation of RAII wrapper for WiFi management
  */
 
-#include "CleverCoffeeWiFiManager.h"
-#include "../Config.h"
-#include "../display/languages.h"
-#include "../state/GlobalState.h"
-#include "../handlers/BrewHandler.h"
-#include "Logger.h"
+#include "clevercoffee/network/CleverCoffeeWiFiManager.h"
+#include "clevercoffee/Config.h"
+#include "clevercoffee/display/languages.h"
+#include "clevercoffee/state/GlobalState.h"
+#include "clevercoffee/handlers/BrewHandler.h"
+#include "clevercoffee/Logger.h"
 #include <ESP.h>
 #include <WiFi.h>
 #include <WiFiManager.h>
@@ -92,7 +92,7 @@ void CleverCoffeeWiFiManager::handleSuccessfulConnection(bool oledEnabled, std::
     byte mac[6];
     WiFi.macAddress(mac);
     char completemac[18]; // XX:XX:XX:XX:XX:XX + null terminator
-    snprintf(completemac, sizeof(completemac), "%02X%02X%02X%02X%02X%02X", 
+    snprintf(completemac, sizeof(completemac), "%02X%02X%02X%02X%02X%02X",
              mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 
     LOGF(DEBUG, "MAC-ADDRESS: %s", completemac);

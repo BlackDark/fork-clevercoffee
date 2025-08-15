@@ -3,7 +3,7 @@
  * @brief HX711-based scale implementation
  */
 
-#include "HX711Scale.h"
+#include "clevercoffee/hardware/scales/HX711Scale.h"
 
 HX711Scale::HX711Scale(const int dataPin, const int clkPin, const float calibrationFactor) :
     loadCell1(new HX711_ADC(dataPin, clkPin)), loadCell2(nullptr), currentWeight(0.0), calibrationFactor1(calibrationFactor), calibrationFactor2(1.0), isDualCell(false), readSecondScale(false), weight1(0.0), weight2(0.0) {

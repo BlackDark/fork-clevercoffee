@@ -3,13 +3,13 @@
  * @brief Implementation of RAII wrapper for MQTT management
  */
 
-#include "MQTTManager.h"
-#include "../handlers/BrewHandler.h"
-#include "../Config.h"
-#include "../defaults.h"
-#include "../state/GlobalState.h"
-#include "../utils/helperUtils.h"
-#include "Logger.h"
+#include "clevercoffee/network/MQTTManager.h"
+#include "clevercoffee/handlers/BrewHandler.h"
+#include "clevercoffee/Config.h"
+#include "clevercoffee/defaults.h"
+#include "clevercoffee/state/GlobalState.h"
+#include "clevercoffee/utils/helperUtils.h"
+#include "clevercoffee/Logger.h"
 #include <Arduino.h>
 #include <cstdio>
 
@@ -416,7 +416,7 @@ int MQTTManager::writeSysParamsToMQTT(bool continueOnError) {
 
 MQTTManager::DiscoveryObject MQTTManager::generateSwitchDevice(const String& name, const String& displayName, const String& payload_on, const String& payload_off) {
     DiscoveryObject switch_device;
-    
+
     // Use fixed-size buffers to avoid String concatenation
     constexpr size_t TOPIC_BUFFER_SIZE = 128;
     char mqtt_topic[TOPIC_BUFFER_SIZE];
@@ -448,7 +448,7 @@ MQTTManager::DiscoveryObject MQTTManager::generateSwitchDevice(const String& nam
     char availability_topic[TOPIC_BUFFER_SIZE];
     snprintf(unique_id_full, TOPIC_BUFFER_SIZE, "%s-%s", unique_id, name.c_str());
     snprintf(availability_topic, TOPIC_BUFFER_SIZE, "%s/status", mqtt_topic);
-    
+
     switchConfigDoc["unique_id"] = unique_id_full;
     switchConfigDoc["payload_on"] = payload_on;
     switchConfigDoc["payload_off"] = payload_off;

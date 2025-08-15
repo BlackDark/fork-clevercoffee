@@ -3,11 +3,11 @@
  * @brief Implementation of RAII wrapper for hardware component management
  */
 
-#include "HardwareManager.h"
-#include "../Config.h"
-#include "../utils/memoryUtils.h"
-#include "Logger.h"
-#include "pinmapping.h"
+#include "clevercoffee/hardware/HardwareManager.h"
+#include "clevercoffee/Config.h"
+#include "clevercoffee/utils/memoryUtils.h"
+#include "clevercoffee/Logger.h"
+#include "clevercoffee/hardware/pinmapping.h"
 
 HardwareManager::HardwareManager() :
     heaterRelayPin_(PIN_HEATER, GPIOPin::OUT), pumpRelayPin_(PIN_PUMP, GPIOPin::OUT), valveRelayPin_(PIN_VALVE, GPIOPin::OUT) {

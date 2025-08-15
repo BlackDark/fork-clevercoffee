@@ -3,21 +3,21 @@
  * @brief Implementation of RAII wrapper for system initialization
  */
 
-#include "SystemInitializer.h"
-#include "../Config.h"
-#include "../defaults.h"
-#include "../display/DisplayManager.h"
-#include "../display/displayTemplateManager.h"
-#include "../display/languages.h"
-#include "../hardware/HardwareManager.h"
-#include "../network/CleverCoffeeWiFiManager.h"
-#include "../network/MQTTManager.h"
-#include "../network/WebServerManager.h"
-#include "../sensors/SensorManager.h"
-#include "../ui/UIManager.h"
-#include "../utils/SystemUtils.h"
-#include "../utils/memoryUtils.h"
-#include "Logger.h"
+#include "clevercoffee/core/SystemInitializer.h"
+#include "clevercoffee/Config.h"
+#include "clevercoffee/defaults.h"
+#include "clevercoffee/display/DisplayManager.h"
+#include "clevercoffee/display/displayTemplateManager.h"
+#include "clevercoffee/display/languages.h"
+#include "clevercoffee/hardware/HardwareManager.h"
+#include "clevercoffee/network/CleverCoffeeWiFiManager.h"
+#include "clevercoffee/network/MQTTManager.h"
+#include "clevercoffee/network/WebServerManager.h"
+#include "clevercoffee/sensors/SensorManager.h"
+#include "clevercoffee/ui/UIManager.h"
+#include "clevercoffee/utils/SystemUtils.h"
+#include "clevercoffee/utils/memoryUtils.h"
+#include "clevercoffee/Logger.h"
 
 #include <Arduino.h>
 #include <ArduinoOTA.h>
@@ -34,7 +34,7 @@ extern void enableTimer1();
 //     extern void initializeDisplay(int templateId);
 // }
 
-#include "../scaleHandler.h"
+#include "clevercoffee/scaleHandler.h"
 // checkBrewActive removed - now accessed via g_state.handlers.brewHandler
 
 SystemInitializer::SystemInitializer() :

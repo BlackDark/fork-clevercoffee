@@ -3,12 +3,12 @@
  * @brief Implementation of state transition helper utilities
  */
 
-#include "StateTransitionHelper.h"
-#include "MachineStateContext.h"
-#include "states/EmergencyStopState.h"
-#include "states/ErrorStates.h"
-#include "states/PidNormalState.h"
-#include "states/SystemStates.h"
+#include "clevercoffee/state/StateTransitionHelper.h"
+#include "clevercoffee/state/MachineStateContext.h"
+#include "clevercoffee/state/states/EmergencyStopState.h"
+#include "clevercoffee/state/states/ErrorStates.h"
+#include "clevercoffee/state/states/PidNormalState.h"
+#include "clevercoffee/state/states/SystemStates.h"
 
 namespace StateTransitionHelper {
 

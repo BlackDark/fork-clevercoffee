@@ -3,10 +3,10 @@
  * @brief Implementation of StateMachine controller
  */
 
-#include "StateMachine.h"
-#include "Logger.h"
-#include "MachineStateIds.h"
-#include "states/InitState.h"
+#include "clevercoffee/state/StateMachine.h"
+#include "clevercoffee/Logger.h"
+#include "clevercoffee/state/MachineStateIds.h"
+#include "clevercoffee/state/states/InitState.h"
 #include <Arduino.h>
 #include <chrono>
 
@@ -82,7 +82,7 @@ void StateMachine::update() {
     // Periodic logging for debugging (every 10 seconds when state changes or first run)
     static auto lastLogTime = std::chrono::steady_clock::now();
     static constexpr auto LOG_INTERVAL = std::chrono::seconds(10);
-    
+
     if ((currentTime - lastLogTime) > LOG_INTERVAL || lastStateId_ != getCurrentStateId()) {
         logStateMachineStatus();
         lastLogTime = currentTime;

@@ -3,15 +3,15 @@
  * @brief Implementation of PidNormalState for normal operation
  */
 
-#include "PidNormalState.h"
-#include "../MachineStateContext.h"
-#include "../GlobalState.h"
-#include "../StateTransitionHelper.h"
-#include "Logger.h"
-#include "BrewStates.h"
-#include "WaterSteamStates.h"
-#include "BackflushStates.h"
-#include "SystemStates.h"
+#include "clevercoffee/state/states/PidNormalState.h"
+#include "clevercoffee/state/states/clevercoffee/MachineStateContext.h"
+#include "clevercoffee/state/states/clevercoffee/GlobalState.h"
+#include "clevercoffee/state/states/clevercoffee/StateTransitionHelper.h"
+#include "clevercoffee/Logger.h"
+#include "clevercoffee/state/states/BrewStates.h"
+#include "clevercoffee/state/states/WaterSteamStates.h"
+#include "clevercoffee/state/states/BackflushStates.h"
+#include "clevercoffee/state/states/SystemStates.h"
 
 
 void PidNormalState::onEntryImpl(MachineStateContext& context) {

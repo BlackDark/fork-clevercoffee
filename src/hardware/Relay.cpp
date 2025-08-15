@@ -4,8 +4,8 @@
  * @brief A relay connected to a GPIO pin
  */
 
-#include "Relay.h"
-#include "GPIOPin.h"
+#include "clevercoffee/hardware/Relay.h"
+#include "clevercoffee/hardware/GPIOPin.h"
 
 Relay::Relay(GPIOPin& gpioInstance, const Hardware::RelayTriggerType trigger) :
     gpio(gpioInstance), relayTrigger(trigger) {

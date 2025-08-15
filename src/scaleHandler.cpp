@@ -3,13 +3,13 @@
  * @brief Implementation of scale handling functions
  */
 
-#include "scaleHandler.h"
-#include "Config.h"
-#include "Logger.h"
-#include "hardware/pinmapping.h"
-#include "hardware/scales/BluetoothScale.h"
-#include "hardware/scales/HX711Scale.h"
-#include "state/GlobalState.h"
+#include "clevercoffee/scaleHandler.h"
+#include "clevercoffee/Config.h"
+#include "clevercoffee/Logger.h"
+#include "clevercoffee/hardware/pinmapping.h"
+#include "clevercoffee/hardware/scales/BluetoothScale.h"
+#include "clevercoffee/hardware/scales/HX711Scale.h"
+#include "clevercoffee/state/GlobalState.h"
 
 // Simple stub to avoid circular dependency with displayCommon.h
 void displayScaleFailed() {

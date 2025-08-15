@@ -3,22 +3,22 @@
  * @brief Implementation of MachineStateContext for state machine access to machine resources
  */
 
-#include "MachineStateContext.h"
-#include "../Config.h"
-#include "../control/ProcessController.h"
-#include "../display/DisplayManager.h"
-#include "../handlers/BrewHandler.h"
-#include "../hardware/HardwareManager.h"
-#include "../network/CleverCoffeeWiFiManager.h"
-#include "../network/MQTTManager.h"
-#include "../sensors/SensorManager.h"
+#include "clevercoffee/state/MachineStateContext.h"
+#include "clevercoffee/Config.h"
+#include "clevercoffee/control/ProcessController.h"
+#include "clevercoffee/display/DisplayManager.h"
+#include "clevercoffee/handlers/BrewHandler.h"
+#include "clevercoffee/hardware/HardwareManager.h"
+#include "clevercoffee/network/CleverCoffeeWiFiManager.h"
+#include "clevercoffee/network/MQTTManager.h"
+#include "clevercoffee/sensors/SensorManager.h"
 // #include "../hotWaterHandler.h" - removed to avoid circular dependencies
-#include "../state/GlobalState.h"
-#include "../state/MachineStateIds.h"
-#include "../utils/SystemUtils.h"
-#include "Logger.h"
+#include "clevercoffee/state/GlobalState.h"
+#include "clevercoffee/state/MachineStateIds.h"
+#include "clevercoffee/utils/SystemUtils.h"
+#include "clevercoffee/Logger.h"
 #include <Arduino.h>
-#include "standby.h"
+#include "clevercoffee/state/standby.h"
 
 MachineStateContext::MachineStateContext(DisplayManager* displayManager, HardwareManager* hardwareManager, SensorManager* sensorManager, CleverCoffeeWiFiManager* wifiManager, MQTTManager* mqttManager) :
     displayManager_(displayManager), hardwareManager_(hardwareManager), sensorManager_(sensorManager), wifiManager_(wifiManager), mqttManager_(mqttManager) {

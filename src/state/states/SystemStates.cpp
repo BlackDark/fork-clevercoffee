@@ -3,10 +3,10 @@
  * @brief System states implementation
  */
 
-#include "SystemStates.h"
-#include "../MachineStateContext.h"
-#include "../StateTransitionHelper.h"
-#include "Logger.h"
+#include "clevercoffee/state/states/SystemStates.h"
+#include "clevercoffee/state/states/clevercoffee/MachineStateContext.h"
+#include "clevercoffee/state/states/clevercoffee/StateTransitionHelper.h"
+#include "clevercoffee/Logger.h"
 
 // Forward declaration for states that will be in other files
 class PidNormalState;
@@ -48,8 +48,8 @@ void StandbyState::onExitImpl(MachineStateContext& context) {
 }
 
 void StandbyState::update(MachineStateContext& context) {
-    LOGF(DEBUG, "Standby: Power saving active, UserActivity=%s, Sensors=%s", 
-         context.hasUserActivity() ? "DETECTED" : "IDLE", 
+    LOGF(DEBUG, "Standby: Power saving active, UserActivity=%s, Sensors=%s",
+         context.hasUserActivity() ? "DETECTED" : "IDLE",
          context.hasSensorError() ? "ERROR" : "OK");
 }
 
@@ -113,7 +113,7 @@ void ManualFlushRunningState::onEntryImpl(MachineStateContext& context) {
 }
 
 void ManualFlushRunningState::update(MachineStateContext& context) {
-    LOGF(DEBUG, "Manual Flush Running: Temp=%.1f°C, Pressure=%.1fbar", 
+    LOGF(DEBUG, "Manual Flush Running: Temp=%.1f°C, Pressure=%.1fbar",
          context.getCurrentTemperature(),
          context.getFilteredPressure());
 }

@@ -3,9 +3,9 @@
  * @brief Implementation of display template management system
  */
 
-#include "displayTemplateManager.h"
-#include "../Config.h"
-#include "../defaults.h"
+#include "clevercoffee/display/displayTemplateManager.h"
+#include "clevercoffee/Config.h"
+#include "clevercoffee/defaults.h"
 
 // Modern C++20 implementation is header-only, no implementation needed
 

@@ -3,16 +3,16 @@
  * @brief Implementation of ProcessController for PID and process control
  */
 
-#include "ProcessController.h"
-#include "../Config.h"
-#include "../display/DisplayManager.h"
-#include "../hardware/HardwareManager.h"
-#include "../hardware/scales/Scale.h"
-#include "../network/MQTTManager.h"
-#include "../sensors/SensorManager.h"
-#include "../state/GlobalState.h"
-#include "../utils/SystemUtils.h"
-#include "Logger.h"
+#include "clevercoffee/control/ProcessController.h"
+#include "clevercoffee/Config.h"
+#include "clevercoffee/display/DisplayManager.h"
+#include "clevercoffee/hardware/HardwareManager.h"
+#include "clevercoffee/hardware/scales/Scale.h"
+#include "clevercoffee/network/MQTTManager.h"
+#include "clevercoffee/sensors/SensorManager.h"
+#include "clevercoffee/state/GlobalState.h"
+#include "clevercoffee/utils/SystemUtils.h"
+#include "clevercoffee/Logger.h"
 #include <Arduino.h>
 
 ProcessController::ProcessController(DisplayManager* displayManager, HardwareManager* hardwareManager, SensorManager* sensorManager, MQTTManager* mqttManager) :

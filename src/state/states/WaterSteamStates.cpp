@@ -3,9 +3,9 @@
  * @brief Hot water and steam states implementation
  */
 
-#include "WaterSteamStates.h"
-#include "../MachineStateContext.h"
-#include "Logger.h"
+#include "clevercoffee/state/states/WaterSteamStates.h"
+#include "clevercoffee/state/states/clevercoffee/MachineStateContext.h"
+#include "clevercoffee/Logger.h"
 
 // HotWaterIdleState Implementation
 void HotWaterIdleState::onEntryImpl(MachineStateContext& context) {
@@ -13,7 +13,7 @@ void HotWaterIdleState::onEntryImpl(MachineStateContext& context) {
 }
 
 void HotWaterIdleState::update(MachineStateContext& context) {
-    LOGF(DEBUG, "Hot Water Idle: Temp=%.1f°C, Tank=%s, Pressure=%.1fbar", 
+    LOGF(DEBUG, "Hot Water Idle: Temp=%.1f°C, Tank=%s, Pressure=%.1fbar",
          context.getCurrentTemperature(),
          context.isWaterTankFull() ? "OK" : "EMPTY",
          context.getFilteredPressure());
@@ -21,7 +21,7 @@ void HotWaterIdleState::update(MachineStateContext& context) {
 
 std::unique_ptr<MachineState> HotWaterIdleState::checkSpecificTransitions(MachineStateContext& context) {
     auto& flags = g_state.machine.flags;
-    
+
     // Check for hot water start request
     if (flags.requestHotWaterStart) {
         flags.requestHotWaterStart = false;
@@ -44,7 +44,7 @@ void HotWaterRunningState::onEntryImpl(MachineStateContext& context) {
 }
 
 void HotWaterRunningState::update(MachineStateContext& context) {
-    LOGF(DEBUG, "Hot Water Running: Temp=%.1f°C, Pressure=%.1fbar", 
+    LOGF(DEBUG, "Hot Water Running: Temp=%.1f°C, Pressure=%.1fbar",
          context.getCurrentTemperature(),
          context.getFilteredPressure());
 }
@@ -81,7 +81,7 @@ std::unique_ptr<MachineState> HotWaterStoppedState::checkSpecificTransitions(Mac
     if (stopTime == 0) {
         stopTime = millis();
     }
-    
+
     constexpr unsigned long STOP_DISPLAY_TIME = 2000; // 2 seconds
     if (millis() - stopTime > STOP_DISPLAY_TIME) {
         stopTime = 0;
@@ -133,7 +133,7 @@ void SteamRunningState::onEntryImpl(MachineStateContext& context) {
 }
 
 void SteamRunningState::update(MachineStateContext& context) {
-    LOGF(DEBUG, "Steam Running: Temp=%.1f°C, Pressure=%.1fbar", 
+    LOGF(DEBUG, "Steam Running: Temp=%.1f°C, Pressure=%.1fbar",
          context.getCurrentTemperature(),
          context.getFilteredPressure());
 }
@@ -170,7 +170,7 @@ std::unique_ptr<MachineState> SteamStoppedState::checkSpecificTransitions(Machin
     if (stopTime == 0) {
         stopTime = millis();
     }
-    
+
     constexpr unsigned long STOP_DISPLAY_TIME = 2000; // 2 seconds
     if (millis() - stopTime > STOP_DISPLAY_TIME) {
         stopTime = 0;

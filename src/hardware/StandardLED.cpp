@@ -4,8 +4,8 @@
  * @brief An LED connected to a GPIO pin
  */
 
-#include "StandardLED.h"
-#include "GPIOPin.h"
+#include "clevercoffee/hardware/StandardLED.h"
+#include "clevercoffee/hardware/GPIOPin.h"
 
 StandardLED::StandardLED(GPIOPin& gpioInstance, const bool inverted) :
     gpio(gpioInstance), inverted(inverted), enabled(true) {

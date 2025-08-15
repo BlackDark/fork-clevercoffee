@@ -3,8 +3,8 @@
  * @brief Bluetooth scale implementation
  */
 
-#include "BluetoothScale.h"
-#include "Logger.h"
+#include "clevercoffee/hardware/scales/BluetoothScale.h"
+#include "clevercoffee/Logger.h"
 #include <Arduino.h>
 
 BluetoothScale::BluetoothScale() :

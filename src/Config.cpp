@@ -3,10 +3,10 @@
  * @brief Implementation of next-generation type-safe configuration system
  */
 
-#include "Config.h"
-#include "Logger.h"
-#include "state/GlobalState.h"
-#include "utils/memoryUtils.h"
+#include "clevercoffee/Config.h"
+#include "clevercoffee/Logger.h"
+#include "clevercoffee/state/GlobalState.h"
+#include "clevercoffee/utils/memoryUtils.h"
 #include <ArduinoJson.h>
 
 // Optimized static const enum option vectors (single instance + read-only memory)

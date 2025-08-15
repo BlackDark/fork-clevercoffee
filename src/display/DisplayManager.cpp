@@ -3,9 +3,9 @@
  * @brief Implementation of RAII wrapper for U8G2 display management
  */
 
-#include "DisplayManager.h"
-#include "../hardware/pinmapping.h"
-#include "Logger.h"
+#include "clevercoffee/display/DisplayManager.h"
+#include "clevercoffee/hardware/pinmapping.h"
+#include "clevercoffee/Logger.h"
 
 DisplayManager::DisplayManager(Hardware::OLEDType type, Hardware::OLEDAddress address) {
     display_ = createDisplay(type, address);

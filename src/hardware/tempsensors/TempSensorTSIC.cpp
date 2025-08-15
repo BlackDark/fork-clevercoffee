@@ -4,8 +4,8 @@
  * @brief Handler for TSIC 306 temperature sensor
  */
 
-#include "TempSensorTSIC.h"
-#include "Logger.h"
+#include "clevercoffee/hardware/tempsensors/TempSensorTSIC.h"
+#include "clevercoffee/Logger.h"
 
 #define MAX_CHANGERATE 15
 

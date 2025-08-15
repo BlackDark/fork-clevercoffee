@@ -3,18 +3,18 @@
  * @brief Implementation of the embedded web server manager
  */
 
-#include "WebServerManager.h"
-#include "../Config.h"
-#include "../network/CleverCoffeeWiFiManager.h"
-#include "../state/GlobalState.h"
-#include "../utils/helperUtils.h"
-#include "Logger.h"
+#include "clevercoffee/network/WebServerManager.h"
+#include "clevercoffee/Config.h"
+#include "clevercoffee/network/CleverCoffeeWiFiManager.h"
+#include "clevercoffee/state/GlobalState.h"
+#include "clevercoffee/utils/helperUtils.h"
+#include "clevercoffee/Logger.h"
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <FS.h>
 #include <Preferences.h>
 #include <unordered_map>
-#include "../utils/SystemUtils.h"
+#include "clevercoffee/utils/SystemUtils.h"
 
 #define JSON_BUFFER_SIZE 512
 #define PATH_BUFFER_SIZE 128

@@ -4,9 +4,9 @@
  * @brief A physical switch connected to a GPIO Pin
  */
 
-#include "IOSwitch.h"
-#include "GPIOPin.h"
-#include "Logger.h"
+#include "clevercoffee/hardware/IOSwitch.h"
+#include "clevercoffee/hardware/GPIOPin.h"
+#include "clevercoffee/Logger.h"
 
 IOSwitch::IOSwitch(const int pinNumber, const GPIOPin::Type pinType, const Hardware::SwitchType switchType, const Hardware::SwitchMode mode, const uint8_t initialState) :
     Switch(switchType, mode), gpio(pinNumber, pinType), lastState(initialState), currentState(LOW) {

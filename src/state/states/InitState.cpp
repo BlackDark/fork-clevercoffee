@@ -3,12 +3,12 @@
  * @brief Implementation of InitState for system startup and validation
  */
 
-#include "InitState.h"
-#include "../MachineStateContext.h"
-#include "../StateTransitionHelper.h"
-#include "Logger.h"
-#include "SystemStates.h"
-#include "PidNormalState.h"
+#include "clevercoffee/state/states/InitState.h"
+#include "clevercoffee/state/states/clevercoffee/MachineStateContext.h"
+#include "clevercoffee/state/states/clevercoffee/StateTransitionHelper.h"
+#include "clevercoffee/Logger.h"
+#include "clevercoffee/state/states/SystemStates.h"
+#include "clevercoffee/state/states/PidNormalState.h"
 
 void InitState::onEntryImpl(MachineStateContext& context) {
     LOG(INFO, "System initializing - performing startup checks");
@@ -27,7 +27,7 @@ std::unique_ptr<MachineState> InitState::checkSpecificTransitions(MachineStateCo
     if (auto state = StateTransitionHelper::checkCommonSafetyTransitions(context, getStateId())) {
         return state;
     }
-    
+
     // Determine normal operation state based on PID setting
     if (!checkPidConfig(context)) {
         context.logStateTransition(getStateId(), MachineStateId::PID_DISABLED, "PID disabled");

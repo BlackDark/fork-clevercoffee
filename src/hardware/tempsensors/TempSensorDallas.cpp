@@ -4,7 +4,7 @@
  * @brief Handler for Dallas DS18B20 temperature sensor
  */
 
-#include "TempSensorDallas.h"
+#include "clevercoffee/hardware/tempsensors/TempSensorDallas.h"
 
 TempSensorDallas::TempSensorDallas(const int GPIOPin) {
     oneWire_ = new OneWire(GPIOPin);

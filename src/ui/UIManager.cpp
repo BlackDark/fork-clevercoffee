@@ -3,13 +3,13 @@
  * @brief Implementation of UIManager for display and user interface management
  */
 
-#include "UIManager.h"
-#include "../Config.h"
-#include "../handlers/BrewHandler.h"
-#include "../display/DisplayManager.h"
-#include "../display/bitmaps.h"
-#include "../state/GlobalState.h"
-#include "Logger.h"
+#include "clevercoffee/ui/UIManager.h"
+#include "clevercoffee/Config.h"
+#include "clevercoffee/handlers/BrewHandler.h"
+#include "clevercoffee/display/DisplayManager.h"
+#include "clevercoffee/display/bitmaps.h"
+#include "clevercoffee/state/GlobalState.h"
+#include "clevercoffee/Logger.h"
 #include <Arduino.h>
 
 int getSignalStrength();

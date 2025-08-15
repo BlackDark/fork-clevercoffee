@@ -3,20 +3,20 @@
  * @brief All error and safety states implementation
  */
 
-#include "ErrorStates.h"
-#include "EmergencyStopState.h"
-#include "../MachineStateContext.h"
-#include "../StateTransitionHelper.h"
-#include "Logger.h"
+#include "clevercoffee/state/states/ErrorStates.h"
+#include "clevercoffee/state/states/EmergencyStopState.h"
+#include "clevercoffee/state/states/clevercoffee/MachineStateContext.h"
+#include "clevercoffee/state/states/clevercoffee/StateTransitionHelper.h"
+#include "clevercoffee/Logger.h"
 
 // SensorErrorState Implementation
 void SensorErrorState::onEntryImpl(MachineStateContext& context) {
     LOG(ERROR, "Sensor error detected - entering safe mode");
-    
+
     context.enterSafeMode();
     errorStartTime_ = millis();
     recoveryAttempts_++;
-    
+
     LOGF(INFO, "Sensor error recovery attempt %u/%u", recoveryAttempts_, MAX_RECOVERY_ATTEMPTS);
 }
 
@@ -29,7 +29,7 @@ void SensorErrorState::update(MachineStateContext& context) {
     unsigned long currentTime = millis();
     unsigned long errorDuration = currentTime - errorStartTime_;
 
-    LOGF(DEBUG, "Sensor Error: Duration=%lums, Recovery=%s", errorDuration, 
+    LOGF(DEBUG, "Sensor Error: Duration=%lums, Recovery=%s", errorDuration,
          context.hasSensorError() ? "PENDING" : "RESOLVED");
 }
 
@@ -61,7 +61,7 @@ std::unique_ptr<MachineState> SensorErrorState::checkSpecificTransitions(Machine
     constexpr unsigned long MAX_ERROR_DURATION_MS = 60000; // 1 minute
 
     if (errorDuration > MAX_ERROR_DURATION_MS || recoveryAttempts_ >= MAX_RECOVERY_ATTEMPTS) {
-        const char* reason = (recoveryAttempts_ >= MAX_RECOVERY_ATTEMPTS) ? 
+        const char* reason = (recoveryAttempts_ >= MAX_RECOVERY_ATTEMPTS) ?
             "Too many sensor recovery attempts - disabling PID for safety" :
             "Persistent sensor error - disabling PID for safety";
         context.logStateTransition(getStateId(), MachineStateId::PID_DISABLED, reason);
@@ -76,12 +76,12 @@ std::unique_ptr<MachineState> SensorErrorState::checkSpecificTransitions(Machine
 // WaterTankEmptyState Implementation
 void WaterTankEmptyState::onEntryImpl(MachineStateContext& context) {
     LOG(WARNING, "Water tank empty - please refill");
-    
+
     // Water operations will be prevented by safety checks in other states
 }
 
 void WaterTankEmptyState::update(MachineStateContext& context) {
-    LOGF(DEBUG, "Water Tank Empty: Tank=%s, Temp=%.1f°C", 
+    LOGF(DEBUG, "Water Tank Empty: Tank=%s, Temp=%.1f°C",
          context.isWaterTankFull() ? "FILLED" : "EMPTY",
          context.getCurrentTemperature());
 }
@@ -105,7 +105,7 @@ std::unique_ptr<MachineState> WaterTankEmptyState::checkSpecificTransitions(Mach
 // EepromErrorState Implementation
 void EepromErrorState::onEntryImpl(MachineStateContext& context) {
     LOG(ERROR, "EEPROM error detected - configuration may be corrupted");
-    
+
     context.enterSafeMode();
     context.setPidRuntimeState(false);
 }
@@ -131,8 +131,8 @@ std::unique_ptr<MachineState> EepromErrorState::checkSpecificTransitions(Machine
     if (eepromErrorStartTime == 0) {
         eepromErrorStartTime = millis();
     }
-    
-    // Allow recovery after extended timeout (5 minutes) 
+
+    // Allow recovery after extended timeout (5 minutes)
     constexpr unsigned long EEPROM_RECOVERY_TIMEOUT = 300000; // 5 minutes
     if (millis() - eepromErrorStartTime > EEPROM_RECOVERY_TIMEOUT) {
         eepromErrorStartTime = 0;

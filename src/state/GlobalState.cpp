@@ -3,13 +3,13 @@
  * @brief Global state instance definition and handler initialization
  */
 
-#include "GlobalState.h"
-#include "../defaults.h"
-#include "../control/ProcessController.h"
-#include "../handlers/BrewHandler.h"
-#include "../handlers/HotWaterHandler.h"
-#include "../handlers/PowerHandler.h"
-#include "../handlers/SteamHandler.h"
+#include "clevercoffee/state/GlobalState.h"
+#include "clevercoffee/defaults.h"
+#include "clevercoffee/control/ProcessController.h"
+#include "clevercoffee/handlers/BrewHandler.h"
+#include "clevercoffee/handlers/HotWaterHandler.h"
+#include "clevercoffee/handlers/PowerHandler.h"
+#include "clevercoffee/handlers/SteamHandler.h"
 #include <PubSubClient.h>
 
 // WIFI_PASSWORD definition

@@ -3,9 +3,9 @@
  * @brief Over-the-Air (OTA) firmware update implementation
  */
 
-#include "ota.h"
-#include "Logger.h"
-#include "utils/helperUtils.h"
+#include "clevercoffee/ota.h"
+#include "clevercoffee/Logger.h"
+#include "clevercoffee/utils/helperUtils.h"
 #include <ArduinoJson.h>
 
 namespace OTA {

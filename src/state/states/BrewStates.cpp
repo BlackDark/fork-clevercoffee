@@ -3,9 +3,9 @@
  * @brief All brew-related states implementation
  */
 
-#include "BrewStates.h"
-#include "../MachineStateContext.h"
-#include "Logger.h"
+#include "clevercoffee/state/states/BrewStates.h"
+#include "clevercoffee/state/states/clevercoffee/MachineStateContext.h"
+#include "clevercoffee/Logger.h"
 
 // BrewIdleState Implementation
 void BrewIdleState::onEntryImpl(MachineStateContext& context) {
@@ -21,7 +21,7 @@ void BrewIdleState::update(MachineStateContext& context) {
 
 std::unique_ptr<MachineState> BrewIdleState::checkSpecificTransitions(MachineStateContext& context) {
     auto& flags = g_state.machine.flags;
-    
+
     // Check for brew start request
     if (flags.requestBrewStart) {
         flags.requestBrewStart = false;
@@ -112,7 +112,7 @@ void BrewRunningState::onEntryImpl(MachineStateContext& context) {
 }
 
 void BrewRunningState::update(MachineStateContext& context) {
-    LOGF(DEBUG, "Brew Running: Weight=%.1fg, Temp=%.1f°C, Pressure=%.1fbar", 
+    LOGF(DEBUG, "Brew Running: Weight=%.1fg, Temp=%.1f°C, Pressure=%.1fbar",
          context.getCurrentBrewWeight(),
          context.getCurrentTemperature(),
          context.getFilteredPressure());
@@ -140,7 +140,7 @@ void BrewFinishedState::onEntryImpl(MachineStateContext& context) {
 }
 
 void BrewFinishedState::update(MachineStateContext& context) {
-    LOGF(DEBUG, "Brew Finished: Weight=%.1fg, Temp=%.1f°C", 
+    LOGF(DEBUG, "Brew Finished: Weight=%.1fg, Temp=%.1f°C",
          context.getCurrentBrewWeight(),
          context.getCurrentTemperature());
 }
@@ -151,7 +151,7 @@ std::unique_ptr<MachineState> BrewFinishedState::checkSpecificTransitions(Machin
     if (finishTime == 0) {
         finishTime = millis();
     }
-    
+
     constexpr unsigned long FINISH_DISPLAY_TIME = 3000; // 3 seconds
     if (millis() - finishTime > FINISH_DISPLAY_TIME) {
         finishTime = 0;

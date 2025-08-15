@@ -3,9 +3,9 @@
  * @brief All backflush-related states implementation
  */
 
-#include "BackflushStates.h"
-#include "../MachineStateContext.h"
-#include "Logger.h"
+#include "clevercoffee/state/states/BackflushStates.h"
+#include "clevercoffee/state/states/clevercoffee/MachineStateContext.h"
+#include "clevercoffee/Logger.h"
 
 // BackflushState Implementation
 void BackflushState::onEntryImpl(MachineStateContext& context) {
@@ -33,7 +33,7 @@ void BackflushFillingState::onEntryImpl(MachineStateContext& context) {
 }
 
 void BackflushFillingState::update(MachineStateContext& context) {
-    LOGF(DEBUG, "Backflush Filling: Temp=%.1f°C, Pressure=%.1fbar", 
+    LOGF(DEBUG, "Backflush Filling: Temp=%.1f°C, Pressure=%.1fbar",
          context.getCurrentTemperature(),
          context.getFilteredPressure());
 }
@@ -51,10 +51,10 @@ std::unique_ptr<MachineState> BackflushFillingState::checkSpecificTransitions(Ma
     if (fillStartTime == 0) {
         fillStartTime = millis();
     }
-    
+
     constexpr unsigned long FILL_TIME = 5000; // 5 seconds
     constexpr float FILL_PRESSURE = 8.0f; // 8 bar
-    
+
     if (millis() - fillStartTime > FILL_TIME || context.getFilteredPressure() >= FILL_PRESSURE) {
         fillStartTime = 0;
         context.logStateTransition(getStateId(), MachineStateId::BACKFLUSH_FLUSHING, "Filling complete");
@@ -70,7 +70,7 @@ void BackflushFlushingState::onEntryImpl(MachineStateContext& context) {
 }
 
 void BackflushFlushingState::update(MachineStateContext& context) {
-    LOGF(DEBUG, "Backflush Flushing: Temp=%.1f°C, Pressure=%.1fbar", 
+    LOGF(DEBUG, "Backflush Flushing: Temp=%.1f°C, Pressure=%.1fbar",
          context.getCurrentTemperature(),
          context.getFilteredPressure());
 }
@@ -88,9 +88,9 @@ std::unique_ptr<MachineState> BackflushFlushingState::checkSpecificTransitions(M
     if (flushStartTime == 0) {
         flushStartTime = millis();
     }
-    
+
     constexpr unsigned long FLUSH_TIME = 10000; // 10 seconds
-    
+
     if (millis() - flushStartTime > FLUSH_TIME) {
         flushStartTime = 0;
         context.logStateTransition(getStateId(), MachineStateId::BACKFLUSH_FINISHED, "Flushing complete");
@@ -115,7 +115,7 @@ std::unique_ptr<MachineState> BackflushFinishedState::checkSpecificTransitions(M
     if (finishTime == 0) {
         finishTime = millis();
     }
-    
+
     constexpr unsigned long FINISH_DISPLAY_TIME = 3000; // 3 seconds
     if (millis() - finishTime > FINISH_DISPLAY_TIME) {
         finishTime = 0;
