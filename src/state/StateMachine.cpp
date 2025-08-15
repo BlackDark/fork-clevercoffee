@@ -6,7 +6,8 @@
 #include "clevercoffee/state/StateMachine.h"
 #include "clevercoffee/Logger.h"
 #include "clevercoffee/state/MachineStateIds.h"
-#include "clevercoffee/state/states/InitState.h"
+#include "clevercoffee/state/StateFactory.h"
+#include "clevercoffee/state/states/AllStates.h"
 #include <Arduino.h>
 #include <chrono>
 
@@ -29,7 +30,7 @@ bool StateMachine::initialize(std::unique_ptr<MachineState> initialState) {
 
     // Use InitState as default initial state if none provided
     if (!initialState) {
-        initialState = std::make_unique<InitState>();
+        initialState = createState(MachineStateId::INIT);
     }
 
     // Set initial state

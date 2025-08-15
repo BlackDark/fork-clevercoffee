@@ -9,10 +9,9 @@
 #include "clevercoffee/state/MachineState.h"
 #include "clevercoffee/state/MachineStateIds.h"
 #include "clevercoffee/state/MachineStateContext.h"
-#include "clevercoffee/state/StateTransitionHelper.h"
-#include "clevercoffee/Logger.h"
+#include "clevercoffee/state/StateInfo.h"
 
-// Forward declarations for common state types - include will be in .cpp file
+// Forward declarations for common state types
 class EmergencyStopState;
 class SensorErrorState;
 class WaterTankEmptyState;
@@ -52,21 +51,7 @@ public:
     /**
      * @brief Check for state transitions - handles common safety checks then delegates to derived class
      */
-    std::unique_ptr<MachineState> checkTransitions(MachineStateContext& context) override {
-        // Handle common safety transitions first using StateTransitionHelper
-        // (but only for non-safety states to avoid circular transitions)
-        if constexpr (StateId != MachineStateId::EMERGENCY_STOP &&
-                     StateId != MachineStateId::SENSOR_ERROR &&
-                     StateId != MachineStateId::WATER_TANK_EMPTY &&
-                     StateId != MachineStateId::EEPROM_ERROR) {
-            if (auto safetyState = checkCommonSafetyTransitions(context)) {
-                return safetyState;
-            }
-        }
-
-        // Let derived class handle specific transitions
-        return checkSpecificTransitions(context);
-    }
+    std::unique_ptr<MachineState> checkTransitions(MachineStateContext& context) override;
 
     /**
      * @brief Get the state ID
@@ -79,7 +64,10 @@ public:
      * @brief Get human-readable state name
      */
     const char* getStateName() const override {
-        return DerivedState::STATE_NAME;
+        if (const auto* info = getStateInfo(StateId)) {
+            return info->name;
+        }
+        return "Unknown";
     }
 
     /**
@@ -104,13 +92,5 @@ public:
      */
     virtual std::unique_ptr<MachineState> checkSpecificTransitions(MachineStateContext& context) = 0;
 
-private:
-    /**
-     * @brief Check common safety transitions - inline implementation to avoid linking issues
-     */
-    std::unique_ptr<MachineState> checkCommonSafetyTransitions(MachineStateContext& context) {
-        // Forward to StateTransitionHelper to avoid circular dependencies
-        return StateTransitionHelper::checkCommonSafetyTransitions(context, getStateId());
-    }
-};
 
+};
