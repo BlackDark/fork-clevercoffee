@@ -260,8 +260,8 @@ bool SystemInitializer::initializeHardware() {
 
         g_state.hardware.powerSwitch = hardwareManager_->getPowerSwitch();
         g_state.hardware.brewSwitch = hardwareManager_->getBrewSwitch();
-        g_state.hardware.hotWaterSwitch = hardwareManager_->getSteamSwitch();
-        g_state.hardware.powerSwitch = hardwareManager_->getHotWaterSwitch();
+        g_state.hardware.hotWaterSwitch = hardwareManager_->getHotWaterSwitch();
+        g_state.hardware.steamSwitch = hardwareManager_->getSteamSwitch();
         g_state.hardware.waterTankSensor = hardwareManager_->getWaterTankSensor();
 
         g_state.hardware.tempSensor = hardwareManager_->getTempSensor();
@@ -372,6 +372,12 @@ bool SystemInitializer::initializeMQTT() {
 
 bool SystemInitializer::initializePID() {
     try {
+        LOGF(INFO, "PID initialized: Kp={:.3f}, Ki={:.3f}, Kd={:.3f}",
+                  Config::getInstance().pidRegularKp.get(), g_state.process.aggKi, g_state.process.aggKd);
+
+        // Set PID tunings now that parameters are calculated
+        g_state.pid->SetTunings(Config::getInstance().pidRegularKp.get(), g_state.process.aggKi, g_state.process.aggKd, 1);
+
         // Initialize PID controller
         g_state.pid->SetSampleTime(g_state.process.windowSize);
         g_state.pid->SetOutputLimits(0, g_state.process.windowSize);
