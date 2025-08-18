@@ -54,7 +54,7 @@ class StateMachine {
          * @param initialState Initial state to start with (defaults to InitState)
          * @return true if initialization successful
          */
-        bool initialize(std::unique_ptr<MachineState> initialState = nullptr);
+        bool initialize(MachineState* initialState = nullptr);
 
         /**
          * @brief Update state machine - call this from main loop
@@ -73,7 +73,7 @@ class StateMachine {
          * This method allows external code to force a state transition,
          * useful for emergency conditions or external triggers.
          */
-        void transitionTo(std::unique_ptr<MachineState> newState, const char* reason = nullptr);
+        void transitionTo(MachineState* newState, const char* reason = nullptr);
 
         /**
          * @brief Get current state ID
@@ -119,7 +119,7 @@ class StateMachine {
          * This is primarily for debugging and testing purposes.
          */
         const MachineState* getCurrentState() const noexcept {
-            return currentState_.get();
+            return currentState_;
         }
 
     private:
@@ -128,7 +128,7 @@ class StateMachine {
          * @param newState New state to transition to
          * @param reason Optional reason for logging
          */
-        void executeTransition(std::unique_ptr<MachineState> newState, const char* reason = nullptr);
+        void executeTransition(MachineState* newState, const char* reason = nullptr);
 
         /**
          * @brief Log state machine status for debugging
@@ -136,15 +136,14 @@ class StateMachine {
         void logStateMachineStatus() const;
 
         // State machine components
-        std::unique_ptr<MachineState> currentState_; ///< Current active state
+        MachineState* currentState_; ///< Current active state (singleton - not owned)
         MachineStateContext context_;                ///< Context for state access to resources
 
         // State machine status
         bool initialized_;             ///< True if state machine is initialized
         MachineStateId lastStateId_;   ///< Last state ID for change detection
         std::chrono::steady_clock::time_point lastUpdateTime_; ///< Last update timestamp for timing debug
-        std::chrono::steady_clock::time_point stateEntryTime_; ///< Time when current state was entered
-        std::chrono::steady_clock::time_point startTime_; // <-- Add this member
+        std::chrono::steady_clock::time_point startTime_; ///< State machine start time
 
         // Statistics for debugging and monitoring
         std::size_t totalStateTransitions_; ///< Total number of state transitions
@@ -155,8 +154,7 @@ class StateMachine {
          * @return Duration in current state
          */
         std::chrono::milliseconds getTimeInCurrentState() const noexcept {
-            return std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::steady_clock::now() - stateEntryTime_);
+            return std::chrono::milliseconds(context_.getStateElapsedTimeMs());
         }
         
         /**
@@ -165,6 +163,6 @@ class StateMachine {
          */
         std::chrono::seconds getUptime() const noexcept {
             return std::chrono::duration_cast<std::chrono::seconds>(
-                std::chrono::steady_clock::now() - lastUpdateTime_);
+                std::chrono::steady_clock::now() - startTime_);
         }
 };

@@ -316,3 +316,28 @@ bool MachineStateContext::shouldExitStandby() const {
     // This is a simplified implementation
     return hasUserActivity(); // For now, just check user activity
 }
+
+// === Configuration Access ===
+
+unsigned long MachineStateContext::getBackflushFillTimeMs() const {
+    return static_cast<unsigned long>(Config::getInstance().backflushFillTime.get() * 1000);
+}
+
+unsigned long MachineStateContext::getBackflushFlushTimeMs() const {
+    return static_cast<unsigned long>(Config::getInstance().backflushFlushTime.get() * 1000);
+}
+
+// === State Timing Functions ===
+
+unsigned long MachineStateContext::getStateElapsedTimeMs() const {
+    auto elapsed = std::chrono::steady_clock::now() - stateEntryTime_;
+    return std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
+}
+
+bool MachineStateContext::hasStateTimeoutElapsed(unsigned long timeoutMs) const {
+    return getStateElapsedTimeMs() >= timeoutMs;
+}
+
+void MachineStateContext::updateStateEntryTime(std::chrono::steady_clock::time_point entryTime) {
+    stateEntryTime_ = entryTime;
+}

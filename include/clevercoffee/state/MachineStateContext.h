@@ -6,6 +6,7 @@
 #pragma once
 
 #include <memory>
+#include <chrono>
 #include "clevercoffee/state/MachineStateIds.h"
 
 // Forward declarations
@@ -367,6 +368,38 @@ class MachineStateContext {
          */
         void resetMqttReconnectCount() const;
 
+        // === Configuration Access ===
+
+        /**
+         * @brief Get backflush fill time from config (in milliseconds)
+         */
+        unsigned long getBackflushFillTimeMs() const;
+
+        /**
+         * @brief Get backflush flush time from config (in milliseconds)
+         */
+        unsigned long getBackflushFlushTimeMs() const;
+
+        // === State Timing Functions ===
+
+        /**
+         * @brief Get time elapsed since current state was entered (in milliseconds)
+         */
+        unsigned long getStateElapsedTimeMs() const;
+
+        /**
+         * @brief Check if the specified timeout has elapsed since current state entry
+         * @param timeoutMs Timeout in milliseconds
+         * @return true if timeout has elapsed
+         */
+        bool hasStateTimeoutElapsed(unsigned long timeoutMs) const;
+
+        /**
+         * @brief Update the state entry time (called by StateMachine on state transitions)
+         * @param entryTime Time when the state was entered
+         */
+        void updateStateEntryTime(std::chrono::steady_clock::time_point entryTime);
+
     private:
         // Manager references
         DisplayManager* displayManager_;
@@ -374,4 +407,7 @@ class MachineStateContext {
         SensorManager* sensorManager_;
         CleverCoffeeWiFiManager* wifiManager_;
         MQTTManager* mqttManager_;
+        
+        // State timing
+        std::chrono::steady_clock::time_point stateEntryTime_;  ///< Time when current state was entered
 };

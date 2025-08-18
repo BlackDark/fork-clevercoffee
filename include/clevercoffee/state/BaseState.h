@@ -10,6 +10,7 @@
 #include "clevercoffee/state/MachineStateIds.h"
 #include "clevercoffee/state/MachineStateContext.h"
 #include "clevercoffee/state/StateInfo.h"
+#include "clevercoffee/state/StateFactory.h"
 
 // Forward declarations for common state types
 class EmergencyStopState;
@@ -51,7 +52,7 @@ public:
     /**
      * @brief Check for state transitions - handles common safety checks then delegates to derived class
      */
-    std::unique_ptr<MachineState> checkTransitions(MachineStateContext& context) override;
+    MachineState* checkTransitions(MachineStateContext& context) override;
 
     /**
      * @brief Get the state ID
@@ -90,7 +91,29 @@ public:
      * @brief Must be implemented by derived class for state-specific transitions
      * @return New state to transition to, or nullptr if no transition
      */
-    virtual std::unique_ptr<MachineState> checkSpecificTransitions(MachineStateContext& context) = 0;
-
-
+    virtual MachineState* checkSpecificTransitions(MachineStateContext& context) = 0;
 };
+
+// Template implementation
+template<MachineStateId StateId, typename DerivedState>
+MachineState* BaseState<StateId, DerivedState>::checkTransitions(MachineStateContext& context) {
+    // Emergency stop check - highest priority
+    if (context.isEmergencyStop()) {
+        context.logStateTransition(getStateId(), MachineStateId::EMERGENCY_STOP, "Emergency stop triggered");
+        return getStateInstance(MachineStateId::EMERGENCY_STOP);
+    }
+
+    // Critical error checks
+    if (context.hasSensorError()) {
+        context.logStateTransition(getStateId(), MachineStateId::SENSOR_ERROR, "Sensor error detected");
+        return getStateInstance(MachineStateId::SENSOR_ERROR);
+    }
+
+    if (!context.isWaterTankFull()) {
+        context.logStateTransition(getStateId(), MachineStateId::WATER_TANK_EMPTY, "Water tank empty");
+        return getStateInstance(MachineStateId::WATER_TANK_EMPTY);
+    }
+
+    // Delegate to derived class for state-specific transitions
+    return checkSpecificTransitions(context);
+}

@@ -13,7 +13,7 @@
 struct StateInfo {
     MachineStateId id;
     const char* name;
-    std::function<std::unique_ptr<MachineState>()> factory;
+    std::function<MachineState*()> getInstance;
 };
 
 const StateInfo* getStateInfo(MachineStateId id);

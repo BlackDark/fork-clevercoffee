@@ -11,14 +11,14 @@
 #include "clevercoffee/state/StateInfo.h"
 
 /**
- * @brief Create a state instance by ID using the central state registry.
- * @param id The state ID to create.
- * @return Unique pointer to the state, or nullptr if ID not found.
+ * @brief Get singleton state instance by ID using the central state registry.
+ * @param id The state ID to get.
+ * @return Raw pointer to singleton state, or nullptr if ID not found.
  */
-inline std::unique_ptr<MachineState> createState(MachineStateId id) {
+inline MachineState* getStateInstance(MachineStateId id) {
     if (const auto* info = getStateInfo(id)) {
-        if (info->factory) {
-            return info->factory();
+        if (info->getInstance) {
+            return info->getInstance();
         }
     }
     return nullptr;

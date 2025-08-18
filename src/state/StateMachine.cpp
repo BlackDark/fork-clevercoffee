@@ -7,7 +7,15 @@
 #include "clevercoffee/Logger.h"
 #include "clevercoffee/state/MachineStateIds.h"
 #include "clevercoffee/state/StateFactory.h"
-#include "clevercoffee/state/states/AllStates.h"
+#include "clevercoffee/state/states/BackflushStates.h"
+#include "clevercoffee/state/states/BrewStates.h"
+#include "clevercoffee/state/states/EmergencyStopState.h"
+#include "clevercoffee/state/states/ErrorStates.h"
+#include "clevercoffee/state/states/InitState.h"
+#include "clevercoffee/state/states/PidStates.h"
+#include "clevercoffee/state/states/SystemStates.h"
+#include "clevercoffee/state/states/HotWaterStates.h"
+#include "clevercoffee/state/states/SteamStates.h"
 #include <Arduino.h>
 #include <chrono>
 
@@ -17,27 +25,26 @@ StateMachine::StateMachine(DisplayManager* displayManager, HardwareManager* hard
     initialized_(false),
     lastStateId_(MachineStateId::INIT),
     lastUpdateTime_(std::chrono::steady_clock::now()),
-    stateEntryTime_(std::chrono::steady_clock::now()),
-    startTime_(std::chrono::steady_clock::now()), // <-- Add this line
+    startTime_(std::chrono::steady_clock::now()),
     totalStateTransitions_(0),
     totalUpdates_(0) {
 
     LOG(INFO, "StateMachine created");
 }
 
-bool StateMachine::initialize(std::unique_ptr<MachineState> initialState) {
+bool StateMachine::initialize(MachineState* initialState) {
     LOG(INFO, "Initializing StateMachine");
 
     // Use InitState as default initial state if none provided
     if (!initialState) {
-        initialState = createState(MachineStateId::INIT);
+        initialState = getStateInstance(MachineStateId::INIT);
     }
 
     // Set initial state
-    currentState_ = std::move(initialState);
+    currentState_ = initialState;
 
     if (!currentState_) {
-        LOG(ERROR, "Failed to create initial state");
+        LOG(ERROR, "Failed to get initial state");
         initialized_ = false;
         return false;
     }
@@ -45,9 +52,11 @@ bool StateMachine::initialize(std::unique_ptr<MachineState> initialState) {
     // Initialize timing
     auto now = std::chrono::steady_clock::now();
     lastUpdateTime_ = now;
-    stateEntryTime_ = now;
-    startTime_ = now; // <-- Set start time on initialize
+    startTime_ = now;
     lastStateId_ = currentState_->getStateId();
+
+    // Update context with initial state entry time
+    context_.updateStateEntryTime(now);
 
     // Call state entry callback
     LOG(INFO, "StateMachine entering initial state");
@@ -73,9 +82,9 @@ void StateMachine::update() {
     // Update current state
     currentState_->update(context_);
 
-    // Check for state transitions
+    // Check for state transitions  
     if (auto newState = currentState_->checkTransitions(context_)) {
-        executeTransition(std::move(newState), "State transition");
+        executeTransition(newState, "State transition");
     }
 
     lastUpdateTime_ = currentTime;
@@ -91,17 +100,17 @@ void StateMachine::update() {
     }
 }
 
-void StateMachine::transitionTo(std::unique_ptr<MachineState> newState, const char* reason) {
+void StateMachine::transitionTo(MachineState* newState, const char* reason) {
     if (!newState) {
         LOG(ERROR, "StateMachine::transitionTo() called with null state");
         return;
     }
 
     LOGF(INFO, "Forced state transition: %s", reason ? reason : "External trigger");
-    executeTransition(std::move(newState), reason);
+    executeTransition(newState, reason);
 }
 
-void StateMachine::executeTransition(std::unique_ptr<MachineState> newState, const char* reason) {
+void StateMachine::executeTransition(MachineState* newState, const char* reason) {
     if (!newState) {
         LOG(ERROR, "executeTransition called with null state");
         return;
@@ -122,10 +131,13 @@ void StateMachine::executeTransition(std::unique_ptr<MachineState> newState, con
         currentState_->onExit(context_);
     }
 
-    // Transition to new state
-    currentState_ = std::move(newState);
-    stateEntryTime_ = std::chrono::steady_clock::now();
+    // Transition to new state (singleton - no ownership transfer)
+    currentState_ = newState;
+    auto now = std::chrono::steady_clock::now();
     totalStateTransitions_++;
+
+    // Update context with state entry time  
+    context_.updateStateEntryTime(now);
 
     // Call entry callback on new state
     if (currentState_) {
@@ -151,8 +163,8 @@ void StateMachine::logStateMachineStatus() const {
         return;
     }
     auto now = std::chrono::steady_clock::now();
-    auto timeInState = std::chrono::duration_cast<std::chrono::milliseconds>(now - stateEntryTime_);
-    auto uptime = std::chrono::duration_cast<std::chrono::seconds>(now - startTime_); // <-- Use startTime_ for uptime
+    auto timeInState = std::chrono::milliseconds(context_.getStateElapsedTimeMs());
+    auto uptime = std::chrono::duration_cast<std::chrono::seconds>(now - startTime_);
     LOGF(INFO,
          "StateMachine status: State=%d (%s), TimeInState=%lldms, "
          "Transitions=%zu, Updates=%zu, Uptime=%llds",

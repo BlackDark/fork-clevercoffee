@@ -52,7 +52,7 @@ class MachineState {
          * @param context The machine state context containing all necessary data
          * @return New state to transition to, or nullptr if no transition
          */
-        virtual std::unique_ptr<MachineState> checkTransitions(MachineStateContext& context) = 0;
+        virtual MachineState* checkTransitions(MachineStateContext& context) = 0;
 
         /**
          * @brief Get the state ID for debugging and logging
