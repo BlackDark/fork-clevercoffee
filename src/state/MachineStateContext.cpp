@@ -4,6 +4,7 @@
  */
 
 #include "clevercoffee/state/MachineStateContext.h"
+
 #include "clevercoffee/Config.h"
 #include "clevercoffee/control/ProcessController.h"
 #include "clevercoffee/display/DisplayManager.h"
@@ -14,15 +15,20 @@
 #include "clevercoffee/sensors/SensorManager.h"
 // #include "../hotWaterHandler.h" - removed to avoid circular dependencies
 #include "clevercoffee/GlobalState.h"
-#include "clevercoffee/state/MachineStateIds.h"
-#include "clevercoffee/utils/SystemUtils.h"
 #include "clevercoffee/Logger.h"
 #include "clevercoffee/standby.h"
+#include "clevercoffee/state/MachineStateIds.h"
+#include "clevercoffee/utils/SystemUtils.h"
+
 #include <Arduino.h>
 
-MachineStateContext::MachineStateContext(DisplayManager* displayManager, HardwareManager* hardwareManager, SensorManager* sensorManager, CleverCoffeeWiFiManager* wifiManager, MQTTManager* mqttManager) :
-    displayManager_(displayManager), hardwareManager_(hardwareManager), sensorManager_(sensorManager), wifiManager_(wifiManager), mqttManager_(mqttManager) {
-}
+MachineStateContext::MachineStateContext(DisplayManager*          displayManager,
+                                         HardwareManager*         hardwareManager,
+                                         SensorManager*           sensorManager,
+                                         CleverCoffeeWiFiManager* wifiManager,
+                                         MQTTManager*             mqttManager)
+    : displayManager_(displayManager), hardwareManager_(hardwareManager), sensorManager_(sensorManager),
+      wifiManager_(wifiManager), mqttManager_(mqttManager) {}
 
 // === Hardware Component Access ===
 
@@ -126,7 +132,8 @@ bool MachineStateContext::isBrewActive() const {
 
 bool MachineStateContext::isManualFlushActive() const {
     // Manual flush state is checked via machine state
-    return isManualFlushState(g_state.machine.machineState) && g_state.machine.machineState != MachineStateId::MANUAL_FLUSH_IDLE;
+    return isManualFlushState(g_state.machine.machineState) &&
+           g_state.machine.machineState != MachineStateId::MANUAL_FLUSH_IDLE;
 }
 
 bool MachineStateContext::isSteamActive() const {
@@ -199,11 +206,12 @@ void MachineStateContext::setDisplayPowerSave(int mode) const {
 
 // === Logging Functions ===
 
-void MachineStateContext::logStateTransition(MachineStateId fromState, MachineStateId toState, const char* reason) const {
+void MachineStateContext::logStateTransition(MachineStateId fromState,
+                                             MachineStateId toState,
+                                             const char*    reason) const {
     if (reason) {
         LOGF(INFO, "State transition: %d -> %d (%s)", static_cast<int>(fromState), static_cast<int>(toState), reason);
-    }
-    else {
+    } else {
         LOGF(INFO, "State transition: %d -> %d", static_cast<int>(fromState), static_cast<int>(toState));
     }
 }
@@ -230,8 +238,7 @@ void MachineStateContext::setManualFlushState(bool active) const {
     // For now, we'll use the global state
     if (active) {
         LOG(DEBUG, "Manual flush activated");
-    }
-    else {
+    } else {
         LOG(DEBUG, "Manual flush deactivated");
     }
 }
@@ -240,8 +247,7 @@ void MachineStateContext::setHotWaterState(bool active) const {
     // Set global state for hot water
     if (active) {
         LOG(DEBUG, "Hot water mode activated");
-    }
-    else {
+    } else {
         LOG(DEBUG, "Hot water mode deactivated");
     }
 }
@@ -251,8 +257,7 @@ void MachineStateContext::setSteamState(bool active) const {
     g_state.machine.steamON = active;
     if (active) {
         LOG(DEBUG, "Steam mode activated");
-    }
-    else {
+    } else {
         LOG(DEBUG, "Steam mode deactivated");
     }
 }
@@ -262,8 +267,7 @@ void MachineStateContext::setBackflushState(bool active) const {
     g_state.machine.backflushOn = active;
     if (active) {
         LOG(DEBUG, "Backflush mode activated");
-    }
-    else {
+    } else {
         LOG(DEBUG, "Backflush mode deactivated");
     }
 }

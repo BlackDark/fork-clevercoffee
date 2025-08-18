@@ -4,10 +4,11 @@
  */
 
 #include "clevercoffee/state/states/SteamStates.h"
-#include "clevercoffee/state/MachineStateContext.h"
-#include "clevercoffee/state/StateFactory.h"
+
 #include "clevercoffee/GlobalState.h"
 #include "clevercoffee/Logger.h"
+#include "clevercoffee/state/MachineStateContext.h"
+#include "clevercoffee/state/StateFactory.h"
 
 // SteamStates Implementation
 void SteamIdleState::onEntryImpl(MachineStateContext& context) {
@@ -21,7 +22,8 @@ void SteamIdleState::onExitImpl(MachineStateContext& context) {
 }
 
 void SteamIdleState::update(MachineStateContext& context) {
-    LOGF(DEBUG, "Steam: Temp=%.1f°C, Tank=%s, SteamActive=%s",
+    LOGF(DEBUG,
+         "Steam: Temp=%.1f°C, Tank=%s, SteamActive=%s",
          context.getCurrentTemperature(),
          context.isWaterTankFull() ? "OK" : "EMPTY",
          context.isSteamActive() ? "YES" : "NO");
@@ -52,7 +54,8 @@ void SteamRunningState::onEntryImpl(MachineStateContext& context) {
 }
 
 void SteamRunningState::update(MachineStateContext& context) {
-    LOGF(DEBUG, "Steam Running: Temp=%.1f°C, Pressure=%.1fbar",
+    LOGF(DEBUG,
+         "Steam Running: Temp=%.1f°C, Pressure=%.1fbar",
          context.getCurrentTemperature(),
          context.getFilteredPressure());
 }
@@ -85,6 +88,6 @@ MachineState* SteamStoppedState::checkSpecificTransitions(MachineStateContext& c
         context.logStateTransition(getStateId(), MachineStateId::STEAM_IDLE, "Steam stopped display timeout");
         return getStateInstance(MachineStateId::STEAM_IDLE);
     }
-    
+
     return nullptr;
 }

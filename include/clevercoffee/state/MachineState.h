@@ -5,9 +5,9 @@
 
 #pragma once
 
-#include <memory>
 #include "clevercoffee/state/MachineStateIds.h"
 
+#include <memory>
 
 // Forward declaration
 class MachineStateContext;
@@ -21,54 +21,52 @@ class MachineStateContext;
  * and transition logic.
  */
 class MachineState {
-    public:
-        /**
-         * @brief Virtual destructor for proper cleanup
-         */
-        virtual ~MachineState() = default;
+  public:
+    /**
+     * @brief Virtual destructor for proper cleanup
+     */
+    virtual ~MachineState() = default;
 
-        /**
-         * @brief Called when entering this state
-         * @param context The machine state context containing all necessary data
-         */
-        virtual void onEntry(MachineStateContext& context) {
-        }
+    /**
+     * @brief Called when entering this state
+     * @param context The machine state context containing all necessary data
+     */
+    virtual void onEntry(MachineStateContext& context) {}
 
-        /**
-         * @brief Called when exiting this state
-         * @param context The machine state context containing all necessary data
-         */
-        virtual void onExit(MachineStateContext& context) {
-        }
+    /**
+     * @brief Called when exiting this state
+     * @param context The machine state context containing all necessary data
+     */
+    virtual void onExit(MachineStateContext& context) {}
 
-        /**
-         * @brief Update the state - called every cycle while in this state
-         * @param context The machine state context containing all necessary data
-         */
-        virtual void update(MachineStateContext& context) = 0;
+    /**
+     * @brief Update the state - called every cycle while in this state
+     * @param context The machine state context containing all necessary data
+     */
+    virtual void update(MachineStateContext& context) = 0;
 
-        /**
-         * @brief Check for state transitions
-         * @param context The machine state context containing all necessary data
-         * @return New state to transition to, or nullptr if no transition
-         */
-        virtual MachineState* checkTransitions(MachineStateContext& context) = 0;
+    /**
+     * @brief Check for state transitions
+     * @param context The machine state context containing all necessary data
+     * @return New state to transition to, or nullptr if no transition
+     */
+    virtual MachineState* checkTransitions(MachineStateContext& context) = 0;
 
-        /**
-         * @brief Get the state ID for debugging and logging
-         * @return State identifier
-         */
-        virtual MachineStateId getStateId() const = 0;
+    /**
+     * @brief Get the state ID for debugging and logging
+     * @return State identifier
+     */
+    virtual MachineStateId getStateId() const = 0;
 
-        /**
-         * @brief Get human-readable state name for debugging
-         * @return State name string
-         */
-        virtual const char* getStateName() const = 0;
+    /**
+     * @brief Get human-readable state name for debugging
+     * @return State name string
+     */
+    virtual const char* getStateName() const = 0;
 
-    protected:
-        /**
-         * @brief Protected constructor - only concrete states can be instantiated
-         */
-        MachineState() = default;
+  protected:
+    /**
+     * @brief Protected constructor - only concrete states can be instantiated
+     */
+    MachineState() = default;
 };

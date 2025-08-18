@@ -7,15 +7,16 @@
 #pragma once
 
 #include "clevercoffee/hardware/tempsensors/TempSensor.h"
+
 #include <ZACwire.h>
 
 class TempSensorTSIC final : public TempSensor {
-    public:
-        explicit TempSensorTSIC(int GPIOPin);
+  public:
+    explicit TempSensorTSIC(int GPIOPin);
 
-    protected:
-        bool sample_temperature(double& temperature) const override;
+  protected:
+    bool sample_temperature(double& temperature) const override;
 
-    private:
-        ZACwire* tsicSensor_;
+  private:
+    ZACwire* tsicSensor_;
 };

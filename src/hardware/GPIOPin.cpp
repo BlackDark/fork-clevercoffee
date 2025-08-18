@@ -6,9 +6,7 @@
 
 #include "clevercoffee/hardware/GPIOPin.h"
 
-GPIOPin::GPIOPin(const int pinNumber, const Type pinType) :
-    pin(pinNumber), pinType(pinType) {
-
+GPIOPin::GPIOPin(const int pinNumber, const Type pinType) : pin(pinNumber), pinType(pinType) {
     setType(pinType);
 }
 

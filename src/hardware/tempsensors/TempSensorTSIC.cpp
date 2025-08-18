@@ -5,6 +5,7 @@
  */
 
 #include "clevercoffee/hardware/tempsensors/TempSensorTSIC.h"
+
 #include "clevercoffee/Logger.h"
 
 #define MAX_CHANGERATE 15

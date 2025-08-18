@@ -4,55 +4,51 @@
  */
 
 #include "clevercoffee/core/LoopManager.h"
+
 #include "clevercoffee/Config.h"
-#include "clevercoffee/handlers/BrewHandler.h"
+#include "clevercoffee/GlobalState.h"
+#include "clevercoffee/Logger.h"
 #include "clevercoffee/control/ProcessController.h"
+#include "clevercoffee/handlers/BrewHandler.h"
+#include "clevercoffee/handlers/HotWaterHandler.h"
+#include "clevercoffee/handlers/PowerHandler.h"
+#include "clevercoffee/handlers/SteamHandler.h"
 #include "clevercoffee/hardware/LED.h"
 #include "clevercoffee/hardware/Relay.h"
-#include "clevercoffee/handlers/HotWaterHandler.h"
 #include "clevercoffee/network/MQTTManager.h"
 #include "clevercoffee/network/WebServerManager.h"
-#include "clevercoffee/handlers/PowerHandler.h"
 #include "clevercoffee/sensors/SensorManager.h"
 #include "clevercoffee/standby.h"
-#include "clevercoffee/GlobalState.h"
 #include "clevercoffee/state/StateMachine.h"
-#include "clevercoffee/handlers/SteamHandler.h"
 #include "clevercoffee/ui/UIManager.h"
 #include "clevercoffee/utils/ModernTimer.h"
-#include "clevercoffee/Logger.h"
+
 #include <Arduino.h>
 #include <ArduinoOTA.h>
 #include <WiFi.h>
 
-
 // Forward declaration for display template function
 namespace DisplayTemplateManager {
-    extern void printScreen();
+extern void printScreen();
 }
 
 // External function declarations
 // checkBrewActive removed - now accessed via g_state.handlers.brewHandler
 extern void sendHASSIODiscoveryMsg();
-extern int getSignalStrength();
+extern int  getSignalStrength();
 extern void disableTimer1();
 extern void enableTimer1();
 
 // WebSocket functions are now available via WebSocketEvents.h
 // No stubs needed - real functionality restored
 
-LoopManager::LoopManager(ProcessController* processController, SensorManager* sensorManager, UIManager* uiManager, HotWaterHandler* hotWaterHandler) :
-    processController_(processController),
-    sensorManager_(sensorManager),
-    uiManager_(uiManager),
-    hotWaterHandler_(hotWaterHandler),
-    initialized_(false),
-    waterTankTimerInitialized_(false),
-    performanceMonitoringEnabled_(false),
-    lastLoopTime_(0),
-    maxLoopTime_(0),
-    loopCount_(0) {
-
+LoopManager::LoopManager(ProcessController* processController,
+                         SensorManager*     sensorManager,
+                         UIManager*         uiManager,
+                         HotWaterHandler*   hotWaterHandler)
+    : processController_(processController), sensorManager_(sensorManager), uiManager_(uiManager),
+      hotWaterHandler_(hotWaterHandler), initialized_(false), waterTankTimerInitialized_(false),
+      performanceMonitoringEnabled_(false), lastLoopTime_(0), maxLoopTime_(0), loopCount_(0) {
     LOG(INFO, "LoopManager created");
 }
 
@@ -75,8 +71,8 @@ bool LoopManager::initialize() {
 
     // Initialize timing variables
     lastLoopTime_ = millis();
-    maxLoopTime_ = 0;
-    loopCount_ = 0;
+    maxLoopTime_  = 0;
+    loopCount_    = 0;
 
     initialized_ = true;
 
@@ -147,15 +143,15 @@ void LoopManager::updateLEDs() {
         bool shouldTurnOn = false;
 
         // Turn on when at target temperature (normal or steam mode)
-        if ((g_state.machine.machineState == MachineStateId::PID_NORMAL && (fabs(g_state.process.temperature - g_state.process.setpoint) < 0.3)) ||
+        if ((g_state.machine.machineState == MachineStateId::PID_NORMAL &&
+             (fabs(g_state.process.temperature - g_state.process.setpoint) < 0.3)) ||
             (g_state.process.temperature > 115 && fabs(g_state.process.temperature - g_state.process.setpoint) < 5)) {
             shouldTurnOn = true;
         }
 
         if (shouldTurnOn) {
             g_state.hardware.statusLed->turnOn();
-        }
-        else {
+        } else {
             g_state.hardware.statusLed->turnOff();
         }
     }
@@ -164,8 +160,7 @@ void LoopManager::updateLEDs() {
     if (Config::getInstance().hardwareLedsBrewEnabled.get() && g_state.hardware.brewLed != nullptr) {
         if (isBrewState(g_state.machine.machineState)) {
             g_state.hardware.brewLed->turnOn();
-        }
-        else {
+        } else {
             g_state.hardware.brewLed->turnOff();
         }
     }
@@ -174,8 +169,7 @@ void LoopManager::updateLEDs() {
     if (Config::getInstance().hardwareLedsSteamEnabled.get() && g_state.hardware.steamLed != nullptr) {
         if (isSteamState(g_state.machine.machineState)) {
             g_state.hardware.steamLed->turnOn();
-        }
-        else {
+        } else {
             g_state.hardware.steamLed->turnOff();
         }
     }
@@ -186,8 +180,7 @@ void LoopManager::updateWaterTank() {
     if (waterTankTimer_) {
         // Advance the timer so checkWaterTank() is called at the correct interval
         (*waterTankTimer_)();
-    }
-    else {
+    } else {
         // Fallback: direct call to water tank check
         // This should normally not be needed if timer is set up correctly
         // checkWaterTank();
@@ -199,8 +192,7 @@ void LoopManager::updateProcessControl() {
     if (processController_) {
         // Use modern ProcessController for PID and temperature management
         processController_->updateProcessControl(g_state.machine.machineState);
-    }
-    else {
+    } else {
         // Fallback to original temperature reading logic - handled in main.cpp for now
         LOG(DEBUG, "LoopManager: ProcessController not available, using fallback");
     }
@@ -217,10 +209,11 @@ void LoopManager::updateDisplay() {
             // Only update display on loops that have not had other major tasks running
             // and when not in standby display-off mode
             bool websiteCondition = !g_state.coordination.websiteUpdateRunning;
-            bool mqttCondition = (!g_state.network.mqttManager || !g_state.network.mqttManager->isUpdateRunning());
-            bool hassioCondition = !g_state.coordination.hassioUpdateRunning;
-            bool tempCondition = !g_state.coordination.temperatureUpdateRunning;
-            bool standbyCondition = (!Config::getInstance().standbyEnabled.get() || g_state.standby.standbyModeRemainingTimeMillis > 0);
+            bool mqttCondition    = (!g_state.network.mqttManager || !g_state.network.mqttManager->isUpdateRunning());
+            bool hassioCondition  = !g_state.coordination.hassioUpdateRunning;
+            bool tempCondition    = !g_state.coordination.temperatureUpdateRunning;
+            bool standbyCondition =
+                (!Config::getInstance().standbyEnabled.get() || g_state.standby.standbyModeRemainingTimeMillis > 0);
 
             // update display on loops that have not had other major tasks running
             if (websiteCondition && mqttCondition && hassioCondition && tempCondition && standbyCondition) {
@@ -228,22 +221,19 @@ void LoopManager::updateDisplay() {
                     uiManager_->forceUpdate();
                     uiManager_->setBufferReady(false);
                     uiManager_->setUpdateRunning(true);
-                }
-                else {
+                } else {
                     // This is the critical call that was missing!
                     // It triggers the display template rendering
                     if (g_state.timing.printDisplayTimer) {
                         LOGF(DEBUG, "LoopManager: Calling printDisplayTimer (UIManager path)");
                         (*g_state.timing.printDisplayTimer)();
-                    }
-                    else {
+                    } else {
                         LOGF(WARNING, "LoopManager: printDisplayTimer is null!");
                     }
                 }
             }
         }
-    }
-    else {
+    } else {
         LOGF(WARNING, "LoopManager: UIManager not available, skipping display update");
     }
 }
@@ -256,8 +246,10 @@ void LoopManager::updateDebugTiming() {
 bool LoopManager::setupTimers() {
     try {
         // Use unique_ptr for automatic memory management
-        g_state.timing.hassioDiscoveryTimer = std::make_unique<MillisecondTimer>(&sendHASSIODiscoveryMsg, std::chrono::milliseconds(300000));
-        g_state.timing.printDisplayTimer = std::make_unique<MillisecondTimer>(DisplayTemplateManager::printScreen, std::chrono::milliseconds(100));
+        g_state.timing.hassioDiscoveryTimer =
+            std::make_unique<MillisecondTimer>(&sendHASSIODiscoveryMsg, std::chrono::milliseconds(300000));
+        g_state.timing.printDisplayTimer =
+            std::make_unique<MillisecondTimer>(DisplayTemplateManager::printScreen, std::chrono::milliseconds(100));
 
         LOG(INFO, "LoopManager: Initialized timers");
         return true;
@@ -270,7 +262,8 @@ bool LoopManager::setupTimers() {
 bool LoopManager::setupWaterTankTimer() {
     try {
         // Create timer for water tank monitoring (200ms interval)
-        waterTankTimer_ = std::make_unique<MillisecondTimer>(std::bind(&LoopManager::checkWaterTankLevel, this), std::chrono::milliseconds(200));
+        waterTankTimer_ = std::make_unique<MillisecondTimer>(std::bind(&LoopManager::checkWaterTankLevel, this),
+                                                             std::chrono::milliseconds(200));
 
         if (!waterTankTimer_) {
             LOG(ERROR, "LoopManager: Failed to create water tank timer");
@@ -325,20 +318,24 @@ void LoopManager::updateNetwork() {
             if (g_state.network.mqttManager->isConnected()) {
                 g_state.network.mqttManager->loop();
 
-                // resend discovery messages if not during a main function and MQTT has been disconnected but has now reconnected
-                // Check if machine is not in active operational states
-                bool isOperational = (isBrewState(g_state.machine.machineState) && g_state.machine.machineState != MachineStateId::BREW_IDLE) ||
-                                   isHotWaterState(g_state.machine.machineState) && g_state.machine.machineState != MachineStateId::HOT_WATER_IDLE ||
-                                   isManualFlushState(g_state.machine.machineState) && g_state.machine.machineState != MachineStateId::MANUAL_FLUSH_IDLE ||
-                                   isBackflushState(g_state.machine.machineState) && g_state.machine.machineState != MachineStateId::BACKFLUSH_IDLE;
+                // resend discovery messages if not during a main function and MQTT has been disconnected but has now
+                // reconnected Check if machine is not in active operational states
+                bool isOperational = (isBrewState(g_state.machine.machineState) &&
+                                      g_state.machine.machineState != MachineStateId::BREW_IDLE) ||
+                                     isHotWaterState(g_state.machine.machineState) &&
+                                         g_state.machine.machineState != MachineStateId::HOT_WATER_IDLE ||
+                                     isManualFlushState(g_state.machine.machineState) &&
+                                         g_state.machine.machineState != MachineStateId::MANUAL_FLUSH_IDLE ||
+                                     isBackflushState(g_state.machine.machineState) &&
+                                         g_state.machine.machineState != MachineStateId::BACKFLUSH_IDLE;
                 if (!isOperational &&
-                    ((!g_state.network.mqttManager->wasConnected() || g_state.network.hassioFailed) && !g_state.coordination.displayBufferReady && !g_state.coordination.temperatureUpdateRunning)) {
+                    ((!g_state.network.mqttManager->wasConnected() || g_state.network.hassioFailed) &&
+                     !g_state.coordination.displayBufferReady && !g_state.coordination.temperatureUpdateRunning)) {
                     if (g_state.timing.hassioDiscoveryTimer) (*g_state.timing.hassioDiscoveryTimer)();
                 }
 
                 g_state.network.mqttManager->setWasConnected(true);
-            }
-            else if (g_state.network.mqttManager->wasConnected()) {
+            } else if (g_state.network.mqttManager->wasConnected()) {
                 LOG(INFO, "MQTT disconnected");
                 g_state.network.mqttManager->setWasConnected(false);
             }
@@ -357,8 +354,7 @@ void LoopManager::updateNetwork() {
         ArduinoOTA.onEnd([]() { enableTimer1(); });
 
         g_state.network.wifiReconnects = 0; // reset wifi reconnects if connected
-    }
-    else {
+    } else {
         wifiWasConnected = false;
         if (g_state.network.cleverCoffeeWiFiManager) {
             g_state.network.cleverCoffeeWiFiManager->checkAndMaintainConnection();
@@ -370,11 +366,11 @@ void LoopManager::updateWebsite() {
     // Website and data transmission updates extracted from loopPid()
     // pidOutput moved to g_state.process.pidOutput
 
-    bool timeCondition = (millis() - g_state.network.lastTempEvent) > g_state.network.tempEventInterval;
-    bool mqttCondition = (!g_state.network.mqttManager || !g_state.network.mqttManager->isUpdateRunning());
-    bool hassioCondition = !g_state.coordination.hassioUpdateRunning;
+    bool timeCondition    = (millis() - g_state.network.lastTempEvent) > g_state.network.tempEventInterval;
+    bool mqttCondition    = (!g_state.network.mqttManager || !g_state.network.mqttManager->isUpdateRunning());
+    bool hassioCondition  = !g_state.coordination.hassioUpdateRunning;
     bool displayCondition = !g_state.coordination.displayBufferReady;
-    bool tempCondition = !g_state.coordination.temperatureUpdateRunning;
+    bool tempCondition    = !g_state.coordination.temperatureUpdateRunning;
 
     if (timeCondition && mqttCondition && hassioCondition && displayCondition && tempCondition) {
         LOGF(DEBUG, "LoopManager: Conditions met for sending temperature events");
@@ -382,8 +378,15 @@ void LoopManager::updateWebsite() {
 
         // send temperatures to website endpoint
         if (WiFi.status() == WL_CONNECTED && !g_state.network.offlineMode) {
-            LOGF(DEBUG, "LoopManager: Sending temperature event: temp=%.2f, setpoint=%.2f, output=%.2f", g_state.process.temperature, Config::getInstance().brewSetpoint.get(), g_state.process.pidOutput / 10);
-            g_state.network.webServerManager->sendTempEvent(g_state.process.temperature, Config::getInstance().brewSetpoint.get(), g_state.process.pidOutput / 10); // pidOutput is promill, so /10 to get percent value
+            LOGF(DEBUG,
+                 "LoopManager: Sending temperature event: temp=%.2f, setpoint=%.2f, output=%.2f",
+                 g_state.process.temperature,
+                 Config::getInstance().brewSetpoint.get(),
+                 g_state.process.pidOutput / 10);
+            g_state.network.webServerManager->sendTempEvent(
+                g_state.process.temperature,
+                Config::getInstance().brewSetpoint.get(),
+                g_state.process.pidOutput / 10); // pidOutput is promill, so /10 to get percent value
 
             if (Config::getInstance().hardwareSensorsScaleEnabled.get()) {
                 g_state.network.webServerManager->sendWeightEvent();
@@ -397,8 +400,8 @@ void LoopManager::updateWebsite() {
 
 void LoopManager::updateSensors() {
     // Scale and pressure sensor updates extracted from loopPid()
-    extern void checkWeight();
-    extern void shotTimerScale();
+    extern void  checkWeight();
+    extern void  shotTimerScale();
     extern float measurePressure();
     extern float filterPressureValue(float input);
 
@@ -410,15 +413,15 @@ void LoopManager::updateSensors() {
     if (Config::getInstance().hardwareSensorsPressureEnabled.get()) {
         if (sensorManager_) {
             // Pressure reading is handled by sensorManager->update() call in ProcessController
-            g_state.sensors.inputPressure = sensorManager_->getCurrentPressure();
+            g_state.sensors.inputPressure       = sensorManager_->getCurrentPressure();
             g_state.sensors.inputPressureFilter = sensorManager_->getFilteredPressure();
-        }
-        else {
+        } else {
             // Fallback to direct pressure reading
-            if (const unsigned long currentMillisPressure = millis(); currentMillisPressure - g_state.timing.previousMillisPressure >= g_state.timing.intervalPressure) {
+            if (const unsigned long currentMillisPressure = millis();
+                currentMillisPressure - g_state.timing.previousMillisPressure >= g_state.timing.intervalPressure) {
                 g_state.timing.previousMillisPressure = currentMillisPressure;
-                g_state.sensors.inputPressure = measurePressure();
-                g_state.sensors.inputPressureFilter = filterPressureValue(g_state.sensors.inputPressure);
+                g_state.sensors.inputPressure         = measurePressure();
+                g_state.sensors.inputPressureFilter   = filterPressureValue(g_state.sensors.inputPressure);
             }
         }
     }
@@ -445,13 +448,12 @@ void LoopManager::updateStateMachine() {
         // Update machine state
         const MachineStateId newState = stateMachine->getCurrentStateId();
         if (newState != g_state.machine.machineState) {
-            const auto oldState = g_state.machine.machineState;
+            const auto oldState              = g_state.machine.machineState;
             g_state.machine.lastmachinestate = g_state.machine.machineState;
-            g_state.machine.machineState = newState;
+            g_state.machine.machineState     = newState;
             LOGF(DEBUG, "State transition: %d -> %d", static_cast<int>(oldState), static_cast<int>(newState));
         }
-    }
-    else {
+    } else {
         // StateMachine should always be available in modern setup
         LOG(WARNING, "StateMachine not available for state updates");
     }
@@ -469,8 +471,7 @@ void LoopManager::updateStateMachine() {
     if (Config::getInstance().hardwareSwitchesBrewEnabled.get()) {
         if (uiManager_) {
             uiManager_->shouldDisplayBrewTimer();
-        }
-        else {
+        } else {
             extern bool shouldDisplayBrewTimer();
             shouldDisplayBrewTimer();
         }

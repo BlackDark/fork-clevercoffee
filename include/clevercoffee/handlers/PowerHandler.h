@@ -4,31 +4,31 @@
  */
 #pragma once
 
-#include "clevercoffee/handlers/BaseHandler.h"
 #include "clevercoffee/Config.h"
-#include <Logger.h>
-#include "clevercoffee/display/displayCommon.h"
-#include "clevercoffee/standby.h"
 #include "clevercoffee/GlobalState.h"
+#include "clevercoffee/display/displayCommon.h"
+#include "clevercoffee/handlers/BaseHandler.h"
+#include "clevercoffee/standby.h"
 #include "clevercoffee/state/MachineState.h"
 #include "clevercoffee/utils/SystemUtils.h"
+
+#include <Logger.h>
 
 /**
  * @class PowerHandler
  * @brief Modern power handler using class-based architecture
  */
 class PowerHandler : public SwitchBasedHandler {
-private:
+  private:
     unsigned long longPressStartTime_;
-    bool trackingLongPress_;
+    bool          trackingLongPress_;
 
-public:
+  public:
     PowerHandler()
-        : SwitchBasedHandler("PowerHandler", g_state.hardware.powerSwitch)
-        , longPressStartTime_(0)
-        , trackingLongPress_(false) {}
+        : SwitchBasedHandler("PowerHandler", g_state.hardware.powerSwitch), longPressStartTime_(0),
+          trackingLongPress_(false) {}
 
-protected:
+  protected:
     bool isEnabled() const override {
         return Config::getInstance().hardwareSwitchesPowerEnabled.get();
     }
@@ -42,7 +42,7 @@ protected:
         recordSystemInitialization();
 
         const bool powerSwitchPressed = getSwitchReading();
-        const auto switchType = Config::getInstance().hardwareSwitchesPowerType.get();
+        const auto switchType         = Config::getInstance().hardwareSwitchesPowerType.get();
 
         if (switchType == Hardware::SwitchType::TOGGLE) {
             processTogglePowerSwitch(powerSwitchPressed);
@@ -51,7 +51,7 @@ protected:
         }
     }
 
-private:
+  private:
     void recordSystemInitialization() {
         const long currentMillis = millis();
 
@@ -95,9 +95,9 @@ private:
         // Only start tracking if system initialized for at least 5 seconds
         if (currentMillis - g_state.sensors.systemInitializedTime > 5000) {
             g_state.sensors.firstSwitchPressTime = currentMillis;
-            g_state.sensors.trackingPressTime = true;
-            trackingLongPress_ = true;
-            longPressStartTime_ = currentMillis;
+            g_state.sensors.trackingPressTime    = true;
+            trackingLongPress_                   = true;
+            longPressStartTime_                  = currentMillis;
         }
 
         // Toggle power state
@@ -109,20 +109,16 @@ private:
     }
 
     void handlePowerButtonRelease() {
-        g_state.sensors.trackingPressTime = false;
+        g_state.sensors.trackingPressTime    = false;
         g_state.sensors.firstSwitchPressTime = 0;
-        trackingLongPress_ = false;
-        longPressStartTime_ = 0;
+        trackingLongPress_                   = false;
+        longPressStartTime_                  = 0;
     }
 
     void checkForLongPressReboot(bool pressed, long currentMillis) {
-        if (pressed &&
-            g_state.machine.systemInitialized &&
-            (currentMillis - g_state.sensors.systemInitializedTime > 5000) &&
-            trackingLongPress_ &&
-            (currentMillis - longPressStartTime_ > 1000) &&
-            switch_->longPressDetected()) {
-
+        if (pressed && g_state.machine.systemInitialized &&
+            (currentMillis - g_state.sensors.systemInitializedTime > 5000) && trackingLongPress_ &&
+            (currentMillis - longPressStartTime_ > 1000) && switch_->longPressDetected()) {
             triggerSystemReboot();
         }
     }
@@ -130,8 +126,8 @@ private:
     void powerOn() {
         if (g_state.machine.machineState == MachineStateId::STANDBY ||
             g_state.machine.machineState == MachineStateId::PID_DISABLED) {
-
-            g_state.machine.flags.requestNormalOperation = true;  // Use condition flag instead of direct state assignment
+            g_state.machine.flags.requestNormalOperation =
+                true; // Use condition flag instead of direct state assignment
             resetStandbyTimer();
             setRuntimePidState(true);
             g_state.hardware.display->setPowerSave(0);
@@ -142,7 +138,7 @@ private:
     void powerOff() {
         if (g_state.machine.machineState != MachineStateId::STANDBY) {
             g_state.coordination.processController->performSafeShutdown();
-            g_state.machine.flags.requestStandby = true;  // Use condition flag instead of direct state assignment
+            g_state.machine.flags.requestStandby = true; // Use condition flag instead of direct state assignment
             g_state.standby.standbyModeRemainingTimeMillis = 0;
             logInfo("System powered off");
         }
@@ -163,4 +159,3 @@ private:
         ESP.restart();
     }
 };
-

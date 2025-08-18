@@ -6,57 +6,56 @@
 
 #pragma once
 
-
 /**
  * @brief Abstract base class for scale implementations
  */
 class Scale {
-    public:
-        virtual ~Scale() = default;
+  public:
+    virtual ~Scale() = default;
 
-        /**
-         * @brief Initialize the scale
-         * @return true if initialization successful, false otherwise
-         */
-        virtual bool init() = 0;
+    /**
+     * @brief Initialize the scale
+     * @return true if initialization successful, false otherwise
+     */
+    virtual bool init() = 0;
 
-        /**
-         * @brief Check if scale data is available and update readings
-         * @return true if new data is available, false otherwise
-         */
-        virtual bool update() = 0;
+    /**
+     * @brief Check if scale data is available and update readings
+     * @return true if new data is available, false otherwise
+     */
+    virtual bool update() = 0;
 
-        /**
-         * @brief Get the current weight reading
-         * @return Weight in grams
-         */
-        [[nodiscard]] virtual float getWeight() const noexcept = 0;
+    /**
+     * @brief Get the current weight reading
+     * @return Weight in grams
+     */
+    [[nodiscard]] virtual float getWeight() const noexcept = 0;
 
-        /**
-         * @brief Tare the scale (set current weight as zero point)
-         */
-        virtual void tare() = 0;
+    /**
+     * @brief Tare the scale (set current weight as zero point)
+     */
+    virtual void tare() = 0;
 
-        /**
-         * @brief Set the number of samples to use for readings
-         * @param samples Number of samples
-         */
-        virtual void setSamples(int samples) = 0;
+    /**
+     * @brief Set the number of samples to use for readings
+     * @param samples Number of samples
+     */
+    virtual void setSamples(int samples) = 0;
 
-        /**
-         * @brief Check if scale is connected (for Bluetooth scales)
-         * @return true if connected, false for wired scales or if not connected
-         */
-        [[nodiscard]] virtual bool isConnected() const noexcept {
-            return true;
-        }
+    /**
+     * @brief Check if scale is connected (for Bluetooth scales)
+     * @return true if connected, false for wired scales or if not connected
+     */
+    [[nodiscard]] virtual bool isConnected() const noexcept {
+        return true;
+    }
 
-        /**
-         * @brief Validate weight reading
-         * @param weight Weight value to validate
-         * @return true if weight is within valid range
-         */
-        static constexpr bool isValidWeight(float weight) noexcept {
-            return weight >= -500.0f && weight <= 5000.0f; // Practical range for coffee scales
-        }
+    /**
+     * @brief Validate weight reading
+     * @param weight Weight value to validate
+     * @return true if weight is within valid range
+     */
+    static constexpr bool isValidWeight(float weight) noexcept {
+        return weight >= -500.0f && weight <= 5000.0f; // Practical range for coffee scales
+    }
 };

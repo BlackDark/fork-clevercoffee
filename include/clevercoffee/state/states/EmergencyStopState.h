@@ -9,13 +9,14 @@
 
 // Emergency Stop State
 class EmergencyStopState : public BaseState<MachineStateId::EMERGENCY_STOP, EmergencyStopState> {
-public:
-    void update(MachineStateContext& context) override;
-    void onEntryImpl(MachineStateContext& context) override;
-    void onExitImpl(MachineStateContext& context) override;
+  public:
+    void          update(MachineStateContext& context) override;
+    void          onEntryImpl(MachineStateContext& context) override;
+    void          onExitImpl(MachineStateContext& context) override;
     MachineState* checkSpecificTransitions(MachineStateContext& context) override;
-private:
-    void performEmergencyShutdown(MachineStateContext& context);
-    bool isEmergencyCleared(MachineStateContext& context) const;
+
+  private:
+    void          performEmergencyShutdown(MachineStateContext& context);
+    bool          isEmergencyCleared(MachineStateContext& context) const;
     MachineState* getRecoveryState(MachineStateContext& context) const;
 };

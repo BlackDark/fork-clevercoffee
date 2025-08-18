@@ -4,14 +4,15 @@
  */
 
 #include "clevercoffee/hardware/HardwareManager.h"
+
 #include "clevercoffee/Config.h"
-#include "clevercoffee/utils/memoryUtils.h"
 #include "clevercoffee/Logger.h"
 #include "clevercoffee/hardware/pinmapping.h"
+#include "clevercoffee/utils/memoryUtils.h"
 
-HardwareManager::HardwareManager() :
-    heaterRelayPin_(PIN_HEATER, GPIOPin::OUT), pumpRelayPin_(PIN_PUMP, GPIOPin::OUT), valveRelayPin_(PIN_VALVE, GPIOPin::OUT) {
-
+HardwareManager::HardwareManager()
+    : heaterRelayPin_(PIN_HEATER, GPIOPin::OUT), pumpRelayPin_(PIN_PUMP, GPIOPin::OUT),
+      valveRelayPin_(PIN_VALVE, GPIOPin::OUT) {
     LOG(INFO, "Initializing hardware components...");
     logMemory("HardwareManager Constructor Start");
 
@@ -49,21 +50,24 @@ HardwareManager::HardwareManager() :
 void HardwareManager::initializeRelays() {
     LOG(INFO, "Initializing heater relay...");
     yield(); // Prevent watchdog timeout
-    const auto heaterTriggerType = static_cast<Hardware::RelayTriggerType>(Config::getInstance().hardwareRelaysHeaterTriggerType.get());
+    const auto heaterTriggerType =
+        static_cast<Hardware::RelayTriggerType>(Config::getInstance().hardwareRelaysHeaterTriggerType.get());
     heaterRelay_ = std::make_unique<Relay>(heaterRelayPin_, heaterTriggerType);
     heaterRelay_->off();
     LOG(INFO, "Heater relay initialized");
 
     LOG(INFO, "Initializing valve relay...");
     yield(); // Prevent watchdog timeout
-    const auto valveTriggerType = static_cast<Hardware::RelayTriggerType>(Config::getInstance().hardwareRelaysValveTriggerType.get());
+    const auto valveTriggerType =
+        static_cast<Hardware::RelayTriggerType>(Config::getInstance().hardwareRelaysValveTriggerType.get());
     valveRelay_ = std::make_unique<Relay>(valveRelayPin_, valveTriggerType);
     valveRelay_->off();
     LOG(INFO, "Valve relay initialized");
 
     LOG(INFO, "Initializing pump relay...");
     yield(); // Prevent watchdog timeout
-    const auto pumpTriggerType = static_cast<Hardware::RelayTriggerType>(Config::getInstance().hardwareRelaysPumpTriggerType.get());
+    const auto pumpTriggerType =
+        static_cast<Hardware::RelayTriggerType>(Config::getInstance().hardwareRelaysPumpTriggerType.get());
     pumpRelay_ = std::make_unique<Relay>(pumpRelayPin_, pumpTriggerType);
     pumpRelay_->off();
     LOG(INFO, "Pump relay initialized");
@@ -79,8 +83,8 @@ void HardwareManager::initializeLEDs() {
         LOG(INFO, "Initializing status LED...");
         yield(); // Prevent watchdog timeout
         const bool inverted = Config::getInstance().hardwareLedsStatusInverted.get();
-        statusLedPin_ = std::make_unique<GPIOPin>(PIN_STATUSLED, GPIOPin::OUT);
-        statusLed_ = std::make_unique<StandardLED>(*statusLedPin_, inverted);
+        statusLedPin_       = std::make_unique<GPIOPin>(PIN_STATUSLED, GPIOPin::OUT);
+        statusLed_          = std::make_unique<StandardLED>(*statusLedPin_, inverted);
         statusLed_->turnOff();
         LOG(INFO, "Status LED initialized");
     }
@@ -90,8 +94,8 @@ void HardwareManager::initializeLEDs() {
         LOG(INFO, "Initializing brew LED...");
         yield(); // Prevent watchdog timeout
         const bool inverted = Config::getInstance().hardwareLedsBrewInverted.get();
-        brewLedPin_ = std::make_unique<GPIOPin>(PIN_BREWLED, GPIOPin::OUT);
-        brewLed_ = std::make_unique<StandardLED>(*brewLedPin_, inverted);
+        brewLedPin_         = std::make_unique<GPIOPin>(PIN_BREWLED, GPIOPin::OUT);
+        brewLed_            = std::make_unique<StandardLED>(*brewLedPin_, inverted);
         brewLed_->turnOff();
         LOG(INFO, "Brew LED initialized");
     }
@@ -101,8 +105,8 @@ void HardwareManager::initializeLEDs() {
         LOG(INFO, "Initializing steam LED...");
         yield(); // Prevent watchdog timeout
         const bool inverted = Config::getInstance().hardwareLedsSteamInverted.get();
-        steamLedPin_ = std::make_unique<GPIOPin>(PIN_STEAMLED, GPIOPin::OUT);
-        steamLed_ = std::make_unique<StandardLED>(*steamLedPin_, inverted);
+        steamLedPin_        = std::make_unique<GPIOPin>(PIN_STEAMLED, GPIOPin::OUT);
+        steamLed_           = std::make_unique<StandardLED>(*steamLedPin_, inverted);
         steamLed_->turnOff();
         LOG(INFO, "Steam LED initialized");
     }
@@ -117,8 +121,8 @@ void HardwareManager::initializeSwitches() {
     if (Config::getInstance().hardwareSwitchesPowerEnabled.get()) {
         LOG(INFO, "Initializing power switch...");
         yield(); // Prevent watchdog timeout
-        const auto type = Config::getInstance().hardwareSwitchesPowerType.get();
-        const auto mode = Config::getInstance().hardwareSwitchesPowerMode.get();
+        const auto type         = Config::getInstance().hardwareSwitchesPowerType.get();
+        const auto mode         = Config::getInstance().hardwareSwitchesPowerMode.get();
         const auto initialState = (mode == Hardware::SwitchMode::NORMALLY_OPEN) ? LOW : HIGH;
         powerSwitch_ = std::make_unique<IOSwitch>(PIN_POWERSWITCH, GPIOPin::IN_HARDWARE, type, mode, initialState);
         LOG(INFO, "Power switch initialized");
@@ -128,8 +132,8 @@ void HardwareManager::initializeSwitches() {
     if (Config::getInstance().hardwareSwitchesSteamEnabled.get()) {
         LOG(INFO, "Initializing steam switch...");
         yield(); // Prevent watchdog timeout
-        const auto type = Config::getInstance().hardwareSwitchesSteamType.get();
-        const auto mode = Config::getInstance().hardwareSwitchesSteamMode.get();
+        const auto type         = Config::getInstance().hardwareSwitchesSteamType.get();
+        const auto mode         = Config::getInstance().hardwareSwitchesSteamMode.get();
         const auto initialState = (mode == Hardware::SwitchMode::NORMALLY_OPEN) ? LOW : HIGH;
         steamSwitch_ = std::make_unique<IOSwitch>(PIN_STEAMSWITCH, GPIOPin::IN_HARDWARE, type, mode, initialState);
         LOG(INFO, "Steam switch initialized");
@@ -139,8 +143,8 @@ void HardwareManager::initializeSwitches() {
     if (Config::getInstance().hardwareSwitchesBrewEnabled.get()) {
         LOG(INFO, "Initializing brew switch...");
         yield(); // Prevent watchdog timeout
-        const auto type = Config::getInstance().hardwareSwitchesBrewType.get();
-        const auto mode = Config::getInstance().hardwareSwitchesBrewMode.get();
+        const auto type         = Config::getInstance().hardwareSwitchesBrewType.get();
+        const auto mode         = Config::getInstance().hardwareSwitchesBrewMode.get();
         const auto initialState = (mode == Hardware::SwitchMode::NORMALLY_OPEN) ? LOW : HIGH;
         brewSwitch_ = std::make_unique<IOSwitch>(PIN_BREWSWITCH, GPIOPin::IN_HARDWARE, type, mode, initialState);
         LOG(INFO, "Brew switch initialized");
@@ -150,8 +154,8 @@ void HardwareManager::initializeSwitches() {
     if (Config::getInstance().hardwareSwitchesHotWaterEnabled.get()) {
         LOG(INFO, "Initializing hot water switch...");
         yield(); // Prevent watchdog timeout
-        const auto type = Config::getInstance().hardwareSwitchesHotWaterType.get();
-        const auto mode = Config::getInstance().hardwareSwitchesHotWaterMode.get();
+        const auto type         = Config::getInstance().hardwareSwitchesHotWaterType.get();
+        const auto mode         = Config::getInstance().hardwareSwitchesHotWaterMode.get();
         const auto initialState = (mode == Hardware::SwitchMode::NORMALLY_OPEN) ? LOW : HIGH;
         hotWaterSwitch_ = std::make_unique<IOSwitch>(PIN_WATERSWITCH, GPIOPin::IN_HARDWARE, type, mode, initialState);
         LOG(INFO, "Hot water switch initialized");
@@ -161,10 +165,12 @@ void HardwareManager::initializeSwitches() {
     if (Config::getInstance().hardwareSensorsWatertankEnabled.get()) {
         LOG(INFO, "Initializing water tank sensor...");
         yield(); // Prevent watchdog timeout
-        const auto mode = Config::getInstance().hardwareSensorsWatertankMode.get();
-        const auto initialState = (mode == Hardware::SwitchMode::NORMALLY_OPEN) ? HIGH : LOW;
-        const GPIOPin::Type pinType = (mode == Hardware::SwitchMode::NORMALLY_OPEN) ? GPIOPin::IN_PULLDOWN : GPIOPin::IN_PULLUP;
-        waterTankSensor_ = std::make_unique<IOSwitch>(PIN_WATERTANKSENSOR, pinType, Hardware::SwitchType::TOGGLE, mode, initialState);
+        const auto          mode         = Config::getInstance().hardwareSensorsWatertankMode.get();
+        const auto          initialState = (mode == Hardware::SwitchMode::NORMALLY_OPEN) ? HIGH : LOW;
+        const GPIOPin::Type pinType =
+            (mode == Hardware::SwitchMode::NORMALLY_OPEN) ? GPIOPin::IN_PULLDOWN : GPIOPin::IN_PULLUP;
+        waterTankSensor_ =
+            std::make_unique<IOSwitch>(PIN_WATERTANKSENSOR, pinType, Hardware::SwitchType::TOGGLE, mode, initialState);
         LOG(INFO, "Water tank sensor initialized");
     }
 
@@ -182,8 +188,7 @@ void HardwareManager::initializeTemperatureSensor() {
         yield(); // Prevent watchdog timeout
         tempSensor_ = std::make_unique<TempSensorTSIC>(PIN_TEMPSENSOR);
         LOG(INFO, "TSIC 306 temperature sensor created");
-    }
-    else if (tempSensorType == Hardware::TemperatureSensorType::DALLAS_DS18B20) {
+    } else if (tempSensorType == Hardware::TemperatureSensorType::DALLAS_DS18B20) {
         LOG(INFO, "Initializing Dallas DS18B20 temperature sensor...");
         yield(); // Prevent watchdog timeout
         tempSensor_ = std::make_unique<TempSensorDallas>(PIN_TEMPSENSOR);
@@ -192,8 +197,7 @@ void HardwareManager::initializeTemperatureSensor() {
 
     if (tempSensor_) {
         LOG(INFO, "Temperature sensor initialized successfully");
-    }
-    else {
+    } else {
         LOGF(ERROR, "Unknown temperature sensor type: %d", static_cast<int>(tempSensorType));
     }
 }
@@ -218,4 +222,3 @@ void HardwareManager::safeShutdown() {
 
     LOG(INFO, "Safe hardware shutdown completed");
 }
-

@@ -6,6 +6,7 @@
 #pragma once
 
 #include "clevercoffee/Logger.h"
+
 #include <esp_heap_caps.h>
 #include <esp_system.h>
 
@@ -18,17 +19,17 @@ inline void logMemory(const char* location) {
     const char* safeLocation = location ? location : "UNKNOWN";
 
     // Get heap information
-    const size_t freeHeap = esp_get_free_heap_size();
+    const size_t freeHeap    = esp_get_free_heap_size();
     const size_t minFreeHeap = esp_get_minimum_free_heap_size();
-    const size_t totalHeap = heap_caps_get_total_size(MALLOC_CAP_DEFAULT);
-    const size_t usedHeap = totalHeap - freeHeap;
+    const size_t totalHeap   = heap_caps_get_total_size(MALLOC_CAP_DEFAULT);
+    const size_t usedHeap    = totalHeap - freeHeap;
 
     // Get specific memory pool information
-    const size_t freeDRAM = heap_caps_get_free_size(MALLOC_CAP_8BIT);
+    const size_t freeDRAM  = heap_caps_get_free_size(MALLOC_CAP_8BIT);
     const size_t totalDRAM = heap_caps_get_total_size(MALLOC_CAP_8BIT);
-    const size_t usedDRAM = totalDRAM - freeDRAM;
+    const size_t usedDRAM  = totalDRAM - freeDRAM;
 
-    const size_t freePSRAM = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+    const size_t freePSRAM  = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
     const size_t totalPSRAM = heap_caps_get_total_size(MALLOC_CAP_SPIRAM);
 
     // Calculate percentages - with division by zero protection
@@ -43,8 +44,8 @@ inline void logMemory(const char* location) {
     LOGF(INFO, "DRAM: %u/%u bytes (%.1f%% used)", usedDRAM, totalDRAM, dramUsagePercent);
 
     if (totalPSRAM > 0) {
-        const size_t usedPSRAM = totalPSRAM - freePSRAM;
-        const float psramUsagePercent = (float)usedPSRAM * 100.0f / totalPSRAM;
+        const size_t usedPSRAM         = totalPSRAM - freePSRAM;
+        const float  psramUsagePercent = (float)usedPSRAM * 100.0f / totalPSRAM;
         LOGF(INFO, "PSRAM: %u/%u bytes (%.1f%% used)", usedPSRAM, totalPSRAM, psramUsagePercent);
     }
 
@@ -76,7 +77,7 @@ inline void logMemoryBasic(const char* location) {
     // Safety check for null location
     const char* safeLocation = location ? location : "UNKNOWN";
 
-    const size_t freeHeap = esp_get_free_heap_size();
+    const size_t freeHeap         = esp_get_free_heap_size();
     const size_t largestFreeBlock = heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT);
 
     LOGF(INFO, "MEM @ %s: Free: %u, Block: %u", safeLocation, freeHeap, largestFreeBlock);
@@ -91,10 +92,10 @@ inline void logMemoryBasic(const char* location) {
  * @return String containing memory information
  */
 inline String getMemoryInfo() {
-    const size_t freeHeap = esp_get_free_heap_size();
-    const size_t totalHeap = heap_caps_get_total_size(MALLOC_CAP_DEFAULT);
-    const size_t usedHeap = totalHeap - freeHeap;
-    const float heapUsagePercent = totalHeap > 0 ? (float)usedHeap * 100.0f / totalHeap : 0.0f;
+    const size_t freeHeap         = esp_get_free_heap_size();
+    const size_t totalHeap        = heap_caps_get_total_size(MALLOC_CAP_DEFAULT);
+    const size_t usedHeap         = totalHeap - freeHeap;
+    const float  heapUsagePercent = totalHeap > 0 ? (float)usedHeap * 100.0f / totalHeap : 0.0f;
 
     char buffer[128];
     snprintf(buffer, sizeof(buffer), "Heap: %u/%u (%.1f%%), Free: %u", usedHeap, totalHeap, heapUsagePercent, freeHeap);

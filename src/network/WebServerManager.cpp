@@ -4,24 +4,26 @@
  */
 
 #include "clevercoffee/network/WebServerManager.h"
+
 #include "clevercoffee/Config.h"
-#include "clevercoffee/network/CleverCoffeeWiFiManager.h"
 #include "clevercoffee/GlobalState.h"
-#include "clevercoffee/utils/helperUtils.h"
 #include "clevercoffee/Logger.h"
+#include "clevercoffee/network/CleverCoffeeWiFiManager.h"
+#include "clevercoffee/utils/SystemUtils.h"
+#include "clevercoffee/utils/helperUtils.h"
+
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <FS.h>
 #include <Preferences.h>
 #include <unordered_map>
-#include "clevercoffee/utils/SystemUtils.h"
 
 #define JSON_BUFFER_SIZE 512
 #define PATH_BUFFER_SIZE 128
 
 // Memory monitoring function
 void logMemoryUsage(const char* location) {
-    size_t freeHeap = ESP.getFreeHeap();
+    size_t freeHeap    = ESP.getFreeHeap();
     size_t minFreeHeap = ESP.getMinFreeHeap();
 
     LOGF(INFO, "Memory at %s - Free: %d, Min Free: %d", location, freeHeap, minFreeHeap);
@@ -59,24 +61,29 @@ const char* getContentType(const String& path) {
 // ==================== JSON RESPONSE BUILDER ====================
 
 class JsonResponseBuilder {
-    private:
-        static char buffer[JSON_BUFFER_SIZE];
+  private:
+    static char buffer[JSON_BUFFER_SIZE];
 
-    public:
-        static const char* createBoolResponse(const char* key, bool value, bool success = true) {
-            snprintf(buffer, sizeof(buffer), "{\"success\": %s, \"%s\": %s}", success ? "true" : "false", key, value ? "true" : "false");
-            return buffer;
-        }
+  public:
+    static const char* createBoolResponse(const char* key, bool value, bool success = true) {
+        snprintf(buffer,
+                 sizeof(buffer),
+                 "{\"success\": %s, \"%s\": %s}",
+                 success ? "true" : "false",
+                 key,
+                 value ? "true" : "false");
+        return buffer;
+    }
 
-        static const char* createErrorResponse(const char* message) {
-            snprintf(buffer, sizeof(buffer), "{\"error\": \"%s\"}", message);
-            return buffer;
-        }
+    static const char* createErrorResponse(const char* message) {
+        snprintf(buffer, sizeof(buffer), "{\"error\": \"%s\"}", message);
+        return buffer;
+    }
 
-        static const char* createSuccessResponse(const char* message) {
-            snprintf(buffer, sizeof(buffer), "{\"success\": true, \"message\": \"%s\"}", message);
-            return buffer;
-        }
+    static const char* createSuccessResponse(const char* message) {
+        snprintf(buffer, sizeof(buffer), "{\"success\": true, \"message\": \"%s\"}", message);
+        return buffer;
+    }
 };
 
 char JsonResponseBuilder::buffer[512];
@@ -84,48 +91,50 @@ char JsonResponseBuilder::buffer[512];
 // ==================== TEMPERATURE HISTORY ====================
 
 class TemperatureHistory {
-    private:
-        static constexpr size_t HISTORY_SIZE = 600;
-        static constexpr size_t SKIP_INTERVAL = 2;
+  private:
+    static constexpr size_t HISTORY_SIZE  = 600;
+    static constexpr size_t SKIP_INTERVAL = 2;
 
-        struct HistoryPoint {
-                float currentTemp;
-                float targetTemp;
-                float heaterPower;
-        };
+    struct HistoryPoint {
+        float currentTemp;
+        float targetTemp;
+        float heaterPower;
+    };
 
-        HistoryPoint history[HISTORY_SIZE];
-        size_t currentIndex = 0;
-        size_t valueCount = 0;
-        size_t skipCounter = 0;
+    HistoryPoint history[HISTORY_SIZE];
+    size_t       currentIndex = 0;
+    size_t       valueCount   = 0;
+    size_t       skipCounter  = 0;
 
-    public:
-        void addPoint(double currentTemp, double targetTemp, double heaterPower) {
-            if (++skipCounter <= SKIP_INTERVAL) return;
+  public:
+    void addPoint(double currentTemp, double targetTemp, double heaterPower) {
+        if (++skipCounter <= SKIP_INTERVAL) return;
 
-            skipCounter = 0;
-            history[currentIndex] = {static_cast<float>(currentTemp), static_cast<float>(targetTemp), static_cast<float>(heaterPower)};
+        skipCounter           = 0;
+        history[currentIndex] = {
+            static_cast<float>(currentTemp), static_cast<float>(targetTemp), static_cast<float>(heaterPower)};
 
-            currentIndex = (currentIndex + 1) % HISTORY_SIZE;
-            if (valueCount < HISTORY_SIZE) valueCount++;
+        currentIndex = (currentIndex + 1) % HISTORY_SIZE;
+        if (valueCount < HISTORY_SIZE) valueCount++;
+    }
+
+    void generateJson(JsonDocument& doc) const {
+        auto currentTemps = doc["currentTemps"].to<JsonArray>();
+        auto targetTemps  = doc["targetTemps"].to<JsonArray>();
+        auto heaterPowers = doc["heaterPowers"].to<JsonArray>();
+
+        size_t startIdx =
+            (currentIndex >= valueCount) ? (currentIndex - valueCount) : (HISTORY_SIZE - (valueCount - currentIndex));
+
+        for (size_t i = 0; i < valueCount; i++) {
+            size_t      idx   = (startIdx + i) % HISTORY_SIZE;
+            const auto& point = history[idx];
+
+            currentTemps.add(round2(point.currentTemp));
+            targetTemps.add(round2(point.targetTemp));
+            heaterPowers.add(round2(point.heaterPower));
         }
-
-        void generateJson(JsonDocument& doc) const {
-            auto currentTemps = doc["currentTemps"].to<JsonArray>();
-            auto targetTemps = doc["targetTemps"].to<JsonArray>();
-            auto heaterPowers = doc["heaterPowers"].to<JsonArray>();
-
-            size_t startIdx = (currentIndex >= valueCount) ? (currentIndex - valueCount) : (HISTORY_SIZE - (valueCount - currentIndex));
-
-            for (size_t i = 0; i < valueCount; i++) {
-                size_t idx = (startIdx + i) % HISTORY_SIZE;
-                const auto& point = history[idx];
-
-                currentTemps.add(round2(point.currentTemp));
-                targetTemps.add(round2(point.targetTemp));
-                heaterPowers.add(round2(point.heaterPower));
-            }
-        }
+    }
 };
 
 static TemperatureHistory tempHistory;
@@ -154,9 +163,9 @@ bool safeSerializeJson(const JsonDocument& doc, String& output) {
     }
 }
 
-WebServerManager::WebServerManager(uint16_t port) :
-    server_(nullptr), events_(nullptr), corsMiddleware_(nullptr), authMiddleware_(nullptr), port_(port), isRunning_(false), littleFSAvailable_(false) {
-}
+WebServerManager::WebServerManager(uint16_t port)
+    : server_(nullptr), events_(nullptr), corsMiddleware_(nullptr), authMiddleware_(nullptr), port_(port),
+      isRunning_(false), littleFSAvailable_(false) {}
 
 WebServerManager::~WebServerManager() {
     stop();
@@ -179,8 +188,7 @@ bool WebServerManager::initialize(bool littleFSReady) {
         if (LittleFS.begin()) {
             littleFSAvailable_ = true;
             LOG(INFO, "LittleFS initialized by WebServerManager");
-        }
-        else {
+        } else {
             LOG(WARNING, "LittleFS not available - static files will not be served");
         }
     }
@@ -266,8 +274,7 @@ void WebServerManager::setupMiddleware() {
             authMiddleware_->setRealm("CleverCoffee");
             server_->addMiddleware(authMiddleware_.get());
             LOG(INFO, "Web authentication enabled");
-        }
-        else {
+        } else {
             LOG(WARNING, "Web authentication enabled but credentials not set");
         }
     }
@@ -285,8 +292,7 @@ void WebServerManager::setupEventSource() {
     events_->onConnect([](AsyncEventSourceClient* client) {
         if (client->lastId()) {
             LOGF(DEBUG, "Client reconnected with last message ID: %u", client->lastId());
-        }
-        else {
+        } else {
             LOG(DEBUG, "New client connected to event source");
         }
 
@@ -305,17 +311,17 @@ void WebServerManager::setupApiRoutes() {
     server_->on("/api/status", HTTP_GET, [](AsyncWebServerRequest* request) {
         JsonDocument doc;
 
-        doc["temperature"] = g_state.process.temperature;
-        doc["setpoint"] = g_state.process.setpoint;
-        doc["heaterPower"] = g_state.process.pidOutput / 10.0;
+        doc["temperature"]  = g_state.process.temperature;
+        doc["setpoint"]     = g_state.process.setpoint;
+        doc["heaterPower"]  = g_state.process.pidOutput / 10.0;
         doc["machineState"] = static_cast<int>(g_state.machine.machineState);
-        doc["pidEnabled"] = g_state.process.pidEnabled;
-        doc["steamMode"] = g_state.machine.steamON;
+        doc["pidEnabled"]   = g_state.process.pidEnabled;
+        doc["steamMode"]    = g_state.machine.steamON;
         // doc["brewActive"] = g_state.machine.currentlyBrewing;
         doc["uptime"] = millis();
 
         if (Config::getInstance().hardwareSensorsScaleEnabled.get()) {
-            doc["weight"] = g_state.sensors.currReadingWeight;
+            doc["weight"]     = g_state.sensors.currReadingWeight;
             doc["brewWeight"] = g_state.sensors.currBrewWeight;
         }
 
@@ -336,12 +342,10 @@ void WebServerManager::setupApiRoutes() {
             String body = request->getParam("body", true)->value();
             if (Config::getInstance().importFromJson(body)) {
                 request->send(200, "application/json", "{\"success\":true}");
-            }
-            else {
+            } else {
                 request->send(400, "application/json", "{\"error\":\"Invalid configuration\"}");
             }
-        }
-        else {
+        } else {
             request->send(400, "application/json", "{\"error\":\"No body provided\"}");
         }
     });
@@ -354,12 +358,10 @@ void WebServerManager::setupApiRoutes() {
                 g_state.process.setpoint = newSetpoint;
                 Config::getInstance().brewSetpoint.set(newSetpoint);
                 request->send(200, "application/json", "{\"success\":true}");
-            }
-            else {
+            } else {
                 request->send(400, "application/json", "{\"error\":\"Invalid setpoint value\"}");
             }
-        }
-        else {
+        } else {
             request->send(400, "application/json", "{\"error\":\"No value provided\"}");
         }
     });
@@ -373,7 +375,8 @@ void WebServerManager::setupApiRoutes() {
             const bool steamMode = !g_state.machine.steamON;
             setSteamMode(steamMode);
             LOGF(INFO, "Toggle steam mode: %s", g_state.machine.steamON ? "on" : "off");
-            request->send(200, "application/json", JsonResponseBuilder::createBoolResponse("steamMode", g_state.machine.steamON));
+            request->send(
+                200, "application/json", JsonResponseBuilder::createBoolResponse("steamMode", g_state.machine.steamON));
         } catch (const std::exception& e) {
             LOGF(ERROR, "API steam toggle failed: %s", e.what());
             request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("Internal server error"));
@@ -386,7 +389,7 @@ void WebServerManager::setupApiRoutes() {
             LOGF(INFO, "/api/pid requested, method: %d", request->method());
 
             const bool currentPidState = Config::getInstance().pidEnabled.get();
-            const bool newPidState = !currentPidState;
+            const bool newPidState     = !currentPidState;
             Config::getInstance().pidEnabled.set(newPidState);
             g_state.process.pidEnabled = newPidState;
 
@@ -406,7 +409,7 @@ void WebServerManager::setupApiRoutes() {
             LOGF(INFO, "Toggle backflush mode: %s", g_state.machine.backflushOn ? "on" : "off");
 
             JsonDocument doc;
-            doc["success"] = true;
+            doc["success"]     = true;
             doc["backflushOn"] = g_state.machine.backflushOn;
 
             String response;
@@ -424,10 +427,13 @@ void WebServerManager::setupApiRoutes() {
             try {
                 g_state.sensors.scaleTareOn = !g_state.sensors.scaleTareOn;
                 LOGF(INFO, "Toggle scale tare mode: %s", g_state.sensors.scaleTareOn ? "on" : "off");
-                request->send(200, "application/json", JsonResponseBuilder::createBoolResponse("scaleTareOn", g_state.sensors.scaleTareOn));
+                request->send(200,
+                              "application/json",
+                              JsonResponseBuilder::createBoolResponse("scaleTareOn", g_state.sensors.scaleTareOn));
             } catch (const std::exception& e) {
                 LOGF(ERROR, "API scale tare failed: %s", e.what());
-                request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("Internal server error"));
+                request->send(
+                    500, "application/json", JsonResponseBuilder::createErrorResponse("Internal server error"));
             }
         });
 
@@ -435,10 +441,14 @@ void WebServerManager::setupApiRoutes() {
             try {
                 g_state.sensors.scaleCalibrationOn = !g_state.sensors.scaleCalibrationOn;
                 LOGF(INFO, "Toggle scale calibration mode: %s", g_state.sensors.scaleCalibrationOn ? "on" : "off");
-                request->send(200, "application/json", JsonResponseBuilder::createBoolResponse("scaleCalibrationOn", g_state.sensors.scaleCalibrationOn));
+                request->send(
+                    200,
+                    "application/json",
+                    JsonResponseBuilder::createBoolResponse("scaleCalibrationOn", g_state.sensors.scaleCalibrationOn));
             } catch (const std::exception& e) {
                 LOGF(ERROR, "API scale calibration failed: %s", e.what());
-                request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("Internal server error"));
+                request->send(
+                    500, "application/json", JsonResponseBuilder::createErrorResponse("Internal server error"));
             }
         });
 
@@ -446,10 +456,14 @@ void WebServerManager::setupApiRoutes() {
             try {
                 g_state.sensors.scaleCalibrationOn = !g_state.sensors.scaleCalibrationOn;
                 LOGF(INFO, "Toggle scale calibration mode: %s", g_state.sensors.scaleCalibrationOn ? "on" : "off");
-                request->send(200, "application/json", JsonResponseBuilder::createBoolResponse("scaleCalibrationOn", g_state.sensors.scaleCalibrationOn));
+                request->send(
+                    200,
+                    "application/json",
+                    JsonResponseBuilder::createBoolResponse("scaleCalibrationOn", g_state.sensors.scaleCalibrationOn));
             } catch (const std::exception& e) {
                 LOGF(ERROR, "API scale calibration failed: %s", e.what());
-                request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("Internal server error"));
+                request->send(
+                    500, "application/json", JsonResponseBuilder::createErrorResponse("Internal server error"));
             }
         });
     }
@@ -464,7 +478,7 @@ void WebServerManager::setupApiRoutes() {
             }
 
             const String& paramName = p->value();
-            BaseParamDef* paramDef = Config::getInstance().findConfigParameter(paramName);
+            BaseParamDef* paramDef  = Config::getInstance().findConfigParameter(paramName);
 
             if (paramDef == nullptr) {
                 request->send(404, "application/json", "{\"error\":\"parameter not found\"}");
@@ -472,7 +486,7 @@ void WebServerManager::setupApiRoutes() {
             }
 
             JsonDocument doc;
-            doc["name"] = paramName;
+            doc["name"]     = paramName;
             doc["helpText"] = paramDef->getHelpText();
 
             String helpJson;
@@ -508,20 +522,24 @@ void WebServerManager::setupApiRoutes() {
             tempHistory.generateJson(doc);
 
             if (doc.overflowed()) {
-                request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("timeseries JSON overflowed"));
+                request->send(
+                    500, "application/json", JsonResponseBuilder::createErrorResponse("timeseries JSON overflowed"));
                 return;
             }
 
             String json;
             if (!safeSerializeJson(doc, json)) {
-                request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("Failed to serialize timeseries data"));
+                request->send(500,
+                              "application/json",
+                              JsonResponseBuilder::createErrorResponse("Failed to serialize timeseries data"));
                 return;
             }
 
             request->send(200, "application/json", json);
         } catch (const std::exception& e) {
             LOGF(ERROR, "API history failed: %s", e.what());
-            request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("Timeseries data unavailable"));
+            request->send(
+                500, "application/json", JsonResponseBuilder::createErrorResponse("Timeseries data unavailable"));
         }
     });
 
@@ -529,8 +547,8 @@ void WebServerManager::setupApiRoutes() {
     server_->on("/api/nvs-debug", HTTP_GET, [](AsyncWebServerRequest* request) {
         try {
             JsonDocument doc;
-            JsonObject nvsData = doc.to<JsonObject>();
-            JsonObject metadata = nvsData["metadata"].to<JsonObject>();
+            JsonObject   nvsData  = doc.to<JsonObject>();
+            JsonObject   metadata = nvsData["metadata"].to<JsonObject>();
 
             Preferences prefs;
             prefs.begin("config", true); // Read-only mode - use correct namespace
@@ -540,11 +558,11 @@ void WebServerManager::setupApiRoutes() {
             Config::getInstance().getAllParameters(allParamsArray, "all");
 
             metadata["total_parameters"] = allParamsArray.size();
-            metadata["nvs_namespace"] = "config";
-            metadata["free_heap"] = ESP.getFreeHeap();
-            metadata["min_free_heap"] = ESP.getMinFreeHeap();
+            metadata["nvs_namespace"]    = "config";
+            metadata["free_heap"]        = ESP.getFreeHeap();
+            metadata["min_free_heap"]    = ESP.getMinFreeHeap();
 
-            nvsData["message"] = "NVS debugging - parameter details available";
+            nvsData["message"]          = "NVS debugging - parameter details available";
             nvsData["parameters_count"] = allParamsArray.size();
 
             prefs.end();
@@ -578,8 +596,7 @@ void WebServerManager::setupApiRoutes() {
 
             if (g_state.network.cleverCoffeeWiFiManager) {
                 g_state.network.cleverCoffeeWiFiManager->resetSettings();
-            }
-            else {
+            } else {
                 LOG(ERROR, "WiFiManager not initialized for reset");
                 ESP.restart();
             }
@@ -602,7 +619,7 @@ void WebServerManager::setupApiRoutes() {
             }
 
             // Prettify the JSON
-            JsonDocument doc;
+            JsonDocument               doc;
             const DeserializationError error = deserializeJson(doc, configJson);
 
             if (error) {
@@ -624,11 +641,17 @@ void WebServerManager::setupApiRoutes() {
 
     // Config upload endpoint with file upload handler
     server_->on(
-        "/api/config/upload", HTTP_POST,
+        "/api/config/upload",
+        HTTP_POST,
         [](AsyncWebServerRequest* request) {
             // Response handled by upload handler
         },
-        [](AsyncWebServerRequest* request, const String& filename, size_t index, uint8_t* data, size_t len, bool final) {
+        [](AsyncWebServerRequest* request,
+           const String&          filename,
+           size_t                 index,
+           uint8_t*               data,
+           size_t                 len,
+           bool                   final) {
             try {
                 static String uploadBuffer;
                 static size_t totalSize = 0;
@@ -652,16 +675,20 @@ void WebServerManager::setupApiRoutes() {
                     if (bool isValid = Config::getInstance().importFromJson(uploadBuffer)) {
                         LOG(INFO, "Configuration validated and applied successfully");
 
-                        AsyncWebServerResponse* response = request->beginResponse(200, "application/json", R"({"success": true, "message": "Configuration validated and applied successfully.", "restart": true})");
+                        AsyncWebServerResponse* response = request->beginResponse(
+                            200,
+                            "application/json",
+                            R"({"success": true, "message": "Configuration validated and applied successfully.", "restart": true})");
 
                         response->addHeader("Connection", "close");
                         request->send(response);
-                    }
-                    else {
+                    } else {
                         LOG(ERROR, "Configuration validation failed - invalid data or out of range values");
 
                         AsyncWebServerResponse* response = request->beginResponse(
-                            400, "application/json", R"({"success": false, "message": "Configuration validation failed. Please check that all parameter values are within valid ranges.", "restart": true})");
+                            400,
+                            "application/json",
+                            R"({"success": false, "message": "Configuration validation failed. Please check that all parameter values are within valid ranges.", "restart": true})");
 
                         response->addHeader("Connection", "close");
                         request->send(response);
@@ -726,7 +753,7 @@ void WebServerManager::setupApiRoutes() {
             if (request->method() == HTTP_GET) {
                 // Return all parameters
                 JsonDocument doc;
-                JsonArray parametersArray = doc.to<JsonArray>();
+                JsonArray    parametersArray = doc.to<JsonArray>();
                 Config::getInstance().getAllParameters(parametersArray, "all");
 
                 String json;
@@ -736,21 +763,23 @@ void WebServerManager::setupApiRoutes() {
                 }
 
                 request->send(200, "application/json", json);
-            }
-            else if (request->method() == HTTP_POST) {
+            } else if (request->method() == HTTP_POST) {
                 // Update parameters from form data
                 int requestParams = request->params();
                 LOGF(INFO, "handleParameters POST: Received %d parameters", requestParams);
 
-                bool hasErrors = false;
+                bool hasErrors  = false;
                 bool hasUpdates = false;
 
                 for (auto i = 0u; i < requestParams; ++i) {
                     if (const auto* p = request->getParam(i); p && p->name().length() > 0 && p->value().length() > 0) {
                         const String& varName = p->name();
-                        const String& value = p->value();
+                        const String& value   = p->value();
 
-                        LOGF(INFO, "handleParameters POST: Processing parameter '%s' = '%s'", varName.c_str(), value.c_str());
+                        LOGF(INFO,
+                             "handleParameters POST: Processing parameter '%s' = '%s'",
+                             varName.c_str(),
+                             value.c_str());
 
                         try {
                             // Use the new fromString method for clean type conversion
@@ -761,14 +790,15 @@ void WebServerManager::setupApiRoutes() {
 
                                 if (updateSuccess) {
                                     hasUpdates = true;
-                                    LOGF(INFO, "handleParameters POST: Successfully updated and saved parameter '%s' to '%s'", varName.c_str(), value.c_str());
-                                }
-                                else {
+                                    LOGF(INFO,
+                                         "handleParameters POST: Successfully updated and saved parameter '%s' to '%s'",
+                                         varName.c_str(),
+                                         value.c_str());
+                                } else {
                                     LOGF(WARNING, "Failed to update parameter '%s'", varName.c_str());
                                     hasErrors = true;
                                 }
-                            }
-                            else {
+                            } else {
                                 LOGF(WARNING, "Parameter '%s' not found", varName.c_str());
                                 hasErrors = true;
                             }
@@ -781,15 +811,13 @@ void WebServerManager::setupApiRoutes() {
 
                 if (hasErrors) {
                     request->send(400, "application/json", "{\"error\":\"Some parameter updates failed\"}");
-                }
-                else if (hasUpdates) {
-                    request->send(200, "application/json", "{\"success\":true,\"message\":\"Parameters updated and saved\"}");
-                }
-                else {
+                } else if (hasUpdates) {
+                    request->send(
+                        200, "application/json", "{\"success\":true,\"message\":\"Parameters updated and saved\"}");
+                } else {
                     request->send(200, "application/json", "{\"success\":true,\"message\":\"No parameters updated\"}");
                 }
-            }
-            else {
+            } else {
                 request->send(405, "application/json", "{\"error\":\"Method not allowed\"}");
             }
         } catch (const std::exception& e) {
@@ -820,8 +848,7 @@ bool WebServerManager::serveGzippedFile(AsyncWebServerRequest* request, const St
             response->addHeader("Pragma", "no-cache");
             response->addHeader("Expires", "0");
             LOGF(DEBUG, "No-cache headers added for index.html");
-        }
-        else {
+        } else {
             response->addHeader("Cache-Control", "max-age=604800"); // 7 days cache for assets
         }
 
@@ -841,8 +868,7 @@ bool WebServerManager::serveGzippedFile(AsyncWebServerRequest* request, const St
             response->addHeader("Cache-Control", "no-cache, no-store, must-revalidate");
             response->addHeader("Pragma", "no-cache");
             response->addHeader("Expires", "0");
-        }
-        else {
+        } else {
             response->addHeader("Cache-Control", "max-age=604800");
         }
 
@@ -869,7 +895,9 @@ void WebServerManager::setupStaticRoutes() {
     server_->serveStatic("/img", LittleFS, "/img/", "max-age=604800"); // cache for one week
     server_->serveStatic("/webfonts", LittleFS, "/webfonts/", "max-age=604800");
     server_->serveStatic("/manifest.json", LittleFS, "/manifest.json", "max-age=604800");
-    server_->serveStatic("/", LittleFS, "/html/", "max-age=604800").setDefaultFile("index.html").setTemplateProcessor(staticProcessor);
+    server_->serveStatic("/", LittleFS, "/html/", "max-age=604800")
+        .setDefaultFile("index.html")
+        .setTemplateProcessor(staticProcessor);
 #else
     server_->on("/", HTTP_GET, [](AsyncWebServerRequest* request) { request->redirect("/ui/"); });
 
@@ -941,23 +969,19 @@ String WebServerManager::templateProcessor(const String& var) {
     // Process template variables for HTML files
     if (var == "HOSTNAME") {
         return Config::getInstance().systemHostname.get();
-    }
-    else if (var == "VERSION") {
+    } else if (var == "VERSION") {
         return "CleverCoffee v2.0";
-    }
-    else if (var == "TEMP") {
+    } else if (var == "TEMP") {
         return String(g_state.process.temperature, 1);
-    }
-    else if (var == "SETPOINT") {
+    } else if (var == "SETPOINT") {
         return String(g_state.process.setpoint, 1);
-    }
-    else if (var == "UPTIME") {
-        unsigned long uptimeMillis = millis();
+    } else if (var == "UPTIME") {
+        unsigned long uptimeMillis  = millis();
         unsigned long uptimeSeconds = uptimeMillis / 1000;
-        unsigned long days = uptimeSeconds / 86400;
-        unsigned long hours = (uptimeSeconds % 86400) / 3600;
-        unsigned long minutes = (uptimeSeconds % 3600) / 60;
-        unsigned long seconds = uptimeSeconds % 60;
+        unsigned long days          = uptimeSeconds / 86400;
+        unsigned long hours         = (uptimeSeconds % 86400) / 3600;
+        unsigned long minutes       = (uptimeSeconds % 3600) / 60;
+        unsigned long seconds       = uptimeSeconds % 60;
 
         char uptime_buffer[32];
         snprintf(uptime_buffer, sizeof(uptime_buffer), "%lud %luh %lum %lus", days, hours, minutes, seconds);
@@ -982,9 +1006,14 @@ String WebServerManager::getValue(const String& varName) {
 
 String WebServerManager::getHeader(const String& varName) {
     static const std::unordered_map<std::string, const char*> headers = {
-        {"FONTAWESOME", R"(<link href="/css/fontawesome-6.2.1.min.css" rel="stylesheet">)"}, {"BOOTSTRAP", R"(<link href="/css/bootstrap-5.2.3.min.css" rel="stylesheet">)"},
-        {"BOOTSTRAP_BUNDLE", "<script src=\"/js/bootstrap.bundle.5.2.3.min.js\"></script>"}, {"VUEJS", "<script src=\"/js/vue.3.2.47.min.js\"></script>"},
-        {"VUE_NUMBER_INPUT", "<script src=\"/js/vue-number-input.min.js\"></script>"},       {"UPLOT", R"(<script src="/js/uPlot.1.6.28.min.js"></script><link rel="stylesheet" href="/css/uPlot.min.css">)"}};
+        {     "FONTAWESOME",R"(<link href="/css/fontawesome-6.2.1.min.css" rel="stylesheet">)"                            },
+        {       "BOOTSTRAP",                  R"(<link href="/css/bootstrap-5.2.3.min.css" rel="stylesheet">)"},
+        {"BOOTSTRAP_BUNDLE",                     "<script src=\"/js/bootstrap.bundle.5.2.3.min.js\"></script>"},
+        {           "VUEJS",                                 "<script src=\"/js/vue.3.2.47.min.js\"></script>"},
+        {"VUE_NUMBER_INPUT",                           "<script src=\"/js/vue-number-input.min.js\"></script>"},
+        {           "UPLOT",
+         R"(<script src="/js/uPlot.1.6.28.min.js"></script><link rel="stylesheet" href="/css/uPlot.min.css">)"}
+    };
 
     const auto it = headers.find(varName.c_str());
     return it != headers.end() ? String(it->second) : String("");
@@ -1001,7 +1030,7 @@ String WebServerManager::staticProcessor(const String& var) {
         }
 
         static String fragmentPath;
-        fragmentPath = "/html_fragments/";
+        fragmentPath  = "/html_fragments/";
         fragmentPath += var;
         fragmentPath.toLowerCase();
         fragmentPath += ".html";
@@ -1014,8 +1043,7 @@ String WebServerManager::staticProcessor(const String& var) {
             }
             file.close();
             LOGF(INFO, "Can't open file %s, not enough memory available", fragmentPath.c_str());
-        }
-        else {
+        } else {
             LOGF(INFO, "Fragment %s not found", fragmentPath.c_str());
         }
 
@@ -1069,7 +1097,7 @@ String WebServerManager::getTempString() {
         JsonDocument doc;
 
         doc["currentTemp"] = g_state.process.temperature;
-        doc["targetTemp"] = Config::getInstance().brewSetpoint.get();
+        doc["targetTemp"]  = Config::getInstance().brewSetpoint.get();
         doc["heaterPower"] = g_state.process.pidOutput / 10;
 
         String json;
@@ -1087,7 +1115,7 @@ String WebServerManager::getWeightJsonString() {
     try {
         JsonDocument doc;
 
-        doc["weight"] = round2(g_state.sensors.currReadingWeight);
+        doc["weight"]     = round2(g_state.sensors.currReadingWeight);
         doc["brewWeight"] = round2(g_state.sensors.currBrewWeight);
 
         String json;

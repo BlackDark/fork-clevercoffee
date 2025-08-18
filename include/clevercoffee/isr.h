@@ -7,8 +7,8 @@
 
 #pragma once
 
-#include "clevercoffee/hardware/Relay.h"
 #include "clevercoffee/GlobalState.h"
+#include "clevercoffee/hardware/Relay.h"
 
 // pidOutput moved to g_state.process.pidOutput
 
@@ -17,8 +17,7 @@ void IRAM_ATTR onTimer() {
 
     if (g_state.process.pidOutput <= g_state.timing.isrCounter) {
         g_state.hardware.heaterRelay->off();
-    }
-    else {
+    } else {
         g_state.hardware.heaterRelay->on();
     }
 

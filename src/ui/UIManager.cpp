@@ -4,19 +4,21 @@
  */
 
 #include "clevercoffee/ui/UIManager.h"
+
 #include "clevercoffee/Config.h"
-#include "clevercoffee/handlers/BrewHandler.h"
-#include "clevercoffee/display/DisplayManager.h"
-#include "clevercoffee/display/bitmaps.h"
 #include "clevercoffee/GlobalState.h"
 #include "clevercoffee/Logger.h"
+#include "clevercoffee/display/DisplayManager.h"
+#include "clevercoffee/display/bitmaps.h"
+#include "clevercoffee/handlers/BrewHandler.h"
+
 #include <Arduino.h>
 
 int getSignalStrength();
 
-UIManager::UIManager(DisplayManager* displayManager) :
-    displayManager_(displayManager), u8g2_(nullptr), initialized_(false), bufferReady_(false), updateRunning_(false), brewTimerState_(BrewTimerState::Idle), brewEndTime_(0) {
-
+UIManager::UIManager(DisplayManager* displayManager)
+    : displayManager_(displayManager), u8g2_(nullptr), initialized_(false), bufferReady_(false), updateRunning_(false),
+      brewTimerState_(BrewTimerState::Idle), brewEndTime_(0) {
     LOG(INFO, "UIManager created");
 }
 
@@ -52,7 +54,7 @@ void UIManager::update() {
     // Handle display buffer updates
     if (bufferReady_) {
         u8g2_->sendBuffer();
-        bufferReady_ = false;
+        bufferReady_   = false;
         updateRunning_ = true;
     }
 }
@@ -100,7 +102,7 @@ void UIManager::displayLogo(const String& message1, const String& message2) {
 
         while (token != nullptr) {
             u8g2_->drawStr(0, printrow, token);
-            token = strtok(nullptr, " ");
+            token     = strtok(nullptr, " ");
             printrow += 10;
         }
 
@@ -108,13 +110,12 @@ void UIManager::displayLogo(const String& message1, const String& message2) {
 
         while (token != nullptr) {
             u8g2_->drawStr(0, printrow, token);
-            token = strtok(nullptr, " ");
+            token     = strtok(nullptr, " ");
             printrow += 10;
         }
 
         u8g2_->drawXBMP(11, 4, CleverCoffee_Logo_width, CleverCoffee_Logo_height, CleverCoffee_Logo);
-    }
-    else {
+    } else {
         u8g2_->clearBuffer();
         u8g2_->drawStr(0, 45, message1.c_str());
         u8g2_->drawStr(0, 55, message2.c_str());
@@ -124,7 +125,12 @@ void UIManager::displayLogo(const String& message1, const String& message2) {
     u8g2_->sendBuffer();
 }
 
-void UIManager::displayMessage(const String& text1, const String& text2, const String& text3, const String& text4, const String& text5, const String& text6) {
+void UIManager::displayMessage(const String& text1,
+                               const String& text2,
+                               const String& text3,
+                               const String& text4,
+                               const String& text5,
+                               const String& text6) {
     if (!u8g2_) return;
 
     u8g2_->clearBuffer();
@@ -154,12 +160,13 @@ bool UIManager::shouldDisplayBrewTimer() {
         case BrewTimerState::Running:
             if (!g_state.handlers.brewHandler || !g_state.handlers.brewHandler->isBrewActive()) {
                 brewTimerState_ = BrewTimerState::PostBrew;
-                brewEndTime_ = millis();
+                brewEndTime_    = millis();
             }
             break;
 
         case BrewTimerState::PostBrew:
-            if (millis() - brewEndTime_ > static_cast<uint32_t>(Config::getInstance().displayPostBrewTimerDuration.get() * 1000)) {
+            if (millis() - brewEndTime_ >
+                static_cast<uint32_t>(Config::getInstance().displayPostBrewTimerDuration.get() * 1000)) {
                 brewTimerState_ = BrewTimerState::Idle;
             }
             break;
@@ -190,7 +197,7 @@ void UIManager::displayFullscreenBrewTimer() {
 
     // Center the text
     int textWidth = u8g2_->getStrWidth(timeStr);
-    int x = (u8g2_->getDisplayWidth() - textWidth) / 2;
+    int x         = (u8g2_->getDisplayWidth() - textWidth) / 2;
 
     u8g2_->drawStr(x, 32, timeStr);
     u8g2_->sendBuffer();
@@ -317,7 +324,7 @@ void UIManager::displayUptime() {
 
     unsigned long seconds = millis() / 1000;
     unsigned long minutes = seconds / 60;
-    unsigned long hours = minutes / 60;
+    unsigned long hours   = minutes / 60;
 
     char uptimeStr[16];
     snprintf(uptimeStr, sizeof(uptimeStr), "%luh %lum", hours, minutes % 60);
@@ -336,11 +343,9 @@ void UIManager::displayMachineState() {
     // This will be enhanced based on actual machine state values
     if (g_state.machine.steamON) {
         stateStr = "Steam";
-    }
-    else if (g_state.process.currBrewTime > 0) {
+    } else if (g_state.process.currBrewTime > 0) {
         stateStr = "Brewing";
-    }
-    else {
+    } else {
         stateStr = "Ready";
     }
 
@@ -358,41 +363,39 @@ void UIManager::displayWrappedMessage(const char* message) {
     u8g2_->setFont(u8g2_font_profont11_tf);
 
     // Simple word wrapping implementation
-    const int maxWidth = u8g2_->getDisplayWidth() - 4;
+    const int maxWidth   = u8g2_->getDisplayWidth() - 4;
     const int lineHeight = 12;
-    int currentY = 10;
+    int       currentY   = 10;
 
     String remainingText = message;
 
     while (remainingText.length() > 0 && currentY < 60) {
-        String line = "";
-        String word = "";
-        int spacePos = remainingText.indexOf(' ');
+        String line     = "";
+        String word     = "";
+        int    spacePos = remainingText.indexOf(' ');
 
         if (spacePos == -1) {
             // Last word
-            line = remainingText;
+            line          = remainingText;
             remainingText = "";
-        }
-        else {
+        } else {
             // Build line word by word
             while (spacePos != -1) {
-                word = remainingText.substring(0, spacePos);
+                word            = remainingText.substring(0, spacePos);
                 String testLine = line.length() > 0 ? line + " " + word : word;
 
                 if (u8g2_->getStrWidth(testLine.c_str()) <= maxWidth) {
-                    line = testLine;
+                    line          = testLine;
                     remainingText = remainingText.substring(spacePos + 1);
-                    spacePos = remainingText.indexOf(' ');
-                }
-                else {
+                    spacePos      = remainingText.indexOf(' ');
+                } else {
                     break;
                 }
             }
 
             if (line.length() == 0) {
                 // Single word too long, just use it
-                line = word;
+                line          = word;
                 remainingText = remainingText.substring(spacePos + 1);
             }
         }

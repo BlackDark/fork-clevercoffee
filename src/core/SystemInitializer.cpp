@@ -4,7 +4,9 @@
  */
 
 #include "clevercoffee/core/SystemInitializer.h"
+
 #include "clevercoffee/Config.h"
+#include "clevercoffee/Logger.h"
 #include "clevercoffee/defaults.h"
 #include "clevercoffee/display/DisplayManager.h"
 #include "clevercoffee/display/displayTemplateManager.h"
@@ -17,7 +19,6 @@
 #include "clevercoffee/ui/UIManager.h"
 #include "clevercoffee/utils/SystemUtils.h"
 #include "clevercoffee/utils/memoryUtils.h"
-#include "clevercoffee/Logger.h"
 
 #include <Arduino.h>
 #include <ArduinoOTA.h>
@@ -37,17 +38,9 @@ extern void enableTimer1();
 #include "clevercoffee/scaleHandler.h"
 // checkBrewActive removed - now accessed via g_state.handlers.brewHandler
 
-SystemInitializer::SystemInitializer() :
-    systemInitialized_(false),
-    hostname_(),
-    displayManager_(nullptr),
-    uiManager_(nullptr),
-    hardwareManager_(nullptr),
-    mqttManager_(nullptr),
-    sensorManager_(nullptr),
-    cleverCoffeeWiFiManager_(nullptr),
-    webServerManager_(nullptr) {
-}
+SystemInitializer::SystemInitializer()
+    : systemInitialized_(false), hostname_(), displayManager_(nullptr), uiManager_(nullptr), hardwareManager_(nullptr),
+      mqttManager_(nullptr), sensorManager_(nullptr), cleverCoffeeWiFiManager_(nullptr), webServerManager_(nullptr) {}
 
 SystemInitializer::~SystemInitializer() {
     // Destructor implementation - unique_ptr will automatically clean up resources
@@ -80,8 +73,7 @@ bool SystemInitializer::initialize() {
     logMemoryBasic("Before Display Init");
     if (!initializeDisplay()) {
         LOG(WARNING, "Display initialization failed, continuing without display");
-    }
-    else {
+    } else {
         uiManager_->displayLogo("Version ", g_state.sysVersion);
     }
 
@@ -133,9 +125,12 @@ bool SystemInitializer::initialize() {
     // Report LittleFS usage only if it was successfully initialized
     if (LittleFS.totalBytes() > 0) {
         double fsUsage = (static_cast<double>(LittleFS.usedBytes()) / LittleFS.totalBytes()) * 100;
-        LOGF(INFO, "LittleFS: %d%% (used %ld bytes from %ld bytes)", static_cast<int>(ceil(fsUsage)), LittleFS.usedBytes(), LittleFS.totalBytes());
-    }
-    else {
+        LOGF(INFO,
+             "LittleFS: %d%% (used %ld bytes from %ld bytes)",
+             static_cast<int>(ceil(fsUsage)),
+             LittleFS.usedBytes(),
+             LittleFS.totalBytes());
+    } else {
         LOG(WARNING, "LittleFS not available or not initialized");
     }
 
@@ -145,7 +140,7 @@ bool SystemInitializer::initialize() {
     }
 
     g_state.coordination.setupDone = true;
-    systemInitialized_ = true;
+    systemInitialized_             = true;
 
     // System initialization complete
 
@@ -184,7 +179,14 @@ bool SystemInitializer::initializeConfiguration() {
     calculateDerivedValues();
 
     // Use make_unique for proper RAII and exception safety
-    pidController_ = std::make_unique<PID>(&g_state.process.temperature, &g_state.process.pidOutput, &g_state.process.setpoint, Config::getInstance().pidRegularKp.get(), g_state.process.aggKi, g_state.process.aggKd, 1, DIRECT);
+    pidController_ = std::make_unique<PID>(&g_state.process.temperature,
+                                           &g_state.process.pidOutput,
+                                           &g_state.process.setpoint,
+                                           Config::getInstance().pidRegularKp.get(),
+                                           g_state.process.aggKi,
+                                           g_state.process.aggKd,
+                                           1,
+                                           DIRECT);
 
     // Set global reference for backward compatibility
     g_state.pid = pidController_.get();
@@ -198,7 +200,7 @@ bool SystemInitializer::initializeDisplay() {
     }
 
     try {
-        const Hardware::OLEDType displayType = Config::getInstance().hardwareOledType.get();
+        const Hardware::OLEDType    displayType    = Config::getInstance().hardwareOledType.get();
         const Hardware::OLEDAddress displayAddress = Config::getInstance().hardwareOledAddress.get();
 
         displayManager_ = std::make_unique<DisplayManager>(displayType, displayAddress);
@@ -216,8 +218,7 @@ bool SystemInitializer::initializeDisplay() {
 
             if (uiManager_->initialize()) {
                 LOG(INFO, "UIManager initialized successfully");
-            }
-            else {
+            } else {
                 LOG(ERROR, "UIManager initialization failed!");
             }
 
@@ -225,8 +226,7 @@ bool SystemInitializer::initializeDisplay() {
             DisplayTemplateManager::initializeDisplay(templateId);
             LOG(INFO, "Display initialization completed");
             return true;
-        }
-        else {
+        } else {
             LOG(ERROR, "Failed to create DisplayManager");
             displayManager_.reset();
             g_state.hardware.display = nullptr;
@@ -251,17 +251,17 @@ bool SystemInitializer::initializeHardware() {
         // Update compatibility pointers to reference HardwareManager components
         logMemoryBasic("Before Hardware Pointer Updates");
         g_state.hardware.heaterRelay = &hardwareManager_->getHeaterRelay();
-        g_state.hardware.pumpRelay = &hardwareManager_->getPumpRelay();
-        g_state.hardware.valveRelay = &hardwareManager_->getValveRelay();
+        g_state.hardware.pumpRelay   = &hardwareManager_->getPumpRelay();
+        g_state.hardware.valveRelay  = &hardwareManager_->getValveRelay();
 
         g_state.hardware.statusLed = hardwareManager_->getStatusLed();
-        g_state.hardware.brewLed = hardwareManager_->getBrewLed();
-        g_state.hardware.steamLed = hardwareManager_->getSteamLed();
+        g_state.hardware.brewLed   = hardwareManager_->getBrewLed();
+        g_state.hardware.steamLed  = hardwareManager_->getSteamLed();
 
-        g_state.hardware.powerSwitch = hardwareManager_->getPowerSwitch();
-        g_state.hardware.brewSwitch = hardwareManager_->getBrewSwitch();
-        g_state.hardware.hotWaterSwitch = hardwareManager_->getHotWaterSwitch();
-        g_state.hardware.steamSwitch = hardwareManager_->getSteamSwitch();
+        g_state.hardware.powerSwitch     = hardwareManager_->getPowerSwitch();
+        g_state.hardware.brewSwitch      = hardwareManager_->getBrewSwitch();
+        g_state.hardware.hotWaterSwitch  = hardwareManager_->getHotWaterSwitch();
+        g_state.hardware.steamSwitch     = hardwareManager_->getSteamSwitch();
         g_state.hardware.waterTankSensor = hardwareManager_->getWaterTankSensor();
 
         g_state.hardware.tempSensor = hardwareManager_->getTempSensor();
@@ -286,7 +286,7 @@ bool SystemInitializer::initializeNetworking() {
     }
 
     try {
-        cleverCoffeeWiFiManager_ = std::make_unique<CleverCoffeeWiFiManager>();
+        cleverCoffeeWiFiManager_                = std::make_unique<CleverCoffeeWiFiManager>();
         g_state.network.cleverCoffeeWiFiManager = cleverCoffeeWiFiManager_.get();
 
         setupWiFi();
@@ -296,20 +296,18 @@ bool SystemInitializer::initializeNetworking() {
         // Initialize LittleFS first - this was causing the hang
         if (!LittleFS.begin()) {
             LOG(WARNING, "LittleFS initialization failed, web server will run without file system");
-        }
-        else {
+        } else {
             LOG(INFO, "LittleFS initialized successfully");
         }
 
         // Initialize WebServerManager
-        webServerManager_ = std::make_unique<WebServerManager>(80);
+        webServerManager_                = std::make_unique<WebServerManager>(80);
         g_state.network.webServerManager = webServerManager_.get();
 
         if (!webServerManager_->initialize(true)) {
             LOG(ERROR, "WebServerManager initialization failed");
             webServerManager_.reset();
-        }
-        else {
+        } else {
             LOG(INFO, "WebServerManager initialized successfully");
         }
 
@@ -359,8 +357,7 @@ bool SystemInitializer::initializeMQTT() {
 
             LOG(INFO, "MQTT setup completed via MQTTManager");
             return true;
-        }
-        else {
+        } else {
             LOG(WARNING, "MQTT setup returned false");
             return false;
         }
@@ -372,11 +369,15 @@ bool SystemInitializer::initializeMQTT() {
 
 bool SystemInitializer::initializePID() {
     try {
-        LOGF(INFO, "PID initialized: Kp={:.3f}, Ki={:.3f}, Kd={:.3f}",
-                  Config::getInstance().pidRegularKp.get(), g_state.process.aggKi, g_state.process.aggKd);
+        LOGF(INFO,
+             "PID initialized: Kp={:.3f}, Ki={:.3f}, Kd={:.3f}",
+             Config::getInstance().pidRegularKp.get(),
+             g_state.process.aggKi,
+             g_state.process.aggKd);
 
         // Set PID tunings now that parameters are calculated
-        g_state.pid->SetTunings(Config::getInstance().pidRegularKp.get(), g_state.process.aggKi, g_state.process.aggKd, 1);
+        g_state.pid->SetTunings(
+            Config::getInstance().pidRegularKp.get(), g_state.process.aggKi, g_state.process.aggKd, 1);
 
         // Initialize PID controller
         g_state.pid->SetSampleTime(g_state.process.windowSize);
@@ -399,8 +400,8 @@ bool SystemInitializer::initializeSensors() {
         sensorManager_ = std::make_unique<SensorManager>();
 
         // Get sensor references from HardwareManager
-        TempSensor* tempSensorRef = hardwareManager_ ? hardwareManager_->getTempSensor() : nullptr;
-        Switch* waterTankSensorRef = hardwareManager_ ? hardwareManager_->getWaterTankSensor() : nullptr;
+        TempSensor* tempSensorRef      = hardwareManager_ ? hardwareManager_->getTempSensor() : nullptr;
+        Switch*     waterTankSensorRef = hardwareManager_ ? hardwareManager_->getWaterTankSensor() : nullptr;
 
         if (sensorManager_->initialize(tempSensorRef, waterTankSensorRef)) {
             // Update global temperature variable for compatibility
@@ -415,8 +416,7 @@ bool SystemInitializer::initializeSensors() {
             }
 
             return true;
-        }
-        else {
+        } else {
             LOG(WARNING, "SensorManager initialization returned false");
             return false;
         }
@@ -429,19 +429,22 @@ bool SystemInitializer::initializeSensors() {
 bool SystemInitializer::finalizeMachineState() {
     try {
         // For momentary switches, start in normal operation mode
-        if (Config::getInstance().hardwareSwitchesPowerEnabled.get() && static_cast<int>(Config::getInstance().hardwareSwitchesPowerType.get()) == static_cast<int>(Hardware::SwitchType::MOMENTARY)) {
+        if (Config::getInstance().hardwareSwitchesPowerEnabled.get() &&
+            static_cast<int>(Config::getInstance().hardwareSwitchesPowerType.get()) ==
+                static_cast<int>(Hardware::SwitchType::MOMENTARY)) {
             g_state.machine.machineState = MachineStateId::PID_NORMAL;
             setRuntimePidState(true);
             LOG(INFO, "Machine initialized in PID Normal mode (momentary switch)");
         }
         // For toggle switches, force PidOn to switch state mode
-        else if (Config::getInstance().hardwareSwitchesPowerEnabled.get() && static_cast<int>(Config::getInstance().hardwareSwitchesPowerType.get()) == static_cast<int>(Hardware::SwitchType::TOGGLE)) {
+        else if (Config::getInstance().hardwareSwitchesPowerEnabled.get() &&
+                 static_cast<int>(Config::getInstance().hardwareSwitchesPowerType.get()) ==
+                     static_cast<int>(Hardware::SwitchType::TOGGLE)) {
             if (g_state.hardware.powerSwitch && g_state.hardware.powerSwitch->isPressed()) {
                 setRuntimePidState(true);
                 g_state.machine.machineState = MachineStateId::PID_NORMAL;
                 LOG(INFO, "Machine initialized in PID Normal mode (toggle switch ON)");
-            }
-            else {
+            } else {
                 setRuntimePidState(false);
                 g_state.machine.machineState = MachineStateId::PID_DISABLED;
                 LOG(INFO, "Machine initialized in PID Disabled mode (toggle switch OFF)");
@@ -452,8 +455,9 @@ bool SystemInitializer::finalizeMachineState() {
             const bool configPidEnabled = Config::getInstance().pidEnabled.get();
             setRuntimePidState(configPidEnabled);
             g_state.machine.machineState = configPidEnabled ? MachineStateId::PID_NORMAL : MachineStateId::PID_DISABLED;
-            LOG(INFO, configPidEnabled ? "Machine initialized in PID Normal mode (config enabled)" :
-                                        "Machine initialized in PID Disabled mode (config disabled)");
+            LOG(INFO,
+                configPidEnabled ? "Machine initialized in PID Normal mode (config enabled)"
+                                 : "Machine initialized in PID Disabled mode (config disabled)");
         }
 
         return true;
@@ -465,9 +469,13 @@ bool SystemInitializer::finalizeMachineState() {
 
 void SystemInitializer::calculateDerivedValues() {
     // Calculate derived PID values
-    g_state.process.aggKi = Config::getInstance().pidRegularTn.get() > 0 ? Config::getInstance().pidRegularKp.get() / Config::getInstance().pidRegularTn.get() : 0;
-    g_state.process.aggKd = Config::getInstance().pidRegularTv.get() * Config::getInstance().pidRegularKp.get();
-    g_state.process.aggbKi = Config::getInstance().pidBdTn.get() > 0 ? Config::getInstance().pidBdKp.get() / Config::getInstance().pidBdTn.get() : 0;
+    g_state.process.aggKi  = Config::getInstance().pidRegularTn.get() > 0
+                                 ? Config::getInstance().pidRegularKp.get() / Config::getInstance().pidRegularTn.get()
+                                 : 0;
+    g_state.process.aggKd  = Config::getInstance().pidRegularTv.get() * Config::getInstance().pidRegularKp.get();
+    g_state.process.aggbKi = Config::getInstance().pidBdTn.get() > 0
+                                 ? Config::getInstance().pidBdKp.get() / Config::getInstance().pidBdTn.get()
+                                 : 0;
     g_state.process.aggbKd = Config::getInstance().pidBdTv.get() * Config::getInstance().pidBdKp.get();
 
     LOG(DEBUG, "Calculated derived PID values");
@@ -475,10 +483,10 @@ void SystemInitializer::calculateDerivedValues() {
 
 void SystemInitializer::setupTiming() {
     // Initialize timing variables
-    unsigned long currentTime = millis();
-    g_state.timing.previousMillistemp = currentTime;
-    g_state.timing.windowStartTime = currentTime;
-    g_state.timing.previousMillisMQTT = currentTime;
+    unsigned long currentTime                 = millis();
+    g_state.timing.previousMillistemp         = currentTime;
+    g_state.timing.windowStartTime            = currentTime;
+    g_state.timing.previousMillisMQTT         = currentTime;
     g_state.network.lastMQTTConnectionAttempt = currentTime;
 
     LOG(DEBUG, "Timing variables initialized");
@@ -540,7 +548,8 @@ void SystemInitializer::registerMQTTSensors() {
     // Core sensors
     mqttManager_->registerSensor("temperature", [] { return g_state.process.temperature; });
     mqttManager_->registerSensor("heaterPower", [] { return g_state.process.pidOutput / 10; });
-    mqttManager_->registerSensor("standbyModeTimeRemaining", [] { return g_state.standby.standbyModeRemainingTimeMillis / 1000; });
+    mqttManager_->registerSensor("standbyModeTimeRemaining",
+                                 [] { return g_state.standby.standbyModeRemainingTimeMillis / 1000; });
     mqttManager_->registerSensor("currentKp", [] { return g_state.pid->GetKp(); });
     mqttManager_->registerSensor("currentKi", [] { return g_state.pid->GetKi(); });
     mqttManager_->registerSensor("currentKd", [] { return g_state.pid->GetKd(); });
@@ -576,14 +585,16 @@ void SystemInitializer::setupWiFi() {
         // Create a display callback for WiFi status updates
         std::function<void(const char*, const char*)> displayCallback = nullptr;
 
-        displayCallback = [this](const char* line1, const char* line2) { uiManager_->displayLogo(String(line1), line2 ? String(line2) : String("")); };
+        displayCallback = [this](const char* line1, const char* line2) {
+            uiManager_->displayLogo(String(line1), line2 ? String(line2) : String(""));
+        };
 
         // Setup WiFi with display feedback
-        if (!g_state.network.cleverCoffeeWiFiManager->setupAndConnect(Config::getInstance().systemHostname.get(), WIFI_PASSWORD, false, displayCallback)) {
+        if (!g_state.network.cleverCoffeeWiFiManager->setupAndConnect(
+                Config::getInstance().systemHostname.get(), WIFI_PASSWORD, false, displayCallback)) {
             g_state.network.offlineMode = true;
             uiManager_->displayLogo(langstring_nowifi[0], langstring_nowifi[1]);
-        }
-        else {
+        } else {
             uiManager_->displayLogo("WiFi Connected", WiFi.localIP().toString());
         }
 
@@ -599,4 +610,3 @@ void SystemInitializer::setupWiFi() {
         uiManager_->displayLogo(langstring_nowifi[0], langstring_nowifi[1]);
     }
 }
-

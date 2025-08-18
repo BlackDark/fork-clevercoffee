@@ -5,12 +5,13 @@
 
 #pragma once
 
-#include <memory>
 #include "clevercoffee/state/MachineState.h"
-#include "clevercoffee/state/MachineStateIds.h"
 #include "clevercoffee/state/MachineStateContext.h"
-#include "clevercoffee/state/StateInfo.h"
+#include "clevercoffee/state/MachineStateIds.h"
 #include "clevercoffee/state/StateFactory.h"
+#include "clevercoffee/state/StateInfo.h"
+
+#include <memory>
 
 // Forward declarations for common state types
 class EmergencyStopState;
@@ -30,9 +31,9 @@ class EepromErrorState;
  * @tparam StateId The MachineStateId enum value for this state
  * @tparam DerivedState The concrete state class deriving from this template
  */
-template<MachineStateId StateId, typename DerivedState>
+template <MachineStateId StateId, typename DerivedState>
 class BaseState : public MachineState {
-public:
+  public:
     /**
      * @brief Called when entering this state - handles logging and delegates to derived class
      */
@@ -95,7 +96,7 @@ public:
 };
 
 // Template implementation
-template<MachineStateId StateId, typename DerivedState>
+template <MachineStateId StateId, typename DerivedState>
 MachineState* BaseState<StateId, DerivedState>::checkTransitions(MachineStateContext& context) {
     // Emergency stop check - highest priority
     if (context.isEmergencyStop()) {

@@ -4,10 +4,11 @@
  */
 
 #include "clevercoffee/state/states/BrewStates.h"
-#include "clevercoffee/state/MachineStateContext.h"
-#include "clevercoffee/state/StateFactory.h"
+
 #include "clevercoffee/GlobalState.h"
 #include "clevercoffee/Logger.h"
+#include "clevercoffee/state/MachineStateContext.h"
+#include "clevercoffee/state/StateFactory.h"
 
 // BrewStates Implementation
 void BrewIdleState::onEntryImpl(MachineStateContext& context) {
@@ -15,7 +16,8 @@ void BrewIdleState::onEntryImpl(MachineStateContext& context) {
 }
 
 void BrewIdleState::update(MachineStateContext& context) {
-    LOGF(DEBUG, "Brew Idle: Temp=%.1f°C, Weight=%.1fg, Tank=%s",
+    LOGF(DEBUG,
+         "Brew Idle: Temp=%.1f°C, Weight=%.1fg, Tank=%s",
          context.getCurrentTemperature(),
          context.getCurrentBrewWeight(),
          context.isWaterTankFull() ? "OK" : "EMPTY");
@@ -47,7 +49,8 @@ void BrewPreinfusionState::onEntryImpl(MachineStateContext& context) {
 }
 
 void BrewPreinfusionState::update(MachineStateContext& context) {
-    LOGF(DEBUG, "Brew Preinfusion: Temp=%.1f°C, Pressure=%.1fbar, Weight=%.1fg",
+    LOGF(DEBUG,
+         "Brew Preinfusion: Temp=%.1f°C, Pressure=%.1fbar, Weight=%.1fg",
          context.getCurrentTemperature(),
          context.getFilteredPressure(),
          context.getCurrentBrewWeight());
@@ -61,7 +64,8 @@ MachineState* BrewPreinfusionState::checkSpecificTransitions(MachineStateContext
         return getStateInstance(MachineStateId::BREW_IDLE);
     }
     if (!context.isBrewActive()) {
-        context.logStateTransition(getStateId(), MachineStateId::BREW_IDLE, "Brew switch deactivated during preinfusion");
+        context.logStateTransition(
+            getStateId(), MachineStateId::BREW_IDLE, "Brew switch deactivated during preinfusion");
         return getStateInstance(MachineStateId::BREW_IDLE);
     }
     return nullptr;
@@ -72,7 +76,8 @@ void BrewPreinfusionPauseState::onEntryImpl(MachineStateContext& context) {
 }
 
 void BrewPreinfusionPauseState::update(MachineStateContext& context) {
-    LOGF(DEBUG, "Brew Preinfusion Pause: Temp=%.1f°C, Pressure=%.1fbar, Weight=%.1fg",
+    LOGF(DEBUG,
+         "Brew Preinfusion Pause: Temp=%.1f°C, Pressure=%.1fbar, Weight=%.1fg",
          context.getCurrentTemperature(),
          context.getFilteredPressure(),
          context.getCurrentBrewWeight());
@@ -82,11 +87,13 @@ MachineState* BrewPreinfusionPauseState::checkSpecificTransitions(MachineStateCo
     auto& flags = g_state.machine.flags;
     if (flags.requestBrewStop) {
         flags.requestBrewStop = false;
-        context.logStateTransition(getStateId(), MachineStateId::BREW_IDLE, "Brew stop requested during preinfusion pause");
+        context.logStateTransition(
+            getStateId(), MachineStateId::BREW_IDLE, "Brew stop requested during preinfusion pause");
         return getStateInstance(MachineStateId::BREW_IDLE);
     }
     if (!context.isBrewActive()) {
-        context.logStateTransition(getStateId(), MachineStateId::BREW_IDLE, "Brew switch deactivated during preinfusion pause");
+        context.logStateTransition(
+            getStateId(), MachineStateId::BREW_IDLE, "Brew switch deactivated during preinfusion pause");
         return getStateInstance(MachineStateId::BREW_IDLE);
     }
     return nullptr;
@@ -97,7 +104,8 @@ void BrewRunningState::onEntryImpl(MachineStateContext& context) {
 }
 
 void BrewRunningState::update(MachineStateContext& context) {
-    LOGF(DEBUG, "Brew Running: Weight=%.1fg, Temp=%.1f°C, Pressure=%.1fbar",
+    LOGF(DEBUG,
+         "Brew Running: Weight=%.1fg, Temp=%.1f°C, Pressure=%.1fbar",
          context.getCurrentBrewWeight(),
          context.getCurrentTemperature(),
          context.getFilteredPressure());
@@ -122,7 +130,8 @@ void BrewFinishedState::onEntryImpl(MachineStateContext& context) {
 }
 
 void BrewFinishedState::update(MachineStateContext& context) {
-    LOGF(DEBUG, "Brew Finished: Weight=%.1fg, Temp=%.1f°C",
+    LOGF(DEBUG,
+         "Brew Finished: Weight=%.1fg, Temp=%.1f°C",
          context.getCurrentBrewWeight(),
          context.getCurrentTemperature());
 }
@@ -133,6 +142,6 @@ MachineState* BrewFinishedState::checkSpecificTransitions(MachineStateContext& c
         context.logStateTransition(getStateId(), MachineStateId::BREW_IDLE, "Brew finished display timeout");
         return getStateInstance(MachineStateId::BREW_IDLE);
     }
-    
+
     return nullptr;
 }

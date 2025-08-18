@@ -5,14 +5,15 @@
 
 #pragma once
 
-#include <functional>
-#include <memory>
 #include "clevercoffee/state/MachineState.h"
 #include "clevercoffee/state/MachineStateIds.h"
 
+#include <functional>
+#include <memory>
+
 struct StateInfo {
-    MachineStateId id;
-    const char* name;
+    MachineStateId                 id;
+    const char*                    name;
     std::function<MachineState*()> getInstance;
 };
 

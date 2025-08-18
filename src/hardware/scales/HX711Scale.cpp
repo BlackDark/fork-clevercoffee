@@ -5,21 +5,15 @@
 
 #include "clevercoffee/hardware/scales/HX711Scale.h"
 
-HX711Scale::HX711Scale(const int dataPin, const int clkPin, const float calibrationFactor) :
-    loadCell1(new HX711_ADC(dataPin, clkPin)), loadCell2(nullptr), currentWeight(0.0), calibrationFactor1(calibrationFactor), calibrationFactor2(1.0), isDualCell(false), readSecondScale(false), weight1(0.0), weight2(0.0) {
-}
+HX711Scale::HX711Scale(const int dataPin, const int clkPin, const float calibrationFactor)
+    : loadCell1(new HX711_ADC(dataPin, clkPin)), loadCell2(nullptr), currentWeight(0.0),
+      calibrationFactor1(calibrationFactor), calibrationFactor2(1.0), isDualCell(false), readSecondScale(false),
+      weight1(0.0), weight2(0.0) {}
 
-HX711Scale::HX711Scale(int dataPin1, int dataPin2, int clkPin, float calibrationFactor1, float calibrationFactor2) :
-    loadCell1(new HX711_ADC(dataPin1, clkPin)),
-    loadCell2(new HX711_ADC(dataPin2, clkPin)),
-    currentWeight(0.0),
-    calibrationFactor1(calibrationFactor1),
-    calibrationFactor2(calibrationFactor2),
-    isDualCell(true),
-    readSecondScale(false),
-    weight1(0.0),
-    weight2(0.0) {
-}
+HX711Scale::HX711Scale(int dataPin1, int dataPin2, int clkPin, float calibrationFactor1, float calibrationFactor2)
+    : loadCell1(new HX711_ADC(dataPin1, clkPin)), loadCell2(new HX711_ADC(dataPin2, clkPin)), currentWeight(0.0),
+      calibrationFactor1(calibrationFactor1), calibrationFactor2(calibrationFactor2), isDualCell(true),
+      readSecondScale(false), weight1(0.0), weight2(0.0) {}
 
 HX711Scale::~HX711Scale() {
     delete loadCell1;
@@ -34,14 +28,13 @@ bool HX711Scale::init() {
     }
 
     constexpr unsigned long stabilizingTime = 5000;
-    constexpr boolean _tare = true;
+    constexpr boolean       _tare           = true;
 
     if (!isDualCell) {
         while (!loadCell1->startMultiple(stabilizingTime, _tare)) {
             // Wait for initialization
         }
-    }
-    else {
+    } else {
         byte loadCell1Ready = 0;
         byte loadCell2Ready = 0;
 
@@ -76,26 +69,24 @@ bool HX711Scale::init() {
 bool HX711Scale::update() {
     if (!isDualCell) {
         if (loadCell1->update()) {
-            weight1 = loadCell1->getData();
+            weight1       = loadCell1->getData();
             currentWeight = weight1;
             return true;
         }
-    }
-    else {
+    } else {
         bool updated = false;
 
         if (!readSecondScale) {
             if (loadCell1->update()) {
-                weight1 = loadCell1->getData();
+                weight1         = loadCell1->getData();
                 readSecondScale = true;
-                updated = true;
+                updated         = true;
             }
-        }
-        else {
+        } else {
             if (loadCell2->update()) {
-                weight2 = loadCell2->getData();
+                weight2         = loadCell2->getData();
                 readSecondScale = false;
-                updated = true;
+                updated         = true;
             }
         }
 
@@ -142,8 +133,7 @@ void HX711Scale::setCalibrationFactor(const float factor, const int cellNumber) 
         if (loadCell1) {
             loadCell1->setCalFactor(factor);
         }
-    }
-    else if (cellNumber == 2 && isDualCell) {
+    } else if (cellNumber == 2 && isDualCell) {
         calibrationFactor2 = factor;
 
         if (loadCell2) {

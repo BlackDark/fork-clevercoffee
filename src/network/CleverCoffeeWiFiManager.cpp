@@ -4,11 +4,13 @@
  */
 
 #include "clevercoffee/network/CleverCoffeeWiFiManager.h"
+
 #include "clevercoffee/Config.h"
-#include "clevercoffee/display/languages.h"
 #include "clevercoffee/GlobalState.h"
-#include "clevercoffee/handlers/BrewHandler.h"
 #include "clevercoffee/Logger.h"
+#include "clevercoffee/display/languages.h"
+#include "clevercoffee/handlers/BrewHandler.h"
+
 #include <ESP.h>
 #include <WiFi.h>
 #include <WiFiManager.h>
@@ -23,12 +25,11 @@ static String byteToHex(byte value) {
     return result;
 }
 
-CleverCoffeeWiFiManager::CleverCoffeeWiFiManager() :
-    wifiManager_(std::make_unique<WiFiManager>()), restartAfterAP_(false) {
-
+CleverCoffeeWiFiManager::CleverCoffeeWiFiManager()
+    : wifiManager_(std::make_unique<WiFiManager>()), restartAfterAP_(false) {
     // Create custom hostname parameter
     const String hostname = Config::getInstance().systemHostname.get();
-    customHostname_ = std::make_unique<WiFiManagerParameter>("hostname", "Hostname", hostname.c_str(), 30);
+    customHostname_       = std::make_unique<WiFiManagerParameter>("hostname", "Hostname", hostname.c_str(), 30);
 }
 
 CleverCoffeeWiFiManager::~CleverCoffeeWiFiManager() {
@@ -36,14 +37,16 @@ CleverCoffeeWiFiManager::~CleverCoffeeWiFiManager() {
     // This needs to be defined in the .cpp file where WiFiManager is fully defined
 }
 
-bool CleverCoffeeWiFiManager::setupAndConnect(const String& hostname, const String& password, bool oledEnabled, std::function<void(const char*, const char*)> displayCallback) {
+bool CleverCoffeeWiFiManager::setupAndConnect(const String&                                 hostname,
+                                              const String&                                 password,
+                                              bool                                          oledEnabled,
+                                              std::function<void(const char*, const char*)> displayCallback) {
     configureWiFiManager(hostname, password);
 
     if (attemptConnection(hostname, password, displayCallback)) {
         handleSuccessfulConnection(oledEnabled, displayCallback);
         return true;
-    }
-    else {
+    } else {
         handleConnectionFailure(oledEnabled, displayCallback);
         return false;
     }
@@ -58,7 +61,9 @@ void CleverCoffeeWiFiManager::configureWiFiManager(const String& hostname, const
     wifiManager_->setHostname(hostname.c_str());
 }
 
-bool CleverCoffeeWiFiManager::attemptConnection(const String& hostname, const String& password, std::function<void(const char*, const char*)> displayCallback) {
+bool CleverCoffeeWiFiManager::attemptConnection(const String&                                 hostname,
+                                                const String&                                 password,
+                                                std::function<void(const char*, const char*)> displayCallback) {
     if (wifiManager_->getWiFiIsSaved()) {
         LOG(INFO, "Connecting to WiFi");
     }
@@ -86,14 +91,20 @@ bool CleverCoffeeWiFiManager::attemptConnection(const String& hostname, const St
     return wifiConnected;
 }
 
-void CleverCoffeeWiFiManager::handleSuccessfulConnection(bool oledEnabled, std::function<void(const char*, const char*)> displayCallback) {
-    LOGF(INFO, "WiFi connected - IP = %i.%i.%i.%i", WiFi.localIP()[0], WiFi.localIP()[1], WiFi.localIP()[2], WiFi.localIP()[3]);
+void CleverCoffeeWiFiManager::handleSuccessfulConnection(
+    bool oledEnabled, std::function<void(const char*, const char*)> displayCallback) {
+    LOGF(INFO,
+         "WiFi connected - IP = %i.%i.%i.%i",
+         WiFi.localIP()[0],
+         WiFi.localIP()[1],
+         WiFi.localIP()[2],
+         WiFi.localIP()[3]);
 
     byte mac[6];
     WiFi.macAddress(mac);
     char completemac[18]; // XX:XX:XX:XX:XX:XX + null terminator
-    snprintf(completemac, sizeof(completemac), "%02X%02X%02X%02X%02X%02X",
-             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    snprintf(
+        completemac, sizeof(completemac), "%02X%02X%02X%02X%02X%02X", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 
     LOGF(DEBUG, "MAC-ADDRESS: %s", completemac);
 
@@ -108,7 +119,8 @@ void CleverCoffeeWiFiManager::handleSuccessfulConnection(bool oledEnabled, std::
     }
 }
 
-void CleverCoffeeWiFiManager::handleConnectionFailure(bool oledEnabled, std::function<void(const char*, const char*)> displayCallback) {
+void CleverCoffeeWiFiManager::handleConnectionFailure(bool                                          oledEnabled,
+                                                      std::function<void(const char*, const char*)> displayCallback) {
     LOG(INFO, "WiFi connection timed out...");
 
     if (oledEnabled && displayCallback) {
@@ -121,7 +133,7 @@ void CleverCoffeeWiFiManager::handleConnectionFailure(bool oledEnabled, std::fun
 
 void CleverCoffeeWiFiManager::updateHostnameFromPortal() {
     // Read hostname from portal and store in config
-    String newHostname = String(customHostname_->getValue());
+    String       newHostname     = String(customHostname_->getValue());
     const String currentHostname = Config::getInstance().systemHostname.get();
 
     if (newHostname.length() > 0 && newHostname != currentHostname) {
@@ -146,15 +158,16 @@ String CleverCoffeeWiFiManager::getSSID() const {
 }
 
 void CleverCoffeeWiFiManager::checkAndMaintainConnection() {
-    static int connectionAttemptCounter = 1;
-    static bool wifiConnectedHandled = false;
+    static int  connectionAttemptCounter = 1;
+    static bool wifiConnectedHandled     = false;
 
     // Don't attempt reconnection if in offline mode or brewing is active
-    if (g_state.network.offlineMode || (g_state.handlers.brewHandler && g_state.handlers.brewHandler->isBrewActive())) return;
+    if (g_state.network.offlineMode || (g_state.handlers.brewHandler && g_state.handlers.brewHandler->isBrewActive()))
+        return;
 
     // Try to connect and if it does not succeed, enter offline mode
-    if ((millis() - g_state.network.lastWifiConnectionAttempt >= ::wifiConnectionDelay) && (g_state.network.wifiReconnects <= ::maxWifiReconnects)) {
-
+    if ((millis() - g_state.network.lastWifiConnectionAttempt >= ::wifiConnectionDelay) &&
+        (g_state.network.wifiReconnects <= ::maxWifiReconnects)) {
         if (WiFi.status() != WL_CONNECTED) { // check WiFi connection status
             wifiConnectedHandled = false;
 
@@ -170,19 +183,17 @@ void CleverCoffeeWiFiManager::checkAndMaintainConnection() {
 
             if (WiFi.status() != WL_CONNECTED && connectionAttemptCounter < 100) {
                 connectionAttemptCounter++; // reconnect counter, maximum waiting time = 20*100ms plus loop times
-            }
-            else {
+            } else {
                 if (connectionAttemptCounter == 100) {
                     LOGF(INFO, "Wifi Reconnection failed - %i loops", connectionAttemptCounter);
                     g_state.network.lastWifiConnectionAttempt = millis();
-                    connectionAttemptCounter = 1;
+                    connectionAttemptCounter                  = 1;
                 }
             }
-        }
-        else {
+        } else {
             if (wifiConnectedHandled == false) {
                 LOGF(INFO, "Wifi Reconnected - %i loops", connectionAttemptCounter);
-                wifiConnectedHandled = true;
+                wifiConnectedHandled     = true;
                 connectionAttemptCounter = 1;
             }
         }
@@ -193,8 +204,7 @@ void CleverCoffeeWiFiManager::checkAndMaintainConnection() {
         // no wifi connection after trying connection, initiate offline mode
         g_state.network.offlineMode = true;
         LOG(INFO, "Entered offline mode after maximum WiFi reconnection attempts");
-    }
-    else {
+    } else {
         if (WiFi.status() == WL_CONNECTED) {
             g_state.network.wifiReconnects = 0;
         }
@@ -208,21 +218,17 @@ int CleverCoffeeWiFiManager::getSignalStrength() {
 
     if (WiFi.status() == WL_CONNECTED) {
         rssi = WiFi.RSSI();
-    }
-    else {
+    } else {
         rssi = -100;
     }
 
     if (rssi >= -50) {
         return 4;
-    }
-    else if (rssi < -50 && rssi >= -65) {
+    } else if (rssi < -50 && rssi >= -65) {
         return 3;
-    }
-    else if (rssi < -65 && rssi >= -75) {
+    } else if (rssi < -65 && rssi >= -75) {
         return 2;
-    }
-    else if (rssi < -75 && rssi >= -80) {
+    } else if (rssi < -75 && rssi >= -80) {
         return 1;
     }
 

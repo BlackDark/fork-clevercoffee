@@ -1,8 +1,9 @@
 #pragma once
 
 #include "clevercoffee/Config.h"
-#include "clevercoffee/network/MQTTManager.h"
 #include "clevercoffee/GlobalState.h"
+#include "clevercoffee/network/MQTTManager.h"
+
 #include <mutex>
 
 /**
@@ -11,7 +12,7 @@
  */
 
 inline void setRuntimePidState(const bool enabled) {
-    static std::mutex pid_mutex;
+    static std::mutex           pid_mutex;
     std::lock_guard<std::mutex> lock(pid_mutex);
 
     g_state.process.pidEnabled = enabled;
@@ -20,7 +21,7 @@ inline void setRuntimePidState(const bool enabled) {
 }
 
 inline void setSteamMode(const bool steamMode) {
-    static std::mutex steam_mutex;
+    static std::mutex           steam_mutex;
     std::lock_guard<std::mutex> lock(steam_mutex);
 
     g_state.machine.steamON = steamMode;
@@ -46,13 +47,13 @@ inline void sendHASSIODiscoveryMsg() {
 
 // Emergency stop if temp is too high
 inline void testEmergencyStop() {
-    static std::mutex emergency_mutex;
+    static std::mutex           emergency_mutex;
     std::lock_guard<std::mutex> lock(emergency_mutex);
 
     if (g_state.process.temperature > EmergencyStopTemp && g_state.machine.emergencyStop == false) {
         g_state.machine.emergencyStop = true;
-    }
-    else if (g_state.process.temperature < (Config::getInstance().brewSetpoint.get() + 5) && g_state.machine.emergencyStop == true) {
+    } else if (g_state.process.temperature < (Config::getInstance().brewSetpoint.get() + 5) &&
+               g_state.machine.emergencyStop == true) {
         g_state.machine.emergencyStop = false;
     }
 }
@@ -61,7 +62,7 @@ inline void testEmergencyStop() {
  * @brief Switch to offline mode if maxWifiReconnects were exceeded during boot
  */
 inline void initOfflineMode() {
-    static std::mutex offline_mutex;
+    static std::mutex           offline_mutex;
     std::lock_guard<std::mutex> lock(offline_mutex);
 
     if (Config::getInstance().hardwareOledEnabled.get()) {

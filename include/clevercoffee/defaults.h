@@ -12,37 +12,39 @@
 #define STR(x)        STR_HELPER(x)
 
 // default parameters
-#define STORAGE_NAMESPACE        "config"          // NVS namespace for storing parameters
-#define HOSTNAME                 "silvia"          // default hostname
-#define OTAPASS                  "otapass"         // default password for over-the-air updates
-#define WM_PASS                  "CleverCoffee"    // default password for WiFiManager
-#define SETPOINT                 95.0              // brew temperature setpoint
-#define TEMPOFFSET               0.0               // brew temperature setpoint
-#define STEAMSETPOINT            120.0             // steam temperature setpoint
-#define SCALE_CALIBRATION_FACTOR 1.00              // Raw data is divided by this value to convert to readable data
-#define SCALE_KNOWN_WEIGHT       267.00            // Calibration weight for scale (weight of the tray)
-#define SCALE_SAMPLES            2                 // Number of samples used for calibration
-#define AGGKP                    62.0              // PID Kp (regular phase)
-#define AGGTN                    52.0              // PID Tn (regular phase)
-#define AGGTV                    11.5              // PID Tv (regular phase)
-#define AGGIMAX                  55.0              // PID Integrator Max (regular phase)
-#define STEAMKP                  150.0             // PID kp (steam phase)
-#define AGGBKP                   50.0              // PID Kp (brew detection phase)
-#define AGGBTN                   0.0               // PID Tn (brew detection phase)
-#define AGGBTV                   20.0              // PID Tv (brew detection phase)
-#define EMA_FACTOR               0.6               // Smoothing of input that is used for Tv (derivative component of PID). Smaller means less smoothing but also less delay, 0 means no filtering
-#define TARGET_BREW_TIME         25.0              // brew time in seconds (only used if pump is being controlled)
-#define BREW_PID_DELAY           10.0              // delay until enabling PID controller during brew (no heating during this time)
-#define PRE_INFUSION_TIME        2.0               // pre-infusion time in seconds
-#define PRE_INFUSION_PAUSE_TIME  5.0               // pre-infusion pause time in seconds
-#define TARGET_BREW_WEIGHT       36.0              // Target weight in grams
-#define STANDBY_MODE_TIME        35.0              // Time in minutes until the heater is turned off
-#define BACKFLUSH_CYCLES         5                 // number of cycles the backflush should run
-#define BACKFLUSH_FILL_TIME      5.0               // time in seconds the pump is running during backflush
-#define BACKFLUSH_FLUSH_TIME     10.0              // time in seconds the 3-way valve is open during backflush
-#define POST_BREW_TIMER_DURATION 3.0               // time in seconds that brew timer will be shown after brew finished
-#define MAXWIFIRECONNECTS        5                 // maximum number of reconnection attempts, use -1 to deactivate
-#define WIFICONNECTIONDELAY      10000             // delay between reconnects in ms
+#define STORAGE_NAMESPACE        "config"       // NVS namespace for storing parameters
+#define HOSTNAME                 "silvia"       // default hostname
+#define OTAPASS                  "otapass"      // default password for over-the-air updates
+#define WM_PASS                  "CleverCoffee" // default password for WiFiManager
+#define SETPOINT                 95.0           // brew temperature setpoint
+#define TEMPOFFSET               0.0            // brew temperature setpoint
+#define STEAMSETPOINT            120.0          // steam temperature setpoint
+#define SCALE_CALIBRATION_FACTOR 1.00           // Raw data is divided by this value to convert to readable data
+#define SCALE_KNOWN_WEIGHT       267.00         // Calibration weight for scale (weight of the tray)
+#define SCALE_SAMPLES            2              // Number of samples used for calibration
+#define AGGKP                    62.0           // PID Kp (regular phase)
+#define AGGTN                    52.0           // PID Tn (regular phase)
+#define AGGTV                    11.5           // PID Tv (regular phase)
+#define AGGIMAX                  55.0           // PID Integrator Max (regular phase)
+#define STEAMKP                  150.0          // PID kp (steam phase)
+#define AGGBKP                   50.0           // PID Kp (brew detection phase)
+#define AGGBTN                   0.0            // PID Tn (brew detection phase)
+#define AGGBTV                   20.0           // PID Tv (brew detection phase)
+#define EMA_FACTOR                                                                                                     \
+    0.6 // Smoothing of input that is used for Tv (derivative component of PID). Smaller means less smoothing but also
+        // less delay, 0 means no filtering
+#define TARGET_BREW_TIME         25.0  // brew time in seconds (only used if pump is being controlled)
+#define BREW_PID_DELAY           10.0  // delay until enabling PID controller during brew (no heating during this time)
+#define PRE_INFUSION_TIME        2.0   // pre-infusion time in seconds
+#define PRE_INFUSION_PAUSE_TIME  5.0   // pre-infusion pause time in seconds
+#define TARGET_BREW_WEIGHT       36.0  // Target weight in grams
+#define STANDBY_MODE_TIME        35.0  // Time in minutes until the heater is turned off
+#define BACKFLUSH_CYCLES         5     // number of cycles the backflush should run
+#define BACKFLUSH_FILL_TIME      5.0   // time in seconds the pump is running during backflush
+#define BACKFLUSH_FLUSH_TIME     10.0  // time in seconds the 3-way valve is open during backflush
+#define POST_BREW_TIMER_DURATION 3.0   // time in seconds that brew timer will be shown after brew finished
+#define MAXWIFIRECONNECTS        5     // maximum number of reconnection attempts, use -1 to deactivate
+#define WIFICONNECTIONDELAY      10000 // delay between reconnects in ms
 #define MQTT_USERNAME            "rancilio"        // default MQTT username
 #define MQTT_PASSWORD            "silvia"          // default MQTT password
 #define MQTT_TOPIC               "custom/kitchen/" // default MQTT topic prefix
@@ -115,103 +117,105 @@
 
 // Conditional code removal
 #ifndef FRONTEND_PREPROCESSING
-#define FRONTEND_PREPROCESSING true // enable preprocessing of frontend files (HTML, CSS, JS) to replace variables like {{hostname}} with actual values
+#define FRONTEND_PREPROCESSING                                                                                         \
+    true // enable preprocessing of frontend files (HTML, CSS, JS) to replace variables like {{hostname}} with actual
+         // values
 #endif
 
 // Type-safe enum classes for hardware configuration
 namespace Hardware {
 
-    // Switch types and modes (replacing integer constants)
-    enum class SwitchType : int {
-        MOMENTARY = 0,
-        TOGGLE = 1
-    };
+// Switch types and modes (replacing integer constants)
+enum class SwitchType : int {
+    MOMENTARY = 0,
+    TOGGLE    = 1
+};
 
-    enum class SwitchMode : int {
-        NORMALLY_OPEN = 0,
-        NORMALLY_CLOSED = 1
-    };
+enum class SwitchMode : int {
+    NORMALLY_OPEN   = 0,
+    NORMALLY_CLOSED = 1
+};
 
-    // Relay trigger types
-    enum class RelayTriggerType : int {
-        LOW_TRIGGER = 0,
-        HIGH_TRIGGER = 1
-    };
+// Relay trigger types
+enum class RelayTriggerType : int {
+    LOW_TRIGGER  = 0,
+    HIGH_TRIGGER = 1
+};
 
-    // OLED display types
-    enum class OLEDType : int {
-        SSD1306 = 0,
-        SH1106 = 1
-    };
+// OLED display types
+enum class OLEDType : int {
+    SSD1306 = 0,
+    SH1106  = 1
+};
 
-    enum class OLEDAddress : int {
-        ADDR_3C = 0, // 0x3C
-        ADDR_3D = 1  // 0x3D
-    };
+enum class OLEDAddress : int {
+    ADDR_3C = 0, // 0x3C
+    ADDR_3D = 1  // 0x3D
+};
 
-    // Temperature sensor types
-    enum class TemperatureSensorType : int {
-        TSIC_306 = 0,
-        DALLAS_DS18B20 = 1
-    };
+// Temperature sensor types
+enum class TemperatureSensorType : int {
+    TSIC_306       = 0,
+    DALLAS_DS18B20 = 1
+};
 
-    // Scale types
-    enum class ScaleType : int {
-        HX711_DUAL = 0,   // 2 load cells
-        HX711_SINGLE = 1, // 1 load cell
-        BLUETOOTH = 2
-    };
+// Scale types
+enum class ScaleType : int {
+    HX711_DUAL   = 0, // 2 load cells
+    HX711_SINGLE = 1, // 1 load cell
+    BLUETOOTH    = 2
+};
 } // namespace Hardware
 
 namespace System {
 
-    // Display templates
-    enum class DisplayTemplate : int {
-        STANDARD = 0,
-        MINIMAL = 1,
-        TEMPERATURE_ONLY = 2,
-        SCALE = 3,
-        UPRIGHT = 4
-    };
+// Display templates
+enum class DisplayTemplate : int {
+    STANDARD         = 0,
+    MINIMAL          = 1,
+    TEMPERATURE_ONLY = 2,
+    SCALE            = 3,
+    UPRIGHT          = 4
+};
 
-    // Languages
-    enum class Language : int {
-        ENGLISH = 0,
-        GERMAN = 1,
-        SPANISH = 2
-    };
+// Languages
+enum class Language : int {
+    ENGLISH = 0,
+    GERMAN  = 1,
+    SPANISH = 2
+};
 
-    // Log levels (matching Logger::Level)
-    enum class LogLevel : int {
-        TRACE = 0,
-        DEBUG = 1,
-        INFO = 2,
-        WARNING = 3,
-        ERROR = 4,
-        FATAL = 5,
-        SILENT = 6
-    };
+// Log levels (matching Logger::Level)
+enum class LogLevel : int {
+    TRACE   = 0,
+    DEBUG   = 1,
+    INFO    = 2,
+    WARNING = 3,
+    ERROR   = 4,
+    FATAL   = 5,
+    SILENT  = 6
+};
 } // namespace System
 
 namespace Process {
 
-    // Brewing modes (avoiding conflict with PID library MANUAL macro)
-    enum class BrewMode : int {
-        MANUAL_BREW = 0,
-        AUTOMATIC_BREW = 1
-    };
+// Brewing modes (avoiding conflict with PID library MANUAL macro)
+enum class BrewMode : int {
+    MANUAL_BREW    = 0,
+    AUTOMATIC_BREW = 1
+};
 } // namespace Process
 
 // Display constants
-#define DISPLAY_WIDTH           128
-#define DISPLAY_HEIGHT          64
-#define STATUS_BAR_HEIGHT       12
-#define STATUS_BAR_Y_POS        12
+#define DISPLAY_WIDTH     128
+#define DISPLAY_HEIGHT    64
+#define STATUS_BAR_HEIGHT 12
+#define STATUS_BAR_Y_POS  12
 
 // Buffer sizes
-#define OTA_BUFFER_SIZE         1024
-#define MESSAGE_BUFFER_SIZE     128
-#define SHORT_MESSAGE_SIZE      64
+#define OTA_BUFFER_SIZE     1024
+#define MESSAGE_BUFFER_SIZE 128
+#define SHORT_MESSAGE_SIZE  64
 
 // Debugging flags
 // #define DEBUG_CONFIG_VERBOSE true

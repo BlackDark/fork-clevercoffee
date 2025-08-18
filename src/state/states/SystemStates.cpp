@@ -4,10 +4,11 @@
  */
 
 #include "clevercoffee/state/states/SystemStates.h"
-#include "clevercoffee/state/MachineStateContext.h"
-#include "clevercoffee/state/StateFactory.h"
+
 #include "clevercoffee/GlobalState.h"
 #include "clevercoffee/Logger.h"
+#include "clevercoffee/state/MachineStateContext.h"
+#include "clevercoffee/state/StateFactory.h"
 
 // SystemStates Implementation
 void StandbyState::onEntryImpl(MachineStateContext& context) {
@@ -23,7 +24,8 @@ void StandbyState::onExitImpl(MachineStateContext& context) {
 }
 
 void StandbyState::update(MachineStateContext& context) {
-    LOGF(DEBUG, "Standby: Power saving active, UserActivity=%s, Sensors=%s",
+    LOGF(DEBUG,
+         "Standby: Power saving active, UserActivity=%s, Sensors=%s",
          context.hasUserActivity() ? "DETECTED" : "IDLE",
          context.hasSensorError() ? "ERROR" : "OK");
 }
@@ -37,7 +39,8 @@ MachineState* StandbyState::checkSpecificTransitions(MachineStateContext& contex
         return getStateInstance(MachineStateId::PID_NORMAL);
     }
     if (context.hasUserActivity() || context.shouldExitStandby()) {
-        context.logStateTransition(getStateId(), MachineStateId::PID_NORMAL, "User activity detected - exiting standby");
+        context.logStateTransition(
+            getStateId(), MachineStateId::PID_NORMAL, "User activity detected - exiting standby");
         context.resetMqttReconnectCount();
         return getStateInstance(MachineStateId::PID_NORMAL);
     }
@@ -55,7 +58,8 @@ void ManualFlushIdleState::onExitImpl(MachineStateContext& context) {
 }
 
 void ManualFlushIdleState::update(MachineStateContext& context) {
-    LOGF(DEBUG, "Manual Flush: Temp=%.1f°C, Tank=%s, FlushActive=%s",
+    LOGF(DEBUG,
+         "Manual Flush: Temp=%.1f°C, Tank=%s, FlushActive=%s",
          context.getCurrentTemperature(),
          context.isWaterTankFull() ? "OK" : "EMPTY",
          context.isManualFlushActive() ? "YES" : "NO");
@@ -86,7 +90,8 @@ void ManualFlushRunningState::onEntryImpl(MachineStateContext& context) {
 }
 
 void ManualFlushRunningState::update(MachineStateContext& context) {
-    LOGF(DEBUG, "Manual Flush Running: Temp=%.1f°C, Pressure=%.1fbar",
+    LOGF(DEBUG,
+         "Manual Flush Running: Temp=%.1f°C, Pressure=%.1fbar",
          context.getCurrentTemperature(),
          context.getFilteredPressure());
 }

@@ -4,6 +4,7 @@
  */
 
 #include "clevercoffee/display/displayTemplateManager.h"
+
 #include "clevercoffee/Config.h"
 #include "clevercoffee/defaults.h"
 

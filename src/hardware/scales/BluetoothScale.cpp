@@ -4,11 +4,14 @@
  */
 
 #include "clevercoffee/hardware/scales/BluetoothScale.h"
+
 #include "clevercoffee/Logger.h"
+
 #include <Arduino.h>
 
-BluetoothScale::BluetoothScale() :
-    currentWeight(0.0), lastUpdateTime(0), connected(false), bleInitialized(false), lastConnectionAttempt(0), connectionAttemptInterval(5000), isUpdatingConnection(false), maxConnectionAttemptInterval(30000) {
+BluetoothScale::BluetoothScale()
+    : currentWeight(0.0), lastUpdateTime(0), connected(false), bleInitialized(false), lastConnectionAttempt(0),
+      connectionAttemptInterval(5000), isUpdatingConnection(false), maxConnectionAttemptInterval(30000) {
     bleScale = new AcaiaArduinoBLE(false);
 }
 
@@ -22,11 +25,10 @@ bool BluetoothScale::init() {
     const bool success = bleScale->init();
 
     if (success) {
-        bleInitialized = true;
+        bleInitialized        = true;
         lastConnectionAttempt = millis();
         LOG(INFO, "BLE Scale initialization successful");
-    }
-    else {
+    } else {
         LOG(ERROR, "BLE Scale initialization failed");
         bleInitialized = false;
     }
@@ -57,8 +59,7 @@ void BluetoothScale::updateConnection() {
             LOG(INFO, "Bluetooth scale connected");
             // Reset connection attempt interval on successful connection
             connectionAttemptInterval = 5000;
-        }
-        else {
+        } else {
             LOG(INFO, "Bluetooth scale disconnected");
             // Only increase interval if we're not actively connecting
             if (!bleScale->isConnecting()) {

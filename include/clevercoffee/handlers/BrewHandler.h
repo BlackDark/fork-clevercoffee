@@ -5,30 +5,31 @@
 
 #pragma once
 
-#include "clevercoffee/handlers/BaseHandler.h"
 #include "clevercoffee/Config.h"
-#include <Logger.h>
+#include "clevercoffee/GlobalState.h"
+#include "clevercoffee/handlers/BaseHandler.h"
+#include "clevercoffee/handlers/PumpTimer.h"
 #include "clevercoffee/hardware/Relay.h"
 #include "clevercoffee/hardware/Switch.h"
-#include "clevercoffee/GlobalState.h"
-#include "clevercoffee/state/MachineState.h"
 #include "clevercoffee/scaleHandler.h"
-#include "clevercoffee/handlers/PumpTimer.h"
+#include "clevercoffee/state/MachineState.h"
+
+#include <Logger.h>
 
 /**
  * @class BrewHandler
  * @brief Simplified brew handler that works with global state machine
  */
 class BrewHandler : public SwitchBasedHandler {
-private:
-    PumpTimer pumpTimer_;
-    unsigned long brewStartTime_ = 0;
-    uint8_t lastSwitchReading_ = LOW;
+  private:
+    PumpTimer     pumpTimer_;
+    unsigned long brewStartTime_     = 0;
+    uint8_t       lastSwitchReading_ = LOW;
 
-public:
+  public:
     BrewHandler()
-        : SwitchBasedHandler("BrewHandler", g_state.hardware.brewSwitch)
-        , pumpTimer_(300000) { // 5 minute max brew time safety
+        : SwitchBasedHandler("BrewHandler", g_state.hardware.brewSwitch),
+          pumpTimer_(300000) { // 5 minute max brew time safety
     }
 
     bool isBrewActive() const {
@@ -44,7 +45,7 @@ public:
         }
     }
 
-protected:
+  protected:
     bool isEnabled() const override {
         return Config::getInstance().hardwareSwitchesBrewEnabled.get();
     }
@@ -71,11 +72,11 @@ protected:
         checkPumpTimeout();
     }
 
-private:
+  private:
     void processSwitchInput() {
         if (!switch_) return;
 
-        const uint8_t reading = getSwitchReading();
+        const uint8_t reading             = getSwitchReading();
         g_state.sensors.brewSwitchReading = reading;
 
         const auto switchType = Config::getInstance().hardwareSwitchesBrewType.get();
@@ -101,7 +102,7 @@ private:
     void checkPumpTimeout() {
         if (pumpTimer_.isExpired() && isBrewActive()) {
             logError("Pump timeout - stopping for safety");
-            g_state.machine.flags.requestBrewStop = true;  // Use condition flag instead of direct state assignment
+            g_state.machine.flags.requestBrewStop = true; // Use condition flag instead of direct state assignment
         }
     }
 };

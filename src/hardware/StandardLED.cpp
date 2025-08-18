@@ -5,11 +5,11 @@
  */
 
 #include "clevercoffee/hardware/StandardLED.h"
+
 #include "clevercoffee/hardware/GPIOPin.h"
 
-StandardLED::StandardLED(GPIOPin& gpioInstance, const bool inverted) :
-    gpio(gpioInstance), inverted(inverted), enabled(true) {
-}
+StandardLED::StandardLED(GPIOPin& gpioInstance, const bool inverted)
+    : gpio(gpioInstance), inverted(inverted), enabled(true) {}
 
 void StandardLED::setGPIOState(const bool state) {
     if (enabled) {

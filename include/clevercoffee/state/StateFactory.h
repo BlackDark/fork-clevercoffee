@@ -5,10 +5,11 @@
 
 #pragma once
 
-#include <memory>
 #include "clevercoffee/state/MachineState.h"
 #include "clevercoffee/state/MachineStateIds.h"
 #include "clevercoffee/state/StateInfo.h"
+
+#include <memory>
 
 /**
  * @brief Get singleton state instance by ID using the central state registry.

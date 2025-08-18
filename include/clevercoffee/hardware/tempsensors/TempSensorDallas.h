@@ -7,17 +7,18 @@
 #pragma once
 
 #include "clevercoffee/hardware/tempsensors/TempSensor.h"
+
 #include <DallasTemperature.h>
 
 class TempSensorDallas final : public TempSensor {
-    public:
-        explicit TempSensorDallas(int GPIOPin);
+  public:
+    explicit TempSensorDallas(int GPIOPin);
 
-    protected:
-        bool sample_temperature(double& temperature) const override;
+  protected:
+    bool sample_temperature(double& temperature) const override;
 
-    private:
-        OneWire* oneWire_;
-        DallasTemperature* dallasSensor_;
-        DeviceAddress sensorDeviceAddress_{};
+  private:
+    OneWire*           oneWire_;
+    DallasTemperature* dallasSensor_;
+    DeviceAddress      sensorDeviceAddress_{};
 };

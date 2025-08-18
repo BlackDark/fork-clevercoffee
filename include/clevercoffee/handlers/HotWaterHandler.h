@@ -5,33 +5,34 @@
 
 #pragma once
 
-#include "clevercoffee/handlers/BaseHandler.h"
 #include "clevercoffee/Config.h"
-#include <Logger.h>
 #include "clevercoffee/GlobalState.h"
-#include "clevercoffee/state/MachineState.h"
+#include "clevercoffee/handlers/BaseHandler.h"
 #include "clevercoffee/handlers/PumpTimer.h"
+#include "clevercoffee/state/MachineState.h"
+
+#include <Logger.h>
 
 /**
  * @class HotWaterHandler
  * @brief Simplified hot water handler that works with global state machine
  */
 class HotWaterHandler : public SwitchBasedHandler {
-private:
+  private:
     PumpTimer pumpTimer_;
-    uint8_t lastSwitchReading_ = LOW;
+    uint8_t   lastSwitchReading_ = LOW;
 
-public:
+  public:
     HotWaterHandler()
-        : SwitchBasedHandler("HotWaterHandler", g_state.hardware.hotWaterSwitch)
-        , pumpTimer_(60000) { // 60 second max run time
+        : SwitchBasedHandler("HotWaterHandler", g_state.hardware.hotWaterSwitch),
+          pumpTimer_(60000) { // 60 second max run time
     }
 
     bool isHotWaterActive() const {
         return g_state.machine.machineState == MachineStateId::HOT_WATER_RUNNING;
     }
 
-protected:
+  protected:
     bool isEnabled() const override {
         return Config::getInstance().hardwareSwitchesHotWaterEnabled.get();
     }
@@ -53,12 +54,12 @@ protected:
         checkPumpTimeout();
     }
 
-private:
+  private:
     void processSwitchInput() {
         if (!switch_) return;
 
-        const uint8_t reading = getSwitchReading();
-        const auto switchType = Config::getInstance().hardwareSwitchesHotWaterType.get();
+        const uint8_t reading    = getSwitchReading();
+        const auto    switchType = Config::getInstance().hardwareSwitchesHotWaterType.get();
 
         // Simplified switch processing - just update switch state for now
         // The global state machine will handle the actual hot water logic
@@ -80,7 +81,7 @@ private:
     void checkPumpTimeout() {
         if (pumpTimer_.isExpired() && isHotWaterActive()) {
             logError("Hot water pump timeout - stopping for safety");
-            g_state.machine.flags.requestHotWaterStop = true;  // Use condition flag instead of direct state assignment
+            g_state.machine.flags.requestHotWaterStop = true; // Use condition flag instead of direct state assignment
         }
     }
 };

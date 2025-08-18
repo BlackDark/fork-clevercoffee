@@ -4,34 +4,33 @@
  */
 #pragma once
 
-#include "clevercoffee/handlers/BaseHandler.h"
 #include "clevercoffee/Config.h"
-#include <Logger.h>
 #include "clevercoffee/GlobalState.h"
+#include "clevercoffee/handlers/BaseHandler.h"
+
+#include <Logger.h>
 
 /**
  * @class SteamHandler
  * @brief Modern steam handler using class-based architecture
  */
 class SteamHandler : public SwitchBasedHandler {
-public:
+  public:
     SteamHandler() : SwitchBasedHandler("SteamHandler", g_state.hardware.steamSwitch) {}
 
-protected:
+  protected:
     bool isEnabled() const override {
         return Config::getInstance().hardwareSwitchesSteamEnabled.get();
     }
 
     void processImpl() override {
-        const uint8_t reading = getSwitchReading();
-        const auto switchType = Config::getInstance().hardwareSwitchesSteamType.get();
+        const uint8_t reading    = getSwitchReading();
+        const auto    switchType = Config::getInstance().hardwareSwitchesSteamType.get();
 
         if (switchType == Hardware::SwitchType::TOGGLE) {
             processToggleSwitch(reading, g_state.machine.steamON, g_state.machine.steamFirstON);
-        }
-        else if (switchType == Hardware::SwitchType::MOMENTARY) {
+        } else if (switchType == Hardware::SwitchType::MOMENTARY) {
             processMomentarySwitch(reading, g_state.sensors.currStateSteamSwitch, g_state.machine.steamON);
         }
     }
 };
-

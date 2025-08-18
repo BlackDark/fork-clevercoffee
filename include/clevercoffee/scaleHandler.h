@@ -7,12 +7,13 @@
 #pragma once
 
 #include "clevercoffee/Config.h"
-#include "clevercoffee/state/MachineStateIds.h"
 #include "clevercoffee/display/languages.h"
 #include "clevercoffee/hardware/pinmapping.h"
 #include "clevercoffee/hardware/scales/BluetoothScale.h"
 #include "clevercoffee/hardware/scales/HX711Scale.h"
+#include "clevercoffee/state/MachineStateIds.h"
 #include "clevercoffee/utils/helperUtils.h"
+
 #include <U8g2lib.h> // Required for U8G2 display methods
 
 void displayScaleFailed();
@@ -27,7 +28,8 @@ inline void checkBluetoothScaleConnection() {
     }
 
     // Check connection status periodically for logging/fallback logic
-    if (const unsigned long currentTime = millis(); currentTime - g_state.sensors.lastScaleConnectionCheck > SCALE_CONNECTION_CHECK_INTERVAL) {
+    if (const unsigned long currentTime = millis();
+        currentTime - g_state.sensors.lastScaleConnectionCheck > SCALE_CONNECTION_CHECK_INTERVAL) {
         static_cast<BluetoothScale*>(g_state.hardware.scale.get())->updateConnection();
 
         g_state.sensors.lastScaleConnectionCheck = currentTime;
@@ -35,23 +37,25 @@ inline void checkBluetoothScaleConnection() {
         if (const bool connected = g_state.hardware.scale->isConnected(); !connected) {
             if (!g_state.sensors.scaleConnectionLost) {
                 // Connection just lost
-                g_state.sensors.scaleConnectionLost = true;
+                g_state.sensors.scaleConnectionLost        = true;
                 g_state.sensors.scaleConnectionFailureTime = currentTime;
 
                 LOG(WARNING, "Bluetooth scale connection lost");
 
                 // During active brew, activate fallback mechanism
-                if (isBrewState(g_state.machine.machineState) && g_state.machine.machineState != MachineStateId::BREW_IDLE && g_state.machine.machineState != MachineStateId::BREW_FINISHED) {
+                if (isBrewState(g_state.machine.machineState) &&
+                    g_state.machine.machineState != MachineStateId::BREW_IDLE &&
+                    g_state.machine.machineState != MachineStateId::BREW_FINISHED) {
                     const bool brewByWeightEnabled = Config::getInstance().brewByWeightEnabled.get();
-                    const bool brewByTimeEnabled = Config::getInstance().brewByTimeEnabled.get();
+                    const bool brewByTimeEnabled   = Config::getInstance().brewByTimeEnabled.get();
 
                     if (brewByWeightEnabled && brewByTimeEnabled) {
                         LOG(INFO, "Activating brew-by-time fallback due to scale connection loss");
                         g_state.sensors.brewByWeightFallbackActive = true;
-                    }
-                    else if (brewByWeightEnabled) {
+                    } else if (brewByWeightEnabled) {
                         LOG(WARNING, "BLE Scale connection lost during brew-by-weight only mode, stopping brew");
-                        g_state.machine.flags.requestBrewStop = true;  // Use condition flag instead of direct state assignment
+                        g_state.machine.flags.requestBrewStop =
+                            true; // Use condition flag instead of direct state assignment
                     }
                 }
             }
@@ -63,12 +67,11 @@ inline void checkBluetoothScaleConnection() {
                     g_state.sensors.scaleFailure = true;
                 }
             }
-        }
-        else {
+        } else {
             // Connection restored
             if (g_state.sensors.scaleConnectionLost) {
-                g_state.sensors.scaleConnectionLost = false;
-                g_state.sensors.scaleFailure = false;
+                g_state.sensors.scaleConnectionLost        = false;
+                g_state.sensors.scaleFailure               = false;
                 g_state.sensors.brewByWeightFallbackActive = false;
                 LOG(INFO, "Bluetooth scale connection restored");
             }
@@ -95,7 +98,7 @@ inline float getScaleWeight() {
     }
 
     if (g_state.hardware.scale->update()) {
-        const float weight = g_state.hardware.scale->getWeight();
+        const float weight              = g_state.hardware.scale->getWeight();
         g_state.sensors.lastValidWeight = weight;
         return weight;
     }
@@ -121,8 +124,8 @@ inline void scaleCalibrate(const int cellNumber, const int pin) {
 
     const int scaleSamples = Config::getInstance().hardwareSensorsScaleSamples.get();
 
-    auto* hx711Scale = static_cast<HX711Scale*>(g_state.hardware.scale.get());
-    HX711_ADC* loadCell = hx711Scale->getLoadCell(cellNumber);
+    auto*      hx711Scale = static_cast<HX711Scale*>(g_state.hardware.scale.get());
+    HX711_ADC* loadCell   = hx711Scale->getLoadCell(cellNumber);
 
     if (!loadCell) {
         return;
@@ -145,7 +148,8 @@ inline void scaleCalibrate(const int cellNumber, const int pin) {
 
     const auto scaleKnownWeight = Config::getInstance().hardwareSensorsScaleKnownWeight.get();
 
-    snprintf(msgBuffer, sizeof(msgBuffer), "%s%sg\n", langstring_calibrate_in_progress, number2string(scaleKnownWeight));
+    snprintf(
+        msgBuffer, sizeof(msgBuffer), "%s%sg\n", langstring_calibrate_in_progress, number2string(scaleKnownWeight));
     displayWrappedMessage(msgBuffer);
     delay(10000);
 
@@ -164,8 +168,7 @@ inline void scaleCalibrate(const int cellNumber, const int pin) {
     // Save calibration to config system
     if (cellNumber == 2) {
         Config::getInstance().hardwareSensorsScaleCalibration2.set(calibration);
-    }
-    else {
+    } else {
         Config::getInstance().hardwareSensorsScaleCalibration.set(calibration);
     }
 
@@ -192,7 +195,8 @@ inline void checkWeight() {
         scaleCalibrate(1, PIN_HXDAT);
 
         // Calibrate second cell
-        if (const Hardware::ScaleType scaleType = Config::getInstance().hardwareSensorsScaleType.get(); scaleType == Hardware::ScaleType::HX711_DUAL) {
+        if (const Hardware::ScaleType scaleType = Config::getInstance().hardwareSensorsScaleType.get();
+            scaleType == Hardware::ScaleType::HX711_DUAL) {
             scaleCalibrate(2, PIN_HXDAT2);
         }
 
@@ -238,7 +242,7 @@ inline void shotTimerScale() {
                     g_state.sensors.autoTareInProgress = false;
                 }
 
-                g_state.sensors.preBrewWeight = g_state.sensors.currReadingWeight;
+                g_state.sensors.preBrewWeight    = g_state.sensors.currReadingWeight;
                 g_state.sensors.shottimerCounter = 20;
 
                 // Reset fallback state at start of new brew

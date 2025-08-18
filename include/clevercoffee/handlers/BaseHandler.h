@@ -6,9 +6,10 @@
 #pragma once
 
 #include "clevercoffee/Config.h"
-#include "clevercoffee/hardware/Switch.h"
-#include "clevercoffee/hardware/Relay.h"
 #include "clevercoffee/GlobalState.h"
+#include "clevercoffee/hardware/Relay.h"
+#include "clevercoffee/hardware/Switch.h"
+
 #include <Logger.h>
 
 // TODO do we need this globally?
@@ -35,10 +36,10 @@ inline bool isPowerSwitchOperationAllowed() {
  * - Debug logging infrastructure
  */
 class BaseHandler {
-protected:
+  protected:
     const char* handlerName_;
 
-public:
+  public:
     explicit BaseHandler(const char* name) : handlerName_(name) {}
     virtual ~BaseHandler() = default;
 
@@ -62,7 +63,7 @@ public:
         processImpl();
     }
 
-protected:
+  protected:
     /**
      * @brief Check if this handler is enabled in configuration
      * Override in derived classes
@@ -148,14 +149,13 @@ protected:
  * @brief Specialized base class for switch-based handlers
  */
 class SwitchBasedHandler : public BaseHandler {
-protected:
+  protected:
     Switch* switch_;
 
-public:
-    SwitchBasedHandler(const char* name, Switch* sw)
-        : BaseHandler(name), switch_(sw) {}
+  public:
+    SwitchBasedHandler(const char* name, Switch* sw) : BaseHandler(name), switch_(sw) {}
 
-protected:
+  protected:
     bool isHardwareValid() const override {
         return switch_ != nullptr;
     }
@@ -176,14 +176,13 @@ protected:
         if (reading == HIGH) {
             if (!targetState) {
                 targetState = true;
-                changed = true;
+                changed     = true;
                 logDebug("Toggle switch activated");
             }
-        }
-        else if (reading == LOW && !firstActivation) {
+        } else if (reading == LOW && !firstActivation) {
             if (targetState) {
                 targetState = false;
-                changed = true;
+                changed     = true;
                 logDebug("Toggle switch deactivated");
             }
         }

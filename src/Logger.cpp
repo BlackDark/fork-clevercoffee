@@ -1,10 +1,10 @@
 #include "clevercoffee/Logger.h"
+
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
 
-Logger::Logger(const Config& config) :
-    config_(config), level_(config.initialLevel), server_(config.port) {
+Logger::Logger(const Config& config) : config_(config), level_(config.initialLevel), server_(config.port) {
     memset(logBuffer_, 0, LOG_BUFFER_SIZE);
     memset(timestampBuffer_, 0, TIMESTAMP_BUFFER_SIZE);
     stats_ = {}; // Initialize stats
@@ -74,14 +74,22 @@ uint16_t Logger::getPort() {
 
 const char* Logger::getLevelString(Level level) noexcept {
     switch (level) {
-        case Level::TRACE: return "TRACE";
-        case Level::DEBUG: return "DEBUG";
-        case Level::INFO: return "INFO";
-        case Level::WARNING: return "WARNING";
-        case Level::ERROR: return "ERROR";
-        case Level::FATAL: return "FATAL";
-        case Level::SILENT: return "SILENT";
-        default: return "UNKNOWN";
+        case Level::TRACE:
+            return "TRACE";
+        case Level::DEBUG:
+            return "DEBUG";
+        case Level::INFO:
+            return "INFO";
+        case Level::WARNING:
+            return "WARNING";
+        case Level::ERROR:
+            return "ERROR";
+        case Level::FATAL:
+            return "FATAL";
+        case Level::SILENT:
+            return "SILENT";
+        default:
+            return "UNKNOWN";
     }
 }
 
@@ -96,7 +104,13 @@ bool Logger::formatTimestamp(char* buffer, size_t bufferSize) const {
     return true;
 }
 
-bool Logger::formatLogMessage(Level level, const char* file, const char* function, uint32_t line, const char* message, char* buffer, size_t bufferSize) const {
+bool Logger::formatLogMessage(Level       level,
+                              const char* file,
+                              const char* function,
+                              uint32_t    line,
+                              const char* message,
+                              char*       buffer,
+                              size_t      bufferSize) const {
     // Safety checks
     if (!buffer || bufferSize == 0) {
         return false;
@@ -108,8 +122,8 @@ bool Logger::formatLogMessage(Level level, const char* file, const char* functio
     bool hasTimestamp = formatTimestamp(timestampBuffer_, TIMESTAMP_BUFFER_SIZE);
 
     if (hasTimestamp) {
-        int result = snprintf(buffer, bufferSize, "[%s] [%s] %s\r\n",
-                             timestampBuffer_, getLevelString(level), safeMessage);
+        int result =
+            snprintf(buffer, bufferSize, "[%s] [%s] %s\r\n", timestampBuffer_, getLevelString(level), safeMessage);
         // Check for truncation or error
         if (result < 0 || static_cast<size_t>(result) >= bufferSize) {
             // Buffer too small, add truncation marker
@@ -121,8 +135,7 @@ bool Logger::formatLogMessage(Level level, const char* file, const char* functio
             }
         }
     } else {
-        int result = snprintf(buffer, bufferSize, "[%s] %s\r\n",
-                             getLevelString(level), safeMessage);
+        int result = snprintf(buffer, bufferSize, "[%s] %s\r\n", getLevelString(level), safeMessage);
         // Check for truncation or error
         if (result < 0 || static_cast<size_t>(result) >= bufferSize) {
             // Buffer too small, add truncation marker
@@ -162,7 +175,7 @@ void Logger::sendLogMessage(const char* message) {
     }
 
     // Update statistics
-    auto end_time = micros();
+    auto end_time     = micros();
     stats_.totalTime += (end_time - start_time);
     ++stats_.messagesLogged;
 }

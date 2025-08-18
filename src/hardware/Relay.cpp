@@ -5,17 +5,16 @@
  */
 
 #include "clevercoffee/hardware/Relay.h"
+
 #include "clevercoffee/hardware/GPIOPin.h"
 
-Relay::Relay(GPIOPin& gpioInstance, const Hardware::RelayTriggerType trigger) :
-    gpio(gpioInstance), relayTrigger(trigger) {
-}
+Relay::Relay(GPIOPin& gpioInstance, const Hardware::RelayTriggerType trigger)
+    : gpio(gpioInstance), relayTrigger(trigger) {}
 
 void Relay::on() const noexcept {
     if (relayTrigger == Hardware::RelayTriggerType::HIGH_TRIGGER) {
         gpio.write(HIGH);
-    }
-    else {
+    } else {
         gpio.write(LOW);
     }
 }
@@ -23,8 +22,7 @@ void Relay::on() const noexcept {
 void Relay::off() const noexcept {
     if (relayTrigger == Hardware::RelayTriggerType::HIGH_TRIGGER) {
         gpio.write(LOW);
-    }
-    else {
+    } else {
         gpio.write(HIGH);
     }
 }

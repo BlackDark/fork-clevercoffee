@@ -9,11 +9,12 @@
 
 // Init State
 class InitState : public BaseState<MachineStateId::INIT, InitState> {
-public:
-    void update(MachineStateContext& context) override;
-    void onEntryImpl(MachineStateContext& context) override;
+  public:
+    void          update(MachineStateContext& context) override;
+    void          onEntryImpl(MachineStateContext& context) override;
     MachineState* checkSpecificTransitions(MachineStateContext& context) override;
-private:
+
+  private:
     bool checkWaterTank(MachineStateContext& context) const;
     bool checkSensors(MachineStateContext& context) const;
     bool checkPidConfig(MachineStateContext& context) const;

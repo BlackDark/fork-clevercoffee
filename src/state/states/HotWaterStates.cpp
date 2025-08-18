@@ -4,10 +4,11 @@
  */
 
 #include "clevercoffee/state/states/HotWaterStates.h"
-#include "clevercoffee/state/MachineStateContext.h"
-#include "clevercoffee/state/StateFactory.h"
+
 #include "clevercoffee/GlobalState.h"
 #include "clevercoffee/Logger.h"
+#include "clevercoffee/state/MachineStateContext.h"
+#include "clevercoffee/state/StateFactory.h"
 
 // HotWaterStates Implementation
 void HotWaterIdleState::onEntryImpl(MachineStateContext& context) {
@@ -15,7 +16,8 @@ void HotWaterIdleState::onEntryImpl(MachineStateContext& context) {
 }
 
 void HotWaterIdleState::update(MachineStateContext& context) {
-    LOGF(DEBUG, "Hot Water Idle: Temp=%.1f°C, Tank=%s, Pressure=%.1fbar",
+    LOGF(DEBUG,
+         "Hot Water Idle: Temp=%.1f°C, Tank=%s, Pressure=%.1fbar",
          context.getCurrentTemperature(),
          context.isWaterTankFull() ? "OK" : "EMPTY",
          context.getFilteredPressure());
@@ -40,7 +42,8 @@ void HotWaterRunningState::onEntryImpl(MachineStateContext& context) {
 }
 
 void HotWaterRunningState::update(MachineStateContext& context) {
-    LOGF(DEBUG, "Hot Water Running: Temp=%.1f°C, Pressure=%.1fbar",
+    LOGF(DEBUG,
+         "Hot Water Running: Temp=%.1f°C, Pressure=%.1fbar",
          context.getCurrentTemperature(),
          context.getFilteredPressure());
 }
@@ -73,6 +76,6 @@ MachineState* HotWaterStoppedState::checkSpecificTransitions(MachineStateContext
         context.logStateTransition(getStateId(), MachineStateId::HOT_WATER_IDLE, "Hot water stopped display timeout");
         return getStateInstance(MachineStateId::HOT_WATER_IDLE);
     }
-    
+
     return nullptr;
 }

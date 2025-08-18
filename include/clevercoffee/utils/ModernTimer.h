@@ -17,11 +17,11 @@
  * @brief Type-safe timer using std::chrono for precise timing
  * @tparam Duration Duration type (defaults to std::chrono::milliseconds)
  */
-template<typename Duration = std::chrono::milliseconds>
+template <typename Duration = std::chrono::milliseconds>
 class ModernTimer {
-public:
-    using ClockType = std::chrono::steady_clock;
-    using TimePoint = ClockType::time_point;
+  public:
+    using ClockType    = std::chrono::steady_clock;
+    using TimePoint    = ClockType::time_point;
     using DurationType = Duration;
 
     /** No default constructor */
@@ -33,13 +33,9 @@ public:
      * @param interval Desired interval between calls
      * @param start_paused Whether timer should start paused
      */
-    constexpr ModernTimer(std::function<void()> callback, Duration interval,
-                         bool start_paused = false) noexcept
-        : callback_(std::move(callback))
-        , interval_(interval)
-        , next_(ClockType::now() + interval)
-        , running_(!start_paused)
-        , last_execution_(ClockType::now()) {}
+    constexpr ModernTimer(std::function<void()> callback, Duration interval, bool start_paused = false) noexcept
+        : callback_(std::move(callback)), interval_(interval), next_(ClockType::now() + interval),
+          running_(!start_paused), last_execution_(ClockType::now()) {}
 
     /**
      * @brief Call operator for timer invocation
@@ -150,35 +146,32 @@ public:
         return running_ && ClockType::now() >= next_;
     }
 
-private:
+  private:
     std::function<void()> callback_;
-    Duration interval_;
-    TimePoint next_;
-    TimePoint last_execution_;
-    bool running_;
+    Duration              interval_;
+    TimePoint             next_;
+    TimePoint             last_execution_;
+    bool                  running_;
 };
 
 // Convenient type aliases for common timer types
 using MillisecondTimer = ModernTimer<std::chrono::milliseconds>;
-using SecondTimer = ModernTimer<std::chrono::seconds>;
+using SecondTimer      = ModernTimer<std::chrono::seconds>;
 using MicrosecondTimer = ModernTimer<std::chrono::microseconds>;
 
 // Factory functions for easy timer creation
-template<typename Rep, typename Period>
-constexpr auto make_timer(std::function<void()> callback,
-                         std::chrono::duration<Rep, Period> interval,
-                         bool start_paused = false) noexcept {
+template <typename Rep, typename Period>
+constexpr auto make_timer(std::function<void()>              callback,
+                          std::chrono::duration<Rep, Period> interval,
+                          bool                               start_paused = false) noexcept {
     using DurationType = std::chrono::duration<Rep, Period>;
     return ModernTimer<DurationType>(std::move(callback), interval, start_paused);
 }
 
 // Legacy compatibility function that creates a millisecond timer
 inline auto make_legacy_timer(std::function<void()> callback,
-                             unsigned long interval_ms,
-                             bool start_paused = false) noexcept {
+                              unsigned long         interval_ms,
+                              bool                  start_paused = false) noexcept {
     return ModernTimer<std::chrono::milliseconds>(
-        std::move(callback),
-        std::chrono::milliseconds(interval_ms),
-        start_paused
-    );
+        std::move(callback), std::chrono::milliseconds(interval_ms), start_paused);
 }

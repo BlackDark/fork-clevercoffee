@@ -4,30 +4,24 @@
  */
 
 #include "clevercoffee/network/MQTTManager.h"
-#include "clevercoffee/handlers/BrewHandler.h"
+
 #include "clevercoffee/Config.h"
-#include "clevercoffee/defaults.h"
 #include "clevercoffee/GlobalState.h"
-#include "clevercoffee/utils/helperUtils.h"
 #include "clevercoffee/Logger.h"
+#include "clevercoffee/defaults.h"
+#include "clevercoffee/handlers/BrewHandler.h"
+#include "clevercoffee/utils/helperUtils.h"
+
 #include <Arduino.h>
 #include <cstdio>
 
 // Static instance for callback
 MQTTManager* MQTTManager::instance_ = nullptr;
 
-MQTTManager::MQTTManager() :
-    wifiClient_(std::make_unique<WiFiClient>()),
-    mqttClient_(*wifiClient_),
-    mqttEnabled_(false),
-    serverPort_(1883),
-    lastConnectionAttempt_(0),
-    reconnectCount_(0),
-    previousConnection_(millis()),
-    mqttUpdateRunning_(false),
-    mqttWasConnected_(false),
-    previousMillisMQTT_(0) {
-
+MQTTManager::MQTTManager()
+    : wifiClient_(std::make_unique<WiFiClient>()), mqttClient_(*wifiClient_), mqttEnabled_(false), serverPort_(1883),
+      lastConnectionAttempt_(0), reconnectCount_(0), previousConnection_(millis()), mqttUpdateRunning_(false),
+      mqttWasConnected_(false), previousMillisMQTT_(0) {
     instance_ = this;
     initializeClient();
 }
@@ -37,19 +31,19 @@ bool MQTTManager::setup(const String& hostname) {
 
     // Load MQTT configuration
     const auto& config = Config::getInstance();
-    mqttEnabled_ = Config::getInstance().mqttEnabled.get();
+    mqttEnabled_       = Config::getInstance().mqttEnabled.get();
 
     if (!mqttEnabled_) {
         LOG(INFO, "MQTT is disabled");
         return false;
     }
 
-    serverIP_ = Config::getInstance().mqttBroker.get();
-    serverPort_ = Config::getInstance().mqttPort.get();
-    username_ = Config::getInstance().mqttUsername.get();
-    password_ = Config::getInstance().mqttPassword.get();
-    topicPrefix_ = Config::getInstance().mqttTopic.get();
-    hassioEnabled_ = Config::getInstance().mqttHassioEnabled.get();
+    serverIP_              = Config::getInstance().mqttBroker.get();
+    serverPort_            = Config::getInstance().mqttPort.get();
+    username_              = Config::getInstance().mqttUsername.get();
+    password_              = Config::getInstance().mqttPassword.get();
+    topicPrefix_           = Config::getInstance().mqttTopic.get();
+    hassioEnabled_         = Config::getInstance().mqttHassioEnabled.get();
     hassioDiscoveryPrefix_ = Config::getInstance().mqttHassioPrefix.get();
 
     // Setup topics
@@ -80,19 +74,19 @@ void MQTTManager::checkConnection() {
             reconnectCount_++;
             LOGF(DEBUG, "Attempting MQTT reconnection: %i", reconnectCount_);
 
-            if (mqttClient_.connect(hostname_.c_str(), username_.c_str(), password_.c_str(), topicWill_, 0, true, "offline")) {
+            if (mqttClient_.connect(
+                    hostname_.c_str(), username_.c_str(), password_.c_str(), topicWill_, 0, true, "offline")) {
                 mqttClient_.subscribe(topicSet_);
                 LOGF(DEBUG, "Subscribed to MQTT Topic: %s", topicSet_);
                 reconnectCount_ = 0;
-            }
-            else {
+            } else {
                 LOGF(DEBUG, "Failed to connect to MQTT due to reason: %i", mqttClient_.state());
             }
         }
     }
     // Reset reconnect count after interval
     else if (millis() - previousConnection_ >= reconnectInterval_) {
-        reconnectCount_ = 0;
+        reconnectCount_     = 0;
         previousConnection_ = millis();
     }
 }
@@ -118,7 +112,7 @@ int MQTTManager::publishLargeMessage(const String& topic, const String& largeMes
 
         for (size_t i = 0; i < count; i++) {
             const size_t startIndex = i * splitSize;
-            const size_t endIndex = startIndex + splitSize;
+            const size_t endIndex   = startIndex + splitSize;
             mqttClient_.print(largeMessage.substring(startIndex, endIndex));
         }
 
@@ -127,12 +121,10 @@ int MQTTManager::publishLargeMessage(const String& topic, const String& largeMes
         if (const int publishResult = mqttClient_.endPublish(); publishResult == 0) {
             LOG(WARNING, "[MQTT] PublishLargeMessage sent failed");
             return 1;
-        }
-        else {
+        } else {
             return 0;
         }
-    }
-    else {
+    } else {
         boolean publishResult = mqttClient_.publish(topic.c_str(), largeMessage.c_str());
         return publishResult ? 0 : -1;
     }
@@ -153,9 +145,9 @@ void MQTTManager::messageCallback(const char* topic, const byte* data, unsigned 
     memcpy(data_str, data, length);
     data_str[length] = '\0';
 
-    char topic_pattern[255];
-    char configVar[120];
-    char cmd[64];
+    char   topic_pattern[255];
+    char   configVar[120];
+    char   cmd[64];
     double data_double;
 
     snprintf(topic_pattern, sizeof(topic_pattern), "%s%s/%%[^\\/]/%%[^\\/]", topicPrefix_.c_str(), hostname_.c_str());
@@ -190,20 +182,17 @@ void MQTTManager::assignParameter(char* param, double value) {
             publish(param, number2string(value), true);
             LOGF(DEBUG, "MQTT special parameter %s updated to %f", param, value);
             return;
-        }
-        else if (strcmp(parameterId, "BACKFLUSH_ON") == 0) {
+        } else if (strcmp(parameterId, "BACKFLUSH_ON") == 0) {
             g_state.machine.backflushOn = static_cast<bool>(value);
             publish(param, number2string(value), true);
             LOGF(DEBUG, "MQTT special parameter %s updated to %f", param, value);
             return;
-        }
-        else if (strcmp(parameterId, "TARE_ON") == 0) {
+        } else if (strcmp(parameterId, "TARE_ON") == 0) {
             g_state.sensors.scaleTareOn = static_cast<bool>(value);
             publish(param, number2string(value), true);
             LOGF(DEBUG, "MQTT special parameter %s updated to %f", param, value);
             return;
-        }
-        else if (strcmp(parameterId, "CALIBRATION_ON") == 0) {
+        } else if (strcmp(parameterId, "CALIBRATION_ON") == 0) {
             g_state.sensors.scaleCalibrationOn = static_cast<bool>(value);
             publish(param, number2string(value), true);
             LOGF(DEBUG, "MQTT special parameter %s updated to %f", param, value);
@@ -227,8 +216,7 @@ void MQTTManager::assignParameter(char* param, double value) {
         if (success) {
             publish(param, number2string(value), true);
             LOGF(DEBUG, "MQTT parameter %s (ID: %s) updated to %f", param, parameterId, value);
-        }
-        else {
+        } else {
             LOGF(WARNING, "Failed to update MQTT parameter %s", param);
         }
     } catch (const std::exception& e) {
@@ -245,14 +233,17 @@ void MQTTManager::registerSensor(const char* topic, std::function<double()> call
 }
 
 int MQTTManager::writeSysParamsToMQTT(bool continueOnError) {
-    static auto mqttVarsIt = g_state.network.mqttVars.begin();
+    static auto mqttVarsIt    = g_state.network.mqttVars.begin();
     static auto mqttSensorsIt = g_state.network.mqttSensors.begin();
-    static bool inSensors = false;
+    static bool inSensors     = false;
 
     unsigned long currentMillisMQTT = millis();
     // Check if brewing is active (any non-idle brew state)
-    bool isBrewActive = (isBrewState(g_state.machine.machineState) && g_state.machine.machineState != MachineStateId::BREW_IDLE);
-    unsigned long interval = isBrewActive ? intervalMQTTBrew_ : (g_state.machine.machineState == MachineStateId::STANDBY) ? intervalMQTTStandby_ : intervalMQTT_;
+    bool isBrewActive =
+        (isBrewState(g_state.machine.machineState) && g_state.machine.machineState != MachineStateId::BREW_IDLE);
+    unsigned long interval = isBrewActive                                                ? intervalMQTTBrew_
+                             : (g_state.machine.machineState == MachineStateId::STANDBY) ? intervalMQTTStandby_
+                                                                                         : intervalMQTT_;
 
     if ((currentMillisMQTT - previousMillisMQTT_ < interval) || !mqttEnabled_ || !mqttClient_.connected()) {
         return 0;
@@ -263,17 +254,17 @@ int MQTTManager::writeSysParamsToMQTT(bool continueOnError) {
         publish("status", "online");
     }
 
-    mqttUpdateRunning_ = true;
+    mqttUpdateRunning_  = true;
     unsigned long start = millis();
 
-    char data[256];
-    int errorState = 0;
-    auto& config = Config::getInstance();
+    char  data[256];
+    int   errorState = 0;
+    auto& config     = Config::getInstance();
 
     // Process parameter mappings
     if (!inSensors) {
         while (mqttVarsIt != g_state.network.mqttVars.end()) {
-            const char* mqttTopic = mqttVarsIt->first;
+            const char* mqttTopic   = mqttVarsIt->first;
             const char* parameterId = mqttVarsIt->second;
 
             bool paramFound = false;
@@ -283,20 +274,16 @@ int MQTTManager::writeSysParamsToMQTT(bool continueOnError) {
                 if (strcmp(parameterId, "STEAM_MODE") == 0) {
                     snprintf(data, sizeof(data), "%d", g_state.machine.steamFirstON ? 1 : 0);
                     paramFound = true;
-                }
-                else if (strcmp(parameterId, "BACKFLUSH_ON") == 0) {
+                } else if (strcmp(parameterId, "BACKFLUSH_ON") == 0) {
                     snprintf(data, sizeof(data), "%d", g_state.machine.backflushOn ? 1 : 0);
                     paramFound = true;
-                }
-                else if (strcmp(parameterId, "TARE_ON") == 0) {
+                } else if (strcmp(parameterId, "TARE_ON") == 0) {
                     snprintf(data, sizeof(data), "%d", g_state.sensors.scaleTareOn ? 1 : 0);
                     paramFound = true;
-                }
-                else if (strcmp(parameterId, "CALIBRATION_ON") == 0) {
+                } else if (strcmp(parameterId, "CALIBRATION_ON") == 0) {
                     snprintf(data, sizeof(data), "%d", g_state.sensors.scaleCalibrationOn ? 1 : 0);
                     paramFound = true;
-                }
-                else {
+                } else {
                     ConfigParamDef* paramDef = Config::getInstance().findConfigParameter(parameterId);
                     if (!paramDef) {
                         if (!continueOnError) {
@@ -310,7 +297,7 @@ int MQTTManager::writeSysParamsToMQTT(bool continueOnError) {
 
                     // Get the value as JSON and convert to string
                     JsonDocument paramDoc;
-                    JsonObject paramObj = paramDoc.to<JsonObject>();
+                    JsonObject   paramObj = paramDoc.to<JsonObject>();
                     paramDef->toJson(paramObj);
 
                     if (paramObj["value"].is<JsonVariant>()) {
@@ -318,20 +305,16 @@ int MQTTManager::writeSysParamsToMQTT(bool continueOnError) {
                         if (valueVariant.is<bool>()) {
                             snprintf(data, sizeof(data), "%d", valueVariant.as<bool>() ? 1 : 0);
                             paramFound = true;
-                        }
-                        else if (valueVariant.is<int>()) {
+                        } else if (valueVariant.is<int>()) {
                             snprintf(data, sizeof(data), "%d", valueVariant.as<int>());
                             paramFound = true;
-                        }
-                        else if (valueVariant.is<double>()) {
+                        } else if (valueVariant.is<double>()) {
                             snprintf(data, sizeof(data), "%.2f", valueVariant.as<double>());
                             paramFound = true;
-                        }
-                        else if (valueVariant.is<float>()) {
+                        } else if (valueVariant.is<float>()) {
                             snprintf(data, sizeof(data), "%.2f", valueVariant.as<float>());
                             paramFound = true;
-                        }
-                        else if (valueVariant.is<const char*>()) {
+                        } else if (valueVariant.is<const char*>()) {
                             snprintf(data, sizeof(data), "%s", valueVariant.as<const char*>());
                             paramFound = true;
                         }
@@ -361,8 +344,7 @@ int MQTTManager::writeSysParamsToMQTT(bool continueOnError) {
                         return errorState;
                     }
                     LOGF(WARNING, "Failed to publish parameter %s to MQTT, error: %d", mqttTopic, errorState);
-                }
-                else {
+                } else {
                     mqttLastSent_[mqttTopic] = value;
                     IFLOG(DEBUG) {
                         LOGF(DEBUG, "Published %s = %s to MQTT", mqttTopic, data);
@@ -378,14 +360,14 @@ int MQTTManager::writeSysParamsToMQTT(bool continueOnError) {
         }
 
         mqttVarsIt = g_state.network.mqttVars.begin();
-        inSensors = true;
+        inSensors  = true;
     }
 
     // Process sensor callbacks
     while (mqttSensorsIt != g_state.network.mqttSensors.end()) {
-        const char* topic = mqttSensorsIt->first;
+        const char* topic      = mqttSensorsIt->first;
         const auto& sensorFunc = mqttSensorsIt->second;
-        std::string value = number2string(sensorFunc());
+        std::string value      = number2string(sensorFunc());
 
         if (mqttLastSent_[topic] != value) {
             if (!publish(topic, value.c_str())) {
@@ -393,8 +375,7 @@ int MQTTManager::writeSysParamsToMQTT(bool continueOnError) {
                 if (!continueOnError) {
                     return errorState;
                 }
-            }
-            else {
+            } else {
                 mqttLastSent_[topic] = value;
             }
         }
@@ -407,23 +388,26 @@ int MQTTManager::writeSysParamsToMQTT(bool continueOnError) {
     }
 
     mqttSensorsIt = g_state.network.mqttSensors.begin();
-    inSensors = false;
+    inSensors     = false;
 
     return 0;
 }
 
 // Home Assistant Discovery Implementation
 
-MQTTManager::DiscoveryObject MQTTManager::generateSwitchDevice(const String& name, const String& displayName, const String& payload_on, const String& payload_off) {
+MQTTManager::DiscoveryObject MQTTManager::generateSwitchDevice(const String& name,
+                                                               const String& displayName,
+                                                               const String& payload_on,
+                                                               const String& payload_off) {
     DiscoveryObject switch_device;
 
     // Use fixed-size buffers to avoid String concatenation
     constexpr size_t TOPIC_BUFFER_SIZE = 128;
-    char mqtt_topic[TOPIC_BUFFER_SIZE];
-    char unique_id[TOPIC_BUFFER_SIZE];
-    char switch_discovery_topic[TOPIC_BUFFER_SIZE];
-    char switch_command_topic[TOPIC_BUFFER_SIZE];
-    char switch_state_topic[TOPIC_BUFFER_SIZE];
+    char             mqtt_topic[TOPIC_BUFFER_SIZE];
+    char             unique_id[TOPIC_BUFFER_SIZE];
+    char             switch_discovery_topic[TOPIC_BUFFER_SIZE];
+    char             switch_command_topic[TOPIC_BUFFER_SIZE];
+    char             switch_state_topic[TOPIC_BUFFER_SIZE];
 
     snprintf(mqtt_topic, TOPIC_BUFFER_SIZE, "%s%s", topicPrefix_.c_str(), hostname_.c_str());
     snprintf(unique_id, TOPIC_BUFFER_SIZE, "clevercoffee-%s", hostname_.c_str());
@@ -432,29 +416,30 @@ MQTTManager::DiscoveryObject MQTTManager::generateSwitchDevice(const String& nam
     snprintf(switch_state_topic, TOPIC_BUFFER_SIZE, "%s/%s", mqtt_topic, name.c_str());
 
     char discovery_topic_full[TOPIC_BUFFER_SIZE];
-    snprintf(discovery_topic_full, TOPIC_BUFFER_SIZE, "%s%s/%s/config", switch_discovery_topic, unique_id, name.c_str());
+    snprintf(
+        discovery_topic_full, TOPIC_BUFFER_SIZE, "%s%s/%s/config", switch_discovery_topic, unique_id, name.c_str());
     switch_device.discovery_topic = discovery_topic_full;
 
     JsonDocument deviceMapDoc;
-    deviceMapDoc["identifiers"] = hostname_;
+    deviceMapDoc["identifiers"]  = hostname_;
     deviceMapDoc["manufacturer"] = "CleverCoffee";
-    deviceMapDoc["name"] = hostname_;
+    deviceMapDoc["name"]         = hostname_;
 
     JsonDocument switchConfigDoc;
-    switchConfigDoc["name"] = displayName;
+    switchConfigDoc["name"]          = displayName;
     switchConfigDoc["command_topic"] = switch_command_topic;
-    switchConfigDoc["state_topic"] = switch_state_topic;
+    switchConfigDoc["state_topic"]   = switch_state_topic;
     char unique_id_full[TOPIC_BUFFER_SIZE];
     char availability_topic[TOPIC_BUFFER_SIZE];
     snprintf(unique_id_full, TOPIC_BUFFER_SIZE, "%s-%s", unique_id, name.c_str());
     snprintf(availability_topic, TOPIC_BUFFER_SIZE, "%s/status", mqtt_topic);
 
-    switchConfigDoc["unique_id"] = unique_id_full;
-    switchConfigDoc["payload_on"] = payload_on;
-    switchConfigDoc["payload_off"] = payload_off;
-    switchConfigDoc["payload_available"] = "online";
+    switchConfigDoc["unique_id"]             = unique_id_full;
+    switchConfigDoc["payload_on"]            = payload_on;
+    switchConfigDoc["payload_off"]           = payload_off;
+    switchConfigDoc["payload_available"]     = "online";
     switchConfigDoc["payload_not_available"] = "offline";
-    switchConfigDoc["availability_topic"] = availability_topic;
+    switchConfigDoc["availability_topic"]    = availability_topic;
 
     auto switchDeviceField = switchConfigDoc["device"].to<JsonObject>();
 
@@ -470,31 +455,33 @@ MQTTManager::DiscoveryObject MQTTManager::generateSwitchDevice(const String& nam
     return switch_device;
 }
 
-MQTTManager::DiscoveryObject MQTTManager::generateButtonDevice(const String& name, const String& displayName, const String& payload_press) {
-    String mqtt_topic = String(topicPrefix_) + hostname_;
+MQTTManager::DiscoveryObject MQTTManager::generateButtonDevice(const String& name,
+                                                               const String& displayName,
+                                                               const String& payload_press) {
+    String          mqtt_topic = String(topicPrefix_) + hostname_;
     DiscoveryObject button_device;
-    String unique_id = "clevercoffee-" + hostname_;
-    String buttonDiscoveryTopic = hassioDiscoveryPrefix_ + "/button/";
+    String          unique_id            = "clevercoffee-" + hostname_;
+    String          buttonDiscoveryTopic = hassioDiscoveryPrefix_ + "/button/";
 
     String button_command_topic = mqtt_topic + "/" + name + "/set";
-    String button_state_topic = mqtt_topic + "/" + name;
+    String button_state_topic   = mqtt_topic + "/" + name;
 
     button_device.discovery_topic = buttonDiscoveryTopic + unique_id + "/" + name + "/config";
 
     JsonDocument deviceMapDoc;
-    deviceMapDoc["identifiers"] = hostname_;
+    deviceMapDoc["identifiers"]  = hostname_;
     deviceMapDoc["manufacturer"] = "CleverCoffee";
-    deviceMapDoc["name"] = hostname_;
+    deviceMapDoc["name"]         = hostname_;
 
     JsonDocument buttonConfigDoc;
-    buttonConfigDoc["name"] = displayName;
-    buttonConfigDoc["command_topic"] = button_command_topic;
-    buttonConfigDoc["state_topic"] = button_state_topic;
-    buttonConfigDoc["unique_id"] = unique_id + "-" + name;
-    buttonConfigDoc["payload_press"] = payload_press;
-    buttonConfigDoc["payload_available"] = "online";
+    buttonConfigDoc["name"]                  = displayName;
+    buttonConfigDoc["command_topic"]         = button_command_topic;
+    buttonConfigDoc["state_topic"]           = button_state_topic;
+    buttonConfigDoc["unique_id"]             = unique_id + "-" + name;
+    buttonConfigDoc["payload_press"]         = payload_press;
+    buttonConfigDoc["payload_available"]     = "online";
     buttonConfigDoc["payload_not_available"] = "offline";
-    buttonConfigDoc["availability_topic"] = mqtt_topic + "/status";
+    buttonConfigDoc["availability_topic"]    = mqtt_topic + "/status";
 
     auto buttonDeviceField = buttonConfigDoc["device"].to<JsonObject>();
 
@@ -510,29 +497,32 @@ MQTTManager::DiscoveryObject MQTTManager::generateButtonDevice(const String& nam
     return button_device;
 }
 
-MQTTManager::DiscoveryObject MQTTManager::generateSensorDevice(const String& name, const String& displayName, const String& unit_of_measurement, const String& device_class) {
-    String mqtt_topic = String(topicPrefix_) + hostname_;
+MQTTManager::DiscoveryObject MQTTManager::generateSensorDevice(const String& name,
+                                                               const String& displayName,
+                                                               const String& unit_of_measurement,
+                                                               const String& device_class) {
+    String          mqtt_topic = String(topicPrefix_) + hostname_;
     DiscoveryObject sensor_device;
-    String unique_id = "clevercoffee-" + hostname_;
-    String SensorDiscoveryTopic = hassioDiscoveryPrefix_ + "/sensor/";
+    String          unique_id            = "clevercoffee-" + hostname_;
+    String          SensorDiscoveryTopic = hassioDiscoveryPrefix_ + "/sensor/";
 
-    String sensor_state_topic = mqtt_topic + "/" + name;
+    String sensor_state_topic     = mqtt_topic + "/" + name;
     sensor_device.discovery_topic = SensorDiscoveryTopic + unique_id + "/" + name + "/config";
 
     JsonDocument deviceMapDoc;
-    deviceMapDoc["identifiers"] = hostname_;
+    deviceMapDoc["identifiers"]  = hostname_;
     deviceMapDoc["manufacturer"] = "CleverCoffee";
-    deviceMapDoc["name"] = hostname_;
+    deviceMapDoc["name"]         = hostname_;
 
     JsonDocument sensorConfigDoc;
-    sensorConfigDoc["name"] = displayName;
-    sensorConfigDoc["state_topic"] = sensor_state_topic;
-    sensorConfigDoc["unique_id"] = unique_id + "-" + name;
-    sensorConfigDoc["unit_of_measurement"] = unit_of_measurement;
-    sensorConfigDoc["device_class"] = device_class;
-    sensorConfigDoc["payload_available"] = "online";
+    sensorConfigDoc["name"]                  = displayName;
+    sensorConfigDoc["state_topic"]           = sensor_state_topic;
+    sensorConfigDoc["unique_id"]             = unique_id + "-" + name;
+    sensorConfigDoc["unit_of_measurement"]   = unit_of_measurement;
+    sensorConfigDoc["device_class"]          = device_class;
+    sensorConfigDoc["payload_available"]     = "online";
     sensorConfigDoc["payload_not_available"] = "offline";
-    sensorConfigDoc["availability_topic"] = mqtt_topic + "/status";
+    sensorConfigDoc["availability_topic"]    = mqtt_topic + "/status";
 
     auto sensorDeviceField = sensorConfigDoc["device"].to<JsonObject>();
 
@@ -548,32 +538,38 @@ MQTTManager::DiscoveryObject MQTTManager::generateSensorDevice(const String& nam
     return sensor_device;
 }
 
-MQTTManager::DiscoveryObject MQTTManager::generateNumberDevice(const String& name, const String& displayName, int min_value, int max_value, float steps_value, const String& unit_of_measurement, const String& ui_mode) {
-    String mqtt_topic = String(topicPrefix_) + hostname_;
+MQTTManager::DiscoveryObject MQTTManager::generateNumberDevice(const String& name,
+                                                               const String& displayName,
+                                                               int           min_value,
+                                                               int           max_value,
+                                                               float         steps_value,
+                                                               const String& unit_of_measurement,
+                                                               const String& ui_mode) {
+    String          mqtt_topic = String(topicPrefix_) + hostname_;
     DiscoveryObject number_device;
-    String unique_id = "clevercoffee-" + hostname_;
+    String          unique_id = "clevercoffee-" + hostname_;
 
-    String NumberDiscoveryTopic = String(hassioDiscoveryPrefix_) + "/number/";
+    String NumberDiscoveryTopic   = String(hassioDiscoveryPrefix_) + "/number/";
     number_device.discovery_topic = NumberDiscoveryTopic + unique_id + "/" + name + "/config";
 
     JsonDocument deviceMapDoc;
-    deviceMapDoc["identifiers"] = hostname_;
+    deviceMapDoc["identifiers"]  = hostname_;
     deviceMapDoc["manufacturer"] = "CleverCoffee";
-    deviceMapDoc["name"] = hostname_;
+    deviceMapDoc["name"]         = hostname_;
 
     JsonDocument numberConfigDoc;
-    numberConfigDoc["name"] = displayName;
-    numberConfigDoc["command_topic"] = mqtt_topic + "/" + name + "/set";
-    numberConfigDoc["state_topic"] = mqtt_topic + "/" + name;
-    numberConfigDoc["unique_id"] = unique_id + "-" + name;
-    numberConfigDoc["min"] = min_value;
-    numberConfigDoc["max"] = max_value;
-    numberConfigDoc["step"] = String(steps_value, 2);
-    numberConfigDoc["unit_of_measurement"] = unit_of_measurement;
-    numberConfigDoc["mode"] = ui_mode;
-    numberConfigDoc["payload_available"] = "online";
+    numberConfigDoc["name"]                  = displayName;
+    numberConfigDoc["command_topic"]         = mqtt_topic + "/" + name + "/set";
+    numberConfigDoc["state_topic"]           = mqtt_topic + "/" + name;
+    numberConfigDoc["unique_id"]             = unique_id + "-" + name;
+    numberConfigDoc["min"]                   = min_value;
+    numberConfigDoc["max"]                   = max_value;
+    numberConfigDoc["step"]                  = String(steps_value, 2);
+    numberConfigDoc["unit_of_measurement"]   = unit_of_measurement;
+    numberConfigDoc["mode"]                  = ui_mode;
+    numberConfigDoc["payload_available"]     = "online";
     numberConfigDoc["payload_not_available"] = "offline";
-    numberConfigDoc["availability_topic"] = mqtt_topic + "/status";
+    numberConfigDoc["availability_topic"]    = mqtt_topic + "/status";
 
     auto numberDeviceField = numberConfigDoc["device"].to<JsonObject>();
 
@@ -617,22 +613,30 @@ int MQTTManager::sendHASSIODiscoveryMsg() {
         return -1;
     }
 
-    int failures = 0;
-    const auto& config = Config::getInstance();
+    int         failures = 0;
+    const auto& config   = Config::getInstance();
 
     // Always published devices
     failures += publishDiscovery(generateSensorDevice("machineState", "Machine State", "", "enum"));
     failures += publishDiscovery(generateSensorDevice("temperature", "Boiler Temperature", "°C", "temperature"));
     failures += publishDiscovery(generateSensorDevice("heaterPower", "Heater Power", "%", "power_factor"));
 
-    failures += publishDiscovery(generateNumberDevice("brewSetpoint", "Brew setpoint", BREW_SETPOINT_MIN, BREW_SETPOINT_MAX, 0.1, "°C"));
-    failures += publishDiscovery(generateNumberDevice("steamSetpoint", "Steam setpoint", STEAM_SETPOINT_MIN, STEAM_SETPOINT_MAX, 0.1, "°C"));
-    failures += publishDiscovery(generateNumberDevice("brewTempOffset", "Brew Temp. Offset", BREW_TEMP_OFFSET_MIN, BREW_TEMP_OFFSET_MAX, 0.1, "°C"));
-    failures += publishDiscovery(generateNumberDevice("steamKp", "Steam Kp", PID_KP_STEAM_MIN, PID_KP_STEAM_MAX, 0.1, ""));
-    failures += publishDiscovery(generateNumberDevice("aggKp", "aggKp", PID_KP_REGULAR_MIN, PID_KP_REGULAR_MAX, 0.1, ""));
-    failures += publishDiscovery(generateNumberDevice("aggTn", "aggTn", PID_TN_REGULAR_MIN, PID_TN_REGULAR_MAX, 0.1, ""));
-    failures += publishDiscovery(generateNumberDevice("aggTv", "aggTv", PID_TV_REGULAR_MIN, PID_TV_REGULAR_MAX, 0.1, ""));
-    failures += publishDiscovery(generateNumberDevice("aggIMax", "aggIMax", PID_I_MAX_REGULAR_MIN, PID_I_MAX_REGULAR_MAX, 0.1, ""));
+    failures += publishDiscovery(
+        generateNumberDevice("brewSetpoint", "Brew setpoint", BREW_SETPOINT_MIN, BREW_SETPOINT_MAX, 0.1, "°C"));
+    failures += publishDiscovery(
+        generateNumberDevice("steamSetpoint", "Steam setpoint", STEAM_SETPOINT_MIN, STEAM_SETPOINT_MAX, 0.1, "°C"));
+    failures += publishDiscovery(generateNumberDevice(
+        "brewTempOffset", "Brew Temp. Offset", BREW_TEMP_OFFSET_MIN, BREW_TEMP_OFFSET_MAX, 0.1, "°C"));
+    failures +=
+        publishDiscovery(generateNumberDevice("steamKp", "Steam Kp", PID_KP_STEAM_MIN, PID_KP_STEAM_MAX, 0.1, ""));
+    failures +=
+        publishDiscovery(generateNumberDevice("aggKp", "aggKp", PID_KP_REGULAR_MIN, PID_KP_REGULAR_MAX, 0.1, ""));
+    failures +=
+        publishDiscovery(generateNumberDevice("aggTn", "aggTn", PID_TN_REGULAR_MIN, PID_TN_REGULAR_MAX, 0.1, ""));
+    failures +=
+        publishDiscovery(generateNumberDevice("aggTv", "aggTv", PID_TV_REGULAR_MIN, PID_TV_REGULAR_MAX, 0.1, ""));
+    failures += publishDiscovery(
+        generateNumberDevice("aggIMax", "aggIMax", PID_I_MAX_REGULAR_MIN, PID_I_MAX_REGULAR_MAX, 0.1, ""));
 
     failures += publishDiscovery(generateSwitchDevice("pidON", "Use PID"));
     failures += publishDiscovery(generateSwitchDevice("steamON", "Steam"));
@@ -641,13 +645,24 @@ int MQTTManager::sendHASSIODiscoveryMsg() {
     // Conditional devices
     if (Config::getInstance().hardwareSwitchesBrewEnabled.get()) {
         failures += publishDiscovery(generateSensorDevice("currBrewTime", "Current Brew Time ", "s", "duration"));
-        failures += publishDiscovery(generateNumberDevice("brewPidDelay", "Brew Pid Delay", BREW_PID_DELAY_MIN, BREW_PID_DELAY_MAX, 0.1, "s"));
-        failures += publishDiscovery(generateNumberDevice("targetBrewTime", "Target Brew time", TARGET_BREW_TIME_MIN, TARGET_BREW_TIME_MAX, 0.1, "s"));
-        failures += publishDiscovery(generateNumberDevice("preinfusion", "Preinfusion filling time", PRE_INFUSION_TIME_MIN, PRE_INFUSION_TIME_MAX, 0.1, "s"));
-        failures += publishDiscovery(generateNumberDevice("preinfusionPause", "Preinfusion pause time", PRE_INFUSION_PAUSE_MIN, PRE_INFUSION_PAUSE_MAX, 0.1, "s"));
-        failures += publishDiscovery(generateNumberDevice("backflushCycles", "Backflush Cycles", BACKFLUSH_CYCLES_MIN, BACKFLUSH_CYCLES_MAX, 1, ""));
-        failures += publishDiscovery(generateNumberDevice("backflushFillTime", "Backflush filling time", BACKFLUSH_FILL_TIME_MIN, BACKFLUSH_FILL_TIME_MAX, 0.1, "s"));
-        failures += publishDiscovery(generateNumberDevice("backflushFlushTime", "Backflush flushing time", BACKFLUSH_FLUSH_TIME_MIN, BACKFLUSH_FLUSH_TIME_MAX, 0.1, "s"));
+        failures += publishDiscovery(
+            generateNumberDevice("brewPidDelay", "Brew Pid Delay", BREW_PID_DELAY_MIN, BREW_PID_DELAY_MAX, 0.1, "s"));
+        failures += publishDiscovery(generateNumberDevice(
+            "targetBrewTime", "Target Brew time", TARGET_BREW_TIME_MIN, TARGET_BREW_TIME_MAX, 0.1, "s"));
+        failures += publishDiscovery(generateNumberDevice(
+            "preinfusion", "Preinfusion filling time", PRE_INFUSION_TIME_MIN, PRE_INFUSION_TIME_MAX, 0.1, "s"));
+        failures += publishDiscovery(generateNumberDevice(
+            "preinfusionPause", "Preinfusion pause time", PRE_INFUSION_PAUSE_MIN, PRE_INFUSION_PAUSE_MAX, 0.1, "s"));
+        failures += publishDiscovery(generateNumberDevice(
+            "backflushCycles", "Backflush Cycles", BACKFLUSH_CYCLES_MIN, BACKFLUSH_CYCLES_MAX, 1, ""));
+        failures += publishDiscovery(generateNumberDevice(
+            "backflushFillTime", "Backflush filling time", BACKFLUSH_FILL_TIME_MIN, BACKFLUSH_FILL_TIME_MAX, 0.1, "s"));
+        failures += publishDiscovery(generateNumberDevice("backflushFlushTime",
+                                                          "Backflush flushing time",
+                                                          BACKFLUSH_FLUSH_TIME_MIN,
+                                                          BACKFLUSH_FLUSH_TIME_MAX,
+                                                          0.1,
+                                                          "s"));
         failures += publishDiscovery(generateSwitchDevice("backflushOn", "Backflush"));
     }
 
@@ -656,7 +671,8 @@ int MQTTManager::sendHASSIODiscoveryMsg() {
         failures += publishDiscovery(generateSensorDevice("currBrewWeight", "current Brew Weight", "g", "weight"));
         failures += publishDiscovery(generateButtonDevice("scaleCalibrationOn", "Calibrate Scale"));
         failures += publishDiscovery(generateButtonDevice("scaleTareOn", "Tare Scale"));
-        failures += publishDiscovery(generateNumberDevice("targetBrewWeight", "Brew Weight Target", TARGET_BREW_WEIGHT_MIN, TARGET_BREW_WEIGHT_MAX, 0.1, "g"));
+        failures += publishDiscovery(generateNumberDevice(
+            "targetBrewWeight", "Brew Weight Target", TARGET_BREW_WEIGHT_MIN, TARGET_BREW_WEIGHT_MAX, 0.1, "g"));
     }
 
     if (Config::getInstance().hardwareSensorsPressureEnabled.get()) {
@@ -666,8 +682,7 @@ int MQTTManager::sendHASSIODiscoveryMsg() {
     if (failures > 0) {
         LOGF(DEBUG, "Hassio failed to send %d entries", failures);
         g_state.network.hassioFailed = true;
-    }
-    else {
+    } else {
         LOG(DEBUG, "Hassio send successful");
         g_state.network.hassioFailed = false;
         return 0;

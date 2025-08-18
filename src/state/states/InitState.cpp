@@ -4,9 +4,10 @@
  */
 
 #include "clevercoffee/state/states/InitState.h"
+
+#include "clevercoffee/Logger.h"
 #include "clevercoffee/state/MachineStateContext.h"
 #include "clevercoffee/state/StateFactory.h"
-#include "clevercoffee/Logger.h"
 
 // InitState Implementation
 void InitState::onEntryImpl(MachineStateContext& context) {
@@ -14,7 +15,11 @@ void InitState::onEntryImpl(MachineStateContext& context) {
 }
 
 void InitState::update(MachineStateContext& context) {
-    LOGF(DEBUG, "Init state: Water tank: %s, Sensors: %s, PID: %s", checkWaterTank(context) ? "OK" : "EMPTY", checkSensors(context) ? "OK" : "ERROR", checkPidConfig(context) ? "ENABLED" : "DISABLED");
+    LOGF(DEBUG,
+         "Init state: Water tank: %s, Sensors: %s, PID: %s",
+         checkWaterTank(context) ? "OK" : "EMPTY",
+         checkSensors(context) ? "OK" : "ERROR",
+         checkPidConfig(context) ? "ENABLED" : "DISABLED");
 }
 
 MachineState* InitState::checkSpecificTransitions(MachineStateContext& context) {

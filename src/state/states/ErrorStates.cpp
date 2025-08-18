@@ -4,16 +4,17 @@
  */
 
 #include "clevercoffee/state/states/ErrorStates.h"
+
+#include "clevercoffee/Logger.h"
 #include "clevercoffee/state/MachineStateContext.h"
 #include "clevercoffee/state/StateFactory.h"
-#include "clevercoffee/Logger.h"
 
 // ErrorStates Implementation
 void SensorErrorState::onEntryImpl(MachineStateContext& context) {
     LOG(ERROR, "Sensor error detected - entering safe mode");
     context.enterSafeMode();
-    errorStartTime_ = millis();
-    recoveryAttempts_ = 1;  // Reset to 1 for this error episode
+    errorStartTime_   = millis();
+    recoveryAttempts_ = 1; // Reset to 1 for this error episode
     LOGF(INFO, "Sensor error recovery attempt %u/%u", recoveryAttempts_, MAX_RECOVERY_ATTEMPTS);
 }
 
@@ -23,9 +24,11 @@ void SensorErrorState::onExitImpl(MachineStateContext& context) {
 }
 
 void SensorErrorState::update(MachineStateContext& context) {
-    unsigned long currentTime = millis();
+    unsigned long currentTime   = millis();
     unsigned long errorDuration = currentTime - errorStartTime_;
-    LOGF(DEBUG, "Sensor Error: Duration=%lums, Recovery=%s", errorDuration,
+    LOGF(DEBUG,
+         "Sensor Error: Duration=%lums, Recovery=%s",
+         errorDuration,
          context.hasSensorError() ? "PENDING" : "RESOLVED");
 }
 
@@ -35,7 +38,7 @@ MachineState* SensorErrorState::checkSpecificTransitions(MachineStateContext& co
         return getStateInstance(MachineStateId::EMERGENCY_STOP);
     }
     if (!context.hasSensorError() && !context.hasTemperatureError()) {
-        unsigned long errorDuration = millis() - errorStartTime_;
+        unsigned long           errorDuration     = millis() - errorStartTime_;
         constexpr unsigned long RECOVERY_DELAY_MS = 5000;
         if (errorDuration > RECOVERY_DELAY_MS) {
             if (context.isPidEnabled()) {
@@ -47,12 +50,12 @@ MachineState* SensorErrorState::checkSpecificTransitions(MachineStateContext& co
     } else {
         errorStartTime_ = millis();
     }
-    unsigned long errorDuration = millis() - errorStartTime_;
+    unsigned long           errorDuration         = millis() - errorStartTime_;
     constexpr unsigned long MAX_ERROR_DURATION_MS = 60000;
     if (errorDuration > MAX_ERROR_DURATION_MS || recoveryAttempts_ >= MAX_RECOVERY_ATTEMPTS) {
-        const char* reason = (recoveryAttempts_ >= MAX_RECOVERY_ATTEMPTS) ?
-            "Too many sensor recovery attempts - disabling PID for safety" :
-            "Persistent sensor error - disabling PID for safety";
+        const char* reason = (recoveryAttempts_ >= MAX_RECOVERY_ATTEMPTS)
+                                 ? "Too many sensor recovery attempts - disabling PID for safety"
+                                 : "Persistent sensor error - disabling PID for safety";
         context.logStateTransition(getStateId(), MachineStateId::PID_DISABLED, reason);
         context.setPidRuntimeState(false);
         return getStateInstance(MachineStateId::PID_DISABLED);
@@ -65,14 +68,16 @@ void WaterTankEmptyState::onEntryImpl(MachineStateContext& context) {
 }
 
 void WaterTankEmptyState::update(MachineStateContext& context) {
-    LOGF(DEBUG, "Water Tank Empty: Tank=%s, Temp=%.1f°C",
+    LOGF(DEBUG,
+         "Water Tank Empty: Tank=%s, Temp=%.1f°C",
          context.isWaterTankFull() ? "FILLED" : "EMPTY",
          context.getCurrentTemperature());
 }
 
 MachineState* WaterTankEmptyState::checkSpecificTransitions(MachineStateContext& context) {
     if (context.isEmergencyStop()) {
-        context.logStateTransition(getStateId(), MachineStateId::EMERGENCY_STOP, "Emergency stop during water tank empty");
+        context.logStateTransition(
+            getStateId(), MachineStateId::EMERGENCY_STOP, "Emergency stop during water tank empty");
         return getStateInstance(MachineStateId::EMERGENCY_STOP);
     }
     if (context.isWaterTankFull()) {
@@ -113,7 +118,8 @@ MachineState* EepromErrorState::checkSpecificTransitions(MachineStateContext& co
     constexpr unsigned long EEPROM_RECOVERY_TIMEOUT = 300000;
     if (millis() - eepromErrorStartTime > EEPROM_RECOVERY_TIMEOUT) {
         eepromErrorStartTime = 0;
-        context.logStateTransition(getStateId(), MachineStateId::PID_DISABLED, "EEPROM recovery timeout - attempting recovery");
+        context.logStateTransition(
+            getStateId(), MachineStateId::PID_DISABLED, "EEPROM recovery timeout - attempting recovery");
         return getStateInstance(MachineStateId::PID_DISABLED);
     }
     return nullptr;

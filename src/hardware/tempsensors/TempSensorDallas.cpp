@@ -7,7 +7,7 @@
 #include "clevercoffee/hardware/tempsensors/TempSensorDallas.h"
 
 TempSensorDallas::TempSensorDallas(const int GPIOPin) {
-    oneWire_ = new OneWire(GPIOPin);
+    oneWire_      = new OneWire(GPIOPin);
     dallasSensor_ = new DallasTemperature(oneWire_);
     dallasSensor_->begin();
     dallasSensor_->getAddress(sensorDeviceAddress_, 0);
@@ -18,7 +18,6 @@ TempSensorDallas::TempSensorDallas(const int GPIOPin) {
 }
 
 bool TempSensorDallas::sample_temperature(double& temperature) const {
-
     // Read temperature from device
     const auto temp = dallasSensor_->getTempC(sensorDeviceAddress_);
 
@@ -37,7 +36,8 @@ bool TempSensorDallas::sample_temperature(double& temperature) const {
     temperature = temp;
 
     // Request next temperature conversion from device, to be read the next time
-    // For 10-bit resolution the conversion takes around 188ms and our temperature reading timer clocks at 400ms - checks out!
+    // For 10-bit resolution the conversion takes around 188ms and our temperature reading timer clocks at 400ms -
+    // checks out!
     dallasSensor_->requestTemperaturesByAddress(sensorDeviceAddress_);
 
     return true;

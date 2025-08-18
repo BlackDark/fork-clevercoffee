@@ -5,16 +5,20 @@
  */
 
 #include "clevercoffee/hardware/IOSwitch.h"
-#include "clevercoffee/hardware/GPIOPin.h"
-#include "clevercoffee/Logger.h"
 
-IOSwitch::IOSwitch(const int pinNumber, const GPIOPin::Type pinType, const Hardware::SwitchType switchType, const Hardware::SwitchMode mode, const uint8_t initialState) :
-    Switch(switchType, mode), gpio(pinNumber, pinType), lastState(initialState), currentState(LOW) {
-}
+#include "clevercoffee/Logger.h"
+#include "clevercoffee/hardware/GPIOPin.h"
+
+IOSwitch::IOSwitch(const int                  pinNumber,
+                   const GPIOPin::Type        pinType,
+                   const Hardware::SwitchType switchType,
+                   const Hardware::SwitchMode mode,
+                   const uint8_t              initialState)
+    : Switch(switchType, mode), gpio(pinNumber, pinType), lastState(initialState), currentState(LOW) {}
 
 bool IOSwitch::isPressed() {
-    const uint8_t reading = gpio.read();
-    const auto currentTime = std::chrono::steady_clock::now();
+    const uint8_t reading     = gpio.read();
+    const auto    currentTime = std::chrono::steady_clock::now();
 
     if (reading != lastState) {
         lastDebounceTime = currentTime;
@@ -28,8 +32,7 @@ bool IOSwitch::isPressed() {
 
             if (currentState == LOW) {
                 lastStateChangeTime = currentTime;
-            }
-            else {
+            } else {
                 pressStartTime = currentTime;
             }
         }
@@ -40,8 +43,7 @@ bool IOSwitch::isPressed() {
     if (type_ == Hardware::SwitchType::MOMENTARY) {
         if (currentState == HIGH && (currentTime - pressStartTime) >= longPressDuration) {
             longPressTriggered = true;
-        }
-        else if (currentState == LOW && lastStateChangeTime == currentTime) {
+        } else if (currentState == LOW && lastStateChangeTime == currentTime) {
             longPressTriggered = false;
         }
     }

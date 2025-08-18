@@ -4,10 +4,11 @@
  */
 
 #include "clevercoffee/state/states/PidStates.h"
-#include "clevercoffee/state/MachineStateContext.h"
-#include "clevercoffee/state/StateFactory.h"
+
 #include "clevercoffee/GlobalState.h"
 #include "clevercoffee/Logger.h"
+#include "clevercoffee/state/MachineStateContext.h"
+#include "clevercoffee/state/StateFactory.h"
 
 // PidNormalState Implementation
 void PidNormalState::onEntryImpl(MachineStateContext& context) {
@@ -72,7 +73,8 @@ void PidDisabledState::onEntryImpl(MachineStateContext& context) {
 }
 
 void PidDisabledState::update(MachineStateContext& context) {
-    LOGF(DEBUG, "PID Disabled: Temp=%.1f°C, PidEnabled=%s",
+    LOGF(DEBUG,
+         "PID Disabled: Temp=%.1f°C, PidEnabled=%s",
          context.getCurrentTemperature(),
          context.isPidEnabled() ? "YES" : "NO");
 }

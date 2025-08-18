@@ -4,12 +4,13 @@
  */
 
 #include "clevercoffee/scaleHandler.h"
+
 #include "clevercoffee/Config.h"
+#include "clevercoffee/GlobalState.h"
 #include "clevercoffee/Logger.h"
 #include "clevercoffee/hardware/pinmapping.h"
 #include "clevercoffee/hardware/scales/BluetoothScale.h"
 #include "clevercoffee/hardware/scales/HX711Scale.h"
-#include "clevercoffee/GlobalState.h"
 
 // Simple stub to avoid circular dependency with displayCommon.h
 void displayScaleFailed() {
@@ -19,29 +20,27 @@ void displayScaleFailed() {
 }
 
 void initScale() {
-    const Hardware::ScaleType scaleType = Config::getInstance().hardwareSensorsScaleType.get();
-    const int scaleSamples = Config::getInstance().hardwareSensorsScaleSamples.get();
+    const Hardware::ScaleType scaleType    = Config::getInstance().hardwareSensorsScaleType.get();
+    const int                 scaleSamples = Config::getInstance().hardwareSensorsScaleSamples.get();
 
     // Clean up existing scale (unique_ptr automatically deletes)
     g_state.hardware.scale.reset();
 
     if (scaleType == Hardware::ScaleType::BLUETOOTH) { // Bluetooth scale
-        g_state.hardware.scale = std::make_unique<BluetoothScale>();
+        g_state.hardware.scale            = std::make_unique<BluetoothScale>();
         g_state.hardware.isBluetoothScale = true;
 
         LOG(INFO, "Initializing Bluetooth scale");
 
         g_state.hardware.scale->init();
-    }
-    else {
+    } else {
         // HX711 scale types
         const float cal1 = Config::getInstance().hardwareSensorsScaleCalibration.get();
         const float cal2 = Config::getInstance().hardwareSensorsScaleCalibration2.get();
 
         if (scaleType == Hardware::ScaleType::HX711_DUAL) { // Dual load cell
             g_state.hardware.scale = std::make_unique<HX711Scale>(PIN_HXDAT, PIN_HXDAT2, PIN_HXCLK, cal1, cal2);
-        }
-        else {                                              // Single load cell
+        } else {                                            // Single load cell
             g_state.hardware.scale = std::make_unique<HX711Scale>(PIN_HXDAT, PIN_HXCLK, cal1);
         }
 
@@ -62,12 +61,12 @@ void initScale() {
     }
 
     // Reset connection state
-    g_state.sensors.scaleConnectionLost = false;
-    g_state.sensors.scaleFailure = false;
+    g_state.sensors.scaleConnectionLost        = false;
+    g_state.sensors.scaleFailure               = false;
     g_state.sensors.brewByWeightFallbackActive = false;
-    g_state.sensors.lastScaleConnectionCheck = 0;
+    g_state.sensors.lastScaleConnectionCheck   = 0;
     g_state.sensors.scaleConnectionFailureTime = 0;
-    g_state.sensors.lastValidWeight = 0;
+    g_state.sensors.lastValidWeight            = 0;
 
     g_state.sensors.scaleCalibrationOn = false;
 

@@ -7,14 +7,15 @@
 #pragma once
 
 #include "clevercoffee/Config.h"
+#include "clevercoffee/GlobalState.h"
+#include "clevercoffee/display/bitmaps.h"
+#include "clevercoffee/display/languages.h"
 #include "clevercoffee/handlers/BrewHandler.h"
 #include "clevercoffee/handlers/HotWaterHandler.h"
 #include "clevercoffee/network/CleverCoffeeWiFiManager.h"
-#include "clevercoffee/GlobalState.h"
 #include "clevercoffee/state/MachineStateIds.h"
 #include "clevercoffee/utils/SystemUtils.h"
-#include "clevercoffee/display/bitmaps.h"
-#include "clevercoffee/display/languages.h"
+
 #include <PID_v1.h>  // Required for PID methods in display templates
 #include <U8g2lib.h> // Required for U8G2 display methods
 
@@ -44,11 +45,12 @@ inline void displayScaleFailed() {
         g_state.hardware.display->drawStr(0, 52, "not");
         g_state.hardware.display->drawStr(0, 62, "working...");
         g_state.hardware.display->sendBuffer();
-    }
-    else {
+    } else {
         g_state.hardware.display->clearBuffer();
         g_state.hardware.display->drawStr(0, 32, "failed!");
-        g_state.hardware.display->drawStr(0, 42, "Scale not working..."); // scale timeout will most likely trigger after OTA update, but will still work after boot
+        g_state.hardware.display->drawStr(
+            0, 42, "Scale not working..."); // scale timeout will most likely trigger after OTA update, but will still
+                                            // work after boot
         g_state.hardware.display->sendBuffer();
     }
 }
@@ -58,10 +60,10 @@ inline void displayScaleFailed() {
  */
 inline void displayUptime(const int x, const int y, const char* format) {
     // Show uptime of machine
-    unsigned long seconds = millis() / 1000;
-    const unsigned long hours = seconds / 3600;
+    unsigned long       seconds = millis() / 1000;
+    const unsigned long hours   = seconds / 3600;
     const unsigned long minutes = seconds % 3600 / 60;
-    seconds = seconds % 60;
+    seconds                     = seconds % 60;
 
     char uptimeString[9];
     snprintf(uptimeString, sizeof(uptimeString), format, hours, minutes, seconds);
@@ -80,14 +82,12 @@ inline void displayWiFiStatus(const int x, const int y) {
         for (int b = 0; b <= g_state.network.cleverCoffeeWiFiManager->getSignalStrength(); b++) {
             g_state.hardware.display->drawVLine(x + 5 + b * 2, y + 8 - b * 2, b * 2);
         }
-    }
-    else {
+    } else {
         g_state.hardware.display->drawXBMP(x, y, 8, 8, Antenna_NOK_Icon);
 
         if (Config::getInstance().displayTemplate.get() == System::DisplayTemplate::UPRIGHT) {
             g_state.hardware.display->setCursor(x + 12, y - 1);
-        }
-        else {
+        } else {
             g_state.hardware.display->setCursor(x + 36, y - 1);
         }
 
@@ -110,8 +110,7 @@ inline void displayMQTTStatus(const int x, const int y) {
             if (g_state.network.cleverCoffeeWiFiManager->getSignalStrength() <= 1) {
                 g_state.hardware.display->print("!");
             }
-        }
-        else {
+        } else {
             g_state.hardware.display->setCursor(x, y);
             g_state.hardware.display->print("");
         }
@@ -162,8 +161,7 @@ inline void displayTemperature(const int x, const int y) {
     if (g_state.process.temperature < 99.499) {
         g_state.hardware.display->setCursor(x + 20, y);
         g_state.hardware.display->print(g_state.process.temperature, 0);
-    }
-    else {
+    } else {
         g_state.hardware.display->setCursor(x, y);
         g_state.hardware.display->print(g_state.process.temperature, 0);
     }
@@ -172,14 +170,14 @@ inline void displayTemperature(const int x, const int y) {
 }
 
 /**
- * @brief determines if brew timer should be visible; postBrewTimerDuration defines how long the timer after the brew is shown
+ * @brief determines if brew timer should be visible; postBrewTimerDuration defines how long the timer after the brew is
+ * shown
  * @return true if timer should be visible, false otherwise
  */
 inline bool shouldDisplayBrewTimer() {
-
     enum BrewTimerState {
-        kBrewTimerIdle = 10,
-        kBrewTimerRunning = 20,
+        kBrewTimerIdle     = 10,
+        kBrewTimerRunning  = 20,
         kBrewTimerPostBrew = 30
     };
 
@@ -197,12 +195,13 @@ inline bool shouldDisplayBrewTimer() {
         case kBrewTimerRunning:
             if (!g_state.handlers.brewHandler || !g_state.handlers.brewHandler->isBrewActive()) {
                 currBrewTimerState = kBrewTimerPostBrew;
-                brewEndTime = millis();
+                brewEndTime        = millis();
             }
             break;
 
         case kBrewTimerPostBrew:
-            if (millis() - brewEndTime > static_cast<uint32_t>(Config::getInstance().displayPostBrewTimerDuration.get() * 1000)) {
+            if (millis() - brewEndTime >
+                static_cast<uint32_t>(Config::getInstance().displayPostBrewTimerDuration.get() * 1000)) {
                 currBrewTimerState = kBrewTimerIdle;
             }
             break;
@@ -214,7 +213,8 @@ inline bool shouldDisplayBrewTimer() {
 /**
  * @brief Draw current brew time with optional brew target time at given position
  *
- * Shows the current brew time in seconds. If a target time (totalTargetBrewTime) is provided (> 0), it is displayed alongside the current time.
+ * Shows the current brew time in seconds. If a target time (totalTargetBrewTime) is provided (> 0), it is displayed
+ * alongside the current time.
  *
  * @param x              Horizontal position to start drawing
  * @param y              Vertical position to start drawing
@@ -222,13 +222,13 @@ inline bool shouldDisplayBrewTimer() {
  * @param currBrewTime     Current brewed time in milliseconds
  * @param totalTargetBrewTime  Target brew time in milliseconds (optional, default -1)
  */
-inline void displayBrewTime(const int x, const int y, const char* label, const double currBrewTime, const double totalTargetBrewTime = -1) {
+inline void displayBrewTime(
+    const int x, const int y, const char* label, const double currBrewTime, const double totalTargetBrewTime = -1) {
     g_state.hardware.display->setDrawColor(0);
 
     if (Config::getInstance().displayTemplate.get() == System::DisplayTemplate::MINIMAL) {
         g_state.hardware.display->drawBox(x, y, 100, 15);
-    }
-    else {
+    } else {
         g_state.hardware.display->drawBox(x, y + 1, 100, 10);
     }
 
@@ -244,8 +244,7 @@ inline void displayBrewTime(const int x, const int y, const char* label, const d
             g_state.hardware.display->print(totalTargetBrewTime / 1000, 0);
         }
         g_state.hardware.display->print(" s");
-    }
-    else {
+    } else {
         g_state.hardware.display->setCursor(x, y);
         g_state.hardware.display->print(label);
         g_state.hardware.display->setCursor(x + 50, y);
@@ -274,7 +273,8 @@ inline void displayBrewTime(const int x, const int y, const char* label, const d
  * @param setpoint Target weight to display alongside current weight (optional, default -1)
  * @param fault    Indicates if the scale has an error (optional, default false)
  */
-inline void displayBrewWeight(const int x, const int y, const float weight, const float setpoint = -1, const bool fault = false) {
+inline void displayBrewWeight(
+    const int x, const int y, const float weight, const float setpoint = -1, const bool fault = false) {
     g_state.hardware.display->setDrawColor(0);
     g_state.hardware.display->drawBox(x, y + 1, 100, 10);
     g_state.hardware.display->setDrawColor(1);
@@ -297,8 +297,7 @@ inline void displayBrewWeight(const int x, const int y, const float weight, cons
         }
 
         g_state.hardware.display->print(" g");
-    }
-    else {
+    } else {
         if (fault) {
             g_state.hardware.display->setCursor(x, y);
             g_state.hardware.display->print(langstring_weight);
@@ -329,22 +328,19 @@ inline void displayBrewtimeFs(const int x, const int y, const double brewtime) {
         g_state.hardware.display->setFont(u8g2_font_fub20_tf);
         if (brewtime < 9950.000) {
             g_state.hardware.display->setCursor(x + 15, y);
-        }
-        else {
+        } else {
             g_state.hardware.display->setCursor(x, y);
         }
         g_state.hardware.display->print(brewtime / 1000, 1);
         g_state.hardware.display->setFont(u8g2_font_profont11_tf);
         g_state.hardware.display->setCursor(x + 56, y + 12);
         g_state.hardware.display->print("s");
-    }
-    else {
+    } else {
         g_state.hardware.display->setFont(u8g2_font_fub25_tf);
 
         if (brewtime < 9950.000) {
             g_state.hardware.display->setCursor(x + 16, y);
-        }
-        else {
+        } else {
             g_state.hardware.display->setCursor(x, y);
         }
 
@@ -353,8 +349,7 @@ inline void displayBrewtimeFs(const int x, const int y, const double brewtime) {
 
         if (brewtime < 9950.000) {
             g_state.hardware.display->setCursor(x + 67, y + 14);
-        }
-        else {
+        } else {
             g_state.hardware.display->setCursor(x + 69, y + 14);
         }
 
@@ -395,14 +390,14 @@ inline void displayStatusbar() {
     if (!g_state.network.offlineMode) {
         displayWiFiStatus(4, 1);
         displayMQTTStatus(40, 0);
-    }
-    else {
+    } else {
         g_state.hardware.display->setCursor(40, 0);
         g_state.hardware.display->setFont(u8g2_font_profont11_tf);
         g_state.hardware.display->print(langstring_offlinemode);
     }
 
-    if (Config::getInstance().hardwareSensorsScaleEnabled.get() && Config::getInstance().hardwareSensorsScaleType.get() == Hardware::ScaleType::BLUETOOTH) {
+    if (Config::getInstance().hardwareSensorsScaleEnabled.get() &&
+        Config::getInstance().hardwareSensorsScaleType.get() == Hardware::ScaleType::BLUETOOTH) {
         displayBluetoothStatus(24, 1);
     }
 
@@ -413,7 +408,8 @@ inline void displayStatusbar() {
 /**
  * @brief print message
  */
-inline void displayMessage(const char* text1, const char* text2, const char* text3, const char* text4, const char* text5, const char* text6) {
+inline void displayMessage(
+    const char* text1, const char* text2, const char* text3, const char* text4, const char* text5, const char* text6) {
     g_state.hardware.display->clearBuffer();
     g_state.hardware.display->setCursor(0, 0);
     g_state.hardware.display->print(text1);
@@ -440,8 +436,8 @@ inline void displayLogo(const char* displaymessagetext, const char* displaymessa
 
         // Use stack allocation for tokenization buffers
         constexpr size_t MAX_MSG_LEN = SHORT_MESSAGE_SIZE;
-        char text1[MAX_MSG_LEN];
-        char text2[MAX_MSG_LEN];
+        char             text1[MAX_MSG_LEN];
+        char             text2[MAX_MSG_LEN];
 
         strncpy(text1, displaymessagetext, MAX_MSG_LEN - 1);
         text1[MAX_MSG_LEN - 1] = '\0';
@@ -452,7 +448,7 @@ inline void displayLogo(const char* displaymessagetext, const char* displaymessa
 
         while (token != nullptr) {
             g_state.hardware.display->drawStr(0, printrow, token);
-            token = strtok(nullptr, " ");
+            token     = strtok(nullptr, " ");
             printrow += 10;
         }
 
@@ -460,13 +456,12 @@ inline void displayLogo(const char* displaymessagetext, const char* displaymessa
 
         while (token != nullptr) {
             g_state.hardware.display->drawStr(0, printrow, token);
-            token = strtok(nullptr, " ");
+            token     = strtok(nullptr, " ");
             printrow += 10;
         }
 
         g_state.hardware.display->drawXBMP(11, 4, CleverCoffee_Logo_width, CleverCoffee_Logo_height, CleverCoffee_Logo);
-    }
-    else {
+    } else {
         g_state.hardware.display->clearBuffer();
         g_state.hardware.display->drawStr(0, 45, displaymessagetext);
         g_state.hardware.display->drawStr(0, 55, displaymessagetext2);
@@ -499,25 +494,22 @@ inline bool displayFullscreenBrewTimer() {
                 g_state.hardware.display->print(g_state.sensors.currBrewWeight, 1);
                 g_state.hardware.display->print("g");
                 g_state.hardware.display->setFont(u8g2_font_profont11_tf);
-            }
-            else {
+            } else {
                 displayBrewtimeFs(1, 80, g_state.process.currBrewTime);
             }
-        }
-        else {
+        } else {
             g_state.hardware.display->drawXBMP(-1, 11, Brew_Cup_Logo_width, Brew_Cup_Logo_height, Brew_Cup_Logo);
 
             if (Config::getInstance().hardwareSensorsScaleEnabled.get()) {
                 g_state.hardware.display->setFont(u8g2_font_profont22_tf);
-                g_state.hardware.display->setCursor(DISPLAY_WIDTH/2, 15);
+                g_state.hardware.display->setCursor(DISPLAY_WIDTH / 2, 15);
                 g_state.hardware.display->print(g_state.process.currBrewTime / 1000, 1);
                 g_state.hardware.display->print("s");
-                g_state.hardware.display->setCursor(DISPLAY_WIDTH/2, 38);
+                g_state.hardware.display->setCursor(DISPLAY_WIDTH / 2, 38);
                 g_state.hardware.display->print(g_state.sensors.currBrewWeight, 1);
                 g_state.hardware.display->print("g");
                 g_state.hardware.display->setFont(u8g2_font_profont11_tf);
-            }
-            else {
+            } else {
                 displayBrewtimeFs(48, 25, g_state.process.currBrewTime);
             }
         }
@@ -537,15 +529,17 @@ inline bool displayFullscreenManualFlushTimer() {
         return false;
     }
 
-    if (isManualFlushState(g_state.machine.machineState) && g_state.machine.machineState == MachineStateId::MANUAL_FLUSH_RUNNING) {
+    if (isManualFlushState(g_state.machine.machineState) &&
+        g_state.machine.machineState == MachineStateId::MANUAL_FLUSH_RUNNING) {
         g_state.hardware.display->clearBuffer();
 
         if (Config::getInstance().displayTemplate.get() == System::DisplayTemplate::UPRIGHT) {
-            g_state.hardware.display->drawXBMP(12, 12, Manual_Flush_Logo_width, Manual_Flush_Logo_height, Manual_Flush_Logo);
+            g_state.hardware.display->drawXBMP(
+                12, 12, Manual_Flush_Logo_width, Manual_Flush_Logo_height, Manual_Flush_Logo);
             displayBrewtimeFs(1, 80, g_state.process.currBrewTime);
-        }
-        else {
-            g_state.hardware.display->drawXBMP(0, 12, Manual_Flush_Logo_width, Manual_Flush_Logo_height, Manual_Flush_Logo);
+        } else {
+            g_state.hardware.display->drawXBMP(
+                0, 12, Manual_Flush_Logo_width, Manual_Flush_Logo_height, Manual_Flush_Logo);
             displayBrewtimeFs(48, 25, g_state.process.currBrewTime);
         }
 
@@ -563,14 +557,14 @@ inline bool displayFullscreenHotWaterTimer() {
         return false;
     }
 
-    if (isHotWaterState(g_state.machine.machineState) && g_state.machine.machineState == MachineStateId::HOT_WATER_RUNNING) {
+    if (isHotWaterState(g_state.machine.machineState) &&
+        g_state.machine.machineState == MachineStateId::HOT_WATER_RUNNING) {
         g_state.hardware.display->clearBuffer();
 
         if (Config::getInstance().displayTemplate.get() == System::DisplayTemplate::UPRIGHT) {
             g_state.hardware.display->drawXBMP(12, 12, Hot_Water_Logo_width, Hot_Water_Logo_height, Hot_Water_Logo);
             displayBrewtimeFs(1, 80, g_state.sensors.currPumpOnTime);
-        }
-        else {
+        } else {
             g_state.hardware.display->drawXBMP(0, 12, Hot_Water_Logo_width, Hot_Water_Logo_height, Hot_Water_Logo);
             displayBrewtimeFs(48, 25, g_state.sensors.currPumpOnTime);
         }
@@ -585,7 +579,6 @@ inline bool displayFullscreenHotWaterTimer() {
  * @brief display offline message
  */
 inline bool displayOfflineMode() {
-
     if (g_state.display.displayOffline > 0 && g_state.display.displayOffline < 20) {
         displayMessage("", "", "", "", "Begin Fallback,", "No Wifi");
         g_state.display.displayOffline++;
@@ -599,13 +592,14 @@ inline bool displayOfflineMode() {
  * @brief display heating logo
  */
 inline bool displayMachineState() {
-
     if (displayOfflineMode()) {
         return true;
     }
 
     // Show the heating logo when we are in regular PID mode and more than 5degC below the set point
-    if (Config::getInstance().displayHeatingLogo.get() > 0 && (g_state.machine.machineState == MachineStateId::PID_NORMAL) && g_state.process.setpoint - g_state.process.temperature > 5.) {
+    if (Config::getInstance().displayHeatingLogo.get() > 0 &&
+        (g_state.machine.machineState == MachineStateId::PID_NORMAL) &&
+        g_state.process.setpoint - g_state.process.temperature > 5.) {
         // For status info
         g_state.hardware.display->clearBuffer();
 
@@ -622,7 +616,8 @@ inline bool displayMachineState() {
     }
 
     // Offline logo
-    if (Config::getInstance().displayPidOffLogo.get() == 1 && g_state.machine.machineState == MachineStateId::PID_DISABLED) {
+    if (Config::getInstance().displayPidOffLogo.get() == 1 &&
+        g_state.machine.machineState == MachineStateId::PID_DISABLED) {
         g_state.hardware.display->clearBuffer();
         g_state.hardware.display->drawXBMP(38, 0, Off_Logo_width, Off_Logo_height, Off_Logo);
         g_state.hardware.display->setCursor(0, 55);
@@ -656,7 +651,8 @@ inline bool displayMachineState() {
     // Water empty
     if (g_state.machine.machineState == MachineStateId::WATER_TANK_EMPTY) {
         g_state.hardware.display->clearBuffer();
-        g_state.hardware.display->drawXBMP(45, 0, Water_Tank_Empty_Logo_width, Water_Tank_Empty_Logo_height, Water_Tank_Empty_Logo);
+        g_state.hardware.display->drawXBMP(
+            45, 0, Water_Tank_Empty_Logo_width, Water_Tank_Empty_Logo_height, Water_Tank_Empty_Logo);
         g_state.hardware.display->setFont(u8g2_font_profont11_tf);
         g_state.hardware.display->sendBuffer();
         return true;
@@ -757,8 +753,7 @@ inline bool displayMachineState() {
 inline void setDisplayFont() {
     if (Config::getInstance().displayTemplate.get() == System::DisplayTemplate::UPRIGHT) {
         g_state.hardware.display->setFont(u8g2_font_profont10_tf);
-    }
-    else {
+    } else {
         g_state.hardware.display->setFont(u8g2_font_profont11_tf);
     }
 }
@@ -768,7 +763,7 @@ inline void setDisplayFont() {
  */
 inline bool wordFitsOnLine(const char* line, const char* word, int displayWidth) {
     constexpr size_t MAX_TEST_LINE = MESSAGE_BUFFER_SIZE;
-    char testLine[MAX_TEST_LINE];
+    char             testLine[MAX_TEST_LINE];
     snprintf(testLine, MAX_TEST_LINE, "%s%s", line, word);
     return g_state.hardware.display->getUTF8Width(testLine) <= displayWidth;
 }
@@ -805,23 +800,23 @@ inline void displayWrappedMessage(const char* message) {
     g_state.hardware.display->clearBuffer();
     setDisplayFont();
 
-    const int lineHeight = g_state.hardware.display->getMaxCharHeight() + 2;
-    const int displayWidth = g_state.hardware.display->getDisplayWidth();
+    const int lineHeight    = g_state.hardware.display->getMaxCharHeight() + 2;
+    const int displayWidth  = g_state.hardware.display->getDisplayWidth();
     const int displayHeight = g_state.hardware.display->getDisplayHeight();
 
-    int x = 0;
-    int y = 0;
+    int x         = 0;
+    int y         = 0;
     int wordCount = 0;
 
     // Use fixed-size buffers to avoid String allocation
-    constexpr size_t MAX_WORD_LEN = 32;
-    constexpr size_t MAX_LINE_LEN = MESSAGE_BUFFER_SIZE;
-    char word[MAX_WORD_LEN] = {0};
-    char line[MAX_LINE_LEN] = {0};
+    constexpr size_t MAX_WORD_LEN       = 32;
+    constexpr size_t MAX_LINE_LEN       = MESSAGE_BUFFER_SIZE;
+    char             word[MAX_WORD_LEN] = {0};
+    char             line[MAX_LINE_LEN] = {0};
 
-    size_t wordIdx = 0;
-    size_t lineLen = 0;
-    const size_t msgLen = strlen(message);
+    size_t       wordIdx = 0;
+    size_t       lineLen = 0;
+    const size_t msgLen  = strlen(message);
 
     for (size_t i = 0; i <= msgLen; ++i) {
         const char c = (i < msgLen) ? message[i] : '\0';
@@ -834,8 +829,7 @@ inline void displayWrappedMessage(const char* message) {
                 drawLineAndAdvance(line, x, y, lineHeight);
                 startNewLineWithWord(line, lineLen, word, MAX_LINE_LEN);
                 wordCount = 1;
-            }
-            else {
+            } else {
                 // Add word to current line
                 addWordToLine(line, lineLen, word, MAX_LINE_LEN);
                 wordCount++;
@@ -845,12 +839,11 @@ inline void displayWrappedMessage(const char* message) {
 
             if (c == '\n') {
                 drawLineAndAdvance(line, x, y, lineHeight);
-                line[0] = '\0';
-                lineLen = 0;
+                line[0]   = '\0';
+                lineLen   = 0;
                 wordCount = 0;
             }
-        }
-        else if (wordIdx < MAX_WORD_LEN - 1) {
+        } else if (wordIdx < MAX_WORD_LEN - 1) {
             word[wordIdx++] = c;
         }
     }

@@ -4,8 +4,9 @@
  */
 
 #include "clevercoffee/display/DisplayManager.h"
-#include "clevercoffee/hardware/pinmapping.h"
+
 #include "clevercoffee/Logger.h"
+#include "clevercoffee/hardware/pinmapping.h"
 
 DisplayManager::DisplayManager(Hardware::OLEDType type, Hardware::OLEDAddress address) {
     display_ = createDisplay(type, address);
@@ -14,8 +15,7 @@ DisplayManager::DisplayManager(Hardware::OLEDType type, Hardware::OLEDAddress ad
         // Set I2C address based on parameter
         if (address == Hardware::OLEDAddress::ADDR_3C) {
             display_->setI2CAddress(0x3C * 2);
-        }
-        else {
+        } else {
             display_->setI2CAddress(0x3D * 2);
         }
 
@@ -24,8 +24,7 @@ DisplayManager::DisplayManager(Hardware::OLEDType type, Hardware::OLEDAddress ad
         display_->clearBuffer();
 
         LOG(INFO, "Display initialized successfully");
-    }
-    else {
+    } else {
         LOG(ERROR, "Failed to create display instance");
     }
 }
@@ -38,7 +37,8 @@ std::unique_ptr<U8G2> DisplayManager::createDisplay(Hardware::OLEDType type, Har
 
         case Hardware::OLEDType::SSD1306:
             // SSD1306 0.96" display
-            return std::make_unique<U8G2_SSD1306_128X64_NONAME_F_HW_I2C>(U8G2_R0, U8X8_PIN_NONE, PIN_I2CSCL, PIN_I2CSDA);
+            return std::make_unique<U8G2_SSD1306_128X64_NONAME_F_HW_I2C>(
+                U8G2_R0, U8X8_PIN_NONE, PIN_I2CSCL, PIN_I2CSDA);
 
         default:
             LOGF(ERROR, "Unknown display type: %d", type);

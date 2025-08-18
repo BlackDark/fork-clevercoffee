@@ -16,6 +16,7 @@
 #include "clevercoffee/core/SystemInitializer.h"
 #include "clevercoffee/network/CleverCoffeeWiFiManager.h"
 #include "clevercoffee/network/MQTTManager.h"
+
 #include <ArduinoOTA.h>
 #include <LittleFS.h>
 #include <PID_v1.h>  // for PID calculation
@@ -33,8 +34,8 @@
 
 // Utilities
 #include "clevercoffee/utils/ModernTimer.h"
-#include "clevercoffee/utils/helperUtils.h"
 #include "clevercoffee/utils/SystemUtils.h"
+#include "clevercoffee/utils/helperUtils.h"
 #include "clevercoffee/utils/memoryUtils.h"
 
 // Hardware classes
@@ -45,11 +46,11 @@
 #include "clevercoffee/hardware/StandardLED.h"
 #include "clevercoffee/hardware/Switch.h"
 #include "clevercoffee/hardware/pinmapping.h"
+#include "clevercoffee/hardware/pressureSensor.h"
 #include "clevercoffee/hardware/tempsensors/TempSensorDallas.h"
 #include "clevercoffee/hardware/tempsensors/TempSensorTSIC.h"
-
-#include "clevercoffee/hardware/pressureSensor.h"
 #include "clevercoffee/isr.h"
+
 #include <Wire.h>
 
 // System initializer
@@ -79,33 +80,31 @@ std::unique_ptr<ProcessController> processController = nullptr;
 #include "clevercoffee/core/LoopManager.h"
 std::unique_ptr<LoopManager> loopManager = nullptr;
 
+#include "clevercoffee/display/displayTemplateManager.h"
 #include "clevercoffee/handlers/BrewHandler.h"
 #include "clevercoffee/handlers/HotWaterHandler.h"
 #include "clevercoffee/handlers/PowerHandler.h"
 #include "clevercoffee/handlers/SteamHandler.h"
-#include "clevercoffee/standby.h"
-
-#include "clevercoffee/display/displayTemplateManager.h"
-
 #include "clevercoffee/scaleHandler.h"
+#include "clevercoffee/standby.h"
 
 // Modern C++ initialization helpers
 namespace InitHelpers {
-    /**
-     * @brief Check if initialization was successful with detailed logging
-     * @param component Component name for logging
-     * @param success Success status
-     * @return Success status
-     */
-    inline bool logInitResult(const char* component, bool success) noexcept {
-        if (success) {
-            LOGF(INFO, "%s initialized successfully", component);
-        } else {
-            LOGF(ERROR, "%s initialization failed!", component);
-        }
-        return success;
+/**
+ * @brief Check if initialization was successful with detailed logging
+ * @param component Component name for logging
+ * @param success Success status
+ * @return Success status
+ */
+inline bool logInitResult(const char* component, bool success) noexcept {
+    if (success) {
+        LOGF(INFO, "%s initialized successfully", component);
+    } else {
+        LOGF(ERROR, "%s initialization failed!", component);
     }
+    return success;
 }
+} // namespace InitHelpers
 
 void setup() {
     logMemory("Setup Start");
@@ -128,12 +127,12 @@ void setup() {
     logMemoryBasic("After SystemInitializer->initialize()");
 
     // Get managers from SystemInitializer - they are owned by systemInitializer
-    SensorManager* sensorManager = systemInitializer->getSensorManager();
-    DisplayManager* displayManager = systemInitializer->getDisplayManager();
-    HardwareManager* hardwareManager = systemInitializer->getHardwareManager();
-    CleverCoffeeWiFiManager* wifiManager = systemInitializer->getWiFiManager();
-    MQTTManager* mqttManager = systemInitializer->getMQTTManager();
-    UIManager* uiManager = systemInitializer->getUIManager();
+    SensorManager*           sensorManager   = systemInitializer->getSensorManager();
+    DisplayManager*          displayManager  = systemInitializer->getDisplayManager();
+    HardwareManager*         hardwareManager = systemInitializer->getHardwareManager();
+    CleverCoffeeWiFiManager* wifiManager     = systemInitializer->getWiFiManager();
+    MQTTManager*             mqttManager     = systemInitializer->getMQTTManager();
+    UIManager*               uiManager       = systemInitializer->getUIManager();
 
     // Complete initialization steps that require global dependencies
     if (Config::getInstance().hardwareSensorsScaleEnabled.get()) {
@@ -145,11 +144,13 @@ void setup() {
     }
 
     if (systemInitializer->isInitialized()) {
-        stateMachine = std::make_unique<StateMachine>(displayManager, hardwareManager, sensorManager, wifiManager, mqttManager);
+        stateMachine =
+            std::make_unique<StateMachine>(displayManager, hardwareManager, sensorManager, wifiManager, mqttManager);
         InitHelpers::logInitResult("StateMachine", stateMachine->initialize());
 
         // Initialize ProcessController for PID control
-        processController = std::make_unique<ProcessController>(displayManager, hardwareManager, sensorManager, mqttManager);
+        processController =
+            std::make_unique<ProcessController>(displayManager, hardwareManager, sensorManager, mqttManager);
         g_state.coordination.processController = processController.get(); // Still needed for now
         InitHelpers::logInitResult("ProcessController", processController->initialize());
 

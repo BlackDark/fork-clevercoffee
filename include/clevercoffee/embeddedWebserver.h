@@ -6,11 +6,12 @@
 #pragma once
 
 #include "clevercoffee/FS.h"
+#include "clevercoffee/GlobalState.h"
 #include "clevercoffee/LittleFS.h"
 #include "clevercoffee/ota.h"
-#include "clevercoffee/GlobalState.h"
-#include "clevercoffee/utils/helperUtils.h"
 #include "clevercoffee/utils/SystemUtils.h"
+#include "clevercoffee/utils/helperUtils.h"
+
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <AsyncJson.h>
@@ -20,9 +21,9 @@
 #include <WiFi.h>
 #include <unordered_map>
 
-inline AsyncWebServer server(80);
-inline AsyncEventSource events("/events");
-AsyncCorsMiddleware corsMiddleware;
+inline AsyncWebServer         server(80);
+inline AsyncEventSource       events("/events");
+AsyncCorsMiddleware           corsMiddleware;
 AsyncAuthenticationMiddleware authMiddleware;
 
 #define JSON_BUFFER_SIZE 512
@@ -31,7 +32,7 @@ AsyncAuthenticationMiddleware authMiddleware;
 
 // Memory monitoring function
 void logMemoryUsage(const char* location) {
-    size_t freeHeap = ESP.getFreeHeap();
+    size_t freeHeap    = ESP.getFreeHeap();
     size_t minFreeHeap = ESP.getMinFreeHeap();
 
     LOGF(INFO, "Memory at %s - Free: %d, Min Free: %d", location, freeHeap, minFreeHeap);
@@ -54,26 +55,44 @@ const char* getContentType(const String& path) {
 
     // Use switch-like structure for better performance
     switch (ext[0]) {
-        case 'h': if (strcmp(ext, "html") == 0) return "text/html"; break;
-        case 'c': if (strcmp(ext, "css") == 0) return "text/css"; break;
+        case 'h':
+            if (strcmp(ext, "html") == 0) return "text/html";
+            break;
+        case 'c':
+            if (strcmp(ext, "css") == 0) return "text/css";
+            break;
         case 'j':
             if (strcmp(ext, "js") == 0) return "application/javascript";
             if (strcmp(ext, "json") == 0) return "application/json";
             if (strcmp(ext, "jpg") == 0 || strcmp(ext, "jpeg") == 0) return "image/jpeg";
             break;
-        case 'p': if (strcmp(ext, "png") == 0) return "image/png"; break;
-        case 'g': if (strcmp(ext, "gif") == 0) return "image/gif"; break;
-        case 's': if (strcmp(ext, "svg") == 0) return "image/svg+xml"; break;
-        case 'i': if (strcmp(ext, "ico") == 0) return "image/x-icon"; break;
+        case 'p':
+            if (strcmp(ext, "png") == 0) return "image/png";
+            break;
+        case 'g':
+            if (strcmp(ext, "gif") == 0) return "image/gif";
+            break;
+        case 's':
+            if (strcmp(ext, "svg") == 0) return "image/svg+xml";
+            break;
+        case 'i':
+            if (strcmp(ext, "ico") == 0) return "image/x-icon";
+            break;
         case 'w':
             if (strcmp(ext, "woff") == 0) return "font/woff";
             if (strcmp(ext, "woff2") == 0) return "font/woff2";
             if (strcmp(ext, "webp") == 0) return "image/webp";
             if (strcmp(ext, "webm") == 0) return "video/webm";
             break;
-        case 't': if (strcmp(ext, "ttf") == 0) return "font/ttf"; break;
-        case 'e': if (strcmp(ext, "eot") == 0) return "application/vnd.ms-fontobject"; break;
-        case 'a': if (strcmp(ext, "avif") == 0) return "image/avif"; break;
+        case 't':
+            if (strcmp(ext, "ttf") == 0) return "font/ttf";
+            break;
+        case 'e':
+            if (strcmp(ext, "eot") == 0) return "application/vnd.ms-fontobject";
+            break;
+        case 'a':
+            if (strcmp(ext, "avif") == 0) return "image/avif";
+            break;
     }
 
     return "text/plain";
@@ -83,24 +102,29 @@ const char* getContentType(const String& path) {
 // ==================== JSON RESPONSE BUILDER ====================
 
 class JsonResponseBuilder {
-    private:
-        static char buffer[JSON_BUFFER_SIZE];
+  private:
+    static char buffer[JSON_BUFFER_SIZE];
 
-    public:
-        static const char* createBoolResponse(const char* key, bool value, bool success = true) {
-            snprintf(buffer, sizeof(buffer), "{\"success\": %s, \"%s\": %s}", success ? "true" : "false", key, value ? "true" : "false");
-            return buffer;
-        }
+  public:
+    static const char* createBoolResponse(const char* key, bool value, bool success = true) {
+        snprintf(buffer,
+                 sizeof(buffer),
+                 "{\"success\": %s, \"%s\": %s}",
+                 success ? "true" : "false",
+                 key,
+                 value ? "true" : "false");
+        return buffer;
+    }
 
-        static const char* createErrorResponse(const char* message) {
-            snprintf(buffer, sizeof(buffer), "{\"error\": \"%s\"}", message);
-            return buffer;
-        }
+    static const char* createErrorResponse(const char* message) {
+        snprintf(buffer, sizeof(buffer), "{\"error\": \"%s\"}", message);
+        return buffer;
+    }
 
-        static const char* createSuccessResponse(const char* message) {
-            snprintf(buffer, sizeof(buffer), "{\"success\": true, \"message\": \"%s\"}", message);
-            return buffer;
-        }
+    static const char* createSuccessResponse(const char* message) {
+        snprintf(buffer, sizeof(buffer), "{\"success\": true, \"message\": \"%s\"}", message);
+        return buffer;
+    }
 };
 
 char JsonResponseBuilder::buffer[512];
@@ -108,48 +132,50 @@ char JsonResponseBuilder::buffer[512];
 // ==================== TEMPERATURE HISTORY ====================
 
 class TemperatureHistory {
-    private:
-        static constexpr size_t HISTORY_SIZE = 600;
-        static constexpr size_t SKIP_INTERVAL = 2;
+  private:
+    static constexpr size_t HISTORY_SIZE  = 600;
+    static constexpr size_t SKIP_INTERVAL = 2;
 
-        struct HistoryPoint {
-                float currentTemp;
-                float targetTemp;
-                float heaterPower;
-        };
+    struct HistoryPoint {
+        float currentTemp;
+        float targetTemp;
+        float heaterPower;
+    };
 
-        HistoryPoint history[HISTORY_SIZE];
-        size_t currentIndex = 0;
-        size_t valueCount = 0;
-        size_t skipCounter = 0;
+    HistoryPoint history[HISTORY_SIZE];
+    size_t       currentIndex = 0;
+    size_t       valueCount   = 0;
+    size_t       skipCounter  = 0;
 
-    public:
-        void addPoint(double currentTemp, double targetTemp, double heaterPower) {
-            if (++skipCounter <= SKIP_INTERVAL) return;
+  public:
+    void addPoint(double currentTemp, double targetTemp, double heaterPower) {
+        if (++skipCounter <= SKIP_INTERVAL) return;
 
-            skipCounter = 0;
-            history[currentIndex] = {static_cast<float>(currentTemp), static_cast<float>(targetTemp), static_cast<float>(heaterPower)};
+        skipCounter           = 0;
+        history[currentIndex] = {
+            static_cast<float>(currentTemp), static_cast<float>(targetTemp), static_cast<float>(heaterPower)};
 
-            currentIndex = (currentIndex + 1) % HISTORY_SIZE;
-            if (valueCount < HISTORY_SIZE) valueCount++;
+        currentIndex = (currentIndex + 1) % HISTORY_SIZE;
+        if (valueCount < HISTORY_SIZE) valueCount++;
+    }
+
+    void generateJson(JsonDocument& doc) const {
+        auto currentTemps = doc["currentTemps"].to<JsonArray>();
+        auto targetTemps  = doc["targetTemps"].to<JsonArray>();
+        auto heaterPowers = doc["heaterPowers"].to<JsonArray>();
+
+        size_t startIdx =
+            (currentIndex >= valueCount) ? (currentIndex - valueCount) : (HISTORY_SIZE - (valueCount - currentIndex));
+
+        for (size_t i = 0; i < valueCount; i++) {
+            size_t      idx   = (startIdx + i) % HISTORY_SIZE;
+            const auto& point = history[idx];
+
+            currentTemps.add(round2(point.currentTemp));
+            targetTemps.add(round2(point.targetTemp));
+            heaterPowers.add(round2(point.heaterPower));
         }
-
-        void generateJson(JsonDocument& doc) const {
-            auto currentTemps = doc["currentTemps"].to<JsonArray>();
-            auto targetTemps = doc["targetTemps"].to<JsonArray>();
-            auto heaterPowers = doc["heaterPowers"].to<JsonArray>();
-
-            size_t startIdx = (currentIndex >= valueCount) ? (currentIndex - valueCount) : (HISTORY_SIZE - (valueCount - currentIndex));
-
-            for (size_t i = 0; i < valueCount; i++) {
-                size_t idx = (startIdx + i) % HISTORY_SIZE;
-                const auto& point = history[idx];
-
-                currentTemps.add(round2(point.currentTemp));
-                targetTemps.add(round2(point.targetTemp));
-                heaterPowers.add(round2(point.heaterPower));
-            }
-        }
+    }
 };
 
 inline TemperatureHistory tempHistory;
@@ -197,8 +223,7 @@ inline bool serveGzippedFile(AsyncWebServerRequest* request, const String& path)
             response->addHeader("Pragma", "no-cache");
             response->addHeader("Expires", "0");
             LOGF(DEBUG, "No-cache headers added for index.html");
-        }
-        else {
+        } else {
             response->addHeader("Cache-Control", "max-age=604800"); // 7 days cache for assets
         }
 
@@ -218,8 +243,7 @@ inline bool serveGzippedFile(AsyncWebServerRequest* request, const String& path)
             response->addHeader("Cache-Control", "no-cache, no-store, must-revalidate");
             response->addHeader("Pragma", "no-cache");
             response->addHeader("Expires", "0");
-        }
-        else {
+        } else {
             response->addHeader("Cache-Control", "max-age=604800");
         }
 
@@ -239,7 +263,7 @@ inline String getTempString() {
         JsonDocument doc;
 
         doc["currentTemp"] = g_state.process.temperature;
-        doc["targetTemp"] = Config::getInstance().brewSetpoint.get();
+        doc["targetTemp"]  = Config::getInstance().brewSetpoint.get();
         doc["heaterPower"] = g_state.process.pidOutput / 10;
 
         String json;
@@ -257,7 +281,7 @@ inline String getWeightJsonString() {
     try {
         JsonDocument doc;
 
-        doc["weight"] = round2(g_state.sensors.currReadingWeight);
+        doc["weight"]     = round2(g_state.sensors.currReadingWeight);
         doc["brewWeight"] = round2(g_state.sensors.currBrewWeight);
 
         String json;
@@ -289,9 +313,14 @@ inline String getValue(const String& varName) {
 
 inline String getHeader(const String& varName) {
     static const std::unordered_map<std::string, const char*> headers = {
-        {"FONTAWESOME", R"(<link href="/css/fontawesome-6.2.1.min.css" rel="stylesheet">)"}, {"BOOTSTRAP", R"(<link href="/css/bootstrap-5.2.3.min.css" rel="stylesheet">)"},
-        {"BOOTSTRAP_BUNDLE", "<script src=\"/js/bootstrap.bundle.5.2.3.min.js\"></script>"}, {"VUEJS", "<script src=\"/js/vue.3.2.47.min.js\"></script>"},
-        {"VUE_NUMBER_INPUT", "<script src=\"/js/vue-number-input.min.js\"></script>"},       {"UPLOT", R"(<script src="/js/uPlot.1.6.28.min.js"></script><link rel="stylesheet" href="/css/uPlot.min.css">)"}};
+        {     "FONTAWESOME",R"(<link href="/css/fontawesome-6.2.1.min.css" rel="stylesheet">)"                            },
+        {       "BOOTSTRAP",                  R"(<link href="/css/bootstrap-5.2.3.min.css" rel="stylesheet">)"},
+        {"BOOTSTRAP_BUNDLE",                     "<script src=\"/js/bootstrap.bundle.5.2.3.min.js\"></script>"},
+        {           "VUEJS",                                 "<script src=\"/js/vue.3.2.47.min.js\"></script>"},
+        {"VUE_NUMBER_INPUT",                           "<script src=\"/js/vue-number-input.min.js\"></script>"},
+        {           "UPLOT",
+         R"(<script src="/js/uPlot.1.6.28.min.js"></script><link rel="stylesheet" href="/css/uPlot.min.css">)"}
+    };
 
     const auto it = headers.find(varName.c_str());
     return it != headers.end() ? String(it->second) : String("");
@@ -311,7 +340,7 @@ inline String staticProcessor(const String& var) {
         }
 
         // Pre-allocate and reuse buffer to avoid repeated allocations
-        static char fragmentPath[128];
+        static char   fragmentPath[128];
         static String lowerVar;
 
         // Build path more efficiently
@@ -329,8 +358,7 @@ inline String staticProcessor(const String& var) {
             }
             file.close();
             LOGF(INFO, "Can't open file %s, not enough memory available", fragmentPath.c_str());
-        }
-        else {
+        } else {
             LOGF(INFO, "Fragment %s not found", fragmentPath.c_str());
         }
 
@@ -347,7 +375,8 @@ inline void handleToggleSteam(AsyncWebServerRequest* request) {
         const bool steamMode = !g_state.machine.steamON;
         setSteamMode(steamMode);
         LOGF(INFO, "Toggle steam mode: %s", g_state.machine.steamON ? "on" : "off");
-        request->send(200, "application/json", JsonResponseBuilder::createBoolResponse("steamMode", g_state.machine.steamON));
+        request->send(
+            200, "application/json", JsonResponseBuilder::createBoolResponse("steamMode", g_state.machine.steamON));
     } catch (const std::exception& e) {
         LOGF(ERROR, "handleToggleSteam failed: %s", e.what());
         request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("Internal server error"));
@@ -359,7 +388,7 @@ inline void handleTogglePid(AsyncWebServerRequest* request) {
         LOGF(INFO, "/api/pid requested, method: %d", request->method());
 
         const bool currentPidState = Config::getInstance().pidEnabled.get();
-        const bool newPidState = !currentPidState;
+        const bool newPidState     = !currentPidState;
         Config::getInstance().pidEnabled.set(newPidState);
 
         LOGF(INFO, "Toggle PID state: %d\n", newPidState);
@@ -375,7 +404,10 @@ inline void handleToggleBackflush(AsyncWebServerRequest* request) {
     try {
         g_state.machine.backflushOn = !g_state.machine.backflushOn;
         LOGF(INFO, "Toggle backflush mode: %s", g_state.machine.backflushOn ? "on" : "off");
-        request->send(200, "application/json", JsonResponseBuilder::createBoolResponse("g_state.machine.backflushOn", g_state.machine.backflushOn));
+        request->send(
+            200,
+            "application/json",
+            JsonResponseBuilder::createBoolResponse("g_state.machine.backflushOn", g_state.machine.backflushOn));
     } catch (const std::exception& e) {
         LOGF(ERROR, "handleToggleBackflush failed: %s", e.what());
         request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("Internal server error"));
@@ -386,7 +418,10 @@ inline void handleToggleTareScale(AsyncWebServerRequest* request) {
     try {
         g_state.sensors.scaleTareOn = !g_state.sensors.scaleTareOn;
         LOGF(INFO, "Toggle scale tare mode: %s", g_state.sensors.scaleTareOn ? "on" : "off");
-        request->send(200, "application/json", JsonResponseBuilder::createBoolResponse("g_state.sensors.scaleTareOn", g_state.sensors.scaleTareOn));
+        request->send(
+            200,
+            "application/json",
+            JsonResponseBuilder::createBoolResponse("g_state.sensors.scaleTareOn", g_state.sensors.scaleTareOn));
     } catch (const std::exception& e) {
         LOGF(ERROR, "handleToggleTareScale failed: %s", e.what());
         request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("Internal server error"));
@@ -397,7 +432,10 @@ inline void handleToggleScaleCalibration(AsyncWebServerRequest* request) {
     try {
         g_state.sensors.scaleCalibrationOn = !g_state.sensors.scaleCalibrationOn;
         LOGF(INFO, "Toggle scale calibration mode: %s", g_state.sensors.scaleCalibrationOn ? "on" : "off");
-        request->send(200, "application/json", JsonResponseBuilder::createBoolResponse("g_state.sensors.scaleCalibrationOn", g_state.sensors.scaleCalibrationOn));
+        request->send(200,
+                      "application/json",
+                      JsonResponseBuilder::createBoolResponse("g_state.sensors.scaleCalibrationOn",
+                                                              g_state.sensors.scaleCalibrationOn));
     } catch (const std::exception& e) {
         LOGF(ERROR, "handleToggleScaleCalibration failed: %s", e.what());
         request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("Internal server error"));
@@ -418,7 +456,7 @@ inline void handleParameters(AsyncWebServerRequest* request) {
             }
 
             AsyncJsonResponse* response = new AsyncJsonResponse(false);
-            JsonArray array = response->getRoot().to<JsonArray>();
+            JsonArray          array    = response->getRoot().to<JsonArray>();
 
             // Use the public getAllParameters method
             Config::getInstance().getAllParameters(array, filterType);
@@ -426,12 +464,11 @@ inline void handleParameters(AsyncWebServerRequest* request) {
             LOGF(INFO, "/parameters returning %d parameters", array.size());
             response->setLength();
             request->send(response);
-        }
-        else if (request->method() == 2) { // HTTP_POST
+        } else if (request->method() == 2) { // HTTP_POST
             auto& config = Config::getInstance();
 
             String responseMessage = "OK";
-            bool hasErrors = false;
+            bool   hasErrors       = false;
 
             const auto requestParams = request->params();
             LOGF(INFO, "handleParameters POST: Received %d parameters", requestParams);
@@ -439,16 +476,22 @@ inline void handleParameters(AsyncWebServerRequest* request) {
             // Log all parameters being sent
             for (auto i = 0u; i < requestParams; ++i) {
                 if (auto* p = request->getParam(i); p && p->name().length() > 0) {
-                    LOGF(INFO, "handleParameters POST: Form contains '%s' = '%s'", p->name().c_str(), p->value().c_str());
+                    LOGF(INFO,
+                         "handleParameters POST: Form contains '%s' = '%s'",
+                         p->name().c_str(),
+                         p->value().c_str());
                 }
             }
 
             for (auto i = 0u; i < requestParams; ++i) {
                 if (auto* p = request->getParam(i); p && p->name().length() > 0 && p->value().length() > 0) {
                     const String& varName = p->name();
-                    const String& value = p->value();
+                    const String& value   = p->value();
 
-                    LOGF(INFO, "handleParameters POST: Processing parameter '%s' = '%s'", varName.c_str(), value.c_str());
+                    LOGF(INFO,
+                         "handleParameters POST: Processing parameter '%s' = '%s'",
+                         varName.c_str(),
+                         value.c_str());
 
                     try {
                         // Use the same pattern as MQTTManager - find parameter and use fromJson
@@ -466,8 +509,7 @@ inline void handleParameters(AsyncWebServerRequest* request) {
                                 LOGF(WARNING, "Failed to update parameter '%s'", varName.c_str());
                                 hasErrors = true;
                             }
-                        }
-                        else {
+                        } else {
                             LOGF(WARNING, "Parameter '%s' not found", varName.c_str());
                             hasErrors = true;
                         }
@@ -481,11 +523,11 @@ inline void handleParameters(AsyncWebServerRequest* request) {
 
             writeSysParamsToMQTT(true);
 
-            AsyncWebServerResponse* response = request->beginResponse(200, "text/plain", hasErrors ? "Partial Success" : "OK");
+            AsyncWebServerResponse* response =
+                request->beginResponse(200, "text/plain", hasErrors ? "Partial Success" : "OK");
             response->addHeader("Connection", "close");
             request->send(response);
-        }
-        else {
+        } else {
             LOGF(ERROR, "Unsupported HTTP method %d for /parameters", request->method());
             AsyncWebServerResponse* response = request->beginResponse(405, "text/plain", "Method Not Allowed");
             response->addHeader("Connection", "close");
@@ -506,7 +548,7 @@ inline void handleParameterHelp(AsyncWebServerRequest* request) {
         }
 
         const String& paramName = p->value();
-        BaseParamDef* paramDef = Config::getInstance().findParameter(paramName);
+        BaseParamDef* paramDef  = Config::getInstance().findParameter(paramName);
 
         if (paramDef == nullptr) {
             request->send(404, "application/json", JsonResponseBuilder::createErrorResponse("parameter not found"));
@@ -514,12 +556,13 @@ inline void handleParameterHelp(AsyncWebServerRequest* request) {
         }
 
         JsonDocument doc;
-        doc["name"] = paramName;
+        doc["name"]     = paramName;
         doc["helpText"] = paramDef->getHelpText();
 
         String helpJson;
         if (!safeSerializeJson(doc, helpJson)) {
-            request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("Failed to serialize help data"));
+            request->send(
+                500, "application/json", JsonResponseBuilder::createErrorResponse("Failed to serialize help data"));
             return;
         }
         request->send(200, "application/json", helpJson);
@@ -535,7 +578,8 @@ inline void handleTemperatures(AsyncWebServerRequest* request) {
         request->send(200, "application/json", json);
     } catch (const std::exception& e) {
         LOGF(ERROR, "handleTemperatures failed: %s", e.what());
-        request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("Temperature data unavailable"));
+        request->send(
+            500, "application/json", JsonResponseBuilder::createErrorResponse("Temperature data unavailable"));
     }
 }
 
@@ -547,13 +591,16 @@ inline void handleTimeseries(AsyncWebServerRequest* request) {
         tempHistory.generateJson(doc);
 
         if (doc.overflowed()) {
-            request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("timeseries JSON overflowed"));
+            request->send(
+                500, "application/json", JsonResponseBuilder::createErrorResponse("timeseries JSON overflowed"));
             return;
         }
 
         String out;
         if (!safeSerializeJson(doc, out)) {
-            request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("Failed to serialize timeseries data"));
+            request->send(500,
+                          "application/json",
+                          JsonResponseBuilder::createErrorResponse("Failed to serialize timeseries data"));
             return;
         }
 
@@ -566,7 +613,9 @@ inline void handleTimeseries(AsyncWebServerRequest* request) {
 
 inline void handleWifiReset(AsyncWebServerRequest* request) {
     try {
-        request->send(200, "application/json", JsonResponseBuilder::createSuccessResponse("WiFi settings are being reset. Rebooting..."));
+        request->send(200,
+                      "application/json",
+                      JsonResponseBuilder::createSuccessResponse("WiFi settings are being reset. Rebooting..."));
 
         delay(1000);
         wiFiReset();
@@ -582,16 +631,18 @@ inline void handleConfigDownload(AsyncWebServerRequest* request) {
         String configJson = Config::getInstance().exportToJson();
 
         if (configJson.isEmpty()) {
-            request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("Failed to generate config"));
+            request->send(
+                500, "application/json", JsonResponseBuilder::createErrorResponse("Failed to generate config"));
             return;
         }
 
         // Prettify the JSON
-        JsonDocument doc;
+        JsonDocument               doc;
         const DeserializationError error = deserializeJson(doc, configJson);
 
         if (error) {
-            request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("Failed to parse generated config"));
+            request->send(
+                500, "application/json", JsonResponseBuilder::createErrorResponse("Failed to parse generated config"));
             return;
         }
 
@@ -607,7 +658,12 @@ inline void handleConfigDownload(AsyncWebServerRequest* request) {
     }
 }
 
-inline void handleConfigUpload(AsyncWebServerRequest* request, const String& filename, const size_t index, const uint8_t* data, const size_t len, const bool final) {
+inline void handleConfigUpload(AsyncWebServerRequest* request,
+                               const String&          filename,
+                               const size_t           index,
+                               const uint8_t*         data,
+                               const size_t           len,
+                               const bool             final) {
     try {
         static String uploadBuffer;
         static size_t totalSize = 0;
@@ -631,16 +687,20 @@ inline void handleConfigUpload(AsyncWebServerRequest* request, const String& fil
             if (bool isValid = Config::getInstance().importFromJson(uploadBuffer)) {
                 LOG(INFO, "Configuration validated and applied successfully");
 
-                AsyncWebServerResponse* response = request->beginResponse(200, "application/json", R"({"success": true, "message": "Configuration validated and applied successfully.", "restart": true})");
+                AsyncWebServerResponse* response = request->beginResponse(
+                    200,
+                    "application/json",
+                    R"({"success": true, "message": "Configuration validated and applied successfully.", "restart": true})");
 
                 response->addHeader("Connection", "close");
                 request->send(response);
-            }
-            else {
+            } else {
                 LOG(ERROR, "Configuration validation failed - invalid data or out of range values");
 
-                AsyncWebServerResponse* response =
-                    request->beginResponse(400, "application/json", R"({"success": false, "message": "Configuration validation failed. Please check that all parameter values are within valid ranges.", "restart": true})");
+                AsyncWebServerResponse* response = request->beginResponse(
+                    400,
+                    "application/json",
+                    R"({"success": false, "message": "Configuration validation failed. Please check that all parameter values are within valid ranges.", "restart": true})");
 
                 response->addHeader("Connection", "close");
                 request->send(response);
@@ -667,7 +727,7 @@ inline void handleRestart(AsyncWebServerRequest* request) {
 inline void handleNvsDebug(AsyncWebServerRequest* request) {
     try {
         JsonDocument doc;
-        JsonObject nvsData = doc.to<JsonObject>();
+        JsonObject   nvsData = doc.to<JsonObject>();
 
         Preferences prefs;
         prefs.begin(STORAGE_NAMESPACE, true); // Read-only mode - use correct namespace
@@ -680,19 +740,21 @@ inline void handleNvsDebug(AsyncWebServerRequest* request) {
         Config::getInstance().getAllParameters(allParamsArray, "all");
 
         metadata["total_parameters"] = allParamsArray.size();
-        metadata["nvs_namespace"] = STORAGE_NAMESPACE;
-        metadata["free_heap"] = ESP.getFreeHeap();
-        metadata["min_free_heap"] = ESP.getMinFreeHeap();
+        metadata["nvs_namespace"]    = STORAGE_NAMESPACE;
+        metadata["free_heap"]        = ESP.getFreeHeap();
+        metadata["min_free_heap"]    = ESP.getMinFreeHeap();
 
         // For now, provide basic info rather than detailed NVS analysis
-        nvsData["message"] = "NVS debugging simplified - parameter details available via /api/parameters";
+        nvsData["message"]          = "NVS debugging simplified - parameter details available via /api/parameters";
         nvsData["parameters_count"] = allParamsArray.size();
 
         prefs.end();
 
         String debugJson;
         if (!safeSerializeJson(doc, debugJson)) {
-            request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("Failed to serialize NVS debug data"));
+            request->send(500,
+                          "application/json",
+                          JsonResponseBuilder::createErrorResponse("Failed to serialize NVS debug data"));
             return;
         }
 
@@ -716,7 +778,10 @@ inline void handleFactoryReset(AsyncWebServerRequest* request) {
         bool cleared = prefs.clear();
         prefs.end();
 
-        request->send(200, "application/json", cleared ? JsonResponseBuilder::createSuccessResponse("Factory reset. Restarting...") : JsonResponseBuilder::createErrorResponse("Could not clear preferences. Restarting..."));
+        request->send(200,
+                      "application/json",
+                      cleared ? JsonResponseBuilder::createSuccessResponse("Factory reset. Restarting...")
+                              : JsonResponseBuilder::createErrorResponse("Could not clear preferences. Restarting..."));
 
         // Brief delay before restart - reduced from 100ms
         delay(50);
@@ -765,7 +830,8 @@ inline void setupApiRoutes() {
     server.on("/api/wifi-reset", HTTP_POST, handleWifiReset);
     server.on("/api/config/download", HTTP_GET, handleConfigDownload);
     server.on(
-        "/api/config/upload", HTTP_POST,
+        "/api/config/upload",
+        HTTP_POST,
         [](AsyncWebServerRequest* request) {
             // Response handled by upload handler
         },
@@ -821,7 +887,9 @@ void serverSetup() {
     server.serveStatic("/img", LittleFS, "/img/", "max-age=604800"); // cache for one week
     server.serveStatic("/webfonts", LittleFS, "/webfonts/", "max-age=604800");
     server.serveStatic("/manifest.json", LittleFS, "/manifest.json", "max-age=604800");
-    server.serveStatic("/", LittleFS, "/html/", "max-age=604800").setDefaultFile("index.html").setTemplateProcessor(staticProcessor);
+    server.serveStatic("/", LittleFS, "/html/", "max-age=604800")
+        .setDefaultFile("index.html")
+        .setTemplateProcessor(staticProcessor);
 #else
     server.on("/", HTTP_GET, [](AsyncWebServerRequest* request) { request->redirect("/ui/"); });
 
