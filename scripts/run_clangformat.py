@@ -42,7 +42,7 @@ def formatting_callback(*arg, **kwargs):
 
     # for file in file_list:
     if env.Execute(
-        "uv run clang-format --Werror"
+        "clang-format --Werror"
         + (" --dry-run " if not kwargs.get("apply", False) else " ")
         + "-i "
         + " ".join(f'"{f}"' for f in file_list)
