@@ -100,6 +100,14 @@ class HardwareManager {
      */
     void safeShutdown();
 
+    /**
+     * @brief Update LEDs based on machine state
+     * @param machineState Current machine state
+     * @param temperature Current temperature
+     * @param setpoint Target temperature setpoint
+     */
+    void updateLEDs(int machineState, double temperature, double setpoint);
+
   private:
     // GPIO Pins for relays (stack allocated)
     GPIOPin heaterRelayPin_;

@@ -11,7 +11,8 @@ TempSensorDallas::TempSensorDallas(const int GPIOPin) {
     dallasSensor_ = new DallasTemperature(oneWire_);
     dallasSensor_->begin();
     dallasSensor_->getAddress(sensorDeviceAddress_, 0);
-    dallasSensor_->setResolution(sensorDeviceAddress_, 10);
+    dallasSensor_->setResolution(sensorDeviceAddress_, 11); // should match with sensor timings 10 -> 180ms, 11 -> 380ms
+    dallasSensor_->setWaitForConversion(false); // do not block during temperature readings
 
     // Request first temperature conversion directly:
     dallasSensor_->requestTemperaturesByAddress(sensorDeviceAddress_);

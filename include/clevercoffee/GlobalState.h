@@ -226,6 +226,13 @@ struct SensorState {
     float         lastValidWeight            = 0;
     bool          brewByWeightFallbackActive = false;
 
+    // scale error handling and retry logic
+    int           scaleReadErrorCount         = 0;     // Consecutive read errors
+    int           scaleMaxRetries             = 5;     // Maximum retries before marking as failed
+    unsigned long lastScaleErrorTime          = 0;     // Time of last error
+    unsigned long scaleErrorCooldownMs        = 1000;  // Cooldown between retries
+    bool          scaleInErrorRecovery        = false; // In error recovery mode
+
     // Pressure filter variables
     float inX   = 0.0f;
     float inY   = 0.0f;
@@ -272,6 +279,7 @@ struct MachineStateFlags {
     bool requestShutdown         = false;
     bool requestStandby          = false;
     bool requestNormalOperation  = false;
+    bool requestSensorError      = false;
 };
 
 /**

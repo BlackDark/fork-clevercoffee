@@ -68,6 +68,11 @@ void initScale() {
     g_state.sensors.scaleConnectionFailureTime = 0;
     g_state.sensors.lastValidWeight            = 0;
 
+    // Reset error handling state
+    g_state.sensors.scaleReadErrorCount  = 0;
+    g_state.sensors.lastScaleErrorTime   = 0;
+    g_state.sensors.scaleInErrorRecovery = false;
+
     g_state.sensors.scaleCalibrationOn = false;
 
     LOG(INFO, "Scale initialized successfully");

@@ -19,7 +19,7 @@
 SensorManager::SensorManager()
     : tempSensor_(nullptr), waterTankSensor_(nullptr), sensorsInitialized_(false), temperature_(0.0),
       waterTankFull_(true), waterTankCheckConsecutiveReads_(0), inputPressure_(0.0f), inputPressureFilter_(0.0f),
-      inX_(0.0f), inY_(0.0f), inOld_(0.0f), inSum_(0.0f), previousMillisPressure_(0), pressureHistory_{},
+      inX_(0.0f), inY_(0.0f), inOld_(0.0f), inSum_(0.0f), pressureHistory_{},
       tempHistory_{}, pressureHistoryIndex_(0), tempHistoryIndex_(0) {}
 
 bool SensorManager::initialize(TempSensor* tempSensor, Switch* waterTankSensor) {
@@ -59,18 +59,63 @@ void SensorManager::update() {
         return;
     }
 
-    // Update temperature reading
+    // Update temperature reading with timeout protection and caching
     if (tempSensor_ != nullptr) {
-        g_state.coordination.temperatureUpdateRunning = true;
-        temperature_                                  = tempSensor_->getCurrentTemperature();
-        g_state.coordination.temperatureUpdateRunning = false;
+        static unsigned long lastTempReadTime = 0;
+        static unsigned long tempTimeoutCount = 0;
+        static double cachedTemperature = 20.0; // Default fallback temperature
+        
+        const unsigned long currentTime = millis();
+        
+        // Skip sensor read if we've had recent timeouts - start skipping after 2 timeouts
+        bool shouldSkipRead = (tempTimeoutCount >= 2);
+        
+        if (!shouldSkipRead) {
+            g_state.coordination.temperatureUpdateRunning = true;
+            
+            // Add timeout protection for sensor reading
+            const unsigned long startTime = millis();
+            const bool updateSuccess = tempSensor_->updateTemperature();
+            const unsigned long readTime = millis() - startTime;
+            
+            if (readTime > 500) {
+                tempTimeoutCount++;
+                LOGF(WARNING, "Temperature sensor took %lums to read (timeout #%lu) - switching to cached mode", 
+                     readTime, tempTimeoutCount);
+                temperature_ = cachedTemperature; // Use cached value
+            } else if (updateSuccess) {
+                // Successful read - get the updated temperature and reset timeout counter
+                const double newTemp = tempSensor_->getCurrentTemperature();
+                temperature_ = newTemp;
+                cachedTemperature = newTemp;
+                if (tempTimeoutCount > 0) {
+                    LOG(INFO, "Temperature sensor recovered - resuming normal reads");
+                    tempTimeoutCount = 0;
+                }
+            } else {
+                // Update failed, use cached temperature
+                LOGF(WARNING, "Temperature sensor update failed - using cached temperature: %.1f°C", cachedTemperature);
+                temperature_ = cachedTemperature;
+            }
+            
+            g_state.coordination.temperatureUpdateRunning = false;
+        } else {
+            // Skip this read completely - no sensor call at all
+            temperature_ = cachedTemperature;
+            
+            static unsigned long lastSkipLog = 0;
+            if (currentTime - lastSkipLog > 10000) { // Log every 10 seconds
+                LOGF(INFO, "Skipping temperature reads due to sensor timeouts - using cached %.1f°C", cachedTemperature);
+                lastSkipLog = currentTime;
+            }
+        }
     }
 
     // Update water tank sensor (handled by timer in main.cpp)
     // updateWaterTankSensor(); - Called by timer
 
-    // Update pressure sensor
-    updatePressureSensor();
+    // Update pressure sensor (handled by LoopManager timer)
+    // updatePressureSensor(); - Called separately by LoopManager
 
     // Update scale (handled in main loop)
     // updateScale(); - Called from main loop
@@ -140,12 +185,46 @@ void SensorManager::updatePressureSensor() {
         return;
     }
 
-    if (const unsigned long currentMillisPressure = millis();
-        currentMillisPressure - previousMillisPressure_ >= intervalPressure_) {
-        previousMillisPressure_ = currentMillisPressure;
-        inputPressure_          = measurePressure();
-        inputPressureFilter_    = filterPressureValue(inputPressure_);
+    static unsigned long pressureTimeoutCount = 0;
+    static float cachedPressure = 0.0f; // Default fallback pressure
+
+    // Remove internal timing - let LoopManager control when this is called
+    // Skip sensor read if we've had timeouts - start skipping after 2 timeouts  
+    bool shouldSkipRead = (pressureTimeoutCount >= 2);
+    
+    if (!shouldSkipRead) {
+        // Add timeout protection for pressure sensor reading
+        const unsigned long startTime = millis();
+        const float newPressure = measurePressure();
+        const unsigned long readTime = millis() - startTime;
+        
+        if (readTime > 100) {
+            pressureTimeoutCount++;
+            LOGF(WARNING, "Pressure sensor took %lums to read (timeout #%lu) - switching to cached mode", 
+                 readTime, pressureTimeoutCount);
+            inputPressure_ = cachedPressure; // Use cached value
+        } else {
+            // Successful read - update cache and reset timeout counter
+            inputPressure_ = newPressure;
+            cachedPressure = newPressure;
+            if (pressureTimeoutCount > 0) {
+                LOG(INFO, "Pressure sensor recovered - resuming normal reads");
+                pressureTimeoutCount = 0;
+            }
+        }
+    } else {
+        // Skip this read completely - no sensor call at all
+        inputPressure_ = cachedPressure;
+        
+        static unsigned long lastSkipLog = 0;
+        const unsigned long currentTime = millis();
+        if (currentTime - lastSkipLog > 10000) { // Log every 10 seconds
+            LOGF(INFO, "Skipping pressure reads due to sensor timeouts - using cached %.2f bar", cachedPressure);
+            lastSkipLog = currentTime;
+        }
     }
+    
+    inputPressureFilter_ = filterPressureValue(inputPressure_);
 }
 
 bool SensorManager::initializeScale() {
@@ -234,13 +313,12 @@ bool SensorManager::initializePressureSensor() {
     }
 
     // Initialize pressure sensor variables
-    inputPressure_          = 0.0f;
-    inputPressureFilter_    = 0.0f;
-    inX_                    = 0.0f;
-    inY_                    = 0.0f;
-    inOld_                  = 0.0f;
-    inSum_                  = 0.0f;
-    previousMillisPressure_ = millis();
+    inputPressure_       = 0.0f;
+    inputPressureFilter_ = 0.0f;
+    inX_                 = 0.0f;
+    inY_                 = 0.0f;
+    inOld_               = 0.0f;
+    inSum_               = 0.0f;
 
     LOG(INFO, "Pressure sensor initialized via SensorManager");
     return true;

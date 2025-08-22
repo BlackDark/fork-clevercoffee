@@ -181,11 +181,9 @@ class SensorManager {
     static constexpr int waterTankCountsNeeded_ = 3;
 
     // Pressure sensor state
-    float                          inputPressure_;
-    float                          inputPressureFilter_;
-    float                          inX_, inY_, inOld_, inSum_; // Filter variables
-    unsigned long                  previousMillisPressure_;
-    static constexpr unsigned long intervalPressure_ = 100;
+    float inputPressure_;
+    float inputPressureFilter_;
+    float inX_, inY_, inOld_, inSum_; // Filter variables
 
     // Scale state (these are global variables, not instance variables)
 

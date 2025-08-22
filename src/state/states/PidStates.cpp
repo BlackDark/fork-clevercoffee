@@ -17,7 +17,15 @@ void PidNormalState::onEntryImpl(MachineStateContext& context) {
 }
 
 void PidNormalState::update(MachineStateContext& context) {
-    resetStandbyTimerIfNeeded(context);
+    // Only reset standby timer occasionally to avoid spam
+    static unsigned long lastStandbyReset = 0;
+    const unsigned long currentTime = context.getCurrentTime();
+    
+    // Reset standby timer at most once every 30 seconds to avoid log spam
+    if (currentTime - lastStandbyReset >= 30000) {
+        resetStandbyTimerIfNeeded(context);
+        lastStandbyReset = currentTime;
+    }
 }
 
 MachineState* PidNormalState::checkSpecificTransitions(MachineStateContext& context) {

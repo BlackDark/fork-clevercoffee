@@ -8,7 +8,6 @@
 
 #include "clevercoffee/GlobalState.h"
 #include "clevercoffee/Logger.h"
-#include "clevercoffee/utils/ModernTimer.h"
 
 #include <array>
 #include <cmath>
@@ -18,26 +17,55 @@ class TempSensor {
   public:
     /**
      * @brief Abstract temperature sensor class
-     * @details This class controls a temperature sensor. It updates the value in regular intervals of 400ms, controlled
-     *          by a timer. The temperature sampling result is checked for errors and an internal error counter is kept
-     *          to detect consecutive reading errors
+     * @details This class provides temperature sensor interface. Timing is handled externally
+     *          by centralized timer system. Error detection and moving average are maintained internally.
      */
-    TempSensor() : update_temperature([this] { update_temperature_reading(); }, std::chrono::milliseconds(400)) {}
+    TempSensor() = default;
+
+    /**
+     * @brief Update temperature reading from sensor
+     * @details Called by external timer system to update sensor reading
+     * @return true if update successful, false if error occurred
+     */
+    bool updateTemperature() {
+        // Update temperature and detect errors:
+        if (sample_temperature(last_temperature_)) {
+            LOGF(TRACE, "Temperature reading successful: %.1f", last_temperature_);
+
+            // Reset error counter and error state
+            bad_readings_ = 0;
+            error_        = false;
+
+            // Update moving average
+            update_moving_average();
+            return true;
+        } else if (!error_) {
+            // Increment error counter
+            LOGF(DEBUG, "Error during temperature reading, incrementing error counter to %i", bad_readings_);
+            bad_readings_++;
+        }
+
+        if (bad_readings_ >= max_bad_readings_ && !error_) {
+            error_ = true;
+            LOGF(ERROR, "Temperature sensor malfunction, %i consecutive errors", bad_readings_);
+        }
+        return false;
+    }
 
     /**
      * @brief Returns the current temperature
-     * @details Requests sampling from attached sensor and returns reading.
+     * @details Returns the last successfully read temperature value
      * @return Temperature in degrees Celsius
      */
-    double getCurrentTemperature() {
-        // Trigger the timer to update the temperature:
-        update_temperature();
+    double getCurrentTemperature() const noexcept {
         return last_temperature_;
     }
 
-    double getAverageTemperatureRate() {
-        // Trigger the timer to update the temperature:
-        update_temperature();
+    /**
+     * @brief Returns the average temperature change rate
+     * @return Average temperature rate
+     */
+    double getAverageTemperatureRate() const noexcept {
         return average_temp_rate_;
     }
 
@@ -74,37 +102,10 @@ class TempSensor {
     virtual bool sample_temperature(double& temperature) const = 0;
 
   private:
-    /**
-     * @brief Small helper method to be wrapped in a timer for updating the temperature from the sensors
-     */
-    void update_temperature_reading() {
-        // Update temperature and detect errors:
-        if (sample_temperature(last_temperature_)) {
-            LOGF(TRACE, "Temperature reading successful: %.1f", last_temperature_);
-
-            // Reset error counter and error state
-            bad_readings_ = 0;
-            error_        = false;
-
-            // Update moving average
-            update_moving_average();
-        } else if (!error_) {
-            // Increment error counter
-            LOGF(DEBUG, "Error during temperature reading, incrementing error counter to %i", bad_readings_);
-            bad_readings_++;
-        }
-
-        if (bad_readings_ >= max_bad_treadings_ && !error_) {
-            error_ = true;
-            LOGF(ERROR, "Temperature sensor malfunction, %i consecutive errors", bad_readings_);
-        }
-    }
-
-    MillisecondTimer update_temperature;
-    double           last_temperature_{};
-    int              bad_readings_{0};
-    int              max_bad_treadings_{10};
-    bool             error_{false};
+    double last_temperature_{};
+    int    bad_readings_{0};
+    int    max_bad_readings_{10};
+    bool   error_{false};
 
     /**
      * @brief FIR moving average filter for software brew detection

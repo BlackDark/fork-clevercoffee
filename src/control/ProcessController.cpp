@@ -123,9 +123,9 @@ void ProcessController::updateProcessControl(MachineStateId machineState) {
 
 void ProcessController::updateTemperature() {
     if (sensorManager_ != nullptr) {
-        // Update SensorManager first to get fresh readings
-        sensorManager_->update();
-
+        // Don't call sensorManager_->update() here - it's already called by LoopManager
+        // This was causing double sensor updates and blocking the main loop
+        
         // Use SensorManager for temperature reading (includes brew offset automatically)
         temperature_ = sensorManager_->getCurrentTemperature();
 
@@ -279,8 +279,7 @@ void ProcessController::emergencyStop() {
     g_state.process.pidOutput = 0;
 
     if (hardwareManager_) {
-        // Emergency heater shutdown through hardware manager
-        // TODO: Add emergency shutdown method to HardwareManager
+        hardwareManager_->safeShutdown();
     }
 }
 
@@ -365,10 +364,7 @@ void ProcessController::handleBrewPIDDelay(MachineStateId machineState) {
                 pidOutput_                = 0;
                 g_state.process.pidOutput = 0;
                 if (hardwareManager_) {
-                    // Turn off heater through hardware manager - for now use global heaterRelay
-                    if (g_state.hardware.heaterRelay) {
-                        g_state.hardware.heaterRelay->off();
-                    }
+                    hardwareManager_->getHeaterRelay().off();
                 }
                 LOGF(DEBUG,
                      "disabled PID, waiting for %.0f seconds before enabling PID again",
@@ -401,53 +397,17 @@ void ProcessController::handleBrewPIDDelay(MachineStateId machineState) {
 }
 
 void ProcessController::performSafeShutdown() {
+    LOG(INFO, "ProcessController performing safe shutdown");
+    
     // Disable PID control
-    setRuntimePidState(false);
+    setPIDEnabled(false);
+    pidOutput_ = 0;
+    g_state.process.pidOutput = 0;
 
-    // Turn off all relays
-    if (hardwareManager_ && g_state.hardware.heaterRelay && g_state.hardware.pumpRelay && g_state.hardware.valveRelay) {
-        g_state.hardware.heaterRelay->off();
-        g_state.hardware.pumpRelay->off();
-        g_state.hardware.valveRelay->off();
+    // Delegate hardware shutdown to HardwareManager
+    if (hardwareManager_) {
+        hardwareManager_->safeShutdown();
     }
 
-    // Reset all brew-related states
-    if (isBrewState(g_state.machine.machineState) && g_state.machine.machineState != MachineStateId::BREW_IDLE) {
-        LOG(INFO, "Stopping active brew during safe shutdown");
-        g_state.machine.flags.requestBrewStop = true; // Use condition flag instead of direct state assignment
-        g_state.sensors.currBrewSwitchState   = SwitchState::IDLE;
-        g_state.process.currBrewTime          = 0;
-        g_state.process.startingTime          = 0;
-        g_state.sensors.brewSwitchWasOff      = false;
-    }
-
-    // Reset manual flush states
-    if (isManualFlushState(g_state.machine.machineState) &&
-        g_state.machine.machineState != MachineStateId::MANUAL_FLUSH_IDLE) {
-        LOG(INFO, "Stopping manual group head flush during safe shutdown");
-        g_state.machine.flags.requestManualFlushStop = true; // Use condition flag instead of direct state assignment
-        g_state.sensors.currBrewSwitchState          = SwitchState::IDLE;
-        g_state.process.currBrewTime                 = 0;
-        g_state.process.startingTime                 = 0;
-    }
-
-    // Reset backflush state
-    if (isBackflushState(g_state.machine.machineState) &&
-        g_state.machine.machineState != MachineStateId::BACKFLUSH_IDLE) {
-        LOG(INFO, "Stopping active backflush during safe shutdown");
-        g_state.machine.flags.requestBackflushStop = true; // Use condition flag instead of direct state assignment
-        g_state.machine.currBackflushCycles        = 1;
-    }
-
-    // Reset hot water state - handled by hotWaterHandler
-    // TODO: Add proper hot water state reset through hotWaterHandler interface
-
-    // Turn off steam mode if active
-    if (g_state.machine.steamON) {
-        LOG(INFO, "Disabling steam mode during safe shutdown");
-        g_state.machine.steamON      = false;
-        g_state.machine.steamFirstON = false;
-    }
-
-    LOG(INFO, "Safe shutdown completed - all relays turned off, all states reset");
+    LOG(INFO, "ProcessController safe shutdown completed");
 }

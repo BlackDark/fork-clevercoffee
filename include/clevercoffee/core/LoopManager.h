@@ -195,23 +195,40 @@ class LoopManager {
      */
     bool getPerformanceStats() const;
 
+    /**
+     * @brief Configure sensor update timers with specific intervals
+     * @param temperatureIntervalMs Temperature sensor update interval in milliseconds
+     * @param pressureIntervalMs Pressure sensor update interval in milliseconds
+     * @param scaleIntervalMs Scale sensor update interval in milliseconds
+     */
+    void configureSensorTimers(unsigned long temperatureIntervalMs = 400,   // 2.5 Hz
+                               unsigned long pressureIntervalMs = 50,       // 20 Hz
+                               unsigned long scaleIntervalMs = 100);        // 10 Hz
+
+    /**
+     * @brief Log configured timer intervals and actual execution frequencies
+     */
+    void logTimerConfiguration() const;
+
   private:
     /**
-     * @brief Setup water tank monitoring timer
+     * @brief Setup all timers (sensors, water tank, general)
      * @return true if setup successful
      */
-    bool setupWaterTankTimer();
+    bool setupAllTimers();
 
     /**
-     * @brief Setup timers
-     * @return true if setup successful
+     * @brief Sensor timer callback functions
      */
-    bool setupTimers();
-
-    /**
-     * @brief Water tank check callback function
-     */
+    void updateTemperatureSensor();
+    void updatePressureSensor();
+    void updateScaleSensor();
     void checkWaterTankLevel();
+
+    /**
+     * @brief Invoke all centralized sensor timers
+     */
+    void updateCentralizedSensorTimers();
 
     // Manager dependencies
     ProcessController* processController_;
@@ -222,13 +239,22 @@ class LoopManager {
     // Initialization state
     bool initialized_;
 
-    // Water tank monitoring
+    // Centralized timer system for all sensors
     std::unique_ptr<MillisecondTimer> waterTankTimer_;
-    bool                              waterTankTimerInitialized_;
+    std::unique_ptr<MillisecondTimer> temperatureTimer_;
+    std::unique_ptr<MillisecondTimer> pressureTimer_;
+    std::unique_ptr<MillisecondTimer> scaleTimer_;
+    bool                              sensorsTimersInitialized_;
 
     // Performance monitoring
     bool          performanceMonitoringEnabled_;
     unsigned long lastLoopTime_;
     unsigned long maxLoopTime_;
     unsigned long loopCount_;
+
+    // Timer execution counters for monitoring
+    unsigned long temperatureUpdateCount_;
+    unsigned long pressureUpdateCount_;
+    unsigned long scaleUpdateCount_;
+    unsigned long lastTimerLogTime_;
 };

@@ -33,7 +33,6 @@
 #include "clevercoffee/GlobalState.h"
 
 // Utilities
-#include "clevercoffee/utils/ModernTimer.h"
 #include "clevercoffee/utils/SystemUtils.h"
 #include "clevercoffee/utils/helperUtils.h"
 #include "clevercoffee/utils/memoryUtils.h"
@@ -157,6 +156,11 @@ void setup() {
         // Initialize LoopManager for main loop coordination
         loopManager = std::make_unique<LoopManager>(processController.get(), sensorManager, uiManager);
         InitHelpers::logInitResult("LoopManager", loopManager->initialize());
+
+        // Configure sensor update timers (uncomment and modify as needed)
+        // loopManager->configureSensorTimers(100, 50, 100); // Temperature: 100ms (10Hz), Pressure: 50ms (20Hz), Scale: 100ms (10Hz)
+        // loopManager->configureSensorTimers(200, 100, 200); // Slower: Temperature: 200ms (5Hz), Pressure: 100ms (10Hz), Scale: 200ms (5Hz)
+        // loopManager->configureSensorTimers(50, 25, 50); // Faster: Temperature: 50ms (20Hz), Pressure: 25ms (40Hz), Scale: 50ms (20Hz)
     }
 
     // Initialize handler objects and set up references in global state

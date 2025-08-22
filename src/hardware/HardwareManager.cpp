@@ -10,6 +10,8 @@
 #include "clevercoffee/hardware/pinmapping.h"
 #include "clevercoffee/utils/memoryUtils.h"
 
+#include <cmath>
+
 HardwareManager::HardwareManager()
     : heaterRelayPin_(PIN_HEATER, GPIOPin::OUT), pumpRelayPin_(PIN_PUMP, GPIOPin::OUT),
       valveRelayPin_(PIN_VALVE, GPIOPin::OUT) {
@@ -221,4 +223,55 @@ void HardwareManager::safeShutdown() {
     if (steamLed_) steamLed_->turnOff();
 
     LOG(INFO, "Safe hardware shutdown completed");
+}
+
+void HardwareManager::updateLEDs(int machineState, double temperature, double setpoint) {
+    // Need to include MachineStateIds for this to work properly
+    // For now, use integer constants to avoid circular dependencies
+    const int PID_NORMAL = 20;
+    const int BREW_IDLE = 10;
+    const int BREW_PREINFUSION = 11;
+    const int BREW_PREINFUSION_PAUSE = 12;
+    const int BREW_RUNNING = 13;
+    const int BREW_FINISHED = 14;
+    const int STEAM_IDLE = 31;
+    const int STEAM_RUNNING = 32;
+    const int STEAM_STOPPED = 33;
+
+    // Status LED - indicates when temperature is reached
+    if (Config::getInstance().hardwareLedsStatusEnabled.get() && statusLed_) {
+        bool shouldTurnOn = false;
+
+        // Turn on when at target temperature (normal or steam mode)
+        if ((machineState == PID_NORMAL && (abs(temperature - setpoint) < 0.3)) ||
+            (temperature > 115 && abs(temperature - setpoint) < 5)) {
+            shouldTurnOn = true;
+        }
+
+        if (shouldTurnOn) {
+            statusLed_->turnOn();
+        } else {
+            statusLed_->turnOff();
+        }
+    }
+
+    // Brew LED - indicates brewing state
+    if (Config::getInstance().hardwareLedsBrewEnabled.get() && brewLed_) {
+        bool isBrewState = (machineState >= BREW_IDLE && machineState <= BREW_FINISHED);
+        if (isBrewState) {
+            brewLed_->turnOn();
+        } else {
+            brewLed_->turnOff();
+        }
+    }
+
+    // Steam LED - indicates steam mode
+    if (Config::getInstance().hardwareLedsSteamEnabled.get() && steamLed_) {
+        bool isSteamState = (machineState >= STEAM_IDLE && machineState <= STEAM_STOPPED);
+        if (isSteamState) {
+            steamLed_->turnOn();
+        } else {
+            steamLed_->turnOff();
+        }
+    }
 }

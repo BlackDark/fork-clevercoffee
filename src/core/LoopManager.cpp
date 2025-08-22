@@ -26,6 +26,7 @@
 #include <Arduino.h>
 #include <ArduinoOTA.h>
 #include <WiFi.h>
+#include <cmath>
 
 // Forward declaration for display template function
 namespace DisplayTemplateManager {
@@ -47,21 +48,17 @@ LoopManager::LoopManager(ProcessController* processController,
                          UIManager*         uiManager,
                          HotWaterHandler*   hotWaterHandler)
     : processController_(processController), sensorManager_(sensorManager), uiManager_(uiManager),
-      hotWaterHandler_(hotWaterHandler), initialized_(false), waterTankTimerInitialized_(false),
-      performanceMonitoringEnabled_(false), lastLoopTime_(0), maxLoopTime_(0), loopCount_(0) {
-    LOG(INFO, "LoopManager created");
+      hotWaterHandler_(hotWaterHandler), initialized_(false), sensorsTimersInitialized_(false),
+      performanceMonitoringEnabled_(false), lastLoopTime_(0), maxLoopTime_(0), loopCount_(0),
+      temperatureUpdateCount_(0), pressureUpdateCount_(0), scaleUpdateCount_(0), lastTimerLogTime_(0) {
+    LOG(INFO, "LoopManager created - will initialize centralized sensor timers");
 }
 
 bool LoopManager::initialize() {
     LOG(INFO, "Initializing LoopManager");
 
-    // Setup water tank monitoring
-    if (!setupWaterTankTimer()) {
-        LOG(WARNING, "LoopManager: Water tank timer setup failed");
-        // Continue initialization - this is not critical
-    }
-
-    if (!setupTimers()) {
+    // Setup all timers in one place
+    if (!setupAllTimers()) {
         LOG(ERROR, "LoopManager: Timer setup failed");
         return false;
     }
@@ -76,7 +73,7 @@ bool LoopManager::initialize() {
 
     initialized_ = true;
 
-    LOG(INFO, "LoopManager initialized successfully");
+    LOG(INFO, "LoopManager initialized successfully with centralized sensor timing");
     return true;
 }
 
@@ -88,47 +85,91 @@ void LoopManager::update() {
 
     // Performance timing start
     unsigned long loopStartTime = millis();
+    static unsigned long slowLoopCount = 0;
+    static unsigned long lastSlowLoopReport = 0;
 
     // 1. Accept potential connections for remote logging
+    unsigned long stepStart = millis();
     Logger::update();
+    unsigned long loggerTime = millis() - stepStart;
 
     // 2. Update water tank sensor (timer-based, 200ms intervals)
+    stepStart = millis();
     updateWaterTank();
+    unsigned long waterTankTime = millis() - stepStart;
 
     // 3. Update PID settings & machine state
+    stepStart = millis();
     updateProcessControl();
+    unsigned long processControlTime = millis() - stepStart;
 
     // 4. Update LED output based on machine state
+    stepStart = millis();
     updateLEDs();
+    unsigned long ledTime = millis() - stepStart;
 
     // 5. Update network (WiFi/MQTT/OTA)
+    stepStart = millis();
     updateNetwork();
+    unsigned long networkTime = millis() - stepStart;
 
     // 6. Update website and data transmission
+    stepStart = millis();
     updateWebsite();
+    unsigned long websiteTime = millis() - stepStart;
 
-    // 7. Update sensors (scale, pressure)
-    updateSensors();
+    // 7. Update sensors via centralized timers
+    stepStart = millis();
+    updateCentralizedSensorTimers();
+    unsigned long sensorsTime = millis() - stepStart;
 
     // 8. Update switches and standby management
+    stepStart = millis();
     updateSwitchesAndStandby();
+    unsigned long switchesTime = millis() - stepStart;
 
     // 9. Update state machine
+    stepStart = millis();
     updateStateMachine();
+    unsigned long stateMachineTime = millis() - stepStart;
 
     // 10. Update display (critical for screen refresh)
+    stepStart = millis();
     updateDisplay();
+    unsigned long displayTime = millis() - stepStart;
 
     // 11. Print timing related data to check what is causing stutters
+    stepStart = millis();
     updateDebugTiming();
+    unsigned long debugTime = millis() - stepStart;
 
     // Performance timing end
+    unsigned long loopDuration = millis() - loopStartTime;
+
     if (performanceMonitoringEnabled_) {
-        unsigned long loopDuration = millis() - loopStartTime;
         if (loopDuration > maxLoopTime_) {
             maxLoopTime_ = loopDuration;
         }
         loopCount_++;
+
+        // Track slow loops (>100ms)
+        if (loopDuration > 100) {
+            slowLoopCount++;
+
+            // Log detailed breakdown for slow loops
+            LOGF(WARNING, "Slow loop detected (%lums): Logger=%lu, WaterTank=%lu, ProcessControl=%lu, LED=%lu, Network=%lu, Website=%lu, Sensors=%lu, Switches=%lu, StateMachine=%lu, Display=%lu, Debug=%lu",
+                 loopDuration, loggerTime, waterTankTime, processControlTime, ledTime,
+                 networkTime, websiteTime, sensorsTime, switchesTime, stateMachineTime, displayTime, debugTime);
+        }
+
+        // Report slow loop statistics every 30 seconds
+        if (millis() - lastSlowLoopReport > 30000) {
+            if (slowLoopCount > 0) {
+                LOGF(INFO, "Loop performance: %lu slow loops (>100ms) out of %lu total loops in last 30s", slowLoopCount, loopCount_);
+                slowLoopCount = 0;
+            }
+            lastSlowLoopReport = millis();
+        }
 
         // Log performance statistics every 1000 loops
         if (loopCount_ % 1000 == 0) {
@@ -138,40 +179,28 @@ void LoopManager::update() {
 }
 
 void LoopManager::updateLEDs() {
+    // Simple LED coordination - delegate details to dedicated LED controller when available
+    const auto machineState = g_state.machine.machineState;
+    const auto temperature = g_state.process.temperature;
+    const auto setpoint = g_state.process.setpoint;
+
     // Status LED - indicates when temperature is reached
-    if (Config::getInstance().hardwareLedsStatusEnabled.get() && g_state.hardware.statusLed != nullptr) {
-        bool shouldTurnOn = false;
+    if (Config::getInstance().hardwareLedsStatusEnabled.get() && g_state.hardware.statusLed) {
+        bool shouldTurnOn = (machineState == MachineStateId::PID_NORMAL &&
+                           (fabs(temperature - setpoint) < 0.3)) ||
+                          (temperature > 115 && fabs(temperature - setpoint) < 5);
 
-        // Turn on when at target temperature (normal or steam mode)
-        if ((g_state.machine.machineState == MachineStateId::PID_NORMAL &&
-             (fabs(g_state.process.temperature - g_state.process.setpoint) < 0.3)) ||
-            (g_state.process.temperature > 115 && fabs(g_state.process.temperature - g_state.process.setpoint) < 5)) {
-            shouldTurnOn = true;
-        }
-
-        if (shouldTurnOn) {
-            g_state.hardware.statusLed->turnOn();
-        } else {
-            g_state.hardware.statusLed->turnOff();
-        }
+        shouldTurnOn ? g_state.hardware.statusLed->turnOn() : g_state.hardware.statusLed->turnOff();
     }
 
     // Brew LED - indicates brewing state
-    if (Config::getInstance().hardwareLedsBrewEnabled.get() && g_state.hardware.brewLed != nullptr) {
-        if (isBrewState(g_state.machine.machineState)) {
-            g_state.hardware.brewLed->turnOn();
-        } else {
-            g_state.hardware.brewLed->turnOff();
-        }
+    if (Config::getInstance().hardwareLedsBrewEnabled.get() && g_state.hardware.brewLed) {
+        isBrewState(machineState) ? g_state.hardware.brewLed->turnOn() : g_state.hardware.brewLed->turnOff();
     }
 
     // Steam LED - indicates steam mode
-    if (Config::getInstance().hardwareLedsSteamEnabled.get() && g_state.hardware.steamLed != nullptr) {
-        if (isSteamState(g_state.machine.machineState)) {
-            g_state.hardware.steamLed->turnOn();
-        } else {
-            g_state.hardware.steamLed->turnOff();
-        }
+    if (Config::getInstance().hardwareLedsSteamEnabled.get() && g_state.hardware.steamLed) {
+        isSteamState(machineState) ? g_state.hardware.steamLed->turnOn() : g_state.hardware.steamLed->turnOff();
     }
 }
 
@@ -191,7 +220,15 @@ void LoopManager::updateWaterTank() {
 void LoopManager::updateProcessControl() {
     if (processController_) {
         // Use modern ProcessController for PID and temperature management
+        const unsigned long processStart = millis();
         processController_->updateProcessControl(g_state.machine.machineState);
+        const unsigned long processTime = millis() - processStart;
+
+        if (processTime > 100) {
+            LOGF(ERROR, "ProcessController update took %lums - this is blocking the main loop!", processTime);
+        } else if (processTime > 50) {
+            LOGF(WARNING, "ProcessController update took %lums", processTime);
+        }
     } else {
         // Fallback to original temperature reading logic - handled in main.cpp for now
         LOG(DEBUG, "LoopManager: ProcessController not available, using fallback");
@@ -243,38 +280,50 @@ void LoopManager::updateDebugTiming() {
     // This function is kept for API compatibility but does nothing
 }
 
-bool LoopManager::setupTimers() {
+bool LoopManager::setupAllTimers() {
     try {
-        // Use unique_ptr for automatic memory management
+        LOG(INFO, "LoopManager: Setting up all timers");
+
+        // 1. General timers (display, HASSIO discovery)
         g_state.timing.hassioDiscoveryTimer =
             std::make_unique<MillisecondTimer>(&sendHASSIODiscoveryMsg, std::chrono::milliseconds(300000));
         g_state.timing.printDisplayTimer =
             std::make_unique<MillisecondTimer>(DisplayTemplateManager::printScreen, std::chrono::milliseconds(100));
+        LOG(INFO, "LoopManager: General timers initialized");
 
-        LOG(INFO, "LoopManager: Initialized timers");
-        return true;
-    } catch (const std::exception& e) {
-        LOGF(ERROR, "LoopManager: Exception creating timers: %s", e.what());
-        return false;
-    }
-}
-
-bool LoopManager::setupWaterTankTimer() {
-    try {
-        // Create timer for water tank monitoring (200ms interval)
-        waterTankTimer_ = std::make_unique<MillisecondTimer>(std::bind(&LoopManager::checkWaterTankLevel, this),
-                                                             std::chrono::milliseconds(200));
-
+        // 2. Water tank monitoring timer (200ms interval)
+        waterTankTimer_ = std::make_unique<MillisecondTimer>(
+            std::bind(&LoopManager::checkWaterTankLevel, this),
+            std::chrono::milliseconds(200));
         if (!waterTankTimer_) {
             LOG(ERROR, "LoopManager: Failed to create water tank timer");
             return false;
         }
-
-        waterTankTimerInitialized_ = true;
         LOG(INFO, "LoopManager: Water tank timer initialized (200ms interval)");
+
+        // 3. Centralized sensor timers
+        // Temperature sensor timer (400ms - 2.5Hz for PID stability, Dallas DS18B20 takes ~100ms to read)
+        temperatureTimer_ = std::make_unique<MillisecondTimer>(
+            std::bind(&LoopManager::updateTemperatureSensor, this),
+            std::chrono::milliseconds(400));
+
+        // Pressure sensor timer (50ms - 20Hz for responsiveness)
+        pressureTimer_ = std::make_unique<MillisecondTimer>(
+            std::bind(&LoopManager::updatePressureSensor, this),
+            std::chrono::milliseconds(50));
+
+        // Scale sensor timer (100ms - 10Hz for good balance)
+        scaleTimer_ = std::make_unique<MillisecondTimer>(
+            std::bind(&LoopManager::updateScaleSensor, this),
+            std::chrono::milliseconds(100));
+
+        sensorsTimersInitialized_ = true;
+        LOG(INFO, "LoopManager: Centralized sensor timers initialized");
+
+        LOG(INFO, "LoopManager: All timers successfully initialized");
         return true;
     } catch (const std::exception& e) {
-        LOGF(ERROR, "LoopManager: Exception creating water tank timer: %s", e.what());
+        LOGF(ERROR, "LoopManager: Exception creating timers: %s", e.what());
         return false;
     }
 }
@@ -286,54 +335,107 @@ void LoopManager::checkWaterTankLevel() {
     }
 }
 
+void LoopManager::updateTemperatureSensor() {
+    if (sensorManager_) {
+        const unsigned long startTime = millis();
+        sensorManager_->update(); // This calls temperature sensor update
+        const unsigned long updateTime = millis() - startTime;
+
+        if (updateTime > 50) {
+            LOGF(WARNING, "Temperature sensor update took %lums", updateTime);
+        }
+
+        temperatureUpdateCount_++;
+    }
+}
+
+void LoopManager::updatePressureSensor() {
+    if (Config::getInstance().hardwareSensorsPressureEnabled.get() && sensorManager_) {
+        const unsigned long startTime = millis();
+
+        sensorManager_->updatePressureSensor();
+        g_state.sensors.inputPressure = sensorManager_->getCurrentPressure();
+        g_state.sensors.inputPressureFilter = sensorManager_->getFilteredPressure();
+
+        const unsigned long updateTime = millis() - startTime;
+        if (updateTime > 25) {
+            LOGF(WARNING, "Pressure sensor update took %lums", updateTime);
+        }
+
+        pressureUpdateCount_++;
+    }
+}
+
+void LoopManager::updateScaleSensor() {
+    if (Config::getInstance().hardwareSensorsScaleEnabled.get()) {
+        const unsigned long startTime = millis();
+
+        // Delegate to scale handler functions
+        extern void checkWeight();
+        extern void shotTimerScale();
+
+        checkWeight();
+        shotTimerScale();
+
+        const unsigned long updateTime = millis() - startTime;
+        if (updateTime > 50) {
+            LOGF(WARNING, "Scale sensor update took %lums", updateTime);
+        }
+
+        scaleUpdateCount_++;
+    }
+}
+
+void LoopManager::updateCentralizedSensorTimers() {
+    if (sensorsTimersInitialized_) {
+        // Invoke sensor timers - they handle their own timing intervals
+        if (temperatureTimer_) (*temperatureTimer_)();
+        if (pressureTimer_) (*pressureTimer_)();
+        if (scaleTimer_) (*scaleTimer_)();
+
+        // Performance monitoring every 30 seconds
+        const unsigned long currentTime = millis();
+        if (currentTime - lastTimerLogTime_ >= 30000) {
+            logTimerConfiguration();
+            lastTimerLogTime_ = currentTime;
+        }
+    }
+}
+
 bool LoopManager::getPerformanceStats() const {
     return performanceMonitoringEnabled_ && loopCount_ > 0;
 }
 
 void LoopManager::updateNetwork() {
-    // Network management (WiFi/MQTT/OTA) extracted from loopPid()
+    // Simplified network coordination - delegate complex logic to network managers
     static bool wifiWasConnected = false;
 
-    // Only do Wifi stuff, if Wifi is connected
     if (WiFi.status() == WL_CONNECTED && !g_state.network.offlineMode) {
-        if (wifiWasConnected == false) {
+        if (!wifiWasConnected) {
             LOG(INFO, "WiFi Connected");
             wifiWasConnected = true;
         }
 
+        // MQTT Management - delegate to MQTTManager
         if (g_state.network.mqttManager && g_state.network.mqttManager->isEnabled()) {
             g_state.network.mqttManager->setUpdateRunning(false);
 
             if (g_state.network.cleverCoffeeWiFiManager->getSignalStrength() > 1) {
                 g_state.network.mqttManager->checkConnection();
 
-                // if screen is ready to refresh wait for next loop
                 if (!g_state.coordination.displayBufferReady && !g_state.coordination.temperatureUpdateRunning) {
                     g_state.network.mqttManager->writeSysParamsToMQTT(true);
                 }
             }
 
-            g_state.coordination.hassioUpdateRunning = false;
-
             if (g_state.network.mqttManager->isConnected()) {
                 g_state.network.mqttManager->loop();
-
-                // resend discovery messages if not during a main function and MQTT has been disconnected but has now
-                // reconnected Check if machine is not in active operational states
-                bool isOperational = (isBrewState(g_state.machine.machineState) &&
-                                      g_state.machine.machineState != MachineStateId::BREW_IDLE) ||
-                                     isHotWaterState(g_state.machine.machineState) &&
-                                         g_state.machine.machineState != MachineStateId::HOT_WATER_IDLE ||
-                                     isManualFlushState(g_state.machine.machineState) &&
-                                         g_state.machine.machineState != MachineStateId::MANUAL_FLUSH_IDLE ||
-                                     isBackflushState(g_state.machine.machineState) &&
-                                         g_state.machine.machineState != MachineStateId::BACKFLUSH_IDLE;
-                if (!isOperational &&
-                    ((!g_state.network.mqttManager->wasConnected() || g_state.network.hassioFailed) &&
-                     !g_state.coordination.displayBufferReady && !g_state.coordination.temperatureUpdateRunning)) {
-                    if (g_state.timing.hassioDiscoveryTimer) (*g_state.timing.hassioDiscoveryTimer)();
+                // Home Assistant discovery - delegate to timer system
+                if (g_state.timing.hassioDiscoveryTimer &&
+                    !g_state.coordination.displayBufferReady &&
+                    !g_state.coordination.temperatureUpdateRunning) {
+                    (*g_state.timing.hassioDiscoveryTimer)();
                 }
-
                 g_state.network.mqttManager->setWasConnected(true);
             } else if (g_state.network.mqttManager->wasConnected()) {
                 LOG(INFO, "MQTT disconnected");
@@ -341,19 +443,9 @@ void LoopManager::updateNetwork() {
             }
         }
 
-        // OTA handling
+        // OTA handling - minimal coordination
         ArduinoOTA.handle();
-
-        // Disable interrupt if OTA is starting, otherwise it will not work
-        ArduinoOTA.onStart([]() {
-            disableTimer1();
-            if (g_state.hardware.heaterRelay) g_state.hardware.heaterRelay->off();
-        });
-
-        ArduinoOTA.onError([](ota_error_t error) { enableTimer1(); });
-        ArduinoOTA.onEnd([]() { enableTimer1(); });
-
-        g_state.network.wifiReconnects = 0; // reset wifi reconnects if connected
+        g_state.network.wifiReconnects = 0;
     } else {
         wifiWasConnected = false;
         if (g_state.network.cleverCoffeeWiFiManager) {
@@ -363,69 +455,34 @@ void LoopManager::updateNetwork() {
 }
 
 void LoopManager::updateWebsite() {
-    // Website and data transmission updates extracted from loopPid()
-    // pidOutput moved to g_state.process.pidOutput
+    // Simplified website coordination - delegate to WebServerManager
+    const bool canSendData = (millis() - g_state.network.lastTempEvent) > g_state.network.tempEventInterval &&
+                            (!g_state.network.mqttManager || !g_state.network.mqttManager->isUpdateRunning()) &&
+                            !g_state.coordination.hassioUpdateRunning &&
+                            !g_state.coordination.displayBufferReady &&
+                            !g_state.coordination.temperatureUpdateRunning;
 
-    bool timeCondition    = (millis() - g_state.network.lastTempEvent) > g_state.network.tempEventInterval;
-    bool mqttCondition    = (!g_state.network.mqttManager || !g_state.network.mqttManager->isUpdateRunning());
-    bool hassioCondition  = !g_state.coordination.hassioUpdateRunning;
-    bool displayCondition = !g_state.coordination.displayBufferReady;
-    bool tempCondition    = !g_state.coordination.temperatureUpdateRunning;
-
-    if (timeCondition && mqttCondition && hassioCondition && displayCondition && tempCondition) {
-        LOGF(DEBUG, "LoopManager: Conditions met for sending temperature events");
+    if (canSendData && WiFi.status() == WL_CONNECTED && !g_state.network.offlineMode) {
         g_state.coordination.websiteUpdateRunning = true;
 
-        // send temperatures to website endpoint
-        if (WiFi.status() == WL_CONNECTED && !g_state.network.offlineMode) {
-            LOGF(DEBUG,
-                 "LoopManager: Sending temperature event: temp=%.2f, setpoint=%.2f, output=%.2f",
-                 g_state.process.temperature,
-                 Config::getInstance().brewSetpoint.get(),
-                 g_state.process.pidOutput / 10);
+        // Delegate to WebServerManager for actual transmission
+        if (g_state.network.webServerManager) {
             g_state.network.webServerManager->sendTempEvent(
                 g_state.process.temperature,
                 Config::getInstance().brewSetpoint.get(),
-                g_state.process.pidOutput / 10); // pidOutput is promill, so /10 to get percent value
+                g_state.process.pidOutput / 10); // Convert promill to percent
 
             if (Config::getInstance().hardwareSensorsScaleEnabled.get()) {
                 g_state.network.webServerManager->sendWeightEvent();
             }
-            g_state.network.lastTempEvent = millis();
         }
 
+        g_state.network.lastTempEvent = millis();
         g_state.coordination.websiteUpdateRunning = false;
     }
 }
 
-void LoopManager::updateSensors() {
-    // Scale and pressure sensor updates extracted from loopPid()
-    extern void  checkWeight();
-    extern void  shotTimerScale();
-    extern float measurePressure();
-    extern float filterPressureValue(float input);
-
-    if (Config::getInstance().hardwareSensorsScaleEnabled.get()) {
-        checkWeight();    // Check Weight Scale in the loop
-        shotTimerScale(); // Calculation of weight of shot while brew is running
-    }
-
-    if (Config::getInstance().hardwareSensorsPressureEnabled.get()) {
-        if (sensorManager_) {
-            // Pressure reading is handled by sensorManager->update() call in ProcessController
-            g_state.sensors.inputPressure       = sensorManager_->getCurrentPressure();
-            g_state.sensors.inputPressureFilter = sensorManager_->getFilteredPressure();
-        } else {
-            // Fallback to direct pressure reading
-            if (const unsigned long currentMillisPressure = millis();
-                currentMillisPressure - g_state.timing.previousMillisPressure >= g_state.timing.intervalPressure) {
-                g_state.timing.previousMillisPressure = currentMillisPressure;
-                g_state.sensors.inputPressure         = measurePressure();
-                g_state.sensors.inputPressureFilter   = filterPressureValue(g_state.sensors.inputPressure);
-            }
-        }
-    }
-}
+// Old updateSensors() method removed - replaced with centralized timer system
 
 void LoopManager::updateSwitchesAndStandby() {
     // Switch handling and standby management extracted from loopPid()
@@ -476,4 +533,57 @@ void LoopManager::updateStateMachine() {
             shouldDisplayBrewTimer();
         }
     }
+}
+
+void LoopManager::configureSensorTimers(unsigned long temperatureIntervalMs,
+                                        unsigned long pressureIntervalMs,
+                                        unsigned long scaleIntervalMs) {
+    try {
+        // Recreate timer objects with new intervals
+        temperatureTimer_ = std::make_unique<MillisecondTimer>(
+            std::bind(&LoopManager::updateTemperatureSensor, this),
+            std::chrono::milliseconds(temperatureIntervalMs));
+
+        pressureTimer_ = std::make_unique<MillisecondTimer>(
+            std::bind(&LoopManager::updatePressureSensor, this),
+            std::chrono::milliseconds(pressureIntervalMs));
+
+        scaleTimer_ = std::make_unique<MillisecondTimer>(
+            std::bind(&LoopManager::updateScaleSensor, this),
+            std::chrono::milliseconds(scaleIntervalMs));
+
+        // Reset counters when reconfiguring
+        temperatureUpdateCount_ = 0;
+        pressureUpdateCount_ = 0;
+        scaleUpdateCount_ = 0;
+        lastTimerLogTime_ = millis();
+
+        LOGF(INFO, "Sensor timers reconfigured - Temperature: %lums (%.1fHz), Pressure: %lums (%.1fHz), Scale: %lums (%.1fHz)",
+             temperatureIntervalMs, 1000.0f / temperatureIntervalMs,
+             pressureIntervalMs, 1000.0f / pressureIntervalMs,
+             scaleIntervalMs, 1000.0f / scaleIntervalMs);
+    } catch (const std::exception& e) {
+        LOGF(ERROR, "LoopManager: Exception reconfiguring sensor timers: %s", e.what());
+    }
+}
+
+void LoopManager::logTimerConfiguration() const {
+    const unsigned long currentTime = millis();
+    const float timeDiffSeconds = (currentTime - lastTimerLogTime_) / 1000.0f;
+
+    if (timeDiffSeconds > 0) {
+        const float actualTempFreq = temperatureUpdateCount_ / timeDiffSeconds;
+        const float actualPressureFreq = pressureUpdateCount_ / timeDiffSeconds;
+        const float actualScaleFreq = scaleUpdateCount_ / timeDiffSeconds;
+
+        LOGF(INFO, "Centralized Sensor Timer Performance Report:");
+        LOGF(INFO, "  Temperature: %.1fHz actual (%lu updates)", actualTempFreq, temperatureUpdateCount_);
+        LOGF(INFO, "  Pressure: %.1fHz actual (%lu updates)", actualPressureFreq, pressureUpdateCount_);
+        LOGF(INFO, "  Scale: %.1fHz actual (%lu updates)", actualScaleFreq, scaleUpdateCount_);
+    }
+
+    // Reset counters for next measurement period
+    const_cast<LoopManager*>(this)->temperatureUpdateCount_ = 0;
+    const_cast<LoopManager*>(this)->pressureUpdateCount_ = 0;
+    const_cast<LoopManager*>(this)->scaleUpdateCount_ = 0;
 }
