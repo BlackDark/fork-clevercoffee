@@ -28,7 +28,7 @@ GPIOPin::Type GPIOPin::getType() const noexcept {
     return pinType;
 }
 
-void GPIOPin::setType(const Type pinType) const {
+void GPIOPin::setType(Type pinType) {
     switch (pinType) {
         case OUT:
             pinMode(pin, OUTPUT);

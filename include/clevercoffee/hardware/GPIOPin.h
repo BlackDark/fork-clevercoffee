@@ -65,7 +65,7 @@ class GPIOPin {
      *
      * @param pinType Desired type of the pin
      */
-    void setType(Type pinType) const;
+    void setType(Type pinType);
 
     int  pin;
     Type pinType;
