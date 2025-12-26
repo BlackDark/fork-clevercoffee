@@ -17,6 +17,13 @@ TempSensorTSIC::TempSensorTSIC(const int GPIOPin) {
     tsicSensor_->begin();
 }
 
+TempSensorTSIC::~TempSensorTSIC() {
+    if (tsicSensor_ != nullptr) {
+        delete tsicSensor_;
+        tsicSensor_ = nullptr;
+    }
+}
+
 bool TempSensorTSIC::sample_temperature(double& temperature) const {
     const auto temp = tsicSensor_->getTemp(MAX_CHANGERATE);
 

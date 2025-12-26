@@ -13,6 +13,7 @@
 class TempSensorTSIC final : public TempSensor {
   public:
     explicit TempSensorTSIC(int GPIOPin);
+    ~TempSensorTSIC() override;
 
   protected:
     bool sample_temperature(double& temperature) const override;
