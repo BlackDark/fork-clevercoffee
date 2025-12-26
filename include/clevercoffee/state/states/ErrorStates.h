@@ -34,4 +34,7 @@ class EepromErrorState : public BaseState<MachineStateId::EEPROM_ERROR, EepromEr
     void          onEntryImpl(MachineStateContext& context) override;
     void          onExitImpl(MachineStateContext& context) override;
     MachineState* checkSpecificTransitions(MachineStateContext& context) override;
+
+  private:
+    unsigned long errorStartTime_ = 0;
 };

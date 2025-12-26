@@ -95,6 +95,7 @@ void EepromErrorState::onEntryImpl(MachineStateContext& context) {
     LOG(ERROR, "EEPROM error detected - configuration may be corrupted");
     context.enterSafeMode();
     context.setPidRuntimeState(false);
+    errorStartTime_ = millis();  // Reset timer on entry
 }
 
 void EepromErrorState::onExitImpl(MachineStateContext& context) {
@@ -111,13 +112,8 @@ MachineState* EepromErrorState::checkSpecificTransitions(MachineStateContext& co
         context.logStateTransition(getStateId(), MachineStateId::EMERGENCY_STOP, "Emergency stop during EEPROM error");
         return getStateInstance(MachineStateId::EMERGENCY_STOP);
     }
-    static unsigned long eepromErrorStartTime = 0;
-    if (eepromErrorStartTime == 0) {
-        eepromErrorStartTime = millis();
-    }
     constexpr unsigned long EEPROM_RECOVERY_TIMEOUT = 300000;
-    if (millis() - eepromErrorStartTime > EEPROM_RECOVERY_TIMEOUT) {
-        eepromErrorStartTime = 0;
+    if (millis() - errorStartTime_ > EEPROM_RECOVERY_TIMEOUT) {
         context.logStateTransition(
             getStateId(), MachineStateId::PID_DISABLED, "EEPROM recovery timeout - attempting recovery");
         return getStateInstance(MachineStateId::PID_DISABLED);
