@@ -133,7 +133,7 @@ void ProcessController::updateTemperature() {
             // Apply brew temperature offset if not in steam mode
             temperature_ -= brewTempOffset_;
         }
-    } else if (hardwareManager_->getTempSensor() != nullptr) {
+    } else if (hardwareManager_ != nullptr && hardwareManager_->getTempSensor() != nullptr) {
         // Fallback to direct sensor access
         temperature_ = hardwareManager_->getTempSensor()->getCurrentTemperature();
 
