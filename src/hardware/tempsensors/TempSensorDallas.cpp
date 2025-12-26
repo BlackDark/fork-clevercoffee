@@ -18,6 +18,19 @@ TempSensorDallas::TempSensorDallas(const int GPIOPin) {
     dallasSensor_->requestTemperaturesByAddress(sensorDeviceAddress_);
 }
 
+TempSensorDallas::~TempSensorDallas() {
+    // Delete in reverse order of allocation
+    // Dallas depends on OneWire, so delete Dallas first
+    if (dallasSensor_ != nullptr) {
+        delete dallasSensor_;
+        dallasSensor_ = nullptr;
+    }
+    if (oneWire_ != nullptr) {
+        delete oneWire_;
+        oneWire_ = nullptr;
+    }
+}
+
 bool TempSensorDallas::sample_temperature(double& temperature) const {
     // Read temperature from device
     const auto temp = dallasSensor_->getTempC(sensorDeviceAddress_);

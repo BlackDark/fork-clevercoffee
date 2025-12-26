@@ -13,6 +13,7 @@
 class TempSensorDallas final : public TempSensor {
   public:
     explicit TempSensorDallas(int GPIOPin);
+    ~TempSensorDallas() override;
 
   protected:
     bool sample_temperature(double& temperature) const override;
