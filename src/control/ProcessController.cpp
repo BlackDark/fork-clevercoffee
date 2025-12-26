@@ -284,14 +284,40 @@ void ProcessController::emergencyStop() {
 }
 
 bool ProcessController::testEmergencyConditions() {
-    // Test if temperature is too high (emergency condition)
-    const double emergencyTemp = 150.0; // TODO: Get from config
+    const double emergencyTemp = Config::getInstance().emergencyStopTemp.get();
+    const double hysteresis = Config::getInstance().emergencyStopHysteresis.get();
+    const double sensorMinValid = -50.0;
+    const double sensorMaxValid = 200.0;
 
-    if (temperature_ > emergencyTemp) {
-        LOG(ERROR, "Emergency: Temperature too high!");
+    // STEP 1: Check for sensor disconnection or invalid reading
+    if (temperature_ < sensorMinValid || temperature_ > sensorMaxValid) {
+        LOGF(ERROR, "Emergency: Invalid temperature reading (%.1f°C outside valid range)", temperature_);
         emergencyStop();
         return true;
     }
+
+    // STEP 2: Hysteresis-based emergency detection with debouncing
+    if (temperature_ > emergencyTemp) {
+        emergencyTempReadingCount_++;
+        LOGF(WARNING, "High temperature detected: %.1f°C (reading %d/%d)",
+             temperature_, emergencyTempReadingCount_, EMERGENCY_TEMP_DEBOUNCE_COUNT);
+
+        // Require multiple consecutive high readings to trigger emergency
+        if (emergencyTempReadingCount_ >= EMERGENCY_TEMP_DEBOUNCE_COUNT) {
+            LOGF(ERROR, "Emergency: Temperature too high (%.1f°C > %.1f°C limit)!",
+                 temperature_, emergencyTemp);
+            emergencyStop();
+            return true;
+        }
+    } else if (temperature_ < (emergencyTemp - hysteresis)) {
+        // Reset counter only when temperature drops below threshold minus hysteresis
+        if (emergencyTempReadingCount_ > 0) {
+            LOGF(INFO, "Temperature normalized. Resetting emergency counter.");
+            emergencyTempReadingCount_ = 0;
+        }
+    }
+    // If temperature is between (threshold - hysteresis) and threshold, keep counter as-is
+    // This implements hysteresis to prevent oscillation
 
     return false;
 }

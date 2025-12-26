@@ -264,6 +264,10 @@ class ProcessController {
     // Temperature offset
     double brewTempOffset_; ///< Temperature offset for brewing
 
+    // Emergency temperature detection
+    static constexpr int EMERGENCY_TEMP_DEBOUNCE_COUNT = 3;  ///< Require 3 consecutive readings
+    int emergencyTempReadingCount_ = 0;  ///< Counter for high temperature readings
+
     // State tracking
     MachineStateId lastMachineStatePid_; ///< Last machine state for PID logging
     bool           initialized_;         ///< Whether controller is initialized

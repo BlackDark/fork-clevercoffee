@@ -805,6 +805,24 @@ class Config {
                                     BREW_TEMP_OFFSET_MIN,
                                     BREW_TEMP_OFFSET_MAX};
 
+    ParamDef<double> emergencyStopTemp{"safety.emergency_temp",
+                                       150.0,
+                                       "Emergency Temperature (°C)",
+                                       1,
+                                       203,
+                                       "Temperature threshold that triggers emergency stop",
+                                       120.0,
+                                       180.0};
+
+    ParamDef<double> emergencyStopHysteresis{"safety.emergency_hysteresis",
+                                             5.0,
+                                             "Emergency Hysteresis (°C)",
+                                             1,
+                                             204,
+                                             "Temperature drop required to reset emergency counter",
+                                             1.0,
+                                             15.0};
+
     ParamDef<double> steamSetpoint{"steam.setpoint",
                                    STEAMSETPOINT,
                                    "Steam Setpoint (°C)",
