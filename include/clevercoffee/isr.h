@@ -7,6 +7,7 @@
 
 #pragma once
 
+#include <atomic>
 #include "clevercoffee/GlobalState.h"
 #include "clevercoffee/hardware/Relay.h"
 
@@ -15,18 +16,23 @@
 void IRAM_ATTR onTimer() {
     timerAlarmWrite(g_state.machine.timer, 10000, true);
 
-    if (g_state.process.pidOutput <= g_state.timing.isrCounter) {
+    // Read volatile pidOutput once for consistency
+    const double currentPidOutput = g_state.process.pidOutput;
+    const unsigned int currentCounter = g_state.timing.isrCounter;
+
+    if (currentPidOutput <= currentCounter) {
         g_state.hardware.heaterRelay->off();
     } else {
         g_state.hardware.heaterRelay->on();
     }
 
-    g_state.timing.isrCounter += 10; // += 10 because one tick = 10ms
+    unsigned int newCounter = currentCounter + 10; // += 10 because one tick = 10ms
 
     // set PID output as relay commands
-    if (g_state.timing.isrCounter >= g_state.process.windowSize) {
-        g_state.timing.isrCounter = 0;
+    if (newCounter >= g_state.process.windowSize) {
+        newCounter = 0;
     }
+    g_state.timing.isrCounter = newCounter;
 }
 
 /**
