@@ -2,11 +2,39 @@
  * @file GlobalState.h
  * @brief Consolidated global state management
  *
+ * @deprecated This file is deprecated and will be removed in Phase 2.
+ *             Use SystemContext and coordinators instead.
+ *             All new code should use dependency injection.
+ *
+ * Migration guide:
+ * - g_state.coordination → SystemContext::sensorCoordinator()
+ * - g_state.network → SystemContext::networkCoordinator()
+ * - g_state.ui → SystemContext::uiCoordinator()
+ * - g_state.setupDone → SystemContext::isReady()
+ *
  * This replaces scattered global variables with organized data structures.
  * Migration strategy: Start with one GlobalState, then gradually reduce to only needed data.
  */
 
 #pragma once
+
+// DEPRECATED: This file is deprecated and will be removed in Phase 2.
+// Use SystemContext and coordinators instead.
+// All new code should use dependency injection.
+//
+// Migration guide:
+// - g_state.coordination → SystemContext::sensorCoordinator()
+// - g_state.network → SystemContext::networkCoordinator()
+// - g_state.ui → SystemContext::uiCoordinator()
+// - g_state.setupDone → SystemContext::isReady()
+
+#if defined(__GNUC__)
+#define DEPRECATED __attribute__((deprecated))
+#elif defined(_MSC_VER)
+#define DEPRECATED __declspec(deprecated)
+#else
+#define DEPRECATED
+#endif
 
 #include "clevercoffee/defaults.h"
 #include "clevercoffee/state/MachineStateIds.h"
@@ -321,6 +349,9 @@ struct DebugState {
 /**
  * @brief Central global state container
  *
+ * @deprecated This struct is deprecated and will be removed in Phase 2.
+ *             Use SystemContext and coordinators instead.
+ *
  * This struct contains all global state organized into logical groups.
  * Migration approach:
  * 1. Replace all extern declarations with access to this single struct
@@ -328,7 +359,7 @@ struct DebugState {
  * 3. Gradually move data ownership into individual managers
  * 4. Reduce this struct to only truly shared state
  */
-struct GlobalState {
+DEPRECATED struct GlobalState {
     GlobalStateNamespace::ProcessState      process;
     GlobalStateNamespace::CoordinationState coordination;
     GlobalStateNamespace::HandlerRefs       handlers;
