@@ -1,5 +1,7 @@
 #pragma once
 
+#include "clevercoffee/coordinators/SensorCoordinator.h"
+
 namespace CleverCoffee {
 
 /**
@@ -13,6 +15,12 @@ public:
     SystemContext() = default;
 
     /**
+     * @brief Access sensor coordinator
+     */
+    SensorCoordinator& sensorCoordinator() noexcept { return sensorCoordinator_; }
+    const SensorCoordinator& sensorCoordinator() const noexcept { return sensorCoordinator_; }
+
+    /**
      * @brief Mark the system as fully initialized
      */
     void markReady() noexcept { ready_ = true; }
@@ -23,6 +31,7 @@ public:
     bool isReady() const noexcept { return ready_; }
 
 private:
+    SensorCoordinator sensorCoordinator_;
     bool ready_ = false;
 };
 
