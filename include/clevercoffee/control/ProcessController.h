@@ -17,6 +17,7 @@ class SensorManager;
 class MQTTManager;
 class TempSensor;
 class Scale;
+class Config;
 
 /**
  * @class ProcessController
@@ -40,12 +41,14 @@ class ProcessController {
   public:
     /**
      * @brief Constructor
+     * @param config Configuration reference (not owned, must outlive this instance)
      * @param displayManager Display manager instance
      * @param hardwareManager Hardware manager instance
      * @param sensorManager Sensor manager instance
      * @param mqttManager MQTT manager instance
      */
-    ProcessController(DisplayManager*  displayManager,
+    ProcessController(const Config&    config,
+                      DisplayManager*  displayManager,
                       HardwareManager* hardwareManager,
                       SensorManager*   sensorManager,
                       MQTTManager*     mqttManager);
@@ -230,6 +233,9 @@ class ProcessController {
      * @param brewPidDisabled Whether brew PID is currently disabled
      */
     void handleBrewPIDDelay(MachineStateId machineState);
+
+    // Configuration reference (not owned)
+    const Config& config_;
 
     // Manager dependencies
     DisplayManager*  displayManager_;

@@ -150,7 +150,7 @@ void setup() {
 
         // Initialize ProcessController for PID control
         processController =
-            std::make_unique<ProcessController>(displayManager, hardwareManager, sensorManager, mqttManager);
+            std::make_unique<ProcessController>(Config::getInstance(), displayManager, hardwareManager, sensorManager, mqttManager);
         g_state.coordination.processController = processController.get(); // Still needed for now
         InitHelpers::logInitResult("ProcessController", processController->initialize());
 

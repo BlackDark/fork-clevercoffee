@@ -250,7 +250,7 @@ bool SystemInitializer::initializeDisplay() {
 bool SystemInitializer::initializeHardware() {
     try {
         logMemoryBasic("Before HardwareManager Creation");
-        hardwareManager_ = std::make_unique<HardwareManager>();
+        hardwareManager_ = std::make_unique<HardwareManager>(Config::getInstance());
         logMemoryBasic("After HardwareManager Creation");
 
         // Update compatibility pointers to reference HardwareManager components

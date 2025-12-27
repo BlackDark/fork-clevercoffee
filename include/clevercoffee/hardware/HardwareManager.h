@@ -17,6 +17,9 @@
 
 #include <memory>
 
+// Forward declarations
+class Config;
+
 /**
  * @class HardwareManager
  * @brief RAII wrapper for hardware components with automatic resource management
@@ -29,8 +32,9 @@ class HardwareManager {
   public:
     /**
      * @brief Constructor - initializes all hardware components
+     * @param config Configuration reference (not owned, must outlive this instance)
      */
-    HardwareManager();
+    explicit HardwareManager(const Config& config);
 
     /**
      * @brief Destructor - automatically cleans up hardware resources
@@ -109,6 +113,9 @@ class HardwareManager {
     void updateLEDs(int machineState, double temperature, double setpoint);
 
   private:
+    // Configuration reference (not owned)
+    const Config& config_;
+
     // Initialization state tracking for exception safety
     bool relaysInitialized_ = false;
     bool ledsInitialized_ = false;
