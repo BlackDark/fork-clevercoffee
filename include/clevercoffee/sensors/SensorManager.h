@@ -6,6 +6,7 @@
 #pragma once
 
 #include "clevercoffee/hardware/Switch.h"
+#include "clevercoffee/hardware/scales/Scale.h"
 #include "clevercoffee/hardware/tempsensors/TempSensor.h"
 
 #include <Arduino.h>
@@ -17,8 +18,6 @@
 #include <vector>
 
 // Forward declarations
-class Scale;
-
 namespace CleverCoffee {
 class SensorCoordinator;
 }

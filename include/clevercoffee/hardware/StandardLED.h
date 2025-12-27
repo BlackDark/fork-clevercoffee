@@ -6,9 +6,8 @@
 
 #pragma once
 
+#include "clevercoffee/hardware/GPIOPin.h"
 #include "clevercoffee/hardware/LED.h"
-
-class GPIOPin;
 
 class StandardLED final : public LED {
   public:

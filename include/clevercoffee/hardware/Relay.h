@@ -6,11 +6,9 @@
 #pragma once
 
 #include "clevercoffee/defaults.h"
+#include "clevercoffee/hardware/GPIOPin.h"
 
 #include <cstdint>
-
-// Forward declaration of GPIOPin class
-class GPIOPin;
 
 /**
  * @file Relay.h Relay control class
