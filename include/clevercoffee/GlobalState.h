@@ -47,8 +47,8 @@
 #include <memory>
 
 // standby.h
-#define TIME_TO_DISPLAY_OFF        10
-#define TIME_TO_DISPLAY_OFF_MILLIS (TIME_TO_DISPLAY_OFF * 60 * 1000)
+constexpr int TIME_TO_DISPLAY_OFF = 10;
+constexpr unsigned long TIME_TO_DISPLAY_OFF_MILLIS = TIME_TO_DISPLAY_OFF * 60 * 1000;
 
 struct cmp_str {
     bool operator()(char const* a, char const* b) const {

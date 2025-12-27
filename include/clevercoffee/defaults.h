@@ -21,7 +21,7 @@
 #define STEAMSETPOINT            120.0          // steam temperature setpoint
 #define SCALE_CALIBRATION_FACTOR 1.00           // Raw data is divided by this value to convert to readable data
 #define SCALE_KNOWN_WEIGHT       267.00         // Calibration weight for scale (weight of the tray)
-#define SCALE_SAMPLES            2              // Number of samples used for calibration
+constexpr int SCALE_SAMPLES = 2;                // Number of samples used for calibration
 #define AGGKP                    62.0           // PID Kp (regular phase)
 #define AGGTN                    52.0           // PID Tn (regular phase)
 #define AGGTV                    11.5           // PID Tv (regular phase)
@@ -39,18 +39,18 @@
 #define PRE_INFUSION_PAUSE_TIME  5.0   // pre-infusion pause time in seconds
 #define TARGET_BREW_WEIGHT       36.0  // Target weight in grams
 #define STANDBY_MODE_TIME        35.0  // Time in minutes until the heater is turned off
-#define BACKFLUSH_CYCLES         5     // number of cycles the backflush should run
+constexpr int BACKFLUSH_CYCLES = 5;    // number of cycles the backflush should run
 #define BACKFLUSH_FILL_TIME      5.0   // time in seconds the pump is running during backflush
 #define BACKFLUSH_FLUSH_TIME     10.0  // time in seconds the 3-way valve is open during backflush
 #define POST_BREW_TIMER_DURATION 3.0   // time in seconds that brew timer will be shown after brew finished
-#define MAXWIFIRECONNECTS        5     // maximum number of reconnection attempts, use -1 to deactivate
-#define WIFICONNECTIONDELAY      10000 // delay between reconnects in ms
+constexpr int MAXWIFIRECONNECTS = 5;   // maximum number of reconnection attempts, use -1 to deactivate
+constexpr unsigned long WIFICONNECTIONDELAY = 10000; // delay between reconnects in ms
 #define MQTT_USERNAME            "rancilio"        // default MQTT username
 #define MQTT_PASSWORD            "silvia"          // default MQTT password
 #define MQTT_TOPIC               "custom/kitchen/" // default MQTT topic prefix
 #define MQTT_HASSIO_PREFIX       "homeassistant"   // default MQTT prefix for Home Assistant
-#define SCREEN_WIDTH             128               // OLED display width, in pixels
-#define SCREEN_HEIGHT            64                // OLED display height, in pixels
+constexpr int SCREEN_WIDTH = 128;                 // OLED display width, in pixels
+constexpr int SCREEN_HEIGHT = 64;                 // OLED display height, in pixels
 #define AUTH_PASSWORD            "admin"           // default password for web authentication
 #define AUTH_USERNAME            "admin"           // default username for web authentication
 
@@ -90,26 +90,26 @@
 #define PID_KP_STEAM_MAX              500.0
 #define STANDBY_MODE_TIME_MIN         1.0
 #define STANDBY_MODE_TIME_MAX         120.0
-#define BACKFLUSH_CYCLES_MIN          2
-#define BACKFLUSH_CYCLES_MAX          20
+constexpr int BACKFLUSH_CYCLES_MIN = 2;
+constexpr int BACKFLUSH_CYCLES_MAX = 20;
 #define BACKFLUSH_FILL_TIME_MIN       3.0
 #define BACKFLUSH_FILL_TIME_MAX       10.0
 #define BACKFLUSH_FLUSH_TIME_MIN      5.0
 #define BACKFLUSH_FLUSH_TIME_MAX      20.0
 #define POST_BREW_TIMER_DURATION_MIN  0.0
 #define POST_BREW_TIMER_DURATION_MAX  60.0
-#define SCALE_SAMPLES_MIN             1
-#define SCALE_SAMPLES_MAX             20
+constexpr int SCALE_SAMPLES_MIN = 1;
+constexpr int SCALE_SAMPLES_MAX = 20;
 #define SCALE_CALIBRATION_MIN         (-999999.0)
 #define SCALE_CALIBRATION_MAX         999999.0
 #define SCALE_KNOWN_WEIGHT_MIN        1.0
 #define SCALE_KNOWN_WEIGHT_MAX        2000.0
-#define MQTT_BROKER_MAX_LENGTH        64
-#define USERNAME_MAX_LENGTH           32
-#define PASSWORD_MAX_LENGTH           64
-#define MQTT_TOPIC_MAX_LENGTH         48
-#define MQTT_HASSIO_PREFIX_MAX_LENGTH 24
-#define HOSTNAME_MAX_LENGTH           64
+constexpr int MQTT_BROKER_MAX_LENGTH = 64;
+constexpr int USERNAME_MAX_LENGTH = 32;
+constexpr int PASSWORD_MAX_LENGTH = 64;
+constexpr int MQTT_TOPIC_MAX_LENGTH = 48;
+constexpr int MQTT_HASSIO_PREFIX_MAX_LENGTH = 24;
+constexpr int HOSTNAME_MAX_LENGTH = 64;
 
 #ifndef VERSION
 #define VERSION "4.x.x-dev"
@@ -207,15 +207,15 @@ enum class BrewMode : int {
 } // namespace Process
 
 // Display constants
-#define DISPLAY_WIDTH     128
-#define DISPLAY_HEIGHT    64
-#define STATUS_BAR_HEIGHT 12
-#define STATUS_BAR_Y_POS  12
+constexpr int DISPLAY_WIDTH = 128;
+constexpr int DISPLAY_HEIGHT = 64;
+constexpr int STATUS_BAR_HEIGHT = 12;
+constexpr int STATUS_BAR_Y_POS = 12;
 
 // Buffer sizes
-#define OTA_BUFFER_SIZE     1024
-#define MESSAGE_BUFFER_SIZE 128
-#define SHORT_MESSAGE_SIZE  64
+constexpr int OTA_BUFFER_SIZE = 1024;
+constexpr int MESSAGE_BUFFER_SIZE = 128;
+constexpr int SHORT_MESSAGE_SIZE = 64;
 
 // Debugging flags
 // #define DEBUG_CONFIG_VERBOSE true
