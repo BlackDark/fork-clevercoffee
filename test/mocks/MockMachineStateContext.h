@@ -6,6 +6,7 @@
 #pragma once
 
 #include "clevercoffee/state/MachineStateIds.h"
+#include <chrono>
 #include <gmock/gmock.h>
 
 // Forward declarations
