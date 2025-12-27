@@ -9,6 +9,7 @@
 #include "clevercoffee/state/MachineStateContext.h"
 
 #include <chrono>
+#include <functional>
 #include <memory>
 
 // Forward declarations
@@ -84,7 +85,7 @@ class StateMachine {
      * This method allows external code to force a state transition,
      * useful for emergency conditions or external triggers.
      */
-    void transitionTo(MachineState* newState, const char* reason = nullptr);
+    void transitionTo(MachineState& newState, const char* reason = nullptr);
 
     /**
      * @brief Get current state ID
@@ -125,12 +126,13 @@ class StateMachine {
 
     /**
      * @brief Get current state for external inspection
-     * @return Pointer to current state, or nullptr if none
+     * @return Reference to current state
      *
      * This is primarily for debugging and testing purposes.
+     * @note Throws if state machine is not initialized.
      */
-    const MachineState* getCurrentState() const noexcept {
-        return currentState_;
+    const MachineState& getCurrentState() const noexcept {
+        return currentState_.get();
     }
 
   private:
@@ -139,7 +141,7 @@ class StateMachine {
      * @param newState New state to transition to
      * @param reason Optional reason for logging
      */
-    void executeTransition(MachineState* newState, const char* reason = nullptr);
+    void executeTransition(MachineState& newState, const char* reason = nullptr);
 
     /**
      * @brief Log state machine status for debugging
@@ -147,8 +149,8 @@ class StateMachine {
     void logStateMachineStatus() const;
 
     // State machine components
-    MachineState*       currentState_; ///< Current active state (singleton - not owned)
-    MachineStateContext context_;      ///< Context for state access to resources
+    std::reference_wrapper<MachineState> currentState_; ///< Current active state (singleton - not owned)
+    MachineStateContext                   context_;     ///< Context for state access to resources
 
     // State machine status
     bool                                  initialized_;    ///< True if state machine is initialized

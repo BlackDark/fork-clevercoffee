@@ -28,7 +28,7 @@ StateMachine::StateMachine(CleverCoffee::SystemContext& systemContext,
                            SensorManager*                sensorManager,
                            CleverCoffeeWiFiManager*      wifiManager,
                            MQTTManager*                  mqttManager)
-    : currentState_(nullptr),
+    : currentState_(*getStateInstance(MachineStateId::INIT)),  // Temporary initialization, will be replaced in initialize()
       context_(systemContext, displayManager, hardwareManager, sensorManager, wifiManager, mqttManager),
       initialized_(false), lastStateId_(MachineStateId::INIT), lastUpdateTime_(std::chrono::steady_clock::now()),
       startTime_(std::chrono::steady_clock::now()), totalStateTransitions_(0), totalUpdates_(0) {
@@ -43,27 +43,28 @@ bool StateMachine::initialize(MachineState* initialState) {
         initialState = getStateInstance(MachineStateId::INIT);
     }
 
-    // Set initial state
-    currentState_ = initialState;
-
-    if (!currentState_) {
+    // Validate that we have a valid state
+    if (!initialState) {
         LOG(ERROR, "Failed to get initial state");
         initialized_ = false;
         return false;
     }
 
+    // Set initial state using reference_wrapper
+    currentState_ = *initialState;
+
     // Initialize timing
     auto now        = std::chrono::steady_clock::now();
     lastUpdateTime_ = now;
     startTime_      = now;
-    lastStateId_    = currentState_->getStateId();
+    lastStateId_    = currentState_.get().getStateId();
 
     // Update context with initial state entry time
     context_.updateStateEntryTime(now);
 
     // Call state entry callback
     LOG(INFO, "StateMachine entering initial state");
-    currentState_->onEntry(context_);
+    currentState_.get().onEntry(context_);
 
     initialized_           = true;
     totalStateTransitions_ = 1; // Count initial state as first transition
@@ -77,7 +78,7 @@ bool StateMachine::initialize(MachineState* initialState) {
 }
 
 void StateMachine::update() {
-    if (!initialized_ || !currentState_) {
+    if (!initialized_) {
         LOG(WARNING, "StateMachine::update() called but not initialized");
         return;
     }
@@ -86,11 +87,11 @@ void StateMachine::update() {
     auto currentTime = std::chrono::steady_clock::now();
 
     // Update current state
-    currentState_->update(context_);
+    currentState_.get().update(context_);
 
     // Check for state transitions
-    if (auto newState = currentState_->checkTransitions(context_)) {
-        executeTransition(newState, "State transition");
+    if (auto newState = currentState_.get().checkTransitions(context_)) {
+        executeTransition(*newState, "State transition");
     }
 
     lastUpdateTime_ = currentTime;
@@ -106,27 +107,23 @@ void StateMachine::update() {
     }
 }
 
-void StateMachine::transitionTo(MachineState* newState, const char* reason) {
-    if (!newState) {
-        LOG(ERROR, "StateMachine::transitionTo() called with null state");
-        return;
-    }
-
+void StateMachine::transitionTo(MachineState& newState, const char* reason) {
     LOGF(INFO, "Forced state transition: %s", reason ? reason : "External trigger");
     executeTransition(newState, reason);
 }
 
-void StateMachine::executeTransition(MachineState* newState, const char* reason) {
-    if (!newState) {
-        LOG(ERROR, "executeTransition called with null state");
+void StateMachine::executeTransition(MachineState& newState, const char* reason) {
+    // Prevent self-transition
+    if (&currentState_.get() == &newState) {
+        LOG(DEBUG, "Skipping self-transition");
         return;
     }
 
     // Log transition
-    const MachineStateId oldStateId   = currentState_ ? currentState_->getStateId() : MachineStateId::INIT;
-    const char*          oldStateName = currentState_ ? currentState_->getStateName() : "None";
-    const MachineStateId newStateId   = newState->getStateId();
-    const char*          newStateName = newState->getStateName();
+    const MachineStateId oldStateId   = currentState_.get().getStateId();
+    const char*          oldStateName = currentState_.get().getStateName();
+    const MachineStateId newStateId   = newState.getStateId();
+    const char*          newStateName = newState.getStateName();
 
     LOGF(INFO,
          "State transition: %d (%s) -> %d (%s) [%s]",
@@ -139,9 +136,7 @@ void StateMachine::executeTransition(MachineState* newState, const char* reason)
     context_.logStateTransition(oldStateId, newStateId, reason);
 
     // Call exit callback on current state
-    if (currentState_) {
-        currentState_->onExit(context_);
-    }
+    currentState_.get().onExit(context_);
 
     // Transition to new state (singleton - no ownership transfer)
     currentState_ = newState;
@@ -152,21 +147,19 @@ void StateMachine::executeTransition(MachineState* newState, const char* reason)
     context_.updateStateEntryTime(now);
 
     // Call entry callback on new state
-    if (currentState_) {
-        currentState_->onEntry(context_);
-    }
+    currentState_.get().onEntry(context_);
 }
 
 MachineStateId StateMachine::getCurrentStateId() const noexcept {
-    return currentState_ ? currentState_->getStateId() : MachineStateId::INIT;
+    return currentState_.get().getStateId();
 }
 
 const char* StateMachine::getCurrentStateName() const noexcept {
-    return currentState_ ? currentState_->getStateName() : "None";
+    return currentState_.get().getStateName();
 }
 
 bool StateMachine::isInitialized() const noexcept {
-    return initialized_ && currentState_ != nullptr;
+    return initialized_;
 }
 
 void StateMachine::logStateMachineStatus() const {
