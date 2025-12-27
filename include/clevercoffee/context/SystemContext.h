@@ -1,6 +1,7 @@
 #pragma once
 
 #include "clevercoffee/coordinators/SensorCoordinator.h"
+#include "clevercoffee/coordinators/NetworkCoordinator.h"
 
 namespace CleverCoffee {
 
@@ -21,6 +22,12 @@ public:
     const SensorCoordinator& sensorCoordinator() const noexcept { return sensorCoordinator_; }
 
     /**
+     * @brief Access network coordinator
+     */
+    NetworkCoordinator& networkCoordinator() noexcept { return networkCoordinator_; }
+    const NetworkCoordinator& networkCoordinator() const noexcept { return networkCoordinator_; }
+
+    /**
      * @brief Mark the system as fully initialized
      */
     void markReady() noexcept { ready_ = true; }
@@ -32,6 +39,7 @@ public:
 
 private:
     SensorCoordinator sensorCoordinator_;
+    NetworkCoordinator networkCoordinator_;
     bool ready_ = false;
 };
 
