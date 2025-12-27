@@ -228,25 +228,13 @@ void HardwareManager::safeShutdown() {
     LOG(INFO, "Safe hardware shutdown completed");
 }
 
-void HardwareManager::updateLEDs(int machineState, double temperature, double setpoint) {
-    // Need to include MachineStateIds for this to work properly
-    // For now, use integer constants to avoid circular dependencies
-    const int PID_NORMAL = 20;
-    const int BREW_IDLE = 10;
-    const int BREW_PREINFUSION = 11;
-    const int BREW_PREINFUSION_PAUSE = 12;
-    const int BREW_RUNNING = 13;
-    const int BREW_FINISHED = 14;
-    const int STEAM_IDLE = 31;
-    const int STEAM_RUNNING = 32;
-    const int STEAM_STOPPED = 33;
-
+void HardwareManager::updateLEDs(MachineStateId machineState, double temperature, double setpoint) {
     // Status LED - indicates when temperature is reached
     if (config_.hardwareLedsStatusEnabled.get() && statusLed_) {
         bool shouldTurnOn = false;
 
         // Turn on when at target temperature (normal or steam mode)
-        if ((machineState == PID_NORMAL && (abs(temperature - setpoint) < 0.3)) ||
+        if ((machineState == MachineStateId::PID_NORMAL && (abs(temperature - setpoint) < 0.3)) ||
             (temperature > 115 && abs(temperature - setpoint) < 5)) {
             shouldTurnOn = true;
         }
@@ -260,8 +248,8 @@ void HardwareManager::updateLEDs(int machineState, double temperature, double se
 
     // Brew LED - indicates brewing state
     if (config_.hardwareLedsBrewEnabled.get() && brewLed_) {
-        bool isBrewState = (machineState >= BREW_IDLE && machineState <= BREW_FINISHED);
-        if (isBrewState) {
+        bool inBrewState = isBrewState(machineState);
+        if (inBrewState) {
             brewLed_->turnOn();
         } else {
             brewLed_->turnOff();
@@ -270,8 +258,8 @@ void HardwareManager::updateLEDs(int machineState, double temperature, double se
 
     // Steam LED - indicates steam mode
     if (config_.hardwareLedsSteamEnabled.get() && steamLed_) {
-        bool isSteamState = (machineState >= STEAM_IDLE && machineState <= STEAM_STOPPED);
-        if (isSteamState) {
+        bool inSteamState = isSteamState(machineState);
+        if (inSteamState) {
             steamLed_->turnOn();
         } else {
             steamLed_->turnOff();

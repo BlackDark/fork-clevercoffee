@@ -14,6 +14,7 @@
 #include "clevercoffee/hardware/tempsensors/TempSensor.h"
 #include "clevercoffee/hardware/tempsensors/TempSensorDallas.h"
 #include "clevercoffee/hardware/tempsensors/TempSensorTSIC.h"
+#include "clevercoffee/state/MachineStateIds.h"
 
 #include <memory>
 
@@ -110,7 +111,7 @@ class HardwareManager {
      * @param temperature Current temperature
      * @param setpoint Target temperature setpoint
      */
-    void updateLEDs(int machineState, double temperature, double setpoint);
+    void updateLEDs(MachineStateId machineState, double temperature, double setpoint);
 
   private:
     // Configuration reference (not owned)
