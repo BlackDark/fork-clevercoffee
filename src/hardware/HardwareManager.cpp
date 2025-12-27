@@ -22,29 +22,36 @@ HardwareManager::HardwareManager()
         LOG(INFO, "Starting relay initialization...");
         logMemoryBasic("Before Relay Init");
         initializeRelays();
+        relaysInitialized_ = true;
         logMemoryBasic("After Relay Init");
         LOG(INFO, "Relays initialized, starting LED initialization...");
 
         logMemoryBasic("Before LED Init");
         initializeLEDs();
+        ledsInitialized_ = true;
         logMemoryBasic("After LED Init");
         LOG(INFO, "LEDs initialized, starting switch initialization...");
 
         logMemoryBasic("Before Switch Init");
         initializeSwitches();
+        switchesInitialized_ = true;
         logMemoryBasic("After Switch Init");
         LOG(INFO, "Switches initialized, starting temperature sensor initialization...");
 
         logMemoryBasic("Before TempSensor Init");
         initializeTemperatureSensor();
+        tempSensorInitialized_ = true;
         logMemoryBasic("After TempSensor Init");
         LOG(INFO, "Temperature sensor initialized successfully");
 
         logMemory("HardwareManager Constructor Complete");
         LOG(INFO, "Hardware initialization completed successfully");
-    } catch (const std::exception& e) {
-        logMemory("HardwareManager Constructor FAILED");
-        LOG(ERROR, "Hardware initialization failed");
+    } catch (...) {
+        // Cleanup partial initialization on ANY exception
+        // This ensures hardware is safe even if init fails
+        logMemory("HardwareManager Constructor FAILED - Cleaning up");
+        LOG(ERROR, "Hardware initialization failed - performing cleanup");
+        cleanupPartialInit();
         throw;
     }
 }
@@ -274,4 +281,83 @@ void HardwareManager::updateLEDs(int machineState, double temperature, double se
             steamLed_->turnOff();
         }
     }
+}
+
+void HardwareManager::cleanupPartialInit() noexcept {
+    // This method MUST NOT throw exceptions
+    // Cleanup happens in REVERSE order of initialization
+
+    LOG(INFO, "Performing emergency cleanup of partial hardware initialization...");
+
+    // Cleanup temperature sensor (initialized last)
+    if (tempSensorInitialized_) {
+        LOG(INFO, "Cleaning up temperature sensor...");
+        // Temperature sensor cleanup: just release the resource
+        tempSensor_.reset();
+        tempSensorInitialized_ = false;
+        LOG(INFO, "Temperature sensor cleaned up");
+    }
+
+    // Cleanup switches
+    if (switchesInitialized_) {
+        LOG(INFO, "Cleaning up switches...");
+        // Switches don't need physical cleanup, just release resources
+        hotWaterSwitch_.reset();
+        waterTankSensor_.reset();
+        steamSwitch_.reset();
+        brewSwitch_.reset();
+        powerSwitch_.reset();
+        switchesInitialized_ = false;
+        LOG(INFO, "Switches cleaned up");
+    }
+
+    // Cleanup LEDs
+    if (ledsInitialized_) {
+        LOG(INFO, "Cleaning up LEDs...");
+        // Turn off LEDs before releasing
+        if (steamLed_) {
+            steamLed_->turnOff();
+            steamLed_.reset();
+        }
+        if (brewLed_) {
+            brewLed_->turnOff();
+            brewLed_.reset();
+        }
+        if (statusLed_) {
+            statusLed_->turnOff();
+            statusLed_.reset();
+        }
+        // Release LED pins
+        steamLedPin_.reset();
+        brewLedPin_.reset();
+        statusLedPin_.reset();
+        ledsInitialized_ = false;
+        LOG(INFO, "LEDs cleaned up");
+    }
+
+    // Cleanup relays (SAFETY CRITICAL - initialized first, cleaned up last)
+    if (relaysInitialized_) {
+        LOG(INFO, "Cleaning up relays (SAFETY CRITICAL)...");
+        // SAFETY CRITICAL: Turn off all relays before releasing
+        // This ensures the coffee machine is in a safe state
+        if (heaterRelay_) {
+            heaterRelay_->off();
+            LOG(INFO, "Heater relay turned OFF");
+            heaterRelay_.reset();
+        }
+        if (pumpRelay_) {
+            pumpRelay_->off();
+            LOG(INFO, "Pump relay turned OFF");
+            pumpRelay_.reset();
+        }
+        if (valveRelay_) {
+            valveRelay_->off();
+            LOG(INFO, "Valve relay turned OFF");
+            valveRelay_.reset();
+        }
+        relaysInitialized_ = false;
+        LOG(INFO, "Relays cleaned up - hardware is safe");
+    }
+
+    LOG(INFO, "Emergency cleanup completed - hardware is in safe state");
 }

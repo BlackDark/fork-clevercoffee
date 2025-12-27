@@ -109,6 +109,22 @@ class HardwareManager {
     void updateLEDs(int machineState, double temperature, double setpoint);
 
   private:
+    // Initialization state tracking for exception safety
+    bool relaysInitialized_ = false;
+    bool ledsInitialized_ = false;
+    bool switchesInitialized_ = false;
+    bool tempSensorInitialized_ = false;
+
+    /**
+     * @brief Cleanup partial initialization on exception (noexcept)
+     *
+     * This method is called when initialization fails to ensure hardware
+     * is in a safe state. It MUST NOT throw exceptions.
+     * Cleanup happens in REVERSE order of initialization.
+     *
+     * SAFETY CRITICAL: Relays (especially heater) MUST be turned off.
+     */
+    void cleanupPartialInit() noexcept;
     // GPIO Pins for relays (stack allocated)
     GPIOPin heaterRelayPin_;
     GPIOPin pumpRelayPin_;
