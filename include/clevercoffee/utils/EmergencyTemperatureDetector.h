@@ -1,12 +1,15 @@
 #pragma once
 
+#include "clevercoffee/constants/Temperature.h"
+#include "clevercoffee/constants/Water.h"
+
 /**
  * Emergency Temperature Detector
- * 
+ *
  * Implements debouncing, hysteresis, and sensor validation for emergency
  * temperature detection. This prevents false alarms from sensor noise while
  * ensuring rapid detection of genuine overtemperature conditions.
- * 
+ *
  * Key features:
  * - Debouncing: Requires 3 consecutive readings above threshold
  * - Hysteresis: Prevents oscillation between emergency and normal states
@@ -40,9 +43,9 @@ class EmergencyTemperatureDetector {
    * @return true if emergency condition is active, false otherwise
    */
   bool checkEmergency(float current_temp) {
-    const int DEBOUNCE_REQUIRED = 3;
-    const float MIN_VALID_TEMP = -40.0f;
-    const float MAX_VALID_TEMP = 180.0f;
+    const int DEBOUNCE_REQUIRED = CleverCoffee::Water::TANK_EMPTY_READINGS_NEEDED;
+    const float MIN_VALID_TEMP = CleverCoffee::Temperature::MIN_VALID_TEMP_C;
+    const float MAX_VALID_TEMP = CleverCoffee::Temperature::MAX_VALID_TEMP_C;
 
     // Detect sensor errors (out of valid range)
     if (current_temp < MIN_VALID_TEMP || current_temp > MAX_VALID_TEMP) {

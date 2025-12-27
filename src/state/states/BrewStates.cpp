@@ -6,6 +6,7 @@
 #include "clevercoffee/state/states/BrewStates.h"
 
 #include "clevercoffee/GlobalState.h"
+#include "clevercoffee/constants/BrewTiming.h"
 #include "clevercoffee/Logger.h"
 #include "clevercoffee/state/MachineStateContext.h"
 #include "clevercoffee/state/StateFactory.h"
@@ -138,7 +139,7 @@ void BrewFinishedState::update(MachineStateContext& context) {
 
 MachineState* BrewFinishedState::checkSpecificTransitions(MachineStateContext& context) {
     // Use a hardcoded 3 second timeout for the finished state (display time)
-    if (context.hasStateTimeoutElapsed(3000)) {
+    if (context.hasStateTimeoutElapsed(CleverCoffee::BrewTiming::FINISHED_DISPLAY_TIMEOUT_MS)) {
         context.logStateTransition(getStateId(), MachineStateId::BREW_IDLE, "Brew finished display timeout");
         return getStateInstance(MachineStateId::BREW_IDLE);
     }

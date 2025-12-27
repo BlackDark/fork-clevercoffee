@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "clevercoffee/constants/Display.h"
 #include "clevercoffee/display/displayCommon.h"
 #include "clevercoffee/state/MachineStateIds.h"
 
@@ -340,7 +341,7 @@ class UprightTemplate : public ModernDisplayTemplate<UprightTemplate> {
     }
 
     void displayStatusBar() {
-        g_state.hardware.display->drawLine(0, 12, 64, 12);
+        g_state.hardware.display->drawLine(0, CleverCoffee::Display::STATUS_BAR_Y_POSITION, CleverCoffee::Display::OLED_WIDTH / 2, CleverCoffee::Display::STATUS_BAR_Y_POSITION);
         if (!g_state.network.offlineMode) {
             displayWiFiStatus(4, 2);
             displayMQTTStatus(21, 0);

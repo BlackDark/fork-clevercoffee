@@ -7,6 +7,7 @@
 
 #include "clevercoffee/Config.h"
 #include "clevercoffee/GlobalState.h"
+#include "clevercoffee/constants/Temperature.h"
 #include "clevercoffee/Logger.h"
 #include "clevercoffee/display/DisplayManager.h"
 #include "clevercoffee/hardware/HardwareManager.h"
@@ -287,8 +288,8 @@ void ProcessController::emergencyStop() {
 bool ProcessController::testEmergencyConditions() {
     const double emergencyTemp = config_.emergencyStopTemp.get();
     const double hysteresis = config_.emergencyStopHysteresis.get();
-    const double sensorMinValid = -50.0;
-    const double sensorMaxValid = 200.0;
+    const double sensorMinValid = CleverCoffee::Temperature::MIN_VALID_TEMP_C;
+    const double sensorMaxValid = CleverCoffee::Temperature::MAX_VALID_TEMP_C;
 
     // STEP 1: Check for sensor disconnection or invalid reading
     if (temperature_ < sensorMinValid || temperature_ > sensorMaxValid) {
