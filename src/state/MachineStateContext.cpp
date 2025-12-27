@@ -34,11 +34,23 @@ MachineStateContext::MachineStateContext(CleverCoffee::SystemContext& systemCont
 
 // === Hardware Component Access ===
 
+TempSensor* MachineStateContext::getTempSensor() noexcept {
+    return hardwareManager_ ? hardwareManager_->getTempSensor() : nullptr;
+}
+
+const TempSensor* MachineStateContext::getTempSensor() const noexcept {
+    return hardwareManager_ ? hardwareManager_->getTempSensor() : nullptr;
+}
+
 TempSensor* MachineStateContext::getTemperatureSensor() const {
     return hardwareManager_ ? hardwareManager_->getTempSensor() : nullptr;
 }
 
-Switch* MachineStateContext::getWaterTankSensor() const {
+Switch* MachineStateContext::getWaterTankSensor() noexcept {
+    return hardwareManager_ ? hardwareManager_->getWaterTankSensor() : nullptr;
+}
+
+const Switch* MachineStateContext::getWaterTankSensor() const noexcept {
     return hardwareManager_ ? hardwareManager_->getWaterTankSensor() : nullptr;
 }
 
@@ -58,16 +70,36 @@ Switch* MachineStateContext::getPowerSwitch() const {
     return hardwareManager_ ? hardwareManager_->getPowerSwitch() : nullptr;
 }
 
-Relay* MachineStateContext::getHeaterRelay() const {
+Relay* MachineStateContext::getHeaterRelay() noexcept {
     return hardwareManager_ ? &hardwareManager_->getHeaterRelay() : nullptr;
 }
 
-Relay* MachineStateContext::getPumpRelay() const {
+const Relay* MachineStateContext::getHeaterRelay() const {
+    return hardwareManager_ ? &hardwareManager_->getHeaterRelay() : nullptr;
+}
+
+Relay* MachineStateContext::getPumpRelay() noexcept {
     return hardwareManager_ ? &hardwareManager_->getPumpRelay() : nullptr;
 }
 
-Relay* MachineStateContext::getValveRelay() const {
+const Relay* MachineStateContext::getPumpRelay() const {
+    return hardwareManager_ ? &hardwareManager_->getPumpRelay() : nullptr;
+}
+
+Relay* MachineStateContext::getValveRelay() noexcept {
     return hardwareManager_ ? &hardwareManager_->getValveRelay() : nullptr;
+}
+
+const Relay* MachineStateContext::getValveRelay() const {
+    return hardwareManager_ ? &hardwareManager_->getValveRelay() : nullptr;
+}
+
+LED* MachineStateContext::getStatusLed() noexcept {
+    return hardwareManager_ ? hardwareManager_->getStatusLed() : nullptr;
+}
+
+const LED* MachineStateContext::getStatusLed() const noexcept {
+    return hardwareManager_ ? hardwareManager_->getStatusLed() : nullptr;
 }
 
 LED* MachineStateContext::getStatusLED() const {
@@ -88,11 +120,11 @@ Scale* MachineStateContext::getScale() const {
 
 // === Sensor Data Access ===
 
-double MachineStateContext::getCurrentTemperature() const {
+double MachineStateContext::getCurrentTemperature() const noexcept {
     return sensorManager_ ? sensorManager_->getCurrentTemperature() : 0.0;
 }
 
-bool MachineStateContext::hasTemperatureError() const {
+bool MachineStateContext::hasTemperatureError() const noexcept {
     return sensorManager_ ? sensorManager_->hasTemperatureError() : true;
 }
 
@@ -108,11 +140,11 @@ float MachineStateContext::getFilteredPressure() const {
     return sensorManager_ ? sensorManager_->getFilteredPressure() : 0.0f;
 }
 
-float MachineStateContext::getCurrentWeight() const {
+float MachineStateContext::getCurrentWeight() const noexcept {
     return sensorManager_ ? sensorManager_->getCurrentWeight() : 0.0f;
 }
 
-float MachineStateContext::getCurrentBrewWeight() const {
+float MachineStateContext::getCurrentBrewWeight() const noexcept {
     return sensorManager_ ? sensorManager_->getCurrentBrewWeight() : 0.0f;
 }
 
@@ -340,10 +372,88 @@ unsigned long MachineStateContext::getStateElapsedTimeMs() const {
     return std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
 }
 
-bool MachineStateContext::hasStateTimeoutElapsed(unsigned long timeoutMs) const {
+bool MachineStateContext::hasStateTimeoutElapsed(unsigned long timeoutMs) const noexcept {
     return getStateElapsedTimeMs() >= timeoutMs;
 }
 
 void MachineStateContext::updateStateEntryTime(std::chrono::steady_clock::time_point entryTime) {
     stateEntryTime_ = entryTime;
+}
+
+// === IHardwareContext Interface Implementation ===
+
+bool MachineStateContext::isWaterTankEmpty() const noexcept {
+    return !isWaterTankFull();
+}
+
+double MachineStateContext::getWeight() const noexcept {
+    return static_cast<double>(getCurrentWeight());
+}
+
+void MachineStateContext::tareScale() noexcept {
+    if (Scale* scale = getScale()) {
+        scale->tare();
+    }
+}
+
+void MachineStateContext::updateHardware() noexcept {
+    // Trigger hardware update cycle
+    if (sensorManager_) {
+        sensorManager_->update();
+    }
+}
+
+// === IConfigContext Interface Implementation ===
+
+double MachineStateContext::getBrewSetpoint() const noexcept {
+    return Config::getInstance().brewSetpoint.get();
+}
+
+double MachineStateContext::getSteamSetpoint() const noexcept {
+    return Config::getInstance().steamSetpoint.get();
+}
+
+double MachineStateContext::getTargetBrewTime() const noexcept {
+    return Config::getInstance().brewByTimeTargetTime.get();
+}
+
+double MachineStateContext::getPreInfusionTime() const noexcept {
+    return Config::getInstance().brewPreInfusionTime.get();
+}
+
+double MachineStateContext::getPidKp() const noexcept {
+    return Config::getInstance().pidRegularKp.get();
+}
+
+double MachineStateContext::getPidTn() const noexcept {
+    return Config::getInstance().pidRegularTn.get();
+}
+
+double MachineStateContext::getPidTv() const noexcept {
+    return Config::getInstance().pidRegularTv.get();
+}
+
+Config& MachineStateContext::getConfig() noexcept {
+    return Config::getInstance();
+}
+
+const Config& MachineStateContext::getConfig() const noexcept {
+    return Config::getInstance();
+}
+
+// === IStateManager Interface Implementation ===
+
+MachineStateId MachineStateContext::getCurrentStateId() const noexcept {
+    return g_state.machine.machineState;
+}
+
+void MachineStateContext::transitionTo(MachineState& newState) {
+    // This would typically be called by StateMachine
+    // For now, just log the transition request
+    LOGF(INFO, "State transition requested to: %s", newState.getStateName());
+}
+
+unsigned long MachineStateContext::getStateStartTime() const noexcept {
+    auto elapsed = std::chrono::steady_clock::now() - stateEntryTime_;
+    return std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
 }

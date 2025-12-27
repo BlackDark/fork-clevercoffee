@@ -5,6 +5,9 @@
 
 #pragma once
 
+#include "clevercoffee/state/IHardwareContext.h"
+#include "clevercoffee/state/IConfigContext.h"
+#include "clevercoffee/state/IStateManager.h"
 #include "clevercoffee/state/MachineStateIds.h"
 
 #include <chrono>
@@ -26,6 +29,7 @@ class Scale;
 
 namespace CleverCoffee {
 class SystemContext;
+class MachineState;
 }
 
 /**
@@ -35,8 +39,15 @@ class SystemContext;
  * The MachineStateContext serves as the interface between state implementations
  * and the coffee machine's hardware, sensors, configuration, and control systems.
  * It encapsulates all necessary data and provides clean APIs for state logic.
+ *
+ * Implements three interfaces to break circular dependencies:
+ * - IHardwareContext: Hardware component access
+ * - IConfigContext: Configuration parameter access
+ * - IStateManager: State transition and timing management
  */
-class MachineStateContext {
+class MachineStateContext : public CleverCoffee::IHardwareContext,
+                            public CleverCoffee::IConfigContext,
+                            public CleverCoffee::IStateManager {
   public:
     /**
      * @brief Construct context with references to all managers
@@ -101,12 +112,19 @@ class MachineStateContext {
     /**
      * @brief Get temperature sensor
      */
+    TempSensor* getTempSensor() noexcept override;
+    const TempSensor* getTempSensor() const noexcept override;
+
+    /**
+     * @brief Get temperature sensor (legacy method name)
+     */
     TempSensor* getTemperatureSensor() const;
 
     /**
      * @brief Get water tank sensor
      */
-    Switch* getWaterTankSensor() const;
+    Switch* getWaterTankSensor() noexcept override;
+    const Switch* getWaterTankSensor() const noexcept override;
 
     /**
      * @brief Get brew switch
@@ -131,20 +149,29 @@ class MachineStateContext {
     /**
      * @brief Get heater relay
      */
-    Relay* getHeaterRelay() const;
+    Relay* getHeaterRelay() noexcept override;
+    const Relay* getHeaterRelay() const;
 
     /**
      * @brief Get pump relay
      */
-    Relay* getPumpRelay() const;
+    Relay* getPumpRelay() noexcept override;
+    const Relay* getPumpRelay() const;
 
     /**
      * @brief Get valve relay
      */
-    Relay* getValveRelay() const;
+    Relay* getValveRelay() noexcept override;
+    const Relay* getValveRelay() const;
 
     /**
      * @brief Get status LED
+     */
+    LED* getStatusLed() noexcept override;
+    const LED* getStatusLed() const noexcept override;
+
+    /**
+     * @brief Get status LED (legacy method name)
      */
     LED* getStatusLED() const;
 
@@ -168,12 +195,12 @@ class MachineStateContext {
     /**
      * @brief Get current temperature reading
      */
-    double getCurrentTemperature() const;
+    double getCurrentTemperature() const noexcept;
 
     /**
      * @brief Check if temperature sensor has error
      */
-    bool hasTemperatureError() const;
+    bool hasTemperatureError() const noexcept;
 
     /**
      * @brief Check if water tank is full
@@ -193,12 +220,12 @@ class MachineStateContext {
     /**
      * @brief Get current weight reading
      */
-    float getCurrentWeight() const;
+    float getCurrentWeight() const noexcept;
 
     /**
      * @brief Get current brew weight
      */
-    float getCurrentBrewWeight() const;
+    float getCurrentBrewWeight() const noexcept;
 
     /**
      * @brief Check if scale has error
@@ -408,13 +435,38 @@ class MachineStateContext {
      * @param timeoutMs Timeout in milliseconds
      * @return true if timeout has elapsed
      */
-    bool hasStateTimeoutElapsed(unsigned long timeoutMs) const;
+    bool hasStateTimeoutElapsed(unsigned long timeoutMs) const noexcept;
 
     /**
      * @brief Update the state entry time (called by StateMachine on state transitions)
      * @param entryTime Time when the state was entered
      */
     void updateStateEntryTime(std::chrono::steady_clock::time_point entryTime);
+
+    // === IHardwareContext Interface Implementation ===
+
+    bool isWaterTankEmpty() const noexcept override;
+    double getWeight() const noexcept override;
+    void tareScale() noexcept override;
+    void updateHardware() noexcept override;
+
+    // === IConfigContext Interface Implementation ===
+
+    double getBrewSetpoint() const noexcept override;
+    double getSteamSetpoint() const noexcept override;
+    double getTargetBrewTime() const noexcept override;
+    double getPreInfusionTime() const noexcept override;
+    double getPidKp() const noexcept override;
+    double getPidTn() const noexcept override;
+    double getPidTv() const noexcept override;
+    Config& getConfig() noexcept override;
+    const Config& getConfig() const noexcept override;
+
+    // === IStateManager Interface Implementation ===
+
+    MachineStateId getCurrentStateId() const noexcept override;
+    void transitionTo(MachineState& newState) override;
+    unsigned long getStateStartTime() const noexcept override;
 
   private:
     // System context
