@@ -19,6 +19,7 @@
 #include "clevercoffee/ui/UIManager.h"
 #include "clevercoffee/utils/SystemUtils.h"
 #include "clevercoffee/utils/memoryUtils.h"
+#include "clevercoffee/context/SystemContext.h"
 
 #include <Arduino.h>
 #include <ArduinoOTA.h>
@@ -49,6 +50,10 @@ SystemInitializer::~SystemInitializer() {
 
 bool SystemInitializer::initialize() {
     LOG(INFO, "Starting system initialization");
+
+    // Create SystemContext first
+    systemContext_ = std::make_unique<CleverCoffee::SystemContext>();
+
     logMemory("SystemInitializer Start");
 
     // Phase 1: Core system initialization
@@ -403,7 +408,10 @@ bool SystemInitializer::initializeSensors() {
         TempSensor* tempSensorRef      = hardwareManager_ ? hardwareManager_->getTempSensor() : nullptr;
         Switch*     waterTankSensorRef = hardwareManager_ ? hardwareManager_->getWaterTankSensor() : nullptr;
 
-        if (sensorManager_->initialize(tempSensorRef, waterTankSensorRef)) {
+        // Get sensor coordinator from system context
+        CleverCoffee::SensorCoordinator* coord = systemContext_ ? &systemContext_->sensorCoordinator() : nullptr;
+
+        if (sensorManager_->initialize(tempSensorRef, waterTankSensorRef, coord)) {
             // Update global temperature variable for compatibility
             g_state.process.temperature = sensorManager_->getCurrentTemperature();
 

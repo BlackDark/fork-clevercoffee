@@ -19,6 +19,10 @@ class WebServerManager;
 class CleverCoffeeWiFiManager;
 class PID;
 
+namespace CleverCoffee {
+class SystemContext;
+}
+
 /**
  * @class SystemInitializer
  * @brief RAII wrapper for complete system initialization
@@ -114,6 +118,14 @@ class SystemInitializer {
         return webServerManager_.get();
     }
 
+    /**
+     * @brief Get system context
+     * @return Pointer to system context (may be null)
+     */
+    CleverCoffee::SystemContext* getSystemContext() const {
+        return systemContext_.get();
+    }
+
   private:
     // Initialization state
     bool   systemInitialized_;
@@ -128,6 +140,7 @@ class SystemInitializer {
     std::unique_ptr<CleverCoffeeWiFiManager> cleverCoffeeWiFiManager_;
     std::unique_ptr<WebServerManager>        webServerManager_;
     std::unique_ptr<PID>                     pidController_;
+    std::unique_ptr<CleverCoffee::SystemContext> systemContext_;
 
     // Initialization phases
     bool initializeLogger();

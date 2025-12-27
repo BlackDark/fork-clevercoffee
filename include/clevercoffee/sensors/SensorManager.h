@@ -19,6 +19,10 @@
 // Forward declarations
 class Scale;
 
+namespace CleverCoffee {
+class SensorCoordinator;
+}
+
 /**
  * @class SensorManager
  * @brief RAII wrapper for unified sensor management
@@ -51,9 +55,10 @@ class SensorManager {
      * @brief Initialize all sensors
      * @param tempSensor Temperature sensor instance from HardwareManager
      * @param waterTankSensor Water tank sensor instance from HardwareManager
+     * @param coord SensorCoordinator for coordination (optional, can be nullptr)
      * @return true if initialization successful
      */
-    bool initialize(TempSensor* tempSensor, Switch* waterTankSensor);
+    bool initialize(TempSensor* tempSensor, Switch* waterTankSensor, CleverCoffee::SensorCoordinator* coord = nullptr);
 
     /**
      * @brief Update all sensor readings
@@ -170,6 +175,9 @@ class SensorManager {
     // Sensor references (not owned by this class)
     TempSensor* tempSensor_;
     Switch*     waterTankSensor_;
+
+    // Coordinator pointer (non-owning, optional)
+    CleverCoffee::SensorCoordinator* coordinator_;
 
     // Sensor state
     bool   sensorsInitialized_;

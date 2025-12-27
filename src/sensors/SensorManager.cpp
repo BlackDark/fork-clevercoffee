@@ -9,6 +9,7 @@
 #include "clevercoffee/GlobalState.h"
 #include "clevercoffee/Logger.h"
 #include "clevercoffee/hardware/pressureSensor.h"
+#include "clevercoffee/coordinators/SensorCoordinator.h"
 
 #include <Arduino.h>
 #include <Wire.h>
@@ -17,16 +18,17 @@
 #include "clevercoffee/scaleHandler.h"
 
 SensorManager::SensorManager()
-    : tempSensor_(nullptr), waterTankSensor_(nullptr), sensorsInitialized_(false), temperature_(0.0),
+    : tempSensor_(nullptr), waterTankSensor_(nullptr), coordinator_(nullptr), sensorsInitialized_(false), temperature_(0.0),
       waterTankFull_(true), waterTankCheckConsecutiveReads_(0), inputPressure_(0.0f), inputPressureFilter_(0.0f),
       inX_(0.0f), inY_(0.0f), inOld_(0.0f), inSum_(0.0f), pressureHistory_{},
       tempHistory_{}, pressureHistoryIndex_(0), tempHistoryIndex_(0) {}
 
-bool SensorManager::initialize(TempSensor* tempSensor, Switch* waterTankSensor) {
+bool SensorManager::initialize(TempSensor* tempSensor, Switch* waterTankSensor, CleverCoffee::SensorCoordinator* coord) {
     LOG(INFO, "Initializing SensorManager");
 
     tempSensor_      = tempSensor;
     waterTankSensor_ = waterTankSensor;
+    coordinator_     = coord;
 
     bool success = true;
 
@@ -71,16 +73,18 @@ void SensorManager::update() {
         bool shouldSkipRead = (tempTimeoutCount >= 2);
         
         if (!shouldSkipRead) {
-            g_state.coordination.temperatureUpdateRunning = true;
-            
+            if (coordinator_) {
+                coordinator_->startTemperatureUpdate();
+            }
+
             // Add timeout protection for sensor reading
             const unsigned long startTime = millis();
             const bool updateSuccess = tempSensor_->updateTemperature();
             const unsigned long readTime = millis() - startTime;
-            
+
             if (readTime > 500) {
                 tempTimeoutCount++;
-                LOGF(WARNING, "Temperature sensor took %lums to read (timeout #%lu) - switching to cached mode", 
+                LOGF(WARNING, "Temperature sensor took %lums to read (timeout #%lu) - switching to cached mode",
                      readTime, tempTimeoutCount);
                 temperature_ = cachedTemperature; // Use cached value
             } else if (updateSuccess) {
@@ -97,8 +101,10 @@ void SensorManager::update() {
                 LOGF(WARNING, "Temperature sensor update failed - using cached temperature: %.1f°C", cachedTemperature);
                 temperature_ = cachedTemperature;
             }
-            
-            g_state.coordination.temperatureUpdateRunning = false;
+
+            if (coordinator_) {
+                coordinator_->stopTemperatureUpdate();
+            }
         } else {
             // Skip this read completely - no sensor call at all
             temperature_ = cachedTemperature;
