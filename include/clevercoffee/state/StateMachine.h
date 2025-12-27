@@ -18,6 +18,10 @@ class SensorManager;
 class CleverCoffeeWiFiManager;
 class MQTTManager;
 
+namespace CleverCoffee {
+class SystemContext;
+}
+
 /**
  * @class StateMachine
  * @brief Central controller for the coffee machine state machine
@@ -37,17 +41,19 @@ class StateMachine {
   public:
     /**
      * @brief Constructor
+     * @param systemContext System context instance
      * @param displayManager Display manager instance
      * @param hardwareManager Hardware manager instance
      * @param sensorManager Sensor manager instance
      * @param wifiManager WiFi manager instance
      * @param mqttManager MQTT manager instance
      */
-    StateMachine(DisplayManager*          displayManager,
-                 HardwareManager*         hardwareManager,
-                 SensorManager*           sensorManager,
-                 CleverCoffeeWiFiManager* wifiManager,
-                 MQTTManager*             mqttManager);
+    StateMachine(CleverCoffee::SystemContext& systemContext,
+                 DisplayManager*               displayManager,
+                 HardwareManager*              hardwareManager,
+                 SensorManager*                sensorManager,
+                 CleverCoffeeWiFiManager*      wifiManager,
+                 MQTTManager*                  mqttManager);
 
     /**
      * @brief Destructor

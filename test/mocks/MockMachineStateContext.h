@@ -22,6 +22,10 @@ class Relay;
 class LED;
 class Scale;
 
+namespace CleverCoffee {
+class SystemContext;
+}
+
 /**
  * @class MockMachineStateContext
  * @brief GMock-based mock of MachineStateContext for unit testing state logic
@@ -36,6 +40,7 @@ class MockMachineStateContext {
     virtual ~MockMachineStateContext() = default;
 
     // === Hardware Access ===
+    MOCK_METHOD(CleverCoffee::SystemContext&, systemContext, (), (const));
     MOCK_METHOD(DisplayManager*, getDisplayManager, (), (const));
     MOCK_METHOD(HardwareManager*, getHardwareManager, (), (const));
     MOCK_METHOD(SensorManager*, getSensorManager, (), (const));

@@ -5,6 +5,7 @@
 
 #include "clevercoffee/state/StateMachine.h"
 
+#include "clevercoffee/context/SystemContext.h"
 #include "clevercoffee/Logger.h"
 #include "clevercoffee/state/MachineStateIds.h"
 #include "clevercoffee/state/StateFactory.h"
@@ -21,12 +22,14 @@
 #include <Arduino.h>
 #include <chrono>
 
-StateMachine::StateMachine(DisplayManager*          displayManager,
-                           HardwareManager*         hardwareManager,
-                           SensorManager*           sensorManager,
-                           CleverCoffeeWiFiManager* wifiManager,
-                           MQTTManager*             mqttManager)
-    : currentState_(nullptr), context_(displayManager, hardwareManager, sensorManager, wifiManager, mqttManager),
+StateMachine::StateMachine(CleverCoffee::SystemContext& systemContext,
+                           DisplayManager*               displayManager,
+                           HardwareManager*              hardwareManager,
+                           SensorManager*                sensorManager,
+                           CleverCoffeeWiFiManager*      wifiManager,
+                           MQTTManager*                  mqttManager)
+    : currentState_(nullptr),
+      context_(systemContext, displayManager, hardwareManager, sensorManager, wifiManager, mqttManager),
       initialized_(false), lastStateId_(MachineStateId::INIT), lastUpdateTime_(std::chrono::steady_clock::now()),
       startTime_(std::chrono::steady_clock::now()), totalStateTransitions_(0), totalUpdates_(0) {
     LOG(INFO, "StateMachine created");

@@ -6,6 +6,7 @@
 #include "clevercoffee/state/MachineStateContext.h"
 
 #include "clevercoffee/Config.h"
+#include "clevercoffee/context/SystemContext.h"
 #include "clevercoffee/control/ProcessController.h"
 #include "clevercoffee/display/DisplayManager.h"
 #include "clevercoffee/handlers/BrewHandler.h"
@@ -22,13 +23,14 @@
 
 #include <Arduino.h>
 
-MachineStateContext::MachineStateContext(DisplayManager*          displayManager,
-                                         HardwareManager*         hardwareManager,
-                                         SensorManager*           sensorManager,
-                                         CleverCoffeeWiFiManager* wifiManager,
-                                         MQTTManager*             mqttManager)
-    : displayManager_(displayManager), hardwareManager_(hardwareManager), sensorManager_(sensorManager),
-      wifiManager_(wifiManager), mqttManager_(mqttManager) {}
+MachineStateContext::MachineStateContext(CleverCoffee::SystemContext& systemContext,
+                                         DisplayManager*               displayManager,
+                                         HardwareManager*              hardwareManager,
+                                         SensorManager*                sensorManager,
+                                         CleverCoffeeWiFiManager*      wifiManager,
+                                         MQTTManager*                  mqttManager)
+    : systemContext_(systemContext), displayManager_(displayManager), hardwareManager_(hardwareManager),
+      sensorManager_(sensorManager), wifiManager_(wifiManager), mqttManager_(mqttManager) {}
 
 // === Hardware Component Access ===
 

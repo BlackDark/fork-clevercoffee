@@ -24,6 +24,10 @@ class Relay;
 class LED;
 class Scale;
 
+namespace CleverCoffee {
+class SystemContext;
+}
+
 /**
  * @class MachineStateContext
  * @brief Provides unified access to all machine resources and state data
@@ -37,11 +41,12 @@ class MachineStateContext {
     /**
      * @brief Construct context with references to all managers
      */
-    MachineStateContext(DisplayManager*          displayManager,
-                        HardwareManager*         hardwareManager,
-                        SensorManager*           sensorManager,
-                        CleverCoffeeWiFiManager* wifiManager,
-                        MQTTManager*             mqttManager);
+    MachineStateContext(CleverCoffee::SystemContext& systemContext,
+                        DisplayManager*               displayManager,
+                        HardwareManager*              hardwareManager,
+                        SensorManager*                sensorManager,
+                        CleverCoffeeWiFiManager*      wifiManager,
+                        MQTTManager*                  mqttManager);
 
     /**
      * @brief Virtual destructor for proper cleanup
@@ -49,6 +54,12 @@ class MachineStateContext {
     virtual ~MachineStateContext() = default;
 
     // === Hardware Access ===
+
+    /**
+     * @brief Get system context
+     */
+    CleverCoffee::SystemContext& systemContext() noexcept { return systemContext_; }
+    const CleverCoffee::SystemContext& systemContext() const noexcept { return systemContext_; }
 
     /**
      * @brief Get display manager
@@ -406,6 +417,9 @@ class MachineStateContext {
     void updateStateEntryTime(std::chrono::steady_clock::time_point entryTime);
 
   private:
+    // System context
+    CleverCoffee::SystemContext& systemContext_;
+
     // Manager references
     DisplayManager*          displayManager_;
     HardwareManager*         hardwareManager_;

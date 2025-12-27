@@ -143,8 +143,9 @@ void setup() {
     }
 
     if (systemInitializer->isInitialized()) {
-        stateMachine =
-            std::make_unique<StateMachine>(displayManager, hardwareManager, sensorManager, wifiManager, mqttManager);
+        stateMachine = std::make_unique<StateMachine>(
+            *systemInitializer->getSystemContext(), displayManager, hardwareManager, sensorManager, wifiManager,
+            mqttManager);
         InitHelpers::logInitResult("StateMachine", stateMachine->initialize());
 
         // Initialize ProcessController for PID control
