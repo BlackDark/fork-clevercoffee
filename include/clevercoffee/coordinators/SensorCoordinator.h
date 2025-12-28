@@ -10,6 +10,9 @@
 
 #include <atomic>
 
+// Forward declarations
+class Switch;
+
 namespace CleverCoffee {
 
 /**
@@ -31,8 +34,9 @@ public:
      * @brief Constructor
      * @param tempSensor Temperature sensor implementing ISensor (can be nullptr)
      * @param scaleSensor Scale sensor implementing ISensor (can be nullptr)
+     * @param waterTankSensor Water tank level sensor (can be nullptr)
      */
-    SensorCoordinator(ISensor* tempSensor = nullptr, ISensor* scaleSensor = nullptr) noexcept;
+    SensorCoordinator(ISensor* tempSensor = nullptr, ISensor* scaleSensor = nullptr, Switch* waterTankSensor = nullptr) noexcept;
     
     /**
      * @brief Update all sensor readings
@@ -56,6 +60,14 @@ public:
      */
     void setScaleSensor(ISensor* sensor) noexcept {
         scaleSensor_ = sensor;
+    }
+    
+    /**
+     * @brief Set water tank sensor (late injection)
+     * @param sensor Water tank level sensor (can be nullptr)
+     */
+    void setWaterTankSensor(Switch* sensor) noexcept {
+        waterTankSensor_ = sensor;
     }
     
     // === Legacy coordination interface (for backward compatibility) ===
@@ -146,6 +158,34 @@ public:
         return scaleSensorError_.load(std::memory_order_relaxed);
     }
     
+    // === Pressure Sensor ===
+    
+    /**
+     * @brief Get cached raw pressure value
+     * @return Last successfully read pressure in bar
+     */
+    [[nodiscard]] float getPressure() const noexcept {
+        return cachedPressure_;
+    }
+    
+    /**
+     * @brief Get filtered pressure value
+     * @return Filtered pressure in bar (low-pass filtered)
+     */
+    [[nodiscard]] float getFilteredPressure() const noexcept {
+        return cachedPressureFiltered_;
+    }
+    
+    // === Water Tank Sensor ===
+    
+    /**
+     * @brief Check if water tank is full
+     * @return true if water tank has water
+     */
+    [[nodiscard]] bool isWaterTankFull() const noexcept {
+        return waterTankFull_.load(std::memory_order_relaxed);
+    }
+    
     // === General ===
     
     /**
@@ -160,22 +200,40 @@ private:
     // Sensor references (not owned)
     ISensor* tempSensor_ = nullptr;
     ISensor* scaleSensor_ = nullptr;
+    Switch*  waterTankSensor_ = nullptr;
     
     // Cached values
     double cachedTemperature_ = 0.0;
     double cachedWeight_ = 0.0;
+    float  cachedPressure_ = 0.0f;
+    float  cachedPressureFiltered_ = 0.0f;
     
     // Error tracking (atomic for thread safety)
     std::atomic<bool> tempSensorError_{false};
     std::atomic<bool> scaleSensorError_{false};
+    std::atomic<bool> waterTankFull_{true};  // Assume full initially
     
     // Update timing
     unsigned long lastTempUpdate_ = 0;
     unsigned long lastScaleUpdate_ = 0;
+    unsigned long lastPressureUpdate_ = 0;
+    unsigned long lastWaterTankUpdate_ = 0;
     
     // Update intervals
     static constexpr unsigned long TEMP_UPDATE_INTERVAL_MS = 400;
     static constexpr unsigned long SCALE_UPDATE_INTERVAL_MS = 100;
+    static constexpr unsigned long PRESSURE_UPDATE_INTERVAL_MS = 50;
+    static constexpr unsigned long WATER_TANK_UPDATE_INTERVAL_MS = 200;
+    
+    // Pressure filter state (low-pass filter)
+    float inX_ = 0.0f;
+    float inY_ = 0.0f;
+    float inOld_ = 0.0f;
+    float inSum_ = 0.0f;
+    
+    // Water tank debouncing
+    int waterTankConsecutiveReads_ = 0;
+    static constexpr int WATER_TANK_READS_NEEDED = 3;
     
     // Legacy coordination flags (for backward compatibility)
     std::atomic<bool> temperatureUpdateRunning_{false};
@@ -184,6 +242,12 @@ private:
     // Private update methods
     void updateTemperature() noexcept;
     void updateScale() noexcept;
+    void updatePressure() noexcept;
+    void updateWaterTank() noexcept;
+    
+    // Helper methods
+    float filterPressureValue(float input) noexcept;
+    float measurePressure() noexcept;
 };
 
 }  // namespace CleverCoffee
