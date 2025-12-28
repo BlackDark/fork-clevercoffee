@@ -9,6 +9,7 @@
 #include "clevercoffee/GlobalState.h"
 #include "clevercoffee/Logger.h"
 #include "clevercoffee/control/ProcessController.h"
+#include "clevercoffee/coordinators/SensorCoordinator.h"
 #include "clevercoffee/handlers/BrewHandler.h"
 #include "clevercoffee/handlers/HotWaterHandler.h"
 #include "clevercoffee/handlers/PowerHandler.h"
@@ -43,14 +44,16 @@ extern void enableTimer1();
 // WebSocket functions are now available via WebSocketEvents.h
 // No stubs needed - real functionality restored
 
-LoopManager::LoopManager(ProcessController* processController,
-                         SensorManager*     sensorManager,
-                         UIManager*         uiManager,
-                         HotWaterHandler*   hotWaterHandler)
+LoopManager::LoopManager(ProcessController*               processController,
+                         SensorManager*                   sensorManager,
+                         UIManager*                       uiManager,
+                         HotWaterHandler*                 hotWaterHandler,
+                         CleverCoffee::SensorCoordinator* sensorCoordinator)
     : processController_(processController), sensorManager_(sensorManager), uiManager_(uiManager),
-      hotWaterHandler_(hotWaterHandler), initialized_(false), sensorsTimersInitialized_(false),
-      performanceMonitoringEnabled_(false), lastLoopTime_(0), maxLoopTime_(0), loopCount_(0),
-      temperatureUpdateCount_(0), pressureUpdateCount_(0), scaleUpdateCount_(0), lastTimerLogTime_(0) {
+      hotWaterHandler_(hotWaterHandler), sensorCoordinator_(sensorCoordinator), initialized_(false), 
+      sensorsTimersInitialized_(false), performanceMonitoringEnabled_(false), lastLoopTime_(0), 
+      maxLoopTime_(0), loopCount_(0), temperatureUpdateCount_(0), pressureUpdateCount_(0), 
+      scaleUpdateCount_(0), lastTimerLogTime_(0) {
     LOG(INFO, "LoopManager created - will initialize centralized sensor timers");
 }
 
@@ -81,6 +84,11 @@ void LoopManager::update() {
     if (!initialized_) {
         LOG(WARNING, "LoopManager::update() called but not initialized");
         return;
+    }
+
+    // Phase 5: Update SensorCoordinator (async sensor polling)
+    if (sensorCoordinator_) {
+        sensorCoordinator_->update();
     }
 
     // Performance timing start

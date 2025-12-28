@@ -16,6 +16,7 @@
 
 // Libraries & Dependencies
 #include "clevercoffee/Logger.h"
+#include "clevercoffee/context/SystemContext.h"
 #include "clevercoffee/core/SystemInitializer.h"
 #include "clevercoffee/network/CleverCoffeeWiFiManager.h"
 #include "clevercoffee/network/MQTTManager.h"
@@ -156,8 +157,9 @@ void setup() {
         g_state.coordination.processController = processController.get(); // Still needed for now
         InitHelpers::logInitResult("ProcessController", processController->initialize());
 
-        // Initialize LoopManager for main loop coordination
-        loopManager = std::make_unique<LoopManager>(processController.get(), sensorManager, uiManager);
+        // Initialize LoopManager for main loop coordination (Phase 5: inject SensorCoordinator)
+        CleverCoffee::SensorCoordinator* sensorCoord = &systemInitializer->getSystemContext()->sensorCoordinator();
+        loopManager = std::make_unique<LoopManager>(processController.get(), sensorManager, uiManager, nullptr, sensorCoord);
         InitHelpers::logInitResult("LoopManager", loopManager->initialize());
 
         // Configure sensor update timers (uncomment and modify as needed)

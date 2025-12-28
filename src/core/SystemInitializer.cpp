@@ -411,6 +411,12 @@ bool SystemInitializer::initializeSensors() {
         // Get sensor coordinator from system context
         CleverCoffee::SensorCoordinator* coord = systemContext_ ? &systemContext_->sensorCoordinator() : nullptr;
 
+        // Inject temperature sensor into SensorCoordinator (Phase 5 integration)
+        if (coord && tempSensorRef) {
+            coord->setTemperatureSensor(tempSensorRef);
+            LOG(INFO, "Temperature sensor injected into SensorCoordinator");
+        }
+
         if (sensorManager_->initialize(tempSensorRef, waterTankSensorRef, coord)) {
             // Update global temperature variable for compatibility
             g_state.process.temperature = sensorManager_->getCurrentTemperature();

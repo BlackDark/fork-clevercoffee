@@ -42,6 +42,22 @@ public:
      */
     void update() noexcept;
     
+    /**
+     * @brief Set temperature sensor (late injection)
+     * @param sensor Temperature sensor implementing ISensor (can be nullptr)
+     */
+    void setTemperatureSensor(ISensor* sensor) noexcept {
+        tempSensor_ = sensor;
+    }
+    
+    /**
+     * @brief Set scale sensor (late injection)
+     * @param sensor Scale sensor implementing ISensor (can be nullptr)
+     */
+    void setScaleSensor(ISensor* sensor) noexcept {
+        scaleSensor_ = sensor;
+    }
+    
     // === Legacy coordination interface (for backward compatibility) ===
     // These methods are for coordinating with the old SensorManager
     // Will be removed in Phase 6 cleanup
