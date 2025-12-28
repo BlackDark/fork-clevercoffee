@@ -76,6 +76,11 @@ void SensorCoordinator::updateScale() noexcept {
         // Success
         cachedWeight_ = result.value();
         scaleSensorError_.store(false, std::memory_order_relaxed);
+        
+        // Update brew weight if tracking is active
+        if (brewWeightTrackingActive_) {
+            cachedBrewWeight_ = cachedWeight_ - preBrewWeight_;
+        }
     } else {
         // Check error type
         auto error = result.error();
@@ -147,6 +152,21 @@ float SensorCoordinator::filterPressureValue(float input) noexcept {
 float SensorCoordinator::measurePressure() noexcept {
     // Use the global measurePressure function from pressureSensor.h
     return ::measurePressure();
+}
+
+void SensorCoordinator::startBrewWeightTracking() noexcept {
+    LOG(INFO, "SensorCoordinator: Starting brew weight tracking");
+    preBrewWeight_ = cachedWeight_;
+    cachedBrewWeight_ = 0.0;
+    brewWeightTrackingActive_ = true;
+    LOGF(DEBUG, "Pre-brew weight captured: %.2f g", preBrewWeight_);
+}
+
+void SensorCoordinator::stopBrewWeightTracking() noexcept {
+    LOG(INFO, "SensorCoordinator: Stopping brew weight tracking");
+    brewWeightTrackingActive_ = false;
+    cachedBrewWeight_ = 0.0;
+    preBrewWeight_ = 0.0;
 }
 
 }  // namespace CleverCoffee

@@ -384,30 +384,26 @@ void LoopManager::updateScaleSensor() {
 }
 
 void LoopManager::updateBrewWeight() {
-    // Shot timer state machine for brew weight calculation
-    switch (g_state.sensors.shottimerCounter) {
-        case 10: // Waiting for brew to start
-            if (g_state.machine.machineState != MachineStateId::BREW_IDLE) {
-                // Capture pre-brew weight when brew starts
-                g_state.sensors.preBrewWeight = g_state.sensors.currReadingWeight;
-                g_state.sensors.shottimerCounter = 20;
-                g_state.sensors.brewByWeightFallbackActive = false;
-            }
-            break;
-
-        case 20: // Brewing - calculate current brew weight
-            g_state.sensors.currBrewWeight = g_state.sensors.currReadingWeight - g_state.sensors.preBrewWeight;
-
-            if (g_state.machine.machineState == MachineStateId::BREW_IDLE) {
-                // Brew ended, reset to waiting state
-                g_state.sensors.shottimerCounter = 10;
-                g_state.sensors.brewByWeightFallbackActive = false;
-            }
-            break;
-
-        default:
-            break;
+    if (!sensorCoordinator_) {
+        return;  // No sensor coordinator available
     }
+    
+    // Simple state machine: start tracking when brew starts, stop when brew ends
+    const auto currentState = g_state.machine.machineState;
+    const bool isBrewActive = (currentState != MachineStateId::BREW_IDLE);
+    
+    // Check if we need to start brew weight tracking
+    if (isBrewActive && !sensorCoordinator_->isBrewWeightTrackingActive()) {
+        sensorCoordinator_->startBrewWeightTracking();
+    }
+    // Check if we need to stop brew weight tracking
+    else if (!isBrewActive && sensorCoordinator_->isBrewWeightTrackingActive()) {
+        sensorCoordinator_->stopBrewWeightTracking();
+    }
+    
+    // Update global state for backward compatibility (will be removed in Phase 10.4)
+    g_state.sensors.currBrewWeight = static_cast<float>(sensorCoordinator_->getBrewWeight());
+    g_state.sensors.preBrewWeight = static_cast<float>(sensorCoordinator_->getPreBrewWeight());
 }
 
 void LoopManager::updateCentralizedSensorTimers() {

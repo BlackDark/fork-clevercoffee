@@ -158,6 +158,46 @@ public:
         return scaleSensorError_.load(std::memory_order_relaxed);
     }
     
+    // === Brew Weight Tracking ===
+    
+    /**
+     * @brief Start tracking brew weight (call when brew starts)
+     * 
+     * Captures current weight as pre-brew weight and begins tracking brew weight delta.
+     */
+    void startBrewWeightTracking() noexcept;
+    
+    /**
+     * @brief Stop tracking brew weight (call when brew ends)
+     * 
+     * Resets brew weight tracking state.
+     */
+    void stopBrewWeightTracking() noexcept;
+    
+    /**
+     * @brief Get current brew weight (weight extracted during brew)
+     * @return Current brew weight in grams (weight - preBrewWeight)
+     */
+    [[nodiscard]] double getBrewWeight() const noexcept {
+        return cachedBrewWeight_;
+    }
+    
+    /**
+     * @brief Get pre-brew weight (weight before brew started)
+     * @return Pre-brew weight in grams
+     */
+    [[nodiscard]] double getPreBrewWeight() const noexcept {
+        return preBrewWeight_;
+    }
+    
+    /**
+     * @brief Check if brew weight tracking is active
+     * @return true if currently tracking brew weight
+     */
+    [[nodiscard]] bool isBrewWeightTrackingActive() const noexcept {
+        return brewWeightTrackingActive_;
+    }
+    
     // === Pressure Sensor ===
     
     /**
@@ -207,6 +247,11 @@ private:
     double cachedWeight_ = 0.0;
     float  cachedPressure_ = 0.0f;
     float  cachedPressureFiltered_ = 0.0f;
+    
+    // Brew weight tracking
+    double cachedBrewWeight_ = 0.0;
+    double preBrewWeight_ = 0.0;
+    bool   brewWeightTrackingActive_ = false;
     
     // Error tracking (atomic for thread safety)
     std::atomic<bool> tempSensorError_{false};
