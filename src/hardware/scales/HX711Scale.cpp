@@ -1,9 +1,14 @@
 /**
  * @file HX711Scale.cpp
- * @brief HX711-based scale implementation
+ * @brief HX711-based scale implementation with ISensor support
  */
 
 #include "clevercoffee/hardware/scales/HX711Scale.h"
+#include "clevercoffee/errors/ErrorCodes.h"
+
+using CleverCoffee::Expected;
+using CleverCoffee::Error;
+using CleverCoffee::ErrorCode;
 
 HX711Scale::HX711Scale(const int dataPin, const int clkPin, const float calibrationFactor)
     : loadCell1(new HX711_ADC(dataPin, clkPin)), loadCell2(nullptr), currentWeight(0.0),
@@ -152,4 +157,50 @@ HX711_ADC* HX711Scale::getLoadCell(const int cellNumber) const noexcept {
     }
 
     return nullptr;
+}
+
+// ====== ISensor Interface Implementation ======
+
+void HX711Scale::startRead() noexcept {
+    // HX711 doesn't require explicit start - continuously polling
+    // This is a no-op for HX711 scales
+}
+
+Expected<double, Error> HX711Scale::tryGetValue() noexcept {
+    // Try to update (non-blocking)
+    bool updated = update();
+
+    if (updated) {
+        lastSuccessfulRead_ = millis();
+        return static_cast<double>(currentWeight);
+    }
+
+    // Check timeout
+    if (millis() - lastSuccessfulRead_ > READ_TIMEOUT_MS) {
+        return Error(ErrorCode::SENSOR_TIMEOUT, "Scale read timeout");
+    }
+
+    // No new data yet, but not timed out
+    return Error(ErrorCode::SENSOR_NOT_READY, "No new data yet");
+}
+
+const char* HX711Scale::getSensorType() const noexcept {
+    return isDualCell ? "HX711Scale (Dual Cell)" : "HX711Scale (Single Cell)";
+}
+
+bool HX711Scale::isConnected() const noexcept {
+    // Check if load cells are responding
+    if (loadCell1 && loadCell1->getTareTimeoutFlag()) {
+        return false;
+    }
+    if (loadCell1 && loadCell1->getSignalTimeoutFlag()) {
+        return false;
+    }
+    if (isDualCell && loadCell2 && loadCell2->getTareTimeoutFlag()) {
+        return false;
+    }
+    if (isDualCell && loadCell2 && loadCell2->getSignalTimeoutFlag()) {
+        return false;
+    }
+    return true;
 }

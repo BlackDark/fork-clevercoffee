@@ -1,13 +1,18 @@
 /**
  * @file BluetoothScale.cpp
- * @brief Bluetooth scale implementation
+ * @brief Bluetooth scale implementation with ISensor support
  */
 
 #include "clevercoffee/hardware/scales/BluetoothScale.h"
+#include "clevercoffee/errors/ErrorCodes.h"
 
 #include "clevercoffee/Logger.h"
 
 #include <Arduino.h>
+
+using CleverCoffee::Expected;
+using CleverCoffee::Error;
+using CleverCoffee::ErrorCode;
 
 BluetoothScale::BluetoothScale()
     : currentWeight(0.0), lastUpdateTime(0), connected(false), bleInitialized(false), lastConnectionAttempt(0),
@@ -125,4 +130,38 @@ void BluetoothScale::setSamples(int samples) {
 
 bool BluetoothScale::isConnected() const noexcept {
     return connected;
+}
+
+// ====== ISensor Interface Implementation ======
+
+void BluetoothScale::startRead() noexcept {
+    // Bluetooth scale continuously sends data when connected
+    // This is a no-op for Bluetooth scales
+}
+
+Expected<double, Error> BluetoothScale::tryGetValue() noexcept {
+    // Check if scale is connected
+    if (!connected) {
+        return Error(ErrorCode::SENSOR_DISCONNECTED, "Bluetooth scale not connected");
+    }
+
+    // Try to update (non-blocking)
+    bool updated = update();
+
+    if (updated) {
+        lastSuccessfulRead_ = millis();
+        return static_cast<double>(currentWeight);
+    }
+
+    // Check timeout
+    if (millis() - lastSuccessfulRead_ > READ_TIMEOUT_MS) {
+        return Error(ErrorCode::SENSOR_TIMEOUT, "Bluetooth scale read timeout");
+    }
+
+    // No new data yet, but not timed out
+    return Error(ErrorCode::SENSOR_NOT_READY, "No new data yet");
+}
+
+const char* BluetoothScale::getSensorType() const noexcept {
+    return "BluetoothScale (Acaia/Compatible)";
 }

@@ -1,12 +1,13 @@
 
 /**
  * @file HX711Scale.h
- * @brief HX711-based scale implementation
+ * @brief HX711-based scale implementation with ISensor support
  */
 
 #pragma once
 
 #include "clevercoffee/hardware/scales/Scale.h"
+#include "clevercoffee/sensors/ISensor.h"
 
 #define HX711_ADC_config_h
 #define SAMPLES                32
@@ -19,11 +20,16 @@
 
 #define HIGH_ACCURACY
 
+using CleverCoffee::Expected;
+using CleverCoffee::Error;
+using CleverCoffee::ISensor;
+
 /**
- * @brief HX711-based scale implementation
+ * @brief HX711-based scale implementation with ISensor support
  * Supports single or dual load cell setup with shared clock pin
+ * Implements both Scale (legacy) and ISensor (new) interfaces
  */
-class HX711Scale : public Scale {
+class HX711Scale : public Scale, public ISensor {
   public:
     /**
      * @brief Constructor for single HX711 scale
@@ -45,11 +51,18 @@ class HX711Scale : public Scale {
 
     ~HX711Scale() override;
 
+    // Scale interface (legacy)
     bool                init() override;
     bool                update() override;
     [[nodiscard]] float getWeight() const noexcept override;
     void                tare() override;
     void                setSamples(int samples) override;
+
+    // ISensor interface (new async pattern)
+    void startRead() noexcept override;
+    Expected<double, Error> tryGetValue() noexcept override;
+    const char* getSensorType() const noexcept override;
+    bool isConnected() const noexcept override;
 
     /**
      * @brief Get calibration factor for specific cell
@@ -85,4 +98,8 @@ class HX711Scale : public Scale {
     bool  readSecondScale;
     float weight1;
     float weight2;
+
+    // ISensor state tracking
+    unsigned long lastSuccessfulRead_ = 0;
+    static constexpr unsigned long READ_TIMEOUT_MS = 500;
 };
