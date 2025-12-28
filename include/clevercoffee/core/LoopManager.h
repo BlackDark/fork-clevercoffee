@@ -12,7 +12,6 @@
 
 // Forward declarations
 class ProcessController;
-class SensorManager;
 class UIManager;
 class HotWaterHandler;
 
@@ -39,15 +38,13 @@ class SensorCoordinator;
 class LoopManager {
   public:
     /**
-     * @brief Constructor
-     * @param processController Process control manager (optional)
-     * @param sensorManager Sensor management system (optional)
-     * @param uiManager UI management system (optional)
-     * @param hotWaterHandler Hot water handler (optional)
-     * @param sensorCoordinator Sensor coordinator for async sensor polling (optional)
-     */
+      * @brief Constructor
+      * @param processController Process control manager (optional)
+      * @param uiManager UI management system (optional)
+      * @param hotWaterHandler Hot water handler (optional)
+      * @param sensorCoordinator Sensor coordinator for async sensor polling (optional)
+      */
     explicit LoopManager(ProcessController*                processController   = nullptr,
-                         SensorManager*                    sensorManager       = nullptr,
                          UIManager*                        uiManager           = nullptr,
                          HotWaterHandler*                  hotWaterHandler     = nullptr,
                          CleverCoffee::SensorCoordinator*  sensorCoordinator   = nullptr);
@@ -172,17 +169,9 @@ class LoopManager {
     }
 
     /**
-     * @brief Set the sensor manager
-     * @param manager Sensor manager instance
-     */
-    void setSensorManager(SensorManager* manager) {
-        sensorManager_ = manager;
-    }
-
-    /**
-     * @brief Set the UI manager
-     * @param manager UI manager instance
-     */
+      * @brief Set the UI manager
+      * @param manager UI manager instance
+      */
     void setUIManager(UIManager* manager) {
         uiManager_ = manager;
     }
@@ -246,7 +235,6 @@ class LoopManager {
 
     // Manager dependencies
     ProcessController*               processController_;
-    SensorManager*                   sensorManager_;
     UIManager*                       uiManager_;
     HotWaterHandler*                 hotWaterHandler_;
     CleverCoffee::SensorCoordinator* sensorCoordinator_;

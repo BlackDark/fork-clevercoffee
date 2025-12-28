@@ -66,10 +66,6 @@ std::unique_ptr<DisplayManager> displayManager = nullptr;
 // Hardware Manager (already included at top)
 std::unique_ptr<CleverCoffee::HardwareManager> hardwareManager = nullptr;
 
-// Modern sensor management
-#include "clevercoffee/sensors/SensorManager.h"
-SensorManager* sensorManager = nullptr;
-
 // Modern state machine
 #include "clevercoffee/state/StateMachine.h"
 std::unique_ptr<StateMachine> stateMachine = nullptr;
@@ -129,7 +125,6 @@ void setup() {
     logMemoryBasic("After SystemInitializer->initialize()");
 
     // Get managers from SystemInitializer - they are owned by systemInitializer
-    SensorManager*           sensorManager   = systemInitializer->getSensorManager();
     DisplayManager*          displayManager  = systemInitializer->getDisplayManager();
     CleverCoffee::HardwareManager*         hardwareManager = systemInitializer->getHardwareManager();
     CleverCoffeeWiFiManager* wifiManager     = systemInitializer->getWiFiManager();
@@ -138,28 +133,27 @@ void setup() {
 
     // Complete initialization steps that require global dependencies
     if (Config::getInstance().hardwareSensorsScaleEnabled.get()) {
-        if (sensorManager) {
-            logMemoryBasic("Before Sensor Init scales");
-            sensorManager->initializeScale();
-            logMemoryBasic("After HardwareManager Access");
-        }
+        // Get sensor coordinator from system context for scale initialization
+        CleverCoffee::SensorCoordinator* sensorCoord = &systemInitializer->getSystemContext()->sensorCoordinator();
+        // Scale initialization will be handled via SensorCoordinator when Scale implements ISensor
+        logMemoryBasic("Scale sensor support via SensorCoordinator");
     }
 
     if (systemInitializer->isInitialized()) {
         stateMachine = std::make_unique<StateMachine>(
-            *systemInitializer->getSystemContext(), displayManager, hardwareManager, sensorManager, wifiManager,
+            *systemInitializer->getSystemContext(), displayManager, hardwareManager, wifiManager,
             mqttManager);
         InitHelpers::logInitResult("StateMachine", stateMachine->initialize());
 
         // Initialize ProcessController for PID control
         processController =
-            std::make_unique<ProcessController>(Config::getInstance(), displayManager, hardwareManager, sensorManager, mqttManager);
+            std::make_unique<ProcessController>(Config::getInstance(), *systemInitializer->getSystemContext(), displayManager, hardwareManager, mqttManager);
         g_state.coordination.processController = processController.get(); // Still needed for now
         InitHelpers::logInitResult("ProcessController", processController->initialize());
 
-        // Initialize LoopManager for main loop coordination (Phase 5: inject SensorCoordinator)
+        // Initialize LoopManager for main loop coordination
         CleverCoffee::SensorCoordinator* sensorCoord = &systemInitializer->getSystemContext()->sensorCoordinator();
-        loopManager = std::make_unique<LoopManager>(processController.get(), sensorManager, uiManager, nullptr, sensorCoord);
+        loopManager = std::make_unique<LoopManager>(processController.get(), uiManager, nullptr, sensorCoord);
         InitHelpers::logInitResult("LoopManager", loopManager->initialize());
 
         // Configure sensor update timers (uncomment and modify as needed)

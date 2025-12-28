@@ -9,11 +9,11 @@
 #include "clevercoffee/Config.h"
 #include "clevercoffee/context/SystemContext.h"
 #include "clevercoffee/control/ProcessController.h"
+#include "clevercoffee/coordinators/SensorCoordinator.h"
 #include "clevercoffee/display/DisplayManager.h"
 #include "clevercoffee/handlers/BrewHandler.h"
 #include "clevercoffee/network/CleverCoffeeWiFiManager.h"
 #include "clevercoffee/network/MQTTManager.h"
-#include "clevercoffee/sensors/SensorManager.h"
 // #include "../hotWaterHandler.h" - removed to avoid circular dependencies
 #include "clevercoffee/GlobalState.h"
 #include "clevercoffee/Logger.h"
@@ -26,11 +26,10 @@
 MachineStateContext::MachineStateContext(CleverCoffee::SystemContext& systemContext,
                                          DisplayManager*               displayManager,
                                          CleverCoffee::HardwareManager*              hardwareManager,
-                                         SensorManager*                sensorManager,
                                          CleverCoffeeWiFiManager*      wifiManager,
                                          MQTTManager*                  mqttManager)
     : systemContext_(systemContext), displayManager_(displayManager), hardwareManager_(hardwareManager),
-      sensorManager_(sensorManager), wifiManager_(wifiManager), mqttManager_(mqttManager) {}
+      wifiManager_(wifiManager), mqttManager_(mqttManager) {}
 
 // === Hardware Component Access ===
 
@@ -115,45 +114,46 @@ LED* MachineStateContext::getSteamLED() const {
 }
 
 Scale* MachineStateContext::getScale() const {
-    return sensorManager_ ? sensorManager_->getScale() : nullptr;
+    return g_state.hardware.scale.get();
 }
 
 // === Sensor Data Access ===
 
 double MachineStateContext::getCurrentTemperature() const noexcept {
-    return sensorManager_ ? sensorManager_->getCurrentTemperature() : 0.0;
+    return systemContext_.sensorCoordinator().getTemperature();
 }
 
 bool MachineStateContext::hasTemperatureError() const noexcept {
-    return sensorManager_ ? sensorManager_->hasTemperatureError() : true;
+    return systemContext_.sensorCoordinator().hasTemperatureSensorError();
 }
 
 bool MachineStateContext::isWaterTankFull() const {
-    return sensorManager_ ? sensorManager_->isWaterTankFull() : g_state.machine.waterTankFull;
+    return systemContext_.sensorCoordinator().isWaterTankFull();
 }
 
 float MachineStateContext::getCurrentPressure() const {
-    return sensorManager_ ? sensorManager_->getCurrentPressure() : 0.0f;
+    return systemContext_.sensorCoordinator().getPressure();
 }
 
 float MachineStateContext::getFilteredPressure() const {
-    return sensorManager_ ? sensorManager_->getFilteredPressure() : 0.0f;
+    return systemContext_.sensorCoordinator().getFilteredPressure();
 }
 
 float MachineStateContext::getCurrentWeight() const noexcept {
-    return sensorManager_ ? sensorManager_->getCurrentWeight() : 0.0f;
+    return systemContext_.sensorCoordinator().getWeight();
 }
 
 float MachineStateContext::getCurrentBrewWeight() const noexcept {
-    return sensorManager_ ? sensorManager_->getCurrentBrewWeight() : 0.0f;
+    // Scale brew weight tracking comes from global state (scale needs ISensor implementation)
+    return g_state.sensors.currBrewWeight;
 }
 
 bool MachineStateContext::hasScaleError() const {
-    return sensorManager_ ? sensorManager_->hasScaleError() : false;
+    return systemContext_.sensorCoordinator().hasScaleSensorError();
 }
 
 bool MachineStateContext::hasSensorError() const {
-    return sensorManager_ ? sensorManager_->hasSensorError() : false;
+    return systemContext_.sensorCoordinator().hasSensorError();
 }
 
 // === Process Control Functions ===
@@ -397,10 +397,9 @@ void MachineStateContext::tareScale() noexcept {
 }
 
 void MachineStateContext::updateHardware() noexcept {
-    // Trigger hardware update cycle
-    if (sensorManager_) {
-        sensorManager_->update();
-    }
+    // SensorCoordinator auto-updates in main loop, no manual call needed
+    // Access the coordinator to validate it exists, but no update call is needed
+    (void)(systemContext_.sensorCoordinator());
 }
 
 // === IConfigContext Interface Implementation ===

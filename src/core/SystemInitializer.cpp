@@ -15,7 +15,6 @@
 #include "clevercoffee/network/CleverCoffeeWiFiManager.h"
 #include "clevercoffee/network/MQTTManager.h"
 #include "clevercoffee/network/WebServerManager.h"
-#include "clevercoffee/sensors/SensorManager.h"
 #include "clevercoffee/ui/UIManager.h"
 #include "clevercoffee/utils/SystemUtils.h"
 #include "clevercoffee/utils/memoryUtils.h"
@@ -41,7 +40,7 @@ extern void enableTimer1();
 
 SystemInitializer::SystemInitializer()
     : systemInitialized_(false), hostname_(), displayManager_(nullptr), uiManager_(nullptr), hardwareManager_(nullptr),
-      mqttManager_(nullptr), sensorManager_(nullptr), cleverCoffeeWiFiManager_(nullptr), webServerManager_(nullptr) {}
+      mqttManager_(nullptr), cleverCoffeeWiFiManager_(nullptr), webServerManager_(nullptr) {}
 
 SystemInitializer::~SystemInitializer() {
     // Destructor implementation - unique_ptr will automatically clean up resources
@@ -401,45 +400,40 @@ bool SystemInitializer::initializePID() {
 
 bool SystemInitializer::initializeSensors() {
     try {
-        // Create and initialize SensorManager
-        sensorManager_ = std::make_unique<SensorManager>();
+        // Get sensor coordinator from system context
+        CleverCoffee::SensorCoordinator* coord = systemContext_ ? &systemContext_->sensorCoordinator() : nullptr;
+
+        if (!coord) {
+            LOG(WARNING, "SensorCoordinator not available in SystemContext");
+            return false;
+        }
 
         // Get sensor references from HardwareManager
         TempSensor* tempSensorRef      = hardwareManager_ ? hardwareManager_->getTempSensor() : nullptr;
         Switch*     waterTankSensorRef = hardwareManager_ ? hardwareManager_->getWaterTankSensor() : nullptr;
 
-        // Get sensor coordinator from system context
-        CleverCoffee::SensorCoordinator* coord = systemContext_ ? &systemContext_->sensorCoordinator() : nullptr;
-
-        // Inject sensors into SensorCoordinator (Phase 5 integration)
-        if (coord) {
-            if (tempSensorRef) {
-                coord->setTemperatureSensor(tempSensorRef);
-                LOG(INFO, "Temperature sensor injected into SensorCoordinator");
-            }
-            if (waterTankSensorRef) {
-                coord->setWaterTankSensor(waterTankSensorRef);
-                LOG(INFO, "Water tank sensor injected into SensorCoordinator");
-            }
+        // Inject sensors into SensorCoordinator
+        if (tempSensorRef) {
+            coord->setTemperatureSensor(tempSensorRef);
+            LOG(INFO, "Temperature sensor injected into SensorCoordinator");
+        }
+        if (waterTankSensorRef) {
+            coord->setWaterTankSensor(waterTankSensorRef);
+            LOG(INFO, "Water tank sensor injected into SensorCoordinator");
         }
 
-        if (sensorManager_->initialize(tempSensorRef, waterTankSensorRef, coord)) {
-            // Update global temperature variable for compatibility
-            g_state.process.temperature = sensorManager_->getCurrentTemperature();
+        // Update global temperature variable for compatibility
+        g_state.process.temperature = coord->getTemperature();
 
-            LOG(INFO, "Sensor management initialized via SensorManager");
+        LOG(INFO, "Sensor management initialized via SensorCoordinator");
 
-            // Note: Scale initialization is still handled separately in main.cpp
-            // because it requires complex global dependencies
-            if (Config::getInstance().hardwareSensorsScaleEnabled.get()) {
-                LOG(INFO, "Scale sensor will be initialized separately in main.cpp");
-            }
-
-            return true;
-        } else {
-            LOG(WARNING, "SensorManager initialization returned false");
-            return false;
+        // Note: Scale initialization is still handled separately in main.cpp
+        // because it requires complex global dependencies
+        if (Config::getInstance().hardwareSensorsScaleEnabled.get()) {
+            LOG(INFO, "Scale sensor will be initialized separately in main.cpp");
         }
+
+        return true;
     } catch (const std::exception& e) {
         LOGF(ERROR, "Sensor initialization failed: %s", e.what());
         return false;

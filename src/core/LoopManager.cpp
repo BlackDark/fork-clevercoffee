@@ -18,7 +18,6 @@
 #include "clevercoffee/hardware/Relay.h"
 #include "clevercoffee/network/MQTTManager.h"
 #include "clevercoffee/network/WebServerManager.h"
-#include "clevercoffee/sensors/SensorManager.h"
 #include "clevercoffee/standby.h"
 #include "clevercoffee/state/StateMachine.h"
 #include "clevercoffee/ui/UIManager.h"
@@ -45,11 +44,10 @@ extern void enableTimer1();
 // No stubs needed - real functionality restored
 
 LoopManager::LoopManager(ProcessController*               processController,
-                         SensorManager*                   sensorManager,
                          UIManager*                       uiManager,
                          HotWaterHandler*                 hotWaterHandler,
                          CleverCoffee::SensorCoordinator* sensorCoordinator)
-    : processController_(processController), sensorManager_(sensorManager), uiManager_(uiManager),
+    : processController_(processController), uiManager_(uiManager),
       hotWaterHandler_(hotWaterHandler), sensorCoordinator_(sensorCoordinator), initialized_(false), 
       sensorsTimersInitialized_(false), performanceMonitoringEnabled_(false), lastLoopTime_(0), 
       maxLoopTime_(0), loopCount_(0), temperatureUpdateCount_(0), pressureUpdateCount_(0), 
@@ -337,38 +335,23 @@ bool LoopManager::setupAllTimers() {
 }
 
 void LoopManager::checkWaterTankLevel() {
-    if (sensorManager_) {
-        sensorManager_->updateWaterTankSensor();
-        g_state.machine.waterTankFull = sensorManager_->isWaterTankFull();
+    if (sensorCoordinator_) {
+        // SensorCoordinator auto-updates water tank sensor
+        g_state.machine.waterTankFull = sensorCoordinator_->isWaterTankFull();
     }
 }
 
 void LoopManager::updateTemperatureSensor() {
-    if (sensorManager_) {
-        const unsigned long startTime = millis();
-        sensorManager_->update(); // This calls temperature sensor update
-        const unsigned long updateTime = millis() - startTime;
-
-        if (updateTime > 50) {
-            LOGF(WARNING, "Temperature sensor update took %lums", updateTime);
-        }
-
-        temperatureUpdateCount_++;
-    }
+    // SensorCoordinator auto-updates temperature sensor - no manual update needed
+    // Temperature updates are handled by SensorCoordinator.update() called in the main loop
+    temperatureUpdateCount_++;
 }
 
 void LoopManager::updatePressureSensor() {
-    if (Config::getInstance().hardwareSensorsPressureEnabled.get() && sensorManager_) {
-        const unsigned long startTime = millis();
-
-        sensorManager_->updatePressureSensor();
-        g_state.sensors.inputPressure = sensorManager_->getCurrentPressure();
-        g_state.sensors.inputPressureFilter = sensorManager_->getFilteredPressure();
-
-        const unsigned long updateTime = millis() - startTime;
-        if (updateTime > 25) {
-            LOGF(WARNING, "Pressure sensor update took %lums", updateTime);
-        }
+    if (Config::getInstance().hardwareSensorsPressureEnabled.get() && sensorCoordinator_) {
+        // SensorCoordinator auto-updates pressure sensor
+        g_state.sensors.inputPressure = sensorCoordinator_->getPressure();
+        g_state.sensors.inputPressureFilter = sensorCoordinator_->getFilteredPressure();
 
         pressureUpdateCount_++;
     }

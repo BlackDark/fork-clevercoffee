@@ -14,7 +14,6 @@
 
 // Forward declarations
 class DisplayManager;
-class SensorManager;
 class CleverCoffeeWiFiManager;
 class MQTTManager;
 
@@ -41,18 +40,16 @@ class SystemContext;
 class StateMachine {
   public:
     /**
-     * @brief Constructor
-     * @param systemContext System context instance
-     * @param displayManager Display manager instance
-     * @param hardwareManager Hardware manager instance
-     * @param sensorManager Sensor manager instance
-     * @param wifiManager WiFi manager instance
-     * @param mqttManager MQTT manager instance
-     */
+      * @brief Constructor
+      * @param systemContext System context instance
+      * @param displayManager Display manager instance
+      * @param hardwareManager Hardware manager instance
+      * @param wifiManager WiFi manager instance
+      * @param mqttManager MQTT manager instance
+      */
     StateMachine(CleverCoffee::SystemContext& systemContext,
                  DisplayManager*               displayManager,
                  CleverCoffee::HardwareManager*              hardwareManager,
-                 SensorManager*                sensorManager,
                  CleverCoffeeWiFiManager*      wifiManager,
                  MQTTManager*                  mqttManager);
 

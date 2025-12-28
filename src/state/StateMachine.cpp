@@ -25,11 +25,10 @@
 StateMachine::StateMachine(CleverCoffee::SystemContext& systemContext,
                            DisplayManager*               displayManager,
                            CleverCoffee::HardwareManager*              hardwareManager,
-                           SensorManager*                sensorManager,
                            CleverCoffeeWiFiManager*      wifiManager,
                            MQTTManager*                  mqttManager)
     : currentState_(*getStateInstance(MachineStateId::INIT)),  // Temporary initialization, will be replaced in initialize()
-      context_(systemContext, displayManager, hardwareManager, sensorManager, wifiManager, mqttManager),
+      context_(systemContext, displayManager, hardwareManager, wifiManager, mqttManager),
       initialized_(false), lastStateId_(MachineStateId::INIT), lastUpdateTime_(std::chrono::steady_clock::now()),
       startTime_(std::chrono::steady_clock::now()), totalStateTransitions_(0), totalUpdates_(0) {
     LOG(INFO, "StateMachine created");

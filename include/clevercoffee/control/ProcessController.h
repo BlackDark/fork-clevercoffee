@@ -12,7 +12,6 @@
 
 // Forward declarations
 class DisplayManager;
-class SensorManager;
 class MQTTManager;
 class TempSensor;
 class Scale;
@@ -20,6 +19,7 @@ class Config;
 
 namespace CleverCoffee {
 class HardwareManager;
+class SystemContext;
 }
 
 /**
@@ -43,17 +43,16 @@ class HardwareManager;
 class ProcessController {
   public:
     /**
-     * @brief Constructor
-     * @param config Configuration reference (not owned, must outlive this instance)
-     * @param displayManager Display manager instance
-     * @param hardwareManager Hardware manager instance
-     * @param sensorManager Sensor manager instance
-     * @param mqttManager MQTT manager instance
-     */
+      * @param config Configuration instance
+      * @param systemContext System context for sensor coordinator access
+      * @param displayManager Display manager instance
+      * @param hardwareManager Hardware manager instance
+      * @param mqttManager MQTT manager instance
+      */
     ProcessController(const Config&    config,
+                      CleverCoffee::SystemContext& systemContext,
                       DisplayManager*  displayManager,
                       CleverCoffee::HardwareManager* hardwareManager,
-                      SensorManager*   sensorManager,
                       MQTTManager*     mqttManager);
 
     /**
@@ -239,11 +238,13 @@ class ProcessController {
 
     // Configuration reference (not owned)
     const Config& config_;
+    
+    // System context reference (not owned)
+    CleverCoffee::SystemContext& systemContext_;
 
     // Manager dependencies
     DisplayManager*  displayManager_;
     CleverCoffee::HardwareManager* hardwareManager_;
-    SensorManager*   sensorManager_;
     MQTTManager*     mqttManager_;
 
     // PID controller

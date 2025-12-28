@@ -8,22 +8,23 @@
 
 #include "clevercoffee/Config.h"
 #include "clevercoffee/GlobalState.h"
+#include "clevercoffee/context/SystemContext.h"
 #include "clevercoffee/constants/Temperature.h"
+#include "clevercoffee/coordinators/SensorCoordinator.h"
 #include "clevercoffee/Logger.h"
 #include "clevercoffee/display/DisplayManager.h"
 #include "clevercoffee/hardware/scales/Scale.h"
 #include "clevercoffee/network/MQTTManager.h"
-#include "clevercoffee/sensors/SensorManager.h"
 #include "clevercoffee/utils/SystemUtils.h"
 
 #include <Arduino.h>
 
 ProcessController::ProcessController(const Config&                 config,
+                                      CleverCoffee::SystemContext&   systemContext,
                                       DisplayManager*                displayManager,
                                       CleverCoffee::HardwareManager* hardwareManager,
-                                      SensorManager*                 sensorManager,
                                       MQTTManager*                   mqttManager)
-    : config_(config), displayManager_(displayManager), hardwareManager_(hardwareManager), sensorManager_(sensorManager),
+    : config_(config), systemContext_(systemContext), displayManager_(displayManager), hardwareManager_(hardwareManager),
       mqttManager_(mqttManager), pidController_(nullptr), temperature_(0.0), pidOutput_(0.0), setpoint_(0.0),
       aggKp_(0.0), aggKi_(0.0), aggKd_(0.0), aggTn_(0.0), aggTv_(0.0), aggIMax_(0.0), aggbKp_(0.0), aggbKi_(0.0),
       aggbKd_(0.0), aggbTn_(0.0), aggbTv_(0.0), steamKp_(0.0), brewSetpoint_(0.0), steamSetpoint_(0.0),
@@ -124,27 +125,16 @@ void ProcessController::updateProcessControl(MachineStateId machineState) {
 }
 
 void ProcessController::updateTemperature() {
-    if (sensorManager_ != nullptr) {
-        // Don't call sensorManager_->update() here - it's already called by LoopManager
-        // This was causing double sensor updates and blocking the main loop
-        
-        // Use SensorManager for temperature reading (includes brew offset automatically)
-        temperature_ = sensorManager_->getCurrentTemperature();
+    // Use SensorCoordinator from SystemContext for temperature reading (includes brew offset automatically)
+    temperature_ = systemContext_.sensorCoordinator().getTemperature();
 
-        if (!g_state.machine.steamON) {
-            // Apply brew temperature offset if not in steam mode
-            temperature_ -= brewTempOffset_;
-        }
-    } else if (hardwareManager_ != nullptr && hardwareManager_->getTempSensor() != nullptr) {
-        // Fallback to direct sensor access
-        temperature_ = hardwareManager_->getTempSensor()->getCurrentTemperature();
-
-        // Apply brew offset if not in steam mode
-        if (!g_state.machine.steamON) {
-            temperature_ -= brewTempOffset_;
-        }
+    if (!g_state.machine.steamON) {
+        // Apply brew temperature offset if not in steam mode
+        temperature_ -= brewTempOffset_;
     }
 }
+
+// === IHardwareContext Interface Implementation ===
 
 void ProcessController::computePID() {
     // Use the global PID controller for now (will be refactored later)

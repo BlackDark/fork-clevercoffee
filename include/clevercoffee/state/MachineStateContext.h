@@ -16,7 +16,6 @@
 // Forward declarations
 class Config;
 class DisplayManager;
-class SensorManager;
 class MQTTManager;
 class CleverCoffeeWiFiManager;
 class U8G2;
@@ -25,6 +24,13 @@ class Switch;
 class Relay;
 class LED;
 class Scale;
+
+namespace CleverCoffee {
+class HardwareManager;
+class SystemContext;
+class SensorCoordinator;
+class MachineState;
+}
 
 namespace CleverCoffee {
 class HardwareManager;
@@ -50,12 +56,11 @@ class MachineStateContext : public CleverCoffee::IHardwareContext,
                             public CleverCoffee::IStateManager {
   public:
     /**
-     * @brief Construct context with references to all managers
-     */
+      * @brief Construct context with references to all managers
+      */
     MachineStateContext(CleverCoffee::SystemContext& systemContext,
                         DisplayManager*               displayManager,
                         CleverCoffee::HardwareManager*              hardwareManager,
-                        SensorManager*                sensorManager,
                         CleverCoffeeWiFiManager*      wifiManager,
                         MQTTManager*                  mqttManager);
 
@@ -80,22 +85,15 @@ class MachineStateContext : public CleverCoffee::IHardwareContext,
     }
 
     /**
-     * @brief Get hardware manager
-     */
+      * @brief Get hardware manager
+      */
     CleverCoffee::HardwareManager* getHardwareManager() const noexcept {
         return hardwareManager_;
     }
 
     /**
-     * @brief Get sensor manager
-     */
-    SensorManager* getSensorManager() const noexcept {
-        return sensorManager_;
-    }
-
-    /**
-     * @brief Get WiFi manager
-     */
+      * @brief Get WiFi manager
+      */
     CleverCoffeeWiFiManager* getWiFiManager() const noexcept {
         return wifiManager_;
     }
@@ -491,7 +489,6 @@ class MachineStateContext : public CleverCoffee::IHardwareContext,
     // Manager references
     DisplayManager*          displayManager_;
     CleverCoffee::HardwareManager*         hardwareManager_;
-    SensorManager*           sensorManager_;
     CleverCoffeeWiFiManager* wifiManager_;
     MQTTManager*             mqttManager_;
 

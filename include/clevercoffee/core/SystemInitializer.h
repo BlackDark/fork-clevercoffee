@@ -13,7 +13,6 @@
 class DisplayManager;
 class UIManager;
 class MQTTManager;
-class SensorManager;
 class WebServerManager;
 class CleverCoffeeWiFiManager;
 class PID;
@@ -97,17 +96,9 @@ class SystemInitializer {
     }
 
     /**
-     * @brief Get sensor manager
-     * @return Pointer to sensor manager (may be null)
-     */
-    SensorManager* getSensorManager() const {
-        return sensorManager_.get();
-    }
-
-    /**
-     * @brief Get WiFi manager
-     * @return Pointer to WiFi manager (may be null)
-     */
+      * @brief Get WiFi manager
+      * @return Pointer to WiFi manager (may be null)
+      */
     class CleverCoffeeWiFiManager* getWiFiManager() const;
 
     /**
@@ -136,7 +127,6 @@ class SystemInitializer {
     std::unique_ptr<UIManager>               uiManager_;
     std::unique_ptr<CleverCoffee::HardwareManager>         hardwareManager_;
     std::unique_ptr<MQTTManager>             mqttManager_;
-    std::unique_ptr<SensorManager>           sensorManager_;
     std::unique_ptr<CleverCoffeeWiFiManager> cleverCoffeeWiFiManager_;
     std::unique_ptr<WebServerManager>        webServerManager_;
     std::unique_ptr<PID>                     pidController_;
