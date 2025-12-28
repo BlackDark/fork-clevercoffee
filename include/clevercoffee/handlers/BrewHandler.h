@@ -24,11 +24,22 @@ class BrewHandler : public SwitchBasedHandler {
     PumpTimer     pumpTimer_;
     unsigned long brewStartTime_     = 0;
     uint8_t       lastSwitchReading_ = LOW;
+    Relay*        valveRelay_        = nullptr;
 
   public:
     BrewHandler()
-        : SwitchBasedHandler("BrewHandler", g_state.hardware.brewSwitch),
+        : SwitchBasedHandler("BrewHandler", nullptr),
           pumpTimer_(300000) { // 5 minute max brew time safety
+    }
+    
+    /**
+     * @brief Initialize with hardware switch and relay (call after HardwareManager is ready)
+     * @param brewSwitch Pointer to brew switch hardware
+     * @param valveRelay Pointer to valve relay hardware
+     */
+    void setHardware(Switch* brewSwitch, Relay* valveRelay) {
+        switch_ = brewSwitch;
+        valveRelay_ = valveRelay;
     }
 
     bool isBrewActive() const {
@@ -39,8 +50,8 @@ class BrewHandler : public SwitchBasedHandler {
 
     void valveSafetyShutdownCheck() {
         // Safety check to ensure valve is closed when not brewing
-        if (!isBrewActive()) {
-            setRelayState(g_state.hardware.valveRelay, false);
+        if (!isBrewActive() && valveRelay_) {
+            setRelayState(valveRelay_, false);
         }
     }
 

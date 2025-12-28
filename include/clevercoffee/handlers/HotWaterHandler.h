@@ -24,8 +24,16 @@ class HotWaterHandler : public SwitchBasedHandler {
 
   public:
     HotWaterHandler()
-        : SwitchBasedHandler("HotWaterHandler", g_state.hardware.hotWaterSwitch),
+        : SwitchBasedHandler("HotWaterHandler", nullptr),
           pumpTimer_(60000) { // 60 second max run time
+    }
+    
+    /**
+     * @brief Initialize with hardware switch (call after HardwareManager is ready)
+     * @param hotWaterSwitch Pointer to hot water switch hardware
+     */
+    void setHardware(Switch* hotWaterSwitch) {
+        switch_ = hotWaterSwitch;
     }
 
     bool isHotWaterActive() const {

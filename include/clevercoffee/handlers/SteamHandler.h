@@ -16,7 +16,15 @@
  */
 class SteamHandler : public SwitchBasedHandler {
   public:
-    SteamHandler() : SwitchBasedHandler("SteamHandler", g_state.hardware.steamSwitch) {}
+    SteamHandler() : SwitchBasedHandler("SteamHandler", nullptr) {}
+    
+    /**
+     * @brief Initialize with hardware switch (call after HardwareManager is ready)
+     * @param steamSwitch Pointer to steam switch hardware
+     */
+    void setHardware(Switch* steamSwitch) {
+        switch_ = steamSwitch;
+    }
 
   protected:
     bool isEnabled() const override {

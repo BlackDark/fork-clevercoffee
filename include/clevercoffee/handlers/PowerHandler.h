@@ -25,8 +25,16 @@ class PowerHandler : public SwitchBasedHandler {
 
   public:
     PowerHandler()
-        : SwitchBasedHandler("PowerHandler", g_state.hardware.powerSwitch), longPressStartTime_(0),
+        : SwitchBasedHandler("PowerHandler", nullptr), longPressStartTime_(0),
           trackingLongPress_(false) {}
+    
+    /**
+     * @brief Initialize with hardware switch (call after HardwareManager is ready)
+     * @param powerSwitch Pointer to power switch hardware
+     */
+    void setHardware(Switch* powerSwitch) {
+        switch_ = powerSwitch;
+    }
 
   protected:
     bool isEnabled() const override {

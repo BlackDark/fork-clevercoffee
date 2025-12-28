@@ -28,6 +28,13 @@ GlobalState g_state;
 
 // Initialize handler references in global state
 void initializeHandlers() {
+    // Initialize handler hardware (switches must be ready before calling this)
+    brewHandler.setHardware(g_state.hardware.brewSwitch, g_state.hardware.valveRelay);
+    hotWaterHandler.setHardware(g_state.hardware.hotWaterSwitch);
+    powerHandler.setHardware(g_state.hardware.powerSwitch);
+    steamHandler.setHardware(g_state.hardware.steamSwitch);
+    
+    // Store handler references in global state
     g_state.handlers.brewHandler     = &brewHandler;
     g_state.handlers.hotWaterHandler = &hotWaterHandler;
     g_state.handlers.powerHandler    = &powerHandler;
