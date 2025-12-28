@@ -11,7 +11,6 @@
 #include "clevercoffee/handlers/PumpTimer.h"
 #include "clevercoffee/hardware/Relay.h"
 #include "clevercoffee/hardware/Switch.h"
-#include "clevercoffee/scaleHandler.h"
 #include "clevercoffee/state/MachineState.h"
 
 #include <Logger.h>

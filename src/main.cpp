@@ -83,7 +83,6 @@ std::unique_ptr<LoopManager> loopManager = nullptr;
 #include "clevercoffee/handlers/HotWaterHandler.h"
 #include "clevercoffee/handlers/PowerHandler.h"
 #include "clevercoffee/handlers/SteamHandler.h"
-#include "clevercoffee/scaleHandler.h"
 #include "clevercoffee/standby.h"
 
 // Modern C++ initialization helpers

@@ -361,12 +361,11 @@ void LoopManager::updateScaleSensor() {
     if (Config::getInstance().hardwareSensorsScaleEnabled.get()) {
         const unsigned long startTime = millis();
 
-        // Delegate to scale handler functions
-        extern void checkWeight();
-        extern void shotTimerScale();
+        // Update current reading weight from SensorCoordinator
+        g_state.sensors.currReadingWeight = static_cast<float>(sensorCoordinator_->getWeight());
 
-        checkWeight();
-        shotTimerScale();
+        // Calculate brew weight (current weight - pre-brew weight)
+        updateBrewWeight();
 
         const unsigned long updateTime = millis() - startTime;
         if (updateTime > 50) {
@@ -374,6 +373,33 @@ void LoopManager::updateScaleSensor() {
         }
 
         scaleUpdateCount_++;
+    }
+}
+
+void LoopManager::updateBrewWeight() {
+    // Shot timer state machine for brew weight calculation
+    switch (g_state.sensors.shottimerCounter) {
+        case 10: // Waiting for brew to start
+            if (g_state.machine.machineState != MachineStateId::BREW_IDLE) {
+                // Capture pre-brew weight when brew starts
+                g_state.sensors.preBrewWeight = g_state.sensors.currReadingWeight;
+                g_state.sensors.shottimerCounter = 20;
+                g_state.sensors.brewByWeightFallbackActive = false;
+            }
+            break;
+
+        case 20: // Brewing - calculate current brew weight
+            g_state.sensors.currBrewWeight = g_state.sensors.currReadingWeight - g_state.sensors.preBrewWeight;
+
+            if (g_state.machine.machineState == MachineStateId::BREW_IDLE) {
+                // Brew ended, reset to waiting state
+                g_state.sensors.shottimerCounter = 10;
+                g_state.sensors.brewByWeightFallbackActive = false;
+            }
+            break;
+
+        default:
+            break;
     }
 }
 

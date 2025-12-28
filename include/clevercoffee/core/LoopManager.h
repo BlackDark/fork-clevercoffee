@@ -226,6 +226,7 @@ class LoopManager {
     void updateTemperatureSensor();
     void updatePressureSensor();
     void updateScaleSensor();
+    void updateBrewWeight();
     void checkWaterTankLevel();
 
     /**

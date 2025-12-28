@@ -35,7 +35,6 @@ extern void enableTimer1();
 //     extern void initializeDisplay(int templateId);
 // }
 
-#include "clevercoffee/scaleHandler.h"
 // checkBrewActive removed - now accessed via g_state.handlers.brewHandler
 
 SystemInitializer::SystemInitializer()
