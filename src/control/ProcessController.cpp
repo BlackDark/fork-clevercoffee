@@ -3,6 +3,7 @@
  * @brief Implementation of ProcessController for PID and process control
  */
 
+#include "clevercoffee/hardware/HardwareManager.h"  // Include before own header to resolve forward declaration
 #include "clevercoffee/control/ProcessController.h"
 
 #include "clevercoffee/Config.h"
@@ -10,7 +11,6 @@
 #include "clevercoffee/constants/Temperature.h"
 #include "clevercoffee/Logger.h"
 #include "clevercoffee/display/DisplayManager.h"
-#include "clevercoffee/hardware/HardwareManager.h"
 #include "clevercoffee/hardware/scales/Scale.h"
 #include "clevercoffee/network/MQTTManager.h"
 #include "clevercoffee/sensors/SensorManager.h"
@@ -18,11 +18,11 @@
 
 #include <Arduino.h>
 
-ProcessController::ProcessController(const Config&    config,
-                                     DisplayManager*  displayManager,
-                                     HardwareManager* hardwareManager,
-                                     SensorManager*   sensorManager,
-                                     MQTTManager*     mqttManager)
+ProcessController::ProcessController(const Config&                 config,
+                                      DisplayManager*                displayManager,
+                                      CleverCoffee::HardwareManager* hardwareManager,
+                                      SensorManager*                 sensorManager,
+                                      MQTTManager*                   mqttManager)
     : config_(config), displayManager_(displayManager), hardwareManager_(hardwareManager), sensorManager_(sensorManager),
       mqttManager_(mqttManager), pidController_(nullptr), temperature_(0.0), pidOutput_(0.0), setpoint_(0.0),
       aggKp_(0.0), aggKi_(0.0), aggKd_(0.0), aggTn_(0.0), aggTv_(0.0), aggIMax_(0.0), aggbKp_(0.0), aggbKi_(0.0),
@@ -392,7 +392,7 @@ void ProcessController::handleBrewPIDDelay(MachineStateId machineState) {
                 pidOutput_                = 0;
                 g_state.process.pidOutput = 0;
                 if (hardwareManager_) {
-                    hardwareManager_->getHeaterRelay().off();
+                    hardwareManager_->getHeaterRelay()->off();
                 }
                 LOGF(DEBUG,
                      "disabled PID, waiting for %.0f seconds before enabling PID again",

@@ -12,7 +12,6 @@
 // Forward declarations
 class DisplayManager;
 class UIManager;
-class HardwareManager;
 class MQTTManager;
 class SensorManager;
 class WebServerManager;
@@ -20,6 +19,7 @@ class CleverCoffeeWiFiManager;
 class PID;
 
 namespace CleverCoffee {
+class HardwareManager;
 class SystemContext;
 }
 
@@ -84,7 +84,7 @@ class SystemInitializer {
      * @brief Get hardware manager
      * @return Pointer to hardware manager (may be null)
      */
-    HardwareManager* getHardwareManager() const {
+    CleverCoffee::HardwareManager* getHardwareManager() const {
         return hardwareManager_.get();
     }
 
@@ -134,7 +134,7 @@ class SystemInitializer {
     // Manager instances
     std::unique_ptr<DisplayManager>          displayManager_;
     std::unique_ptr<UIManager>               uiManager_;
-    std::unique_ptr<HardwareManager>         hardwareManager_;
+    std::unique_ptr<CleverCoffee::HardwareManager>         hardwareManager_;
     std::unique_ptr<MQTTManager>             mqttManager_;
     std::unique_ptr<SensorManager>           sensorManager_;
     std::unique_ptr<CleverCoffeeWiFiManager> cleverCoffeeWiFiManager_;

@@ -24,7 +24,7 @@
 
 StateMachine::StateMachine(CleverCoffee::SystemContext& systemContext,
                            DisplayManager*               displayManager,
-                           HardwareManager*              hardwareManager,
+                           CleverCoffee::HardwareManager*              hardwareManager,
                            SensorManager*                sensorManager,
                            CleverCoffeeWiFiManager*      wifiManager,
                            MQTTManager*                  mqttManager)

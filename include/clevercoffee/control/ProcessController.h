@@ -12,12 +12,15 @@
 
 // Forward declarations
 class DisplayManager;
-class HardwareManager;
 class SensorManager;
 class MQTTManager;
 class TempSensor;
 class Scale;
 class Config;
+
+namespace CleverCoffee {
+class HardwareManager;
+}
 
 /**
  * @class ProcessController
@@ -49,7 +52,7 @@ class ProcessController {
      */
     ProcessController(const Config&    config,
                       DisplayManager*  displayManager,
-                      HardwareManager* hardwareManager,
+                      CleverCoffee::HardwareManager* hardwareManager,
                       SensorManager*   sensorManager,
                       MQTTManager*     mqttManager);
 
@@ -239,7 +242,7 @@ class ProcessController {
 
     // Manager dependencies
     DisplayManager*  displayManager_;
-    HardwareManager* hardwareManager_;
+    CleverCoffee::HardwareManager* hardwareManager_;
     SensorManager*   sensorManager_;
     MQTTManager*     mqttManager_;
 

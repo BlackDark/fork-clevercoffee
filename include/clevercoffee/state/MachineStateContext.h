@@ -16,7 +16,6 @@
 // Forward declarations
 class Config;
 class DisplayManager;
-class HardwareManager;
 class SensorManager;
 class MQTTManager;
 class CleverCoffeeWiFiManager;
@@ -28,6 +27,7 @@ class LED;
 class Scale;
 
 namespace CleverCoffee {
+class HardwareManager;
 class SystemContext;
 class MachineState;
 }
@@ -54,7 +54,7 @@ class MachineStateContext : public CleverCoffee::IHardwareContext,
      */
     MachineStateContext(CleverCoffee::SystemContext& systemContext,
                         DisplayManager*               displayManager,
-                        HardwareManager*              hardwareManager,
+                        CleverCoffee::HardwareManager*              hardwareManager,
                         SensorManager*                sensorManager,
                         CleverCoffeeWiFiManager*      wifiManager,
                         MQTTManager*                  mqttManager);
@@ -82,7 +82,7 @@ class MachineStateContext : public CleverCoffee::IHardwareContext,
     /**
      * @brief Get hardware manager
      */
-    HardwareManager* getHardwareManager() const noexcept {
+    CleverCoffee::HardwareManager* getHardwareManager() const noexcept {
         return hardwareManager_;
     }
 
@@ -445,10 +445,26 @@ class MachineStateContext : public CleverCoffee::IHardwareContext,
 
     // === IHardwareContext Interface Implementation ===
 
+    // Hardware sensors
     bool isWaterTankEmpty() const noexcept override;
     double getWeight() const noexcept override;
     void tareScale() noexcept override;
     void updateHardware() noexcept override;
+    
+    // High-level hardware control (delegated to HardwareManager)
+    void enableHeater() noexcept override;
+    void disableHeater() noexcept override;
+    void setHeaterPower(uint8_t percentage) noexcept override;
+    void enablePump() noexcept override;
+    void disablePump() noexcept override;
+    void setPumpPressure(float bar) noexcept override;
+    void openSteamValve() noexcept override;
+    void closeSteamValve() noexcept override;
+    void openWaterValve() noexcept override;
+    void closeWaterValve() noexcept override;
+    void openSolenoid() noexcept override;
+    void closeSolenoid() noexcept override;
+    void emergencyShutdown() noexcept override;
 
     // === IConfigContext Interface Implementation ===
 
@@ -474,7 +490,7 @@ class MachineStateContext : public CleverCoffee::IHardwareContext,
 
     // Manager references
     DisplayManager*          displayManager_;
-    HardwareManager*         hardwareManager_;
+    CleverCoffee::HardwareManager*         hardwareManager_;
     SensorManager*           sensorManager_;
     CleverCoffeeWiFiManager* wifiManager_;
     MQTTManager*             mqttManager_;

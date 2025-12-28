@@ -12,6 +12,8 @@
 
 #include <cmath>
 
+using namespace CleverCoffee;
+
 HardwareManager::HardwareManager(const Config& config)
     : config_(config), heaterRelayPin_(PIN_HEATER, GPIOPin::OUT), pumpRelayPin_(PIN_PUMP, GPIOPin::OUT),
       valveRelayPin_(PIN_VALVE, GPIOPin::OUT) {
@@ -263,6 +265,211 @@ void HardwareManager::updateLEDs(MachineStateId machineState, double temperature
             steamLed_->turnOn();
         } else {
             steamLed_->turnOff();
+        }
+    }
+}
+
+// === IHardwareContext Implementation ===
+
+double HardwareManager::getCurrentTemperature() const noexcept {
+    if (tempSensor_) {
+        return tempSensor_->getCurrentTemperature();
+    }
+    return 0.0;
+}
+
+bool HardwareManager::hasTemperatureError() const noexcept {
+    if (tempSensor_) {
+        return tempSensor_->hasError();
+    }
+    return true; // No sensor = error state
+}
+
+Relay* HardwareManager::getHeaterRelay() noexcept {
+    return heaterRelay_.get();
+}
+
+Relay* HardwareManager::getPumpRelay() noexcept {
+    return pumpRelay_.get();
+}
+
+Relay* HardwareManager::getValveRelay() noexcept {
+    return valveRelay_.get();
+}
+
+bool HardwareManager::isWaterTankEmpty() const noexcept {
+    return waterTankEmpty_;
+}
+
+double HardwareManager::getWeight() const noexcept {
+    // TODO: Integrate with scale when available
+    return 0.0;
+}
+
+void HardwareManager::tareScale() noexcept {
+    // TODO: Integrate with scale when available
+}
+
+void HardwareManager::updateHardware() noexcept {
+    // Update safety state based on sensors
+    updateSafetyState();
+}
+
+void HardwareManager::enableHeater() noexcept {
+    if (emergencyMode_) {
+        LOG(WARNING, "Cannot enable heater - emergency mode active");
+        return;
+    }
+    LOG(INFO, "Enabling heater");
+    if (heaterRelay_) {
+        heaterRelay_->on();
+    }
+}
+
+void HardwareManager::disableHeater() noexcept {
+    LOG(INFO, "Disabling heater");
+    if (heaterRelay_) {
+        heaterRelay_->off();
+    }
+}
+
+void HardwareManager::setHeaterPower(uint8_t percentage) noexcept {
+    if (emergencyMode_) {
+        LOG(WARNING, "Cannot set heater power - emergency mode active");
+        return;
+    }
+    LOGF(INFO, "Setting heater power to %d%%", percentage);
+    // TODO: Implement PWM/SSR control for heater power
+    // For now, simple on/off based on percentage
+    if (percentage > 0) {
+        enableHeater();
+    } else {
+        disableHeater();
+    }
+}
+
+void HardwareManager::enablePump() noexcept {
+    if (emergencyMode_) {
+        LOG(WARNING, "Cannot enable pump - emergency mode active");
+        return;
+    }
+    if (waterTankEmpty_) {
+        LOG(WARNING, "Cannot enable pump - water tank is empty");
+        return;
+    }
+    LOG(INFO, "Enabling pump");
+    if (pumpRelay_) {
+        pumpRelay_->on();
+    }
+}
+
+void HardwareManager::disablePump() noexcept {
+    LOG(INFO, "Disabling pump");
+    if (pumpRelay_) {
+        pumpRelay_->off();
+    }
+}
+
+void HardwareManager::setPumpPressure(float bar) noexcept {
+    if (emergencyMode_) {
+        LOG(WARNING, "Cannot set pump pressure - emergency mode active");
+        return;
+    }
+    if (waterTankEmpty_) {
+        LOG(WARNING, "Cannot set pump pressure - water tank is empty");
+        return;
+    }
+    LOGF(INFO, "Setting pump pressure to %.1f bar", bar);
+    // TODO: Implement dimmer/PWM control for pump pressure
+    // For now, simple on/off based on pressure value
+    if (bar > 0.0f) {
+        enablePump();
+    } else {
+        disablePump();
+    }
+}
+
+void HardwareManager::openSteamValve() noexcept {
+    if (emergencyMode_) {
+        LOG(WARNING, "Cannot open steam valve - emergency mode active");
+        return;
+    }
+    LOG(INFO, "Opening steam valve");
+    if (valveRelay_) {
+        valveRelay_->on();
+    }
+}
+
+void HardwareManager::closeSteamValve() noexcept {
+    LOG(INFO, "Closing steam valve");
+    if (valveRelay_) {
+        valveRelay_->off();
+    }
+}
+
+void HardwareManager::openWaterValve() noexcept {
+    if (emergencyMode_) {
+        LOG(WARNING, "Cannot open water valve - emergency mode active");
+        return;
+    }
+    LOG(INFO, "Opening water valve");
+    // TODO: Wire up separate water valve control if available
+    // For now, water valve uses same control as steam valve
+    if (valveRelay_) {
+        valveRelay_->on();
+    }
+}
+
+void HardwareManager::closeWaterValve() noexcept {
+    LOG(INFO, "Closing water valve");
+    // TODO: Wire up separate water valve control if available
+    if (valveRelay_) {
+        valveRelay_->off();
+    }
+}
+
+void HardwareManager::openSolenoid() noexcept {
+    if (emergencyMode_) {
+        LOG(WARNING, "Cannot open solenoid - emergency mode active");
+        return;
+    }
+    LOG(INFO, "Opening solenoid");
+    // TODO: Wire up solenoid control if available
+    // Solenoid might be controlled via valve relay or separate GPIO
+}
+
+void HardwareManager::closeSolenoid() noexcept {
+    LOG(INFO, "Closing solenoid");
+    // TODO: Wire up solenoid control if available
+}
+
+void HardwareManager::emergencyShutdown() noexcept {
+    LOG(ERROR, "EMERGENCY SHUTDOWN ACTIVATED");
+    emergencyMode_ = true;
+    
+    // Immediately disable all hardware
+    if (heaterRelay_) heaterRelay_->off();
+    if (pumpRelay_) pumpRelay_->off();
+    if (valveRelay_) valveRelay_->off();
+    
+    LOG(ERROR, "All hardware disabled - system in emergency mode");
+}
+
+void HardwareManager::updateSafetyState() noexcept {
+    // Check water tank sensor
+    if (waterTankSensor_) {
+        const bool tankHasWater = waterTankSensor_->isPressed();
+        if (tankHasWater != !waterTankEmpty_) {
+            waterTankEmpty_ = !tankHasWater;
+            if (waterTankEmpty_) {
+                LOG(WARNING, "Water tank is empty - pump operations disabled");
+                // Immediately disable pump if running
+                if (pumpRelay_) {
+                    pumpRelay_->off();
+                }
+            } else {
+                LOG(INFO, "Water tank refilled - pump operations enabled");
+            }
         }
     }
 }

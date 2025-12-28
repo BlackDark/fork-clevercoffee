@@ -3,6 +3,7 @@
  * @brief Implementation of MachineStateContext for state machine access to machine resources
  */
 
+#include "clevercoffee/hardware/HardwareManager.h"  // Include before own header to resolve forward declaration
 #include "clevercoffee/state/MachineStateContext.h"
 
 #include "clevercoffee/Config.h"
@@ -10,7 +11,6 @@
 #include "clevercoffee/control/ProcessController.h"
 #include "clevercoffee/display/DisplayManager.h"
 #include "clevercoffee/handlers/BrewHandler.h"
-#include "clevercoffee/hardware/HardwareManager.h"
 #include "clevercoffee/network/CleverCoffeeWiFiManager.h"
 #include "clevercoffee/network/MQTTManager.h"
 #include "clevercoffee/sensors/SensorManager.h"
@@ -25,7 +25,7 @@
 
 MachineStateContext::MachineStateContext(CleverCoffee::SystemContext& systemContext,
                                          DisplayManager*               displayManager,
-                                         HardwareManager*              hardwareManager,
+                                         CleverCoffee::HardwareManager*              hardwareManager,
                                          SensorManager*                sensorManager,
                                          CleverCoffeeWiFiManager*      wifiManager,
                                          MQTTManager*                  mqttManager)
@@ -71,27 +71,27 @@ Switch* MachineStateContext::getPowerSwitch() const {
 }
 
 Relay* MachineStateContext::getHeaterRelay() noexcept {
-    return hardwareManager_ ? &hardwareManager_->getHeaterRelay() : nullptr;
+    return hardwareManager_ ? hardwareManager_->getHeaterRelay() : nullptr;
 }
 
 const Relay* MachineStateContext::getHeaterRelay() const {
-    return hardwareManager_ ? &hardwareManager_->getHeaterRelay() : nullptr;
+    return hardwareManager_ ? hardwareManager_->getHeaterRelay() : nullptr;
 }
 
 Relay* MachineStateContext::getPumpRelay() noexcept {
-    return hardwareManager_ ? &hardwareManager_->getPumpRelay() : nullptr;
+    return hardwareManager_ ? hardwareManager_->getPumpRelay() : nullptr;
 }
 
 const Relay* MachineStateContext::getPumpRelay() const {
-    return hardwareManager_ ? &hardwareManager_->getPumpRelay() : nullptr;
+    return hardwareManager_ ? hardwareManager_->getPumpRelay() : nullptr;
 }
 
 Relay* MachineStateContext::getValveRelay() noexcept {
-    return hardwareManager_ ? &hardwareManager_->getValveRelay() : nullptr;
+    return hardwareManager_ ? hardwareManager_->getValveRelay() : nullptr;
 }
 
 const Relay* MachineStateContext::getValveRelay() const {
-    return hardwareManager_ ? &hardwareManager_->getValveRelay() : nullptr;
+    return hardwareManager_ ? hardwareManager_->getValveRelay() : nullptr;
 }
 
 LED* MachineStateContext::getStatusLed() noexcept {
@@ -456,4 +456,84 @@ void MachineStateContext::transitionTo(MachineState& newState) {
 unsigned long MachineStateContext::getStateStartTime() const noexcept {
     auto elapsed = std::chrono::steady_clock::now() - stateEntryTime_;
     return std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
+}
+
+// === High-Level Hardware Control (Delegated to HardwareManager) ===
+
+void MachineStateContext::enableHeater() noexcept {
+    if (hardwareManager_) {
+        hardwareManager_->enableHeater();
+    }
+}
+
+void MachineStateContext::disableHeater() noexcept {
+    if (hardwareManager_) {
+        hardwareManager_->disableHeater();
+    }
+}
+
+void MachineStateContext::setHeaterPower(uint8_t percentage) noexcept {
+    if (hardwareManager_) {
+        hardwareManager_->setHeaterPower(percentage);
+    }
+}
+
+void MachineStateContext::enablePump() noexcept {
+    if (hardwareManager_) {
+        hardwareManager_->enablePump();
+    }
+}
+
+void MachineStateContext::disablePump() noexcept {
+    if (hardwareManager_) {
+        hardwareManager_->disablePump();
+    }
+}
+
+void MachineStateContext::setPumpPressure(float bar) noexcept {
+    if (hardwareManager_) {
+        hardwareManager_->setPumpPressure(bar);
+    }
+}
+
+void MachineStateContext::openSteamValve() noexcept {
+    if (hardwareManager_) {
+        hardwareManager_->openSteamValve();
+    }
+}
+
+void MachineStateContext::closeSteamValve() noexcept {
+    if (hardwareManager_) {
+        hardwareManager_->closeSteamValve();
+    }
+}
+
+void MachineStateContext::openWaterValve() noexcept {
+    if (hardwareManager_) {
+        hardwareManager_->openWaterValve();
+    }
+}
+
+void MachineStateContext::closeWaterValve() noexcept {
+    if (hardwareManager_) {
+        hardwareManager_->closeWaterValve();
+    }
+}
+
+void MachineStateContext::openSolenoid() noexcept {
+    if (hardwareManager_) {
+        hardwareManager_->openSolenoid();
+    }
+}
+
+void MachineStateContext::closeSolenoid() noexcept {
+    if (hardwareManager_) {
+        hardwareManager_->closeSolenoid();
+    }
+}
+
+void MachineStateContext::emergencyShutdown() noexcept {
+    if (hardwareManager_) {
+        hardwareManager_->emergencyShutdown();
+    }
 }

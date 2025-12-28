@@ -14,12 +14,12 @@
 
 // Forward declarations
 class DisplayManager;
-class HardwareManager;
 class SensorManager;
 class CleverCoffeeWiFiManager;
 class MQTTManager;
 
 namespace CleverCoffee {
+class HardwareManager;
 class SystemContext;
 }
 
@@ -51,7 +51,7 @@ class StateMachine {
      */
     StateMachine(CleverCoffee::SystemContext& systemContext,
                  DisplayManager*               displayManager,
-                 HardwareManager*              hardwareManager,
+                 CleverCoffee::HardwareManager*              hardwareManager,
                  SensorManager*                sensorManager,
                  CleverCoffeeWiFiManager*      wifiManager,
                  MQTTManager*                  mqttManager);

@@ -39,8 +39,8 @@ Follow C++ Core Guidelines. Prefer compile-time errors over runtime errors.
 
 - source code is located in `src`, `lib`, `include`
 - the binaries for `pio` are located here `~/.platformio/penv/bin`
-- to test compilation use `~/.platformio/penv/bin/pio run -e esp32_usb -s`
-- after changes you can format the code with  `~/.platformio/penv/bin/pio run --target format -e esp32_usb -s`
+- after a complete change to test compilation use `~/.platformio/penv/bin/pio run -e esp32_usb -s`
+- after a complete change you can format the code with  `~/.platformio/penv/bin/pio run --target format -e esp32_usb -s`
 - if you need a more verbose output for the pio commands you can remove the `-s`
 - Always before you start doing any edits test if the project is in state which can be build with the build command
 

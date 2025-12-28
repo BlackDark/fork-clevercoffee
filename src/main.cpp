@@ -11,6 +11,9 @@
 #include <memory>
 #include <string_view>
 
+// Hardware Manager (must be before SystemInitializer to resolve forward declaration)
+#include "clevercoffee/hardware/HardwareManager.h"
+
 // Libraries & Dependencies
 #include "clevercoffee/Logger.h"
 #include "clevercoffee/core/SystemInitializer.h"
@@ -59,9 +62,8 @@ std::unique_ptr<SystemInitializer> systemInitializer = nullptr;
 #include "clevercoffee/display/DisplayManager.h"
 std::unique_ptr<DisplayManager> displayManager = nullptr;
 
-// Hardware Manager
-#include "clevercoffee/hardware/HardwareManager.h"
-std::unique_ptr<HardwareManager> hardwareManager = nullptr;
+// Hardware Manager (already included at top)
+std::unique_ptr<CleverCoffee::HardwareManager> hardwareManager = nullptr;
 
 // Modern sensor management
 #include "clevercoffee/sensors/SensorManager.h"
@@ -128,7 +130,7 @@ void setup() {
     // Get managers from SystemInitializer - they are owned by systemInitializer
     SensorManager*           sensorManager   = systemInitializer->getSensorManager();
     DisplayManager*          displayManager  = systemInitializer->getDisplayManager();
-    HardwareManager*         hardwareManager = systemInitializer->getHardwareManager();
+    CleverCoffee::HardwareManager*         hardwareManager = systemInitializer->getHardwareManager();
     CleverCoffeeWiFiManager* wifiManager     = systemInitializer->getWiFiManager();
     MQTTManager*             mqttManager     = systemInitializer->getMQTTManager();
     UIManager*               uiManager       = systemInitializer->getUIManager();

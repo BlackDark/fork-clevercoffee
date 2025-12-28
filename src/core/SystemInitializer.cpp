@@ -3,6 +3,7 @@
  * @brief Implementation of RAII wrapper for system initialization
  */
 
+#include "clevercoffee/hardware/HardwareManager.h"  // Include before own header to resolve forward declaration
 #include "clevercoffee/core/SystemInitializer.h"
 
 #include "clevercoffee/Config.h"
@@ -11,7 +12,6 @@
 #include "clevercoffee/display/DisplayManager.h"
 #include "clevercoffee/display/displayTemplateManager.h"
 #include "clevercoffee/display/languages.h"
-#include "clevercoffee/hardware/HardwareManager.h"
 #include "clevercoffee/network/CleverCoffeeWiFiManager.h"
 #include "clevercoffee/network/MQTTManager.h"
 #include "clevercoffee/network/WebServerManager.h"
@@ -250,14 +250,14 @@ bool SystemInitializer::initializeDisplay() {
 bool SystemInitializer::initializeHardware() {
     try {
         logMemoryBasic("Before HardwareManager Creation");
-        hardwareManager_ = std::make_unique<HardwareManager>(Config::getInstance());
+        hardwareManager_ = std::make_unique<CleverCoffee::HardwareManager>(Config::getInstance());
         logMemoryBasic("After HardwareManager Creation");
 
         // Update compatibility pointers to reference HardwareManager components
         logMemoryBasic("Before Hardware Pointer Updates");
-        g_state.hardware.heaterRelay = &hardwareManager_->getHeaterRelay();
-        g_state.hardware.pumpRelay   = &hardwareManager_->getPumpRelay();
-        g_state.hardware.valveRelay  = &hardwareManager_->getValveRelay();
+        g_state.hardware.heaterRelay = hardwareManager_->getHeaterRelay();
+        g_state.hardware.pumpRelay   = hardwareManager_->getPumpRelay();
+        g_state.hardware.valveRelay  = hardwareManager_->getValveRelay();
 
         g_state.hardware.statusLed = hardwareManager_->getStatusLed();
         g_state.hardware.brewLed   = hardwareManager_->getBrewLed();
