@@ -14,6 +14,7 @@
 #include "clevercoffee/handlers/HotWaterHandler.h"
 #include "clevercoffee/handlers/PowerHandler.h"
 #include "clevercoffee/handlers/SteamHandler.h"
+#include "clevercoffee/hardware/HardwareManager.h"
 #include "clevercoffee/hardware/LED.h"
 #include "clevercoffee/hardware/Relay.h"
 #include "clevercoffee/network/MQTTManager.h"
@@ -46,9 +47,11 @@ extern void enableTimer1();
 LoopManager::LoopManager(ProcessController*               processController,
                          UIManager*                       uiManager,
                          HotWaterHandler*                 hotWaterHandler,
-                         CleverCoffee::SensorCoordinator* sensorCoordinator)
+                         CleverCoffee::SensorCoordinator* sensorCoordinator,
+                         CleverCoffee::HardwareManager*   hardwareManager)
     : processController_(processController), uiManager_(uiManager),
-      hotWaterHandler_(hotWaterHandler), sensorCoordinator_(sensorCoordinator), initialized_(false), 
+      hotWaterHandler_(hotWaterHandler), sensorCoordinator_(sensorCoordinator), 
+      hardwareManager_(hardwareManager), initialized_(false), 
       sensorsTimersInitialized_(false), performanceMonitoringEnabled_(false), lastLoopTime_(0), 
       maxLoopTime_(0), loopCount_(0), temperatureUpdateCount_(0), pressureUpdateCount_(0), 
       scaleUpdateCount_(0), lastTimerLogTime_(0) {
@@ -190,23 +193,27 @@ void LoopManager::updateLEDs() {
     const auto temperature = g_state.process.temperature;
     const auto setpoint = g_state.process.setpoint;
 
+    if (!hardwareManager_) {
+        return;  // No hardware manager available
+    }
+
     // Status LED - indicates when temperature is reached
-    if (Config::getInstance().hardwareLedsStatusEnabled.get() && g_state.hardware.statusLed) {
+    if (Config::getInstance().hardwareLedsStatusEnabled.get() && hardwareManager_->getStatusLed()) {
         bool shouldTurnOn = (machineState == MachineStateId::PID_NORMAL &&
                            (fabs(temperature - setpoint) < 0.3)) ||
                           (temperature > 115 && fabs(temperature - setpoint) < 5);
 
-        shouldTurnOn ? g_state.hardware.statusLed->turnOn() : g_state.hardware.statusLed->turnOff();
+        shouldTurnOn ? hardwareManager_->getStatusLed()->turnOn() : hardwareManager_->getStatusLed()->turnOff();
     }
 
     // Brew LED - indicates brewing state
-    if (Config::getInstance().hardwareLedsBrewEnabled.get() && g_state.hardware.brewLed) {
-        isBrewState(machineState) ? g_state.hardware.brewLed->turnOn() : g_state.hardware.brewLed->turnOff();
+    if (Config::getInstance().hardwareLedsBrewEnabled.get() && hardwareManager_->getBrewLed()) {
+        isBrewState(machineState) ? hardwareManager_->getBrewLed()->turnOn() : hardwareManager_->getBrewLed()->turnOff();
     }
 
     // Steam LED - indicates steam mode
-    if (Config::getInstance().hardwareLedsSteamEnabled.get() && g_state.hardware.steamLed) {
-        isSteamState(machineState) ? g_state.hardware.steamLed->turnOn() : g_state.hardware.steamLed->turnOff();
+    if (Config::getInstance().hardwareLedsSteamEnabled.get() && hardwareManager_->getSteamLed()) {
+        isSteamState(machineState) ? hardwareManager_->getSteamLed()->turnOn() : hardwareManager_->getSteamLed()->turnOff();
     }
 }
 

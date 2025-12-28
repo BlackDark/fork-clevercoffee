@@ -17,6 +17,7 @@ class HotWaterHandler;
 
 namespace CleverCoffee {
 class SensorCoordinator;
+class HardwareManager;
 }
 
 /**
@@ -43,11 +44,13 @@ class LoopManager {
       * @param uiManager UI management system (optional)
       * @param hotWaterHandler Hot water handler (optional)
       * @param sensorCoordinator Sensor coordinator for async sensor polling (optional)
+      * @param hardwareManager Hardware manager for LED and relay control (optional)
       */
     explicit LoopManager(ProcessController*                processController   = nullptr,
                          UIManager*                        uiManager           = nullptr,
                          HotWaterHandler*                  hotWaterHandler     = nullptr,
-                         CleverCoffee::SensorCoordinator*  sensorCoordinator   = nullptr);
+                         CleverCoffee::SensorCoordinator*  sensorCoordinator   = nullptr,
+                         CleverCoffee::HardwareManager*    hardwareManager     = nullptr);
 
     /**
      * @brief Destructor
@@ -184,13 +187,21 @@ class LoopManager {
         hotWaterHandler_ = handler;
     }
 
-    /**
-     * @brief Set the sensor coordinator
-     * @param coordinator Sensor coordinator instance
-     */
-    void setSensorCoordinator(CleverCoffee::SensorCoordinator* coordinator) {
-        sensorCoordinator_ = coordinator;
-    }
+     /**
+      * @brief Set the sensor coordinator
+      * @param coordinator Sensor coordinator instance
+      */
+     void setSensorCoordinator(CleverCoffee::SensorCoordinator* coordinator) {
+         sensorCoordinator_ = coordinator;
+     }
+
+     /**
+      * @brief Set the hardware manager
+      * @param manager Hardware manager instance
+      */
+     void setHardwareManager(CleverCoffee::HardwareManager* manager) {
+         hardwareManager_ = manager;
+     }
 
     /**
      * @brief Get loop performance statistics
@@ -234,11 +245,12 @@ class LoopManager {
      */
     void updateCentralizedSensorTimers();
 
-    // Manager dependencies
-    ProcessController*               processController_;
-    UIManager*                       uiManager_;
-    HotWaterHandler*                 hotWaterHandler_;
-    CleverCoffee::SensorCoordinator* sensorCoordinator_;
+     // Manager dependencies
+     ProcessController*               processController_;
+     UIManager*                       uiManager_;
+     HotWaterHandler*                 hotWaterHandler_;
+     CleverCoffee::SensorCoordinator* sensorCoordinator_;
+     CleverCoffee::HardwareManager*   hardwareManager_;
 
     // Initialization state
     bool initialized_;

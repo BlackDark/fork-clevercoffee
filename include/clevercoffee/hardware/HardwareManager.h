@@ -21,6 +21,7 @@
 
 // Forward declarations
 class Config;
+class Scale;
 
 namespace CleverCoffee {
 
@@ -69,33 +70,57 @@ class HardwareManager : public IHardwareContext {
         return steamLed_.get();
     }
 
-    // Switch access methods
-    Switch* getPowerSwitch() const noexcept {
-        return powerSwitch_.get();
-    }
-    Switch* getBrewSwitch() const noexcept {
-        return brewSwitch_.get();
-    }
-    Switch* getSteamSwitch() const noexcept {
-        return steamSwitch_.get();
-    }
-    Switch* getHotWaterSwitch() const noexcept {
-        return hotWaterSwitch_.get();
-    }
-    Switch* getWaterTankSensor() noexcept {
-        return waterTankSensor_.get();
-    }
-    const Switch* getWaterTankSensor() const noexcept {
-        return waterTankSensor_.get();
-    }
+     // Switch access methods
+     Switch* getPowerSwitch() const noexcept {
+         return powerSwitch_.get();
+     }
+     Switch* getBrewSwitch() const noexcept {
+         return brewSwitch_.get();
+     }
+     Switch* getSteamSwitch() const noexcept {
+         return steamSwitch_.get();
+     }
+     Switch* getHotWaterSwitch() const noexcept {
+         return hotWaterSwitch_.get();
+     }
+     Switch* getWaterTankSensor() noexcept {
+         return waterTankSensor_.get();
+     }
+     const Switch* getWaterTankSensor() const noexcept {
+         return waterTankSensor_.get();
+     }
 
-    // Temperature sensor access
-    TempSensor* getTempSensor() noexcept {
-        return tempSensor_.get();
-    }
-    const TempSensor* getTempSensor() const noexcept {
-        return tempSensor_.get();
-    }
+     // Temperature sensor access
+     TempSensor* getTempSensor() noexcept {
+         return tempSensor_.get();
+     }
+     const TempSensor* getTempSensor() const noexcept {
+         return tempSensor_.get();
+     }
+
+     // Relay access methods (direct)
+     Relay* getHeaterRelayDirect() noexcept {
+         return heaterRelay_.get();
+     }
+     const Relay* getHeaterRelayDirect() const noexcept {
+         return heaterRelay_.get();
+     }
+     Relay* getPumpRelayDirect() noexcept {
+         return pumpRelay_.get();
+     }
+     const Relay* getPumpRelayDirect() const noexcept {
+         return pumpRelay_.get();
+     }
+     Relay* getValveRelayDirect() noexcept {
+         return valveRelay_.get();
+     }
+     const Relay* getValveRelayDirect() const noexcept {
+         return valveRelay_.get();
+     }
+
+     // Scale access
+     Scale* getScale() noexcept;
+     const Scale* getScale() const noexcept;
 
     /**
      * @brief Check if all critical hardware is initialized

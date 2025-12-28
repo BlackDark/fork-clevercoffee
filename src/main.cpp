@@ -152,7 +152,8 @@ void setup() {
 
         // Initialize LoopManager for main loop coordination
         CleverCoffee::SensorCoordinator* sensorCoord = &systemInitializer->getSystemContext()->sensorCoordinator();
-        loopManager = std::make_unique<LoopManager>(processController.get(), uiManager, nullptr, sensorCoord);
+        CleverCoffee::HardwareManager* hwManager = systemInitializer->getHardwareManager();
+        loopManager = std::make_unique<LoopManager>(processController.get(), uiManager, nullptr, sensorCoord, hwManager);
         InitHelpers::logInitResult("LoopManager", loopManager->initialize());
 
         // Configure sensor update timers (uncomment and modify as needed)

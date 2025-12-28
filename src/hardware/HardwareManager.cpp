@@ -552,3 +552,15 @@ void HardwareManager::cleanupPartialInit() noexcept {
 
     LOG(INFO, "Emergency cleanup completed - hardware is in safe state");
 }
+
+Scale* HardwareManager::getScale() noexcept {
+    // Scale is currently managed separately, return nullptr
+    // TODO: Move scale management to HardwareManager in future refactoring
+    return nullptr;
+}
+
+const Scale* HardwareManager::getScale() const noexcept {
+    // Scale is currently managed separately, return nullptr
+    // TODO: Move scale management to HardwareManager in future refactoring
+    return nullptr;
+}
