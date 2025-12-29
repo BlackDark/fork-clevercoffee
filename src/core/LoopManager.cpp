@@ -266,7 +266,7 @@ void LoopManager::updateDisplay() {
             bool tempCondition    = systemContext_ ? !systemContext_->sensorCoordinator().isTemperatureUpdateRunning() : true;
             bool standbyCondition = systemContext_ ?
                 (!Config::getInstance().standbyEnabled.get() || systemContext_->standbyCoordinator().getRemainingTimeMillis() > 0) :
-                (!Config::getInstance().standbyEnabled.get() || g_state.standby.standbyModeRemainingTimeMillis > 0);
+                true; // Fallback: allow display update if systemContext not available
 
             // update display on loops that have not had other major tasks running
             if (websiteCondition && mqttCondition && hassioCondition && tempCondition && standbyCondition) {

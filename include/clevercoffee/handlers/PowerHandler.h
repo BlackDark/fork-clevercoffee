@@ -144,13 +144,16 @@ class PowerHandler : public SwitchBasedHandler {
     }
 
     void powerOff() {
-        if (g_state.machine.machineState != MachineStateId::STANDBY) {
-            g_state.coordination.processController->performSafeShutdown();
-            g_state.machine.flags.requestStandby = true; // Use condition flag instead of direct state assignment
-            g_state.standby.standbyModeRemainingTimeMillis = 0;
-            logInfo("System powered off");
-        }
-    }
+         if (g_state.machine.machineState != MachineStateId::STANDBY) {
+             g_state.coordination.processController->performSafeShutdown();
+             g_state.machine.flags.requestStandby = true; // Use condition flag instead of direct state assignment
+             // Use StandbyCoordinator to mark immediate standby activation
+             if (auto* ctx = CleverCoffee::getGlobalSystemContext()) {
+                 ctx->standbyCoordinator().setRemainingTimeMillis(0);
+             }
+             logInfo("System powered off");
+         }
+     }
 
     void triggerSystemReboot() {
         logInfo("Power switch long press detected - initiating system reboot");
