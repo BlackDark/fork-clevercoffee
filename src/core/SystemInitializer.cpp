@@ -501,8 +501,13 @@ void SystemInitializer::calculateDerivedValues() {
 
 void SystemInitializer::setupTiming() {
     // Initialize timing variables (removed: previousMillistemp, windowStartTime, previousMillisMQTT are unused)
-    unsigned long currentTime                 = millis();
-    g_state.network.lastMQTTConnectionAttempt = currentTime;
+    unsigned long currentTime = millis();
+    
+    // Initialize network timing in coordinator
+    if (systemContext_) {
+        systemContext_->networkCoordinator().setLastMqttConnectionAttempt(currentTime);
+        systemContext_->networkCoordinator().setLastWifiConnectionAttempt(currentTime);
+    }
 
     LOG(DEBUG, "Timing variables initialized");
 }

@@ -169,40 +169,89 @@ public:
 
     /** @} */
 
-    /**
-     * @name Offline Mode
-     * @{
-     */
+     /**
+      * @name Offline Mode
+      * @{
+      */
 
-    /**
-     * @brief Set offline mode flag
-     *
-     * When offline mode is enabled, the system disables network operations
-     * but continues to function locally (e.g., espresso machine still operates).
-     *
-     * @param offline true to enable offline mode, false to disable
-     */
-    void setOfflineMode(bool offline) noexcept {
-        offlineMode_ = offline;
-    }
+     /**
+      * @brief Set offline mode flag
+      *
+      * When offline mode is enabled, the system disables network operations
+      * but continues to function locally (e.g., espresso machine still operates).
+      *
+      * @param offline true to enable offline mode, false to disable
+      */
+     void setOfflineMode(bool offline) noexcept {
+         offlineMode_ = offline;
+     }
 
-    /**
-     * @brief Check if offline mode is enabled
-     *
-     * @return true if offline mode is active, false otherwise
-     */
-    bool isOfflineMode() const noexcept {
-        return offlineMode_;
-    }
+     /**
+      * @brief Check if offline mode is enabled
+      *
+      * @return true if offline mode is active, false otherwise
+      */
+     bool isOfflineMode() const noexcept {
+         return offlineMode_;
+     }
 
-    /** @} */
+     /** @} */
+
+     /**
+      * @name Connection Timing
+      * @{
+      */
+
+     /**
+      * @brief Update last WiFi connection attempt timestamp
+      *
+      * Should be called whenever a WiFi connection attempt is made.
+      *
+      * @param timestamp Milliseconds timestamp of the attempt
+      */
+     void setLastWifiConnectionAttempt(unsigned long timestamp) noexcept {
+         lastWifiConnectionAttempt_ = timestamp;
+     }
+
+     /**
+      * @brief Get last WiFi connection attempt timestamp
+      *
+      * @return Milliseconds timestamp of the last WiFi connection attempt
+      */
+     unsigned long getLastWifiConnectionAttempt() const noexcept {
+         return lastWifiConnectionAttempt_;
+     }
+
+     /**
+      * @brief Update last MQTT connection attempt timestamp
+      *
+      * Should be called whenever an MQTT connection attempt is made.
+      *
+      * @param timestamp Milliseconds timestamp of the attempt
+      */
+     void setLastMqttConnectionAttempt(unsigned long timestamp) noexcept {
+         lastMqttConnectionAttempt_ = timestamp;
+     }
+
+     /**
+      * @brief Get last MQTT connection attempt timestamp
+      *
+      * @return Milliseconds timestamp of the last MQTT connection attempt
+      */
+     unsigned long getLastMqttConnectionAttempt() const noexcept {
+         return lastMqttConnectionAttempt_;
+     }
+
+     /** @} */
 
 private:
-    std::atomic<bool> mqttConnected_{false};          ///< MQTT connection state
-    std::atomic<bool> wifiConnected_{false};          ///< WiFi connection state
-    std::atomic<int> mqttConnectionAttempts_{0};      ///< MQTT retry counter
-    std::atomic<unsigned int> wifiReconnects_{0};     ///< WiFi reconnection counter
-    std::atomic<bool> offlineMode_{false};            ///< Offline mode flag
+    std::atomic<bool> mqttConnected_{false};                    ///< MQTT connection state
+    std::atomic<bool> wifiConnected_{false};                    ///< WiFi connection state
+    std::atomic<int> mqttConnectionAttempts_{0};                ///< MQTT retry counter
+    std::atomic<unsigned int> wifiReconnects_{0};               ///< WiFi reconnection counter
+    std::atomic<bool> offlineMode_{false};                      ///< Offline mode flag
+    std::atomic<unsigned long> lastWifiConnectionAttempt_{0};   ///< Timestamp of last WiFi attempt
+    std::atomic<unsigned long> lastMqttConnectionAttempt_{0};   ///< Timestamp of last MQTT attempt
 };
 
 } // namespace CleverCoffee

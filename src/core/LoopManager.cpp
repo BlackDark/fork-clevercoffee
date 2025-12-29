@@ -493,6 +493,8 @@ void LoopManager::updateNetwork() {
     if (systemContext_) {
         g_state.network.offlineMode = systemContext_->networkCoordinator().isOfflineMode();
         g_state.network.wifiReconnects = systemContext_->networkCoordinator().getWifiReconnects();
+        g_state.network.lastWifiConnectionAttempt = systemContext_->networkCoordinator().getLastWifiConnectionAttempt();
+        g_state.network.lastMQTTConnectionAttempt = systemContext_->networkCoordinator().getLastMqttConnectionAttempt();
         
         // Backward compatibility sync: Copy coordinator flags back to g_state.coordination
         g_state.coordination.temperatureUpdateRunning = systemContext_->sensorCoordinator().isTemperatureUpdateRunning();

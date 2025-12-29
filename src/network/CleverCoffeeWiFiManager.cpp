@@ -178,7 +178,7 @@ void CleverCoffeeWiFiManager::checkAndMaintainConnection() {
     unsigned int wifiReconnects = networkCoordinator_->getWifiReconnects();
 
     // Try to connect and if it does not succeed, enter offline mode
-    if ((millis() - g_state.network.lastWifiConnectionAttempt >= ::wifiConnectionDelay) &&
+    if ((millis() - networkCoordinator_->getLastWifiConnectionAttempt() >= ::wifiConnectionDelay) &&
         (wifiReconnects <= ::maxWifiReconnects)) {
         if (WiFi.status() != WL_CONNECTED) { // check WiFi connection status
             wifiConnectedHandled = false;
@@ -201,7 +201,7 @@ void CleverCoffeeWiFiManager::checkAndMaintainConnection() {
             } else {
                 if (connectionAttemptCounter == 100) {
                     LOGF(INFO, "Wifi Reconnection failed - %i loops", connectionAttemptCounter);
-                    g_state.network.lastWifiConnectionAttempt = millis();
+                    networkCoordinator_->setLastWifiConnectionAttempt(millis());
                     connectionAttemptCounter                  = 1;
                 }
             }
