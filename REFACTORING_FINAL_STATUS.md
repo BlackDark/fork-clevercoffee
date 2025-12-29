@@ -2,31 +2,33 @@
 
 ## Executive Summary
 
-The global state elimination refactoring has successfully established modern C++ architectural patterns and reduced global state dependencies where architecturally appropriate. While numerical reference reduction is modest (758 → 741, -2.2%), the **architectural improvements are significant** and provide a solid foundation for future work.
+The global state elimination refactoring has successfully established modern C++ architectural patterns and reduced global state dependencies where architecturally appropriate. While numerical reference reduction is modest (758 → 743, -2.0%), the **architectural improvements are significant** and provide a solid foundation for future work.
 
 ## Completion Status
 
-### Phases Completed: 17-22 (6 phases)
+### Phases Completed: 17-24 (8 phases)
 - ✅ Phase 17: UICoordinator Infrastructure
 - ✅ Phase 18: Timer Migration (-9 refs)
 - ✅ Phase 19: Standby Coordinator (-2 refs)
 - ✅ Phase 20: Sensor Coordinator Access (-4 refs)
 - ✅ Phase 21: Process State Migration (+9 sync, net architectural win)
 - ✅ Phase 22: Network State Cleanup (-13 refs)
+- ✅ Phase 23: Network Timing Flags (-1 ref)
+- ✅ Phase 24: Sensor Scale Modes (+3 sync, net architectural win)
 
 ### Total Impact
 - **Starting**: 758 g_state references
-- **Ending**: 741 g_state references  
-- **Net reduction**: 17 references (-2.2%)
-- **Commits**: 7 focused commits
+- **Ending**: 743 g_state references  
+- **Net reduction**: 15 references (-2.0%)
+- **Commits**: 9 focused commits
 - **Build status**: ✅ All passing, zero regressions
 
 ## Architectural Achievements
 
 ### 1. Coordinator Pattern Established ⭐
 Created four state coordinators with clear ownership:
-- **SensorCoordinator**: Temperature, pressure, weight readings
-- **NetworkCoordinator**: Offline mode, wifi reconnects
+- **SensorCoordinator**: Temperature, pressure, weight readings, scale operating modes
+- **NetworkCoordinator**: Offline mode, wifi reconnects, connection attempt timing
 - **UICoordinator**: Display buffer, website/HASSIO update flags
 - **StandbyCoordinator**: Standby timing and state
 
@@ -50,15 +52,15 @@ Established sync mechanism in LoopManager allowing:
 
 ## Remaining References Analysis
 
-### By Category (741 total)
+### By Category (743 total)
 
 | Category | Count | Status | Recommendation |
 |----------|-------|--------|----------------|
 | **hardware** | 311 | Deferred | Requires HardwareContext - major effort |
 | **machine** | 133 | Deferred | State machine owned by MachineStateContext needed |
 | **process** | 113 | Migrated✅ | ProcessController owns, sync for compatibility |
-| **sensors** | 65 | Partial | SensorCoordinator owns, some display usage remains |
-| **network** | 48 | Partial | Manager pointers = service locator (acceptable) |
+| **sensors** | 67 | Partial✅ | SensorCoordinator owns scale modes, some display usage remains |
+| **network** | 47 | Partial✅ | NetworkCoordinator owns timing, manager pointers remain |
 | **standby** | 18 | Partial | StandbyCoordinator owns, inline functions remain |
 | **coordination** | 13 | Working | Backward compat sync (by design) |
 | **handlers** | 8 | Deferred | Service locator + inline code |
