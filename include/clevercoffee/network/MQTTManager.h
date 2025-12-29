@@ -18,6 +18,7 @@
 namespace CleverCoffee {
 class UICoordinator;
 class SensorCoordinator;
+class NetworkCoordinator;
 }
 
 /**
@@ -68,6 +69,14 @@ class MQTTManager {
       */
      void setSensorCoordinator(CleverCoffee::SensorCoordinator* coordinator) noexcept {
          sensorCoordinator_ = coordinator;
+     }
+
+     /**
+      * @brief Set Network coordinator for connection state management
+      * @param coordinator Pointer to NetworkCoordinator
+      */
+     void setNetworkCoordinator(CleverCoffee::NetworkCoordinator* coordinator) noexcept {
+         networkCoordinator_ = coordinator;
      }
 
      /**
@@ -216,6 +225,7 @@ class MQTTManager {
     // Coordinators
     CleverCoffee::UICoordinator* uiCoordinator_{nullptr}; ///< UI coordinator for state management
     CleverCoffee::SensorCoordinator* sensorCoordinator_{nullptr}; ///< Sensor coordinator for scale modes
+    CleverCoffee::NetworkCoordinator* networkCoordinator_{nullptr}; ///< Network coordinator for connection state
 
     // Home Assistant discovery
     struct DiscoveryObject {

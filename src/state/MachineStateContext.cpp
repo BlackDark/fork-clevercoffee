@@ -264,7 +264,8 @@ void MachineStateContext::logStateExit(MachineStateId stateId, const char* state
 // === MQTT Integration ===
 
 void MachineStateContext::resetMqttReconnectCount() const {
-    g_state.network.MQTTReCnctCount = 0;
+    systemContext_.networkCoordinator().resetMqttConnectionAttempts();
+    g_state.network.MQTTReCnctCount = 0;  // Backward compatibility
 }
 
 // === Additional Control Functions ===

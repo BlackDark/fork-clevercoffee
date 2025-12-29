@@ -244,6 +244,33 @@ public:
 
      /** @} */
 
+     /**
+      * @name Home Assistant Integration
+      * @{
+      */
+
+     /**
+      * @brief Set Home Assistant discovery failure flag
+      *
+      * Should be set to true when HASSIO discovery fails, false when successful.
+      *
+      * @param failed true if HASSIO discovery failed, false if successful
+      */
+     void setHassioFailed(bool failed) noexcept {
+         hassioFailed_ = failed;
+     }
+
+     /**
+      * @brief Check if Home Assistant discovery failed
+      *
+      * @return true if HASSIO discovery failed, false otherwise
+      */
+     bool hasHassioFailed() const noexcept {
+         return hassioFailed_;
+     }
+
+     /** @} */
+
 private:
     std::atomic<bool> mqttConnected_{false};                    ///< MQTT connection state
     std::atomic<bool> wifiConnected_{false};                    ///< WiFi connection state
@@ -252,6 +279,7 @@ private:
     std::atomic<bool> offlineMode_{false};                      ///< Offline mode flag
     std::atomic<unsigned long> lastWifiConnectionAttempt_{0};   ///< Timestamp of last WiFi attempt
     std::atomic<unsigned long> lastMqttConnectionAttempt_{0};   ///< Timestamp of last MQTT attempt
+    std::atomic<bool> hassioFailed_{false};                     ///< Home Assistant discovery failure flag
 };
 
 } // namespace CleverCoffee

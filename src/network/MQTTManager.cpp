@@ -8,6 +8,7 @@
 #include "clevercoffee/Config.h"
 #include "clevercoffee/coordinators/UICoordinator.h"
 #include "clevercoffee/coordinators/SensorCoordinator.h"
+#include "clevercoffee/coordinators/NetworkCoordinator.h"
 #include "clevercoffee/GlobalState.h"
 #include "clevercoffee/Logger.h"
 #include "clevercoffee/defaults.h"
@@ -621,6 +622,9 @@ int MQTTManager::sendHASSIODiscoveryMsg() {
 
     if (!mqttClient_.connected()) {
         LOG(DEBUG, "[MQTT] Failed to send Hassio Discover, MQTT Client is not connected");
+        if (networkCoordinator_) {
+            networkCoordinator_->setHassioFailed(true);
+        }
         g_state.network.hassioFailed = true;
         return -1;
     }
@@ -693,9 +697,15 @@ int MQTTManager::sendHASSIODiscoveryMsg() {
 
     if (failures > 0) {
         LOGF(DEBUG, "Hassio failed to send %d entries", failures);
+        if (networkCoordinator_) {
+            networkCoordinator_->setHassioFailed(true);
+        }
         g_state.network.hassioFailed = true;
     } else {
         LOG(DEBUG, "Hassio send successful");
+        if (networkCoordinator_) {
+            networkCoordinator_->setHassioFailed(false);
+        }
         g_state.network.hassioFailed = false;
         return 0;
     }
