@@ -215,6 +215,9 @@ bool SystemInitializer::initializeDisplay() {
         if (displayManager_ && displayManager_->isInitialized()) {
             // Set compatibility pointer for existing code
             g_state.hardware.display = displayManager_->getDisplay();
+            
+            // Populate HardwareContext (modern DI approach)
+            systemContext_->hardwareContext().setDisplay(displayManager_->getDisplay());
 
             // Basic display setup - full initialization will be done in main.cpp
             // The display is now ready for basic operations but NOT for complex display functions
@@ -238,6 +241,7 @@ bool SystemInitializer::initializeDisplay() {
             displayManager_.reset();
             g_state.hardware.display = nullptr;
             // TODO probably wrong
+            systemContext_->hardwareContext().setDisplay(nullptr);
             Config::getInstance().hardwareOledEnabled.set(false);
             return false;
         }
@@ -245,6 +249,7 @@ bool SystemInitializer::initializeDisplay() {
         LOGF(ERROR, "Exception during display initialization: %s", e.what());
         displayManager_.reset();
         g_state.hardware.display = nullptr;
+        systemContext_->hardwareContext().setDisplay(nullptr);
         return false;
     }
 }
@@ -272,6 +277,24 @@ bool SystemInitializer::initializeHardware() {
         g_state.hardware.waterTankSensor = hardwareManager_->getWaterTankSensor();
 
         g_state.hardware.tempSensor = hardwareManager_->getTempSensor();
+        
+        // Populate HardwareContext (modern DI approach)
+        systemContext_->hardwareContext().setHeaterRelay(hardwareManager_->getHeaterRelay());
+        systemContext_->hardwareContext().setPumpRelay(hardwareManager_->getPumpRelay());
+        systemContext_->hardwareContext().setValveRelay(hardwareManager_->getValveRelay());
+        
+        systemContext_->hardwareContext().setStatusLed(hardwareManager_->getStatusLed());
+        systemContext_->hardwareContext().setBrewLed(hardwareManager_->getBrewLed());
+        systemContext_->hardwareContext().setSteamLed(hardwareManager_->getSteamLed());
+        
+        systemContext_->hardwareContext().setPowerSwitch(hardwareManager_->getPowerSwitch());
+        systemContext_->hardwareContext().setBrewSwitch(hardwareManager_->getBrewSwitch());
+        systemContext_->hardwareContext().setHotWaterSwitch(hardwareManager_->getHotWaterSwitch());
+        systemContext_->hardwareContext().setSteamSwitch(hardwareManager_->getSteamSwitch());
+        systemContext_->hardwareContext().setWaterTankSensor(hardwareManager_->getWaterTankSensor());
+        
+        systemContext_->hardwareContext().setTempSensor(hardwareManager_->getTempSensor());
+        
         logMemoryBasic("After Hardware Pointer Updates");
 
         LOG(INFO, "Hardware initialization completed via HardwareManager");

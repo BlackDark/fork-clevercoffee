@@ -1,5 +1,6 @@
 #pragma once
 
+#include "clevercoffee/context/HardwareContext.h"
 #include "clevercoffee/coordinators/SensorCoordinator.h"
 #include "clevercoffee/coordinators/NetworkCoordinator.h"
 #include "clevercoffee/coordinators/UICoordinator.h"
@@ -129,6 +130,22 @@ public:
      * @return Const reference to the standby coordinator
      */
     const StandbyCoordinator& standbyCoordinator() const noexcept { return standbyCoordinator_; }
+
+    /**
+     * @brief Access hardware context
+     *
+     * Provides access to the HardwareContext for accessing hardware components.
+     *
+     * @return Reference to the hardware context
+     */
+    HardwareContext& hardwareContext() noexcept { return hardwareContext_; }
+
+    /**
+     * @brief Access hardware context (const overload)
+     *
+     * @return Const reference to the hardware context
+     */
+    const HardwareContext& hardwareContext() const noexcept { return hardwareContext_; }
 
     /** @} */
 
@@ -272,11 +289,12 @@ public:
     /** @} */
 
 private:
-    SensorCoordinator sensorCoordinator_; ///< Manages sensor operation state
-    NetworkCoordinator networkCoordinator_; ///< Manages network connection state
-    UICoordinator uiCoordinator_;         ///< Manages UI refresh and sleep state
-    StandbyCoordinator standbyCoordinator_; ///< Manages standby mode and power management
-    bool ready_ = false;                  ///< System initialization complete flag
+    HardwareContext hardwareContext_;         ///< Hardware component registry
+    SensorCoordinator sensorCoordinator_;     ///< Manages sensor operation state
+    NetworkCoordinator networkCoordinator_;   ///< Manages network connection state
+    UICoordinator uiCoordinator_;             ///< Manages UI refresh and sleep state
+    StandbyCoordinator standbyCoordinator_;   ///< Manages standby mode and power management
+    bool ready_ = false;                      ///< System initialization complete flag
 
     // Handler references (non-owning pointers)
     BrewHandler*     brewHandler_     = nullptr;
