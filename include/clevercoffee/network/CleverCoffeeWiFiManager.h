@@ -13,8 +13,12 @@
 class WiFiManager;
 class WiFiManagerParameter;
 
+namespace CleverCoffee {
+class NetworkCoordinator;
+}
+
 /**
- * @class WiFiManager
+ * @class CleverCoffeeWiFiManager
  * @brief RAII wrapper for WiFi connection and configuration management
  *
  * This class provides safe management of WiFi connections using RAII principles.
@@ -24,8 +28,9 @@ class CleverCoffeeWiFiManager {
   public:
     /**
      * @brief Constructor - initializes WiFi manager
+     * @param networkCoordinator Network coordinator for state tracking (optional)
      */
-    CleverCoffeeWiFiManager();
+    explicit CleverCoffeeWiFiManager(CleverCoffee::NetworkCoordinator* networkCoordinator = nullptr);
 
     /**
      * @brief Destructor - automatically cleans up WiFi resources
@@ -100,6 +105,7 @@ class CleverCoffeeWiFiManager {
     std::unique_ptr<WiFiManager>          wifiManager_;
     std::unique_ptr<WiFiManagerParameter> customHostname_;
     bool                                  restartAfterAP_;
+    CleverCoffee::NetworkCoordinator*     networkCoordinator_;
 
     /**
      * @brief Configure WiFi manager parameters

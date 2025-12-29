@@ -100,7 +100,7 @@ bool SystemInitializer::initialize() {
     LOG(INFO, "Starting Phase 3: Network and services");
     if (!initializeNetworking()) {
         LOG(WARNING, "Network initialization failed, continuing in offline mode");
-        g_state.network.offlineMode = true;
+        systemContext_->networkCoordinator().setOfflineMode(true);
     }
 
     LOG(INFO, "Starting MQTT initialization");
@@ -283,13 +283,13 @@ bool SystemInitializer::initializeNetworking() {
     if (Config::getInstance().systemOfflineMode.get()) {
         LOG(INFO, "Offline mode enabled, skipping network initialization");
         WiFi.disconnect();
-        g_state.network.offlineMode = true;
+        systemContext_->networkCoordinator().setOfflineMode(true);
         setRuntimePidState(true);
         return true;
     }
 
     try {
-        cleverCoffeeWiFiManager_                = std::make_unique<CleverCoffeeWiFiManager>();
+        cleverCoffeeWiFiManager_                = std::make_unique<CleverCoffeeWiFiManager>(&systemContext_->networkCoordinator());
         g_state.network.cleverCoffeeWiFiManager = cleverCoffeeWiFiManager_.get();
 
         setupWiFi();
@@ -332,7 +332,7 @@ bool SystemInitializer::initializeNetworking() {
 }
 
 bool SystemInitializer::initializeMQTT() {
-    if (g_state.network.offlineMode || !Config::getInstance().mqttEnabled.get()) {
+    if (systemContext_->networkCoordinator().isOfflineMode() || !Config::getInstance().mqttEnabled.get()) {
         LOG(INFO, "MQTT disabled, skipping MQTT initialization");
         return true;
     }
@@ -605,7 +605,7 @@ void SystemInitializer::setupWiFi() {
         // Setup WiFi with display feedback
         if (!g_state.network.cleverCoffeeWiFiManager->setupAndConnect(
                 Config::getInstance().systemHostname.get(), WIFI_PASSWORD, false, displayCallback)) {
-            g_state.network.offlineMode = true;
+            systemContext_->networkCoordinator().setOfflineMode(true);
             uiManager_->displayLogo(langstring_nowifi[0], langstring_nowifi[1]);
         } else {
             uiManager_->displayLogo("WiFi Connected", WiFi.localIP().toString());
@@ -619,7 +619,7 @@ void SystemInitializer::setupWiFi() {
         LOG(INFO, "WiFi setup completed via WiFiManager");
     } catch (const std::exception& e) {
         LOG(ERROR, "Failed to initialize WiFiManager");
-        g_state.network.offlineMode = true;
+        systemContext_->networkCoordinator().setOfflineMode(true);
         uiManager_->displayLogo(langstring_nowifi[0], langstring_nowifi[1]);
     }
 }
