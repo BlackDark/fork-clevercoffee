@@ -21,16 +21,16 @@ inline void setRuntimePidState(const bool enabled) {
 }
 
 inline void setSteamMode(const bool steamMode) {
-    static std::mutex           steam_mutex;
-    std::lock_guard<std::mutex> lock(steam_mutex);
+     static std::mutex           steam_mutex;
+     std::lock_guard<std::mutex> lock(steam_mutex);
 
-    g_state.machine.steamON = steamMode;
+     g_state.machine.steamON = steamMode;
 
-    if (g_state.machine.steamON) {
-        g_state.machine.steamFirstON = true;
-    } else {
-        g_state.machine.steamFirstON = false;
-    }
+     if (g_state.machine.steamON) {
+         g_state.machine.steamFirstON = true;
+     } else {
+         g_state.machine.steamFirstON = false;
+     }
 }
 
 // Helper function for timing debug
@@ -47,15 +47,15 @@ inline void sendHASSIODiscoveryMsg() {
 
 // Emergency stop if temp is too high
 inline void testEmergencyStop() {
-    static std::mutex           emergency_mutex;
-    std::lock_guard<std::mutex> lock(emergency_mutex);
+     static std::mutex           emergency_mutex;
+     std::lock_guard<std::mutex> lock(emergency_mutex);
 
-    if (g_state.process.temperature > EmergencyStopTemp && g_state.machine.emergencyStop == false) {
-        g_state.machine.emergencyStop = true;
-    } else if (g_state.process.temperature < (Config::getInstance().brewSetpoint.get() + 5) &&
-               g_state.machine.emergencyStop == true) {
-        g_state.machine.emergencyStop = false;
-    }
+     if (g_state.process.temperature > EmergencyStopTemp && g_state.machine.emergencyStop == false) {
+         g_state.machine.emergencyStop = true;
+     } else if (g_state.process.temperature < (Config::getInstance().brewSetpoint.get() + 5) &&
+                g_state.machine.emergencyStop == true) {
+         g_state.machine.emergencyStop = false;
+     }
 }
 
 /**
