@@ -191,12 +191,45 @@ public:
 
     /** @} */
 
+    /**
+     * @name Display Offline Counter
+     * @{
+     */
+
+    /**
+     * @brief Set display offline counter
+     *
+     * Used to track offline mode display state.
+     */
+    void setDisplayOffline(int value) noexcept {
+        displayOffline_ = value;
+    }
+
+    /**
+     * @brief Get display offline counter
+     *
+     * @return Current display offline counter value
+     */
+    int getDisplayOffline() const noexcept {
+        return displayOffline_;
+    }
+
+    /**
+     * @brief Increment display offline counter
+     */
+    void incrementDisplayOffline() noexcept {
+        displayOffline_++;
+    }
+
+    /** @} */
+
 private:
     std::atomic<bool> refreshNeeded_{false};        ///< Flag for pending display refresh
     std::atomic<bool> autoSleepEnabled_{true};      ///< Flag for auto sleep state
     std::atomic<bool> displayBufferReady_{false};   ///< Flag indicating display buffer is ready
     std::atomic<bool> websiteUpdateRunning_{false}; ///< Flag for website update in progress
     std::atomic<bool> hassioUpdateRunning_{false};  ///< Flag for HASSIO update in progress
+    std::atomic<int>  displayOffline_{0};           ///< Counter for display offline state
 };
 
 } // namespace CleverCoffee

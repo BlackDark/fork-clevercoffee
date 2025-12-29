@@ -498,6 +498,9 @@ void LoopManager::updateNetwork() {
         g_state.coordination.displayBufferReady = systemContext_->uiCoordinator().isDisplayBufferReady();
         g_state.coordination.websiteUpdateRunning = systemContext_->uiCoordinator().isWebsiteUpdateRunning();
         g_state.coordination.hassioUpdateRunning = systemContext_->uiCoordinator().isHassioUpdateRunning();
+        
+        // Backward compatibility sync: Copy display state back to g_state.display
+        g_state.display.displayOffline = systemContext_->uiCoordinator().getDisplayOffline();
     }
 }
 
