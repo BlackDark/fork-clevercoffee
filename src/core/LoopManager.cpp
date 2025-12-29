@@ -276,9 +276,9 @@ void LoopManager::updateDisplay() {
                 } else {
                     // This is the critical call that was missing!
                     // It triggers the display template rendering
-                    if (g_state.timing.printDisplayTimer) {
+                    if (printDisplayTimer_) {
                         LOGF(DEBUG, "LoopManager: Calling printDisplayTimer (UIManager path)");
-                        (*g_state.timing.printDisplayTimer)();
+                        (*printDisplayTimer_)();
                     } else {
                         LOGF(WARNING, "LoopManager: printDisplayTimer is null!");
                     }
@@ -300,9 +300,9 @@ bool LoopManager::setupAllTimers() {
         LOG(INFO, "LoopManager: Setting up all timers");
 
         // 1. General timers (display, HASSIO discovery)
-        g_state.timing.hassioDiscoveryTimer =
+        hassioDiscoveryTimer_ =
             std::make_unique<MillisecondTimer>(&sendHASSIODiscoveryMsg, std::chrono::milliseconds(300000));
-        g_state.timing.printDisplayTimer =
+        printDisplayTimer_ =
             std::make_unique<MillisecondTimer>(DisplayTemplateManager::printScreen, std::chrono::milliseconds(100));
         LOG(INFO, "LoopManager: General timers initialized");
 
@@ -461,8 +461,8 @@ void LoopManager::updateNetwork() {
                 // Home Assistant discovery - delegate to timer system
                 bool displayBufferNotReady = systemContext_ ? !systemContext_->uiCoordinator().isDisplayBufferReady() : true;
                 bool tempNotRunning = systemContext_ ? !systemContext_->sensorCoordinator().isTemperatureUpdateRunning() : true;
-                if (g_state.timing.hassioDiscoveryTimer && displayBufferNotReady && tempNotRunning) {
-                    (*g_state.timing.hassioDiscoveryTimer)();
+                if (hassioDiscoveryTimer_ && displayBufferNotReady && tempNotRunning) {
+                    (*hassioDiscoveryTimer_)();
                 }
                 g_state.network.mqttManager->setWasConnected(true);
             } else if (g_state.network.mqttManager->wasConnected()) {

@@ -498,11 +498,8 @@ void SystemInitializer::calculateDerivedValues() {
 }
 
 void SystemInitializer::setupTiming() {
-    // Initialize timing variables
+    // Initialize timing variables (removed: previousMillistemp, windowStartTime, previousMillisMQTT are unused)
     unsigned long currentTime                 = millis();
-    g_state.timing.previousMillistemp         = currentTime;
-    g_state.timing.windowStartTime            = currentTime;
-    g_state.timing.previousMillisMQTT         = currentTime;
     g_state.network.lastMQTTConnectionAttempt = currentTime;
 
     LOG(DEBUG, "Timing variables initialized");

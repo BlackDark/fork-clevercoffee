@@ -272,6 +272,8 @@ class LoopManager {
     std::unique_ptr<MillisecondTimer> temperatureTimer_;
     std::unique_ptr<MillisecondTimer> pressureTimer_;
     std::unique_ptr<MillisecondTimer> scaleTimer_;
+    std::unique_ptr<MillisecondTimer> hassioDiscoveryTimer_; ///< Timer for HASSIO discovery messages
+    std::unique_ptr<MillisecondTimer> printDisplayTimer_;    ///< Timer for display screen refresh
     bool                              sensorsTimersInitialized_;
 
     // Performance monitoring
