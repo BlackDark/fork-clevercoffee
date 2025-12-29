@@ -176,22 +176,58 @@ class ProcessController {
         return setpoint_;
     }
 
-    /**
-     * @brief Check if PID is currently enabled
-     * @return true if PID is in automatic mode
-     */
-    bool isPIDEnabled() const;
+     /**
+      * @brief Check if PID is currently enabled
+      * @return true if PID is in automatic mode
+      */
+     bool isPIDEnabled() const;
 
-    /**
-     * @brief Enable or disable PID control
-     * @param enabled Whether to enable PID
-     */
-    void setPIDEnabled(bool enabled);
+     /**
+      * @brief Enable or disable PID control
+      * @param enabled Whether to enable PID
+      */
+     void setPIDEnabled(bool enabled);
 
-    /**
-     * @brief Emergency stop - immediately disable PID and turn off heater
-     */
-    void emergencyStop();
+     /**
+      * @brief Get current brew time in milliseconds
+      * @return Current brew time (set externally by state machines)
+      */
+     double getCurrBrewTime() const;
+
+     /**
+      * @brief Set current brew time in milliseconds
+      * @param brewTime Brew time to set
+      */
+     void setCurrBrewTime(double brewTime);
+
+     /**
+      * @brief Get total target brew time in milliseconds
+      * @return Target brew time
+      */
+     double getTotalTargetBrewTime() const;
+
+     /**
+      * @brief Set total target brew time in milliseconds
+      * @param brewTime Target brew time
+      */
+     void setTotalTargetBrewTime(double brewTime);
+
+     /**
+      * @brief Get brew PID disabled flag
+      * @return true if brew PID is disabled
+      */
+     bool isBrewPidDisabled() const;
+
+     /**
+      * @brief Set brew PID disabled flag
+      * @param disabled Whether brew PID should be disabled
+      */
+     void setBrewPidDisabled(bool disabled);
+
+     /**
+      * @brief Emergency stop - immediately disable PID and turn off heater
+      */
+     void emergencyStop();
 
     /**
      * @brief Safe shutdown - completely shutdown all machine operations
@@ -267,12 +303,17 @@ class ProcessController {
     // Steam parameters
     double steamKp_; ///< Steam mode proportional gain
 
-    // Setpoint values
-    double brewSetpoint_;  ///< Target temperature for brewing
-    double steamSetpoint_; ///< Target temperature for steam
+     // Setpoint values
+     double brewSetpoint_;  ///< Target temperature for brewing
+     double steamSetpoint_; ///< Target temperature for steam
 
-    // Temperature offset
-    double brewTempOffset_; ///< Temperature offset for brewing
+     // Brewing process state
+     double currBrewTime_;         ///< Current brew time in milliseconds
+     double totalTargetBrewTime_;  ///< Target brew time in milliseconds
+     bool   brewPidDisabled_;      ///< Whether brew PID is disabled
+
+     // Temperature offset
+     double brewTempOffset_; ///< Temperature offset for brewing
 
     // Emergency temperature detection
     static constexpr int EMERGENCY_TEMP_DEBOUNCE_COUNT = 3;  ///< Require 3 consecutive readings

@@ -12,6 +12,8 @@
 #include "clevercoffee/display/DisplayManager.h"
 #include "clevercoffee/display/displayTemplateManager.h"
 #include "clevercoffee/display/languages.h"
+#include "clevercoffee/control/ProcessController.h"
+#include "clevercoffee/control/ProcessController.h"
 #include "clevercoffee/network/CleverCoffeeWiFiManager.h"
 #include "clevercoffee/network/MQTTManager.h"
 #include "clevercoffee/network/WebServerManager.h"
@@ -558,20 +560,35 @@ void SystemInitializer::registerMQTTParameters() {
 void SystemInitializer::registerMQTTSensors() {
     if (!mqttManager_) return;
 
-    // Core sensors
-    mqttManager_->registerSensor("temperature", [] { return g_state.process.temperature; });
-    mqttManager_->registerSensor("heaterPower", [] { return g_state.process.pidOutput / 10; });
-    mqttManager_->registerSensor("standbyModeTimeRemaining",
-                                 [this] { return systemContext_->standbyCoordinator().getRemainingTimeMillis() / 1000.0; });
-    mqttManager_->registerSensor("currentKp", [] { return g_state.pid->GetKp(); });
-    mqttManager_->registerSensor("currentKi", [] { return g_state.pid->GetKi(); });
-    mqttManager_->registerSensor("currentKd", [] { return g_state.pid->GetKd(); });
-    mqttManager_->registerSensor("machineState", [] { return static_cast<double>(g_state.machine.machineState); });
+     // Core sensors
+     mqttManager_->registerSensor("temperature", [this] {
+         if (systemContext_ && systemContext_->processController()) {
+             return systemContext_->processController()->getCurrentTemperature();
+         }
+         return g_state.process.temperature;
+     });
+     mqttManager_->registerSensor("heaterPower", [this] {
+         if (systemContext_ && systemContext_->processController()) {
+             return systemContext_->processController()->getPIDOutput() / 10;
+         }
+         return g_state.process.pidOutput / 10;
+     });
+     mqttManager_->registerSensor("standbyModeTimeRemaining",
+                                  [this] { return systemContext_->standbyCoordinator().getRemainingTimeMillis() / 1000.0; });
+     mqttManager_->registerSensor("currentKp", [] { return g_state.pid->GetKp(); });
+     mqttManager_->registerSensor("currentKi", [] { return g_state.pid->GetKi(); });
+     mqttManager_->registerSensor("currentKd", [] { return g_state.pid->GetKd(); });
+     mqttManager_->registerSensor("machineState", [] { return static_cast<double>(g_state.machine.machineState); });
 
-    // Brew-specific sensors
-    if (Config::getInstance().hardwareSwitchesBrewEnabled.get()) {
-        mqttManager_->registerSensor("currBrewTime", [] { return g_state.process.currBrewTime / 1000; });
-    }
+     // Brew-specific sensors
+     if (Config::getInstance().hardwareSwitchesBrewEnabled.get()) {
+         mqttManager_->registerSensor("currBrewTime", [this] {
+             if (systemContext_ && systemContext_->processController()) {
+                 return systemContext_->processController()->getCurrBrewTime() / 1000;
+             }
+             return g_state.process.currBrewTime / 1000;
+         });
+     }
 
     // Scale-specific sensors
     if (Config::getInstance().hardwareSensorsScaleEnabled.get()) {

@@ -29,6 +29,7 @@ ProcessController::ProcessController(const Config&                 config,
       aggKp_(0.0), aggKi_(0.0), aggKd_(0.0), aggTn_(0.0), aggTv_(0.0), aggIMax_(0.0), aggbKp_(0.0), aggbKi_(0.0),
       aggbKd_(0.0), aggbTn_(0.0), aggbTv_(0.0), steamKp_(0.0), brewSetpoint_(0.0), steamSetpoint_(0.0),
       brewTempOffset_(0.0), lastMachineStatePid_(MachineStateId::INIT), initialized_(false), lastTempEvent_(0),
+      currBrewTime_(0.0), totalTargetBrewTime_(0.0), brewPidDisabled_(false),
       tempEventInterval_(1000) {
     LOG(INFO, "ProcessController created");
 }
@@ -263,16 +264,43 @@ void ProcessController::setPIDEnabled(bool enabled) {
 }
 
 void ProcessController::emergencyStop() {
-    LOG(ERROR, "ProcessController emergency stop triggered!");
+     LOG(ERROR, "ProcessController emergency stop triggered!");
 
-    // Immediately disable PID and turn off heater
-    setPIDEnabled(false);
-    pidOutput_                = 0;
-    g_state.process.pidOutput = 0;
+     // Immediately disable PID and turn off heater
+     setPIDEnabled(false);
+     pidOutput_                = 0;
+     g_state.process.pidOutput = 0;
 
-    if (hardwareManager_) {
-        hardwareManager_->safeShutdown();
-    }
+     if (hardwareManager_) {
+         hardwareManager_->safeShutdown();
+     }
+}
+
+double ProcessController::getCurrBrewTime() const {
+     return currBrewTime_;
+}
+
+void ProcessController::setCurrBrewTime(double brewTime) {
+     currBrewTime_ = brewTime;
+     g_state.process.currBrewTime = brewTime;
+}
+
+double ProcessController::getTotalTargetBrewTime() const {
+     return totalTargetBrewTime_;
+}
+
+void ProcessController::setTotalTargetBrewTime(double brewTime) {
+     totalTargetBrewTime_ = brewTime;
+     g_state.process.totalTargetBrewTime = brewTime;
+}
+
+bool ProcessController::isBrewPidDisabled() const {
+     return brewPidDisabled_;
+}
+
+void ProcessController::setBrewPidDisabled(bool disabled) {
+     brewPidDisabled_ = disabled;
+     g_state.process.brewPidDisabled = disabled;
 }
 
 bool ProcessController::testEmergencyConditions() {
@@ -429,3 +457,4 @@ void ProcessController::performSafeShutdown() {
 
     LOG(INFO, "ProcessController safe shutdown completed");
 }
+
