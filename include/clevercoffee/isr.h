@@ -21,9 +21,9 @@ void IRAM_ATTR onTimer() {
     const unsigned int currentCounter = g_state.timing.isrCounter;
 
     if (currentPidOutput <= currentCounter) {
-        g_state.hardware.heaterRelay->off();
+        CleverCoffee::getGlobalSystemContext()->hardwareContext().heaterRelay()->off();
     } else {
-        g_state.hardware.heaterRelay->on();
+        CleverCoffee::getGlobalSystemContext()->hardwareContext().heaterRelay()->on();
     }
 
     unsigned int newCounter = currentCounter + 10; // += 10 because one tick = 10ms

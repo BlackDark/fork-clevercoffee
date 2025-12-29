@@ -33,10 +33,10 @@ CleverCoffee::SystemContext* CleverCoffee::g_systemContext = nullptr;
 // Initialize handler references in global state
 void initializeHandlers(CleverCoffee::SystemContext* systemContext) {
     // Initialize handler hardware (switches must be ready before calling this)
-    brewHandler.setHardware(g_state.hardware.brewSwitch, g_state.hardware.valveRelay);
-    hotWaterHandler.setHardware(g_state.hardware.hotWaterSwitch);
-    powerHandler.setHardware(g_state.hardware.powerSwitch);
-    steamHandler.setHardware(g_state.hardware.steamSwitch);
+    brewHandler.setHardware(CleverCoffee::getGlobalSystemContext()->hardwareContext().brewSwitch(), CleverCoffee::getGlobalSystemContext()->hardwareContext().valveRelay());
+    hotWaterHandler.setHardware(CleverCoffee::getGlobalSystemContext()->hardwareContext().hotWaterSwitch());
+    powerHandler.setHardware(CleverCoffee::getGlobalSystemContext()->hardwareContext().powerSwitch());
+    steamHandler.setHardware(CleverCoffee::getGlobalSystemContext()->hardwareContext().steamSwitch());
     
     // Store handler references in global state (backward compatibility)
     g_state.handlers.brewHandler     = &brewHandler;

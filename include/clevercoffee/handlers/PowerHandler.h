@@ -152,7 +152,7 @@ class PowerHandler : public SwitchBasedHandler {
                 true; // Use condition flag instead of direct state assignment
             resetStandbyTimer();
             setRuntimePidState(true);
-            g_state.hardware.display->setPowerSave(0);
+            CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setPowerSave(0);
             logInfo("System powered on");
         }
     }
@@ -171,7 +171,7 @@ class PowerHandler : public SwitchBasedHandler {
 
     void triggerSystemReboot() {
         logInfo("Power switch long press detected - initiating system reboot");
-        g_state.hardware.display->setPowerSave(0);
+        CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setPowerSave(0);
 
         // Display reboot message
         displayMessage("REBOOTING", "Please wait...", "", "", "", "");

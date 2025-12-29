@@ -114,7 +114,7 @@ LED* MachineStateContext::getSteamLED() const {
 }
 
 Scale* MachineStateContext::getScale() const {
-    return g_state.hardware.scale.get();
+    return CleverCoffee::getGlobalSystemContext()->hardwareContext().scalePtr();
 }
 
 // === Sensor Data Access ===
