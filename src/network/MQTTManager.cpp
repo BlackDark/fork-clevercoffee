@@ -166,9 +166,9 @@ void MQTTManager::messageCallback(const char* topic, const byte* data, unsigned 
 
 void MQTTManager::assignParameter(char* param, double value) {
     try {
-        const auto it = g_state.network.mqttVars.find(param);
+        const auto it = mqttVars_.find(param);
 
-        if (it == g_state.network.mqttVars.end()) {
+        if (it == mqttVars_.end()) {
             LOGF(WARNING, "MQTT topic %s not found in mapping", param);
             return;
         }
@@ -226,16 +226,16 @@ void MQTTManager::assignParameter(char* param, double value) {
 }
 
 void MQTTManager::registerParameter(const char* mqttTopic, const char* configParam) {
-    g_state.network.mqttVars[mqttTopic] = configParam;
+    mqttVars_[mqttTopic] = configParam;
 }
 
 void MQTTManager::registerSensor(const char* topic, std::function<double()> callback) {
-    g_state.network.mqttSensors[topic] = callback;
+    mqttSensors_[topic] = callback;
 }
 
 int MQTTManager::writeSysParamsToMQTT(bool continueOnError) {
-    static auto mqttVarsIt    = g_state.network.mqttVars.begin();
-    static auto mqttSensorsIt = g_state.network.mqttSensors.begin();
+    static auto mqttVarsIt    = mqttVars_.begin();
+    static auto mqttSensorsIt = mqttSensors_.begin();
     static bool inSensors     = false;
 
     unsigned long currentMillisMQTT = millis();
@@ -250,7 +250,7 @@ int MQTTManager::writeSysParamsToMQTT(bool continueOnError) {
         return 0;
     }
 
-    if (!inSensors && mqttVarsIt == g_state.network.mqttVars.begin()) {
+    if (!inSensors && mqttVarsIt == mqttVars_.begin()) {
         previousMillisMQTT_ = currentMillisMQTT;
         publish("status", "online");
     }
@@ -264,7 +264,7 @@ int MQTTManager::writeSysParamsToMQTT(bool continueOnError) {
 
     // Process parameter mappings
     if (!inSensors) {
-        while (mqttVarsIt != g_state.network.mqttVars.end()) {
+        while (mqttVarsIt != mqttVars_.end()) {
             const char* mqttTopic   = mqttVarsIt->first;
             const char* parameterId = mqttVarsIt->second;
 
@@ -360,12 +360,12 @@ int MQTTManager::writeSysParamsToMQTT(bool continueOnError) {
             }
         }
 
-        mqttVarsIt = g_state.network.mqttVars.begin();
+        mqttVarsIt = mqttVars_.begin();
         inSensors  = true;
     }
 
     // Process sensor callbacks
-    while (mqttSensorsIt != g_state.network.mqttSensors.end()) {
+    while (mqttSensorsIt != mqttSensors_.end()) {
         const char* topic      = mqttSensorsIt->first;
         const auto& sensorFunc = mqttSensorsIt->second;
         std::string value      = number2string(sensorFunc());
@@ -388,7 +388,7 @@ int MQTTManager::writeSysParamsToMQTT(bool continueOnError) {
         }
     }
 
-    mqttSensorsIt = g_state.network.mqttSensors.begin();
+    mqttSensorsIt = mqttSensors_.begin();
     inSensors     = false;
 
     return 0;

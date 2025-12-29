@@ -287,4 +287,8 @@ class LoopManager {
     unsigned long pressureUpdateCount_;
     unsigned long scaleUpdateCount_;
     unsigned long lastTimerLogTime_;
+
+    // Web event timing
+    unsigned long lastTempEvent_{0};      ///< Last temperature event timestamp
+    unsigned long tempEventInterval_{1000}; ///< Temperature event interval in ms
 };

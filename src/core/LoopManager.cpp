@@ -524,7 +524,7 @@ void LoopManager::updateWebsite() {
     bool displayBufferNotReady = systemContext_ ? !systemContext_->uiCoordinator().isDisplayBufferReady() : true;
     bool tempNotRunning = systemContext_ ? !systemContext_->sensorCoordinator().isTemperatureUpdateRunning() : true;
     
-    const bool canSendData = (millis() - g_state.network.lastTempEvent) > g_state.network.tempEventInterval &&
+    const bool canSendData = (millis() - lastTempEvent_) > tempEventInterval_ &&
                             (!g_state.network.mqttManager || !g_state.network.mqttManager->isUpdateRunning()) &&
                             hassioNotRunning &&
                             displayBufferNotReady &&
@@ -551,7 +551,7 @@ void LoopManager::updateWebsite() {
             }
         }
 
-        g_state.network.lastTempEvent = millis();
+        lastTempEvent_ = millis();
         if (systemContext_) {
             systemContext_->uiCoordinator().setWebsiteUpdateRunning(false);
         }

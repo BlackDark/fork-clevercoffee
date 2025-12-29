@@ -10,6 +10,7 @@
 #include <String>
 #include <WiFiClient.h>
 #include <functional>
+#include <cstring>
 #include <map>
 #include <memory>
 
@@ -182,6 +183,15 @@ class MQTTManager {
     char topicSet_[256];
 
     // Parameter and sensor mappings
+    struct cmp_str {
+        bool operator()(char const* a, char const* b) const {
+            return std::strcmp(a, b) < 0;
+        }
+    };
+
+    std::map<const char*, const char*, cmp_str>             mqttVars_;        ///< MQTT parameter mappings
+    std::map<const char*, std::function<double()>, cmp_str> mqttSensors_;     ///< MQTT sensor callbacks
+
 
     std::map<const char*, std::string> mqttLastSent_;
 
