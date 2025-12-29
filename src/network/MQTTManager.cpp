@@ -7,6 +7,7 @@
 
 #include "clevercoffee/Config.h"
 #include "clevercoffee/coordinators/UICoordinator.h"
+#include "clevercoffee/coordinators/SensorCoordinator.h"
 #include "clevercoffee/GlobalState.h"
 #include "clevercoffee/Logger.h"
 #include "clevercoffee/defaults.h"
@@ -188,16 +189,22 @@ void MQTTManager::assignParameter(char* param, double value) {
             publish(param, number2string(value), true);
             LOGF(DEBUG, "MQTT special parameter %s updated to %f", param, value);
             return;
-        } else if (strcmp(parameterId, "TARE_ON") == 0) {
-            g_state.sensors.scaleTareOn = static_cast<bool>(value);
-            publish(param, number2string(value), true);
-            LOGF(DEBUG, "MQTT special parameter %s updated to %f", param, value);
-            return;
-        } else if (strcmp(parameterId, "CALIBRATION_ON") == 0) {
-            g_state.sensors.scaleCalibrationOn = static_cast<bool>(value);
-            publish(param, number2string(value), true);
-            LOGF(DEBUG, "MQTT special parameter %s updated to %f", param, value);
-            return;
+         } else if (strcmp(parameterId, "TARE_ON") == 0) {
+             if (sensorCoordinator_) {
+                 sensorCoordinator_->setScaleTareMode(static_cast<bool>(value));
+             }
+             g_state.sensors.scaleTareOn = static_cast<bool>(value);
+             publish(param, number2string(value), true);
+             LOGF(DEBUG, "MQTT special parameter %s updated to %f", param, value);
+             return;
+         } else if (strcmp(parameterId, "CALIBRATION_ON") == 0) {
+             if (sensorCoordinator_) {
+                 sensorCoordinator_->setScaleCalibrationMode(static_cast<bool>(value));
+             }
+             g_state.sensors.scaleCalibrationOn = static_cast<bool>(value);
+             publish(param, number2string(value), true);
+             LOGF(DEBUG, "MQTT special parameter %s updated to %f", param, value);
+             return;
         }
 
         // Find the parameter definition for regular config parameters

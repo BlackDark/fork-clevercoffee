@@ -496,13 +496,17 @@ void LoopManager::updateNetwork() {
         g_state.network.lastWifiConnectionAttempt = systemContext_->networkCoordinator().getLastWifiConnectionAttempt();
         g_state.network.lastMQTTConnectionAttempt = systemContext_->networkCoordinator().getLastMqttConnectionAttempt();
         
-        // Backward compatibility sync: Copy coordinator flags back to g_state.coordination
-        g_state.coordination.temperatureUpdateRunning = systemContext_->sensorCoordinator().isTemperatureUpdateRunning();
-        g_state.coordination.displayBufferReady = systemContext_->uiCoordinator().isDisplayBufferReady();
-        g_state.coordination.websiteUpdateRunning = systemContext_->uiCoordinator().isWebsiteUpdateRunning();
-        g_state.coordination.hassioUpdateRunning = systemContext_->uiCoordinator().isHassioUpdateRunning();
-        
-        // Backward compatibility sync: Copy display state back to g_state.display
+         // Backward compatibility sync: Copy coordinator flags back to g_state.coordination
+         g_state.coordination.temperatureUpdateRunning = systemContext_->sensorCoordinator().isTemperatureUpdateRunning();
+         g_state.coordination.displayBufferReady = systemContext_->uiCoordinator().isDisplayBufferReady();
+         g_state.coordination.websiteUpdateRunning = systemContext_->uiCoordinator().isWebsiteUpdateRunning();
+         g_state.coordination.hassioUpdateRunning = systemContext_->uiCoordinator().isHassioUpdateRunning();
+         
+         // Backward compatibility sync: Copy sensor scale modes back to g_state.sensors
+         g_state.sensors.scaleTareOn = systemContext_->sensorCoordinator().isScaleTareMode();
+         g_state.sensors.scaleCalibrationOn = systemContext_->sensorCoordinator().isScaleCalibrationMode();
+         
+         // Backward compatibility sync: Copy display state back to g_state.display
         g_state.display.displayOffline = systemContext_->uiCoordinator().getDisplayOffline();
         
         // Backward compatibility sync: Copy standby state back to g_state.standby

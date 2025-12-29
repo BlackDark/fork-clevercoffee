@@ -17,6 +17,7 @@
 // Forward declarations
 namespace CleverCoffee {
 class UICoordinator;
+class SensorCoordinator;
 }
 
 /**
@@ -53,17 +54,25 @@ class MQTTManager {
      */
     bool setup(const String& hostname);
 
-    /**
-     * @brief Set UI coordinator for state management
-     * @param coordinator Pointer to UICoordinator
-     */
-    void setUICoordinator(CleverCoffee::UICoordinator* coordinator) noexcept {
-        uiCoordinator_ = coordinator;
-    }
+     /**
+      * @brief Set UI coordinator for state management
+      * @param coordinator Pointer to UICoordinator
+      */
+     void setUICoordinator(CleverCoffee::UICoordinator* coordinator) noexcept {
+         uiCoordinator_ = coordinator;
+     }
 
-    /**
-     * @brief Check MQTT connection and reconnect if needed
-     */
+     /**
+      * @brief Set Sensor coordinator for scale mode management
+      * @param coordinator Pointer to SensorCoordinator
+      */
+     void setSensorCoordinator(CleverCoffee::SensorCoordinator* coordinator) noexcept {
+         sensorCoordinator_ = coordinator;
+     }
+
+     /**
+      * @brief Check MQTT connection and reconnect if needed
+      */
     void checkConnection();
 
     /**
@@ -206,6 +215,7 @@ class MQTTManager {
 
     // Coordinators
     CleverCoffee::UICoordinator* uiCoordinator_{nullptr}; ///< UI coordinator for state management
+    CleverCoffee::SensorCoordinator* sensorCoordinator_{nullptr}; ///< Sensor coordinator for scale modes
 
     // Home Assistant discovery
     struct DiscoveryObject {

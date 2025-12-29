@@ -228,14 +228,54 @@ public:
     
     // === General ===
     
-    /**
-     * @brief Check if any sensor has error
-     * @return true if any enabled sensor has error
-     */
-    [[nodiscard]] bool hasSensorError() const noexcept {
-        return hasTemperatureSensorError() || hasScaleSensorError();
-    }
-    
+     /**
+      * @brief Check if any sensor has error
+      * @return true if any enabled sensor has error
+      */
+     [[nodiscard]] bool hasSensorError() const noexcept {
+         return hasTemperatureSensorError() || hasScaleSensorError();
+     }
+     
+     // === Scale Operating Modes ===
+     
+     /**
+      * @brief Set scale tare mode
+      * 
+      * When enabled, the scale will perform a tare operation (reset to zero).
+      * 
+      * @param enabled true to enable tare mode, false to disable
+      */
+     void setScaleTareMode(bool enabled) noexcept {
+         scaleTareMode_ = enabled;
+     }
+     
+     /**
+      * @brief Check if scale tare mode is enabled
+      * @return true if tare mode is active
+      */
+     [[nodiscard]] bool isScaleTareMode() const noexcept {
+         return scaleTareMode_;
+     }
+     
+     /**
+      * @brief Set scale calibration mode
+      * 
+      * When enabled, the scale will perform a calibration operation.
+      * 
+      * @param enabled true to enable calibration mode, false to disable
+      */
+     void setScaleCalibrationMode(bool enabled) noexcept {
+         scaleCalibrationMode_ = enabled;
+     }
+     
+     /**
+      * @brief Check if scale calibration mode is enabled
+      * @return true if calibration mode is active
+      */
+     [[nodiscard]] bool isScaleCalibrationMode() const noexcept {
+         return scaleCalibrationMode_;
+     }
+     
 private:
     // Sensor references (not owned)
     ISensor* tempSensor_ = nullptr;
@@ -280,11 +320,15 @@ private:
     int waterTankConsecutiveReads_ = 0;
     static constexpr int WATER_TANK_READS_NEEDED = 3;
     
-    // Legacy coordination flags (for backward compatibility)
-    std::atomic<bool> temperatureUpdateRunning_{false};
-    std::atomic<bool> scaleUpdateRunning_{false};
-    
-    // Private update methods
+     // Legacy coordination flags (for backward compatibility)
+     std::atomic<bool> temperatureUpdateRunning_{false};
+     std::atomic<bool> scaleUpdateRunning_{false};
+     
+     // Scale operating modes
+     std::atomic<bool> scaleTareMode_{false};             ///< Scale tare (reset to zero) mode
+     std::atomic<bool> scaleCalibrationMode_{false};      ///< Scale calibration mode
+     
+     // Private update methods
     void updateTemperature() noexcept;
     void updateScale() noexcept;
     void updatePressure() noexcept;
