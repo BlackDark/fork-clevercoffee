@@ -162,15 +162,20 @@ void CleverCoffeeWiFiManager::checkAndMaintainConnection() {
     static int  connectionAttemptCounter = 1;
     static bool wifiConnectedHandled     = false;
 
-    // Check offline mode from NetworkCoordinator or fallback to g_state
-    bool isOfflineMode = networkCoordinator_ ? networkCoordinator_->isOfflineMode() : g_state.network.offlineMode;
+    // Check offline mode from NetworkCoordinator
+    if (!networkCoordinator_) {
+        LOG(ERROR, "CleverCoffeeWiFiManager: NetworkCoordinator is null");
+        return;
+    }
+
+    bool isOfflineMode = networkCoordinator_->isOfflineMode();
 
     // Don't attempt reconnection if in offline mode or brewing is active
     if (isOfflineMode || (g_state.handlers.brewHandler && g_state.handlers.brewHandler->isBrewActive()))
         return;
 
     // Get current reconnect count
-    unsigned int wifiReconnects = networkCoordinator_ ? networkCoordinator_->getWifiReconnects() : g_state.network.wifiReconnects;
+    unsigned int wifiReconnects = networkCoordinator_->getWifiReconnects();
 
     // Try to connect and if it does not succeed, enter offline mode
     if ((millis() - g_state.network.lastWifiConnectionAttempt >= ::wifiConnectionDelay) &&
@@ -180,13 +185,9 @@ void CleverCoffeeWiFiManager::checkAndMaintainConnection() {
 
             if (connectionAttemptCounter == 1) {
                 // Increment reconnect counter
-                if (networkCoordinator_) {
-                    networkCoordinator_->incrementWifiReconnects();
-                    wifiReconnects = networkCoordinator_->getWifiReconnects();
-                } else {
-                    g_state.network.wifiReconnects++;
-                    wifiReconnects = g_state.network.wifiReconnects;
-                }
+                networkCoordinator_->incrementWifiReconnects();
+                wifiReconnects = networkCoordinator_->getWifiReconnects();
+                
                 LOGF(INFO, "Attempting WIFI (re-)connection: %i", wifiReconnects);
                 WiFi.disconnect();
                 WiFi.begin();
@@ -216,28 +217,20 @@ void CleverCoffeeWiFiManager::checkAndMaintainConnection() {
     // Enter offline mode if maximum reconnection attempts reached
     if (wifiReconnects >= ::maxWifiReconnects && WiFi.status() != WL_CONNECTED) {
         // no wifi connection after trying connection, initiate offline mode
-        if (networkCoordinator_) {
-            networkCoordinator_->setOfflineMode(true);
-        } else {
-            g_state.network.offlineMode = true;
-        }
+        networkCoordinator_->setOfflineMode(true);
         LOG(INFO, "Entered offline mode after maximum WiFi reconnection attempts");
     } else {
         if (WiFi.status() == WL_CONNECTED) {
             // Reset reconnect counter on successful connection
-            if (networkCoordinator_) {
-                networkCoordinator_->resetWifiReconnects();
-            } else {
-                g_state.network.wifiReconnects = 0;
-            }
+            networkCoordinator_->resetWifiReconnects();
         }
     }
 }
 
 int CleverCoffeeWiFiManager::getSignalStrength() {
-    // Check offline mode from NetworkCoordinator or fallback to g_state
-    bool isOfflineMode = networkCoordinator_ ? networkCoordinator_->isOfflineMode() : g_state.network.offlineMode;
-    if (isOfflineMode) return 0;
+    // Check offline mode from NetworkCoordinator
+    if (!networkCoordinator_) return 0;
+    if (networkCoordinator_->isOfflineMode()) return 0;
 
     long rssi;
 

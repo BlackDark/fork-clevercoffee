@@ -217,7 +217,7 @@ bool SystemInitializer::initializeDisplay() {
             // that depend on global state (like language strings, templates, etc.)
 
             // TODO maybe separated
-            uiManager_ = std::make_unique<UIManager>(displayManager_.get());
+            uiManager_ = std::make_unique<UIManager>(displayManager_.get(), systemContext_.get());
 
             if (uiManager_->initialize()) {
                 LOG(INFO, "UIManager initialized successfully");

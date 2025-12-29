@@ -13,6 +13,10 @@
 class DisplayManager;
 class Config;
 
+namespace CleverCoffee {
+class SystemContext;
+}
+
 /**
  * @class UIManager
  * @brief Central manager for all user interface operations
@@ -37,8 +41,9 @@ class UIManager {
     /**
      * @brief Constructor
      * @param displayManager Display hardware manager instance
+     * @param systemContext System context for coordinator access (optional)
      */
-    explicit UIManager(DisplayManager* displayManager);
+    explicit UIManager(DisplayManager* displayManager, CleverCoffee::SystemContext* systemContext = nullptr);
 
     /**
      * @brief Destructor
@@ -265,8 +270,9 @@ class UIManager {
     const u8g2_cb_t* getU8G2Rotation(int rotation);
 
     // Manager dependencies
-    DisplayManager* displayManager_;
-    U8G2*           u8g2_;
+    DisplayManager*              displayManager_;
+    CleverCoffee::SystemContext* systemContext_;
+    U8G2*                        u8g2_;
 
     // Display state
     bool initialized_;

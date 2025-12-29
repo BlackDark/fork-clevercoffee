@@ -8,6 +8,7 @@
 #include "clevercoffee/Config.h"
 #include "clevercoffee/GlobalState.h"
 #include "clevercoffee/Logger.h"
+#include "clevercoffee/context/SystemContext.h"
 #include "clevercoffee/display/DisplayManager.h"
 #include "clevercoffee/display/bitmaps.h"
 #include "clevercoffee/handlers/BrewHandler.h"
@@ -16,8 +17,8 @@
 
 int getSignalStrength();
 
-UIManager::UIManager(DisplayManager* displayManager)
-    : displayManager_(displayManager), u8g2_(nullptr), initialized_(false), bufferReady_(false), updateRunning_(false),
+UIManager::UIManager(DisplayManager* displayManager, CleverCoffee::SystemContext* systemContext)
+    : displayManager_(displayManager), systemContext_(systemContext), u8g2_(nullptr), initialized_(false), bufferReady_(false), updateRunning_(false),
       brewTimerState_(BrewTimerState::Idle), brewEndTime_(0) {
     LOG(INFO, "UIManager created");
 }
@@ -215,20 +216,25 @@ void UIManager::displayFullscreenHotWaterTimer() {
 
 void UIManager::displayStatusbar() {
     if (!u8g2_) return;
+    if (!systemContext_) return;
 
     u8g2_->setFont(u8g2_font_profont11_tf);
 
-    // WiFi status
-    if (!g_state.network.offlineMode) {
+    // WiFi status - check from NetworkCoordinator
+    bool offlineMode = systemContext_->networkCoordinator().isOfflineMode();
+    
+    if (!offlineMode) {
         for (int i = 0; i < getSignalStrength(); i++) {
             u8g2_->drawLine(100 + i * 2, 8 - i, 100 + i * 2, 8);
         }
     }
 
-    // Show reconnection attempts
-    if (g_state.network.wifiReconnects > 0) {
+    // Show reconnection attempts - read from NetworkCoordinator
+    unsigned int wifiReconnects = systemContext_->networkCoordinator().getWifiReconnects();
+    
+    if (wifiReconnects > 0) {
         char reconnectStr[8];
-        snprintf(reconnectStr, sizeof(reconnectStr), "R%d", g_state.network.wifiReconnects);
+        snprintf(reconnectStr, sizeof(reconnectStr), "R%d", wifiReconnects);
         u8g2_->drawStr(110, 0, reconnectStr);
     }
 }
