@@ -150,11 +150,11 @@ void setup() {
         g_state.coordination.processController = processController.get(); // Still needed for now
         InitHelpers::logInitResult("ProcessController", processController->initialize());
 
-        // Initialize LoopManager for main loop coordination
-        CleverCoffee::SensorCoordinator* sensorCoord = &systemInitializer->getSystemContext()->sensorCoordinator();
-        CleverCoffee::HardwareManager* hwManager = systemInitializer->getHardwareManager();
-        loopManager = std::make_unique<LoopManager>(processController.get(), uiManager, nullptr, sensorCoord, hwManager);
-        InitHelpers::logInitResult("LoopManager", loopManager->initialize());
+         // Initialize LoopManager for main loop coordination
+         CleverCoffee::SensorCoordinator* sensorCoord = &systemInitializer->getSystemContext()->sensorCoordinator();
+         CleverCoffee::HardwareManager* hwManager = systemInitializer->getHardwareManager();
+         loopManager = std::make_unique<LoopManager>(processController.get(), uiManager, nullptr, sensorCoord, hwManager, systemInitializer->getSystemContext());
+         InitHelpers::logInitResult("LoopManager", loopManager->initialize());
 
         // Configure sensor update timers (uncomment and modify as needed)
         // loopManager->configureSensorTimers(100, 50, 100); // Temperature: 100ms (10Hz), Pressure: 50ms (20Hz), Scale: 100ms (10Hz)

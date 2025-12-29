@@ -18,6 +18,7 @@ class HotWaterHandler;
 namespace CleverCoffee {
 class SensorCoordinator;
 class HardwareManager;
+class SystemContext;
 }
 
 /**
@@ -38,19 +39,21 @@ class HardwareManager;
  */
 class LoopManager {
   public:
-    /**
-      * @brief Constructor
-      * @param processController Process control manager (optional)
-      * @param uiManager UI management system (optional)
-      * @param hotWaterHandler Hot water handler (optional)
-      * @param sensorCoordinator Sensor coordinator for async sensor polling (optional)
-      * @param hardwareManager Hardware manager for LED and relay control (optional)
-      */
-    explicit LoopManager(ProcessController*                processController   = nullptr,
-                         UIManager*                        uiManager           = nullptr,
-                         HotWaterHandler*                  hotWaterHandler     = nullptr,
-                         CleverCoffee::SensorCoordinator*  sensorCoordinator   = nullptr,
-                         CleverCoffee::HardwareManager*    hardwareManager     = nullptr);
+     /**
+       * @brief Constructor
+       * @param processController Process control manager (optional)
+       * @param uiManager UI management system (optional)
+       * @param hotWaterHandler Hot water handler (optional)
+       * @param sensorCoordinator Sensor coordinator for async sensor polling (optional)
+       * @param hardwareManager Hardware manager for LED and relay control (optional)
+       * @param systemContext System context for access to coordinators (optional)
+       */
+     explicit LoopManager(ProcessController*                processController   = nullptr,
+                          UIManager*                        uiManager           = nullptr,
+                          HotWaterHandler*                  hotWaterHandler     = nullptr,
+                          CleverCoffee::SensorCoordinator*  sensorCoordinator   = nullptr,
+                          CleverCoffee::HardwareManager*    hardwareManager     = nullptr,
+                          CleverCoffee::SystemContext*      systemContext       = nullptr);
 
     /**
      * @brief Destructor
@@ -195,13 +198,21 @@ class LoopManager {
          sensorCoordinator_ = coordinator;
      }
 
-     /**
-      * @brief Set the hardware manager
-      * @param manager Hardware manager instance
-      */
-     void setHardwareManager(CleverCoffee::HardwareManager* manager) {
-         hardwareManager_ = manager;
-     }
+      /**
+       * @brief Set the hardware manager
+       * @param manager Hardware manager instance
+       */
+      void setHardwareManager(CleverCoffee::HardwareManager* manager) {
+          hardwareManager_ = manager;
+      }
+
+      /**
+       * @brief Set the system context
+       * @param context System context instance for coordinator access
+       */
+      void setSystemContext(CleverCoffee::SystemContext* context) {
+          systemContext_ = context;
+      }
 
     /**
      * @brief Get loop performance statistics
@@ -245,12 +256,13 @@ class LoopManager {
      */
     void updateCentralizedSensorTimers();
 
-     // Manager dependencies
-     ProcessController*               processController_;
-     UIManager*                       uiManager_;
-     HotWaterHandler*                 hotWaterHandler_;
-     CleverCoffee::SensorCoordinator* sensorCoordinator_;
-     CleverCoffee::HardwareManager*   hardwareManager_;
+      // Manager dependencies
+      ProcessController*               processController_;
+      UIManager*                       uiManager_;
+      HotWaterHandler*                 hotWaterHandler_;
+      CleverCoffee::SensorCoordinator* sensorCoordinator_;
+      CleverCoffee::HardwareManager*   hardwareManager_;
+      CleverCoffee::SystemContext*     systemContext_;
 
     // Initialization state
     bool initialized_;

@@ -130,10 +130,79 @@ public:
 
     /** @} */
 
+    /**
+     * @name WiFi Reconnection Tracking
+     * @{
+     */
+
+    /**
+     * @brief Increment WiFi reconnection counter
+     *
+     * Should be called when WiFi reconnects after being disconnected.
+     *
+     * @post getWifiReconnects() returns previous value + 1
+     */
+    void incrementWifiReconnects() noexcept {
+        wifiReconnects_++;
+    }
+
+    /**
+     * @brief Reset WiFi reconnection counter
+     *
+     * Should be called periodically (e.g., when connection is stable)
+     * or during maintenance operations.
+     *
+     * @post getWifiReconnects() returns 0
+     */
+    void resetWifiReconnects() noexcept {
+        wifiReconnects_ = 0;
+    }
+
+    /**
+     * @brief Get WiFi reconnection count
+     *
+     * @return Number of WiFi reconnections since last reset
+     */
+    unsigned int getWifiReconnects() const noexcept {
+        return wifiReconnects_;
+    }
+
+    /** @} */
+
+    /**
+     * @name Offline Mode
+     * @{
+     */
+
+    /**
+     * @brief Set offline mode flag
+     *
+     * When offline mode is enabled, the system disables network operations
+     * but continues to function locally (e.g., espresso machine still operates).
+     *
+     * @param offline true to enable offline mode, false to disable
+     */
+    void setOfflineMode(bool offline) noexcept {
+        offlineMode_ = offline;
+    }
+
+    /**
+     * @brief Check if offline mode is enabled
+     *
+     * @return true if offline mode is active, false otherwise
+     */
+    bool isOfflineMode() const noexcept {
+        return offlineMode_;
+    }
+
+    /** @} */
+
 private:
     std::atomic<bool> mqttConnected_{false};          ///< MQTT connection state
     std::atomic<bool> wifiConnected_{false};          ///< WiFi connection state
     std::atomic<int> mqttConnectionAttempts_{0};      ///< MQTT retry counter
+    std::atomic<unsigned int> wifiReconnects_{0};     ///< WiFi reconnection counter
+    std::atomic<bool> offlineMode_{false};            ///< Offline mode flag
 };
 
 } // namespace CleverCoffee

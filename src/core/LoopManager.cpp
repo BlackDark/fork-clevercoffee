@@ -8,6 +8,7 @@
 #include "clevercoffee/Config.h"
 #include "clevercoffee/GlobalState.h"
 #include "clevercoffee/Logger.h"
+#include "clevercoffee/context/SystemContext.h"
 #include "clevercoffee/control/ProcessController.h"
 #include "clevercoffee/coordinators/SensorCoordinator.h"
 #include "clevercoffee/handlers/BrewHandler.h"
@@ -48,10 +49,11 @@ LoopManager::LoopManager(ProcessController*               processController,
                          UIManager*                       uiManager,
                          HotWaterHandler*                 hotWaterHandler,
                          CleverCoffee::SensorCoordinator* sensorCoordinator,
-                         CleverCoffee::HardwareManager*   hardwareManager)
+                         CleverCoffee::HardwareManager*   hardwareManager,
+                         CleverCoffee::SystemContext*     systemContext)
     : processController_(processController), uiManager_(uiManager),
       hotWaterHandler_(hotWaterHandler), sensorCoordinator_(sensorCoordinator), 
-      hardwareManager_(hardwareManager), initialized_(false), 
+      hardwareManager_(hardwareManager), systemContext_(systemContext), initialized_(false), 
       sensorsTimersInitialized_(false), performanceMonitoringEnabled_(false), lastLoopTime_(0), 
       maxLoopTime_(0), loopCount_(0), temperatureUpdateCount_(0), pressureUpdateCount_(0), 
       scaleUpdateCount_(0), lastTimerLogTime_(0) {
@@ -430,7 +432,11 @@ void LoopManager::updateNetwork() {
     // Simplified network coordination - delegate complex logic to network managers
     static bool wifiWasConnected = false;
 
-    if (WiFi.status() == WL_CONNECTED && !g_state.network.offlineMode) {
+    // Check offline mode from NetworkCoordinator
+    bool isOfflineMode = (systemContext_ && systemContext_->networkCoordinator().isOfflineMode()) || 
+                         (!systemContext_ && g_state.network.offlineMode);
+
+    if (WiFi.status() == WL_CONNECTED && !isOfflineMode) {
         if (!wifiWasConnected) {
             LOG(INFO, "WiFi Connected");
             wifiWasConnected = true;
@@ -465,12 +471,25 @@ void LoopManager::updateNetwork() {
 
         // OTA handling - minimal coordination
         ArduinoOTA.handle();
-        g_state.network.wifiReconnects = 0;
-    } else {
-        wifiWasConnected = false;
-        if (g_state.network.cleverCoffeeWiFiManager) {
-            g_state.network.cleverCoffeeWiFiManager->checkAndMaintainConnection();
+        
+        // Reset WiFi reconnection counter on successful connection
+        if (systemContext_) {
+            systemContext_->networkCoordinator().resetWifiReconnects();
+        } else {
+            g_state.network.wifiReconnects = 0;
         }
+     } else {
+         wifiWasConnected = false;
+         if (g_state.network.cleverCoffeeWiFiManager) {
+             g_state.network.cleverCoffeeWiFiManager->checkAndMaintainConnection();
+         }
+     }
+
+    // Backward compatibility sync: Copy NetworkCoordinator state back to g_state
+    // This ensures display code and other components still work during transition
+    if (systemContext_) {
+        g_state.network.offlineMode = systemContext_->networkCoordinator().isOfflineMode();
+        g_state.network.wifiReconnects = systemContext_->networkCoordinator().getWifiReconnects();
     }
 }
 
@@ -482,7 +501,11 @@ void LoopManager::updateWebsite() {
                             !g_state.coordination.displayBufferReady &&
                             !g_state.coordination.temperatureUpdateRunning;
 
-    if (canSendData && WiFi.status() == WL_CONNECTED && !g_state.network.offlineMode) {
+    // Check offline mode from NetworkCoordinator
+    bool isOfflineMode = (systemContext_ && systemContext_->networkCoordinator().isOfflineMode()) || 
+                         (!systemContext_ && g_state.network.offlineMode);
+
+    if (canSendData && WiFi.status() == WL_CONNECTED && !isOfflineMode) {
         g_state.coordination.websiteUpdateRunning = true;
 
         // Delegate to WebServerManager for actual transmission
