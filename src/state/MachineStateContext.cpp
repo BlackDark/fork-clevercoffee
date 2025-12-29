@@ -195,11 +195,11 @@ bool MachineStateContext::isEmergencyStop() const {
 }
 
 bool MachineStateContext::shouldEnterStandby() const {
-    return Config::getInstance().standbyEnabled.get() && g_state.standby.standbyModeRemainingTimeMillis == 0;
+    return systemContext_.standbyCoordinator().shouldEnterStandby();
 }
 
 unsigned long MachineStateContext::getStandbyRemainingTime() const {
-    return g_state.standby.standbyModeRemainingTimeMillis;
+    return systemContext_.standbyCoordinator().getRemainingTimeMillis();
 }
 
 // === Timing Functions ===
@@ -209,8 +209,8 @@ unsigned long MachineStateContext::getCurrentTime() const {
 }
 
 void MachineStateContext::resetStandbyTimer(MachineStateId stateId) const {
-    // Convert state ID to int and call existing function
-    ::resetStandbyTimer();
+    // Reset standby timer through coordinator
+    systemContext_.standbyCoordinator().reset();
 }
 
 // === Control Functions ===

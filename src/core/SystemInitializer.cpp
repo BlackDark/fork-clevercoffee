@@ -562,7 +562,7 @@ void SystemInitializer::registerMQTTSensors() {
     mqttManager_->registerSensor("temperature", [] { return g_state.process.temperature; });
     mqttManager_->registerSensor("heaterPower", [] { return g_state.process.pidOutput / 10; });
     mqttManager_->registerSensor("standbyModeTimeRemaining",
-                                 [] { return g_state.standby.standbyModeRemainingTimeMillis / 1000; });
+                                 [this] { return systemContext_->standbyCoordinator().getRemainingTimeMillis() / 1000.0; });
     mqttManager_->registerSensor("currentKp", [] { return g_state.pid->GetKp(); });
     mqttManager_->registerSensor("currentKi", [] { return g_state.pid->GetKi(); });
     mqttManager_->registerSensor("currentKd", [] { return g_state.pid->GetKd(); });

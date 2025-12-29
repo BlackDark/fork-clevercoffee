@@ -264,7 +264,8 @@ void LoopManager::updateDisplay() {
             bool mqttCondition    = (!g_state.network.mqttManager || !g_state.network.mqttManager->isUpdateRunning());
             bool hassioCondition  = systemContext_ ? !systemContext_->uiCoordinator().isHassioUpdateRunning() : true;
             bool tempCondition    = systemContext_ ? !systemContext_->sensorCoordinator().isTemperatureUpdateRunning() : true;
-            bool standbyCondition =
+            bool standbyCondition = systemContext_ ?
+                (!Config::getInstance().standbyEnabled.get() || systemContext_->standbyCoordinator().getRemainingTimeMillis() > 0) :
                 (!Config::getInstance().standbyEnabled.get() || g_state.standby.standbyModeRemainingTimeMillis > 0);
 
             // update display on loops that have not had other major tasks running
@@ -501,6 +502,9 @@ void LoopManager::updateNetwork() {
         
         // Backward compatibility sync: Copy display state back to g_state.display
         g_state.display.displayOffline = systemContext_->uiCoordinator().getDisplayOffline();
+        
+        // Backward compatibility sync: Copy standby state back to g_state.standby
+        g_state.standby.standbyModeRemainingTimeMillis = systemContext_->standbyCoordinator().getRemainingTimeMillis();
     }
 }
 
@@ -556,7 +560,13 @@ void LoopManager::updateSwitchesAndStandby() {
             powerHandler->process();
         }
     }
-    updateStandbyTimer();
+    
+    // Update standby timer through coordinator
+    if (systemContext_) {
+        systemContext_->standbyCoordinator().update();
+    } else {
+        updateStandbyTimer(); // Fallback to legacy function
+    }
 }
 
 void LoopManager::updateStateMachine() {

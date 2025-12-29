@@ -3,6 +3,7 @@
 #include "clevercoffee/coordinators/SensorCoordinator.h"
 #include "clevercoffee/coordinators/NetworkCoordinator.h"
 #include "clevercoffee/coordinators/UICoordinator.h"
+#include "clevercoffee/coordinators/StandbyCoordinator.h"
 
 // Forward declarations for handlers
 class BrewHandler;
@@ -111,6 +112,22 @@ public:
      * @return Const reference to the UI coordinator
      */
     const UICoordinator& uiCoordinator() const noexcept { return uiCoordinator_; }
+
+    /**
+     * @brief Access standby coordinator
+     *
+     * Provides access to the StandbyCoordinator for managing standby mode.
+     *
+     * @return Reference to the standby coordinator
+     */
+    StandbyCoordinator& standbyCoordinator() noexcept { return standbyCoordinator_; }
+
+    /**
+     * @brief Access standby coordinator (const overload)
+     *
+     * @return Const reference to the standby coordinator
+     */
+    const StandbyCoordinator& standbyCoordinator() const noexcept { return standbyCoordinator_; }
 
     /** @} */
 
@@ -239,6 +256,7 @@ private:
     SensorCoordinator sensorCoordinator_; ///< Manages sensor operation state
     NetworkCoordinator networkCoordinator_; ///< Manages network connection state
     UICoordinator uiCoordinator_;         ///< Manages UI refresh and sleep state
+    StandbyCoordinator standbyCoordinator_; ///< Manages standby mode and power management
     bool ready_ = false;                  ///< System initialization complete flag
 
     // Handler references (non-owning pointers)
