@@ -144,8 +144,8 @@ float MachineStateContext::getCurrentWeight() const noexcept {
 }
 
 float MachineStateContext::getCurrentBrewWeight() const noexcept {
-    // Scale brew weight tracking comes from global state (scale needs ISensor implementation)
-    return g_state.sensors.currBrewWeight;
+    // Get brew weight from SensorCoordinator
+    return static_cast<float>(systemContext_.sensorCoordinator().getBrewWeight());
 }
 
 bool MachineStateContext::hasScaleError() const {

@@ -575,13 +575,13 @@ void SystemInitializer::registerMQTTSensors() {
 
     // Scale-specific sensors
     if (Config::getInstance().hardwareSensorsScaleEnabled.get()) {
-        mqttManager_->registerSensor("currReadingWeight", [] { return g_state.sensors.currReadingWeight; });
-        mqttManager_->registerSensor("currBrewWeight", [] { return g_state.sensors.currBrewWeight; });
+        mqttManager_->registerSensor("currReadingWeight", [this] { return systemContext_->sensorCoordinator().getWeight(); });
+        mqttManager_->registerSensor("currBrewWeight", [this] { return systemContext_->sensorCoordinator().getBrewWeight(); });
     }
 
     // Pressure sensor
     if (Config::getInstance().hardwareSensorsPressureEnabled.get()) {
-        mqttManager_->registerSensor("pressure", [] { return g_state.sensors.inputPressureFilter; });
+        mqttManager_->registerSensor("pressure", [this] { return systemContext_->sensorCoordinator().getFilteredPressure(); });
     }
 
     LOG(DEBUG, "MQTT sensors registered");
