@@ -138,13 +138,16 @@ void setup() {
         logMemoryBasic("Scale sensor support via SensorCoordinator");
     }
 
-    if (systemInitializer->isInitialized()) {
-        stateMachine = std::make_unique<StateMachine>(
-            *systemInitializer->getSystemContext(), displayManager, hardwareManager, wifiManager,
-            mqttManager);
-        InitHelpers::logInitResult("StateMachine", stateMachine->initialize());
+     if (systemInitializer->isInitialized()) {
+         stateMachine = std::make_unique<StateMachine>(
+             *systemInitializer->getSystemContext(), displayManager, hardwareManager, wifiManager,
+             mqttManager);
+         InitHelpers::logInitResult("StateMachine", stateMachine->initialize());
 
-        // Initialize ProcessController for PID control
+         // Register MachineStateContext in SystemContext for safe access
+         systemInitializer->getSystemContext()->setMachineStateContext(&stateMachine->getContext());
+
+         // Initialize ProcessController for PID control
         processController =
             std::make_unique<ProcessController>(Config::getInstance(), *systemInitializer->getSystemContext(), displayManager, hardwareManager, mqttManager);
         

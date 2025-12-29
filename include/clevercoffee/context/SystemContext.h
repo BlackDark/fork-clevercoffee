@@ -11,6 +11,7 @@ class HotWaterHandler;
 class PowerHandler;
 class SteamHandler;
 class ProcessController;
+class MachineStateContext;
 
 namespace CleverCoffee {
 
@@ -220,13 +221,31 @@ public:
      */
     ProcessController* processController() noexcept { return processController_; }
 
-    /**
-     * @brief Get process controller (const)
-     * @return Const pointer to ProcessController (may be nullptr if not registered)
-     */
-    const ProcessController* processController() const noexcept { return processController_; }
+     /**
+      * @brief Get process controller (const)
+      * @return Const pointer to ProcessController (may be nullptr if not registered)
+      */
+     const ProcessController* processController() const noexcept { return processController_; }
 
-    /** @} */
+     /**
+      * @brief Register machine state context
+      * @param context Pointer to MachineStateContext instance (can be nullptr)
+      */
+     void setMachineStateContext(MachineStateContext* context) noexcept { machineStateContext_ = context; }
+
+     /**
+      * @brief Get machine state context
+      * @return Pointer to MachineStateContext (may be nullptr if not registered)
+      */
+     MachineStateContext* machineStateContext() noexcept { return machineStateContext_; }
+
+     /**
+      * @brief Get machine state context (const)
+      * @return Const pointer to MachineStateContext (may be nullptr if not registered)
+      */
+     const MachineStateContext* machineStateContext() const noexcept { return machineStateContext_; }
+
+     /** @} */
 
     /**
      * @name System Initialization State
@@ -265,8 +284,11 @@ private:
     PowerHandler*    powerHandler_    = nullptr;
     SteamHandler*    steamHandler_    = nullptr;
     
-    // Controller reference (non-owning pointer)
-    ProcessController* processController_ = nullptr;
+     // Controller reference (non-owning pointer)
+     ProcessController* processController_ = nullptr;
+
+     // Machine state context reference (non-owning pointer)
+     MachineStateContext* machineStateContext_ = nullptr;
 };
 
 } // namespace CleverCoffee
