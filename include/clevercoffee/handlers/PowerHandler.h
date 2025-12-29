@@ -20,13 +20,27 @@
  */
 class PowerHandler : public SwitchBasedHandler {
   private:
+    // Long press detection state
     unsigned long longPressStartTime_;
     bool          trackingLongPress_;
+    
+    // Power switch state tracking
+    bool          currStatePowerSwitchPressed_;
+    bool          lastPowerSwitchPressed_;
+    unsigned long systemInitializedTime_;
+    unsigned long firstSwitchPressTime_;
+    bool          trackingPressTime_;
 
   public:
     PowerHandler()
-        : SwitchBasedHandler("PowerHandler", nullptr), longPressStartTime_(0),
-          trackingLongPress_(false) {}
+        : SwitchBasedHandler("PowerHandler", nullptr), 
+          longPressStartTime_(0),
+          trackingLongPress_(false),
+          currStatePowerSwitchPressed_(false),
+          lastPowerSwitchPressed_(false),
+          systemInitializedTime_(0),
+          firstSwitchPressTime_(0),
+          trackingPressTime_(false) {}
     
     /**
      * @brief Initialize with hardware switch (call after HardwareManager is ready)
@@ -64,15 +78,15 @@ class PowerHandler : public SwitchBasedHandler {
         const long currentMillis = millis();
 
         // Record when system was first initialized
-        if (g_state.machine.systemInitialized && g_state.sensors.systemInitializedTime == 0) {
-            g_state.sensors.systemInitializedTime = currentMillis;
+        if (g_state.machine.systemInitialized && systemInitializedTime_ == 0) {
+            systemInitializedTime_ = currentMillis;
             logInfo("System initialization time recorded");
         }
     }
 
     void processTogglePowerSwitch(bool pressed) {
-        if (pressed != g_state.sensors.lastPowerSwitchPressed) {
-            g_state.sensors.lastPowerSwitchPressed = pressed;
+        if (pressed != lastPowerSwitchPressed_) {
+            lastPowerSwitchPressed_ = pressed;
 
             if (pressed) {
                 powerOn();
@@ -85,8 +99,8 @@ class PowerHandler : public SwitchBasedHandler {
     void processMomentaryPowerSwitch(bool pressed) {
         const long currentMillis = millis();
 
-        if (pressed != g_state.sensors.currStatePowerSwitchPressed) {
-            g_state.sensors.currStatePowerSwitchPressed = pressed;
+        if (pressed != currStatePowerSwitchPressed_) {
+            currStatePowerSwitchPressed_ = pressed;
 
             if (pressed && g_state.machine.systemInitialized) {
                 handlePowerButtonPress(currentMillis);
@@ -101,9 +115,9 @@ class PowerHandler : public SwitchBasedHandler {
 
     void handlePowerButtonPress(long currentMillis) {
         // Only start tracking if system initialized for at least 5 seconds
-        if (currentMillis - g_state.sensors.systemInitializedTime > 5000) {
-            g_state.sensors.firstSwitchPressTime = currentMillis;
-            g_state.sensors.trackingPressTime    = true;
+        if (currentMillis - systemInitializedTime_ > 5000) {
+            firstSwitchPressTime_ = currentMillis;
+            trackingPressTime_    = true;
             trackingLongPress_                   = true;
             longPressStartTime_                  = currentMillis;
         }
@@ -117,15 +131,15 @@ class PowerHandler : public SwitchBasedHandler {
     }
 
     void handlePowerButtonRelease() {
-        g_state.sensors.trackingPressTime    = false;
-        g_state.sensors.firstSwitchPressTime = 0;
+        trackingPressTime_    = false;
+        firstSwitchPressTime_ = 0;
         trackingLongPress_                   = false;
         longPressStartTime_                  = 0;
     }
 
     void checkForLongPressReboot(bool pressed, long currentMillis) {
         if (pressed && g_state.machine.systemInitialized &&
-            (currentMillis - g_state.sensors.systemInitializedTime > 5000) && trackingLongPress_ &&
+            (currentMillis - systemInitializedTime_ > 5000) && trackingLongPress_ &&
             (currentMillis - longPressStartTime_ > 1000) && switch_->longPressDetected()) {
             triggerSystemReboot();
         }
