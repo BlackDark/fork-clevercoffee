@@ -9,6 +9,7 @@ class BrewHandler;
 class HotWaterHandler;
 class PowerHandler;
 class SteamHandler;
+class ProcessController;
 
 namespace CleverCoffee {
 
@@ -190,6 +191,24 @@ public:
      */
     const SteamHandler* steamHandler() const noexcept { return steamHandler_; }
 
+    /**
+     * @brief Register process controller
+     * @param controller Pointer to ProcessController instance (can be nullptr)
+     */
+    void setProcessController(ProcessController* controller) noexcept { processController_ = controller; }
+
+    /**
+     * @brief Get process controller
+     * @return Pointer to ProcessController (may be nullptr if not registered)
+     */
+    ProcessController* processController() noexcept { return processController_; }
+
+    /**
+     * @brief Get process controller (const)
+     * @return Const pointer to ProcessController (may be nullptr if not registered)
+     */
+    const ProcessController* processController() const noexcept { return processController_; }
+
     /** @} */
 
     /**
@@ -227,6 +246,9 @@ private:
     HotWaterHandler* hotWaterHandler_ = nullptr;
     PowerHandler*    powerHandler_    = nullptr;
     SteamHandler*    steamHandler_    = nullptr;
+    
+    // Controller reference (non-owning pointer)
+    ProcessController* processController_ = nullptr;
 };
 
 } // namespace CleverCoffee

@@ -111,9 +111,92 @@ public:
 
     /** @} */
 
+    /**
+     * @name Display Buffer Management
+     * @{
+     */
+
+    /**
+     * @brief Mark display buffer as ready
+     *
+     * Indicates that the display buffer has been prepared and is ready for rendering.
+     * Used to coordinate display updates with other system operations.
+     */
+    void setDisplayBufferReady() noexcept {
+        displayBufferReady_ = true;
+    }
+
+    /**
+     * @brief Clear display buffer ready flag
+     *
+     * Marks the display buffer as not ready, typically after rendering is complete.
+     */
+    void clearDisplayBufferReady() noexcept {
+        displayBufferReady_ = false;
+    }
+
+    /**
+     * @brief Check if display buffer is ready
+     *
+     * @return true if display buffer is ready for rendering, false otherwise
+     */
+    bool isDisplayBufferReady() const noexcept {
+        return displayBufferReady_;
+    }
+
+    /** @} */
+
+    /**
+     * @name Update Running Flags
+     * @{
+     */
+
+    /**
+     * @brief Mark website update as running
+     *
+     * Sets flag indicating that a website/webserver update is in progress.
+     * Used to prevent concurrent updates.
+     */
+    void setWebsiteUpdateRunning(bool running) noexcept {
+        websiteUpdateRunning_ = running;
+    }
+
+    /**
+     * @brief Check if website update is running
+     *
+     * @return true if website update is in progress, false otherwise
+     */
+    bool isWebsiteUpdateRunning() const noexcept {
+        return websiteUpdateRunning_;
+    }
+
+    /**
+     * @brief Mark Home Assistant IO update as running
+     *
+     * Sets flag indicating that a Home Assistant discovery/update is in progress.
+     * Used to prevent concurrent MQTT operations.
+     */
+    void setHassioUpdateRunning(bool running) noexcept {
+        hassioUpdateRunning_ = running;
+    }
+
+    /**
+     * @brief Check if Home Assistant IO update is running
+     *
+     * @return true if HASSIO update is in progress, false otherwise
+     */
+    bool isHassioUpdateRunning() const noexcept {
+        return hassioUpdateRunning_;
+    }
+
+    /** @} */
+
 private:
-    std::atomic<bool> refreshNeeded_{false};  ///< Flag for pending display refresh
-    std::atomic<bool> autoSleepEnabled_{true}; ///< Flag for auto sleep state
+    std::atomic<bool> refreshNeeded_{false};        ///< Flag for pending display refresh
+    std::atomic<bool> autoSleepEnabled_{true};      ///< Flag for auto sleep state
+    std::atomic<bool> displayBufferReady_{false};   ///< Flag indicating display buffer is ready
+    std::atomic<bool> websiteUpdateRunning_{false}; ///< Flag for website update in progress
+    std::atomic<bool> hassioUpdateRunning_{false};  ///< Flag for HASSIO update in progress
 };
 
 } // namespace CleverCoffee

@@ -224,7 +224,9 @@ void MachineStateContext::setPidRuntimeState(bool enabled) const {
 }
 
 void MachineStateContext::performSafeShutdown() const {
-    g_state.coordination.processController->performSafeShutdown();
+    if (auto* processController = systemContext_.processController()) {
+        processController->performSafeShutdown();
+    }
 }
 
 // === Display Functions ===

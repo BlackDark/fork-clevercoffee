@@ -260,10 +260,10 @@ void LoopManager::updateDisplay() {
         if (Config::getInstance().hardwareOledEnabled.get()) {
             // Only update display on loops that have not had other major tasks running
             // and when not in standby display-off mode
-            bool websiteCondition = !g_state.coordination.websiteUpdateRunning;
+            bool websiteCondition = systemContext_ ? !systemContext_->uiCoordinator().isWebsiteUpdateRunning() : true;
             bool mqttCondition    = (!g_state.network.mqttManager || !g_state.network.mqttManager->isUpdateRunning());
-            bool hassioCondition  = !g_state.coordination.hassioUpdateRunning;
-            bool tempCondition    = !g_state.coordination.temperatureUpdateRunning;
+            bool hassioCondition  = systemContext_ ? !systemContext_->uiCoordinator().isHassioUpdateRunning() : true;
+            bool tempCondition    = systemContext_ ? !systemContext_->sensorCoordinator().isTemperatureUpdateRunning() : true;
             bool standbyCondition =
                 (!Config::getInstance().standbyEnabled.get() || g_state.standby.standbyModeRemainingTimeMillis > 0);
 
@@ -449,7 +449,9 @@ void LoopManager::updateNetwork() {
             if (g_state.network.cleverCoffeeWiFiManager->getSignalStrength() > 1) {
                 g_state.network.mqttManager->checkConnection();
 
-                if (!g_state.coordination.displayBufferReady && !g_state.coordination.temperatureUpdateRunning) {
+                bool displayBufferNotReady = systemContext_ ? !systemContext_->uiCoordinator().isDisplayBufferReady() : true;
+                bool tempNotRunning = systemContext_ ? !systemContext_->sensorCoordinator().isTemperatureUpdateRunning() : true;
+                if (displayBufferNotReady && tempNotRunning) {
                     g_state.network.mqttManager->writeSysParamsToMQTT(true);
                 }
             }
@@ -457,9 +459,9 @@ void LoopManager::updateNetwork() {
             if (g_state.network.mqttManager->isConnected()) {
                 g_state.network.mqttManager->loop();
                 // Home Assistant discovery - delegate to timer system
-                if (g_state.timing.hassioDiscoveryTimer &&
-                    !g_state.coordination.displayBufferReady &&
-                    !g_state.coordination.temperatureUpdateRunning) {
+                bool displayBufferNotReady = systemContext_ ? !systemContext_->uiCoordinator().isDisplayBufferReady() : true;
+                bool tempNotRunning = systemContext_ ? !systemContext_->sensorCoordinator().isTemperatureUpdateRunning() : true;
+                if (g_state.timing.hassioDiscoveryTimer && displayBufferNotReady && tempNotRunning) {
                     (*g_state.timing.hassioDiscoveryTimer)();
                 }
                 g_state.network.mqttManager->setWasConnected(true);
@@ -490,23 +492,35 @@ void LoopManager::updateNetwork() {
     if (systemContext_) {
         g_state.network.offlineMode = systemContext_->networkCoordinator().isOfflineMode();
         g_state.network.wifiReconnects = systemContext_->networkCoordinator().getWifiReconnects();
+        
+        // Backward compatibility sync: Copy coordinator flags back to g_state.coordination
+        g_state.coordination.temperatureUpdateRunning = systemContext_->sensorCoordinator().isTemperatureUpdateRunning();
+        g_state.coordination.displayBufferReady = systemContext_->uiCoordinator().isDisplayBufferReady();
+        g_state.coordination.websiteUpdateRunning = systemContext_->uiCoordinator().isWebsiteUpdateRunning();
+        g_state.coordination.hassioUpdateRunning = systemContext_->uiCoordinator().isHassioUpdateRunning();
     }
 }
 
 void LoopManager::updateWebsite() {
     // Simplified website coordination - delegate to WebServerManager
+    bool hassioNotRunning = systemContext_ ? !systemContext_->uiCoordinator().isHassioUpdateRunning() : true;
+    bool displayBufferNotReady = systemContext_ ? !systemContext_->uiCoordinator().isDisplayBufferReady() : true;
+    bool tempNotRunning = systemContext_ ? !systemContext_->sensorCoordinator().isTemperatureUpdateRunning() : true;
+    
     const bool canSendData = (millis() - g_state.network.lastTempEvent) > g_state.network.tempEventInterval &&
                             (!g_state.network.mqttManager || !g_state.network.mqttManager->isUpdateRunning()) &&
-                            !g_state.coordination.hassioUpdateRunning &&
-                            !g_state.coordination.displayBufferReady &&
-                            !g_state.coordination.temperatureUpdateRunning;
+                            hassioNotRunning &&
+                            displayBufferNotReady &&
+                            tempNotRunning;
 
     // Check offline mode from NetworkCoordinator
     bool isOfflineMode = (systemContext_ && systemContext_->networkCoordinator().isOfflineMode()) || 
                          (!systemContext_ && g_state.network.offlineMode);
 
     if (canSendData && WiFi.status() == WL_CONNECTED && !isOfflineMode) {
-        g_state.coordination.websiteUpdateRunning = true;
+        if (systemContext_) {
+            systemContext_->uiCoordinator().setWebsiteUpdateRunning(true);
+        }
 
         // Delegate to WebServerManager for actual transmission
         if (g_state.network.webServerManager) {
@@ -521,7 +535,9 @@ void LoopManager::updateWebsite() {
         }
 
         g_state.network.lastTempEvent = millis();
-        g_state.coordination.websiteUpdateRunning = false;
+        if (systemContext_) {
+            systemContext_->uiCoordinator().setWebsiteUpdateRunning(false);
+        }
     }
 }
 

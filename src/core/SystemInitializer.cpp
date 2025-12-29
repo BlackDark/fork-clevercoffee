@@ -142,7 +142,9 @@ bool SystemInitializer::initialize() {
         return false;
     }
 
-    g_state.coordination.setupDone = true;
+    // Mark system as fully initialized
+    systemContext_->markReady();
+    g_state.coordination.setupDone = true; // Backward compatibility
     systemInitialized_             = true;
 
     // System initialization complete
