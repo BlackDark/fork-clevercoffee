@@ -68,6 +68,11 @@ class CleverCoffeeWiFiManager;
 class WebServerManager;
 class PID;
 class Config;
+
+// Forward declaration for SystemContext
+namespace CleverCoffee {
+class SystemContext;
+}
 class Switch;
 class LED;
 class GPIOPin;
@@ -385,4 +390,4 @@ DEPRECATED struct GlobalState {
 extern GlobalState g_state;
 
 // Handler initialization function
-void initializeHandlers();
+void initializeHandlers(CleverCoffee::SystemContext* systemContext = nullptr);

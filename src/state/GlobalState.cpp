@@ -5,6 +5,7 @@
 
 #include "clevercoffee/GlobalState.h"
 
+#include "clevercoffee/context/SystemContext.h"
 #include "clevercoffee/control/ProcessController.h"
 #include "clevercoffee/defaults.h"
 #include "clevercoffee/handlers/BrewHandler.h"
@@ -27,16 +28,24 @@ static SteamHandler    steamHandler;
 GlobalState g_state;
 
 // Initialize handler references in global state
-void initializeHandlers() {
+void initializeHandlers(CleverCoffee::SystemContext* systemContext) {
     // Initialize handler hardware (switches must be ready before calling this)
     brewHandler.setHardware(g_state.hardware.brewSwitch, g_state.hardware.valveRelay);
     hotWaterHandler.setHardware(g_state.hardware.hotWaterSwitch);
     powerHandler.setHardware(g_state.hardware.powerSwitch);
     steamHandler.setHardware(g_state.hardware.steamSwitch);
     
-    // Store handler references in global state
+    // Store handler references in global state (backward compatibility)
     g_state.handlers.brewHandler     = &brewHandler;
     g_state.handlers.hotWaterHandler = &hotWaterHandler;
     g_state.handlers.powerHandler    = &powerHandler;
     g_state.handlers.steamHandler    = &steamHandler;
+    
+    // Also register in SystemContext if provided
+    if (systemContext) {
+        systemContext->setBrewHandler(&brewHandler);
+        systemContext->setHotWaterHandler(&hotWaterHandler);
+        systemContext->setPowerHandler(&powerHandler);
+        systemContext->setSteamHandler(&steamHandler);
+    }
 }

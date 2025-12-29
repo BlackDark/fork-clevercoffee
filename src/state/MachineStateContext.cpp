@@ -161,7 +161,8 @@ bool MachineStateContext::hasSensorError() const {
 // TODO those are wrong the functions behind like brew() and manualFlush() are triggering those events
 
 bool MachineStateContext::isBrewActive() const {
-    return g_state.handlers.brewHandler ? g_state.handlers.brewHandler->isBrewActive() : false;
+    auto* brewHandler = systemContext_.brewHandler();
+    return brewHandler ? brewHandler->isBrewActive() : false;
 }
 
 bool MachineStateContext::isManualFlushActive() const {

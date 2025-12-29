@@ -36,7 +36,7 @@ extern void printScreen();
 }
 
 // External function declarations
-// checkBrewActive removed - now accessed via g_state.handlers.brewHandler
+// checkBrewActive removed - now accessed via SystemContext->brewHandler()
 extern void sendHASSIODiscoveryMsg();
 extern int  getSignalStrength();
 extern void disableTimer1();
@@ -529,11 +529,13 @@ void LoopManager::updateWebsite() {
 
 void LoopManager::updateSwitchesAndStandby() {
     // Switch handling and standby management extracted from loopPid()
-    if (g_state.handlers.steamHandler) {
-        g_state.handlers.steamHandler->process();
-    }
-    if (g_state.handlers.powerHandler) {
-        g_state.handlers.powerHandler->process();
+    if (systemContext_) {
+        if (auto* steamHandler = systemContext_->steamHandler()) {
+            steamHandler->process();
+        }
+        if (auto* powerHandler = systemContext_->powerHandler()) {
+            powerHandler->process();
+        }
     }
     updateStandbyTimer();
 }
@@ -559,12 +561,14 @@ void LoopManager::updateStateMachine() {
     }
 
     // Update handlers
-    if (g_state.handlers.hotWaterHandler) {
-        g_state.handlers.hotWaterHandler->process();
-    }
-    if (g_state.handlers.brewHandler) {
-        g_state.handlers.brewHandler->process();
-        g_state.handlers.brewHandler->valveSafetyShutdownCheck();
+    if (systemContext_) {
+        if (auto* hotWaterHandler = systemContext_->hotWaterHandler()) {
+            hotWaterHandler->process();
+        }
+        if (auto* brewHandler = systemContext_->brewHandler()) {
+            brewHandler->process();
+            brewHandler->valveSafetyShutdownCheck();
+        }
     }
 
     // Update brew timer display state using UIManager if available

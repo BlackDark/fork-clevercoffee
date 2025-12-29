@@ -35,7 +35,7 @@ extern void enableTimer1();
 //     extern void initializeDisplay(int templateId);
 // }
 
-// checkBrewActive removed - now accessed via g_state.handlers.brewHandler
+// checkBrewActive removed - now accessed via SystemContext->brewHandler()
 
 SystemInitializer::SystemInitializer()
     : systemInitialized_(false), hostname_(), displayManager_(nullptr), uiManager_(nullptr), hardwareManager_(nullptr),

@@ -162,8 +162,8 @@ void setup() {
         // loopManager->configureSensorTimers(50, 25, 50); // Faster: Temperature: 50ms (20Hz), Pressure: 25ms (40Hz), Scale: 50ms (20Hz)
     }
 
-    // Initialize handler objects and set up references in global state
-    initializeHandlers();
+    // Initialize handler objects and set up references in global state and SystemContext
+    initializeHandlers(systemInitializer->getSystemContext());
     InitHelpers::logInitResult("Handlers", true);
 
     logMemory("Setup Complete");

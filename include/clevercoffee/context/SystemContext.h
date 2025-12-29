@@ -4,6 +4,12 @@
 #include "clevercoffee/coordinators/NetworkCoordinator.h"
 #include "clevercoffee/coordinators/UICoordinator.h"
 
+// Forward declarations for handlers
+class BrewHandler;
+class HotWaterHandler;
+class PowerHandler;
+class SteamHandler;
+
 namespace CleverCoffee {
 
 /**
@@ -108,6 +114,85 @@ public:
     /** @} */
 
     /**
+     * @name Handler Registration and Access
+     * @{
+     */
+
+    /**
+     * @brief Register brew handler
+     * @param handler Pointer to BrewHandler instance (can be nullptr)
+     */
+    void setBrewHandler(BrewHandler* handler) noexcept { brewHandler_ = handler; }
+
+    /**
+     * @brief Get brew handler
+     * @return Pointer to BrewHandler (may be nullptr if not registered)
+     */
+    BrewHandler* brewHandler() noexcept { return brewHandler_; }
+
+    /**
+     * @brief Get brew handler (const)
+     * @return Const pointer to BrewHandler (may be nullptr if not registered)
+     */
+    const BrewHandler* brewHandler() const noexcept { return brewHandler_; }
+
+    /**
+     * @brief Register hot water handler
+     * @param handler Pointer to HotWaterHandler instance (can be nullptr)
+     */
+    void setHotWaterHandler(HotWaterHandler* handler) noexcept { hotWaterHandler_ = handler; }
+
+    /**
+     * @brief Get hot water handler
+     * @return Pointer to HotWaterHandler (may be nullptr if not registered)
+     */
+    HotWaterHandler* hotWaterHandler() noexcept { return hotWaterHandler_; }
+
+    /**
+     * @brief Get hot water handler (const)
+     * @return Const pointer to HotWaterHandler (may be nullptr if not registered)
+     */
+    const HotWaterHandler* hotWaterHandler() const noexcept { return hotWaterHandler_; }
+
+    /**
+     * @brief Register power handler
+     * @param handler Pointer to PowerHandler instance (can be nullptr)
+     */
+    void setPowerHandler(PowerHandler* handler) noexcept { powerHandler_ = handler; }
+
+    /**
+     * @brief Get power handler
+     * @return Pointer to PowerHandler (may be nullptr if not registered)
+     */
+    PowerHandler* powerHandler() noexcept { return powerHandler_; }
+
+    /**
+     * @brief Get power handler (const)
+     * @return Const pointer to PowerHandler (may be nullptr if not registered)
+     */
+    const PowerHandler* powerHandler() const noexcept { return powerHandler_; }
+
+    /**
+     * @brief Register steam handler
+     * @param handler Pointer to SteamHandler instance (can be nullptr)
+     */
+    void setSteamHandler(SteamHandler* handler) noexcept { steamHandler_ = handler; }
+
+    /**
+     * @brief Get steam handler
+     * @return Pointer to SteamHandler (may be nullptr if not registered)
+     */
+    SteamHandler* steamHandler() noexcept { return steamHandler_; }
+
+    /**
+     * @brief Get steam handler (const)
+     * @return Const pointer to SteamHandler (may be nullptr if not registered)
+     */
+    const SteamHandler* steamHandler() const noexcept { return steamHandler_; }
+
+    /** @} */
+
+    /**
      * @name System Initialization State
      * @{
      */
@@ -136,6 +221,12 @@ private:
     NetworkCoordinator networkCoordinator_; ///< Manages network connection state
     UICoordinator uiCoordinator_;         ///< Manages UI refresh and sleep state
     bool ready_ = false;                  ///< System initialization complete flag
+
+    // Handler references (non-owning pointers)
+    BrewHandler*     brewHandler_     = nullptr;
+    HotWaterHandler* hotWaterHandler_ = nullptr;
+    PowerHandler*    powerHandler_    = nullptr;
+    SteamHandler*    steamHandler_    = nullptr;
 };
 
 } // namespace CleverCoffee
