@@ -341,6 +341,7 @@ bool SystemInitializer::initializeMQTT() {
 
     try {
         mqttManager_ = std::make_unique<MQTTManager>();
+        mqttManager_->setUICoordinator(&systemContext_->uiCoordinator());
 
         if (mqttManager_->setup(Config::getInstance().systemHostname.get())) {
             // Set compatibility variables

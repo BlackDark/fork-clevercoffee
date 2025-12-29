@@ -13,6 +13,11 @@
 #include <map>
 #include <memory>
 
+// Forward declarations
+namespace CleverCoffee {
+class UICoordinator;
+}
+
 /**
  * @class MQTTManager
  * @brief RAII wrapper for MQTT connection and message handling
@@ -46,6 +51,14 @@ class MQTTManager {
      * @return true if MQTT is enabled and configured
      */
     bool setup(const String& hostname);
+
+    /**
+     * @brief Set UI coordinator for state management
+     * @param coordinator Pointer to UICoordinator
+     */
+    void setUICoordinator(CleverCoffee::UICoordinator* coordinator) noexcept {
+        uiCoordinator_ = coordinator;
+    }
 
     /**
      * @brief Check MQTT connection and reconnect if needed
@@ -180,6 +193,9 @@ class MQTTManager {
     static constexpr unsigned long intervalMQTTBrew_    = 500;
     static constexpr unsigned long intervalMQTTStandby_ = 10000;
     unsigned long                  previousMillisMQTT_;
+
+    // Coordinators
+    CleverCoffee::UICoordinator* uiCoordinator_{nullptr}; ///< UI coordinator for state management
 
     // Home Assistant discovery
     struct DiscoveryObject {

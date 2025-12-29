@@ -6,6 +6,7 @@
 #include "clevercoffee/network/MQTTManager.h"
 
 #include "clevercoffee/Config.h"
+#include "clevercoffee/coordinators/UICoordinator.h"
 #include "clevercoffee/GlobalState.h"
 #include "clevercoffee/Logger.h"
 #include "clevercoffee/defaults.h"
@@ -605,7 +606,11 @@ int MQTTManager::publishDiscovery(const DiscoveryObject& obj) {
 }
 
 int MQTTManager::sendHASSIODiscoveryMsg() {
-    g_state.coordination.hassioUpdateRunning = true;
+    if (uiCoordinator_) {
+        uiCoordinator_->setHassioUpdateRunning(true);
+    } else {
+        g_state.coordination.hassioUpdateRunning = true; // Backward compatibility
+    }
 
     if (!mqttClient_.connected()) {
         LOG(DEBUG, "[MQTT] Failed to send Hassio Discover, MQTT Client is not connected");
