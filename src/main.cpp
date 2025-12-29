@@ -146,6 +146,9 @@ void setup() {
 
          // Register MachineStateContext in SystemContext for safe access
          systemInitializer->getSystemContext()->setMachineStateContext(&stateMachine->getContext());
+         
+         // Set global SystemContext reference for utility functions and header-only code
+         CleverCoffee::setGlobalSystemContext(systemInitializer->getSystemContext());
 
          // Initialize ProcessController for PID control
         processController =

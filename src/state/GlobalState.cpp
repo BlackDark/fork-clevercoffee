@@ -27,6 +27,9 @@ static SteamHandler    steamHandler;
 // Single global state instance
 GlobalState g_state;
 
+// Global system context reference (set during initialization)
+CleverCoffee::SystemContext* CleverCoffee::g_systemContext = nullptr;
+
 // Initialize handler references in global state
 void initializeHandlers(CleverCoffee::SystemContext* systemContext) {
     // Initialize handler hardware (switches must be ready before calling this)

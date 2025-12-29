@@ -291,4 +291,35 @@ private:
      MachineStateContext* machineStateContext_ = nullptr;
 };
 
+/**
+ * @brief Global system context accessor
+ * 
+ * Returns the global SystemContext instance if initialized.
+ * Used by utility functions and inline code that need system context access.
+ * 
+ * @warning Returns nullptr if context is not initialized
+ * @return Pointer to the global SystemContext instance, or nullptr
+ */
+extern SystemContext* g_systemContext;
+
+/**
+ * @brief Set the global system context reference
+ * 
+ * Called during system initialization to register the SystemContext.
+ * 
+ * @param context Pointer to the SystemContext instance
+ */
+inline void setGlobalSystemContext(SystemContext* context) {
+    g_systemContext = context;
+}
+
+/**
+ * @brief Get the global system context reference
+ * 
+ * @return Pointer to the global SystemContext instance, or nullptr if not initialized
+ */
+inline SystemContext* getGlobalSystemContext() {
+    return g_systemContext;
+}
+
 } // namespace CleverCoffee
