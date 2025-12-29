@@ -368,12 +368,84 @@ class MachineStateContext : public CleverCoffee::IHardwareContext,
      */
     bool shouldExitStandby() const;
 
-    /**
-     * @brief Perform safe shutdown
-     */
-    void performSafeShutdown() const;
+     /**
+      * @brief Perform safe shutdown
+      */
+     void performSafeShutdown() const;
 
-    // === Display Functions ===
+     // === Machine State Flags Access ===
+
+     /**
+      * @brief Check if emergency stop is active
+      */
+     bool isEmergencyStopActive() const noexcept { return emergencyStop_; }
+
+     /**
+      * @brief Set emergency stop state
+      */
+     void setEmergencyStop(bool active) noexcept { emergencyStop_ = active; }
+
+     /**
+      * @brief Get steam mode state
+      */
+     bool isSteamModeActive() const noexcept { return steamON_; }
+
+     /**
+      * @brief Set steam mode state
+      */
+     void setSteamModeActive(bool active) noexcept { steamON_ = active; }
+
+     /**
+      * @brief Check if steam was activated for first time
+      */
+     bool isSteamFirstActivated() const noexcept { return steamFirstON_; }
+
+     /**
+      * @brief Set steam first activation flag
+      */
+     void setSteamFirstActivated(bool active) noexcept { steamFirstON_ = active; }
+
+     /**
+      * @brief Check if backflush is active
+      */
+     bool isBackflushModeActive() const noexcept { return backflushOn_; }
+
+     /**
+      * @brief Set backflush mode state
+      */
+     void setBackflushModeActive(bool active) noexcept { backflushOn_ = active; }
+
+     /**
+      * @brief Get current backflush cycle count
+      */
+     int getBackflushCycleCount() const noexcept { return currBackflushCycles_; }
+
+     /**
+      * @brief Set backflush cycle count
+      */
+     void setBackflushCycleCount(int cycles) noexcept { currBackflushCycles_ = cycles; }
+
+     /**
+      * @brief Check if water tank is full
+      */
+     bool isWaterTankFullState() const noexcept { return waterTankFull_; }
+
+     /**
+      * @brief Set water tank full state
+      */
+     void setWaterTankFullState(bool full) noexcept { waterTankFull_ = full; }
+
+     /**
+      * @brief Check if system is initialized
+      */
+     bool isSystemInitialized() const noexcept { return systemInitialized_; }
+
+     /**
+      * @brief Set system initialization state
+      */
+     void setSystemInitialized(bool initialized) noexcept { systemInitialized_ = initialized; }
+
+     // === Display Functions ===
 
     /**
      * @brief Get U8G2 display instance
@@ -482,16 +554,25 @@ class MachineStateContext : public CleverCoffee::IHardwareContext,
     void transitionTo(MachineState& newState) override;
     unsigned long getStateStartTime() const noexcept override;
 
-  private:
-    // System context
-    CleverCoffee::SystemContext& systemContext_;
+   private:
+     // System context
+     CleverCoffee::SystemContext& systemContext_;
 
-    // Manager references
-    DisplayManager*          displayManager_;
-    CleverCoffee::HardwareManager*         hardwareManager_;
-    CleverCoffeeWiFiManager* wifiManager_;
-    MQTTManager*             mqttManager_;
+     // Manager references
+     DisplayManager*          displayManager_;
+     CleverCoffee::HardwareManager*         hardwareManager_;
+     CleverCoffeeWiFiManager* wifiManager_;
+     MQTTManager*             mqttManager_;
 
-    // State timing
-    std::chrono::steady_clock::time_point stateEntryTime_; ///< Time when current state was entered
+     // === Machine State Ownership (formerly in g_state.machine) ===
+     bool emergencyStop_        = false;      ///< Emergency stop activated
+     bool steamON_              = false;      ///< Steam mode active
+     bool steamFirstON_         = false;      ///< Steam activated for first time
+     bool backflushOn_          = false;      ///< Backflush mode active
+     int  currBackflushCycles_  = 1;          ///< Current backflush cycle count
+     bool waterTankFull_        = true;       ///< Water tank full state
+     bool systemInitialized_    = false;      ///< System initialization complete
+
+     // State timing
+     std::chrono::steady_clock::time_point stateEntryTime_; ///< Time when current state was entered
 };

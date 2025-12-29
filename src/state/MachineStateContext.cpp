@@ -166,22 +166,22 @@ bool MachineStateContext::isBrewActive() const {
 }
 
 bool MachineStateContext::isManualFlushActive() const {
-    // Manual flush state is checked via machine state
-    return isManualFlushState(g_state.machine.machineState) &&
-           g_state.machine.machineState != MachineStateId::MANUAL_FLUSH_IDLE;
+     // Manual flush state is checked via machine state
+     return isManualFlushState(g_state.machine.machineState) &&
+            g_state.machine.machineState != MachineStateId::MANUAL_FLUSH_IDLE;
 }
 
 bool MachineStateContext::isSteamActive() const {
-    return g_state.machine.steamON;
+     return steamON_;
 }
 
 bool MachineStateContext::isHotWaterActive() const {
-    // Simplified implementation - check if machine is in hot water state
-    return (g_state.machine.machineState == MachineStateId::HOT_WATER_RUNNING);
+     // Simplified implementation - check if machine is in hot water state
+     return (g_state.machine.machineState == MachineStateId::HOT_WATER_RUNNING);
 }
 
 bool MachineStateContext::isBackflushActive() const {
-    return g_state.machine.backflushOn;
+     return backflushOn_;
 }
 
 // === System State Access ===
@@ -191,7 +191,7 @@ bool MachineStateContext::isPidEnabled() const {
 }
 
 bool MachineStateContext::isEmergencyStop() const {
-    return g_state.machine.emergencyStop;
+     return emergencyStop_;
 }
 
 bool MachineStateContext::shouldEnterStandby() const {
@@ -291,23 +291,23 @@ void MachineStateContext::setHotWaterState(bool active) const {
 }
 
 void MachineStateContext::setSteamState(bool active) const {
-    // Set global state for steam
-    g_state.machine.steamON = active;
-    if (active) {
-        LOG(DEBUG, "Steam mode activated");
-    } else {
-        LOG(DEBUG, "Steam mode deactivated");
-    }
+     // Use const_cast since this is a logical const operation updating internal flags
+     const_cast<MachineStateContext*>(this)->steamON_ = active;
+     if (active) {
+         LOG(DEBUG, "Steam mode activated");
+     } else {
+         LOG(DEBUG, "Steam mode deactivated");
+     }
 }
 
 void MachineStateContext::setBackflushState(bool active) const {
-    // Set global state for backflush
-    g_state.machine.backflushOn = active;
-    if (active) {
-        LOG(DEBUG, "Backflush mode activated");
-    } else {
-        LOG(DEBUG, "Backflush mode deactivated");
-    }
+     // Use const_cast since this is a logical const operation updating internal flags
+     const_cast<MachineStateContext*>(this)->backflushOn_ = active;
+     if (active) {
+         LOG(DEBUG, "Backflush mode activated");
+     } else {
+         LOG(DEBUG, "Backflush mode deactivated");
+     }
 }
 
 void MachineStateContext::disableWaterOperations() const {

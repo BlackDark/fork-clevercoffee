@@ -514,15 +514,15 @@ void LoopManager::updateNetwork() {
         // Backward compatibility sync: Copy standby state back to g_state.standby
         g_state.standby.standbyModeRemainingTimeMillis = systemContext_->standbyCoordinator().getRemainingTimeMillis();
 
-        // Backward compatibility sync: Copy process state back to g_state.process
-        if (systemContext_->processController()) {
-            g_state.process.temperature = systemContext_->processController()->getCurrentTemperature();
-            g_state.process.pidOutput = systemContext_->processController()->getPIDOutput();
-            g_state.process.setpoint = systemContext_->processController()->getSetpoint();
-            g_state.process.currBrewTime = systemContext_->processController()->getCurrBrewTime();
-            g_state.process.totalTargetBrewTime = systemContext_->processController()->getTotalTargetBrewTime();
-            g_state.process.brewPidDisabled = systemContext_->processController()->isBrewPidDisabled();
-        }
+     // Backward compatibility sync: Copy process state back to g_state.process
+         if (systemContext_->processController()) {
+             g_state.process.temperature = systemContext_->processController()->getCurrentTemperature();
+             g_state.process.pidOutput = systemContext_->processController()->getPIDOutput();
+             g_state.process.setpoint = systemContext_->processController()->getSetpoint();
+             g_state.process.currBrewTime = systemContext_->processController()->getCurrBrewTime();
+             g_state.process.totalTargetBrewTime = systemContext_->processController()->getTotalTargetBrewTime();
+             g_state.process.brewPidDisabled = systemContext_->processController()->isBrewPidDisabled();
+         }
     }
 }
 
