@@ -347,7 +347,7 @@ bool LoopManager::setupAllTimers() {
 void LoopManager::checkWaterTankLevel() {
     if (sensorCoordinator_) {
         // SensorCoordinator auto-updates water tank sensor
-        g_state.machine.waterTankFull = sensorCoordinator_->isWaterTankFull();
+        // Water tank status is accessed via sensorCoordinator_->isWaterTankFull() directly
     }
 }
 
@@ -360,8 +360,6 @@ void LoopManager::updateTemperatureSensor() {
 void LoopManager::updatePressureSensor() {
     if (Config::getInstance().hardwareSensorsPressureEnabled.get() && sensorCoordinator_) {
         // SensorCoordinator auto-updates pressure sensor
-        g_state.sensors.inputPressure = sensorCoordinator_->getPressure();
-        g_state.sensors.inputPressureFilter = sensorCoordinator_->getFilteredPressure();
 
         pressureUpdateCount_++;
     }
@@ -372,7 +370,6 @@ void LoopManager::updateScaleSensor() {
         const unsigned long startTime = millis();
 
         // Update current reading weight from SensorCoordinator
-        g_state.sensors.currReadingWeight = static_cast<float>(sensorCoordinator_->getWeight());
 
         // Calculate brew weight (current weight - pre-brew weight)
         updateBrewWeight();
@@ -404,9 +401,6 @@ void LoopManager::updateBrewWeight() {
         sensorCoordinator_->stopBrewWeightTracking();
     }
     
-    // Update global state for backward compatibility (will be removed in Phase 10.4)
-    g_state.sensors.currBrewWeight = static_cast<float>(sensorCoordinator_->getBrewWeight());
-    g_state.sensors.preBrewWeight = static_cast<float>(sensorCoordinator_->getPreBrewWeight());
 }
 
 void LoopManager::updateCentralizedSensorTimers() {
@@ -488,42 +482,6 @@ void LoopManager::updateNetwork() {
          }
      }
 
-    // Backward compatibility sync: Copy NetworkCoordinator state back to g_state
-    // This ensures display code and other components still work during transition
-    if (systemContext_) {
-        g_state.network.offlineMode = systemContext_->networkCoordinator().isOfflineMode();
-        g_state.network.wifiReconnects = systemContext_->networkCoordinator().getWifiReconnects();
-        g_state.network.lastWifiConnectionAttempt = systemContext_->networkCoordinator().getLastWifiConnectionAttempt();
-        g_state.network.lastMQTTConnectionAttempt = systemContext_->networkCoordinator().getLastMqttConnectionAttempt();
-        g_state.network.MQTTReCnctCount = systemContext_->networkCoordinator().getMqttConnectionAttempts();
-        g_state.network.hassioFailed = systemContext_->networkCoordinator().hasHassioFailed();
-        
-         // Backward compatibility sync: Copy coordinator flags back to g_state.coordination
-         g_state.coordination.temperatureUpdateRunning = systemContext_->sensorCoordinator().isTemperatureUpdateRunning();
-         g_state.coordination.displayBufferReady = systemContext_->uiCoordinator().isDisplayBufferReady();
-         g_state.coordination.websiteUpdateRunning = systemContext_->uiCoordinator().isWebsiteUpdateRunning();
-         g_state.coordination.hassioUpdateRunning = systemContext_->uiCoordinator().isHassioUpdateRunning();
-         
-         // Backward compatibility sync: Copy sensor scale modes back to g_state.sensors
-         g_state.sensors.scaleTareOn = systemContext_->sensorCoordinator().isScaleTareMode();
-         g_state.sensors.scaleCalibrationOn = systemContext_->sensorCoordinator().isScaleCalibrationMode();
-         
-         // Backward compatibility sync: Copy display state back to g_state.display
-        g_state.display.displayOffline = systemContext_->uiCoordinator().getDisplayOffline();
-        
-        // Backward compatibility sync: Copy standby state back to g_state.standby
-        g_state.standby.standbyModeRemainingTimeMillis = systemContext_->standbyCoordinator().getRemainingTimeMillis();
-
-     // Backward compatibility sync: Copy process state back to g_state.process
-         if (systemContext_->processController()) {
-             g_state.process.temperature = systemContext_->processController()->getCurrentTemperature();
-             g_state.process.pidOutput = systemContext_->processController()->getPIDOutput();
-             g_state.process.setpoint = systemContext_->processController()->getSetpoint();
-             g_state.process.currBrewTime = systemContext_->processController()->getCurrBrewTime();
-             g_state.process.totalTargetBrewTime = systemContext_->processController()->getTotalTargetBrewTime();
-             g_state.process.brewPidDisabled = systemContext_->processController()->isBrewPidDisabled();
-         }
-    }
 }
 
 void LoopManager::updateWebsite() {
