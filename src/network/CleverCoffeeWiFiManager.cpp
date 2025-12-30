@@ -7,6 +7,7 @@
 
 #include "clevercoffee/Config.h"
 #include "clevercoffee/GlobalState.h"
+#include "clevercoffee/context/SystemContext.h"
 #include "clevercoffee/Logger.h"
 #include "clevercoffee/coordinators/NetworkCoordinator.h"
 #include "clevercoffee/display/languages.h"
@@ -171,7 +172,7 @@ void CleverCoffeeWiFiManager::checkAndMaintainConnection() {
     bool isOfflineMode = networkCoordinator_->isOfflineMode();
 
     // Don't attempt reconnection if in offline mode or brewing is active
-    if (isOfflineMode || (g_state.handlers.brewHandler && g_state.handlers.brewHandler->isBrewActive()))
+    if (isOfflineMode || (CleverCoffee::getGlobalSystemContext()->brewHandler() && CleverCoffee::getGlobalSystemContext()->brewHandler()->isBrewActive()))
         return;
 
     // Get current reconnect count

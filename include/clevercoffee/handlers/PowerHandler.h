@@ -159,7 +159,7 @@ class PowerHandler : public SwitchBasedHandler {
 
     void powerOff() {
          if (g_state.machine.machineState != MachineStateId::STANDBY) {
-             g_state.coordination.processController->performSafeShutdown();
+             CleverCoffee::getGlobalSystemContext()->processController()->performSafeShutdown();
              g_state.machine.flags.requestStandby = true; // Use condition flag instead of direct state assignment
              // Use StandbyCoordinator to mark immediate standby activation
              if (auto* ctx = CleverCoffee::getGlobalSystemContext()) {
@@ -177,7 +177,7 @@ class PowerHandler : public SwitchBasedHandler {
         displayMessage("REBOOTING", "Please wait...", "", "", "", "");
         delay(1000);
 
-        g_state.coordination.processController->performSafeShutdown();
+        CleverCoffee::getGlobalSystemContext()->processController()->performSafeShutdown();
 
         logInfo("System reboot initiated");
         delay(1000);

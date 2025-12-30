@@ -69,7 +69,7 @@ void MQTTManager::initializeClient() {
 
 void MQTTManager::checkConnection() {
     bool offlineMode = CleverCoffee::getGlobalSystemContext()->networkCoordinator().isOfflineMode();
-    if (offlineMode || (g_state.handlers.brewHandler && g_state.handlers.brewHandler->isBrewActive())) {
+    if (offlineMode || (CleverCoffee::getGlobalSystemContext()->brewHandler() && CleverCoffee::getGlobalSystemContext()->brewHandler()->isBrewActive())) {
         return;
     }
 
