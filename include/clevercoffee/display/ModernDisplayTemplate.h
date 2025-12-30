@@ -130,11 +130,11 @@ class ModernDisplayTemplate {
         const auto& coords  = derived->getBrewCoords(baseX, baseY);
 
         // Show flush time
-        if (isManualFlushState(g_state.machine.machineState)) {
+        if (isManualFlushState(CleverCoffee::getGlobalSystemContext()->machineStateContext()->getCurrentStateId())) {
             displayBrewTime(coords.brewX, coords.brewY, derived->getManualFlushLabel(), g_state.process.currBrewTime);
         }
         // Show hot water time
-        else if (isHotWaterState(g_state.machine.machineState)) {
+        else if (isHotWaterState(CleverCoffee::getGlobalSystemContext()->machineStateContext()->getCurrentStateId())) {
             displayBrewTime(coords.brewX, coords.brewY, derived->getHotWaterLabel(), g_state.sensors.currPumpOnTime);
         } else if (shouldDisplayBrewTimer()) {
             const bool isAutomatic = Config::getInstance().brewMode.get() == Process::BrewMode::AUTOMATIC_BREW;
@@ -299,7 +299,7 @@ class UprightTemplate : public ModernDisplayTemplate<UprightTemplate> {
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setCursor(1, yPos);
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setFont(u8g2_font_profont22_tf);
 
-        if (isManualFlushState(g_state.machine.machineState)) {
+        if (isManualFlushState(CleverCoffee::getGlobalSystemContext()->machineStateContext()->getCurrentStateId())) {
             CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print("FLUSH");
         } else if (shouldDisplayBrewTimer()) {
             CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print("BREW");

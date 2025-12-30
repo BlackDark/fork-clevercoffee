@@ -595,7 +595,7 @@ void SystemInitializer::registerMQTTSensors() {
      mqttManager_->registerSensor("currentKp", [] { return g_state.pid->GetKp(); });
      mqttManager_->registerSensor("currentKi", [] { return g_state.pid->GetKi(); });
      mqttManager_->registerSensor("currentKd", [] { return g_state.pid->GetKd(); });
-     mqttManager_->registerSensor("machineState", [] { return static_cast<double>(g_state.machine.machineState); });
+     mqttManager_->registerSensor("machineState", [] { return static_cast<double>(CleverCoffee::getGlobalSystemContext()->machineStateContext()->getCurrentStateId()); });
 
      // Brew-specific sensors
      if (Config::getInstance().hardwareSwitchesBrewEnabled.get()) {

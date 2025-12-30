@@ -1372,7 +1372,7 @@ class Config {
     // === MACHINE STATUS ===
     StateParamDef<int> stateMachineState{"state.machine_state", "Machine State", 6, 605,
                                          "Current machine state",
-                                         []() { return static_cast<int>(g_state.machine.machineState); },
+                                         []() { return static_cast<int>(CleverCoffee::getGlobalSystemContext()->machineStateContext()->getCurrentStateId()); },
                                          StateParamDef<int>::UpdateFrequency::FREQUENT};
 
     StateParamDef<bool> stateWifiConnected{"state.wifi_connected", "WiFi Connected", 6, 606,

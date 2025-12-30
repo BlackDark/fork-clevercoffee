@@ -10,6 +10,7 @@
 #include "clevercoffee/coordinators/SensorCoordinator.h"
 #include "clevercoffee/coordinators/NetworkCoordinator.h"
 #include "clevercoffee/context/SystemContext.h"
+#include "clevercoffee/state/MachineStateContext.h"
 #include "clevercoffee/GlobalState.h"
 #include "clevercoffee/Logger.h"
 #include "clevercoffee/defaults.h"
@@ -251,7 +252,7 @@ int MQTTManager::writeSysParamsToMQTT(bool continueOnError) {
     unsigned long currentMillisMQTT = millis();
     // Check if brewing is active (any non-idle brew state)
     bool isBrewActive =
-        (isBrewState(g_state.machine.machineState) && g_state.machine.machineState != MachineStateId::BREW_IDLE);
+        (isBrewState(CleverCoffee::getGlobalSystemContext()->machineStateContext()->getCurrentStateId()) && CleverCoffee::getGlobalSystemContext()->machineStateContext()->getCurrentStateId() != MachineStateId::BREW_IDLE);
     unsigned long interval = isBrewActive                                                ? intervalMQTTBrew_
                              : (g_state.machine.machineState == MachineStateId::STANDBY) ? intervalMQTTStandby_
                                                                                          : intervalMQTT_;

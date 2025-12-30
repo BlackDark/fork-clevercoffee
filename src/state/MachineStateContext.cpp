@@ -167,8 +167,8 @@ bool MachineStateContext::isBrewActive() const {
 
 bool MachineStateContext::isManualFlushActive() const {
      // Manual flush state is checked via machine state
-     return isManualFlushState(g_state.machine.machineState) &&
-            g_state.machine.machineState != MachineStateId::MANUAL_FLUSH_IDLE;
+     return isManualFlushState(CleverCoffee::getGlobalSystemContext()->machineStateContext()->getCurrentStateId()) &&
+            CleverCoffee::getGlobalSystemContext()->machineStateContext()->getCurrentStateId() != MachineStateId::MANUAL_FLUSH_IDLE;
 }
 
 bool MachineStateContext::isSteamActive() const {
@@ -451,7 +451,7 @@ const Config& MachineStateContext::getConfig() const noexcept {
 // === IStateManager Interface Implementation ===
 
 MachineStateId MachineStateContext::getCurrentStateId() const noexcept {
-    return g_state.machine.machineState;
+    return CleverCoffee::getGlobalSystemContext()->machineStateContext()->getCurrentStateId();
 }
 
 void MachineStateContext::transitionTo(MachineState& newState) {

@@ -14,6 +14,7 @@
 #include "clevercoffee/handlers/BrewHandler.h"
 #include "clevercoffee/handlers/HotWaterHandler.h"
 #include "clevercoffee/network/CleverCoffeeWiFiManager.h"
+#include "clevercoffee/state/MachineStateContext.h"
 #include "clevercoffee/state/MachineStateIds.h"
 #include "clevercoffee/utils/SystemUtils.h"
 
@@ -530,7 +531,7 @@ inline bool displayFullscreenManualFlushTimer() {
         return false;
     }
 
-    if (isManualFlushState(g_state.machine.machineState) &&
+    if (isManualFlushState(CleverCoffee::getGlobalSystemContext()->machineStateContext()->getCurrentStateId()) &&
         g_state.machine.machineState == MachineStateId::MANUAL_FLUSH_RUNNING) {
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->clearBuffer();
 
@@ -558,7 +559,7 @@ inline bool displayFullscreenHotWaterTimer() {
         return false;
     }
 
-    if (isHotWaterState(g_state.machine.machineState) &&
+    if (isHotWaterState(CleverCoffee::getGlobalSystemContext()->machineStateContext()->getCurrentStateId()) &&
         g_state.machine.machineState == MachineStateId::HOT_WATER_RUNNING) {
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->clearBuffer();
 
@@ -639,7 +640,7 @@ inline bool displayMachineState() {
     }
 
     // Steam
-    if (isSteamState(g_state.machine.machineState)) {
+    if (isSteamState(CleverCoffee::getGlobalSystemContext()->machineStateContext()->getCurrentStateId())) {
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->clearBuffer();
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->drawXBMP(-1, 12, Steam_Logo_width, Steam_Logo_height, Steam_Logo);
 
@@ -660,13 +661,13 @@ inline bool displayMachineState() {
     }
 
     // Backflush
-    if (isBackflushState(g_state.machine.machineState)) {
+    if (isBackflushState(CleverCoffee::getGlobalSystemContext()->machineStateContext()->getCurrentStateId())) {
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->clearBuffer();
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setFont(u8g2_font_fub17_tf);
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setCursor(2, 10);
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print("Backflush");
 
-        switch (g_state.machine.machineState) {
+        switch (CleverCoffee::getGlobalSystemContext()->machineStateContext()->getCurrentStateId()) {
             case MachineStateId::BACKFLUSH_IDLE:
                 CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setFont(u8g2_font_profont12_tf);
                 CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setCursor(4, 37);

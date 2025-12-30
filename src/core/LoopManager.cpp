@@ -191,7 +191,7 @@ void LoopManager::update() {
 
 void LoopManager::updateLEDs() {
     // Simple LED coordination - delegate details to dedicated LED controller when available
-    const auto machineState = g_state.machine.machineState;
+    const auto machineState = systemContext_->machineStateContext()->getCurrentStateId();
     const auto temperature = g_state.process.temperature;
     const auto setpoint = g_state.process.setpoint;
 
@@ -236,7 +236,7 @@ void LoopManager::updateProcessControl() {
     if (processController_) {
         // Use modern ProcessController for PID and temperature management
         const unsigned long processStart = millis();
-        processController_->updateProcessControl(g_state.machine.machineState);
+        processController_->updateProcessControl(systemContext_->machineStateContext()->getCurrentStateId());
         const unsigned long processTime = millis() - processStart;
 
         if (processTime > 100) {
@@ -392,7 +392,7 @@ void LoopManager::updateBrewWeight() {
     }
     
     // Simple state machine: start tracking when brew starts, stop when brew ends
-    const auto currentState = g_state.machine.machineState;
+    const auto currentState = systemContext_->machineStateContext()->getCurrentStateId();
     const bool isBrewActive = (currentState != MachineStateId::BREW_IDLE);
     
     // Check if we need to start brew weight tracking
@@ -596,9 +596,9 @@ void LoopManager::updateStateMachine() {
 
         // Update machine state
         const MachineStateId newState = stateMachine->getCurrentStateId();
-        if (newState != g_state.machine.machineState) {
-            const auto oldState              = g_state.machine.machineState;
-            g_state.machine.lastmachinestate = g_state.machine.machineState;
+        if (newState != systemContext_->machineStateContext()->getCurrentStateId()) {
+            const auto oldState              = systemContext_->machineStateContext()->getCurrentStateId();
+            g_state.machine.lastmachinestate = systemContext_->machineStateContext()->getCurrentStateId();
             g_state.machine.machineState     = newState;
             LOGF(DEBUG, "State transition: %d -> %d", static_cast<int>(oldState), static_cast<int>(newState));
         }
