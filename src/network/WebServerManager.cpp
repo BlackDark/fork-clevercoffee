@@ -596,8 +596,8 @@ void WebServerManager::setupApiRoutes() {
 
             delay(1000);
 
-            if (g_state.network.cleverCoffeeWiFiManager) {
-                g_state.network.cleverCoffeeWiFiManager->resetSettings();
+            if (CleverCoffee::getGlobalSystemContext()->cleverCoffeeWiFiManager()) {
+                CleverCoffee::getGlobalSystemContext()->cleverCoffeeWiFiManager()->resetSettings();
             } else {
                 LOG(ERROR, "WiFiManager not initialized for reset");
                 ESP.restart();

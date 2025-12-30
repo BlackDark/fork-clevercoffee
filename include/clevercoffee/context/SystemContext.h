@@ -13,6 +13,9 @@ class PowerHandler;
 class SteamHandler;
 class ProcessController;
 class MachineStateContext;
+class MQTTManager;
+class CleverCoffeeWiFiManager;
+class WebServerManager;
 
 namespace CleverCoffee {
 
@@ -262,6 +265,68 @@ public:
       */
      const MachineStateContext* machineStateContext() const noexcept { return machineStateContext_; }
 
+     /**
+      * @name Network Managers
+      * @{
+      */
+
+     /**
+      * @brief Register MQTT manager
+      * @param manager Pointer to MQTTManager instance (can be nullptr)
+      */
+     void setMQTTManager(MQTTManager* manager) noexcept { mqttManager_ = manager; }
+
+     /**
+      * @brief Get MQTT manager
+      * @return Pointer to MQTTManager (may be nullptr if not registered)
+      */
+     MQTTManager* mqttManager() noexcept { return mqttManager_; }
+
+     /**
+      * @brief Get MQTT manager (const)
+      * @return Const pointer to MQTTManager (may be nullptr if not registered)
+      */
+     const MQTTManager* mqttManager() const noexcept { return mqttManager_; }
+
+     /**
+      * @brief Register WiFi manager
+      * @param manager Pointer to CleverCoffeeWiFiManager instance (can be nullptr)
+      */
+     void setCleverCoffeeWiFiManager(CleverCoffeeWiFiManager* manager) noexcept { cleverCoffeeWiFiManager_ = manager; }
+
+     /**
+      * @brief Get WiFi manager
+      * @return Pointer to CleverCoffeeWiFiManager (may be nullptr if not registered)
+      */
+     CleverCoffeeWiFiManager* cleverCoffeeWiFiManager() noexcept { return cleverCoffeeWiFiManager_; }
+
+     /**
+      * @brief Get WiFi manager (const)
+      * @return Const pointer to CleverCoffeeWiFiManager (may be nullptr if not registered)
+      */
+     const CleverCoffeeWiFiManager* cleverCoffeeWiFiManager() const noexcept { return cleverCoffeeWiFiManager_; }
+
+     /**
+      * @brief Register WebServer manager
+      * @param manager Pointer to WebServerManager instance (can be nullptr)
+      */
+     void setWebServerManager(WebServerManager* manager) noexcept { webServerManager_ = manager; }
+
+     /**
+      * @brief Get WebServer manager
+      * @return Pointer to WebServerManager (may be nullptr if not registered)
+      */
+     WebServerManager* webServerManager() noexcept { return webServerManager_; }
+
+     /**
+      * @brief Get WebServer manager (const)
+      * @return Const pointer to WebServerManager (may be nullptr if not registered)
+      */
+     const WebServerManager* webServerManager() const noexcept { return webServerManager_; }
+
+     /** @} */
+
+
      /** @} */
 
     /**
@@ -307,6 +372,11 @@ private:
 
      // Machine state context reference (non-owning pointer)
      MachineStateContext* machineStateContext_ = nullptr;
+
+     // Manager references (non-owning pointers)
+     MQTTManager* mqttManager_ = nullptr;
+     CleverCoffeeWiFiManager* cleverCoffeeWiFiManager_ = nullptr;
+     WebServerManager* webServerManager_ = nullptr;
 };
 
 /**

@@ -1382,8 +1382,8 @@ class Config {
 
     StateParamDef<bool> stateMqttConnected{"state.mqtt_connected", "MQTT Connected", 6, 607,
                                            "MQTT broker connection status",
-                                           []() { return g_state.network.mqttManager &&
-    g_state.network.mqttManager->isConnected(); }, StateParamDef<bool>::UpdateFrequency::FREQUENT};
+                                           []() { return CleverCoffee::getGlobalSystemContext()->mqttManager() &&
+    CleverCoffee::getGlobalSystemContext()->mqttManager()->isConnected(); }, StateParamDef<bool>::UpdateFrequency::FREQUENT};
 
     StateParamDef<bool> stateWaterTank{"state.water_tank", "Water Tank Full", 6, 608,
                                            "Water tank sensor status",

@@ -80,7 +80,7 @@ inline void displayWiFiStatus(const int x, const int y) {
     if (WiFi.status() == WL_CONNECTED) {
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->drawXBMP(x, y, 8, 8, Antenna_OK_Icon);
 
-        for (int b = 0; b <= g_state.network.cleverCoffeeWiFiManager->getSignalStrength(); b++) {
+        for (int b = 0; b <= CleverCoffee::getGlobalSystemContext()->cleverCoffeeWiFiManager()->getSignalStrength(); b++) {
             CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->drawVLine(x + 5 + b * 2, y + 8 - b * 2, b * 2);
         }
     } else {
@@ -103,12 +103,12 @@ inline void displayWiFiStatus(const int x, const int y) {
  */
 inline void displayMQTTStatus(const int x, const int y) {
     if (Config::getInstance().mqttEnabled.get()) {
-        if (g_state.network.mqttManager && g_state.network.mqttManager->isConnected()) {
+        if (CleverCoffee::getGlobalSystemContext()->mqttManager() && CleverCoffee::getGlobalSystemContext()->mqttManager()->isConnected()) {
             CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setCursor(x, y);
             CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setFont(u8g2_font_profont11_tf);
             CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print("MQTT");
 
-            if (g_state.network.cleverCoffeeWiFiManager->getSignalStrength() <= 1) {
+            if (CleverCoffee::getGlobalSystemContext()->cleverCoffeeWiFiManager()->getSignalStrength() <= 1) {
                 CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print("!");
             }
         } else {

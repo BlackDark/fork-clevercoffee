@@ -301,6 +301,7 @@ bool SystemInitializer::initializeNetworking() {
 
     try {
         cleverCoffeeWiFiManager_                = std::make_unique<CleverCoffeeWiFiManager>(&systemContext_->networkCoordinator());
+        systemContext_->setCleverCoffeeWiFiManager(cleverCoffeeWiFiManager_.get());
         g_state.network.cleverCoffeeWiFiManager = cleverCoffeeWiFiManager_.get();
 
         setupWiFi();
@@ -316,6 +317,7 @@ bool SystemInitializer::initializeNetworking() {
 
         // Initialize WebServerManager
         webServerManager_                = std::make_unique<WebServerManager>(80);
+        systemContext_->setWebServerManager(webServerManager_.get());
         g_state.network.webServerManager = webServerManager_.get();
 
         if (!webServerManager_->initialize(true)) {
@@ -354,6 +356,7 @@ bool SystemInitializer::initializeMQTT() {
         mqttManager_->setSensorCoordinator(&systemContext_->sensorCoordinator());
         mqttManager_->setNetworkCoordinator(&systemContext_->networkCoordinator());
 
+        systemContext_->setMQTTManager(mqttManager_.get());
         if (mqttManager_->setup(Config::getInstance().systemHostname.get())) {
             // Set compatibility variables
             // mqtt_enabled = mqttManager_->isEnabled();
@@ -634,7 +637,7 @@ void SystemInitializer::setupWiFi() {
         };
 
         // Setup WiFi with display feedback
-        if (!g_state.network.cleverCoffeeWiFiManager->setupAndConnect(
+        if (!systemContext_->cleverCoffeeWiFiManager()->setupAndConnect(
                 Config::getInstance().systemHostname.get(), WIFI_PASSWORD, false, displayCallback)) {
             systemContext_->networkCoordinator().setOfflineMode(true);
             uiManager_->displayLogo(langstring_nowifi[0], langstring_nowifi[1]);
@@ -643,7 +646,7 @@ void SystemInitializer::setupWiFi() {
         }
 
         // Check if restart is required after AP configuration
-        if (g_state.network.cleverCoffeeWiFiManager->requiresRestart()) {
+        if (systemContext_->cleverCoffeeWiFiManager()->requiresRestart()) {
             // Device will restart inside WiFiManager, this code may not be reached
         }
 

@@ -35,13 +35,13 @@ inline void setSteamMode(const bool steamMode) {
 
 // Helper function for timing debug
 inline bool isMqttUpdateRunning() {
-    return g_state.network.mqttManager && g_state.network.mqttManager->isUpdateRunning();
+    return CleverCoffee::getGlobalSystemContext()->mqttManager() && CleverCoffee::getGlobalSystemContext()->mqttManager()->isUpdateRunning();
 }
 
 // MQTT discovery timer callback
 inline void sendHASSIODiscoveryMsg() {
-    if (g_state.network.mqttManager && g_state.network.mqttManager->isEnabled()) {
-        g_state.network.mqttManager->sendHASSIODiscoveryMsg();
+    if (CleverCoffee::getGlobalSystemContext()->mqttManager() && CleverCoffee::getGlobalSystemContext()->mqttManager()->isEnabled()) {
+        CleverCoffee::getGlobalSystemContext()->mqttManager()->sendHASSIODiscoveryMsg();
     }
 }
 

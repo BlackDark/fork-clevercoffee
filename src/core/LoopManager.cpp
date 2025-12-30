@@ -261,7 +261,7 @@ void LoopManager::updateDisplay() {
             // Only update display on loops that have not had other major tasks running
             // and when not in standby display-off mode
             bool websiteCondition = systemContext_ ? !systemContext_->uiCoordinator().isWebsiteUpdateRunning() : true;
-            bool mqttCondition    = (!g_state.network.mqttManager || !g_state.network.mqttManager->isUpdateRunning());
+            bool mqttCondition    = (!systemContext_->mqttManager() || !systemContext_->mqttManager()->isUpdateRunning());
             bool hassioCondition  = systemContext_ ? !systemContext_->uiCoordinator().isHassioUpdateRunning() : true;
             bool tempCondition    = systemContext_ ? !systemContext_->sensorCoordinator().isTemperatureUpdateRunning() : true;
             bool standbyCondition = systemContext_ ?
@@ -444,31 +444,31 @@ void LoopManager::updateNetwork() {
         }
 
         // MQTT Management - delegate to MQTTManager
-        if (g_state.network.mqttManager && g_state.network.mqttManager->isEnabled()) {
-            g_state.network.mqttManager->setUpdateRunning(false);
+        if (systemContext_->mqttManager() && systemContext_->mqttManager()->isEnabled()) {
+            systemContext_->mqttManager()->setUpdateRunning(false);
 
-            if (g_state.network.cleverCoffeeWiFiManager->getSignalStrength() > 1) {
-                g_state.network.mqttManager->checkConnection();
+            if (systemContext_->cleverCoffeeWiFiManager()->getSignalStrength() > 1) {
+                systemContext_->mqttManager()->checkConnection();
 
                 bool displayBufferNotReady = systemContext_ ? !systemContext_->uiCoordinator().isDisplayBufferReady() : true;
                 bool tempNotRunning = systemContext_ ? !systemContext_->sensorCoordinator().isTemperatureUpdateRunning() : true;
                 if (displayBufferNotReady && tempNotRunning) {
-                    g_state.network.mqttManager->writeSysParamsToMQTT(true);
+                    systemContext_->mqttManager()->writeSysParamsToMQTT(true);
                 }
             }
 
-            if (g_state.network.mqttManager->isConnected()) {
-                g_state.network.mqttManager->loop();
+            if (systemContext_->mqttManager()->isConnected()) {
+                systemContext_->mqttManager()->loop();
                 // Home Assistant discovery - delegate to timer system
                 bool displayBufferNotReady = systemContext_ ? !systemContext_->uiCoordinator().isDisplayBufferReady() : true;
                 bool tempNotRunning = systemContext_ ? !systemContext_->sensorCoordinator().isTemperatureUpdateRunning() : true;
                 if (hassioDiscoveryTimer_ && displayBufferNotReady && tempNotRunning) {
                     (*hassioDiscoveryTimer_)();
                 }
-                g_state.network.mqttManager->setWasConnected(true);
-            } else if (g_state.network.mqttManager->wasConnected()) {
+                systemContext_->mqttManager()->setWasConnected(true);
+            } else if (systemContext_->mqttManager()->wasConnected()) {
                 LOG(INFO, "MQTT disconnected");
-                g_state.network.mqttManager->setWasConnected(false);
+                systemContext_->mqttManager()->setWasConnected(false);
             }
         }
 
@@ -484,7 +484,7 @@ void LoopManager::updateNetwork() {
      } else {
          wifiWasConnected = false;
          if (g_state.network.cleverCoffeeWiFiManager) {
-             g_state.network.cleverCoffeeWiFiManager->checkAndMaintainConnection();
+             systemContext_->cleverCoffeeWiFiManager()->checkAndMaintainConnection();
          }
      }
 
@@ -533,7 +533,7 @@ void LoopManager::updateWebsite() {
     bool tempNotRunning = systemContext_ ? !systemContext_->sensorCoordinator().isTemperatureUpdateRunning() : true;
     
     const bool canSendData = (millis() - lastTempEvent_) > tempEventInterval_ &&
-                            (!g_state.network.mqttManager || !g_state.network.mqttManager->isUpdateRunning()) &&
+                            (!systemContext_->mqttManager() || !systemContext_->mqttManager()->isUpdateRunning()) &&
                             hassioNotRunning &&
                             displayBufferNotReady &&
                             tempNotRunning;
@@ -549,13 +549,13 @@ void LoopManager::updateWebsite() {
 
         // Delegate to WebServerManager for actual transmission
         if (g_state.network.webServerManager) {
-            g_state.network.webServerManager->sendTempEvent(
+            systemContext_->webServerManager()->sendTempEvent(
                 g_state.process.temperature,
                 Config::getInstance().brewSetpoint.get(),
                 systemContext_->processController()->getPIDOutput() / 10); // Convert promill to percent
 
             if (Config::getInstance().hardwareSensorsScaleEnabled.get()) {
-                g_state.network.webServerManager->sendWeightEvent();
+                systemContext_->webServerManager()->sendWeightEvent();
             }
         }
 
