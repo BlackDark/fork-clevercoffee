@@ -39,10 +39,6 @@ void initializeHandlers(CleverCoffee::SystemContext* systemContext) {
     steamHandler.setHardware(CleverCoffee::getGlobalSystemContext()->hardwareContext().steamSwitch());
     
     // Store handler references in global state (backward compatibility)
-    g_state.handlers.brewHandler     = &brewHandler;
-    g_state.handlers.hotWaterHandler = &hotWaterHandler;
-    g_state.handlers.powerHandler    = &powerHandler;
-    g_state.handlers.steamHandler    = &steamHandler;
     
     // Also register in SystemContext if provided
     if (systemContext) {
