@@ -66,7 +66,7 @@ inline void initOfflineMode() {
     std::lock_guard<std::mutex> lock(offline_mutex);
 
     if (Config::getInstance().hardwareOledEnabled.get()) {
-        g_state.display.displayOffline = 1;
+        CleverCoffee::getGlobalSystemContext()->uiCoordinator().setDisplayOffline(1);
     }
 
     LOG(INFO, "Start offline mode with eeprom values, no wifi :(");

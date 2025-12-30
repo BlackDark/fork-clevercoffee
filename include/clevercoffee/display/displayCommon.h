@@ -580,9 +580,9 @@ inline bool displayFullscreenHotWaterTimer() {
  * @brief display offline message
  */
 inline bool displayOfflineMode() {
-    if (g_state.display.displayOffline > 0 && g_state.display.displayOffline < 20) {
+    if (CleverCoffee::getGlobalSystemContext()->uiCoordinator().getDisplayOffline() > 0 && CleverCoffee::getGlobalSystemContext()->uiCoordinator().getDisplayOffline() < 20) {
         displayMessage("", "", "", "", "Begin Fallback,", "No Wifi");
-        g_state.display.displayOffline++;
+        CleverCoffee::getGlobalSystemContext()->uiCoordinator().incrementDisplayOffline();
         return true;
     }
 
