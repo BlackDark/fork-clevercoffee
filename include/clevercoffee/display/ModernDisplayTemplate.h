@@ -342,7 +342,7 @@ class UprightTemplate : public ModernDisplayTemplate<UprightTemplate> {
 
     void displayStatusBar() {
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->drawLine(0, CleverCoffee::Display::STATUS_BAR_Y_POSITION, CleverCoffee::Display::OLED_WIDTH / 2, CleverCoffee::Display::STATUS_BAR_Y_POSITION);
-        if (!g_state.network.offlineMode) {
+        if (!CleverCoffee::getGlobalSystemContext()->networkCoordinator().isOfflineMode()) {
             displayWiFiStatus(4, 2);
             displayMQTTStatus(21, 0);
         } else {

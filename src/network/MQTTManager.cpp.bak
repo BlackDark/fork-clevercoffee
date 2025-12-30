@@ -9,7 +9,6 @@
 #include "clevercoffee/coordinators/UICoordinator.h"
 #include "clevercoffee/coordinators/SensorCoordinator.h"
 #include "clevercoffee/coordinators/NetworkCoordinator.h"
-#include "clevercoffee/context/SystemContext.h"
 #include "clevercoffee/GlobalState.h"
 #include "clevercoffee/Logger.h"
 #include "clevercoffee/defaults.h"

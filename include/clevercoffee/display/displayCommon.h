@@ -94,7 +94,7 @@ inline void displayWiFiStatus(const int x, const int y) {
 
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setFont(u8g2_font_profont11_tf);
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print("RC: ");
-        CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(g_state.network.wifiReconnects);
+        CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(CleverCoffee::getGlobalSystemContext()->networkCoordinator().getWifiReconnects());
     }
 }
 
@@ -388,7 +388,7 @@ inline void displayStatusbar() {
     // For status info
     CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->drawLine(0, STATUS_BAR_Y_POS, DISPLAY_WIDTH, STATUS_BAR_Y_POS);
 
-    if (!g_state.network.offlineMode) {
+    if (!CleverCoffee::getGlobalSystemContext()->networkCoordinator().isOfflineMode()) {
         displayWiFiStatus(4, 1);
         displayMQTTStatus(40, 0);
     } else {
