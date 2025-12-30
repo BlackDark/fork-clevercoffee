@@ -302,7 +302,7 @@ void UIManager::displayBrewWeight() {
     u8g2_->setFont(u8g2_font_profont15_tf);
 
     char weightStr[16];
-    snprintf(weightStr, sizeof(weightStr), "%.1fg", g_state.sensors.currReadingWeight);
+    snprintf(weightStr, sizeof(weightStr), "%.1fg", systemContext_->sensorCoordinator().getWeight());
 
     u8g2_->drawStr(0, 50, weightStr);
 }

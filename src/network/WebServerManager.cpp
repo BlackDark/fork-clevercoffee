@@ -323,8 +323,8 @@ void WebServerManager::setupApiRoutes() {
         doc["uptime"] = millis();
 
         if (Config::getInstance().hardwareSensorsScaleEnabled.get()) {
-            doc["weight"]     = g_state.sensors.currReadingWeight;
-            doc["brewWeight"] = g_state.sensors.currBrewWeight;
+            doc["weight"] = CleverCoffee::getGlobalSystemContext()->sensorCoordinator().getWeight();
+            doc["brewWeight"] = CleverCoffee::getGlobalSystemContext()->sensorCoordinator().getBrewWeight();
         }
 
         String response;
@@ -431,7 +431,7 @@ void WebServerManager::setupApiRoutes() {
                 LOGF(INFO, "Toggle scale tare mode: %s", g_state.sensors.scaleTareOn ? "on" : "off");
                 request->send(200,
                               "application/json",
-                              JsonResponseBuilder::createBoolResponse("scaleTareOn", g_state.sensors.scaleTareOn));
+                              JsonResponseBuilder::createBoolResponse("scaleTareOn", CleverCoffee::getGlobalSystemContext()->sensorCoordinator().isScaleTareMode()));
             } catch (const std::exception& e) {
                 LOGF(ERROR, "API scale tare failed: %s", e.what());
                 request->send(
@@ -446,7 +446,7 @@ void WebServerManager::setupApiRoutes() {
                 request->send(
                     200,
                     "application/json",
-                    JsonResponseBuilder::createBoolResponse("scaleCalibrationOn", g_state.sensors.scaleCalibrationOn));
+                    JsonResponseBuilder::createBoolResponse("scaleCalibrationOn", CleverCoffee::getGlobalSystemContext()->sensorCoordinator().isScaleCalibrationMode()));
             } catch (const std::exception& e) {
                 LOGF(ERROR, "API scale calibration failed: %s", e.what());
                 request->send(
@@ -461,7 +461,7 @@ void WebServerManager::setupApiRoutes() {
                 request->send(
                     200,
                     "application/json",
-                    JsonResponseBuilder::createBoolResponse("scaleCalibrationOn", g_state.sensors.scaleCalibrationOn));
+                    JsonResponseBuilder::createBoolResponse("scaleCalibrationOn", CleverCoffee::getGlobalSystemContext()->sensorCoordinator().isScaleCalibrationMode()));
             } catch (const std::exception& e) {
                 LOGF(ERROR, "API scale calibration failed: %s", e.what());
                 request->send(
@@ -1117,7 +1117,7 @@ String WebServerManager::getWeightJsonString() {
     try {
         JsonDocument doc;
 
-        doc["weight"]     = round2(g_state.sensors.currReadingWeight);
+        doc["weight"]     = round2(CleverCoffee::getGlobalSystemContext()->sensorCoordinator().getWeight());
         doc["brewWeight"] = round2(g_state.sensors.currBrewWeight);
 
         String json;
