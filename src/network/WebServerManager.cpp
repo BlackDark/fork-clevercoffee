@@ -8,6 +8,8 @@
 #include "clevercoffee/Config.h"
 #include "clevercoffee/GlobalState.h"
 #include "clevercoffee/Logger.h"
+#include "clevercoffee/context/SystemContext.h"
+#include "clevercoffee/control/ProcessController.h"
 #include "clevercoffee/network/CleverCoffeeWiFiManager.h"
 #include "clevercoffee/utils/SystemUtils.h"
 #include "clevercoffee/utils/helperUtils.h"
@@ -311,11 +313,11 @@ void WebServerManager::setupApiRoutes() {
     server_->on("/api/status", HTTP_GET, [](AsyncWebServerRequest* request) {
         JsonDocument doc;
 
-        doc["temperature"]  = g_state.process.temperature;
-        doc["setpoint"]     = g_state.process.setpoint;
-        doc["heaterPower"]  = g_state.process.pidOutput / 10.0;
+        doc["temperature"]  = CleverCoffee::getGlobalSystemContext()->processController()->getCurrentTemperature();
+        doc["setpoint"]     = CleverCoffee::getGlobalSystemContext()->processController()->getSetpoint();
+        doc["heaterPower"]  = CleverCoffee::getGlobalSystemContext()->processController()->getPIDOutput() / 10.0;
         doc["machineState"] = static_cast<int>(g_state.machine.machineState);
-        doc["pidEnabled"]   = g_state.process.pidEnabled;
+        doc["pidEnabled"]   = CleverCoffee::getGlobalSystemContext()->processController()->isPIDEnabled();
         doc["steamMode"]    = g_state.machine.steamON;
         // doc["brewActive"] = g_state.machine.currentlyBrewing;
         doc["uptime"] = millis();
@@ -972,9 +974,9 @@ String WebServerManager::templateProcessor(const String& var) {
     } else if (var == "VERSION") {
         return "CleverCoffee v2.0";
     } else if (var == "TEMP") {
-        return String(g_state.process.temperature, 1);
+        return String(CleverCoffee::getGlobalSystemContext()->processController()->getCurrentTemperature(), 1);
     } else if (var == "SETPOINT") {
-        return String(g_state.process.setpoint, 1);
+        return String(CleverCoffee::getGlobalSystemContext()->processController()->getSetpoint(), 1);
     } else if (var == "UPTIME") {
         unsigned long uptimeMillis  = millis();
         unsigned long uptimeSeconds = uptimeMillis / 1000;
@@ -1096,9 +1098,9 @@ String WebServerManager::getTempString() {
     try {
         JsonDocument doc;
 
-        doc["currentTemp"] = g_state.process.temperature;
+        doc["currentTemp"] = CleverCoffee::getGlobalSystemContext()->processController()->getCurrentTemperature();
         doc["targetTemp"]  = Config::getInstance().brewSetpoint.get();
-        doc["heaterPower"] = g_state.process.pidOutput / 10;
+        doc["heaterPower"] = CleverCoffee::getGlobalSystemContext()->processController()->getPIDOutput() / 10;
 
         String json;
         if (!safeSerializeJson(doc, json)) {

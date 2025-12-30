@@ -262,7 +262,7 @@ inline String getTempString() {
     try {
         JsonDocument doc;
 
-        doc["currentTemp"] = g_state.process.temperature;
+        doc["currentTemp"] = systemContext_->processController()->getCurrentTemperature();
         doc["targetTemp"]  = Config::getInstance().brewSetpoint.get();
         doc["heaterPower"] = g_state.process.pidOutput / 10;
 

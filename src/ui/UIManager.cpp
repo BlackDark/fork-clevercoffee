@@ -9,6 +9,7 @@
 #include "clevercoffee/GlobalState.h"
 #include "clevercoffee/Logger.h"
 #include "clevercoffee/context/SystemContext.h"
+#include "clevercoffee/control/ProcessController.h"
 #include "clevercoffee/display/DisplayManager.h"
 #include "clevercoffee/display/bitmaps.h"
 #include "clevercoffee/handlers/BrewHandler.h"
@@ -183,7 +184,7 @@ void UIManager::displayBrewTime() {
     // For now, just show the current brew time
     u8g2_->setFont(u8g2_font_profont15_tf);
     char timeStr[16];
-    snprintf(timeStr, sizeof(timeStr), "%.1fs", g_state.process.currBrewTime / 1000.0);
+    snprintf(timeStr, sizeof(timeStr), "%.1fs", systemContext_->processController()->getCurrBrewTime() / 1000.0);
     u8g2_->drawStr(0, 20, timeStr);
 }
 
@@ -194,7 +195,7 @@ void UIManager::displayFullscreenBrewTimer() {
     u8g2_->setFont(u8g2_font_profont22_tn);
 
     char timeStr[16];
-    snprintf(timeStr, sizeof(timeStr), "%.1f", g_state.process.currBrewTime / 1000.0);
+    snprintf(timeStr, sizeof(timeStr), "%.1f", systemContext_->processController()->getCurrBrewTime() / 1000.0);
 
     // Center the text
     int textWidth = u8g2_->getStrWidth(timeStr);
@@ -272,7 +273,7 @@ void UIManager::displayTemperature() {
     u8g2_->setFont(u8g2_font_profont22_tn);
 
     char tempStr[16];
-    snprintf(tempStr, sizeof(tempStr), "%.1f°C", g_state.process.temperature);
+    snprintf(tempStr, sizeof(tempStr), "%.1f°C", systemContext_->processController()->getCurrentTemperature());
 
     u8g2_->drawStr(10, 32, tempStr);
 }
@@ -284,9 +285,9 @@ void UIManager::displayThermometerOutline() {
     u8g2_->drawFrame(120, 10, 6, 40);
     u8g2_->drawDisc(123, 52, 4);
 
-    // Fill based on g_state.process.temperature relative to setpoint
-    if (g_state.process.temperature > 0 && g_state.process.setpoint > 0) {
-        int fillHeight = static_cast<int>((g_state.process.temperature / g_state.process.setpoint) * 35);
+    // Fill based on systemContext_->processController()->getCurrentTemperature() relative to setpoint
+    if (systemContext_->processController()->getCurrentTemperature() > 0 && systemContext_->processController()->getSetpoint() > 0) {
+        int fillHeight = static_cast<int>((systemContext_->processController()->getCurrentTemperature() / systemContext_->processController()->getSetpoint()) * 35);
         if (fillHeight > 35) fillHeight = 35;
 
         for (int i = 0; i < fillHeight; i++) {
@@ -349,7 +350,7 @@ void UIManager::displayMachineState() {
     // This will be enhanced based on actual machine state values
     if (g_state.machine.steamON) {
         stateStr = "Steam";
-    } else if (g_state.process.currBrewTime > 0) {
+    } else if (systemContext_->processController()->getCurrBrewTime() > 0) {
         stateStr = "Brewing";
     } else {
         stateStr = "Ready";

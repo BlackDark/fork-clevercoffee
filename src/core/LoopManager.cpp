@@ -552,7 +552,7 @@ void LoopManager::updateWebsite() {
             g_state.network.webServerManager->sendTempEvent(
                 g_state.process.temperature,
                 Config::getInstance().brewSetpoint.get(),
-                g_state.process.pidOutput / 10); // Convert promill to percent
+                systemContext_->processController()->getPIDOutput() / 10); // Convert promill to percent
 
             if (Config::getInstance().hardwareSensorsScaleEnabled.get()) {
                 g_state.network.webServerManager->sendWeightEvent();

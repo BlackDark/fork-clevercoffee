@@ -243,13 +243,49 @@ class ProcessController {
      */
     void performSafeShutdown();
 
-    /**
-     * @brief Test for emergency conditions (overtemperature, etc.)
-     * @return true if emergency stop was triggered
-     */
-    bool testEmergencyConditions();
+     /**
+      * @brief Test for emergency conditions (overtemperature, etc.)
+      * @return true if emergency stop was triggered
+      */
+     bool testEmergencyConditions();
 
-  private:
+     /**
+      * @brief Get PID normal mode Ki parameter
+      * @return Current Ki value
+      */
+     double getAggKi() const { return aggKi_; }
+
+     /**
+      * @brief Get PID normal mode Kd parameter
+      * @return Current Kd value
+      */
+     double getAggKd() const { return aggKd_; }
+
+     /**
+      * @brief Get PID normal mode Kp parameter
+      * @return Current Kp value
+      */
+     double getAggKp() const { return aggKp_; }
+
+     /**
+      * @brief Get PID window size (0-1000 ms typically)
+      * @return Window size in milliseconds
+      */
+     int getWindowSize() const { return windowSize_; }
+
+     /**
+      * @brief Get brew detection PID Ki parameter
+      * @return Current brew detection Ki value
+      */
+     double getAggbKi() const { return aggbKi_; }
+
+     /**
+      * @brief Get brew detection PID Kd parameter
+      * @return Current brew detection Kd value
+      */
+     double getAggbKd() const { return aggbKd_; }
+
+   private:
     /**
      * @brief Update process control debug logging
      */
@@ -307,13 +343,16 @@ class ProcessController {
      double brewSetpoint_;  ///< Target temperature for brewing
      double steamSetpoint_; ///< Target temperature for steam
 
-     // Brewing process state
-     double currBrewTime_;         ///< Current brew time in milliseconds
-     double totalTargetBrewTime_;  ///< Target brew time in milliseconds
-     bool   brewPidDisabled_;      ///< Whether brew PID is disabled
+      // Brewing process state
+      double currBrewTime_;         ///< Current brew time in milliseconds
+      double totalTargetBrewTime_;  ///< Target brew time in milliseconds
+      bool   brewPidDisabled_;      ///< Whether brew PID is disabled
 
-     // Temperature offset
-     double brewTempOffset_; ///< Temperature offset for brewing
+      // Temperature offset
+      double brewTempOffset_; ///< Temperature offset for brewing
+
+      // PWM control
+      int windowSize_ = 1000;  ///< PID window/period size in milliseconds
 
     // Emergency temperature detection
     static constexpr int EMERGENCY_TEMP_DEBOUNCE_COUNT = 3;  ///< Require 3 consecutive readings
