@@ -25,9 +25,8 @@ void BrewIdleState::update(MachineStateContext& context) {
 }
 
 MachineState* BrewIdleState::checkSpecificTransitions(MachineStateContext& context) {
-    auto& flags = g_state.machine.flags;
-    if (flags.requestBrewStart) {
-        flags.requestBrewStart = false;
+    if (context.isBrewStartRequested()) {
+        context.setBrewStartRequested(false);
         context.logStateTransition(getStateId(), MachineStateId::BREW_PREINFUSION, "Brew start requested");
         return getStateInstance(MachineStateId::BREW_PREINFUSION);
     }
@@ -35,9 +34,9 @@ MachineState* BrewIdleState::checkSpecificTransitions(MachineStateContext& conte
         context.logStateTransition(getStateId(), MachineStateId::BREW_PREINFUSION, "Brew switch activated");
         return getStateInstance(MachineStateId::BREW_PREINFUSION);
     }
-    if (context.isBackflushActive() || flags.requestBackflushStart) {
-        if (flags.requestBackflushStart) {
-            flags.requestBackflushStart = false;
+    if (context.isBackflushActive() || context.isBackflushStartRequested()) {
+        if (context.isBackflushStartRequested()) {
+            context.setBackflushStartRequested(false);
         }
         context.logStateTransition(getStateId(), MachineStateId::BACKFLUSH_IDLE, "Backflush activated");
         return getStateInstance(MachineStateId::BACKFLUSH_IDLE);
@@ -58,9 +57,8 @@ void BrewPreinfusionState::update(MachineStateContext& context) {
 }
 
 MachineState* BrewPreinfusionState::checkSpecificTransitions(MachineStateContext& context) {
-    auto& flags = g_state.machine.flags;
-    if (flags.requestBrewStop) {
-        flags.requestBrewStop = false;
+    if (context.isBrewStopRequested()) {
+        context.setBrewStopRequested(false);
         context.logStateTransition(getStateId(), MachineStateId::BREW_IDLE, "Brew stop requested during preinfusion");
         return getStateInstance(MachineStateId::BREW_IDLE);
     }
@@ -85,9 +83,8 @@ void BrewPreinfusionPauseState::update(MachineStateContext& context) {
 }
 
 MachineState* BrewPreinfusionPauseState::checkSpecificTransitions(MachineStateContext& context) {
-    auto& flags = g_state.machine.flags;
-    if (flags.requestBrewStop) {
-        flags.requestBrewStop = false;
+    if (context.isBrewStopRequested()) {
+        context.setBrewStopRequested(false);
         context.logStateTransition(
             getStateId(), MachineStateId::BREW_IDLE, "Brew stop requested during preinfusion pause");
         return getStateInstance(MachineStateId::BREW_IDLE);
@@ -113,9 +110,8 @@ void BrewRunningState::update(MachineStateContext& context) {
 }
 
 MachineState* BrewRunningState::checkSpecificTransitions(MachineStateContext& context) {
-    auto& flags = g_state.machine.flags;
-    if (flags.requestBrewStop) {
-        flags.requestBrewStop = false;
+    if (context.isBrewStopRequested()) {
+        context.setBrewStopRequested(false);
         context.logStateTransition(getStateId(), MachineStateId::BREW_FINISHED, "Brew stop requested");
         return getStateInstance(MachineStateId::BREW_FINISHED);
     }
