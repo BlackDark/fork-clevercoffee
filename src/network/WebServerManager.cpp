@@ -9,6 +9,7 @@
 #include "clevercoffee/GlobalState.h"
 #include "clevercoffee/Logger.h"
 #include "clevercoffee/context/SystemContext.h"
+#include "clevercoffee/state/MachineStateContext.h"
 #include "clevercoffee/control/ProcessController.h"
 #include "clevercoffee/network/CleverCoffeeWiFiManager.h"
 #include "clevercoffee/utils/SystemUtils.h"
@@ -310,15 +311,15 @@ void WebServerManager::setupApiRoutes() {
     LOG(DEBUG, "Setting up API routes");
 
     // System status endpoint
-    server_->on("/api/status", HTTP_GET, [](AsyncWebServerRequest* request) {
+    server_->on("/api/status", HTTP_GET, [this](AsyncWebServerRequest* request) {
         JsonDocument doc;
 
         doc["temperature"]  = CleverCoffee::getGlobalSystemContext()->processController()->getCurrentTemperature();
         doc["setpoint"]     = CleverCoffee::getGlobalSystemContext()->processController()->getSetpoint();
         doc["heaterPower"]  = CleverCoffee::getGlobalSystemContext()->processController()->getPIDOutput() / 10.0;
-        doc["machineState"] = static_cast<int>(g_state.machine.machineState);
+        doc["machineState"] = static_cast<int>(systemContext_->machineStateContext()->getCurrentStateId());
         doc["pidEnabled"]   = CleverCoffee::getGlobalSystemContext()->processController()->isPIDEnabled();
-        doc["steamMode"]    = g_state.machine.steamON;
+        doc["steamMode"]    = systemContext_->machineStateContext()->isSteamModeActive();
         // doc["brewActive"] = g_state.machine.currentlyBrewing;
         doc["uptime"] = millis();
 
@@ -372,13 +373,13 @@ void WebServerManager::setupApiRoutes() {
     server_->on("/api/health", HTTP_GET, [](AsyncWebServerRequest* request) { request->send(200); });
 
     // Steam control endpoints
-    server_->on("/api/steam", HTTP_POST, [](AsyncWebServerRequest* request) {
+    server_->on("/api/steam", HTTP_POST, [this](AsyncWebServerRequest* request) {
         try {
-            const bool steamMode = !g_state.machine.steamON;
-            setSteamMode(steamMode);
-            LOGF(INFO, "Toggle steam mode: %s", g_state.machine.steamON ? "on" : "off");
+            const bool steamMode = !systemContext_->machineStateContext()->isSteamModeActive();
+            systemContext_->machineStateContext()->setSteamModeActive(steamMode);
+            LOGF(INFO, "Toggle steam mode: %s", systemContext_->machineStateContext()->isSteamModeActive() ? "on" : "off");
             request->send(
-                200, "application/json", JsonResponseBuilder::createBoolResponse("steamMode", g_state.machine.steamON));
+                200, "application/json", JsonResponseBuilder::createBoolResponse("steamMode", systemContext_->machineStateContext()->isSteamModeActive()));
         } catch (const std::exception& e) {
             LOGF(ERROR, "API steam toggle failed: %s", e.what());
             request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("Internal server error"));
@@ -405,14 +406,14 @@ void WebServerManager::setupApiRoutes() {
     });
 
     // Backflush endpoint
-    server_->on("/api/backflush", HTTP_POST, [](AsyncWebServerRequest* request) {
+    server_->on("/api/backflush", HTTP_POST, [this](AsyncWebServerRequest* request) {
         try {
-            g_state.machine.backflushOn = !g_state.machine.backflushOn;
-            LOGF(INFO, "Toggle backflush mode: %s", g_state.machine.backflushOn ? "on" : "off");
+            systemContext_->machineStateContext()->setBackflushModeActive(!systemContext_->machineStateContext()->isBackflushModeActive());
+            LOGF(INFO, "Toggle backflush mode: %s", systemContext_->machineStateContext()->isBackflushModeActive() ? "on" : "off");
 
             JsonDocument doc;
             doc["success"]     = true;
-            doc["backflushOn"] = g_state.machine.backflushOn;
+            doc["backflushOn"] = systemContext_->machineStateContext()->isBackflushModeActive();
 
             String response;
             serializeJson(doc, response);

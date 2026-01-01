@@ -314,10 +314,11 @@ bool SystemInitializer::initializeNetworking() {
             LOG(INFO, "LittleFS initialized successfully");
         }
 
-        // Initialize WebServerManager
-        webServerManager_                = std::make_unique<WebServerManager>(80);
-        systemContext_->setWebServerManager(webServerManager_.get());
-        g_state.network.webServerManager = webServerManager_.get();
+         // Initialize WebServerManager
+         webServerManager_                = std::make_unique<WebServerManager>(80);
+         webServerManager_->setSystemContext(systemContext_.get());
+         systemContext_->setWebServerManager(webServerManager_.get());
+         g_state.network.webServerManager = webServerManager_.get();
 
         if (!webServerManager_->initialize(true)) {
             LOG(ERROR, "WebServerManager initialization failed");

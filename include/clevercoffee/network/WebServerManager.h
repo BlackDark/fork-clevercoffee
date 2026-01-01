@@ -14,6 +14,11 @@
 class AsyncCorsMiddleware;
 class AsyncAuthenticationMiddleware;
 
+// Forward declarations
+namespace CleverCoffee {
+class SystemContext;
+}
+
 /**
  * @class WebServerManager
  * @brief Manages the embedded web server with all routes, middleware, and event handling
@@ -72,12 +77,20 @@ class WebServerManager {
      */
     void sendWeightEvent();
 
-    /**
-     * @brief Send generic event to connected clients
-     * @param event Event name
-     * @param data Event data
-     */
-    void sendEvent(const String& event, const String& data);
+     /**
+      * @brief Send generic event to connected clients
+      * @param event Event name
+      * @param data Event data
+      */
+     void sendEvent(const String& event, const String& data);
+
+     /**
+      * @brief Set system context for state access
+      * @param context Pointer to SystemContext
+      */
+     void setSystemContext(CleverCoffee::SystemContext* context) noexcept {
+         systemContext_ = context;
+     }
 
   private:
     /**
@@ -144,14 +157,17 @@ class WebServerManager {
      */
     static String getWeightJsonString();
 
-    // Web server components
-    std::unique_ptr<AsyncWebServer>                server_;
-    std::unique_ptr<AsyncEventSource>              events_;
-    std::unique_ptr<AsyncCorsMiddleware>           corsMiddleware_;
-    std::unique_ptr<AsyncAuthenticationMiddleware> authMiddleware_;
+     // Web server components
+     std::unique_ptr<AsyncWebServer>                server_;
+     std::unique_ptr<AsyncEventSource>              events_;
+     std::unique_ptr<AsyncCorsMiddleware>           corsMiddleware_;
+     std::unique_ptr<AsyncAuthenticationMiddleware> authMiddleware_;
 
-    // Server state
-    uint16_t port_;
-    bool     isRunning_;
-    bool     littleFSAvailable_;
+     // System context for state management
+     CleverCoffee::SystemContext* systemContext_{nullptr};
+
+     // Server state
+     uint16_t port_;
+     bool     isRunning_;
+     bool     littleFSAvailable_;
 };
