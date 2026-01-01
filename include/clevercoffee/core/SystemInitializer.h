@@ -117,6 +117,13 @@ class SystemInitializer {
         return systemContext_.get();
     }
 
+    /**
+     * @brief Finalize machine state - must be called AFTER StateMachine is created and registered
+     * @note This is called from main.cpp after MachineStateContext is available
+     * @return True if successful, false otherwise
+     */
+    bool finalizeMachineState();
+
   private:
     // Initialization state
     bool   systemInitialized_;
@@ -141,7 +148,6 @@ class SystemInitializer {
     bool initializeMQTT();
     bool initializePID();
     bool initializeSensors();
-    bool finalizeMachineState();
 
     // Network setup helpers
     void setupWiFi();

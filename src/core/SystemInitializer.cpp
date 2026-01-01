@@ -139,14 +139,6 @@ bool SystemInitializer::initialize() {
         LOG(WARNING, "LittleFS not available or not initialized");
     }
 
-    if (!finalizeMachineState()) {
-        LOG(ERROR, "Machine state finalization failed");
-        return false;
-    }
-
-    // Mark system as fully initialized
-    systemContext_->markReady();
-    systemInitialized_             = true;
 
     // System initialization complete
 

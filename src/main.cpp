@@ -144,11 +144,14 @@ void setup() {
              mqttManager);
          InitHelpers::logInitResult("StateMachine", stateMachine->initialize());
 
-         // Register MachineStateContext in SystemContext for safe access
-         systemInitializer->getSystemContext()->setMachineStateContext(&stateMachine->getContext());
-         
-         // Set global SystemContext reference for utility functions and header-only code
-         CleverCoffee::setGlobalSystemContext(systemInitializer->getSystemContext());
+          // Register MachineStateContext in SystemContext for safe access
+          systemInitializer->getSystemContext()->setMachineStateContext(&stateMachine->getContext());
+          
+          // Finalize machine state (must be done after MachineStateContext is registered)
+          systemInitializer->finalizeMachineState();
+          
+          // Set global SystemContext reference for utility functions and header-only code
+          CleverCoffee::setGlobalSystemContext(systemInitializer->getSystemContext());
 
          // Initialize ProcessController for PID control
         processController =
