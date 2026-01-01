@@ -4,6 +4,7 @@
  */
 
 #include "clevercoffee/GlobalState.h"
+#include "clevercoffee/Logger.h"
 
 #include "clevercoffee/context/SystemContext.h"
 #include "clevercoffee/control/ProcessController.h"
@@ -32,11 +33,21 @@ CleverCoffee::SystemContext* CleverCoffee::g_systemContext = nullptr;
 
 // Initialize handler references in global state
 void initializeHandlers(CleverCoffee::SystemContext* systemContext) {
-    // Initialize handler hardware (switches must be ready before calling this)
-    brewHandler.setHardware(CleverCoffee::getGlobalSystemContext()->hardwareContext().brewSwitch(), CleverCoffee::getGlobalSystemContext()->hardwareContext().valveRelay());
-    hotWaterHandler.setHardware(CleverCoffee::getGlobalSystemContext()->hardwareContext().hotWaterSwitch());
-    powerHandler.setHardware(CleverCoffee::getGlobalSystemContext()->hardwareContext().powerSwitch());
-    steamHandler.setHardware(CleverCoffee::getGlobalSystemContext()->hardwareContext().steamSwitch());
+    // Validate that systemContext is provided and valid
+    if (!systemContext) {
+        LOG(ERROR, "initializeHandlers: systemContext is nullptr");
+        return;
+    }
+    
+    // Initialize handler hardware using the passed systemContext parameter
+    // Use a reference to avoid repeated dereferences
+    auto& hwContext = systemContext->hardwareContext();
+    
+    // Set hardware on all handlers
+    brewHandler.setHardware(hwContext.brewSwitch(), hwContext.valveRelay());
+    hotWaterHandler.setHardware(hwContext.hotWaterSwitch());
+    powerHandler.setHardware(hwContext.powerSwitch());
+    steamHandler.setHardware(hwContext.steamSwitch());
     
     // Register in SystemContext if provided
     if (systemContext) {
