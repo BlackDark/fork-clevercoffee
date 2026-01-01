@@ -30,9 +30,8 @@ void SteamIdleState::update(MachineStateContext& context) {
 }
 
 MachineState* SteamIdleState::checkSpecificTransitions(MachineStateContext& context) {
-    auto& flags = g_state.machine.flags;
-    if (flags.requestSteamStop) {
-        flags.requestSteamStop = false;
+    if (context.isSteamStopRequested()) {
+        context.setSteamStopRequested(false);
         if (context.isPidEnabled()) {
             return getStateInstance(MachineStateId::PID_NORMAL);
         } else {
@@ -61,9 +60,8 @@ void SteamRunningState::update(MachineStateContext& context) {
 }
 
 MachineState* SteamRunningState::checkSpecificTransitions(MachineStateContext& context) {
-    auto& flags = g_state.machine.flags;
-    if (flags.requestSteamStop) {
-        flags.requestSteamStop = false;
+    if (context.isSteamStopRequested()) {
+        context.setSteamStopRequested(false);
         context.logStateTransition(getStateId(), MachineStateId::STEAM_STOPPED, "Steam stop requested");
         return getStateInstance(MachineStateId::STEAM_STOPPED);
     }
