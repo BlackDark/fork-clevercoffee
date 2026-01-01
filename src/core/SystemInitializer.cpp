@@ -153,6 +153,7 @@ bool SystemInitializer::initialize() {
 
 
     // System initialization complete
+    systemInitialized_ = true;  // CRITICAL: Mark system as initialized so isInitialized() returns true
 
     logMemory("SystemInitializer Complete");
     LOG(INFO, "System initialization completed successfully");
