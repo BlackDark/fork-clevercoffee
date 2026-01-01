@@ -29,33 +29,33 @@ void PidNormalState::update(MachineStateContext& context) {
 }
 
 MachineState* PidNormalState::checkSpecificTransitions(MachineStateContext& context) {
-    if (g_state.machine.flags.requestBrewStart) {
-        g_state.machine.flags.requestBrewStart = false;
+    if (context.isBrewStartRequested()) {
+        context.setBrewStartRequested(false);
         context.logStateTransition(getStateId(), MachineStateId::BREW_IDLE, "Brew start requested");
         return getStateInstance(MachineStateId::BREW_IDLE);
     }
-    if (g_state.machine.flags.requestHotWaterStart) {
-        g_state.machine.flags.requestHotWaterStart = false;
+    if (context.isHotWaterStartRequested()) {
+        context.setHotWaterStartRequested(false);
         context.logStateTransition(getStateId(), MachineStateId::HOT_WATER_IDLE, "Hot water start requested");
         return getStateInstance(MachineStateId::HOT_WATER_IDLE);
     }
-    if (g_state.machine.flags.requestSteamStart) {
-        g_state.machine.flags.requestSteamStart = false;
+    if (context.isSteamStartRequested()) {
+        context.setSteamStartRequested(false);
         context.logStateTransition(getStateId(), MachineStateId::STEAM_IDLE, "Steam start requested");
         return getStateInstance(MachineStateId::STEAM_IDLE);
     }
-    if (g_state.machine.flags.requestManualFlushStart) {
-        g_state.machine.flags.requestManualFlushStart = false;
+    if (context.isManualFlushStartRequested()) {
+        context.setManualFlushStartRequested(false);
         context.logStateTransition(getStateId(), MachineStateId::MANUAL_FLUSH_IDLE, "Manual flush start requested");
         return getStateInstance(MachineStateId::MANUAL_FLUSH_IDLE);
     }
-    if (g_state.machine.flags.requestBackflushStart) {
-        g_state.machine.flags.requestBackflushStart = false;
+    if (context.isBackflushStartRequested()) {
+        context.setBackflushStartRequested(false);
         context.logStateTransition(getStateId(), MachineStateId::BACKFLUSH_IDLE, "Backflush start requested");
         return getStateInstance(MachineStateId::BACKFLUSH_IDLE);
     }
-    if (g_state.machine.flags.requestStandby) {
-        g_state.machine.flags.requestStandby = false;
+    if (context.isStandbyRequested()) {
+        context.setStandbyRequested(false);
         context.logStateTransition(getStateId(), MachineStateId::STANDBY, "Standby requested");
         return getStateInstance(MachineStateId::STANDBY);
     }
