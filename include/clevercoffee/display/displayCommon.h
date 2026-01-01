@@ -700,7 +700,8 @@ inline bool displayMachineState() {
             default:
                 CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setFont(u8g2_font_fub17_tf);
                 CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setCursor(42, 42);
-                CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(g_state.machine.currBackflushCycles, 0);
+                CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(
+                    CleverCoffee::getGlobalSystemContext()->machineStateContext()->getBackflushCycleCount(), 0);
                 CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print("/");
                 CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(Config::getInstance().backflushCycles.get(), 0);
                 break;

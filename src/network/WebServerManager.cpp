@@ -318,10 +318,9 @@ void WebServerManager::setupApiRoutes() {
         doc["setpoint"]     = CleverCoffee::getGlobalSystemContext()->processController()->getSetpoint();
         doc["heaterPower"]  = CleverCoffee::getGlobalSystemContext()->processController()->getPIDOutput() / 10.0;
         doc["machineState"] = static_cast<int>(systemContext_->machineStateContext()->getCurrentStateId());
-        doc["pidEnabled"]   = CleverCoffee::getGlobalSystemContext()->processController()->isPIDEnabled();
-        doc["steamMode"]    = systemContext_->machineStateContext()->isSteamModeActive();
-        // doc["brewActive"] = g_state.machine.currentlyBrewing;
-        doc["uptime"] = millis();
+         doc["pidEnabled"]   = CleverCoffee::getGlobalSystemContext()->processController()->isPIDEnabled();
+         doc["steamMode"]    = systemContext_->machineStateContext()->isSteamModeActive();
+         doc["uptime"] = millis();
 
         if (Config::getInstance().hardwareSensorsScaleEnabled.get()) {
             doc["weight"] = CleverCoffee::getGlobalSystemContext()->sensorCoordinator().getWeight();
