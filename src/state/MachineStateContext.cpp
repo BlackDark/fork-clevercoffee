@@ -177,7 +177,7 @@ bool MachineStateContext::isSteamActive() const {
 
 bool MachineStateContext::isHotWaterActive() const {
      // Simplified implementation - check if machine is in hot water state
-     return (g_state.machine.machineState == MachineStateId::HOT_WATER_RUNNING);
+     return (systemContext_.machineStateContext()->getCurrentStateId() == MachineStateId::HOT_WATER_RUNNING);
 }
 
 bool MachineStateContext::isBackflushActive() const {

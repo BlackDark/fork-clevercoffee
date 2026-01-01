@@ -147,7 +147,7 @@ class PowerHandler : public SwitchBasedHandler {
     }
 
     void powerOn() {
-        if (g_state.machine.machineState == MachineStateId::STANDBY ||
+        if ((systemContext_ && systemContext_->machineStateContext()->getCurrentStateId() == MachineStateId::STANDBY) ||
             (systemContext_ && systemContext_->machineStateContext()->getCurrentStateId() == MachineStateId::PID_DISABLED)) {
             // TODO: request normal operation through coordinator // Use condition flag instead of direct state assignment
             resetStandbyTimer();

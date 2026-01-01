@@ -254,13 +254,13 @@ class UprightTemplate : public ModernDisplayTemplate<UprightTemplate> {
     }
 
     bool handleSpecialStates() {
-        if (g_state.machine.machineState == MachineStateId::WATER_TANK_EMPTY) {
+        if (getCurrentDisplayState() == MachineStateId::WATER_TANK_EMPTY) {
             CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->drawXBMP(
                 8, 50, Water_Tank_Empty_Logo_width, Water_Tank_Empty_Logo_height, Water_Tank_Empty_Logo);
             return true;
         }
 
-        if (g_state.machine.machineState == MachineStateId::SENSOR_ERROR) {
+        if (getCurrentDisplayState() == MachineStateId::SENSOR_ERROR) {
             CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setFont(u8g2_font_profont11_tf);
             char tempBuffer[16];
             snprintf(tempBuffer, sizeof(tempBuffer), "%.1f", g_state.process.temperature);
@@ -273,7 +273,7 @@ class UprightTemplate : public ModernDisplayTemplate<UprightTemplate> {
             return true;
         }
 
-        if (Config::getInstance().displayPidOffLogo.get() && g_state.machine.machineState == MachineStateId::STANDBY) {
+        if (Config::getInstance().displayPidOffLogo.get() && getCurrentDisplayState() == MachineStateId::STANDBY) {
             CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->drawXBMP(6, 50, Off_Logo_width, Off_Logo_height, Off_Logo);
             CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setCursor(1, 110);
             CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setFont(u8g2_font_profont10_tf);

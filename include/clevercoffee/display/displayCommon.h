@@ -18,6 +18,19 @@
 #include "clevercoffee/state/MachineStateIds.h"
 #include "clevercoffee/utils/SystemUtils.h"
 
+
+/**
+ * @brief Helper to get current machine state for display rendering
+ * @return Current machine state ID
+ */
+inline MachineStateId getCurrentDisplayState() {
+    auto ctx = CleverCoffee::getGlobalSystemContext();
+    if (!ctx || !ctx->machineStateContext()) {
+        return MachineStateId::INIT;
+    }
+    return ctx->machineStateContext()->getCurrentStateId();
+}
+
 #include <PID_v1.h>  // Required for PID methods in display templates
 #include <U8g2lib.h> // Required for U8G2 display methods
 
@@ -532,7 +545,7 @@ inline bool displayFullscreenManualFlushTimer() {
     }
 
     if (isManualFlushState(CleverCoffee::getGlobalSystemContext()->machineStateContext()->getCurrentStateId()) &&
-        g_state.machine.machineState == MachineStateId::MANUAL_FLUSH_RUNNING) {
+        getCurrentDisplayState() == MachineStateId::MANUAL_FLUSH_RUNNING) {
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->clearBuffer();
 
         if (Config::getInstance().displayTemplate.get() == System::DisplayTemplate::UPRIGHT) {
@@ -560,7 +573,7 @@ inline bool displayFullscreenHotWaterTimer() {
     }
 
     if (isHotWaterState(CleverCoffee::getGlobalSystemContext()->machineStateContext()->getCurrentStateId()) &&
-        g_state.machine.machineState == MachineStateId::HOT_WATER_RUNNING) {
+        getCurrentDisplayState() == MachineStateId::HOT_WATER_RUNNING) {
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->clearBuffer();
 
         if (Config::getInstance().displayTemplate.get() == System::DisplayTemplate::UPRIGHT) {
@@ -600,7 +613,7 @@ inline bool displayMachineState() {
 
     // Show the heating logo when we are in regular PID mode and more than 5degC below the set point
     if (Config::getInstance().displayHeatingLogo.get() > 0 &&
-        (g_state.machine.machineState == MachineStateId::PID_NORMAL) &&
+        (getCurrentDisplayState() == MachineStateId::PID_NORMAL) &&
         g_state.process.setpoint - g_state.process.temperature > 5.) {
         // For status info
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->clearBuffer();
@@ -619,7 +632,7 @@ inline bool displayMachineState() {
 
     // Offline logo
     if (Config::getInstance().displayPidOffLogo.get() == 1 &&
-        g_state.machine.machineState == MachineStateId::PID_DISABLED) {
+        getCurrentDisplayState() == MachineStateId::PID_DISABLED) {
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->clearBuffer();
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->drawXBMP(38, 0, Off_Logo_width, Off_Logo_height, Off_Logo);
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setCursor(0, 55);
@@ -629,7 +642,7 @@ inline bool displayMachineState() {
         return true;
     }
 
-    if (Config::getInstance().displayPidOffLogo.get() == 1 && g_state.machine.machineState == MachineStateId::STANDBY) {
+    if (Config::getInstance().displayPidOffLogo.get() == 1 && getCurrentDisplayState() == MachineStateId::STANDBY) {
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->clearBuffer();
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->drawXBMP(38, 0, Off_Logo_width, Off_Logo_height, Off_Logo);
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setCursor(36, 55);
@@ -651,7 +664,7 @@ inline bool displayMachineState() {
     }
 
     // Water empty
-    if (g_state.machine.machineState == MachineStateId::WATER_TANK_EMPTY) {
+    if (getCurrentDisplayState() == MachineStateId::WATER_TANK_EMPTY) {
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->clearBuffer();
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->drawXBMP(
             45, 0, Water_Tank_Empty_Logo_width, Water_Tank_Empty_Logo_height, Water_Tank_Empty_Logo);
@@ -698,7 +711,7 @@ inline bool displayMachineState() {
     }
 
     // PID Off
-    if (g_state.machine.machineState == MachineStateId::EMERGENCY_STOP) {
+    if (getCurrentDisplayState() == MachineStateId::EMERGENCY_STOP) {
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->clearBuffer();
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setFont(u8g2_font_profont11_tf);
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setCursor(32, 24);
@@ -728,7 +741,7 @@ inline bool displayMachineState() {
         return true;
     }
 
-    if (g_state.machine.machineState == MachineStateId::SENSOR_ERROR) {
+    if (getCurrentDisplayState() == MachineStateId::SENSOR_ERROR) {
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->clearBuffer();
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setFont(u8g2_font_profont11_tf);
 
@@ -739,7 +752,7 @@ inline bool displayMachineState() {
         return true;
     }
 
-    if (g_state.machine.machineState == MachineStateId::EEPROM_ERROR) {
+    if (getCurrentDisplayState() == MachineStateId::EEPROM_ERROR) {
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->clearBuffer();
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setFont(u8g2_font_profont11_tf);
         displayMessage("EEPROM Error, please set Values", "", "", "", "", "");
