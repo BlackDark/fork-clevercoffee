@@ -19,6 +19,7 @@ namespace CleverCoffee {
 class UICoordinator;
 class SensorCoordinator;
 class NetworkCoordinator;
+class SystemContext;
 }
 
 /**
@@ -71,13 +72,21 @@ class MQTTManager {
          sensorCoordinator_ = coordinator;
      }
 
-     /**
-      * @brief Set Network coordinator for connection state management
-      * @param coordinator Pointer to NetworkCoordinator
-      */
-     void setNetworkCoordinator(CleverCoffee::NetworkCoordinator* coordinator) noexcept {
-         networkCoordinator_ = coordinator;
-     }
+      /**
+       * @brief Set Network coordinator for connection state management
+       * @param coordinator Pointer to NetworkCoordinator
+       */
+      void setNetworkCoordinator(CleverCoffee::NetworkCoordinator* coordinator) noexcept {
+          networkCoordinator_ = coordinator;
+      }
+
+      /**
+       * @brief Set system context for state management
+       * @param context Pointer to SystemContext
+       */
+      void setSystemContext(CleverCoffee::SystemContext* context) noexcept {
+          systemContext_ = context;
+      }
 
      /**
       * @brief Check MQTT connection and reconnect if needed
@@ -222,10 +231,13 @@ class MQTTManager {
     static constexpr unsigned long intervalMQTTStandby_ = 10000;
     unsigned long                  previousMillisMQTT_;
 
-    // Coordinators
-    CleverCoffee::UICoordinator* uiCoordinator_{nullptr}; ///< UI coordinator for state management
-    CleverCoffee::SensorCoordinator* sensorCoordinator_{nullptr}; ///< Sensor coordinator for scale modes
-    CleverCoffee::NetworkCoordinator* networkCoordinator_{nullptr}; ///< Network coordinator for connection state
+     // Coordinators
+     CleverCoffee::UICoordinator* uiCoordinator_{nullptr}; ///< UI coordinator for state management
+     CleverCoffee::SensorCoordinator* sensorCoordinator_{nullptr}; ///< Sensor coordinator for scale modes
+     CleverCoffee::NetworkCoordinator* networkCoordinator_{nullptr}; ///< Network coordinator for connection state
+
+     // System context for state management
+     CleverCoffee::SystemContext* systemContext_{nullptr};
 
     // Home Assistant discovery
     struct DiscoveryObject {

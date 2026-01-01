@@ -182,17 +182,17 @@ void MQTTManager::assignParameter(char* param, double value) {
 
         LOGF(DEBUG, "Setting MQTT parameter: %s", parameterId);
 
-        // Handle special cases that don't map to config parameters
-        if (strcmp(parameterId, "STEAM_MODE") == 0) {
-            g_state.machine.steamFirstON = static_cast<bool>(value);
-            publish(param, number2string(value), true);
-            LOGF(DEBUG, "MQTT special parameter %s updated to %f", param, value);
-            return;
-        } else if (strcmp(parameterId, "BACKFLUSH_ON") == 0) {
-            g_state.machine.backflushOn = static_cast<bool>(value);
-            publish(param, number2string(value), true);
-            LOGF(DEBUG, "MQTT special parameter %s updated to %f", param, value);
-            return;
+         // Handle special cases that don't map to config parameters
+         if (strcmp(parameterId, "STEAM_MODE") == 0) {
+             systemContext_->machineStateContext()->setSteamFirstActivated(static_cast<bool>(value));
+             publish(param, number2string(value), true);
+             LOGF(DEBUG, "MQTT special parameter %s updated to %f", param, value);
+             return;
+         } else if (strcmp(parameterId, "BACKFLUSH_ON") == 0) {
+             systemContext_->machineStateContext()->setBackflushModeActive(static_cast<bool>(value));
+             publish(param, number2string(value), true);
+             LOGF(DEBUG, "MQTT special parameter %s updated to %f", param, value);
+             return;
          } else if (strcmp(parameterId, "TARE_ON") == 0) {
              if (sensorCoordinator_) {
                  sensorCoordinator_->setScaleTareMode(static_cast<bool>(value));
@@ -281,14 +281,14 @@ int MQTTManager::writeSysParamsToMQTT(bool continueOnError) {
 
             bool paramFound = false;
 
-            try {
-                // Handle special cases that don't map to config parameters
-                if (strcmp(parameterId, "STEAM_MODE") == 0) {
-                    snprintf(data, sizeof(data), "%d", g_state.machine.steamFirstON ? 1 : 0);
-                    paramFound = true;
-                } else if (strcmp(parameterId, "BACKFLUSH_ON") == 0) {
-                    snprintf(data, sizeof(data), "%d", g_state.machine.backflushOn ? 1 : 0);
-                    paramFound = true;
+             try {
+                 // Handle special cases that don't map to config parameters
+                 if (strcmp(parameterId, "STEAM_MODE") == 0) {
+                     snprintf(data, sizeof(data), "%d", systemContext_->machineStateContext()->isSteamFirstActivated() ? 1 : 0);
+                     paramFound = true;
+                 } else if (strcmp(parameterId, "BACKFLUSH_ON") == 0) {
+                     snprintf(data, sizeof(data), "%d", systemContext_->machineStateContext()->isBackflushModeActive() ? 1 : 0);
+                     paramFound = true;
                 } else if (strcmp(parameterId, "TARE_ON") == 0) {
                     snprintf(data, sizeof(data), "%d", g_state.sensors.scaleTareOn ? 1 : 0);
                     paramFound = true;
