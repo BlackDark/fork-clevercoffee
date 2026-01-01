@@ -9,6 +9,7 @@
 #include "clevercoffee/GlobalState.h"
 #include "clevercoffee/Logger.h"
 #include "clevercoffee/context/SystemContext.h"
+#include "clevercoffee/state/MachineStateContext.h"
 #include "clevercoffee/control/ProcessController.h"
 #include "clevercoffee/display/DisplayManager.h"
 #include "clevercoffee/display/bitmaps.h"
@@ -346,15 +347,15 @@ void UIManager::displayMachineState() {
 
     const char* stateStr = "Unknown";
 
-    // Map machine state to display string
-    // This will be enhanced based on actual machine state values
-    if (g_state.machine.steamON) {
-        stateStr = "Steam";
-    } else if (systemContext_->processController()->getCurrBrewTime() > 0) {
-        stateStr = "Brewing";
-    } else {
-        stateStr = "Ready";
-    }
+     // Map machine state to display string
+     // This will be enhanced based on actual machine state values
+     if (systemContext_->machineStateContext()->isSteamModeActive()) {
+         stateStr = "Steam";
+     } else if (systemContext_->processController()->getCurrBrewTime() > 0) {
+         stateStr = "Brewing";
+     } else {
+         stateStr = "Ready";
+     }
 
     u8g2_->drawStr(0, 54, stateStr);
 }
