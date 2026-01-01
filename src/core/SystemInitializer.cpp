@@ -124,6 +124,11 @@ bool SystemInitializer::initialize() {
 
     // Phase 5: Finalization
     LOG(INFO, "Starting Phase 5: Finalization");
+    
+    // CRITICAL: Set global SystemContext BEFORE enabling timer ISR
+    // The ISR needs access to hardware context for relay control
+    CleverCoffee::setGlobalSystemContext(systemContext_.get());
+    
     setupTiming();
     enableTimer1();
 
