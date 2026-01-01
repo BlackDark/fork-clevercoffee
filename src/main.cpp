@@ -122,6 +122,9 @@ void setup() {
     }
 
     logMemoryBasic("After SystemInitializer->initialize()");
+    
+    LOGF(DEBUG, "SystemInitializer::initialize() check: returned=%d, isInitialized=%d", 
+         true, systemInitializer->isInitialized());
 
     // Get managers from SystemInitializer - they are owned by systemInitializer
     DisplayManager*          displayManager  = systemInitializer->getDisplayManager();
@@ -139,7 +142,8 @@ void setup() {
     }
 
      if (systemInitializer->isInitialized()) {
-         stateMachine = std::make_unique<StateMachine>(
+         LOGF(INFO, "systemInitializer->isInitialized() = true, creating StateMachine, ProcessController, and LoopManager");
+          stateMachine = std::make_unique<StateMachine>(
              *systemInitializer->getSystemContext(), displayManager, hardwareManager, wifiManager,
              mqttManager);
          InitHelpers::logInitResult("StateMachine", stateMachine->initialize());
@@ -165,11 +169,17 @@ void setup() {
          loopManager = std::make_unique<LoopManager>(processController.get(), uiManager, nullptr, sensorCoord, hwManager, systemInitializer->getSystemContext());
          InitHelpers::logInitResult("LoopManager", loopManager->initialize());
 
-        // Configure sensor update timers (uncomment and modify as needed)
-        // loopManager->configureSensorTimers(100, 50, 100); // Temperature: 100ms (10Hz), Pressure: 50ms (20Hz), Scale: 100ms (10Hz)
-        // loopManager->configureSensorTimers(200, 100, 200); // Slower: Temperature: 200ms (5Hz), Pressure: 100ms (10Hz), Scale: 200ms (5Hz)
-        // loopManager->configureSensorTimers(50, 25, 50); // Faster: Temperature: 50ms (20Hz), Pressure: 25ms (40Hz), Scale: 50ms (20Hz)
-    }
+         // Configure sensor update timers (uncomment and modify as needed)
+         // loopManager->configureSensorTimers(100, 50, 100); // Temperature: 100ms (10Hz), Pressure: 50ms (20Hz), Scale: 100ms (10Hz)
+         // loopManager->configureSensorTimers(200, 100, 200); // Slower: Temperature: 200ms (5Hz), Pressure: 100ms (10Hz), Scale: 200ms (5Hz)
+         // loopManager->configureSensorTimers(50, 25, 50); // Faster: Temperature: 50ms (20Hz), Pressure: 25ms (40Hz), Scale: 50ms (20Hz)
+     } else {
+         // CRITICAL: This should never happen!
+         LOG(FATAL, "CRITICAL: systemInitializer->isInitialized() returned false!");
+         LOG(FATAL, "This means LoopManager was NOT created");
+         LOG(FATAL, "Check if SystemInitializer::initialize() is setting systemInitialized_ = true");
+         // Without LoopManager, the main loop will crash
+     }
 
     // Initialize handler objects and set up references in global state and SystemContext
     initializeHandlers(systemInitializer->getSystemContext());
