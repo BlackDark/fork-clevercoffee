@@ -14,6 +14,7 @@
 
 #include "clevercoffee/Logger.h"
 #include "clevercoffee/defaults.h"
+#include "clevercoffee/state/MachineStateIds.h"
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
@@ -1385,10 +1386,10 @@ class Config {
                                            []() { return CleverCoffee::getGlobalSystemContext()->mqttManager() &&
     CleverCoffee::getGlobalSystemContext()->mqttManager()->isConnected(); }, StateParamDef<bool>::UpdateFrequency::FREQUENT};
 
-    StateParamDef<bool> stateWaterTank{"state.water_tank", "Water Tank Full", 6, 608,
-                                           "Water tank sensor status",
-                                           []() { return g_state.machine.waterTankFull; },
-                                           StateParamDef<bool>::UpdateFrequency::FREQUENT};
+     StateParamDef<bool> stateWaterTank{"state.water_tank", "Water Tank Full", 6, 608,
+                                            "Water tank sensor status",
+                                            []() { return CleverCoffee::getGlobalSystemContext()->machineStateContext()->isWaterTankFullState(); },
+                                            StateParamDef<bool>::UpdateFrequency::FREQUENT};
 
     // === BREWING STATUS ===
     StateParamDef<double> stateBrewTime{"state.brew_time", "Current Brew Time", 7, 701,
@@ -1401,10 +1402,10 @@ class Config {
                                           []() { return g_state.sensors.currBrewWeight; },
                                           StateParamDef<double>::UpdateFrequency::REALTIME, "g"};
 
-    StateParamDef<bool> stateBrewActive{"state.brew_active", "Brew Active", 7, 703,
-                                        "Whether brewing is currently active",
-                                        []() { return g_state.machine.machineState == kBrew; },
-                                        StateParamDef<bool>::UpdateFrequency::FREQUENT};
+     StateParamDef<bool> stateBrewActive{"state.brew_active", "Brew Active", 7, 703,
+                                         "Whether brewing is currently active",
+                                         []() { return CleverCoffee::isBrewState(CleverCoffee::getGlobalSystemContext()->machineStateContext()->getCurrentStateId()); },
+                                         StateParamDef<bool>::UpdateFrequency::FREQUENT};
 
     // === SYSTEM INFORMATION ===
     StateParamDef<String> stateSystemVersion{"state.system_version", "Firmware Version", 8, 801,
