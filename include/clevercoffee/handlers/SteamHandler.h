@@ -33,13 +33,41 @@ class SteamHandler : public SwitchBasedHandler {
     }
 
     void processImpl() override {
-        const uint8_t reading    = getSwitchReading();
-        const auto    switchType = Config::getInstance().hardwareSwitchesSteamType.get();
+         const uint8_t reading    = getSwitchReading();
+         const auto    switchType = Config::getInstance().hardwareSwitchesSteamType.get();
 
-        if (switchType == Hardware::SwitchType::TOGGLE) {
-            processToggleSwitch(reading, g_state.machine.steamON, g_state.machine.steamFirstON);
-        } else if (switchType == Hardware::SwitchType::MOMENTARY) {
-            // Steam switch processed via hardware state
-        }
-    }
+         if (switchType == Hardware::SwitchType::TOGGLE) {
+             processToggleSteamSwitch(reading);
+         } else if (switchType == Hardware::SwitchType::MOMENTARY) {
+             // Steam switch processed via hardware state
+         }
+     }
+
+   private:
+     void processToggleSteamSwitch(uint8_t reading) {
+         if (!systemContext_) return;
+
+         auto* machineContext = systemContext_->machineStateContext();
+         if (!machineContext) return;
+
+         bool changed = false;
+
+         if (reading == HIGH) {
+             if (!machineContext->isSteamModeActive()) {
+                 machineContext->setSteamModeActive(true);
+                 changed = true;
+                 logDebug("Steam toggle switch activated");
+             }
+         } else if (reading == LOW && !machineContext->isSteamFirstActivated()) {
+             if (machineContext->isSteamModeActive()) {
+                 machineContext->setSteamModeActive(false);
+                 changed = true;
+                 logDebug("Steam toggle switch deactivated");
+             }
+         }
+
+         if (changed) {
+             machineContext->setSteamFirstActivated(true);
+         }
+     }
 };
