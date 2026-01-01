@@ -440,10 +440,132 @@ class MachineStateContext : public CleverCoffee::IHardwareContext,
       */
      bool isSystemInitialized() const noexcept { return systemInitialized_; }
 
-     /**
-      * @brief Set system initialization state
-      */
-     void setSystemInitialized(bool initialized) noexcept { systemInitialized_ = initialized; }
+      /**
+       * @brief Set system initialization state
+       */
+      void setSystemInitialized(bool initialized) noexcept { systemInitialized_ = initialized; }
+
+      // === Request Flags for State Transitions ===
+
+      /**
+       * @brief Check if brew start is requested
+       */
+      bool isBrewStartRequested() const noexcept { return requestBrewStart_; }
+
+      /**
+       * @brief Set brew start request
+       */
+      void setBrewStartRequested(bool requested) noexcept { requestBrewStart_ = requested; }
+
+      /**
+       * @brief Check if brew stop is requested
+       */
+      bool isBrewStopRequested() const noexcept { return requestBrewStop_; }
+
+      /**
+       * @brief Set brew stop request
+       */
+      void setBrewStopRequested(bool requested) noexcept { requestBrewStop_ = requested; }
+
+      /**
+       * @brief Check if hot water start is requested
+       */
+      bool isHotWaterStartRequested() const noexcept { return requestHotWaterStart_; }
+
+      /**
+       * @brief Set hot water start request
+       */
+      void setHotWaterStartRequested(bool requested) noexcept { requestHotWaterStart_ = requested; }
+
+      /**
+       * @brief Check if hot water stop is requested
+       */
+      bool isHotWaterStopRequested() const noexcept { return requestHotWaterStop_; }
+
+      /**
+       * @brief Set hot water stop request
+       */
+      void setHotWaterStopRequested(bool requested) noexcept { requestHotWaterStop_ = requested; }
+
+      /**
+       * @brief Check if steam start is requested
+       */
+      bool isSteamStartRequested() const noexcept { return requestSteamStart_; }
+
+      /**
+       * @brief Set steam start request
+       */
+      void setSteamStartRequested(bool requested) noexcept { requestSteamStart_ = requested; }
+
+      /**
+       * @brief Check if steam stop is requested
+       */
+      bool isSteamStopRequested() const noexcept { return requestSteamStop_; }
+
+      /**
+       * @brief Set steam stop request
+       */
+      void setSteamStopRequested(bool requested) noexcept { requestSteamStop_ = requested; }
+
+      /**
+       * @brief Check if manual flush start is requested
+       */
+      bool isManualFlushStartRequested() const noexcept { return requestManualFlushStart_; }
+
+      /**
+       * @brief Set manual flush start request
+       */
+      void setManualFlushStartRequested(bool requested) noexcept { requestManualFlushStart_ = requested; }
+
+      /**
+       * @brief Check if manual flush stop is requested
+       */
+      bool isManualFlushStopRequested() const noexcept { return requestManualFlushStop_; }
+
+      /**
+       * @brief Set manual flush stop request
+       */
+      void setManualFlushStopRequested(bool requested) noexcept { requestManualFlushStop_ = requested; }
+
+      /**
+       * @brief Check if backflush start is requested
+       */
+      bool isBackflushStartRequested() const noexcept { return requestBackflushStart_; }
+
+      /**
+       * @brief Set backflush start request
+       */
+      void setBackflushStartRequested(bool requested) noexcept { requestBackflushStart_ = requested; }
+
+      /**
+       * @brief Check if backflush stop is requested
+       */
+      bool isBackflushStopRequested() const noexcept { return requestBackflushStop_; }
+
+      /**
+       * @brief Set backflush stop request
+       */
+      void setBackflushStopRequested(bool requested) noexcept { requestBackflushStop_ = requested; }
+
+      /**
+       * @brief Check if standby is requested
+       */
+      bool isStandbyRequested() const noexcept { return requestStandby_; }
+
+      /**
+       * @brief Set standby request
+       */
+      void setStandbyRequested(bool requested) noexcept { requestStandby_ = requested; }
+
+      /**
+       * @brief Check if normal operation is requested
+       */
+      bool isNormalOperationRequested() const noexcept { return requestNormalOperation_; }
+
+      /**
+       * @brief Set normal operation request
+       */
+      void setNormalOperationRequested(bool requested) noexcept { requestNormalOperation_ = requested; }
 
      // === Display Functions ===
 
@@ -570,9 +692,23 @@ class MachineStateContext : public CleverCoffee::IHardwareContext,
      bool steamFirstON_         = false;      ///< Steam activated for first time
      bool backflushOn_          = false;      ///< Backflush mode active
      int  currBackflushCycles_  = 1;          ///< Current backflush cycle count
-     bool waterTankFull_        = true;       ///< Water tank full state
-     bool systemInitialized_    = false;      ///< System initialization complete
+      bool waterTankFull_        = true;       ///< Water tank full state
+      bool systemInitialized_    = false;      ///< System initialization complete
 
-     // State timing
-     std::chrono::steady_clock::time_point stateEntryTime_; ///< Time when current state was entered
+      // === State Transition Request Flags ===
+      bool requestBrewStart_        = false;   ///< Brew start requested
+      bool requestBrewStop_         = false;   ///< Brew stop requested
+      bool requestHotWaterStart_    = false;   ///< Hot water start requested
+      bool requestHotWaterStop_     = false;   ///< Hot water stop requested
+      bool requestSteamStart_       = false;   ///< Steam start requested
+      bool requestSteamStop_        = false;   ///< Steam stop requested
+      bool requestManualFlushStart_ = false;   ///< Manual flush start requested
+      bool requestManualFlushStop_  = false;   ///< Manual flush stop requested
+      bool requestBackflushStart_   = false;   ///< Backflush start requested
+      bool requestBackflushStop_    = false;   ///< Backflush stop requested
+      bool requestStandby_          = false;   ///< Standby requested
+      bool requestNormalOperation_  = false;   ///< Normal operation requested
+
+      // State timing
+      std::chrono::steady_clock::time_point stateEntryTime_; ///< Time when current state was entered
 };
