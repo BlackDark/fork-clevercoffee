@@ -292,8 +292,6 @@ void MachineStateContext::setHotWaterState(bool active) const {
 void MachineStateContext::setSteamState(bool active) const {
      // Update member variable
      const_cast<MachineStateContext*>(this)->steamON_ = active;
-     // Sync to g_state for backward compatibility
-     g_state.machine.steamON = active;
      if (active) {
          LOG(DEBUG, "Steam mode activated");
      } else {
@@ -304,8 +302,6 @@ void MachineStateContext::setSteamState(bool active) const {
 void MachineStateContext::setBackflushState(bool active) const {
      // Update member variable
      const_cast<MachineStateContext*>(this)->backflushOn_ = active;
-     // Sync to g_state for backward compatibility
-     g_state.machine.backflushOn = active;
      if (active) {
          LOG(DEBUG, "Backflush mode activated");
      } else {
