@@ -450,7 +450,7 @@ const Config& MachineStateContext::getConfig() const noexcept {
 // === IStateManager Interface Implementation ===
 
 MachineStateId MachineStateContext::getCurrentStateId() const noexcept {
-    return CleverCoffee::getGlobalSystemContext()->machineStateContext()->getCurrentStateId();
+    return currentStateId_;
 }
 
 void MachineStateContext::transitionTo(MachineState& newState) {

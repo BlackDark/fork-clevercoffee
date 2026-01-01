@@ -160,7 +160,7 @@ class PowerHandler : public SwitchBasedHandler {
     void powerOff() {
          if ((!systemContext_ || systemContext_->machineStateContext()->getCurrentStateId() != MachineStateId::STANDBY)) {
              CleverCoffee::getGlobalSystemContext()->processController()->performSafeShutdown();
-             g_state.machine.flags.requestStandby = true; // Use condition flag instead of direct state assignment
+             systemContext_->machineStateContext()->setStandbyRequested(true);
              // Use StandbyCoordinator to mark immediate standby activation
              if (auto* ctx = CleverCoffee::getGlobalSystemContext()) {
                  ctx->standbyCoordinator().setRemainingTimeMillis(0);

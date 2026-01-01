@@ -463,7 +463,7 @@ bool SystemInitializer::finalizeMachineState() {
         if (Config::getInstance().hardwareSwitchesPowerEnabled.get() &&
             static_cast<int>(Config::getInstance().hardwareSwitchesPowerType.get()) ==
                 static_cast<int>(Hardware::SwitchType::MOMENTARY)) {
-            g_state.machine.machineState = MachineStateId::PID_NORMAL;
+            systemContext_->machineStateContext()->setCurrentStateId(MachineStateId::PID_NORMAL);
             setRuntimePidState(true);
             LOG(INFO, "Machine initialized in PID Normal mode (momentary switch)");
         }
@@ -473,11 +473,11 @@ bool SystemInitializer::finalizeMachineState() {
                      static_cast<int>(Hardware::SwitchType::TOGGLE)) {
             if (CleverCoffee::getGlobalSystemContext()->hardwareContext().powerSwitch() && CleverCoffee::getGlobalSystemContext()->hardwareContext().powerSwitch()->isPressed()) {
                 setRuntimePidState(true);
-                g_state.machine.machineState = MachineStateId::PID_NORMAL;
+                systemContext_->machineStateContext()->setCurrentStateId(MachineStateId::PID_NORMAL);
                 LOG(INFO, "Machine initialized in PID Normal mode (toggle switch ON)");
             } else {
                 setRuntimePidState(false);
-                g_state.machine.machineState = MachineStateId::PID_DISABLED;
+                systemContext_->machineStateContext()->setCurrentStateId(MachineStateId::PID_DISABLED);
                 LOG(INFO, "Machine initialized in PID Disabled mode (toggle switch OFF)");
             }
         }
@@ -485,7 +485,7 @@ bool SystemInitializer::finalizeMachineState() {
         else {
             const bool configPidEnabled = Config::getInstance().pidEnabled.get();
             setRuntimePidState(configPidEnabled);
-            g_state.machine.machineState = configPidEnabled ? MachineStateId::PID_NORMAL : MachineStateId::PID_DISABLED;
+            systemContext_->machineStateContext()->setCurrentStateId(configPidEnabled ? MachineStateId::PID_NORMAL : MachineStateId::PID_DISABLED);
             LOG(INFO,
                 configPidEnabled ? "Machine initialized in PID Normal mode (config enabled)"
                                  : "Machine initialized in PID Disabled mode (config disabled)");

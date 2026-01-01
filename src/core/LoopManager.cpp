@@ -553,13 +553,12 @@ void LoopManager::updateStateMachine() {
         stateMachine->update();
 
         // Update machine state
-        const MachineStateId newState = stateMachine->getCurrentStateId();
-        if (newState != systemContext_->machineStateContext()->getCurrentStateId()) {
-            const auto oldState              = systemContext_->machineStateContext()->getCurrentStateId();
-            g_state.machine.lastmachinestate = systemContext_->machineStateContext()->getCurrentStateId();
-            g_state.machine.machineState     = newState;
-            LOGF(DEBUG, "State transition: %d -> %d", static_cast<int>(oldState), static_cast<int>(newState));
-        }
+         const MachineStateId newState = stateMachine->getCurrentStateId();
+         if (newState != systemContext_->machineStateContext()->getCurrentStateId()) {
+             const auto oldState              = systemContext_->machineStateContext()->getCurrentStateId();
+             systemContext_->machineStateContext()->setCurrentStateId(newState);
+             LOGF(DEBUG, "State transition: %d -> %d", static_cast<int>(oldState), static_cast<int>(newState));
+         }
     } else {
         // StateMachine should always be available in modern setup
         LOG(WARNING, "StateMachine not available for state updates");

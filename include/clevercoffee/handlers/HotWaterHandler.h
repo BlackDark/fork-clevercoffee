@@ -90,9 +90,9 @@ class HotWaterHandler : public SwitchBasedHandler {
     }
 
     void checkPumpTimeout() {
-        if (pumpTimer_.isExpired() && isHotWaterActive()) {
-            logError("Hot water pump timeout - stopping for safety");
-            g_state.machine.flags.requestHotWaterStop = true; // Use condition flag instead of direct state assignment
-        }
-    }
+         if (pumpTimer_.isExpired() && isHotWaterActive()) {
+             logError("Hot water pump timeout - stopping for safety");
+             systemContext_->machineStateContext()->setHotWaterStopRequested(true);
+         }
+     }
 };

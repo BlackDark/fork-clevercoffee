@@ -673,6 +673,7 @@ class MachineStateContext : public CleverCoffee::IHardwareContext,
     // === IStateManager Interface Implementation ===
 
     MachineStateId getCurrentStateId() const noexcept override;
+    void setCurrentStateId(MachineStateId stateId) noexcept { currentStateId_ = stateId; }
     void transitionTo(MachineState& newState) override;
     unsigned long getStateStartTime() const noexcept override;
 
@@ -709,6 +710,9 @@ class MachineStateContext : public CleverCoffee::IHardwareContext,
       bool requestStandby_          = false;   ///< Standby requested
       bool requestNormalOperation_  = false;   ///< Normal operation requested
 
+      // State management
+      MachineStateId currentStateId_         = MachineStateId::PID_DISABLED; ///< Current machine state ID
+      
       // State timing
       std::chrono::steady_clock::time_point stateEntryTime_; ///< Time when current state was entered
 };
