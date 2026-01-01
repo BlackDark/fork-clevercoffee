@@ -127,10 +127,17 @@ bool SystemInitializer::initialize() {
     
     // CRITICAL: Set global SystemContext BEFORE enabling timer ISR
     // The ISR needs access to hardware context for relay control
+    LOGF(DEBUG, "Setting global SystemContext at %p", static_cast<void*>(systemContext_.get()));
     CleverCoffee::setGlobalSystemContext(systemContext_.get());
+    auto* ctxCheck = CleverCoffee::getGlobalSystemContext();
+    LOGF(DEBUG, "Global SystemContext set: ptr=%p, valid=%d", static_cast<void*>(ctxCheck), (ctxCheck != nullptr ? 1 : 0));
     
+    LOG(DEBUG, "Calling setupTiming()");
     setupTiming();
+    
+    LOG(DEBUG, "Calling enableTimer1() - ISR will now fire");
     enableTimer1();
+    LOG(DEBUG, "Timer enabled - ISR should be firing every 10ms");
 
     // Report LittleFS usage only if it was successfully initialized
     if (LittleFS.totalBytes() > 0) {

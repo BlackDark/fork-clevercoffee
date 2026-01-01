@@ -14,6 +14,12 @@
 
 // pidOutput moved to g_state.process.pidOutput
 
+// Volatile counters for ISR debugging (track execution without logging)
+static volatile bool isr_enabled = false;
+static volatile uint32_t isr_call_count = 0;
+static volatile uint32_t isr_relay_on_count = 0;
+static volatile uint32_t isr_relay_off_count = 0;
+
 void IRAM_ATTR onTimer() {
     // Safety check: timer must be initialized and valid before ISR can execute
     // Check for both nullptr AND obviously invalid pointer addresses
@@ -27,6 +33,9 @@ void IRAM_ATTR onTimer() {
         return;
     }
     
+    isr_enabled = true;
+    isr_call_count++;
+    
     timerAlarmWrite(g_state.machine.timer, 10000, true);
 
     // Read volatile pidOutput once for consistency
@@ -37,11 +46,13 @@ void IRAM_ATTR onTimer() {
         auto* relay = ctx->hardwareContext().heaterRelay();
         if (relay) {
             relay->off();
+            isr_relay_off_count++;
         }
     } else {
         auto* relay = ctx->hardwareContext().heaterRelay();
         if (relay) {
             relay->on();
+            isr_relay_on_count++;
         }
     }
 

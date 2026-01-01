@@ -236,8 +236,16 @@ void LoopManager::updateProcessControl() {
     if (processController_) {
         // Use modern ProcessController for PID and temperature management
         const unsigned long processStart = millis();
-        processController_->updateProcessControl(systemContext_->machineStateContext()->getCurrentStateId());
+        const MachineStateId currentState = systemContext_->machineStateContext()->getCurrentStateId();
+        
+        LOGF(DEBUG, "updateProcessControl: Entering with state=%d, temp=%.1f°C, setpoint=%.1f°C, pidOutput=%.1f", 
+             static_cast<int>(currentState), g_state.process.temperature, g_state.process.setpoint, g_state.process.pidOutput);
+        
+        processController_->updateProcessControl(currentState);
         const unsigned long processTime = millis() - processStart;
+
+        LOGF(DEBUG, "updateProcessControl: After update: temp=%.1f°C, setpoint=%.1f°C, pidOutput=%.1f, timer=%lums",
+             g_state.process.temperature, g_state.process.setpoint, g_state.process.pidOutput, processTime);
 
         if (processTime > 100) {
             LOGF(ERROR, "ProcessController update took %lums - this is blocking the main loop!", processTime);
@@ -548,20 +556,42 @@ void LoopManager::updateSwitchesAndStandby() {
 void LoopManager::updateStateMachine() {
     // State machine updates extracted from loopPid()
     extern std::unique_ptr<StateMachine> stateMachine;
+    
+    // Debug: Check if state machine exists
+    if (!stateMachine) {
+        LOG(ERROR, "CRITICAL: stateMachine is nullptr!");
+        return;
+    }
+    
+    // Debug: Check initialization
+    if (!stateMachine->isInitialized()) {
+        LOG(WARNING, "StateMachine not initialized yet");
+        return;
+    }
+    
+    // Get state BEFORE update
+    const MachineStateId stateBefore = stateMachine->getCurrentStateId();
+    const char* stateNameBefore = stateMachine->getCurrentStateName();
+    
     // Update state machine (replaces handleMachineState())
-    if (stateMachine && stateMachine->isInitialized()) {
-        stateMachine->update();
+    stateMachine->update();
 
-        // Update machine state
-         const MachineStateId newState = stateMachine->getCurrentStateId();
-         if (newState != systemContext_->machineStateContext()->getCurrentStateId()) {
-             const auto oldState              = systemContext_->machineStateContext()->getCurrentStateId();
-             systemContext_->machineStateContext()->setCurrentStateId(newState);
-             LOGF(DEBUG, "State transition: %d -> %d", static_cast<int>(oldState), static_cast<int>(newState));
-         }
-    } else {
-        // StateMachine should always be available in modern setup
-        LOG(WARNING, "StateMachine not available for state updates");
+    // Get state AFTER update to detect changes
+    const MachineStateId newState = stateMachine->getCurrentStateId();
+    const char* stateNameAfter = stateMachine->getCurrentStateName();
+    
+    // Log all state updates for debugging
+    LOGF(DEBUG, "StateMachine::update() -> State: %s (%d)", stateNameAfter, static_cast<int>(newState));
+    
+    // Check for state changes
+    if (newState != systemContext_->machineStateContext()->getCurrentStateId()) {
+        const auto oldState = systemContext_->machineStateContext()->getCurrentStateId();
+        systemContext_->machineStateContext()->setCurrentStateId(newState);
+        LOGF(WARNING, "State transition detected: %d -> %d (%s -> %s)", 
+             static_cast<int>(oldState), 
+             static_cast<int>(newState),
+             stateNameBefore,
+             stateNameAfter);
     }
 
     // Update handlers
