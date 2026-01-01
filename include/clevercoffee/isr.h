@@ -20,6 +20,13 @@ void IRAM_ATTR onTimer() {
     if (!g_state.machine.timer || (uintptr_t)g_state.machine.timer < 0x1000) {
         return;
     }
+    
+    // SafetyCheck: SystemContext must be initialized before we can use it
+    auto* ctx = CleverCoffee::getGlobalSystemContext();
+    if (!ctx) {
+        return;
+    }
+    
     timerAlarmWrite(g_state.machine.timer, 10000, true);
 
     // Read volatile pidOutput once for consistency
@@ -27,9 +34,15 @@ void IRAM_ATTR onTimer() {
     const unsigned int currentCounter = g_state.timing.isrCounter;
 
     if (currentPidOutput <= currentCounter) {
-        CleverCoffee::getGlobalSystemContext()->hardwareContext().heaterRelay()->off();
+        auto* relay = ctx->hardwareContext().heaterRelay();
+        if (relay) {
+            relay->off();
+        }
     } else {
-        CleverCoffee::getGlobalSystemContext()->hardwareContext().heaterRelay()->on();
+        auto* relay = ctx->hardwareContext().heaterRelay();
+        if (relay) {
+            relay->on();
+        }
     }
 
     unsigned int newCounter = currentCounter + 10; // += 10 because one tick = 10ms
