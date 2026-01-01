@@ -6,8 +6,9 @@
 #pragma once
 
 #include "clevercoffee/Config.h"
-#include "clevercoffee/GlobalState.h"
 #include "clevercoffee/handlers/BaseHandler.h"
+#include "clevercoffee/context/SystemContext.h"
+#include "clevercoffee/state/MachineStateContext.h"
 #include "clevercoffee/handlers/PumpTimer.h"
 #include "clevercoffee/state/MachineState.h"
 
@@ -37,7 +38,8 @@ class HotWaterHandler : public SwitchBasedHandler {
     }
 
     bool isHotWaterActive() const {
-        return g_state.machine.machineState == MachineStateId::HOT_WATER_RUNNING;
+        if (!systemContext_) return false;
+        return systemContext_->machineStateContext()->getCurrentStateId() == MachineStateId::HOT_WATER_RUNNING;
     }
 
   protected:
@@ -50,7 +52,8 @@ class HotWaterHandler : public SwitchBasedHandler {
             return false;
         }
 
-        if (g_state.machine.machineState == MachineStateId::WATER_TANK_EMPTY) {
+        if (!systemContext_) return false;
+        if (systemContext_->machineStateContext()->getCurrentStateId() == MachineStateId::WATER_TANK_EMPTY) {
             return false;
         }
 

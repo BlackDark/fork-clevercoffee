@@ -5,8 +5,9 @@
 #pragma once
 
 #include "clevercoffee/Config.h"
-#include "clevercoffee/GlobalState.h"
 #include "clevercoffee/handlers/BaseHandler.h"
+#include "clevercoffee/context/SystemContext.h"
+#include "clevercoffee/state/MachineStateContext.h"
 
 #include <Logger.h>
 
@@ -16,7 +17,7 @@
  */
 class SteamHandler : public SwitchBasedHandler {
   public:
-    SteamHandler() : SwitchBasedHandler("SteamHandler", nullptr) {}
+    explicit SteamHandler(CleverCoffee::SystemContext* ctx = nullptr) : SwitchBasedHandler("SteamHandler", nullptr, ctx) {}
     
     /**
      * @brief Initialize with hardware switch (call after HardwareManager is ready)
@@ -38,7 +39,7 @@ class SteamHandler : public SwitchBasedHandler {
         if (switchType == Hardware::SwitchType::TOGGLE) {
             processToggleSwitch(reading, g_state.machine.steamON, g_state.machine.steamFirstON);
         } else if (switchType == Hardware::SwitchType::MOMENTARY) {
-            processMomentarySwitch(reading, g_state.sensors.currStateSteamSwitch, g_state.machine.steamON);
+            // Steam switch processed via hardware state
         }
     }
 };

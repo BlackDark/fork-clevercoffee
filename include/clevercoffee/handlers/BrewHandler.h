@@ -6,8 +6,9 @@
 #pragma once
 
 #include "clevercoffee/Config.h"
-#include "clevercoffee/GlobalState.h"
 #include "clevercoffee/handlers/BaseHandler.h"
+#include "clevercoffee/context/SystemContext.h"
+#include "clevercoffee/state/MachineStateContext.h"
 #include "clevercoffee/handlers/PumpTimer.h"
 #include "clevercoffee/hardware/Relay.h"
 #include "clevercoffee/hardware/Switch.h"
@@ -27,8 +28,8 @@ class BrewHandler : public SwitchBasedHandler {
     Relay*        valveRelay_        = nullptr;
 
   public:
-    BrewHandler()
-        : SwitchBasedHandler("BrewHandler", nullptr),
+    explicit BrewHandler(CleverCoffee::SystemContext* ctx = nullptr)
+        : SwitchBasedHandler("BrewHandler", nullptr, ctx),
           pumpTimer_(300000) { // 5 minute max brew time safety
     }
     
@@ -43,9 +44,11 @@ class BrewHandler : public SwitchBasedHandler {
     }
 
     bool isBrewActive() const {
-        return (isBrewState(g_state.machine.machineState) &&
-                g_state.machine.machineState != MachineStateId::BREW_IDLE &&
-                g_state.machine.machineState != MachineStateId::BREW_FINISHED);
+        if (!systemContext_) return false;
+        auto currentState = systemContext_->machineStateContext()->getCurrentStateId();
+        return (isBrewState(currentState) &&
+                currentState != MachineStateId::BREW_IDLE &&
+                currentState != MachineStateId::BREW_FINISHED);
     }
 
     void valveSafetyShutdownCheck() {
@@ -65,12 +68,17 @@ class BrewHandler : public SwitchBasedHandler {
             return false;
         }
 
-        if (g_state.machine.machineState == MachineStateId::WATER_TANK_EMPTY) {
+        if (!systemContext_) {
+            return false;
+        }
+
+        auto currentState = systemContext_->machineStateContext()->getCurrentStateId();
+        if (currentState == MachineStateId::WATER_TANK_EMPTY) {
             return false;
         }
 
         // Check if hot water is active (detailed state check)
-        if (g_state.machine.machineState == MachineStateId::HOT_WATER_RUNNING) {
+        if (currentState == MachineStateId::HOT_WATER_RUNNING) {
             return false;
         }
 
@@ -87,7 +95,6 @@ class BrewHandler : public SwitchBasedHandler {
         if (!switch_) return;
 
         const uint8_t reading             = getSwitchReading();
-        g_state.sensors.brewSwitchReading = reading;
 
         const auto switchType = Config::getInstance().hardwareSwitchesBrewType.get();
 
@@ -112,7 +119,7 @@ class BrewHandler : public SwitchBasedHandler {
     void checkPumpTimeout() {
         if (pumpTimer_.isExpired() && isBrewActive()) {
             logError("Pump timeout - stopping for safety");
-            g_state.machine.flags.requestBrewStop = true; // Use condition flag instead of direct state assignment
+            // TODO: request brew stop through coordinator
         }
     }
 };

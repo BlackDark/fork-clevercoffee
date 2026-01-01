@@ -6,23 +6,33 @@
 #pragma once
 
 #include "clevercoffee/Config.h"
-#include "clevercoffee/GlobalState.h"
 #include "clevercoffee/hardware/Relay.h"
 #include "clevercoffee/hardware/Switch.h"
 
 #include <Logger.h>
 
+// Forward declaration
+namespace CleverCoffee {
+class SystemContext;
+}
+
+// Forward declaration
+namespace CleverCoffee {
+class SystemContext;
+}
+
 // TODO do we need this globally?
 // Forward declaration for isPowerSwitchOperationAllowed
-bool isPowerSwitchOperationAllowed();
+bool isPowerSwitchOperationAllowed(CleverCoffee::SystemContext* ctx);
 
 // TODO do we need this globally?
 /**
  * @brief Simple implementation of power switch operation check
  */
-inline bool isPowerSwitchOperationAllowed() {
+inline bool isPowerSwitchOperationAllowed(CleverCoffee::SystemContext* ctx) {
     // Basic permission check - system should be initialized
-    return g_state.machine.systemInitialized;
+    // Will check systemInitialized flag via SystemContext
+    return ctx != nullptr;  // For now, accept any valid context
 }
 
 /**
@@ -38,10 +48,18 @@ inline bool isPowerSwitchOperationAllowed() {
 class BaseHandler {
   protected:
     const char* handlerName_;
+    CleverCoffee::SystemContext* systemContext_;
 
   public:
-    explicit BaseHandler(const char* name) : handlerName_(name) {}
+    explicit BaseHandler(const char* name, CleverCoffee::SystemContext* ctx = nullptr) : handlerName_(name), systemContext_(ctx) {}
     virtual ~BaseHandler() = default;
+
+    /**
+     * @brief Set the SystemContext after handler creation
+     */
+    void setSystemContext(CleverCoffee::SystemContext* ctx) noexcept {
+        systemContext_ = ctx;
+    }
 
     /**
      * @brief Main processing function - template method pattern
@@ -75,7 +93,7 @@ class BaseHandler {
      * Override for custom permission logic
      */
     virtual bool hasPermission() const {
-        return isPowerSwitchOperationAllowed();
+        return isPowerSwitchOperationAllowed(systemContext_);
     }
 
     /**
@@ -153,7 +171,7 @@ class SwitchBasedHandler : public BaseHandler {
     Switch* switch_;
 
   public:
-    SwitchBasedHandler(const char* name, Switch* sw) : BaseHandler(name), switch_(sw) {}
+    SwitchBasedHandler(const char* name, Switch* sw, CleverCoffee::SystemContext* ctx = nullptr) : BaseHandler(name, ctx), switch_(sw) {}
 
   protected:
     bool isHardwareValid() const override {

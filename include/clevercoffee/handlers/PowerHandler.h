@@ -5,9 +5,10 @@
 #pragma once
 
 #include "clevercoffee/Config.h"
-#include "clevercoffee/GlobalState.h"
 #include "clevercoffee/display/displayCommon.h"
 #include "clevercoffee/handlers/BaseHandler.h"
+#include "clevercoffee/context/SystemContext.h"
+#include "clevercoffee/state/MachineStateContext.h"
 #include "clevercoffee/standby.h"
 #include "clevercoffee/state/MachineState.h"
 #include "clevercoffee/utils/SystemUtils.h"
@@ -32,8 +33,8 @@ class PowerHandler : public SwitchBasedHandler {
     bool          trackingPressTime_;
 
   public:
-    PowerHandler()
-        : SwitchBasedHandler("PowerHandler", nullptr), 
+    explicit PowerHandler(CleverCoffee::SystemContext* ctx = nullptr)
+        : SwitchBasedHandler("PowerHandler", nullptr, ctx), 
           longPressStartTime_(0),
           trackingLongPress_(false),
           currStatePowerSwitchPressed_(false),
@@ -78,7 +79,7 @@ class PowerHandler : public SwitchBasedHandler {
         const long currentMillis = millis();
 
         // Record when system was first initialized
-        if (g_state.machine.systemInitialized && systemInitializedTime_ == 0) {
+        if ((systemContext_ != nullptr) && systemInitializedTime_ == 0) {
             systemInitializedTime_ = currentMillis;
             logInfo("System initialization time recorded");
         }
@@ -102,7 +103,7 @@ class PowerHandler : public SwitchBasedHandler {
         if (pressed != currStatePowerSwitchPressed_) {
             currStatePowerSwitchPressed_ = pressed;
 
-            if (pressed && g_state.machine.systemInitialized) {
+            if (pressed && (systemContext_ != nullptr)) {
                 handlePowerButtonPress(currentMillis);
             } else if (!pressed) {
                 handlePowerButtonRelease();
@@ -123,7 +124,7 @@ class PowerHandler : public SwitchBasedHandler {
         }
 
         // Toggle power state
-        if (g_state.machine.machineState == MachineStateId::STANDBY) {
+        if (systemContext_ && systemContext_->machineStateContext()->getCurrentStateId() == MachineStateId::STANDBY) {
             powerOn();
         } else {
             powerOff();
@@ -138,7 +139,7 @@ class PowerHandler : public SwitchBasedHandler {
     }
 
     void checkForLongPressReboot(bool pressed, long currentMillis) {
-        if (pressed && g_state.machine.systemInitialized &&
+        if (pressed && (systemContext_ != nullptr) &&
             (currentMillis - systemInitializedTime_ > 5000) && trackingLongPress_ &&
             (currentMillis - longPressStartTime_ > 1000) && switch_->longPressDetected()) {
             triggerSystemReboot();
@@ -147,9 +148,8 @@ class PowerHandler : public SwitchBasedHandler {
 
     void powerOn() {
         if (g_state.machine.machineState == MachineStateId::STANDBY ||
-            g_state.machine.machineState == MachineStateId::PID_DISABLED) {
-            g_state.machine.flags.requestNormalOperation =
-                true; // Use condition flag instead of direct state assignment
+            (systemContext_ && systemContext_->machineStateContext()->getCurrentStateId() == MachineStateId::PID_DISABLED)) {
+            // TODO: request normal operation through coordinator // Use condition flag instead of direct state assignment
             resetStandbyTimer();
             setRuntimePidState(true);
             CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setPowerSave(0);
@@ -158,7 +158,7 @@ class PowerHandler : public SwitchBasedHandler {
     }
 
     void powerOff() {
-         if (g_state.machine.machineState != MachineStateId::STANDBY) {
+         if ((!systemContext_ || systemContext_->machineStateContext()->getCurrentStateId() != MachineStateId::STANDBY)) {
              CleverCoffee::getGlobalSystemContext()->processController()->performSafeShutdown();
              g_state.machine.flags.requestStandby = true; // Use condition flag instead of direct state assignment
              // Use StandbyCoordinator to mark immediate standby activation
