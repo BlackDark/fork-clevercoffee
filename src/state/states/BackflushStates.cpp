@@ -20,9 +20,8 @@ void BackflushState::update(MachineStateContext& context) {
 }
 
 MachineState* BackflushState::checkSpecificTransitions(MachineStateContext& context) {
-    auto& flags = g_state.machine.flags;
-    if (flags.requestBackflushStart) {
-        flags.requestBackflushStart = false;
+    if (context.isBackflushStartRequested()) {
+        context.setBackflushStartRequested(false);
         context.logStateTransition(getStateId(), MachineStateId::BACKFLUSH_FILLING, "Backflush start requested");
         return getStateInstance(MachineStateId::BACKFLUSH_FILLING);
     }
@@ -38,9 +37,8 @@ void BackflushFillingState::update(MachineStateContext& context) {
 
 MachineState* BackflushFillingState::checkSpecificTransitions(MachineStateContext& context) {
     // Check for manual stop request
-    auto& flags = g_state.machine.flags;
-    if (flags.requestBackflushStop) {
-        flags.requestBackflushStop = false;
+    if (context.isBackflushStopRequested()) {
+        context.setBackflushStopRequested(false);
         context.logStateTransition(getStateId(), MachineStateId::BACKFLUSH_IDLE, "Backflush stop requested");
         return getStateInstance(MachineStateId::BACKFLUSH_IDLE);
     }
@@ -63,9 +61,8 @@ void BackflushFlushingState::update(MachineStateContext& context) {
 
 MachineState* BackflushFlushingState::checkSpecificTransitions(MachineStateContext& context) {
     // Check for manual stop request
-    auto& flags = g_state.machine.flags;
-    if (flags.requestBackflushStop) {
-        flags.requestBackflushStop = false;
+    if (context.isBackflushStopRequested()) {
+        context.setBackflushStopRequested(false);
         context.logStateTransition(getStateId(), MachineStateId::BACKFLUSH_IDLE, "Backflush stop requested");
         return getStateInstance(MachineStateId::BACKFLUSH_IDLE);
     }
@@ -89,9 +86,8 @@ void BackflushFinishedState::update(MachineStateContext& context) {
 
 MachineState* BackflushFinishedState::checkSpecificTransitions(MachineStateContext& context) {
     // Check for manual stop request
-    auto& flags = g_state.machine.flags;
-    if (flags.requestBackflushStop) {
-        flags.requestBackflushStop = false;
+    if (context.isBackflushStopRequested()) {
+        context.setBackflushStopRequested(false);
         context.logStateTransition(getStateId(), MachineStateId::BACKFLUSH_IDLE, "Backflush stop requested");
         return getStateInstance(MachineStateId::BACKFLUSH_IDLE);
     }

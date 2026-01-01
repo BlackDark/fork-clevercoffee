@@ -24,9 +24,8 @@ void HotWaterIdleState::update(MachineStateContext& context) {
 }
 
 MachineState* HotWaterIdleState::checkSpecificTransitions(MachineStateContext& context) {
-    auto& flags = g_state.machine.flags;
-    if (flags.requestHotWaterStart) {
-        flags.requestHotWaterStart = false;
+    if (context.isHotWaterStartRequested()) {
+        context.setHotWaterStartRequested(false);
         context.logStateTransition(getStateId(), MachineStateId::HOT_WATER_RUNNING, "Hot water start requested");
         return getStateInstance(MachineStateId::HOT_WATER_RUNNING);
     }
@@ -49,9 +48,8 @@ void HotWaterRunningState::update(MachineStateContext& context) {
 }
 
 MachineState* HotWaterRunningState::checkSpecificTransitions(MachineStateContext& context) {
-    auto& flags = g_state.machine.flags;
-    if (flags.requestHotWaterStop) {
-        flags.requestHotWaterStop = false;
+    if (context.isHotWaterStopRequested()) {
+        context.setHotWaterStopRequested(false);
         context.logStateTransition(getStateId(), MachineStateId::HOT_WATER_STOPPED, "Hot water stop requested");
         return getStateInstance(MachineStateId::HOT_WATER_STOPPED);
     }

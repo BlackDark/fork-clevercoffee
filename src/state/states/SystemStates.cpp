@@ -31,9 +31,8 @@ void StandbyState::update(MachineStateContext& context) {
 }
 
 MachineState* StandbyState::checkSpecificTransitions(MachineStateContext& context) {
-    auto& flags = g_state.machine.flags;
-    if (flags.requestNormalOperation) {
-        flags.requestNormalOperation = false;
+    if (context.isNormalOperationRequested()) {
+        context.setNormalOperationRequested(false);
         context.logStateTransition(getStateId(), MachineStateId::PID_NORMAL, "Normal operation requested");
         context.resetMqttReconnectCount();
         return getStateInstance(MachineStateId::PID_NORMAL);
@@ -66,9 +65,8 @@ void ManualFlushIdleState::update(MachineStateContext& context) {
 }
 
 MachineState* ManualFlushIdleState::checkSpecificTransitions(MachineStateContext& context) {
-    auto& flags = g_state.machine.flags;
-    if (flags.requestManualFlushStop) {
-        flags.requestManualFlushStop = false;
+    if (context.isManualFlushStopRequested()) {
+        context.setManualFlushStopRequested(false);
         if (context.isPidEnabled()) {
             return getStateInstance(MachineStateId::PID_NORMAL);
         } else {
@@ -97,9 +95,8 @@ void ManualFlushRunningState::update(MachineStateContext& context) {
 }
 
 MachineState* ManualFlushRunningState::checkSpecificTransitions(MachineStateContext& context) {
-    auto& flags = g_state.machine.flags;
-    if (flags.requestManualFlushStop) {
-        flags.requestManualFlushStop = false;
+    if (context.isManualFlushStopRequested()) {
+        context.setManualFlushStopRequested(false);
         context.logStateTransition(getStateId(), MachineStateId::MANUAL_FLUSH_IDLE, "Manual flush stop requested");
         return getStateInstance(MachineStateId::MANUAL_FLUSH_IDLE);
     }
