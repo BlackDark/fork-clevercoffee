@@ -8,14 +8,16 @@
 #pragma once
 
 #include <atomic>
+#include <cstdint>
 #include "clevercoffee/GlobalState.h"
 #include "clevercoffee/hardware/Relay.h"
 
 // pidOutput moved to g_state.process.pidOutput
 
 void IRAM_ATTR onTimer() {
-    // Safety check: timer must be initialized before ISR can execute
-    if (!g_state.machine.timer) {
+    // Safety check: timer must be initialized and valid before ISR can execute
+    // Check for both nullptr AND obviously invalid pointer addresses
+    if (!g_state.machine.timer || (uintptr_t)g_state.machine.timer < 0x1000) {
         return;
     }
     timerAlarmWrite(g_state.machine.timer, 10000, true);
@@ -43,13 +45,9 @@ void IRAM_ATTR onTimer() {
  * @brief Initialize hardware timers
  */
 void initTimer1() {
-    LOGF(DEBUG, "initTimer1: Starting timer initialization, current g_state.machine.timer = %p", g_state.machine.timer);
     g_state.machine.timer = timerBegin(0, 80, true);
-    LOGF(DEBUG, "initTimer1: After timerBegin, g_state.machine.timer = %p", g_state.machine.timer);
     timerAttachInterrupt(g_state.machine.timer, &onTimer, true);
-    LOGF(DEBUG, "initTimer1: After timerAttachInterrupt");
     timerAlarmWrite(g_state.machine.timer, 10000, true);
-    LOGF(DEBUG, "initTimer1: Timer initialization complete");
 }
 
 void enableTimer1() {
