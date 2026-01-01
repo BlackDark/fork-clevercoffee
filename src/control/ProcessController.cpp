@@ -9,6 +9,7 @@
 #include "clevercoffee/Config.h"
 #include "clevercoffee/GlobalState.h"
 #include "clevercoffee/context/SystemContext.h"
+#include "clevercoffee/state/MachineStateContext.h"
 #include "clevercoffee/constants/Temperature.h"
 #include "clevercoffee/coordinators/SensorCoordinator.h"
 #include "clevercoffee/Logger.h"
@@ -113,7 +114,7 @@ void ProcessController::updateProcessControl(MachineStateId machineState) {
     g_state.process.pidOutput = pidOutput_;
 
     // Update setpoint based on steam mode
-    updateSetpoint(g_state.machine.steamON == 1);
+    updateSetpoint(systemContext_.machineStateContext()->isSteamModeActive());
 
     // Update PID state based on machine state
     updatePIDState(machineState);
@@ -129,7 +130,7 @@ void ProcessController::updateTemperature() {
     // Use SensorCoordinator from SystemContext for temperature reading (includes brew offset automatically)
     temperature_ = systemContext_.sensorCoordinator().getTemperature();
 
-    if (!g_state.machine.steamON) {
+    if (!systemContext_.machineStateContext()->isSteamModeActive()) {
         // Apply brew temperature offset if not in steam mode
         temperature_ -= brewTempOffset_;
     }
