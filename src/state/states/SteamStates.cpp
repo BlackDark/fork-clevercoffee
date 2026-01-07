@@ -9,6 +9,7 @@
 #include "clevercoffee/Logger.h"
 #include "clevercoffee/state/MachineStateContext.h"
 #include "clevercoffee/state/StateFactory.h"
+#include "clevercoffee/hardware/Switch.h"
 
 // SteamStates Implementation
 void SteamIdleState::onEntryImpl(MachineStateContext& context) {
@@ -19,6 +20,8 @@ void SteamIdleState::onEntryImpl(MachineStateContext& context) {
 void SteamIdleState::onExitImpl(MachineStateContext& context) {
     LOG(INFO, "Exiting steam mode");
     context.setSteamMode(false);
+    // Safety: Disable water injection pump when exiting steam mode
+    context.disablePump();
 }
 
 void SteamIdleState::update(MachineStateContext& context) {
@@ -57,6 +60,21 @@ void SteamRunningState::update(MachineStateContext& context) {
          "Steam Running: Temp=%.1f°C, Pressure=%.1fbar",
          context.getCurrentTemperature(),
          context.getFilteredPressure());
+    
+    // FEATURE: Handle water injection during steam mode
+    // When user presses water switch (hot water switch repurposed as water injection switch),
+    // activate pump to inject water into boiler
+    auto* waterSwitch = context.getHotWaterSwitch();
+    if (waterSwitch) {
+        if (waterSwitch->isPressed()) {
+            // User pressed water injection switch - activate pump
+            context.enablePump();
+            LOGF(DEBUG, "Steam: Water injection active");
+        } else {
+            // User released water injection switch - deactivate pump
+            context.disablePump();
+        }
+    }
 }
 
 MachineState* SteamRunningState::checkSpecificTransitions(MachineStateContext& context) {
@@ -74,6 +92,8 @@ MachineState* SteamRunningState::checkSpecificTransitions(MachineStateContext& c
 
 void SteamStoppedState::onEntryImpl(MachineStateContext& context) {
     LOG(INFO, "Steam stopped - steaming complete");
+    // Safety: Disable water injection pump when stopping steam
+    context.disablePump();
 }
 
 void SteamStoppedState::update(MachineStateContext& context) {

@@ -29,6 +29,12 @@ void PidNormalState::update(MachineStateContext& context) {
 }
 
 MachineState* PidNormalState::checkSpecificTransitions(MachineStateContext& context) {
+    // CRITICAL: Check if PID was disabled while in this state
+    if (!context.isPidEnabled()) {
+        context.logStateTransition(getStateId(), MachineStateId::PID_DISABLED, "PID disabled");
+        return getStateInstance(MachineStateId::PID_DISABLED);
+    }
+    
     if (context.isBrewStartRequested()) {
         context.setBrewStartRequested(false);
         context.logStateTransition(getStateId(), MachineStateId::BREW_IDLE, "Brew start requested");
