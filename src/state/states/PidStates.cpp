@@ -9,6 +9,7 @@
 #include "clevercoffee/Logger.h"
 #include "clevercoffee/state/MachineStateContext.h"
 #include "clevercoffee/state/StateFactory.h"
+#include "clevercoffee/hardware/Switch.h"
 
 // PidNormalState Implementation
 void PidNormalState::onEntryImpl(MachineStateContext& context) {
@@ -25,6 +26,20 @@ void PidNormalState::update(MachineStateContext& context) {
     if (currentTime - lastStandbyReset >= 30000) {
         resetStandbyTimerIfNeeded(context);
         lastStandbyReset = currentTime;
+    }
+    
+    // FEATURE: Handle water dispensing from water switch in PID mode
+    // User can dispense hot water directly without entering HOT_WATER mode
+    auto* waterSwitch = context.getHotWaterSwitch();
+    if (waterSwitch) {
+        if (waterSwitch->isPressed()) {
+            // User pressed water switch - activate pump to dispense hot water
+            context.enablePump();
+            LOGF(DEBUG, "PID: Water dispensing active");
+        } else {
+            // User released water switch - deactivate pump
+            context.disablePump();
+        }
     }
 }
 
@@ -84,6 +99,8 @@ void PidNormalState::resetStandbyTimerIfNeeded(MachineStateContext& context) con
 void PidDisabledState::onEntryImpl(MachineStateContext& context) {
     LOG(INFO, "PID disabled - operations without temperature control");
     context.setPidRuntimeState(false);
+    // Safety: Disable pump when PID is disabled to prevent runaway water dispensing
+    context.disablePump();
 }
 
 void PidDisabledState::update(MachineStateContext& context) {
