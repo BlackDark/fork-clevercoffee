@@ -144,7 +144,7 @@ inline void displayThermometerOutline(const int x, const int y) {
     CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->drawDisc(x + 6, y - 5, 6);
 
     // draw setpoint line
-    const int height = map(static_cast<int>(g_state.process.setpoint), 0, 100, y - 9, y - 39);
+    const int height = map(static_cast<int>(CleverCoffee::getGlobalSystemContext()->processSetpoint()), 0, 100, y - 9, y - 39);
     CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->drawLine(x + 11, height, x + 16, height);
 }
 
@@ -156,11 +156,11 @@ inline void drawTemperaturebar(const int x, const int heightRange) {
     const int width = x + 5;
 
     for (int i = x; i < width; i++) {
-        const int height = map(static_cast<int>(g_state.process.temperature), 0, 100, 0, heightRange);
+        const int height = map(static_cast<int>(CleverCoffee::getGlobalSystemContext()->processTemperature()), 0, 100, 0, heightRange);
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->drawVLine(i, 52 - height, height);
     }
 
-    if (g_state.process.temperature > 100) {
+    if (CleverCoffee::getGlobalSystemContext()->processTemperature() > 100) {
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->drawLine(x, heightRange - 11, x + 3, heightRange - 11);
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->drawLine(x, heightRange - 10, x + 4, heightRange - 10);
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->drawLine(x, heightRange - 9, x + 4, heightRange - 9);
@@ -173,12 +173,12 @@ inline void drawTemperaturebar(const int x, const int heightRange) {
 inline void displayTemperature(const int x, const int y) {
     CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setFont(u8g2_font_fub30_tf);
 
-    if (g_state.process.temperature < 99.499) {
+    if (CleverCoffee::getGlobalSystemContext()->processTemperature() < 99.499) {
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setCursor(x + 20, y);
-        CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(g_state.process.temperature, 0);
+        CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(CleverCoffee::getGlobalSystemContext()->processTemperature(), 0);
     } else {
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setCursor(x, y);
-        CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(g_state.process.temperature, 0);
+        CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(CleverCoffee::getGlobalSystemContext()->processTemperature(), 0);
     }
 
     CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->drawCircle(x + 72, y + 4, 3);
@@ -503,14 +503,14 @@ inline bool displayFullscreenBrewTimer() {
             if (Config::getInstance().hardwareSensorsScaleEnabled.get()) {
                 CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setFont(u8g2_font_profont22_tf);
                 CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setCursor(5, 70);
-                CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(g_state.process.currBrewTime / 1000, 1);
+                CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(CleverCoffee::getGlobalSystemContext()->processCurrentBrewTime() / 1000, 1);
                 CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print("s");
                 CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setCursor(5, 100);
                 CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(g_state.sensors.currBrewWeight, 1);
                 CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print("g");
                 CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setFont(u8g2_font_profont11_tf);
             } else {
-                displayBrewtimeFs(1, 80, g_state.process.currBrewTime);
+                displayBrewtimeFs(1, 80, CleverCoffee::getGlobalSystemContext()->processCurrentBrewTime());
             }
         } else {
             CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->drawXBMP(-1, 11, Brew_Cup_Logo_width, Brew_Cup_Logo_height, Brew_Cup_Logo);
@@ -518,14 +518,14 @@ inline bool displayFullscreenBrewTimer() {
             if (Config::getInstance().hardwareSensorsScaleEnabled.get()) {
                 CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setFont(u8g2_font_profont22_tf);
                 CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setCursor(DISPLAY_WIDTH / 2, 15);
-                CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(g_state.process.currBrewTime / 1000, 1);
+                CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(CleverCoffee::getGlobalSystemContext()->processCurrentBrewTime() / 1000, 1);
                 CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print("s");
                 CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setCursor(DISPLAY_WIDTH / 2, 38);
                 CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(g_state.sensors.currBrewWeight, 1);
                 CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print("g");
                 CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setFont(u8g2_font_profont11_tf);
             } else {
-                displayBrewtimeFs(48, 25, g_state.process.currBrewTime);
+                displayBrewtimeFs(48, 25, CleverCoffee::getGlobalSystemContext()->processCurrentBrewTime());
             }
         }
 
@@ -551,11 +551,11 @@ inline bool displayFullscreenManualFlushTimer() {
         if (Config::getInstance().displayTemplate.get() == System::DisplayTemplate::UPRIGHT) {
             CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->drawXBMP(
                 12, 12, Manual_Flush_Logo_width, Manual_Flush_Logo_height, Manual_Flush_Logo);
-            displayBrewtimeFs(1, 80, g_state.process.currBrewTime);
+            displayBrewtimeFs(1, 80, CleverCoffee::getGlobalSystemContext()->processCurrentBrewTime());
         } else {
             CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->drawXBMP(
                 0, 12, Manual_Flush_Logo_width, Manual_Flush_Logo_height, Manual_Flush_Logo);
-            displayBrewtimeFs(48, 25, g_state.process.currBrewTime);
+            displayBrewtimeFs(48, 25, CleverCoffee::getGlobalSystemContext()->processCurrentBrewTime());
         }
 
         g_state.coordination.displayBufferReady = true;
@@ -614,7 +614,7 @@ inline bool displayMachineState() {
     // Show the heating logo when we are in regular PID mode and more than 5degC below the set point
     if (Config::getInstance().displayHeatingLogo.get() > 0 &&
         (getCurrentDisplayState() == MachineStateId::PID_NORMAL) &&
-        g_state.process.setpoint - g_state.process.temperature > 5.) {
+        CleverCoffee::getGlobalSystemContext()->processSetpoint() - CleverCoffee::getGlobalSystemContext()->processTemperature() > 5.) {
         // For status info
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->clearBuffer();
 
@@ -623,7 +623,7 @@ inline bool displayMachineState() {
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->drawXBMP(0, 20, Heating_Logo_width, Heating_Logo_height, Heating_Logo);
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setFont(u8g2_font_fub25_tf);
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setCursor(50, 30);
-        CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(g_state.process.temperature, 1);
+        CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(CleverCoffee::getGlobalSystemContext()->processTemperature(), 1);
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->drawCircle(122, 32, 3);
 
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->sendBuffer();
@@ -717,13 +717,13 @@ inline bool displayMachineState() {
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setFont(u8g2_font_profont11_tf);
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setCursor(32, 24);
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(langstring_current_temp);
-        CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(g_state.process.temperature, 1);
+        CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(CleverCoffee::getGlobalSystemContext()->processTemperature(), 1);
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(" ");
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(static_cast<char>(176));
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print("C");
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setCursor(32, 34);
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(langstring_set_temp);
-        CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(g_state.process.setpoint, 1);
+        CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(CleverCoffee::getGlobalSystemContext()->processSetpoint(), 1);
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(" ");
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(static_cast<char>(176));
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print("C");
@@ -748,7 +748,7 @@ inline bool displayMachineState() {
 
         // Use buffer for temperature conversion to avoid String allocation
         char tempBuffer[16];
-        snprintf(tempBuffer, sizeof(tempBuffer), "%.1f", g_state.process.temperature);
+        snprintf(tempBuffer, sizeof(tempBuffer), "%.1f", CleverCoffee::getGlobalSystemContext()->processTemperature());
         displayMessage(langstring_error_tsensor[0], tempBuffer, langstring_error_tsensor[1], "", "", "");
         return true;
     }
