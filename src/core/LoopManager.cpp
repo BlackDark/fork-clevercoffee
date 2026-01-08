@@ -192,8 +192,8 @@ void LoopManager::update() {
 void LoopManager::updateLEDs() {
     // Simple LED coordination - delegate details to dedicated LED controller when available
     const auto machineState = systemContext_->machineStateContext()->getCurrentStateId();
-    const auto temperature = g_state.process.temperature;
-    const auto setpoint = g_state.process.setpoint;
+    const auto temperature = CleverCoffee::getGlobalSystemContext()->processTemperature();
+    const auto setpoint = CleverCoffee::getGlobalSystemContext()->processSetpoint();
 
     if (!hardwareManager_) {
         return;  // No hardware manager available
@@ -239,13 +239,13 @@ void LoopManager::updateProcessControl() {
         const MachineStateId currentState = systemContext_->machineStateContext()->getCurrentStateId();
         
         LOGF(DEBUG, "updateProcessControl: Entering with state=%d, temp=%.1f°C, setpoint=%.1f°C, pidOutput=%.1f", 
-             static_cast<int>(currentState), g_state.process.temperature, g_state.process.setpoint, g_state.process.pidOutput);
+             static_cast<int>(currentState), CleverCoffee::getGlobalSystemContext()->processTemperature(), CleverCoffee::getGlobalSystemContext()->processSetpoint(), CleverCoffee::getGlobalSystemContext()->processPidOutput());
         
         processController_->updateProcessControl(currentState);
         const unsigned long processTime = millis() - processStart;
 
         LOGF(DEBUG, "updateProcessControl: After update: temp=%.1f°C, setpoint=%.1f°C, pidOutput=%.1f, timer=%lums",
-             g_state.process.temperature, g_state.process.setpoint, g_state.process.pidOutput, processTime);
+             CleverCoffee::getGlobalSystemContext()->processTemperature(), CleverCoffee::getGlobalSystemContext()->processSetpoint(), CleverCoffee::getGlobalSystemContext()->processPidOutput(), processTime);
 
         if (processTime > 100) {
             LOGF(ERROR, "ProcessController update took %lums - this is blocking the main loop!", processTime);
@@ -516,7 +516,7 @@ void LoopManager::updateWebsite() {
         // Delegate to WebServerManager for actual transmission
         if (g_state.network.webServerManager) {
             systemContext_->webServerManager()->sendTempEvent(
-                g_state.process.temperature,
+                CleverCoffee::getGlobalSystemContext()->processTemperature(),
                 Config::getInstance().brewSetpoint.get(),
                 systemContext_->processController()->getPIDOutput() / 10); // Convert promill to percent
 

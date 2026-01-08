@@ -214,9 +214,9 @@ void loop() {
                  isr_call_count,
                  isr_relay_on_count,
                  isr_relay_off_count,
-                 g_state.process.temperature,
-                 g_state.process.setpoint,
-                 g_state.process.pidOutput);
+                 CleverCoffee::getGlobalSystemContext()->processTemperature(),
+                 CleverCoffee::getGlobalSystemContext()->processSetpoint(),
+                 CleverCoffee::getGlobalSystemContext()->processPidOutput());
             
             lastDebugLog = now;
         }

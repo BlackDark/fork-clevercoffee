@@ -3,6 +3,7 @@
 #include "clevercoffee/Config.h"
 #include "clevercoffee/GlobalState.h"
 #include "clevercoffee/network/MQTTManager.h"
+#include "clevercoffee/context/SystemContext.h"
 
 #include <mutex>
 
@@ -15,7 +16,7 @@ inline void setRuntimePidState(const bool enabled) {
     static std::mutex           pid_mutex;
     std::lock_guard<std::mutex> lock(pid_mutex);
 
-    g_state.process.pidEnabled = enabled;
+    CleverCoffee::getGlobalSystemContext()->setProcessPidEnabled(enabled);
     // TODO probably wrong
     Config::getInstance().pidEnabled.set(enabled);
 }
