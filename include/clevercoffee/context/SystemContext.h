@@ -480,6 +480,18 @@ public:
         */
        void setProcessWindowSize(int size) noexcept;
 
+       /**
+        * @brief Check if PID is enabled
+        * @return True if PID is enabled
+        */
+       bool isProcessPidEnabled() const noexcept;
+
+       /**
+        * @brief Set PID enabled state
+        * @param enabled True to enable PID
+        */
+       void setProcessPidEnabled(bool enabled) noexcept;
+
        /** @} */
 
       /**

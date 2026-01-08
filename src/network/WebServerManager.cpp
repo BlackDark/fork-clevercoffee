@@ -357,7 +357,7 @@ void WebServerManager::setupApiRoutes() {
         if (request->hasParam("value", true)) {
             double newSetpoint = request->getParam("value", true)->value().toDouble();
             if (newSetpoint >= 0 && newSetpoint <= 150) {
-                g_state.process.setpoint = newSetpoint;
+                CleverCoffee::getGlobalSystemContext()->setProcessSetpoint(newSetpoint);
                 Config::getInstance().brewSetpoint.set(newSetpoint);
                 request->send(200, "application/json", "{\"success\":true}");
             } else {
@@ -393,7 +393,7 @@ void WebServerManager::setupApiRoutes() {
             const bool currentPidState = Config::getInstance().pidEnabled.get();
             const bool newPidState     = !currentPidState;
             Config::getInstance().pidEnabled.set(newPidState);
-            g_state.process.pidEnabled = newPidState;
+            CleverCoffee::getGlobalSystemContext()->setProcessPidEnabled(newPidState);
 
             LOGF(INFO, "Toggle PID state: %d", newPidState);
 

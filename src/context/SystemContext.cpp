@@ -105,6 +105,14 @@ void SystemContext::setProcessWindowSize(int size) noexcept {
     g_state.process.windowSize = size;
 }
 
+bool SystemContext::isProcessPidEnabled() const noexcept {
+    return g_state.process.pidEnabled;
+}
+
+void SystemContext::setProcessPidEnabled(bool enabled) noexcept {
+    g_state.process.pidEnabled = enabled;
+}
+
 // ===== DISPLAY SNAPSHOT =====
 
 SystemContext::DisplaySnapshot SystemContext::getDisplaySnapshot() const noexcept {
