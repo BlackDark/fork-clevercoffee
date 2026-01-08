@@ -492,6 +492,24 @@ public:
         */
        void setProcessPidEnabled(bool enabled) noexcept;
 
+       /**
+        * @brief Get pointer to temperature value for PID controller
+        * @return Pointer to process temperature value
+        */
+       double* processTemperaturePtr() noexcept;
+
+       /**
+        * @brief Get pointer to PID output value
+        * @return Pointer to process PID output value
+        */
+       double* processPidOutputPtr() noexcept;
+
+       /**
+        * @brief Get pointer to setpoint value for PID controller
+        * @return Pointer to process setpoint value
+        */
+       double* processSetpointPtr() noexcept;
+
        /** @} */
 
       /**

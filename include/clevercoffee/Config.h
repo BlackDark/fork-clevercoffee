@@ -1352,12 +1352,12 @@ class Config {
     // === LIVE SENSOR READINGS ===
     StateParamDef<double> stateTemperature{"state.temperature", "Current Temperature", 6, 601,
                                            "Current temperature reading from sensor",
-                                           []() { return g_state.process.temperature; },
+                                           []() { return CleverCoffee::getGlobalSystemContext() ? CleverCoffee::getGlobalSystemContext()->processTemperature() : 0.0; },
                                            StateParamDef<double>::UpdateFrequency::REALTIME, "°C"};
 
     StateParamDef<double> stateHeaterPower{"state.heater_power", "Heater Power", 6, 602,
                                            "Current heater power output percentage",
-                                           []() { return g_state.process.pidOutput / 10.0; },
+                                           []() { return CleverCoffee::getGlobalSystemContext() ? CleverCoffee::getGlobalSystemContext()->processPidOutput() / 10.0 : 0.0; },
                                            StateParamDef<double>::UpdateFrequency::REALTIME, "%"};
 
     StateParamDef<double> statePressure{"state.pressure", "Current Pressure", 6, 603,
@@ -1394,7 +1394,7 @@ class Config {
     // === BREWING STATUS ===
     StateParamDef<double> stateBrewTime{"state.brew_time", "Current Brew Time", 7, 701,
                                         "Current brewing time in seconds",
-                                        []() { return g_state.process.currBrewTime / 1000.0; },
+                                        []() { return CleverCoffee::getGlobalSystemContext() ? CleverCoffee::getGlobalSystemContext()->processCurrentBrewTime() / 1000.0 : 0.0; },
                                         StateParamDef<double>::UpdateFrequency::REALTIME, "s"};
 
     StateParamDef<double> stateBrewWeight{"state.brew_weight", "Brew Weight", 7, 702,

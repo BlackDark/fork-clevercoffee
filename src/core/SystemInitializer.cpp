@@ -190,9 +190,9 @@ bool SystemInitializer::initializeConfiguration() {
     calculateDerivedValues();
 
     // Use make_unique for proper RAII and exception safety
-    pidController_ = std::make_unique<PID>(&g_state.process.temperature,
-                                           &g_state.process.pidOutput,
-                                           &g_state.process.setpoint,
+    pidController_ = std::make_unique<PID>(systemContext_->processTemperaturePtr(),
+                                           systemContext_->processPidOutputPtr(),
+                                           systemContext_->processSetpointPtr(),
                                            Config::getInstance().pidRegularKp.get(),
                                            systemContext_->processPidAggKi(),
                                            systemContext_->processPidAggKd(),

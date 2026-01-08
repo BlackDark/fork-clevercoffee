@@ -39,7 +39,7 @@ void IRAM_ATTR onTimer() {
     timerAlarmWrite(g_state.machine.timer, 10000, true);
 
     // Read volatile pidOutput once for consistency
-    const double currentPidOutput = g_state.process.pidOutput;
+    const double currentPidOutput = ctx->processPidOutput();
     const unsigned int currentCounter = g_state.timing.isrCounter;
 
     if (currentPidOutput <= currentCounter) {
@@ -59,7 +59,7 @@ void IRAM_ATTR onTimer() {
     unsigned int newCounter = currentCounter + 10; // += 10 because one tick = 10ms
 
     // set PID output as relay commands
-    if (newCounter >= g_state.process.windowSize) {
+    if (newCounter >= ctx->processWindowSize()) {
         newCounter = 0;
     }
     g_state.timing.isrCounter = newCounter;

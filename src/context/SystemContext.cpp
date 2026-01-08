@@ -113,6 +113,18 @@ void SystemContext::setProcessPidEnabled(bool enabled) noexcept {
     g_state.process.pidEnabled = enabled;
 }
 
+double* SystemContext::processTemperaturePtr() noexcept {
+    return &g_state.process.temperature;
+}
+
+double* SystemContext::processPidOutputPtr() noexcept {
+    return &g_state.process.pidOutput;
+}
+
+double* SystemContext::processSetpointPtr() noexcept {
+    return &g_state.process.setpoint;
+}
+
 // ===== DISPLAY SNAPSHOT =====
 
 SystemContext::DisplaySnapshot SystemContext::getDisplaySnapshot() const noexcept {

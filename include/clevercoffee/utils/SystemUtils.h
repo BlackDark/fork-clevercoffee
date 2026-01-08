@@ -51,9 +51,11 @@ inline void testEmergencyStop() {
      static std::mutex           emergency_mutex;
      std::lock_guard<std::mutex> lock(emergency_mutex);
 
-     if (g_state.process.temperature > EmergencyStopTemp && g_state.machine.emergencyStop == false) {
+     double currentTemp = CleverCoffee::getGlobalSystemContext() ? CleverCoffee::getGlobalSystemContext()->processTemperature() : 0.0;
+     
+     if (currentTemp > EmergencyStopTemp && g_state.machine.emergencyStop == false) {
          g_state.machine.emergencyStop = true;
-     } else if (g_state.process.temperature < (Config::getInstance().brewSetpoint.get() + 5) &&
+     } else if (currentTemp < (Config::getInstance().brewSetpoint.get() + 5) &&
                 g_state.machine.emergencyStop == true) {
          g_state.machine.emergencyStop = false;
      }
