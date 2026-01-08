@@ -327,12 +327,256 @@ public:
      /** @} */
 
 
-     /** @} */
+      /** @} */
 
-    /**
-     * @name System Initialization State
-     * @{
-     */
+      /**
+       * @name Process State Accessors
+       * Replaces direct g_state.process.* access with explicit methods.
+       * Temporary implementations delegate to GlobalState during transition.
+       * @{
+       */
+
+      /**
+       * @brief Get current measured temperature
+       * @return Temperature in Celsius
+       */
+      double processTemperature() const noexcept;
+
+      /**
+       * @brief Set current measured temperature
+       * @param temp Temperature in Celsius
+       */
+      void setProcessTemperature(double temp) noexcept;
+
+      /**
+       * @brief Get target setpoint temperature
+       * @return Temperature in Celsius
+       */
+      double processSetpoint() const noexcept;
+
+      /**
+       * @brief Set target setpoint temperature
+       * @param setpoint Temperature in Celsius
+       */
+      void setProcessSetpoint(double setpoint) noexcept;
+
+      /**
+       * @brief Get current PID output value
+       * @return PID output (typically 0-1000)
+       */
+      double processPidOutput() const noexcept;
+
+      /**
+       * @brief Set current PID output value
+       * @param output PID output value
+       */
+      void setProcessPidOutput(double output) noexcept;
+
+      /**
+       * @brief Get elapsed brew time
+       * @return Time in milliseconds
+       */
+      double processCurrentBrewTime() const noexcept;
+
+      /**
+       * @brief Set elapsed brew time
+       * @param time Time in milliseconds
+       */
+      void setProcessCurrentBrewTime(double time) noexcept;
+
+      /**
+       * @brief Get target brew time
+       * @return Time in milliseconds
+       */
+      double processTotalTargetBrewTime() const noexcept;
+
+      /**
+       * @brief Set target brew time
+       * @param time Time in milliseconds
+       */
+      void setProcessTotalTargetBrewTime(double time) noexcept;
+
+      /**
+       * @brief Check if brew PID is disabled
+       * @return true if disabled, false otherwise
+       */
+      bool isProcessBrewPidDisabled() const noexcept;
+
+      /**
+       * @brief Set brew PID disabled state
+       * @param disabled true to disable, false to enable
+       */
+      void setProcessBrewPidDisabled(bool disabled) noexcept;
+
+      /**
+       * @brief Get previous input value (for PID derivative)
+       * @return Previous temperature reading
+       */
+      double processPreviousInput() const noexcept;
+
+      /**
+       * @brief Set previous input value
+       * @param input Previous temperature reading
+       */
+      void setProcessPreviousInput(double input) noexcept;
+
+      /**
+       * @brief Get PID aggressive Ki parameter
+       * @return Integral gain for aggressive mode
+       */
+      double processPidAggKi() const noexcept;
+
+      /**
+       * @brief Set PID aggressive Ki parameter
+       * @param value Integral gain for aggressive mode
+       */
+      void setProcessPidAggKi(double value) noexcept;
+
+      /**
+       * @brief Get PID aggressive Kd parameter
+       * @return Derivative gain for aggressive mode
+       */
+      double processPidAggKd() const noexcept;
+
+      /**
+       * @brief Set PID aggressive Kd parameter
+       * @param value Derivative gain for aggressive mode
+       */
+      void setProcessPidAggKd(double value) noexcept;
+
+      /**
+       * @brief Get PID normal Ki parameter
+       * @return Integral gain for normal mode
+       */
+      double processPidKi() const noexcept;
+
+      /**
+       * @brief Set PID normal Ki parameter
+       * @param value Integral gain for normal mode
+       */
+      void setProcessPidKi(double value) noexcept;
+
+      /**
+       * @brief Get PID normal Kd parameter
+       * @return Derivative gain for normal mode
+       */
+      double processPidKd() const noexcept;
+
+      /**
+       * @brief Set PID normal Kd parameter
+       * @param value Derivative gain for normal mode
+       */
+      void setProcessPidKd(double value) noexcept;
+
+      /** @} */
+
+      /**
+       * @name Display Data Snapshot
+       * Provides atomic read of all display-related data
+       * @{
+       */
+
+      /**
+       * @brief Immutable snapshot of display data
+       *
+       * Contains all data needed for rendering display at a point in time.
+       * Using snapshots provides atomic reads and thread-safety guarantees.
+       */
+      struct DisplaySnapshot {
+          // Process data
+          double currentTemperature = 0.0;    ///< Current measured temperature (°C)
+          double setpointTemperature = 0.0;   ///< Target setpoint (°C)
+          double pidOutputPercent = 0.0;      ///< Heater power (0-1000)
+          double currentBrewTime = 0.0;       ///< Elapsed brew time (ms)
+          double targetBrewTime = 0.0;        ///< Target brew duration (ms)
+          bool brewPidDisabled = false;       ///< Brew PID active state
+
+          // PID tuning values
+          double pidKp = 0.0;                 ///< Proportional gain
+          double pidKi = 0.0;                 ///< Integral gain
+          double pidKd = 0.0;                 ///< Derivative gain
+
+          // Sensor data
+          double pumpOnTime = 0.0;            ///< Hot water pump runtime (ms)
+          float inputPressure = 0.0f;         ///< Current pump pressure (bar)
+          double brewWeight = 0.0;            ///< Current shot weight (grams)
+
+          // Timing/animation
+          unsigned int isrCounter = 0;        ///< ISR counter for animation sync
+
+          // Coordination flags
+          bool displayBufferReady = false;    ///< Display update ready flag
+      };
+
+      /**
+       * @brief Get atomic snapshot of all display data
+       * @return DisplaySnapshot containing current display state
+       */
+      DisplaySnapshot getDisplaySnapshot() const noexcept;
+
+      /**
+       * @brief Mark display buffer as ready for rendering
+       * @param ready true if buffer is ready, false otherwise
+       */
+      void markDisplayBufferReady(bool ready) noexcept;
+
+      /** @} */
+
+      /**
+       * @name Command/Control Accessors
+       * Replaces direct g_state writes from web/MQTT endpoints
+       * @{
+       */
+
+      /**
+       * @brief Request scale tare operation
+       * Signals sensor coordinator to tare (zero) the scale
+       */
+      void requestScaleTare() noexcept;
+
+      /**
+       * @brief Request scale calibration operation
+       * Signals sensor coordinator to start calibration procedure
+       */
+      void requestScaleCalibration() noexcept;
+
+      /**
+       * @brief Notify that Home Assistant discovery is running
+       * @param running true if discovery is active, false otherwise
+       */
+      void setHassioDiscoveryRunning(bool running) noexcept;
+
+      /**
+       * @brief Notify that Home Assistant connection failed
+       * @param failed true if connection failed, false otherwise
+       */
+      void setHassioFailed(bool failed) noexcept;
+
+      /** @} */
+
+      /**
+       * @name Utility Accessors
+       * @{
+       */
+
+      /**
+       * @brief Update pressure filter with new reading
+       * @param input Raw pressure reading
+       */
+      void updatePressureFilter(float input) noexcept;
+
+      /**
+       * @brief Get filtered pressure output
+       * @return Filtered pressure value
+       */
+      float getPressureFilterOutput() const noexcept;
+
+      /** @} */
+
+     /**
+      * @name System Initialization State
+      * @{
+      */
 
     /**
      * @brief Mark the system as fully initialized
