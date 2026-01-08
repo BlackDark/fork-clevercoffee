@@ -97,6 +97,14 @@ void SystemContext::setProcessPidKd(double value) noexcept {
     g_state.process.aggKd = value;
 }
 
+int SystemContext::processWindowSize() const noexcept {
+    return g_state.process.windowSize;
+}
+
+void SystemContext::setProcessWindowSize(int size) noexcept {
+    g_state.process.windowSize = size;
+}
+
 // ===== DISPLAY SNAPSHOT =====
 
 SystemContext::DisplaySnapshot SystemContext::getDisplaySnapshot() const noexcept {

@@ -194,8 +194,8 @@ bool SystemInitializer::initializeConfiguration() {
                                            &g_state.process.pidOutput,
                                            &g_state.process.setpoint,
                                            Config::getInstance().pidRegularKp.get(),
-                                           g_state.process.aggKi,
-                                           g_state.process.aggKd,
+                                           systemContext_->processPidAggKi(),
+                                           systemContext_->processPidAggKd(),
                                            1,
                                            DIRECT);
 
@@ -398,16 +398,16 @@ bool SystemInitializer::initializePID() {
         LOGF(INFO,
              "PID initialized: Kp={:.3f}, Ki={:.3f}, Kd={:.3f}",
              Config::getInstance().pidRegularKp.get(),
-             g_state.process.aggKi,
-             g_state.process.aggKd);
+             systemContext_->processPidAggKi(),
+             systemContext_->processPidAggKd());
 
         // Set PID tunings now that parameters are calculated
         g_state.pid->SetTunings(
-            Config::getInstance().pidRegularKp.get(), g_state.process.aggKi, g_state.process.aggKd, 1);
+            Config::getInstance().pidRegularKp.get(), systemContext_->processPidAggKi(), systemContext_->processPidAggKd(), 1);
 
         // Initialize PID controller
-        g_state.pid->SetSampleTime(g_state.process.windowSize);
-        g_state.pid->SetOutputLimits(0, g_state.process.windowSize);
+        g_state.pid->SetSampleTime(systemContext_->processWindowSize());
+        g_state.pid->SetOutputLimits(0, systemContext_->processWindowSize());
         g_state.pid->SetIntegratorLimits(0, 55.0); // AGGIMAX constant
         g_state.pid->SetSmoothingFactor(Config::getInstance().pidEmaFactor.get());
         g_state.pid->SetMode(AUTOMATIC);
@@ -445,7 +445,7 @@ bool SystemInitializer::initializeSensors() {
         }
 
         // Update global temperature variable for compatibility
-        g_state.process.temperature = coord->getTemperature();
+        systemContext_->setProcessTemperature(coord->getTemperature());
 
         LOG(INFO, "Sensor management initialized via SensorCoordinator");
 
@@ -505,14 +505,22 @@ bool SystemInitializer::finalizeMachineState() {
 
 void SystemInitializer::calculateDerivedValues() {
     // Calculate derived PID values
-    g_state.process.aggKi  = Config::getInstance().pidRegularTn.get() > 0
-                                 ? Config::getInstance().pidRegularKp.get() / Config::getInstance().pidRegularTn.get()
-                                 : 0;
-    g_state.process.aggKd  = Config::getInstance().pidRegularTv.get() * Config::getInstance().pidRegularKp.get();
-    g_state.process.aggbKi = Config::getInstance().pidBdTn.get() > 0
-                                 ? Config::getInstance().pidBdKp.get() / Config::getInstance().pidBdTn.get()
-                                 : 0;
-    g_state.process.aggbKd = Config::getInstance().pidBdTv.get() * Config::getInstance().pidBdKp.get();
+    double aggKi = Config::getInstance().pidRegularTn.get() > 0
+                   ? Config::getInstance().pidRegularKp.get() / Config::getInstance().pidRegularTn.get()
+                   : 0;
+    systemContext_->setProcessPidAggKi(aggKi);
+
+    double aggKd = Config::getInstance().pidRegularTv.get() * Config::getInstance().pidRegularKp.get();
+    systemContext_->setProcessPidAggKd(aggKd);
+
+    double aggbKi = Config::getInstance().pidBdTn.get() > 0
+                    ? Config::getInstance().pidBdKp.get() / Config::getInstance().pidBdTn.get()
+                    : 0;
+    // Note: aggbKi and aggbKd are mapped to aggKi/aggKd for now
+    systemContext_->setProcessPidAggKi(aggbKi);
+
+    double aggbKd = Config::getInstance().pidBdTv.get() * Config::getInstance().pidBdKp.get();
+    systemContext_->setProcessPidAggKd(aggbKd);
 
     LOG(DEBUG, "Calculated derived PID values");
 }
@@ -588,13 +596,13 @@ void SystemInitializer::registerMQTTSensors() {
          if (systemContext_ && systemContext_->processController()) {
              return systemContext_->processController()->getCurrentTemperature();
          }
-         return g_state.process.temperature;
+         return systemContext_->processTemperature();
      });
      mqttManager_->registerSensor("heaterPower", [this] {
          if (systemContext_ && systemContext_->processController()) {
              return systemContext_->processController()->getPIDOutput() / 10;
          }
-         return g_state.process.pidOutput / 10;
+         return systemContext_->processPidOutput() / 10;
      });
      mqttManager_->registerSensor("standbyModeTimeRemaining",
                                   [this] { return systemContext_->standbyCoordinator().getRemainingTimeMillis() / 1000.0; });
@@ -609,7 +617,7 @@ void SystemInitializer::registerMQTTSensors() {
              if (systemContext_ && systemContext_->processController()) {
                  return systemContext_->processController()->getCurrBrewTime() / 1000;
              }
-             return g_state.process.currBrewTime / 1000;
+             return systemContext_->processCurrentBrewTime() / 1000;
          });
      }
 

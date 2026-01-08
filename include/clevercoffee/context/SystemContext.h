@@ -462,13 +462,25 @@ public:
        */
       double processPidKd() const noexcept;
 
-      /**
-       * @brief Set PID normal Kd parameter
-       * @param value Derivative gain for normal mode
-       */
-      void setProcessPidKd(double value) noexcept;
+       /**
+        * @brief Set PID normal Kd parameter
+        * @param value Derivative gain for normal mode
+        */
+       void setProcessPidKd(double value) noexcept;
 
-      /** @} */
+       /**
+        * @brief Get PID window size
+        * @return Window size in milliseconds
+        */
+       int processWindowSize() const noexcept;
+
+       /**
+        * @brief Set PID window size
+        * @param size Window size in milliseconds
+        */
+       void setProcessWindowSize(int size) noexcept;
+
+       /** @} */
 
       /**
        * @name Display Data Snapshot
