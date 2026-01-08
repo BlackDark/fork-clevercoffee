@@ -331,8 +331,8 @@ public:
 
       /**
        * @name Process State Accessors
-       * Replaces direct g_state.process.* access with explicit methods.
-       * Temporary implementations delegate to GlobalState during transition.
+       * Centralized access to process state through SystemContext.
+       * Implementations delegate to GlobalState for unified state management.
        * @{
        */
 

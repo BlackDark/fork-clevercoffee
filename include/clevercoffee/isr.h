@@ -12,8 +12,6 @@
 #include "clevercoffee/GlobalState.h"
 #include "clevercoffee/hardware/Relay.h"
 
-// pidOutput moved to g_state.process.pidOutput
-
 // Volatile counters for ISR debugging (track execution without logging)
 static volatile bool isr_enabled = false;
 static volatile uint32_t isr_call_count = 0;
