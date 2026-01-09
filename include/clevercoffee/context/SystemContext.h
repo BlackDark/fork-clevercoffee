@@ -5,7 +5,7 @@
 #include "clevercoffee/coordinators/NetworkCoordinator.h"
 #include "clevercoffee/coordinators/UICoordinator.h"
 #include "clevercoffee/coordinators/StandbyCoordinator.h"
-#include "clevercoffee/GlobalState.h"  // For type definitions (cmp_str, MachineStateFlags, etc.)
+#include "clevercoffee/types/GlobalTypes.h"  // For type definitions (cmp_str, MachineStateFlags, etc.)
 #include "clevercoffee/utils/ModernTimer.h"  // For MillisecondTimer
 
 // Forward declarations for handlers

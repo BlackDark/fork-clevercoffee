@@ -34,7 +34,7 @@
 
 // Includes
 #include "clevercoffee/Config.h"
-#include "clevercoffee/GlobalState.h"
+#include "clevercoffee/types/GlobalTypes.h"
 
 // Utilities
 #include "clevercoffee/utils/SystemUtils.h"

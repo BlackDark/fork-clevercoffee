@@ -5,7 +5,7 @@
 
 #include "clevercoffee/state/states/SteamStates.h"
 
-#include "clevercoffee/GlobalState.h"
+#include "clevercoffee/types/GlobalTypes.h"
 #include "clevercoffee/Logger.h"
 #include "clevercoffee/state/MachineStateContext.h"
 #include "clevercoffee/state/StateFactory.h"

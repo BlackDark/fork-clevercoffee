@@ -11,7 +11,7 @@
 #include "clevercoffee/coordinators/NetworkCoordinator.h"
 #include "clevercoffee/context/SystemContext.h"
 #include "clevercoffee/state/MachineStateContext.h"
-#include "clevercoffee/GlobalState.h"
+#include "clevercoffee/types/GlobalTypes.h"
 #include "clevercoffee/Logger.h"
 #include "clevercoffee/defaults.h"
 #include "clevercoffee/handlers/BrewHandler.h"

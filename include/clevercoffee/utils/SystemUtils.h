@@ -1,7 +1,7 @@
 #pragma once
 
 #include "clevercoffee/Config.h"
-#include "clevercoffee/GlobalState.h"
+#include "clevercoffee/types/GlobalTypes.h"
 #include "clevercoffee/network/MQTTManager.h"
 #include "clevercoffee/context/SystemContext.h"
 

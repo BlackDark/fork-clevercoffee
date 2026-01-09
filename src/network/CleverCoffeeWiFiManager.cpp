@@ -6,7 +6,7 @@
 #include "clevercoffee/network/CleverCoffeeWiFiManager.h"
 
 #include "clevercoffee/Config.h"
-#include "clevercoffee/GlobalState.h"
+#include "clevercoffee/types/GlobalTypes.h"
 #include "clevercoffee/context/SystemContext.h"
 #include "clevercoffee/Logger.h"
 #include "clevercoffee/coordinators/NetworkCoordinator.h"

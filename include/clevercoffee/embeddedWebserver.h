@@ -6,7 +6,7 @@
 #pragma once
 
 #include "clevercoffee/FS.h"
-#include "clevercoffee/GlobalState.h"
+#include "clevercoffee/types/GlobalTypes.h"
 #include "clevercoffee/LittleFS.h"
 #include "clevercoffee/ota.h"
 #include "clevercoffee/utils/SystemUtils.h"

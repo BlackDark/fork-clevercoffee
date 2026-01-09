@@ -15,7 +15,7 @@
 #include "clevercoffee/network/CleverCoffeeWiFiManager.h"
 #include "clevercoffee/network/MQTTManager.h"
 // #include "../hotWaterHandler.h" - removed to avoid circular dependencies
-#include "clevercoffee/GlobalState.h"
+#include "clevercoffee/types/GlobalTypes.h"
 #include "clevercoffee/Logger.h"
 #include "clevercoffee/standby.h"
 #include "clevercoffee/state/MachineStateIds.h"

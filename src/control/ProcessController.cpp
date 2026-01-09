@@ -7,7 +7,7 @@
 #include "clevercoffee/control/ProcessController.h"
 
 #include "clevercoffee/Config.h"
-#include "clevercoffee/GlobalState.h"
+#include "clevercoffee/types/GlobalTypes.h"
 #include "clevercoffee/context/SystemContext.h"
 #include "clevercoffee/state/MachineStateContext.h"
 #include "clevercoffee/constants/Temperature.h"

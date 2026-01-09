@@ -6,7 +6,7 @@
 
 #pragma once
 
-#include "clevercoffee/GlobalState.h"
+#include "clevercoffee/types/GlobalTypes.h"
 #include "clevercoffee/Logger.h"
 #include "clevercoffee/sensors/ISensor.h"
 

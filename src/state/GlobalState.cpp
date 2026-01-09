@@ -1,9 +1,12 @@
 /**
  * @file GlobalState.cpp
  * @brief Global state instance definition and handler initialization
+ *
+ * This file now serves as a thin initialization layer for handlers and global
+ * state. The actual global state has been migrated to SystemContext.
  */
 
-#include "clevercoffee/GlobalState.h"
+#include "clevercoffee/types/GlobalTypes.h"
 #include "clevercoffee/Logger.h"
 
 #include "clevercoffee/context/SystemContext.h"

@@ -7,7 +7,7 @@
 #pragma once
 
 #include "clevercoffee/Config.h"
-#include "clevercoffee/GlobalState.h"
+#include "clevercoffee/types/GlobalTypes.h"
 #include "clevercoffee/context/SystemContext.h"
 #include "clevercoffee/display/bitmaps.h"
 #include "clevercoffee/display/languages.h"

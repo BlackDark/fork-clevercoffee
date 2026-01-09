@@ -5,7 +5,7 @@
 
 #pragma once
 
-#include "clevercoffee/GlobalState.h"
+#include "clevercoffee/types/GlobalTypes.h"
 #include "clevercoffee/context/SystemContext.h"
 
 #include <Arduino.h>

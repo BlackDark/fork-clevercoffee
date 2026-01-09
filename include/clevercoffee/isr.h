@@ -9,7 +9,7 @@
 
 #include <atomic>
 #include <cstdint>
-#include "clevercoffee/GlobalState.h"
+#include "clevercoffee/types/GlobalTypes.h"
 #include "clevercoffee/hardware/Relay.h"
 
 // Volatile counters for ISR debugging (track execution without logging)
