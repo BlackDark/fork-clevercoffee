@@ -687,7 +687,7 @@ class MachineStateContext : public CleverCoffee::IHardwareContext,
      CleverCoffeeWiFiManager* wifiManager_;
      MQTTManager*             mqttManager_;
 
-     // === Machine State Ownership (formerly in g_state.machine) ===
+      // === Machine State Management ===
      bool emergencyStop_        = false;      ///< Emergency stop activated
      bool steamON_              = false;      ///< Steam mode active
      bool steamFirstON_         = false;      ///< Steam activated for first time

@@ -25,8 +25,8 @@ namespace CleverCoffee {
 /**
  * @brief Central context for system-wide shared state
  *
- * This class serves as the central hub for all system-wide coordination state,
- * replacing the previous global g_state variable with explicit dependency injection.
+ * This class serves as the central hub for all system-wide coordination state.
+ * All state is encapsulated as private members (previously in a global variable).
  * It manages all coordinators that handle cross-cutting concerns like sensor updates,
  * network operations, and UI refreshes.
  *
@@ -567,11 +567,11 @@ public:
 
       /** @} */
 
-      /**
-       * @name Command/Control Accessors
-       * Replaces direct g_state writes from web/MQTT endpoints
-       * @{
-       */
+       /**
+        * @name Command/Control Accessors
+        * Control methods for web/MQTT endpoints and handlers
+        * @{
+        */
 
       /**
        * @brief Request scale tare operation

@@ -7,9 +7,8 @@ namespace CleverCoffee {
 /**
  * @brief Coordinates network operations
  *
- * This class provides thread-safe tracking of network connection states,
- * replacing the previous global g_state.network flags. It manages WiFi and
- * MQTT connection status and tracks connection attempts for retry logic.
+ * This class provides thread-safe tracking of network connection states.
+ * It manages WiFi and MQTT connection status and tracks connection attempts for retry logic.
  *
  * The coordinator uses atomic operations to ensure thread safety when multiple
  * contexts may access network state simultaneously.

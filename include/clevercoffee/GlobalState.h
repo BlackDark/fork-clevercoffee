@@ -1,33 +1,24 @@
 /**
  * @file GlobalState.h
- * @brief Consolidated global state management
+ * @brief Global state type definitions (DEPRECATED)
  *
- * @deprecated This file is deprecated and will be removed in Phase 2.
+ * @deprecated This file is deprecated and will be removed in Phase 5.
  *             Use SystemContext and coordinators instead.
  *             All new code should use dependency injection.
  *
- * Migration guide:
- * - g_state.coordination → SystemContext::sensorCoordinator()
- * - g_state.network → SystemContext::networkCoordinator()
- * - g_state.ui → SystemContext::uiCoordinator()
- * - g_state.setupDone → SystemContext::isReady()
- *
- * This replaces scattered global variables with organized data structures.
- * Migration strategy: Start with one GlobalState, then gradually reduce to only needed data.
+ * This file now only contains type definitions needed by SystemContext.
+ * The actual global state variable (g_state) has been completely eliminated.
+ * State is now managed entirely through SystemContext private members.
+ * See SystemContext for state management details.
  */
 
 #pragma once
 
-// DEPRECATED: This file is deprecated and will be removed in Phase 2.
-// Use SystemContext and coordinators instead.
-// All new code should use dependency injection.
+// DEPRECATED: GlobalState struct and associated types only.
+// The global g_state variable has been completely removed.
+// State is now encapsulated in SystemContext as private members.
+// See SystemContext for the new state management pattern.
 //
-// Migration guide:
-// - g_state.coordination → SystemContext::sensorCoordinator()
-// - g_state.network → SystemContext::networkCoordinator()
-// - g_state.ui → SystemContext::uiCoordinator()
-// - g_state.setupDone → SystemContext::isReady()
-
 #if defined(__GNUC__)
 #define DEPRECATED __attribute__((deprecated))
 #elif defined(_MSC_VER)

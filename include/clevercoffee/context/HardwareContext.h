@@ -22,8 +22,7 @@ namespace CleverCoffee {
  * @brief Central hardware component registry
  *
  * Manages references to all hardware components in the system.
- * Replaces the scattered g_state.hardware references with a
- * structured dependency injection container.
+ * Provides a structured dependency injection container for hardware access.
  *
  * @note Components are owned by HardwareManager and initialized before
  *       being registered here. This class provides read-only access.

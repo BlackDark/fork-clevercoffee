@@ -7,9 +7,8 @@ namespace CleverCoffee {
 /**
  * @brief Coordinates UI state and refresh requests
  *
- * This class provides thread-safe coordination for UI operations, replacing
- * the previous global g_state.ui flags. It manages display refresh requests
- * and controls auto-sleep behavior.
+ * This class provides thread-safe coordination for UI operations.
+ * It manages display refresh requests and controls auto-sleep behavior.
  *
  * The coordinator uses atomic operations to ensure thread safety when multiple
  * contexts may access UI state simultaneously.

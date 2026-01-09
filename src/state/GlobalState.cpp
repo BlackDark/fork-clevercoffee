@@ -25,8 +25,8 @@ static HotWaterHandler hotWaterHandler;
 static PowerHandler    powerHandler;
 static SteamHandler    steamHandler;
 
-// Single global state instance - MOVED TO SystemContext private members
-// GlobalState g_state;  // DEPRECATED: State now managed by SystemContext
+// Single global state instance - COMPLETELY ELIMINATED
+// State is now managed entirely through SystemContext as private members
 
 // Global system context reference (set during initialization)
 

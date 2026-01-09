@@ -139,9 +139,9 @@ void ProcessController::updateTemperature() {
 // === IHardwareContext Interface Implementation ===
 
 void ProcessController::computePID() {
-    // Use the global PID controller for now (will be refactored later)
+    // Use the PID controller from SystemContext
     systemContext_.computePid();
-    pidOutput_ = systemContext_.processPidOutput(); // Sync from global variable updated by g_state.pid->Compute()
+    pidOutput_ = systemContext_.processPidOutput(); // Sync from PID computation
 }
 
 void ProcessController::updatePIDState(MachineStateId machineState) {
