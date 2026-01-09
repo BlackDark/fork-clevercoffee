@@ -427,8 +427,8 @@ void WebServerManager::setupApiRoutes() {
     if (Config::getInstance().hardwareSensorsScaleEnabled.get()) {
         server_->on("/api/scale/tare", HTTP_POST, [](AsyncWebServerRequest* request) {
             try {
-                g_state.sensors.scaleTareOn = !g_state.sensors.scaleTareOn;
-                LOGF(INFO, "Toggle scale tare mode: %s", g_state.sensors.scaleTareOn ? "on" : "off");
+                CleverCoffee::getGlobalSystemContext()->setScaleTareOn(!CleverCoffee::getGlobalSystemContext()->scaleTareOn());
+                LOGF(INFO, "Toggle scale tare mode: %s", CleverCoffee::getGlobalSystemContext()->scaleTareOn() ? "on" : "off");
                 request->send(200,
                               "application/json",
                               JsonResponseBuilder::createBoolResponse("scaleTareOn", CleverCoffee::getGlobalSystemContext()->sensorCoordinator().isScaleTareMode()));
@@ -441,8 +441,8 @@ void WebServerManager::setupApiRoutes() {
 
         server_->on("/api/scale/calibrate", HTTP_POST, [](AsyncWebServerRequest* request) {
             try {
-                g_state.sensors.scaleCalibrationOn = !g_state.sensors.scaleCalibrationOn;
-                LOGF(INFO, "Toggle scale calibration mode: %s", g_state.sensors.scaleCalibrationOn ? "on" : "off");
+                CleverCoffee::getGlobalSystemContext()->setScaleCalibrationOn(!CleverCoffee::getGlobalSystemContext()->scaleCalibrationOn());
+                LOGF(INFO, "Toggle scale calibration mode: %s", CleverCoffee::getGlobalSystemContext()->scaleCalibrationOn() ? "on" : "off");
                 request->send(
                     200,
                     "application/json",
@@ -456,8 +456,8 @@ void WebServerManager::setupApiRoutes() {
 
         server_->on("/api/scale/calibration", HTTP_POST, [](AsyncWebServerRequest* request) {
             try {
-                g_state.sensors.scaleCalibrationOn = !g_state.sensors.scaleCalibrationOn;
-                LOGF(INFO, "Toggle scale calibration mode: %s", g_state.sensors.scaleCalibrationOn ? "on" : "off");
+                CleverCoffee::getGlobalSystemContext()->setScaleCalibrationOn(!CleverCoffee::getGlobalSystemContext()->scaleCalibrationOn());
+                LOGF(INFO, "Toggle scale calibration mode: %s", CleverCoffee::getGlobalSystemContext()->scaleCalibrationOn() ? "on" : "off");
                 request->send(
                     200,
                     "application/json",
@@ -1118,7 +1118,7 @@ String WebServerManager::getWeightJsonString() {
         JsonDocument doc;
 
         doc["weight"]     = round2(CleverCoffee::getGlobalSystemContext()->sensorCoordinator().getWeight());
-        doc["brewWeight"] = round2(g_state.sensors.currBrewWeight);
+        doc["brewWeight"] = round2(CleverCoffee::getGlobalSystemContext()->currBrewWeight());
 
         String json;
         if (!safeSerializeJson(doc, json)) {

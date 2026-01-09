@@ -6,6 +6,7 @@
 #pragma once
 
 #include "clevercoffee/GlobalState.h"
+#include "clevercoffee/context/SystemContext.h"
 
 #include <Arduino.h>
 #include <cmath>
@@ -96,10 +97,19 @@ inline float filterPressureValue(const float input) {
     static std::mutex           filter_mutex;
     std::lock_guard<std::mutex> lock(filter_mutex);
 
-    g_state.sensors.inX   = static_cast<float>(input * 0.3f);
-    g_state.sensors.inY   = static_cast<float>(g_state.sensors.inOld * 0.7f);
-    g_state.sensors.inSum = g_state.sensors.inX + g_state.sensors.inY;
-    g_state.sensors.inOld = g_state.sensors.inSum;
+    auto* ctx = CleverCoffee::getGlobalSystemContext();
+    if (!ctx) {
+        return 0.0f;
+    }
 
-    return g_state.sensors.inSum;
+    float inX   = static_cast<float>(input * 0.3f);
+    float inY   = static_cast<float>(ctx->inOld() * 0.7f);
+    float inSum = inX + inY;
+
+    ctx->setInX(inX);
+    ctx->setInY(inY);
+    ctx->setInSum(inSum);
+    ctx->setInOld(inSum);
+
+    return inSum;
 }

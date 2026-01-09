@@ -56,9 +56,9 @@ bool ProcessController::initialize() {
     calculateBrewDetectionPIDParameters();
 
     // Sync with global variables
-    temperature_   = g_state.process.temperature;
-    pidOutput_     = g_state.process.pidOutput;
-    setpoint_      = g_state.process.setpoint;
+    temperature_ = systemContext_.processTemperature();
+    pidOutput_ = systemContext_.processPidOutput();
+    setpoint_ = systemContext_.processSetpoint();
     lastTempEvent_ = 0;
 
     initialized_ = true;
@@ -77,7 +77,7 @@ void ProcessController::update() {
     updateTemperature();
 
     // Sync temperature with global variable
-    g_state.process.temperature = temperature_;
+    systemContext_.setProcessTemperature(temperature_);
 
     // Test for emergency conditions
     testEmergencyConditions();
@@ -86,7 +86,7 @@ void ProcessController::update() {
     computePID();
 
     // Sync PID output with global variable
-    g_state.process.pidOutput = pidOutput_;
+    systemContext_.setProcessPidOutput(pidOutput_);
 
     // Update debug logging if enabled
     updateDebugLogging();
@@ -102,7 +102,7 @@ void ProcessController::updateProcessControl(MachineStateId machineState) {
     updateTemperature();
 
     // Sync temperature with global variable
-    g_state.process.temperature = temperature_;
+    systemContext_.setProcessTemperature(temperature_);
 
     // Test for emergency conditions
     testEmergencyConditions();
@@ -111,7 +111,7 @@ void ProcessController::updateProcessControl(MachineStateId machineState) {
     computePID();
 
     // Sync PID output with global variable
-    g_state.process.pidOutput = pidOutput_;
+    systemContext_.setProcessPidOutput(pidOutput_);
 
     // Update setpoint based on steam mode
     updateSetpoint(systemContext_.machineStateContext()->isSteamModeActive());
@@ -140,8 +140,8 @@ void ProcessController::updateTemperature() {
 
 void ProcessController::computePID() {
     // Use the global PID controller for now (will be refactored later)
-    g_state.pid->Compute();
-    pidOutput_ = g_state.process.pidOutput; // Sync from global variable updated by g_state.pid->Compute()
+    systemContext_.computePid();
+    pidOutput_ = systemContext_.processPidOutput(); // Sync from global variable updated by g_state.pid->Compute()
 }
 
 void ProcessController::updatePIDState(MachineStateId machineState) {
@@ -151,7 +151,7 @@ void ProcessController::updatePIDState(MachineStateId machineState) {
             // Force PID shutdown
             setPIDEnabled(false);
             pidOutput_                = 0;
-            g_state.process.pidOutput = 0;
+            systemContext_.setProcessPidOutput(0);
             if (hardwareManager_) {
                 // Turn off heater through hardware manager
                 // TODO: Add method to HardwareManager for heater control
@@ -209,12 +209,12 @@ void ProcessController::setPIDTunings(bool usePonM) {
     // Note: Machine state tracking moved to updatePIDState method
 
     // Set integrator limits
-    g_state.pid->SetIntegratorLimits(0, aggIMax_);
+    systemContext_.setPidIntegratorLimits(0, aggIMax_);
 
     if (usePonM) {
-        g_state.pid->SetTunings(aggbKp_, aggbKi_, aggbKd_, P_ON_M);
+        systemContext_.setPidTunings(aggbKp_, aggbKi_, aggbKd_, P_ON_M);
     } else {
-        g_state.pid->SetTunings(aggKp_, aggKi_, aggKd_, 1);
+        systemContext_.setPidTunings(aggKp_, aggKi_, aggKd_, 1);
     }
 }
 
@@ -224,13 +224,13 @@ void ProcessController::setBrewDetectionPIDTunings() {
 
     // Note: Machine state tracking moved to updatePIDState method
 
-    g_state.pid->SetTunings(aggbKp_, aggbKi_, aggbKd_, 1);
+    systemContext_.setPidTunings(aggbKp_, aggbKi_, aggbKd_, 1);
 }
 
 void ProcessController::setSteamPIDTunings() {
     // Note: Machine state tracking moved to updatePIDState method
 
-    g_state.pid->SetTunings(steamKp_, 0, 0, 1);
+    systemContext_.setPidTunings(steamKp_, 0, 0, 1);
 }
 
 void ProcessController::updateSetpoint(bool steamActive) {
@@ -241,7 +241,7 @@ void ProcessController::updateSetpoint(bool steamActive) {
     }
 
     // Sync with global variable
-    g_state.process.setpoint = setpoint_;
+    systemContext_.setProcessSetpoint(setpoint_);
 }
 
 bool ProcessController::shouldPIDBeEnabled(MachineStateId machineState) const {
@@ -249,18 +249,18 @@ bool ProcessController::shouldPIDBeEnabled(MachineStateId machineState) const {
     return !(machineState == MachineStateId::PID_DISABLED || machineState == MachineStateId::WATER_TANK_EMPTY ||
              machineState == MachineStateId::SENSOR_ERROR || machineState == MachineStateId::EMERGENCY_STOP ||
              machineState == MachineStateId::EEPROM_ERROR || machineState == MachineStateId::STANDBY ||
-             isBackflushState(machineState) || g_state.process.brewPidDisabled);
+             isBackflushState(machineState) || systemContext_.isProcessBrewPidDisabled());
 }
 
 bool ProcessController::isPIDEnabled() const {
-    return g_state.pid->GetMode() == AUTOMATIC;
+    return systemContext_.pidMode() == AUTOMATIC;
 }
 
 void ProcessController::setPIDEnabled(bool enabled) {
     if (enabled) {
-        g_state.pid->SetMode(AUTOMATIC);
+        systemContext_.setPidMode(AUTOMATIC);
     } else {
-        g_state.pid->SetMode(MANUAL);
+        systemContext_.setPidMode(MANUAL);
     }
 }
 
@@ -270,7 +270,7 @@ void ProcessController::emergencyStop() {
      // Immediately disable PID and turn off heater
      setPIDEnabled(false);
      pidOutput_                = 0;
-     g_state.process.pidOutput = 0;
+     systemContext_.setProcessPidOutput(0);
 
      if (hardwareManager_) {
          hardwareManager_->safeShutdown();
@@ -283,7 +283,7 @@ double ProcessController::getCurrBrewTime() const {
 
 void ProcessController::setCurrBrewTime(double brewTime) {
      currBrewTime_ = brewTime;
-     g_state.process.currBrewTime = brewTime;
+     systemContext_.setProcessCurrentBrewTime(brewTime);
 }
 
 double ProcessController::getTotalTargetBrewTime() const {
@@ -292,7 +292,7 @@ double ProcessController::getTotalTargetBrewTime() const {
 
 void ProcessController::setTotalTargetBrewTime(double brewTime) {
      totalTargetBrewTime_ = brewTime;
-     g_state.process.totalTargetBrewTime = brewTime;
+     systemContext_.setProcessTotalTargetBrewTime(brewTime);
 }
 
 bool ProcessController::isBrewPidDisabled() const {
@@ -301,7 +301,7 @@ bool ProcessController::isBrewPidDisabled() const {
 
 void ProcessController::setBrewPidDisabled(bool disabled) {
      brewPidDisabled_ = disabled;
-     g_state.process.brewPidDisabled = disabled;
+     systemContext_.setProcessBrewPidDisabled(disabled);
 }
 
 bool ProcessController::testEmergencyConditions() {
@@ -355,21 +355,21 @@ void ProcessController::updateDebugLogging() {
     // lastTempEvent = lastTempEvent_; // Sync with global
 
     // Log detailed PID information
-    LOGF(TRACE, "Current PID mode: %s", g_state.pid->GetPonE() ? "PonE" : "PonM");
+    LOGF(TRACE, "Current PID mode: %s", systemContext_.pidController()->GetPonE() ? "PonE" : "PonM");
 
     // P-Part
-    LOGF(TRACE, "Current PID input error: %f", g_state.pid->GetInputError());
-    LOGF(TRACE, "Current PID P part: %f", g_state.pid->GetLastPPart());
-    LOGF(TRACE, "Current PID kP: %f", g_state.pid->GetKp());
+    LOGF(TRACE, "Current PID input error: %f", systemContext_.pidInputError());
+    LOGF(TRACE, "Current PID P part: %f", systemContext_.pidLastPPart());
+    LOGF(TRACE, "Current PID kP: %f", systemContext_.pidKp());
 
     // I-Part
-    LOGF(TRACE, "Current PID I sum: %f", g_state.pid->GetLastIPart());
-    LOGF(TRACE, "Current PID kI: %f", g_state.pid->GetKi());
+    LOGF(TRACE, "Current PID I sum: %f", systemContext_.pidLastIPart());
+    LOGF(TRACE, "Current PID kI: %f", systemContext_.pidKi());
 
     // D-Part
-    LOGF(TRACE, "Current PID diff'd input: %f", g_state.pid->GetDeltaInput());
-    LOGF(TRACE, "Current PID D part: %f", g_state.pid->GetLastDPart());
-    LOGF(TRACE, "Current PID kD: %f", g_state.pid->GetKd());
+    LOGF(TRACE, "Current PID diff'd input: %f", systemContext_.pidDeltaInput());
+    LOGF(TRACE, "Current PID D part: %f", systemContext_.pidLastDPart());
+    LOGF(TRACE, "Current PID kD: %f", systemContext_.pidKd());
 
     // Combined PID output
     LOGF(TRACE, "Current PID Output: %f", pidOutput_);
@@ -402,14 +402,14 @@ void ProcessController::calculateBrewDetectionPIDParameters() {
 void ProcessController::handleBrewPIDDelay(MachineStateId machineState) {
     // Handle brew PID delay logic
     if (isBrewState(machineState)) {
-        if (config_.brewPidDelay.get() > 0 && g_state.process.currBrewTime > 0 &&
-            g_state.process.currBrewTime < config_.brewPidDelay.get() * 1000) {
+        if (config_.brewPidDelay.get() > 0 && systemContext_.processCurrentBrewTime() > 0 &&
+            systemContext_.processCurrentBrewTime() < config_.brewPidDelay.get() * 1000) {
             // disable PID for brewPidDelay seconds, enable PID again with new tunings after that
-            if (!g_state.process.brewPidDisabled) {
-                g_state.process.brewPidDisabled = true;
-                g_state.pid->SetMode(MANUAL);
+            if (!systemContext_.isProcessBrewPidDisabled()) {
+                systemContext_.setProcessBrewPidDisabled(true);
+                systemContext_.setPidMode(MANUAL);
                 pidOutput_                = 0;
-                g_state.process.pidOutput = 0;
+                systemContext_.setProcessPidOutput(0);
                 if (hardwareManager_) {
                     hardwareManager_->getHeaterRelay()->off();
                 }
@@ -418,10 +418,10 @@ void ProcessController::handleBrewPIDDelay(MachineStateId machineState) {
                      config_.brewPidDelay.get());
             }
         } else {
-            if (g_state.process.brewPidDisabled) {
+            if (systemContext_.isProcessBrewPidDisabled()) {
                 // enable PID again
-                g_state.pid->SetMode(AUTOMATIC);
-                g_state.process.brewPidDisabled = false;
+                systemContext_.setPidMode(AUTOMATIC);
+                systemContext_.setProcessBrewPidDisabled(false);
                 LOGF(DEBUG,
                      "Enabled PID again after %.0f seconds of brew pid delay",
                      config_.brewPidDelay.get());
@@ -435,10 +435,10 @@ void ProcessController::handleBrewPIDDelay(MachineStateId machineState) {
         }
     }
     // Reset brewPidDisabled if brew was aborted
-    else if (!isBrewState(machineState) && g_state.process.brewPidDisabled) { // not BREW
+    else if (!isBrewState(machineState) && systemContext_.isProcessBrewPidDisabled()) { // not BREW
         // enable PID again
-        g_state.pid->SetMode(AUTOMATIC);
-        g_state.process.brewPidDisabled = false;
+        systemContext_.setPidMode(AUTOMATIC);
+        systemContext_.setProcessBrewPidDisabled(false);
         LOG(DEBUG, "Enabled PID again after brew was manually stopped");
     }
 }
@@ -449,7 +449,7 @@ void ProcessController::performSafeShutdown() {
     // Disable PID control
     setPIDEnabled(false);
     pidOutput_ = 0;
-    g_state.process.pidOutput = 0;
+    systemContext_.setProcessPidOutput(0);
 
     // Delegate hardware shutdown to HardwareManager
     if (hardwareManager_) {

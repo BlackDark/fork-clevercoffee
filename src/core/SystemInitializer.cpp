@@ -76,11 +76,11 @@ bool SystemInitializer::initialize() {
     logMemoryBasic("After Wire.begin()");
 
     logMemoryBasic("Before Display Init");
-    if (!initializeDisplay()) {
-        LOG(WARNING, "Display initialization failed, continuing without display");
-    } else {
-        uiManager_->displayLogo("Version ", g_state.sysVersion);
-    }
+     if (!initializeDisplay()) {
+         LOG(WARNING, "Display initialization failed, continuing without display");
+     } else {
+         uiManager_->displayLogo("Version ", systemContext_->sysVersion());
+     }
 
     logMemoryBasic("After Display Init");
 
@@ -200,7 +200,7 @@ bool SystemInitializer::initializeConfiguration() {
                                            DIRECT);
 
     // Set global reference for backward compatibility
-    g_state.pid = pidController_.get();
+        // PID controller is now managed via systemContext
     return true;
 }
 
@@ -306,7 +306,7 @@ bool SystemInitializer::initializeNetworking() {
     try {
         cleverCoffeeWiFiManager_                = std::make_unique<CleverCoffeeWiFiManager>(&systemContext_->networkCoordinator());
         systemContext_->setCleverCoffeeWiFiManager(cleverCoffeeWiFiManager_.get());
-        g_state.network.cleverCoffeeWiFiManager = cleverCoffeeWiFiManager_.get();
+        systemContext_->setWifiManager(cleverCoffeeWiFiManager_.get());
 
         setupWiFi();
 
@@ -323,7 +323,7 @@ bool SystemInitializer::initializeNetworking() {
          webServerManager_                = std::make_unique<WebServerManager>(80);
          webServerManager_->setSystemContext(systemContext_.get());
          systemContext_->setWebServerManager(webServerManager_.get());
-         g_state.network.webServerManager = webServerManager_.get();
+        systemContext_->setWebServerManager(webServerManager_.get());
 
         if (!webServerManager_->initialize(true)) {
             LOG(ERROR, "WebServerManager initialization failed");
@@ -402,15 +402,15 @@ bool SystemInitializer::initializePID() {
              systemContext_->processPidAggKd());
 
         // Set PID tunings now that parameters are calculated
-        g_state.pid->SetTunings(
+        systemContext_->setPidTunings(
             Config::getInstance().pidRegularKp.get(), systemContext_->processPidAggKi(), systemContext_->processPidAggKd(), 1);
 
         // Initialize PID controller
-        g_state.pid->SetSampleTime(systemContext_->processWindowSize());
-        g_state.pid->SetOutputLimits(0, systemContext_->processWindowSize());
-        g_state.pid->SetIntegratorLimits(0, 55.0); // AGGIMAX constant
-        g_state.pid->SetSmoothingFactor(Config::getInstance().pidEmaFactor.get());
-        g_state.pid->SetMode(AUTOMATIC);
+        systemContext_->setPidSampleTime(systemContext_->processWindowSize());
+        systemContext_->setPidOutputLimits(0, systemContext_->processWindowSize());
+        systemContext_->setPidIntegratorLimits(0, 55.0); // AGGIMAX constant
+        systemContext_->setPidSmoothingFactor(Config::getInstance().pidEmaFactor.get());
+        systemContext_->setPidMode(AUTOMATIC);
 
         LOG(INFO, "PID controller initialized");
         return true;
@@ -606,9 +606,9 @@ void SystemInitializer::registerMQTTSensors() {
      });
      mqttManager_->registerSensor("standbyModeTimeRemaining",
                                   [this] { return systemContext_->standbyCoordinator().getRemainingTimeMillis() / 1000.0; });
-     mqttManager_->registerSensor("currentKp", [] { return g_state.pid->GetKp(); });
-     mqttManager_->registerSensor("currentKi", [] { return g_state.pid->GetKi(); });
-     mqttManager_->registerSensor("currentKd", [] { return g_state.pid->GetKd(); });
+     mqttManager_->registerSensor("currentKp", [this] { return systemContext_->pidKp(); });
+     mqttManager_->registerSensor("currentKi", [this] { return systemContext_->pidKi(); });
+     mqttManager_->registerSensor("currentKd", [this] { return systemContext_->pidKd(); });
      mqttManager_->registerSensor("machineState", [] { return static_cast<double>(CleverCoffee::getGlobalSystemContext()->machineStateContext()->getCurrentStateId()); });
 
      // Brew-specific sensors

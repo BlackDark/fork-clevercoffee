@@ -193,22 +193,22 @@ void MQTTManager::assignParameter(char* param, double value) {
              publish(param, number2string(value), true);
              LOGF(DEBUG, "MQTT special parameter %s updated to %f", param, value);
              return;
-         } else if (strcmp(parameterId, "TARE_ON") == 0) {
-             if (sensorCoordinator_) {
-                 sensorCoordinator_->setScaleTareMode(static_cast<bool>(value));
-             }
-             g_state.sensors.scaleTareOn = static_cast<bool>(value);
-             publish(param, number2string(value), true);
-             LOGF(DEBUG, "MQTT special parameter %s updated to %f", param, value);
-             return;
-         } else if (strcmp(parameterId, "CALIBRATION_ON") == 0) {
-             if (sensorCoordinator_) {
-                 sensorCoordinator_->setScaleCalibrationMode(static_cast<bool>(value));
-             }
-             g_state.sensors.scaleCalibrationOn = static_cast<bool>(value);
-             publish(param, number2string(value), true);
-             LOGF(DEBUG, "MQTT special parameter %s updated to %f", param, value);
-             return;
+          } else if (strcmp(parameterId, "TARE_ON") == 0) {
+              if (sensorCoordinator_) {
+                  sensorCoordinator_->setScaleTareMode(static_cast<bool>(value));
+              }
+              systemContext_->setScaleTareOn(static_cast<bool>(value));
+              publish(param, number2string(value), true);
+              LOGF(DEBUG, "MQTT special parameter %s updated to %f", param, value);
+              return;
+          } else if (strcmp(parameterId, "CALIBRATION_ON") == 0) {
+              if (sensorCoordinator_) {
+                  sensorCoordinator_->setScaleCalibrationMode(static_cast<bool>(value));
+              }
+              systemContext_->setScaleCalibrationOn(static_cast<bool>(value));
+              publish(param, number2string(value), true);
+              LOGF(DEBUG, "MQTT special parameter %s updated to %f", param, value);
+              return;
         }
 
         // Find the parameter definition for regular config parameters
@@ -289,12 +289,12 @@ int MQTTManager::writeSysParamsToMQTT(bool continueOnError) {
                  } else if (strcmp(parameterId, "BACKFLUSH_ON") == 0) {
                      snprintf(data, sizeof(data), "%d", systemContext_->machineStateContext()->isBackflushModeActive() ? 1 : 0);
                      paramFound = true;
-                } else if (strcmp(parameterId, "TARE_ON") == 0) {
-                    snprintf(data, sizeof(data), "%d", g_state.sensors.scaleTareOn ? 1 : 0);
-                    paramFound = true;
-                } else if (strcmp(parameterId, "CALIBRATION_ON") == 0) {
-                    snprintf(data, sizeof(data), "%d", g_state.sensors.scaleCalibrationOn ? 1 : 0);
-                    paramFound = true;
+                 } else if (strcmp(parameterId, "TARE_ON") == 0) {
+                     snprintf(data, sizeof(data), "%d", systemContext_->scaleTareOn() ? 1 : 0);
+                     paramFound = true;
+                 } else if (strcmp(parameterId, "CALIBRATION_ON") == 0) {
+                     snprintf(data, sizeof(data), "%d", systemContext_->scaleCalibrationOn() ? 1 : 0);
+                     paramFound = true;
                 } else {
                     ConfigParamDef* paramDef = Config::getInstance().findConfigParameter(parameterId);
                     if (!paramDef) {
@@ -617,23 +617,23 @@ int MQTTManager::publishDiscovery(const DiscoveryObject& obj) {
 }
 
 int MQTTManager::sendHASSIODiscoveryMsg() {
-    if (uiCoordinator_) {
-        uiCoordinator_->setHassioUpdateRunning(true);
-    } else {
-        g_state.coordination.hassioUpdateRunning = true; // Backward compatibility
-    }
+     if (uiCoordinator_) {
+         uiCoordinator_->setHassioUpdateRunning(true);
+     } else {
+         systemContext_->setHassioDiscoveryRunning(true); // Backward compatibility via accessor
+     }
 
-    if (!mqttClient_.connected()) {
-        LOG(DEBUG, "[MQTT] Failed to send Hassio Discover, MQTT Client is not connected");
-        if (networkCoordinator_) {
-            networkCoordinator_->setHassioFailed(true);
-        }
-        g_state.network.hassioFailed = true;
-        return -1;
-    }
+     if (!mqttClient_.connected()) {
+         LOG(DEBUG, "[MQTT] Failed to send Hassio Discover, MQTT Client is not connected");
+         if (networkCoordinator_) {
+             networkCoordinator_->setHassioFailed(true);
+         }
+         systemContext_->setHassioFailed(true);
+         return -1;
+     }
 
-    int         failures = 0;
-    const auto& config   = Config::getInstance();
+     int         failures = 0;
+     const auto& config   = Config::getInstance();
 
     // Always published devices
     failures += publishDiscovery(generateSensorDevice("machineState", "Machine State", "", "enum"));
@@ -698,20 +698,20 @@ int MQTTManager::sendHASSIODiscoveryMsg() {
         failures += publishDiscovery(generateSensorDevice("pressure", "Pressure", "bar", "pressure"));
     }
 
-    if (failures > 0) {
-        LOGF(DEBUG, "Hassio failed to send %d entries", failures);
-        if (networkCoordinator_) {
-            networkCoordinator_->setHassioFailed(true);
-        }
-        g_state.network.hassioFailed = true;
-    } else {
-        LOG(DEBUG, "Hassio send successful");
-        if (networkCoordinator_) {
-            networkCoordinator_->setHassioFailed(false);
-        }
-        g_state.network.hassioFailed = false;
-        return 0;
-    }
+     if (failures > 0) {
+         LOGF(DEBUG, "Hassio failed to send %d entries", failures);
+         if (networkCoordinator_) {
+             networkCoordinator_->setHassioFailed(true);
+         }
+         systemContext_->setHassioFailed(true);
+     } else {
+         LOG(DEBUG, "Hassio send successful");
+         if (networkCoordinator_) {
+             networkCoordinator_->setHassioFailed(false);
+         }
+         systemContext_->setHassioFailed(false);
+         return 0;
+     }
 
     return -1;
 }

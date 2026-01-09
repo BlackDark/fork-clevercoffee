@@ -920,10 +920,26 @@ public:
        bool hassioDiscoveryRunning() const noexcept;
 
        /**
+        * @brief Set Hass.io discovery running state
+        * @param running true if discovery is running
+        */
+       void setHassioDiscoveryRunning(bool running) noexcept;
+
+       /**
+        * @brief Check if Hass.io discovery failed
+        * @return true if discovery failed
         */
        bool hassioFailed() const noexcept;
 
        /**
+        * @brief Set Hass.io failure state
+        * @param failed true if discovery failed
+        */
+       void setHassioFailed(bool failed) noexcept;
+
+       /**
+        * @brief Get WiFi reconnect attempt count
+        * @return Number of reconnect attempts
         */
        unsigned int wifiReconnects() const noexcept;
 
@@ -976,124 +992,12 @@ public:
         */
        void setBackflushMode(bool on) noexcept;
 
-        /** @} */
+       /** @} */
 
-        /**
-         * @name Display Coordination
-         * @{
-         */
-
-        /**
-         * @brief Check if display buffer is ready for rendering
-         * @return true if display update buffer is ready
-         */
-        bool displayBufferReady() const noexcept;
-
-        /**
-         * @brief Set display buffer ready state
-         * @param ready true if buffer is ready
-         */
-        void setDisplayBufferReady(bool ready) noexcept;
-
-        /** @} */
-
-        /**
-         * @name Pressure Filter Variables
-         * Exponential Moving Average filter for pressure sensor readings
-         * @{
-         */
-
-        /**
-         * @brief Get pressure filter X input value
-         * @return Current X (weighted input) value
-         */
-        float inX() const noexcept;
-
-        /**
-         * @brief Set pressure filter X input value
-         * @param value X value to set
-         */
-        void setInX(float value) noexcept;
-
-        /**
-         * @brief Get pressure filter Y output value
-         * @return Current Y (filtered output) value
-         */
-        float inY() const noexcept;
-
-        /**
-         * @brief Set pressure filter Y output value
-         * @param value Y value to set
-         */
-        void setInY(float value) noexcept;
-
-        /**
-         * @brief Get pressure filter old value
-         * @return Previous output value for derivative calculation
-         */
-        float inOld() const noexcept;
-
-        /**
-         * @brief Set pressure filter old value
-         * @param value Old value to set
-         */
-        void setInOld(float value) noexcept;
-
-        /**
-         * @brief Get pressure filter sum value
-         * @return Current sum for weighted averaging
-         */
-        float inSum() const noexcept;
-
-        /**
-         * @brief Set pressure filter sum value
-         * @param value Sum value to set
-         */
-        void setInSum(float value) noexcept;
-
-         /** @} */
-         /** @} */
-
-         /// @name System Version
-         /// @{
-
-         /**
-          * @brief Get system version string
-          * @return C-string containing version information
-          */
-         const char* sysVersion() const noexcept;
-
-         /// @}
-
-         /**
-          * @brief Get filtered input pressure value
-          * @return Current filtered pressure reading
-          */
-         float inputPressureFilter() const noexcept;
-
-         /**
-          * @brief Get weight before brew started
-          * @return Pre-brew weight in grams
-          */
-         float preBrewWeight() const noexcept;
-
-         /**
-          * @brief Set weight before brew started
-          * @param weight Pre-brew weight to set
-          */
-         void setPreBrewWeight(float weight) noexcept;
-
-         /// @}
-
-         /**
-        /**
-
-
-
-        /**
-         * @name System Initialization State
-         * @{
-         */
+       /**
+        * @name System Initialization State
+        * @{
+        */
 
      /**
       * @brief Mark the system as fully initialized
@@ -1134,10 +1038,10 @@ private:
      // Machine state context reference (non-owning pointer)
      MachineStateContext* machineStateContext_ = nullptr;
 
-      // Manager references (non-owning pointers)
-      MQTTManager* mqttManager_ = nullptr;
-      CleverCoffeeWiFiManager* cleverCoffeeWiFiManager_ = nullptr;
-      WebServerManager* webServerManager_ = nullptr;
+     // Manager references (non-owning pointers)
+     MQTTManager* mqttManager_ = nullptr;
+     CleverCoffeeWiFiManager* cleverCoffeeWiFiManager_ = nullptr;
+     WebServerManager* webServerManager_ = nullptr;
 };
 
 /**

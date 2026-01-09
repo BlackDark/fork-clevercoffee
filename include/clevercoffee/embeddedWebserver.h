@@ -281,8 +281,8 @@ inline String getWeightJsonString() {
     try {
         JsonDocument doc;
 
-        doc["weight"]     = round2(g_state.sensors.currReadingWeight);
-        doc["brewWeight"] = round2(g_state.sensors.currBrewWeight);
+        doc["weight"]     = round2(systemContext_->currReadingWeight());
+        doc["brewWeight"] = round2(systemContext_->currBrewWeight());
 
         String json;
         if (!safeSerializeJson(doc, json)) {
@@ -372,11 +372,11 @@ inline String staticProcessor(const String& var) {
 
 inline void handleToggleSteam(AsyncWebServerRequest* request) {
     try {
-        const bool steamMode = !g_state.machine.steamON;
+        const bool steamMode = !systemContext_->steamMode();
         setSteamMode(steamMode);
-        LOGF(INFO, "Toggle steam mode: %s", g_state.machine.steamON ? "on" : "off");
+        LOGF(INFO, "Toggle steam mode: %s", systemContext_->steamMode() ? "on" : "off");
         request->send(
-            200, "application/json", JsonResponseBuilder::createBoolResponse("steamMode", g_state.machine.steamON));
+            200, "application/json", JsonResponseBuilder::createBoolResponse("steamMode", systemContext_->steamMode()));
     } catch (const std::exception& e) {
         LOGF(ERROR, "handleToggleSteam failed: %s", e.what());
         request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("Internal server error"));
@@ -402,12 +402,12 @@ inline void handleTogglePid(AsyncWebServerRequest* request) {
 
 inline void handleToggleBackflush(AsyncWebServerRequest* request) {
     try {
-        g_state.machine.backflushOn = !g_state.machine.backflushOn;
-        LOGF(INFO, "Toggle backflush mode: %s", g_state.machine.backflushOn ? "on" : "off");
+        systemContext_->setBackflushMode(!systemContext_->backflushMode());
+        LOGF(INFO, "Toggle backflush mode: %s", systemContext_->backflushMode() ? "on" : "off");
         request->send(
             200,
             "application/json",
-            JsonResponseBuilder::createBoolResponse("g_state.machine.backflushOn", g_state.machine.backflushOn));
+            JsonResponseBuilder::createBoolResponse("systemContext_->backflushMode()", systemContext_->backflushMode()));
     } catch (const std::exception& e) {
         LOGF(ERROR, "handleToggleBackflush failed: %s", e.what());
         request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("Internal server error"));
@@ -416,12 +416,12 @@ inline void handleToggleBackflush(AsyncWebServerRequest* request) {
 
 inline void handleToggleTareScale(AsyncWebServerRequest* request) {
     try {
-        g_state.sensors.scaleTareOn = !g_state.sensors.scaleTareOn;
-        LOGF(INFO, "Toggle scale tare mode: %s", g_state.sensors.scaleTareOn ? "on" : "off");
+        systemContext_->setScaleTareOn(!systemContext_->scaleTareOn());
+        LOGF(INFO, "Toggle scale tare mode: %s", systemContext_->scaleTareOn() ? "on" : "off");
         request->send(
             200,
             "application/json",
-            JsonResponseBuilder::createBoolResponse("g_state.sensors.scaleTareOn", g_state.sensors.scaleTareOn));
+            JsonResponseBuilder::createBoolResponse("systemContext_->scaleTareOn()", systemContext_->scaleTareOn()));
     } catch (const std::exception& e) {
         LOGF(ERROR, "handleToggleTareScale failed: %s", e.what());
         request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("Internal server error"));
@@ -430,12 +430,12 @@ inline void handleToggleTareScale(AsyncWebServerRequest* request) {
 
 inline void handleToggleScaleCalibration(AsyncWebServerRequest* request) {
     try {
-        g_state.sensors.scaleCalibrationOn = !g_state.sensors.scaleCalibrationOn;
-        LOGF(INFO, "Toggle scale calibration mode: %s", g_state.sensors.scaleCalibrationOn ? "on" : "off");
+        systemContext_->setScaleCalibrationOn(!systemContext_->scaleCalibrationOn());
+        LOGF(INFO, "Toggle scale calibration mode: %s", systemContext_->scaleCalibrationOn() ? "on" : "off");
         request->send(200,
                       "application/json",
-                      JsonResponseBuilder::createBoolResponse("g_state.sensors.scaleCalibrationOn",
-                                                              g_state.sensors.scaleCalibrationOn));
+                      JsonResponseBuilder::createBoolResponse("systemContext_->scaleCalibrationOn()",
+                                                              systemContext_->scaleCalibrationOn()));
     } catch (const std::exception& e) {
         LOGF(ERROR, "handleToggleScaleCalibration failed: %s", e.what());
         request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("Internal server error"));

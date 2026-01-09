@@ -506,7 +506,7 @@ inline bool displayFullscreenBrewTimer() {
                 CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(CleverCoffee::getGlobalSystemContext()->processCurrentBrewTime() / 1000, 1);
                 CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print("s");
                 CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setCursor(5, 100);
-                CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(g_state.sensors.currBrewWeight, 1);
+                CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(CleverCoffee::getGlobalSystemContext()->currBrewWeight(), 1);
                 CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print("g");
                 CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setFont(u8g2_font_profont11_tf);
             } else {
@@ -521,7 +521,7 @@ inline bool displayFullscreenBrewTimer() {
                 CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(CleverCoffee::getGlobalSystemContext()->processCurrentBrewTime() / 1000, 1);
                 CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print("s");
                 CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setCursor(DISPLAY_WIDTH / 2, 38);
-                CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(g_state.sensors.currBrewWeight, 1);
+                CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(CleverCoffee::getGlobalSystemContext()->currBrewWeight(), 1);
                 CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print("g");
                 CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setFont(u8g2_font_profont11_tf);
             } else {
@@ -529,7 +529,7 @@ inline bool displayFullscreenBrewTimer() {
             }
         }
 
-        g_state.coordination.displayBufferReady = true;
+        CleverCoffee::getGlobalSystemContext()->setDisplayBufferReady(true);
         return true;
     }
 
@@ -544,24 +544,23 @@ inline bool displayFullscreenManualFlushTimer() {
         return false;
     }
 
-    if (isManualFlushState(CleverCoffee::getGlobalSystemContext()->machineStateContext()->getCurrentStateId()) &&
-        getCurrentDisplayState() == MachineStateId::MANUAL_FLUSH_RUNNING) {
-        CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->clearBuffer();
+     if (isManualFlushState(CleverCoffee::getGlobalSystemContext()->machineStateContext()->getCurrentStateId()) &&
+         getCurrentDisplayState() == MachineStateId::MANUAL_FLUSH_RUNNING) {
+         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->clearBuffer();
 
-        if (Config::getInstance().displayTemplate.get() == System::DisplayTemplate::UPRIGHT) {
-            CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->drawXBMP(
-                12, 12, Manual_Flush_Logo_width, Manual_Flush_Logo_height, Manual_Flush_Logo);
-            displayBrewtimeFs(1, 80, CleverCoffee::getGlobalSystemContext()->processCurrentBrewTime());
-        } else {
-            CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->drawXBMP(
-                0, 12, Manual_Flush_Logo_width, Manual_Flush_Logo_height, Manual_Flush_Logo);
-            displayBrewtimeFs(48, 25, CleverCoffee::getGlobalSystemContext()->processCurrentBrewTime());
-        }
+         if (Config::getInstance().displayTemplate.get() == System::DisplayTemplate::UPRIGHT) {
+             CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->drawXBMP(
+                 12, 12, Manual_Flush_Logo_width, Manual_Flush_Logo_height, Manual_Flush_Logo);
+             displayBrewtimeFs(1, 80, CleverCoffee::getGlobalSystemContext()->processCurrentBrewTime());
+         } else {
+             CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->drawXBMP(0, 12, Manual_Flush_Logo_width, Manual_Flush_Logo_height, Manual_Flush_Logo);
+             displayBrewtimeFs(48, 25, CleverCoffee::getGlobalSystemContext()->processCurrentBrewTime());
+         }
 
-        g_state.coordination.displayBufferReady = true;
-        return true;
-    }
-    return false;
+         CleverCoffee::getGlobalSystemContext()->setDisplayBufferReady(true);
+         return true;
+     }
+     return false;
 }
 
 /**
@@ -576,15 +575,15 @@ inline bool displayFullscreenHotWaterTimer() {
         getCurrentDisplayState() == MachineStateId::HOT_WATER_RUNNING) {
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->clearBuffer();
 
-        if (Config::getInstance().displayTemplate.get() == System::DisplayTemplate::UPRIGHT) {
-            CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->drawXBMP(12, 12, Hot_Water_Logo_width, Hot_Water_Logo_height, Hot_Water_Logo);
-            displayBrewtimeFs(1, 80, g_state.sensors.currPumpOnTime);
-        } else {
-            CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->drawXBMP(0, 12, Hot_Water_Logo_width, Hot_Water_Logo_height, Hot_Water_Logo);
-            displayBrewtimeFs(48, 25, g_state.sensors.currPumpOnTime);
-        }
+         if (Config::getInstance().displayTemplate.get() == System::DisplayTemplate::UPRIGHT) {
+             CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->drawXBMP(12, 12, Hot_Water_Logo_width, Hot_Water_Logo_height, Hot_Water_Logo);
+             displayBrewtimeFs(1, 80, CleverCoffee::getGlobalSystemContext()->currPumpOnTime());
+         } else {
+             CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->drawXBMP(0, 12, Hot_Water_Logo_width, Hot_Water_Logo_height, Hot_Water_Logo);
+             displayBrewtimeFs(48, 25, CleverCoffee::getGlobalSystemContext()->currPumpOnTime());
+         }
 
-        g_state.coordination.displayBufferReady = true;
+         CleverCoffee::getGlobalSystemContext()->setDisplayBufferReady(true);
         return true;
     }
     return false;
@@ -728,14 +727,14 @@ inline bool displayMachineState() {
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(static_cast<char>(176));
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print("C");
 
-        displayThermometerOutline(4, 58);
+         displayThermometerOutline(4, 58);
 
-        // draw current temp in thermometer
-        if (g_state.timing.isrCounter < 500) {
-            drawTemperaturebar(8, 30);
-            CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setCursor(32, 4);
-            CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print("PID STOPPED");
-        }
+         // draw current temp in thermometer
+         if (CleverCoffee::getGlobalSystemContext()->isrCounter() < 500) {
+             drawTemperaturebar(8, 30);
+             CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setCursor(32, 4);
+             CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print("PID STOPPED");
+         }
 
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->sendBuffer();
 

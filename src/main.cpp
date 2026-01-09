@@ -158,10 +158,9 @@ void setup() {
         processController =
             std::make_unique<ProcessController>(Config::getInstance(), *systemInitializer->getSystemContext(), displayManager, hardwareManager, mqttManager);
         
-        // Register ProcessController in SystemContext for safe access
-        systemInitializer->getSystemContext()->setProcessController(processController.get());
-        g_state.coordination.processController = processController.get(); // Backward compatibility
-        InitHelpers::logInitResult("ProcessController", processController->initialize());
+         // Register ProcessController in SystemContext for safe access
+         systemInitializer->getSystemContext()->setProcessController(processController.get());
+         InitHelpers::logInitResult("ProcessController", processController->initialize());
 
          // Initialize LoopManager for main loop coordination
          CleverCoffee::SensorCoordinator* sensorCoord = &systemInitializer->getSystemContext()->sensorCoordinator();

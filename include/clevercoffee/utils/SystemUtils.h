@@ -25,12 +25,17 @@ inline void setSteamMode(const bool steamMode) {
      static std::mutex           steam_mutex;
      std::lock_guard<std::mutex> lock(steam_mutex);
 
-     g_state.machine.steamON = steamMode;
+     auto* ctx = CleverCoffee::getGlobalSystemContext();
+     if (!ctx) {
+         return;
+     }
 
-     if (g_state.machine.steamON) {
-         g_state.machine.steamFirstON = true;
+     ctx->setSteamMode(steamMode);
+
+     if (steamMode) {
+         ctx->setSteamFirstOn(true);
      } else {
-         g_state.machine.steamFirstON = false;
+         ctx->setSteamFirstOn(false);
      }
 }
 
@@ -51,13 +56,18 @@ inline void testEmergencyStop() {
      static std::mutex           emergency_mutex;
      std::lock_guard<std::mutex> lock(emergency_mutex);
 
-     double currentTemp = CleverCoffee::getGlobalSystemContext() ? CleverCoffee::getGlobalSystemContext()->processTemperature() : 0.0;
+     auto* ctx = CleverCoffee::getGlobalSystemContext();
+     if (!ctx) {
+         return;
+     }
+
+     double currentTemp = ctx->processTemperature();
      
-     if (currentTemp > EmergencyStopTemp && g_state.machine.emergencyStop == false) {
-         g_state.machine.emergencyStop = true;
+     if (currentTemp > EmergencyStopTemp && !ctx->isEmergencyStopActive()) {
+         ctx->triggerEmergencyStop();
      } else if (currentTemp < (Config::getInstance().brewSetpoint.get() + 5) &&
-                g_state.machine.emergencyStop == true) {
-         g_state.machine.emergencyStop = false;
+                ctx->isEmergencyStopActive()) {
+         ctx->setEmergencyStop(false);
      }
 }
 
@@ -68,10 +78,15 @@ inline void initOfflineMode() {
     static std::mutex           offline_mutex;
     std::lock_guard<std::mutex> lock(offline_mutex);
 
+    auto* ctx = CleverCoffee::getGlobalSystemContext();
+    if (!ctx) {
+        return;
+    }
+
     if (Config::getInstance().hardwareOledEnabled.get()) {
-        CleverCoffee::getGlobalSystemContext()->uiCoordinator().setDisplayOffline(1);
+        ctx->uiCoordinator().setDisplayOffline(1);
     }
 
     LOG(INFO, "Start offline mode with eeprom values, no wifi :(");
-    g_state.network.offlineMode = true;
+    ctx->setOfflineMode(true);
 }

@@ -433,11 +433,11 @@ bool LoopManager::getPerformanceStats() const {
 
 void LoopManager::updateNetwork() {
     // Simplified network coordination - delegate complex logic to network managers
-    static bool wifiWasConnected = false;
+     static bool wifiWasConnected = false;
 
-    // Check offline mode from NetworkCoordinator
-    bool isOfflineMode = (systemContext_ && systemContext_->networkCoordinator().isOfflineMode()) || 
-                         (!systemContext_ && g_state.network.offlineMode);
+     // Check offline mode from NetworkCoordinator
+     bool isOfflineMode = (systemContext_ && systemContext_->networkCoordinator().isOfflineMode()) || 
+                          (!systemContext_ && CleverCoffee::getGlobalSystemContext()->offlineMode());
 
     if (WiFi.status() == WL_CONNECTED && !isOfflineMode) {
         if (!wifiWasConnected) {
@@ -477,18 +477,18 @@ void LoopManager::updateNetwork() {
         // OTA handling - minimal coordination
         ArduinoOTA.handle();
         
-        // Reset WiFi reconnection counter on successful connection
-        if (systemContext_) {
-            systemContext_->networkCoordinator().resetWifiReconnects();
-        } else {
-            g_state.network.wifiReconnects = 0;
-        }
-     } else {
-         wifiWasConnected = false;
-         if (g_state.network.cleverCoffeeWiFiManager) {
-             systemContext_->cleverCoffeeWiFiManager()->checkAndMaintainConnection();
+         // Reset WiFi reconnection counter on successful connection
+         if (systemContext_) {
+             systemContext_->networkCoordinator().resetWifiReconnects();
+         } else {
+             CleverCoffee::getGlobalSystemContext()->setWifiReconnects(0);
          }
-     }
+      } else {
+          wifiWasConnected = false;
+          if (systemContext_ && systemContext_->cleverCoffeeWiFiManager()) {
+              systemContext_->cleverCoffeeWiFiManager()->checkAndMaintainConnection();
+          }
+      }
 
 }
 
@@ -504,18 +504,18 @@ void LoopManager::updateWebsite() {
                             displayBufferNotReady &&
                             tempNotRunning;
 
-    // Check offline mode from NetworkCoordinator
-    bool isOfflineMode = (systemContext_ && systemContext_->networkCoordinator().isOfflineMode()) || 
-                         (!systemContext_ && g_state.network.offlineMode);
+     // Check offline mode from NetworkCoordinator
+     bool isOfflineMode = (systemContext_ && systemContext_->networkCoordinator().isOfflineMode()) || 
+                          (!systemContext_ && CleverCoffee::getGlobalSystemContext()->offlineMode());
 
-    if (canSendData && WiFi.status() == WL_CONNECTED && !isOfflineMode) {
+     if (canSendData && WiFi.status() == WL_CONNECTED && !isOfflineMode) {
         if (systemContext_) {
             systemContext_->uiCoordinator().setWebsiteUpdateRunning(true);
         }
 
-        // Delegate to WebServerManager for actual transmission
-        if (g_state.network.webServerManager) {
-            systemContext_->webServerManager()->sendTempEvent(
+         // Delegate to WebServerManager for actual transmission
+         if (systemContext_ && systemContext_->webServerManager()) {
+             systemContext_->webServerManager()->sendTempEvent(
                 CleverCoffee::getGlobalSystemContext()->processTemperature(),
                 Config::getInstance().brewSetpoint.get(),
                 systemContext_->processController()->getPIDOutput() / 10); // Convert promill to percent

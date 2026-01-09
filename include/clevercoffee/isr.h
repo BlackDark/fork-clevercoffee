@@ -21,12 +21,13 @@ static volatile uint32_t isr_relay_off_count = 0;
 void IRAM_ATTR onTimer() {
     // Safety check: timer must be initialized and valid before ISR can execute
     // Check for both nullptr AND obviously invalid pointer addresses
-    if (!g_state.machine.timer || (uintptr_t)g_state.machine.timer < 0x1000) {
+    auto* ctx = CleverCoffee::getGlobalSystemContext();
+    hw_timer_t* timer = ctx ? ctx->machineTimer() : nullptr;
+    if (!timer || (uintptr_t)timer < 0x1000) {
         return;
     }
     
     // SafetyCheck: SystemContext must be initialized before we can use it
-    auto* ctx = CleverCoffee::getGlobalSystemContext();
     if (!ctx) {
         return;
     }
@@ -34,11 +35,11 @@ void IRAM_ATTR onTimer() {
     isr_enabled = true;
     isr_call_count++;
     
-    timerAlarmWrite(g_state.machine.timer, 10000, true);
+    timerAlarmWrite(timer, 10000, true);
 
     // Read volatile pidOutput once for consistency
     const double currentPidOutput = ctx->processPidOutput();
-    const unsigned int currentCounter = g_state.timing.isrCounter;
+    const unsigned int currentCounter = ctx->isrCounter();
 
     if (currentPidOutput <= currentCounter) {
         auto* relay = ctx->hardwareContext().heaterRelay();
@@ -60,26 +61,53 @@ void IRAM_ATTR onTimer() {
     if (newCounter >= ctx->processWindowSize()) {
         newCounter = 0;
     }
-    g_state.timing.isrCounter = newCounter;
+    ctx->setIsrCounter(newCounter);
 }
 
 /**
  * @brief Initialize hardware timers
  */
 void initTimer1() {
-    g_state.machine.timer = timerBegin(0, 80, true);
-    timerAttachInterrupt(g_state.machine.timer, &onTimer, true);
-    timerAlarmWrite(g_state.machine.timer, 10000, true);
+    auto* ctx = CleverCoffee::getGlobalSystemContext();
+    if (!ctx) {
+        return;
+    }
+    hw_timer_t* timer = timerBegin(0, 80, true);
+    timerAttachInterrupt(timer, &onTimer, true);
+    timerAlarmWrite(timer, 10000, true);
+    ctx->setMachineTimer(timer);
 }
 
 void enableTimer1() {
-    timerAlarmEnable(g_state.machine.timer);
+    auto* ctx = CleverCoffee::getGlobalSystemContext();
+    if (!ctx) {
+        return;
+    }
+    hw_timer_t* timer = ctx->machineTimer();
+    if (timer) {
+        timerAlarmEnable(timer);
+    }
 }
 
 void disableTimer1() {
-    timerAlarmDisable(g_state.machine.timer);
+    auto* ctx = CleverCoffee::getGlobalSystemContext();
+    if (!ctx) {
+        return;
+    }
+    hw_timer_t* timer = ctx->machineTimer();
+    if (timer) {
+        timerAlarmDisable(timer);
+    }
 }
 
 bool isTimer1Enabled() {
-    return timerAlarmEnabled(g_state.machine.timer);
+    auto* ctx = CleverCoffee::getGlobalSystemContext();
+    if (!ctx) {
+        return false;
+    }
+    hw_timer_t* timer = ctx->machineTimer();
+    if (!timer) {
+        return false;
+    }
+    return timerAlarmEnabled(timer);
 }

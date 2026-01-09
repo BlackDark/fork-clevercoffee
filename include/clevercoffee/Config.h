@@ -1362,12 +1362,12 @@ class Config {
 
     StateParamDef<double> statePressure{"state.pressure", "Current Pressure", 6, 603,
                                         "Current pressure reading from sensor",
-                                        []() { return g_state.sensors.inputPressureFilter; },
+                                        []() { return CleverCoffee::getGlobalSystemContext()->inputPressureFilter(); },
                                         StateParamDef<double>::UpdateFrequency::REALTIME, "bar"};
 
     StateParamDef<double> stateWeight{"state.weight", "Current Weight", 6, 604,
                                       "Current weight reading from scale",
-                                      []() { return g_state.sensors.currReadingWeight; },
+                                      []() { return CleverCoffee::getGlobalSystemContext()->currReadingWeight(); },
                                       StateParamDef<double>::UpdateFrequency::REALTIME, "g"};
 
     // === MACHINE STATUS ===
@@ -1399,7 +1399,7 @@ class Config {
 
     StateParamDef<double> stateBrewWeight{"state.brew_weight", "Brew Weight", 7, 702,
                                           "Weight of extracted coffee",
-                                          []() { return g_state.sensors.currBrewWeight; },
+                                          []() { return CleverCoffee::getGlobalSystemContext()->currBrewWeight(); },
                                           StateParamDef<double>::UpdateFrequency::REALTIME, "g"};
 
      StateParamDef<bool> stateBrewActive{"state.brew_active", "Brew Active", 7, 703,
@@ -1452,14 +1452,14 @@ class Config {
                                                return pidRegularTv.get() * pidRegularKp.get();
                                            }};
 
-    ComputedParamDef<double> computedBrewRatio{"computed.brew_ratio", "Brew Ratio", 9, 903,
-                                               "Current brew ratio (weight out / weight in)",
-                                               []() {
-                                                   double preWeight = g_state.sensors.preBrewWeight;
-                                                   double currentWeight = g_state.sensors.currBrewWeight;
-                                                   return preWeight > 0 ? currentWeight / preWeight : 0.0;
-                                               }};
-    */
+     ComputedParamDef<double> computedBrewRatio{"computed.brew_ratio", "Brew Ratio", 9, 903,
+                                                "Current brew ratio (weight out / weight in)",
+                                                []() {
+                                                    double preWeight = CleverCoffee::getGlobalSystemContext()->preBrewWeight();
+                                                    double currentWeight = CleverCoffee::getGlobalSystemContext()->currBrewWeight();
+                                                    return preWeight > 0 ? currentWeight / preWeight : 0.0;
+                                                }};
+     */
 
     // System management
     bool begin();

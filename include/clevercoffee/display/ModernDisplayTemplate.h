@@ -37,7 +37,7 @@ class ModernDisplayTemplate {
         static_cast<Derived*>(this)->renderNormalDisplay();
 
         // Common finalization
-        g_state.coordination.displayBufferReady = true;
+        CleverCoffee::getGlobalSystemContext()->markDisplayBufferReady(true);
     }
 
     /**
@@ -98,17 +98,17 @@ class ModernDisplayTemplate {
         const auto& coords  = derived->getPIDCoords(baseX, baseY);
 
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setCursor(coords.pidX, coords.pidY);
-        CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(g_state.pid->GetKp(), 0);
+        CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(CleverCoffee::getGlobalSystemContext()->pidKp(), 0);
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(derived->getPIDSeparator());
 
-        if (g_state.pid->GetKi() != 0) {
-            CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(g_state.pid->GetKp() / g_state.pid->GetKi(), 0);
+        if (CleverCoffee::getGlobalSystemContext()->pidKi() != 0) {
+            CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(CleverCoffee::getGlobalSystemContext()->pidKp() / CleverCoffee::getGlobalSystemContext()->pidKi(), 0);
         } else {
             CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print("0");
         }
 
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(derived->getPIDSeparator());
-        CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(g_state.pid->GetKd() / g_state.pid->GetKp(), 0);
+        CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(CleverCoffee::getGlobalSystemContext()->pidKd() / CleverCoffee::getGlobalSystemContext()->pidKp(), 0);
 
         // Output percentage
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setCursor(coords.outputX, coords.outputY);
@@ -135,7 +135,7 @@ class ModernDisplayTemplate {
         }
         // Show hot water time
         else if (isHotWaterState(CleverCoffee::getGlobalSystemContext()->machineStateContext()->getCurrentStateId())) {
-            displayBrewTime(coords.brewX, coords.brewY, derived->getHotWaterLabel(), g_state.sensors.currPumpOnTime);
+            displayBrewTime(coords.brewX, coords.brewY, derived->getHotWaterLabel(), CleverCoffee::getGlobalSystemContext()->currPumpOnTime());
         } else if (shouldDisplayBrewTimer()) {
             const bool isAutomatic = Config::getInstance().brewMode.get() == Process::BrewMode::AUTOMATIC_BREW;
             const bool brewByTime  = Config::getInstance().brewByTimeEnabled.get();
@@ -187,7 +187,7 @@ class StandardTemplate : public ModernDisplayTemplate<StandardTemplate> {
         // Thermometer
         displayThermometerOutline(4, 62);
         if (fabs(CleverCoffee::getGlobalSystemContext()->processTemperature() - CleverCoffee::getGlobalSystemContext()->processSetpoint()) < 0.3) {
-            if (g_state.timing.isrCounter < 500) {
+            if (CleverCoffee::getGlobalSystemContext()->isrCounter() < 500) {
                 drawTemperaturebar(8, 30);
             }
         } else {
@@ -304,7 +304,7 @@ class UprightTemplate : public ModernDisplayTemplate<UprightTemplate> {
         } else if (shouldDisplayBrewTimer()) {
             CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print("BREW");
         } else if (fabs(CleverCoffee::getGlobalSystemContext()->processTemperature() - CleverCoffee::getGlobalSystemContext()->processSetpoint()) < 0.3) {
-            if (g_state.timing.isrCounter < 500) {
+            if (CleverCoffee::getGlobalSystemContext()->isrCounter() < 500) {
                 CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print("OK");
             }
         } else {
@@ -322,12 +322,12 @@ class UprightTemplate : public ModernDisplayTemplate<UprightTemplate> {
 
             if (isAutomatic && brewByWeight) {
                 const auto targetWeight = Config::getInstance().brewByWeightTargetWeight.get();
-                displayBrewWeight(1, 44, g_state.sensors.currBrewWeight, targetWeight, g_state.sensors.scaleFailure);
+                displayBrewWeight(1, 44, CleverCoffee::getGlobalSystemContext()->currBrewWeight(), targetWeight, CleverCoffee::getGlobalSystemContext()->scaleFailure());
             } else {
-                displayBrewWeight(1, 44, g_state.sensors.currBrewWeight, -1, g_state.sensors.scaleFailure);
+                displayBrewWeight(1, 44, CleverCoffee::getGlobalSystemContext()->currBrewWeight(), -1, CleverCoffee::getGlobalSystemContext()->scaleFailure());
             }
         } else if (scaleEnabled) {
-            displayBrewWeight(1, 44, g_state.sensors.currReadingWeight, -1, g_state.sensors.scaleFailure);
+            displayBrewWeight(1, 44, CleverCoffee::getGlobalSystemContext()->currReadingWeight(), -1, CleverCoffee::getGlobalSystemContext()->scaleFailure());
         }
 
         if (pressureEnabled) {
@@ -335,7 +335,7 @@ class UprightTemplate : public ModernDisplayTemplate<UprightTemplate> {
             int yPos = scaleEnabled ? 54 : 44;
             CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setCursor(1, yPos);
             CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(langstring_pressure_ur);
-            CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(g_state.sensors.inputPressure, 1);
+            CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(CleverCoffee::getGlobalSystemContext()->inputPressure(), 1);
             CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(" bar");
         }
     }
