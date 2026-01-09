@@ -1,23 +1,30 @@
 /**
  * @file GlobalState.h
- * @brief Global state type definitions (DEPRECATED)
+ * @brief Type definitions for SystemContext (Legacy types, kept for compatibility)
  *
- * @deprecated This file is deprecated and will be removed in Phase 5.
- *             Use SystemContext and coordinators instead.
- *             All new code should use dependency injection.
+ * HISTORY:
+ * This file originally contained a global g_state variable and GlobalState struct.
+ * Phase 4 eliminated the global variable and moved all state to SystemContext.
+ * The deprecated GlobalState struct was removed in this phase.
  *
- * This file now only contains type definitions needed by SystemContext.
+ * CURRENT PURPOSE:
+ * This file now only contains type definitions needed by SystemContext and related code:
+ * - cmp_str: String comparator for std::map (used in MQTT variable/sensor maps)
+ * - MachineStateFlags: Request flags for state machine transitions
+ * - TIME_TO_DISPLAY_OFF_MILLIS: Display timeout constant
+ * - GlobalStateNamespace nested structs: Type definitions only (not instantiated)
+ *
  * All global state has been completely eliminated.
  * State is now managed entirely through SystemContext private members.
- * See SystemContext for state management details.
+ * See SystemContext for the current state management architecture.
  */
 
 #pragma once
 
-// DEPRECATED: GlobalState struct and associated types only.
-// All global state has been removed and moved to SystemContext.
-// State is now encapsulated in SystemContext as private members.
-// See SystemContext for the new state management pattern.
+// NOTE: This file contains legacy type definitions kept for compatibility.
+// All global state variables and the GlobalState struct have been removed.
+// State is now encapsulated entirely within SystemContext as private members.
+// See SystemContext.h for the new state management pattern.
 //
 #if defined(__GNUC__)
 #define DEPRECATED __attribute__((deprecated))
@@ -341,41 +348,6 @@ struct DebugState {
     String lastHotWaterStateDebug = "off";
 };
 } // namespace GlobalStateNamespace
-
-/**
- * @brief Central global state container
- *
- * @deprecated This struct is deprecated and will be removed in Phase 2.
- *             Use SystemContext and coordinators instead.
- *
- * This struct contains all global state organized into logical groups.
- * Migration approach:
- * 1. Replace all extern declarations with access to this single struct
- * 2. Pass this struct (or parts of it) to managers via dependency injection
- * 3. Gradually move data ownership into individual managers
- * 4. Reduce this struct to only truly shared state
- */
-DEPRECATED struct GlobalState {
-    GlobalStateNamespace::ProcessState      process;
-    GlobalStateNamespace::CoordinationState coordination;
-    GlobalStateNamespace::HandlerRefs       handlers;
-    GlobalStateNamespace::HardwareRefs      hardware;
-    GlobalStateNamespace::NetworkState      network;
-    GlobalStateNamespace::TimingState       timing;
-    GlobalStateNamespace::StandbyState      standby;
-    GlobalStateNamespace::SensorState       sensors;
-    GlobalStateNamespace::MachineStateData  machine;
-    GlobalStateNamespace::DisplayState      display;
-    GlobalStateNamespace::DebugState        debug;
-
-    // System-wide references (initialized later)
-    Config* config = nullptr;
-    PID*    pid    = nullptr;
-
-    // System version info
-    const char* sysVersion    = VERSION;
-    String      systemVersion = String(VERSION);
-};
 
 // Handler initialization function
 void initializeHandlers(CleverCoffee::SystemContext* systemContext = nullptr);
