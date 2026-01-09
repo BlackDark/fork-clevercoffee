@@ -1254,7 +1254,7 @@ private:
     int machine_currBackflushCycles_ = 1;
     bool machine_waterTankFull_ = true;
     bool machine_systemInitialized_ = false;
-    GlobalStateNamespace::MachineStateFlags machine_flags_ = GlobalStateNamespace::MachineStateFlags();
+    MachineStateFlags machine_flags_ = MachineStateFlags();
     hw_timer_t* machine_timer_ = nullptr;
 
     // ===== DISPLAY STATE MEMBERS =====
