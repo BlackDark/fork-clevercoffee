@@ -7,7 +7,7 @@
  *             All new code should use dependency injection.
  *
  * This file now only contains type definitions needed by SystemContext.
- * The actual global state variable (g_state) has been completely eliminated.
+ * All global state has been completely eliminated.
  * State is now managed entirely through SystemContext private members.
  * See SystemContext for state management details.
  */
@@ -15,7 +15,7 @@
 #pragma once
 
 // DEPRECATED: GlobalState struct and associated types only.
-// The global g_state variable has been completely removed.
+// All global state has been removed and moved to SystemContext.
 // State is now encapsulated in SystemContext as private members.
 // See SystemContext for the new state management pattern.
 //
