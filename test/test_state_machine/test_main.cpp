@@ -4,6 +4,7 @@
  */
 
 #include <gtest/gtest.h>
+#include "../test_support.h"
 #include <functional>
 
 #include "clevercoffee/state/MachineState.h"

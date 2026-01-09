@@ -10,6 +10,7 @@
  */
 
 #include <gtest/gtest.h>
+#include "../test_support.h"
 
 // ==================== TRANSITION PRIORITY LOGIC TESTS ====================
 

@@ -10,6 +10,7 @@
  */
 
 #include <gtest/gtest.h>
+#include "../test_support.h"
 #include <memory>
 
 // Mock components for steam water injection testing

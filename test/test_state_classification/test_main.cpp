@@ -14,6 +14,7 @@
  */
 
 #include <gtest/gtest.h>
+#include "../test_support.h"
 #include "clevercoffee/state/MachineStateIds.h"
 
 // ============================================================================

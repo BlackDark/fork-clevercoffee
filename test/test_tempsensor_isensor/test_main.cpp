@@ -7,6 +7,7 @@
  */
 
 #include <gtest/gtest.h>
+#include "../test_support.h"
 #include "clevercoffee/hardware/tempsensors/TempSensor.h"
 #include "clevercoffee/sensors/ISensor.h"
 #include "clevercoffee/errors/ErrorCodes.h"

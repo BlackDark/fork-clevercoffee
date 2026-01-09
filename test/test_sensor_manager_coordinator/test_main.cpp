@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include "../test_support.h"
 #include "clevercoffee/sensors/SensorManager.h"
 #include "clevercoffee/coordinators/SensorCoordinator.h"
 #include "clevercoffee/hardware/tempsensors/TempSensor.h"

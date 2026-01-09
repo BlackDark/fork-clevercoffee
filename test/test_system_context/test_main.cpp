@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include "../test_support.h"
 #include "clevercoffee/context/SystemContext.h"
 
 using CleverCoffee::SystemContext;

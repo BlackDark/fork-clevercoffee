@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include "../test_support.h"
 #include "../../include/clevercoffee/utils/EmergencyTemperatureDetector.h"
 
 // ==================== TEST CASES ====================

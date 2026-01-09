@@ -9,6 +9,7 @@
  */
 
 #include <gtest/gtest.h>
+#include "../test_support.h"
 #include <memory>
 #include <cstring>
 

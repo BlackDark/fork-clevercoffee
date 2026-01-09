@@ -13,6 +13,7 @@
  */
 
 #include <gtest/gtest.h>
+#include "../test_support.h"
 
 // ============================================================================
 // RELAY CONTROL BEHAVIOR SPECIFICATION

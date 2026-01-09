@@ -4,6 +4,7 @@
  */
 
 #include <gtest/gtest.h>
+#include "../test_support.h"
 #include "clevercoffee/hardware/HardwareManager.h"
 
 // Using a minimal test since HardwareManager requires ESP32 hardware
