@@ -1,370 +1,365 @@
 #include "clevercoffee/context/SystemContext.h"
-#include "clevercoffee/GlobalState.h"
-#include "clevercoffee/coordinators/SensorCoordinator.h"
 #include <PID_v1.h>  // Required for PID method implementations
-
-// Forward declaration of global g_state - must be at global scope
-extern GlobalState g_state;
 
 namespace CleverCoffee {
 
 // ===== PROCESS STATE ACCESSORS =====
 
 double SystemContext::processTemperature() const noexcept {
-    return g_state.process.temperature;
+    return process_temperature_;
 }
 
 void SystemContext::setProcessTemperature(double temp) noexcept {
-    g_state.process.temperature = temp;
+    process_temperature_ = temp;
 }
 
 double SystemContext::processSetpoint() const noexcept {
-    return g_state.process.setpoint;
+    return process_setpoint_;
 }
 
 void SystemContext::setProcessSetpoint(double setpoint) noexcept {
-    g_state.process.setpoint = setpoint;
+    process_setpoint_ = setpoint;
 }
 
 double SystemContext::processPidOutput() const noexcept {
-    return g_state.process.pidOutput;
+    return process_pidOutput_;
 }
 
 void SystemContext::setProcessPidOutput(double output) noexcept {
-    g_state.process.pidOutput = output;
+    process_pidOutput_ = output;
 }
 
 double SystemContext::processCurrentBrewTime() const noexcept {
-    return g_state.process.currBrewTime;
+    return process_currBrewTime_;
 }
 
 void SystemContext::setProcessCurrentBrewTime(double time) noexcept {
-    g_state.process.currBrewTime = time;
+    process_currBrewTime_ = time;
 }
 
 double SystemContext::processTotalTargetBrewTime() const noexcept {
-    return g_state.process.totalTargetBrewTime;
+    return process_totalTargetBrewTime_;
 }
 
 void SystemContext::setProcessTotalTargetBrewTime(double time) noexcept {
-    g_state.process.totalTargetBrewTime = time;
+    process_totalTargetBrewTime_ = time;
 }
 
 bool SystemContext::isProcessBrewPidDisabled() const noexcept {
-    return g_state.process.brewPidDisabled;
+    return process_brewPidDisabled_;
 }
 
 void SystemContext::setProcessBrewPidDisabled(bool disabled) noexcept {
-    g_state.process.brewPidDisabled = disabled;
+    process_brewPidDisabled_ = disabled;
 }
 
 double SystemContext::processPreviousInput() const noexcept {
-    return g_state.process.previousInput;
+    return process_previousInput_;
 }
 
 void SystemContext::setProcessPreviousInput(double input) noexcept {
-    g_state.process.previousInput = input;
+    process_previousInput_ = input;
 }
 
 double SystemContext::processPidAggKi() const noexcept {
-    return g_state.process.aggKi;
+    return process_aggKi_;
 }
 
 void SystemContext::setProcessPidAggKi(double value) noexcept {
-    g_state.process.aggKi = value;
+    process_aggKi_ = value;
 }
 
 double SystemContext::processPidAggKd() const noexcept {
-    return g_state.process.aggKd;
+    return process_aggKd_;
 }
 
 void SystemContext::setProcessPidAggKd(double value) noexcept {
-    g_state.process.aggKd = value;
+    process_aggKd_ = value;
 }
 
 double SystemContext::processPidKi() const noexcept {
-    return g_state.process.aggKi;
+    return process_aggKi_;
 }
 
 void SystemContext::setProcessPidKi(double value) noexcept {
-    g_state.process.aggKi = value;
+    process_aggKi_ = value;
 }
 
 double SystemContext::processPidKd() const noexcept {
-    return g_state.process.aggKd;
+    return process_aggKd_;
 }
 
 void SystemContext::setProcessPidKd(double value) noexcept {
-    g_state.process.aggKd = value;
+    process_aggKd_ = value;
 }
 
 int SystemContext::processWindowSize() const noexcept {
-    return g_state.process.windowSize;
+    return process_windowSize_;
 }
 
 void SystemContext::setProcessWindowSize(int size) noexcept {
-    g_state.process.windowSize = size;
+    process_windowSize_ = size;
 }
 
 bool SystemContext::isProcessPidEnabled() const noexcept {
-    return g_state.process.pidEnabled;
+    return process_pidEnabled_;
 }
 
 void SystemContext::setProcessPidEnabled(bool enabled) noexcept {
-    g_state.process.pidEnabled = enabled;
+    process_pidEnabled_ = enabled;
 }
 
 double* SystemContext::processTemperaturePtr() noexcept {
-    return &g_state.process.temperature;
+    return &process_temperature_;
 }
 
 double* SystemContext::processPidOutputPtr() noexcept {
-    return &g_state.process.pidOutput;
+    return &process_pidOutput_;
 }
 
 double* SystemContext::processSetpointPtr() noexcept {
-    return &g_state.process.setpoint;
+    return &process_setpoint_;
 }
 
 // ===== DISPLAY SNAPSHOT =====
 
 SystemContext::DisplaySnapshot SystemContext::getDisplaySnapshot() const noexcept {
     DisplaySnapshot snapshot;
-    snapshot.currentTemperature = g_state.process.temperature;
-    snapshot.setpointTemperature = g_state.process.setpoint;
-    snapshot.pidOutputPercent = g_state.process.pidOutput;
-    snapshot.currentBrewTime = g_state.process.currBrewTime;
-    snapshot.targetBrewTime = g_state.process.totalTargetBrewTime;
-    snapshot.brewPidDisabled = g_state.process.brewPidDisabled;
+    snapshot.currentTemperature = process_temperature_;
+    snapshot.setpointTemperature = process_setpoint_;
+    snapshot.pidOutputPercent = process_pidOutput_;
+    snapshot.currentBrewTime = process_currBrewTime_;
+    snapshot.targetBrewTime = process_totalTargetBrewTime_;
+    snapshot.brewPidDisabled = process_brewPidDisabled_;
     snapshot.pidKp = 0.0;
     snapshot.pidKi = 0.0;
     snapshot.pidKd = 0.0;
-    snapshot.pumpOnTime = g_state.sensors.currPumpOnTime;
-    snapshot.inputPressure = g_state.sensors.inputPressure;
-    snapshot.brewWeight = g_state.sensors.currBrewWeight;
-    snapshot.isrCounter = g_state.timing.isrCounter;
-    snapshot.displayBufferReady = g_state.coordination.displayBufferReady;
+    snapshot.pumpOnTime = sensors_currPumpOnTime_;
+    snapshot.inputPressure = sensors_inputPressure_;
+    snapshot.brewWeight = sensors_currBrewWeight_;
+    snapshot.isrCounter = timing_isrCounter_;
+    snapshot.displayBufferReady = coordination_displayBufferReady_;
     
     return snapshot;
 }
 
 void SystemContext::markDisplayBufferReady(bool ready) noexcept {
-    g_state.coordination.displayBufferReady = ready;
+    coordination_displayBufferReady_ = ready;
 }
 
 // ===== COMMAND/CONTROL ACCESSORS =====
 
 void SystemContext::requestScaleTare() noexcept {
-    g_state.sensors.scaleTareOn = true;
+    sensors_scaleTareOn_ = true;
 }
 
 void SystemContext::requestScaleCalibration() noexcept {
-    g_state.sensors.scaleCalibrationOn = true;
+    sensors_scaleCalibrationOn_ = true;
 }
 
 void SystemContext::setHassioDiscoveryRunning(bool running) noexcept {
-    g_state.coordination.hassioUpdateRunning = running;
+    coordination_hassioUpdateRunning_ = running;
 }
 
 void SystemContext::setHassioFailed(bool failed) noexcept {
-    g_state.network.hassioFailed = failed;
+    network_hassioFailed_ = failed;
 }
 
 // ===== UTILITY ACCESSORS =====
 
 void SystemContext::updatePressureFilter(float input) noexcept {
-    g_state.sensors.inX = input * 0.3f;
-    g_state.sensors.inSum = g_state.sensors.inX + g_state.sensors.inY;
-    g_state.sensors.inOld = g_state.sensors.inSum;
+    sensors_inX_ = input * 0.3f;
+    sensors_inSum_ = sensors_inX_ + sensors_inY_;
+    sensors_inOld_ = sensors_inSum_;
 }
 
 float SystemContext::getPressureFilterOutput() const noexcept {
-    return g_state.sensors.inSum;
+    return sensors_inSum_;
 }
 
 // ===== CRITICAL MACHINE CONTROL ACCESSORS =====
 
 hw_timer_t* SystemContext::machineTimer() noexcept {
-    return g_state.machine.timer;
+    return machine_timer_;
 }
 
 void SystemContext::setMachineTimer(hw_timer_t* timer) noexcept {
-    g_state.machine.timer = timer;
+    machine_timer_ = timer;
 }
 
 bool SystemContext::isMachineTimerInitialized() const noexcept {
-    return g_state.machine.timer != nullptr && (uintptr_t)g_state.machine.timer >= 0x1000;
+    return machine_timer_ != nullptr && (uintptr_t)machine_timer_ >= 0x1000;
 }
 
 unsigned int SystemContext::isrCounter() const noexcept {
-    return g_state.timing.isrCounter;
+    return timing_isrCounter_;
 }
 
 void SystemContext::setIsrCounter(unsigned int value) noexcept {
-    g_state.timing.isrCounter = value;
+    timing_isrCounter_ = value;
 }
 
 void SystemContext::incrementIsrCounter() noexcept {
-    g_state.timing.isrCounter++;
+    timing_isrCounter_++;
 }
 
 bool SystemContext::isEmergencyStopActive() const noexcept {
-    return g_state.machine.emergencyStop;
+    return machine_emergencyStop_;
 }
 
 void SystemContext::setEmergencyStop(bool active) noexcept {
-    g_state.machine.emergencyStop = active;
+    machine_emergencyStop_ = active;
 }
 
 void SystemContext::triggerEmergencyStop() noexcept {
-    g_state.machine.emergencyStop = true;
+    machine_emergencyStop_ = true;
     // Could add logging or notifications here in the future
 }
 
 // ===== PID ABSTRACTION LAYER =====
 
 void SystemContext::computePid() noexcept {
-    if (g_state.pid) {
-        g_state.pid->Compute();
+    if (pid_) {
+        pid_->Compute();
     }
 }
 
 void SystemContext::setPidTunings(double kp, double ki, double kd, int ponM) noexcept {
-    if (g_state.pid) {
-        g_state.pid->SetTunings(kp, ki, kd, ponM);
+    if (pid_) {
+        pid_->SetTunings(kp, ki, kd, ponM);
     }
 }
 
 void SystemContext::setPidMode(int mode) noexcept {
-    if (g_state.pid) {
-        g_state.pid->SetMode(mode);
+    if (pid_) {
+        pid_->SetMode(mode);
     }
 }
 
 void SystemContext::setPidOutputLimits(double min, double max) noexcept {
-    if (g_state.pid) {
-        g_state.pid->SetOutputLimits(min, max);
+    if (pid_) {
+        pid_->SetOutputLimits(min, max);
     }
 }
 
 void SystemContext::setPidIntegratorLimits(double min, double max) noexcept {
-    if (g_state.pid) {
-        g_state.pid->SetIntegratorLimits(min, max);
+    if (pid_) {
+        pid_->SetIntegratorLimits(min, max);
     }
 }
 
 void SystemContext::setPidSampleTime(int sampleTime) noexcept {
-    if (g_state.pid) {
-        g_state.pid->SetSampleTime(sampleTime);
+    if (pid_) {
+        pid_->SetSampleTime(sampleTime);
     }
 }
 
 void SystemContext::setPidSmoothingFactor(double factor) noexcept {
-    if (g_state.pid) {
-        g_state.pid->SetSmoothingFactor(factor);
+    if (pid_) {
+        pid_->SetSmoothingFactor(factor);
     }
 }
 
 int SystemContext::pidMode() const noexcept {
-    return g_state.pid ? g_state.pid->GetMode() : MANUAL;
+    return pid_ ? pid_->GetMode() : MANUAL;
 }
 
 double SystemContext::pidKp() const noexcept {
-    return g_state.pid ? g_state.pid->GetKp() : 0.0;
+    return pid_ ? pid_->GetKp() : 0.0;
 }
 
 double SystemContext::pidKi() const noexcept {
-    return g_state.pid ? g_state.pid->GetKi() : 0.0;
+    return pid_ ? pid_->GetKi() : 0.0;
 }
 
 double SystemContext::pidKd() const noexcept {
-    return g_state.pid ? g_state.pid->GetKd() : 0.0;
+    return pid_ ? pid_->GetKd() : 0.0;
 }
 
 double SystemContext::pidLastPPart() const noexcept {
-    return g_state.pid ? g_state.pid->GetLastPPart() : 0.0;
+    return pid_ ? pid_->GetLastPPart() : 0.0;
 }
 
 double SystemContext::pidLastIPart() const noexcept {
-    return g_state.pid ? g_state.pid->GetLastIPart() : 0.0;
+    return pid_ ? pid_->GetLastIPart() : 0.0;
 }
 
 double SystemContext::pidLastDPart() const noexcept {
-    return g_state.pid ? g_state.pid->GetLastDPart() : 0.0;
+    return pid_ ? pid_->GetLastDPart() : 0.0;
 }
 
 double SystemContext::pidInputError() const noexcept {
-    return g_state.pid ? g_state.pid->GetInputError() : 0.0;
+    return pid_ ? pid_->GetInputError() : 0.0;
 }
 
 double SystemContext::pidDeltaInput() const noexcept {
-    return g_state.pid ? g_state.pid->GetDeltaInput() : 0.0;
+    return pid_ ? pid_->GetDeltaInput() : 0.0;
 }
 
 PID* SystemContext::pidController() noexcept {
-    return g_state.pid;
+    return pid_;
 }
 
 const PID* SystemContext::pidController() const noexcept {
-    return g_state.pid;
+    return pid_;
 }
 
 // ===== SCALE AND SENSOR OPERATIONS =====
 
 bool SystemContext::scaleCalibrationOn() const noexcept {
-    return g_state.sensors.scaleCalibrationOn;
+    return sensors_scaleCalibrationOn_;
 }
 
 void SystemContext::setScaleCalibrationOn(bool on) noexcept {
-    g_state.sensors.scaleCalibrationOn = on;
+    sensors_scaleCalibrationOn_ = on;
 }
 
 bool SystemContext::scaleTareOn() const noexcept {
-    return g_state.sensors.scaleTareOn;
+    return sensors_scaleTareOn_;
 }
 
 void SystemContext::setScaleTareOn(bool on) noexcept {
-    g_state.sensors.scaleTareOn = on;
+    sensors_scaleTareOn_ = on;
 }
 
 double SystemContext::currBrewWeight() const noexcept {
-    return g_state.sensors.currBrewWeight;
+    return sensors_currBrewWeight_;
 }
 
 void SystemContext::setCurrBrewWeight(double weight) noexcept {
-    g_state.sensors.currBrewWeight = weight;
+    sensors_currBrewWeight_ = weight;
 }
 
 double SystemContext::currReadingWeight() const noexcept {
-    return g_state.sensors.currReadingWeight;
+    return sensors_currReadingWeight_;
 }
 
 void SystemContext::setCurrReadingWeight(double weight) noexcept {
-    g_state.sensors.currReadingWeight = weight;
+    sensors_currReadingWeight_ = weight;
 }
 
 double SystemContext::currPumpOnTime() const noexcept {
-    return g_state.sensors.currPumpOnTime;
+    return sensors_currPumpOnTime_;
 }
 
 void SystemContext::setCurrPumpOnTime(double time) noexcept {
-    g_state.sensors.currPumpOnTime = time;
+    sensors_currPumpOnTime_ = time;
 }
 
 float SystemContext::inputPressure() const noexcept {
-    return g_state.sensors.inputPressure;
+    return sensors_inputPressure_;
 }
 
 void SystemContext::setInputPressure(float pressure) noexcept {
-    g_state.sensors.inputPressure = pressure;
+    sensors_inputPressure_ = pressure;
 }
 
 bool SystemContext::scaleFailure() const noexcept {
-    return g_state.sensors.scaleFailure;
+    return sensors_scaleFailure_;
 }
 
 void SystemContext::setScaleFailure(bool failed) noexcept {
-    g_state.sensors.scaleFailure = failed;
+    sensors_scaleFailure_ = failed;
 }
 
 // ===== NETWORK MANAGER REFERENCES =====
@@ -380,114 +375,114 @@ void SystemContext::setWifiManager(CleverCoffeeWiFiManager* manager) noexcept {
 // webServerManager() and setWebServerManager() are defined inline in header
 
 bool SystemContext::offlineMode() const noexcept {
-    return g_state.network.offlineMode;
+    return network_offlineMode_;
 }
 
 void SystemContext::setOfflineMode(bool offline) noexcept {
-    g_state.network.offlineMode = offline;
+    network_offlineMode_ = offline;
 }
 
 bool SystemContext::hassioDiscoveryRunning() const noexcept {
-    return g_state.coordination.hassioUpdateRunning;
+    return coordination_hassioUpdateRunning_;
 }
 
 
 bool SystemContext::hassioFailed() const noexcept {
-    return g_state.network.hassioFailed;
+    return network_hassioFailed_;
 }
 
 
 unsigned int SystemContext::wifiReconnects() const noexcept {
-    return g_state.network.wifiReconnects;
+    return network_wifiReconnects_;
 }
 
 void SystemContext::setWifiReconnects(unsigned int count) noexcept {
-    g_state.network.wifiReconnects = count;
+    network_wifiReconnects_ = count;
 }
 
 // ===== MACHINE MODE FLAGS =====
 
 bool SystemContext::steamMode() const noexcept {
-    return g_state.machine.steamON;
+    return machine_steamON_;
 }
 
 void SystemContext::setSteamMode(bool on) noexcept {
-    g_state.machine.steamON = on;
+    machine_steamON_ = on;
 }
 
 bool SystemContext::steamFirstOn() const noexcept {
-    return g_state.machine.steamFirstON;
+    return machine_steamFirstON_;
 }
 
 void SystemContext::setSteamFirstOn(bool on) noexcept {
-    g_state.machine.steamFirstON = on;
+    machine_steamFirstON_ = on;
 }
 
 bool SystemContext::backflushMode() const noexcept {
-    return g_state.machine.backflushOn;
+    return machine_backflushOn_;
 }
 
 void SystemContext::setBackflushMode(bool on) noexcept {
-    g_state.machine.backflushOn = on;
+    machine_backflushOn_ = on;
 }
 // ===== DISPLAY COORDINATION =====
 
 bool SystemContext::displayBufferReady() const noexcept {
-    return g_state.coordination.displayBufferReady;
+    return coordination_displayBufferReady_;
 }
 
 void SystemContext::setDisplayBufferReady(bool ready) noexcept {
-    g_state.coordination.displayBufferReady = ready;
+    coordination_displayBufferReady_ = ready;
 }
 
 // ===== PRESSURE FILTER VARIABLES =====
 
 float SystemContext::inX() const noexcept {
-    return g_state.sensors.inX;
+    return sensors_inX_;
 }
 
 void SystemContext::setInX(float value) noexcept {
-    g_state.sensors.inX = value;
+    sensors_inX_ = value;
 }
 
 float SystemContext::inY() const noexcept {
-    return g_state.sensors.inY;
+    return sensors_inY_;
 }
 
 void SystemContext::setInY(float value) noexcept {
-    g_state.sensors.inY = value;
+    sensors_inY_ = value;
 }
 
 float SystemContext::inOld() const noexcept {
-    return g_state.sensors.inOld;
+    return sensors_inOld_;
 }
 
 void SystemContext::setInOld(float value) noexcept {
-    g_state.sensors.inOld = value;
+    sensors_inOld_ = value;
 }
 
 float SystemContext::inSum() const noexcept {
-    return g_state.sensors.inSum;
+    return sensors_inSum_;
 }
 
 void SystemContext::setInSum(float value) noexcept {
-    g_state.sensors.inSum = value;
+    sensors_inSum_ = value;
 }
 
 float SystemContext::inputPressureFilter() const noexcept {
-    return g_state.sensors.inputPressureFilter;
+    return sensors_inputPressureFilter_;
 }
 
 float SystemContext::preBrewWeight() const noexcept {
-    return g_state.sensors.preBrewWeight;
+    return sensors_preBrewWeight_;
 }
 
 void SystemContext::setPreBrewWeight(float weight) noexcept {
-    g_state.sensors.preBrewWeight = weight;
+    sensors_preBrewWeight_ = weight;
 }
 
 const char* SystemContext::sysVersion() const noexcept {
-    return g_state.sysVersion;
+    return sysVersion_;
 }
 
 

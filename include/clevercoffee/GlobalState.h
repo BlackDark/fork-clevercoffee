@@ -386,8 +386,5 @@ DEPRECATED struct GlobalState {
     String      systemVersion = String(VERSION);
 };
 
-// Single global state instance - replaces all scattered globals
-extern GlobalState g_state;
-
 // Handler initialization function
 void initializeHandlers(CleverCoffee::SystemContext* systemContext = nullptr);

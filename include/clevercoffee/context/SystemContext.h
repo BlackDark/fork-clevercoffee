@@ -5,6 +5,8 @@
 #include "clevercoffee/coordinators/NetworkCoordinator.h"
 #include "clevercoffee/coordinators/UICoordinator.h"
 #include "clevercoffee/coordinators/StandbyCoordinator.h"
+#include "clevercoffee/GlobalState.h"  // For type definitions (cmp_str, MachineStateFlags, etc.)
+#include "clevercoffee/utils/ModernTimer.h"  // For MillisecondTimer
 
 // Forward declarations for handlers
 class BrewHandler;
@@ -1115,6 +1117,7 @@ public:
     /** @} */
 
 private:
+    // ===== COORDINATOR & CONTEXT MEMBERS =====
     HardwareContext hardwareContext_;         ///< Hardware component registry
     SensorCoordinator sensorCoordinator_;     ///< Manages sensor operation state
     NetworkCoordinator networkCoordinator_;   ///< Manages network connection state
@@ -1128,16 +1131,143 @@ private:
     PowerHandler*    powerHandler_    = nullptr;
     SteamHandler*    steamHandler_    = nullptr;
     
-     // Controller reference (non-owning pointer)
-     ProcessController* processController_ = nullptr;
+    // Controller reference (non-owning pointer)
+    ProcessController* processController_ = nullptr;
 
-     // Machine state context reference (non-owning pointer)
-     MachineStateContext* machineStateContext_ = nullptr;
+    // Machine state context reference (non-owning pointer)
+    MachineStateContext* machineStateContext_ = nullptr;
 
-      // Manager references (non-owning pointers)
-      MQTTManager* mqttManager_ = nullptr;
-      CleverCoffeeWiFiManager* cleverCoffeeWiFiManager_ = nullptr;
-      WebServerManager* webServerManager_ = nullptr;
+    // Manager references (non-owning pointers)
+    MQTTManager* mqttManager_ = nullptr;
+    CleverCoffeeWiFiManager* cleverCoffeeWiFiManager_ = nullptr;
+    WebServerManager* webServerManager_ = nullptr;
+
+    // ===== PROCESS STATE MEMBERS =====
+    double process_temperature_ = 0.0;
+    double process_setpoint_ = 95.0;
+    double process_pidOutput_ = 0.0;
+    bool process_pidEnabled_ = true;
+    double process_currBrewTime_ = 0.0;
+    long process_startingTime_ = 0;
+    double process_totalTargetBrewTime_ = 0.0;
+    double process_steamSetpointValue_ = 120.0;
+    bool process_brewPidDisabled_ = false;
+    double process_previousInput_ = 0.0;
+    double process_aggbKi_ = 0.0;
+    double process_aggbKd_ = 0.0;
+    double process_aggKi_ = 0.0;
+    double process_aggKd_ = 0.0;
+    int process_windowSize_ = 1000;
+
+    // ===== COORDINATION STATE MEMBERS =====
+    bool coordination_temperatureUpdateRunning_ = false;
+    bool coordination_websiteUpdateRunning_ = false;
+    bool coordination_hassioUpdateRunning_ = false;
+    bool coordination_displayUpdateRunning_ = false;
+    bool coordination_displayBufferReady_ = false;
+    bool coordination_setupDone_ = false;
+
+    // ===== NETWORK STATE MEMBERS =====
+    bool network_offlineMode_ = false;
+    unsigned int network_wifiReconnects_ = 0;
+    unsigned long network_lastWifiConnectionAttempt_ = 0;
+    unsigned long network_lastTempEvent_ = 0;
+    unsigned long network_tempEventInterval_ = 1000;
+    std::map<const char*, const char*, cmp_str> network_mqttVars_;
+    std::map<const char*, std::function<double()>, cmp_str> network_mqttSensors_;
+    bool network_mqtt_was_connected_ = false;
+    unsigned int network_MQTTReCnctCount_ = 0;
+    unsigned long network_lastMQTTConnectionAttempt_ = 0;
+    bool network_hassioFailed_ = false;
+
+    // ===== TIMING STATE MEMBERS =====
+    unsigned long timing_previousMillistemp_ = 0;
+    unsigned long timing_previousMillisMQTT_ = 0;
+    unsigned long timing_previousMillisPressure_ = 0;
+    std::unique_ptr<MillisecondTimer> timing_loopWaterTank_ = nullptr;
+    std::unique_ptr<MillisecondTimer> timing_hassioDiscoveryTimer_ = nullptr;
+    std::unique_ptr<MillisecondTimer> timing_printDisplayTimer_ = nullptr;
+    MillisecondTimer* timing_loopWaterTank2_ = nullptr;
+    MillisecondTimer* timing_hassioDiscoveryTimer2_ = nullptr;
+    MillisecondTimer* timing_printDisplayTimer2_ = nullptr;
+    unsigned int timing_isrCounter_ = 0;
+    unsigned long timing_windowStartTime_ = 0;
+
+    // ===== STANDBY STATE MEMBERS =====
+    unsigned long standby_standbyModeRemainingTimeMillis_ = 0;
+    unsigned long standby_standbyModeStartTimeMillis_ = 0;
+    unsigned long standby_standbyModeRemainingTimeDisplayOffMillis_ = TIME_TO_DISPLAY_OFF_MILLIS;
+    unsigned long standby_lastStandbyTimeMillis_ = 0;
+    unsigned long standby_timeSinceStandbyMillis_ = 0;
+
+    // ===== SENSOR STATE MEMBERS =====
+    float sensors_inputPressure_ = 0.0;
+    float sensors_inputPressureFilter_ = 0.0;
+    double sensors_currBrewWeight_ = 0.0;
+    double sensors_currReadingWeight_ = 0.0;
+    bool sensors_scaleFailure_ = false;
+    bool sensors_scaleTareOn_ = false;
+    bool sensors_scaleCalibrationOn_ = false;
+    int sensors_shottimerCounter_ = 10;
+    float sensors_preBrewWeight_ = 0.0;
+    bool sensors_autoTareInProgress_ = false;
+    unsigned long sensors_autoTareStartTime_ = 0;
+    unsigned long sensors_lastScaleConnectionCheck_ = 0;
+    unsigned long sensors_scaleConnectionFailureTime_ = 0;
+    bool sensors_scaleConnectionLost_ = false;
+    float sensors_lastValidWeight_ = 0.0;
+    bool sensors_brewByWeightFallbackActive_ = false;
+    int sensors_scaleReadErrorCount_ = 0;
+    int sensors_scaleMaxRetries_ = 5;
+    unsigned long sensors_lastScaleErrorTime_ = 0;
+    unsigned long sensors_scaleErrorCooldownMs_ = 1000;
+    bool sensors_scaleInErrorRecovery_ = false;
+    float sensors_inX_ = 0.0f;
+    float sensors_inY_ = 0.0f;
+    float sensors_inOld_ = 0.0f;
+    float sensors_inSum_ = 0.0f;
+    uint8_t sensors_currStateSteamSwitch_ = 0;
+    bool sensors_currStatePowerSwitchPressed_ = false;
+    bool sensors_lastPowerSwitchPressed_ = false;
+    unsigned long sensors_systemInitializedTime_ = 0;
+    unsigned long sensors_firstSwitchPressTime_ = 0;
+    bool sensors_trackingPressTime_ = false;
+    SwitchState sensors_currBrewSwitchState_ = SwitchState::IDLE;
+    uint8_t sensors_brewSwitchReading_ = LOW;
+    uint8_t sensors_currReadingBrewSwitch_ = LOW;
+    bool sensors_brewSwitchWasOff_ = false;
+    SwitchState sensors_currHotWaterSwitchState_ = SwitchState::IDLE;
+    uint8_t sensors_hotWaterSwitchReading_ = LOW;
+    uint8_t sensors_currReadingHotWaterSwitch_ = LOW;
+    double sensors_currPumpOnTime_ = 0.0;
+    unsigned long sensors_pumpStartingTime_ = 0;
+    int sensors_waterTankCheckConsecutiveReads_ = 0;
+
+    // ===== MACHINE STATE MEMBERS =====
+    MachineStateId machine_machineState_ = MachineStateId::INIT;
+    MachineStateId machine_lastmachinestate_ = MachineStateId::INIT;
+    int machine_lastmachinestatepid_ = -1;
+    bool machine_emergencyStop_ = false;
+    bool machine_steamON_ = false;
+    bool machine_steamFirstON_ = false;
+    bool machine_backflushOn_ = false;
+    int machine_currBackflushCycles_ = 1;
+    bool machine_waterTankFull_ = true;
+    bool machine_systemInitialized_ = false;
+    GlobalStateNamespace::MachineStateFlags machine_flags_ = GlobalStateNamespace::MachineStateFlags();
+    hw_timer_t* machine_timer_ = nullptr;
+
+    // ===== DISPLAY STATE MEMBERS =====
+    int display_displayOffline_ = 0;
+
+    // ===== DEBUG STATE MEMBERS =====
+    String debug_hotWaterStateDebug_ = "off";
+    String debug_lastHotWaterStateDebug_ = "off";
+
+    // ===== SYSTEM-WIDE REFERENCES =====
+    Config* config_ = nullptr;
+    PID* pid_ = nullptr;
+    const char* sysVersion_ = VERSION;
 };
 
 /**
