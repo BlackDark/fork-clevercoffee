@@ -217,10 +217,21 @@ bool HardwareManager::isInitialized() const {
 void HardwareManager::safeShutdown() {
     LOG(INFO, "Performing safe hardware shutdown...");
 
-    // Turn off all relays
-    if (heaterRelay_) heaterRelay_->off();
-    if (pumpRelay_) pumpRelay_->off();
-    if (valveRelay_) valveRelay_->off();
+    // Turn off all relays (only if they're currently on)
+    if (heaterRelay_ && heaterEnabled_) {
+        heaterRelay_->off();
+        heaterEnabled_ = false;
+    }
+    if (pumpRelay_ && pumpEnabled_) {
+        pumpRelay_->off();
+        pumpEnabled_ = false;
+    }
+    if (valveRelay_ && (steamValveOpen_ || waterValveOpen_)) {
+        valveRelay_->off();
+        steamValveOpen_ = false;
+        waterValveOpen_ = false;
+    }
+    solenoidOpen_ = false;
 
     // Turn off all LEDs
     if (statusLed_) statusLed_->turnOff();
@@ -320,16 +331,26 @@ void HardwareManager::enableHeater() noexcept {
         LOG(WARNING, "Cannot enable heater - emergency mode active");
         return;
     }
+    if (heaterEnabled_) {
+        // Already enabled, no action needed
+        return;
+    }
     LOG(INFO, "Enabling heater");
     if (heaterRelay_) {
         heaterRelay_->on();
+        heaterEnabled_ = true;
     }
 }
 
 void HardwareManager::disableHeater() noexcept {
+    if (!heaterEnabled_) {
+        // Already disabled, no action needed
+        return;
+    }
     LOG(INFO, "Disabling heater");
     if (heaterRelay_) {
         heaterRelay_->off();
+        heaterEnabled_ = false;
     }
 }
 
@@ -357,16 +378,26 @@ void HardwareManager::enablePump() noexcept {
         LOG(WARNING, "Cannot enable pump - water tank is empty");
         return;
     }
+    if (pumpEnabled_) {
+        // Already enabled, no action needed
+        return;
+    }
     LOG(INFO, "Enabling pump");
     if (pumpRelay_) {
         pumpRelay_->on();
+        pumpEnabled_ = true;
     }
 }
 
 void HardwareManager::disablePump() noexcept {
+    if (!pumpEnabled_) {
+        // Already disabled, no action needed
+        return;
+    }
     LOG(INFO, "Disabling pump");
     if (pumpRelay_) {
         pumpRelay_->off();
+        pumpEnabled_ = false;
     }
 }
 
@@ -394,15 +425,27 @@ void HardwareManager::openSteamValve() noexcept {
         LOG(WARNING, "Cannot open steam valve - emergency mode active");
         return;
     }
+    if (steamValveOpen_) {
+        // Already open, no action needed
+        return;
+    }
     LOG(INFO, "Opening steam valve");
-    if (valveRelay_) {
+    steamValveOpen_ = true;
+    // Turn on relay if not already on (water valve might have opened it)
+    if (valveRelay_ && !waterValveOpen_) {
         valveRelay_->on();
     }
 }
 
 void HardwareManager::closeSteamValve() noexcept {
+    if (!steamValveOpen_) {
+        // Already closed, no action needed
+        return;
+    }
     LOG(INFO, "Closing steam valve");
-    if (valveRelay_) {
+    steamValveOpen_ = false;
+    // Only turn off relay if water valve is also closed
+    if (valveRelay_ && !waterValveOpen_) {
         valveRelay_->off();
     }
 }
@@ -412,18 +455,30 @@ void HardwareManager::openWaterValve() noexcept {
         LOG(WARNING, "Cannot open water valve - emergency mode active");
         return;
     }
+    if (waterValveOpen_) {
+        // Already open, no action needed
+        return;
+    }
     LOG(INFO, "Opening water valve");
+    waterValveOpen_ = true;
+    // Turn on relay if not already on (steam valve might have opened it)
     // TODO: Wire up separate water valve control if available
     // For now, water valve uses same control as steam valve
-    if (valveRelay_) {
+    if (valveRelay_ && !steamValveOpen_) {
         valveRelay_->on();
     }
 }
 
 void HardwareManager::closeWaterValve() noexcept {
+    if (!waterValveOpen_) {
+        // Already closed, no action needed
+        return;
+    }
     LOG(INFO, "Closing water valve");
+    waterValveOpen_ = false;
+    // Only turn off relay if steam valve is also closed
     // TODO: Wire up separate water valve control if available
-    if (valveRelay_) {
+    if (valveRelay_ && !steamValveOpen_) {
         valveRelay_->off();
     }
 }
@@ -433,25 +488,46 @@ void HardwareManager::openSolenoid() noexcept {
         LOG(WARNING, "Cannot open solenoid - emergency mode active");
         return;
     }
+    if (solenoidOpen_) {
+        // Already open, no action needed
+        return;
+    }
     LOG(INFO, "Opening solenoid");
     // TODO: Wire up solenoid control if available
     // Solenoid might be controlled via valve relay or separate GPIO
+    solenoidOpen_ = true;
 }
 
 void HardwareManager::closeSolenoid() noexcept {
+    if (!solenoidOpen_) {
+        // Already closed, no action needed
+        return;
+    }
     LOG(INFO, "Closing solenoid");
     // TODO: Wire up solenoid control if available
+    solenoidOpen_ = false;
 }
 
 void HardwareManager::emergencyShutdown() noexcept {
     LOG(ERROR, "EMERGENCY SHUTDOWN ACTIVATED");
     emergencyMode_ = true;
-    
+
     // Immediately disable all hardware
-    if (heaterRelay_) heaterRelay_->off();
-    if (pumpRelay_) pumpRelay_->off();
-    if (valveRelay_) valveRelay_->off();
-    
+    if (heaterRelay_ && heaterEnabled_) {
+        heaterRelay_->off();
+        heaterEnabled_ = false;
+    }
+    if (pumpRelay_ && pumpEnabled_) {
+        pumpRelay_->off();
+        pumpEnabled_ = false;
+    }
+    if (valveRelay_ && (steamValveOpen_ || waterValveOpen_)) {
+        valveRelay_->off();
+        steamValveOpen_ = false;
+        waterValveOpen_ = false;
+    }
+    solenoidOpen_ = false;
+
     LOG(ERROR, "All hardware disabled - system in emergency mode");
 }
 
@@ -464,8 +540,9 @@ void HardwareManager::updateSafetyState() noexcept {
             if (waterTankEmpty_) {
                 LOG(WARNING, "Water tank is empty - pump operations disabled");
                 // Immediately disable pump if running
-                if (pumpRelay_) {
+                if (pumpRelay_ && pumpEnabled_) {
                     pumpRelay_->off();
+                    pumpEnabled_ = false;
                 }
             } else {
                 LOG(INFO, "Water tank refilled - pump operations enabled");

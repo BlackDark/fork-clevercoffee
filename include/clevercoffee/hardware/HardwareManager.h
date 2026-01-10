@@ -193,6 +193,13 @@ class HardwareManager : public IHardwareContext {
     bool emergencyMode_ = false;
     bool waterTankEmpty_ = false;
 
+    // Hardware component state tracking (to avoid redundant operations)
+    bool heaterEnabled_ = false;
+    bool pumpEnabled_ = false;
+    bool steamValveOpen_ = false;
+    bool waterValveOpen_ = false;
+    bool solenoidOpen_ = false;
+
     // Initialization state tracking for exception safety
     bool relaysInitialized_ = false;
     bool ledsInitialized_ = false;
