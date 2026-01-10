@@ -305,6 +305,10 @@ double SystemContext::pidDeltaInput() const noexcept {
     return pid_ ? pid_->GetDeltaInput() : 0.0;
 }
 
+void SystemContext::setPidController(PID* pid) noexcept {
+    pid_ = pid;
+}
+
 PID* SystemContext::pidController() noexcept {
     return pid_;
 }

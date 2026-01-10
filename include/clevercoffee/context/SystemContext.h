@@ -781,6 +781,12 @@ public:
       double pidDeltaInput() const noexcept;
 
       /**
+       * @brief Set the PID controller instance
+       * @param pid Pointer to PID controller instance
+       */
+      void setPidController(PID* pid) noexcept;
+
+      /**
        * @brief Direct access to PID controller
        * For backward compatibility during migration
        * @return Pointer to PID object

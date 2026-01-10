@@ -199,6 +199,9 @@ bool SystemInitializer::initializeConfiguration() {
                                            1,
                                            DIRECT);
 
+    // Assign PID controller to SystemContext so it can be used
+    systemContext_->setPidController(pidController_.get());
+
     // Set global reference for backward compatibility
         // PID controller is now managed via systemContext
     return true;
