@@ -167,70 +167,110 @@ public:
     void setBrewHandler(BrewHandler* handler) noexcept { brewHandler_ = handler; }
 
     /**
-     * @brief Get brew handler
-     * @return Pointer to BrewHandler (may be nullptr if not registered)
+     * @brief Get brew handler (REQUIRED - always exists after initialization)
+     * @return Reference to BrewHandler
      */
-    BrewHandler* brewHandler() noexcept { return brewHandler_; }
+    BrewHandler& brewHandler() noexcept {
+        if (!brewHandler_) {
+            LOG(FATAL, "BrewHandler not initialized - system bug!");
+        }
+        return *brewHandler_;
+    }
 
     /**
-     * @brief Get brew handler (const)
-     * @return Const pointer to BrewHandler (may be nullptr if not registered)
+     * @brief Get brew handler (const, REQUIRED - always exists after initialization)
+     * @return Const reference to BrewHandler
      */
-    const BrewHandler* brewHandler() const noexcept { return brewHandler_; }
+    const BrewHandler& brewHandler() const noexcept {
+        if (!brewHandler_) {
+            LOG(FATAL, "BrewHandler not initialized - system bug!");
+        }
+        return *brewHandler_;
+    }
 
     /**
-     * @brief Register hot water handler
-     * @param handler Pointer to HotWaterHandler instance (can be nullptr)
+     * @brief Register hot water handler (REQUIRED - always set during initialization)
+     * @param handler Pointer to HotWaterHandler instance (must not be nullptr)
      */
     void setHotWaterHandler(HotWaterHandler* handler) noexcept { hotWaterHandler_ = handler; }
 
     /**
-     * @brief Get hot water handler
-     * @return Pointer to HotWaterHandler (may be nullptr if not registered)
+     * @brief Get hot water handler (REQUIRED - always exists after initialization)
+     * @return Reference to HotWaterHandler
      */
-    HotWaterHandler* hotWaterHandler() noexcept { return hotWaterHandler_; }
+    HotWaterHandler& hotWaterHandler() noexcept {
+        if (!hotWaterHandler_) {
+            LOG(FATAL, "HotWaterHandler not initialized - system bug!");
+        }
+        return *hotWaterHandler_;
+    }
 
     /**
-     * @brief Get hot water handler (const)
-     * @return Const pointer to HotWaterHandler (may be nullptr if not registered)
+     * @brief Get hot water handler (const, REQUIRED - always exists after initialization)
+     * @return Const reference to HotWaterHandler
      */
-    const HotWaterHandler* hotWaterHandler() const noexcept { return hotWaterHandler_; }
+    const HotWaterHandler& hotWaterHandler() const noexcept {
+        if (!hotWaterHandler_) {
+            LOG(FATAL, "HotWaterHandler not initialized - system bug!");
+        }
+        return *hotWaterHandler_;
+    }
 
     /**
-     * @brief Register power handler
-     * @param handler Pointer to PowerHandler instance (can be nullptr)
+     * @brief Register power handler (REQUIRED - always set during initialization)
+     * @param handler Pointer to PowerHandler instance (must not be nullptr)
      */
     void setPowerHandler(PowerHandler* handler) noexcept { powerHandler_ = handler; }
 
     /**
-     * @brief Get power handler
-     * @return Pointer to PowerHandler (may be nullptr if not registered)
+     * @brief Get power handler (REQUIRED - always exists after initialization)
+     * @return Reference to PowerHandler
      */
-    PowerHandler* powerHandler() noexcept { return powerHandler_; }
+    PowerHandler& powerHandler() noexcept {
+        if (!powerHandler_) {
+            LOG(FATAL, "PowerHandler not initialized - system bug!");
+        }
+        return *powerHandler_;
+    }
 
     /**
-     * @brief Get power handler (const)
-     * @return Const pointer to PowerHandler (may be nullptr if not registered)
+     * @brief Get power handler (const, REQUIRED - always exists after initialization)
+     * @return Const reference to PowerHandler
      */
-    const PowerHandler* powerHandler() const noexcept { return powerHandler_; }
+    const PowerHandler& powerHandler() const noexcept {
+        if (!powerHandler_) {
+            LOG(FATAL, "PowerHandler not initialized - system bug!");
+        }
+        return *powerHandler_;
+    }
 
     /**
-     * @brief Register steam handler
-     * @param handler Pointer to SteamHandler instance (can be nullptr)
+     * @brief Register steam handler (REQUIRED - always set during initialization)
+     * @param handler Pointer to SteamHandler instance (must not be nullptr)
      */
     void setSteamHandler(SteamHandler* handler) noexcept { steamHandler_ = handler; }
 
     /**
-     * @brief Get steam handler
-     * @return Pointer to SteamHandler (may be nullptr if not registered)
+     * @brief Get steam handler (REQUIRED - always exists after initialization)
+     * @return Reference to SteamHandler
      */
-    SteamHandler* steamHandler() noexcept { return steamHandler_; }
+    SteamHandler& steamHandler() noexcept {
+        if (!steamHandler_) {
+            LOG(FATAL, "SteamHandler not initialized - system bug!");
+        }
+        return *steamHandler_;
+    }
 
     /**
-     * @brief Get steam handler (const)
-     * @return Const pointer to SteamHandler (may be nullptr if not registered)
+     * @brief Get steam handler (const, REQUIRED - always exists after initialization)
+     * @return Const reference to SteamHandler
      */
-    const SteamHandler* steamHandler() const noexcept { return steamHandler_; }
+    const SteamHandler& steamHandler() const noexcept {
+        if (!steamHandler_) {
+            LOG(FATAL, "SteamHandler not initialized - system bug!");
+        }
+        return *steamHandler_;
+    }
 
     /**
      * @brief Register process controller
@@ -1131,11 +1171,11 @@ private:
     StandbyCoordinator standbyCoordinator_;   ///< Manages standby mode and power management
     bool ready_ = false;                      ///< System initialization complete flag
 
-    // Handler references (non-owning pointers)
-    BrewHandler*     brewHandler_     = nullptr;
-    HotWaterHandler* hotWaterHandler_ = nullptr;
-    PowerHandler*    powerHandler_    = nullptr;
-    SteamHandler*    steamHandler_    = nullptr;
+    // Handler references - ALL REQUIRED (always exist after initialization)
+    BrewHandler*     brewHandler_     = nullptr;  // Set during initializeHandlers()
+    HotWaterHandler* hotWaterHandler_ = nullptr;  // Set during initializeHandlers()
+    PowerHandler*    powerHandler_    = nullptr;  // Set during initializeHandlers()
+    SteamHandler*    steamHandler_    = nullptr;  // Set during initializeHandlers()
     
     // Controller reference (non-owning pointer)
     ProcessController* processController_ = nullptr;

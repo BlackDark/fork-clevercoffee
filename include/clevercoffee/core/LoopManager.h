@@ -5,10 +5,10 @@
 
 #pragma once
 
-#include "clevercoffee/utils/ModernTimer.h"
-
 #include <functional>
 #include <memory>
+
+#include "clevercoffee/utils/ModernTimer.h"
 
 // Forward declarations
 class ProcessController;
@@ -41,19 +41,18 @@ class LoopManager {
   public:
      /**
        * @brief Constructor
-       * @param processController Process control manager (optional)
-       * @param uiManager UI management system (optional)
-       * @param hotWaterHandler Hot water handler (optional)
-       * @param sensorCoordinator Sensor coordinator for async sensor polling (optional)
-       * @param hardwareManager Hardware manager for LED and relay control (optional)
-       * @param systemContext System context for access to coordinators (optional)
+       * @param systemContext System context for access to coordinators (REQUIRED)
+       * @param hardwareManager Hardware manager for LED and relay control (REQUIRED - CRITICAL component)
+       * @param processController Process control manager (REQUIRED - CRITICAL component for PID control)
+       * @param sensorCoordinator Sensor coordinator for async sensor polling (REQUIRED - CRITICAL component for sensor readings)
+     * @param uiManager UI management system (REQUIRED - always exists)
+     * Note: Handlers are accessed via SystemContext and are always available
        */
-     explicit LoopManager(ProcessController*                processController   = nullptr,
-                          UIManager*                        uiManager           = nullptr,
-                          HotWaterHandler*                  hotWaterHandler     = nullptr,
-                          CleverCoffee::SensorCoordinator*  sensorCoordinator   = nullptr,
-                          CleverCoffee::HardwareManager*    hardwareManager     = nullptr,
-                          CleverCoffee::SystemContext*      systemContext       = nullptr);
+     explicit LoopManager(CleverCoffee::SystemContext&      systemContext,
+                          CleverCoffee::HardwareManager&    hardwareManager,
+                          ProcessController&                processController,
+                          CleverCoffee::SensorCoordinator&  sensorCoordinator,
+                          UIManager&                        uiManager);
 
     /**
      * @brief Destructor
@@ -166,53 +165,15 @@ class LoopManager {
      */
     void updateDebugTiming();
 
-    /**
-     * @brief Set the process controller
-     * @param controller Process controller instance
-     */
-    void setProcessController(ProcessController* controller) {
-        processController_ = controller;
-    }
+      // Note: ProcessController is now a required reference set in constructor
+      // Setter removed - this component must be provided at construction time
 
-    /**
-      * @brief Set the UI manager
-      * @param manager UI manager instance
-      */
-    void setUIManager(UIManager* manager) {
-        uiManager_ = manager;
-    }
+    // setUIManager removed - UIManager is required and set at construction time
 
-    /**
-     * @brief Set the hot water handler
-     * @param handler Hot water handler instance
-     */
-    void setHotWaterHandler(HotWaterHandler* handler) {
-        hotWaterHandler_ = handler;
-    }
+    // setHotWaterHandler removed - handlers are accessed via SystemContext and are always available
 
-     /**
-      * @brief Set the sensor coordinator
-      * @param coordinator Sensor coordinator instance
-      */
-     void setSensorCoordinator(CleverCoffee::SensorCoordinator* coordinator) {
-         sensorCoordinator_ = coordinator;
-     }
-
-      /**
-       * @brief Set the hardware manager
-       * @param manager Hardware manager instance
-       */
-      void setHardwareManager(CleverCoffee::HardwareManager* manager) {
-          hardwareManager_ = manager;
-      }
-
-      /**
-       * @brief Set the system context
-       * @param context System context instance for coordinator access
-       */
-      void setSystemContext(CleverCoffee::SystemContext* context) {
-          systemContext_ = context;
-      }
+      // Note: HardwareManager, SystemContext, ProcessController, and SensorCoordinator are now required references set in constructor
+      // Setters removed - these components must be provided at construction time
 
     /**
      * @brief Get loop performance statistics
@@ -257,12 +218,12 @@ class LoopManager {
     void updateCentralizedSensorTimers();
 
       // Manager dependencies
-      ProcessController*               processController_;
-      UIManager*                       uiManager_;
-      HotWaterHandler*                 hotWaterHandler_;
-      CleverCoffee::SensorCoordinator* sensorCoordinator_;
-      CleverCoffee::HardwareManager*   hardwareManager_;
-      CleverCoffee::SystemContext*     systemContext_;
+      CleverCoffee::SystemContext&     systemContext_;      // REQUIRED
+      CleverCoffee::HardwareManager&   hardwareManager_;   // REQUIRED - CRITICAL component
+      ProcessController&                processController_; // REQUIRED - CRITICAL component for PID control
+      CleverCoffee::SensorCoordinator& sensorCoordinator_; // REQUIRED - CRITICAL component for sensor readings
+      UIManager&                      uiManager_;          // REQUIRED - always exists
+      // hotWaterHandler_ removed - handlers are accessed via SystemContext and are always available
 
     // Initialization state
     bool initialized_;

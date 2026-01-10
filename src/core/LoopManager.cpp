@@ -45,15 +45,15 @@ extern void enableTimer1();
 // WebSocket functions are now available via WebSocketEvents.h
 // No stubs needed - real functionality restored
 
-LoopManager::LoopManager(ProcessController*               processController,
-                         UIManager*                       uiManager,
-                         HotWaterHandler*                 hotWaterHandler,
-                         CleverCoffee::SensorCoordinator* sensorCoordinator,
-                         CleverCoffee::HardwareManager*   hardwareManager,
-                         CleverCoffee::SystemContext*     systemContext)
-    : processController_(processController), uiManager_(uiManager),
-      hotWaterHandler_(hotWaterHandler), sensorCoordinator_(sensorCoordinator), 
-      hardwareManager_(hardwareManager), systemContext_(systemContext), initialized_(false), 
+LoopManager::LoopManager(CleverCoffee::SystemContext&     systemContext,
+                         CleverCoffee::HardwareManager&   hardwareManager,
+                         ProcessController&               processController,
+                         CleverCoffee::SensorCoordinator& sensorCoordinator,
+                         UIManager&                       uiManager)
+    : systemContext_(systemContext), hardwareManager_(hardwareManager),
+      processController_(processController), sensorCoordinator_(sensorCoordinator),
+      uiManager_(uiManager),
+      initialized_(false), 
       sensorsTimersInitialized_(false), performanceMonitoringEnabled_(false), lastLoopTime_(0), 
       maxLoopTime_(0), loopCount_(0), temperatureUpdateCount_(0), pressureUpdateCount_(0), 
       scaleUpdateCount_(0), lastTimerLogTime_(0) {
@@ -90,9 +90,7 @@ void LoopManager::update() {
     }
 
     // Phase 5: Update SensorCoordinator (async sensor polling)
-    if (sensorCoordinator_) {
-        sensorCoordinator_->update();
-    }
+    sensorCoordinator_.update();
 
     // Performance timing start
     unsigned long loopStartTime = millis();
@@ -191,31 +189,27 @@ void LoopManager::update() {
 
 void LoopManager::updateLEDs() {
     // Simple LED coordination - delegate details to dedicated LED controller when available
-    const auto machineState = systemContext_->machineStateContext()->getCurrentStateId();
+    const auto machineState = systemContext_.machineStateContext()->getCurrentStateId();
     const auto temperature = CleverCoffee::getGlobalSystemContext()->processTemperature();
     const auto setpoint = CleverCoffee::getGlobalSystemContext()->processSetpoint();
 
-    if (!hardwareManager_) {
-        return;  // No hardware manager available
-    }
-
     // Status LED - indicates when temperature is reached
-    if (Config::getInstance().hardwareLedsStatusEnabled.get() && hardwareManager_->getStatusLed()) {
+    if (Config::getInstance().hardwareLedsStatusEnabled.get() && hardwareManager_.getStatusLed()) {
         bool shouldTurnOn = (machineState == MachineStateId::PID_NORMAL &&
                            (fabs(temperature - setpoint) < 0.3)) ||
                           (temperature > 115 && fabs(temperature - setpoint) < 5);
 
-        shouldTurnOn ? hardwareManager_->getStatusLed()->turnOn() : hardwareManager_->getStatusLed()->turnOff();
+        shouldTurnOn ? hardwareManager_.getStatusLed()->turnOn() : hardwareManager_.getStatusLed()->turnOff();
     }
 
     // Brew LED - indicates brewing state
-    if (Config::getInstance().hardwareLedsBrewEnabled.get() && hardwareManager_->getBrewLed()) {
-        isBrewState(machineState) ? hardwareManager_->getBrewLed()->turnOn() : hardwareManager_->getBrewLed()->turnOff();
+    if (Config::getInstance().hardwareLedsBrewEnabled.get() && hardwareManager_.getBrewLed()) {
+        isBrewState(machineState) ? hardwareManager_.getBrewLed()->turnOn() : hardwareManager_.getBrewLed()->turnOff();
     }
 
     // Steam LED - indicates steam mode
-    if (Config::getInstance().hardwareLedsSteamEnabled.get() && hardwareManager_->getSteamLed()) {
-        isSteamState(machineState) ? hardwareManager_->getSteamLed()->turnOn() : hardwareManager_->getSteamLed()->turnOff();
+    if (Config::getInstance().hardwareLedsSteamEnabled.get() && hardwareManager_.getSteamLed()) {
+        isSteamState(machineState) ? hardwareManager_.getSteamLed()->turnOn() : hardwareManager_.getSteamLed()->turnOff();
     }
 }
 
@@ -233,69 +227,58 @@ void LoopManager::updateWaterTank() {
 }
 
 void LoopManager::updateProcessControl() {
-    if (processController_) {
-        // Use modern ProcessController for PID and temperature management
-        const unsigned long processStart = millis();
-        const MachineStateId currentState = systemContext_->machineStateContext()->getCurrentStateId();
-        
-        LOGF(DEBUG, "updateProcessControl: Entering with state=%d, temp=%.1f°C, setpoint=%.1f°C, pidOutput=%.1f", 
-             static_cast<int>(currentState), CleverCoffee::getGlobalSystemContext()->processTemperature(), CleverCoffee::getGlobalSystemContext()->processSetpoint(), CleverCoffee::getGlobalSystemContext()->processPidOutput());
-        
-        processController_->updateProcessControl(currentState);
-        const unsigned long processTime = millis() - processStart;
+    // Use ProcessController for PID and temperature management (REQUIRED)
+    const unsigned long processStart = millis();
+    const MachineStateId currentState = systemContext_.machineStateContext()->getCurrentStateId();
+    
+    LOGF(DEBUG, "updateProcessControl: Entering with state=%d, temp=%.1f°C, setpoint=%.1f°C, pidOutput=%.1f", 
+         static_cast<int>(currentState), CleverCoffee::getGlobalSystemContext()->processTemperature(), CleverCoffee::getGlobalSystemContext()->processSetpoint(), CleverCoffee::getGlobalSystemContext()->processPidOutput());
+    
+    processController_.updateProcessControl(currentState);
+    const unsigned long processTime = millis() - processStart;
 
-        LOGF(DEBUG, "updateProcessControl: After update: temp=%.1f°C, setpoint=%.1f°C, pidOutput=%.1f, timer=%lums",
-             CleverCoffee::getGlobalSystemContext()->processTemperature(), CleverCoffee::getGlobalSystemContext()->processSetpoint(), CleverCoffee::getGlobalSystemContext()->processPidOutput(), processTime);
+    LOGF(DEBUG, "updateProcessControl: After update: temp=%.1f°C, setpoint=%.1f°C, pidOutput=%.1f, timer=%lums",
+         CleverCoffee::getGlobalSystemContext()->processTemperature(), CleverCoffee::getGlobalSystemContext()->processSetpoint(), CleverCoffee::getGlobalSystemContext()->processPidOutput(), processTime);
 
-        if (processTime > 100) {
-            LOGF(ERROR, "ProcessController update took %lums - this is blocking the main loop!", processTime);
-        } else if (processTime > 50) {
-            LOGF(WARNING, "ProcessController update took %lums", processTime);
-        }
-    } else {
-        // Fallback to original temperature reading logic - handled in main.cpp for now
-        LOG(DEBUG, "LoopManager: ProcessController not available, using fallback");
+    if (processTime > 100) {
+        LOGF(ERROR, "ProcessController update took %lums - this is blocking the main loop!", processTime);
+    } else if (processTime > 50) {
+        LOGF(WARNING, "ProcessController update took %lums", processTime);
     }
 }
 
 void LoopManager::updateDisplay() {
     // Handle display updates similar to the original main loop logic
-    if (uiManager_) {
-        // Use UIManager for display management
-        LOGF(DEBUG, "LoopManager: Using UIManager path for display updates");
-        uiManager_->setUpdateRunning(false);
+    // Use UIManager for display management - UIManager is always available (required)
+    LOGF(DEBUG, "LoopManager: Using UIManager path for display updates");
+    uiManager_.setUpdateRunning(false);
 
-        if (Config::getInstance().hardwareOledEnabled.get()) {
-            // Only update display on loops that have not had other major tasks running
-            // and when not in standby display-off mode
-            bool websiteCondition = systemContext_ ? !systemContext_->uiCoordinator().isWebsiteUpdateRunning() : true;
-            bool mqttCondition    = (!systemContext_->mqttManager() || !systemContext_->mqttManager()->isUpdateRunning());
-            bool hassioCondition  = systemContext_ ? !systemContext_->uiCoordinator().isHassioUpdateRunning() : true;
-            bool tempCondition    = systemContext_ ? !systemContext_->sensorCoordinator().isTemperatureUpdateRunning() : true;
-            bool standbyCondition = systemContext_ ?
-                (!Config::getInstance().standbyEnabled.get() || systemContext_->standbyCoordinator().getRemainingTimeMillis() > 0) :
-                true; // Fallback: allow display update if systemContext not available
+    if (Config::getInstance().hardwareOledEnabled.get()) {
+        // Only update display on loops that have not had other major tasks running
+        // and when not in standby display-off mode
+        bool websiteCondition = !systemContext_.uiCoordinator().isWebsiteUpdateRunning();
+        bool mqttCondition    = (!systemContext_.mqttManager() || !systemContext_.mqttManager()->isUpdateRunning());
+        bool hassioCondition  = !systemContext_.uiCoordinator().isHassioUpdateRunning();
+        bool tempCondition    = !systemContext_.sensorCoordinator().isTemperatureUpdateRunning();
+        bool standbyCondition = (!Config::getInstance().standbyEnabled.get() || systemContext_.standbyCoordinator().getRemainingTimeMillis() > 0);
 
-            // update display on loops that have not had other major tasks running
-            if (websiteCondition && mqttCondition && hassioCondition && tempCondition && standbyCondition) {
-                if (uiManager_->isBufferReady()) {
-                    uiManager_->forceUpdate();
-                    uiManager_->setBufferReady(false);
-                    uiManager_->setUpdateRunning(true);
+        // update display on loops that have not had other major tasks running
+        if (websiteCondition && mqttCondition && hassioCondition && tempCondition && standbyCondition) {
+            if (uiManager_.isBufferReady()) {
+                uiManager_.forceUpdate();
+                uiManager_.setBufferReady(false);
+                uiManager_.setUpdateRunning(true);
+            } else {
+                // This is the critical call that was missing!
+                // It triggers the display template rendering
+                if (printDisplayTimer_) {
+                    LOGF(DEBUG, "LoopManager: Calling printDisplayTimer (UIManager path)");
+                    (*printDisplayTimer_)();
                 } else {
-                    // This is the critical call that was missing!
-                    // It triggers the display template rendering
-                    if (printDisplayTimer_) {
-                        LOGF(DEBUG, "LoopManager: Calling printDisplayTimer (UIManager path)");
-                        (*printDisplayTimer_)();
-                    } else {
-                        LOGF(WARNING, "LoopManager: printDisplayTimer is null!");
-                    }
+                    LOGF(WARNING, "LoopManager: printDisplayTimer is null!");
                 }
             }
         }
-    } else {
-        LOGF(WARNING, "LoopManager: UIManager not available, skipping display update");
     }
 }
 
@@ -353,10 +336,8 @@ bool LoopManager::setupAllTimers() {
 }
 
 void LoopManager::checkWaterTankLevel() {
-    if (sensorCoordinator_) {
-        // SensorCoordinator auto-updates water tank sensor
-        // Water tank status is accessed via sensorCoordinator_->isWaterTankFull() directly
-    }
+    // SensorCoordinator auto-updates water tank sensor
+    // Water tank status is accessed via sensorCoordinator_.isWaterTankFull() directly
 }
 
 void LoopManager::updateTemperatureSensor() {
@@ -366,7 +347,7 @@ void LoopManager::updateTemperatureSensor() {
 }
 
 void LoopManager::updatePressureSensor() {
-    if (Config::getInstance().hardwareSensorsPressureEnabled.get() && sensorCoordinator_) {
+    if (Config::getInstance().hardwareSensorsPressureEnabled.get()) {
         // SensorCoordinator auto-updates pressure sensor
 
         pressureUpdateCount_++;
@@ -392,21 +373,17 @@ void LoopManager::updateScaleSensor() {
 }
 
 void LoopManager::updateBrewWeight() {
-    if (!sensorCoordinator_) {
-        return;  // No sensor coordinator available
-    }
-    
     // Simple state machine: start tracking when brew starts, stop when brew ends
-    const auto currentState = systemContext_->machineStateContext()->getCurrentStateId();
+    const auto currentState = systemContext_.machineStateContext()->getCurrentStateId();
     const bool isBrewActive = (currentState != MachineStateId::BREW_IDLE);
     
     // Check if we need to start brew weight tracking
-    if (isBrewActive && !sensorCoordinator_->isBrewWeightTrackingActive()) {
-        sensorCoordinator_->startBrewWeightTracking();
+    if (isBrewActive && !sensorCoordinator_.isBrewWeightTrackingActive()) {
+        sensorCoordinator_.startBrewWeightTracking();
     }
     // Check if we need to stop brew weight tracking
-    else if (!isBrewActive && sensorCoordinator_->isBrewWeightTrackingActive()) {
-        sensorCoordinator_->stopBrewWeightTracking();
+    else if (!isBrewActive && sensorCoordinator_.isBrewWeightTrackingActive()) {
+        sensorCoordinator_.stopBrewWeightTracking();
     }
     
 }
@@ -436,8 +413,7 @@ void LoopManager::updateNetwork() {
      static bool wifiWasConnected = false;
 
      // Check offline mode from NetworkCoordinator
-     bool isOfflineMode = (systemContext_ && systemContext_->networkCoordinator().isOfflineMode()) || 
-                          (!systemContext_ && CleverCoffee::getGlobalSystemContext()->offlineMode());
+     bool isOfflineMode = systemContext_.networkCoordinator().isOfflineMode();
 
     if (WiFi.status() == WL_CONNECTED && !isOfflineMode) {
         if (!wifiWasConnected) {
@@ -446,31 +422,31 @@ void LoopManager::updateNetwork() {
         }
 
         // MQTT Management - delegate to MQTTManager
-        if (systemContext_->mqttManager() && systemContext_->mqttManager()->isEnabled()) {
-            systemContext_->mqttManager()->setUpdateRunning(false);
+        if (systemContext_.mqttManager() && systemContext_.mqttManager()->isEnabled()) {
+            systemContext_.mqttManager()->setUpdateRunning(false);
 
-            if (systemContext_->cleverCoffeeWiFiManager()->getSignalStrength() > 1) {
-                systemContext_->mqttManager()->checkConnection();
+            if (systemContext_.cleverCoffeeWiFiManager()->getSignalStrength() > 1) {
+                systemContext_.mqttManager()->checkConnection();
 
-                bool displayBufferNotReady = systemContext_ ? !systemContext_->uiCoordinator().isDisplayBufferReady() : true;
-                bool tempNotRunning = systemContext_ ? !systemContext_->sensorCoordinator().isTemperatureUpdateRunning() : true;
+                bool displayBufferNotReady = !systemContext_.uiCoordinator().isDisplayBufferReady();
+                bool tempNotRunning = !systemContext_.sensorCoordinator().isTemperatureUpdateRunning();
                 if (displayBufferNotReady && tempNotRunning) {
-                    systemContext_->mqttManager()->writeSysParamsToMQTT(true);
+                    systemContext_.mqttManager()->writeSysParamsToMQTT(true);
                 }
             }
 
-            if (systemContext_->mqttManager()->isConnected()) {
-                systemContext_->mqttManager()->loop();
+            if (systemContext_.mqttManager()->isConnected()) {
+                systemContext_.mqttManager()->loop();
                 // Home Assistant discovery - delegate to timer system
-                bool displayBufferNotReady = systemContext_ ? !systemContext_->uiCoordinator().isDisplayBufferReady() : true;
-                bool tempNotRunning = systemContext_ ? !systemContext_->sensorCoordinator().isTemperatureUpdateRunning() : true;
+                bool displayBufferNotReady = !systemContext_.uiCoordinator().isDisplayBufferReady();
+                bool tempNotRunning = !systemContext_.sensorCoordinator().isTemperatureUpdateRunning();
                 if (hassioDiscoveryTimer_ && displayBufferNotReady && tempNotRunning) {
                     (*hassioDiscoveryTimer_)();
                 }
-                systemContext_->mqttManager()->setWasConnected(true);
-            } else if (systemContext_->mqttManager()->wasConnected()) {
+                systemContext_.mqttManager()->setWasConnected(true);
+            } else if (systemContext_.mqttManager()->wasConnected()) {
                 LOG(INFO, "MQTT disconnected");
-                systemContext_->mqttManager()->setWasConnected(false);
+                systemContext_.mqttManager()->setWasConnected(false);
             }
         }
 
@@ -478,15 +454,11 @@ void LoopManager::updateNetwork() {
         ArduinoOTA.handle();
         
          // Reset WiFi reconnection counter on successful connection
-         if (systemContext_) {
-             systemContext_->networkCoordinator().resetWifiReconnects();
-         } else {
-             CleverCoffee::getGlobalSystemContext()->setWifiReconnects(0);
-         }
+         systemContext_.networkCoordinator().resetWifiReconnects();
       } else {
           wifiWasConnected = false;
-          if (systemContext_ && systemContext_->cleverCoffeeWiFiManager()) {
-              systemContext_->cleverCoffeeWiFiManager()->checkAndMaintainConnection();
+          if (systemContext_.cleverCoffeeWiFiManager()) {
+              systemContext_.cleverCoffeeWiFiManager()->checkAndMaintainConnection();
           }
       }
 
@@ -494,41 +466,36 @@ void LoopManager::updateNetwork() {
 
 void LoopManager::updateWebsite() {
     // Simplified website coordination - delegate to WebServerManager
-    bool hassioNotRunning = systemContext_ ? !systemContext_->uiCoordinator().isHassioUpdateRunning() : true;
-    bool displayBufferNotReady = systemContext_ ? !systemContext_->uiCoordinator().isDisplayBufferReady() : true;
-    bool tempNotRunning = systemContext_ ? !systemContext_->sensorCoordinator().isTemperatureUpdateRunning() : true;
+    bool hassioNotRunning = !systemContext_.uiCoordinator().isHassioUpdateRunning();
+    bool displayBufferNotReady = !systemContext_.uiCoordinator().isDisplayBufferReady();
+    bool tempNotRunning = !systemContext_.sensorCoordinator().isTemperatureUpdateRunning();
     
     const bool canSendData = (millis() - lastTempEvent_) > tempEventInterval_ &&
-                            (!systemContext_->mqttManager() || !systemContext_->mqttManager()->isUpdateRunning()) &&
+                            (!systemContext_.mqttManager() || !systemContext_.mqttManager()->isUpdateRunning()) &&
                             hassioNotRunning &&
                             displayBufferNotReady &&
                             tempNotRunning;
 
      // Check offline mode from NetworkCoordinator
-     bool isOfflineMode = (systemContext_ && systemContext_->networkCoordinator().isOfflineMode()) || 
-                          (!systemContext_ && CleverCoffee::getGlobalSystemContext()->offlineMode());
+     bool isOfflineMode = systemContext_.networkCoordinator().isOfflineMode();
 
      if (canSendData && WiFi.status() == WL_CONNECTED && !isOfflineMode) {
-        if (systemContext_) {
-            systemContext_->uiCoordinator().setWebsiteUpdateRunning(true);
-        }
+        systemContext_.uiCoordinator().setWebsiteUpdateRunning(true);
 
          // Delegate to WebServerManager for actual transmission
-         if (systemContext_ && systemContext_->webServerManager()) {
-             systemContext_->webServerManager()->sendTempEvent(
+         if (systemContext_.webServerManager()) {
+             systemContext_.webServerManager()->sendTempEvent(
                 CleverCoffee::getGlobalSystemContext()->processTemperature(),
                 Config::getInstance().brewSetpoint.get(),
-                systemContext_->processController()->getPIDOutput() / 10); // Convert promill to percent
+                systemContext_.processController()->getPIDOutput() / 10); // Convert promill to percent
 
             if (Config::getInstance().hardwareSensorsScaleEnabled.get()) {
-                systemContext_->webServerManager()->sendWeightEvent();
+                systemContext_.webServerManager()->sendWeightEvent();
             }
         }
 
         lastTempEvent_ = millis();
-        if (systemContext_) {
-            systemContext_->uiCoordinator().setWebsiteUpdateRunning(false);
-        }
+        systemContext_.uiCoordinator().setWebsiteUpdateRunning(false);
     }
 }
 
@@ -536,21 +503,12 @@ void LoopManager::updateWebsite() {
 
 void LoopManager::updateSwitchesAndStandby() {
     // Switch handling and standby management extracted from loopPid()
-    if (systemContext_) {
-        if (auto* steamHandler = systemContext_->steamHandler()) {
-            steamHandler->process();
-        }
-        if (auto* powerHandler = systemContext_->powerHandler()) {
-            powerHandler->process();
-        }
-    }
+    // All handlers are required and always exist
+    systemContext_.steamHandler().process();
+    systemContext_.powerHandler().process();
     
     // Update standby timer through coordinator
-    if (systemContext_) {
-        systemContext_->standbyCoordinator().update();
-    } else {
-        updateStandbyTimer(); // Fallback to legacy function
-    }
+    systemContext_.standbyCoordinator().update();
 }
 
 void LoopManager::updateStateMachine() {
@@ -584,9 +542,9 @@ void LoopManager::updateStateMachine() {
     LOGF(DEBUG, "StateMachine::update() -> State: %s (%d)", stateNameAfter, static_cast<int>(newState));
     
     // Check for state changes
-    if (newState != systemContext_->machineStateContext()->getCurrentStateId()) {
-        const auto oldState = systemContext_->machineStateContext()->getCurrentStateId();
-        systemContext_->machineStateContext()->setCurrentStateId(newState);
+    if (newState != systemContext_.machineStateContext()->getCurrentStateId()) {
+        const auto oldState = systemContext_.machineStateContext()->getCurrentStateId();
+        systemContext_.machineStateContext()->setCurrentStateId(newState);
         LOGF(WARNING, "State transition detected: %d -> %d (%s -> %s)", 
              static_cast<int>(oldState), 
              static_cast<int>(newState),
@@ -594,25 +552,17 @@ void LoopManager::updateStateMachine() {
              stateNameAfter);
     }
 
-    // Update handlers
-    if (systemContext_) {
-        if (auto* hotWaterHandler = systemContext_->hotWaterHandler()) {
-            hotWaterHandler->process();
-        }
-        if (auto* brewHandler = systemContext_->brewHandler()) {
-            brewHandler->process();
-            brewHandler->valveSafetyShutdownCheck();
-        }
-    }
+    // Update handlers - all handlers are required and always exist
+    systemContext_.hotWaterHandler().process();
+    systemContext_.brewHandler().process();
+    systemContext_.brewHandler().valveSafetyShutdownCheck();
 
-    // Update brew timer display state using UIManager if available
+    // Update brew timer display state using UIManager - always available
     if (Config::getInstance().hardwareSwitchesBrewEnabled.get()) {
-        if (uiManager_) {
-            uiManager_->shouldDisplayBrewTimer();
-        } else {
-            extern bool shouldDisplayBrewTimer();
-            shouldDisplayBrewTimer();
-        }
+        uiManager_.shouldDisplayBrewTimer();
+    } else {
+        extern bool shouldDisplayBrewTimer();
+        shouldDisplayBrewTimer();
     }
 }
 
@@ -657,10 +607,10 @@ void LoopManager::logTimerConfiguration() const {
         const float actualPressureFreq = pressureUpdateCount_ / timeDiffSeconds;
         const float actualScaleFreq = scaleUpdateCount_ / timeDiffSeconds;
 
-        LOGF(INFO, "Centralized Sensor Timer Performance Report:");
-        LOGF(INFO, "  Temperature: %.1fHz actual (%lu updates)", actualTempFreq, temperatureUpdateCount_);
-        LOGF(INFO, "  Pressure: %.1fHz actual (%lu updates)", actualPressureFreq, pressureUpdateCount_);
-        LOGF(INFO, "  Scale: %.1fHz actual (%lu updates)", actualScaleFreq, scaleUpdateCount_);
+        LOGF(DEBUG, "Centralized Sensor Timer Performance Report:");
+        LOGF(DEBUG, "  Temperature: %.1fHz actual (%lu updates)", actualTempFreq, temperatureUpdateCount_);
+        LOGF(DEBUG, "  Pressure: %.1fHz actual (%lu updates)", actualPressureFreq, pressureUpdateCount_);
+        LOGF(DEBUG, "  Scale: %.1fHz actual (%lu updates)", actualScaleFreq, scaleUpdateCount_);
     }
 
     // Reset counters for next measurement period

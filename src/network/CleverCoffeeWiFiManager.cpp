@@ -172,7 +172,7 @@ void CleverCoffeeWiFiManager::checkAndMaintainConnection() {
     bool isOfflineMode = networkCoordinator_->isOfflineMode();
 
     // Don't attempt reconnection if in offline mode or brewing is active
-    if (isOfflineMode || (CleverCoffee::getGlobalSystemContext()->brewHandler() && CleverCoffee::getGlobalSystemContext()->brewHandler()->isBrewActive()))
+    if (isOfflineMode || CleverCoffee::getGlobalSystemContext()->brewHandler().isBrewActive())
         return;
 
     // Get current reconnect count

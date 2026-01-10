@@ -22,11 +22,13 @@
 
 ProcessController::ProcessController(const Config&                 config,
                                       CleverCoffee::SystemContext&   systemContext,
-                                      DisplayManager*                displayManager,
-                                      CleverCoffee::HardwareManager* hardwareManager,
-                                      MQTTManager*                   mqttManager)
-    : config_(config), systemContext_(systemContext), displayManager_(displayManager), hardwareManager_(hardwareManager),
-      mqttManager_(mqttManager), pidController_(nullptr), temperature_(0.0), pidOutput_(0.0), setpoint_(0.0),
+                                      CleverCoffee::HardwareManager& hardwareManager,
+                                      DisplayManager&                displayManager,
+                                      MQTTManager&                   mqttManager)
+    : config_(config), systemContext_(systemContext), hardwareManager_(hardwareManager),
+      displayManager_(displayManager),
+      mqttManager_(mqttManager),
+      pidController_(nullptr), temperature_(0.0), pidOutput_(0.0), setpoint_(0.0),
       aggKp_(0.0), aggKi_(0.0), aggKd_(0.0), aggTn_(0.0), aggTv_(0.0), aggIMax_(0.0), aggbKp_(0.0), aggbKi_(0.0),
       aggbKd_(0.0), aggbTn_(0.0), aggbTv_(0.0), steamKp_(0.0), brewSetpoint_(0.0), steamSetpoint_(0.0),
       brewTempOffset_(0.0), lastMachineStatePid_(MachineStateId::INIT), initialized_(false), lastTempEvent_(0),
@@ -152,10 +154,8 @@ void ProcessController::updatePIDState(MachineStateId machineState) {
             setPIDEnabled(false);
             pidOutput_                = 0;
             systemContext_.setProcessPidOutput(0);
-            if (hardwareManager_) {
-                // Turn off heater through hardware manager
-                // TODO: Add method to HardwareManager for heater control
-            }
+            // Turn off heater through hardware manager
+            // TODO: Add method to HardwareManager for heater control
         }
     } else {
         // Enable PID if it was disabled
@@ -272,9 +272,7 @@ void ProcessController::emergencyStop() {
      pidOutput_                = 0;
      systemContext_.setProcessPidOutput(0);
 
-     if (hardwareManager_) {
-         hardwareManager_->safeShutdown();
-     }
+     hardwareManager_.safeShutdown();
 }
 
 double ProcessController::getCurrBrewTime() const {
@@ -410,9 +408,7 @@ void ProcessController::handleBrewPIDDelay(MachineStateId machineState) {
                 systemContext_.setPidMode(MANUAL);
                 pidOutput_                = 0;
                 systemContext_.setProcessPidOutput(0);
-                if (hardwareManager_) {
-                    hardwareManager_->getHeaterRelay()->off();
-                }
+                hardwareManager_.getHeaterRelay()->off();
                 LOGF(DEBUG,
                      "disabled PID, waiting for %.0f seconds before enabling PID again",
                      config_.brewPidDelay.get());
@@ -452,9 +448,7 @@ void ProcessController::performSafeShutdown() {
     systemContext_.setProcessPidOutput(0);
 
     // Delegate hardware shutdown to HardwareManager
-    if (hardwareManager_) {
-        hardwareManager_->safeShutdown();
-    }
+    hardwareManager_.safeShutdown();
 
     LOG(INFO, "ProcessController safe shutdown completed");
 }

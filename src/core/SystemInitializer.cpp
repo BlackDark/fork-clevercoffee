@@ -40,7 +40,7 @@ extern void enableTimer1();
 // checkBrewActive removed - now accessed via SystemContext->brewHandler()
 
 SystemInitializer::SystemInitializer()
-    : systemInitialized_(false), hostname_(), displayManager_(nullptr), uiManager_(nullptr), hardwareManager_(nullptr),
+    : systemInitialized_(false), initState_(InitState::NOT_INITIALIZED), hostname_(), displayManager_(nullptr), uiManager_(nullptr), hardwareManager_(nullptr),
       mqttManager_(nullptr), cleverCoffeeWiFiManager_(nullptr), webServerManager_(nullptr) {}
 
 SystemInitializer::~SystemInitializer() {
@@ -50,6 +50,7 @@ SystemInitializer::~SystemInitializer() {
 
 bool SystemInitializer::initialize() {
     LOG(INFO, "Starting system initialization");
+    initState_ = InitState::INITIALIZING;
 
     // Create SystemContext first
     systemContext_ = std::make_unique<CleverCoffee::SystemContext>();
@@ -60,12 +61,14 @@ bool SystemInitializer::initialize() {
     logMemoryBasic("Before Logger Init");
     if (!initializeLogger()) {
         LOG(ERROR, "Logger initialization failed");
+        initState_ = InitState::FAILED;
         return false;
     }
 
     logMemoryBasic("Before Config Init");
     if (!initializeConfiguration()) {
         LOG(ERROR, "Configuration initialization failed");
+        initState_ = InitState::FAILED;
         return false;
     }
     logMemoryBasic("After Config Init");
@@ -77,8 +80,14 @@ bool SystemInitializer::initialize() {
 
     logMemoryBasic("Before Display Init");
      if (!initializeDisplay()) {
-         LOG(WARNING, "Display initialization failed, continuing without display");
-     } else {
+         // DisplayManager is required - initialization failure is critical
+         LOG(ERROR, "DisplayManager initialization failed - system cannot continue");
+         initState_ = InitState::FAILED;
+         return false;
+     }
+     
+     // DisplayManager and UIManager always exist now - show logo if hardware is connected
+     if (displayManager_->isInitialized()) {
          uiManager_->displayLogo("Version ", systemContext_->sysVersion());
      }
 
@@ -92,7 +101,10 @@ bool SystemInitializer::initialize() {
     if (!initializeHardware()) {
         LOG(ERROR, "Hardware initialization failed");
         logMemory("Hardware Init FAILED");
-        uiManager_->displayLogo(String("Error "), "Hardware initialization failed");
+        if (uiManager_) {
+            uiManager_->displayLogo(String("Error "), "Hardware initialization failed");
+        }
+        initState_ = InitState::FAILED;
         return false;
     }
 
@@ -101,19 +113,34 @@ bool SystemInitializer::initialize() {
     // Phase 3: Network and services
     LOG(INFO, "Starting Phase 3: Network and services");
     if (!initializeNetworking()) {
-        LOG(WARNING, "Network initialization failed, continuing in offline mode");
+        if (!Config::getInstance().systemOfflineMode.get()) {
+            // Network is required (not in offline mode) but failed - this is a critical error
+            LOG(ERROR, "Network is required but initialization failed - system cannot continue");
+            initState_ = InitState::FAILED;
+            return false;
+        }
+        // Offline mode is configured - this is OK
+        LOG(INFO, "Offline mode configured, network initialization skipped");
         systemContext_->networkCoordinator().setOfflineMode(true);
     }
 
     LOG(INFO, "Starting MQTT initialization");
     if (!initializeMQTT()) {
-        LOG(WARNING, "MQTT initialization failed, continuing without MQTT");
+        if (Config::getInstance().mqttEnabled.get() && !systemContext_->networkCoordinator().isOfflineMode()) {
+            // MQTT is enabled but failed to initialize - this is a critical error
+            LOG(ERROR, "MQTT is enabled but initialization failed - system cannot continue");
+            initState_ = InitState::FAILED;
+            return false;
+        }
+        // MQTT is not configured or offline mode - this is OK
+        LOG(INFO, "MQTT not configured or offline mode, continuing without MQTT");
     }
 
     // Phase 4: PID and sensors
     LOG(INFO, "Starting Phase 4: PID and sensors");
     if (!initializePID()) {
         LOG(ERROR, "PID initialization failed");
+        initState_ = InitState::FAILED;
         return false;
     }
 
@@ -154,6 +181,7 @@ bool SystemInitializer::initialize() {
 
     // System initialization complete
     systemInitialized_ = true;  // CRITICAL: Mark system as initialized so isInitialized() returns true
+    initState_ = InitState::INITIALIZED;
 
     logMemory("SystemInitializer Complete");
     LOG(INFO, "System initialization completed successfully");
@@ -208,54 +236,56 @@ bool SystemInitializer::initializeConfiguration() {
 }
 
 bool SystemInitializer::initializeDisplay() {
-    if (!Config::getInstance().hardwareOledEnabled.get()) {
-        LOG(INFO, "Display disabled in configuration");
-        return true;
-    }
-
+    // DisplayManager is ALWAYS created - it's a required component
+    // Even if feature is disabled, manager exists to track state
     try {
         const Hardware::OLEDType    displayType    = Config::getInstance().hardwareOledType.get();
         const Hardware::OLEDAddress displayAddress = Config::getInstance().hardwareOledAddress.get();
 
+        // DisplayManager is ALWAYS created - required component
         displayManager_ = std::make_unique<DisplayManager>(displayType, displayAddress);
-
-        if (displayManager_ && displayManager_->isInitialized()) {
-            // Set compatibility pointer for existing code
-            
-            // Populate HardwareContext (modern DI approach)
-            systemContext_->hardwareContext().setDisplay(displayManager_->getDisplay());
-
-            // Basic display setup - full initialization will be done in main.cpp
-            // The display is now ready for basic operations but NOT for complex display functions
-            // that depend on global state (like language strings, templates, etc.)
-
-            // TODO maybe separated
-            uiManager_ = std::make_unique<UIManager>(displayManager_.get(), systemContext_.get());
-
-            if (uiManager_->initialize()) {
-                LOG(INFO, "UIManager initialized successfully");
-            } else {
-                LOG(ERROR, "UIManager initialization failed!");
-            }
-
-            const System::DisplayTemplate templateId = Config::getInstance().displayTemplate.get();
-            DisplayTemplateManager::initializeDisplay(templateId);
-            LOG(INFO, "Display initialization completed");
-            return true;
-        } else {
-            LOG(ERROR, "Failed to create DisplayManager");
-            displayManager_.reset();
-            systemContext_->hardwareContext().setDisplay(nullptr);
-            // TODO probably wrong
-            systemContext_->hardwareContext().setDisplay(nullptr);
-            Config::getInstance().hardwareOledEnabled.set(false);
+        if (!displayManager_) {
+            LOG(ERROR, "Failed to create DisplayManager - system cannot continue");
+            initState_ = InitState::FAILED;
             return false;
         }
+
+        // UIManager is ALWAYS created - required component
+        uiManager_ = std::make_unique<UIManager>(displayManager_.get(), systemContext_.get());
+        if (!uiManager_) {
+            LOG(ERROR, "Failed to create UIManager - system cannot continue");
+            initState_ = InitState::FAILED;
+            return false;
+        }
+
+        if (Config::getInstance().hardwareOledEnabled.get()) {
+            if (displayManager_->isInitialized()) {
+                // Hardware is connected - proceed with full setup
+                systemContext_->hardwareContext().setDisplay(displayManager_->getDisplay());
+
+                if (uiManager_->initialize()) {
+                    LOG(INFO, "UIManager initialized successfully");
+                } else {
+                    LOG(ERROR, "UIManager initialization failed!");
+                }
+
+                const System::DisplayTemplate templateId = Config::getInstance().displayTemplate.get();
+                DisplayTemplateManager::initializeDisplay(templateId);
+                LOG(INFO, "Display initialization completed");
+            } else {
+                // Hardware not connected, but manager exists and tracks state
+                LOG(WARNING, "DisplayManager created but hardware not connected - manager will track state");
+                systemContext_->hardwareContext().setDisplay(nullptr);
+            }
+        } else {
+            LOG(INFO, "Display disabled in configuration, but DisplayManager and UIManager created");
+        }
+        
+        // Manager always exists - required component
+        return true;
     } catch (const std::exception& e) {
         LOGF(ERROR, "Exception during display initialization: %s", e.what());
-        displayManager_.reset();
-        systemContext_->hardwareContext().setDisplay(nullptr);
-        systemContext_->hardwareContext().setDisplay(nullptr);
+        initState_ = InitState::FAILED;
         return false;
     }
 }
@@ -298,18 +328,26 @@ bool SystemInitializer::initializeHardware() {
 }
 
 bool SystemInitializer::initializeNetworking() {
-    if (Config::getInstance().systemOfflineMode.get()) {
-        LOG(INFO, "Offline mode enabled, skipping network initialization");
-        WiFi.disconnect();
-        systemContext_->networkCoordinator().setOfflineMode(true);
-        setRuntimePidState(true);
-        return true;
-    }
-
+    // WiFiManager is ALWAYS created - it's a required component
+    // Even if offline mode, manager exists to track state
     try {
-        cleverCoffeeWiFiManager_                = std::make_unique<CleverCoffeeWiFiManager>(&systemContext_->networkCoordinator());
+        cleverCoffeeWiFiManager_ = std::make_unique<CleverCoffeeWiFiManager>(&systemContext_->networkCoordinator());
+        if (!cleverCoffeeWiFiManager_) {
+            LOG(ERROR, "Failed to create WiFiManager - system cannot continue");
+            initState_ = InitState::FAILED;
+            return false;
+        }
+        
         systemContext_->setCleverCoffeeWiFiManager(cleverCoffeeWiFiManager_.get());
         systemContext_->setWifiManager(cleverCoffeeWiFiManager_.get());
+
+        if (Config::getInstance().systemOfflineMode.get()) {
+            LOG(INFO, "Offline mode enabled, WiFiManager created but network disabled");
+            WiFi.disconnect();
+            systemContext_->networkCoordinator().setOfflineMode(true);
+            setRuntimePidState(true);
+            return true;
+        }
 
         setupWiFi();
 
@@ -353,30 +391,31 @@ bool SystemInitializer::initializeNetworking() {
 }
 
 bool SystemInitializer::initializeMQTT() {
-    if (systemContext_->networkCoordinator().isOfflineMode() || !Config::getInstance().mqttEnabled.get()) {
-        LOG(INFO, "MQTT disabled, skipping MQTT initialization");
-        return true;
-    }
-
-     try {
-         mqttManager_ = std::make_unique<MQTTManager>();
-         mqttManager_->setSystemContext(systemContext_.get());
-         mqttManager_->setUICoordinator(&systemContext_->uiCoordinator());
-         mqttManager_->setSensorCoordinator(&systemContext_->sensorCoordinator());
-         mqttManager_->setNetworkCoordinator(&systemContext_->networkCoordinator());
+    // MQTTManager is ALWAYS created - it's a required component
+    // Even if disabled, manager exists to track state
+    try {
+        mqttManager_ = std::make_unique<MQTTManager>();
+        if (!mqttManager_) {
+            LOG(ERROR, "Failed to create MQTTManager - system cannot continue");
+            initState_ = InitState::FAILED;
+            return false;
+        }
+        
+        mqttManager_->setSystemContext(systemContext_.get());
+        mqttManager_->setUICoordinator(&systemContext_->uiCoordinator());
+        mqttManager_->setSensorCoordinator(&systemContext_->sensorCoordinator());
+        mqttManager_->setNetworkCoordinator(&systemContext_->networkCoordinator());
 
         systemContext_->setMQTTManager(mqttManager_.get());
-        if (mqttManager_->setup(Config::getInstance().systemHostname.get())) {
-            // Set compatibility variables
-            // mqtt_enabled = mqttManager_->isEnabled();
-            Config::getInstance().mqttEnabled.set(mqttManager_->isEnabled());
-            // mqtt_hassio_enabled = true;
-            //  TODO check if this is right
-            Config::getInstance().mqttHassioEnabled.set(true);
 
-            // Set global reference for other parts of the system
-            // mqttManager = std::move(mqttManager_);
-            // mqttManager_ = nullptr; // Transfer ownership
+        if (systemContext_->networkCoordinator().isOfflineMode() || !Config::getInstance().mqttEnabled.get()) {
+            LOG(INFO, "MQTT disabled, but MQTTManager created");
+            return true;
+        }
+
+        if (mqttManager_->setup(Config::getInstance().systemHostname.get())) {
+            Config::getInstance().mqttEnabled.set(mqttManager_->isEnabled());
+            Config::getInstance().mqttHassioEnabled.set(true);
 
             registerMQTTParameters();
             registerMQTTSensors();
@@ -387,11 +426,12 @@ bool SystemInitializer::initializeMQTT() {
             LOG(INFO, "MQTT setup completed via MQTTManager");
             return true;
         } else {
-            LOG(WARNING, "MQTT setup returned false");
-            return false;
+            LOG(WARNING, "MQTT setup returned false, but manager exists");
+            return true; // Manager exists, setup can be retried later
         }
     } catch (const std::exception& e) {
         LOGF(ERROR, "Failed to initialize MQTTManager: %s", e.what());
+        initState_ = InitState::FAILED;
         return false;
     }
 }
@@ -638,8 +678,11 @@ void SystemInitializer::registerMQTTSensors() {
     LOG(DEBUG, "MQTT sensors registered");
 }
 
-CleverCoffeeWiFiManager* SystemInitializer::getWiFiManager() const {
-    return cleverCoffeeWiFiManager_.get();
+CleverCoffeeWiFiManager& SystemInitializer::getWiFiManager() const {
+    if (!cleverCoffeeWiFiManager_) {
+        LOG(FATAL, "WiFiManager not initialized - system bug!");
+    }
+    return *cleverCoffeeWiFiManager_;
 }
 
 void SystemInitializer::setupWiFi() {

@@ -202,13 +202,13 @@ inline bool shouldDisplayBrewTimer() {
 
     switch (currBrewTimerState) {
         case kBrewTimerIdle:
-            if (CleverCoffee::getGlobalSystemContext()->brewHandler() && CleverCoffee::getGlobalSystemContext()->brewHandler()->isBrewActive()) {
+            if (CleverCoffee::getGlobalSystemContext()->brewHandler().isBrewActive()) {
                 currBrewTimerState = kBrewTimerRunning;
             }
             break;
 
         case kBrewTimerRunning:
-            if (!CleverCoffee::getGlobalSystemContext()->brewHandler() || !CleverCoffee::getGlobalSystemContext()->brewHandler()->isBrewActive()) {
+            if (!CleverCoffee::getGlobalSystemContext()->brewHandler().isBrewActive()) {
                 currBrewTimerState = kBrewTimerPostBrew;
                 brewEndTime        = millis();
             }

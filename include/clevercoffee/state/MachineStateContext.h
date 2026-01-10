@@ -5,6 +5,7 @@
 
 #pragma once
 
+
 #include "clevercoffee/state/IHardwareContext.h"
 #include "clevercoffee/state/IConfigContext.h"
 #include "clevercoffee/state/IStateManager.h"
@@ -57,12 +58,17 @@ class MachineStateContext : public CleverCoffee::IHardwareContext,
   public:
     /**
       * @brief Construct context with references to all managers
+      * @param systemContext System context (REQUIRED)
+      * @param hardwareManager Hardware manager (REQUIRED - CRITICAL component)
+      * @param displayManager Display manager (REQUIRED - always exists)
+      * @param wifiManager WiFi manager (REQUIRED - always exists)
+      * @param mqttManager MQTT manager (REQUIRED - always exists)
       */
     MachineStateContext(CleverCoffee::SystemContext& systemContext,
-                        DisplayManager*               displayManager,
-                        CleverCoffee::HardwareManager*              hardwareManager,
-                        CleverCoffeeWiFiManager*      wifiManager,
-                        MQTTManager*                  mqttManager);
+                        CleverCoffee::HardwareManager& hardwareManager,
+                        DisplayManager&               displayManager,
+                        CleverCoffeeWiFiManager&      wifiManager,
+                        MQTTManager&                  mqttManager);
 
     /**
      * @brief Virtual destructor for proper cleanup
@@ -79,29 +85,35 @@ class MachineStateContext : public CleverCoffee::IHardwareContext,
 
     /**
      * @brief Get display manager
+     * @return Pointer to display manager (always exists when enabled, nullptr when disabled)
      */
-    DisplayManager* getDisplayManager() const noexcept {
+    DisplayManager& getDisplayManager() const noexcept {
         return displayManager_;
     }
 
     /**
-      * @brief Get hardware manager
+      * @brief Get hardware manager (REQUIRED - CRITICAL component)
       */
-    CleverCoffee::HardwareManager* getHardwareManager() const noexcept {
+    CleverCoffee::HardwareManager& getHardwareManager() const noexcept {
         return hardwareManager_;
     }
 
     /**
       * @brief Get WiFi manager
       */
-    CleverCoffeeWiFiManager* getWiFiManager() const noexcept {
+    /**
+     * @brief Get WiFi manager
+     * @return Pointer to WiFi manager (always exists when enabled, nullptr when offline mode)
+     */
+    CleverCoffeeWiFiManager& getWiFiManager() const noexcept {
         return wifiManager_;
     }
 
     /**
      * @brief Get MQTT manager
+     * @return Pointer to MQTT manager (always exists when enabled, nullptr when disabled)
      */
-    MQTTManager* getMQTTManager() const noexcept {
+    MQTTManager& getMQTTManager() const noexcept {
         return mqttManager_;
     }
 
@@ -681,11 +693,11 @@ class MachineStateContext : public CleverCoffee::IHardwareContext,
      // System context
      CleverCoffee::SystemContext& systemContext_;
 
-     // Manager references
-     DisplayManager*          displayManager_;
-     CleverCoffee::HardwareManager*         hardwareManager_;
-     CleverCoffeeWiFiManager* wifiManager_;
-     MQTTManager*             mqttManager_;
+     // Manager references - ALL REQUIRED
+     CleverCoffee::HardwareManager&         hardwareManager_;  // REQUIRED - CRITICAL component
+     DisplayManager&                       displayManager_;   // REQUIRED - always exists
+     CleverCoffeeWiFiManager&              wifiManager_;      // REQUIRED - always exists
+     MQTTManager&                          mqttManager_;      // REQUIRED - always exists
 
       // === Machine State Management ===
      bool emergencyStop_        = false;      ///< Emergency stop activated

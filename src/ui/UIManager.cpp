@@ -155,13 +155,13 @@ void UIManager::displayMessage(const String& text1,
 bool UIManager::shouldDisplayBrewTimer() {
     switch (brewTimerState_) {
         case BrewTimerState::Idle:
-            if (systemContext_ && systemContext_->brewHandler() && systemContext_->brewHandler()->isBrewActive()) {
+            if (systemContext_ && systemContext_->brewHandler().isBrewActive()) {
                 brewTimerState_ = BrewTimerState::Running;
             }
             break;
 
         case BrewTimerState::Running:
-            if (!systemContext_ || !systemContext_->brewHandler() || !systemContext_->brewHandler()->isBrewActive()) {
+            if (!systemContext_ || !systemContext_->brewHandler().isBrewActive()) {
                 brewTimerState_ = BrewTimerState::PostBrew;
                 brewEndTime_    = millis();
             }

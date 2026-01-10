@@ -23,11 +23,27 @@ class SystemContext;
 }
 
 /**
+ * @enum InitState
+ * @brief System initialization state
+ */
+enum class InitState {
+    NOT_INITIALIZED,  ///< System not yet initialized
+    INITIALIZING,     ///< System initialization in progress
+    INITIALIZED,      ///< System fully initialized and ready
+    FAILED            ///< System initialization failed
+};
+
+/**
  * @class SystemInitializer
  * @brief RAII wrapper for complete system initialization
  *
  * This class provides safe management of system initialization using RAII principles.
  * It encapsulates all initialization phases with proper error handling and logging.
+ *
+ * Component Criticality:
+ * - CRITICAL: HardwareManager, SystemContext, ProcessController (must exist, system exits if fails)
+ * - IMPORTANT: DisplayManager, NetworkManager (should exist, system degrades if fails)
+ * - OPTIONAL: MQTTManager, some LEDs (may or may not exist)
  */
 class SystemInitializer {
   public:
@@ -64,42 +80,69 @@ class SystemInitializer {
     }
 
     /**
-     * @brief Get display manager
-     * @return Pointer to display manager (may be null)
+     * @brief Get initialization state
+     * @return Current initialization state
      */
-    DisplayManager* getDisplayManager() const {
-        return displayManager_.get();
+    InitState getInitState() const {
+        return initState_;
     }
 
     /**
      * @brief Get display manager
      * @return Pointer to display manager (may be null)
      */
-    UIManager* getUIManager() const {
-        return uiManager_.get();
+    DisplayManager& getDisplayManager() const {
+        if (!displayManager_) {
+            LOG(FATAL, "DisplayManager not initialized - system bug!");
+        }
+        return *displayManager_;
     }
 
     /**
-     * @brief Get hardware manager
-     * @return Pointer to hardware manager (may be null)
+     * @brief Get UI manager (REQUIRED)
+     * @return Reference to UI manager
      */
-    CleverCoffee::HardwareManager* getHardwareManager() const {
-        return hardwareManager_.get();
+    UIManager& getUIManager() const {
+        if (!uiManager_) {
+            LOG(FATAL, "UIManager not initialized - system bug!");
+        }
+        return *uiManager_;
     }
 
     /**
-     * @brief Get MQTT manager
-     * @return Pointer to MQTT manager (may be null)
+     * @brief Get hardware manager (CRITICAL component)
+     * @return Reference to hardware manager
+     * @throws std::logic_error if hardware manager not initialized or system not ready
      */
-    MQTTManager* getMQTTManager() const {
-        return mqttManager_.get();
+    CleverCoffee::HardwareManager& getHardwareManager() const {
+        if (initState_ != InitState::INITIALIZED) {
+            LOG(FATAL, "System not initialized - cannot access HardwareManager");
+            // In embedded systems, we can't throw, so use emergency shutdown
+            // For now, log fatal error - caller should check isInitialized() first
+        }
+        if (!hardwareManager_) {
+            LOG(FATAL, "HardwareManager not initialized - system bug!");
+            // This should never happen if initialization succeeded
+        }
+        return *hardwareManager_;
     }
 
     /**
-      * @brief Get WiFi manager
-      * @return Pointer to WiFi manager (may be null)
+     * @brief Get MQTT manager (REQUIRED)
+     * @return Reference to MQTT manager
+     */
+    MQTTManager& getMQTTManager() const {
+        if (!mqttManager_) {
+            LOG(FATAL, "MQTTManager not initialized - system bug!");
+        }
+        return *mqttManager_;
+    }
+
+    /**
+      * @brief Get WiFi manager (REQUIRED)
+      * @return Reference to WiFi manager
       */
-    class CleverCoffeeWiFiManager* getWiFiManager() const;
+    CleverCoffeeWiFiManager& getWiFiManager() const;
 
     /**
      * @brief Get web server manager
@@ -110,11 +153,18 @@ class SystemInitializer {
     }
 
     /**
-     * @brief Get system context
-     * @return Pointer to system context (may be null)
+     * @brief Get system context (CRITICAL component)
+     * @return Reference to system context
+     * @throws std::logic_error if system context not initialized or system not ready
      */
-    CleverCoffee::SystemContext* getSystemContext() const {
-        return systemContext_.get();
+    CleverCoffee::SystemContext& getSystemContext() const {
+        if (initState_ != InitState::INITIALIZED) {
+            LOG(FATAL, "System not initialized - cannot access SystemContext");
+        }
+        if (!systemContext_) {
+            LOG(FATAL, "SystemContext not initialized - system bug!");
+        }
+        return *systemContext_;
     }
 
     /**
@@ -127,6 +177,7 @@ class SystemInitializer {
   private:
     // Initialization state
     bool   systemInitialized_;
+    InitState initState_;
     String hostname_;
 
     // Manager instances

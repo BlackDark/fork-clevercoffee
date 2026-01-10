@@ -5,10 +5,10 @@
 
 #pragma once
 
-#include "clevercoffee/state/MachineStateIds.h"
-
-#include <PID_v1.h>
 #include <memory>
+
+#include "clevercoffee/state/MachineStateIds.h"
+#include <PID_v1.h>
 
 // Forward declarations
 class DisplayManager;
@@ -44,16 +44,17 @@ class ProcessController {
   public:
     /**
       * @param config Configuration instance
-      * @param systemContext System context for sensor coordinator access
-      * @param displayManager Display manager instance
-      * @param hardwareManager Hardware manager instance
-      * @param mqttManager MQTT manager instance
+      * @param systemContext System context for sensor coordinator access (REQUIRED)
+      * @param hardwareManager Hardware manager instance (REQUIRED - CRITICAL component)
+      * @param displayManager Display manager instance (OPTIONAL)
+      * @param displayManager Display manager (REQUIRED - always exists)
+      * @param mqttManager MQTT manager (REQUIRED - always exists)
       */
     ProcessController(const Config&    config,
                       CleverCoffee::SystemContext& systemContext,
-                      DisplayManager*  displayManager,
-                      CleverCoffee::HardwareManager* hardwareManager,
-                      MQTTManager*     mqttManager);
+                      CleverCoffee::HardwareManager& hardwareManager,
+                      DisplayManager&  displayManager,
+                      MQTTManager&     mqttManager);
 
     /**
      * @brief Destructor
@@ -314,10 +315,10 @@ class ProcessController {
     // System context reference (not owned)
     CleverCoffee::SystemContext& systemContext_;
 
-    // Manager dependencies
-    DisplayManager*  displayManager_;
-    CleverCoffee::HardwareManager* hardwareManager_;
-    MQTTManager*     mqttManager_;
+    // Manager dependencies - ALL REQUIRED
+    CleverCoffee::HardwareManager& hardwareManager_;  // REQUIRED - CRITICAL component
+    DisplayManager&                displayManager_;   // REQUIRED - always exists
+    MQTTManager&                   mqttManager_;     // REQUIRED - always exists
 
     // PID controller
     std::unique_ptr<PID> pidController_;

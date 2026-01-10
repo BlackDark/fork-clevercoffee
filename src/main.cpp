@@ -127,45 +127,50 @@ void setup() {
          true, systemInitializer->isInitialized());
 
     // Get managers from SystemInitializer - they are owned by systemInitializer
-    DisplayManager*          displayManager  = systemInitializer->getDisplayManager();
-    CleverCoffee::HardwareManager*         hardwareManager = systemInitializer->getHardwareManager();
-    CleverCoffeeWiFiManager* wifiManager     = systemInitializer->getWiFiManager();
-    MQTTManager*             mqttManager     = systemInitializer->getMQTTManager();
-    UIManager*               uiManager       = systemInitializer->getUIManager();
+    // All managers are REQUIRED and always exist
+    auto& displayManager = systemInitializer->getDisplayManager();
+    auto& wifiManager    = systemInitializer->getWiFiManager();
+    auto& mqttManager    = systemInitializer->getMQTTManager();
+    auto& uiManager      = systemInitializer->getUIManager();
+    // Note: HardwareManager and SystemContext are also accessed via references in constructors
 
     // Complete initialization steps that require global dependencies
     if (Config::getInstance().hardwareSensorsScaleEnabled.get()) {
         // Get sensor coordinator from system context for scale initialization
-        CleverCoffee::SensorCoordinator* sensorCoord = &systemInitializer->getSystemContext()->sensorCoordinator();
+        CleverCoffee::SensorCoordinator* sensorCoord = &systemInitializer->getSystemContext().sensorCoordinator();
         // Scale initialization will be handled via SensorCoordinator when Scale implements ISensor
         logMemoryBasic("Scale sensor support via SensorCoordinator");
     }
 
      if (systemInitializer->isInitialized()) {
          LOGF(INFO, "systemInitializer->isInitialized() = true, creating StateMachine, ProcessController, and LoopManager");
-          stateMachine = std::make_unique<StateMachine>(
-             *systemInitializer->getSystemContext(), displayManager, hardwareManager, wifiManager,
-             mqttManager);
+         
+         // Get required components (references - guaranteed to exist)
+         auto& systemContext = systemInitializer->getSystemContext();
+         auto& hardwareManager = systemInitializer->getHardwareManager();
+         
+         // Create StateMachine with required components as references
+         stateMachine = std::make_unique<StateMachine>(
+             systemContext, hardwareManager, displayManager, wifiManager, mqttManager);
          InitHelpers::logInitResult("StateMachine", stateMachine->initialize());
 
           // Register MachineStateContext in SystemContext for safe access
-          systemInitializer->getSystemContext()->setMachineStateContext(&stateMachine->getContext());
+          systemContext.setMachineStateContext(&stateMachine->getContext());
           
           // Finalize machine state (must be done after MachineStateContext is registered)
           systemInitializer->finalizeMachineState();
 
-         // Initialize ProcessController for PID control
+         // Initialize ProcessController for PID control with required components as references
         processController =
-            std::make_unique<ProcessController>(Config::getInstance(), *systemInitializer->getSystemContext(), displayManager, hardwareManager, mqttManager);
+            std::make_unique<ProcessController>(Config::getInstance(), systemContext, hardwareManager, displayManager, mqttManager);
         
          // Register ProcessController in SystemContext for safe access
-         systemInitializer->getSystemContext()->setProcessController(processController.get());
+         systemContext.setProcessController(processController.get());
          InitHelpers::logInitResult("ProcessController", processController->initialize());
 
-         // Initialize LoopManager for main loop coordination
-         CleverCoffee::SensorCoordinator* sensorCoord = &systemInitializer->getSystemContext()->sensorCoordinator();
-         CleverCoffee::HardwareManager* hwManager = systemInitializer->getHardwareManager();
-         loopManager = std::make_unique<LoopManager>(processController.get(), uiManager, nullptr, sensorCoord, hwManager, systemInitializer->getSystemContext());
+         // Initialize LoopManager for main loop coordination with required components as references
+         auto& sensorCoord = systemContext.sensorCoordinator();
+         loopManager = std::make_unique<LoopManager>(systemContext, hardwareManager, *processController, sensorCoord, uiManager);
          InitHelpers::logInitResult("LoopManager", loopManager->initialize());
 
          // Configure sensor update timers (uncomment and modify as needed)
@@ -181,7 +186,7 @@ void setup() {
      }
 
     // Initialize handler objects and set up references in global state and SystemContext
-    initializeHandlers(systemInitializer->getSystemContext());
+    initializeHandlers(&systemInitializer->getSystemContext());
     InitHelpers::logInitResult("Handlers", true);
 
     logMemory("Setup Complete");
@@ -207,7 +212,7 @@ void loop() {
             extern volatile uint32_t isr_relay_off_count;
             extern volatile bool isr_enabled;
             
-            LOGF(INFO, "LOOP STATUS: loops=%lu, ISR enabled=%d, ISR calls=%lu, relay_on=%lu, relay_off=%lu, temp=%.1f°C, setpoint=%.1f°C, pidOutput=%.1f",
+            LOGF(DEBUG, "LOOP STATUS: loops=%lu, ISR enabled=%d, ISR calls=%lu, relay_on=%lu, relay_off=%lu, temp=%.1f°C, setpoint=%.1f°C, pidOutput=%.1f",
                  loopCount, 
                  (int)isr_enabled,
                  isr_call_count,

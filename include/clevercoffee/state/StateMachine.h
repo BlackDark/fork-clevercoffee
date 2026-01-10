@@ -41,17 +41,17 @@ class StateMachine {
   public:
     /**
       * @brief Constructor
-      * @param systemContext System context instance
-      * @param displayManager Display manager instance
-      * @param hardwareManager Hardware manager instance
-      * @param wifiManager WiFi manager instance
-      * @param mqttManager MQTT manager instance
+      * @param systemContext System context instance (REQUIRED)
+      * @param hardwareManager Hardware manager instance (REQUIRED - CRITICAL component)
+      * @param displayManager Display manager (REQUIRED - always exists)
+      * @param wifiManager WiFi manager (REQUIRED - always exists)
+      * @param mqttManager MQTT manager (REQUIRED - always exists)
       */
     StateMachine(CleverCoffee::SystemContext& systemContext,
-                 DisplayManager*               displayManager,
-                 CleverCoffee::HardwareManager*              hardwareManager,
-                 CleverCoffeeWiFiManager*      wifiManager,
-                 MQTTManager*                  mqttManager);
+                 CleverCoffee::HardwareManager& hardwareManager,
+                 DisplayManager&               displayManager,
+                 CleverCoffeeWiFiManager&      wifiManager,
+                 MQTTManager&                  mqttManager);
 
     /**
      * @brief Destructor

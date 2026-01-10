@@ -24,93 +24,95 @@
 #include <Arduino.h>
 
 MachineStateContext::MachineStateContext(CleverCoffee::SystemContext& systemContext,
-                                         DisplayManager*               displayManager,
-                                         CleverCoffee::HardwareManager*              hardwareManager,
-                                         CleverCoffeeWiFiManager*      wifiManager,
-                                         MQTTManager*                  mqttManager)
-    : systemContext_(systemContext), displayManager_(displayManager), hardwareManager_(hardwareManager),
-      wifiManager_(wifiManager), mqttManager_(mqttManager) {}
+                                         CleverCoffee::HardwareManager& hardwareManager,
+                                         DisplayManager&               displayManager,
+                                         CleverCoffeeWiFiManager&      wifiManager,
+                                         MQTTManager&                  mqttManager)
+    : systemContext_(systemContext), hardwareManager_(hardwareManager),
+      displayManager_(displayManager),
+      wifiManager_(wifiManager),
+      mqttManager_(mqttManager) {}
 
 // === Hardware Component Access ===
 
 TempSensor* MachineStateContext::getTempSensor() noexcept {
-    return hardwareManager_ ? hardwareManager_->getTempSensor() : nullptr;
+    return hardwareManager_.getTempSensor();
 }
 
 const TempSensor* MachineStateContext::getTempSensor() const noexcept {
-    return hardwareManager_ ? hardwareManager_->getTempSensor() : nullptr;
+    return hardwareManager_.getTempSensor();
 }
 
 TempSensor* MachineStateContext::getTemperatureSensor() const {
-    return hardwareManager_ ? hardwareManager_->getTempSensor() : nullptr;
+    return hardwareManager_.getTempSensor();
 }
 
 Switch* MachineStateContext::getWaterTankSensor() noexcept {
-    return hardwareManager_ ? hardwareManager_->getWaterTankSensor() : nullptr;
+    return hardwareManager_.getWaterTankSensor();
 }
 
 const Switch* MachineStateContext::getWaterTankSensor() const noexcept {
-    return hardwareManager_ ? hardwareManager_->getWaterTankSensor() : nullptr;
+    return hardwareManager_.getWaterTankSensor();
 }
 
 Switch* MachineStateContext::getBrewSwitch() const {
-    return hardwareManager_ ? hardwareManager_->getBrewSwitch() : nullptr;
+    return hardwareManager_.getBrewSwitch();
 }
 
 Switch* MachineStateContext::getSteamSwitch() const {
-    return hardwareManager_ ? hardwareManager_->getSteamSwitch() : nullptr;
+    return hardwareManager_.getSteamSwitch();
 }
 
 Switch* MachineStateContext::getHotWaterSwitch() const {
-    return hardwareManager_ ? hardwareManager_->getHotWaterSwitch() : nullptr;
+    return hardwareManager_.getHotWaterSwitch();
 }
 
 Switch* MachineStateContext::getPowerSwitch() const {
-    return hardwareManager_ ? hardwareManager_->getPowerSwitch() : nullptr;
+    return hardwareManager_.getPowerSwitch();
 }
 
 Relay* MachineStateContext::getHeaterRelay() noexcept {
-    return hardwareManager_ ? hardwareManager_->getHeaterRelay() : nullptr;
+    return hardwareManager_.getHeaterRelay();
 }
 
 const Relay* MachineStateContext::getHeaterRelay() const {
-    return hardwareManager_ ? hardwareManager_->getHeaterRelay() : nullptr;
+    return hardwareManager_.getHeaterRelay();
 }
 
 Relay* MachineStateContext::getPumpRelay() noexcept {
-    return hardwareManager_ ? hardwareManager_->getPumpRelay() : nullptr;
+    return hardwareManager_.getPumpRelay();
 }
 
 const Relay* MachineStateContext::getPumpRelay() const {
-    return hardwareManager_ ? hardwareManager_->getPumpRelay() : nullptr;
+    return hardwareManager_.getPumpRelay();
 }
 
 Relay* MachineStateContext::getValveRelay() noexcept {
-    return hardwareManager_ ? hardwareManager_->getValveRelay() : nullptr;
+    return hardwareManager_.getValveRelay();
 }
 
 const Relay* MachineStateContext::getValveRelay() const {
-    return hardwareManager_ ? hardwareManager_->getValveRelay() : nullptr;
+    return hardwareManager_.getValveRelay();
 }
 
 LED* MachineStateContext::getStatusLed() noexcept {
-    return hardwareManager_ ? hardwareManager_->getStatusLed() : nullptr;
+    return hardwareManager_.getStatusLed();
 }
 
 const LED* MachineStateContext::getStatusLed() const noexcept {
-    return hardwareManager_ ? hardwareManager_->getStatusLed() : nullptr;
+    return hardwareManager_.getStatusLed();
 }
 
 LED* MachineStateContext::getStatusLED() const {
-    return hardwareManager_ ? hardwareManager_->getStatusLed() : nullptr;
+    return hardwareManager_.getStatusLed();
 }
 
 LED* MachineStateContext::getBrewLED() const {
-    return hardwareManager_ ? hardwareManager_->getBrewLed() : nullptr;
+    return hardwareManager_.getBrewLed();
 }
 
 LED* MachineStateContext::getSteamLED() const {
-    return hardwareManager_ ? hardwareManager_->getSteamLed() : nullptr;
+    return hardwareManager_.getSteamLed();
 }
 
 Scale* MachineStateContext::getScale() const {
@@ -161,8 +163,7 @@ bool MachineStateContext::hasSensorError() const {
 // TODO those are wrong the functions behind like brew() and manualFlush() are triggering those events
 
 bool MachineStateContext::isBrewActive() const {
-    auto* brewHandler = systemContext_.brewHandler();
-    return brewHandler ? brewHandler->isBrewActive() : false;
+    return systemContext_.brewHandler().isBrewActive();
 }
 
 bool MachineStateContext::isManualFlushActive() const {
@@ -232,7 +233,7 @@ void MachineStateContext::performSafeShutdown() const {
 // === Display Functions ===
 
 U8G2* MachineStateContext::getDisplay() const {
-    return displayManager_ ? displayManager_->getDisplay() : nullptr;
+    return displayManager_.getDisplay();
 }
 
 void MachineStateContext::setDisplayPowerSave(int mode) const {
@@ -463,79 +464,53 @@ unsigned long MachineStateContext::getStateStartTime() const noexcept {
 // === High-Level Hardware Control (Delegated to HardwareManager) ===
 
 void MachineStateContext::enableHeater() noexcept {
-    if (hardwareManager_) {
-        hardwareManager_->enableHeater();
-    }
+    hardwareManager_.enableHeater();
 }
 
 void MachineStateContext::disableHeater() noexcept {
-    if (hardwareManager_) {
-        hardwareManager_->disableHeater();
-    }
+    hardwareManager_.disableHeater();
 }
 
 void MachineStateContext::setHeaterPower(uint8_t percentage) noexcept {
-    if (hardwareManager_) {
-        hardwareManager_->setHeaterPower(percentage);
-    }
+    hardwareManager_.setHeaterPower(percentage);
 }
 
 void MachineStateContext::enablePump() noexcept {
-    if (hardwareManager_) {
-        hardwareManager_->enablePump();
-    }
+    hardwareManager_.enablePump();
 }
 
 void MachineStateContext::disablePump() noexcept {
-    if (hardwareManager_) {
-        hardwareManager_->disablePump();
-    }
+    hardwareManager_.disablePump();
 }
 
 void MachineStateContext::setPumpPressure(float bar) noexcept {
-    if (hardwareManager_) {
-        hardwareManager_->setPumpPressure(bar);
-    }
+    hardwareManager_.setPumpPressure(bar);
 }
 
 void MachineStateContext::openSteamValve() noexcept {
-    if (hardwareManager_) {
-        hardwareManager_->openSteamValve();
-    }
+    hardwareManager_.openSteamValve();
 }
 
 void MachineStateContext::closeSteamValve() noexcept {
-    if (hardwareManager_) {
-        hardwareManager_->closeSteamValve();
-    }
+    hardwareManager_.closeSteamValve();
 }
 
 void MachineStateContext::openWaterValve() noexcept {
-    if (hardwareManager_) {
-        hardwareManager_->openWaterValve();
-    }
+    hardwareManager_.openWaterValve();
 }
 
 void MachineStateContext::closeWaterValve() noexcept {
-    if (hardwareManager_) {
-        hardwareManager_->closeWaterValve();
-    }
+    hardwareManager_.closeWaterValve();
 }
 
 void MachineStateContext::openSolenoid() noexcept {
-    if (hardwareManager_) {
-        hardwareManager_->openSolenoid();
-    }
+    hardwareManager_.openSolenoid();
 }
 
 void MachineStateContext::closeSolenoid() noexcept {
-    if (hardwareManager_) {
-        hardwareManager_->closeSolenoid();
-    }
+    hardwareManager_.closeSolenoid();
 }
 
 void MachineStateContext::emergencyShutdown() noexcept {
-    if (hardwareManager_) {
-        hardwareManager_->emergencyShutdown();
-    }
+    hardwareManager_.emergencyShutdown();
 }
