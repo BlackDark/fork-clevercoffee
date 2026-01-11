@@ -12,6 +12,7 @@
 #include "clevercoffee/coordinators/NetworkCoordinator.h"
 #include "clevercoffee/display/languages.h"
 #include "clevercoffee/handlers/BrewHandler.h"
+#include "clevercoffee/utils/Resilience.h"
 
 #include <ESP.h>
 #include <WiFi.h>
@@ -32,6 +33,21 @@ CleverCoffeeWiFiManager::CleverCoffeeWiFiManager(CleverCoffee::NetworkCoordinato
     // Create custom hostname parameter
     const String hostname = Config::getInstance().systemHostname.get();
     customHostname_       = std::make_unique<WiFiManagerParameter>("hostname", "Hostname", hostname.c_str(), 30);
+    
+    // Initialize retry policy with exponential backoff: 10s initial, 5min max, 2x multiplier, 5 max attempts
+    retryPolicy_ = std::make_unique<CleverCoffee::Utils::RetryPolicy>(
+        10000,   // Initial delay: 10 seconds
+        300000,  // Max delay: 5 minutes
+        2.0,     // Backoff multiplier: 2x
+        5        // Max attempts: 5 (matches maxWifiReconnects)
+    );
+    
+    // Initialize circuit breaker: 5 failures, 60s open timeout, 30s half-open timeout
+    circuitBreaker_ = std::make_unique<CleverCoffee::Utils::CircuitBreaker>(
+        5,      // Failure threshold: 5 failures
+        60000,  // Open timeout: 60 seconds
+        30000   // Half-open timeout: 30 seconds
+    );
 }
 
 CleverCoffeeWiFiManager::~CleverCoffeeWiFiManager() {
@@ -160,8 +176,7 @@ String CleverCoffeeWiFiManager::getSSID() const {
 }
 
 void CleverCoffeeWiFiManager::checkAndMaintainConnection() {
-    static int  connectionAttemptCounter = 1;
-    static bool wifiConnectedHandled     = false;
+    static bool wifiConnectedHandled = false;
 
     // Check offline mode from NetworkCoordinator
     if (!networkCoordinator_) {
@@ -171,59 +186,90 @@ void CleverCoffeeWiFiManager::checkAndMaintainConnection() {
 
     bool isOfflineMode = networkCoordinator_->isOfflineMode();
 
-    // Don't attempt reconnection if in offline mode or brewing is active
-    if (isOfflineMode || CleverCoffee::getGlobalSystemContext()->brewHandler().isBrewActive())
+    // Don't attempt reconnection if in offline mode
+    if (isOfflineMode)
         return;
 
-    // Get current reconnect count
-    unsigned int wifiReconnects = networkCoordinator_->getWifiReconnects();
-
-    // Try to connect and if it does not succeed, enter offline mode
-    if ((millis() - networkCoordinator_->getLastWifiConnectionAttempt() >= ::wifiConnectionDelay) &&
-        (wifiReconnects <= ::maxWifiReconnects)) {
-        if (WiFi.status() != WL_CONNECTED) { // check WiFi connection status
-            wifiConnectedHandled = false;
-
-            if (connectionAttemptCounter == 1) {
-                // Increment reconnect counter
-                networkCoordinator_->incrementWifiReconnects();
-                wifiReconnects = networkCoordinator_->getWifiReconnects();
-                
-                LOGF(INFO, "Attempting WIFI (re-)connection: %i", wifiReconnects);
-                WiFi.disconnect();
-                WiFi.begin();
-            }
-
-            // Use yield() instead of delay() to avoid blocking other tasks
-            yield();
-
-            if (WiFi.status() != WL_CONNECTED && connectionAttemptCounter < 100) {
-                connectionAttemptCounter++; // reconnect counter, maximum waiting time = 20*100ms plus loop times
-            } else {
-                if (connectionAttemptCounter == 100) {
-                    LOGF(INFO, "Wifi Reconnection failed - %i loops", connectionAttemptCounter);
-                    networkCoordinator_->setLastWifiConnectionAttempt(millis());
-                    connectionAttemptCounter                  = 1;
-                }
-            }
-        } else {
-            if (wifiConnectedHandled == false) {
-                LOGF(INFO, "Wifi Reconnected - %i loops", connectionAttemptCounter);
-                wifiConnectedHandled     = true;
-                connectionAttemptCounter = 1;
-            }
+    const unsigned long currentTime = millis();
+    
+    // Check circuit breaker - fail fast if circuit is open
+    if (!circuitBreaker_->canAttempt(currentTime)) {
+        if (!wifiConnectedHandled) {
+            LOGF(WARNING, "WiFi circuit breaker OPEN - skipping reconnection attempt (fail fast)");
+            wifiConnectedHandled = true;
         }
+        return;
     }
 
-    // Enter offline mode if maximum reconnection attempts reached
-    if (wifiReconnects >= ::maxWifiReconnects && WiFi.status() != WL_CONNECTED) {
-        // no wifi connection after trying connection, initiate offline mode
-        networkCoordinator_->setOfflineMode(true);
-        LOG(INFO, "Entered offline mode after maximum WiFi reconnection attempts");
+    // Check if WiFi is connected
+    if (WiFi.status() == WL_CONNECTED) {
+        // WiFi is connected - record success and reset retry policy
+        if (!wifiConnectedHandled) {
+            LOGF(INFO, "WiFi connected successfully (attempt %u)", retryPolicy_->getCurrentAttempt() + 1);
+            wifiConnectedHandled = true;
+        }
+        circuitBreaker_->recordSuccess(currentTime);
+        retryPolicy_->reset();
+        networkCoordinator_->resetWifiReconnects();
+        networkCoordinator_->setWifiConnected(true);
+        return;
+    }
+
+    // WiFi is not connected - check if we should retry
+    if (!retryPolicy_->shouldRetry()) {
+        // Max attempts reached - enter offline mode
+        if (!isOfflineMode) {
+            networkCoordinator_->setOfflineMode(true);
+            LOGF(WARNING, "WiFi max reconnection attempts reached (%u) - entering offline mode", 
+                 retryPolicy_->getCurrentAttempt());
+        }
+        return;
+    }
+
+    // Check if enough time has passed for next retry (exponential backoff)
+    if (!retryPolicy_->canRetryNow(currentTime)) {
+        return; // Wait for backoff period
+    }
+
+    // Attempt reconnection
+    wifiConnectedHandled = false;
+    retryPolicy_->incrementAttempt(currentTime);
+    networkCoordinator_->incrementWifiReconnects();
+    networkCoordinator_->setLastWifiConnectionAttempt(currentTime);
+    
+    LOGF(INFO, "Attempting WiFi reconnection: attempt %u/%u (delay: %lums)", 
+         retryPolicy_->getCurrentAttempt(), 
+         retryPolicy_->isMaxAttemptsReached() ? retryPolicy_->getCurrentAttempt() : 0,
+         retryPolicy_->getNextDelay());
+    
+    WiFi.disconnect();
+    WiFi.begin();
+    
+    // Use yield() instead of delay() to avoid blocking other tasks
+    yield();
+
+    // Check connection status after brief delay
+    // Note: WiFi.begin() is asynchronous, so we check status in next loop iteration
+    const unsigned int attemptNumber = retryPolicy_->getCurrentAttempt();
+    if (WiFi.status() == WL_CONNECTED) {
+        // Connection successful
+        circuitBreaker_->recordSuccess(currentTime);
+        retryPolicy_->reset();
+        networkCoordinator_->resetWifiReconnects();
+        networkCoordinator_->setWifiConnected(true);
+        LOGF(INFO, "WiFi reconnected successfully on attempt %u", attemptNumber);
     } else {
-        if (WiFi.status() == WL_CONNECTED) {
-            // Reset reconnect counter on successful connection
-            networkCoordinator_->resetWifiReconnects();
+        // Connection failed - record failure
+        circuitBreaker_->recordFailure(currentTime);
+        LOGF(DEBUG, "WiFi reconnection attempt %u failed, next retry in %lums", 
+             retryPolicy_->getCurrentAttempt(), retryPolicy_->getNextDelay());
+    }
+
+    // Enter offline mode if circuit breaker is open and max attempts reached
+    if (circuitBreaker_->isOpen() && retryPolicy_->isMaxAttemptsReached()) {
+        if (!isOfflineMode) {
+            networkCoordinator_->setOfflineMode(true);
+            LOG(WARNING, "WiFi circuit breaker OPEN and max attempts reached - entering offline mode");
         }
     }
 }

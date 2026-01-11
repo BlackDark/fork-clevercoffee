@@ -2,12 +2,14 @@
 /**
  * @file Scale.h
  * @brief Scale interface and implementations
+ * @deprecated Use ISensor interface and SensorCoordinator instead. This interface is kept for backward compatibility.
  */
 
 #pragma once
 
 /**
  * @brief Abstract base class for scale implementations
+ * @deprecated Use ISensor interface and SensorCoordinator instead. This class is kept for backward compatibility.
  */
 class Scale {
   public:

@@ -17,7 +17,6 @@
 // #include "../hotWaterHandler.h" - removed to avoid circular dependencies
 #include "clevercoffee/types/GlobalTypes.h"
 #include "clevercoffee/Logger.h"
-#include "clevercoffee/standby.h"
 #include "clevercoffee/state/MachineStateIds.h"
 #include "clevercoffee/utils/SystemUtils.h"
 
@@ -40,10 +39,6 @@ TempSensor* MachineStateContext::getTempSensor() noexcept {
 }
 
 const TempSensor* MachineStateContext::getTempSensor() const noexcept {
-    return hardwareManager_.getTempSensor();
-}
-
-TempSensor* MachineStateContext::getTemperatureSensor() const {
     return hardwareManager_.getTempSensor();
 }
 
@@ -103,10 +98,6 @@ const LED* MachineStateContext::getStatusLed() const noexcept {
     return hardwareManager_.getStatusLed();
 }
 
-LED* MachineStateContext::getStatusLED() const {
-    return hardwareManager_.getStatusLed();
-}
-
 LED* MachineStateContext::getBrewLED() const {
     return hardwareManager_.getBrewLed();
 }
@@ -116,7 +107,7 @@ LED* MachineStateContext::getSteamLED() const {
 }
 
 Scale* MachineStateContext::getScale() const {
-    return CleverCoffee::getGlobalSystemContext()->hardwareContext().scalePtr();
+    return systemContext_.hardwareContext().scalePtr();
 }
 
 // === Sensor Data Access ===
@@ -171,7 +162,7 @@ bool MachineStateContext::isBrewActive() const {
 
 bool MachineStateContext::isManualFlushActive() const {
      // Manual flush state is checked via machine state
-     return isManualFlushState(CleverCoffee::getGlobalSystemContext()->machineStateContext()->getCurrentStateId());
+     return isManualFlushState(getCurrentStateId());
 }
 
 bool MachineStateContext::isSteamActive() const {
@@ -222,11 +213,11 @@ void MachineStateContext::resetStandbyTimer(MachineStateId stateId) const {
 // === Control Functions ===
 
 void MachineStateContext::setSteamMode(bool enabled) const {
-    ::setSteamMode(enabled);
+    ::setSteamMode(systemContext_, enabled);
 }
 
 void MachineStateContext::setPidRuntimeState(bool enabled) const {
-    setRuntimePidState(enabled);
+    setRuntimePidState(systemContext_, enabled);
 }
 
 void MachineStateContext::performSafeShutdown() const {
@@ -257,6 +248,10 @@ void MachineStateContext::logStateTransition(MachineStateId fromState,
     } else {
         LOGF(INFO, "State transition: %d -> %d", static_cast<int>(fromState), static_cast<int>(toState));
     }
+}
+
+MachineStateId MachineStateContext::getPidState() const noexcept {
+    return isPidEnabled() ? MachineStateId::PID_NORMAL : MachineStateId::PID_DISABLED;
 }
 
 void MachineStateContext::logStateEntry(MachineStateId stateId, const char* stateName) const {
@@ -392,9 +387,8 @@ double MachineStateContext::getWeight() const noexcept {
 }
 
 void MachineStateContext::tareScale() noexcept {
-    if (Scale* scale = getScale()) {
-        scale->tare();
-    }
+    // Use SensorCoordinator for scale operations
+    systemContext_.sensorCoordinator().setScaleTareMode(true);
 }
 
 void MachineStateContext::updateHardware() noexcept {

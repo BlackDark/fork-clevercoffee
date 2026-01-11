@@ -8,6 +8,8 @@
 #include "clevercoffee/Config.h"
 #include "clevercoffee/constants/Temperature.h"
 
+using CleverCoffee::Temperature::EMERGENCY_SAFE_TEMP_C;
+
 namespace CleverCoffee {
 
 EmergencyStopManager::EmergencyStopManager(const Config& config)
@@ -72,9 +74,9 @@ bool EmergencyStopManager::isEmergencyCleared(double temperature) const {
         return false;
     }
 
-    if (temperature > SAFE_TEMPERATURE_THRESHOLD) {
+    if (temperature > EMERGENCY_SAFE_TEMP_C) {
         LOGF(WARNING, "Temperature still elevated: %.1f°C (safe threshold: %.1f°C)",
-             temperature, SAFE_TEMPERATURE_THRESHOLD);
+             temperature, EMERGENCY_SAFE_TEMP_C);
         return false;
     }
 

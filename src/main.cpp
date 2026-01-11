@@ -83,7 +83,6 @@ std::unique_ptr<LoopManager> loopManager = nullptr;
 #include "clevercoffee/handlers/HotWaterHandler.h"
 #include "clevercoffee/handlers/PowerHandler.h"
 #include "clevercoffee/handlers/SteamHandler.h"
-#include "clevercoffee/standby.h"
 
 // Modern C++ initialization helpers
 namespace InitHelpers {
@@ -218,9 +217,9 @@ void loop() {
                  isr_call_count,
                  isr_relay_on_count,
                  isr_relay_off_count,
-                 CleverCoffee::getGlobalSystemContext()->processTemperature(),
-                 CleverCoffee::getGlobalSystemContext()->processSetpoint(),
-                 CleverCoffee::getGlobalSystemContext()->processPidOutput());
+                 systemInitializer->getSystemContext().processTemperature(),
+                 systemInitializer->getSystemContext().processSetpoint(),
+                 systemInitializer->getSystemContext().processPidOutput());
             
             lastDebugLog = now;
         }

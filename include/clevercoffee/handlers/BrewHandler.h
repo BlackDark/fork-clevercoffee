@@ -186,7 +186,10 @@ class BrewHandler : public SwitchBasedHandler {
     void checkPumpTimeout() {
         if (pumpTimer_.isExpired() && isBrewActive()) {
             logError("Pump timeout - stopping for safety");
-            // TODO: request brew stop through coordinator
+            // Request brew stop through MachineStateContext (proper state transition request)
+            if (systemContext_ && systemContext_->machineStateContext()) {
+                systemContext_->machineStateContext()->setBrewStopRequested(true);
+            }
         }
     }
 };

@@ -50,15 +50,10 @@ void SteamRunningState::update(MachineStateContext& context) {
 }
 
 MachineState* SteamRunningState::checkSpecificTransitions(MachineStateContext& context) {
+    // Check for steam stop request
     if (context.isSteamStopRequested()) {
         context.setSteamStopRequested(false);
-        if (context.isPidEnabled()) {
-            context.logStateTransition(getStateId(), MachineStateId::PID_NORMAL, "Steam stop requested");
-            return getStateInstance(MachineStateId::PID_NORMAL);
-        } else {
-            context.logStateTransition(getStateId(), MachineStateId::PID_DISABLED, "Steam stop requested");
-            return getStateInstance(MachineStateId::PID_DISABLED);
-        }
+        return transitionToPidState(context, "Steam stop requested");
     }
 
     // Check switch state directly instead of handler flag
@@ -71,25 +66,13 @@ MachineState* SteamRunningState::checkSpecificTransitions(MachineStateContext& c
         steamHandler.clearSwitchStateChange();
 
         if (wasReleased) {
-            if (context.isPidEnabled()) {
-                context.logStateTransition(getStateId(), MachineStateId::PID_NORMAL, "Steam switch deactivated");
-                return getStateInstance(MachineStateId::PID_NORMAL);
-            } else {
-                context.logStateTransition(getStateId(), MachineStateId::PID_DISABLED, "Steam switch deactivated");
-                return getStateInstance(MachineStateId::PID_DISABLED);
-            }
+            return transitionToPidState(context, "Steam switch deactivated");
         }
     }
 
     // For toggle: if switch is OFF, transition back to PID
     if (switchType == Hardware::SwitchType::TOGGLE && !steamHandler.isSteamSwitchPressed()) {
-        if (context.isPidEnabled()) {
-            context.logStateTransition(getStateId(), MachineStateId::PID_NORMAL, "Steam toggle switch OFF");
-            return getStateInstance(MachineStateId::PID_NORMAL);
-        } else {
-            context.logStateTransition(getStateId(), MachineStateId::PID_DISABLED, "Steam toggle switch OFF");
-            return getStateInstance(MachineStateId::PID_DISABLED);
-        }
+        return transitionToPidState(context, "Steam toggle switch OFF");
     }
 
     return nullptr;

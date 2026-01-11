@@ -17,6 +17,11 @@ namespace CleverCoffee {
 class NetworkCoordinator;
 }
 
+namespace CleverCoffee::Utils {
+class RetryPolicy;
+class CircuitBreaker;
+}
+
 /**
  * @class CleverCoffeeWiFiManager
  * @brief RAII wrapper for WiFi connection and configuration management
@@ -34,6 +39,8 @@ class CleverCoffeeWiFiManager {
 
     /**
      * @brief Destructor - automatically cleans up WiFi resources
+     * 
+     * Defined in .cpp file to allow incomplete types in header
      */
     ~CleverCoffeeWiFiManager();
 
@@ -106,6 +113,10 @@ class CleverCoffeeWiFiManager {
     std::unique_ptr<WiFiManagerParameter> customHostname_;
     bool                                  restartAfterAP_;
     CleverCoffee::NetworkCoordinator*     networkCoordinator_;
+    
+    // Error recovery with exponential backoff and circuit breaker
+    std::unique_ptr<CleverCoffee::Utils::RetryPolicy>   retryPolicy_;
+    std::unique_ptr<CleverCoffee::Utils::CircuitBreaker> circuitBreaker_;
 
     /**
      * @brief Configure WiFi manager parameters

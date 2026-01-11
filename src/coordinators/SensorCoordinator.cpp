@@ -109,6 +109,7 @@ void SensorCoordinator::updatePressure() noexcept {
     
     // Read pressure
     cachedPressure_ = measurePressure();
+    // Use internal filter method instead of helper function
     cachedPressureFiltered_ = filterPressureValue(cachedPressure_);
 }
 

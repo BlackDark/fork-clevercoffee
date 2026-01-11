@@ -126,11 +126,6 @@ class MachineStateContext : public CleverCoffee::IHardwareContext,
     const TempSensor* getTempSensor() const noexcept override;
 
     /**
-     * @brief Get temperature sensor (legacy method name)
-     */
-    TempSensor* getTemperatureSensor() const;
-
-    /**
      * @brief Get water tank sensor
      */
     Switch* getWaterTankSensor() noexcept override;
@@ -179,11 +174,6 @@ class MachineStateContext : public CleverCoffee::IHardwareContext,
      */
     LED* getStatusLed() noexcept override;
     const LED* getStatusLed() const noexcept override;
-
-    /**
-     * @brief Get status LED (legacy method name)
-     */
-    LED* getStatusLED() const;
 
     /**
      * @brief Get brew LED
@@ -575,6 +565,15 @@ class MachineStateContext : public CleverCoffee::IHardwareContext,
      * @brief Log state transition
      */
     void logStateTransition(MachineStateId fromState, MachineStateId toState, const char* reason = nullptr) const;
+
+    /**
+     * @brief Get the appropriate PID state based on PID enabled status
+     * @return MachineStateId::PID_NORMAL if PID is enabled, PID_DISABLED otherwise
+     * 
+     * This is a helper function to reduce code duplication in state transitions.
+     * Many states need to transition back to PID state, and this centralizes the logic.
+     */
+    MachineStateId getPidState() const noexcept;
 
     /**
      * @brief Log state entry

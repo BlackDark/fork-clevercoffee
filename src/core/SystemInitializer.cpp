@@ -21,6 +21,7 @@
 #include "clevercoffee/utils/SystemUtils.h"
 #include "clevercoffee/utils/memoryUtils.h"
 #include "clevercoffee/context/SystemContext.h"
+#include "clevercoffee/isr.h"
 
 #include <Arduino.h>
 #include <ArduinoOTA.h>
@@ -152,11 +153,11 @@ bool SystemInitializer::initialize() {
     // Phase 5: Finalization
     LOG(INFO, "Starting Phase 5: Finalization");
     
-    // CRITICAL: Set global SystemContext BEFORE enabling timer ISR
+    // CRITICAL: Set ISR SystemContext BEFORE enabling timer ISR
     // The ISR needs access to hardware context for relay control
-    LOGF(DEBUG, "Setting global SystemContext at %p", static_cast<void*>(systemContext_.get()));
-    CleverCoffee::setGlobalSystemContext(systemContext_.get());
-    auto* ctxCheck = CleverCoffee::getGlobalSystemContext();
+    LOGF(DEBUG, "Setting ISR SystemContext at %p", static_cast<void*>(systemContext_.get()));
+    CleverCoffee::ISR::setSystemContext(systemContext_.get());
+    auto* ctxCheck = CleverCoffee::ISR::getSystemContext();
     LOGF(DEBUG, "Global SystemContext set: ptr=%p, valid=%d", static_cast<void*>(ctxCheck), (ctxCheck != nullptr ? 1 : 0));
     
     LOG(DEBUG, "Calling setupTiming()");
@@ -214,6 +215,9 @@ bool SystemInitializer::initializeConfiguration() {
         Serial.flush();
         return false;
     }
+
+    // Inject SystemContext into Config for StateParamDef lambdas
+    Config::getInstance().setSystemContext(systemContext_.get());
 
     LOG(INFO, "Configuration system ready");
 
@@ -278,6 +282,7 @@ bool SystemInitializer::initializeDisplay() {
 
                 const System::DisplayTemplate templateId = Config::getInstance().displayTemplate.get();
                 DisplayTemplateManager::initializeDisplay(templateId);
+                ModernDisplayTemplateManager::setSystemContext(systemContext_.get());
                 LOG(INFO, "Display initialization completed");
             } else {
                 // Hardware not connected, but manager exists and tracks state
@@ -352,7 +357,7 @@ bool SystemInitializer::initializeNetworking() {
             LOG(INFO, "Offline mode enabled, WiFiManager created but network disabled");
             WiFi.disconnect();
             systemContext_->networkCoordinator().setOfflineMode(true);
-            setRuntimePidState(true);
+            setRuntimePidState(*systemContext_, true);
             return true;
         }
 
@@ -371,7 +376,6 @@ bool SystemInitializer::initializeNetworking() {
          webServerManager_                = std::make_unique<WebServerManager>(80);
          webServerManager_->setSystemContext(systemContext_.get());
          systemContext_->setWebServerManager(webServerManager_.get());
-        systemContext_->setWebServerManager(webServerManager_.get());
 
         if (!webServerManager_->initialize(true)) {
             LOG(ERROR, "WebServerManager initialization failed");
@@ -409,6 +413,7 @@ bool SystemInitializer::initializeMQTT() {
         }
         
         mqttManager_->setSystemContext(systemContext_.get());
+        // Note: CleverCoffeeWiFiManager doesn't need SystemContext - it uses NetworkCoordinator
         mqttManager_->setUICoordinator(&systemContext_->uiCoordinator());
         mqttManager_->setSensorCoordinator(&systemContext_->sensorCoordinator());
         mqttManager_->setNetworkCoordinator(&systemContext_->networkCoordinator());
@@ -428,7 +433,7 @@ bool SystemInitializer::initializeMQTT() {
             registerMQTTSensors();
 
             mqttManager_->checkConnection();
-            mqttManager_->sendHASSIODiscoveryMsg();
+            // HASSIO discovery will be sent via timer callback
 
             LOG(INFO, "MQTT setup completed via MQTTManager");
             return true;
@@ -519,19 +524,19 @@ bool SystemInitializer::finalizeMachineState() {
             static_cast<int>(Config::getInstance().hardwareSwitchesPowerType.get()) ==
                 static_cast<int>(Hardware::SwitchType::MOMENTARY)) {
             systemContext_->machineStateContext()->setCurrentStateId(MachineStateId::PID_NORMAL);
-            setRuntimePidState(true);
+            setRuntimePidState(*systemContext_, true);
             LOG(INFO, "Machine initialized in PID Normal mode (momentary switch)");
         }
         // For toggle switches, force PidOn to switch state mode
         else if (Config::getInstance().hardwareSwitchesPowerEnabled.get() &&
                  static_cast<int>(Config::getInstance().hardwareSwitchesPowerType.get()) ==
                      static_cast<int>(Hardware::SwitchType::TOGGLE)) {
-            if (CleverCoffee::getGlobalSystemContext()->hardwareContext().powerSwitch() && CleverCoffee::getGlobalSystemContext()->hardwareContext().powerSwitch()->isPressed()) {
-                setRuntimePidState(true);
+            if (systemContext_->hardwareContext().powerSwitch() && systemContext_->hardwareContext().powerSwitch()->isPressed()) {
+                setRuntimePidState(*systemContext_, true);
                 systemContext_->machineStateContext()->setCurrentStateId(MachineStateId::PID_NORMAL);
                 LOG(INFO, "Machine initialized in PID Normal mode (toggle switch ON)");
             } else {
-                setRuntimePidState(false);
+                setRuntimePidState(*systemContext_, false);
                 systemContext_->machineStateContext()->setCurrentStateId(MachineStateId::PID_DISABLED);
                 LOG(INFO, "Machine initialized in PID Disabled mode (toggle switch OFF)");
             }
@@ -539,7 +544,7 @@ bool SystemInitializer::finalizeMachineState() {
         // No power switch - use config PID setting
         else {
             const bool configPidEnabled = Config::getInstance().pidEnabled.get();
-            setRuntimePidState(configPidEnabled);
+            setRuntimePidState(*systemContext_, configPidEnabled);
             systemContext_->machineStateContext()->setCurrentStateId(configPidEnabled ? MachineStateId::PID_NORMAL : MachineStateId::PID_DISABLED);
             LOG(INFO,
                 configPidEnabled ? "Machine initialized in PID Normal mode (config enabled)"
@@ -659,7 +664,10 @@ void SystemInitializer::registerMQTTSensors() {
      mqttManager_->registerSensor("currentKp", [this] { return systemContext_->pidKp(); });
      mqttManager_->registerSensor("currentKi", [this] { return systemContext_->pidKi(); });
      mqttManager_->registerSensor("currentKd", [this] { return systemContext_->pidKd(); });
-     mqttManager_->registerSensor("machineState", [] { return static_cast<double>(CleverCoffee::getGlobalSystemContext()->machineStateContext()->getCurrentStateId()); });
+     // Machine state sensor registration - use lambda that captures systemContext
+     mqttManager_->registerSensor("machineState", [this] { 
+         return static_cast<double>(systemContext_->machineStateContext()->getCurrentStateId()); 
+     });
 
      // Brew-specific sensors
      if (Config::getInstance().hardwareSwitchesBrewEnabled.get()) {

@@ -6,22 +6,11 @@
 #pragma once
 
 #include "clevercoffee/types/GlobalTypes.h"
-#include "clevercoffee/context/SystemContext.h"
 
 #include <Arduino.h>
 #include <cmath>
-#include <mutex>
 
 // ==================== UTILITY FUNCTIONS ====================
-
-/**
- * @brief Flip uint8_t value between 0 and 1
- * @param value The value to flip
- * @return 1 if value is 0, otherwise 0
- */
-inline uint8_t flipUintValue(const uint8_t value) {
-    return value == 0 ? 1 : 0;
-}
 
 /**
  * @brief Modulo operation that handles negative numbers correctly
@@ -29,7 +18,7 @@ inline uint8_t flipUintValue(const uint8_t value) {
  * @param b The divisor
  * @return The modulo result
  */
-inline int mod(const int a, const int b) {
+constexpr int mod(const int a, const int b) noexcept {
     const int r = a % b;
     return r < 0 ? r + b : r;
 }
@@ -38,25 +27,10 @@ inline int mod(const int a, const int b) {
  * @brief Round a double value to 2 decimal places
  * @param value The value to round
  * @return The rounded value
+ * @note Cannot be constexpr due to std::round() not being constexpr in C++11/14
  */
-inline double round2(const double value) {
+inline double round2(const double value) noexcept {
     return std::round(value * 100.0) / 100.0;
-}
-
-/**
- * @brief Validate if a string represents a valid number
- * @param str The string to validate
- * @return true if the string is a valid number, false otherwise
- */
-inline bool isValidNumber(const String& str) {
-    if (str.length() == 0) return false;
-
-    for (const auto& ch : str) {
-        if (!isdigit(ch) && ch != '.' && ch != '-') {
-            return false;
-        }
-    }
-    return true;
 }
 
 // Thread-safe number to string conversion functions using thread_local storage
@@ -85,31 +59,4 @@ inline char* number2string(const int in) {
 inline char* number2string(const unsigned int in) {
     snprintf(number2string_uint, sizeof(number2string_uint), "%u", in);
     return number2string_uint;
-}
-
-/**
- * @brief Filter input value using exponential moving average filter (using fixed coefficients)
- *      After ~28 cycles the input is set to 99,66% if the real input value sum of inX and inY
- *      multiplier must be 1 increase inX multiplier to make the filter faster
- * @note Thread-safe implementation with mutex protection
- */
-inline float filterPressureValue(const float input) {
-    static std::mutex           filter_mutex;
-    std::lock_guard<std::mutex> lock(filter_mutex);
-
-    auto* ctx = CleverCoffee::getGlobalSystemContext();
-    if (!ctx) {
-        return 0.0f;
-    }
-
-    float inX   = static_cast<float>(input * 0.3f);
-    float inY   = static_cast<float>(ctx->inOld() * 0.7f);
-    float inSum = inX + inY;
-
-    ctx->setInX(inX);
-    ctx->setInY(inY);
-    ctx->setInSum(inSum);
-    ctx->setInOld(inSum);
-
-    return inSum;
 }

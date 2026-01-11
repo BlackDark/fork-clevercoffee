@@ -13,177 +13,179 @@
 namespace CleverCoffee {
 
 // ===== PROCESS STATE ACCESSORS =====
+// NOTE: These methods delegate to ProcessState class
+// All deprecated process_* members have been removed - ProcessState is the single source of truth
 
 double SystemContext::processTemperature() const noexcept {
-    return process_temperature_;
+    return processState_.temperature();
 }
 
 void SystemContext::setProcessTemperature(double temp) noexcept {
-    process_temperature_ = temp;
+    processState_.setTemperature(temp);
 }
 
 double SystemContext::processSetpoint() const noexcept {
-    return process_setpoint_;
+    return processState_.setpoint();
 }
 
 void SystemContext::setProcessSetpoint(double setpoint) noexcept {
-    process_setpoint_ = setpoint;
+    processState_.setSetpoint(setpoint);
 }
 
 double SystemContext::processPidOutput() const noexcept {
-    return process_pidOutput_;
+    return processState_.pidOutput();
 }
 
 void SystemContext::setProcessPidOutput(double output) noexcept {
-    process_pidOutput_ = output;
+    processState_.setPidOutput(output);
 }
 
 double SystemContext::processCurrentBrewTime() const noexcept {
-    return process_currBrewTime_;
+    return processState_.currentBrewTime();
 }
 
 void SystemContext::setProcessCurrentBrewTime(double time) noexcept {
-    process_currBrewTime_ = time;
+    processState_.setCurrentBrewTime(time);
 }
 
 double SystemContext::processTotalTargetBrewTime() const noexcept {
-    return process_totalTargetBrewTime_;
+    return processState_.totalTargetBrewTime();
 }
 
 void SystemContext::setProcessTotalTargetBrewTime(double time) noexcept {
-    process_totalTargetBrewTime_ = time;
+    processState_.setTotalTargetBrewTime(time);
 }
 
 bool SystemContext::isProcessBrewPidDisabled() const noexcept {
-    return process_brewPidDisabled_;
+    return processState_.brewPidDisabled();
 }
 
 void SystemContext::setProcessBrewPidDisabled(bool disabled) noexcept {
-    process_brewPidDisabled_ = disabled;
+    processState_.setBrewPidDisabled(disabled);
 }
 
 double SystemContext::processPreviousInput() const noexcept {
-    return process_previousInput_;
+    return processState_.previousInput();
 }
 
 void SystemContext::setProcessPreviousInput(double input) noexcept {
-    process_previousInput_ = input;
+    processState_.setPreviousInput(input);
 }
 
 double SystemContext::processPidAggKi() const noexcept {
-    return process_aggKi_;
+    return processState_.pidAggKi();
 }
 
 void SystemContext::setProcessPidAggKi(double value) noexcept {
-    process_aggKi_ = value;
+    processState_.setPidAggKi(value);
 }
 
 double SystemContext::processPidAggKd() const noexcept {
-    return process_aggKd_;
+    return processState_.pidAggKd();
 }
 
 void SystemContext::setProcessPidAggKd(double value) noexcept {
-    process_aggKd_ = value;
+    processState_.setPidAggKd(value);
 }
 
 double SystemContext::processPidKi() const noexcept {
-    return process_aggKi_;
+    return processState_.pidKi();
 }
 
 void SystemContext::setProcessPidKi(double value) noexcept {
-    process_aggKi_ = value;
+    processState_.setPidKi(value);
 }
 
 double SystemContext::processPidKd() const noexcept {
-    return process_aggKd_;
+    return processState_.pidKd();
 }
 
 void SystemContext::setProcessPidKd(double value) noexcept {
-    process_aggKd_ = value;
+    processState_.setPidKd(value);
 }
 
 int SystemContext::processWindowSize() const noexcept {
-    return process_windowSize_;
+    return processState_.windowSize();
 }
 
 void SystemContext::setProcessWindowSize(int size) noexcept {
-    process_windowSize_ = size;
+    processState_.setWindowSize(size);
 }
 
 bool SystemContext::isProcessPidEnabled() const noexcept {
-    return process_pidEnabled_;
+    return processState_.pidEnabled();
 }
 
 void SystemContext::setProcessPidEnabled(bool enabled) noexcept {
-    process_pidEnabled_ = enabled;
+    processState_.setPidEnabled(enabled);
 }
 
 double* SystemContext::processTemperaturePtr() noexcept {
-    return &process_temperature_;
+    return processState_.temperaturePtr();
 }
 
 double* SystemContext::processPidOutputPtr() noexcept {
-    return &process_pidOutput_;
+    return processState_.pidOutputPtr();
 }
 
 double* SystemContext::processSetpointPtr() noexcept {
-    return &process_setpoint_;
+    return processState_.setpointPtr();
 }
 
 // ===== DISPLAY SNAPSHOT =====
 
 SystemContext::DisplaySnapshot SystemContext::getDisplaySnapshot() const noexcept {
     DisplaySnapshot snapshot;
-    snapshot.currentTemperature = process_temperature_;
-    snapshot.setpointTemperature = process_setpoint_;
-    snapshot.pidOutputPercent = process_pidOutput_;
-    snapshot.currentBrewTime = process_currBrewTime_;
-    snapshot.targetBrewTime = process_totalTargetBrewTime_;
-    snapshot.brewPidDisabled = process_brewPidDisabled_;
-    snapshot.pidKp = 0.0;
-    snapshot.pidKi = 0.0;
-    snapshot.pidKd = 0.0;
-    snapshot.pumpOnTime = sensors_currPumpOnTime_;
-    snapshot.inputPressure = sensors_inputPressure_;
-    snapshot.brewWeight = sensors_currBrewWeight_;
+    snapshot.currentTemperature = processState_.temperature();
+    snapshot.setpointTemperature = processState_.setpoint();
+    snapshot.pidOutputPercent = processState_.pidOutput();
+    snapshot.currentBrewTime = processState_.currentBrewTime();
+    snapshot.targetBrewTime = processState_.totalTargetBrewTime();
+    snapshot.brewPidDisabled = processState_.brewPidDisabled();
+    // Get actual PID tuning values from PID controller
+    snapshot.pidKp = pidKp();
+    snapshot.pidKi = pidKi();
+    snapshot.pidKd = pidKd();
+    snapshot.pumpOnTime = sensorState_.currPumpOnTime();
+    snapshot.inputPressure = sensorState_.inputPressure();
+    snapshot.brewWeight = sensorState_.currBrewWeight();
     snapshot.isrCounter = timing_isrCounter_;
-    snapshot.displayBufferReady = coordination_displayBufferReady_;
+    snapshot.displayBufferReady = uiCoordinator_.isDisplayBufferReady();
     
     return snapshot;
 }
 
-void SystemContext::markDisplayBufferReady(bool ready) noexcept {
-    coordination_displayBufferReady_ = ready;
-}
 
 // ===== COMMAND/CONTROL ACCESSORS =====
 
 void SystemContext::requestScaleTare() noexcept {
-    sensors_scaleTareOn_ = true;
+    sensorState_.setScaleTareOn(true);
 }
 
 void SystemContext::requestScaleCalibration() noexcept {
-    sensors_scaleCalibrationOn_ = true;
+    sensorState_.setScaleCalibrationOn(true);
 }
 
 void SystemContext::setHassioDiscoveryRunning(bool running) noexcept {
-    coordination_hassioUpdateRunning_ = running;
+    // Delegate to UICoordinator (single source of truth)
+    uiCoordinator_.setHassioUpdateRunning(running);
 }
 
 void SystemContext::setHassioFailed(bool failed) noexcept {
-    network_hassioFailed_ = failed;
+    // Delegate to NetworkCoordinator (single source of truth)
+    networkCoordinator_.setHassioFailed(failed);
 }
 
 // ===== UTILITY ACCESSORS =====
 
 void SystemContext::updatePressureFilter(float input) noexcept {
-    sensors_inX_ = input * 0.3f;
-    sensors_inSum_ = sensors_inX_ + sensors_inY_;
-    sensors_inOld_ = sensors_inSum_;
+    sensorState_.setInX(input * 0.3f);
+    sensorState_.setInSum(sensorState_.inX() + sensorState_.inY());
+    sensorState_.setInOld(sensorState_.inSum());
 }
 
 float SystemContext::getPressureFilterOutput() const noexcept {
-    return sensors_inSum_;
+    return sensorState_.inSum();
 }
 
 // ===== CRITICAL MACHINE CONTROL ACCESSORS =====
@@ -221,15 +223,26 @@ void SystemContext::incrementIsrCounter() noexcept {
 }
 
 bool SystemContext::isEmergencyStopActive() const noexcept {
-    return machine_emergencyStop_;
+    // Delegate to MachineStateContext (single source of truth)
+    if (machineStateContext_) {
+        return machineStateContext_->isEmergencyStop();
+    }
+    // Fallback: return false if not initialized (should not happen after initialization)
+    return false;
 }
 
 void SystemContext::setEmergencyStop(bool active) noexcept {
-    machine_emergencyStop_ = active;
+    // Delegate to MachineStateContext (single source of truth)
+    if (machineStateContext_) {
+        machineStateContext_->setEmergencyStop(active);
+    }
 }
 
 void SystemContext::triggerEmergencyStop() noexcept {
-    machine_emergencyStop_ = true;
+    // Delegate to MachineStateContext (single source of truth)
+    if (machineStateContext_) {
+        machineStateContext_->setEmergencyStop(true);
+    }
     // Could add logging or notifications here in the future
 }
 
@@ -326,61 +339,81 @@ const PID* SystemContext::pidController() const noexcept {
 }
 
 // ===== SCALE AND SENSOR OPERATIONS =====
+// NOTE: These methods delegate to SensorCoordinator for consistency.
+// SensorCoordinator is the single source of truth for sensor readings.
+// SensorState is kept for backward compatibility but should be migrated away.
 
 bool SystemContext::scaleCalibrationOn() const noexcept {
-    return sensors_scaleCalibrationOn_;
+    // Delegate to SensorCoordinator (single source of truth)
+    return sensorCoordinator_.isScaleCalibrationMode();
 }
 
 void SystemContext::setScaleCalibrationOn(bool on) noexcept {
-    sensors_scaleCalibrationOn_ = on;
+    // Delegate to SensorCoordinator (single source of truth)
+    sensorCoordinator_.setScaleCalibrationMode(on);
+    // Also update SensorState for backward compatibility
+    sensorState_.setScaleCalibrationOn(on);
 }
 
 bool SystemContext::scaleTareOn() const noexcept {
-    return sensors_scaleTareOn_;
+    // Delegate to SensorCoordinator (single source of truth)
+    return sensorCoordinator_.isScaleTareMode();
 }
 
 void SystemContext::setScaleTareOn(bool on) noexcept {
-    sensors_scaleTareOn_ = on;
+    // Delegate to SensorCoordinator (single source of truth)
+    sensorCoordinator_.setScaleTareMode(on);
+    // Also update SensorState for backward compatibility
+    sensorState_.setScaleTareOn(on);
 }
 
 double SystemContext::currBrewWeight() const noexcept {
-    return sensors_currBrewWeight_;
+    // Delegate to SensorCoordinator (single source of truth)
+    return sensorCoordinator_.getBrewWeight();
 }
 
 void SystemContext::setCurrBrewWeight(double weight) noexcept {
-    sensors_currBrewWeight_ = weight;
+    // Note: Brew weight is managed by SensorCoordinator via startBrewWeightTracking()
+    // This setter is kept for backward compatibility but may be overwritten
+    sensorState_.setCurrBrewWeight(weight);
 }
 
 double SystemContext::currReadingWeight() const noexcept {
-    return sensors_currReadingWeight_;
+    // Delegate to SensorCoordinator (single source of truth)
+    return sensorCoordinator_.getWeight();
 }
 
 void SystemContext::setCurrReadingWeight(double weight) noexcept {
-    sensors_currReadingWeight_ = weight;
+    // Note: Weight is managed by SensorCoordinator
+    // This setter is kept for backward compatibility but may be overwritten
+    sensorState_.setCurrReadingWeight(weight);
 }
 
 double SystemContext::currPumpOnTime() const noexcept {
-    return sensors_currPumpOnTime_;
+    return sensorState_.currPumpOnTime();
 }
 
 void SystemContext::setCurrPumpOnTime(double time) noexcept {
-    sensors_currPumpOnTime_ = time;
+    sensorState_.setCurrPumpOnTime(time);
 }
 
 float SystemContext::inputPressure() const noexcept {
-    return sensors_inputPressure_;
+    // Delegate to SensorCoordinator (single source of truth)
+    return sensorCoordinator_.getPressure();
 }
 
 void SystemContext::setInputPressure(float pressure) noexcept {
-    sensors_inputPressure_ = pressure;
+    // Note: Pressure is managed by SensorCoordinator
+    // This setter is kept for backward compatibility but may be overwritten
+    sensorState_.setInputPressure(pressure);
 }
 
 bool SystemContext::scaleFailure() const noexcept {
-    return sensors_scaleFailure_;
+    return sensorState_.scaleFailure();
 }
 
 void SystemContext::setScaleFailure(bool failed) noexcept {
-    sensors_scaleFailure_ = failed;
+    sensorState_.setScaleFailure(failed);
 }
 
 // ===== NETWORK MANAGER REFERENCES =====
@@ -396,110 +429,141 @@ void SystemContext::setWifiManager(CleverCoffeeWiFiManager* manager) noexcept {
 // webServerManager() and setWebServerManager() are defined inline in header
 
 bool SystemContext::offlineMode() const noexcept {
-    return network_offlineMode_;
+    // Delegate to NetworkCoordinator (single source of truth)
+    return networkCoordinator_.isOfflineMode();
 }
 
 void SystemContext::setOfflineMode(bool offline) noexcept {
-    network_offlineMode_ = offline;
+    // Delegate to NetworkCoordinator (single source of truth)
+    networkCoordinator_.setOfflineMode(offline);
 }
 
 bool SystemContext::hassioDiscoveryRunning() const noexcept {
-    return coordination_hassioUpdateRunning_;
+    // Delegate to UICoordinator (single source of truth)
+    return uiCoordinator_.isHassioUpdateRunning();
 }
-
 
 bool SystemContext::hassioFailed() const noexcept {
-    return network_hassioFailed_;
+    // Delegate to NetworkCoordinator (single source of truth)
+    return networkCoordinator_.hasHassioFailed();
 }
-
 
 unsigned int SystemContext::wifiReconnects() const noexcept {
-    return network_wifiReconnects_;
+    // Delegate to NetworkCoordinator (single source of truth)
+    return networkCoordinator_.getWifiReconnects();
 }
 
-void SystemContext::setWifiReconnects(unsigned int count) noexcept {
-    network_wifiReconnects_ = count;
-}
 
 // ===== MACHINE MODE FLAGS =====
 
 bool SystemContext::steamMode() const noexcept {
-    return machine_steamON_;
+    // Delegate to MachineStateContext (single source of truth)
+    if (machineStateContext_) {
+        return machineStateContext_->isSteamModeActive();
+    }
+    // Fallback: return false if not initialized (should not happen after initialization)
+    return false;
 }
 
 void SystemContext::setSteamMode(bool on) noexcept {
-    machine_steamON_ = on;
+    // Delegate to MachineStateContext (single source of truth)
+    if (machineStateContext_) {
+        machineStateContext_->setSteamModeActive(on);
+    }
 }
 
 bool SystemContext::steamFirstOn() const noexcept {
-    return machine_steamFirstON_;
+    // Delegate to MachineStateContext (single source of truth)
+    if (machineStateContext_) {
+        return machineStateContext_->isSteamFirstActivated();
+    }
+    // Fallback: return false if not initialized (should not happen after initialization)
+    return false;
 }
 
 void SystemContext::setSteamFirstOn(bool on) noexcept {
-    machine_steamFirstON_ = on;
+    // Delegate to MachineStateContext (single source of truth)
+    if (machineStateContext_) {
+        machineStateContext_->setSteamFirstActivated(on);
+    }
 }
 
 bool SystemContext::backflushMode() const noexcept {
-    return machine_backflushOn_;
+    // Delegate to MachineStateContext (single source of truth)
+    if (machineStateContext_) {
+        return machineStateContext_->isBackflushModeActive();
+    }
+    // Fallback: return false if not initialized (should not happen after initialization)
+    return false;
 }
 
 void SystemContext::setBackflushMode(bool on) noexcept {
-    machine_backflushOn_ = on;
+    // Delegate to MachineStateContext (single source of truth)
+    if (machineStateContext_) {
+        machineStateContext_->setBackflushModeActive(on);
+    }
 }
 // ===== DISPLAY COORDINATION =====
 
 bool SystemContext::displayBufferReady() const noexcept {
-    return coordination_displayBufferReady_;
+    // Delegate to UICoordinator (single source of truth)
+    return uiCoordinator_.isDisplayBufferReady();
 }
 
 void SystemContext::setDisplayBufferReady(bool ready) noexcept {
-    coordination_displayBufferReady_ = ready;
+    // Delegate to UICoordinator (single source of truth)
+    if (ready) {
+        uiCoordinator_.setDisplayBufferReady();
+    } else {
+        uiCoordinator_.clearDisplayBufferReady();
+    }
 }
 
 // ===== PRESSURE FILTER VARIABLES =====
 
 float SystemContext::inX() const noexcept {
-    return sensors_inX_;
+    return sensorState_.inX();
 }
 
 void SystemContext::setInX(float value) noexcept {
-    sensors_inX_ = value;
+    sensorState_.setInX(value);
 }
 
 float SystemContext::inY() const noexcept {
-    return sensors_inY_;
+    return sensorState_.inY();
 }
 
 void SystemContext::setInY(float value) noexcept {
-    sensors_inY_ = value;
+    sensorState_.setInY(value);
 }
 
 float SystemContext::inOld() const noexcept {
-    return sensors_inOld_;
+    return sensorState_.inOld();
 }
 
 void SystemContext::setInOld(float value) noexcept {
-    sensors_inOld_ = value;
+    sensorState_.setInOld(value);
 }
 
 float SystemContext::inSum() const noexcept {
-    return sensors_inSum_;
+    return sensorState_.inSum();
 }
 
 void SystemContext::setInSum(float value) noexcept {
-    sensors_inSum_ = value;
+    sensorState_.setInSum(value);
 }
 
 float SystemContext::inputPressureFilter() const noexcept {
-    return sensors_inputPressureFilter_;
+    // Delegate to SensorCoordinator (single source of truth)
+    return sensorCoordinator_.getFilteredPressure();
 }
 
 float SystemContext::preBrewWeight() const noexcept {
-    return sensors_preBrewWeight_;
+    return sensorState_.preBrewWeight();
 }
 
 void SystemContext::setPreBrewWeight(float weight) noexcept {
-    sensors_preBrewWeight_ = weight;
+    sensorState_.setPreBrewWeight(weight);
 }
 
 const char* SystemContext::sysVersion() const noexcept {
@@ -511,18 +575,12 @@ const char* SystemContext::sysVersion() const noexcept {
 // WiFi password definition
 extern const char* WIFI_PASSWORD;
 
-// Global system context reference
-extern CleverCoffee::SystemContext* g_systemContext;
-
 }  // namespace CleverCoffee
 
 // ===== GLOBAL DEFINITIONS (outside namespace) =====
 
 // WiFi password definition
 const char* WIFI_PASSWORD = WM_PASS;
-
-// Global system context reference
-CleverCoffee::SystemContext* CleverCoffee::g_systemContext = nullptr;
 
 // ===== HANDLER INSTANCES =====
 

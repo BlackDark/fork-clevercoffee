@@ -5,7 +5,7 @@
 
 #pragma once
 
-#include "clevercoffee/constants/Display.h"
+#include "clevercoffee/constants/Timing.h"
 #include "clevercoffee/display/displayCommon.h"
 #include "clevercoffee/state/MachineStateIds.h"
 
@@ -16,13 +16,36 @@
  * common functionality while allowing specialized template behavior.
  * Uses traditional CRTP for maximum compatibility with zero-cost abstractions.
  */
+// Forward declaration
+namespace CleverCoffee {
+class SystemContext;
+}
+
 template <typename Derived>
 class ModernDisplayTemplate {
   public:
     /**
+     * @brief Set system context for display operations
+     */
+    void setSystemContext(CleverCoffee::SystemContext* context) noexcept {
+        systemContext_ = context;
+    }
+    
+    /**
+     * @brief Get system context
+     */
+    CleverCoffee::SystemContext* getSystemContext() const noexcept {
+        return systemContext_;
+    }
+    
+    /**
      * @brief Main screen rendering method using CRTP
      */
     void printScreen() {
+        if (!systemContext_) {
+            return; // No system context available
+        }
+        
         // Common early returns for fullscreen modes
         if (handleFullscreenModes()) {
             return;
@@ -37,19 +60,21 @@ class ModernDisplayTemplate {
         static_cast<Derived*>(this)->renderNormalDisplay();
 
         // Common finalization
-        CleverCoffee::getGlobalSystemContext()->markDisplayBufferReady(true);
+        systemContext_->setDisplayBufferReady(true);
     }
 
     /**
      * @brief Handle fullscreen display modes (common across all templates)
      */
     bool handleFullscreenModes() {
-        if (displayFullscreenBrewTimer()) return true;
-        if (displayFullscreenManualFlushTimer()) return true;
-        if (displayFullscreenHotWaterTimer()) return true;
+        if (!systemContext_) return false;
+        
+        if (displayFullscreenBrewTimer(*systemContext_)) return true;
+        if (displayFullscreenManualFlushTimer(*systemContext_)) return true;
+        if (displayFullscreenHotWaterTimer(*systemContext_)) return true;
 
         // Default offline mode handling
-        if (displayOfflineMode()) return true;
+        if (displayOfflineMode(*systemContext_)) return true;
 
         return false;
     }
@@ -59,35 +84,41 @@ class ModernDisplayTemplate {
      */
     bool handleMachineStates() {
         // Default machine state handling
-        return displayMachineState();
+        if (!systemContext_) return false;
+        return displayMachineState(*systemContext_);
     }
+
+  protected:
+    CleverCoffee::SystemContext* systemContext_{nullptr};
 
     /**
      * @brief Common temperature display with template-specific positioning
      */
     void displayTemperatureInfo(int baseX, int baseY) {
-        CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setFont(u8g2_font_profont11_tf);
+        if (!systemContext_) return;
+        
+        systemContext_->hardwareContext().display()->setFont(u8g2_font_profont11_tf);
 
         auto*       derived = static_cast<Derived*>(this);
         const auto& coords  = derived->getTemperatureCoords(baseX, baseY);
 
         // Current temperature
-        CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setCursor(coords.currentTempX, coords.currentTempY);
-        CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(derived->getCurrentTempLabel());
-        CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setCursor(coords.currentValueX, coords.currentTempY);
-        CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(CleverCoffee::getGlobalSystemContext()->processTemperature(), 1);
-        CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(" ");
-        CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(static_cast<char>(176));
-        CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print("C");
+        systemContext_->hardwareContext().display()->setCursor(coords.currentTempX, coords.currentTempY);
+        systemContext_->hardwareContext().display()->print(derived->getCurrentTempLabel());
+        systemContext_->hardwareContext().display()->setCursor(coords.currentValueX, coords.currentTempY);
+        systemContext_->hardwareContext().display()->print(systemContext_->processTemperature(), 1);
+        systemContext_->hardwareContext().display()->print(" ");
+        systemContext_->hardwareContext().display()->print(static_cast<char>(176));
+        systemContext_->hardwareContext().display()->print("C");
 
         // Set temperature
-        CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setCursor(coords.setTempX, coords.setTempY);
-        CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(derived->getSetTempLabel());
-        CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setCursor(coords.setValueX, coords.setTempY);
-        CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(CleverCoffee::getGlobalSystemContext()->processSetpoint(), 1);
-        CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(" ");
-        CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(static_cast<char>(176));
-        CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print("C");
+        systemContext_->hardwareContext().display()->setCursor(coords.setTempX, coords.setTempY);
+        systemContext_->hardwareContext().display()->print(derived->getSetTempLabel());
+        systemContext_->hardwareContext().display()->setCursor(coords.setValueX, coords.setTempY);
+        systemContext_->hardwareContext().display()->print(systemContext_->processSetpoint(), 1);
+        systemContext_->hardwareContext().display()->print(" ");
+        systemContext_->hardwareContext().display()->print(static_cast<char>(176));
+        systemContext_->hardwareContext().display()->print("C");
     }
 
     /**
@@ -97,27 +128,27 @@ class ModernDisplayTemplate {
         auto*       derived = static_cast<Derived*>(this);
         const auto& coords  = derived->getPIDCoords(baseX, baseY);
 
-        CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setCursor(coords.pidX, coords.pidY);
-        CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(CleverCoffee::getGlobalSystemContext()->pidKp(), 0);
-        CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(derived->getPIDSeparator());
+        systemContext_->hardwareContext().display()->setCursor(coords.pidX, coords.pidY);
+        systemContext_->hardwareContext().display()->print(systemContext_->pidKp(), 0);
+        systemContext_->hardwareContext().display()->print(derived->getPIDSeparator());
 
-        if (CleverCoffee::getGlobalSystemContext()->pidKi() != 0) {
-            CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(CleverCoffee::getGlobalSystemContext()->pidKp() / CleverCoffee::getGlobalSystemContext()->pidKi(), 0);
+        if (systemContext_->pidKi() != 0) {
+            systemContext_->hardwareContext().display()->print(systemContext_->pidKp() / systemContext_->pidKi(), 0);
         } else {
-            CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print("0");
+            systemContext_->hardwareContext().display()->print("0");
         }
 
-        CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(derived->getPIDSeparator());
-        CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(CleverCoffee::getGlobalSystemContext()->pidKd() / CleverCoffee::getGlobalSystemContext()->pidKp(), 0);
+        systemContext_->hardwareContext().display()->print(derived->getPIDSeparator());
+        systemContext_->hardwareContext().display()->print(systemContext_->pidKd() / systemContext_->pidKp(), 0);
 
         // Output percentage
-        CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setCursor(coords.outputX, coords.outputY);
-        if (CleverCoffee::getGlobalSystemContext()->processPidOutput() < 99) {
-            CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(CleverCoffee::getGlobalSystemContext()->processPidOutput() / 10, 1);
+        systemContext_->hardwareContext().display()->setCursor(coords.outputX, coords.outputY);
+        if (systemContext_->processPidOutput() < 99) {
+            systemContext_->hardwareContext().display()->print(systemContext_->processPidOutput() / 10, 1);
         } else {
-            CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(CleverCoffee::getGlobalSystemContext()->processPidOutput() / 10, 0);
+            systemContext_->hardwareContext().display()->print(systemContext_->processPidOutput() / 10, 0);
         }
-        CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print("%");
+        systemContext_->hardwareContext().display()->print("%");
     }
 
     /**
@@ -130,24 +161,25 @@ class ModernDisplayTemplate {
         const auto& coords  = derived->getBrewCoords(baseX, baseY);
 
         // Show flush time
-        if (isManualFlushState(CleverCoffee::getGlobalSystemContext()->machineStateContext()->getCurrentStateId())) {
-            displayBrewTime(coords.brewX, coords.brewY, derived->getManualFlushLabel(), CleverCoffee::getGlobalSystemContext()->processCurrentBrewTime());
+        if (isManualFlushState(systemContext_->machineStateContext()->getCurrentStateId())) {
+            displayBrewTime(*systemContext_, coords.brewX, coords.brewY, derived->getManualFlushLabel(), systemContext_->processCurrentBrewTime());
         }
         // Show hot water time (when pump is active in PID_NORMAL or STEAM_RUNNING)
-        else if (shouldDisplayHotWaterTimer()) {
-            displayBrewTime(coords.brewX, coords.brewY, derived->getHotWaterLabel(), CleverCoffee::getGlobalSystemContext()->currPumpOnTime());
-        } else if (shouldDisplayBrewTimer()) {
+        else if (shouldDisplayHotWaterTimer(*systemContext_)) {
+            displayBrewTime(*systemContext_, coords.brewX, coords.brewY, derived->getHotWaterLabel(), systemContext_->currPumpOnTime());
+        } else if (shouldDisplayBrewTimer(*systemContext_)) {
             const bool isAutomatic = Config::getInstance().brewMode.get() == Process::BrewMode::AUTOMATIC_BREW;
             const bool brewByTime  = Config::getInstance().brewByTimeEnabled.get();
 
             if (isAutomatic && brewByTime) {
-                displayBrewTime(coords.brewX,
+                displayBrewTime(*systemContext_,
+                                coords.brewX,
                                 coords.brewY,
                                 derived->getBrewLabel(),
-                                CleverCoffee::getGlobalSystemContext()->processCurrentBrewTime(),
-                                CleverCoffee::getGlobalSystemContext()->processTotalTargetBrewTime());
+                                systemContext_->processCurrentBrewTime(),
+                                systemContext_->processTotalTargetBrewTime());
             } else {
-                displayBrewTime(coords.brewX, coords.brewY, derived->getBrewLabel(), CleverCoffee::getGlobalSystemContext()->processCurrentBrewTime());
+                displayBrewTime(*systemContext_, coords.brewX, coords.brewY, derived->getBrewLabel(), systemContext_->processCurrentBrewTime());
             }
         }
     }
@@ -179,26 +211,26 @@ class ModernDisplayTemplate {
 class StandardTemplate : public ModernDisplayTemplate<StandardTemplate> {
   public:
     void renderNormalDisplay() {
-        CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->clearBuffer();
+        systemContext_->hardwareContext().display()->clearBuffer();
 
-        displayStatusbar();
+        displayStatusbar(*systemContext_);
         displayTemperatureInfo(34, 16);
 
         // Thermometer
-        displayThermometerOutline(4, 62);
-        if (fabs(CleverCoffee::getGlobalSystemContext()->processTemperature() - CleverCoffee::getGlobalSystemContext()->processSetpoint()) < 0.3) {
-            if (CleverCoffee::getGlobalSystemContext()->isrCounter() < 500) {
-                drawTemperaturebar(8, 30);
+        displayThermometerOutline(*systemContext_, 4, 62);
+        if (fabs(systemContext_->processTemperature() - systemContext_->processSetpoint()) < 0.3) {
+            if (systemContext_->isrCounter() < 500) {
+                drawTemperaturebar(*systemContext_, 8, 30);
             }
         } else {
-            drawTemperaturebar(8, 30);
+            drawTemperaturebar(*systemContext_, 8, 30);
         }
 
         displayBrewInfo(34, 36);
         displayPIDInfo(38, 47);
 
         // Heat bar
-        displayProgressbar(CleverCoffee::getGlobalSystemContext()->processPidOutput() / 10, 30, 60, 98);
+        displayProgressbar(*systemContext_, systemContext_->processPidOutput() / 10, 30, 60, 98);
     }
 
     // Template-specific configuration methods
@@ -240,7 +272,7 @@ class StandardTemplate : public ModernDisplayTemplate<StandardTemplate> {
 class UprightTemplate : public ModernDisplayTemplate<UprightTemplate> {
   public:
     void renderNormalDisplay() {
-        CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->clearBuffer();
+        systemContext_->hardwareContext().display()->clearBuffer();
 
         if (handleSpecialStates()) return;
 
@@ -254,17 +286,17 @@ class UprightTemplate : public ModernDisplayTemplate<UprightTemplate> {
     }
 
     bool handleSpecialStates() {
-        if (getCurrentDisplayState() == MachineStateId::WATER_TANK_EMPTY) {
-            CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->drawXBMP(
+        if (getCurrentDisplayState(*systemContext_) == MachineStateId::WATER_TANK_EMPTY) {
+            systemContext_->hardwareContext().display()->drawXBMP(
                 8, 50, Water_Tank_Empty_Logo_width, Water_Tank_Empty_Logo_height, Water_Tank_Empty_Logo);
             return true;
         }
 
-        if (getCurrentDisplayState() == MachineStateId::SENSOR_ERROR) {
-            CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setFont(u8g2_font_profont11_tf);
+        if (getCurrentDisplayState(*systemContext_) == MachineStateId::SENSOR_ERROR) {
+            systemContext_->hardwareContext().display()->setFont(u8g2_font_profont11_tf);
             char tempBuffer[16];
-            snprintf(tempBuffer, sizeof(tempBuffer), "%.1f", CleverCoffee::getGlobalSystemContext()->processTemperature());
-            displayMessage(langstring_error_tsensor_ur[0],
+            snprintf(tempBuffer, sizeof(tempBuffer), "%.1f", systemContext_->processTemperature());
+            displayMessage(*systemContext_, langstring_error_tsensor_ur[0],
                            langstring_error_tsensor_ur[1],
                            tempBuffer,
                            langstring_error_tsensor_ur[2],
@@ -273,11 +305,11 @@ class UprightTemplate : public ModernDisplayTemplate<UprightTemplate> {
             return true;
         }
 
-        if (Config::getInstance().displayPidOffLogo.get() && getCurrentDisplayState() == MachineStateId::STANDBY) {
-            CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->drawXBMP(6, 50, Off_Logo_width, Off_Logo_height, Off_Logo);
-            CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setCursor(1, 110);
-            CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setFont(u8g2_font_profont10_tf);
-            CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print("Standby mode");
+        if (Config::getInstance().displayPidOffLogo.get() && getCurrentDisplayState(*systemContext_) == MachineStateId::STANDBY) {
+            systemContext_->hardwareContext().display()->drawXBMP(6, 50, Off_Logo_width, Off_Logo_height, Off_Logo);
+            systemContext_->hardwareContext().display()->setCursor(1, 110);
+            systemContext_->hardwareContext().display()->setFont(u8g2_font_profont10_tf);
+            systemContext_->hardwareContext().display()->print("Standby mode");
             return true;
         }
 
@@ -286,9 +318,9 @@ class UprightTemplate : public ModernDisplayTemplate<UprightTemplate> {
 
   private:
     void displayHeatBar() {
-        CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->drawFrame(0, 124, 64, 4);
-        CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->drawLine(1, 125, CleverCoffee::getGlobalSystemContext()->processPidOutput() / 16.13 + 1, 125);
-        CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->drawLine(1, 126, CleverCoffee::getGlobalSystemContext()->processPidOutput() / 16.13 + 1, 126);
+        systemContext_->hardwareContext().display()->drawFrame(0, 124, 64, 4);
+        systemContext_->hardwareContext().display()->drawLine(1, 125, systemContext_->processPidOutput() / 16.13 + 1, 125);
+        systemContext_->hardwareContext().display()->drawLine(1, 126, systemContext_->processPidOutput() / 16.13 + 1, 126);
     }
 
     void displayMainStatus() {
@@ -296,19 +328,19 @@ class UprightTemplate : public ModernDisplayTemplate<UprightTemplate> {
         const bool pressureEnabled = Config::getInstance().hardwareSensorsPressureEnabled.get();
 
         int yPos = scaleEnabled && pressureEnabled ? 65 : (scaleEnabled || pressureEnabled ? 60 : 55);
-        CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setCursor(1, yPos);
-        CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setFont(u8g2_font_profont22_tf);
+        systemContext_->hardwareContext().display()->setCursor(1, yPos);
+        systemContext_->hardwareContext().display()->setFont(u8g2_font_profont22_tf);
 
-        if (isManualFlushState(CleverCoffee::getGlobalSystemContext()->machineStateContext()->getCurrentStateId())) {
-            CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print("FLUSH");
-        } else if (shouldDisplayBrewTimer()) {
-            CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print("BREW");
-        } else if (fabs(CleverCoffee::getGlobalSystemContext()->processTemperature() - CleverCoffee::getGlobalSystemContext()->processSetpoint()) < 0.3) {
-            if (CleverCoffee::getGlobalSystemContext()->isrCounter() < 500) {
-                CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print("OK");
+        if (isManualFlushState(systemContext_->machineStateContext()->getCurrentStateId())) {
+            systemContext_->hardwareContext().display()->print("FLUSH");
+        } else if (shouldDisplayBrewTimer(*systemContext_)) {
+            systemContext_->hardwareContext().display()->print("BREW");
+        } else if (fabs(systemContext_->processTemperature() - systemContext_->processSetpoint()) < 0.3) {
+            if (systemContext_->isrCounter() < 500) {
+                systemContext_->hardwareContext().display()->print("OK");
             }
         } else {
-            CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print("WAIT");
+            systemContext_->hardwareContext().display()->print("WAIT");
         }
     }
 
@@ -316,44 +348,44 @@ class UprightTemplate : public ModernDisplayTemplate<UprightTemplate> {
         const bool scaleEnabled    = Config::getInstance().hardwareSensorsScaleEnabled.get();
         const bool pressureEnabled = Config::getInstance().hardwareSensorsPressureEnabled.get();
 
-        if (scaleEnabled && shouldDisplayBrewTimer()) {
+        if (scaleEnabled && shouldDisplayBrewTimer(*systemContext_)) {
             const bool isAutomatic  = Config::getInstance().brewMode.get() == Process::BrewMode::AUTOMATIC_BREW;
             const bool brewByWeight = Config::getInstance().brewByWeightEnabled.get();
 
             if (isAutomatic && brewByWeight) {
                 const auto targetWeight = Config::getInstance().brewByWeightTargetWeight.get();
-                displayBrewWeight(1, 44, CleverCoffee::getGlobalSystemContext()->currBrewWeight(), targetWeight, CleverCoffee::getGlobalSystemContext()->scaleFailure());
+                displayBrewWeight(*systemContext_, 1, 44, systemContext_->currBrewWeight(), targetWeight, systemContext_->scaleFailure());
             } else {
-                displayBrewWeight(1, 44, CleverCoffee::getGlobalSystemContext()->currBrewWeight(), -1, CleverCoffee::getGlobalSystemContext()->scaleFailure());
+                displayBrewWeight(*systemContext_, 1, 44, systemContext_->currBrewWeight(), -1, systemContext_->scaleFailure());
             }
         } else if (scaleEnabled) {
-            displayBrewWeight(1, 44, CleverCoffee::getGlobalSystemContext()->currReadingWeight(), -1, CleverCoffee::getGlobalSystemContext()->scaleFailure());
+            displayBrewWeight(*systemContext_, 1, 44, systemContext_->currReadingWeight(), -1, systemContext_->scaleFailure());
         }
 
         if (pressureEnabled) {
-            CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setFont(u8g2_font_profont11_tf);
+            systemContext_->hardwareContext().display()->setFont(u8g2_font_profont11_tf);
             int yPos = scaleEnabled ? 54 : 44;
-            CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setCursor(1, yPos);
-            CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(langstring_pressure_ur);
-            CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(CleverCoffee::getGlobalSystemContext()->inputPressure(), 1);
-            CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(" bar");
+            systemContext_->hardwareContext().display()->setCursor(1, yPos);
+            systemContext_->hardwareContext().display()->print(langstring_pressure_ur);
+            systemContext_->hardwareContext().display()->print(systemContext_->inputPressure(), 1);
+            systemContext_->hardwareContext().display()->print(" bar");
         }
     }
 
     void displayStatusBar() {
-        CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->drawLine(0, CleverCoffee::Display::STATUS_BAR_Y_POSITION, CleverCoffee::Display::OLED_WIDTH / 2, CleverCoffee::Display::STATUS_BAR_Y_POSITION);
-        if (!CleverCoffee::getGlobalSystemContext()->networkCoordinator().isOfflineMode()) {
-            displayWiFiStatus(4, 2);
-            displayMQTTStatus(21, 0);
+        systemContext_->hardwareContext().display()->drawLine(0, CleverCoffee::Display::STATUS_BAR_Y_POSITION, CleverCoffee::Display::OLED_WIDTH / 2, CleverCoffee::Display::STATUS_BAR_Y_POSITION);
+        if (!systemContext_->networkCoordinator().isOfflineMode()) {
+            displayWiFiStatus(*systemContext_, 4, 2);
+            displayMQTTStatus(*systemContext_, 21, 0);
         } else {
-            CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setCursor(4, 1);
-            CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setFont(u8g2_font_profont11_tf);
-            CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->print(langstring_offlinemode);
+            systemContext_->hardwareContext().display()->setCursor(4, 1);
+            systemContext_->hardwareContext().display()->setFont(u8g2_font_profont11_tf);
+            systemContext_->hardwareContext().display()->print(langstring_offlinemode);
         }
 
         if (Config::getInstance().hardwareSensorsScaleEnabled.get() &&
             Config::getInstance().hardwareSensorsScaleType.get() == Hardware::ScaleType::BLUETOOTH) {
-            displayBluetoothStatus(54, 1);
+            displayBluetoothStatus(*systemContext_, 54, 1);
         }
     }
 
@@ -416,6 +448,14 @@ class ModernDisplayTemplateManager {
 
     static void setTemplate(System::DisplayTemplate templateId) {
         currentTemplate_ = templateId;
+    }
+
+    /**
+     * @brief Set system context for all templates
+     */
+    static void setSystemContext(CleverCoffee::SystemContext* context) noexcept {
+        standardTemplate_.setSystemContext(context);
+        uprightTemplate_.setSystemContext(context);
     }
 
   private:

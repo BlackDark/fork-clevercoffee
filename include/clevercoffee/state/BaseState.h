@@ -93,6 +93,43 @@ class BaseState : public MachineState {
      * @return New state to transition to, or nullptr if no transition
      */
     virtual MachineState* checkSpecificTransitions(MachineStateContext& context) = 0;
+
+protected:
+    /**
+     * @brief Helper: Check if brew stop was requested and transition to PID state
+     * @param context Machine state context
+     * @return New state if brew stop requested, nullptr otherwise
+     */
+    MachineState* checkBrewStopRequest(MachineStateContext& context) {
+        if (context.isBrewStopRequested()) {
+            context.setBrewStopRequested(false);
+            const MachineStateId pidState = context.getPidState();
+            context.logStateTransition(getStateId(), pidState, "Brew stop requested");
+            return getStateInstance(pidState);
+        }
+        return nullptr;
+    }
+
+    /**
+     * @brief Helper: Transition to PID state (normal or disabled based on PID enabled state)
+     * @param context Machine state context
+     * @param reason Reason for transition (for logging)
+     * @return New PID state instance
+     */
+    MachineState* transitionToPidState(MachineStateContext& context, const char* reason) {
+        const MachineStateId pidState = context.getPidState();
+        context.logStateTransition(getStateId(), pidState, reason);
+        return getStateInstance(pidState);
+    }
+
+    /**
+     * @brief Helper: Clean up pump and valve hardware on state exit
+     * @param context Machine state context
+     */
+    void cleanupPumpAndValve(MachineStateContext& context) {
+        context.disablePump();
+        context.closeWaterValve();
+    }
 };
 
 // Template implementation

@@ -31,10 +31,36 @@ constexpr unsigned long TIME_TO_DISPLAY_OFF_MILLIS = TIME_TO_DISPLAY_OFF * 60 * 
 /**
  * @brief String comparator for C-string keys in std::map
  * Used for MQTT variable and sensor mappings
+ * @deprecated Use unordered_map with hash_cstr instead
  */
 struct cmp_str {
     bool operator()(char const* a, char const* b) const {
         return std::strcmp(a, b) < 0;
+    }
+};
+
+/**
+ * @brief Hash function for C-string keys in std::unordered_map
+ * Used for MQTT variable and sensor mappings
+ */
+struct hash_cstr {
+    std::size_t operator()(const char* str) const noexcept {
+        // djb2 hash algorithm
+        std::size_t hash = 5381;
+        int c;
+        while ((c = *str++)) {
+            hash = ((hash << 5) + hash) + c; // hash * 33 + c
+        }
+        return hash;
+    }
+};
+
+/**
+ * @brief Equality comparator for C-string keys in std::unordered_map
+ */
+struct equal_cstr {
+    bool operator()(const char* a, const char* b) const noexcept {
+        return std::strcmp(a, b) == 0;
     }
 };
 

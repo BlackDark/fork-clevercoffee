@@ -150,12 +150,12 @@ class WebServerManager {
     /**
      * @brief Get temperature data as JSON string
      */
-    static String getTempString();
+    String getTempString() const;
 
     /**
      * @brief Get weight data as JSON string
      */
-    static String getWeightJsonString();
+    String getWeightJsonString() const;
 
      // Web server components
      std::unique_ptr<AsyncWebServer>                server_;

@@ -12,81 +12,69 @@
  * These will be gradually moved to more appropriate locations
  */
 
-inline void setRuntimePidState(const bool enabled) {
+inline void setRuntimePidState(CleverCoffee::SystemContext& systemContext, const bool enabled) {
     static std::mutex           pid_mutex;
     std::lock_guard<std::mutex> lock(pid_mutex);
 
-    CleverCoffee::getGlobalSystemContext()->setProcessPidEnabled(enabled);
-    // TODO probably wrong
+    systemContext.setProcessPidEnabled(enabled);
+    // NOTE: Also updates Config to keep them in sync. This may need refactoring:
+    // - Option 1: Config is source of truth, SystemContext reads from it
+    // - Option 2: SystemContext is source of truth, Config is read-only runtime state
+    // Current approach maintains backward compatibility but creates dual state
     Config::getInstance().pidEnabled.set(enabled);
 }
 
-inline void setSteamMode(const bool steamMode) {
+inline void setSteamMode(CleverCoffee::SystemContext& systemContext, const bool steamMode) {
      static std::mutex           steam_mutex;
      std::lock_guard<std::mutex> lock(steam_mutex);
 
-     auto* ctx = CleverCoffee::getGlobalSystemContext();
-     if (!ctx) {
-         return;
-     }
-
-     ctx->setSteamMode(steamMode);
+     systemContext.setSteamMode(steamMode);
 
      if (steamMode) {
-         ctx->setSteamFirstOn(true);
+         systemContext.setSteamFirstOn(true);
      } else {
-         ctx->setSteamFirstOn(false);
+         systemContext.setSteamFirstOn(false);
      }
 }
 
 // Helper function for timing debug
-inline bool isMqttUpdateRunning() {
-    return CleverCoffee::getGlobalSystemContext()->mqttManager() && CleverCoffee::getGlobalSystemContext()->mqttManager()->isUpdateRunning();
+inline bool isMqttUpdateRunning(CleverCoffee::SystemContext& systemContext) {
+    return systemContext.mqttManager() && systemContext.mqttManager()->isUpdateRunning();
 }
 
 // MQTT discovery timer callback
-inline void sendHASSIODiscoveryMsg() {
-    if (CleverCoffee::getGlobalSystemContext()->mqttManager() && CleverCoffee::getGlobalSystemContext()->mqttManager()->isEnabled()) {
-        CleverCoffee::getGlobalSystemContext()->mqttManager()->sendHASSIODiscoveryMsg();
+inline void sendHASSIODiscoveryMsg(CleverCoffee::SystemContext& systemContext) {
+    if (systemContext.mqttManager() && systemContext.mqttManager()->isEnabled()) {
+        systemContext.mqttManager()->sendHASSIODiscoveryMsg();
     }
 }
 
 // Emergency stop if temp is too high
-inline void testEmergencyStop() {
+inline void testEmergencyStop(CleverCoffee::SystemContext& systemContext) {
      static std::mutex           emergency_mutex;
      std::lock_guard<std::mutex> lock(emergency_mutex);
 
-     auto* ctx = CleverCoffee::getGlobalSystemContext();
-     if (!ctx) {
-         return;
-     }
-
-     double currentTemp = ctx->processTemperature();
+     double currentTemp = systemContext.processTemperature();
      
-     if (currentTemp > EmergencyStopTemp && !ctx->isEmergencyStopActive()) {
-         ctx->triggerEmergencyStop();
+     if (currentTemp > EmergencyStopTemp && !systemContext.isEmergencyStopActive()) {
+         systemContext.triggerEmergencyStop();
      } else if (currentTemp < (Config::getInstance().brewSetpoint.get() + 5) &&
-                ctx->isEmergencyStopActive()) {
-         ctx->setEmergencyStop(false);
+                systemContext.isEmergencyStopActive()) {
+         systemContext.setEmergencyStop(false);
      }
 }
 
 /**
  * @brief Switch to offline mode if maxWifiReconnects were exceeded during boot
  */
-inline void initOfflineMode() {
+inline void initOfflineMode(CleverCoffee::SystemContext& systemContext) {
     static std::mutex           offline_mutex;
     std::lock_guard<std::mutex> lock(offline_mutex);
 
-    auto* ctx = CleverCoffee::getGlobalSystemContext();
-    if (!ctx) {
-        return;
-    }
-
     if (Config::getInstance().hardwareOledEnabled.get()) {
-        ctx->uiCoordinator().setDisplayOffline(1);
+        systemContext.uiCoordinator().setDisplayOffline(1);
     }
 
     LOG(INFO, "Start offline mode with eeprom values, no wifi :(");
-    ctx->setOfflineMode(true);
+    systemContext.setOfflineMode(true);
 }

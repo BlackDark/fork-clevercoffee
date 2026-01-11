@@ -70,58 +70,6 @@ public:
         waterTankSensor_ = sensor;
     }
     
-    // === Legacy coordination interface (for backward compatibility) ===
-    // These methods are for coordinating with the old SensorManager
-    // Will be removed in Phase 6 cleanup
-    
-    /**
-     * @brief Start temperature update operation (legacy)
-     * @deprecated Use update() instead
-     */
-    void startTemperatureUpdate() noexcept {
-        temperatureUpdateRunning_ = true;
-    }
-    
-    /**
-     * @brief Stop temperature update operation (legacy)
-     * @deprecated Use update() instead
-     */
-    void stopTemperatureUpdate() noexcept {
-        temperatureUpdateRunning_ = false;
-    }
-    
-    /**
-     * @brief Check if temperature update is running (legacy)
-     * @deprecated Use update() instead
-     */
-    bool isTemperatureUpdateRunning() const noexcept {
-        return temperatureUpdateRunning_;
-    }
-    
-    /**
-     * @brief Start scale update operation (legacy)
-     * @deprecated Use update() instead
-     */
-    void startScaleUpdate() noexcept {
-        scaleUpdateRunning_ = true;
-    }
-    
-    /**
-     * @brief Stop scale update operation (legacy)
-     * @deprecated Use update() instead
-     */
-    void stopScaleUpdate() noexcept {
-        scaleUpdateRunning_ = false;
-    }
-    
-    /**
-     * @brief Check if scale update is running (legacy)
-     * @deprecated Use update() instead
-     */
-    bool isScaleUpdateRunning() const noexcept {
-        return scaleUpdateRunning_;
-    }
-    
     // === Temperature Sensor ===
     
     /**
@@ -320,10 +268,6 @@ private:
     int waterTankConsecutiveReads_ = 0;
     static constexpr int WATER_TANK_READS_NEEDED = 3;
     
-     // Legacy coordination flags (for backward compatibility)
-     std::atomic<bool> temperatureUpdateRunning_{false};
-     std::atomic<bool> scaleUpdateRunning_{false};
-     
      // Scale operating modes
      std::atomic<bool> scaleTareMode_{false};             ///< Scale tare (reset to zero) mode
      std::atomic<bool> scaleCalibrationMode_{false};      ///< Scale calibration mode

@@ -20,6 +20,15 @@ class HardwareManager;
 class SystemContext;
 }
 
+// Forward declarations for coordinators
+namespace CleverCoffee {
+class NetworkCoordinator;
+class UICoordinator;
+}
+class CleverCoffeeWiFiManager;
+class MQTTManager;
+class WebServerManager;
+
 /**
  * @class LoopManager
  * @brief Central coordinator for all main loop operations
@@ -55,8 +64,10 @@ class LoopManager {
 
     /**
      * @brief Destructor
+     * 
+     * Defined in .cpp file to allow incomplete types in header
      */
-    ~LoopManager() = default;
+    ~LoopManager();
 
     // Disable copy constructor and assignment operator
     LoopManager(const LoopManager&)            = delete;

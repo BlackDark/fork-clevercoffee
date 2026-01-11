@@ -1,31 +1,30 @@
 #include <gtest/gtest.h>
 #include "../test_support.h"
-#include "clevercoffee/sensors/SensorManager.h"
 #include "clevercoffee/coordinators/SensorCoordinator.h"
-#include "clevercoffee/hardware/tempsensors/TempSensor.h"
+#include "../mocks/MockISensor.h"
 
-class MockTempSensor : public TempSensor {
-public:
-    MOCK_METHOD(float, readTemperature, (), (override, noexcept));
-    MOCK_METHOD(bool, isValid, (), (const, noexcept, override));
-    MOCK_METHOD(void, begin, (), (override));
-};
+using namespace CleverCoffee;
+using MockSensor = MockISensor;
 
-TEST(SensorManagerTest, UsesSensorCoordinator) {
-    SensorCoordinator coord;
-    MockTempSensor sensor;
-    EXPECT_CALL(sensor, begin()).Times(1);
-
-    SensorManager manager;
-    manager.initialize(&sensor, nullptr, &coord);
-
-    EXPECT_FALSE(coord.isTemperatureUpdateRunning());
-
-    // Simulate update start
-    coord.startTemperatureUpdate();
-    EXPECT_TRUE(coord.isTemperatureUpdateRunning());
-
-    // Simulate update end
-    coord.stopTemperatureUpdate();
-    EXPECT_FALSE(coord.isTemperatureUpdateRunning());
+// Note: SensorManager was removed in favor of SensorCoordinator
+// This test now verifies SensorCoordinator's automatic update behavior
+TEST(SensorCoordinatorTest, AutomaticUpdates) {
+    auto mockTemp = std::make_unique<MockSensor>(95.5);
+    SensorCoordinator coord(mockTemp.get(), nullptr, nullptr);
+    
+    // SensorCoordinator updates are automatic and non-blocking
+    // No need to manually start/stop updates - they happen automatically via update()
+    
+    // Initial state - no temperature read yet
+    EXPECT_DOUBLE_EQ(0.0, coord.getTemperature());
+    
+    // Call update() to trigger automatic sensor reading
+    coord.update();
+    
+    // Give async read time to complete
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    coord.update();
+    
+    // Should now have the temperature value
+    EXPECT_DOUBLE_EQ(95.5, coord.getTemperature());
 }

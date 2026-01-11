@@ -11,8 +11,9 @@
 #include <WiFiClient.h>
 #include <functional>
 #include <cstring>
-#include <map>
+#include <unordered_map>
 #include <memory>
+#include "clevercoffee/types/GlobalTypes.h"
 
 // Forward declarations
 namespace CleverCoffee {
@@ -20,6 +21,11 @@ class UICoordinator;
 class SensorCoordinator;
 class NetworkCoordinator;
 class SystemContext;
+}
+
+namespace CleverCoffee::Utils {
+class RetryPolicy;
+class CircuitBreaker;
 }
 
 /**
@@ -38,8 +44,10 @@ class MQTTManager {
 
     /**
      * @brief Destructor - automatically cleans up MQTT resources
+     * 
+     * Defined in .cpp file to allow incomplete types in header
      */
-    ~MQTTManager() = default;
+    ~MQTTManager();
 
     // Disable copy constructor and assignment operator
     MQTTManager(const MQTTManager&)            = delete;
@@ -197,13 +205,15 @@ class MQTTManager {
     String hassioDiscoveryPrefix_;
     String hostname_;
 
-    // Connection management
+    // Connection management (legacy - kept for compatibility)
     unsigned long                  lastConnectionAttempt_;
     unsigned int                   reconnectCount_;
     unsigned long                  previousConnection_;
     static constexpr unsigned long reconnectInterval_ = 300000; // 5 minutes
-    static constexpr unsigned long connectionDelay_   = 10000;  // 10 seconds
-    static constexpr unsigned int  maxReconnects_     = 5;
+    
+    // Error recovery with exponential backoff and circuit breaker
+    std::unique_ptr<CleverCoffee::Utils::RetryPolicy>   retryPolicy_;
+    std::unique_ptr<CleverCoffee::Utils::CircuitBreaker> circuitBreaker_;
 
     // Topics
     char topicWill_[256];
@@ -216,11 +226,11 @@ class MQTTManager {
         }
     };
 
-    std::map<const char*, const char*, cmp_str>             mqttVars_;        ///< MQTT parameter mappings
-    std::map<const char*, std::function<double()>, cmp_str> mqttSensors_;     ///< MQTT sensor callbacks
+    std::unordered_map<const char*, const char*, hash_cstr, equal_cstr>             mqttVars_;        ///< MQTT parameter mappings
+    std::unordered_map<const char*, std::function<double()>, hash_cstr, equal_cstr> mqttSensors_;     ///< MQTT sensor callbacks
 
-
-    std::map<const char*, std::string> mqttLastSent_;
+    // Track last sent values to avoid duplicate MQTT messages (unordered_map for O(1) lookup)
+    std::unordered_map<const char*, std::string, hash_cstr, equal_cstr> mqttLastSent_;
 
     // Update management
     bool                           mqttUpdateRunning_;

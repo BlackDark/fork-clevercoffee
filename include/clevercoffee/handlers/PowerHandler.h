@@ -9,7 +9,6 @@
 #include "clevercoffee/handlers/BaseHandler.h"
 #include "clevercoffee/context/SystemContext.h"
 #include "clevercoffee/state/MachineStateContext.h"
-#include "clevercoffee/standby.h"
 #include "clevercoffee/state/MachineState.h"
 #include "clevercoffee/utils/SystemUtils.h"
 
@@ -154,21 +153,33 @@ class PowerHandler : public SwitchBasedHandler {
     void powerOn() {
         if ((systemContext_ && systemContext_->machineStateContext()->getCurrentStateId() == MachineStateId::STANDBY) ||
             (systemContext_ && systemContext_->machineStateContext()->getCurrentStateId() == MachineStateId::PID_DISABLED)) {
-            // TODO: request normal operation through coordinator // Use condition flag instead of direct state assignment
-            resetStandbyTimer();
-            setRuntimePidState(true);
-            CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setPowerSave(0);
+            // Request normal operation through MachineStateContext (proper state transition request)
+            if (systemContext_ && systemContext_->machineStateContext()) {
+                systemContext_->machineStateContext()->setNormalOperationRequested(true);
+                systemContext_->machineStateContext()->resetStandbyTimer(
+                    systemContext_->machineStateContext()->getCurrentStateId());
+            }
+            if (systemContext_) {
+                setRuntimePidState(*systemContext_, true);
+            }
+            if (systemContext_) {
+                systemContext_->hardwareContext().display()->setPowerSave(0);
+            }
             logInfo("System powered on");
         }
     }
 
     void powerOff() {
          if ((!systemContext_ || systemContext_->machineStateContext()->getCurrentStateId() != MachineStateId::STANDBY)) {
-             CleverCoffee::getGlobalSystemContext()->processController()->performSafeShutdown();
-             systemContext_->machineStateContext()->setStandbyRequested(true);
+             if (systemContext_ && systemContext_->processController()) {
+                 systemContext_->processController()->performSafeShutdown();
+             }
+             if (systemContext_ && systemContext_->machineStateContext()) {
+                 systemContext_->machineStateContext()->setStandbyRequested(true);
+             }
              // Use StandbyCoordinator to mark immediate standby activation
-             if (auto* ctx = CleverCoffee::getGlobalSystemContext()) {
-                 ctx->standbyCoordinator().setRemainingTimeMillis(0);
+             if (systemContext_) {
+                 systemContext_->standbyCoordinator().setRemainingTimeMillis(0);
              }
              logInfo("System powered off");
          }
@@ -176,13 +187,19 @@ class PowerHandler : public SwitchBasedHandler {
 
     void triggerSystemReboot() {
         logInfo("Power switch long press detected - initiating system reboot");
-        CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->setPowerSave(0);
+        if (systemContext_) {
+            systemContext_->hardwareContext().display()->setPowerSave(0);
+        }
 
         // Display reboot message
-        displayMessage("REBOOTING", "Please wait...", "", "", "", "");
+        if (systemContext_) {
+            displayMessage(*systemContext_, "REBOOTING", "Please wait...", "", "", "", "");
+        }
         delay(1000);
 
-        CleverCoffee::getGlobalSystemContext()->processController()->performSafeShutdown();
+        if (systemContext_ && systemContext_->processController()) {
+            systemContext_->processController()->performSafeShutdown();
+        }
 
         logInfo("System reboot initiated");
         delay(1000);

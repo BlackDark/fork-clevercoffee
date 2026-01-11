@@ -8,9 +8,13 @@
 #include "clevercoffee/Config.h"
 #include "clevercoffee/types/GlobalTypes.h"
 #include "clevercoffee/Logger.h"
+#include "clevercoffee/constants/Timing.h"
+#include "clevercoffee/constants/Temperature.h"
 #include "clevercoffee/context/SystemContext.h"
 #include "clevercoffee/control/ProcessController.h"
 #include "clevercoffee/coordinators/SensorCoordinator.h"
+#include "clevercoffee/coordinators/NetworkCoordinator.h"
+#include "clevercoffee/coordinators/UICoordinator.h"
 #include "clevercoffee/handlers/BrewHandler.h"
 #include "clevercoffee/handlers/HotWaterHandler.h"
 #include "clevercoffee/handlers/PowerHandler.h"
@@ -20,10 +24,10 @@
 #include "clevercoffee/hardware/Relay.h"
 #include "clevercoffee/network/MQTTManager.h"
 #include "clevercoffee/network/WebServerManager.h"
-#include "clevercoffee/standby.h"
 #include "clevercoffee/state/StateMachine.h"
 #include "clevercoffee/ui/UIManager.h"
 #include "clevercoffee/utils/ModernTimer.h"
+#include "clevercoffee/display/displayCommon.h"
 
 #include <Arduino.h>
 #include <ArduinoOTA.h>
@@ -37,7 +41,6 @@ extern void printScreen();
 
 // External function declarations
 // checkBrewActive removed - now accessed via SystemContext->brewHandler()
-extern void sendHASSIODiscoveryMsg();
 extern int  getSignalStrength();
 extern void disableTimer1();
 extern void enableTimer1();
@@ -60,6 +63,8 @@ LoopManager::LoopManager(CleverCoffee::SystemContext&     systemContext,
     LOG(INFO, "LoopManager created - will initialize centralized sensor timers");
 }
 
+LoopManager::~LoopManager() = default;
+
 bool LoopManager::initialize() {
     LOG(INFO, "Initializing LoopManager");
 
@@ -69,8 +74,12 @@ bool LoopManager::initialize() {
         return false;
     }
 
-    // Enable performance monitoring for debugging
+    // Enable performance monitoring only in debug builds
+    #ifdef DEBUG
     performanceMonitoringEnabled_ = true;
+    #else
+    performanceMonitoringEnabled_ = false;
+    #endif
 
     // Initialize timing variables
     lastLoopTime_ = millis();
@@ -79,7 +88,7 @@ bool LoopManager::initialize() {
 
     initialized_ = true;
 
-    LOG(INFO, "LoopManager initialized successfully with centralized sensor timing");
+    LOG(INFO, "LoopManager initialized successfully");
     return true;
 }
 
@@ -89,125 +98,157 @@ void LoopManager::update() {
         return;
     }
 
-    // Phase 5: Update SensorCoordinator (async sensor polling)
-    sensorCoordinator_.update();
+    // Cache millis() at start to avoid multiple calls - reuse throughout
+    const unsigned long loopStartTime = millis();
 
-    // Performance timing start
-    unsigned long loopStartTime = millis();
+    // Performance monitoring variables (only used when enabled)
+    unsigned long stepStart = 0;
+    unsigned long loggerTime = 0;
+    unsigned long hardwareTime = 0;
+    unsigned long networkTime = 0;
+    unsigned long websiteTime = 0;
+    unsigned long sensorsTime = 0;
+    unsigned long switchesTime = 0;
+    unsigned long stateMachineTime = 0;
+    unsigned long displayTime = 0;
     static unsigned long slowLoopCount = 0;
     static unsigned long lastSlowLoopReport = 0;
 
-    // 1. Accept potential connections for remote logging
-    unsigned long stepStart = millis();
-    Logger::update();
-    unsigned long loggerTime = millis() - stepStart;
-
-    // 2. Update water tank sensor (timer-based, 200ms intervals)
-    stepStart = millis();
-    updateWaterTank();
-    unsigned long waterTankTime = millis() - stepStart;
-
-    // 3. Update PID settings & machine state
-    stepStart = millis();
-    updateProcessControl();
-    unsigned long processControlTime = millis() - stepStart;
-
-    // 4. Update LED output based on machine state
-    stepStart = millis();
-    updateLEDs();
-    unsigned long ledTime = millis() - stepStart;
-
-    // 5. Update network (WiFi/MQTT/OTA)
-    stepStart = millis();
-    updateNetwork();
-    unsigned long networkTime = millis() - stepStart;
-
-    // 6. Update website and data transmission
-    stepStart = millis();
-    updateWebsite();
-    unsigned long websiteTime = millis() - stepStart;
-
-    // 7. Update sensors via centralized timers
-    stepStart = millis();
-    updateCentralizedSensorTimers();
-    unsigned long sensorsTime = millis() - stepStart;
-
-    // 8. Update switches and standby management
-    stepStart = millis();
-    updateSwitchesAndStandby();
-    unsigned long switchesTime = millis() - stepStart;
-
-    // 9. Update state machine
-    stepStart = millis();
-    updateStateMachine();
-    unsigned long stateMachineTime = millis() - stepStart;
-
-    // 10. Update display (critical for screen refresh)
-    stepStart = millis();
-    updateDisplay();
-    unsigned long displayTime = millis() - stepStart;
-
-    // 11. Print timing related data to check what is causing stutters
-    stepStart = millis();
-    updateDebugTiming();
-    unsigned long debugTime = millis() - stepStart;
-
-    // Performance timing end
-    unsigned long loopDuration = millis() - loopStartTime;
-
+    // 1. Logger updates (remote logging connections)
     if (performanceMonitoringEnabled_) {
+        stepStart = millis();
+    }
+    Logger::update();
+    if (performanceMonitoringEnabled_) {
+        loggerTime = millis() - stepStart;
+    }
+
+    // 2. Hardware updates (water tank, process control, LEDs)
+    if (performanceMonitoringEnabled_) {
+        stepStart = millis();
+    }
+    updateWaterTank();
+    updateProcessControl();
+    updateLEDs();
+    if (performanceMonitoringEnabled_) {
+        hardwareTime = millis() - stepStart;
+    }
+
+    // 3. Network updates (WiFi/MQTT/OTA/WebServer)
+    if (performanceMonitoringEnabled_) {
+        stepStart = millis();
+    }
+    updateNetwork();
+    if (performanceMonitoringEnabled_) {
+        networkTime = millis() - stepStart;
+    }
+
+    // 4. Website data transmission
+    if (performanceMonitoringEnabled_) {
+        stepStart = millis();
+    }
+    updateWebsite();
+    if (performanceMonitoringEnabled_) {
+        websiteTime = millis() - stepStart;
+    }
+
+    // 5. Sensor updates
+    if (performanceMonitoringEnabled_) {
+        stepStart = millis();
+    }
+    sensorCoordinator_.update();
+    updateCentralizedSensorTimers();
+    if (performanceMonitoringEnabled_) {
+        sensorsTime = millis() - stepStart;
+    }
+
+    // 6. Switches and standby management
+    if (performanceMonitoringEnabled_) {
+        stepStart = millis();
+    }
+    updateSwitchesAndStandby();
+    if (performanceMonitoringEnabled_) {
+        switchesTime = millis() - stepStart;
+    }
+
+    // 7. State machine updates
+    if (performanceMonitoringEnabled_) {
+        stepStart = millis();
+    }
+    updateStateMachine();
+    if (performanceMonitoringEnabled_) {
+        stateMachineTime = millis() - stepStart;
+    }
+
+    // 8. Display updates
+    if (performanceMonitoringEnabled_) {
+        stepStart = millis();
+    }
+    updateDisplay();
+    // Handle display timer callback (managed by LoopManager)
+    if (printDisplayTimer_ && !uiManager_.isBufferReady()) {
+        (*printDisplayTimer_)();
+    }
+    if (performanceMonitoringEnabled_) {
+        displayTime = millis() - stepStart;
+    }
+
+    // Performance monitoring (only when enabled)
+    if (performanceMonitoringEnabled_) {
+        const unsigned long loopDuration = millis() - loopStartTime;
+
         if (loopDuration > maxLoopTime_) {
             maxLoopTime_ = loopDuration;
         }
         loopCount_++;
 
-        // Track slow loops (>100ms)
-        if (loopDuration > 100) {
+        // Track slow loops
+        using CleverCoffee::Timing::SLOW_LOOP_THRESHOLD_MS;
+        if (loopDuration > SLOW_LOOP_THRESHOLD_MS) {
             slowLoopCount++;
-
-            // Log detailed breakdown for slow loops
-            LOGF(WARNING, "Slow loop detected (%lums): Logger=%lu, WaterTank=%lu, ProcessControl=%lu, LED=%lu, Network=%lu, Website=%lu, Sensors=%lu, Switches=%lu, StateMachine=%lu, Display=%lu, Debug=%lu",
-                 loopDuration, loggerTime, waterTankTime, processControlTime, ledTime,
-                 networkTime, websiteTime, sensorsTime, switchesTime, stateMachineTime, displayTime, debugTime);
+            LOGF(WARNING, "Slow loop detected (%lums): Logger=%lu, Hardware=%lu, Network=%lu, Website=%lu, Sensors=%lu, Switches=%lu, StateMachine=%lu, Display=%lu",
+                 loopDuration, loggerTime, hardwareTime, networkTime, websiteTime, sensorsTime, switchesTime, stateMachineTime, displayTime);
         }
 
-        // Report slow loop statistics every 30 seconds
-        if (millis() - lastSlowLoopReport > 30000) {
+        // Report slow loop statistics periodically
+        using CleverCoffee::Timing::SLOW_LOOP_REPORT_INTERVAL_MS;
+        const unsigned long now = millis();
+        if (now - lastSlowLoopReport > SLOW_LOOP_REPORT_INTERVAL_MS) {
             if (slowLoopCount > 0) {
                 LOGF(INFO, "Loop performance: %lu slow loops (>100ms) out of %lu total loops in last 30s", slowLoopCount, loopCount_);
                 slowLoopCount = 0;
             }
-            lastSlowLoopReport = millis();
+            lastSlowLoopReport = now;
         }
 
-        // Log performance statistics every 1000 loops
-        if (loopCount_ % 1000 == 0) {
+        // Log performance statistics periodically
+        using CleverCoffee::Timing::PERFORMANCE_LOG_INTERVAL_LOOPS;
+        if (loopCount_ % PERFORMANCE_LOG_INTERVAL_LOOPS == 0) {
             LOGF(DEBUG, "LoopManager: Processed %lu loops, max duration: %lums", loopCount_, maxLoopTime_);
         }
     }
 }
 
 void LoopManager::updateLEDs() {
-    // Simple LED coordination - delegate details to dedicated LED controller when available
     const auto machineState = systemContext_.machineStateContext()->getCurrentStateId();
-    const auto temperature = CleverCoffee::getGlobalSystemContext()->processTemperature();
-    const auto setpoint = CleverCoffee::getGlobalSystemContext()->processSetpoint();
+    const auto temperature = systemContext_.processTemperature();
+    const auto setpoint = systemContext_.processSetpoint();
 
-    // Status LED - indicates when temperature is reached
+    using CleverCoffee::Temperature::TEMP_TOLERANCE_NORMAL_C;
+    using CleverCoffee::Temperature::TEMP_TOLERANCE_STEAM_C;
+    using CleverCoffee::Temperature::STEAM_LED_THRESHOLD_C;
+    
     if (Config::getInstance().hardwareLedsStatusEnabled.get() && hardwareManager_.getStatusLed()) {
         bool shouldTurnOn = (machineState == MachineStateId::PID_NORMAL &&
-                           (fabs(temperature - setpoint) < 0.3)) ||
-                          (temperature > 115 && fabs(temperature - setpoint) < 5);
-
+                           (fabs(temperature - setpoint) < TEMP_TOLERANCE_NORMAL_C)) ||
+                          (temperature > STEAM_LED_THRESHOLD_C && fabs(temperature - setpoint) < TEMP_TOLERANCE_STEAM_C);
         shouldTurnOn ? hardwareManager_.getStatusLed()->turnOn() : hardwareManager_.getStatusLed()->turnOff();
     }
 
-    // Brew LED - indicates brewing state
     if (Config::getInstance().hardwareLedsBrewEnabled.get() && hardwareManager_.getBrewLed()) {
         isBrewState(machineState) ? hardwareManager_.getBrewLed()->turnOn() : hardwareManager_.getBrewLed()->turnOff();
     }
 
-    // Steam LED - indicates steam mode
     if (Config::getInstance().hardwareLedsSteamEnabled.get() && hardwareManager_.getSteamLed()) {
         isSteamState(machineState) ? hardwareManager_.getSteamLed()->turnOn() : hardwareManager_.getSteamLed()->turnOff();
     }
@@ -216,89 +257,66 @@ void LoopManager::updateLEDs() {
 void LoopManager::updateWaterTank() {
     // Water tank monitoring is handled by the timer-based system
     if (waterTankTimer_) {
-        // Advance the timer so checkWaterTank() is called at the correct interval
         (*waterTankTimer_)();
     } else {
-        // Fallback: direct call to water tank check
-        // This should normally not be needed if timer is set up correctly
-        // checkWaterTank();
-        LOG(WARNING, "LoopManager: Water tank timer not initialized. Can not update water tank status.");
+        LOG(WARNING, "LoopManager: Water tank timer not initialized");
     }
 }
 
 void LoopManager::updateProcessControl() {
-    // Use ProcessController for PID and temperature management (REQUIRED)
+    // Cache millis() at start to avoid multiple calls
     const unsigned long processStart = millis();
     const MachineStateId currentState = systemContext_.machineStateContext()->getCurrentStateId();
     
-    // Throttle debug logs to every 5 seconds
+    using CleverCoffee::Timing::DEBUG_LOG_THROTTLE_MS;
     static unsigned long lastProcessControlLog = 0;
-    const unsigned long now = millis();
-    const bool shouldLog = (now - lastProcessControlLog >= 5000);
+    const bool shouldLog = (processStart - lastProcessControlLog >= DEBUG_LOG_THROTTLE_MS);
     
     if (shouldLog) {
-        LOGF(DEBUG, "updateProcessControl: Entering with state=%d, temp=%.1f°C, setpoint=%.1f°C, pidOutput=%.1f", 
-             static_cast<int>(currentState), CleverCoffee::getGlobalSystemContext()->processTemperature(), CleverCoffee::getGlobalSystemContext()->processSetpoint(), CleverCoffee::getGlobalSystemContext()->processPidOutput());
-        lastProcessControlLog = now;
+        LOGF(DEBUG, "updateProcessControl: state=%d, temp=%.1f°C, setpoint=%.1f°C", 
+             static_cast<int>(currentState), 
+             systemContext_.processTemperature(), 
+             systemContext_.processSetpoint());
+        lastProcessControlLog = processStart;
     }
     
     processController_.updateProcessControl(currentState);
     const unsigned long processTime = millis() - processStart;
 
-    if (shouldLog) {
-        LOGF(DEBUG, "updateProcessControl: After update: temp=%.1f°C, setpoint=%.1f°C, pidOutput=%.1f, timer=%lums",
-             CleverCoffee::getGlobalSystemContext()->processTemperature(), CleverCoffee::getGlobalSystemContext()->processSetpoint(), CleverCoffee::getGlobalSystemContext()->processPidOutput(), processTime);
-    }
-
     if (processTime > 100) {
-        LOGF(ERROR, "ProcessController update took %lums - this is blocking the main loop!", processTime);
+        LOGF(ERROR, "ProcessController update took %lums - blocking main loop!", processTime);
     } else if (processTime > 50) {
         LOGF(WARNING, "ProcessController update took %lums", processTime);
     }
 }
 
 void LoopManager::updateDisplay() {
-    // Handle display updates similar to the original main loop logic
-    // Use UIManager for display management - UIManager is always available (required)
-    // Throttle debug logs to every 5 seconds
+    // Throttle debug logs to reduce log spam
+    // Note: millis() not cached here as it's only used for throttling, not critical path
+    using CleverCoffee::Timing::DEBUG_LOG_THROTTLE_MS;
     static unsigned long lastDisplayLog = 0;
     const unsigned long now = millis();
-    if (now - lastDisplayLog >= 5000) {
-        LOGF(DEBUG, "LoopManager: Using UIManager path for display updates");
+    if (now - lastDisplayLog >= DEBUG_LOG_THROTTLE_MS) {
         lastDisplayLog = now;
     }
+    
     uiManager_.setUpdateRunning(false);
 
     if (Config::getInstance().hardwareOledEnabled.get()) {
         // Only update display on loops that have not had other major tasks running
-        // and when not in standby display-off mode
+        // Note: Sensor updates are now automatic and non-blocking, so no need to check tempCondition
         bool websiteCondition = !systemContext_.uiCoordinator().isWebsiteUpdateRunning();
-        bool mqttCondition    = (!systemContext_.mqttManager() || !systemContext_.mqttManager()->isUpdateRunning());
-        bool hassioCondition  = !systemContext_.uiCoordinator().isHassioUpdateRunning();
-        bool tempCondition    = !systemContext_.sensorCoordinator().isTemperatureUpdateRunning();
-        bool standbyCondition = (!Config::getInstance().standbyEnabled.get() || systemContext_.standbyCoordinator().getRemainingTimeMillis() > 0);
+        bool mqttCondition = (!systemContext_.mqttManager() || !systemContext_.mqttManager()->isUpdateRunning());
+        bool hassioCondition = !systemContext_.uiCoordinator().isHassioUpdateRunning();
+        bool standbyCondition = (!Config::getInstance().standbyEnabled.get() || 
+                                systemContext_.standbyCoordinator().getRemainingTimeMillis() > 0);
 
-        // update display on loops that have not had other major tasks running
-        if (websiteCondition && mqttCondition && hassioCondition && tempCondition && standbyCondition) {
+        // Update display on loops that have not had other major tasks running
+        if (websiteCondition && mqttCondition && hassioCondition && standbyCondition) {
             if (uiManager_.isBufferReady()) {
                 uiManager_.forceUpdate();
                 uiManager_.setBufferReady(false);
                 uiManager_.setUpdateRunning(true);
-            } else {
-                // This is the critical call that was missing!
-                // It triggers the display template rendering
-                if (printDisplayTimer_) {
-                    // Throttle debug logs to every 5 seconds
-                    static unsigned long lastPrintDisplayLog = 0;
-                    const unsigned long now = millis();
-                    if (now - lastPrintDisplayLog >= 5000) {
-                        LOGF(DEBUG, "LoopManager: Calling printDisplayTimer (UIManager path)");
-                        lastPrintDisplayLog = now;
-                    }
-                    (*printDisplayTimer_)();
-                } else {
-                    LOGF(WARNING, "LoopManager: printDisplayTimer is null!");
-                }
             }
         }
     }
@@ -314,16 +332,21 @@ bool LoopManager::setupAllTimers() {
         LOG(INFO, "LoopManager: Setting up all timers");
 
         // 1. General timers (display, HASSIO discovery)
+        using CleverCoffee::Timing::HASSIO_DISCOVERY_INTERVAL_MS;
+        using CleverCoffee::Timing::DISPLAY_REFRESH_INTERVAL_MS;
         hassioDiscoveryTimer_ =
-            std::make_unique<MillisecondTimer>(&sendHASSIODiscoveryMsg, std::chrono::milliseconds(300000));
+            std::make_unique<MillisecondTimer>(
+                [this]() { sendHASSIODiscoveryMsg(systemContext_); },
+                std::chrono::milliseconds(HASSIO_DISCOVERY_INTERVAL_MS));
         printDisplayTimer_ =
-            std::make_unique<MillisecondTimer>(DisplayTemplateManager::printScreen, std::chrono::milliseconds(100));
+            std::make_unique<MillisecondTimer>(DisplayTemplateManager::printScreen, std::chrono::milliseconds(DISPLAY_REFRESH_INTERVAL_MS));
         LOG(INFO, "LoopManager: General timers initialized");
 
-        // 2. Water tank monitoring timer (200ms interval)
+        // 2. Water tank monitoring timer
+        using CleverCoffee::Timing::WATER_TANK_CHECK_INTERVAL_MS;
         waterTankTimer_ = std::make_unique<MillisecondTimer>(
             std::bind(&LoopManager::checkWaterTankLevel, this),
-            std::chrono::milliseconds(200));
+            std::chrono::milliseconds(WATER_TANK_CHECK_INTERVAL_MS));
         if (!waterTankTimer_) {
             LOG(ERROR, "LoopManager: Failed to create water tank timer");
             return false;
@@ -331,20 +354,23 @@ bool LoopManager::setupAllTimers() {
         LOG(INFO, "LoopManager: Water tank timer initialized (200ms interval)");
 
         // 3. Centralized sensor timers
-        // Temperature sensor timer (400ms - 2.5Hz for PID stability, Dallas DS18B20 takes ~100ms to read)
+        using CleverCoffee::Timing::TEMPERATURE_SENSOR_INTERVAL_MS;
+        using CleverCoffee::Timing::PRESSURE_SENSOR_INTERVAL_MS;
+        using CleverCoffee::Timing::SCALE_SENSOR_INTERVAL_MS;
+        // Temperature sensor timer (2.5Hz for PID stability, Dallas DS18B20 takes ~100ms to read)
         temperatureTimer_ = std::make_unique<MillisecondTimer>(
             std::bind(&LoopManager::updateTemperatureSensor, this),
-            std::chrono::milliseconds(400));
+            std::chrono::milliseconds(TEMPERATURE_SENSOR_INTERVAL_MS));
 
-        // Pressure sensor timer (50ms - 20Hz for responsiveness)
+        // Pressure sensor timer (20Hz for responsiveness)
         pressureTimer_ = std::make_unique<MillisecondTimer>(
             std::bind(&LoopManager::updatePressureSensor, this),
-            std::chrono::milliseconds(50));
+            std::chrono::milliseconds(PRESSURE_SENSOR_INTERVAL_MS));
 
-        // Scale sensor timer (100ms - 10Hz for good balance)
+        // Scale sensor timer (10Hz for good balance)
         scaleTimer_ = std::make_unique<MillisecondTimer>(
             std::bind(&LoopManager::updateScaleSensor, this),
-            std::chrono::milliseconds(100));
+            std::chrono::milliseconds(SCALE_SENSOR_INTERVAL_MS));
 
         sensorsTimersInitialized_ = true;
         LOG(INFO, "LoopManager: Centralized sensor timers initialized");
@@ -431,72 +457,56 @@ bool LoopManager::getPerformanceStats() const {
 }
 
 void LoopManager::updateNetwork() {
-    // Simplified network coordination - delegate complex logic to network managers
-     static bool wifiWasConnected = false;
-
-     // Check offline mode from NetworkCoordinator
-     bool isOfflineMode = systemContext_.networkCoordinator().isOfflineMode();
-
-    if (WiFi.status() == WL_CONNECTED && !isOfflineMode) {
-        if (!wifiWasConnected) {
-            LOG(INFO, "WiFi Connected");
-            wifiWasConnected = true;
-        }
-
-        // MQTT Management - delegate to MQTTManager
-        if (systemContext_.mqttManager() && systemContext_.mqttManager()->isEnabled()) {
-            systemContext_.mqttManager()->setUpdateRunning(false);
-
-            if (systemContext_.cleverCoffeeWiFiManager()->getSignalStrength() > 1) {
-                systemContext_.mqttManager()->checkConnection();
-
-                bool displayBufferNotReady = !systemContext_.uiCoordinator().isDisplayBufferReady();
-                bool tempNotRunning = !systemContext_.sensorCoordinator().isTemperatureUpdateRunning();
-                if (displayBufferNotReady && tempNotRunning) {
-                    systemContext_.mqttManager()->writeSysParamsToMQTT(true);
-                }
-            }
-
-            if (systemContext_.mqttManager()->isConnected()) {
-                systemContext_.mqttManager()->loop();
-                // Home Assistant discovery - delegate to timer system
-                bool displayBufferNotReady = !systemContext_.uiCoordinator().isDisplayBufferReady();
-                bool tempNotRunning = !systemContext_.sensorCoordinator().isTemperatureUpdateRunning();
-                if (hassioDiscoveryTimer_ && displayBufferNotReady && tempNotRunning) {
-                    (*hassioDiscoveryTimer_)();
-                }
-                systemContext_.mqttManager()->setWasConnected(true);
-            } else if (systemContext_.mqttManager()->wasConnected()) {
-                LOG(INFO, "MQTT disconnected");
-                systemContext_.mqttManager()->setWasConnected(false);
-            }
-        }
-
-        // OTA handling - minimal coordination
-        ArduinoOTA.handle();
+    // Update WiFi connection
+    if (auto* wifiManager = systemContext_.cleverCoffeeWiFiManager()) {
+        wifiManager->checkAndMaintainConnection();
+    }
+    
+    // Update MQTT connection
+    if (auto* mqttManager = systemContext_.mqttManager()) {
+        mqttManager->checkConnection();
+        mqttManager->loop();
         
-         // Reset WiFi reconnection counter on successful connection
-         systemContext_.networkCoordinator().resetWifiReconnects();
-      } else {
-          wifiWasConnected = false;
-          if (systemContext_.cleverCoffeeWiFiManager()) {
-              systemContext_.cleverCoffeeWiFiManager()->checkAndMaintainConnection();
-          }
-      }
-
+        // Additional MQTT operations that need system context
+        if (mqttManager->isEnabled() && mqttManager->isConnected()) {
+            mqttManager->setUpdateRunning(false);
+            
+            if (systemContext_.cleverCoffeeWiFiManager() && 
+                systemContext_.cleverCoffeeWiFiManager()->getSignalStrength() > 1) {
+                // Note: Sensor updates are now automatic and non-blocking, so no need to check tempNotRunning
+                bool displayBufferNotReady = !systemContext_.uiCoordinator().isDisplayBufferReady();
+                if (displayBufferNotReady) {
+                    mqttManager->writeSysParamsToMQTT(true);
+                }
+            }
+            
+            // Home Assistant discovery (handled by timer callback)
+            // Timer will call sendHASSIODiscoveryMsg(systemContext_) when ready
+        }
+    }
+    
+    // Handle OTA updates
+    ArduinoOTA.handle();
+    
+    // Reset WiFi reconnection counter on successful connection
+    if (WiFi.status() == WL_CONNECTED && !systemContext_.networkCoordinator().isOfflineMode()) {
+        systemContext_.networkCoordinator().resetWifiReconnects();
+    }
 }
 
 void LoopManager::updateWebsite() {
     // Simplified website coordination - delegate to WebServerManager
+    // Note: Sensor updates are now automatic and non-blocking, so no need to check tempNotRunning
+    // Cache millis() to avoid multiple calls
+    const unsigned long now = millis();
+    
     bool hassioNotRunning = !systemContext_.uiCoordinator().isHassioUpdateRunning();
     bool displayBufferNotReady = !systemContext_.uiCoordinator().isDisplayBufferReady();
-    bool tempNotRunning = !systemContext_.sensorCoordinator().isTemperatureUpdateRunning();
     
-    const bool canSendData = (millis() - lastTempEvent_) > tempEventInterval_ &&
+    const bool canSendData = (now - lastTempEvent_) > tempEventInterval_ &&
                             (!systemContext_.mqttManager() || !systemContext_.mqttManager()->isUpdateRunning()) &&
                             hassioNotRunning &&
-                            displayBufferNotReady &&
-                            tempNotRunning;
+                            displayBufferNotReady;
 
      // Check offline mode from NetworkCoordinator
      bool isOfflineMode = systemContext_.networkCoordinator().isOfflineMode();
@@ -507,7 +517,7 @@ void LoopManager::updateWebsite() {
          // Delegate to WebServerManager for actual transmission
          if (systemContext_.webServerManager()) {
              systemContext_.webServerManager()->sendTempEvent(
-                CleverCoffee::getGlobalSystemContext()->processTemperature(),
+                systemContext_.processTemperature(),
                 Config::getInstance().brewSetpoint.get(),
                 systemContext_.processController()->getPIDOutput() / 10); // Convert promill to percent
 
@@ -516,7 +526,7 @@ void LoopManager::updateWebsite() {
             }
         }
 
-        lastTempEvent_ = millis();
+        lastTempEvent_ = now;
         systemContext_.uiCoordinator().setWebsiteUpdateRunning(false);
     }
 }
@@ -560,10 +570,11 @@ void LoopManager::updateStateMachine() {
     const MachineStateId newState = stateMachine->getCurrentStateId();
     const char* stateNameAfter = stateMachine->getCurrentStateName();
     
-    // Log all state updates for debugging (throttled to every 5 seconds)
+    // Log all state updates for debugging (throttled to reduce log spam)
+    using CleverCoffee::Timing::DEBUG_LOG_THROTTLE_MS;
     static unsigned long lastStateMachineLog = 0;
     const unsigned long now = millis();
-    if (now - lastStateMachineLog >= 5000) {
+    if (now - lastStateMachineLog >= DEBUG_LOG_THROTTLE_MS) {
         LOGF(DEBUG, "StateMachine::update() -> State: %s (%d)", stateNameAfter, static_cast<int>(newState));
         lastStateMachineLog = now;
     }
@@ -588,8 +599,8 @@ void LoopManager::updateStateMachine() {
     if (Config::getInstance().hardwareSwitchesBrewEnabled.get()) {
         uiManager_.shouldDisplayBrewTimer();
     } else {
-        extern bool shouldDisplayBrewTimer();
-        shouldDisplayBrewTimer();
+        // Use inline function from displayCommon.h
+        shouldDisplayBrewTimer(systemContext_);
     }
 }
 

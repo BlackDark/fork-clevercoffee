@@ -1,8 +1,12 @@
 #pragma once
 
 #include <atomic>
+#include <unordered_map>
 
 #include "clevercoffee/context/HardwareContext.h"
+#include "clevercoffee/context/ProcessState.h"
+#include "clevercoffee/context/SensorState.h"
+#include "clevercoffee/context/TimingState.h"
 #include "clevercoffee/coordinators/SensorCoordinator.h"
 #include "clevercoffee/coordinators/NetworkCoordinator.h"
 #include "clevercoffee/coordinators/UICoordinator.h"
@@ -61,9 +65,8 @@ namespace CleverCoffee {
  * }
  *
  * // Access coordinators
- * if (ctx.sensorCoordinator().isTemperatureUpdateRunning()) {
- *     // Handle concurrent access
- * }
+ * // Note: Sensor updates are automatic and non-blocking via update()
+ * double temp = ctx.sensorCoordinator().getTemperature();
  * @endcode
  */
 class SystemContext {
@@ -311,6 +314,42 @@ public:
      const MachineStateContext* machineStateContext() const noexcept { return machineStateContext_; }
 
      /**
+      * @brief Get process state (for direct access to ProcessState)
+      * @return Reference to ProcessState
+      */
+     ProcessState& processState() noexcept { return processState_; }
+
+     /**
+      * @brief Get process state (const)
+      * @return Const reference to ProcessState
+      */
+     const ProcessState& processState() const noexcept { return processState_; }
+
+     /**
+      * @brief Get sensor state (for direct access to SensorState)
+      * @return Reference to SensorState
+      */
+     SensorState& sensorState() noexcept { return sensorState_; }
+
+     /**
+      * @brief Get sensor state (const)
+      * @return Const reference to SensorState
+      */
+     const SensorState& sensorState() const noexcept { return sensorState_; }
+
+     /**
+      * @brief Get timing state (for direct access to TimingState)
+      * @return Reference to TimingState
+      */
+     TimingState& timingState() noexcept { return timingState_; }
+
+     /**
+      * @brief Get timing state (const)
+      * @return Const reference to TimingState
+      */
+     const TimingState& timingState() const noexcept { return timingState_; }
+
+     /**
       * @name Network Managers
       * @{
       */
@@ -377,7 +416,11 @@ public:
       /**
        * @name Process State Accessors
        * Centralized access to process state through SystemContext.
-       * Implementations delegate to GlobalState for unified state management.
+       * Implementations delegate to ProcessState for unified state management.
+       * 
+       * @note See STATE_ACCESS_PATTERNS.md for detailed access patterns.
+       * Process state includes PID values, temperature (with brew offset), setpoint, and brew timing.
+       * 
        * @{
        */
 
@@ -601,11 +644,6 @@ public:
        */
       DisplaySnapshot getDisplaySnapshot() const noexcept;
 
-      /**
-       * @brief Mark display buffer as ready for rendering
-       * @param ready true if buffer is ready, false otherwise
-       */
-      void markDisplayBufferReady(bool ready) noexcept;
 
       /** @} */
 
@@ -857,54 +895,68 @@ public:
 
        /**
         * @name Scale and Sensor Operations
+        * @note These methods delegate to SensorCoordinator for consistency.
+        * @deprecated Prefer using sensorCoordinator() methods directly:
+        *   - Use sensorCoordinator().getBrewWeight() instead of currBrewWeight()
+        *   - Use sensorCoordinator().getWeight() instead of currReadingWeight()
+        *   - Use sensorCoordinator().isScaleCalibrationMode() instead of scaleCalibrationOn()
+        *   - Use sensorCoordinator().isScaleTareMode() instead of scaleTareOn()
         * @{
         */
 
        /**
         * @brief Check if scale calibration is currently active
         * @return true if scale calibration mode is on
+        * @deprecated Use sensorCoordinator().isScaleCalibrationMode() instead
         */
        bool scaleCalibrationOn() const noexcept;
 
        /**
         * @brief Set scale calibration active state
         * @param on true to activate calibration, false to deactivate
+        * @deprecated Use sensorCoordinator().setScaleCalibrationMode() instead
         */
        void setScaleCalibrationOn(bool on) noexcept;
 
        /**
         * @brief Check if scale tare operation is active
         * @return true if scale tare is in progress
+        * @deprecated Use sensorCoordinator().isScaleTareMode() instead
         */
        bool scaleTareOn() const noexcept;
 
        /**
         * @brief Set scale tare active state
         * @param on true to activate tare, false to deactivate
+        * @deprecated Use sensorCoordinator().setScaleTareMode() instead
         */
        void setScaleTareOn(bool on) noexcept;
 
        /**
         * @brief Get current brew weight reading
         * @return Current weight in grams
+        * @deprecated Use sensorCoordinator().getBrewWeight() instead
         */
        double currBrewWeight() const noexcept;
 
        /**
         * @brief Set current brew weight
         * @param weight Weight in grams
+        * @note This is managed by SensorCoordinator - setting directly may be overwritten
         */
        void setCurrBrewWeight(double weight) noexcept;
 
        /**
         * @brief Get current scale reading weight
         * @return Current weight reading in grams
+        * @deprecated Use sensorCoordinator().getWeight() instead
         */
        double currReadingWeight() const noexcept;
 
        /**
         * @brief Set current scale reading weight
         * @param weight Weight in grams
+        * @note This is managed by SensorCoordinator - setting directly may be overwritten
         */
        void setCurrReadingWeight(double weight) noexcept;
 
@@ -923,12 +975,14 @@ public:
        /**
         * @brief Get input pressure reading
         * @return Pressure value
+        * @deprecated Use sensorCoordinator().getPressure() instead
         */
        float inputPressure() const noexcept;
 
        /**
         * @brief Set input pressure value
         * @param pressure Pressure value
+        * @note This is managed by SensorCoordinator - setting directly may be overwritten
         */
        void setInputPressure(float pressure) noexcept;
 
@@ -989,11 +1043,6 @@ public:
         */
        unsigned int wifiReconnects() const noexcept;
 
-       /**
-        * @brief Set WiFi reconnect attempt count
-        * @param count Number of reconnect attempts
-        */
-       void setWifiReconnects(unsigned int count) noexcept;
 
        /** @} */
 
@@ -1062,54 +1111,66 @@ public:
         /**
          * @name Pressure Filter Variables
          * Exponential Moving Average filter for pressure sensor readings
+         * 
+         * @note Pressure filtering is now handled internally by SensorCoordinator.
+         * These methods are kept for backward compatibility but may be removed in future.
+         * Use sensorCoordinator().getFilteredPressure() for filtered pressure readings.
          * @{
          */
 
         /**
          * @brief Get pressure filter X input value
          * @return Current X (weighted input) value
+         * @deprecated Pressure filter is internal to SensorCoordinator
          */
         float inX() const noexcept;
 
         /**
          * @brief Set pressure filter X input value
          * @param value X value to set
+         * @deprecated Pressure filter is internal to SensorCoordinator
          */
         void setInX(float value) noexcept;
 
         /**
          * @brief Get pressure filter Y output value
          * @return Current Y (filtered output) value
+         * @deprecated Pressure filter is internal to SensorCoordinator
          */
         float inY() const noexcept;
 
         /**
          * @brief Set pressure filter Y output value
          * @param value Y value to set
+         * @deprecated Pressure filter is internal to SensorCoordinator
          */
         void setInY(float value) noexcept;
 
         /**
          * @brief Get pressure filter old value
          * @return Previous output value for derivative calculation
+         * @deprecated Pressure filter is internal to SensorCoordinator
          */
         float inOld() const noexcept;
 
         /**
          * @brief Set pressure filter old value
          * @param value Old value to set
+         * @deprecated Pressure filter is internal to SensorCoordinator
          */
         void setInOld(float value) noexcept;
 
         /**
          * @brief Get pressure filter sum value
          * @return Current sum for weighted averaging
+         * @deprecated Pressure filter is internal to SensorCoordinator
          */
         float inSum() const noexcept;
 
         /**
          * @brief Set pressure filter sum value
          * @param value Sum value to set
+         * @deprecated Pressure filter is internal to SensorCoordinator
          */
         void setInSum(float value) noexcept;
 
@@ -1130,6 +1191,7 @@ public:
          /**
           * @brief Get filtered input pressure value
           * @return Current filtered pressure reading
+          * @deprecated Use sensorCoordinator().getFilteredPressure() instead
           */
          float inputPressureFilter() const noexcept;
 
@@ -1202,128 +1264,94 @@ private:
     CleverCoffeeWiFiManager* cleverCoffeeWiFiManager_ = nullptr;
     WebServerManager* webServerManager_ = nullptr;
 
-    // ===== PROCESS STATE MEMBERS =====
-    double process_temperature_ = 0.0;
-    double process_setpoint_ = 95.0;
-    double process_pidOutput_ = 0.0;
-    bool process_pidEnabled_ = true;
-    double process_currBrewTime_ = 0.0;
-    long process_startingTime_ = 0;
-    double process_totalTargetBrewTime_ = 0.0;
-    double process_steamSetpointValue_ = 120.0;
-    bool process_brewPidDisabled_ = false;
-    double process_previousInput_ = 0.0;
-    double process_aggbKi_ = 0.0;
-    double process_aggbKd_ = 0.0;
-    double process_aggKi_ = 0.0;
-    double process_aggKd_ = 0.0;
-    int process_windowSize_ = 1000;
+    // ===== PROCESS STATE =====
+    // NOTE: Process state is now managed by ProcessState class
+    // All deprecated process_* members have been removed - use processState() methods
+    ProcessState processState_;
+
+    // ===== SENSOR STATE =====
+    // NOTE: Sensor state is now managed by SensorState class
+    SensorState sensorState_;
+    
+    // NOTE: Process state deprecated members removed - use processState() methods instead
+    // Removed: process_temperature_, process_setpoint_, process_pidOutput_, process_pidEnabled_,
+    //          process_currBrewTime_, process_startingTime_, process_totalTargetBrewTime_,
+    //          process_steamSetpointValue_, process_brewPidDisabled_, process_previousInput_,
+    //          process_aggbKi_, process_aggbKd_, process_aggKi_, process_aggKd_, process_windowSize_
+    // These were verified unused and have been removed. Use processState() methods instead.
 
     // ===== COORDINATION STATE MEMBERS =====
-    bool coordination_temperatureUpdateRunning_ = false;
-    bool coordination_websiteUpdateRunning_ = false;
-    bool coordination_hassioUpdateRunning_ = false;
-    bool coordination_displayUpdateRunning_ = false;
-    bool coordination_displayBufferReady_ = false;
-    bool coordination_setupDone_ = false;
+    // NOTE: Coordination state is now managed by coordinators
+    // NOTE: Coordination deprecated members removed - use coordinator methods instead
+    // Removed: coordination_displayBufferReady_, coordination_setupDone_,
+    //          coordination_temperatureUpdateRunning_, coordination_websiteUpdateRunning_,
+    //          coordination_hassioUpdateRunning_, coordination_displayUpdateRunning_
+    // These were verified unused and have been removed. Use coordinator methods instead.
 
     // ===== NETWORK STATE MEMBERS =====
-    bool network_offlineMode_ = false;
-    unsigned int network_wifiReconnects_ = 0;
-    unsigned long network_lastWifiConnectionAttempt_ = 0;
-    unsigned long network_lastTempEvent_ = 0;
-    unsigned long network_tempEventInterval_ = 1000;
-    std::map<const char*, const char*, cmp_str> network_mqttVars_;
-    std::map<const char*, std::function<double()>, cmp_str> network_mqttSensors_;
-    bool network_mqtt_was_connected_ = false;
-    unsigned int network_MQTTReCnctCount_ = 0;
-    unsigned long network_lastMQTTConnectionAttempt_ = 0;
-    bool network_hassioFailed_ = false;
+    // NOTE: Network state is now managed by NetworkCoordinator
+    // NOTE: Network state deprecated members removed - use networkCoordinator() methods instead
+    // Removed: network_offlineMode_, network_wifiReconnects_, network_hassioFailed_,
+    //          network_lastWifiConnectionAttempt_, network_lastMQTTConnectionAttempt_,
+    //          network_MQTTReCnctCount_, network_mqttVars_, network_mqttSensors_,
+    //          network_mqtt_was_connected_, network_lastTempEvent_, network_tempEventInterval_
+    // These were verified unused and have been removed. Use networkCoordinator() methods instead.
 
-    // ===== TIMING STATE MEMBERS =====
-    unsigned long timing_previousMillistemp_ = 0;
-    unsigned long timing_previousMillisMQTT_ = 0;
-    unsigned long timing_previousMillisPressure_ = 0;
+    // ===== TIMING STATE =====
+    // NOTE: Simple timing state is now managed by TimingState class
+    // ISR-related timing and hardware timers remain in SystemContext for safety
+    TimingState timingState_;
+    
+    // NOTE: Timing state members removed - use timingState() methods instead
+    // Removed: timing_previousMillistemp_, timing_previousMillisMQTT_, 
+    //          timing_previousMillisPressure_, timing_windowStartTime_
+    // These were verified unused and have been removed.
+    
+    // NOTE: Hardware timers remain in SystemContext due to initialization complexity
+    // These are managed via unique_ptr and require careful lifecycle management
     std::unique_ptr<MillisecondTimer> timing_loopWaterTank_ = nullptr;
     std::unique_ptr<MillisecondTimer> timing_hassioDiscoveryTimer_ = nullptr;
     std::unique_ptr<MillisecondTimer> timing_printDisplayTimer_ = nullptr;
-    MillisecondTimer* timing_loopWaterTank2_ = nullptr;
-    MillisecondTimer* timing_hassioDiscoveryTimer2_ = nullptr;
-    MillisecondTimer* timing_printDisplayTimer2_ = nullptr;
-    unsigned int timing_isrCounter_ = 0;
-    unsigned long timing_windowStartTime_ = 0;
+    
+    // NOTE: Removed unused legacy timer pointers: timing_loopWaterTank2_, 
+    //       timing_hassioDiscoveryTimer2_, timing_printDisplayTimer2_
+    // These were verified unused and have been removed.
+    
+    // NOTE: ISR-related timing remains in SystemContext due to ISR access requirements
+    // ISR code needs direct access to these members for performance and safety
+    unsigned int timing_isrCounter_ = 0;  // Accessed from ISR - must remain in SystemContext
     std::atomic<bool> timing_isrReady_{false};  ///< ISR ready flag - prevents ISR from executing before system is initialized
 
     // ===== STANDBY STATE MEMBERS =====
-    unsigned long standby_standbyModeRemainingTimeMillis_ = 0;
-    unsigned long standby_standbyModeStartTimeMillis_ = 0;
-    unsigned long standby_standbyModeRemainingTimeDisplayOffMillis_ = TIME_TO_DISPLAY_OFF_MILLIS;
-    unsigned long standby_lastStandbyTimeMillis_ = 0;
-    unsigned long standby_timeSinceStandbyMillis_ = 0;
+    // NOTE: Standby state is now managed by StandbyCoordinator
+    // NOTE: Standby state deprecated members removed - use standbyCoordinator() methods instead
+    // Removed: standby_standbyModeRemainingTimeMillis_, standby_standbyModeStartTimeMillis_,
+    //          standby_standbyModeRemainingTimeDisplayOffMillis_, standby_lastStandbyTimeMillis_,
+    //          standby_timeSinceStandbyMillis_
+    // These were verified unused and have been removed. Use standbyCoordinator() methods instead.
 
     // ===== SENSOR STATE MEMBERS =====
-    float sensors_inputPressure_ = 0.0;
-    float sensors_inputPressureFilter_ = 0.0;
-    double sensors_currBrewWeight_ = 0.0;
-    double sensors_currReadingWeight_ = 0.0;
-    bool sensors_scaleFailure_ = false;
-    bool sensors_scaleTareOn_ = false;
-    bool sensors_scaleCalibrationOn_ = false;
-    int sensors_shottimerCounter_ = 10;
-    float sensors_preBrewWeight_ = 0.0;
-    bool sensors_autoTareInProgress_ = false;
-    unsigned long sensors_autoTareStartTime_ = 0;
-    unsigned long sensors_lastScaleConnectionCheck_ = 0;
-    unsigned long sensors_scaleConnectionFailureTime_ = 0;
-    bool sensors_scaleConnectionLost_ = false;
-    float sensors_lastValidWeight_ = 0.0;
-    bool sensors_brewByWeightFallbackActive_ = false;
-    int sensors_scaleReadErrorCount_ = 0;
-    int sensors_scaleMaxRetries_ = 5;
-    unsigned long sensors_lastScaleErrorTime_ = 0;
-    unsigned long sensors_scaleErrorCooldownMs_ = 1000;
-    bool sensors_scaleInErrorRecovery_ = false;
-    float sensors_inX_ = 0.0f;
-    float sensors_inY_ = 0.0f;
-    float sensors_inOld_ = 0.0f;
-    float sensors_inSum_ = 0.0f;
-    uint8_t sensors_currStateSteamSwitch_ = 0;
-    bool sensors_currStatePowerSwitchPressed_ = false;
-    bool sensors_lastPowerSwitchPressed_ = false;
-    unsigned long sensors_systemInitializedTime_ = 0;
-    unsigned long sensors_firstSwitchPressTime_ = 0;
-    bool sensors_trackingPressTime_ = false;
-    SwitchState sensors_currBrewSwitchState_ = SwitchState::IDLE;
-    uint8_t sensors_brewSwitchReading_ = LOW;
-    uint8_t sensors_currReadingBrewSwitch_ = LOW;
-    bool sensors_brewSwitchWasOff_ = false;
-    SwitchState sensors_currHotWaterSwitchState_ = SwitchState::IDLE;
-    uint8_t sensors_hotWaterSwitchReading_ = LOW;
-    uint8_t sensors_currReadingHotWaterSwitch_ = LOW;
-    double sensors_currPumpOnTime_ = 0.0;
-    unsigned long sensors_pumpStartingTime_ = 0;
-    int sensors_waterTankCheckConsecutiveReads_ = 0;
+    // NOTE: Sensor state is now managed by SensorState class
+    // NOTE: Sensor state deprecated members removed - use sensorState() methods instead
+    // Removed: All sensors_* members (30+ members including pressure, weight, scale, switches, etc.)
+    // These were verified unused and have been removed. Use sensorState() methods instead.
 
     // ===== MACHINE STATE MEMBERS =====
-    MachineStateId machine_machineState_ = MachineStateId::INIT;
-    MachineStateId machine_lastmachinestate_ = MachineStateId::INIT;
-    int machine_lastmachinestatepid_ = -1;
-    bool machine_emergencyStop_ = false;
-    bool machine_steamON_ = false;
-    bool machine_steamFirstON_ = false;
-    bool machine_backflushOn_ = false;
-    int machine_currBackflushCycles_ = 1;
-    bool machine_waterTankFull_ = true;
-    bool machine_systemInitialized_ = false;
-    MachineStateFlags machine_flags_ = MachineStateFlags();
-    hw_timer_t* machine_timer_ = nullptr;
+    // NOTE: Machine state is now managed by MachineStateContext
+    // NOTE: Machine state deprecated members removed - use machineStateContext() methods instead
+    // Removed: machine_emergencyStop_, machine_steamON_, machine_steamFirstON_, machine_backflushOn_,
+    //          machine_currBackflushCycles_, machine_waterTankFull_, machine_systemInitialized_,
+    //          machine_machineState_, machine_lastmachinestate_, machine_lastmachinestatepid_, machine_flags_
+    // These were verified unused and have been removed. Use machineStateContext() methods instead.
+    hw_timer_t* machine_timer_ = nullptr;  // NOTE: ISR-accessed hardware timer, must remain in SystemContext
 
     // ===== DISPLAY STATE MEMBERS =====
-    int display_displayOffline_ = 0;
+    // NOTE: Removed unused member: display_displayOffline_
+    // This was verified unused and has been removed. Use uiCoordinator_.getDisplayOffline() instead.
 
     // ===== DEBUG STATE MEMBERS =====
-    String debug_hotWaterStateDebug_ = "off";
-    String debug_lastHotWaterStateDebug_ = "off";
+    // NOTE: Removed unused debug strings: debug_hotWaterStateDebug_, debug_lastHotWaterStateDebug_
+    // These were verified unused and have been removed.
 
     // ===== SYSTEM-WIDE REFERENCES =====
     Config* config_ = nullptr;
@@ -1331,35 +1359,7 @@ private:
     const char* sysVersion_ = VERSION;
 };
 
-/**
- * @brief Global system context accessor
- * 
- * Returns the global SystemContext instance if initialized.
- * Used by utility functions and inline code that need system context access.
- * 
- * @warning Returns nullptr if context is not initialized
- * @return Pointer to the global SystemContext instance, or nullptr
- */
-extern SystemContext* g_systemContext;
-
-/**
- * @brief Set the global system context reference
- * 
- * Called during system initialization to register the SystemContext.
- * 
- * @param context Pointer to the SystemContext instance
- */
-inline void setGlobalSystemContext(SystemContext* context) {
-    g_systemContext = context;
-}
-
-/**
- * @brief Get the global system context reference
- * 
- * @return Pointer to the global SystemContext instance, or nullptr if not initialized
- */
-inline SystemContext* getGlobalSystemContext() {
-    return g_systemContext;
-}
+// Global SystemContext accessor removed - use dependency injection instead.
+// For ISR code, use CleverCoffee::ISR::getSystemContext() from isr.h
 
 } // namespace CleverCoffee

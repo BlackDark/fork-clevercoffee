@@ -33,15 +33,12 @@ void StandbyState::update(MachineStateContext& context) {
 MachineState* StandbyState::checkSpecificTransitions(MachineStateContext& context) {
     if (context.isNormalOperationRequested()) {
         context.setNormalOperationRequested(false);
-        context.logStateTransition(getStateId(), MachineStateId::PID_NORMAL, "Normal operation requested");
         context.resetMqttReconnectCount();
-        return getStateInstance(MachineStateId::PID_NORMAL);
+        return transitionToPidState(context, "Normal operation requested");
     }
     if (context.hasUserActivity() || context.shouldExitStandby()) {
-        context.logStateTransition(
-            getStateId(), MachineStateId::PID_NORMAL, "User activity detected - exiting standby");
         context.resetMqttReconnectCount();
-        return getStateInstance(MachineStateId::PID_NORMAL);
+        return transitionToPidState(context, "User activity detected - exiting standby");
     }
     return nullptr;
 }
@@ -66,22 +63,10 @@ void ManualFlushRunningState::update(MachineStateContext& context) {
 MachineState* ManualFlushRunningState::checkSpecificTransitions(MachineStateContext& context) {
     if (context.isManualFlushStopRequested()) {
         context.setManualFlushStopRequested(false);
-        if (context.isPidEnabled()) {
-            context.logStateTransition(getStateId(), MachineStateId::PID_NORMAL, "Manual flush stop requested");
-            return getStateInstance(MachineStateId::PID_NORMAL);
-        } else {
-            context.logStateTransition(getStateId(), MachineStateId::PID_DISABLED, "Manual flush stop requested");
-            return getStateInstance(MachineStateId::PID_DISABLED);
-        }
+        return transitionToPidState(context, "Manual flush stop requested");
     }
     if (!context.isManualFlushActive()) {
-        if (context.isPidEnabled()) {
-            context.logStateTransition(getStateId(), MachineStateId::PID_NORMAL, "Manual flush deactivated");
-            return getStateInstance(MachineStateId::PID_NORMAL);
-        } else {
-            context.logStateTransition(getStateId(), MachineStateId::PID_DISABLED, "Manual flush deactivated");
-            return getStateInstance(MachineStateId::PID_DISABLED);
-        }
+        return transitionToPidState(context, "Manual flush deactivated");
     }
     return nullptr;
 }

@@ -10,6 +10,7 @@
 #include "clevercoffee/defaults.h"
 #include "clevercoffee/hardware/pinmapping.h"
 #include "clevercoffee/utils/memoryUtils.h"
+#include "clevercoffee/constants/Temperature.h"
 
 #include <cmath>
 
@@ -254,8 +255,12 @@ void HardwareManager::updateLEDs(MachineStateId machineState, double temperature
         bool shouldTurnOn = false;
 
         // Turn on when at target temperature (normal or steam mode)
-        if ((machineState == MachineStateId::PID_NORMAL && (abs(temperature - setpoint) < 0.3)) ||
-            (temperature > 115 && abs(temperature - setpoint) < 5)) {
+        using CleverCoffee::Temperature::TEMP_TOLERANCE_NORMAL_C;
+        using CleverCoffee::Temperature::TEMP_TOLERANCE_STEAM_C;
+        using CleverCoffee::Temperature::STEAM_LED_THRESHOLD_C;
+        
+        if ((machineState == MachineStateId::PID_NORMAL && (abs(temperature - setpoint) < TEMP_TOLERANCE_NORMAL_C)) ||
+            (temperature > STEAM_LED_THRESHOLD_C && abs(temperature - setpoint) < TEMP_TOLERANCE_STEAM_C)) {
             shouldTurnOn = true;
         }
 

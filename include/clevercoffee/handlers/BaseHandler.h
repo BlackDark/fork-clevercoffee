@@ -16,22 +16,21 @@ namespace CleverCoffee {
 class SystemContext;
 }
 
-// Forward declaration
-namespace CleverCoffee {
-class SystemContext;
-}
-
-// TODO do we need this globally?
-// Forward declaration for isPowerSwitchOperationAllowed
-bool isPowerSwitchOperationAllowed(CleverCoffee::SystemContext* ctx);
-
-// TODO do we need this globally?
 /**
- * @brief Simple implementation of power switch operation check
+ * @brief Check if power switch operations are allowed
+ * 
+ * This function is used by BaseHandler::hasPermission() as the default permission check.
+ * It's defined inline in this header since it's only used by BaseHandler and its derived classes.
+ * 
+ * @param ctx SystemContext pointer (can be nullptr)
+ * @return true if operations are allowed, false otherwise
+ * 
+ * @note Currently implements a simple null check. Future enhancement: check systemInitialized flag
+ *       via SystemContext to ensure system is fully initialized before allowing operations.
  */
 inline bool isPowerSwitchOperationAllowed(CleverCoffee::SystemContext* ctx) {
     // Basic permission check - system should be initialized
-    // Will check systemInitialized flag via SystemContext
+    // TODO: Enhance to check systemContext_->isReady() or systemInitialized flag
     return ctx != nullptr;  // For now, accept any valid context
 }
 

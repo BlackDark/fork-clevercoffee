@@ -314,17 +314,22 @@ void WebServerManager::setupApiRoutes() {
     server_->on("/api/status", HTTP_GET, [this](AsyncWebServerRequest* request) {
         JsonDocument doc;
 
-        doc["temperature"]  = CleverCoffee::getGlobalSystemContext()->processController()->getCurrentTemperature();
-        doc["setpoint"]     = CleverCoffee::getGlobalSystemContext()->processController()->getSetpoint();
-        doc["heaterPower"]  = CleverCoffee::getGlobalSystemContext()->processController()->getPIDOutput() / 10.0;
+        if (!systemContext_) {
+            request->send(500, "application/json", "{\"error\":\"System context not available\"}");
+            return;
+        }
+        
+        doc["temperature"]  = systemContext_->processController()->getCurrentTemperature();
+        doc["setpoint"]     = systemContext_->processController()->getSetpoint();
+        doc["heaterPower"]  = systemContext_->processController()->getPIDOutput() / 10.0;
         doc["machineState"] = static_cast<int>(systemContext_->machineStateContext()->getCurrentStateId());
-         doc["pidEnabled"]   = CleverCoffee::getGlobalSystemContext()->processController()->isPIDEnabled();
+         doc["pidEnabled"]   = systemContext_->processController()->isPIDEnabled();
          doc["steamMode"]    = systemContext_->machineStateContext()->isSteamModeActive();
          doc["uptime"] = millis();
 
         if (Config::getInstance().hardwareSensorsScaleEnabled.get()) {
-            doc["weight"] = CleverCoffee::getGlobalSystemContext()->sensorCoordinator().getWeight();
-            doc["brewWeight"] = CleverCoffee::getGlobalSystemContext()->sensorCoordinator().getBrewWeight();
+            doc["weight"] = systemContext_->sensorCoordinator().getWeight();
+            doc["brewWeight"] = systemContext_->sensorCoordinator().getBrewWeight();
         }
 
         String response;
@@ -353,11 +358,13 @@ void WebServerManager::setupApiRoutes() {
     });
 
     // Setpoint adjustment
-    server_->on("/api/setpoint", HTTP_POST, [](AsyncWebServerRequest* request) {
+    server_->on("/api/setpoint", HTTP_POST, [this](AsyncWebServerRequest* request) {
         if (request->hasParam("value", true)) {
             double newSetpoint = request->getParam("value", true)->value().toDouble();
             if (newSetpoint >= 0 && newSetpoint <= 150) {
-                CleverCoffee::getGlobalSystemContext()->setProcessSetpoint(newSetpoint);
+                if (systemContext_) {
+                    systemContext_->setProcessSetpoint(newSetpoint);
+                }
                 Config::getInstance().brewSetpoint.set(newSetpoint);
                 request->send(200, "application/json", "{\"success\":true}");
             } else {
@@ -386,14 +393,16 @@ void WebServerManager::setupApiRoutes() {
     });
 
     // PID control endpoints
-    server_->on("/api/pid", HTTP_POST, [](AsyncWebServerRequest* request) {
+    server_->on("/api/pid", HTTP_POST, [this](AsyncWebServerRequest* request) {
         try {
             LOGF(INFO, "/api/pid requested, method: %d", request->method());
 
             const bool currentPidState = Config::getInstance().pidEnabled.get();
             const bool newPidState     = !currentPidState;
             Config::getInstance().pidEnabled.set(newPidState);
-            CleverCoffee::getGlobalSystemContext()->setProcessPidEnabled(newPidState);
+            if (systemContext_) {
+                systemContext_->setProcessPidEnabled(newPidState);
+            }
 
             LOGF(INFO, "Toggle PID state: %d", newPidState);
 
@@ -425,13 +434,17 @@ void WebServerManager::setupApiRoutes() {
 
     // Scale control endpoints
     if (Config::getInstance().hardwareSensorsScaleEnabled.get()) {
-        server_->on("/api/scale/tare", HTTP_POST, [](AsyncWebServerRequest* request) {
+        server_->on("/api/scale/tare", HTTP_POST, [this](AsyncWebServerRequest* request) {
             try {
-                CleverCoffee::getGlobalSystemContext()->setScaleTareOn(!CleverCoffee::getGlobalSystemContext()->scaleTareOn());
-                LOGF(INFO, "Toggle scale tare mode: %s", CleverCoffee::getGlobalSystemContext()->scaleTareOn() ? "on" : "off");
-                request->send(200,
-                              "application/json",
-                              JsonResponseBuilder::createBoolResponse("scaleTareOn", CleverCoffee::getGlobalSystemContext()->sensorCoordinator().isScaleTareMode()));
+                if (systemContext_) {
+                    systemContext_->sensorCoordinator().setScaleTareMode(!systemContext_->sensorCoordinator().isScaleTareMode());
+                    LOGF(INFO, "Toggle scale tare mode: %s", systemContext_->sensorCoordinator().isScaleTareMode() ? "on" : "off");
+                    request->send(200,
+                                  "application/json",
+                                  JsonResponseBuilder::createBoolResponse("scaleTareOn", systemContext_->sensorCoordinator().isScaleTareMode()));
+                } else {
+                    request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("System context not available"));
+                }
             } catch (const std::exception& e) {
                 LOGF(ERROR, "API scale tare failed: %s", e.what());
                 request->send(
@@ -439,14 +452,18 @@ void WebServerManager::setupApiRoutes() {
             }
         });
 
-        server_->on("/api/scale/calibrate", HTTP_POST, [](AsyncWebServerRequest* request) {
+        server_->on("/api/scale/calibrate", HTTP_POST, [this](AsyncWebServerRequest* request) {
             try {
-                CleverCoffee::getGlobalSystemContext()->setScaleCalibrationOn(!CleverCoffee::getGlobalSystemContext()->scaleCalibrationOn());
-                LOGF(INFO, "Toggle scale calibration mode: %s", CleverCoffee::getGlobalSystemContext()->scaleCalibrationOn() ? "on" : "off");
-                request->send(
-                    200,
-                    "application/json",
-                    JsonResponseBuilder::createBoolResponse("scaleCalibrationOn", CleverCoffee::getGlobalSystemContext()->sensorCoordinator().isScaleCalibrationMode()));
+                if (systemContext_) {
+                    systemContext_->sensorCoordinator().setScaleCalibrationMode(!systemContext_->sensorCoordinator().isScaleCalibrationMode());
+                    LOGF(INFO, "Toggle scale calibration mode: %s", systemContext_->sensorCoordinator().isScaleCalibrationMode() ? "on" : "off");
+                    request->send(
+                        200,
+                        "application/json",
+                        JsonResponseBuilder::createBoolResponse("scaleCalibrationOn", systemContext_->sensorCoordinator().isScaleCalibrationMode()));
+                } else {
+                    request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("System context not available"));
+                }
             } catch (const std::exception& e) {
                 LOGF(ERROR, "API scale calibration failed: %s", e.what());
                 request->send(
@@ -454,14 +471,18 @@ void WebServerManager::setupApiRoutes() {
             }
         });
 
-        server_->on("/api/scale/calibration", HTTP_POST, [](AsyncWebServerRequest* request) {
+        server_->on("/api/scale/calibration", HTTP_POST, [this](AsyncWebServerRequest* request) {
             try {
-                CleverCoffee::getGlobalSystemContext()->setScaleCalibrationOn(!CleverCoffee::getGlobalSystemContext()->scaleCalibrationOn());
-                LOGF(INFO, "Toggle scale calibration mode: %s", CleverCoffee::getGlobalSystemContext()->scaleCalibrationOn() ? "on" : "off");
-                request->send(
-                    200,
-                    "application/json",
-                    JsonResponseBuilder::createBoolResponse("scaleCalibrationOn", CleverCoffee::getGlobalSystemContext()->sensorCoordinator().isScaleCalibrationMode()));
+                if (systemContext_) {
+                    systemContext_->sensorCoordinator().setScaleCalibrationMode(!systemContext_->sensorCoordinator().isScaleCalibrationMode());
+                    LOGF(INFO, "Toggle scale calibration mode: %s", systemContext_->sensorCoordinator().isScaleCalibrationMode() ? "on" : "off");
+                    request->send(
+                        200,
+                        "application/json",
+                        JsonResponseBuilder::createBoolResponse("scaleCalibrationOn", systemContext_->sensorCoordinator().isScaleCalibrationMode()));
+                } else {
+                    request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("System context not available"));
+                }
             } catch (const std::exception& e) {
                 LOGF(ERROR, "API scale calibration failed: %s", e.what());
                 request->send(
@@ -505,7 +526,7 @@ void WebServerManager::setupApiRoutes() {
     });
 
     // Temperature data endpoint
-    server_->on("/api/temperatures", HTTP_GET, [](AsyncWebServerRequest* request) {
+    server_->on("/api/temperatures", HTTP_GET, [this](AsyncWebServerRequest* request) {
         try {
             String tempJson = getTempString();
             request->send(200, "application/json", tempJson);
@@ -584,7 +605,7 @@ void WebServerManager::setupApiRoutes() {
     });
 
     // WiFi reset endpoint
-    server_->on("/api/wifi-reset", HTTP_POST, [](AsyncWebServerRequest* request) {
+    server_->on("/api/wifi-reset", HTTP_POST, [this](AsyncWebServerRequest* request) {
         try {
             JsonDocument doc;
             doc["success"] = true;
@@ -596,8 +617,8 @@ void WebServerManager::setupApiRoutes() {
 
             delay(1000);
 
-            if (CleverCoffee::getGlobalSystemContext()->cleverCoffeeWiFiManager()) {
-                CleverCoffee::getGlobalSystemContext()->cleverCoffeeWiFiManager()->resetSettings();
+            if (systemContext_ && systemContext_->cleverCoffeeWiFiManager()) {
+                systemContext_->cleverCoffeeWiFiManager()->resetSettings();
             } else {
                 LOG(ERROR, "WiFiManager not initialized for reset");
                 ESP.restart();
@@ -974,9 +995,15 @@ String WebServerManager::templateProcessor(const String& var) {
     } else if (var == "VERSION") {
         return "CleverCoffee v2.0";
     } else if (var == "TEMP") {
-        return String(CleverCoffee::getGlobalSystemContext()->processController()->getCurrentTemperature(), 1);
+        if (systemContext_ && systemContext_->processController()) {
+            return String(systemContext_->processController()->getCurrentTemperature(), 1);
+        }
+        return String("0.0");
     } else if (var == "SETPOINT") {
-        return String(CleverCoffee::getGlobalSystemContext()->processController()->getSetpoint(), 1);
+        if (systemContext_ && systemContext_->processController()) {
+            return String(systemContext_->processController()->getSetpoint(), 1);
+        }
+        return String("0.0");
     } else if (var == "UPTIME") {
         unsigned long uptimeMillis  = millis();
         unsigned long uptimeSeconds = uptimeMillis / 1000;
@@ -1094,13 +1121,17 @@ void WebServerManager::sendEvent(const String& event, const String& data) {
     events_->send(data.c_str(), event.c_str(), millis());
 }
 
-String WebServerManager::getTempString() {
+String WebServerManager::getTempString() const {
     try {
         JsonDocument doc;
 
-        doc["currentTemp"] = CleverCoffee::getGlobalSystemContext()->processController()->getCurrentTemperature();
+        if (!systemContext_ || !systemContext_->processController()) {
+            return String("{\"error\":\"System context not available\"}");
+        }
+        
+        doc["currentTemp"] = systemContext_->processController()->getCurrentTemperature();
         doc["targetTemp"]  = Config::getInstance().brewSetpoint.get();
-        doc["heaterPower"] = CleverCoffee::getGlobalSystemContext()->processController()->getPIDOutput() / 10;
+        doc["heaterPower"] = systemContext_->processController()->getPIDOutput() / 10;
 
         String json;
         if (!safeSerializeJson(doc, json)) {
@@ -1113,12 +1144,16 @@ String WebServerManager::getTempString() {
     }
 }
 
-String WebServerManager::getWeightJsonString() {
+String WebServerManager::getWeightJsonString() const {
     try {
         JsonDocument doc;
 
-        doc["weight"]     = round2(CleverCoffee::getGlobalSystemContext()->sensorCoordinator().getWeight());
-        doc["brewWeight"] = round2(CleverCoffee::getGlobalSystemContext()->currBrewWeight());
+        if (!systemContext_) {
+            return "{\"error\": \"System context not available\"}";
+        }
+        
+        doc["weight"]     = round2(systemContext_->sensorCoordinator().getWeight());
+        doc["brewWeight"] = round2(systemContext_->currBrewWeight());
 
         String json;
         if (!safeSerializeJson(doc, json)) {

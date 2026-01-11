@@ -6,6 +6,7 @@
 #include "clevercoffee/state/states/EmergencyStopState.h"
 
 #include "clevercoffee/Logger.h"
+#include "clevercoffee/constants/Temperature.h"
 #include "clevercoffee/state/MachineStateContext.h"
 #include "clevercoffee/state/StateFactory.h"
 #include "clevercoffee/context/SystemContext.h"
@@ -58,8 +59,8 @@ bool EmergencyStopState::isEmergencyCleared(MachineStateContext& context) const 
         return cleared;
     }
     // Fallback: if ProcessController not available, use simple threshold check
-    const double SAFE_TEMPERATURE_THRESHOLD = 100.0;
-    if (currentTemp > SAFE_TEMPERATURE_THRESHOLD) {
+    using CleverCoffee::Temperature::EMERGENCY_SAFE_TEMP_C;
+    if (currentTemp > static_cast<double>(EMERGENCY_SAFE_TEMP_C)) {
         LOGF(WARNING, "Temperature still elevated: %.1f°C (ProcessController not available)", currentTemp);
         return false;
     }

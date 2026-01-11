@@ -6,6 +6,7 @@
 #include "clevercoffee/state/states/PidStates.h"
 
 #include "clevercoffee/types/GlobalTypes.h"
+#include "clevercoffee/constants/Timing.h"
 #include "clevercoffee/Logger.h"
 #include "clevercoffee/state/MachineStateContext.h"
 #include "clevercoffee/state/StateFactory.h"
@@ -29,7 +30,8 @@ void PidNormalState::update(MachineStateContext& context) {
     const unsigned long currentTime = context.getCurrentTime();
     
     // Reset standby timer at most once every 30 seconds to avoid log spam
-    if (currentTime - lastStandbyReset >= 30000) {
+    using CleverCoffee::Timing::STANDBY_TIMER_RESET_INTERVAL_MS;
+    if (currentTime - lastStandbyReset >= STANDBY_TIMER_RESET_INTERVAL_MS) {
         resetStandbyTimerIfNeeded(context);
         lastStandbyReset = currentTime;
     }

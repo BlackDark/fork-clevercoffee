@@ -16,6 +16,7 @@
 #include "clevercoffee/defaults.h"
 #include "clevercoffee/handlers/BrewHandler.h"
 #include "clevercoffee/utils/helperUtils.h"
+#include "clevercoffee/utils/Resilience.h"
 
 #include <Arduino.h>
 #include <cstdio>
@@ -29,7 +30,24 @@ MQTTManager::MQTTManager()
       mqttWasConnected_(false), previousMillisMQTT_(0) {
     instance_ = this;
     initializeClient();
+    
+    // Initialize retry policy with exponential backoff: 10s initial, 5min max, 2x multiplier, 5 max attempts
+    retryPolicy_ = std::make_unique<CleverCoffee::Utils::RetryPolicy>(
+        10000,   // Initial delay: 10 seconds
+        300000,  // Max delay: 5 minutes
+        2.0,     // Backoff multiplier: 2x
+        5        // Max attempts: 5
+    );
+    
+    // Initialize circuit breaker: 5 failures, 60s open timeout, 30s half-open timeout
+    circuitBreaker_ = std::make_unique<CleverCoffee::Utils::CircuitBreaker>(
+        5,      // Failure threshold: 5 failures
+        60000,  // Open timeout: 60 seconds
+        30000   // Half-open timeout: 30 seconds
+    );
 }
+
+MQTTManager::~MQTTManager() = default;
 
 bool MQTTManager::setup(const String& hostname) {
     hostname_ = hostname;
@@ -69,29 +87,74 @@ void MQTTManager::initializeClient() {
 }
 
 void MQTTManager::checkConnection() {
-    bool offlineMode = CleverCoffee::getGlobalSystemContext()->networkCoordinator().isOfflineMode();
-    if (offlineMode || CleverCoffee::getGlobalSystemContext()->brewHandler().isBrewActive()) {
+    if (!systemContext_) {
+        return;
+    }
+    
+    bool offlineMode = systemContext_->networkCoordinator().isOfflineMode();
+    if (offlineMode || systemContext_->brewHandler().isBrewActive()) {
         return;
     }
 
-    if (millis() - lastConnectionAttempt_ >= connectionDelay_ && reconnectCount_ <= maxReconnects_) {
-        if (!mqttClient_.connected()) {
-            lastConnectionAttempt_ = millis();
-            reconnectCount_++;
-            LOGF(DEBUG, "Attempting MQTT reconnection: %i", reconnectCount_);
-
-            if (mqttClient_.connect(
-                    hostname_.c_str(), username_.c_str(), password_.c_str(), topicWill_, 0, true, "offline")) {
-                mqttClient_.subscribe(topicSet_);
-                LOGF(DEBUG, "Subscribed to MQTT Topic: %s", topicSet_);
-                reconnectCount_ = 0;
-            } else {
-                LOGF(DEBUG, "Failed to connect to MQTT due to reason: %i", mqttClient_.state());
-            }
-        }
+    const unsigned long currentTime = millis();
+    
+    // Check circuit breaker - fail fast if circuit is open
+    if (!circuitBreaker_->canAttempt(currentTime)) {
+        LOGF(DEBUG, "MQTT circuit breaker OPEN - skipping reconnection attempt (fail fast)");
+        return;
     }
-    // Reset reconnect count after interval
-    else if (millis() - previousConnection_ >= reconnectInterval_) {
+
+    // Check if MQTT is connected
+    if (mqttClient_.connected()) {
+        // MQTT is connected - record success and reset retry policy
+        circuitBreaker_->recordSuccess(currentTime);
+        retryPolicy_->reset();
+        reconnectCount_ = 0;
+        mqttWasConnected_ = true;
+        return;
+    }
+
+    // MQTT is not connected - check if we should retry
+    if (!retryPolicy_->shouldRetry()) {
+        // Max attempts reached
+        LOGF(DEBUG, "MQTT max reconnection attempts reached (%u)", retryPolicy_->getCurrentAttempt());
+        return;
+    }
+
+    // Check if enough time has passed for next retry (exponential backoff)
+    if (!retryPolicy_->canRetryNow(currentTime)) {
+        return; // Wait for backoff period
+    }
+
+    // Attempt reconnection
+    retryPolicy_->incrementAttempt(currentTime);
+    lastConnectionAttempt_ = currentTime;
+    reconnectCount_++;
+    
+    LOGF(DEBUG, "Attempting MQTT reconnection: attempt %u/%u (delay: %lums)", 
+         retryPolicy_->getCurrentAttempt(), 
+         retryPolicy_->isMaxAttemptsReached() ? retryPolicy_->getCurrentAttempt() : 0,
+         retryPolicy_->getNextDelay());
+
+    if (mqttClient_.connect(
+            hostname_.c_str(), username_.c_str(), password_.c_str(), topicWill_, 0, true, "offline")) {
+        // Connection successful
+        mqttClient_.subscribe(topicSet_);
+        LOGF(DEBUG, "Subscribed to MQTT Topic: %s", topicSet_);
+        circuitBreaker_->recordSuccess(currentTime);
+        retryPolicy_->reset();
+        reconnectCount_ = 0;
+        mqttWasConnected_ = true;
+        LOGF(DEBUG, "MQTT reconnected successfully on attempt %u", retryPolicy_->getCurrentAttempt());
+    } else {
+        // Connection failed - record failure
+        circuitBreaker_->recordFailure(currentTime);
+        LOGF(DEBUG, "Failed to connect to MQTT (reason: %i), next retry in %lums", 
+             mqttClient_.state(), retryPolicy_->getNextDelay());
+    }
+    
+    // Reset reconnect count after interval (legacy behavior)
+    if (millis() - previousConnection_ >= reconnectInterval_) {
         reconnectCount_     = 0;
         previousConnection_ = millis();
     }
@@ -251,10 +314,15 @@ int MQTTManager::writeSysParamsToMQTT(bool continueOnError) {
 
     unsigned long currentMillisMQTT = millis();
     // Check if brewing is active (any non-idle brew state)
+    if (!systemContext_) {
+        return 0;
+    }
+    
+    const auto currentState = systemContext_->machineStateContext()->getCurrentStateId();
     bool isBrewActive =
-        (isBrewState(CleverCoffee::getGlobalSystemContext()->machineStateContext()->getCurrentStateId()) && CleverCoffee::getGlobalSystemContext()->machineStateContext()->getCurrentStateId() != MachineStateId::BREW_FINISHED);
+        (isBrewState(currentState) && currentState != MachineStateId::BREW_FINISHED);
     unsigned long interval = isBrewActive                                                ? intervalMQTTBrew_
-                             : (CleverCoffee::getGlobalSystemContext()->machineStateContext()->getCurrentStateId() == MachineStateId::STANDBY) ? intervalMQTTStandby_
+                             : (currentState == MachineStateId::STANDBY) ? intervalMQTTStandby_
                                                                                          : intervalMQTT_;
 
     if ((currentMillisMQTT - previousMillisMQTT_ < interval) || !mqttEnabled_ || !mqttClient_.connected()) {

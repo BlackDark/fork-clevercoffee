@@ -102,7 +102,6 @@ private:
 
     // Constants
     static constexpr int DEBOUNCE_COUNT = 3;  ///< Require 3 consecutive readings above threshold
-    static constexpr double SAFE_TEMPERATURE_THRESHOLD = 100.0;  ///< Temperature below which emergency can clear
 };
 
 }  // namespace CleverCoffee
