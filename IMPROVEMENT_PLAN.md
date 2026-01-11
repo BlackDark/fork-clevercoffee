@@ -3,78 +3,83 @@
 
 Based on comprehensive code review findings, this document outlines a prioritized plan for improvements.
 
+**Last Updated:** 2024  
+**Status:** Updated after code review - some improvements made, issues remaining documented below.
+
 ---
 
 ## Phase 1: Critical Safety Fixes (Week 1-2)
 
-### 1.1 Fix ISR Race Conditions
+### 1.1 Fix ISR Race Conditions ⚠️ IN PROGRESS
 **Priority:** P0 - Critical  
-**Effort:** 2-3 days  
+**Effort:** 1-2 days (reduced - state tracking already added)  
 **Risk:** High if not fixed
 
+**Current Status:**
+- ✅ State tracking variables added (heaterEnabled_, pumpEnabled_, etc.)
+- ✅ State tracking prevents redundant operations (good improvement!)
+- ⚠️ State tracking variables are regular `bool`, not atomic
+- ⚠️ ISR bypasses state tracking for heater relay (intentional but undocumented)
+
 **Tasks:**
-1. Make state tracking variables atomic for ISR-accessed hardware
+1. **Option A (Recommended):** Make heater state tracking atomic
    ```cpp
-   // Change in HardwareManager.h
-   std::atomic<bool> heaterEnabled_{false};
-   std::atomic<bool> pumpEnabled_{false};
+   // HardwareManager.h - only heater needs atomic (ISR-controlled)
+   #include <atomic>
+   std::atomic<bool> heaterEnabled_{false};  // ISR can modify relay
+   bool pumpEnabled_ = false;  // Safe - only main loop
+   bool steamValveOpen_ = false;  // Safe - only main loop
    ```
 
-2. OR document that ISR bypasses state tracking intentionally
-   - Add clear comments explaining ISR direct hardware access
-   - Ensure state tracking is only for main loop operations
-   - Add runtime validation to check state consistency
+2. **Option B:** Document ISR bypass clearly
+   - Add clear comments in HardwareManager explaining ISR direct hardware access
+   - Document that heaterEnabled_ is approximate (ISR can bypass)
+   - Add runtime validation to check state consistency periodically
 
 3. Add ISR safety documentation
-   - Document which hardware is ISR-controlled
-   - Explain why state tracking may not match ISR actions
-   - Add warnings in code
+   - Document which hardware is ISR-controlled (only heater relay for PID PWM)
+   - Explain why state tracking may not match ISR actions for heater
+   - Add warnings in code comments
 
 **Acceptance Criteria:**
 - [ ] No race conditions between ISR and main loop
-- [ ] State tracking is thread-safe or documented as ISR-bypassed
+- [ ] State tracking is thread-safe OR clearly documented as ISR-bypassed
 - [ ] Code comments explain ISR behavior clearly
+- [ ] Heater state tracking is atomic OR documented as approximate
 
 ---
 
-### 1.2 Add Null Checks in Critical Paths
+### 1.2 Add Null Checks in Critical Paths ⚠️ MOSTLY FIXED
 **Priority:** P0 - Critical  
-**Effort:** 1-2 days  
-**Risk:** High if not fixed
+**Effort:** 1 hour (only one location remaining)  
+**Risk:** Medium (most paths fixed)
+
+**Current Status:**
+- ✅ ISR has null checks: `if (relay) { relay->on(); }`
+- ✅ HardwareManager methods check relay existence
+- ✅ Emergency shutdown checks state before accessing
+- ⚠️ **One remaining issue:** `ProcessController::handleBrewPIDDelay()` line 411
 
 **Tasks:**
-1. Audit all hardware access points
-   - ISR hardware access
-   - Emergency shutdown paths
-   - State transition handlers
-   - ProcessController hardware access
-
-2. Add defensive null checks
+1. Fix remaining null check in ProcessController
    ```cpp
-   // Example fix
-   void ProcessController::handleBrewPIDDelay(...) {
-       if (hardwareManager_) {
-           auto* relay = hardwareManager_->getHeaterRelay();
-           if (relay) {
-               relay->off();
-           }
-       }
+   // Current (line 411) - UNSAFE
+   hardwareManager_.getHeaterRelay()->off();
+   
+   // Fix:
+   if (auto* relay = hardwareManager_.getHeaterRelay()) {
+       relay->off();
    }
    ```
 
-3. Add null check helper macros/functions
-   ```cpp
-   #define SAFE_HARDWARE_CALL(manager, method, ...) \
-       if (manager) { \
-           auto* obj = manager->method(); \
-           if (obj) { obj->__VA_ARGS__; } \
-       }
-   ```
+2. Verify all other hardware access points (audit complete, only one found)
 
 **Acceptance Criteria:**
-- [ ] All hardware access has null checks
+- [x] ISR hardware access has null checks
+- [x] Emergency shutdown paths have null checks
+- [x] HardwareManager methods have null checks
+- [ ] ProcessController::handleBrewPIDDelay() has null check (line 411)
 - [ ] System handles missing hardware gracefully
-- [ ] No crashes from null pointer dereference
 
 ---
 
@@ -116,34 +121,46 @@ Based on comprehensive code review findings, this document outlines a prioritize
 
 ---
 
-### 1.4 Fix const_cast Violations
+### 1.4 Fix const_cast Violations ⚠️ STILL PRESENT
 **Priority:** P0 - Critical  
-**Effort:** 1 day  
+**Effort:** 2-3 hours  
 **Risk:** Medium
 
-**Tasks:**
-1. Identify all const_cast usages
-   - MachineStateContext::setSteamState()
-   - MachineStateContext::setBackflushState()
-   - LoopManager::logTimerConfiguration()
+**Current Status:**
+- ⚠️ Still 3 locations with const_cast violations
+- Locations identified and documented
 
-2. Fix by removing const or using mutable
+**Tasks:**
+1. Fix MachineStateContext methods (2 locations)
    ```cpp
-   // Option 1: Remove const
-   void MachineStateContext::setSteamState(bool active);  // Remove const
+   // Current (MachineStateContext.cpp:295, 305)
+   void MachineStateContext::setSteamState(bool active) const {
+       const_cast<MachineStateContext*>(this)->steamON_ = active;  // BAD!
+   }
    
-   // Option 2: Use mutable (if state is cache-like)
-   mutable bool steamON_;
+   // Fix: Remove const (these methods modify state)
+   void MachineStateContext::setSteamState(bool active);  // Remove const
+   void MachineStateContext::setBackflushState(bool active);  // Remove const
    ```
 
-3. Review const correctness of entire interface
-   - Ensure const methods don't modify observable state
-   - Document which methods are truly const
+2. Fix LoopManager counters (1 location)
+   ```cpp
+   // Current (LoopManager.cpp:617-619)
+   const_cast<LoopManager*>(this)->temperatureUpdateCount_ = 0;
+   
+   // Fix: Use mutable (these are cache-like counters)
+   mutable unsigned long temperatureUpdateCount_ = 0;
+   mutable unsigned long pressureUpdateCount_ = 0;
+   mutable unsigned long scaleUpdateCount_ = 0;
+   ```
+
+3. Verify no other const_cast usages remain
 
 **Acceptance Criteria:**
 - [ ] No const_cast in codebase
 - [ ] All const methods are truly const
 - [ ] Code compiles with -Wcast-qual warnings enabled
+- [ ] State modification methods are not const
 
 ---
 

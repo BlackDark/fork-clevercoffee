@@ -10,49 +10,21 @@
 #include "clevercoffee/state/MachineStateContext.h"
 #include "clevercoffee/state/StateFactory.h"
 #include "clevercoffee/hardware/Switch.h"
+#include "clevercoffee/handlers/SteamHandler.h"
+#include "clevercoffee/context/SystemContext.h"
 
 // SteamStates Implementation
-void SteamIdleState::onEntryImpl(MachineStateContext& context) {
-    LOG(INFO, "Steam mode activated");
+void SteamRunningState::onEntryImpl(MachineStateContext& context) {
+    LOG(INFO, "Steam mode activated - actively steaming");
     context.setSteamMode(true);
 }
 
-void SteamIdleState::onExitImpl(MachineStateContext& context) {
+void SteamRunningState::onExitImpl(MachineStateContext& context) {
     LOG(INFO, "Exiting steam mode");
     context.setSteamMode(false);
     // Safety: Disable water injection pump when exiting steam mode
     context.disablePump();
-}
-
-void SteamIdleState::update(MachineStateContext& context) {
-    LOGF(DEBUG,
-         "Steam: Temp=%.1f°C, Tank=%s, SteamActive=%s",
-         context.getCurrentTemperature(),
-         context.isWaterTankFull() ? "OK" : "EMPTY",
-         context.isSteamActive() ? "YES" : "NO");
-}
-
-MachineState* SteamIdleState::checkSpecificTransitions(MachineStateContext& context) {
-    if (context.isSteamStopRequested()) {
-        context.setSteamStopRequested(false);
-        if (context.isPidEnabled()) {
-            return getStateInstance(MachineStateId::PID_NORMAL);
-        } else {
-            return getStateInstance(MachineStateId::PID_DISABLED);
-        }
-    }
-    if (!context.isSteamActive()) {
-        if (context.isPidEnabled()) {
-            return getStateInstance(MachineStateId::PID_NORMAL);
-        } else {
-            return getStateInstance(MachineStateId::PID_DISABLED);
-        }
-    }
-    return nullptr;
-}
-
-void SteamRunningState::onEntryImpl(MachineStateContext& context) {
-    LOG(INFO, "Steam running - actively steaming");
+    LOG(DEBUG, "Steam running exit - pump disabled");
 }
 
 void SteamRunningState::update(MachineStateContext& context) {
@@ -80,31 +52,44 @@ void SteamRunningState::update(MachineStateContext& context) {
 MachineState* SteamRunningState::checkSpecificTransitions(MachineStateContext& context) {
     if (context.isSteamStopRequested()) {
         context.setSteamStopRequested(false);
-        context.logStateTransition(getStateId(), MachineStateId::STEAM_STOPPED, "Steam stop requested");
-        return getStateInstance(MachineStateId::STEAM_STOPPED);
+        if (context.isPidEnabled()) {
+            context.logStateTransition(getStateId(), MachineStateId::PID_NORMAL, "Steam stop requested");
+            return getStateInstance(MachineStateId::PID_NORMAL);
+        } else {
+            context.logStateTransition(getStateId(), MachineStateId::PID_DISABLED, "Steam stop requested");
+            return getStateInstance(MachineStateId::PID_DISABLED);
+        }
     }
-    if (!context.isSteamActive()) {
-        context.logStateTransition(getStateId(), MachineStateId::STEAM_STOPPED, "Steam deactivated");
-        return getStateInstance(MachineStateId::STEAM_STOPPED);
+
+    // Check switch state directly instead of handler flag
+    auto& steamHandler = context.systemContext().steamHandler();
+    const auto switchType = steamHandler.getSwitchType();
+
+    // Check if switch state changed
+    if (steamHandler.hasSwitchStateChanged()) {
+        const bool wasReleased = steamHandler.wasSwitchReleased();
+        steamHandler.clearSwitchStateChange();
+
+        if (wasReleased) {
+            if (context.isPidEnabled()) {
+                context.logStateTransition(getStateId(), MachineStateId::PID_NORMAL, "Steam switch deactivated");
+                return getStateInstance(MachineStateId::PID_NORMAL);
+            } else {
+                context.logStateTransition(getStateId(), MachineStateId::PID_DISABLED, "Steam switch deactivated");
+                return getStateInstance(MachineStateId::PID_DISABLED);
+            }
+        }
     }
-    return nullptr;
-}
 
-void SteamStoppedState::onEntryImpl(MachineStateContext& context) {
-    LOG(INFO, "Steam stopped - steaming complete");
-    // Safety: Disable water injection pump when stopping steam
-    context.disablePump();
-}
-
-void SteamStoppedState::update(MachineStateContext& context) {
-    LOGF(DEBUG, "Steam Stopped: Temp=%.1f°C", context.getCurrentTemperature());
-}
-
-MachineState* SteamStoppedState::checkSpecificTransitions(MachineStateContext& context) {
-    // Use a hardcoded 2 second timeout for the stopped state (display time)
-    if (context.hasStateTimeoutElapsed(2000)) {
-        context.logStateTransition(getStateId(), MachineStateId::STEAM_IDLE, "Steam stopped display timeout");
-        return getStateInstance(MachineStateId::STEAM_IDLE);
+    // For toggle: if switch is OFF, transition back to PID
+    if (switchType == Hardware::SwitchType::TOGGLE && !steamHandler.isSteamSwitchPressed()) {
+        if (context.isPidEnabled()) {
+            context.logStateTransition(getStateId(), MachineStateId::PID_NORMAL, "Steam toggle switch OFF");
+            return getStateInstance(MachineStateId::PID_NORMAL);
+        } else {
+            context.logStateTransition(getStateId(), MachineStateId::PID_DISABLED, "Steam toggle switch OFF");
+            return getStateInstance(MachineStateId::PID_DISABLED);
+        }
     }
 
     return nullptr;

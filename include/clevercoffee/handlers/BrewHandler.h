@@ -26,6 +26,7 @@ class BrewHandler : public SwitchBasedHandler {
     unsigned long brewStartTime_     = 0;
     uint8_t       lastSwitchReading_ = LOW;
     Relay*        valveRelay_        = nullptr;
+    bool          switchStateChanged_ = false;  // Track if switch state changed
 
   public:
     explicit BrewHandler(CleverCoffee::SystemContext* ctx = nullptr)
@@ -43,11 +44,65 @@ class BrewHandler : public SwitchBasedHandler {
         valveRelay_ = valveRelay;
     }
 
+    /**
+     * @brief Check if brew switch is currently pressed
+     * @return true if switch is pressed, false otherwise
+     */
+    bool isBrewSwitchPressed() const {
+        if (!switch_) return false;
+        return getSwitchReading() == HIGH;
+    }
+
+    /**
+     * @brief Check if switch state changed (pressed or released)
+     * @return true if switch state changed since last check
+     */
+    bool hasSwitchStateChanged() const {
+        if (!switch_) return false;
+        return switchStateChanged_;
+    }
+
+    /**
+     * @brief Check if switch was pressed (state changed to HIGH)
+     * @return true if switch was just pressed
+     */
+    bool wasSwitchPressed() const {
+        if (!switch_) return false;
+        return switchStateChanged_ && isBrewSwitchPressed();
+    }
+
+    /**
+     * @brief Check if switch was released (state changed to LOW)
+     * @return true if switch was just released
+     */
+    bool wasSwitchReleased() const {
+        if (!switch_) return false;
+        return switchStateChanged_ && !isBrewSwitchPressed();
+    }
+
+    /**
+     * @brief Clear switch state change flag (call after processing)
+     */
+    void clearSwitchStateChange() {
+        switchStateChanged_ = false;
+    }
+
+    /**
+     * @brief Get the switch type from config
+     * @return SwitchType (TOGGLE or MOMENTARY)
+     */
+    Hardware::SwitchType getSwitchType() const {
+        return Config::getInstance().hardwareSwitchesBrewType.get();
+    }
+
+    /**
+     * @brief Check if brew is currently active (in a brew state)
+     * @return true if in an active brew state, false otherwise
+     */
     bool isBrewActive() const {
         if (!systemContext_) return false;
         auto currentState = systemContext_->machineStateContext()->getCurrentStateId();
         return (isBrewState(currentState) &&
-                currentState != MachineStateId::BREW_IDLE &&
                 currentState != MachineStateId::BREW_FINISHED);
     }
 
@@ -64,28 +119,35 @@ class BrewHandler : public SwitchBasedHandler {
     }
 
     bool hasPermission() const override {
+        // Always allow switch input processing to detect state changes (press/release)
+        // This ensures we can always log switch activations regardless of machine state
+        // The state machine will handle whether the action is actually allowed
+        
         if (!SwitchBasedHandler::hasPermission()) {
+            logDebug("Base permission check failed");
             return false;
         }
 
         if (!systemContext_) {
+            logDebug("SystemContext is null");
             return false;
         }
 
+        // Only block if water tank is empty (critical safety issue)
         auto currentState = systemContext_->machineStateContext()->getCurrentStateId();
         if (currentState == MachineStateId::WATER_TANK_EMPTY) {
+            logDebug("Permission denied: Water tank empty");
             return false;
         }
 
-        // Check if hot water is active (detailed state check)
-        if (currentState == MachineStateId::HOT_WATER_RUNNING) {
-            return false;
-        }
-
+        // Allow processing even during hot water or brew states to detect switch releases
+        // The state machine will handle the actual state transitions
+        logDebug("Permission granted");
         return true;
     }
 
     void processImpl() override {
+        // Always process switch input to detect state changes
         processSwitchInput();
         checkPumpTimeout();
     }
@@ -94,25 +156,30 @@ class BrewHandler : public SwitchBasedHandler {
     void processSwitchInput() {
         if (!switch_) return;
 
-        const uint8_t reading             = getSwitchReading();
-
+        const uint8_t reading = getSwitchReading();
         const auto switchType = Config::getInstance().hardwareSwitchesBrewType.get();
 
-        // Simplified switch processing - just update switch state for now
-        // The global state machine will handle the actual brewing logic
-        if (switchType == Hardware::SwitchType::TOGGLE) {
-            // Handle toggle switch logic here
-            if (reading == HIGH && lastSwitchReading_ == LOW) {
-                // Switch was just pressed
-                logDebug("Brew toggle switch pressed");
-            }
-        } else if (switchType == Hardware::SwitchType::MOMENTARY) {
-            // Handle momentary switch logic here
-            if (reading == HIGH && lastSwitchReading_ == LOW) {
-                logDebug("Brew momentary switch pressed");
+        // Detect state changes
+        if (reading != lastSwitchReading_) {
+            switchStateChanged_ = true;
+            
+            // Log switch events
+            if (switchType == Hardware::SwitchType::TOGGLE) {
+                if (reading == HIGH) {
+                    logInfo("Brew toggle switch activated");
+                } else {
+                    logInfo("Brew toggle switch deactivated");
+                }
+            } else if (switchType == Hardware::SwitchType::MOMENTARY) {
+                if (reading == HIGH) {
+                    logInfo("Brew momentary switch pressed");
+                } else {
+                    logInfo("Brew momentary switch released");
+                }
             }
         }
 
+        // Always update last reading to track state changes
         lastSwitchReading_ = reading;
     }
 

@@ -13,7 +13,6 @@
 // Forward declarations
 class ProcessController;
 class UIManager;
-class HotWaterHandler;
 
 namespace CleverCoffee {
 class SensorCoordinator;
@@ -168,10 +167,6 @@ class LoopManager {
       // Note: ProcessController is now a required reference set in constructor
       // Setter removed - this component must be provided at construction time
 
-    // setUIManager removed - UIManager is required and set at construction time
-
-    // setHotWaterHandler removed - handlers are accessed via SystemContext and are always available
-
       // Note: HardwareManager, SystemContext, ProcessController, and SensorCoordinator are now required references set in constructor
       // Setters removed - these components must be provided at construction time
 
@@ -223,7 +218,6 @@ class LoopManager {
       ProcessController&                processController_; // REQUIRED - CRITICAL component for PID control
       CleverCoffee::SensorCoordinator& sensorCoordinator_; // REQUIRED - CRITICAL component for sensor readings
       UIManager&                      uiManager_;          // REQUIRED - always exists
-      // hotWaterHandler_ removed - handlers are accessed via SystemContext and are always available
 
     // Initialization state
     bool initialized_;
@@ -243,10 +237,10 @@ class LoopManager {
     unsigned long maxLoopTime_;
     unsigned long loopCount_;
 
-    // Timer execution counters for monitoring
-    unsigned long temperatureUpdateCount_;
-    unsigned long pressureUpdateCount_;
-    unsigned long scaleUpdateCount_;
+    // Timer execution counters for monitoring (mutable for const methods that log performance)
+    mutable unsigned long temperatureUpdateCount_;
+    mutable unsigned long pressureUpdateCount_;
+    mutable unsigned long scaleUpdateCount_;
     unsigned long lastTimerLogTime_;
 
     // Web event timing

@@ -66,10 +66,12 @@ class BaseHandler {
      */
     void process() {
         if (!isEnabled()) {
+            logDebug("Handler disabled in config");
             return;
         }
 
         if (!hasPermission()) {
+            logDebug("Handler permission denied");
             return;
         }
 

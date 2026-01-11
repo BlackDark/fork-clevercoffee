@@ -13,25 +13,16 @@ enum class MachineStateId {
     PID_NORMAL = 20,
 
     // Brew states
-    BREW_IDLE              = 30,
     BREW_PREINFUSION       = 31,
     BREW_PREINFUSION_PAUSE = 32,
     BREW_RUNNING           = 33,
     BREW_FINISHED          = 34,
 
     // Manual flush states
-    MANUAL_FLUSH_IDLE    = 35,
     MANUAL_FLUSH_RUNNING = 36,
 
-    // Hot water states
-    HOT_WATER_IDLE    = 40,
-    HOT_WATER_RUNNING = 41,
-    HOT_WATER_STOPPED = 42,
-
     // Steam states
-    STEAM_IDLE    = 50,
     STEAM_RUNNING = 51,
-    STEAM_STOPPED = 52,
 
     // Backflush states
     BACKFLUSH_IDLE     = 60,
@@ -49,15 +40,12 @@ enum class MachineStateId {
 
 // Helper functions to check state categories
 inline constexpr bool isBrewState(MachineStateId state) {
-    return state >= MachineStateId::BREW_IDLE && state <= MachineStateId::BREW_FINISHED;
+    return state >= MachineStateId::BREW_PREINFUSION && state <= MachineStateId::BREW_FINISHED;
 }
 
-inline constexpr bool isHotWaterState(MachineStateId state) {
-    return state >= MachineStateId::HOT_WATER_IDLE && state <= MachineStateId::HOT_WATER_STOPPED;
-}
 
 inline constexpr bool isSteamState(MachineStateId state) {
-    return state >= MachineStateId::STEAM_IDLE && state <= MachineStateId::STEAM_STOPPED;
+    return state == MachineStateId::STEAM_RUNNING;
 }
 
 inline constexpr bool isBackflushState(MachineStateId state) {
@@ -65,7 +53,7 @@ inline constexpr bool isBackflushState(MachineStateId state) {
 }
 
 inline constexpr bool isManualFlushState(MachineStateId state) {
-    return state >= MachineStateId::MANUAL_FLUSH_IDLE && state <= MachineStateId::MANUAL_FLUSH_RUNNING;
+    return state == MachineStateId::MANUAL_FLUSH_RUNNING;
 }
 
 /**

@@ -200,6 +200,14 @@ bool SystemContext::isMachineTimerInitialized() const noexcept {
     return machine_timer_ != nullptr && (uintptr_t)machine_timer_ >= 0x1000;
 }
 
+bool SystemContext::isISRReady() const noexcept {
+    return timing_isrReady_.load(std::memory_order_acquire);
+}
+
+void SystemContext::markISRReady() noexcept {
+    timing_isrReady_.store(true, std::memory_order_release);
+}
+
 unsigned int SystemContext::isrCounter() const noexcept {
     return timing_isrCounter_;
 }

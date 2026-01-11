@@ -189,6 +189,13 @@ inline void displayTemperature(const int x, const int y) {
  * shown
  * @return true if timer should be visible, false otherwise
  */
+inline bool shouldDisplayHotWaterTimer() {
+    // Hot water states removed - check if pump is active in PID_NORMAL or STEAM_RUNNING
+    auto currentState = CleverCoffee::getGlobalSystemContext()->machineStateContext()->getCurrentStateId();
+    bool pumpActive = (CleverCoffee::getGlobalSystemContext()->currPumpOnTime() > 0);
+    return pumpActive && (currentState == MachineStateId::PID_NORMAL || currentState == MachineStateId::STEAM_RUNNING);
+}
+
 inline bool shouldDisplayBrewTimer() {
     enum BrewTimerState {
         kBrewTimerIdle     = 10,
@@ -567,12 +574,16 @@ inline bool displayFullscreenManualFlushTimer() {
  * @brief display fullscreen hot water on timer
  */
 inline bool displayFullscreenHotWaterTimer() {
+    // Hot water states removed - hot water is handled via pump control in PID_NORMAL and STEAM_RUNNING
+    // Display hot water timer when pump is active and we're in PID_NORMAL or STEAM_RUNNING
     if (!Config::getInstance().displayFullscreenHotWaterTimer.get()) {
         return false;
     }
 
-    if (isHotWaterState(CleverCoffee::getGlobalSystemContext()->machineStateContext()->getCurrentStateId()) &&
-        getCurrentDisplayState() == MachineStateId::HOT_WATER_RUNNING) {
+    auto currentState = CleverCoffee::getGlobalSystemContext()->machineStateContext()->getCurrentStateId();
+    bool pumpActive = (CleverCoffee::getGlobalSystemContext()->currPumpOnTime() > 0);
+    
+    if (pumpActive && (currentState == MachineStateId::PID_NORMAL || currentState == MachineStateId::STEAM_RUNNING)) {
         CleverCoffee::getGlobalSystemContext()->hardwareContext().display()->clearBuffer();
 
          if (Config::getInstance().displayTemplate.get() == System::DisplayTemplate::UPRIGHT) {

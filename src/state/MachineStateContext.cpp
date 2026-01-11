@@ -163,22 +163,27 @@ bool MachineStateContext::hasSensorError() const {
 // TODO those are wrong the functions behind like brew() and manualFlush() are triggering those events
 
 bool MachineStateContext::isBrewActive() const {
-    return systemContext_.brewHandler().isBrewActive();
+    // Check if we're in an active brew state (not FINISHED)
+    auto currentState = getCurrentStateId();
+    return (isBrewState(currentState) &&
+            currentState != MachineStateId::BREW_FINISHED);
 }
 
 bool MachineStateContext::isManualFlushActive() const {
      // Manual flush state is checked via machine state
-     return isManualFlushState(CleverCoffee::getGlobalSystemContext()->machineStateContext()->getCurrentStateId()) &&
-            CleverCoffee::getGlobalSystemContext()->machineStateContext()->getCurrentStateId() != MachineStateId::MANUAL_FLUSH_IDLE;
+     return isManualFlushState(CleverCoffee::getGlobalSystemContext()->machineStateContext()->getCurrentStateId());
 }
 
 bool MachineStateContext::isSteamActive() const {
-     return steamON_;
+     // Check if we're in steam running state
+     return (systemContext_.machineStateContext()->getCurrentStateId() == MachineStateId::STEAM_RUNNING);
 }
 
 bool MachineStateContext::isHotWaterActive() const {
-     // Simplified implementation - check if machine is in hot water state
-     return (systemContext_.machineStateContext()->getCurrentStateId() == MachineStateId::HOT_WATER_RUNNING);
+     // Hot water is handled via pump control in PID_NORMAL and STEAM_RUNNING
+     // Check if hot water switch is pressed
+     auto* waterSwitch = getHotWaterSwitch();
+     return (waterSwitch && waterSwitch->isPressed());
 }
 
 bool MachineStateContext::isBackflushActive() const {
@@ -281,18 +286,10 @@ void MachineStateContext::setManualFlushState(bool active) const {
     }
 }
 
-void MachineStateContext::setHotWaterState(bool active) const {
-    // Set global state for hot water
-    if (active) {
-        LOG(DEBUG, "Hot water mode activated");
-    } else {
-        LOG(DEBUG, "Hot water mode deactivated");
-    }
-}
 
-void MachineStateContext::setSteamState(bool active) const {
+void MachineStateContext::setSteamState(bool active) {
      // Update member variable
-     const_cast<MachineStateContext*>(this)->steamON_ = active;
+     steamON_ = active;
      if (active) {
          LOG(DEBUG, "Steam mode activated");
      } else {
@@ -300,9 +297,9 @@ void MachineStateContext::setSteamState(bool active) const {
      }
 }
 
-void MachineStateContext::setBackflushState(bool active) const {
+void MachineStateContext::setBackflushState(bool active) {
      // Update member variable
-     const_cast<MachineStateContext*>(this)->backflushOn_ = active;
+     backflushOn_ = active;
      if (active) {
          LOG(DEBUG, "Backflush mode activated");
      } else {

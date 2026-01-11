@@ -1,5 +1,7 @@
 #pragma once
 
+#include <atomic>
+
 #include "clevercoffee/context/HardwareContext.h"
 #include "clevercoffee/coordinators/SensorCoordinator.h"
 #include "clevercoffee/coordinators/NetworkCoordinator.h"
@@ -683,6 +685,18 @@ public:
       bool isMachineTimerInitialized() const noexcept;
 
       /**
+       * @brief Check if ISR is ready to execute
+       * @return true if ISR can safely execute, false otherwise
+       */
+      bool isISRReady() const noexcept;
+
+      /**
+       * @brief Mark ISR as ready to execute
+       * Should be called after all initialization is complete and system is ready
+       */
+      void markISRReady() noexcept;
+
+      /**
        * @brief Get the ISR counter for animation timing
        * @return Current ISR counter value
        */
@@ -1238,6 +1252,7 @@ private:
     MillisecondTimer* timing_printDisplayTimer2_ = nullptr;
     unsigned int timing_isrCounter_ = 0;
     unsigned long timing_windowStartTime_ = 0;
+    std::atomic<bool> timing_isrReady_{false};  ///< ISR ready flag - prevents ISR from executing before system is initialized
 
     // ===== STANDBY STATE MEMBERS =====
     unsigned long standby_standbyModeRemainingTimeMillis_ = 0;

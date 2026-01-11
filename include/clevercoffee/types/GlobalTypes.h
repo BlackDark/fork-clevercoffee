@@ -51,8 +51,6 @@ struct cmp_str {
 struct MachineStateFlags {
     bool requestBrewStart        = false;
     bool requestBrewStop         = false;
-    bool requestHotWaterStart    = false;
-    bool requestHotWaterStop     = false;
     bool requestManualFlushStart = false;
     bool requestManualFlushStop  = false;
     bool requestBackflushStart   = false;

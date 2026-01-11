@@ -9,6 +9,7 @@
 
 #include "clevercoffee/state/MachineStateIds.h"
 #include <PID_v1.h>
+#include "clevercoffee/control/EmergencyStopManager.h"
 
 // Forward declarations
 class DisplayManager;
@@ -245,10 +246,17 @@ class ProcessController {
     void performSafeShutdown();
 
      /**
-      * @brief Test for emergency conditions (overtemperature, etc.)
-      * @return true if emergency stop was triggered
-      */
+     * @brief Test for emergency conditions (overtemperature, etc.)
+     * @return true if emergency stop was triggered
+     */
      bool testEmergencyConditions();
+
+     /**
+      * @brief Check if emergency can be cleared
+      * @param temperature Current temperature reading
+      * @return true if emergency can be cleared
+      */
+     bool isEmergencyCleared(double temperature) const;
 
      /**
       * @brief Get PID normal mode Ki parameter
@@ -304,10 +312,36 @@ class ProcessController {
 
     /**
      * @brief Handle brew PID delay logic during brewing
+     * 
+     * Manages PID state during brew process:
+     * - Disables PID during initial delay period (first N seconds) to prevent overshoot
+     * - Re-enables PID after delay period with appropriate tunings
+     * - Re-enables PID if brew is aborted during delay period
+     * 
      * @param machineState Current machine state
-     * @param brewPidDisabled Whether brew PID is currently disabled
      */
     void handleBrewPIDDelay(MachineStateId machineState);
+
+private:
+    /**
+     * @brief Disable PID during brew delay period
+     * Called when brew is in the initial delay period
+     */
+    void disablePIDForBrewDelay() noexcept;
+
+    /**
+     * @brief Re-enable PID after brew delay period
+     * Called when brew time exceeds the delay period
+     */
+    void enablePIDAfterBrewDelay() noexcept;
+
+    /**
+     * @brief Re-enable PID when brew is aborted
+     * Called when brew state exits but PID is still disabled
+     */
+    void reEnablePIDAfterBrewAbort() noexcept;
+
+public:
 
     // Configuration reference (not owned)
     const Config& config_;
@@ -355,9 +389,8 @@ class ProcessController {
       // PWM control
       int windowSize_ = 1000;  ///< PID window/period size in milliseconds
 
-    // Emergency temperature detection
-    static constexpr int EMERGENCY_TEMP_DEBOUNCE_COUNT = 3;  ///< Require 3 consecutive readings
-    int emergencyTempReadingCount_ = 0;  ///< Counter for high temperature readings
+    // Emergency stop management (centralized)
+    std::unique_ptr<CleverCoffee::EmergencyStopManager> emergencyStopManager_;
 
     // State tracking
     MachineStateId lastMachineStatePid_; ///< Last machine state for PID logging

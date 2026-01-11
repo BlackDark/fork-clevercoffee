@@ -17,6 +17,12 @@ void PidNormalState::onEntryImpl(MachineStateContext& context) {
     resetStandbyTimerIfNeeded(context);
 }
 
+void PidNormalState::onExitImpl(MachineStateContext& context) {
+    // Safety: Disable pump when exiting PID normal state (water dispensing cleanup)
+    context.disablePump();
+    LOG(DEBUG, "PID normal exit - pump disabled");
+}
+
 void PidNormalState::update(MachineStateContext& context) {
     // Only reset standby timer occasionally to avoid spam
     static unsigned long lastStandbyReset = 0;
@@ -52,23 +58,19 @@ MachineState* PidNormalState::checkSpecificTransitions(MachineStateContext& cont
     
     if (context.isBrewStartRequested()) {
         context.setBrewStartRequested(false);
-        context.logStateTransition(getStateId(), MachineStateId::BREW_IDLE, "Brew start requested");
-        return getStateInstance(MachineStateId::BREW_IDLE);
+        context.logStateTransition(getStateId(), MachineStateId::BREW_PREINFUSION, "Brew start requested");
+        return getStateInstance(MachineStateId::BREW_PREINFUSION);
     }
-    if (context.isHotWaterStartRequested()) {
-        context.setHotWaterStartRequested(false);
-        context.logStateTransition(getStateId(), MachineStateId::HOT_WATER_IDLE, "Hot water start requested");
-        return getStateInstance(MachineStateId::HOT_WATER_IDLE);
-    }
+    // Hot water is handled directly in PID_NORMAL via pump control (no separate state needed)
     if (context.isSteamStartRequested()) {
         context.setSteamStartRequested(false);
-        context.logStateTransition(getStateId(), MachineStateId::STEAM_IDLE, "Steam start requested");
-        return getStateInstance(MachineStateId::STEAM_IDLE);
+        context.logStateTransition(getStateId(), MachineStateId::STEAM_RUNNING, "Steam start requested");
+        return getStateInstance(MachineStateId::STEAM_RUNNING);
     }
     if (context.isManualFlushStartRequested()) {
         context.setManualFlushStartRequested(false);
-        context.logStateTransition(getStateId(), MachineStateId::MANUAL_FLUSH_IDLE, "Manual flush start requested");
-        return getStateInstance(MachineStateId::MANUAL_FLUSH_IDLE);
+        context.logStateTransition(getStateId(), MachineStateId::MANUAL_FLUSH_RUNNING, "Manual flush start requested");
+        return getStateInstance(MachineStateId::MANUAL_FLUSH_RUNNING);
     }
     if (context.isBackflushStartRequested()) {
         context.setBackflushStartRequested(false);

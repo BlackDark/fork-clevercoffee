@@ -13,7 +13,6 @@
 #include "clevercoffee/state/states/BrewStates.h"
 #include "clevercoffee/state/states/EmergencyStopState.h"
 #include "clevercoffee/state/states/ErrorStates.h"
-#include "clevercoffee/state/states/HotWaterStates.h"
 #include "clevercoffee/state/states/InitState.h"
 #include "clevercoffee/state/states/PidStates.h"
 #include "clevercoffee/state/states/SteamStates.h"

@@ -17,6 +17,7 @@
 #include "clevercoffee/hardware/scales/Scale.h"
 #include "clevercoffee/network/MQTTManager.h"
 #include "clevercoffee/utils/SystemUtils.h"
+#include "clevercoffee/control/EmergencyStopManager.h"
 
 #include <Arduino.h>
 
@@ -33,7 +34,8 @@ ProcessController::ProcessController(const Config&                 config,
       aggbKd_(0.0), aggbTn_(0.0), aggbTv_(0.0), steamKp_(0.0), brewSetpoint_(0.0), steamSetpoint_(0.0),
       brewTempOffset_(0.0), lastMachineStatePid_(MachineStateId::INIT), initialized_(false), lastTempEvent_(0),
       currBrewTime_(0.0), totalTargetBrewTime_(0.0), brewPidDisabled_(false),
-      tempEventInterval_(1000) {
+      tempEventInterval_(1000),
+      emergencyStopManager_(std::make_unique<CleverCoffee::EmergencyStopManager>(config)) {
     LOG(INFO, "ProcessController created");
 }
 
@@ -174,13 +176,10 @@ void ProcessController::updatePIDState(MachineStateId machineState) {
                 LOGF(DEBUG, "new PID-Values: P=%.1f  I=%.1f  D=%.1f", aggKp_, aggKi_, aggKd_);
                 setPIDTunings(config_.pidUsePonm.get());
                 break;
-            case MachineStateId::STEAM_IDLE:
             case MachineStateId::STEAM_RUNNING:
-            case MachineStateId::STEAM_STOPPED:
                 LOGF(DEBUG, "new PID-Values: P=%.1f  I=%.1f  D=%.1f", steamKp_, 0.0, 0.0);
                 setSteamPIDTunings();
                 break;
-            case MachineStateId::BREW_IDLE:
             case MachineStateId::BREW_PREINFUSION:
             case MachineStateId::BREW_PREINFUSION_PAUSE:
             case MachineStateId::BREW_RUNNING:
@@ -267,6 +266,9 @@ void ProcessController::setPIDEnabled(bool enabled) {
 void ProcessController::emergencyStop() {
      LOG(ERROR, "ProcessController emergency stop triggered!");
 
+     // Set emergency stop flag in system context
+     systemContext_.triggerEmergencyStop();
+
      // Immediately disable PID and turn off heater
      setPIDEnabled(false);
      pidOutput_                = 0;
@@ -303,42 +305,25 @@ void ProcessController::setBrewPidDisabled(bool disabled) {
 }
 
 bool ProcessController::testEmergencyConditions() {
-    const double emergencyTemp = config_.emergencyStopTemp.get();
-    const double hysteresis = config_.emergencyStopHysteresis.get();
-    const double sensorMinValid = CleverCoffee::Temperature::MIN_VALID_TEMP_C;
-    const double sensorMaxValid = CleverCoffee::Temperature::MAX_VALID_TEMP_C;
-
-    // STEP 1: Check for sensor disconnection or invalid reading
-    if (temperature_ < sensorMinValid || temperature_ > sensorMaxValid) {
-        LOGF(ERROR, "Emergency: Invalid temperature reading (%.1f°C outside valid range)", temperature_);
-        emergencyStop();
-        return true;
-    }
-
-    // STEP 2: Hysteresis-based emergency detection with debouncing
-    if (temperature_ > emergencyTemp) {
-        emergencyTempReadingCount_++;
-        LOGF(WARNING, "High temperature detected: %.1f°C (reading %d/%d)",
-             temperature_, emergencyTempReadingCount_, EMERGENCY_TEMP_DEBOUNCE_COUNT);
-
-        // Require multiple consecutive high readings to trigger emergency
-        if (emergencyTempReadingCount_ >= EMERGENCY_TEMP_DEBOUNCE_COUNT) {
-            LOGF(ERROR, "Emergency: Temperature too high (%.1f°C > %.1f°C limit)!",
-                 temperature_, emergencyTemp);
+    // Use centralized emergency stop manager
+    bool wasEmergency = emergencyStopManager_->isEmergencyActive();
+    if (emergencyStopManager_->checkEmergencyConditions(temperature_)) {
+        if (!wasEmergency) {
+            // Emergency just triggered
             emergencyStop();
-            return true;
         }
-    } else if (temperature_ < (emergencyTemp - hysteresis)) {
-        // Reset counter only when temperature drops below threshold minus hysteresis
-        if (emergencyTempReadingCount_ > 0) {
-            LOGF(INFO, "Temperature normalized. Resetting emergency counter.");
-            emergencyTempReadingCount_ = 0;
-        }
+        return true;
+    } else if (wasEmergency && emergencyStopManager_->isEmergencyCleared(temperature_)) {
+        // Emergency was active but conditions are now cleared
+        emergencyStopManager_->clearEmergency();
+        systemContext_.setEmergencyStop(false);
+        LOG(INFO, "Emergency conditions cleared - system can resume");
     }
-    // If temperature is between (threshold - hysteresis) and threshold, keep counter as-is
-    // This implements hysteresis to prevent oscillation
-
     return false;
+}
+
+bool ProcessController::isEmergencyCleared(double temperature) const {
+    return emergencyStopManager_->isEmergencyCleared(temperature);
 }
 
 void ProcessController::updateDebugLogging() {
@@ -397,45 +382,91 @@ void ProcessController::calculateBrewDetectionPIDParameters() {
     aggbKd_ = aggbTv_ * aggbKp_;
 }
 
-void ProcessController::handleBrewPIDDelay(MachineStateId machineState) {
-    // Handle brew PID delay logic
-    if (isBrewState(machineState)) {
-        if (config_.brewPidDelay.get() > 0 && systemContext_.processCurrentBrewTime() > 0 &&
-            systemContext_.processCurrentBrewTime() < config_.brewPidDelay.get() * 1000) {
-            // disable PID for brewPidDelay seconds, enable PID again with new tunings after that
-            if (!systemContext_.isProcessBrewPidDisabled()) {
-                systemContext_.setProcessBrewPidDisabled(true);
-                systemContext_.setPidMode(MANUAL);
-                pidOutput_                = 0;
-                systemContext_.setProcessPidOutput(0);
-                hardwareManager_.getHeaterRelay()->off();
-                LOGF(DEBUG,
-                     "disabled PID, waiting for %.0f seconds before enabling PID again",
-                     config_.brewPidDelay.get());
-            }
-        } else {
-            if (systemContext_.isProcessBrewPidDisabled()) {
-                // enable PID again
-                systemContext_.setPidMode(AUTOMATIC);
-                systemContext_.setProcessBrewPidDisabled(false);
-                LOGF(DEBUG,
-                     "Enabled PID again after %.0f seconds of brew pid delay",
-                     config_.brewPidDelay.get());
-            }
-
-            if (config_.pidBdEnabled.get()) {
-                setBrewDetectionPIDTunings();
-            } else {
-                setPIDTunings(config_.pidUsePonm.get());
-            }
-        }
+/**
+ * @brief Disable PID during brew delay period
+ * 
+ * Called when brew is in the delay period (first N seconds of brew).
+ * Disables PID control and turns off heater to prevent temperature overshoot
+ * during initial brew phase.
+ */
+void ProcessController::disablePIDForBrewDelay() noexcept {
+    if (systemContext_.isProcessBrewPidDisabled()) {
+        return;  // Already disabled
     }
-    // Reset brewPidDisabled if brew was aborted
-    else if (!isBrewState(machineState) && systemContext_.isProcessBrewPidDisabled()) { // not BREW
-        // enable PID again
-        systemContext_.setPidMode(AUTOMATIC);
-        systemContext_.setProcessBrewPidDisabled(false);
-        LOG(DEBUG, "Enabled PID again after brew was manually stopped");
+    
+    systemContext_.setProcessBrewPidDisabled(true);
+    systemContext_.setPidMode(MANUAL);
+    pidOutput_ = 0;
+    systemContext_.setProcessPidOutput(0);
+    
+    // Turn off heater relay
+    if (auto* relay = hardwareManager_.getHeaterRelay()) {
+        relay->off();
+    }
+    
+    LOGF(DEBUG, "Disabled PID for brew delay (%.0f seconds)", config_.brewPidDelay.get());
+}
+
+/**
+ * @brief Re-enable PID after brew delay period
+ * 
+ * Called when brew time exceeds the delay period. Re-enables PID control
+ * and applies appropriate PID tunings (brew detection or normal).
+ */
+void ProcessController::enablePIDAfterBrewDelay() noexcept {
+    if (!systemContext_.isProcessBrewPidDisabled()) {
+        return;  // Already enabled
+    }
+    
+    systemContext_.setPidMode(AUTOMATIC);
+    systemContext_.setProcessBrewPidDisabled(false);
+    
+    // Apply appropriate PID tunings based on configuration
+    if (config_.pidBdEnabled.get()) {
+        setBrewDetectionPIDTunings();
+        LOG(DEBUG, "Enabled PID with brew detection tunings after delay period");
+    } else {
+        setPIDTunings(config_.pidUsePonm.get());
+        LOG(DEBUG, "Enabled PID with normal tunings after delay period");
+    }
+    
+    LOGF(DEBUG, "Enabled PID after %.0f seconds of brew delay", config_.brewPidDelay.get());
+}
+
+/**
+ * @brief Re-enable PID when brew is aborted
+ * 
+ * Called when brew state exits but PID is still disabled.
+ * This handles the case where brew was manually stopped during delay period.
+ */
+void ProcessController::reEnablePIDAfterBrewAbort() noexcept {
+    if (!systemContext_.isProcessBrewPidDisabled()) {
+        return;  // Already enabled
+    }
+    
+    systemContext_.setPidMode(AUTOMATIC);
+    systemContext_.setProcessBrewPidDisabled(false);
+    LOG(DEBUG, "Re-enabled PID after brew was aborted during delay period");
+}
+
+void ProcessController::handleBrewPIDDelay(MachineStateId machineState) {
+    const bool inBrewState = isBrewState(machineState);
+    const double brewPidDelayMs = config_.brewPidDelay.get() * 1000.0;
+    const double currentBrewTime = systemContext_.processCurrentBrewTime();
+    const bool brewDelayEnabled = config_.brewPidDelay.get() > 0;
+    
+    if (inBrewState) {
+        // Handle PID during brew state
+        if (brewDelayEnabled && currentBrewTime > 0 && currentBrewTime < brewPidDelayMs) {
+            // Brew is in delay period: disable PID
+            disablePIDForBrewDelay();
+        } else {
+            // Brew time exceeded delay period or delay is disabled: enable PID
+            enablePIDAfterBrewDelay();
+        }
+    } else {
+        // Not in brew state: re-enable PID if it was disabled (brew was aborted)
+        reEnablePIDAfterBrewAbort();
     }
 }
 

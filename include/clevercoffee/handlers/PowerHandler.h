@@ -58,6 +58,7 @@ class PowerHandler : public SwitchBasedHandler {
 
     bool hasPermission() const override {
         // Power switch doesn't need standard permission checks
+        logDebug("Permission granted (power switch always allowed)");
         return true;
     }
 
@@ -90,8 +91,10 @@ class PowerHandler : public SwitchBasedHandler {
             lastPowerSwitchPressed_ = pressed;
 
             if (pressed) {
+                logInfo("Power toggle switch activated");
                 powerOn();
             } else {
+                logInfo("Power toggle switch deactivated");
                 powerOff();
             }
         }
@@ -104,8 +107,10 @@ class PowerHandler : public SwitchBasedHandler {
             currStatePowerSwitchPressed_ = pressed;
 
             if (pressed && (systemContext_ != nullptr)) {
+                logInfo("Power momentary switch pressed");
                 handlePowerButtonPress(currentMillis);
             } else if (!pressed) {
+                logInfo("Power momentary switch released");
                 handlePowerButtonRelease();
             }
         }

@@ -231,14 +231,24 @@ void LoopManager::updateProcessControl() {
     const unsigned long processStart = millis();
     const MachineStateId currentState = systemContext_.machineStateContext()->getCurrentStateId();
     
-    LOGF(DEBUG, "updateProcessControl: Entering with state=%d, temp=%.1f°C, setpoint=%.1f°C, pidOutput=%.1f", 
-         static_cast<int>(currentState), CleverCoffee::getGlobalSystemContext()->processTemperature(), CleverCoffee::getGlobalSystemContext()->processSetpoint(), CleverCoffee::getGlobalSystemContext()->processPidOutput());
+    // Throttle debug logs to every 5 seconds
+    static unsigned long lastProcessControlLog = 0;
+    const unsigned long now = millis();
+    const bool shouldLog = (now - lastProcessControlLog >= 5000);
+    
+    if (shouldLog) {
+        LOGF(DEBUG, "updateProcessControl: Entering with state=%d, temp=%.1f°C, setpoint=%.1f°C, pidOutput=%.1f", 
+             static_cast<int>(currentState), CleverCoffee::getGlobalSystemContext()->processTemperature(), CleverCoffee::getGlobalSystemContext()->processSetpoint(), CleverCoffee::getGlobalSystemContext()->processPidOutput());
+        lastProcessControlLog = now;
+    }
     
     processController_.updateProcessControl(currentState);
     const unsigned long processTime = millis() - processStart;
 
-    LOGF(DEBUG, "updateProcessControl: After update: temp=%.1f°C, setpoint=%.1f°C, pidOutput=%.1f, timer=%lums",
-         CleverCoffee::getGlobalSystemContext()->processTemperature(), CleverCoffee::getGlobalSystemContext()->processSetpoint(), CleverCoffee::getGlobalSystemContext()->processPidOutput(), processTime);
+    if (shouldLog) {
+        LOGF(DEBUG, "updateProcessControl: After update: temp=%.1f°C, setpoint=%.1f°C, pidOutput=%.1f, timer=%lums",
+             CleverCoffee::getGlobalSystemContext()->processTemperature(), CleverCoffee::getGlobalSystemContext()->processSetpoint(), CleverCoffee::getGlobalSystemContext()->processPidOutput(), processTime);
+    }
 
     if (processTime > 100) {
         LOGF(ERROR, "ProcessController update took %lums - this is blocking the main loop!", processTime);
@@ -250,7 +260,13 @@ void LoopManager::updateProcessControl() {
 void LoopManager::updateDisplay() {
     // Handle display updates similar to the original main loop logic
     // Use UIManager for display management - UIManager is always available (required)
-    LOGF(DEBUG, "LoopManager: Using UIManager path for display updates");
+    // Throttle debug logs to every 5 seconds
+    static unsigned long lastDisplayLog = 0;
+    const unsigned long now = millis();
+    if (now - lastDisplayLog >= 5000) {
+        LOGF(DEBUG, "LoopManager: Using UIManager path for display updates");
+        lastDisplayLog = now;
+    }
     uiManager_.setUpdateRunning(false);
 
     if (Config::getInstance().hardwareOledEnabled.get()) {
@@ -272,7 +288,13 @@ void LoopManager::updateDisplay() {
                 // This is the critical call that was missing!
                 // It triggers the display template rendering
                 if (printDisplayTimer_) {
-                    LOGF(DEBUG, "LoopManager: Calling printDisplayTimer (UIManager path)");
+                    // Throttle debug logs to every 5 seconds
+                    static unsigned long lastPrintDisplayLog = 0;
+                    const unsigned long now = millis();
+                    if (now - lastPrintDisplayLog >= 5000) {
+                        LOGF(DEBUG, "LoopManager: Calling printDisplayTimer (UIManager path)");
+                        lastPrintDisplayLog = now;
+                    }
                     (*printDisplayTimer_)();
                 } else {
                     LOGF(WARNING, "LoopManager: printDisplayTimer is null!");
@@ -375,7 +397,7 @@ void LoopManager::updateScaleSensor() {
 void LoopManager::updateBrewWeight() {
     // Simple state machine: start tracking when brew starts, stop when brew ends
     const auto currentState = systemContext_.machineStateContext()->getCurrentStateId();
-    const bool isBrewActive = (currentState != MachineStateId::BREW_IDLE);
+    const bool isBrewActive = isBrewState(currentState) && currentState != MachineStateId::BREW_FINISHED;
     
     // Check if we need to start brew weight tracking
     if (isBrewActive && !sensorCoordinator_.isBrewWeightTrackingActive()) {
@@ -538,8 +560,13 @@ void LoopManager::updateStateMachine() {
     const MachineStateId newState = stateMachine->getCurrentStateId();
     const char* stateNameAfter = stateMachine->getCurrentStateName();
     
-    // Log all state updates for debugging
-    LOGF(DEBUG, "StateMachine::update() -> State: %s (%d)", stateNameAfter, static_cast<int>(newState));
+    // Log all state updates for debugging (throttled to every 5 seconds)
+    static unsigned long lastStateMachineLog = 0;
+    const unsigned long now = millis();
+    if (now - lastStateMachineLog >= 5000) {
+        LOGF(DEBUG, "StateMachine::update() -> State: %s (%d)", stateNameAfter, static_cast<int>(newState));
+        lastStateMachineLog = now;
+    }
     
     // Check for state changes
     if (newState != systemContext_.machineStateContext()->getCurrentStateId()) {
@@ -614,7 +641,7 @@ void LoopManager::logTimerConfiguration() const {
     }
 
     // Reset counters for next measurement period
-    const_cast<LoopManager*>(this)->temperatureUpdateCount_ = 0;
-    const_cast<LoopManager*>(this)->pressureUpdateCount_ = 0;
-    const_cast<LoopManager*>(this)->scaleUpdateCount_ = 0;
+    temperatureUpdateCount_ = 0;
+    pressureUpdateCount_ = 0;
+    scaleUpdateCount_ = 0;
 }

@@ -254,6 +254,7 @@ class MachineStateContext : public CleverCoffee::IHardwareContext,
      */
     bool isBrewActive() const;
 
+
     /**
      * @brief Check if manual flush is active
      */
@@ -325,20 +326,16 @@ class MachineStateContext : public CleverCoffee::IHardwareContext,
      */
     void setManualFlushState(bool active) const;
 
-    /**
-     * @brief Set hot water state
-     */
-    void setHotWaterState(bool active) const;
 
     /**
      * @brief Set steam state
      */
-    void setSteamState(bool active) const;
+    void setSteamState(bool active);
 
     /**
      * @brief Set backflush state
      */
-    void setBackflushState(bool active) const;
+    void setBackflushState(bool active);
 
     /**
      * @brief Disable water-dependent operations for safety
@@ -479,25 +476,6 @@ class MachineStateContext : public CleverCoffee::IHardwareContext,
        */
       void setBrewStopRequested(bool requested) noexcept { requestBrewStop_ = requested; }
 
-      /**
-       * @brief Check if hot water start is requested
-       */
-      bool isHotWaterStartRequested() const noexcept { return requestHotWaterStart_; }
-
-      /**
-       * @brief Set hot water start request
-       */
-      void setHotWaterStartRequested(bool requested) noexcept { requestHotWaterStart_ = requested; }
-
-      /**
-       * @brief Check if hot water stop is requested
-       */
-      bool isHotWaterStopRequested() const noexcept { return requestHotWaterStop_; }
-
-      /**
-       * @brief Set hot water stop request
-       */
-      void setHotWaterStopRequested(bool requested) noexcept { requestHotWaterStop_ = requested; }
 
       /**
        * @brief Check if steam start is requested
@@ -711,8 +689,6 @@ class MachineStateContext : public CleverCoffee::IHardwareContext,
       // === State Transition Request Flags ===
       bool requestBrewStart_        = false;   ///< Brew start requested
       bool requestBrewStop_         = false;   ///< Brew stop requested
-      bool requestHotWaterStart_    = false;   ///< Hot water start requested
-      bool requestHotWaterStop_     = false;   ///< Hot water stop requested
       bool requestSteamStart_       = false;   ///< Steam start requested
       bool requestSteamStop_        = false;   ///< Steam stop requested
       bool requestManualFlushStart_ = false;   ///< Manual flush start requested

@@ -14,9 +14,11 @@
 #include "clevercoffee/hardware/tempsensors/TempSensor.h"
 #include "clevercoffee/hardware/tempsensors/TempSensorDallas.h"
 #include "clevercoffee/hardware/tempsensors/TempSensorTSIC.h"
+#include "clevercoffee/hardware/ValveState.h"
 #include "clevercoffee/state/IHardwareContext.h"
 #include "clevercoffee/state/MachineStateIds.h"
 
+#include <atomic>
 #include <memory>
 
 // Forward declarations
@@ -194,11 +196,22 @@ class HardwareManager : public IHardwareContext {
     bool waterTankEmpty_ = false;
 
     // Hardware component state tracking (to avoid redundant operations)
-    bool heaterEnabled_ = false;
+    // Note: heaterEnabled_ is atomic because ISR can directly control heater relay
+    // for PID PWM, bypassing this state tracking. The state is approximate for heater.
+    std::atomic<bool> heaterEnabled_{false};
     bool pumpEnabled_ = false;
-    bool steamValveOpen_ = false;
-    bool waterValveOpen_ = false;
+    
+    // Valve state tracking - steam and water valves share the same physical relay
+    // Using enum to ensure correct relay control when both valves might be requested
+    CleverCoffee::Hardware::ValveState valveState_ = CleverCoffee::Hardware::ValveState::CLOSED;
+    
     bool solenoidOpen_ = false;
+    
+    /**
+     * @brief Update valve relay based on current valve state
+     * Called whenever valve state changes to ensure relay matches desired state
+     */
+    void updateValveRelay() noexcept;
 
     // Initialization state tracking for exception safety
     bool relaysInitialized_ = false;

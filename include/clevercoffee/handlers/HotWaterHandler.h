@@ -38,8 +38,10 @@ class HotWaterHandler : public SwitchBasedHandler {
     }
 
     bool isHotWaterActive() const {
-        if (!systemContext_) return false;
-        return systemContext_->machineStateContext()->getCurrentStateId() == MachineStateId::HOT_WATER_RUNNING;
+        // Hot water is handled via pump control in PID_NORMAL and STEAM_RUNNING
+        // Check if hot water switch is pressed
+        if (!switch_) return false;
+        return getSwitchReading() == HIGH;
     }
 
   protected:
@@ -49,14 +51,22 @@ class HotWaterHandler : public SwitchBasedHandler {
 
     bool hasPermission() const override {
         if (!SwitchBasedHandler::hasPermission()) {
+            logDebug("Base permission check failed");
             return false;
         }
 
-        if (!systemContext_) return false;
-        if (systemContext_->machineStateContext()->getCurrentStateId() == MachineStateId::WATER_TANK_EMPTY) {
+        if (!systemContext_) {
+            logDebug("SystemContext is null");
+            return false;
+        }
+        
+        auto currentState = systemContext_->machineStateContext()->getCurrentStateId();
+        if (currentState == MachineStateId::WATER_TANK_EMPTY) {
+            logDebug("Permission denied: Water tank empty");
             return false;
         }
 
+        logDebug("Permission granted");
         return true;
     }
 
@@ -77,12 +87,16 @@ class HotWaterHandler : public SwitchBasedHandler {
         if (switchType == Hardware::SwitchType::TOGGLE) {
             // Handle toggle switch logic here
             if (reading == HIGH && lastSwitchReading_ == LOW) {
-                logDebug("Hot water toggle switch pressed");
+                logInfo("Hot water toggle switch activated");
+            } else if (reading == LOW && lastSwitchReading_ == HIGH) {
+                logInfo("Hot water toggle switch deactivated");
             }
         } else if (switchType == Hardware::SwitchType::MOMENTARY) {
             // Handle momentary switch logic here
             if (reading == HIGH && lastSwitchReading_ == LOW) {
-                logDebug("Hot water momentary switch pressed");
+                logInfo("Hot water momentary switch pressed");
+            } else if (reading == LOW && lastSwitchReading_ == HIGH) {
+                logInfo("Hot water momentary switch released");
             }
         }
 
@@ -92,7 +106,10 @@ class HotWaterHandler : public SwitchBasedHandler {
     void checkPumpTimeout() {
          if (pumpTimer_.isExpired() && isHotWaterActive()) {
              logError("Hot water pump timeout - stopping for safety");
-             systemContext_->machineStateContext()->setHotWaterStopRequested(true);
+             // Hot water is controlled via pump - disable pump through MachineStateContext
+             if (systemContext_ && systemContext_->machineStateContext()) {
+                 systemContext_->machineStateContext()->disablePump();
+             }
          }
      }
 };

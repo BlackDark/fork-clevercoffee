@@ -133,8 +133,8 @@ class ModernDisplayTemplate {
         if (isManualFlushState(CleverCoffee::getGlobalSystemContext()->machineStateContext()->getCurrentStateId())) {
             displayBrewTime(coords.brewX, coords.brewY, derived->getManualFlushLabel(), CleverCoffee::getGlobalSystemContext()->processCurrentBrewTime());
         }
-        // Show hot water time
-        else if (isHotWaterState(CleverCoffee::getGlobalSystemContext()->machineStateContext()->getCurrentStateId())) {
+        // Show hot water time (when pump is active in PID_NORMAL or STEAM_RUNNING)
+        else if (shouldDisplayHotWaterTimer()) {
             displayBrewTime(coords.brewX, coords.brewY, derived->getHotWaterLabel(), CleverCoffee::getGlobalSystemContext()->currPumpOnTime());
         } else if (shouldDisplayBrewTimer()) {
             const bool isAutomatic = Config::getInstance().brewMode.get() == Process::BrewMode::AUTOMATIC_BREW;

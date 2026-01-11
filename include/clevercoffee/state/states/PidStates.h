@@ -12,6 +12,7 @@ class PidNormalState : public BaseState<MachineStateId::PID_NORMAL, PidNormalSta
   public:
     void          update(MachineStateContext& context) override;
     void          onEntryImpl(MachineStateContext& context) override;
+    void          onExitImpl(MachineStateContext& context) override;
     MachineState* checkSpecificTransitions(MachineStateContext& context) override;
 
   private:

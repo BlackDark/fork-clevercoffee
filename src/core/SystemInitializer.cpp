@@ -164,6 +164,11 @@ bool SystemInitializer::initialize() {
     
     LOG(DEBUG, "Calling enableTimer1() - ISR will now fire");
     enableTimer1();
+    
+    // Mark ISR as ready to execute - all initialization is complete
+    systemContext_->markISRReady();
+    LOG(INFO, "ISR marked as ready - timer ISR can now safely execute");
+    
     LOG(DEBUG, "Timer enabled - ISR should be firing every 10ms");
 
     // Report LittleFS usage only if it was successfully initialized
@@ -212,8 +217,10 @@ bool SystemInitializer::initializeConfiguration() {
 
     LOG(INFO, "Configuration system ready");
 
-    // Use default log level
-    Logger::setLevel(Logger::Level::INFO);
+    // Set log level from configuration
+    const System::LogLevel configLogLevel = Config::getInstance().systemLogLevel.get();
+    Logger::setLevel(static_cast<Logger::Level>(configLogLevel));
+    LOGF(INFO, "Log level set to: %s", Logger::getLevelString(static_cast<Logger::Level>(configLogLevel)));
 
     calculateDerivedValues();
 

@@ -10,42 +10,21 @@
 #include "clevercoffee/Logger.h"
 #include "clevercoffee/state/MachineStateContext.h"
 #include "clevercoffee/state/StateFactory.h"
+#include "clevercoffee/Config.h"
+#include "clevercoffee/defaults.h"
+#include "clevercoffee/context/SystemContext.h"
+#include "clevercoffee/handlers/BrewHandler.h"
 
 // BrewStates Implementation
-void BrewIdleState::onEntryImpl(MachineStateContext& context) {
-    LOG(INFO, "Brew idle - ready to start brewing");
-}
-
-void BrewIdleState::update(MachineStateContext& context) {
-    LOGF(DEBUG,
-         "Brew Idle: Temp=%.1f°C, Weight=%.1fg, Tank=%s",
-         context.getCurrentTemperature(),
-         context.getCurrentBrewWeight(),
-         context.isWaterTankFull() ? "OK" : "EMPTY");
-}
-
-MachineState* BrewIdleState::checkSpecificTransitions(MachineStateContext& context) {
-    if (context.isBrewStartRequested()) {
-        context.setBrewStartRequested(false);
-        context.logStateTransition(getStateId(), MachineStateId::BREW_PREINFUSION, "Brew start requested");
-        return getStateInstance(MachineStateId::BREW_PREINFUSION);
-    }
-    if (context.isBrewActive()) {
-        context.logStateTransition(getStateId(), MachineStateId::BREW_PREINFUSION, "Brew switch activated");
-        return getStateInstance(MachineStateId::BREW_PREINFUSION);
-    }
-    if (context.isBackflushActive() || context.isBackflushStartRequested()) {
-        if (context.isBackflushStartRequested()) {
-            context.setBackflushStartRequested(false);
-        }
-        context.logStateTransition(getStateId(), MachineStateId::BACKFLUSH_IDLE, "Backflush activated");
-        return getStateInstance(MachineStateId::BACKFLUSH_IDLE);
-    }
-    return nullptr;
-}
-
 void BrewPreinfusionState::onEntryImpl(MachineStateContext& context) {
     LOG(INFO, "Brew preinfusion started");
+}
+
+void BrewPreinfusionState::onExitImpl(MachineStateContext& context) {
+    // Safety: Ensure pump and valve are disabled when exiting preinfusion
+    context.disablePump();
+    context.closeWaterValve();
+    LOG(DEBUG, "Brew preinfusion exit - hardware cleaned up");
 }
 
 void BrewPreinfusionState::update(MachineStateContext& context) {
@@ -59,19 +38,69 @@ void BrewPreinfusionState::update(MachineStateContext& context) {
 MachineState* BrewPreinfusionState::checkSpecificTransitions(MachineStateContext& context) {
     if (context.isBrewStopRequested()) {
         context.setBrewStopRequested(false);
-        context.logStateTransition(getStateId(), MachineStateId::BREW_IDLE, "Brew stop requested during preinfusion");
-        return getStateInstance(MachineStateId::BREW_IDLE);
+        if (context.isPidEnabled()) {
+            context.logStateTransition(getStateId(), MachineStateId::PID_NORMAL, "Brew stop requested during preinfusion");
+            return getStateInstance(MachineStateId::PID_NORMAL);
+        } else {
+            context.logStateTransition(getStateId(), MachineStateId::PID_DISABLED, "Brew stop requested during preinfusion");
+            return getStateInstance(MachineStateId::PID_DISABLED);
+        }
     }
-    if (!context.isBrewActive()) {
-        context.logStateTransition(
-            getStateId(), MachineStateId::BREW_IDLE, "Brew switch deactivated during preinfusion");
-        return getStateInstance(MachineStateId::BREW_IDLE);
+    
+    auto& brewHandler = context.systemContext().brewHandler();
+    const auto switchType = brewHandler.getSwitchType();
+    
+    // Check if switch state changed
+    if (brewHandler.hasSwitchStateChanged()) {
+        const bool wasReleased = brewHandler.wasSwitchReleased();
+        brewHandler.clearSwitchStateChange();
+        
+                    if (wasReleased) {
+                        if (context.isPidEnabled()) {
+                            context.logStateTransition(
+                                getStateId(), MachineStateId::PID_NORMAL, "Brew switch deactivated during preinfusion");
+                            return getStateInstance(MachineStateId::PID_NORMAL);
+                        } else {
+                            context.logStateTransition(
+                                getStateId(), MachineStateId::PID_DISABLED, "Brew switch deactivated during preinfusion");
+                            return getStateInstance(MachineStateId::PID_DISABLED);
+                        }
+                    }
     }
+    
+    // Check if brew should continue based on switch type
+    bool shouldContinue = false;
+    if (switchType == Hardware::SwitchType::TOGGLE) {
+        // Toggle: continue as long as switch is ON
+        shouldContinue = brewHandler.isBrewSwitchPressed();
+    } else {  // MOMENTARY
+        // Momentary: continue if brew is active (in a brew state)
+        shouldContinue = context.isBrewActive();
+    }
+    
+                if (!shouldContinue) {
+                    if (context.isPidEnabled()) {
+                        context.logStateTransition(
+                            getStateId(), MachineStateId::PID_NORMAL, "Brew switch deactivated during preinfusion");
+                        return getStateInstance(MachineStateId::PID_NORMAL);
+                    } else {
+                        context.logStateTransition(
+                            getStateId(), MachineStateId::PID_DISABLED, "Brew switch deactivated during preinfusion");
+                        return getStateInstance(MachineStateId::PID_DISABLED);
+                    }
+                }
     return nullptr;
 }
 
 void BrewPreinfusionPauseState::onEntryImpl(MachineStateContext& context) {
     LOG(INFO, "Brew preinfusion pause - blooming phase");
+}
+
+void BrewPreinfusionPauseState::onExitImpl(MachineStateContext& context) {
+    // Safety: Ensure pump and valve are disabled when exiting preinfusion pause
+    context.disablePump();
+    context.closeWaterValve();
+    LOG(DEBUG, "Brew preinfusion pause exit - hardware cleaned up");
 }
 
 void BrewPreinfusionPauseState::update(MachineStateContext& context) {
@@ -85,20 +114,71 @@ void BrewPreinfusionPauseState::update(MachineStateContext& context) {
 MachineState* BrewPreinfusionPauseState::checkSpecificTransitions(MachineStateContext& context) {
     if (context.isBrewStopRequested()) {
         context.setBrewStopRequested(false);
-        context.logStateTransition(
-            getStateId(), MachineStateId::BREW_IDLE, "Brew stop requested during preinfusion pause");
-        return getStateInstance(MachineStateId::BREW_IDLE);
+        if (context.isPidEnabled()) {
+            context.logStateTransition(
+                getStateId(), MachineStateId::PID_NORMAL, "Brew stop requested during preinfusion pause");
+            return getStateInstance(MachineStateId::PID_NORMAL);
+        } else {
+            context.logStateTransition(
+                getStateId(), MachineStateId::PID_DISABLED, "Brew stop requested during preinfusion pause");
+            return getStateInstance(MachineStateId::PID_DISABLED);
+        }
     }
-    if (!context.isBrewActive()) {
-        context.logStateTransition(
-            getStateId(), MachineStateId::BREW_IDLE, "Brew switch deactivated during preinfusion pause");
-        return getStateInstance(MachineStateId::BREW_IDLE);
+    
+    auto& brewHandler = context.systemContext().brewHandler();
+    const auto switchType = brewHandler.getSwitchType();
+    
+    // Check if switch state changed
+    if (brewHandler.hasSwitchStateChanged()) {
+        const bool wasReleased = brewHandler.wasSwitchReleased();
+        brewHandler.clearSwitchStateChange();
+        
+        if (wasReleased) {
+            if (context.isPidEnabled()) {
+                context.logStateTransition(
+                    getStateId(), MachineStateId::PID_NORMAL, "Brew switch deactivated during preinfusion pause");
+                return getStateInstance(MachineStateId::PID_NORMAL);
+            } else {
+                context.logStateTransition(
+                    getStateId(), MachineStateId::PID_DISABLED, "Brew switch deactivated during preinfusion pause");
+                return getStateInstance(MachineStateId::PID_DISABLED);
+            }
+        }
+    }
+    
+    // Check if brew should continue based on switch type
+    bool shouldContinue = false;
+    if (switchType == Hardware::SwitchType::TOGGLE) {
+        // Toggle: continue as long as switch is ON
+        shouldContinue = brewHandler.isBrewSwitchPressed();
+    } else {  // MOMENTARY
+        // Momentary: continue if brew is active (in a brew state)
+        shouldContinue = context.isBrewActive();
+    }
+    
+    if (!shouldContinue) {
+        if (context.isPidEnabled()) {
+            context.logStateTransition(
+                getStateId(), MachineStateId::PID_NORMAL, "Brew switch deactivated during preinfusion pause");
+            return getStateInstance(MachineStateId::PID_NORMAL);
+        } else {
+            context.logStateTransition(
+                getStateId(), MachineStateId::PID_DISABLED, "Brew switch deactivated during preinfusion pause");
+            return getStateInstance(MachineStateId::PID_DISABLED);
+        }
     }
     return nullptr;
 }
 
 void BrewRunningState::onEntryImpl(MachineStateContext& context) {
     LOG(INFO, "Brew running - active brewing in progress");
+}
+
+void BrewRunningState::onExitImpl(MachineStateContext& context) {
+    // Safety: Ensure pump and valve are disabled when exiting brew running state
+    context.disablePump();
+    context.closeWaterValve();
+    LOG(DEBUG, "Brew running exit - hardware cleaned up");
 }
 
 void BrewRunningState::update(MachineStateContext& context) {
@@ -115,7 +195,38 @@ MachineState* BrewRunningState::checkSpecificTransitions(MachineStateContext& co
         context.logStateTransition(getStateId(), MachineStateId::BREW_FINISHED, "Brew stop requested");
         return getStateInstance(MachineStateId::BREW_FINISHED);
     }
-    if (!context.isBrewActive()) {
+    
+    auto& brewHandler = context.systemContext().brewHandler();
+    const auto switchType = brewHandler.getSwitchType();
+    
+    // Check if switch state changed
+    if (brewHandler.hasSwitchStateChanged()) {
+        const bool wasPressed = brewHandler.wasSwitchPressed();
+        const bool wasReleased = brewHandler.wasSwitchReleased();
+        brewHandler.clearSwitchStateChange();
+        
+        if (switchType == Hardware::SwitchType::TOGGLE && wasReleased) {
+            // Toggle: switch released - stop brew
+            context.logStateTransition(getStateId(), MachineStateId::BREW_FINISHED, "Brew toggle switch deactivated");
+            return getStateInstance(MachineStateId::BREW_FINISHED);
+        } else if (switchType == Hardware::SwitchType::MOMENTARY && wasPressed) {
+            // Momentary: switch pressed again - stop brew
+            context.logStateTransition(getStateId(), MachineStateId::BREW_FINISHED, "Brew momentary switch - stopping brew");
+            return getStateInstance(MachineStateId::BREW_FINISHED);
+        }
+    }
+    
+    // Check if brew should continue based on switch type
+    bool shouldContinue = false;
+    if (switchType == Hardware::SwitchType::TOGGLE) {
+        // Toggle: continue as long as switch is ON
+        shouldContinue = brewHandler.isBrewSwitchPressed();
+    } else {  // MOMENTARY
+        // Momentary: continue if brew is active (in a brew state)
+        shouldContinue = context.isBrewActive();
+    }
+    
+    if (!shouldContinue) {
         context.logStateTransition(getStateId(), MachineStateId::BREW_FINISHED, "Brew completed");
         return getStateInstance(MachineStateId::BREW_FINISHED);
     }
@@ -126,6 +237,13 @@ void BrewFinishedState::onEntryImpl(MachineStateContext& context) {
     LOG(INFO, "Brew cycle completed");
 }
 
+void BrewFinishedState::onExitImpl(MachineStateContext& context) {
+    // Safety: Ensure pump and valve are disabled when exiting brew finished state
+    context.disablePump();
+    context.closeWaterValve();
+    LOG(DEBUG, "Brew finished exit - hardware cleaned up");
+}
+
 void BrewFinishedState::update(MachineStateContext& context) {
     LOGF(DEBUG,
          "Brew Finished: Weight=%.1fg, Temp=%.1f°C",
@@ -134,10 +252,42 @@ void BrewFinishedState::update(MachineStateContext& context) {
 }
 
 MachineState* BrewFinishedState::checkSpecificTransitions(MachineStateContext& context) {
+    auto& brewHandler = context.systemContext().brewHandler();
+    const auto switchType = brewHandler.getSwitchType();
+    
+    // For toggle switch: also allow transition if switch state changed
+    if (switchType == Hardware::SwitchType::TOGGLE && brewHandler.hasSwitchStateChanged()) {
+        brewHandler.clearSwitchStateChange();
+        // If toggle is ON, start new brew; if OFF, return to PID
+        if (brewHandler.isBrewSwitchPressed()) {
+            context.logStateTransition(getStateId(), MachineStateId::BREW_PREINFUSION, "Brew finished - toggle switch ON, starting new brew");
+            return getStateInstance(MachineStateId::BREW_PREINFUSION);
+        } else {
+            if (context.isPidEnabled()) {
+                context.logStateTransition(getStateId(), MachineStateId::PID_NORMAL, "Brew finished - toggle switch OFF, returning to PID");
+                return getStateInstance(MachineStateId::PID_NORMAL);
+            } else {
+                context.logStateTransition(getStateId(), MachineStateId::PID_DISABLED, "Brew finished - toggle switch OFF, returning to PID disabled");
+                return getStateInstance(MachineStateId::PID_DISABLED);
+            }
+        }
+    }
+    
     // Use a hardcoded 3 second timeout for the finished state (display time)
     if (context.hasStateTimeoutElapsed(CleverCoffee::BrewTiming::FINISHED_DISPLAY_TIMEOUT_MS)) {
-        context.logStateTransition(getStateId(), MachineStateId::BREW_IDLE, "Brew finished display timeout");
-        return getStateInstance(MachineStateId::BREW_IDLE);
+        // After timeout, check switch state: if toggle ON, start new brew; otherwise return to PID
+        if (switchType == Hardware::SwitchType::TOGGLE && brewHandler.isBrewSwitchPressed()) {
+            context.logStateTransition(getStateId(), MachineStateId::BREW_PREINFUSION, "Brew finished timeout - toggle switch ON, starting new brew");
+            return getStateInstance(MachineStateId::BREW_PREINFUSION);
+        } else {
+            if (context.isPidEnabled()) {
+                context.logStateTransition(getStateId(), MachineStateId::PID_NORMAL, "Brew finished display timeout");
+                return getStateInstance(MachineStateId::PID_NORMAL);
+            } else {
+                context.logStateTransition(getStateId(), MachineStateId::PID_DISABLED, "Brew finished display timeout");
+                return getStateInstance(MachineStateId::PID_DISABLED);
+            }
+        }
     }
 
     return nullptr;

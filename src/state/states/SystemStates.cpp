@@ -46,45 +46,14 @@ MachineState* StandbyState::checkSpecificTransitions(MachineStateContext& contex
     return nullptr;
 }
 
-void ManualFlushIdleState::onEntryImpl(MachineStateContext& context) {
-    LOG(INFO, "Manual flush mode activated");
+void ManualFlushRunningState::onEntryImpl(MachineStateContext& context) {
+    LOG(INFO, "Manual flush mode activated - hardware controlled by handlers");
     context.setManualFlushState(true);
 }
 
-void ManualFlushIdleState::onExitImpl(MachineStateContext& context) {
+void ManualFlushRunningState::onExitImpl(MachineStateContext& context) {
     LOG(INFO, "Exiting manual flush mode");
     context.setManualFlushState(false);
-}
-
-void ManualFlushIdleState::update(MachineStateContext& context) {
-    LOGF(DEBUG,
-         "Manual Flush: Temp=%.1f°C, Tank=%s, FlushActive=%s",
-         context.getCurrentTemperature(),
-         context.isWaterTankFull() ? "OK" : "EMPTY",
-         context.isManualFlushActive() ? "YES" : "NO");
-}
-
-MachineState* ManualFlushIdleState::checkSpecificTransitions(MachineStateContext& context) {
-    if (context.isManualFlushStopRequested()) {
-        context.setManualFlushStopRequested(false);
-        if (context.isPidEnabled()) {
-            return getStateInstance(MachineStateId::PID_NORMAL);
-        } else {
-            return getStateInstance(MachineStateId::PID_DISABLED);
-        }
-    }
-    if (!context.isManualFlushActive()) {
-        if (context.isPidEnabled()) {
-            return getStateInstance(MachineStateId::PID_NORMAL);
-        } else {
-            return getStateInstance(MachineStateId::PID_DISABLED);
-        }
-    }
-    return nullptr;
-}
-
-void ManualFlushRunningState::onEntryImpl(MachineStateContext& context) {
-    LOG(INFO, "Manual flush running - hardware controlled by handlers");
 }
 
 void ManualFlushRunningState::update(MachineStateContext& context) {
@@ -97,12 +66,22 @@ void ManualFlushRunningState::update(MachineStateContext& context) {
 MachineState* ManualFlushRunningState::checkSpecificTransitions(MachineStateContext& context) {
     if (context.isManualFlushStopRequested()) {
         context.setManualFlushStopRequested(false);
-        context.logStateTransition(getStateId(), MachineStateId::MANUAL_FLUSH_IDLE, "Manual flush stop requested");
-        return getStateInstance(MachineStateId::MANUAL_FLUSH_IDLE);
+        if (context.isPidEnabled()) {
+            context.logStateTransition(getStateId(), MachineStateId::PID_NORMAL, "Manual flush stop requested");
+            return getStateInstance(MachineStateId::PID_NORMAL);
+        } else {
+            context.logStateTransition(getStateId(), MachineStateId::PID_DISABLED, "Manual flush stop requested");
+            return getStateInstance(MachineStateId::PID_DISABLED);
+        }
     }
     if (!context.isManualFlushActive()) {
-        context.logStateTransition(getStateId(), MachineStateId::MANUAL_FLUSH_IDLE, "Manual flush deactivated");
-        return getStateInstance(MachineStateId::MANUAL_FLUSH_IDLE);
+        if (context.isPidEnabled()) {
+            context.logStateTransition(getStateId(), MachineStateId::PID_NORMAL, "Manual flush deactivated");
+            return getStateInstance(MachineStateId::PID_NORMAL);
+        } else {
+            context.logStateTransition(getStateId(), MachineStateId::PID_DISABLED, "Manual flush deactivated");
+            return getStateInstance(MachineStateId::PID_DISABLED);
+        }
     }
     return nullptr;
 }

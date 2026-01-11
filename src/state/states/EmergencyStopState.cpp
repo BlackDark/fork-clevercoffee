@@ -8,6 +8,8 @@
 #include "clevercoffee/Logger.h"
 #include "clevercoffee/state/MachineStateContext.h"
 #include "clevercoffee/state/StateFactory.h"
+#include "clevercoffee/context/SystemContext.h"
+#include "clevercoffee/control/ProcessController.h"
 
 // EmergencyStopState Implementation
 void EmergencyStopState::onEntryImpl(MachineStateContext& context) {
@@ -45,14 +47,25 @@ void EmergencyStopState::performEmergencyShutdown(MachineStateContext& context) 
 }
 
 bool EmergencyStopState::isEmergencyCleared(MachineStateContext& context) const {
-    if (context.isEmergencyStop()) {
-        return false;
+    // Use centralized emergency stop manager through ProcessController
+    double currentTemp = context.getCurrentTemperature();
+    if (auto* processController = context.systemContext().processController()) {
+        bool cleared = processController->isEmergencyCleared(currentTemp);
+        if (cleared && context.isEmergencyStop()) {
+            // Clear the SystemContext flag when emergency is cleared
+            context.systemContext().setEmergencyStop(false);
+        }
+        return cleared;
     }
-    double       currentTemp                = context.getCurrentTemperature();
+    // Fallback: if ProcessController not available, use simple threshold check
     const double SAFE_TEMPERATURE_THRESHOLD = 100.0;
     if (currentTemp > SAFE_TEMPERATURE_THRESHOLD) {
-        LOGF(WARNING, "Temperature still elevated: %.1f°C", currentTemp);
+        LOGF(WARNING, "Temperature still elevated: %.1f°C (ProcessController not available)", currentTemp);
         return false;
+    }
+    // Clear the SystemContext flag if temperature is safe
+    if (context.isEmergencyStop()) {
+        context.systemContext().setEmergencyStop(false);
     }
     return true;
 }

@@ -252,7 +252,7 @@ int MQTTManager::writeSysParamsToMQTT(bool continueOnError) {
     unsigned long currentMillisMQTT = millis();
     // Check if brewing is active (any non-idle brew state)
     bool isBrewActive =
-        (isBrewState(CleverCoffee::getGlobalSystemContext()->machineStateContext()->getCurrentStateId()) && CleverCoffee::getGlobalSystemContext()->machineStateContext()->getCurrentStateId() != MachineStateId::BREW_IDLE);
+        (isBrewState(CleverCoffee::getGlobalSystemContext()->machineStateContext()->getCurrentStateId()) && CleverCoffee::getGlobalSystemContext()->machineStateContext()->getCurrentStateId() != MachineStateId::BREW_FINISHED);
     unsigned long interval = isBrewActive                                                ? intervalMQTTBrew_
                              : (CleverCoffee::getGlobalSystemContext()->machineStateContext()->getCurrentStateId() == MachineStateId::STANDBY) ? intervalMQTTStandby_
                                                                                          : intervalMQTT_;
