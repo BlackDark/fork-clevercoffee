@@ -9,6 +9,7 @@
 #include "clevercoffee/handlers/BaseHandler.h"
 #include "clevercoffee/context/SystemContext.h"
 #include "clevercoffee/state/MachineStateContext.h"
+#include "clevercoffee/state/MachineStateIds.h"
 #include "clevercoffee/handlers/PumpTimer.h"
 #include "clevercoffee/hardware/Relay.h"
 #include "clevercoffee/hardware/Switch.h"
@@ -29,7 +30,7 @@ class BrewHandler : public SwitchBasedHandler {
     bool          switchStateChanged_ = false;  // Track if switch state changed
 
   public:
-    explicit BrewHandler(CleverCoffee::SystemContext* ctx = nullptr)
+    explicit BrewHandler(CleverCoffee::SystemContext& ctx)
         : SwitchBasedHandler("BrewHandler", nullptr, ctx),
           pumpTimer_(300000) { // 5 minute max brew time safety
     }
@@ -100,8 +101,9 @@ class BrewHandler : public SwitchBasedHandler {
      * @return true if in an active brew state, false otherwise
      */
     bool isBrewActive() const {
-        if (!systemContext_) return false;
-        auto currentState = systemContext_->machineStateContext()->getCurrentStateId();
+        auto* context = systemContext_.machineStateContext();
+        if (!context) return false;
+        auto currentState = context->getCurrentStateId();
         return (isBrewState(currentState) &&
                 currentState != MachineStateId::BREW_FINISHED);
     }
@@ -128,13 +130,14 @@ class BrewHandler : public SwitchBasedHandler {
             return false;
         }
 
-        if (!systemContext_) {
-            logDebug("SystemContext is null");
+        auto* context = systemContext_.machineStateContext();
+        if (!context) {
+            logDebug("MachineStateContext is null");
             return false;
         }
 
         // Only block if water tank is empty (critical safety issue)
-        auto currentState = systemContext_->machineStateContext()->getCurrentStateId();
+        auto currentState = context->getCurrentStateId();
         if (currentState == MachineStateId::WATER_TANK_EMPTY) {
             logDebug("Permission denied: Water tank empty");
             return false;
@@ -177,6 +180,39 @@ class BrewHandler : public SwitchBasedHandler {
                     logInfo("Brew momentary switch released");
                 }
             }
+            
+            // Set flags for state machine transitions (flag-based approach fixes timing issues)
+            auto* context = systemContext_.machineStateContext();
+            if (!context) return;
+            const auto currentState = context->getCurrentStateId();
+            
+            // Determine if we should set start or stop flag based on switch state and current state
+            if (reading == HIGH) {
+                // Switch pressed/activated
+                if (switchType == Hardware::SwitchType::MOMENTARY) {
+                    // Momentary: press = start brew (if not already brewing)
+                    if (!isBrewState(currentState) || currentState == MachineStateId::BREW_FINISHED) {
+                        context->setBrewStartRequested(true);
+                    } else {
+                        // Already brewing - second press means stop
+                        context->setBrewStopRequested(true);
+                    }
+                } else {
+                    // Toggle: activated = start brew (if not already brewing)
+                    if (!isBrewState(currentState) || currentState == MachineStateId::BREW_FINISHED) {
+                        context->setBrewStartRequested(true);
+                    }
+                }
+            } else {
+                // Switch released/deactivated
+                if (switchType == Hardware::SwitchType::TOGGLE) {
+                    // Toggle: deactivated = stop brew (if brewing)
+                    if (isBrewState(currentState) && currentState != MachineStateId::BREW_FINISHED) {
+                        context->setBrewStopRequested(true);
+                    }
+                }
+                // Momentary: release doesn't trigger stop (handled by second press)
+            }
         }
 
         // Always update last reading to track state changes
@@ -187,8 +223,8 @@ class BrewHandler : public SwitchBasedHandler {
         if (pumpTimer_.isExpired() && isBrewActive()) {
             logError("Pump timeout - stopping for safety");
             // Request brew stop through MachineStateContext (proper state transition request)
-            if (systemContext_ && systemContext_->machineStateContext()) {
-                systemContext_->machineStateContext()->setBrewStopRequested(true);
+            if (auto* context = systemContext_.machineStateContext()) {
+                context->setBrewStopRequested(true);
             }
         }
     }

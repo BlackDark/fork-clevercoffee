@@ -20,18 +20,15 @@ class SystemContext;
  * @brief Check if power switch operations are allowed
  * 
  * This function is used by BaseHandler::hasPermission() as the default permission check.
- * It's defined inline in this header since it's only used by BaseHandler and its derived classes.
  * 
- * @param ctx SystemContext pointer (can be nullptr)
+ * @param ctx SystemContext reference (always valid)
  * @return true if operations are allowed, false otherwise
  * 
- * @note Currently implements a simple null check. Future enhancement: check systemInitialized flag
- *       via SystemContext to ensure system is fully initialized before allowing operations.
+ * @note SystemContext is always available after initialization
  */
-inline bool isPowerSwitchOperationAllowed(CleverCoffee::SystemContext* ctx) {
-    // Basic permission check - system should be initialized
-    // TODO: Enhance to check systemContext_->isReady() or systemInitialized flag
-    return ctx != nullptr;  // For now, accept any valid context
+inline bool isPowerSwitchOperationAllowed(const CleverCoffee::SystemContext& ctx) {
+    // SystemContext is always valid - can enhance to check systemInitialized flag if needed
+    return true;
 }
 
 /**
@@ -47,18 +44,11 @@ inline bool isPowerSwitchOperationAllowed(CleverCoffee::SystemContext* ctx) {
 class BaseHandler {
   protected:
     const char* handlerName_;
-    CleverCoffee::SystemContext* systemContext_;
+    CleverCoffee::SystemContext& systemContext_;
 
   public:
-    explicit BaseHandler(const char* name, CleverCoffee::SystemContext* ctx = nullptr) : handlerName_(name), systemContext_(ctx) {}
+    explicit BaseHandler(const char* name, CleverCoffee::SystemContext& ctx) : handlerName_(name), systemContext_(ctx) {}
     virtual ~BaseHandler() = default;
-
-    /**
-     * @brief Set the SystemContext after handler creation
-     */
-    void setSystemContext(CleverCoffee::SystemContext* ctx) noexcept {
-        systemContext_ = ctx;
-    }
 
     /**
      * @brief Main processing function - template method pattern
@@ -96,6 +86,12 @@ class BaseHandler {
     virtual bool hasPermission() const {
         return isPowerSwitchOperationAllowed(systemContext_);
     }
+
+    /**
+     * @brief Get SystemContext reference
+     */
+    CleverCoffee::SystemContext& getSystemContext() noexcept { return systemContext_; }
+    const CleverCoffee::SystemContext& getSystemContext() const noexcept { return systemContext_; }
 
     /**
      * @brief Validate hardware components
@@ -172,7 +168,7 @@ class SwitchBasedHandler : public BaseHandler {
     Switch* switch_;
 
   public:
-    SwitchBasedHandler(const char* name, Switch* sw, CleverCoffee::SystemContext* ctx = nullptr) : BaseHandler(name, ctx), switch_(sw) {}
+    SwitchBasedHandler(const char* name, Switch* sw, CleverCoffee::SystemContext& ctx) : BaseHandler(name, ctx), switch_(sw) {}
 
   protected:
     bool isHardwareValid() const override {

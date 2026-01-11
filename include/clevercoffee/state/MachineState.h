@@ -8,6 +8,7 @@
 #include "clevercoffee/state/MachineStateIds.h"
 
 #include <memory>
+#include <optional>
 
 // Forward declaration
 class MachineStateContext;
@@ -48,9 +49,9 @@ class MachineState {
     /**
      * @brief Check for state transitions
      * @param context The machine state context containing all necessary data
-     * @return New state to transition to, or nullptr if no transition
+     * @return Optional state ID to transition to, or nullopt if no transition
      */
-    virtual MachineState* checkTransitions(MachineStateContext& context) = 0;
+    virtual std::optional<MachineStateId> checkTransitions(MachineStateContext& context) = 0;
 
     /**
      * @brief Get the state ID for debugging and logging

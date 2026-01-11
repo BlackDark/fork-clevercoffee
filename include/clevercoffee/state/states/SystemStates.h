@@ -6,6 +6,7 @@
 #pragma once
 
 #include "clevercoffee/state/BaseState.h"
+#include <optional>
 
 // System States
 class StandbyState : public BaseState<MachineStateId::STANDBY, StandbyState> {
@@ -13,7 +14,7 @@ class StandbyState : public BaseState<MachineStateId::STANDBY, StandbyState> {
     void          update(MachineStateContext& context) override;
     void          onEntryImpl(MachineStateContext& context) override;
     void          onExitImpl(MachineStateContext& context) override;
-    MachineState* checkSpecificTransitions(MachineStateContext& context) override;
+    std::optional<MachineStateId> checkSpecificTransitions(MachineStateContext& context) override;
 };
 
 class ManualFlushRunningState : public BaseState<MachineStateId::MANUAL_FLUSH_RUNNING, ManualFlushRunningState> {
@@ -21,5 +22,5 @@ class ManualFlushRunningState : public BaseState<MachineStateId::MANUAL_FLUSH_RU
     void          update(MachineStateContext& context) override;
     void          onEntryImpl(MachineStateContext& context) override;
     void          onExitImpl(MachineStateContext& context) override;
-    MachineState* checkSpecificTransitions(MachineStateContext& context) override;
+    std::optional<MachineStateId> checkSpecificTransitions(MachineStateContext& context) override;
 };

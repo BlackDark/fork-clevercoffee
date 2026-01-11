@@ -8,10 +8,7 @@
 #include "clevercoffee/types/GlobalTypes.h"
 #include "clevercoffee/Logger.h"
 #include "clevercoffee/state/MachineStateContext.h"
-#include "clevercoffee/state/StateFactory.h"
 #include "clevercoffee/hardware/Switch.h"
-#include "clevercoffee/handlers/SteamHandler.h"
-#include "clevercoffee/context/SystemContext.h"
 
 // SteamStates Implementation
 void SteamRunningState::onEntryImpl(MachineStateContext& context) {
@@ -49,31 +46,15 @@ void SteamRunningState::update(MachineStateContext& context) {
     }
 }
 
-MachineState* SteamRunningState::checkSpecificTransitions(MachineStateContext& context) {
-    // Check for steam stop request
+std::optional<MachineStateId> SteamRunningState::checkSpecificTransitions(MachineStateContext& context) {
+    // Check for steam stop request (flag-based - handlers set this flag)
+    // Handlers detect switch changes and set flags, fixing timing issues
     if (context.isSteamStopRequested()) {
         context.setSteamStopRequested(false);
         return transitionToPidState(context, "Steam stop requested");
     }
 
-    // Check switch state directly instead of handler flag
-    auto& steamHandler = context.systemContext().steamHandler();
-    const auto switchType = steamHandler.getSwitchType();
-
-    // Check if switch state changed
-    if (steamHandler.hasSwitchStateChanged()) {
-        const bool wasReleased = steamHandler.wasSwitchReleased();
-        steamHandler.clearSwitchStateChange();
-
-        if (wasReleased) {
-            return transitionToPidState(context, "Steam switch deactivated");
-        }
-    }
-
-    // For toggle: if switch is OFF, transition back to PID
-    if (switchType == Hardware::SwitchType::TOGGLE && !steamHandler.isSteamSwitchPressed()) {
-        return transitionToPidState(context, "Steam toggle switch OFF");
-    }
-
-    return nullptr;
+    // No direct handler checks - handlers set flags, states only check flags
+    // This fixes timing issues with direct hardware checks
+    return std::nullopt;
 }

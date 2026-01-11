@@ -151,7 +151,8 @@ void setup() {
          // Create StateMachine with required components as references
          stateMachine = std::make_unique<StateMachine>(
              systemContext, hardwareManager, displayManager, wifiManager, mqttManager);
-         InitHelpers::logInitResult("StateMachine", stateMachine->initialize());
+         stateMachine->initialize();  // Always succeeds - uses fallback if needed
+         InitHelpers::logInitResult("StateMachine", true);
 
           // Register MachineStateContext in SystemContext for safe access
           systemContext.setMachineStateContext(&stateMachine->getContext());
@@ -185,7 +186,7 @@ void setup() {
      }
 
     // Initialize handler objects and set up references in global state and SystemContext
-    initializeHandlers(&systemInitializer->getSystemContext());
+    initializeHandlers(systemInitializer->getSystemContext());
     InitHelpers::logInitResult("Handlers", true);
 
     logMemory("Setup Complete");

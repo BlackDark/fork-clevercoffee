@@ -32,7 +32,7 @@ class PowerHandler : public SwitchBasedHandler {
     bool          trackingPressTime_;
 
   public:
-    explicit PowerHandler(CleverCoffee::SystemContext* ctx = nullptr)
+    explicit PowerHandler(CleverCoffee::SystemContext& ctx)
         : SwitchBasedHandler("PowerHandler", nullptr, ctx), 
           longPressStartTime_(0),
           trackingLongPress_(false),
@@ -79,7 +79,7 @@ class PowerHandler : public SwitchBasedHandler {
         const long currentMillis = millis();
 
         // Record when system was first initialized
-        if ((systemContext_ != nullptr) && systemInitializedTime_ == 0) {
+        if (systemInitializedTime_ == 0) {
             systemInitializedTime_ = currentMillis;
             logInfo("System initialization time recorded");
         }
@@ -105,7 +105,7 @@ class PowerHandler : public SwitchBasedHandler {
         if (pressed != currStatePowerSwitchPressed_) {
             currStatePowerSwitchPressed_ = pressed;
 
-            if (pressed && (systemContext_ != nullptr)) {
+            if (pressed) {
                 logInfo("Power momentary switch pressed");
                 handlePowerButtonPress(currentMillis);
             } else if (!pressed) {
@@ -128,7 +128,9 @@ class PowerHandler : public SwitchBasedHandler {
         }
 
         // Toggle power state
-        if (systemContext_ && systemContext_->machineStateContext()->getCurrentStateId() == MachineStateId::STANDBY) {
+        auto* context = systemContext_.machineStateContext();
+        if (!context) return;
+        if (context->getCurrentStateId() == MachineStateId::STANDBY) {
             powerOn();
         } else {
             powerOff();
@@ -143,7 +145,7 @@ class PowerHandler : public SwitchBasedHandler {
     }
 
     void checkForLongPressReboot(bool pressed, long currentMillis) {
-        if (pressed && (systemContext_ != nullptr) &&
+        if (pressed &&
             (currentMillis - systemInitializedTime_ > 5000) && trackingLongPress_ &&
             (currentMillis - longPressStartTime_ > 1000) && switch_->longPressDetected()) {
             triggerSystemReboot();
@@ -151,54 +153,43 @@ class PowerHandler : public SwitchBasedHandler {
     }
 
     void powerOn() {
-        if ((systemContext_ && systemContext_->machineStateContext()->getCurrentStateId() == MachineStateId::STANDBY) ||
-            (systemContext_ && systemContext_->machineStateContext()->getCurrentStateId() == MachineStateId::PID_DISABLED)) {
+        auto* context = systemContext_.machineStateContext();
+        if (!context) return;
+        if ((context->getCurrentStateId() == MachineStateId::STANDBY) ||
+            (context->getCurrentStateId() == MachineStateId::PID_DISABLED)) {
             // Request normal operation through MachineStateContext (proper state transition request)
-            if (systemContext_ && systemContext_->machineStateContext()) {
-                systemContext_->machineStateContext()->setNormalOperationRequested(true);
-                systemContext_->machineStateContext()->resetStandbyTimer(
-                    systemContext_->machineStateContext()->getCurrentStateId());
-            }
-            if (systemContext_) {
-                setRuntimePidState(*systemContext_, true);
-            }
-            if (systemContext_) {
-                systemContext_->hardwareContext().display()->setPowerSave(0);
-            }
+            // This will automatically reset standby timer on user activity
+            context->setNormalOperationRequested(true);
+            setRuntimePidState(systemContext_, true);
+            systemContext_.hardwareContext().display()->setPowerSave(0);
             logInfo("System powered on");
         }
     }
 
     void powerOff() {
-         if ((!systemContext_ || systemContext_->machineStateContext()->getCurrentStateId() != MachineStateId::STANDBY)) {
-             if (systemContext_ && systemContext_->processController()) {
-                 systemContext_->processController()->performSafeShutdown();
+         auto* context = systemContext_.machineStateContext();
+         if (!context) return;
+         if (context->getCurrentStateId() != MachineStateId::STANDBY) {
+             if (auto* processController = systemContext_.processController()) {
+                 processController->performSafeShutdown();
              }
-             if (systemContext_ && systemContext_->machineStateContext()) {
-                 systemContext_->machineStateContext()->setStandbyRequested(true);
-             }
+             context->setStandbyRequested(true);
              // Use StandbyCoordinator to mark immediate standby activation
-             if (systemContext_) {
-                 systemContext_->standbyCoordinator().setRemainingTimeMillis(0);
-             }
+             systemContext_.standbyCoordinator().setRemainingTimeMillis(0);
              logInfo("System powered off");
          }
      }
 
     void triggerSystemReboot() {
         logInfo("Power switch long press detected - initiating system reboot");
-        if (systemContext_) {
-            systemContext_->hardwareContext().display()->setPowerSave(0);
-        }
+        systemContext_.hardwareContext().display()->setPowerSave(0);
 
         // Display reboot message
-        if (systemContext_) {
-            displayMessage(*systemContext_, "REBOOTING", "Please wait...", "", "", "", "");
-        }
+        displayMessage(systemContext_, "REBOOTING", "Please wait...", "", "", "", "");
         delay(1000);
 
-        if (systemContext_ && systemContext_->processController()) {
-            systemContext_->processController()->performSafeShutdown();
+        if (auto* processController = systemContext_.processController()) {
+            processController->performSafeShutdown();
         }
 
         logInfo("System reboot initiated");

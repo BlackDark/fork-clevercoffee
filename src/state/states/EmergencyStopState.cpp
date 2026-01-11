@@ -8,7 +8,6 @@
 #include "clevercoffee/Logger.h"
 #include "clevercoffee/constants/Temperature.h"
 #include "clevercoffee/state/MachineStateContext.h"
-#include "clevercoffee/state/StateFactory.h"
 #include "clevercoffee/context/SystemContext.h"
 #include "clevercoffee/control/ProcessController.h"
 
@@ -34,12 +33,12 @@ void EmergencyStopState::update(MachineStateContext& context) {
     performEmergencyShutdown(context);
 }
 
-MachineState* EmergencyStopState::checkSpecificTransitions(MachineStateContext& context) {
+std::optional<MachineStateId> EmergencyStopState::checkSpecificTransitions(MachineStateContext& context) {
     if (isEmergencyCleared(context)) {
         context.logStateTransition(getStateId(), MachineStateId::INIT, "Emergency condition cleared - restarting");
-        return getRecoveryState(context);
+        return MachineStateId::INIT;
     }
-    return nullptr;
+    return std::nullopt;
 }
 
 void EmergencyStopState::performEmergencyShutdown(MachineStateContext& context) {
@@ -69,8 +68,4 @@ bool EmergencyStopState::isEmergencyCleared(MachineStateContext& context) const 
         context.systemContext().setEmergencyStop(false);
     }
     return true;
-}
-
-MachineState* EmergencyStopState::getRecoveryState(MachineStateContext& context) const {
-    return getStateInstance(MachineStateId::INIT);
 }

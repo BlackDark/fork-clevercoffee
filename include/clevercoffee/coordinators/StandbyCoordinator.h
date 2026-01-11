@@ -79,8 +79,14 @@ public:
      * @brief Reset standby timer to configured timeout
      *
      * Restarts the standby countdown from the configured standby time.
+     * Only resets if standby is enabled.
      */
     void reset() {
+        // Only reset if standby is enabled
+        if (!Config::getInstance().standbyEnabled.get()) {
+            return;
+        }
+        
         standbyModeRemainingTimeMillis_           = getStandbyTimeoutMillis();
         standbyModeRemainingTimeDisplayOffMillis_ = getDisplayOffTimeoutMillis();
         standbyModeStartTimeMillis_               = millis();
@@ -106,10 +112,30 @@ public:
 
     /**
      * @brief Check if standby should be triggered
-     * @return true if standby timer has expired
+     * @return true if standby timer has expired and timer was initialized
      */
     bool shouldEnterStandby() const noexcept {
-        return Config::getInstance().standbyEnabled.get() && standbyModeRemainingTimeMillis_ == 0;
+        // Only enter standby if:
+        // 1. Standby is enabled
+        // 2. Timer has expired (remaining time is 0)
+        // 3. Timer was initialized (start time is not 0) - prevents immediate entry when first enabled
+        return Config::getInstance().standbyEnabled.get() && 
+               standbyModeRemainingTimeMillis_ == 0 &&
+               standbyModeStartTimeMillis_ != 0;
+    }
+    
+    /**
+     * @brief Initialize standby timer if not already initialized
+     * Should be called when standby is enabled to start the countdown
+     */
+    void initializeIfNeeded() {
+        if (!Config::getInstance().standbyEnabled.get()) {
+            return;
+        }
+        // If timer hasn't been started yet, initialize it
+        if (standbyModeStartTimeMillis_ == 0) {
+            reset();
+        }
     }
 
 private:

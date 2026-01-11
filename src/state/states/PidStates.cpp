@@ -9,13 +9,13 @@
 #include "clevercoffee/constants/Timing.h"
 #include "clevercoffee/Logger.h"
 #include "clevercoffee/state/MachineStateContext.h"
-#include "clevercoffee/state/StateFactory.h"
 #include "clevercoffee/hardware/Switch.h"
+#include "clevercoffee/Config.h"
 
 // PidNormalState Implementation
 void PidNormalState::onEntryImpl(MachineStateContext& context) {
     LOG(INFO, "PID Normal mode active - ready for operation");
-    resetStandbyTimerIfNeeded(context);
+    // Don't reset standby timer on entry - only reset on user activity (switch presses)
 }
 
 void PidNormalState::onExitImpl(MachineStateContext& context) {
@@ -25,16 +25,8 @@ void PidNormalState::onExitImpl(MachineStateContext& context) {
 }
 
 void PidNormalState::update(MachineStateContext& context) {
-    // Only reset standby timer occasionally to avoid spam
-    static unsigned long lastStandbyReset = 0;
-    const unsigned long currentTime = context.getCurrentTime();
-    
-    // Reset standby timer at most once every 30 seconds to avoid log spam
-    using CleverCoffee::Timing::STANDBY_TIMER_RESET_INTERVAL_MS;
-    if (currentTime - lastStandbyReset >= STANDBY_TIMER_RESET_INTERVAL_MS) {
-        resetStandbyTimerIfNeeded(context);
-        lastStandbyReset = currentTime;
-    }
+    // Standby timer is now only reset when switches are pressed (user activity)
+    // No automatic periodic reset - this prevents unnecessary resets when standby is disabled
     
     // FEATURE: Handle water dispensing from water switch in PID mode
     // User can dispense hot water directly without entering HOT_WATER mode
@@ -51,44 +43,55 @@ void PidNormalState::update(MachineStateContext& context) {
     }
 }
 
-MachineState* PidNormalState::checkSpecificTransitions(MachineStateContext& context) {
+std::optional<MachineStateId> PidNormalState::checkSpecificTransitions(MachineStateContext& context) {
     // CRITICAL: Check if PID was disabled while in this state
     if (!context.isPidEnabled()) {
         context.logStateTransition(getStateId(), MachineStateId::PID_DISABLED, "PID disabled");
-        return getStateInstance(MachineStateId::PID_DISABLED);
+        return MachineStateId::PID_DISABLED;
     }
     
     if (context.isBrewStartRequested()) {
         context.setBrewStartRequested(false);
-        context.logStateTransition(getStateId(), MachineStateId::BREW_PREINFUSION, "Brew start requested");
-        return getStateInstance(MachineStateId::BREW_PREINFUSION);
+        
+        // In manual mode, go directly to BREW_RUNNING (skip preinfusion)
+        const bool isAutomatic = context.getConfig().brewMode.get() == Process::BrewMode::AUTOMATIC_BREW;
+        if (!isAutomatic) {
+            context.logStateTransition(getStateId(), MachineStateId::BREW_RUNNING, "Brew start requested (manual mode)");
+            return MachineStateId::BREW_RUNNING;
+        }
+        
+        // In automatic mode, start with preinfusion
+        context.logStateTransition(getStateId(), MachineStateId::BREW_PREINFUSION, "Brew start requested (automatic mode)");
+        return MachineStateId::BREW_PREINFUSION;
     }
     // Hot water is handled directly in PID_NORMAL via pump control (no separate state needed)
     if (context.isSteamStartRequested()) {
         context.setSteamStartRequested(false);
         context.logStateTransition(getStateId(), MachineStateId::STEAM_RUNNING, "Steam start requested");
-        return getStateInstance(MachineStateId::STEAM_RUNNING);
+        return MachineStateId::STEAM_RUNNING;
     }
     if (context.isManualFlushStartRequested()) {
         context.setManualFlushStartRequested(false);
         context.logStateTransition(getStateId(), MachineStateId::MANUAL_FLUSH_RUNNING, "Manual flush start requested");
-        return getStateInstance(MachineStateId::MANUAL_FLUSH_RUNNING);
+        return MachineStateId::MANUAL_FLUSH_RUNNING;
     }
     if (context.isBackflushStartRequested()) {
         context.setBackflushStartRequested(false);
         context.logStateTransition(getStateId(), MachineStateId::BACKFLUSH_IDLE, "Backflush start requested");
-        return getStateInstance(MachineStateId::BACKFLUSH_IDLE);
+        return MachineStateId::BACKFLUSH_IDLE;
     }
     if (context.isStandbyRequested()) {
         context.setStandbyRequested(false);
         context.logStateTransition(getStateId(), MachineStateId::STANDBY, "Standby requested");
-        return getStateInstance(MachineStateId::STANDBY);
+        return MachineStateId::STANDBY;
     }
+    // Initialize standby timer if needed (when standby is first enabled)
+    context.initializeStandbyTimerIfNeeded();
     if (shouldEnterStandby(context)) {
         context.logStateTransition(getStateId(), MachineStateId::STANDBY, "Entering standby mode");
-        return getStateInstance(MachineStateId::STANDBY);
+        return MachineStateId::STANDBY;
     }
-    return nullptr;
+    return std::nullopt;
 }
 
 bool PidNormalState::shouldEnterStandby(MachineStateContext& context) const {
@@ -96,7 +99,11 @@ bool PidNormalState::shouldEnterStandby(MachineStateContext& context) const {
 }
 
 void PidNormalState::resetStandbyTimerIfNeeded(MachineStateContext& context) const {
-    context.resetStandbyTimer(getStateId());
+    // Only reset standby timer if standby is enabled
+    // This prevents unnecessary resets and log messages when standby is disabled
+    if (Config::getInstance().standbyEnabled.get()) {
+        context.resetStandbyTimer(getStateId());
+    }
 }
 
 // PidDisabledState Implementation
@@ -114,10 +121,10 @@ void PidDisabledState::update(MachineStateContext& context) {
          context.isPidEnabled() ? "YES" : "NO");
 }
 
-MachineState* PidDisabledState::checkSpecificTransitions(MachineStateContext& context) {
+std::optional<MachineStateId> PidDisabledState::checkSpecificTransitions(MachineStateContext& context) {
     if (context.isPidEnabled()) {
         context.logStateTransition(getStateId(), MachineStateId::PID_NORMAL, "PID enabled");
-        return getStateInstance(MachineStateId::PID_NORMAL);
+        return MachineStateId::PID_NORMAL;
     }
-    return nullptr;
+    return std::nullopt;
 }

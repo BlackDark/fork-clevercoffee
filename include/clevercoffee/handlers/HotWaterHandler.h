@@ -24,8 +24,8 @@ class HotWaterHandler : public SwitchBasedHandler {
     uint8_t   lastSwitchReading_ = LOW;
 
   public:
-    HotWaterHandler()
-        : SwitchBasedHandler("HotWaterHandler", nullptr),
+    explicit HotWaterHandler(CleverCoffee::SystemContext& ctx)
+        : SwitchBasedHandler("HotWaterHandler", nullptr, ctx),
           pumpTimer_(60000) { // 60 second max run time
     }
     
@@ -55,12 +55,13 @@ class HotWaterHandler : public SwitchBasedHandler {
             return false;
         }
 
-        if (!systemContext_) {
-            logDebug("SystemContext is null");
+        auto* context = systemContext_.machineStateContext();
+        if (!context) {
+            logDebug("MachineStateContext is null");
             return false;
         }
         
-        auto currentState = systemContext_->machineStateContext()->getCurrentStateId();
+        auto currentState = context->getCurrentStateId();
         if (currentState == MachineStateId::WATER_TANK_EMPTY) {
             logDebug("Permission denied: Water tank empty");
             return false;
@@ -82,21 +83,29 @@ class HotWaterHandler : public SwitchBasedHandler {
         const uint8_t reading    = getSwitchReading();
         const auto    switchType = Config::getInstance().hardwareSwitchesHotWaterType.get();
 
-        // Simplified switch processing - just update switch state for now
-        // The global state machine will handle the actual hot water logic
-        if (switchType == Hardware::SwitchType::TOGGLE) {
-            // Handle toggle switch logic here
-            if (reading == HIGH && lastSwitchReading_ == LOW) {
-                logInfo("Hot water toggle switch activated");
-            } else if (reading == LOW && lastSwitchReading_ == HIGH) {
-                logInfo("Hot water toggle switch deactivated");
+        // Detect state changes
+        if (reading != lastSwitchReading_) {
+            // Notify MachineStateContext of hot water activity (will reset standby timer if needed)
+            if (auto* context = systemContext_.machineStateContext()) {
+                context->setHotWaterActivity(true);
             }
-        } else if (switchType == Hardware::SwitchType::MOMENTARY) {
-            // Handle momentary switch logic here
-            if (reading == HIGH && lastSwitchReading_ == LOW) {
-                logInfo("Hot water momentary switch pressed");
-            } else if (reading == LOW && lastSwitchReading_ == HIGH) {
-                logInfo("Hot water momentary switch released");
+            
+            // Simplified switch processing - just update switch state for now
+            // The global state machine will handle the actual hot water logic
+            if (switchType == Hardware::SwitchType::TOGGLE) {
+                // Handle toggle switch logic here
+                if (reading == HIGH) {
+                    logInfo("Hot water toggle switch activated");
+                } else {
+                    logInfo("Hot water toggle switch deactivated");
+                }
+            } else if (switchType == Hardware::SwitchType::MOMENTARY) {
+                // Handle momentary switch logic here
+                if (reading == HIGH) {
+                    logInfo("Hot water momentary switch pressed");
+                } else {
+                    logInfo("Hot water momentary switch released");
+                }
             }
         }
 
@@ -107,8 +116,8 @@ class HotWaterHandler : public SwitchBasedHandler {
          if (pumpTimer_.isExpired() && isHotWaterActive()) {
              logError("Hot water pump timeout - stopping for safety");
              // Hot water is controlled via pump - disable pump through MachineStateContext
-             if (systemContext_ && systemContext_->machineStateContext()) {
-                 systemContext_->machineStateContext()->disablePump();
+             if (auto* context = systemContext_.machineStateContext()) {
+                 context->disablePump();
              }
          }
      }

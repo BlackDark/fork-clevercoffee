@@ -9,14 +9,6 @@
 #include "clevercoffee/Logger.h"
 #include "clevercoffee/state/MachineStateIds.h"
 #include "clevercoffee/state/StateFactory.h"
-#include "clevercoffee/state/states/BackflushStates.h"
-#include "clevercoffee/state/states/BrewStates.h"
-#include "clevercoffee/state/states/EmergencyStopState.h"
-#include "clevercoffee/state/states/ErrorStates.h"
-#include "clevercoffee/state/states/InitState.h"
-#include "clevercoffee/state/states/PidStates.h"
-#include "clevercoffee/state/states/SteamStates.h"
-#include "clevercoffee/state/states/SystemStates.h"
 
 #include <Arduino.h>
 #include <chrono>
@@ -26,43 +18,46 @@ StateMachine::StateMachine(CleverCoffee::SystemContext& systemContext,
                            DisplayManager&               displayManager,
                            CleverCoffeeWiFiManager&      wifiManager,
                            MQTTManager&                  mqttManager)
-    : currentState_(*getStateInstance(MachineStateId::INIT)),  // Temporary initialization, will be replaced in initialize()
+    : currentState_(nullptr),  // Will be set in initialize() - temporary, will always have a state after init
       context_(systemContext, hardwareManager, displayManager, wifiManager, mqttManager),
       initialized_(false), lastStateId_(MachineStateId::INIT), lastUpdateTime_(std::chrono::steady_clock::now()),
       startTime_(std::chrono::steady_clock::now()), totalStateTransitions_(0), totalUpdates_(0) {
     LOG(INFO, "StateMachine created");
 }
 
-bool StateMachine::initialize(MachineState* initialState) {
+void StateMachine::initialize(MachineStateId initialStateId) {
     LOG(INFO, "Initializing StateMachine");
 
-    // Use InitState as default initial state if none provided
+    // Create initial state - always succeeds (uses fallback if needed)
+    auto initialState = createStateInstance(initialStateId);
     if (!initialState) {
-        initialState = getStateInstance(MachineStateId::INIT);
+        // Fallback to INIT state if creation failed
+        LOG(WARNING, "Failed to create initial state, using INIT as fallback");
+        initialState = createStateInstance(MachineStateId::INIT);
+        if (!initialState) {
+            // This should never happen, but if it does, we're in serious trouble
+            LOGF(FATAL, "CRITICAL: Cannot create INIT state. System will restart.");
+            ESP.restart();
+            return;  // Unreachable
+        }
+        initialStateId = MachineStateId::INIT;
     }
 
-    // Validate that we have a valid state
-    if (!initialState) {
-        LOG(ERROR, "Failed to get initial state");
-        initialized_ = false;
-        return false;
-    }
-
-    // Set initial state using reference_wrapper
-    currentState_ = *initialState;
+    // Store initial state (StateMachine always has a valid state)
+    currentState_ = std::move(initialState);
 
     // Initialize timing
     auto now        = std::chrono::steady_clock::now();
     lastUpdateTime_ = now;
     startTime_      = now;
-    lastStateId_    = currentState_.get().getStateId();
+    lastStateId_    = currentState_->getStateId();
 
     // Update context with initial state entry time
     context_.updateStateEntryTime(now);
 
     // Call state entry callback
     LOG(INFO, "StateMachine entering initial state");
-    currentState_.get().onEntry(context_);
+    currentState_->onEntry(context_);
 
     initialized_           = true;
     totalStateTransitions_ = 1; // Count initial state as first transition
@@ -71,8 +66,6 @@ bool StateMachine::initialize(MachineState* initialState) {
          "StateMachine initialized in state %d (%s)",
          static_cast<int>(getCurrentStateId()),
          getCurrentStateName());
-
-    return true;
 }
 
 void StateMachine::update() {
@@ -85,11 +78,11 @@ void StateMachine::update() {
     auto currentTime = std::chrono::steady_clock::now();
 
     // Update current state
-    currentState_.get().update(context_);
+    currentState_->update(context_);
 
-    // Check for state transitions
-    if (auto newState = currentState_.get().checkTransitions(context_)) {
-        executeTransition(*newState, "State transition");
+    // Check for state transitions - states return optional<MachineStateId>
+    if (auto newStateId = currentState_->checkTransitions(context_)) {
+        executeTransition(newStateId.value(), "State transition");
     }
 
     lastUpdateTime_ = currentTime;
@@ -105,23 +98,30 @@ void StateMachine::update() {
     }
 }
 
-void StateMachine::transitionTo(MachineState& newState, const char* reason) {
+void StateMachine::transitionTo(MachineStateId newStateId, const char* reason) {
     LOGF(INFO, "Forced state transition: %s", reason ? reason : "External trigger");
-    executeTransition(newState, reason);
+    executeTransition(newStateId, reason);
 }
 
-void StateMachine::executeTransition(MachineState& newState, const char* reason) {
+void StateMachine::executeTransition(MachineStateId newStateId, const char* reason) {
     // Prevent self-transition
-    if (&currentState_.get() == &newState) {
+    if (currentState_->getStateId() == newStateId) {
         LOG(DEBUG, "Skipping self-transition");
         return;
     }
 
     // Log transition
-    const MachineStateId oldStateId   = currentState_.get().getStateId();
-    const char*          oldStateName = currentState_.get().getStateName();
-    const MachineStateId newStateId   = newState.getStateId();
-    const char*          newStateName = newState.getStateName();
+    const MachineStateId oldStateId   = currentState_->getStateId();
+    const char*          oldStateName = currentState_->getStateName();
+
+    // Create new state instance
+    auto newState = createStateInstance(newStateId);
+    if (!newState) {
+        LOG(ERROR, "Failed to create new state instance");
+        return;
+    }
+
+    const char* newStateName = newState->getStateName();
 
     LOGF(INFO,
          "State transition: %d (%s) -> %d (%s) [%s]",
@@ -134,10 +134,10 @@ void StateMachine::executeTransition(MachineState& newState, const char* reason)
     context_.logStateTransition(oldStateId, newStateId, reason);
 
     // Call exit callback on current state
-    currentState_.get().onExit(context_);
+    currentState_->onExit(context_);
 
-    // Transition to new state (singleton - no ownership transfer)
-    currentState_ = newState;
+    // Transition to new state (unique_ptr handles old instance deletion)
+    currentState_ = std::move(newState);
     auto now      = std::chrono::steady_clock::now();
     totalStateTransitions_++;
 
@@ -145,15 +145,15 @@ void StateMachine::executeTransition(MachineState& newState, const char* reason)
     context_.updateStateEntryTime(now);
 
     // Call entry callback on new state
-    currentState_.get().onEntry(context_);
+    currentState_->onEntry(context_);
 }
 
 MachineStateId StateMachine::getCurrentStateId() const noexcept {
-    return currentState_.get().getStateId();
+    return currentState_->getStateId();
 }
 
 const char* StateMachine::getCurrentStateName() const noexcept {
-    return currentState_.get().getStateName();
+    return currentState_->getStateName();
 }
 
 bool StateMachine::isInitialized() const noexcept {

@@ -69,6 +69,13 @@ bool MQTTManager::setup(const String& hostname) {
     hassioEnabled_         = Config::getInstance().mqttHassioEnabled.get();
     hassioDiscoveryPrefix_ = Config::getInstance().mqttHassioPrefix.get();
 
+    // Validate broker configuration
+    if (serverIP_.length() == 0) {
+        LOG(WARNING, "MQTT broker hostname is empty - MQTT will not connect until configured");
+        mqttEnabled_ = false; // Disable MQTT if broker is not configured
+        return false;
+    }
+
     // Setup topics
     snprintf(topicWill_, sizeof(topicWill_), "%s%s/%s", topicPrefix_.c_str(), hostname_.c_str(), "status");
     snprintf(topicSet_, sizeof(topicSet_), "%s%s/+/%s", topicPrefix_.c_str(), hostname_.c_str(), "set");
@@ -88,6 +95,11 @@ void MQTTManager::initializeClient() {
 
 void MQTTManager::checkConnection() {
     if (!systemContext_) {
+        return;
+    }
+    
+    // Early return if MQTT is disabled
+    if (!mqttEnabled_) {
         return;
     }
     
@@ -135,6 +147,17 @@ void MQTTManager::checkConnection() {
          retryPolicy_->getCurrentAttempt(), 
          retryPolicy_->isMaxAttemptsReached() ? retryPolicy_->getCurrentAttempt() : 0,
          retryPolicy_->getNextDelay());
+
+    // Validate broker configuration before attempting connection
+    if (serverIP_.length() == 0) {
+        LOGF(DEBUG, "MQTT broker not configured (empty hostname), skipping connection");
+        return;
+    }
+    
+    if (hostname_.length() == 0) {
+        LOGF(DEBUG, "Device hostname not configured, skipping MQTT connection");
+        return;
+    }
 
     if (mqttClient_.connect(
             hostname_.c_str(), username_.c_str(), password_.c_str(), topicWill_, 0, true, "offline")) {

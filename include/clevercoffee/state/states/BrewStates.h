@@ -6,6 +6,7 @@
 #pragma once
 
 #include "clevercoffee/state/BaseState.h"
+#include <optional>
 
 // Brew States
 class BrewPreinfusionState : public BaseState<MachineStateId::BREW_PREINFUSION, BrewPreinfusionState> {
@@ -13,7 +14,7 @@ class BrewPreinfusionState : public BaseState<MachineStateId::BREW_PREINFUSION, 
     void          update(MachineStateContext& context) override;
     void          onEntryImpl(MachineStateContext& context) override;
     void          onExitImpl(MachineStateContext& context) override;
-    MachineState* checkSpecificTransitions(MachineStateContext& context) override;
+    std::optional<MachineStateId> checkSpecificTransitions(MachineStateContext& context) override;
 };
 
 class BrewPreinfusionPauseState : public BaseState<MachineStateId::BREW_PREINFUSION_PAUSE, BrewPreinfusionPauseState> {
@@ -21,7 +22,7 @@ class BrewPreinfusionPauseState : public BaseState<MachineStateId::BREW_PREINFUS
     void          update(MachineStateContext& context) override;
     void          onEntryImpl(MachineStateContext& context) override;
     void          onExitImpl(MachineStateContext& context) override;
-    MachineState* checkSpecificTransitions(MachineStateContext& context) override;
+    std::optional<MachineStateId> checkSpecificTransitions(MachineStateContext& context) override;
 };
 
 class BrewRunningState : public BaseState<MachineStateId::BREW_RUNNING, BrewRunningState> {
@@ -29,7 +30,7 @@ class BrewRunningState : public BaseState<MachineStateId::BREW_RUNNING, BrewRunn
     void          update(MachineStateContext& context) override;
     void          onEntryImpl(MachineStateContext& context) override;
     void          onExitImpl(MachineStateContext& context) override;
-    MachineState* checkSpecificTransitions(MachineStateContext& context) override;
+    std::optional<MachineStateId> checkSpecificTransitions(MachineStateContext& context) override;
 };
 
 class BrewFinishedState : public BaseState<MachineStateId::BREW_FINISHED, BrewFinishedState> {
@@ -37,5 +38,5 @@ class BrewFinishedState : public BaseState<MachineStateId::BREW_FINISHED, BrewFi
     void          update(MachineStateContext& context) override;
     void          onEntryImpl(MachineStateContext& context) override;
     void          onExitImpl(MachineStateContext& context) override;
-    MachineState* checkSpecificTransitions(MachineStateContext& context) override;
+    std::optional<MachineStateId> checkSpecificTransitions(MachineStateContext& context) override;
 };

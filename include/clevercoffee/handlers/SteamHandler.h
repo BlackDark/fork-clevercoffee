@@ -8,6 +8,7 @@
 #include "clevercoffee/handlers/BaseHandler.h"
 #include "clevercoffee/context/SystemContext.h"
 #include "clevercoffee/state/MachineStateContext.h"
+#include "clevercoffee/state/MachineStateIds.h"
 
 #include <Logger.h>
 
@@ -18,7 +19,7 @@
  */
 class SteamHandler : public SwitchBasedHandler {
   public:
-    explicit SteamHandler(CleverCoffee::SystemContext* ctx = nullptr) : SwitchBasedHandler("SteamHandler", nullptr, ctx), lastSwitchReading_(LOW), switchStateChanged_(false) {}
+    explicit SteamHandler(CleverCoffee::SystemContext& ctx) : SwitchBasedHandler("SteamHandler", nullptr, ctx), lastSwitchReading_(LOW), switchStateChanged_(false) {}
     
     /**
      * @brief Initialize with hardware switch (call after HardwareManager is ready)
@@ -111,6 +112,39 @@ class SteamHandler : public SwitchBasedHandler {
                 } else {
                     logInfo("Steam momentary switch released");
                 }
+            }
+            
+            // Set flags for state machine transitions (flag-based approach fixes timing issues)
+            auto* context = systemContext_.machineStateContext();
+            if (!context) return;
+            const auto currentState = context->getCurrentStateId();
+            
+            // Determine if we should set start or stop flag based on switch state and current state
+            if (reading == HIGH) {
+                // Switch pressed/activated
+                if (switchType == Hardware::SwitchType::MOMENTARY) {
+                    // Momentary: press = start steam (if not already steaming)
+                    if (currentState != MachineStateId::STEAM_RUNNING) {
+                        context->setSteamStartRequested(true);
+                    } else {
+                        // Already steaming - second press means stop
+                        context->setSteamStopRequested(true);
+                    }
+                } else {
+                    // Toggle: activated = start steam (if not already steaming)
+                    if (currentState != MachineStateId::STEAM_RUNNING) {
+                        context->setSteamStartRequested(true);
+                    }
+                }
+            } else {
+                // Switch released/deactivated
+                if (switchType == Hardware::SwitchType::TOGGLE) {
+                    // Toggle: deactivated = stop steam (if steaming)
+                    if (currentState == MachineStateId::STEAM_RUNNING) {
+                        context->setSteamStopRequested(true);
+                    }
+                }
+                // Momentary: release doesn't trigger stop (handled by second press)
             }
         }
         lastSwitchReading_ = reading;

@@ -17,11 +17,9 @@ inline void setRuntimePidState(CleverCoffee::SystemContext& systemContext, const
     std::lock_guard<std::mutex> lock(pid_mutex);
 
     systemContext.setProcessPidEnabled(enabled);
-    // NOTE: Also updates Config to keep them in sync. This may need refactoring:
-    // - Option 1: Config is source of truth, SystemContext reads from it
-    // - Option 2: SystemContext is source of truth, Config is read-only runtime state
-    // Current approach maintains backward compatibility but creates dual state
-    Config::getInstance().pidEnabled.set(enabled);
+    // NOTE: Do NOT modify Config - Config is the source of truth for PID enabled state
+    // This function only sets the runtime PID state in SystemContext, not the config
+    // The config value should be preserved and used when transitioning states
 }
 
 inline void setSteamMode(CleverCoffee::SystemContext& systemContext, const bool steamMode) {

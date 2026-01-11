@@ -323,6 +323,7 @@ std::vector<ConfigParamDef*> Config::getAllConfigParams() {
         &pidBdTv,
 
         // === BREWING CONTROL PARAMETERS (Section 3) ===
+        &brewMode,
         &brewByTimeEnabled,
         &brewByTimeTargetTime,
         &brewByWeightEnabled,

@@ -6,6 +6,7 @@
 #pragma once
 
 #include "clevercoffee/state/BaseState.h"
+#include <optional>
 
 // PID Normal State
 class PidNormalState : public BaseState<MachineStateId::PID_NORMAL, PidNormalState> {
@@ -13,7 +14,7 @@ class PidNormalState : public BaseState<MachineStateId::PID_NORMAL, PidNormalSta
     void          update(MachineStateContext& context) override;
     void          onEntryImpl(MachineStateContext& context) override;
     void          onExitImpl(MachineStateContext& context) override;
-    MachineState* checkSpecificTransitions(MachineStateContext& context) override;
+    std::optional<MachineStateId> checkSpecificTransitions(MachineStateContext& context) override;
 
   private:
     bool shouldEnterStandby(MachineStateContext& context) const;
@@ -25,5 +26,5 @@ class PidDisabledState : public BaseState<MachineStateId::PID_DISABLED, PidDisab
   public:
     void          update(MachineStateContext& context) override;
     void          onEntryImpl(MachineStateContext& context) override;
-    MachineState* checkSpecificTransitions(MachineStateContext& context) override;
+    std::optional<MachineStateId> checkSpecificTransitions(MachineStateContext& context) override;
 };

@@ -210,6 +210,47 @@ void MachineStateContext::resetStandbyTimer(MachineStateId stateId) const {
     systemContext_.standbyCoordinator().reset();
 }
 
+void MachineStateContext::initializeStandbyTimerIfNeeded() const {
+    // Initialize standby timer if needed (when standby is first enabled)
+    systemContext_.standbyCoordinator().initializeIfNeeded();
+}
+
+void MachineStateContext::resetStandbyTimerOnUserActivity() const {
+    // StandbyCoordinator::reset() already checks if standby is enabled
+    systemContext_.standbyCoordinator().reset();
+}
+
+void MachineStateContext::setBrewStartRequested(bool requested) noexcept {
+    requestBrewStart_ = requested;
+    if (requested) {
+        // User activity detected - reset standby timer
+        resetStandbyTimerOnUserActivity();
+    }
+}
+
+void MachineStateContext::setSteamStartRequested(bool requested) noexcept {
+    requestSteamStart_ = requested;
+    if (requested) {
+        // User activity detected - reset standby timer
+        resetStandbyTimerOnUserActivity();
+    }
+}
+
+void MachineStateContext::setNormalOperationRequested(bool requested) noexcept {
+    requestNormalOperation_ = requested;
+    if (requested) {
+        // User activity detected - reset standby timer
+        resetStandbyTimerOnUserActivity();
+    }
+}
+
+void MachineStateContext::setHotWaterActivity(bool active) noexcept {
+    if (active) {
+        // User activity detected - reset standby timer
+        resetStandbyTimerOnUserActivity();
+    }
+}
+
 // === Control Functions ===
 
 void MachineStateContext::setSteamMode(bool enabled) const {
@@ -441,10 +482,10 @@ MachineStateId MachineStateContext::getCurrentStateId() const noexcept {
     return currentStateId_;
 }
 
-void MachineStateContext::transitionTo(MachineState& newState) {
+void MachineStateContext::transitionTo(MachineStateId newStateId) {
     // This would typically be called by StateMachine
     // For now, just log the transition request
-    LOGF(INFO, "State transition requested to: %s", newState.getStateName());
+    LOGF(INFO, "State transition requested to: %d", static_cast<int>(newStateId));
 }
 
 unsigned long MachineStateContext::getStateStartTime() const noexcept {

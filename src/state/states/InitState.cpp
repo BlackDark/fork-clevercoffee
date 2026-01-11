@@ -7,7 +7,6 @@
 
 #include "clevercoffee/Logger.h"
 #include "clevercoffee/state/MachineStateContext.h"
-#include "clevercoffee/state/StateFactory.h"
 
 // InitState Implementation
 void InitState::onEntryImpl(MachineStateContext& context) {
@@ -22,13 +21,13 @@ void InitState::update(MachineStateContext& context) {
          checkPidConfig(context) ? "ENABLED" : "DISABLED");
 }
 
-MachineState* InitState::checkSpecificTransitions(MachineStateContext& context) {
+std::optional<MachineStateId> InitState::checkSpecificTransitions(MachineStateContext& context) {
     if (!checkPidConfig(context)) {
         context.logStateTransition(getStateId(), MachineStateId::PID_DISABLED, "PID disabled");
-        return getStateInstance(MachineStateId::PID_DISABLED);
+        return MachineStateId::PID_DISABLED;
     } else {
         context.logStateTransition(getStateId(), MachineStateId::PID_NORMAL, "PID enabled - entering normal operation");
-        return getStateInstance(MachineStateId::PID_NORMAL);
+        return MachineStateId::PID_NORMAL;
     }
 }
 

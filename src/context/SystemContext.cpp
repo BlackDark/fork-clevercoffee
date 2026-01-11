@@ -584,43 +584,32 @@ const char* WIFI_PASSWORD = WM_PASS;
 
 // ===== HANDLER INSTANCES =====
 
-// Handler instances (static storage duration, initialized at program startup)
-static BrewHandler     brewHandler;
-static HotWaterHandler hotWaterHandler;
-static PowerHandler    powerHandler;
-static SteamHandler    steamHandler;
+// Handler instances (static storage duration, created during initialization)
+// These are created in initializeHandlers() with SystemContext reference
+static BrewHandler*     brewHandler     = nullptr;
+static HotWaterHandler* hotWaterHandler = nullptr;
+static PowerHandler*    powerHandler    = nullptr;
+static SteamHandler*    steamHandler    = nullptr;
 
 // ===== HANDLER INITIALIZATION FUNCTION =====
 
-void initializeHandlers(CleverCoffee::SystemContext* systemContext) {
-    // Validate that systemContext is provided and valid
-    if (!systemContext) {
-        LOG(ERROR, "initializeHandlers: systemContext is nullptr");
-        return;
-    }
+void initializeHandlers(CleverCoffee::SystemContext& systemContext) {
+    // Create handlers with SystemContext reference (required)
+    brewHandler     = new BrewHandler(systemContext);
+    hotWaterHandler = new HotWaterHandler(systemContext);
+    powerHandler    = new PowerHandler(systemContext);
+    steamHandler    = new SteamHandler(systemContext);
     
-    // Initialize handler hardware using the passed systemContext parameter
-    // Use a reference to avoid repeated dereferences
-    auto& hwContext = systemContext->hardwareContext();
+    // Initialize handler hardware
+    auto& hwContext = systemContext.hardwareContext();
+    brewHandler->setHardware(hwContext.brewSwitch(), hwContext.valveRelay());
+    hotWaterHandler->setHardware(hwContext.hotWaterSwitch());
+    powerHandler->setHardware(hwContext.powerSwitch());
+    steamHandler->setHardware(hwContext.steamSwitch());
     
-    // Set hardware on all handlers
-    brewHandler.setHardware(hwContext.brewSwitch(), hwContext.valveRelay());
-    hotWaterHandler.setHardware(hwContext.hotWaterSwitch());
-    powerHandler.setHardware(hwContext.powerSwitch());
-    steamHandler.setHardware(hwContext.steamSwitch());
-    
-    // Register in SystemContext if provided
-    if (systemContext) {
-        // Set SystemContext on handlers for state machine access
-        brewHandler.setSystemContext(systemContext);
-        hotWaterHandler.setSystemContext(systemContext);
-        powerHandler.setSystemContext(systemContext);
-        steamHandler.setSystemContext(systemContext);
-        
-        // Register handlers with SystemContext
-        systemContext->setBrewHandler(&brewHandler);
-        systemContext->setHotWaterHandler(&hotWaterHandler);
-        systemContext->setPowerHandler(&powerHandler);
-        systemContext->setSteamHandler(&steamHandler);
-    }
+    // Register handlers with SystemContext
+    systemContext.setBrewHandler(brewHandler);
+    systemContext.setHotWaterHandler(hotWaterHandler);
+    systemContext.setPowerHandler(powerHandler);
+    systemContext.setSteamHandler(steamHandler);
 }

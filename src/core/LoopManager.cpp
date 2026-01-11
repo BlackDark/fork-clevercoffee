@@ -184,11 +184,13 @@ void LoopManager::update() {
     if (performanceMonitoringEnabled_) {
         stepStart = millis();
     }
-    updateDisplay();
-    // Handle display timer callback (managed by LoopManager)
-    if (printDisplayTimer_ && !uiManager_.isBufferReady()) {
+    // Handle display timer callback (managed by LoopManager) - call timer first to generate content
+    // Timer should fire periodically regardless of buffer state to generate new display content
+    if (printDisplayTimer_) {
         (*printDisplayTimer_)();
     }
+    // Then update display (send buffer if ready)
+    updateDisplay();
     if (performanceMonitoringEnabled_) {
         displayTime = millis() - stepStart;
     }
@@ -303,21 +305,40 @@ void LoopManager::updateDisplay() {
     uiManager_.setUpdateRunning(false);
 
     if (Config::getInstance().hardwareOledEnabled.get()) {
-        // Only update display on loops that have not had other major tasks running
-        // Note: Sensor updates are now automatic and non-blocking, so no need to check tempCondition
-        bool websiteCondition = !systemContext_.uiCoordinator().isWebsiteUpdateRunning();
-        bool mqttCondition = (!systemContext_.mqttManager() || !systemContext_.mqttManager()->isUpdateRunning());
-        bool hassioCondition = !systemContext_.uiCoordinator().isHassioUpdateRunning();
-        bool standbyCondition = (!Config::getInstance().standbyEnabled.get() || 
-                                systemContext_.standbyCoordinator().getRemainingTimeMillis() > 0);
+        // Sync UIManager buffer ready flag with UICoordinator flag
+        // The display template sets the coordinator flag, we need to sync it to UIManager
+        if (systemContext_.uiCoordinator().isDisplayBufferReady() && !uiManager_.isBufferReady()) {
+            uiManager_.setBufferReady(true);
+        }
 
-        // Update display on loops that have not had other major tasks running
-        if (websiteCondition && mqttCondition && hassioCondition && standbyCondition) {
-            if (uiManager_.isBufferReady()) {
-                uiManager_.forceUpdate();
-                uiManager_.setBufferReady(false);
-                uiManager_.setUpdateRunning(true);
-            }
+        // Check if we're in a brew state - display updates are critical during brewing
+        const auto currentState = systemContext_.machineStateContext()->getCurrentStateId();
+        const bool isBrewActive = isBrewState(currentState) && currentState != MachineStateId::BREW_FINISHED;
+        
+        // During brew, update display more aggressively (only check standby, ignore network conditions)
+        // Outside brew, use normal conditions to avoid conflicts with network operations
+        bool canUpdate = false;
+        if (isBrewActive) {
+            // During brew: only check standby condition, always update if buffer ready
+            bool standbyCondition = (!Config::getInstance().standbyEnabled.get() || 
+                                    systemContext_.standbyCoordinator().getRemainingTimeMillis() > 0);
+            canUpdate = standbyCondition;
+        } else {
+            // Normal operation: check all conditions
+            bool websiteCondition = !systemContext_.uiCoordinator().isWebsiteUpdateRunning();
+            bool mqttCondition = (!systemContext_.mqttManager() || !systemContext_.mqttManager()->isUpdateRunning());
+            bool hassioCondition = !systemContext_.uiCoordinator().isHassioUpdateRunning();
+            bool standbyCondition = (!Config::getInstance().standbyEnabled.get() || 
+                                    systemContext_.standbyCoordinator().getRemainingTimeMillis() > 0);
+            canUpdate = websiteCondition && mqttCondition && hassioCondition && standbyCondition;
+        }
+
+        // Update display if conditions are met and buffer is ready
+        if (canUpdate && uiManager_.isBufferReady()) {
+            uiManager_.forceUpdate();
+            uiManager_.setBufferReady(false);
+            systemContext_.setDisplayBufferReady(false); // Clear coordinator flag too
+            uiManager_.setUpdateRunning(true);
         }
     }
 }

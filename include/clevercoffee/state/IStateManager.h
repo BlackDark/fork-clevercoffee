@@ -83,15 +83,15 @@ public:
     /**
      * @brief Transition to a new state
      *
-     * Requests a state transition to the specified state. The state machine
+     * Requests a state transition to the specified state ID. The state machine
      * will handle the transition, including exit/enter actions.
      *
-     * @param newState Reference to the state to transition to
+     * @param newStateId State ID to transition to
      *
      * @note This is a non-blocking request. The actual transition happens
      *       in the state machine's update cycle.
      */
-    virtual void transitionTo(MachineState& newState) = 0;
+    virtual void transitionTo(MachineStateId newStateId) = 0;
 
     /**
      * @brief Check if state timeout has elapsed

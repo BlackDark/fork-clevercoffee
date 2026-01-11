@@ -6,6 +6,7 @@
 #pragma once
 
 #include "clevercoffee/state/BaseState.h"
+#include <optional>
 
 // Emergency Stop State
 class EmergencyStopState : public BaseState<MachineStateId::EMERGENCY_STOP, EmergencyStopState> {
@@ -13,10 +14,9 @@ class EmergencyStopState : public BaseState<MachineStateId::EMERGENCY_STOP, Emer
     void          update(MachineStateContext& context) override;
     void          onEntryImpl(MachineStateContext& context) override;
     void          onExitImpl(MachineStateContext& context) override;
-    MachineState* checkSpecificTransitions(MachineStateContext& context) override;
+    std::optional<MachineStateId> checkSpecificTransitions(MachineStateContext& context) override;
 
   private:
-    void          performEmergencyShutdown(MachineStateContext& context);
-    bool          isEmergencyCleared(MachineStateContext& context) const;
-    MachineState* getRecoveryState(MachineStateContext& context) const;
+    void performEmergencyShutdown(MachineStateContext& context);
+    bool isEmergencyCleared(MachineStateContext& context) const;
 };

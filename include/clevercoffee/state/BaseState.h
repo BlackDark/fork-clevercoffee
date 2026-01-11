@@ -9,9 +9,12 @@
 #include "clevercoffee/state/MachineStateContext.h"
 #include "clevercoffee/state/MachineStateIds.h"
 #include "clevercoffee/state/StateFactory.h"
-#include "clevercoffee/state/StateInfo.h"
 
 #include <memory>
+#include <optional>
+
+// Forward declarations
+const char* getStateName(MachineStateId id);
 
 // Forward declarations for common state types
 class EmergencyStopState;
@@ -53,7 +56,7 @@ class BaseState : public MachineState {
     /**
      * @brief Check for state transitions - handles common safety checks then delegates to derived class
      */
-    MachineState* checkTransitions(MachineStateContext& context) override;
+    std::optional<MachineStateId> checkTransitions(MachineStateContext& context) override;
 
     /**
      * @brief Get the state ID
@@ -66,10 +69,7 @@ class BaseState : public MachineState {
      * @brief Get human-readable state name
      */
     const char* getStateName() const override {
-        if (const auto* info = getStateInfo(StateId)) {
-            return info->name;
-        }
-        return "Unknown";
+        return ::getStateName(StateId);
     }
 
     /**
@@ -90,36 +90,36 @@ class BaseState : public MachineState {
 
     /**
      * @brief Must be implemented by derived class for state-specific transitions
-     * @return New state to transition to, or nullptr if no transition
+     * @return Optional state ID to transition to, or nullopt if no transition
      */
-    virtual MachineState* checkSpecificTransitions(MachineStateContext& context) = 0;
+    virtual std::optional<MachineStateId> checkSpecificTransitions(MachineStateContext& context) = 0;
 
 protected:
     /**
      * @brief Helper: Check if brew stop was requested and transition to PID state
      * @param context Machine state context
-     * @return New state if brew stop requested, nullptr otherwise
+     * @return Optional state ID to transition to, or nullopt if no transition
      */
-    MachineState* checkBrewStopRequest(MachineStateContext& context) {
+    std::optional<MachineStateId> checkBrewStopRequest(MachineStateContext& context) {
         if (context.isBrewStopRequested()) {
             context.setBrewStopRequested(false);
             const MachineStateId pidState = context.getPidState();
             context.logStateTransition(getStateId(), pidState, "Brew stop requested");
-            return getStateInstance(pidState);
+            return pidState;
         }
-        return nullptr;
+        return std::nullopt;
     }
 
     /**
      * @brief Helper: Transition to PID state (normal or disabled based on PID enabled state)
      * @param context Machine state context
      * @param reason Reason for transition (for logging)
-     * @return New PID state instance
+     * @return State ID to transition to
      */
-    MachineState* transitionToPidState(MachineStateContext& context, const char* reason) {
+    MachineStateId transitionToPidState(MachineStateContext& context, const char* reason) {
         const MachineStateId pidState = context.getPidState();
         context.logStateTransition(getStateId(), pidState, reason);
-        return getStateInstance(pidState);
+        return pidState;
     }
 
     /**
@@ -134,22 +134,22 @@ protected:
 
 // Template implementation
 template <MachineStateId StateId, typename DerivedState>
-MachineState* BaseState<StateId, DerivedState>::checkTransitions(MachineStateContext& context) {
+std::optional<MachineStateId> BaseState<StateId, DerivedState>::checkTransitions(MachineStateContext& context) {
     // Emergency stop check - highest priority
     if (context.isEmergencyStop()) {
         context.logStateTransition(getStateId(), MachineStateId::EMERGENCY_STOP, "Emergency stop triggered");
-        return getStateInstance(MachineStateId::EMERGENCY_STOP);
+        return MachineStateId::EMERGENCY_STOP;
     }
 
     // Critical error checks
     if (context.hasSensorError()) {
         context.logStateTransition(getStateId(), MachineStateId::SENSOR_ERROR, "Sensor error detected");
-        return getStateInstance(MachineStateId::SENSOR_ERROR);
+        return MachineStateId::SENSOR_ERROR;
     }
 
     if (!context.isWaterTankFull()) {
         context.logStateTransition(getStateId(), MachineStateId::WATER_TANK_EMPTY, "Water tank empty");
-        return getStateInstance(MachineStateId::WATER_TANK_EMPTY);
+        return MachineStateId::WATER_TANK_EMPTY;
     }
 
     // Delegate to derived class for state-specific transitions

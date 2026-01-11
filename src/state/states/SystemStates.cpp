@@ -8,19 +8,23 @@
 #include "clevercoffee/types/GlobalTypes.h"
 #include "clevercoffee/Logger.h"
 #include "clevercoffee/state/MachineStateContext.h"
-#include "clevercoffee/state/StateFactory.h"
+#include "clevercoffee/context/SystemContext.h"
 
 // SystemStates Implementation
 void StandbyState::onEntryImpl(MachineStateContext& context) {
     LOG(INFO, "Entering standby mode - reducing power consumption");
     context.enterStandbyMode();
+    // Disable runtime PID (does not modify config - config remains source of truth)
     context.setPidRuntimeState(false);
 }
 
 void StandbyState::onExitImpl(MachineStateContext& context) {
     LOG(INFO, "Exiting standby mode - resuming normal operation");
     context.exitStandbyMode();
-    context.setPidRuntimeState(true);
+    // Restore runtime PID state based on config (config is source of truth)
+    // getPidState() will check config and return correct state (PID_NORMAL or PID_DISABLED)
+    const bool configPidEnabled = context.isPidEnabled();
+    context.setPidRuntimeState(configPidEnabled);
 }
 
 void StandbyState::update(MachineStateContext& context) {
@@ -30,17 +34,19 @@ void StandbyState::update(MachineStateContext& context) {
          context.hasSensorError() ? "ERROR" : "OK");
 }
 
-MachineState* StandbyState::checkSpecificTransitions(MachineStateContext& context) {
+std::optional<MachineStateId> StandbyState::checkSpecificTransitions(MachineStateContext& context) {
     if (context.isNormalOperationRequested()) {
         context.setNormalOperationRequested(false);
         context.resetMqttReconnectCount();
         return transitionToPidState(context, "Normal operation requested");
     }
-    if (context.hasUserActivity() || context.shouldExitStandby()) {
+    // Exit standby on any user activity: brew start, steam start, or hot water activity
+    if (context.isBrewStartRequested() || context.isSteamStartRequested() || 
+        context.hasUserActivity() || context.shouldExitStandby()) {
         context.resetMqttReconnectCount();
         return transitionToPidState(context, "User activity detected - exiting standby");
     }
-    return nullptr;
+    return std::nullopt;
 }
 
 void ManualFlushRunningState::onEntryImpl(MachineStateContext& context) {
@@ -60,7 +66,7 @@ void ManualFlushRunningState::update(MachineStateContext& context) {
          context.getFilteredPressure());
 }
 
-MachineState* ManualFlushRunningState::checkSpecificTransitions(MachineStateContext& context) {
+std::optional<MachineStateId> ManualFlushRunningState::checkSpecificTransitions(MachineStateContext& context) {
     if (context.isManualFlushStopRequested()) {
         context.setManualFlushStopRequested(false);
         return transitionToPidState(context, "Manual flush stop requested");
@@ -68,5 +74,5 @@ MachineState* ManualFlushRunningState::checkSpecificTransitions(MachineStateCont
     if (!context.isManualFlushActive()) {
         return transitionToPidState(context, "Manual flush deactivated");
     }
-    return nullptr;
+    return std::nullopt;
 }

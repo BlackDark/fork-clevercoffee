@@ -7,10 +7,12 @@
 
 #include "clevercoffee/state/MachineState.h"
 #include "clevercoffee/state/MachineStateContext.h"
+#include "clevercoffee/state/MachineStateIds.h"
 
 #include <chrono>
 #include <functional>
 #include <memory>
+#include <optional>
 
 // Forward declarations
 class DisplayManager;
@@ -60,10 +62,10 @@ class StateMachine {
 
     /**
      * @brief Initialize state machine with initial state
-     * @param initialState Initial state to start with (defaults to InitState)
-     * @return true if initialization successful
+     * @param initialStateId Initial state ID to start with (defaults to INIT)
+     * @note Always succeeds - uses INIT as fallback if creation fails
      */
-    bool initialize(MachineState* initialState = nullptr);
+    void initialize(MachineStateId initialStateId = MachineStateId::INIT);
 
     /**
      * @brief Update state machine - call this from main loop
@@ -76,29 +78,29 @@ class StateMachine {
 
     /**
      * @brief Force transition to a new state
-     * @param newState New state to transition to
+     * @param newStateId State ID to transition to
      * @param reason Optional reason for the transition (for logging)
      *
      * This method allows external code to force a state transition,
      * useful for emergency conditions or external triggers.
      */
-    void transitionTo(MachineState& newState, const char* reason = nullptr);
+    void transitionTo(MachineStateId newStateId, const char* reason = nullptr);
 
     /**
      * @brief Get current state ID
-     * @return Current state identifier, or INIT if no state
+     * @return Current state identifier (always valid - StateMachine always has a state)
      */
     MachineStateId getCurrentStateId() const noexcept;
 
     /**
      * @brief Get current state name
-     * @return Current state name, or "None" if no state
+     * @return Current state name (always valid - StateMachine always has a state)
      */
     const char* getCurrentStateName() const noexcept;
 
     /**
      * @brief Check if state machine is initialized
-     * @return true if state machine has a current state
+     * @return true if state machine is initialized
      */
     bool isInitialized() const noexcept;
 
@@ -126,19 +128,19 @@ class StateMachine {
      * @return Reference to current state
      *
      * This is primarily for debugging and testing purposes.
-     * @note Throws if state machine is not initialized.
+     * @note Always valid - StateMachine always has a state
      */
     const MachineState& getCurrentState() const noexcept {
-        return currentState_.get();
+        return *currentState_;
     }
 
   private:
     /**
      * @brief Execute state transition with proper callbacks
-     * @param newState New state to transition to
+     * @param newStateId State ID to transition to
      * @param reason Optional reason for logging
      */
-    void executeTransition(MachineState& newState, const char* reason = nullptr);
+    void executeTransition(MachineStateId newStateId, const char* reason = nullptr);
 
     /**
      * @brief Log state machine status for debugging
@@ -146,8 +148,8 @@ class StateMachine {
     void logStateMachineStatus() const;
 
     // State machine components
-    std::reference_wrapper<MachineState> currentState_; ///< Current active state (singleton - not owned)
-    MachineStateContext                   context_;     ///< Context for state access to resources
+    std::unique_ptr<MachineState> currentState_;  ///< Current active state (always valid)
+    MachineStateContext context_;  ///< Context for state access to resources
 
     // State machine status
     bool                                  initialized_;    ///< True if state machine is initialized

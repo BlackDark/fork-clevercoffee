@@ -298,6 +298,12 @@ class MachineStateContext : public CleverCoffee::IHardwareContext,
      * @brief Reset standby timer for given state
      */
     void resetStandbyTimer(MachineStateId stateId) const;
+    
+    /**
+     * @brief Initialize standby timer if not already initialized
+     * Should be called when standby is enabled to start the countdown
+     */
+    void initializeStandbyTimerIfNeeded() const;
 
     // === Control Functions ===
 
@@ -454,7 +460,7 @@ class MachineStateContext : public CleverCoffee::IHardwareContext,
       /**
        * @brief Set brew start request
        */
-      void setBrewStartRequested(bool requested) noexcept { requestBrewStart_ = requested; }
+      void setBrewStartRequested(bool requested) noexcept;
 
       /**
        * @brief Check if brew stop is requested
@@ -475,7 +481,7 @@ class MachineStateContext : public CleverCoffee::IHardwareContext,
       /**
        * @brief Set steam start request
        */
-      void setSteamStartRequested(bool requested) noexcept { requestSteamStart_ = requested; }
+      void setSteamStartRequested(bool requested) noexcept;
 
       /**
        * @brief Check if steam stop is requested
@@ -545,7 +551,13 @@ class MachineStateContext : public CleverCoffee::IHardwareContext,
       /**
        * @brief Set normal operation request
        */
-      void setNormalOperationRequested(bool requested) noexcept { requestNormalOperation_ = requested; }
+      void setNormalOperationRequested(bool requested) noexcept;
+
+      /**
+       * @brief Set hot water activity (user interaction detected)
+       * Resets standby timer when active
+       */
+      void setHotWaterActivity(bool active) noexcept;
 
      // === Display Functions ===
 
@@ -663,10 +675,15 @@ class MachineStateContext : public CleverCoffee::IHardwareContext,
 
     MachineStateId getCurrentStateId() const noexcept override;
     void setCurrentStateId(MachineStateId stateId) noexcept { currentStateId_ = stateId; }
-    void transitionTo(MachineState& newState) override;
+    void transitionTo(MachineStateId newStateId) override;
     unsigned long getStateStartTime() const noexcept override;
 
    private:
+    /**
+     * @brief Reset standby timer on user activity
+     * Called automatically when user activity flags are set
+     */
+    void resetStandbyTimerOnUserActivity() const;
      // System context
      CleverCoffee::SystemContext& systemContext_;
 
