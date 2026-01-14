@@ -14,7 +14,8 @@ installed_pkgs = {dist.metadata["Name"] for dist in importlib.metadata.distribut
 missing_pkgs = required_pkgs - installed_pkgs
 
 if missing_pkgs:
-    env.Execute('$PYTHONEXE -m pip install dulwich --global-option="--pure"')
+    # Use --pure flag directly without --global-option (pip 23.1+ compatibility)
+    env.Execute('$PYTHONEXE -m pip install "dulwich[pure]"')
 
 from dulwich.repo import Repo
 from dulwich.porcelain import active_branch
