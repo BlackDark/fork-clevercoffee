@@ -9,7 +9,7 @@
 
 #include <ArduinoJson.h>
 #include <PubSubClient.h>
-#include <String>
+#include <WString.h>
 #include <WiFiClient.h>
 #include <cstring>
 #include <functional>

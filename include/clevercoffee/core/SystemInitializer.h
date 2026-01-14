@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include "clevercoffee/Logger.h"
+
 #include <Arduino.h>
 #include <functional>
 #include <memory>
