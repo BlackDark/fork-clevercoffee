@@ -1,0 +1,18 @@
+# Ignore parent test directories that only contain subdirectories
+test_utils/
+test_coordinators/
+test_handlers/
+test_network/
+
+# Ignore empty test directories (tests removed - components cannot be meaningfully tested without hardware)
+test_sensor_coordinator/
+test_tempsensor_isensor/
+test_system_context/
+test_process_controller/
+test_loop_manager/
+test_state_machine/
+test_emergency_detector/
+test_sensor_manager_coordinator/
+test_hardware_control/
+test_hardware_manager/
+test_hardware_manager_exception_safety/

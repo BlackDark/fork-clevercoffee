@@ -40,6 +40,7 @@ public:
     double pidRegularKp_ = 10.0;
     double pidRegularTn_ = 100.0;
     double pidRegularTv_ = 20.0;
+    double pidRegularIMax_ = 100.0;
     bool pidUsePonm_ = false;
     bool pidBdEnabled_ = false;
     double pidBdKp_ = 5.0;
@@ -47,6 +48,7 @@ public:
     double pidBdTv_ = 10.0;
     double brewPreInfusionTime_ = 5.0;
     double brewByTimeTargetTime_ = 30.0;
+    double brewTempOffset_ = 0.0;
     bool standbyEnabled_ = true;
     double standbyTime_ = 30.0;
     bool hardwareSwitchesBrewEnabled_ = true;
@@ -63,6 +65,10 @@ public:
     String systemAuthPassword_ = "";
     double backflushFillTime_ = 5.0;
     double backflushFlushTime_ = 10.0;
+    
+    // Emergency stop parameters - use ParamDef for compatibility with EmergencyStopManager
+    ParamDef<double> emergencyStopTemp{"safety.emergency_temp", 145.0, "Emergency Temperature (°C)", 1, 203, "Temperature threshold that triggers emergency stop", 120.0, 180.0};
+    ParamDef<double> emergencyStopHysteresis{"safety.emergency_hysteresis", 10.0, "Emergency Hysteresis (°C)", 1, 204, "Temperature drop required to reset emergency counter", 1.0, 15.0};
 
     // Getters (matching Config interface pattern)
     bool getPidEnabled() const { return pidEnabled_; }
@@ -71,6 +77,7 @@ public:
     double getPidRegularKp() const { return pidRegularKp_; }
     double getPidRegularTn() const { return pidRegularTn_; }
     double getPidRegularTv() const { return pidRegularTv_; }
+    double getPidRegularIMax() const { return pidRegularIMax_; }
     bool getPidUsePonm() const { return pidUsePonm_; }
     bool getPidBdEnabled() const { return pidBdEnabled_; }
     double getPidBdKp() const { return pidBdKp_; }
@@ -78,6 +85,7 @@ public:
     double getPidBdTv() const { return pidBdTv_; }
     double getBrewPreInfusionTime() const { return brewPreInfusionTime_; }
     double getBrewByTimeTargetTime() const { return brewByTimeTargetTime_; }
+    double getBrewTempOffset() const { return brewTempOffset_; }
     bool getStandbyEnabled() const { return standbyEnabled_; }
     double getStandbyTime() const { return standbyTime_; }
     bool getHardwareSwitchesBrewEnabled() const { return hardwareSwitchesBrewEnabled_; }
@@ -94,6 +102,8 @@ public:
     String getSystemAuthPassword() const { return systemAuthPassword_; }
     double getBackflushFillTime() const { return backflushFillTime_; }
     double getBackflushFlushTime() const { return backflushFlushTime_; }
+    double getEmergencyStopTemp() const { return emergencyStopTemp.get(); }
+    double getEmergencyStopHysteresis() const { return emergencyStopHysteresis.get(); }
 
     // Setters
     void setPidEnabled(bool value) { pidEnabled_ = value; }
@@ -102,6 +112,7 @@ public:
     void setPidRegularKp(double value) { pidRegularKp_ = value; }
     void setPidRegularTn(double value) { pidRegularTn_ = value; }
     void setPidRegularTv(double value) { pidRegularTv_ = value; }
+    void setPidRegularIMax(double value) { pidRegularIMax_ = value; }
     void setPidUsePonm(bool value) { pidUsePonm_ = value; }
     void setPidBdEnabled(bool value) { pidBdEnabled_ = value; }
     void setPidBdKp(double value) { pidBdKp_ = value; }
@@ -109,6 +120,7 @@ public:
     void setPidBdTv(double value) { pidBdTv_ = value; }
     void setBrewPreInfusionTime(double value) { brewPreInfusionTime_ = value; }
     void setBrewByTimeTargetTime(double value) { brewByTimeTargetTime_ = value; }
+    void setBrewTempOffset(double value) { brewTempOffset_ = value; }
     void setStandbyEnabled(bool value) { standbyEnabled_ = value; }
     void setStandbyTime(double value) { standbyTime_ = value; }
     void setHardwareSwitchesBrewEnabled(bool value) { hardwareSwitchesBrewEnabled_ = value; }
@@ -125,4 +137,6 @@ public:
     void setSystemAuthPassword(const String& value) { systemAuthPassword_ = value; }
     void setBackflushFillTime(double value) { backflushFillTime_ = value; }
     void setBackflushFlushTime(double value) { backflushFlushTime_ = value; }
+    void setEmergencyStopTemp(double value) { emergencyStopTemp.set(value); }
+    void setEmergencyStopHysteresis(double value) { emergencyStopHysteresis.set(value); }
 };

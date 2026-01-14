@@ -33,7 +33,7 @@ class ModernTimer {
      * @param interval Desired interval between calls
      * @param start_paused Whether timer should start paused
      */
-    constexpr ModernTimer(std::function<void()> callback, Duration interval, bool start_paused = false) noexcept
+    ModernTimer(std::function<void()> callback, Duration interval, bool start_paused = false) noexcept
         : callback_(std::move(callback)), interval_(interval), next_(ClockType::now() + interval),
           running_(!start_paused), last_execution_(ClockType::now()) {}
 
@@ -161,9 +161,9 @@ using MicrosecondTimer = ModernTimer<std::chrono::microseconds>;
 
 // Factory functions for easy timer creation
 template <typename Rep, typename Period>
-constexpr auto make_timer(std::function<void()>              callback,
-                          std::chrono::duration<Rep, Period> interval,
-                          bool                               start_paused = false) noexcept {
+auto make_timer(std::function<void()>              callback,
+                std::chrono::duration<Rep, Period> interval,
+                bool                               start_paused = false) noexcept {
     using DurationType = std::chrono::duration<Rep, Period>;
     return ModernTimer<DurationType>(std::move(callback), interval, start_paused);
 }

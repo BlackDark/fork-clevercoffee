@@ -1,6 +1,6 @@
 /**
  * @file test_main.cpp
- * @brief Smoke tests for NetworkCoordinator atomic operations
+ * @brief Smoke tests for UICoordinator atomic operations
  *
  * MINIMAL TESTS - The class is just std::atomic wrappers, which the C++
  * standard library already tests. We keep 2 smoke tests to verify
@@ -8,37 +8,37 @@
  */
 
 #include <gtest/gtest.h>
-#include "../test_support.h"
-#include "clevercoffee/coordinators/NetworkCoordinator.h"
+#include "test_support.h"
+#include "clevercoffee/coordinators/UICoordinator.h"
 #include <thread>
 #include <chrono>
 
 using namespace CleverCoffee;
 
 /**
- * @brief Smoke test for NetworkCoordinator
+ * @brief Smoke test for UICoordinator
  */
-class NetworkCoordinatorTest : public ::testing::Test {
+class UICoordinatorTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        coordinator_ = std::make_unique<NetworkCoordinator>();
+        coordinator_ = std::make_unique<UICoordinator>();
     }
 
     void TearDown() override {
         coordinator_.reset();
     }
 
-    std::unique_ptr<NetworkCoordinator> coordinator_;
+    std::unique_ptr<UICoordinator> coordinator_;
 };
 
 /**
  * @brief Test coordinator construction and initial state
  */
-TEST_F(NetworkCoordinatorTest, ConstructionAndInitialState) {
+TEST_F(UICoordinatorTest, ConstructionAndInitialState) {
     EXPECT_NE(nullptr, coordinator_);
-    EXPECT_FALSE(coordinator_->isMqttConnected());
-    EXPECT_FALSE(coordinator_->isWifiConnected());
-    EXPECT_FALSE(coordinator_->isOfflineMode());
+    EXPECT_FALSE(coordinator_->needsRefresh());
+    EXPECT_TRUE(coordinator_->shouldAutoSleep());
+    EXPECT_FALSE(coordinator_->isDisplayBufferReady());
 }
 
 /**
@@ -47,15 +47,16 @@ TEST_F(NetworkCoordinatorTest, ConstructionAndInitialState) {
  * This verifies that multiple threads can safely access the coordinator
  * without causing data races or crashes.
  */
-TEST_F(NetworkCoordinatorTest, ThreadSafety) {
+TEST_F(UICoordinatorTest, ThreadSafety) {
     std::atomic<bool> test_complete{false};
     std::atomic<int> operations{0};
 
     // Thread 1: Modify state
     std::thread t1([&]() {
         for (int i = 0; i < 100; i++) {
-            coordinator_->setMqttConnected(i % 2 == 0);
-            coordinator_->incrementMqttConnectionAttempts();
+            coordinator_->requestRefresh();
+            coordinator_->setAutoSleep(i % 2 == 0);
+            coordinator_->setDisplayBufferReady();
             operations++;
         }
     });
@@ -63,8 +64,9 @@ TEST_F(NetworkCoordinatorTest, ThreadSafety) {
     // Thread 2: Modify state
     std::thread t2([&]() {
         for (int i = 0; i < 100; i++) {
-            coordinator_->setWifiConnected(i % 2 == 0);
-            coordinator_->incrementWifiReconnects();
+            coordinator_->clearRefresh();
+            coordinator_->clearDisplayBufferReady();
+            coordinator_->setDisplayOffline(i);
             operations++;
         }
     });
@@ -73,5 +75,5 @@ TEST_F(NetworkCoordinatorTest, ThreadSafety) {
     t2.join();
 
     EXPECT_EQ(200, operations);
-    EXPECT_NO_THROW(coordinator_->isMqttConnected());  // Should not crash
+    EXPECT_NO_THROW(coordinator_->needsRefresh());  // Should not crash
 }

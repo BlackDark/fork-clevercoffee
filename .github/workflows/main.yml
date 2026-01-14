@@ -53,6 +53,9 @@ jobs:
         env:
           CLEVERCOFFEE_VERSION: ${{ env.CLEVERCOFFEE_VERSION }}
 
+      - name: Run Native Tests
+        run: pio test -e native_test
+
       - name: Upload firmware artifacts
         uses: actions/upload-artifact@v4
         with:

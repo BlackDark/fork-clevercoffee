@@ -15,6 +15,7 @@
 using CleverCoffee::ISensor;
 using CleverCoffee::Expected;
 using CleverCoffee::Error;
+using CleverCoffee::ErrorCode;
 
 /**
  * @brief Mock ISensor implementation for testing
@@ -43,7 +44,7 @@ public:
         , connected_(connected)
         , readStarted_(false)
         , shouldFail_(false)
-        , failError_(Error::UNKNOWN) {}
+        , failError_(Error(ErrorCode::UNKNOWN_ERROR, "Unknown error")) {}
     
     /**
      * @brief Start a sensor read operation
@@ -58,16 +59,16 @@ public:
      */
     Expected<double, Error> tryGetValue() noexcept override {
         if (!readStarted_) {
-            return Expected<double, Error>::error(Error::NOT_READY);
+            return Expected<double, Error>(Error(ErrorCode::SENSOR_NOT_READY, "Sensor not ready"));
         }
         
         if (shouldFail_) {
             readStarted_ = false;
-            return Expected<double, Error>::error(failError_);
+            return Expected<double, Error>(failError_);
         }
         
         readStarted_ = false;
-        return Expected<double, Error>::success(value_);
+        return Expected<double, Error>(value_);
     }
     
     /**
@@ -87,7 +88,7 @@ public:
     // Test control methods
     void setValue(double value) { value_ = value; }
     void setConnected(bool connected) { connected_ = connected; }
-    void setShouldFail(bool fail, Error error = Error::UNKNOWN) {
+    void setShouldFail(bool fail, Error error = Error(ErrorCode::UNKNOWN_ERROR, "Unknown error")) {
         shouldFail_ = fail;
         failError_ = error;
     }

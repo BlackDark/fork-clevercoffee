@@ -1,75 +1,89 @@
 /**
  * @file MockHardwareManager.h
- * @brief Mock implementation of HardwareManager for testing
- * 
- * Provides a testable implementation that doesn't require actual hardware.
+ * @brief GMock implementation for IHardwareContext interface
+ *
+ * Allows testing code that depends on hardware access without actual hardware.
+ * Implements IHardwareContext interface using GoogleMock.
  */
 
 #pragma once
 
-#include "clevercoffee/hardware/HardwareManager.h"
+#include <gmock/gmock.h>
 #include "clevercoffee/state/IHardwareContext.h"
-#include "clevercoffee/state/MachineStateIds.h"
-#include "../mocks/MockRelay.h"
-#include "../mocks/MockLED.h"
-#include "../mocks/MockSwitch.h"
+#include "clevercoffee/hardware/Relay.h"
+#include "clevercoffee/hardware/Switch.h"
+#include "clevercoffee/hardware/LED.h"
+#include "clevercoffee/hardware/tempsensors/TempSensor.h"
 #include <memory>
 
 namespace CleverCoffee {
 
 /**
- * @brief Mock HardwareManager for testing
+ * @class MockHardwareManager
+ * @brief Mock implementation of IHardwareContext for testing
+ *
+ * Provides EXPECT_CALL() support for all hardware operations.
  * 
- * This class provides a mock implementation of HardwareManager that can be used
- * in tests without requiring actual hardware initialization.
- * 
- * Usage:
+ * Example usage:
  * @code
- * MockConfig mockConfig;
- * MockHardwareManager mockHwMgr(mockConfig);
+ * MockHardwareManager mockHw;
+ * MockRelay mockHeaterRelay(gpioPin);
  * 
- * // Set up mock behavior
- * mockHwMgr.setTemperature(95.5);
- * mockHwMgr.setWaterTankFull(true);
- * 
- * // Use in test
- * ProcessController controller(mockConfig, systemContext, mockHwMgr, ...);
+ * EXPECT_CALL(mockHw, getHeaterRelay()).WillRepeatedly(Return(&mockHeaterRelay));
+ * EXPECT_CALL(mockHw, getCurrentTemperature()).WillRepeatedly(Return(95.5));
+ * EXPECT_CALL(mockHw, enableHeater()).Times(1);
  * @endcode
  */
-class MockHardwareManager : public HardwareManager {
+class MockHardwareManager : public IHardwareContext {
 public:
-    // Note: HardwareManager requires Config& in constructor
-    // This mock would need to be created differently or we need a test-friendly constructor
-    // For now, this is a placeholder showing the interface we'd want
+    MockHardwareManager() = default;
+    virtual ~MockHardwareManager() = default;
+
+    // Temperature Sensor
+    MOCK_METHOD(TempSensor*, getTempSensor, (), (noexcept, override));
+    MOCK_METHOD(const TempSensor*, getTempSensor, (), (const, noexcept, override));
+    MOCK_METHOD(double, getCurrentTemperature, (), (const, noexcept, override));
+    MOCK_METHOD(bool, hasTemperatureError, (), (const, noexcept, override));
+
+    // Water Tank Sensor
+    MOCK_METHOD(Switch*, getWaterTankSensor, (), (noexcept, override));
+    MOCK_METHOD(const Switch*, getWaterTankSensor, (), (const, noexcept, override));
+    MOCK_METHOD(bool, isWaterTankEmpty, (), (const, noexcept, override));
+
+    // Relay Control
+    MOCK_METHOD(Relay*, getHeaterRelay, (), (noexcept, override));
+    MOCK_METHOD(Relay*, getPumpRelay, (), (noexcept, override));
+    MOCK_METHOD(Relay*, getValveRelay, (), (noexcept, override));
+
+    // LED Indicators
+    MOCK_METHOD(LED*, getStatusLed, (), (noexcept, override));
+    MOCK_METHOD(const LED*, getStatusLed, (), (const, noexcept, override));
+
+    // Scale Operations
+    MOCK_METHOD(double, getWeight, (), (const, noexcept, override));
+    MOCK_METHOD(void, tareScale, (), (noexcept, override));
+
+    // Hardware Operations
+    MOCK_METHOD(void, updateHardware, (), (noexcept, override));
+
+    // High-Level Hardware Control
+    MOCK_METHOD(void, enableHeater, (), (noexcept, override));
+    MOCK_METHOD(void, disableHeater, (), (noexcept, override));
+    MOCK_METHOD(void, setHeaterPower, (uint8_t), (noexcept, override));
     
-    // Mock state
-    double mockTemperature_ = 20.0;
-    bool mockTemperatureError_ = false;
-    bool mockWaterTankFull_ = true;
-    double mockWeight_ = 0.0;
-    bool mockHeaterEnabled_ = false;
-    bool mockPumpEnabled_ = false;
-    bool mockValveOpen_ = false;
-    uint8_t mockHeaterPower_ = 0;
-    float mockPumpPressure_ = 0.0f;
+    MOCK_METHOD(void, enablePump, (), (noexcept, override));
+    MOCK_METHOD(void, disablePump, (), (noexcept, override));
+    MOCK_METHOD(void, setPumpPressure, (float), (noexcept, override));
     
-    // Setters for test control
-    void setTemperature(double temp) { mockTemperature_ = temp; }
-    void setTemperatureError(bool error) { mockTemperatureError_ = error; }
-    void setWaterTankFull(bool full) { mockWaterTankFull_ = full; }
-    void setWeight(double weight) { mockWeight_ = weight; }
-    void setHeaterEnabled(bool enabled) { mockHeaterEnabled_ = enabled; }
-    void setPumpEnabled(bool enabled) { mockPumpEnabled_ = enabled; }
-    void setValveOpen(bool open) { mockValveOpen_ = open; }
-    void setHeaterPower(uint8_t power) { mockHeaterPower_ = power; }
-    void setPumpPressure(float pressure) { mockPumpPressure_ = pressure; }
+    MOCK_METHOD(void, openSteamValve, (), (noexcept, override));
+    MOCK_METHOD(void, closeSteamValve, (), (noexcept, override));
+    MOCK_METHOD(void, openWaterValve, (), (noexcept, override));
+    MOCK_METHOD(void, closeWaterValve, (), (noexcept, override));
     
-    // Getters for verification
-    bool isHeaterEnabled() const { return mockHeaterEnabled_; }
-    bool isPumpEnabled() const { return mockPumpEnabled_; }
-    bool isValveOpen() const { return mockValveOpen_; }
-    uint8_t getHeaterPower() const { return mockHeaterPower_; }
-    float getPumpPressure() const { return mockPumpPressure_; }
+    MOCK_METHOD(void, openSolenoid, (), (noexcept, override));
+    MOCK_METHOD(void, closeSolenoid, (), (noexcept, override));
+    
+    MOCK_METHOD(void, emergencyShutdown, (), (noexcept, override));
 };
 
 } // namespace CleverCoffee

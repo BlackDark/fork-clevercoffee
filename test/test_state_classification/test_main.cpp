@@ -4,7 +4,6 @@
  *
  * Tests the pure constexpr functions that classify machine states:
  * - isBrewState()
- * - isHotWaterState()
  * - isSteamState()
  * - isBackflushState()
  * - isManualFlushState()
@@ -28,10 +27,6 @@ class BrewStateClassificationTest : public ::testing::Test {
     }
 };
 
-TEST_F(BrewStateClassificationTest, BrewIdleIsBrewState) {
-    EXPECT_TRUE(isBrewState(MachineStateId::BREW_IDLE));
-}
-
 TEST_F(BrewStateClassificationTest, BrewPreinfusionIsBrewState) {
     EXPECT_TRUE(isBrewState(MachineStateId::BREW_PREINFUSION));
 }
@@ -51,43 +46,10 @@ TEST_F(BrewStateClassificationTest, BrewFinishedIsBrewState) {
 TEST_F(BrewStateClassificationTest, NonBrewStateIsNotBrewState) {
     EXPECT_FALSE(isBrewState(MachineStateId::INIT));
     EXPECT_FALSE(isBrewState(MachineStateId::PID_NORMAL));
-    EXPECT_FALSE(isBrewState(MachineStateId::HOT_WATER_IDLE));
-    EXPECT_FALSE(isBrewState(MachineStateId::STEAM_IDLE));
+    EXPECT_FALSE(isBrewState(MachineStateId::STEAM_RUNNING));
     EXPECT_FALSE(isBrewState(MachineStateId::BACKFLUSH_IDLE));
     EXPECT_FALSE(isBrewState(MachineStateId::WATER_TANK_EMPTY));
     EXPECT_FALSE(isBrewState(MachineStateId::EMERGENCY_STOP));
-}
-
-// ============================================================================
-// HOT WATER STATE CLASSIFICATION TESTS
-// ============================================================================
-
-class HotWaterStateClassificationTest : public ::testing::Test {
-   protected:
-    void SetUp() override {
-        // No setup needed for pure functions
-    }
-};
-
-TEST_F(HotWaterStateClassificationTest, HotWaterIdleIsHotWaterState) {
-    EXPECT_TRUE(isHotWaterState(MachineStateId::HOT_WATER_IDLE));
-}
-
-TEST_F(HotWaterStateClassificationTest, HotWaterRunningIsHotWaterState) {
-    EXPECT_TRUE(isHotWaterState(MachineStateId::HOT_WATER_RUNNING));
-}
-
-TEST_F(HotWaterStateClassificationTest, HotWaterStoppedIsHotWaterState) {
-    EXPECT_TRUE(isHotWaterState(MachineStateId::HOT_WATER_STOPPED));
-}
-
-TEST_F(HotWaterStateClassificationTest, NonHotWaterStateIsNotHotWaterState) {
-    EXPECT_FALSE(isHotWaterState(MachineStateId::INIT));
-    EXPECT_FALSE(isHotWaterState(MachineStateId::BREW_IDLE));
-    EXPECT_FALSE(isHotWaterState(MachineStateId::STEAM_IDLE));
-    EXPECT_FALSE(isHotWaterState(MachineStateId::BACKFLUSH_IDLE));
-    EXPECT_FALSE(isHotWaterState(MachineStateId::WATER_TANK_EMPTY));
-    EXPECT_FALSE(isHotWaterState(MachineStateId::EMERGENCY_STOP));
 }
 
 // ============================================================================
@@ -101,22 +63,13 @@ class SteamStateClassificationTest : public ::testing::Test {
     }
 };
 
-TEST_F(SteamStateClassificationTest, SteamIdleIsSteamState) {
-    EXPECT_TRUE(isSteamState(MachineStateId::STEAM_IDLE));
-}
-
 TEST_F(SteamStateClassificationTest, SteamRunningIsSteamState) {
     EXPECT_TRUE(isSteamState(MachineStateId::STEAM_RUNNING));
 }
 
-TEST_F(SteamStateClassificationTest, SteamStoppedIsSteamState) {
-    EXPECT_TRUE(isSteamState(MachineStateId::STEAM_STOPPED));
-}
-
 TEST_F(SteamStateClassificationTest, NonSteamStateIsNotSteamState) {
     EXPECT_FALSE(isSteamState(MachineStateId::INIT));
-    EXPECT_FALSE(isSteamState(MachineStateId::BREW_IDLE));
-    EXPECT_FALSE(isSteamState(MachineStateId::HOT_WATER_IDLE));
+    EXPECT_FALSE(isSteamState(MachineStateId::BREW_RUNNING));
     EXPECT_FALSE(isSteamState(MachineStateId::BACKFLUSH_IDLE));
     EXPECT_FALSE(isSteamState(MachineStateId::WATER_TANK_EMPTY));
     EXPECT_FALSE(isSteamState(MachineStateId::EMERGENCY_STOP));
@@ -151,9 +104,8 @@ TEST_F(BackflushStateClassificationTest, BackflushFinishedIsBackflushState) {
 
 TEST_F(BackflushStateClassificationTest, NonBackflushStateIsNotBackflushState) {
     EXPECT_FALSE(isBackflushState(MachineStateId::INIT));
-    EXPECT_FALSE(isBackflushState(MachineStateId::BREW_IDLE));
-    EXPECT_FALSE(isBackflushState(MachineStateId::HOT_WATER_IDLE));
-    EXPECT_FALSE(isBackflushState(MachineStateId::STEAM_IDLE));
+    EXPECT_FALSE(isBackflushState(MachineStateId::BREW_RUNNING));
+    EXPECT_FALSE(isBackflushState(MachineStateId::STEAM_RUNNING));
     EXPECT_FALSE(isBackflushState(MachineStateId::WATER_TANK_EMPTY));
     EXPECT_FALSE(isBackflushState(MachineStateId::EMERGENCY_STOP));
 }
@@ -169,19 +121,14 @@ class ManualFlushStateClassificationTest : public ::testing::Test {
     }
 };
 
-TEST_F(ManualFlushStateClassificationTest, ManualFlushIdleIsManualFlushState) {
-    EXPECT_TRUE(isManualFlushState(MachineStateId::MANUAL_FLUSH_IDLE));
-}
-
 TEST_F(ManualFlushStateClassificationTest, ManualFlushRunningIsManualFlushState) {
     EXPECT_TRUE(isManualFlushState(MachineStateId::MANUAL_FLUSH_RUNNING));
 }
 
 TEST_F(ManualFlushStateClassificationTest, NonManualFlushStateIsNotManualFlushState) {
     EXPECT_FALSE(isManualFlushState(MachineStateId::INIT));
-    EXPECT_FALSE(isManualFlushState(MachineStateId::BREW_IDLE));
-    EXPECT_FALSE(isManualFlushState(MachineStateId::HOT_WATER_IDLE));
-    EXPECT_FALSE(isManualFlushState(MachineStateId::STEAM_IDLE));
+    EXPECT_FALSE(isManualFlushState(MachineStateId::BREW_RUNNING));
+    EXPECT_FALSE(isManualFlushState(MachineStateId::STEAM_RUNNING));
     EXPECT_FALSE(isManualFlushState(MachineStateId::BACKFLUSH_IDLE));
     EXPECT_FALSE(isManualFlushState(MachineStateId::WATER_TANK_EMPTY));
     EXPECT_FALSE(isManualFlushState(MachineStateId::EMERGENCY_STOP));
@@ -198,28 +145,13 @@ class StateClassificationMutualExclusivityTest : public ::testing::Test {
     }
 };
 
-TEST_F(StateClassificationMutualExclusivityTest, BrewStatesAreNotHotWaterStates) {
-    EXPECT_FALSE(isHotWaterState(MachineStateId::BREW_IDLE));
-    EXPECT_FALSE(isHotWaterState(MachineStateId::BREW_RUNNING));
-    EXPECT_FALSE(isHotWaterState(MachineStateId::BREW_FINISHED));
-}
-
 TEST_F(StateClassificationMutualExclusivityTest, BrewStatesAreNotSteamStates) {
-    EXPECT_FALSE(isSteamState(MachineStateId::BREW_IDLE));
     EXPECT_FALSE(isSteamState(MachineStateId::BREW_RUNNING));
     EXPECT_FALSE(isSteamState(MachineStateId::BREW_FINISHED));
 }
 
-TEST_F(StateClassificationMutualExclusivityTest, HotWaterStatesAreNotBrewStates) {
-    EXPECT_FALSE(isBrewState(MachineStateId::HOT_WATER_IDLE));
-    EXPECT_FALSE(isBrewState(MachineStateId::HOT_WATER_RUNNING));
-    EXPECT_FALSE(isBrewState(MachineStateId::HOT_WATER_STOPPED));
-}
-
 TEST_F(StateClassificationMutualExclusivityTest, SteamStatesAreNotBrewStates) {
-    EXPECT_FALSE(isBrewState(MachineStateId::STEAM_IDLE));
     EXPECT_FALSE(isBrewState(MachineStateId::STEAM_RUNNING));
-    EXPECT_FALSE(isBrewState(MachineStateId::STEAM_STOPPED));
 }
 
 TEST_F(StateClassificationMutualExclusivityTest, BackflushStatesAreNotBrewStates) {
@@ -248,7 +180,6 @@ TEST_F(SpecialStateClassificationTest, ErrorStatesAreNotBrewStates) {
 
 TEST_F(SpecialStateClassificationTest, EmergencyStopIsNotAnyCategory) {
     EXPECT_FALSE(isBrewState(MachineStateId::EMERGENCY_STOP));
-    EXPECT_FALSE(isHotWaterState(MachineStateId::EMERGENCY_STOP));
     EXPECT_FALSE(isSteamState(MachineStateId::EMERGENCY_STOP));
     EXPECT_FALSE(isBackflushState(MachineStateId::EMERGENCY_STOP));
     EXPECT_FALSE(isManualFlushState(MachineStateId::EMERGENCY_STOP));
@@ -256,7 +187,6 @@ TEST_F(SpecialStateClassificationTest, EmergencyStopIsNotAnyCategory) {
 
 TEST_F(SpecialStateClassificationTest, StandbyStateIsNotAnyCategory) {
     EXPECT_FALSE(isBrewState(MachineStateId::STANDBY));
-    EXPECT_FALSE(isHotWaterState(MachineStateId::STANDBY));
     EXPECT_FALSE(isSteamState(MachineStateId::STANDBY));
     EXPECT_FALSE(isBackflushState(MachineStateId::STANDBY));
     EXPECT_FALSE(isManualFlushState(MachineStateId::STANDBY));
@@ -275,70 +205,26 @@ class ComprehensiveStateClassificationTest : public ::testing::Test {
 
 TEST_F(ComprehensiveStateClassificationTest, AllBrewStatesCovered) {
     // Verify all brew states are classified correctly
-    std::array<MachineStateId, 5> brewStates = {
-        MachineStateId::BREW_IDLE,
-        MachineStateId::BREW_PREINFUSION,
-        MachineStateId::BREW_PREINFUSION_PAUSE,
-        MachineStateId::BREW_RUNNING,
-        MachineStateId::BREW_FINISHED,
-    };
-
-    for (const auto& state : brewStates) {
-        EXPECT_TRUE(isBrewState(state)) << "State " << static_cast<int>(state) << " should be a brew state";
-    }
-}
-
-TEST_F(ComprehensiveStateClassificationTest, AllHotWaterStatesCovered) {
-    // Verify all hot water states are classified correctly
-    std::array<MachineStateId, 3> hotWaterStates = {
-        MachineStateId::HOT_WATER_IDLE,
-        MachineStateId::HOT_WATER_RUNNING,
-        MachineStateId::HOT_WATER_STOPPED,
-    };
-
-    for (const auto& state : hotWaterStates) {
-        EXPECT_TRUE(isHotWaterState(state)) << "State " << static_cast<int>(state)
-                                             << " should be a hot water state";
-    }
+    EXPECT_TRUE(isBrewState(MachineStateId::BREW_PREINFUSION));
+    EXPECT_TRUE(isBrewState(MachineStateId::BREW_PREINFUSION_PAUSE));
+    EXPECT_TRUE(isBrewState(MachineStateId::BREW_RUNNING));
+    EXPECT_TRUE(isBrewState(MachineStateId::BREW_FINISHED));
 }
 
 TEST_F(ComprehensiveStateClassificationTest, AllSteamStatesCovered) {
     // Verify all steam states are classified correctly
-    std::array<MachineStateId, 3> steamStates = {
-        MachineStateId::STEAM_IDLE,
-        MachineStateId::STEAM_RUNNING,
-        MachineStateId::STEAM_STOPPED,
-    };
-
-    for (const auto& state : steamStates) {
-        EXPECT_TRUE(isSteamState(state)) << "State " << static_cast<int>(state) << " should be a steam state";
-    }
+    EXPECT_TRUE(isSteamState(MachineStateId::STEAM_RUNNING));
 }
 
 TEST_F(ComprehensiveStateClassificationTest, AllBackflushStatesCovered) {
     // Verify all backflush states are classified correctly
-    std::array<MachineStateId, 4> backflushStates = {
-        MachineStateId::BACKFLUSH_IDLE,
-        MachineStateId::BACKFLUSH_FILLING,
-        MachineStateId::BACKFLUSH_FLUSHING,
-        MachineStateId::BACKFLUSH_FINISHED,
-    };
-
-    for (const auto& state : backflushStates) {
-        EXPECT_TRUE(isBackflushState(state)) << "State " << static_cast<int>(state)
-                                              << " should be a backflush state";
-    }
+    EXPECT_TRUE(isBackflushState(MachineStateId::BACKFLUSH_IDLE));
+    EXPECT_TRUE(isBackflushState(MachineStateId::BACKFLUSH_FILLING));
+    EXPECT_TRUE(isBackflushState(MachineStateId::BACKFLUSH_FLUSHING));
+    EXPECT_TRUE(isBackflushState(MachineStateId::BACKFLUSH_FINISHED));
 }
 
 TEST_F(ComprehensiveStateClassificationTest, AllManualFlushStatesCovered) {
     // Verify all manual flush states are classified correctly
-    std::array<MachineStateId, 2> manualFlushStates = {
-        MachineStateId::MANUAL_FLUSH_IDLE,
-        MachineStateId::MANUAL_FLUSH_RUNNING,
-    };
-
-    for (const auto& state : manualFlushStates) {
-        EXPECT_TRUE(isManualFlushState(state)) << "State " << static_cast<int>(state)
-                                                << " should be a manual flush state";
-    }
+    EXPECT_TRUE(isManualFlushState(MachineStateId::MANUAL_FLUSH_RUNNING));
 }

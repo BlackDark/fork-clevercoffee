@@ -32,3 +32,6 @@ jobs:
 
       - name: Check format
         run: pio run -e esp32_usb --target check-format
+
+      - name: Run Native Tests
+        run: pio test -e native_test
