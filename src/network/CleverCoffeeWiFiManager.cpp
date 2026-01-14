@@ -14,7 +14,6 @@
 #include "clevercoffee/types/GlobalTypes.h"
 #include "clevercoffee/utils/Resilience.h"
 
-#include <ESP.h>
 #include <WiFi.h>
 #include <WiFiManager.h>
 
