@@ -43,7 +43,6 @@ inline constexpr bool isBrewState(MachineStateId state) {
     return state >= MachineStateId::BREW_PREINFUSION && state <= MachineStateId::BREW_FINISHED;
 }
 
-
 inline constexpr bool isSteamState(MachineStateId state) {
     return state == MachineStateId::STEAM_RUNNING;
 }

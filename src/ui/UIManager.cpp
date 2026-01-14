@@ -6,22 +6,22 @@
 #include "clevercoffee/ui/UIManager.h"
 
 #include "clevercoffee/Config.h"
-#include "clevercoffee/types/GlobalTypes.h"
 #include "clevercoffee/Logger.h"
 #include "clevercoffee/context/SystemContext.h"
-#include "clevercoffee/state/MachineStateContext.h"
 #include "clevercoffee/control/ProcessController.h"
 #include "clevercoffee/display/DisplayManager.h"
 #include "clevercoffee/display/bitmaps.h"
 #include "clevercoffee/handlers/BrewHandler.h"
+#include "clevercoffee/state/MachineStateContext.h"
+#include "clevercoffee/types/GlobalTypes.h"
 
 #include <Arduino.h>
 
 int getSignalStrength();
 
 UIManager::UIManager(DisplayManager* displayManager, CleverCoffee::SystemContext* systemContext)
-    : displayManager_(displayManager), systemContext_(systemContext), u8g2_(nullptr), initialized_(false), bufferReady_(false), updateRunning_(false),
-      brewTimerState_(BrewTimerState::Idle), brewEndTime_(0) {
+    : displayManager_(displayManager), systemContext_(systemContext), u8g2_(nullptr), initialized_(false),
+      bufferReady_(false), updateRunning_(false), brewTimerState_(BrewTimerState::Idle), brewEndTime_(0) {
     LOG(INFO, "UIManager created");
 }
 
@@ -224,7 +224,7 @@ void UIManager::displayStatusbar() {
 
     // WiFi status - check from NetworkCoordinator
     bool offlineMode = systemContext_->networkCoordinator().isOfflineMode();
-    
+
     if (!offlineMode) {
         for (int i = 0; i < getSignalStrength(); i++) {
             u8g2_->drawLine(100 + i * 2, 8 - i, 100 + i * 2, 8);
@@ -233,7 +233,7 @@ void UIManager::displayStatusbar() {
 
     // Show reconnection attempts - read from NetworkCoordinator
     unsigned int wifiReconnects = systemContext_->networkCoordinator().getWifiReconnects();
-    
+
     if (wifiReconnects > 0) {
         char reconnectStr[8];
         snprintf(reconnectStr, sizeof(reconnectStr), "R%d", wifiReconnects);
@@ -287,8 +287,11 @@ void UIManager::displayThermometerOutline() {
     u8g2_->drawDisc(123, 52, 4);
 
     // Fill based on systemContext_->processController()->getCurrentTemperature() relative to setpoint
-    if (systemContext_->processController()->getCurrentTemperature() > 0 && systemContext_->processController()->getSetpoint() > 0) {
-        int fillHeight = static_cast<int>((systemContext_->processController()->getCurrentTemperature() / systemContext_->processController()->getSetpoint()) * 35);
+    if (systemContext_->processController()->getCurrentTemperature() > 0 &&
+        systemContext_->processController()->getSetpoint() > 0) {
+        int fillHeight = static_cast<int>((systemContext_->processController()->getCurrentTemperature() /
+                                           systemContext_->processController()->getSetpoint()) *
+                                          35);
         if (fillHeight > 35) fillHeight = 35;
 
         for (int i = 0; i < fillHeight; i++) {
@@ -347,15 +350,15 @@ void UIManager::displayMachineState() {
 
     const char* stateStr = "Unknown";
 
-     // Map machine state to display string
-     // This will be enhanced based on actual machine state values
-     if (systemContext_->machineStateContext()->isSteamModeActive()) {
-         stateStr = "Steam";
-     } else if (systemContext_->processController()->getCurrBrewTime() > 0) {
-         stateStr = "Brewing";
-     } else {
-         stateStr = "Ready";
-     }
+    // Map machine state to display string
+    // This will be enhanced based on actual machine state values
+    if (systemContext_->machineStateContext()->isSteamModeActive()) {
+        stateStr = "Steam";
+    } else if (systemContext_->processController()->getCurrBrewTime() > 0) {
+        stateStr = "Brewing";
+    } else {
+        stateStr = "Ready";
+    }
 
     u8g2_->drawStr(0, 54, stateStr);
 }

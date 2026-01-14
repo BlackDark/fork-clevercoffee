@@ -3,39 +3,36 @@
  * @brief Implementation of ProcessController for PID and process control
  */
 
-#include "clevercoffee/hardware/HardwareManager.h"  // Include before own header to resolve forward declaration
 #include "clevercoffee/control/ProcessController.h"
 
 #include "clevercoffee/Config.h"
-#include "clevercoffee/types/GlobalTypes.h"
-#include "clevercoffee/context/SystemContext.h"
-#include "clevercoffee/state/MachineStateContext.h"
-#include "clevercoffee/constants/Temperature.h"
-#include "clevercoffee/coordinators/SensorCoordinator.h"
 #include "clevercoffee/Logger.h"
+#include "clevercoffee/constants/Temperature.h"
+#include "clevercoffee/context/SystemContext.h"
+#include "clevercoffee/control/EmergencyStopManager.h"
+#include "clevercoffee/coordinators/SensorCoordinator.h"
 #include "clevercoffee/display/DisplayManager.h"
+#include "clevercoffee/hardware/HardwareManager.h" // Include before own header to resolve forward declaration
 #include "clevercoffee/hardware/scales/Scale.h"
 #include "clevercoffee/network/MQTTManager.h"
+#include "clevercoffee/state/MachineStateContext.h"
+#include "clevercoffee/types/GlobalTypes.h"
 #include "clevercoffee/utils/SystemUtils.h"
-#include "clevercoffee/control/EmergencyStopManager.h"
 
 #include <Arduino.h>
 
-ProcessController::ProcessController(const Config&                 config,
-                                      CleverCoffee::SystemContext&   systemContext,
-                                      CleverCoffee::HardwareManager& hardwareManager,
-                                      DisplayManager&                displayManager,
-                                      MQTTManager&                   mqttManager)
+ProcessController::ProcessController(const Config&                  config,
+                                     CleverCoffee::SystemContext&   systemContext,
+                                     CleverCoffee::HardwareManager& hardwareManager,
+                                     DisplayManager&                displayManager,
+                                     MQTTManager&                   mqttManager)
     : config_(config), systemContext_(systemContext), hardwareManager_(hardwareManager),
-      displayManager_(displayManager),
-      mqttManager_(mqttManager),
-      pidController_(nullptr), temperature_(0.0), pidOutput_(0.0), setpoint_(0.0),
-      aggKp_(0.0), aggKi_(0.0), aggKd_(0.0), aggTn_(0.0), aggTv_(0.0), aggIMax_(0.0), aggbKp_(0.0), aggbKi_(0.0),
-      aggbKd_(0.0), aggbTn_(0.0), aggbTv_(0.0), steamKp_(0.0), brewSetpoint_(0.0), steamSetpoint_(0.0),
-      brewTempOffset_(0.0), lastMachineStatePid_(MachineStateId::INIT), initialized_(false), lastTempEvent_(0),
-      currBrewTime_(0.0), totalTargetBrewTime_(0.0), brewPidDisabled_(false),
-      tempEventInterval_(1000),
-      emergencyStopManager_(std::make_unique<CleverCoffee::EmergencyStopManager>(config)) {
+      displayManager_(displayManager), mqttManager_(mqttManager), pidController_(nullptr), temperature_(0.0),
+      pidOutput_(0.0), setpoint_(0.0), aggKp_(0.0), aggKi_(0.0), aggKd_(0.0), aggTn_(0.0), aggTv_(0.0), aggIMax_(0.0),
+      aggbKp_(0.0), aggbKi_(0.0), aggbKd_(0.0), aggbTn_(0.0), aggbTv_(0.0), steamKp_(0.0), brewSetpoint_(0.0),
+      steamSetpoint_(0.0), brewTempOffset_(0.0), lastMachineStatePid_(MachineStateId::INIT), initialized_(false),
+      lastTempEvent_(0), currBrewTime_(0.0), totalTargetBrewTime_(0.0), brewPidDisabled_(false),
+      tempEventInterval_(1000), emergencyStopManager_(std::make_unique<CleverCoffee::EmergencyStopManager>(config)) {
     LOG(INFO, "ProcessController created");
 }
 
@@ -60,9 +57,9 @@ bool ProcessController::initialize() {
     calculateBrewDetectionPIDParameters();
 
     // Sync with global variables
-    temperature_ = systemContext_.processTemperature();
-    pidOutput_ = systemContext_.processPidOutput();
-    setpoint_ = systemContext_.processSetpoint();
+    temperature_   = systemContext_.processTemperature();
+    pidOutput_     = systemContext_.processPidOutput();
+    setpoint_      = systemContext_.processSetpoint();
     lastTempEvent_ = 0;
 
     initialized_ = true;
@@ -154,7 +151,7 @@ void ProcessController::updatePIDState(MachineStateId machineState) {
         if (isPIDEnabled()) {
             // Force PID shutdown
             setPIDEnabled(false);
-            pidOutput_                = 0;
+            pidOutput_ = 0;
             systemContext_.setProcessPidOutput(0);
             // Turn off heater through hardware manager
             // TODO: Add method to HardwareManager for heater control
@@ -264,44 +261,44 @@ void ProcessController::setPIDEnabled(bool enabled) {
 }
 
 void ProcessController::emergencyStop() {
-     LOG(ERROR, "ProcessController emergency stop triggered!");
+    LOG(ERROR, "ProcessController emergency stop triggered!");
 
-     // Set emergency stop flag in system context
-     systemContext_.triggerEmergencyStop();
+    // Set emergency stop flag in system context
+    systemContext_.triggerEmergencyStop();
 
-     // Immediately disable PID and turn off heater
-     setPIDEnabled(false);
-     pidOutput_                = 0;
-     systemContext_.setProcessPidOutput(0);
+    // Immediately disable PID and turn off heater
+    setPIDEnabled(false);
+    pidOutput_ = 0;
+    systemContext_.setProcessPidOutput(0);
 
-     hardwareManager_.safeShutdown();
+    hardwareManager_.safeShutdown();
 }
 
 double ProcessController::getCurrBrewTime() const {
-     return currBrewTime_;
+    return currBrewTime_;
 }
 
 void ProcessController::setCurrBrewTime(double brewTime) {
-     currBrewTime_ = brewTime;
-     systemContext_.setProcessCurrentBrewTime(brewTime);
+    currBrewTime_ = brewTime;
+    systemContext_.setProcessCurrentBrewTime(brewTime);
 }
 
 double ProcessController::getTotalTargetBrewTime() const {
-     return totalTargetBrewTime_;
+    return totalTargetBrewTime_;
 }
 
 void ProcessController::setTotalTargetBrewTime(double brewTime) {
-     totalTargetBrewTime_ = brewTime;
-     systemContext_.setProcessTotalTargetBrewTime(brewTime);
+    totalTargetBrewTime_ = brewTime;
+    systemContext_.setProcessTotalTargetBrewTime(brewTime);
 }
 
 bool ProcessController::isBrewPidDisabled() const {
-     return brewPidDisabled_;
+    return brewPidDisabled_;
 }
 
 void ProcessController::setBrewPidDisabled(bool disabled) {
-     brewPidDisabled_ = disabled;
-     systemContext_.setProcessBrewPidDisabled(disabled);
+    brewPidDisabled_ = disabled;
+    systemContext_.setProcessBrewPidDisabled(disabled);
 }
 
 bool ProcessController::testEmergencyConditions() {
@@ -384,43 +381,43 @@ void ProcessController::calculateBrewDetectionPIDParameters() {
 
 /**
  * @brief Disable PID during brew delay period
- * 
+ *
  * Called when brew is in the delay period (first N seconds of brew).
  * Disables PID control and turns off heater to prevent temperature overshoot
  * during initial brew phase.
  */
 void ProcessController::disablePIDForBrewDelay() noexcept {
     if (systemContext_.isProcessBrewPidDisabled()) {
-        return;  // Already disabled
+        return; // Already disabled
     }
-    
+
     systemContext_.setProcessBrewPidDisabled(true);
     systemContext_.setPidMode(MANUAL);
     pidOutput_ = 0;
     systemContext_.setProcessPidOutput(0);
-    
+
     // Turn off heater relay
     if (auto* relay = hardwareManager_.getHeaterRelay()) {
         relay->off();
     }
-    
+
     LOGF(DEBUG, "Disabled PID for brew delay (%.0f seconds)", config_.brewPidDelay.get());
 }
 
 /**
  * @brief Re-enable PID after brew delay period
- * 
+ *
  * Called when brew time exceeds the delay period. Re-enables PID control
  * and applies appropriate PID tunings (brew detection or normal).
  */
 void ProcessController::enablePIDAfterBrewDelay() noexcept {
     if (!systemContext_.isProcessBrewPidDisabled()) {
-        return;  // Already enabled
+        return; // Already enabled
     }
-    
+
     systemContext_.setPidMode(AUTOMATIC);
     systemContext_.setProcessBrewPidDisabled(false);
-    
+
     // Apply appropriate PID tunings based on configuration
     if (config_.pidBdEnabled.get()) {
         setBrewDetectionPIDTunings();
@@ -429,32 +426,32 @@ void ProcessController::enablePIDAfterBrewDelay() noexcept {
         setPIDTunings(config_.pidUsePonm.get());
         LOG(DEBUG, "Enabled PID with normal tunings after delay period");
     }
-    
+
     LOGF(DEBUG, "Enabled PID after %.0f seconds of brew delay", config_.brewPidDelay.get());
 }
 
 /**
  * @brief Re-enable PID when brew is aborted
- * 
+ *
  * Called when brew state exits but PID is still disabled.
  * This handles the case where brew was manually stopped during delay period.
  */
 void ProcessController::reEnablePIDAfterBrewAbort() noexcept {
     if (!systemContext_.isProcessBrewPidDisabled()) {
-        return;  // Already enabled
+        return; // Already enabled
     }
-    
+
     systemContext_.setPidMode(AUTOMATIC);
     systemContext_.setProcessBrewPidDisabled(false);
     LOG(DEBUG, "Re-enabled PID after brew was aborted during delay period");
 }
 
 void ProcessController::handleBrewPIDDelay(MachineStateId machineState) {
-    const bool inBrewState = isBrewState(machineState);
-    const double brewPidDelayMs = config_.brewPidDelay.get() * 1000.0;
-    const double currentBrewTime = systemContext_.processCurrentBrewTime();
-    const bool brewDelayEnabled = config_.brewPidDelay.get() > 0;
-    
+    const bool   inBrewState      = isBrewState(machineState);
+    const double brewPidDelayMs   = config_.brewPidDelay.get() * 1000.0;
+    const double currentBrewTime  = systemContext_.processCurrentBrewTime();
+    const bool   brewDelayEnabled = config_.brewPidDelay.get() > 0;
+
     if (inBrewState) {
         // Handle PID during brew state
         if (brewDelayEnabled && currentBrewTime > 0 && currentBrewTime < brewPidDelayMs) {
@@ -472,7 +469,7 @@ void ProcessController::handleBrewPIDDelay(MachineStateId machineState) {
 
 void ProcessController::performSafeShutdown() {
     LOG(INFO, "ProcessController performing safe shutdown");
-    
+
     // Disable PID control
     setPIDEnabled(false);
     pidOutput_ = 0;
@@ -483,4 +480,3 @@ void ProcessController::performSafeShutdown() {
 
     LOG(INFO, "ProcessController safe shutdown completed");
 }
-

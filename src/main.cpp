@@ -121,9 +121,11 @@ void setup() {
     }
 
     logMemoryBasic("After SystemInitializer->initialize()");
-    
-    LOGF(DEBUG, "SystemInitializer::initialize() check: returned=%d, isInitialized=%d", 
-         true, systemInitializer->isInitialized());
+
+    LOGF(DEBUG,
+         "SystemInitializer::initialize() check: returned=%d, isInitialized=%d",
+         true,
+         systemInitializer->isInitialized());
 
     // Get managers from SystemInitializer - they are owned by systemInitializer
     // All managers are REQUIRED and always exist
@@ -141,49 +143,52 @@ void setup() {
         logMemoryBasic("Scale sensor support via SensorCoordinator");
     }
 
-     if (systemInitializer->isInitialized()) {
-         LOGF(INFO, "systemInitializer->isInitialized() = true, creating StateMachine, ProcessController, and LoopManager");
-         
-         // Get required components (references - guaranteed to exist)
-         auto& systemContext = systemInitializer->getSystemContext();
-         auto& hardwareManager = systemInitializer->getHardwareManager();
-         
-         // Create StateMachine with required components as references
-         stateMachine = std::make_unique<StateMachine>(
-             systemContext, hardwareManager, displayManager, wifiManager, mqttManager);
-         stateMachine->initialize();  // Always succeeds - uses fallback if needed
-         InitHelpers::logInitResult("StateMachine", true);
+    if (systemInitializer->isInitialized()) {
+        LOGF(INFO,
+             "systemInitializer->isInitialized() = true, creating StateMachine, ProcessController, and LoopManager");
 
-          // Register MachineStateContext in SystemContext for safe access
-          systemContext.setMachineStateContext(&stateMachine->getContext());
-          
-          // Finalize machine state (must be done after MachineStateContext is registered)
-          systemInitializer->finalizeMachineState();
+        // Get required components (references - guaranteed to exist)
+        auto& systemContext   = systemInitializer->getSystemContext();
+        auto& hardwareManager = systemInitializer->getHardwareManager();
 
-         // Initialize ProcessController for PID control with required components as references
-        processController =
-            std::make_unique<ProcessController>(Config::getInstance(), systemContext, hardwareManager, displayManager, mqttManager);
-        
-         // Register ProcessController in SystemContext for safe access
-         systemContext.setProcessController(processController.get());
-         InitHelpers::logInitResult("ProcessController", processController->initialize());
+        // Create StateMachine with required components as references
+        stateMachine =
+            std::make_unique<StateMachine>(systemContext, hardwareManager, displayManager, wifiManager, mqttManager);
+        stateMachine->initialize(); // Always succeeds - uses fallback if needed
+        InitHelpers::logInitResult("StateMachine", true);
 
-         // Initialize LoopManager for main loop coordination with required components as references
-         auto& sensorCoord = systemContext.sensorCoordinator();
-         loopManager = std::make_unique<LoopManager>(systemContext, hardwareManager, *processController, sensorCoord, uiManager);
-         InitHelpers::logInitResult("LoopManager", loopManager->initialize());
+        // Register MachineStateContext in SystemContext for safe access
+        systemContext.setMachineStateContext(&stateMachine->getContext());
 
-         // Configure sensor update timers (uncomment and modify as needed)
-         // loopManager->configureSensorTimers(100, 50, 100); // Temperature: 100ms (10Hz), Pressure: 50ms (20Hz), Scale: 100ms (10Hz)
-         // loopManager->configureSensorTimers(200, 100, 200); // Slower: Temperature: 200ms (5Hz), Pressure: 100ms (10Hz), Scale: 200ms (5Hz)
-         // loopManager->configureSensorTimers(50, 25, 50); // Faster: Temperature: 50ms (20Hz), Pressure: 25ms (40Hz), Scale: 50ms (20Hz)
-     } else {
-         // CRITICAL: This should never happen!
-         LOG(FATAL, "CRITICAL: systemInitializer->isInitialized() returned false!");
-         LOG(FATAL, "This means LoopManager was NOT created");
-         LOG(FATAL, "Check if SystemInitializer::initialize() is setting systemInitialized_ = true");
-         // Without LoopManager, the main loop will crash
-     }
+        // Finalize machine state (must be done after MachineStateContext is registered)
+        systemInitializer->finalizeMachineState();
+
+        // Initialize ProcessController for PID control with required components as references
+        processController = std::make_unique<ProcessController>(
+            Config::getInstance(), systemContext, hardwareManager, displayManager, mqttManager);
+
+        // Register ProcessController in SystemContext for safe access
+        systemContext.setProcessController(processController.get());
+        InitHelpers::logInitResult("ProcessController", processController->initialize());
+
+        // Initialize LoopManager for main loop coordination with required components as references
+        auto& sensorCoord = systemContext.sensorCoordinator();
+        loopManager =
+            std::make_unique<LoopManager>(systemContext, hardwareManager, *processController, sensorCoord, uiManager);
+        InitHelpers::logInitResult("LoopManager", loopManager->initialize());
+
+        // Configure sensor update timers (uncomment and modify as needed)
+        // loopManager->configureSensorTimers(100, 50, 100); // Temperature: 100ms (10Hz), Pressure: 50ms (20Hz), Scale:
+        // 100ms (10Hz) loopManager->configureSensorTimers(200, 100, 200); // Slower: Temperature: 200ms (5Hz),
+        // Pressure: 100ms (10Hz), Scale: 200ms (5Hz) loopManager->configureSensorTimers(50, 25, 50); // Faster:
+        // Temperature: 50ms (20Hz), Pressure: 25ms (40Hz), Scale: 50ms (20Hz)
+    } else {
+        // CRITICAL: This should never happen!
+        LOG(FATAL, "CRITICAL: systemInitializer->isInitialized() returned false!");
+        LOG(FATAL, "This means LoopManager was NOT created");
+        LOG(FATAL, "Check if SystemInitializer::initialize() is setting systemInitialized_ = true");
+        // Without LoopManager, the main loop will crash
+    }
 
     // Initialize handler objects and set up references in global state and SystemContext
     initializeHandlers(systemInitializer->getSystemContext());
@@ -195,25 +200,27 @@ void setup() {
 
 void loop() {
     // DEBUG: Log loop iteration with ISR status
-    static unsigned long loopCount = 0;
+    static unsigned long loopCount    = 0;
     static unsigned long lastDebugLog = millis();
-    
+
     loopCount++;
-    
+
     if (loopManager) {
         // Use modern LoopManager for coordinated main loop updates
         loopManager->update();
-        
+
         // Log ISR and loop status every 5 seconds
         unsigned long now = millis();
         if (now - lastDebugLog >= 5000) {
             extern volatile uint32_t isr_call_count;
             extern volatile uint32_t isr_relay_on_count;
             extern volatile uint32_t isr_relay_off_count;
-            extern volatile bool isr_enabled;
-            
-            LOGF(DEBUG, "LOOP STATUS: loops=%lu, ISR enabled=%d, ISR calls=%lu, relay_on=%lu, relay_off=%lu, temp=%.1f°C, setpoint=%.1f°C, pidOutput=%.1f",
-                 loopCount, 
+            extern volatile bool     isr_enabled;
+
+            LOGF(DEBUG,
+                 "LOOP STATUS: loops=%lu, ISR enabled=%d, ISR calls=%lu, relay_on=%lu, relay_off=%lu, temp=%.1f°C, "
+                 "setpoint=%.1f°C, pidOutput=%.1f",
+                 loopCount,
                  (int)isr_enabled,
                  isr_call_count,
                  isr_relay_on_count,
@@ -221,7 +228,7 @@ void loop() {
                  systemInitializer->getSystemContext().processTemperature(),
                  systemInitializer->getSystemContext().processSetpoint(),
                  systemInitializer->getSystemContext().processPidOutput());
-            
+
             lastDebugLog = now;
         }
     } else {

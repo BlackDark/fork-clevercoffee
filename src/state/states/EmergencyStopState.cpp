@@ -7,9 +7,9 @@
 
 #include "clevercoffee/Logger.h"
 #include "clevercoffee/constants/Temperature.h"
-#include "clevercoffee/state/MachineStateContext.h"
 #include "clevercoffee/context/SystemContext.h"
 #include "clevercoffee/control/ProcessController.h"
+#include "clevercoffee/state/MachineStateContext.h"
 
 // EmergencyStopState Implementation
 void EmergencyStopState::onEntryImpl(MachineStateContext& context) {

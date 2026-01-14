@@ -8,20 +8,20 @@
 
 #pragma once
 
+#include "clevercoffee/defaults.h"
+#include "clevercoffee/state/MachineStateIds.h"
+
 #include <Arduino.h>
 #include <cstring>
 #include <functional>
 #include <map>
 #include <memory>
 
-#include "clevercoffee/defaults.h"
-#include "clevercoffee/state/MachineStateIds.h"
-
 // ============================================================================
 // Display Constants
 // ============================================================================
 
-constexpr int TIME_TO_DISPLAY_OFF = 10;
+constexpr int           TIME_TO_DISPLAY_OFF        = 10;
 constexpr unsigned long TIME_TO_DISPLAY_OFF_MILLIS = TIME_TO_DISPLAY_OFF * 60 * 1000;
 
 // ============================================================================
@@ -47,7 +47,7 @@ struct hash_cstr {
     std::size_t operator()(const char* str) const noexcept {
         // djb2 hash algorithm
         std::size_t hash = 5381;
-        int c;
+        int         c;
         while ((c = *str++)) {
             hash = ((hash << 5) + hash) + c; // hash * 33 + c
         }
@@ -118,11 +118,11 @@ struct MachineStateData {
 
 // WiFi and network constants
 extern const char*      WIFI_PASSWORD;
-constexpr unsigned long wifiConnectionDelay   = 10000;  // delay between reconnects in ms (from defaults.h)
-constexpr unsigned int  maxWifiReconnects     = 5;      // maximum reconnection attempts (from defaults.h)
+constexpr unsigned long wifiConnectionDelay = 10000; // delay between reconnects in ms (from defaults.h)
+constexpr unsigned int  maxWifiReconnects   = 5;     // maximum reconnection attempts (from defaults.h)
 
 // Temperature safety
-constexpr double EmergencyStopTemp     = 145;
+constexpr double EmergencyStopTemp = 145;
 
 // Water tank sensing
 constexpr int waterTankCountsNeeded = 3; // Number of same readings to change water tank sensing

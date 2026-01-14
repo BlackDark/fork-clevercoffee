@@ -6,9 +6,9 @@
 
 #pragma once
 
-#include "clevercoffee/types/GlobalTypes.h"
 #include "clevercoffee/Logger.h"
 #include "clevercoffee/sensors/ISensor.h"
+#include "clevercoffee/types/GlobalTypes.h"
 
 #include <array>
 #include <cmath>
@@ -93,56 +93,56 @@ class TempSensor : public CleverCoffee::ISensor {
     }
 
     // ============= ISensor Interface Implementation =============
-    
+
     /**
      * @brief Start an async sensor read (ISensor interface)
      * @details For temperature sensors, this initiates a read cycle
      */
     void startRead() noexcept override {
         read_in_progress_ = true;
-        read_start_time_ = millis();
+        read_start_time_  = millis();
     }
-    
+
     /**
      * @brief Try to get the sensor reading result (ISensor interface)
      * @return Expected<double, Error> containing temperature or error
      */
     CleverCoffee::Expected<double, CleverCoffee::Error> tryGetValue() noexcept override {
         using namespace CleverCoffee;
-        
+
         if (!read_in_progress_) {
             return Error(ErrorCode::SENSOR_NOT_READY, "Read not started");
         }
-        
+
         // Check for timeout (400ms is standard temp sensor read interval)
         constexpr uint32_t timeout_ms = 1000;
         if (millis() - read_start_time_ > timeout_ms) {
             read_in_progress_ = false;
             return Error(ErrorCode::SENSOR_TIMEOUT, "Temperature read timeout");
         }
-        
+
         // Try to update temperature
         double temp_value{};
         if (sample_temperature(temp_value)) {
             read_in_progress_ = false;
             last_temperature_ = temp_value;
-            
+
             // Reset error counter and error state
             bad_readings_ = 0;
-            error_ = false;
-            
+            error_        = false;
+
             // Update moving average
             update_moving_average();
-            
+
             LOGF(TRACE, "Temperature reading successful: %.1f", last_temperature_);
             return last_temperature_;
         }
-        
+
         // Read failed - could be still in progress or actual error
         // For Dallas sensors, might need more time, so return SENSOR_NOT_READY
         return Error(ErrorCode::SENSOR_NOT_READY, "Temperature not ready");
     }
-    
+
     /**
      * @brief Get the sensor type name (ISensor interface)
      * @return Human-readable sensor type
@@ -150,7 +150,7 @@ class TempSensor : public CleverCoffee::ISensor {
     const char* getSensorType() const noexcept override {
         return "TempSensor";
     }
-    
+
     /**
      * @brief Check if sensor is connected (ISensor interface)
      * @return true if sensor is operational
@@ -174,7 +174,7 @@ class TempSensor : public CleverCoffee::ISensor {
     int    bad_readings_{0};
     int    max_bad_readings_{10};
     bool   error_{false};
-    
+
     // ISensor async read tracking
     bool     read_in_progress_{false};
     uint32_t read_start_time_{0};

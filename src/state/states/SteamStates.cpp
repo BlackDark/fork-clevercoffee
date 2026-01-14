@@ -5,10 +5,10 @@
 
 #include "clevercoffee/state/states/SteamStates.h"
 
-#include "clevercoffee/types/GlobalTypes.h"
 #include "clevercoffee/Logger.h"
-#include "clevercoffee/state/MachineStateContext.h"
 #include "clevercoffee/hardware/Switch.h"
+#include "clevercoffee/state/MachineStateContext.h"
+#include "clevercoffee/types/GlobalTypes.h"
 
 // SteamStates Implementation
 void SteamRunningState::onEntryImpl(MachineStateContext& context) {
@@ -29,7 +29,7 @@ void SteamRunningState::update(MachineStateContext& context) {
          "Steam Running: Temp=%.1f°C, Pressure=%.1fbar",
          context.getCurrentTemperature(),
          context.getFilteredPressure());
-    
+
     // FEATURE: Handle water injection during steam mode
     // When user presses water switch (hot water switch repurposed as water injection switch),
     // activate pump to inject water into boiler

@@ -22,7 +22,7 @@ class MQTTManager;
 namespace CleverCoffee {
 class HardwareManager;
 class SystemContext;
-}
+} // namespace CleverCoffee
 
 /**
  * @class StateMachine
@@ -42,18 +42,18 @@ class SystemContext;
 class StateMachine {
   public:
     /**
-      * @brief Constructor
-      * @param systemContext System context instance (REQUIRED)
-      * @param hardwareManager Hardware manager instance (REQUIRED - CRITICAL component)
-      * @param displayManager Display manager (REQUIRED - always exists)
-      * @param wifiManager WiFi manager (REQUIRED - always exists)
-      * @param mqttManager MQTT manager (REQUIRED - always exists)
-      */
-    StateMachine(CleverCoffee::SystemContext& systemContext,
+     * @brief Constructor
+     * @param systemContext System context instance (REQUIRED)
+     * @param hardwareManager Hardware manager instance (REQUIRED - CRITICAL component)
+     * @param displayManager Display manager (REQUIRED - always exists)
+     * @param wifiManager WiFi manager (REQUIRED - always exists)
+     * @param mqttManager MQTT manager (REQUIRED - always exists)
+     */
+    StateMachine(CleverCoffee::SystemContext&   systemContext,
                  CleverCoffee::HardwareManager& hardwareManager,
-                 DisplayManager&               displayManager,
-                 CleverCoffeeWiFiManager&      wifiManager,
-                 MQTTManager&                  mqttManager);
+                 DisplayManager&                displayManager,
+                 CleverCoffeeWiFiManager&       wifiManager,
+                 MQTTManager&                   mqttManager);
 
     /**
      * @brief Destructor
@@ -148,8 +148,8 @@ class StateMachine {
     void logStateMachineStatus() const;
 
     // State machine components
-    std::unique_ptr<MachineState> currentState_;  ///< Current active state (always valid)
-    MachineStateContext context_;  ///< Context for state access to resources
+    std::unique_ptr<MachineState> currentState_; ///< Current active state (always valid)
+    MachineStateContext           context_;      ///< Context for state access to resources
 
     // State machine status
     bool                                  initialized_;    ///< True if state machine is initialized

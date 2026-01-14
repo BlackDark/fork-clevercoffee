@@ -6,12 +6,12 @@
 #include "clevercoffee/network/WebServerManager.h"
 
 #include "clevercoffee/Config.h"
-#include "clevercoffee/types/GlobalTypes.h"
 #include "clevercoffee/Logger.h"
 #include "clevercoffee/context/SystemContext.h"
-#include "clevercoffee/state/MachineStateContext.h"
 #include "clevercoffee/control/ProcessController.h"
 #include "clevercoffee/network/CleverCoffeeWiFiManager.h"
+#include "clevercoffee/state/MachineStateContext.h"
+#include "clevercoffee/types/GlobalTypes.h"
 #include "clevercoffee/utils/SystemUtils.h"
 #include "clevercoffee/utils/helperUtils.h"
 
@@ -318,17 +318,17 @@ void WebServerManager::setupApiRoutes() {
             request->send(500, "application/json", "{\"error\":\"System context not available\"}");
             return;
         }
-        
+
         doc["temperature"]  = systemContext_->processController()->getCurrentTemperature();
         doc["setpoint"]     = systemContext_->processController()->getSetpoint();
         doc["heaterPower"]  = systemContext_->processController()->getPIDOutput() / 10.0;
         doc["machineState"] = static_cast<int>(systemContext_->machineStateContext()->getCurrentStateId());
-         doc["pidEnabled"]   = systemContext_->processController()->isPIDEnabled();
-         doc["steamMode"]    = systemContext_->machineStateContext()->isSteamModeActive();
-         doc["uptime"] = millis();
+        doc["pidEnabled"]   = systemContext_->processController()->isPIDEnabled();
+        doc["steamMode"]    = systemContext_->machineStateContext()->isSteamModeActive();
+        doc["uptime"]       = millis();
 
         if (Config::getInstance().hardwareSensorsScaleEnabled.get()) {
-            doc["weight"] = systemContext_->sensorCoordinator().getWeight();
+            doc["weight"]     = systemContext_->sensorCoordinator().getWeight();
             doc["brewWeight"] = systemContext_->sensorCoordinator().getBrewWeight();
         }
 
@@ -383,9 +383,13 @@ void WebServerManager::setupApiRoutes() {
         try {
             const bool steamMode = !systemContext_->machineStateContext()->isSteamModeActive();
             systemContext_->machineStateContext()->setSteamModeActive(steamMode);
-            LOGF(INFO, "Toggle steam mode: %s", systemContext_->machineStateContext()->isSteamModeActive() ? "on" : "off");
-            request->send(
-                200, "application/json", JsonResponseBuilder::createBoolResponse("steamMode", systemContext_->machineStateContext()->isSteamModeActive()));
+            LOGF(INFO,
+                 "Toggle steam mode: %s",
+                 systemContext_->machineStateContext()->isSteamModeActive() ? "on" : "off");
+            request->send(200,
+                          "application/json",
+                          JsonResponseBuilder::createBoolResponse(
+                              "steamMode", systemContext_->machineStateContext()->isSteamModeActive()));
         } catch (const std::exception& e) {
             LOGF(ERROR, "API steam toggle failed: %s", e.what());
             request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("Internal server error"));
@@ -416,8 +420,11 @@ void WebServerManager::setupApiRoutes() {
     // Backflush endpoint
     server_->on("/api/backflush", HTTP_POST, [this](AsyncWebServerRequest* request) {
         try {
-            systemContext_->machineStateContext()->setBackflushModeActive(!systemContext_->machineStateContext()->isBackflushModeActive());
-            LOGF(INFO, "Toggle backflush mode: %s", systemContext_->machineStateContext()->isBackflushModeActive() ? "on" : "off");
+            systemContext_->machineStateContext()->setBackflushModeActive(
+                !systemContext_->machineStateContext()->isBackflushModeActive());
+            LOGF(INFO,
+                 "Toggle backflush mode: %s",
+                 systemContext_->machineStateContext()->isBackflushModeActive() ? "on" : "off");
 
             JsonDocument doc;
             doc["success"]     = true;
@@ -437,13 +444,19 @@ void WebServerManager::setupApiRoutes() {
         server_->on("/api/scale/tare", HTTP_POST, [this](AsyncWebServerRequest* request) {
             try {
                 if (systemContext_) {
-                    systemContext_->sensorCoordinator().setScaleTareMode(!systemContext_->sensorCoordinator().isScaleTareMode());
-                    LOGF(INFO, "Toggle scale tare mode: %s", systemContext_->sensorCoordinator().isScaleTareMode() ? "on" : "off");
+                    systemContext_->sensorCoordinator().setScaleTareMode(
+                        !systemContext_->sensorCoordinator().isScaleTareMode());
+                    LOGF(INFO,
+                         "Toggle scale tare mode: %s",
+                         systemContext_->sensorCoordinator().isScaleTareMode() ? "on" : "off");
                     request->send(200,
                                   "application/json",
-                                  JsonResponseBuilder::createBoolResponse("scaleTareOn", systemContext_->sensorCoordinator().isScaleTareMode()));
+                                  JsonResponseBuilder::createBoolResponse(
+                                      "scaleTareOn", systemContext_->sensorCoordinator().isScaleTareMode()));
                 } else {
-                    request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("System context not available"));
+                    request->send(500,
+                                  "application/json",
+                                  JsonResponseBuilder::createErrorResponse("System context not available"));
                 }
             } catch (const std::exception& e) {
                 LOGF(ERROR, "API scale tare failed: %s", e.what());
@@ -455,14 +468,20 @@ void WebServerManager::setupApiRoutes() {
         server_->on("/api/scale/calibrate", HTTP_POST, [this](AsyncWebServerRequest* request) {
             try {
                 if (systemContext_) {
-                    systemContext_->sensorCoordinator().setScaleCalibrationMode(!systemContext_->sensorCoordinator().isScaleCalibrationMode());
-                    LOGF(INFO, "Toggle scale calibration mode: %s", systemContext_->sensorCoordinator().isScaleCalibrationMode() ? "on" : "off");
+                    systemContext_->sensorCoordinator().setScaleCalibrationMode(
+                        !systemContext_->sensorCoordinator().isScaleCalibrationMode());
+                    LOGF(INFO,
+                         "Toggle scale calibration mode: %s",
+                         systemContext_->sensorCoordinator().isScaleCalibrationMode() ? "on" : "off");
                     request->send(
                         200,
                         "application/json",
-                        JsonResponseBuilder::createBoolResponse("scaleCalibrationOn", systemContext_->sensorCoordinator().isScaleCalibrationMode()));
+                        JsonResponseBuilder::createBoolResponse(
+                            "scaleCalibrationOn", systemContext_->sensorCoordinator().isScaleCalibrationMode()));
                 } else {
-                    request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("System context not available"));
+                    request->send(500,
+                                  "application/json",
+                                  JsonResponseBuilder::createErrorResponse("System context not available"));
                 }
             } catch (const std::exception& e) {
                 LOGF(ERROR, "API scale calibration failed: %s", e.what());
@@ -474,14 +493,20 @@ void WebServerManager::setupApiRoutes() {
         server_->on("/api/scale/calibration", HTTP_POST, [this](AsyncWebServerRequest* request) {
             try {
                 if (systemContext_) {
-                    systemContext_->sensorCoordinator().setScaleCalibrationMode(!systemContext_->sensorCoordinator().isScaleCalibrationMode());
-                    LOGF(INFO, "Toggle scale calibration mode: %s", systemContext_->sensorCoordinator().isScaleCalibrationMode() ? "on" : "off");
+                    systemContext_->sensorCoordinator().setScaleCalibrationMode(
+                        !systemContext_->sensorCoordinator().isScaleCalibrationMode());
+                    LOGF(INFO,
+                         "Toggle scale calibration mode: %s",
+                         systemContext_->sensorCoordinator().isScaleCalibrationMode() ? "on" : "off");
                     request->send(
                         200,
                         "application/json",
-                        JsonResponseBuilder::createBoolResponse("scaleCalibrationOn", systemContext_->sensorCoordinator().isScaleCalibrationMode()));
+                        JsonResponseBuilder::createBoolResponse(
+                            "scaleCalibrationOn", systemContext_->sensorCoordinator().isScaleCalibrationMode()));
                 } else {
-                    request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("System context not available"));
+                    request->send(500,
+                                  "application/json",
+                                  JsonResponseBuilder::createErrorResponse("System context not available"));
                 }
             } catch (const std::exception& e) {
                 LOGF(ERROR, "API scale calibration failed: %s", e.what());
@@ -1128,7 +1153,7 @@ String WebServerManager::getTempString() const {
         if (!systemContext_ || !systemContext_->processController()) {
             return String("{\"error\":\"System context not available\"}");
         }
-        
+
         doc["currentTemp"] = systemContext_->processController()->getCurrentTemperature();
         doc["targetTemp"]  = Config::getInstance().brewSetpoint.get();
         doc["heaterPower"] = systemContext_->processController()->getPIDOutput() / 10;
@@ -1151,7 +1176,7 @@ String WebServerManager::getWeightJsonString() const {
         if (!systemContext_) {
             return "{\"error\": \"System context not available\"}";
         }
-        
+
         doc["weight"]     = round2(systemContext_->sensorCoordinator().getWeight());
         doc["brewWeight"] = round2(systemContext_->currBrewWeight());
 

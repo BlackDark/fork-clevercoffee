@@ -19,7 +19,7 @@ inline constexpr unsigned long getDisplayOffTimeoutMillis() {
  * @note This class is typically accessed through SystemContext::standbyCoordinator()
  */
 class StandbyCoordinator {
-public:
+  public:
     StandbyCoordinator() = default;
 
     /**
@@ -47,9 +47,7 @@ public:
                     standbyModeRemainingTimeMillis_ = standbyModeTimeMillis - elapsedTime;
 
                     if (elapsedTime % 60000 < 1000) {
-                        LOGF(INFO,
-                             "Standby time remaining: %i minutes",
-                             (standbyModeRemainingTimeMillis_ / 60000) + 1);
+                        LOGF(INFO, "Standby time remaining: %i minutes", (standbyModeRemainingTimeMillis_ / 60000) + 1);
                     }
                 } else {
                     standbyModeRemainingTimeMillis_ = 0;
@@ -86,7 +84,7 @@ public:
         if (!Config::getInstance().standbyEnabled.get()) {
             return;
         }
-        
+
         standbyModeRemainingTimeMillis_           = getStandbyTimeoutMillis();
         standbyModeRemainingTimeDisplayOffMillis_ = getDisplayOffTimeoutMillis();
         standbyModeStartTimeMillis_               = millis();
@@ -119,11 +117,10 @@ public:
         // 1. Standby is enabled
         // 2. Timer has expired (remaining time is 0)
         // 3. Timer was initialized (start time is not 0) - prevents immediate entry when first enabled
-        return Config::getInstance().standbyEnabled.get() && 
-               standbyModeRemainingTimeMillis_ == 0 &&
+        return Config::getInstance().standbyEnabled.get() && standbyModeRemainingTimeMillis_ == 0 &&
                standbyModeStartTimeMillis_ != 0;
     }
-    
+
     /**
      * @brief Initialize standby timer if not already initialized
      * Should be called when standby is enabled to start the countdown
@@ -138,7 +135,7 @@ public:
         }
     }
 
-private:
+  private:
     /**
      * @brief Get configured standby timeout in milliseconds
      * @return Timeout in milliseconds
@@ -147,10 +144,10 @@ private:
         return static_cast<unsigned long>(Config::getInstance().standbyTime.get() * 60 * 1000);
     }
 
-    unsigned long standbyModeRemainingTimeMillis_{0};                         ///< Countdown to standby mode
-    unsigned long standbyModeStartTimeMillis_{0};                             ///< Time when standby countdown started
+    unsigned long standbyModeRemainingTimeMillis_{0}; ///< Countdown to standby mode
+    unsigned long standbyModeStartTimeMillis_{0};     ///< Time when standby countdown started
     unsigned long standbyModeRemainingTimeDisplayOffMillis_{getDisplayOffTimeoutMillis()}; ///< Display off countdown
-    unsigned long lastStandbyTimeMillis_{0};                                  ///< Last update timestamp
+    unsigned long lastStandbyTimeMillis_{0};                                               ///< Last update timestamp
 };
 
 } // namespace CleverCoffee

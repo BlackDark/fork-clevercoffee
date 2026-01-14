@@ -6,12 +6,12 @@
 #include "clevercoffee/network/CleverCoffeeWiFiManager.h"
 
 #include "clevercoffee/Config.h"
-#include "clevercoffee/types/GlobalTypes.h"
-#include "clevercoffee/context/SystemContext.h"
 #include "clevercoffee/Logger.h"
+#include "clevercoffee/context/SystemContext.h"
 #include "clevercoffee/coordinators/NetworkCoordinator.h"
 #include "clevercoffee/display/languages.h"
 #include "clevercoffee/handlers/BrewHandler.h"
+#include "clevercoffee/types/GlobalTypes.h"
 #include "clevercoffee/utils/Resilience.h"
 
 #include <ESP.h>
@@ -33,20 +33,18 @@ CleverCoffeeWiFiManager::CleverCoffeeWiFiManager(CleverCoffee::NetworkCoordinato
     // Create custom hostname parameter
     const String hostname = Config::getInstance().systemHostname.get();
     customHostname_       = std::make_unique<WiFiManagerParameter>("hostname", "Hostname", hostname.c_str(), 30);
-    
+
     // Initialize retry policy with exponential backoff: 10s initial, 5min max, 2x multiplier, 5 max attempts
-    retryPolicy_ = std::make_unique<CleverCoffee::Utils::RetryPolicy>(
-        10000,   // Initial delay: 10 seconds
-        300000,  // Max delay: 5 minutes
-        2.0,     // Backoff multiplier: 2x
-        5        // Max attempts: 5 (matches maxWifiReconnects)
+    retryPolicy_ = std::make_unique<CleverCoffee::Utils::RetryPolicy>(10000,  // Initial delay: 10 seconds
+                                                                      300000, // Max delay: 5 minutes
+                                                                      2.0,    // Backoff multiplier: 2x
+                                                                      5 // Max attempts: 5 (matches maxWifiReconnects)
     );
-    
+
     // Initialize circuit breaker: 5 failures, 60s open timeout, 30s half-open timeout
-    circuitBreaker_ = std::make_unique<CleverCoffee::Utils::CircuitBreaker>(
-        5,      // Failure threshold: 5 failures
-        60000,  // Open timeout: 60 seconds
-        30000   // Half-open timeout: 30 seconds
+    circuitBreaker_ = std::make_unique<CleverCoffee::Utils::CircuitBreaker>(5,     // Failure threshold: 5 failures
+                                                                            60000, // Open timeout: 60 seconds
+                                                                            30000  // Half-open timeout: 30 seconds
     );
 }
 
@@ -187,11 +185,10 @@ void CleverCoffeeWiFiManager::checkAndMaintainConnection() {
     bool isOfflineMode = networkCoordinator_->isOfflineMode();
 
     // Don't attempt reconnection if in offline mode
-    if (isOfflineMode)
-        return;
+    if (isOfflineMode) return;
 
     const unsigned long currentTime = millis();
-    
+
     // Check circuit breaker - fail fast if circuit is open
     if (!circuitBreaker_->canAttempt(currentTime)) {
         if (!wifiConnectedHandled) {
@@ -220,7 +217,8 @@ void CleverCoffeeWiFiManager::checkAndMaintainConnection() {
         // Max attempts reached - enter offline mode
         if (!isOfflineMode) {
             networkCoordinator_->setOfflineMode(true);
-            LOGF(WARNING, "WiFi max reconnection attempts reached (%u) - entering offline mode", 
+            LOGF(WARNING,
+                 "WiFi max reconnection attempts reached (%u) - entering offline mode",
                  retryPolicy_->getCurrentAttempt());
         }
         return;
@@ -236,15 +234,16 @@ void CleverCoffeeWiFiManager::checkAndMaintainConnection() {
     retryPolicy_->incrementAttempt(currentTime);
     networkCoordinator_->incrementWifiReconnects();
     networkCoordinator_->setLastWifiConnectionAttempt(currentTime);
-    
-    LOGF(INFO, "Attempting WiFi reconnection: attempt %u/%u (delay: %lums)", 
-         retryPolicy_->getCurrentAttempt(), 
+
+    LOGF(INFO,
+         "Attempting WiFi reconnection: attempt %u/%u (delay: %lums)",
+         retryPolicy_->getCurrentAttempt(),
          retryPolicy_->isMaxAttemptsReached() ? retryPolicy_->getCurrentAttempt() : 0,
          retryPolicy_->getNextDelay());
-    
+
     WiFi.disconnect();
     WiFi.begin();
-    
+
     // Use yield() instead of delay() to avoid blocking other tasks
     yield();
 
@@ -261,8 +260,10 @@ void CleverCoffeeWiFiManager::checkAndMaintainConnection() {
     } else {
         // Connection failed - record failure
         circuitBreaker_->recordFailure(currentTime);
-        LOGF(DEBUG, "WiFi reconnection attempt %u failed, next retry in %lums", 
-             retryPolicy_->getCurrentAttempt(), retryPolicy_->getNextDelay());
+        LOGF(DEBUG,
+             "WiFi reconnection attempt %u failed, next retry in %lums",
+             retryPolicy_->getCurrentAttempt(),
+             retryPolicy_->getNextDelay());
     }
 
     // Enter offline mode if circuit breaker is open and max attempts reached

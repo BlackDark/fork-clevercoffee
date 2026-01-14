@@ -53,7 +53,7 @@ namespace CleverCoffee {
  * @endcode
  */
 class IConfigContext {
-public:
+  public:
     virtual ~IConfigContext() = default;
 
     /**

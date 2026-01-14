@@ -20,8 +20,8 @@
 
 #define HIGH_ACCURACY
 
-using CleverCoffee::Expected;
 using CleverCoffee::Error;
+using CleverCoffee::Expected;
 using CleverCoffee::ISensor;
 
 /**
@@ -59,10 +59,10 @@ class HX711Scale : public Scale, public ISensor {
     void                setSamples(int samples) override;
 
     // ISensor interface (new async pattern)
-    void startRead() noexcept override;
+    void                    startRead() noexcept override;
     Expected<double, Error> tryGetValue() noexcept override;
-    const char* getSensorType() const noexcept override;
-    bool isConnected() const noexcept override;
+    const char*             getSensorType() const noexcept override;
+    bool                    isConnected() const noexcept override;
 
     /**
      * @brief Get calibration factor for specific cell
@@ -100,6 +100,6 @@ class HX711Scale : public Scale, public ISensor {
     float weight2;
 
     // ISensor state tracking
-    unsigned long lastSuccessfulRead_ = 0;
-    static constexpr unsigned long READ_TIMEOUT_MS = 500;
+    unsigned long                  lastSuccessfulRead_ = 0;
+    static constexpr unsigned long READ_TIMEOUT_MS     = 500;
 };

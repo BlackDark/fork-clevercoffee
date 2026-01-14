@@ -8,8 +8,8 @@
 
 #pragma once
 
-#include <variant>
 #include <string>
+#include <variant>
 
 namespace CleverCoffee {
 
@@ -63,9 +63,9 @@ namespace CleverCoffee {
  *       It lacks monadic operations like and_then, or_else, transform, etc.
  *       These can be added if needed.
  */
-template<typename T, typename E = std::string>
+template <typename T, typename E = std::string>
 class Expected {
-public:
+  public:
     /**
      * @brief Construct with a success value
      *
@@ -151,7 +151,7 @@ public:
         return hasValue();
     }
 
-private:
+  private:
     std::variant<T, E> data_; ///< Holds either success value or error
 };
 

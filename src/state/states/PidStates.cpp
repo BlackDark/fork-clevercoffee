@@ -5,12 +5,12 @@
 
 #include "clevercoffee/state/states/PidStates.h"
 
-#include "clevercoffee/types/GlobalTypes.h"
-#include "clevercoffee/constants/Timing.h"
-#include "clevercoffee/Logger.h"
-#include "clevercoffee/state/MachineStateContext.h"
-#include "clevercoffee/hardware/Switch.h"
 #include "clevercoffee/Config.h"
+#include "clevercoffee/Logger.h"
+#include "clevercoffee/constants/Timing.h"
+#include "clevercoffee/hardware/Switch.h"
+#include "clevercoffee/state/MachineStateContext.h"
+#include "clevercoffee/types/GlobalTypes.h"
 
 // PidNormalState Implementation
 void PidNormalState::onEntryImpl(MachineStateContext& context) {
@@ -27,7 +27,7 @@ void PidNormalState::onExitImpl(MachineStateContext& context) {
 void PidNormalState::update(MachineStateContext& context) {
     // Standby timer is now only reset when switches are pressed (user activity)
     // No automatic periodic reset - this prevents unnecessary resets when standby is disabled
-    
+
     // FEATURE: Handle water dispensing from water switch in PID mode
     // User can dispense hot water directly without entering HOT_WATER mode
     auto* waterSwitch = context.getHotWaterSwitch();
@@ -49,19 +49,21 @@ std::optional<MachineStateId> PidNormalState::checkSpecificTransitions(MachineSt
         context.logStateTransition(getStateId(), MachineStateId::PID_DISABLED, "PID disabled");
         return MachineStateId::PID_DISABLED;
     }
-    
+
     if (context.isBrewStartRequested()) {
         context.setBrewStartRequested(false);
-        
+
         // In manual mode, go directly to BREW_RUNNING (skip preinfusion)
         const bool isAutomatic = context.getConfig().brewMode.get() == Process::BrewMode::AUTOMATIC_BREW;
         if (!isAutomatic) {
-            context.logStateTransition(getStateId(), MachineStateId::BREW_RUNNING, "Brew start requested (manual mode)");
+            context.logStateTransition(
+                getStateId(), MachineStateId::BREW_RUNNING, "Brew start requested (manual mode)");
             return MachineStateId::BREW_RUNNING;
         }
-        
+
         // In automatic mode, start with preinfusion
-        context.logStateTransition(getStateId(), MachineStateId::BREW_PREINFUSION, "Brew start requested (automatic mode)");
+        context.logStateTransition(
+            getStateId(), MachineStateId::BREW_PREINFUSION, "Brew start requested (automatic mode)");
         return MachineStateId::BREW_PREINFUSION;
     }
     // Hot water is handled directly in PID_NORMAL via pump control (no separate state needed)

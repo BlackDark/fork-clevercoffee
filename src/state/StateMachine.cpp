@@ -5,22 +5,22 @@
 
 #include "clevercoffee/state/StateMachine.h"
 
-#include "clevercoffee/context/SystemContext.h"
 #include "clevercoffee/Logger.h"
+#include "clevercoffee/context/SystemContext.h"
 #include "clevercoffee/state/MachineStateIds.h"
 #include "clevercoffee/state/StateFactory.h"
 
 #include <Arduino.h>
 #include <chrono>
 
-StateMachine::StateMachine(CleverCoffee::SystemContext& systemContext,
+StateMachine::StateMachine(CleverCoffee::SystemContext&   systemContext,
                            CleverCoffee::HardwareManager& hardwareManager,
-                           DisplayManager&               displayManager,
-                           CleverCoffeeWiFiManager&      wifiManager,
-                           MQTTManager&                  mqttManager)
-    : currentState_(nullptr),  // Will be set in initialize() - temporary, will always have a state after init
-      context_(systemContext, hardwareManager, displayManager, wifiManager, mqttManager),
-      initialized_(false), lastStateId_(MachineStateId::INIT), lastUpdateTime_(std::chrono::steady_clock::now()),
+                           DisplayManager&                displayManager,
+                           CleverCoffeeWiFiManager&       wifiManager,
+                           MQTTManager&                   mqttManager)
+    : currentState_(nullptr), // Will be set in initialize() - temporary, will always have a state after init
+      context_(systemContext, hardwareManager, displayManager, wifiManager, mqttManager), initialized_(false),
+      lastStateId_(MachineStateId::INIT), lastUpdateTime_(std::chrono::steady_clock::now()),
       startTime_(std::chrono::steady_clock::now()), totalStateTransitions_(0), totalUpdates_(0) {
     LOG(INFO, "StateMachine created");
 }
@@ -38,7 +38,7 @@ void StateMachine::initialize(MachineStateId initialStateId) {
             // This should never happen, but if it does, we're in serious trouble
             LOGF(FATAL, "CRITICAL: Cannot create INIT state. System will restart.");
             ESP.restart();
-            return;  // Unreachable
+            return; // Unreachable
         }
         initialStateId = MachineStateId::INIT;
     }

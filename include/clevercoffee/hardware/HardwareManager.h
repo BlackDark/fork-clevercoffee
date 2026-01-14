@@ -11,10 +11,10 @@
 #include "clevercoffee/hardware/Relay.h"
 #include "clevercoffee/hardware/StandardLED.h"
 #include "clevercoffee/hardware/Switch.h"
+#include "clevercoffee/hardware/ValveState.h"
 #include "clevercoffee/hardware/tempsensors/TempSensor.h"
 #include "clevercoffee/hardware/tempsensors/TempSensorDallas.h"
 #include "clevercoffee/hardware/tempsensors/TempSensorTSIC.h"
-#include "clevercoffee/hardware/ValveState.h"
 #include "clevercoffee/state/IHardwareContext.h"
 #include "clevercoffee/state/MachineStateIds.h"
 
@@ -34,7 +34,7 @@ namespace CleverCoffee {
  * This class provides safe management of hardware components using RAII principles.
  * It automatically handles component initialization and cleanup, preventing memory leaks
  * and ensuring proper hardware shutdown.
- * 
+ *
  * Implements IHardwareContext to provide high-level hardware control interface for states.
  */
 class HardwareManager : public IHardwareContext {
@@ -72,57 +72,57 @@ class HardwareManager : public IHardwareContext {
         return steamLed_.get();
     }
 
-     // Switch access methods
-     Switch* getPowerSwitch() const noexcept {
-         return powerSwitch_.get();
-     }
-     Switch* getBrewSwitch() const noexcept {
-         return brewSwitch_.get();
-     }
-     Switch* getSteamSwitch() const noexcept {
-         return steamSwitch_.get();
-     }
-     Switch* getHotWaterSwitch() const noexcept {
-         return hotWaterSwitch_.get();
-     }
-     Switch* getWaterTankSensor() noexcept {
-         return waterTankSensor_.get();
-     }
-     const Switch* getWaterTankSensor() const noexcept {
-         return waterTankSensor_.get();
-     }
+    // Switch access methods
+    Switch* getPowerSwitch() const noexcept {
+        return powerSwitch_.get();
+    }
+    Switch* getBrewSwitch() const noexcept {
+        return brewSwitch_.get();
+    }
+    Switch* getSteamSwitch() const noexcept {
+        return steamSwitch_.get();
+    }
+    Switch* getHotWaterSwitch() const noexcept {
+        return hotWaterSwitch_.get();
+    }
+    Switch* getWaterTankSensor() noexcept {
+        return waterTankSensor_.get();
+    }
+    const Switch* getWaterTankSensor() const noexcept {
+        return waterTankSensor_.get();
+    }
 
-     // Temperature sensor access
-     TempSensor* getTempSensor() noexcept {
-         return tempSensor_.get();
-     }
-     const TempSensor* getTempSensor() const noexcept {
-         return tempSensor_.get();
-     }
+    // Temperature sensor access
+    TempSensor* getTempSensor() noexcept {
+        return tempSensor_.get();
+    }
+    const TempSensor* getTempSensor() const noexcept {
+        return tempSensor_.get();
+    }
 
-     // Relay access methods (direct)
-     Relay* getHeaterRelayDirect() noexcept {
-         return heaterRelay_.get();
-     }
-     const Relay* getHeaterRelayDirect() const noexcept {
-         return heaterRelay_.get();
-     }
-     Relay* getPumpRelayDirect() noexcept {
-         return pumpRelay_.get();
-     }
-     const Relay* getPumpRelayDirect() const noexcept {
-         return pumpRelay_.get();
-     }
-     Relay* getValveRelayDirect() noexcept {
-         return valveRelay_.get();
-     }
-     const Relay* getValveRelayDirect() const noexcept {
-         return valveRelay_.get();
-     }
+    // Relay access methods (direct)
+    Relay* getHeaterRelayDirect() noexcept {
+        return heaterRelay_.get();
+    }
+    const Relay* getHeaterRelayDirect() const noexcept {
+        return heaterRelay_.get();
+    }
+    Relay* getPumpRelayDirect() noexcept {
+        return pumpRelay_.get();
+    }
+    const Relay* getPumpRelayDirect() const noexcept {
+        return pumpRelay_.get();
+    }
+    Relay* getValveRelayDirect() noexcept {
+        return valveRelay_.get();
+    }
+    const Relay* getValveRelayDirect() const noexcept {
+        return valveRelay_.get();
+    }
 
-     // Scale access
-     Scale* getScale() noexcept;
-     const Scale* getScale() const noexcept;
+    // Scale access
+    Scale*       getScale() noexcept;
+    const Scale* getScale() const noexcept;
 
     /**
      * @brief Check if all critical hardware is initialized
@@ -144,40 +144,40 @@ class HardwareManager : public IHardwareContext {
     void updateLEDs(MachineStateId machineState, double temperature, double setpoint);
 
     // === IHardwareContext Implementation ===
-    
+
     // Temperature Sensor
     double getCurrentTemperature() const noexcept override;
-    bool hasTemperatureError() const noexcept override;
-    
+    bool   hasTemperatureError() const noexcept override;
+
     // Hardware component access (for IHardwareContext)
     Relay* getHeaterRelay() noexcept override;
     Relay* getPumpRelay() noexcept override;
     Relay* getValveRelay() noexcept override;
-    bool isWaterTankEmpty() const noexcept override;
+    bool   isWaterTankEmpty() const noexcept override;
     double getWeight() const noexcept override;
-    void tareScale() noexcept override;
-    void updateHardware() noexcept override;
-    
+    void   tareScale() noexcept override;
+    void   updateHardware() noexcept override;
+
     // Heater Control
     void enableHeater() noexcept override;
     void disableHeater() noexcept override;
     void setHeaterPower(uint8_t percentage) noexcept override;
-    
+
     // Pump Control
     void enablePump() noexcept override;
     void disablePump() noexcept override;
     void setPumpPressure(float bar) noexcept override;
-    
+
     // Valve Control
     void openSteamValve() noexcept override;
     void closeSteamValve() noexcept override;
     void openWaterValve() noexcept override;
     void closeWaterValve() noexcept override;
-    
+
     // Solenoid Control
     void openSolenoid() noexcept override;
     void closeSolenoid() noexcept override;
-    
+
     // Emergency Control
     void emergencyShutdown() noexcept override;
 
@@ -192,21 +192,21 @@ class HardwareManager : public IHardwareContext {
     const Config& config_;
 
     // Safety state
-    bool emergencyMode_ = false;
+    bool emergencyMode_  = false;
     bool waterTankEmpty_ = false;
 
     // Hardware component state tracking (to avoid redundant operations)
     // Note: heaterEnabled_ is atomic because ISR can directly control heater relay
     // for PID PWM, bypassing this state tracking. The state is approximate for heater.
     std::atomic<bool> heaterEnabled_{false};
-    bool pumpEnabled_ = false;
-    
+    bool              pumpEnabled_ = false;
+
     // Valve state tracking - steam and water valves share the same physical relay
     // Using enum to ensure correct relay control when both valves might be requested
     CleverCoffee::Hardware::ValveState valveState_ = CleverCoffee::Hardware::ValveState::CLOSED;
-    
+
     bool solenoidOpen_ = false;
-    
+
     /**
      * @brief Update valve relay based on current valve state
      * Called whenever valve state changes to ensure relay matches desired state
@@ -214,9 +214,9 @@ class HardwareManager : public IHardwareContext {
     void updateValveRelay() noexcept;
 
     // Initialization state tracking for exception safety
-    bool relaysInitialized_ = false;
-    bool ledsInitialized_ = false;
-    bool switchesInitialized_ = false;
+    bool relaysInitialized_     = false;
+    bool ledsInitialized_       = false;
+    bool switchesInitialized_   = false;
     bool tempSensorInitialized_ = false;
 
     /**
@@ -280,4 +280,4 @@ class HardwareManager : public IHardwareContext {
     void initializeTemperatureSensor();
 };
 
-}  // namespace CleverCoffee
+} // namespace CleverCoffee

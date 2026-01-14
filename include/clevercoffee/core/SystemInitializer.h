@@ -20,17 +20,17 @@ class PID;
 namespace CleverCoffee {
 class HardwareManager;
 class SystemContext;
-}
+} // namespace CleverCoffee
 
 /**
  * @enum InitState
  * @brief System initialization state
  */
 enum class InitState {
-    NOT_INITIALIZED,  ///< System not yet initialized
-    INITIALIZING,     ///< System initialization in progress
-    INITIALIZED,      ///< System fully initialized and ready
-    FAILED            ///< System initialization failed
+    NOT_INITIALIZED, ///< System not yet initialized
+    INITIALIZING,    ///< System initialization in progress
+    INITIALIZED,     ///< System fully initialized and ready
+    FAILED           ///< System initialization failed
 };
 
 /**
@@ -139,9 +139,9 @@ class SystemInitializer {
     }
 
     /**
-      * @brief Get WiFi manager (REQUIRED)
-      * @return Reference to WiFi manager
-      */
+     * @brief Get WiFi manager (REQUIRED)
+     * @return Reference to WiFi manager
+     */
     CleverCoffeeWiFiManager& getWiFiManager() const;
 
     /**
@@ -176,19 +176,19 @@ class SystemInitializer {
 
   private:
     // Initialization state
-    bool   systemInitialized_;
+    bool      systemInitialized_;
     InitState initState_;
-    String hostname_;
+    String    hostname_;
 
     // Manager instances
-    std::unique_ptr<DisplayManager>          displayManager_;
-    std::unique_ptr<UIManager>               uiManager_;
-    std::unique_ptr<CleverCoffee::HardwareManager>         hardwareManager_;
-    std::unique_ptr<MQTTManager>             mqttManager_;
-    std::unique_ptr<CleverCoffeeWiFiManager> cleverCoffeeWiFiManager_;
-    std::unique_ptr<WebServerManager>        webServerManager_;
-    std::unique_ptr<PID>                     pidController_;
-    std::unique_ptr<CleverCoffee::SystemContext> systemContext_;
+    std::unique_ptr<DisplayManager>                displayManager_;
+    std::unique_ptr<UIManager>                     uiManager_;
+    std::unique_ptr<CleverCoffee::HardwareManager> hardwareManager_;
+    std::unique_ptr<MQTTManager>                   mqttManager_;
+    std::unique_ptr<CleverCoffeeWiFiManager>       cleverCoffeeWiFiManager_;
+    std::unique_ptr<WebServerManager>              webServerManager_;
+    std::unique_ptr<PID>                           pidController_;
+    std::unique_ptr<CleverCoffee::SystemContext>   systemContext_;
 
     // Initialization phases
     bool initializeLogger();

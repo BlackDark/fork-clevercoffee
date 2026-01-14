@@ -4,15 +4,15 @@
  */
 
 #include "clevercoffee/hardware/scales/BluetoothScale.h"
-#include "clevercoffee/errors/ErrorCodes.h"
 
 #include "clevercoffee/Logger.h"
+#include "clevercoffee/errors/ErrorCodes.h"
 
 #include <Arduino.h>
 
-using CleverCoffee::Expected;
 using CleverCoffee::Error;
 using CleverCoffee::ErrorCode;
+using CleverCoffee::Expected;
 
 BluetoothScale::BluetoothScale()
     : currentWeight(0.0), lastUpdateTime(0), connected(false), bleInitialized(false), lastConnectionAttempt(0),

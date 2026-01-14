@@ -7,10 +7,10 @@
 
 #include "clevercoffee/Config.h"
 #include "clevercoffee/Logger.h"
+#include "clevercoffee/constants/Temperature.h"
 #include "clevercoffee/defaults.h"
 #include "clevercoffee/hardware/pinmapping.h"
 #include "clevercoffee/utils/memoryUtils.h"
-#include "clevercoffee/constants/Temperature.h"
 
 #include <cmath>
 
@@ -70,25 +70,22 @@ HardwareManager::HardwareManager(const Config& config)
 void HardwareManager::initializeRelays() {
     LOG(INFO, "Initializing heater relay...");
     yield(); // Prevent watchdog timeout
-    const auto heaterTriggerType =
-        static_cast<RelayTriggerType>(config_.hardwareRelaysHeaterTriggerType.get());
-    heaterRelay_ = std::make_unique<Relay>(heaterRelayPin_, heaterTriggerType);
+    const auto heaterTriggerType = static_cast<RelayTriggerType>(config_.hardwareRelaysHeaterTriggerType.get());
+    heaterRelay_                 = std::make_unique<Relay>(heaterRelayPin_, heaterTriggerType);
     heaterRelay_->off();
     LOG(INFO, "Heater relay initialized");
 
     LOG(INFO, "Initializing valve relay...");
     yield(); // Prevent watchdog timeout
-    const auto valveTriggerType =
-        static_cast<RelayTriggerType>(config_.hardwareRelaysValveTriggerType.get());
-    valveRelay_ = std::make_unique<Relay>(valveRelayPin_, valveTriggerType);
+    const auto valveTriggerType = static_cast<RelayTriggerType>(config_.hardwareRelaysValveTriggerType.get());
+    valveRelay_                 = std::make_unique<Relay>(valveRelayPin_, valveTriggerType);
     valveRelay_->off();
     LOG(INFO, "Valve relay initialized");
 
     LOG(INFO, "Initializing pump relay...");
     yield(); // Prevent watchdog timeout
-    const auto pumpTriggerType =
-        static_cast<RelayTriggerType>(config_.hardwareRelaysPumpTriggerType.get());
-    pumpRelay_ = std::make_unique<Relay>(pumpRelayPin_, pumpTriggerType);
+    const auto pumpTriggerType = static_cast<RelayTriggerType>(config_.hardwareRelaysPumpTriggerType.get());
+    pumpRelay_                 = std::make_unique<Relay>(pumpRelayPin_, pumpTriggerType);
     pumpRelay_->off();
     LOG(INFO, "Pump relay initialized");
 
@@ -183,8 +180,7 @@ void HardwareManager::initializeSwitches() {
         yield(); // Prevent watchdog timeout
         const auto          mode         = config_.hardwareSensorsWatertankMode.get();
         const auto          initialState = (mode == SwitchMode::NORMALLY_OPEN) ? HIGH : LOW;
-        const GPIOPin::Type pinType =
-            (mode == SwitchMode::NORMALLY_OPEN) ? GPIOPin::IN_PULLDOWN : GPIOPin::IN_PULLUP;
+        const GPIOPin::Type pinType = (mode == SwitchMode::NORMALLY_OPEN) ? GPIOPin::IN_PULLDOWN : GPIOPin::IN_PULLUP;
         waterTankSensor_ =
             std::make_unique<IOSwitch>(PIN_WATERTANKSENSOR, pinType, SwitchType::TOGGLE, mode, initialState);
         LOG(INFO, "Water tank sensor initialized");
@@ -255,10 +251,10 @@ void HardwareManager::updateLEDs(MachineStateId machineState, double temperature
         bool shouldTurnOn = false;
 
         // Turn on when at target temperature (normal or steam mode)
+        using CleverCoffee::Temperature::STEAM_LED_THRESHOLD_C;
         using CleverCoffee::Temperature::TEMP_TOLERANCE_NORMAL_C;
         using CleverCoffee::Temperature::TEMP_TOLERANCE_STEAM_C;
-        using CleverCoffee::Temperature::STEAM_LED_THRESHOLD_C;
-        
+
         if ((machineState == MachineStateId::PID_NORMAL && (abs(temperature - setpoint) < TEMP_TOLERANCE_NORMAL_C)) ||
             (temperature > STEAM_LED_THRESHOLD_C && abs(temperature - setpoint) < TEMP_TOLERANCE_STEAM_C)) {
             shouldTurnOn = true;
@@ -436,17 +432,21 @@ void HardwareManager::updateValveRelay() noexcept {
     if (!valveRelay_) {
         return;
     }
-    
+
     // Relay should be ON if any valve is open, OFF if all valves are closed
     bool shouldBeOn = (valveState_ != CleverCoffee::Hardware::ValveState::CLOSED);
-    
+
     // Update relay state (Relay class handles redundant operation prevention internally)
     if (shouldBeOn) {
         valveRelay_->on();
-        const char* steamState = (valveState_ == CleverCoffee::Hardware::ValveState::STEAM_OPEN || 
-                                  valveState_ == CleverCoffee::Hardware::ValveState::BOTH_OPEN) ? "open" : "closed";
-        const char* waterState = (valveState_ == CleverCoffee::Hardware::ValveState::WATER_OPEN || 
-                                  valveState_ == CleverCoffee::Hardware::ValveState::BOTH_OPEN) ? "open" : "closed";
+        const char* steamState = (valveState_ == CleverCoffee::Hardware::ValveState::STEAM_OPEN ||
+                                  valveState_ == CleverCoffee::Hardware::ValveState::BOTH_OPEN)
+                                     ? "open"
+                                     : "closed";
+        const char* waterState = (valveState_ == CleverCoffee::Hardware::ValveState::WATER_OPEN ||
+                                  valveState_ == CleverCoffee::Hardware::ValveState::BOTH_OPEN)
+                                     ? "open"
+                                     : "closed";
         LOGF(DEBUG, "Valve relay turned ON (valve state: steam=%s, water=%s)", steamState, waterState);
     } else {
         valveRelay_->off();
@@ -459,7 +459,7 @@ void HardwareManager::openSteamValve() noexcept {
         LOG(WARNING, "Cannot open steam valve - emergency mode active");
         return;
     }
-    
+
     // Update valve state
     switch (valveState_) {
         case CleverCoffee::Hardware::ValveState::CLOSED:
@@ -475,7 +475,7 @@ void HardwareManager::openSteamValve() noexcept {
             // Already open, no action needed
             return;
     }
-    
+
     updateValveRelay();
 }
 
@@ -495,7 +495,7 @@ void HardwareManager::closeSteamValve() noexcept {
             LOG(INFO, "Closing steam valve (water valve remains open)");
             break;
     }
-    
+
     updateValveRelay();
 }
 
@@ -504,7 +504,7 @@ void HardwareManager::openWaterValve() noexcept {
         LOG(WARNING, "Cannot open water valve - emergency mode active");
         return;
     }
-    
+
     // Update valve state
     switch (valveState_) {
         case CleverCoffee::Hardware::ValveState::CLOSED:
@@ -520,7 +520,7 @@ void HardwareManager::openWaterValve() noexcept {
             // Already open, no action needed
             return;
     }
-    
+
     updateValveRelay();
 }
 
@@ -540,7 +540,7 @@ void HardwareManager::closeWaterValve() noexcept {
             LOG(INFO, "Closing water valve (steam valve remains open)");
             break;
     }
-    
+
     updateValveRelay();
 }
 

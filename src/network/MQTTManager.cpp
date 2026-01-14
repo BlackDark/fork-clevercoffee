@@ -6,17 +6,17 @@
 #include "clevercoffee/network/MQTTManager.h"
 
 #include "clevercoffee/Config.h"
-#include "clevercoffee/coordinators/UICoordinator.h"
-#include "clevercoffee/coordinators/SensorCoordinator.h"
-#include "clevercoffee/coordinators/NetworkCoordinator.h"
-#include "clevercoffee/context/SystemContext.h"
-#include "clevercoffee/state/MachineStateContext.h"
-#include "clevercoffee/types/GlobalTypes.h"
 #include "clevercoffee/Logger.h"
+#include "clevercoffee/context/SystemContext.h"
+#include "clevercoffee/coordinators/NetworkCoordinator.h"
+#include "clevercoffee/coordinators/SensorCoordinator.h"
+#include "clevercoffee/coordinators/UICoordinator.h"
 #include "clevercoffee/defaults.h"
 #include "clevercoffee/handlers/BrewHandler.h"
-#include "clevercoffee/utils/helperUtils.h"
+#include "clevercoffee/state/MachineStateContext.h"
+#include "clevercoffee/types/GlobalTypes.h"
 #include "clevercoffee/utils/Resilience.h"
+#include "clevercoffee/utils/helperUtils.h"
 
 #include <Arduino.h>
 #include <cstdio>
@@ -30,20 +30,18 @@ MQTTManager::MQTTManager()
       mqttWasConnected_(false), previousMillisMQTT_(0) {
     instance_ = this;
     initializeClient();
-    
+
     // Initialize retry policy with exponential backoff: 10s initial, 5min max, 2x multiplier, 5 max attempts
-    retryPolicy_ = std::make_unique<CleverCoffee::Utils::RetryPolicy>(
-        10000,   // Initial delay: 10 seconds
-        300000,  // Max delay: 5 minutes
-        2.0,     // Backoff multiplier: 2x
-        5        // Max attempts: 5
+    retryPolicy_ = std::make_unique<CleverCoffee::Utils::RetryPolicy>(10000,  // Initial delay: 10 seconds
+                                                                      300000, // Max delay: 5 minutes
+                                                                      2.0,    // Backoff multiplier: 2x
+                                                                      5       // Max attempts: 5
     );
-    
+
     // Initialize circuit breaker: 5 failures, 60s open timeout, 30s half-open timeout
-    circuitBreaker_ = std::make_unique<CleverCoffee::Utils::CircuitBreaker>(
-        5,      // Failure threshold: 5 failures
-        60000,  // Open timeout: 60 seconds
-        30000   // Half-open timeout: 30 seconds
+    circuitBreaker_ = std::make_unique<CleverCoffee::Utils::CircuitBreaker>(5,     // Failure threshold: 5 failures
+                                                                            60000, // Open timeout: 60 seconds
+                                                                            30000  // Half-open timeout: 30 seconds
     );
 }
 
@@ -97,19 +95,19 @@ void MQTTManager::checkConnection() {
     if (!systemContext_) {
         return;
     }
-    
+
     // Early return if MQTT is disabled
     if (!mqttEnabled_) {
         return;
     }
-    
+
     bool offlineMode = systemContext_->networkCoordinator().isOfflineMode();
     if (offlineMode || systemContext_->brewHandler().isBrewActive()) {
         return;
     }
 
     const unsigned long currentTime = millis();
-    
+
     // Check circuit breaker - fail fast if circuit is open
     if (!circuitBreaker_->canAttempt(currentTime)) {
         LOGF(DEBUG, "MQTT circuit breaker OPEN - skipping reconnection attempt (fail fast)");
@@ -121,7 +119,7 @@ void MQTTManager::checkConnection() {
         // MQTT is connected - record success and reset retry policy
         circuitBreaker_->recordSuccess(currentTime);
         retryPolicy_->reset();
-        reconnectCount_ = 0;
+        reconnectCount_   = 0;
         mqttWasConnected_ = true;
         return;
     }
@@ -142,9 +140,10 @@ void MQTTManager::checkConnection() {
     retryPolicy_->incrementAttempt(currentTime);
     lastConnectionAttempt_ = currentTime;
     reconnectCount_++;
-    
-    LOGF(DEBUG, "Attempting MQTT reconnection: attempt %u/%u (delay: %lums)", 
-         retryPolicy_->getCurrentAttempt(), 
+
+    LOGF(DEBUG,
+         "Attempting MQTT reconnection: attempt %u/%u (delay: %lums)",
+         retryPolicy_->getCurrentAttempt(),
          retryPolicy_->isMaxAttemptsReached() ? retryPolicy_->getCurrentAttempt() : 0,
          retryPolicy_->getNextDelay());
 
@@ -153,29 +152,30 @@ void MQTTManager::checkConnection() {
         LOGF(DEBUG, "MQTT broker not configured (empty hostname), skipping connection");
         return;
     }
-    
+
     if (hostname_.length() == 0) {
         LOGF(DEBUG, "Device hostname not configured, skipping MQTT connection");
         return;
     }
 
-    if (mqttClient_.connect(
-            hostname_.c_str(), username_.c_str(), password_.c_str(), topicWill_, 0, true, "offline")) {
+    if (mqttClient_.connect(hostname_.c_str(), username_.c_str(), password_.c_str(), topicWill_, 0, true, "offline")) {
         // Connection successful
         mqttClient_.subscribe(topicSet_);
         LOGF(DEBUG, "Subscribed to MQTT Topic: %s", topicSet_);
         circuitBreaker_->recordSuccess(currentTime);
         retryPolicy_->reset();
-        reconnectCount_ = 0;
+        reconnectCount_   = 0;
         mqttWasConnected_ = true;
         LOGF(DEBUG, "MQTT reconnected successfully on attempt %u", retryPolicy_->getCurrentAttempt());
     } else {
         // Connection failed - record failure
         circuitBreaker_->recordFailure(currentTime);
-        LOGF(DEBUG, "Failed to connect to MQTT (reason: %i), next retry in %lums", 
-             mqttClient_.state(), retryPolicy_->getNextDelay());
+        LOGF(DEBUG,
+             "Failed to connect to MQTT (reason: %i), next retry in %lums",
+             mqttClient_.state(),
+             retryPolicy_->getNextDelay());
     }
-    
+
     // Reset reconnect count after interval (legacy behavior)
     if (millis() - previousConnection_ >= reconnectInterval_) {
         reconnectCount_     = 0;
@@ -268,33 +268,33 @@ void MQTTManager::assignParameter(char* param, double value) {
 
         LOGF(DEBUG, "Setting MQTT parameter: %s", parameterId);
 
-         // Handle special cases that don't map to config parameters
-         if (strcmp(parameterId, "STEAM_MODE") == 0) {
-             systemContext_->machineStateContext()->setSteamFirstActivated(static_cast<bool>(value));
-             publish(param, number2string(value), true);
-             LOGF(DEBUG, "MQTT special parameter %s updated to %f", param, value);
-             return;
-         } else if (strcmp(parameterId, "BACKFLUSH_ON") == 0) {
-             systemContext_->machineStateContext()->setBackflushModeActive(static_cast<bool>(value));
-             publish(param, number2string(value), true);
-             LOGF(DEBUG, "MQTT special parameter %s updated to %f", param, value);
-             return;
-          } else if (strcmp(parameterId, "TARE_ON") == 0) {
-              if (sensorCoordinator_) {
-                  sensorCoordinator_->setScaleTareMode(static_cast<bool>(value));
-              }
-              systemContext_->setScaleTareOn(static_cast<bool>(value));
-              publish(param, number2string(value), true);
-              LOGF(DEBUG, "MQTT special parameter %s updated to %f", param, value);
-              return;
-          } else if (strcmp(parameterId, "CALIBRATION_ON") == 0) {
-              if (sensorCoordinator_) {
-                  sensorCoordinator_->setScaleCalibrationMode(static_cast<bool>(value));
-              }
-              systemContext_->setScaleCalibrationOn(static_cast<bool>(value));
-              publish(param, number2string(value), true);
-              LOGF(DEBUG, "MQTT special parameter %s updated to %f", param, value);
-              return;
+        // Handle special cases that don't map to config parameters
+        if (strcmp(parameterId, "STEAM_MODE") == 0) {
+            systemContext_->machineStateContext()->setSteamFirstActivated(static_cast<bool>(value));
+            publish(param, number2string(value), true);
+            LOGF(DEBUG, "MQTT special parameter %s updated to %f", param, value);
+            return;
+        } else if (strcmp(parameterId, "BACKFLUSH_ON") == 0) {
+            systemContext_->machineStateContext()->setBackflushModeActive(static_cast<bool>(value));
+            publish(param, number2string(value), true);
+            LOGF(DEBUG, "MQTT special parameter %s updated to %f", param, value);
+            return;
+        } else if (strcmp(parameterId, "TARE_ON") == 0) {
+            if (sensorCoordinator_) {
+                sensorCoordinator_->setScaleTareMode(static_cast<bool>(value));
+            }
+            systemContext_->setScaleTareOn(static_cast<bool>(value));
+            publish(param, number2string(value), true);
+            LOGF(DEBUG, "MQTT special parameter %s updated to %f", param, value);
+            return;
+        } else if (strcmp(parameterId, "CALIBRATION_ON") == 0) {
+            if (sensorCoordinator_) {
+                sensorCoordinator_->setScaleCalibrationMode(static_cast<bool>(value));
+            }
+            systemContext_->setScaleCalibrationOn(static_cast<bool>(value));
+            publish(param, number2string(value), true);
+            LOGF(DEBUG, "MQTT special parameter %s updated to %f", param, value);
+            return;
         }
 
         // Find the parameter definition for regular config parameters
@@ -340,13 +340,12 @@ int MQTTManager::writeSysParamsToMQTT(bool continueOnError) {
     if (!systemContext_) {
         return 0;
     }
-    
-    const auto currentState = systemContext_->machineStateContext()->getCurrentStateId();
-    bool isBrewActive =
-        (isBrewState(currentState) && currentState != MachineStateId::BREW_FINISHED);
-    unsigned long interval = isBrewActive                                                ? intervalMQTTBrew_
-                             : (currentState == MachineStateId::STANDBY) ? intervalMQTTStandby_
-                                                                                         : intervalMQTT_;
+
+    const auto    currentState = systemContext_->machineStateContext()->getCurrentStateId();
+    bool          isBrewActive = (isBrewState(currentState) && currentState != MachineStateId::BREW_FINISHED);
+    unsigned long interval     = isBrewActive                                ? intervalMQTTBrew_
+                                 : (currentState == MachineStateId::STANDBY) ? intervalMQTTStandby_
+                                                                             : intervalMQTT_;
 
     if ((currentMillisMQTT - previousMillisMQTT_ < interval) || !mqttEnabled_ || !mqttClient_.connected()) {
         return 0;
@@ -372,20 +371,26 @@ int MQTTManager::writeSysParamsToMQTT(bool continueOnError) {
 
             bool paramFound = false;
 
-             try {
-                 // Handle special cases that don't map to config parameters
-                 if (strcmp(parameterId, "STEAM_MODE") == 0) {
-                     snprintf(data, sizeof(data), "%d", systemContext_->machineStateContext()->isSteamFirstActivated() ? 1 : 0);
-                     paramFound = true;
-                 } else if (strcmp(parameterId, "BACKFLUSH_ON") == 0) {
-                     snprintf(data, sizeof(data), "%d", systemContext_->machineStateContext()->isBackflushModeActive() ? 1 : 0);
-                     paramFound = true;
-                 } else if (strcmp(parameterId, "TARE_ON") == 0) {
-                     snprintf(data, sizeof(data), "%d", systemContext_->scaleTareOn() ? 1 : 0);
-                     paramFound = true;
-                 } else if (strcmp(parameterId, "CALIBRATION_ON") == 0) {
-                     snprintf(data, sizeof(data), "%d", systemContext_->scaleCalibrationOn() ? 1 : 0);
-                     paramFound = true;
+            try {
+                // Handle special cases that don't map to config parameters
+                if (strcmp(parameterId, "STEAM_MODE") == 0) {
+                    snprintf(data,
+                             sizeof(data),
+                             "%d",
+                             systemContext_->machineStateContext()->isSteamFirstActivated() ? 1 : 0);
+                    paramFound = true;
+                } else if (strcmp(parameterId, "BACKFLUSH_ON") == 0) {
+                    snprintf(data,
+                             sizeof(data),
+                             "%d",
+                             systemContext_->machineStateContext()->isBackflushModeActive() ? 1 : 0);
+                    paramFound = true;
+                } else if (strcmp(parameterId, "TARE_ON") == 0) {
+                    snprintf(data, sizeof(data), "%d", systemContext_->scaleTareOn() ? 1 : 0);
+                    paramFound = true;
+                } else if (strcmp(parameterId, "CALIBRATION_ON") == 0) {
+                    snprintf(data, sizeof(data), "%d", systemContext_->scaleCalibrationOn() ? 1 : 0);
+                    paramFound = true;
                 } else {
                     ConfigParamDef* paramDef = Config::getInstance().findConfigParameter(parameterId);
                     if (!paramDef) {
@@ -708,23 +713,23 @@ int MQTTManager::publishDiscovery(const DiscoveryObject& obj) {
 }
 
 int MQTTManager::sendHASSIODiscoveryMsg() {
-     if (uiCoordinator_) {
-         uiCoordinator_->setHassioUpdateRunning(true);
-     } else {
-         systemContext_->setHassioDiscoveryRunning(true); // Backward compatibility via accessor
-     }
+    if (uiCoordinator_) {
+        uiCoordinator_->setHassioUpdateRunning(true);
+    } else {
+        systemContext_->setHassioDiscoveryRunning(true); // Backward compatibility via accessor
+    }
 
-     if (!mqttClient_.connected()) {
-         LOG(DEBUG, "[MQTT] Failed to send Hassio Discover, MQTT Client is not connected");
-         if (networkCoordinator_) {
-             networkCoordinator_->setHassioFailed(true);
-         }
-         systemContext_->setHassioFailed(true);
-         return -1;
-     }
+    if (!mqttClient_.connected()) {
+        LOG(DEBUG, "[MQTT] Failed to send Hassio Discover, MQTT Client is not connected");
+        if (networkCoordinator_) {
+            networkCoordinator_->setHassioFailed(true);
+        }
+        systemContext_->setHassioFailed(true);
+        return -1;
+    }
 
-     int         failures = 0;
-     const auto& config   = Config::getInstance();
+    int         failures = 0;
+    const auto& config   = Config::getInstance();
 
     // Always published devices
     failures += publishDiscovery(generateSensorDevice("machineState", "Machine State", "", "enum"));
@@ -789,20 +794,20 @@ int MQTTManager::sendHASSIODiscoveryMsg() {
         failures += publishDiscovery(generateSensorDevice("pressure", "Pressure", "bar", "pressure"));
     }
 
-     if (failures > 0) {
-         LOGF(DEBUG, "Hassio failed to send %d entries", failures);
-         if (networkCoordinator_) {
-             networkCoordinator_->setHassioFailed(true);
-         }
-         systemContext_->setHassioFailed(true);
-     } else {
-         LOG(DEBUG, "Hassio send successful");
-         if (networkCoordinator_) {
-             networkCoordinator_->setHassioFailed(false);
-         }
-         systemContext_->setHassioFailed(false);
-         return 0;
-     }
+    if (failures > 0) {
+        LOGF(DEBUG, "Hassio failed to send %d entries", failures);
+        if (networkCoordinator_) {
+            networkCoordinator_->setHassioFailed(true);
+        }
+        systemContext_->setHassioFailed(true);
+    } else {
+        LOG(DEBUG, "Hassio send successful");
+        if (networkCoordinator_) {
+            networkCoordinator_->setHassioFailed(false);
+        }
+        systemContext_->setHassioFailed(false);
+        return 0;
+    }
 
     return -1;
 }

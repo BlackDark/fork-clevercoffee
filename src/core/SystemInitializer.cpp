@@ -3,25 +3,24 @@
  * @brief Implementation of RAII wrapper for system initialization
  */
 
-#include "clevercoffee/hardware/HardwareManager.h"  // Include before own header to resolve forward declaration
 #include "clevercoffee/core/SystemInitializer.h"
 
 #include "clevercoffee/Config.h"
 #include "clevercoffee/Logger.h"
+#include "clevercoffee/context/SystemContext.h"
+#include "clevercoffee/control/ProcessController.h"
 #include "clevercoffee/defaults.h"
 #include "clevercoffee/display/DisplayManager.h"
 #include "clevercoffee/display/displayTemplateManager.h"
 #include "clevercoffee/display/languages.h"
-#include "clevercoffee/control/ProcessController.h"
-#include "clevercoffee/control/ProcessController.h"
+#include "clevercoffee/hardware/HardwareManager.h" // Include before own header to resolve forward declaration
+#include "clevercoffee/isr.h"
 #include "clevercoffee/network/CleverCoffeeWiFiManager.h"
 #include "clevercoffee/network/MQTTManager.h"
 #include "clevercoffee/network/WebServerManager.h"
 #include "clevercoffee/ui/UIManager.h"
 #include "clevercoffee/utils/SystemUtils.h"
 #include "clevercoffee/utils/memoryUtils.h"
-#include "clevercoffee/context/SystemContext.h"
-#include "clevercoffee/isr.h"
 
 #include <Arduino.h>
 #include <ArduinoOTA.h>
@@ -41,8 +40,9 @@ extern void enableTimer1();
 // checkBrewActive removed - now accessed via SystemContext->brewHandler()
 
 SystemInitializer::SystemInitializer()
-    : systemInitialized_(false), initState_(InitState::NOT_INITIALIZED), hostname_(), displayManager_(nullptr), uiManager_(nullptr), hardwareManager_(nullptr),
-      mqttManager_(nullptr), cleverCoffeeWiFiManager_(nullptr), webServerManager_(nullptr) {}
+    : systemInitialized_(false), initState_(InitState::NOT_INITIALIZED), hostname_(), displayManager_(nullptr),
+      uiManager_(nullptr), hardwareManager_(nullptr), mqttManager_(nullptr), cleverCoffeeWiFiManager_(nullptr),
+      webServerManager_(nullptr) {}
 
 SystemInitializer::~SystemInitializer() {
     // Destructor implementation - unique_ptr will automatically clean up resources
@@ -80,17 +80,17 @@ bool SystemInitializer::initialize() {
     logMemoryBasic("After Wire.begin()");
 
     logMemoryBasic("Before Display Init");
-     if (!initializeDisplay()) {
-         // DisplayManager is required - initialization failure is critical
-         LOG(ERROR, "DisplayManager initialization failed - system cannot continue");
-         initState_ = InitState::FAILED;
-         return false;
-     }
-     
-     // DisplayManager and UIManager always exist now - show logo if hardware is connected
-     if (displayManager_->isInitialized()) {
-         uiManager_->displayLogo("Version ", systemContext_->sysVersion());
-     }
+    if (!initializeDisplay()) {
+        // DisplayManager is required - initialization failure is critical
+        LOG(ERROR, "DisplayManager initialization failed - system cannot continue");
+        initState_ = InitState::FAILED;
+        return false;
+    }
+
+    // DisplayManager and UIManager always exist now - show logo if hardware is connected
+    if (displayManager_->isInitialized()) {
+        uiManager_->displayLogo("Version ", systemContext_->sysVersion());
+    }
 
     logMemoryBasic("After Display Init");
 
@@ -152,24 +152,27 @@ bool SystemInitializer::initialize() {
 
     // Phase 5: Finalization
     LOG(INFO, "Starting Phase 5: Finalization");
-    
+
     // CRITICAL: Set ISR SystemContext BEFORE enabling timer ISR
     // The ISR needs access to hardware context for relay control
     LOGF(DEBUG, "Setting ISR SystemContext at %p", static_cast<void*>(systemContext_.get()));
     CleverCoffee::ISR::setSystemContext(systemContext_.get());
     auto* ctxCheck = CleverCoffee::ISR::getSystemContext();
-    LOGF(DEBUG, "Global SystemContext set: ptr=%p, valid=%d", static_cast<void*>(ctxCheck), (ctxCheck != nullptr ? 1 : 0));
-    
+    LOGF(DEBUG,
+         "Global SystemContext set: ptr=%p, valid=%d",
+         static_cast<void*>(ctxCheck),
+         (ctxCheck != nullptr ? 1 : 0));
+
     LOG(DEBUG, "Calling setupTiming()");
     setupTiming();
-    
+
     LOG(DEBUG, "Calling enableTimer1() - ISR will now fire");
     enableTimer1();
-    
+
     // Mark ISR as ready to execute - all initialization is complete
     systemContext_->markISRReady();
     LOG(INFO, "ISR marked as ready - timer ISR can now safely execute");
-    
+
     LOG(DEBUG, "Timer enabled - ISR should be firing every 10ms");
 
     // Report LittleFS usage only if it was successfully initialized
@@ -184,10 +187,9 @@ bool SystemInitializer::initialize() {
         LOG(WARNING, "LittleFS not available or not initialized");
     }
 
-
     // System initialization complete
-    systemInitialized_ = true;  // CRITICAL: Mark system as initialized so isInitialized() returns true
-    initState_ = InitState::INITIALIZED;
+    systemInitialized_ = true; // CRITICAL: Mark system as initialized so isInitialized() returns true
+    initState_         = InitState::INITIALIZED;
 
     logMemory("SystemInitializer Complete");
     LOG(INFO, "System initialization completed successfully");
@@ -242,7 +244,7 @@ bool SystemInitializer::initializeConfiguration() {
     systemContext_->setPidController(pidController_.get());
 
     // Set global reference for backward compatibility
-        // PID controller is now managed via systemContext
+    // PID controller is now managed via systemContext
     return true;
 }
 
@@ -292,7 +294,7 @@ bool SystemInitializer::initializeDisplay() {
         } else {
             LOG(INFO, "Display disabled in configuration, but DisplayManager and UIManager created");
         }
-        
+
         // Manager always exists - required component
         return true;
     } catch (const std::exception& e) {
@@ -310,24 +312,24 @@ bool SystemInitializer::initializeHardware() {
 
         // Update compatibility pointers to reference HardwareManager components
         logMemoryBasic("Before Hardware Pointer Updates");
-        
+
         // Populate HardwareContext (modern DI approach)
         systemContext_->hardwareContext().setHeaterRelay(hardwareManager_->getHeaterRelay());
         systemContext_->hardwareContext().setPumpRelay(hardwareManager_->getPumpRelay());
         systemContext_->hardwareContext().setValveRelay(hardwareManager_->getValveRelay());
-        
+
         systemContext_->hardwareContext().setStatusLed(hardwareManager_->getStatusLed());
         systemContext_->hardwareContext().setBrewLed(hardwareManager_->getBrewLed());
         systemContext_->hardwareContext().setSteamLed(hardwareManager_->getSteamLed());
-        
+
         systemContext_->hardwareContext().setPowerSwitch(hardwareManager_->getPowerSwitch());
         systemContext_->hardwareContext().setBrewSwitch(hardwareManager_->getBrewSwitch());
         systemContext_->hardwareContext().setHotWaterSwitch(hardwareManager_->getHotWaterSwitch());
         systemContext_->hardwareContext().setSteamSwitch(hardwareManager_->getSteamSwitch());
         systemContext_->hardwareContext().setWaterTankSensor(hardwareManager_->getWaterTankSensor());
-        
+
         systemContext_->hardwareContext().setTempSensor(hardwareManager_->getTempSensor());
-        
+
         logMemoryBasic("After Hardware Pointer Updates");
 
         LOG(INFO, "Hardware initialization completed via HardwareManager");
@@ -349,7 +351,7 @@ bool SystemInitializer::initializeNetworking() {
             initState_ = InitState::FAILED;
             return false;
         }
-        
+
         systemContext_->setCleverCoffeeWiFiManager(cleverCoffeeWiFiManager_.get());
         systemContext_->setWifiManager(cleverCoffeeWiFiManager_.get());
 
@@ -372,10 +374,10 @@ bool SystemInitializer::initializeNetworking() {
             LOG(INFO, "LittleFS initialized successfully");
         }
 
-         // Initialize WebServerManager
-         webServerManager_                = std::make_unique<WebServerManager>(80);
-         webServerManager_->setSystemContext(systemContext_.get());
-         systemContext_->setWebServerManager(webServerManager_.get());
+        // Initialize WebServerManager
+        webServerManager_ = std::make_unique<WebServerManager>(80);
+        webServerManager_->setSystemContext(systemContext_.get());
+        systemContext_->setWebServerManager(webServerManager_.get());
 
         if (!webServerManager_->initialize(true)) {
             LOG(ERROR, "WebServerManager initialization failed");
@@ -411,7 +413,7 @@ bool SystemInitializer::initializeMQTT() {
             initState_ = InitState::FAILED;
             return false;
         }
-        
+
         mqttManager_->setSystemContext(systemContext_.get());
         // Note: CleverCoffeeWiFiManager doesn't need SystemContext - it uses NetworkCoordinator
         mqttManager_->setUICoordinator(&systemContext_->uiCoordinator());
@@ -457,8 +459,10 @@ bool SystemInitializer::initializePID() {
              systemContext_->processPidAggKd());
 
         // Set PID tunings now that parameters are calculated
-        systemContext_->setPidTunings(
-            Config::getInstance().pidRegularKp.get(), systemContext_->processPidAggKi(), systemContext_->processPidAggKd(), 1);
+        systemContext_->setPidTunings(Config::getInstance().pidRegularKp.get(),
+                                      systemContext_->processPidAggKi(),
+                                      systemContext_->processPidAggKd(),
+                                      1);
 
         // Initialize PID controller
         systemContext_->setPidSampleTime(systemContext_->processWindowSize());
@@ -531,7 +535,8 @@ bool SystemInitializer::finalizeMachineState() {
         else if (Config::getInstance().hardwareSwitchesPowerEnabled.get() &&
                  static_cast<int>(Config::getInstance().hardwareSwitchesPowerType.get()) ==
                      static_cast<int>(Hardware::SwitchType::TOGGLE)) {
-            if (systemContext_->hardwareContext().powerSwitch() && systemContext_->hardwareContext().powerSwitch()->isPressed()) {
+            if (systemContext_->hardwareContext().powerSwitch() &&
+                systemContext_->hardwareContext().powerSwitch()->isPressed()) {
                 setRuntimePidState(*systemContext_, true);
                 systemContext_->machineStateContext()->setCurrentStateId(MachineStateId::PID_NORMAL);
                 LOG(INFO, "Machine initialized in PID Normal mode (toggle switch ON)");
@@ -545,7 +550,8 @@ bool SystemInitializer::finalizeMachineState() {
         else {
             const bool configPidEnabled = Config::getInstance().pidEnabled.get();
             setRuntimePidState(*systemContext_, configPidEnabled);
-            systemContext_->machineStateContext()->setCurrentStateId(configPidEnabled ? MachineStateId::PID_NORMAL : MachineStateId::PID_DISABLED);
+            systemContext_->machineStateContext()->setCurrentStateId(configPidEnabled ? MachineStateId::PID_NORMAL
+                                                                                      : MachineStateId::PID_DISABLED);
             LOG(INFO,
                 configPidEnabled ? "Machine initialized in PID Normal mode (config enabled)"
                                  : "Machine initialized in PID Disabled mode (config disabled)");
@@ -561,16 +567,16 @@ bool SystemInitializer::finalizeMachineState() {
 void SystemInitializer::calculateDerivedValues() {
     // Calculate derived PID values
     double aggKi = Config::getInstance().pidRegularTn.get() > 0
-                   ? Config::getInstance().pidRegularKp.get() / Config::getInstance().pidRegularTn.get()
-                   : 0;
+                       ? Config::getInstance().pidRegularKp.get() / Config::getInstance().pidRegularTn.get()
+                       : 0;
     systemContext_->setProcessPidAggKi(aggKi);
 
     double aggKd = Config::getInstance().pidRegularTv.get() * Config::getInstance().pidRegularKp.get();
     systemContext_->setProcessPidAggKd(aggKd);
 
     double aggbKi = Config::getInstance().pidBdTn.get() > 0
-                    ? Config::getInstance().pidBdKp.get() / Config::getInstance().pidBdTn.get()
-                    : 0;
+                        ? Config::getInstance().pidBdKp.get() / Config::getInstance().pidBdTn.get()
+                        : 0;
     // Note: aggbKi and aggbKd are mapped to aggKi/aggKd for now
     systemContext_->setProcessPidAggKi(aggbKi);
 
@@ -583,7 +589,7 @@ void SystemInitializer::calculateDerivedValues() {
 void SystemInitializer::setupTiming() {
     // Initialize timing variables (removed: previousMillistemp, windowStartTime, previousMillisMQTT are unused)
     unsigned long currentTime = millis();
-    
+
     // Initialize network timing in coordinator
     if (systemContext_) {
         systemContext_->networkCoordinator().setLastMqttConnectionAttempt(currentTime);
@@ -646,48 +652,52 @@ void SystemInitializer::registerMQTTParameters() {
 void SystemInitializer::registerMQTTSensors() {
     if (!mqttManager_) return;
 
-     // Core sensors
-     mqttManager_->registerSensor("temperature", [this] {
-         if (systemContext_ && systemContext_->processController()) {
-             return systemContext_->processController()->getCurrentTemperature();
-         }
-         return systemContext_->processTemperature();
-     });
-     mqttManager_->registerSensor("heaterPower", [this] {
-         if (systemContext_ && systemContext_->processController()) {
-             return systemContext_->processController()->getPIDOutput() / 10;
-         }
-         return systemContext_->processPidOutput() / 10;
-     });
-     mqttManager_->registerSensor("standbyModeTimeRemaining",
-                                  [this] { return systemContext_->standbyCoordinator().getRemainingTimeMillis() / 1000.0; });
-     mqttManager_->registerSensor("currentKp", [this] { return systemContext_->pidKp(); });
-     mqttManager_->registerSensor("currentKi", [this] { return systemContext_->pidKi(); });
-     mqttManager_->registerSensor("currentKd", [this] { return systemContext_->pidKd(); });
-     // Machine state sensor registration - use lambda that captures systemContext
-     mqttManager_->registerSensor("machineState", [this] { 
-         return static_cast<double>(systemContext_->machineStateContext()->getCurrentStateId()); 
-     });
+    // Core sensors
+    mqttManager_->registerSensor("temperature", [this] {
+        if (systemContext_ && systemContext_->processController()) {
+            return systemContext_->processController()->getCurrentTemperature();
+        }
+        return systemContext_->processTemperature();
+    });
+    mqttManager_->registerSensor("heaterPower", [this] {
+        if (systemContext_ && systemContext_->processController()) {
+            return systemContext_->processController()->getPIDOutput() / 10;
+        }
+        return systemContext_->processPidOutput() / 10;
+    });
+    mqttManager_->registerSensor("standbyModeTimeRemaining", [this] {
+        return systemContext_->standbyCoordinator().getRemainingTimeMillis() / 1000.0;
+    });
+    mqttManager_->registerSensor("currentKp", [this] { return systemContext_->pidKp(); });
+    mqttManager_->registerSensor("currentKi", [this] { return systemContext_->pidKi(); });
+    mqttManager_->registerSensor("currentKd", [this] { return systemContext_->pidKd(); });
+    // Machine state sensor registration - use lambda that captures systemContext
+    mqttManager_->registerSensor("machineState", [this] {
+        return static_cast<double>(systemContext_->machineStateContext()->getCurrentStateId());
+    });
 
-     // Brew-specific sensors
-     if (Config::getInstance().hardwareSwitchesBrewEnabled.get()) {
-         mqttManager_->registerSensor("currBrewTime", [this] {
-             if (systemContext_ && systemContext_->processController()) {
-                 return systemContext_->processController()->getCurrBrewTime() / 1000;
-             }
-             return systemContext_->processCurrentBrewTime() / 1000;
-         });
-     }
+    // Brew-specific sensors
+    if (Config::getInstance().hardwareSwitchesBrewEnabled.get()) {
+        mqttManager_->registerSensor("currBrewTime", [this] {
+            if (systemContext_ && systemContext_->processController()) {
+                return systemContext_->processController()->getCurrBrewTime() / 1000;
+            }
+            return systemContext_->processCurrentBrewTime() / 1000;
+        });
+    }
 
     // Scale-specific sensors
     if (Config::getInstance().hardwareSensorsScaleEnabled.get()) {
-        mqttManager_->registerSensor("currReadingWeight", [this] { return systemContext_->sensorCoordinator().getWeight(); });
-        mqttManager_->registerSensor("currBrewWeight", [this] { return systemContext_->sensorCoordinator().getBrewWeight(); });
+        mqttManager_->registerSensor("currReadingWeight",
+                                     [this] { return systemContext_->sensorCoordinator().getWeight(); });
+        mqttManager_->registerSensor("currBrewWeight",
+                                     [this] { return systemContext_->sensorCoordinator().getBrewWeight(); });
     }
 
     // Pressure sensor
     if (Config::getInstance().hardwareSensorsPressureEnabled.get()) {
-        mqttManager_->registerSensor("pressure", [this] { return systemContext_->sensorCoordinator().getFilteredPressure(); });
+        mqttManager_->registerSensor("pressure",
+                                     [this] { return systemContext_->sensorCoordinator().getFilteredPressure(); });
     }
 
     LOG(DEBUG, "MQTT sensors registered");

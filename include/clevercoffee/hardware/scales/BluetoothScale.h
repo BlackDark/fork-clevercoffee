@@ -10,8 +10,8 @@
 
 #include <AcaiaArduinoBLE.h>
 
-using CleverCoffee::Expected;
 using CleverCoffee::Error;
+using CleverCoffee::Expected;
 using CleverCoffee::ISensor;
 
 /**
@@ -33,9 +33,9 @@ class BluetoothScale : public Scale, public ISensor {
     [[nodiscard]] bool  isConnected() const noexcept override;
 
     // ISensor interface (new async pattern)
-    void startRead() noexcept override;
+    void                    startRead() noexcept override;
     Expected<double, Error> tryGetValue() noexcept override;
-    const char* getSensorType() const noexcept override;
+    const char*             getSensorType() const noexcept override;
 
     void               updateConnection();
     [[nodiscard]] bool isConnecting() const;
@@ -55,6 +55,6 @@ class BluetoothScale : public Scale, public ISensor {
     unsigned long maxConnectionAttemptInterval;
 
     // ISensor state tracking
-    unsigned long lastSuccessfulRead_ = 0;
-    static constexpr unsigned long READ_TIMEOUT_MS = 1000;  // Bluetooth may be slower
+    unsigned long                  lastSuccessfulRead_ = 0;
+    static constexpr unsigned long READ_TIMEOUT_MS     = 1000; // Bluetooth may be slower
 };

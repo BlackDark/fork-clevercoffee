@@ -3,7 +3,6 @@
  * @brief Implementation of MachineStateContext for state machine access to machine resources
  */
 
-#include "clevercoffee/hardware/HardwareManager.h"  // Include before own header to resolve forward declaration
 #include "clevercoffee/state/MachineStateContext.h"
 
 #include "clevercoffee/Config.h"
@@ -12,25 +11,24 @@
 #include "clevercoffee/coordinators/SensorCoordinator.h"
 #include "clevercoffee/display/DisplayManager.h"
 #include "clevercoffee/handlers/BrewHandler.h"
+#include "clevercoffee/hardware/HardwareManager.h" // Include before own header to resolve forward declaration
 #include "clevercoffee/network/CleverCoffeeWiFiManager.h"
 #include "clevercoffee/network/MQTTManager.h"
 // #include "../hotWaterHandler.h" - removed to avoid circular dependencies
-#include "clevercoffee/types/GlobalTypes.h"
 #include "clevercoffee/Logger.h"
 #include "clevercoffee/state/MachineStateIds.h"
+#include "clevercoffee/types/GlobalTypes.h"
 #include "clevercoffee/utils/SystemUtils.h"
 
 #include <Arduino.h>
 
-MachineStateContext::MachineStateContext(CleverCoffee::SystemContext& systemContext,
+MachineStateContext::MachineStateContext(CleverCoffee::SystemContext&   systemContext,
                                          CleverCoffee::HardwareManager& hardwareManager,
-                                         DisplayManager&               displayManager,
-                                         CleverCoffeeWiFiManager&      wifiManager,
-                                         MQTTManager&                  mqttManager)
-    : systemContext_(systemContext), hardwareManager_(hardwareManager),
-      displayManager_(displayManager),
-      wifiManager_(wifiManager),
-      mqttManager_(mqttManager) {}
+                                         DisplayManager&                displayManager,
+                                         CleverCoffeeWiFiManager&       wifiManager,
+                                         MQTTManager&                   mqttManager)
+    : systemContext_(systemContext), hardwareManager_(hardwareManager), displayManager_(displayManager),
+      wifiManager_(wifiManager), mqttManager_(mqttManager) {}
 
 // === Hardware Component Access ===
 
@@ -156,29 +154,28 @@ bool MachineStateContext::hasSensorError() const {
 bool MachineStateContext::isBrewActive() const {
     // Check if we're in an active brew state (not FINISHED)
     auto currentState = getCurrentStateId();
-    return (isBrewState(currentState) &&
-            currentState != MachineStateId::BREW_FINISHED);
+    return (isBrewState(currentState) && currentState != MachineStateId::BREW_FINISHED);
 }
 
 bool MachineStateContext::isManualFlushActive() const {
-     // Manual flush state is checked via machine state
-     return isManualFlushState(getCurrentStateId());
+    // Manual flush state is checked via machine state
+    return isManualFlushState(getCurrentStateId());
 }
 
 bool MachineStateContext::isSteamActive() const {
-     // Check if we're in steam running state
-     return (systemContext_.machineStateContext()->getCurrentStateId() == MachineStateId::STEAM_RUNNING);
+    // Check if we're in steam running state
+    return (systemContext_.machineStateContext()->getCurrentStateId() == MachineStateId::STEAM_RUNNING);
 }
 
 bool MachineStateContext::isHotWaterActive() const {
-     // Hot water is handled via pump control in PID_NORMAL and STEAM_RUNNING
-     // Check if hot water switch is pressed
-     auto* waterSwitch = getHotWaterSwitch();
-     return (waterSwitch && waterSwitch->isPressed());
+    // Hot water is handled via pump control in PID_NORMAL and STEAM_RUNNING
+    // Check if hot water switch is pressed
+    auto* waterSwitch = getHotWaterSwitch();
+    return (waterSwitch && waterSwitch->isPressed());
 }
 
 bool MachineStateContext::isBackflushActive() const {
-     return backflushOn_;
+    return backflushOn_;
 }
 
 // === System State Access ===
@@ -188,7 +185,7 @@ bool MachineStateContext::isPidEnabled() const {
 }
 
 bool MachineStateContext::isEmergencyStop() const {
-     return emergencyStop_;
+    return emergencyStop_;
 }
 
 bool MachineStateContext::shouldEnterStandby() const {
@@ -322,25 +319,24 @@ void MachineStateContext::setManualFlushState(bool active) const {
     }
 }
 
-
 void MachineStateContext::setSteamState(bool active) {
-     // Update member variable
-     steamON_ = active;
-     if (active) {
-         LOG(DEBUG, "Steam mode activated");
-     } else {
-         LOG(DEBUG, "Steam mode deactivated");
-     }
+    // Update member variable
+    steamON_ = active;
+    if (active) {
+        LOG(DEBUG, "Steam mode activated");
+    } else {
+        LOG(DEBUG, "Steam mode deactivated");
+    }
 }
 
 void MachineStateContext::setBackflushState(bool active) {
-     // Update member variable
-     backflushOn_ = active;
-     if (active) {
-         LOG(DEBUG, "Backflush mode activated");
-     } else {
-         LOG(DEBUG, "Backflush mode deactivated");
-     }
+    // Update member variable
+    backflushOn_ = active;
+    if (active) {
+        LOG(DEBUG, "Backflush mode activated");
+    } else {
+        LOG(DEBUG, "Backflush mode deactivated");
+    }
 }
 
 void MachineStateContext::disableWaterOperations() const {

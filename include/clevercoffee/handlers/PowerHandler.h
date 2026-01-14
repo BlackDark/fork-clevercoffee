@@ -5,11 +5,11 @@
 #pragma once
 
 #include "clevercoffee/Config.h"
+#include "clevercoffee/context/SystemContext.h"
 #include "clevercoffee/display/displayCommon.h"
 #include "clevercoffee/handlers/BaseHandler.h"
-#include "clevercoffee/context/SystemContext.h"
-#include "clevercoffee/state/MachineStateContext.h"
 #include "clevercoffee/state/MachineState.h"
+#include "clevercoffee/state/MachineStateContext.h"
 #include "clevercoffee/utils/SystemUtils.h"
 
 #include <Logger.h>
@@ -23,7 +23,7 @@ class PowerHandler : public SwitchBasedHandler {
     // Long press detection state
     unsigned long longPressStartTime_;
     bool          trackingLongPress_;
-    
+
     // Power switch state tracking
     bool          currStatePowerSwitchPressed_;
     bool          lastPowerSwitchPressed_;
@@ -33,15 +33,10 @@ class PowerHandler : public SwitchBasedHandler {
 
   public:
     explicit PowerHandler(CleverCoffee::SystemContext& ctx)
-        : SwitchBasedHandler("PowerHandler", nullptr, ctx), 
-          longPressStartTime_(0),
-          trackingLongPress_(false),
-          currStatePowerSwitchPressed_(false),
-          lastPowerSwitchPressed_(false),
-          systemInitializedTime_(0),
-          firstSwitchPressTime_(0),
-          trackingPressTime_(false) {}
-    
+        : SwitchBasedHandler("PowerHandler", nullptr, ctx), longPressStartTime_(0), trackingLongPress_(false),
+          currStatePowerSwitchPressed_(false), lastPowerSwitchPressed_(false), systemInitializedTime_(0),
+          firstSwitchPressTime_(0), trackingPressTime_(false) {}
+
     /**
      * @brief Initialize with hardware switch (call after HardwareManager is ready)
      * @param powerSwitch Pointer to power switch hardware
@@ -123,8 +118,8 @@ class PowerHandler : public SwitchBasedHandler {
         if (currentMillis - systemInitializedTime_ > 5000) {
             firstSwitchPressTime_ = currentMillis;
             trackingPressTime_    = true;
-            trackingLongPress_                   = true;
-            longPressStartTime_                  = currentMillis;
+            trackingLongPress_    = true;
+            longPressStartTime_   = currentMillis;
         }
 
         // Toggle power state
@@ -140,13 +135,12 @@ class PowerHandler : public SwitchBasedHandler {
     void handlePowerButtonRelease() {
         trackingPressTime_    = false;
         firstSwitchPressTime_ = 0;
-        trackingLongPress_                   = false;
-        longPressStartTime_                  = 0;
+        trackingLongPress_    = false;
+        longPressStartTime_   = 0;
     }
 
     void checkForLongPressReboot(bool pressed, long currentMillis) {
-        if (pressed &&
-            (currentMillis - systemInitializedTime_ > 5000) && trackingLongPress_ &&
+        if (pressed && (currentMillis - systemInitializedTime_ > 5000) && trackingLongPress_ &&
             (currentMillis - longPressStartTime_ > 1000) && switch_->longPressDetected()) {
             triggerSystemReboot();
         }
@@ -167,18 +161,18 @@ class PowerHandler : public SwitchBasedHandler {
     }
 
     void powerOff() {
-         auto* context = systemContext_.machineStateContext();
-         if (!context) return;
-         if (context->getCurrentStateId() != MachineStateId::STANDBY) {
-             if (auto* processController = systemContext_.processController()) {
-                 processController->performSafeShutdown();
-             }
-             context->setStandbyRequested(true);
-             // Use StandbyCoordinator to mark immediate standby activation
-             systemContext_.standbyCoordinator().setRemainingTimeMillis(0);
-             logInfo("System powered off");
-         }
-     }
+        auto* context = systemContext_.machineStateContext();
+        if (!context) return;
+        if (context->getCurrentStateId() != MachineStateId::STANDBY) {
+            if (auto* processController = systemContext_.processController()) {
+                processController->performSafeShutdown();
+            }
+            context->setStandbyRequested(true);
+            // Use StandbyCoordinator to mark immediate standby activation
+            systemContext_.standbyCoordinator().setRemainingTimeMillis(0);
+            logInfo("System powered off");
+        }
+    }
 
     void triggerSystemReboot() {
         logInfo("Power switch long press detected - initiating system reboot");

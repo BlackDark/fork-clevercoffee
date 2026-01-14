@@ -5,8 +5,8 @@
 #pragma once
 
 #include "clevercoffee/Config.h"
-#include "clevercoffee/handlers/BaseHandler.h"
 #include "clevercoffee/context/SystemContext.h"
+#include "clevercoffee/handlers/BaseHandler.h"
 #include "clevercoffee/state/MachineStateContext.h"
 #include "clevercoffee/state/MachineStateIds.h"
 
@@ -19,8 +19,9 @@
  */
 class SteamHandler : public SwitchBasedHandler {
   public:
-    explicit SteamHandler(CleverCoffee::SystemContext& ctx) : SwitchBasedHandler("SteamHandler", nullptr, ctx), lastSwitchReading_(LOW), switchStateChanged_(false) {}
-    
+    explicit SteamHandler(CleverCoffee::SystemContext& ctx)
+        : SwitchBasedHandler("SteamHandler", nullptr, ctx), lastSwitchReading_(LOW), switchStateChanged_(false) {}
+
     /**
      * @brief Initialize with hardware switch (call after HardwareManager is ready)
      * @param steamSwitch Pointer to steam switch hardware
@@ -89,14 +90,14 @@ class SteamHandler : public SwitchBasedHandler {
         processSwitchInput();
     }
 
-   private:
-    uint8_t lastSwitchReading_ = LOW;
-    bool switchStateChanged_ = false;
+  private:
+    uint8_t lastSwitchReading_  = LOW;
+    bool    switchStateChanged_ = false;
 
     void processSwitchInput() {
         if (!switch_) return;
-        const uint8_t reading = getSwitchReading();
-        const auto switchType = Config::getInstance().hardwareSwitchesSteamType.get();
+        const uint8_t reading    = getSwitchReading();
+        const auto    switchType = Config::getInstance().hardwareSwitchesSteamType.get();
 
         if (reading != lastSwitchReading_) {
             switchStateChanged_ = true;
@@ -113,12 +114,12 @@ class SteamHandler : public SwitchBasedHandler {
                     logInfo("Steam momentary switch released");
                 }
             }
-            
+
             // Set flags for state machine transitions (flag-based approach fixes timing issues)
             auto* context = systemContext_.machineStateContext();
             if (!context) return;
             const auto currentState = context->getCurrentStateId();
-            
+
             // Determine if we should set start or stop flag based on switch state and current state
             if (reading == HIGH) {
                 // Switch pressed/activated

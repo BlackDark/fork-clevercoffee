@@ -67,7 +67,7 @@ namespace CleverCoffee {
  * @endcode
  */
 class IStateManager {
-public:
+  public:
     virtual ~IStateManager() = default;
 
     /**

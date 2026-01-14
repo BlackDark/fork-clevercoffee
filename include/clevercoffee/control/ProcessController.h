@@ -5,11 +5,11 @@
 
 #pragma once
 
-#include <memory>
-
-#include "clevercoffee/state/MachineStateIds.h"
-#include <PID_v1.h>
 #include "clevercoffee/control/EmergencyStopManager.h"
+#include "clevercoffee/state/MachineStateIds.h"
+
+#include <PID_v1.h>
+#include <memory>
 
 // Forward declarations
 class DisplayManager;
@@ -21,7 +21,7 @@ class Config;
 namespace CleverCoffee {
 class HardwareManager;
 class SystemContext;
-}
+} // namespace CleverCoffee
 
 /**
  * @class ProcessController
@@ -44,18 +44,18 @@ class SystemContext;
 class ProcessController {
   public:
     /**
-      * @param config Configuration instance
-      * @param systemContext System context for sensor coordinator access (REQUIRED)
-      * @param hardwareManager Hardware manager instance (REQUIRED - CRITICAL component)
-      * @param displayManager Display manager instance (OPTIONAL)
-      * @param displayManager Display manager (REQUIRED - always exists)
-      * @param mqttManager MQTT manager (REQUIRED - always exists)
-      */
-    ProcessController(const Config&    config,
-                      CleverCoffee::SystemContext& systemContext,
+     * @param config Configuration instance
+     * @param systemContext System context for sensor coordinator access (REQUIRED)
+     * @param hardwareManager Hardware manager instance (REQUIRED - CRITICAL component)
+     * @param displayManager Display manager instance (OPTIONAL)
+     * @param displayManager Display manager (REQUIRED - always exists)
+     * @param mqttManager MQTT manager (REQUIRED - always exists)
+     */
+    ProcessController(const Config&                  config,
+                      CleverCoffee::SystemContext&   systemContext,
                       CleverCoffee::HardwareManager& hardwareManager,
-                      DisplayManager&  displayManager,
-                      MQTTManager&     mqttManager);
+                      DisplayManager&                displayManager,
+                      MQTTManager&                   mqttManager);
 
     /**
      * @brief Destructor
@@ -178,58 +178,58 @@ class ProcessController {
         return setpoint_;
     }
 
-     /**
-      * @brief Check if PID is currently enabled
-      * @return true if PID is in automatic mode
-      */
-     bool isPIDEnabled() const;
+    /**
+     * @brief Check if PID is currently enabled
+     * @return true if PID is in automatic mode
+     */
+    bool isPIDEnabled() const;
 
-     /**
-      * @brief Enable or disable PID control
-      * @param enabled Whether to enable PID
-      */
-     void setPIDEnabled(bool enabled);
+    /**
+     * @brief Enable or disable PID control
+     * @param enabled Whether to enable PID
+     */
+    void setPIDEnabled(bool enabled);
 
-     /**
-      * @brief Get current brew time in milliseconds
-      * @return Current brew time (set externally by state machines)
-      */
-     double getCurrBrewTime() const;
+    /**
+     * @brief Get current brew time in milliseconds
+     * @return Current brew time (set externally by state machines)
+     */
+    double getCurrBrewTime() const;
 
-     /**
-      * @brief Set current brew time in milliseconds
-      * @param brewTime Brew time to set
-      */
-     void setCurrBrewTime(double brewTime);
+    /**
+     * @brief Set current brew time in milliseconds
+     * @param brewTime Brew time to set
+     */
+    void setCurrBrewTime(double brewTime);
 
-     /**
-      * @brief Get total target brew time in milliseconds
-      * @return Target brew time
-      */
-     double getTotalTargetBrewTime() const;
+    /**
+     * @brief Get total target brew time in milliseconds
+     * @return Target brew time
+     */
+    double getTotalTargetBrewTime() const;
 
-     /**
-      * @brief Set total target brew time in milliseconds
-      * @param brewTime Target brew time
-      */
-     void setTotalTargetBrewTime(double brewTime);
+    /**
+     * @brief Set total target brew time in milliseconds
+     * @param brewTime Target brew time
+     */
+    void setTotalTargetBrewTime(double brewTime);
 
-     /**
-      * @brief Get brew PID disabled flag
-      * @return true if brew PID is disabled
-      */
-     bool isBrewPidDisabled() const;
+    /**
+     * @brief Get brew PID disabled flag
+     * @return true if brew PID is disabled
+     */
+    bool isBrewPidDisabled() const;
 
-     /**
-      * @brief Set brew PID disabled flag
-      * @param disabled Whether brew PID should be disabled
-      */
-     void setBrewPidDisabled(bool disabled);
+    /**
+     * @brief Set brew PID disabled flag
+     * @param disabled Whether brew PID should be disabled
+     */
+    void setBrewPidDisabled(bool disabled);
 
-     /**
-      * @brief Emergency stop - immediately disable PID and turn off heater
-      */
-     void emergencyStop();
+    /**
+     * @brief Emergency stop - immediately disable PID and turn off heater
+     */
+    void emergencyStop();
 
     /**
      * @brief Safe shutdown - completely shutdown all machine operations
@@ -245,56 +245,68 @@ class ProcessController {
      */
     void performSafeShutdown();
 
-     /**
+    /**
      * @brief Test for emergency conditions (overtemperature, etc.)
      * @return true if emergency stop was triggered
      */
-     bool testEmergencyConditions();
+    bool testEmergencyConditions();
 
-     /**
-      * @brief Check if emergency can be cleared
-      * @param temperature Current temperature reading
-      * @return true if emergency can be cleared
-      */
-     bool isEmergencyCleared(double temperature) const;
+    /**
+     * @brief Check if emergency can be cleared
+     * @param temperature Current temperature reading
+     * @return true if emergency can be cleared
+     */
+    bool isEmergencyCleared(double temperature) const;
 
-     /**
-      * @brief Get PID normal mode Ki parameter
-      * @return Current Ki value
-      */
-     double getAggKi() const { return aggKi_; }
+    /**
+     * @brief Get PID normal mode Ki parameter
+     * @return Current Ki value
+     */
+    double getAggKi() const {
+        return aggKi_;
+    }
 
-     /**
-      * @brief Get PID normal mode Kd parameter
-      * @return Current Kd value
-      */
-     double getAggKd() const { return aggKd_; }
+    /**
+     * @brief Get PID normal mode Kd parameter
+     * @return Current Kd value
+     */
+    double getAggKd() const {
+        return aggKd_;
+    }
 
-     /**
-      * @brief Get PID normal mode Kp parameter
-      * @return Current Kp value
-      */
-     double getAggKp() const { return aggKp_; }
+    /**
+     * @brief Get PID normal mode Kp parameter
+     * @return Current Kp value
+     */
+    double getAggKp() const {
+        return aggKp_;
+    }
 
-     /**
-      * @brief Get PID window size (0-1000 ms typically)
-      * @return Window size in milliseconds
-      */
-     int getWindowSize() const { return windowSize_; }
+    /**
+     * @brief Get PID window size (0-1000 ms typically)
+     * @return Window size in milliseconds
+     */
+    int getWindowSize() const {
+        return windowSize_;
+    }
 
-     /**
-      * @brief Get brew detection PID Ki parameter
-      * @return Current brew detection Ki value
-      */
-     double getAggbKi() const { return aggbKi_; }
+    /**
+     * @brief Get brew detection PID Ki parameter
+     * @return Current brew detection Ki value
+     */
+    double getAggbKi() const {
+        return aggbKi_;
+    }
 
-     /**
-      * @brief Get brew detection PID Kd parameter
-      * @return Current brew detection Kd value
-      */
-     double getAggbKd() const { return aggbKd_; }
+    /**
+     * @brief Get brew detection PID Kd parameter
+     * @return Current brew detection Kd value
+     */
+    double getAggbKd() const {
+        return aggbKd_;
+    }
 
-   private:
+  private:
     /**
      * @brief Update process control debug logging
      */
@@ -312,17 +324,17 @@ class ProcessController {
 
     /**
      * @brief Handle brew PID delay logic during brewing
-     * 
+     *
      * Manages PID state during brew process:
      * - Disables PID during initial delay period (first N seconds) to prevent overshoot
      * - Re-enables PID after delay period with appropriate tunings
      * - Re-enables PID if brew is aborted during delay period
-     * 
+     *
      * @param machineState Current machine state
      */
     void handleBrewPIDDelay(MachineStateId machineState);
 
-private:
+  private:
     /**
      * @brief Disable PID during brew delay period
      * Called when brew is in the initial delay period
@@ -341,17 +353,16 @@ private:
      */
     void reEnablePIDAfterBrewAbort() noexcept;
 
-public:
-
+  public:
     // Configuration reference (not owned)
     const Config& config_;
-    
+
     // System context reference (not owned)
     CleverCoffee::SystemContext& systemContext_;
 
     // Manager dependencies - ALL REQUIRED
-    CleverCoffee::HardwareManager& hardwareManager_;  // REQUIRED - CRITICAL component
-    DisplayManager&                displayManager_;   // REQUIRED - always exists
+    CleverCoffee::HardwareManager& hardwareManager_; // REQUIRED - CRITICAL component
+    DisplayManager&                displayManager_;  // REQUIRED - always exists
     MQTTManager&                   mqttManager_;     // REQUIRED - always exists
 
     // PID controller
@@ -374,20 +385,20 @@ public:
     // Steam parameters
     double steamKp_; ///< Steam mode proportional gain
 
-     // Setpoint values
-     double brewSetpoint_;  ///< Target temperature for brewing
-     double steamSetpoint_; ///< Target temperature for steam
+    // Setpoint values
+    double brewSetpoint_;  ///< Target temperature for brewing
+    double steamSetpoint_; ///< Target temperature for steam
 
-      // Brewing process state
-      double currBrewTime_;         ///< Current brew time in milliseconds
-      double totalTargetBrewTime_;  ///< Target brew time in milliseconds
-      bool   brewPidDisabled_;      ///< Whether brew PID is disabled
+    // Brewing process state
+    double currBrewTime_;        ///< Current brew time in milliseconds
+    double totalTargetBrewTime_; ///< Target brew time in milliseconds
+    bool   brewPidDisabled_;     ///< Whether brew PID is disabled
 
-      // Temperature offset
-      double brewTempOffset_; ///< Temperature offset for brewing
+    // Temperature offset
+    double brewTempOffset_; ///< Temperature offset for brewing
 
-      // PWM control
-      int windowSize_ = 1000;  ///< PID window/period size in milliseconds
+    // PWM control
+    int windowSize_ = 1000; ///< PID window/period size in milliseconds
 
     // Emergency stop management (centralized)
     std::unique_ptr<CleverCoffee::EmergencyStopManager> emergencyStopManager_;

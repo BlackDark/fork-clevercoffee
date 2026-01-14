@@ -40,7 +40,7 @@ namespace CleverCoffee {
  * @endcode
  */
 class UICoordinator {
-public:
+  public:
     UICoordinator() = default;
 
     /**
@@ -222,7 +222,7 @@ public:
 
     /** @} */
 
-private:
+  private:
     std::atomic<bool> refreshNeeded_{false};        ///< Flag for pending display refresh
     std::atomic<bool> autoSleepEnabled_{true};      ///< Flag for auto sleep state
     std::atomic<bool> displayBufferReady_{false};   ///< Flag indicating display buffer is ready

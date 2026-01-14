@@ -51,7 +51,7 @@ extern const std::vector<std::pair<Process::BrewMode, String>>&               ge
 
 // Forward declarations
 namespace CleverCoffee {
-    class SystemContext;
+class SystemContext;
 }
 
 template <typename T>
@@ -1356,28 +1356,29 @@ class Config {
     // === LIVE SENSOR READINGS ===
     StateParamDef<double> stateTemperature{"state.temperature", "Current Temperature", 6, 601,
                                            "Current temperature reading from sensor",
-                                           [this]() { return systemContext_ ? systemContext_->processTemperature() : 0.0; },
-                                           StateParamDef<double>::UpdateFrequency::REALTIME, "°C"};
+                                           [this]() { return systemContext_ ? systemContext_->processTemperature() :
+    0.0; }, StateParamDef<double>::UpdateFrequency::REALTIME, "°C"};
 
     StateParamDef<double> stateHeaterPower{"state.heater_power", "Heater Power", 6, 602,
                                            "Current heater power output percentage",
-                                           [this]() { return systemContext_ ? systemContext_->processPidOutput() / 10.0 : 0.0; },
-                                           StateParamDef<double>::UpdateFrequency::REALTIME, "%"};
+                                           [this]() { return systemContext_ ? systemContext_->processPidOutput() / 10.0
+    : 0.0; }, StateParamDef<double>::UpdateFrequency::REALTIME, "%"};
 
     StateParamDef<double> statePressure{"state.pressure", "Current Pressure", 6, 603,
                                         "Current pressure reading from sensor",
-                                        [this]() { return systemContext_ ? systemContext_->inputPressureFilter() : 0.0f; },
-                                        StateParamDef<double>::UpdateFrequency::REALTIME, "bar"};
+                                        [this]() { return systemContext_ ? systemContext_->inputPressureFilter() : 0.0f;
+    }, StateParamDef<double>::UpdateFrequency::REALTIME, "bar"};
 
     StateParamDef<double> stateWeight{"state.weight", "Current Weight", 6, 604,
                                       "Current weight reading from scale",
-                                      [this]() { return systemContext_ ? systemContext_->sensorCoordinator().getWeight() : 0.0; },
-                                      StateParamDef<double>::UpdateFrequency::REALTIME, "g"};
+                                      [this]() { return systemContext_ ? systemContext_->sensorCoordinator().getWeight()
+    : 0.0; }, StateParamDef<double>::UpdateFrequency::REALTIME, "g"};
 
     // === MACHINE STATUS ===
     StateParamDef<int> stateMachineState{"state.machine_state", "Machine State", 6, 605,
                                          "Current machine state",
-                                         [this]() { return systemContext_ && systemContext_->machineStateContext() ? static_cast<int>(systemContext_->machineStateContext()->getCurrentStateId()) : 0; },
+                                         [this]() { return systemContext_ && systemContext_->machineStateContext() ?
+    static_cast<int>(systemContext_->machineStateContext()->getCurrentStateId()) : 0; },
                                          StateParamDef<int>::UpdateFrequency::FREQUENT};
 
     StateParamDef<bool> stateWifiConnected{"state.wifi_connected", "WiFi Connected", 6, 606,
@@ -1387,19 +1388,20 @@ class Config {
 
     StateParamDef<bool> stateMqttConnected{"state.mqtt_connected", "MQTT Connected", 6, 607,
                                            "MQTT broker connection status",
-                                           [this]() { return systemContext_ && systemContext_->mqttManager() && systemContext_->mqttManager()->isConnected(); },
-                                           StateParamDef<bool>::UpdateFrequency::FREQUENT};
+                                           [this]() { return systemContext_ && systemContext_->mqttManager() &&
+    systemContext_->mqttManager()->isConnected(); }, StateParamDef<bool>::UpdateFrequency::FREQUENT};
 
      StateParamDef<bool> stateWaterTank{"state.water_tank", "Water Tank Full", 6, 608,
                                             "Water tank sensor status",
-                                            [this]() { return systemContext_ && systemContext_->machineStateContext() ? systemContext_->machineStateContext()->isWaterTankFullState() : false; },
+                                            [this]() { return systemContext_ && systemContext_->machineStateContext() ?
+    systemContext_->machineStateContext()->isWaterTankFullState() : false; },
                                             StateParamDef<bool>::UpdateFrequency::FREQUENT};
 
     // === BREWING STATUS ===
     StateParamDef<double> stateBrewTime{"state.brew_time", "Current Brew Time", 7, 701,
                                         "Current brewing time in seconds",
-                                        [this]() { return systemContext_ ? systemContext_->processCurrentBrewTime() / 1000.0 : 0.0; },
-                                        StateParamDef<double>::UpdateFrequency::REALTIME, "s"};
+                                        [this]() { return systemContext_ ? systemContext_->processCurrentBrewTime() /
+    1000.0 : 0.0; }, StateParamDef<double>::UpdateFrequency::REALTIME, "s"};
 
     StateParamDef<double> stateBrewWeight{"state.brew_weight", "Brew Weight", 7, 702,
                                           "Weight of extracted coffee",
@@ -1408,7 +1410,8 @@ class Config {
 
      StateParamDef<bool> stateBrewActive{"state.brew_active", "Brew Active", 7, 703,
                                          "Whether brewing is currently active",
-                                         [this]() { return systemContext_ && systemContext_->machineStateContext() ? CleverCoffee::isBrewState(systemContext_->machineStateContext()->getCurrentStateId()) : false; },
+                                         [this]() { return systemContext_ && systemContext_->machineStateContext() ?
+    CleverCoffee::isBrewState(systemContext_->machineStateContext()->getCurrentStateId()) : false; },
                                          StateParamDef<bool>::UpdateFrequency::FREQUENT};
 
     // === SYSTEM INFORMATION ===

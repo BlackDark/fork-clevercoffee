@@ -1,14 +1,14 @@
 #include "clevercoffee/context/SystemContext.h"
-#include <PID_v1.h>  // Required for PID method implementations
 
+#include "clevercoffee/Logger.h"
 #include "clevercoffee/control/ProcessController.h"
 #include "clevercoffee/defaults.h"
-#include "clevercoffee/Logger.h"
-
 #include "clevercoffee/handlers/BrewHandler.h"
 #include "clevercoffee/handlers/HotWaterHandler.h"
 #include "clevercoffee/handlers/PowerHandler.h"
 #include "clevercoffee/handlers/SteamHandler.h"
+
+#include <PID_v1.h> // Required for PID method implementations
 
 namespace CleverCoffee {
 
@@ -136,25 +136,24 @@ double* SystemContext::processSetpointPtr() noexcept {
 
 SystemContext::DisplaySnapshot SystemContext::getDisplaySnapshot() const noexcept {
     DisplaySnapshot snapshot;
-    snapshot.currentTemperature = processState_.temperature();
+    snapshot.currentTemperature  = processState_.temperature();
     snapshot.setpointTemperature = processState_.setpoint();
-    snapshot.pidOutputPercent = processState_.pidOutput();
-    snapshot.currentBrewTime = processState_.currentBrewTime();
-    snapshot.targetBrewTime = processState_.totalTargetBrewTime();
-    snapshot.brewPidDisabled = processState_.brewPidDisabled();
+    snapshot.pidOutputPercent    = processState_.pidOutput();
+    snapshot.currentBrewTime     = processState_.currentBrewTime();
+    snapshot.targetBrewTime      = processState_.totalTargetBrewTime();
+    snapshot.brewPidDisabled     = processState_.brewPidDisabled();
     // Get actual PID tuning values from PID controller
-    snapshot.pidKp = pidKp();
-    snapshot.pidKi = pidKi();
-    snapshot.pidKd = pidKd();
-    snapshot.pumpOnTime = sensorState_.currPumpOnTime();
-    snapshot.inputPressure = sensorState_.inputPressure();
-    snapshot.brewWeight = sensorState_.currBrewWeight();
-    snapshot.isrCounter = timing_isrCounter_;
+    snapshot.pidKp              = pidKp();
+    snapshot.pidKi              = pidKi();
+    snapshot.pidKd              = pidKd();
+    snapshot.pumpOnTime         = sensorState_.currPumpOnTime();
+    snapshot.inputPressure      = sensorState_.inputPressure();
+    snapshot.brewWeight         = sensorState_.currBrewWeight();
+    snapshot.isrCounter         = timing_isrCounter_;
     snapshot.displayBufferReady = uiCoordinator_.isDisplayBufferReady();
-    
+
     return snapshot;
 }
-
 
 // ===== COMMAND/CONTROL ACCESSORS =====
 
@@ -453,7 +452,6 @@ unsigned int SystemContext::wifiReconnects() const noexcept {
     return networkCoordinator_.getWifiReconnects();
 }
 
-
 // ===== MACHINE MODE FLAGS =====
 
 bool SystemContext::steamMode() const noexcept {
@@ -575,7 +573,7 @@ const char* SystemContext::sysVersion() const noexcept {
 // WiFi password definition
 extern const char* WIFI_PASSWORD;
 
-}  // namespace CleverCoffee
+} // namespace CleverCoffee
 
 // ===== GLOBAL DEFINITIONS (outside namespace) =====
 
@@ -599,14 +597,14 @@ void initializeHandlers(CleverCoffee::SystemContext& systemContext) {
     hotWaterHandler = new HotWaterHandler(systemContext);
     powerHandler    = new PowerHandler(systemContext);
     steamHandler    = new SteamHandler(systemContext);
-    
+
     // Initialize handler hardware
     auto& hwContext = systemContext.hardwareContext();
     brewHandler->setHardware(hwContext.brewSwitch(), hwContext.valveRelay());
     hotWaterHandler->setHardware(hwContext.hotWaterSwitch());
     powerHandler->setHardware(hwContext.powerSwitch());
     steamHandler->setHardware(hwContext.steamSwitch());
-    
+
     // Register handlers with SystemContext
     systemContext.setBrewHandler(brewHandler);
     systemContext.setHotWaterHandler(hotWaterHandler);

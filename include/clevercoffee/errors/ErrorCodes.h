@@ -16,25 +16,25 @@ namespace CleverCoffee {
 enum class ErrorCode {
     // Success
     SUCCESS = 0,
-    
+
     // Sensor errors
     SENSOR_TIMEOUT,
     SENSOR_DISCONNECTED,
     SENSOR_FAULT,
     SENSOR_NOT_READY,
-    
+
     // Hardware errors
     HARDWARE_FAILURE,
     WATER_TANK_EMPTY,
-    
+
     // State errors
     INVALID_STATE,
     INVALID_TRANSITION,
-    
+
     // System errors
     EMERGENCY_STOP,
     EMERGENCY_TEMPERATURE,
-    
+
     // Generic
     UNKNOWN_ERROR
 };
@@ -44,18 +44,17 @@ enum class ErrorCode {
  * @brief Type-safe error representation with code and message
  */
 class Error {
-    ErrorCode code_;
+    ErrorCode   code_;
     const char* message_;
-    
-public:
+
+  public:
     /**
      * @brief Constructor
      * @param code Error code
      * @param message Human-readable error message (must be static string)
      */
-    Error(ErrorCode code, const char* message) noexcept
-        : code_(code), message_(message) {}
-    
+    Error(ErrorCode code, const char* message) noexcept : code_(code), message_(message) {}
+
     /**
      * @brief Get error code
      * @return The error code
@@ -63,7 +62,7 @@ public:
     [[nodiscard]] ErrorCode code() const noexcept {
         return code_;
     }
-    
+
     /**
      * @brief Get error message
      * @return Human-readable error message
@@ -71,7 +70,7 @@ public:
     [[nodiscard]] const char* message() const noexcept {
         return message_;
     }
-    
+
     /**
      * @brief Get user-friendly error message with recovery suggestion
      * @return Formatted error message with actionable advice
@@ -103,7 +102,7 @@ public:
                 return message_ ? message_ : "Unknown error occurred";
         }
     }
-    
+
     /**
      * @brief Get recovery suggestion for this error
      * @return Actionable recovery steps
@@ -135,40 +134,51 @@ public:
                 return "Check system logs for details, restart if problem persists";
         }
     }
-    
+
     /**
      * @brief Check if this is a critical error
      * @return true if error requires immediate action
      */
     [[nodiscard]] bool isCritical() const noexcept {
-        return code_ == ErrorCode::SENSOR_DISCONNECTED ||
-               code_ == ErrorCode::SENSOR_FAULT ||
-               code_ == ErrorCode::HARDWARE_FAILURE ||
-               code_ == ErrorCode::EMERGENCY_STOP ||
+        return code_ == ErrorCode::SENSOR_DISCONNECTED || code_ == ErrorCode::SENSOR_FAULT ||
+               code_ == ErrorCode::HARDWARE_FAILURE || code_ == ErrorCode::EMERGENCY_STOP ||
                code_ == ErrorCode::EMERGENCY_TEMPERATURE;
     }
-    
+
     /**
      * @brief Get error code as string for logging
      * @return Error code name as string
      */
     [[nodiscard]] const char* codeString() const noexcept {
         switch (code_) {
-            case ErrorCode::SUCCESS: return "SUCCESS";
-            case ErrorCode::SENSOR_TIMEOUT: return "SENSOR_TIMEOUT";
-            case ErrorCode::SENSOR_DISCONNECTED: return "SENSOR_DISCONNECTED";
-            case ErrorCode::SENSOR_FAULT: return "SENSOR_FAULT";
-            case ErrorCode::SENSOR_NOT_READY: return "SENSOR_NOT_READY";
-            case ErrorCode::HARDWARE_FAILURE: return "HARDWARE_FAILURE";
-            case ErrorCode::WATER_TANK_EMPTY: return "WATER_TANK_EMPTY";
-            case ErrorCode::INVALID_STATE: return "INVALID_STATE";
-            case ErrorCode::INVALID_TRANSITION: return "INVALID_TRANSITION";
-            case ErrorCode::EMERGENCY_STOP: return "EMERGENCY_STOP";
-            case ErrorCode::EMERGENCY_TEMPERATURE: return "EMERGENCY_TEMPERATURE";
-            case ErrorCode::UNKNOWN_ERROR: return "UNKNOWN_ERROR";
-            default: return "UNKNOWN";
+            case ErrorCode::SUCCESS:
+                return "SUCCESS";
+            case ErrorCode::SENSOR_TIMEOUT:
+                return "SENSOR_TIMEOUT";
+            case ErrorCode::SENSOR_DISCONNECTED:
+                return "SENSOR_DISCONNECTED";
+            case ErrorCode::SENSOR_FAULT:
+                return "SENSOR_FAULT";
+            case ErrorCode::SENSOR_NOT_READY:
+                return "SENSOR_NOT_READY";
+            case ErrorCode::HARDWARE_FAILURE:
+                return "HARDWARE_FAILURE";
+            case ErrorCode::WATER_TANK_EMPTY:
+                return "WATER_TANK_EMPTY";
+            case ErrorCode::INVALID_STATE:
+                return "INVALID_STATE";
+            case ErrorCode::INVALID_TRANSITION:
+                return "INVALID_TRANSITION";
+            case ErrorCode::EMERGENCY_STOP:
+                return "EMERGENCY_STOP";
+            case ErrorCode::EMERGENCY_TEMPERATURE:
+                return "EMERGENCY_TEMPERATURE";
+            case ErrorCode::UNKNOWN_ERROR:
+                return "UNKNOWN_ERROR";
+            default:
+                return "UNKNOWN";
         }
     }
 };
 
-}  // namespace CleverCoffee
+} // namespace CleverCoffee

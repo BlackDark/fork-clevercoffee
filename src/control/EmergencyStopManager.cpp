@@ -12,21 +12,22 @@ using CleverCoffee::Temperature::EMERGENCY_SAFE_TEMP_C;
 
 namespace CleverCoffee {
 
-EmergencyStopManager::EmergencyStopManager(const Config& config)
-    : config_(config) {
-}
+EmergencyStopManager::EmergencyStopManager(const Config& config) : config_(config) {}
 
 bool EmergencyStopManager::checkEmergencyConditions(double temperature) {
-    const double emergencyTemp = config_.emergencyStopTemp.get();
-    const double hysteresis = config_.emergencyStopHysteresis.get();
+    const double emergencyTemp  = config_.emergencyStopTemp.get();
+    const double hysteresis     = config_.emergencyStopHysteresis.get();
     const double sensorMinValid = Temperature::MIN_VALID_TEMP_C;
     const double sensorMaxValid = Temperature::MAX_VALID_TEMP_C;
 
     // STEP 1: Check for sensor disconnection or invalid reading
     // Invalid readings immediately trigger emergency (no debouncing for safety)
     if (temperature < sensorMinValid || temperature > sensorMaxValid) {
-        LOGF(ERROR, "Emergency: Invalid temperature reading (%.1f°C outside valid range [%.1f, %.1f])",
-             temperature, sensorMinValid, sensorMaxValid);
+        LOGF(ERROR,
+             "Emergency: Invalid temperature reading (%.1f°C outside valid range [%.1f, %.1f])",
+             temperature,
+             sensorMinValid,
+             sensorMaxValid);
         triggerEmergency();
         return true;
     }
@@ -34,21 +35,26 @@ bool EmergencyStopManager::checkEmergencyConditions(double temperature) {
     // STEP 2: Hysteresis-based emergency detection with debouncing
     if (temperature > emergencyTemp) {
         emergencyTempReadingCount_++;
-        LOGF(WARNING, "High temperature detected: %.1f°C (reading %d/%d, threshold: %.1f°C)",
-             temperature, emergencyTempReadingCount_, DEBOUNCE_COUNT, emergencyTemp);
+        LOGF(WARNING,
+             "High temperature detected: %.1f°C (reading %d/%d, threshold: %.1f°C)",
+             temperature,
+             emergencyTempReadingCount_,
+             DEBOUNCE_COUNT,
+             emergencyTemp);
 
         // Require multiple consecutive high readings to trigger emergency
         if (emergencyTempReadingCount_ >= DEBOUNCE_COUNT) {
-            LOGF(ERROR, "Emergency: Temperature too high (%.1f°C > %.1f°C limit)!",
-                 temperature, emergencyTemp);
+            LOGF(ERROR, "Emergency: Temperature too high (%.1f°C > %.1f°C limit)!", temperature, emergencyTemp);
             triggerEmergency();
             return true;
         }
     } else if (temperature < (emergencyTemp - hysteresis)) {
         // Reset counter only when temperature drops below threshold minus hysteresis
         if (emergencyTempReadingCount_ > 0) {
-            LOGF(INFO, "Temperature normalized (%.1f°C < %.1f°C). Resetting emergency counter.",
-                 temperature, emergencyTemp - hysteresis);
+            LOGF(INFO,
+                 "Temperature normalized (%.1f°C < %.1f°C). Resetting emergency counter.",
+                 temperature,
+                 emergencyTemp - hysteresis);
             emergencyTempReadingCount_ = 0;
         }
         // If emergency was active, check if we can clear it
@@ -75,8 +81,8 @@ bool EmergencyStopManager::isEmergencyCleared(double temperature) const {
     }
 
     if (temperature > EMERGENCY_SAFE_TEMP_C) {
-        LOGF(WARNING, "Temperature still elevated: %.1f°C (safe threshold: %.1f°C)",
-             temperature, EMERGENCY_SAFE_TEMP_C);
+        LOGF(
+            WARNING, "Temperature still elevated: %.1f°C (safe threshold: %.1f°C)", temperature, EMERGENCY_SAFE_TEMP_C);
         return false;
     }
 
@@ -92,15 +98,15 @@ void EmergencyStopManager::triggerEmergency() noexcept {
 
 void EmergencyStopManager::clearEmergency() noexcept {
     if (emergencyActive_) {
-        emergencyActive_ = false;
+        emergencyActive_           = false;
         emergencyTempReadingCount_ = 0;
         LOG(INFO, "Emergency stop cleared");
     }
 }
 
 void EmergencyStopManager::reset() noexcept {
-    emergencyActive_ = false;
+    emergencyActive_           = false;
     emergencyTempReadingCount_ = 0;
 }
 
-}  // namespace CleverCoffee
+} // namespace CleverCoffee

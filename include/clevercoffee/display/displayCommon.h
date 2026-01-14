@@ -7,7 +7,6 @@
 #pragma once
 
 #include "clevercoffee/Config.h"
-#include "clevercoffee/types/GlobalTypes.h"
 #include "clevercoffee/context/SystemContext.h"
 #include "clevercoffee/display/bitmaps.h"
 #include "clevercoffee/display/languages.h"
@@ -16,8 +15,8 @@
 #include "clevercoffee/network/CleverCoffeeWiFiManager.h"
 #include "clevercoffee/state/MachineStateContext.h"
 #include "clevercoffee/state/MachineStateIds.h"
+#include "clevercoffee/types/GlobalTypes.h"
 #include "clevercoffee/utils/SystemUtils.h"
-
 
 /**
  * @brief Helper to get current machine state for display rendering
@@ -55,7 +54,7 @@ inline const u8g2_cb_t* getU8G2Rotation(const int rotationValue) {
  */
 inline void displayScaleFailed(CleverCoffee::SystemContext& systemContext) {
     if (!systemContext.hardwareContext().display()) return;
-    
+
     if (Config::getInstance().displayTemplate.get() == System::DisplayTemplate::UPRIGHT) {
         systemContext.hardwareContext().display()->clearBuffer();
         systemContext.hardwareContext().display()->drawStr(0, 32, "Failed!");
@@ -79,7 +78,7 @@ inline void displayScaleFailed(CleverCoffee::SystemContext& systemContext) {
  */
 inline void displayUptime(CleverCoffee::SystemContext& systemContext, const int x, const int y, const char* format) {
     if (!systemContext.hardwareContext().display()) return;
-    
+
     // Show uptime of machine
     unsigned long       seconds = millis() / 1000;
     const unsigned long hours   = seconds / 3600;
@@ -99,7 +98,7 @@ inline void displayUptime(CleverCoffee::SystemContext& systemContext, const int 
  */
 inline void displayWiFiStatus(CleverCoffee::SystemContext& systemContext, const int x, const int y) {
     if (!systemContext.hardwareContext().display()) return;
-    
+
     if (WiFi.status() == WL_CONNECTED) {
         systemContext.hardwareContext().display()->drawXBMP(x, y, 8, 8, Antenna_OK_Icon);
 
@@ -129,14 +128,15 @@ inline void displayWiFiStatus(CleverCoffee::SystemContext& systemContext, const 
  */
 inline void displayMQTTStatus(CleverCoffee::SystemContext& systemContext, const int x, const int y) {
     if (!systemContext.hardwareContext().display()) return;
-    
+
     if (Config::getInstance().mqttEnabled.get()) {
         if (systemContext.mqttManager() && systemContext.mqttManager()->isConnected()) {
             systemContext.hardwareContext().display()->setCursor(x, y);
             systemContext.hardwareContext().display()->setFont(u8g2_font_profont11_tf);
             systemContext.hardwareContext().display()->print("MQTT");
 
-            if (systemContext.cleverCoffeeWiFiManager() && systemContext.cleverCoffeeWiFiManager()->getSignalStrength() <= 1) {
+            if (systemContext.cleverCoffeeWiFiManager() &&
+                systemContext.cleverCoffeeWiFiManager()->getSignalStrength() <= 1) {
                 systemContext.hardwareContext().display()->print("!");
             }
         } else {
@@ -151,7 +151,7 @@ inline void displayMQTTStatus(CleverCoffee::SystemContext& systemContext, const 
  */
 inline void displayThermometerOutline(CleverCoffee::SystemContext& systemContext, const int x, const int y) {
     if (!systemContext.hardwareContext().display()) return;
-    
+
     systemContext.hardwareContext().display()->drawLine(x + 3, y - 9, x + 3, y - 42);
     systemContext.hardwareContext().display()->drawLine(x + 9, y - 9, x + 9, y - 42);
     systemContext.hardwareContext().display()->drawPixel(x + 4, y - 43);
@@ -170,7 +170,7 @@ inline void displayThermometerOutline(CleverCoffee::SystemContext& systemContext
  */
 inline void drawTemperaturebar(CleverCoffee::SystemContext& systemContext, const int x, const int heightRange) {
     if (!systemContext.hardwareContext().display()) return;
-    
+
     const int width = x + 5;
 
     for (int i = x; i < width; i++) {
@@ -190,7 +190,7 @@ inline void drawTemperaturebar(CleverCoffee::SystemContext& systemContext, const
  */
 inline void displayTemperature(CleverCoffee::SystemContext& systemContext, const int x, const int y) {
     if (!systemContext.hardwareContext().display()) return;
-    
+
     systemContext.hardwareContext().display()->setFont(u8g2_font_fub30_tf);
 
     if (systemContext.processTemperature() < 99.499) {
@@ -212,9 +212,9 @@ inline void displayTemperature(CleverCoffee::SystemContext& systemContext, const
 inline bool shouldDisplayHotWaterTimer(CleverCoffee::SystemContext& systemContext) {
     // Hot water states removed - check if pump is active in PID_NORMAL or STEAM_RUNNING
     if (!systemContext.machineStateContext()) return false;
-    
+
     auto currentState = systemContext.machineStateContext()->getCurrentStateId();
-    bool pumpActive = (systemContext.currPumpOnTime() > 0);
+    bool pumpActive   = (systemContext.currPumpOnTime() > 0);
     return pumpActive && (currentState == MachineStateId::PID_NORMAL || currentState == MachineStateId::STEAM_RUNNING);
 }
 
@@ -266,10 +266,14 @@ inline bool shouldDisplayBrewTimer(CleverCoffee::SystemContext& systemContext) {
  * @param currBrewTime     Current brewed time in milliseconds
  * @param totalTargetBrewTime  Target brew time in milliseconds (optional, default -1)
  */
-inline void displayBrewTime(
-    CleverCoffee::SystemContext& systemContext, const int x, const int y, const char* label, const double currBrewTime, const double totalTargetBrewTime = -1) {
+inline void displayBrewTime(CleverCoffee::SystemContext& systemContext,
+                            const int                    x,
+                            const int                    y,
+                            const char*                  label,
+                            const double                 currBrewTime,
+                            const double                 totalTargetBrewTime = -1) {
     if (!systemContext.hardwareContext().display()) return;
-    
+
     systemContext.hardwareContext().display()->setDrawColor(0);
 
     if (Config::getInstance().displayTemplate.get() == System::DisplayTemplate::MINIMAL) {
@@ -320,7 +324,11 @@ inline void displayBrewTime(
  * @param fault    Indicates if the scale has an error (optional, default false)
  */
 inline void displayBrewWeight(CleverCoffee::SystemContext& systemContext,
-    const int x, const int y, const float weight, const float setpoint = -1, const bool fault = false) {
+                              const int                    x,
+                              const int                    y,
+                              const float                  weight,
+                              const float                  setpoint = -1,
+                              const bool                   fault    = false) {
     systemContext.hardwareContext().display()->setDrawColor(0);
     systemContext.hardwareContext().display()->drawBox(x, y + 1, 100, 10);
     systemContext.hardwareContext().display()->setDrawColor(1);
@@ -369,7 +377,10 @@ inline void displayBrewWeight(CleverCoffee::SystemContext& systemContext,
 /**
  * @brief Draw the brew time at given position (fullscreen brewtimer)
  */
-inline void displayBrewtimeFs(CleverCoffee::SystemContext& systemContext, const int x, const int y, const double brewtime) {
+inline void displayBrewtimeFs(CleverCoffee::SystemContext& systemContext,
+                              const int                    x,
+                              const int                    y,
+                              const double                 brewtime) {
     if (!systemContext.hardwareContext().display()) return;
     if (Config::getInstance().displayTemplate.get() == System::DisplayTemplate::UPRIGHT) {
         systemContext.hardwareContext().display()->setFont(u8g2_font_fub20_tf);
@@ -409,7 +420,8 @@ inline void displayBrewtimeFs(CleverCoffee::SystemContext& systemContext, const 
 /**
  * @brief Draw a bar visualizing the output in % at the given coordinates and with the given width
  */
-inline void displayProgressbar(CleverCoffee::SystemContext& systemContext, const int value, const int x, const int y, const int width) {
+inline void displayProgressbar(
+    CleverCoffee::SystemContext& systemContext, const int value, const int x, const int y, const int width) {
     if (!systemContext.hardwareContext().display()) return;
     systemContext.hardwareContext().display()->drawFrame(x, y, width, 4);
 
@@ -421,7 +433,7 @@ inline void displayProgressbar(CleverCoffee::SystemContext& systemContext, const
 
 inline void displayBluetoothStatus(CleverCoffee::SystemContext& systemContext, const int x, const int y) {
     if (!systemContext.hardwareContext().display()) return;
-    
+
     // Check if scale sensor exists and is connected via SensorCoordinator
     // Note: For now, we check if scale sensor pointer exists. A proper connection check
     // would require adding isConnected() to SensorCoordinator or ISensor interface.
@@ -465,7 +477,12 @@ inline void displayStatusbar(CleverCoffee::SystemContext& systemContext) {
  * @brief print message
  */
 inline void displayMessage(CleverCoffee::SystemContext& systemContext,
-    const char* text1, const char* text2, const char* text3, const char* text4, const char* text5, const char* text6) {
+                           const char*                  text1,
+                           const char*                  text2,
+                           const char*                  text3,
+                           const char*                  text4,
+                           const char*                  text5,
+                           const char*                  text6) {
     systemContext.hardwareContext().display()->clearBuffer();
     systemContext.hardwareContext().display()->setCursor(0, 0);
     systemContext.hardwareContext().display()->print(text1);
@@ -485,7 +502,9 @@ inline void displayMessage(CleverCoffee::SystemContext& systemContext,
 /**
  * @brief print logo and message at boot
  */
-inline void displayLogo(CleverCoffee::SystemContext& systemContext, const char* displaymessagetext, const char* displaymessagetext2) {
+inline void displayLogo(CleverCoffee::SystemContext& systemContext,
+                        const char*                  displaymessagetext,
+                        const char*                  displaymessagetext2) {
     if (!systemContext.hardwareContext().display()) return;
     if (Config::getInstance().displayTemplate.get() == System::DisplayTemplate::UPRIGHT) {
         int printrow = 47;
@@ -517,12 +536,14 @@ inline void displayLogo(CleverCoffee::SystemContext& systemContext, const char* 
             printrow += 10;
         }
 
-        systemContext.hardwareContext().display()->drawXBMP(11, 4, CleverCoffee_Logo_width, CleverCoffee_Logo_height, CleverCoffee_Logo);
+        systemContext.hardwareContext().display()->drawXBMP(
+            11, 4, CleverCoffee_Logo_width, CleverCoffee_Logo_height, CleverCoffee_Logo);
     } else {
         systemContext.hardwareContext().display()->clearBuffer();
         systemContext.hardwareContext().display()->drawStr(0, 45, displaymessagetext);
         systemContext.hardwareContext().display()->drawStr(0, 55, displaymessagetext2);
-        systemContext.hardwareContext().display()->drawXBMP(38, 0, CleverCoffee_Logo_width, CleverCoffee_Logo_height, CleverCoffee_Logo);
+        systemContext.hardwareContext().display()->drawXBMP(
+            38, 0, CleverCoffee_Logo_width, CleverCoffee_Logo_height, CleverCoffee_Logo);
     }
 
     systemContext.hardwareContext().display()->sendBuffer();
@@ -541,7 +562,8 @@ inline bool displayFullscreenBrewTimer(CleverCoffee::SystemContext& systemContex
         systemContext.hardwareContext().display()->clearBuffer();
 
         if (Config::getInstance().displayTemplate.get() == System::DisplayTemplate::UPRIGHT) {
-            systemContext.hardwareContext().display()->drawXBMP(12, 12, Brew_Cup_Logo_width, Brew_Cup_Logo_height, Brew_Cup_Logo);
+            systemContext.hardwareContext().display()->drawXBMP(
+                12, 12, Brew_Cup_Logo_width, Brew_Cup_Logo_height, Brew_Cup_Logo);
 
             if (Config::getInstance().hardwareSensorsScaleEnabled.get()) {
                 systemContext.hardwareContext().display()->setFont(u8g2_font_profont22_tf);
@@ -556,7 +578,8 @@ inline bool displayFullscreenBrewTimer(CleverCoffee::SystemContext& systemContex
                 displayBrewtimeFs(systemContext, 1, 80, systemContext.processCurrentBrewTime());
             }
         } else {
-            systemContext.hardwareContext().display()->drawXBMP(-1, 11, Brew_Cup_Logo_width, Brew_Cup_Logo_height, Brew_Cup_Logo);
+            systemContext.hardwareContext().display()->drawXBMP(
+                -1, 11, Brew_Cup_Logo_width, Brew_Cup_Logo_height, Brew_Cup_Logo);
 
             if (Config::getInstance().hardwareSensorsScaleEnabled.get()) {
                 systemContext.hardwareContext().display()->setFont(u8g2_font_profont22_tf);
@@ -588,23 +611,24 @@ inline bool displayFullscreenManualFlushTimer(CleverCoffee::SystemContext& syste
         return false;
     }
 
-     if (isManualFlushState(systemContext.machineStateContext()->getCurrentStateId()) &&
-         getCurrentDisplayState(systemContext) == MachineStateId::MANUAL_FLUSH_RUNNING) {
-         systemContext.hardwareContext().display()->clearBuffer();
+    if (isManualFlushState(systemContext.machineStateContext()->getCurrentStateId()) &&
+        getCurrentDisplayState(systemContext) == MachineStateId::MANUAL_FLUSH_RUNNING) {
+        systemContext.hardwareContext().display()->clearBuffer();
 
-         if (Config::getInstance().displayTemplate.get() == System::DisplayTemplate::UPRIGHT) {
-             systemContext.hardwareContext().display()->drawXBMP(
-                 12, 12, Manual_Flush_Logo_width, Manual_Flush_Logo_height, Manual_Flush_Logo);
-             displayBrewtimeFs(systemContext, 1, 80, systemContext.processCurrentBrewTime());
-         } else {
-             systemContext.hardwareContext().display()->drawXBMP(0, 12, Manual_Flush_Logo_width, Manual_Flush_Logo_height, Manual_Flush_Logo);
-             displayBrewtimeFs(systemContext, 48, 25, systemContext.processCurrentBrewTime());
-         }
+        if (Config::getInstance().displayTemplate.get() == System::DisplayTemplate::UPRIGHT) {
+            systemContext.hardwareContext().display()->drawXBMP(
+                12, 12, Manual_Flush_Logo_width, Manual_Flush_Logo_height, Manual_Flush_Logo);
+            displayBrewtimeFs(systemContext, 1, 80, systemContext.processCurrentBrewTime());
+        } else {
+            systemContext.hardwareContext().display()->drawXBMP(
+                0, 12, Manual_Flush_Logo_width, Manual_Flush_Logo_height, Manual_Flush_Logo);
+            displayBrewtimeFs(systemContext, 48, 25, systemContext.processCurrentBrewTime());
+        }
 
-         systemContext.setDisplayBufferReady(true);
-         return true;
-     }
-     return false;
+        systemContext.setDisplayBufferReady(true);
+        return true;
+    }
+    return false;
 }
 
 /**
@@ -619,20 +643,22 @@ inline bool displayFullscreenHotWaterTimer(CleverCoffee::SystemContext& systemCo
     }
 
     auto currentState = systemContext.machineStateContext()->getCurrentStateId();
-    bool pumpActive = (systemContext.currPumpOnTime() > 0);
-    
+    bool pumpActive   = (systemContext.currPumpOnTime() > 0);
+
     if (pumpActive && (currentState == MachineStateId::PID_NORMAL || currentState == MachineStateId::STEAM_RUNNING)) {
         systemContext.hardwareContext().display()->clearBuffer();
 
-         if (Config::getInstance().displayTemplate.get() == System::DisplayTemplate::UPRIGHT) {
-             systemContext.hardwareContext().display()->drawXBMP(12, 12, Hot_Water_Logo_width, Hot_Water_Logo_height, Hot_Water_Logo);
-             displayBrewtimeFs(systemContext, 1, 80, systemContext.currPumpOnTime());
-         } else {
-             systemContext.hardwareContext().display()->drawXBMP(0, 12, Hot_Water_Logo_width, Hot_Water_Logo_height, Hot_Water_Logo);
-             displayBrewtimeFs(systemContext, 48, 25, systemContext.currPumpOnTime());
-         }
+        if (Config::getInstance().displayTemplate.get() == System::DisplayTemplate::UPRIGHT) {
+            systemContext.hardwareContext().display()->drawXBMP(
+                12, 12, Hot_Water_Logo_width, Hot_Water_Logo_height, Hot_Water_Logo);
+            displayBrewtimeFs(systemContext, 1, 80, systemContext.currPumpOnTime());
+        } else {
+            systemContext.hardwareContext().display()->drawXBMP(
+                0, 12, Hot_Water_Logo_width, Hot_Water_Logo_height, Hot_Water_Logo);
+            displayBrewtimeFs(systemContext, 48, 25, systemContext.currPumpOnTime());
+        }
 
-         systemContext.setDisplayBufferReady(true);
+        systemContext.setDisplayBufferReady(true);
         return true;
     }
     return false;
@@ -643,7 +669,8 @@ inline bool displayFullscreenHotWaterTimer(CleverCoffee::SystemContext& systemCo
  */
 inline bool displayOfflineMode(CleverCoffee::SystemContext& systemContext) {
     if (!systemContext.hardwareContext().display()) return false;
-    if (systemContext.uiCoordinator().getDisplayOffline() > 0 && systemContext.uiCoordinator().getDisplayOffline() < 20) {
+    if (systemContext.uiCoordinator().getDisplayOffline() > 0 &&
+        systemContext.uiCoordinator().getDisplayOffline() < 20) {
         displayMessage(systemContext, "", "", "", "", "Begin Fallback,", "No Wifi");
         systemContext.uiCoordinator().incrementDisplayOffline();
         return true;
@@ -670,7 +697,8 @@ inline bool displayMachineState(CleverCoffee::SystemContext& systemContext) {
 
         displayStatusbar(systemContext);
 
-        systemContext.hardwareContext().display()->drawXBMP(0, 20, Heating_Logo_width, Heating_Logo_height, Heating_Logo);
+        systemContext.hardwareContext().display()->drawXBMP(
+            0, 20, Heating_Logo_width, Heating_Logo_height, Heating_Logo);
         systemContext.hardwareContext().display()->setFont(u8g2_font_fub25_tf);
         systemContext.hardwareContext().display()->setCursor(50, 30);
         systemContext.hardwareContext().display()->print(systemContext.processTemperature(), 1);
@@ -692,7 +720,8 @@ inline bool displayMachineState(CleverCoffee::SystemContext& systemContext) {
         return true;
     }
 
-    if (Config::getInstance().displayPidOffLogo.get() == 1 && getCurrentDisplayState(systemContext) == MachineStateId::STANDBY) {
+    if (Config::getInstance().displayPidOffLogo.get() == 1 &&
+        getCurrentDisplayState(systemContext) == MachineStateId::STANDBY) {
         systemContext.hardwareContext().display()->clearBuffer();
         systemContext.hardwareContext().display()->drawXBMP(38, 0, Off_Logo_width, Off_Logo_height, Off_Logo);
         systemContext.hardwareContext().display()->setCursor(36, 55);
@@ -778,14 +807,14 @@ inline bool displayMachineState(CleverCoffee::SystemContext& systemContext) {
         systemContext.hardwareContext().display()->print(static_cast<char>(176));
         systemContext.hardwareContext().display()->print("C");
 
-         displayThermometerOutline(systemContext, 4, 58);
+        displayThermometerOutline(systemContext, 4, 58);
 
-         // draw current temp in thermometer
-         if (systemContext.isrCounter() < 500) {
-             drawTemperaturebar(systemContext, 8, 30);
-             systemContext.hardwareContext().display()->setCursor(32, 4);
-             systemContext.hardwareContext().display()->print("PID STOPPED");
-         }
+        // draw current temp in thermometer
+        if (systemContext.isrCounter() < 500) {
+            drawTemperaturebar(systemContext, 8, 30);
+            systemContext.hardwareContext().display()->setCursor(32, 4);
+            systemContext.hardwareContext().display()->print("PID STOPPED");
+        }
 
         systemContext.hardwareContext().display()->sendBuffer();
 
@@ -827,7 +856,10 @@ inline void setDisplayFont(CleverCoffee::SystemContext& systemContext) {
 /**
  * @brief Check if a word fits on the current line
  */
-inline bool wordFitsOnLine(CleverCoffee::SystemContext& systemContext, const char* line, const char* word, int displayWidth) {
+inline bool wordFitsOnLine(CleverCoffee::SystemContext& systemContext,
+                           const char*                  line,
+                           const char*                  word,
+                           int                          displayWidth) {
     constexpr size_t MAX_TEST_LINE = MESSAGE_BUFFER_SIZE;
     char             testLine[MAX_TEST_LINE];
     snprintf(testLine, MAX_TEST_LINE, "%s%s", line, word);
@@ -849,7 +881,8 @@ inline void addWordToLine(char* line, size_t& lineLen, const char* word, size_t 
 /**
  * @brief Draw line and move to next line
  */
-inline void drawLineAndAdvance(CleverCoffee::SystemContext& systemContext, const char* line, int x, int& y, int lineHeight) {
+inline void drawLineAndAdvance(
+    CleverCoffee::SystemContext& systemContext, const char* line, int x, int& y, int lineHeight) {
     systemContext.hardwareContext().display()->drawUTF8(x, y, line);
     y += lineHeight;
 }

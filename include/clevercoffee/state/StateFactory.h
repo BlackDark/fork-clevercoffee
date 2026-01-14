@@ -12,4 +12,4 @@
 
 // Forward declarations
 std::unique_ptr<MachineState> createStateInstance(MachineStateId id);
-const char* getStateName(MachineStateId id);
+const char*                   getStateName(MachineStateId id);

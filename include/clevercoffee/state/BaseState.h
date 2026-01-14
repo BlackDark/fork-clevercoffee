@@ -94,7 +94,7 @@ class BaseState : public MachineState {
      */
     virtual std::optional<MachineStateId> checkSpecificTransitions(MachineStateContext& context) = 0;
 
-protected:
+  protected:
     /**
      * @brief Helper: Check if brew stop was requested and transition to PID state
      * @param context Machine state context

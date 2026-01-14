@@ -5,10 +5,10 @@
 
 #pragma once
 
+#include "clevercoffee/utils/ModernTimer.h"
+
 #include <functional>
 #include <memory>
-
-#include "clevercoffee/utils/ModernTimer.h"
 
 // Forward declarations
 class ProcessController;
@@ -18,13 +18,13 @@ namespace CleverCoffee {
 class SensorCoordinator;
 class HardwareManager;
 class SystemContext;
-}
+} // namespace CleverCoffee
 
 // Forward declarations for coordinators
 namespace CleverCoffee {
 class NetworkCoordinator;
 class UICoordinator;
-}
+} // namespace CleverCoffee
 class CleverCoffeeWiFiManager;
 class MQTTManager;
 class WebServerManager;
@@ -47,24 +47,25 @@ class WebServerManager;
  */
 class LoopManager {
   public:
-     /**
-       * @brief Constructor
-       * @param systemContext System context for access to coordinators (REQUIRED)
-       * @param hardwareManager Hardware manager for LED and relay control (REQUIRED - CRITICAL component)
-       * @param processController Process control manager (REQUIRED - CRITICAL component for PID control)
-       * @param sensorCoordinator Sensor coordinator for async sensor polling (REQUIRED - CRITICAL component for sensor readings)
+    /**
+     * @brief Constructor
+     * @param systemContext System context for access to coordinators (REQUIRED)
+     * @param hardwareManager Hardware manager for LED and relay control (REQUIRED - CRITICAL component)
+     * @param processController Process control manager (REQUIRED - CRITICAL component for PID control)
+     * @param sensorCoordinator Sensor coordinator for async sensor polling (REQUIRED - CRITICAL component for sensor
+     * readings)
      * @param uiManager UI management system (REQUIRED - always exists)
      * Note: Handlers are accessed via SystemContext and are always available
-       */
-     explicit LoopManager(CleverCoffee::SystemContext&      systemContext,
-                          CleverCoffee::HardwareManager&    hardwareManager,
-                          ProcessController&                processController,
-                          CleverCoffee::SensorCoordinator&  sensorCoordinator,
-                          UIManager&                        uiManager);
+     */
+    explicit LoopManager(CleverCoffee::SystemContext&     systemContext,
+                         CleverCoffee::HardwareManager&   hardwareManager,
+                         ProcessController&               processController,
+                         CleverCoffee::SensorCoordinator& sensorCoordinator,
+                         UIManager&                       uiManager);
 
     /**
      * @brief Destructor
-     * 
+     *
      * Defined in .cpp file to allow incomplete types in header
      */
     ~LoopManager();
@@ -175,11 +176,11 @@ class LoopManager {
      */
     void updateDebugTiming();
 
-      // Note: ProcessController is now a required reference set in constructor
-      // Setter removed - this component must be provided at construction time
+    // Note: ProcessController is now a required reference set in constructor
+    // Setter removed - this component must be provided at construction time
 
-      // Note: HardwareManager, SystemContext, ProcessController, and SensorCoordinator are now required references set in constructor
-      // Setters removed - these components must be provided at construction time
+    // Note: HardwareManager, SystemContext, ProcessController, and SensorCoordinator are now required references set in
+    // constructor Setters removed - these components must be provided at construction time
 
     /**
      * @brief Get loop performance statistics
@@ -193,9 +194,9 @@ class LoopManager {
      * @param pressureIntervalMs Pressure sensor update interval in milliseconds
      * @param scaleIntervalMs Scale sensor update interval in milliseconds
      */
-    void configureSensorTimers(unsigned long temperatureIntervalMs = 400,   // 2.5 Hz
-                               unsigned long pressureIntervalMs = 50,       // 20 Hz
-                               unsigned long scaleIntervalMs = 100);        // 10 Hz
+    void configureSensorTimers(unsigned long temperatureIntervalMs = 400, // 2.5 Hz
+                               unsigned long pressureIntervalMs    = 50,  // 20 Hz
+                               unsigned long scaleIntervalMs       = 100);      // 10 Hz
 
     /**
      * @brief Log configured timer intervals and actual execution frequencies
@@ -223,12 +224,12 @@ class LoopManager {
      */
     void updateCentralizedSensorTimers();
 
-      // Manager dependencies
-      CleverCoffee::SystemContext&     systemContext_;      // REQUIRED
-      CleverCoffee::HardwareManager&   hardwareManager_;   // REQUIRED - CRITICAL component
-      ProcessController&                processController_; // REQUIRED - CRITICAL component for PID control
-      CleverCoffee::SensorCoordinator& sensorCoordinator_; // REQUIRED - CRITICAL component for sensor readings
-      UIManager&                      uiManager_;          // REQUIRED - always exists
+    // Manager dependencies
+    CleverCoffee::SystemContext&     systemContext_;     // REQUIRED
+    CleverCoffee::HardwareManager&   hardwareManager_;   // REQUIRED - CRITICAL component
+    ProcessController&               processController_; // REQUIRED - CRITICAL component for PID control
+    CleverCoffee::SensorCoordinator& sensorCoordinator_; // REQUIRED - CRITICAL component for sensor readings
+    UIManager&                       uiManager_;         // REQUIRED - always exists
 
     // Initialization state
     bool initialized_;
@@ -252,9 +253,9 @@ class LoopManager {
     mutable unsigned long temperatureUpdateCount_;
     mutable unsigned long pressureUpdateCount_;
     mutable unsigned long scaleUpdateCount_;
-    unsigned long lastTimerLogTime_;
+    unsigned long         lastTimerLogTime_;
 
     // Web event timing
-    unsigned long lastTempEvent_{0};      ///< Last temperature event timestamp
+    unsigned long lastTempEvent_{0};        ///< Last temperature event timestamp
     unsigned long tempEventInterval_{1000}; ///< Temperature event interval in ms
 };

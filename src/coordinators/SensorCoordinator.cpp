@@ -14,7 +14,6 @@ namespace CleverCoffee {
 
 SensorCoordinator::SensorCoordinator(ISensor* tempSensor, ISensor* scaleSensor, Switch* waterTankSensor) noexcept
     : tempSensor_(tempSensor), scaleSensor_(scaleSensor), waterTankSensor_(waterTankSensor) {
-    
     if (tempSensor_) {
         LOG(INFO, "SensorCoordinator initialized with temperature sensor");
     }
@@ -37,15 +36,15 @@ void SensorCoordinator::updateTemperature() noexcept {
     if (!tempSensor_) {
         return;
     }
-    
+
     unsigned long now = millis();
-    
+
     // Time to start a new read?
     if (now - lastTempUpdate_ >= TEMP_UPDATE_INTERVAL_MS) {
         tempSensor_->startRead();
         lastTempUpdate_ = now;
     }
-    
+
     // Try to get result
     auto result = tempSensor_->tryGetValue();
     if (result) {
@@ -55,7 +54,7 @@ void SensorCoordinator::updateTemperature() noexcept {
     } else {
         // Check error type
         auto error = result.error();
-        
+
         // NOT_READY is expected while reading - not an error
         if (error.code() != ErrorCode::SENSOR_NOT_READY) {
             // Real error
@@ -69,14 +68,14 @@ void SensorCoordinator::updateScale() noexcept {
     if (!scaleSensor_) {
         return;
     }
-    
+
     // Scale update is called more frequently, check for new data
     auto result = scaleSensor_->tryGetValue();
     if (result) {
         // Success
         cachedWeight_ = result.value();
         scaleSensorError_.store(false, std::memory_order_relaxed);
-        
+
         // Update brew weight if tracking is active
         if (brewWeightTrackingActive_) {
             cachedBrewWeight_ = cachedWeight_ - preBrewWeight_;
@@ -84,7 +83,7 @@ void SensorCoordinator::updateScale() noexcept {
     } else {
         // Check error type
         auto error = result.error();
-        
+
         // NOT_READY is expected - scale might not have new data yet
         if (error.code() != ErrorCode::SENSOR_NOT_READY) {
             // Real error
@@ -98,15 +97,15 @@ void SensorCoordinator::updatePressure() noexcept {
     if (!Config::getInstance().hardwareSensorsPressureEnabled.get()) {
         return;
     }
-    
+
     unsigned long now = millis();
-    
+
     // Time to update pressure?
     if (now - lastPressureUpdate_ < PRESSURE_UPDATE_INTERVAL_MS) {
         return;
     }
     lastPressureUpdate_ = now;
-    
+
     // Read pressure
     cachedPressure_ = measurePressure();
     // Use internal filter method instead of helper function
@@ -117,18 +116,18 @@ void SensorCoordinator::updateWaterTank() noexcept {
     if (!Config::getInstance().hardwareSensorsWatertankEnabled.get() || !waterTankSensor_) {
         return;
     }
-    
+
     unsigned long now = millis();
-    
+
     // Time to update water tank?
     if (now - lastWaterTankUpdate_ < WATER_TANK_UPDATE_INTERVAL_MS) {
         return;
     }
     lastWaterTankUpdate_ = now;
-    
+
     bool currentWaterTankState = waterTankFull_.load(std::memory_order_relaxed);
-    bool isWaterDetected = waterTankSensor_->isPressed();
-    
+    bool isWaterDetected       = waterTankSensor_->isPressed();
+
     if (isWaterDetected && !currentWaterTankState) {
         waterTankFull_.store(true, std::memory_order_relaxed);
         waterTankConsecutiveReads_ = 0;
@@ -157,8 +156,8 @@ float SensorCoordinator::measurePressure() noexcept {
 
 void SensorCoordinator::startBrewWeightTracking() noexcept {
     LOG(INFO, "SensorCoordinator: Starting brew weight tracking");
-    preBrewWeight_ = cachedWeight_;
-    cachedBrewWeight_ = 0.0;
+    preBrewWeight_            = cachedWeight_;
+    cachedBrewWeight_         = 0.0;
     brewWeightTrackingActive_ = true;
     LOGF(DEBUG, "Pre-brew weight captured: %.2f g", preBrewWeight_);
 }
@@ -166,8 +165,8 @@ void SensorCoordinator::startBrewWeightTracking() noexcept {
 void SensorCoordinator::stopBrewWeightTracking() noexcept {
     LOG(INFO, "SensorCoordinator: Stopping brew weight tracking");
     brewWeightTrackingActive_ = false;
-    cachedBrewWeight_ = 0.0;
-    preBrewWeight_ = 0.0;
+    cachedBrewWeight_         = 0.0;
+    preBrewWeight_            = 0.0;
 }
 
-}  // namespace CleverCoffee
+} // namespace CleverCoffee

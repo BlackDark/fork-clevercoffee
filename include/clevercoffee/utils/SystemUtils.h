@@ -1,9 +1,9 @@
 #pragma once
 
 #include "clevercoffee/Config.h"
-#include "clevercoffee/types/GlobalTypes.h"
-#include "clevercoffee/network/MQTTManager.h"
 #include "clevercoffee/context/SystemContext.h"
+#include "clevercoffee/network/MQTTManager.h"
+#include "clevercoffee/types/GlobalTypes.h"
 
 #include <mutex>
 
@@ -23,16 +23,16 @@ inline void setRuntimePidState(CleverCoffee::SystemContext& systemContext, const
 }
 
 inline void setSteamMode(CleverCoffee::SystemContext& systemContext, const bool steamMode) {
-     static std::mutex           steam_mutex;
-     std::lock_guard<std::mutex> lock(steam_mutex);
+    static std::mutex           steam_mutex;
+    std::lock_guard<std::mutex> lock(steam_mutex);
 
-     systemContext.setSteamMode(steamMode);
+    systemContext.setSteamMode(steamMode);
 
-     if (steamMode) {
-         systemContext.setSteamFirstOn(true);
-     } else {
-         systemContext.setSteamFirstOn(false);
-     }
+    if (steamMode) {
+        systemContext.setSteamFirstOn(true);
+    } else {
+        systemContext.setSteamFirstOn(false);
+    }
 }
 
 // Helper function for timing debug
@@ -49,17 +49,16 @@ inline void sendHASSIODiscoveryMsg(CleverCoffee::SystemContext& systemContext) {
 
 // Emergency stop if temp is too high
 inline void testEmergencyStop(CleverCoffee::SystemContext& systemContext) {
-     static std::mutex           emergency_mutex;
-     std::lock_guard<std::mutex> lock(emergency_mutex);
+    static std::mutex           emergency_mutex;
+    std::lock_guard<std::mutex> lock(emergency_mutex);
 
-     double currentTemp = systemContext.processTemperature();
-     
-     if (currentTemp > EmergencyStopTemp && !systemContext.isEmergencyStopActive()) {
-         systemContext.triggerEmergencyStop();
-     } else if (currentTemp < (Config::getInstance().brewSetpoint.get() + 5) &&
-                systemContext.isEmergencyStopActive()) {
-         systemContext.setEmergencyStop(false);
-     }
+    double currentTemp = systemContext.processTemperature();
+
+    if (currentTemp > EmergencyStopTemp && !systemContext.isEmergencyStopActive()) {
+        systemContext.triggerEmergencyStop();
+    } else if (currentTemp < (Config::getInstance().brewSetpoint.get() + 5) && systemContext.isEmergencyStopActive()) {
+        systemContext.setEmergencyStop(false);
+    }
 }
 
 /**

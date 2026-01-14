@@ -5,15 +5,16 @@
 
 #pragma once
 
+#include "clevercoffee/types/GlobalTypes.h"
+
 #include <ArduinoJson.h>
 #include <PubSubClient.h>
 #include <String>
 #include <WiFiClient.h>
-#include <functional>
 #include <cstring>
-#include <unordered_map>
+#include <functional>
 #include <memory>
-#include "clevercoffee/types/GlobalTypes.h"
+#include <unordered_map>
 
 // Forward declarations
 namespace CleverCoffee {
@@ -21,12 +22,12 @@ class UICoordinator;
 class SensorCoordinator;
 class NetworkCoordinator;
 class SystemContext;
-}
+} // namespace CleverCoffee
 
 namespace CleverCoffee::Utils {
 class RetryPolicy;
 class CircuitBreaker;
-}
+} // namespace CleverCoffee::Utils
 
 /**
  * @class MQTTManager
@@ -44,7 +45,7 @@ class MQTTManager {
 
     /**
      * @brief Destructor - automatically cleans up MQTT resources
-     * 
+     *
      * Defined in .cpp file to allow incomplete types in header
      */
     ~MQTTManager();
@@ -64,41 +65,41 @@ class MQTTManager {
      */
     bool setup(const String& hostname);
 
-     /**
-      * @brief Set UI coordinator for state management
-      * @param coordinator Pointer to UICoordinator
-      */
-     void setUICoordinator(CleverCoffee::UICoordinator* coordinator) noexcept {
-         uiCoordinator_ = coordinator;
-     }
+    /**
+     * @brief Set UI coordinator for state management
+     * @param coordinator Pointer to UICoordinator
+     */
+    void setUICoordinator(CleverCoffee::UICoordinator* coordinator) noexcept {
+        uiCoordinator_ = coordinator;
+    }
 
-     /**
-      * @brief Set Sensor coordinator for scale mode management
-      * @param coordinator Pointer to SensorCoordinator
-      */
-     void setSensorCoordinator(CleverCoffee::SensorCoordinator* coordinator) noexcept {
-         sensorCoordinator_ = coordinator;
-     }
+    /**
+     * @brief Set Sensor coordinator for scale mode management
+     * @param coordinator Pointer to SensorCoordinator
+     */
+    void setSensorCoordinator(CleverCoffee::SensorCoordinator* coordinator) noexcept {
+        sensorCoordinator_ = coordinator;
+    }
 
-      /**
-       * @brief Set Network coordinator for connection state management
-       * @param coordinator Pointer to NetworkCoordinator
-       */
-      void setNetworkCoordinator(CleverCoffee::NetworkCoordinator* coordinator) noexcept {
-          networkCoordinator_ = coordinator;
-      }
+    /**
+     * @brief Set Network coordinator for connection state management
+     * @param coordinator Pointer to NetworkCoordinator
+     */
+    void setNetworkCoordinator(CleverCoffee::NetworkCoordinator* coordinator) noexcept {
+        networkCoordinator_ = coordinator;
+    }
 
-      /**
-       * @brief Set system context for state management
-       * @param context Pointer to SystemContext
-       */
-      void setSystemContext(CleverCoffee::SystemContext* context) noexcept {
-          systemContext_ = context;
-      }
+    /**
+     * @brief Set system context for state management
+     * @param context Pointer to SystemContext
+     */
+    void setSystemContext(CleverCoffee::SystemContext* context) noexcept {
+        systemContext_ = context;
+    }
 
-     /**
-      * @brief Check MQTT connection and reconnect if needed
-      */
+    /**
+     * @brief Check MQTT connection and reconnect if needed
+     */
     void checkConnection();
 
     /**
@@ -210,9 +211,9 @@ class MQTTManager {
     unsigned int                   reconnectCount_;
     unsigned long                  previousConnection_;
     static constexpr unsigned long reconnectInterval_ = 300000; // 5 minutes
-    
+
     // Error recovery with exponential backoff and circuit breaker
-    std::unique_ptr<CleverCoffee::Utils::RetryPolicy>   retryPolicy_;
+    std::unique_ptr<CleverCoffee::Utils::RetryPolicy>    retryPolicy_;
     std::unique_ptr<CleverCoffee::Utils::CircuitBreaker> circuitBreaker_;
 
     // Topics
@@ -226,8 +227,9 @@ class MQTTManager {
         }
     };
 
-    std::unordered_map<const char*, const char*, hash_cstr, equal_cstr>             mqttVars_;        ///< MQTT parameter mappings
-    std::unordered_map<const char*, std::function<double()>, hash_cstr, equal_cstr> mqttSensors_;     ///< MQTT sensor callbacks
+    std::unordered_map<const char*, const char*, hash_cstr, equal_cstr> mqttVars_; ///< MQTT parameter mappings
+    std::unordered_map<const char*, std::function<double()>, hash_cstr, equal_cstr>
+        mqttSensors_;                                                              ///< MQTT sensor callbacks
 
     // Track last sent values to avoid duplicate MQTT messages (unordered_map for O(1) lookup)
     std::unordered_map<const char*, std::string, hash_cstr, equal_cstr> mqttLastSent_;
@@ -241,13 +243,13 @@ class MQTTManager {
     static constexpr unsigned long intervalMQTTStandby_ = 10000;
     unsigned long                  previousMillisMQTT_;
 
-     // Coordinators
-     CleverCoffee::UICoordinator* uiCoordinator_{nullptr}; ///< UI coordinator for state management
-     CleverCoffee::SensorCoordinator* sensorCoordinator_{nullptr}; ///< Sensor coordinator for scale modes
-     CleverCoffee::NetworkCoordinator* networkCoordinator_{nullptr}; ///< Network coordinator for connection state
+    // Coordinators
+    CleverCoffee::UICoordinator*      uiCoordinator_{nullptr};      ///< UI coordinator for state management
+    CleverCoffee::SensorCoordinator*  sensorCoordinator_{nullptr};  ///< Sensor coordinator for scale modes
+    CleverCoffee::NetworkCoordinator* networkCoordinator_{nullptr}; ///< Network coordinator for connection state
 
-     // System context for state management
-     CleverCoffee::SystemContext* systemContext_{nullptr};
+    // System context for state management
+    CleverCoffee::SystemContext* systemContext_{nullptr};
 
     // Home Assistant discovery
     struct DiscoveryObject {

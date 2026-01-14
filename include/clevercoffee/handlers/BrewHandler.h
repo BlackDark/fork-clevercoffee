@@ -6,14 +6,14 @@
 #pragma once
 
 #include "clevercoffee/Config.h"
-#include "clevercoffee/handlers/BaseHandler.h"
 #include "clevercoffee/context/SystemContext.h"
-#include "clevercoffee/state/MachineStateContext.h"
-#include "clevercoffee/state/MachineStateIds.h"
+#include "clevercoffee/handlers/BaseHandler.h"
 #include "clevercoffee/handlers/PumpTimer.h"
 #include "clevercoffee/hardware/Relay.h"
 #include "clevercoffee/hardware/Switch.h"
 #include "clevercoffee/state/MachineState.h"
+#include "clevercoffee/state/MachineStateContext.h"
+#include "clevercoffee/state/MachineStateIds.h"
 
 #include <Logger.h>
 
@@ -24,24 +24,23 @@
 class BrewHandler : public SwitchBasedHandler {
   private:
     PumpTimer     pumpTimer_;
-    unsigned long brewStartTime_     = 0;
-    uint8_t       lastSwitchReading_ = LOW;
-    Relay*        valveRelay_        = nullptr;
-    bool          switchStateChanged_ = false;  // Track if switch state changed
+    unsigned long brewStartTime_      = 0;
+    uint8_t       lastSwitchReading_  = LOW;
+    Relay*        valveRelay_         = nullptr;
+    bool          switchStateChanged_ = false; // Track if switch state changed
 
   public:
     explicit BrewHandler(CleverCoffee::SystemContext& ctx)
-        : SwitchBasedHandler("BrewHandler", nullptr, ctx),
-          pumpTimer_(300000) { // 5 minute max brew time safety
+        : SwitchBasedHandler("BrewHandler", nullptr, ctx), pumpTimer_(300000) { // 5 minute max brew time safety
     }
-    
+
     /**
      * @brief Initialize with hardware switch and relay (call after HardwareManager is ready)
      * @param brewSwitch Pointer to brew switch hardware
      * @param valveRelay Pointer to valve relay hardware
      */
     void setHardware(Switch* brewSwitch, Relay* valveRelay) {
-        switch_ = brewSwitch;
+        switch_     = brewSwitch;
         valveRelay_ = valveRelay;
     }
 
@@ -104,8 +103,7 @@ class BrewHandler : public SwitchBasedHandler {
         auto* context = systemContext_.machineStateContext();
         if (!context) return false;
         auto currentState = context->getCurrentStateId();
-        return (isBrewState(currentState) &&
-                currentState != MachineStateId::BREW_FINISHED);
+        return (isBrewState(currentState) && currentState != MachineStateId::BREW_FINISHED);
     }
 
     void valveSafetyShutdownCheck() {
@@ -124,7 +122,7 @@ class BrewHandler : public SwitchBasedHandler {
         // Always allow switch input processing to detect state changes (press/release)
         // This ensures we can always log switch activations regardless of machine state
         // The state machine will handle whether the action is actually allowed
-        
+
         if (!SwitchBasedHandler::hasPermission()) {
             logDebug("Base permission check failed");
             return false;
@@ -159,13 +157,13 @@ class BrewHandler : public SwitchBasedHandler {
     void processSwitchInput() {
         if (!switch_) return;
 
-        const uint8_t reading = getSwitchReading();
-        const auto switchType = Config::getInstance().hardwareSwitchesBrewType.get();
+        const uint8_t reading    = getSwitchReading();
+        const auto    switchType = Config::getInstance().hardwareSwitchesBrewType.get();
 
         // Detect state changes
         if (reading != lastSwitchReading_) {
             switchStateChanged_ = true;
-            
+
             // Log switch events
             if (switchType == Hardware::SwitchType::TOGGLE) {
                 if (reading == HIGH) {
@@ -180,12 +178,12 @@ class BrewHandler : public SwitchBasedHandler {
                     logInfo("Brew momentary switch released");
                 }
             }
-            
+
             // Set flags for state machine transitions (flag-based approach fixes timing issues)
             auto* context = systemContext_.machineStateContext();
             if (!context) return;
             const auto currentState = context->getCurrentStateId();
-            
+
             // Determine if we should set start or stop flag based on switch state and current state
             if (reading == HIGH) {
                 // Switch pressed/activated

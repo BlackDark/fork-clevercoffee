@@ -12,8 +12,8 @@
 
 #pragma once
 
-#include "clevercoffee/constants/Temperature.h"
 #include "clevercoffee/Logger.h"
+#include "clevercoffee/constants/Temperature.h"
 
 #include <cstdint>
 
@@ -33,7 +33,7 @@ namespace CleverCoffee {
  * - Sensor validation
  */
 class EmergencyStopManager {
-public:
+  public:
     /**
      * @brief Constructor
      * @param config Configuration reference (must outlive this instance)
@@ -69,7 +69,9 @@ public:
      * @brief Get current emergency state
      * @return true if emergency is currently active
      */
-    bool isEmergencyActive() const noexcept { return emergencyActive_; }
+    bool isEmergencyActive() const noexcept {
+        return emergencyActive_;
+    }
 
     /**
      * @brief Manually trigger emergency stop
@@ -90,18 +92,20 @@ public:
      * @brief Get current debounce count (for debugging)
      * @return Current debounce counter value
      */
-    int getDebounceCount() const noexcept { return emergencyTempReadingCount_; }
+    int getDebounceCount() const noexcept {
+        return emergencyTempReadingCount_;
+    }
 
-private:
+  private:
     // Configuration reference (not owned)
     const Config& config_;
 
     // Emergency state
-    bool emergencyActive_ = false;
-    int emergencyTempReadingCount_ = 0;
+    bool emergencyActive_           = false;
+    int  emergencyTempReadingCount_ = 0;
 
     // Constants
-    static constexpr int DEBOUNCE_COUNT = 3;  ///< Require 3 consecutive readings above threshold
+    static constexpr int DEBOUNCE_COUNT = 3; ///< Require 3 consecutive readings above threshold
 };
 
-}  // namespace CleverCoffee
+} // namespace CleverCoffee

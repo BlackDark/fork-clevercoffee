@@ -4,11 +4,12 @@
  */
 
 #include "clevercoffee/hardware/scales/HX711Scale.h"
+
 #include "clevercoffee/errors/ErrorCodes.h"
 
-using CleverCoffee::Expected;
 using CleverCoffee::Error;
 using CleverCoffee::ErrorCode;
+using CleverCoffee::Expected;
 
 HX711Scale::HX711Scale(const int dataPin, const int clkPin, const float calibrationFactor)
     : loadCell1(new HX711_ADC(dataPin, clkPin)), loadCell2(nullptr), currentWeight(0.0),

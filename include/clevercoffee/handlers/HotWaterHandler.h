@@ -6,11 +6,11 @@
 #pragma once
 
 #include "clevercoffee/Config.h"
-#include "clevercoffee/handlers/BaseHandler.h"
 #include "clevercoffee/context/SystemContext.h"
-#include "clevercoffee/state/MachineStateContext.h"
+#include "clevercoffee/handlers/BaseHandler.h"
 #include "clevercoffee/handlers/PumpTimer.h"
 #include "clevercoffee/state/MachineState.h"
+#include "clevercoffee/state/MachineStateContext.h"
 
 #include <Logger.h>
 
@@ -25,10 +25,9 @@ class HotWaterHandler : public SwitchBasedHandler {
 
   public:
     explicit HotWaterHandler(CleverCoffee::SystemContext& ctx)
-        : SwitchBasedHandler("HotWaterHandler", nullptr, ctx),
-          pumpTimer_(60000) { // 60 second max run time
+        : SwitchBasedHandler("HotWaterHandler", nullptr, ctx), pumpTimer_(60000) { // 60 second max run time
     }
-    
+
     /**
      * @brief Initialize with hardware switch (call after HardwareManager is ready)
      * @param hotWaterSwitch Pointer to hot water switch hardware
@@ -60,7 +59,7 @@ class HotWaterHandler : public SwitchBasedHandler {
             logDebug("MachineStateContext is null");
             return false;
         }
-        
+
         auto currentState = context->getCurrentStateId();
         if (currentState == MachineStateId::WATER_TANK_EMPTY) {
             logDebug("Permission denied: Water tank empty");
@@ -89,7 +88,7 @@ class HotWaterHandler : public SwitchBasedHandler {
             if (auto* context = systemContext_.machineStateContext()) {
                 context->setHotWaterActivity(true);
             }
-            
+
             // Simplified switch processing - just update switch state for now
             // The global state machine will handle the actual hot water logic
             if (switchType == Hardware::SwitchType::TOGGLE) {
@@ -113,12 +112,12 @@ class HotWaterHandler : public SwitchBasedHandler {
     }
 
     void checkPumpTimeout() {
-         if (pumpTimer_.isExpired() && isHotWaterActive()) {
-             logError("Hot water pump timeout - stopping for safety");
-             // Hot water is controlled via pump - disable pump through MachineStateContext
-             if (auto* context = systemContext_.machineStateContext()) {
-                 context->disablePump();
-             }
-         }
-     }
+        if (pumpTimer_.isExpired() && isHotWaterActive()) {
+            logError("Hot water pump timeout - stopping for safety");
+            // Hot water is controlled via pump - disable pump through MachineStateContext
+            if (auto* context = systemContext_.machineStateContext()) {
+                context->disablePump();
+            }
+        }
+    }
 };

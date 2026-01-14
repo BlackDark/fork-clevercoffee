@@ -30,14 +30,14 @@ class ModernDisplayTemplate {
     void setSystemContext(CleverCoffee::SystemContext* context) noexcept {
         systemContext_ = context;
     }
-    
+
     /**
      * @brief Get system context
      */
     CleverCoffee::SystemContext* getSystemContext() const noexcept {
         return systemContext_;
     }
-    
+
     /**
      * @brief Main screen rendering method using CRTP
      */
@@ -45,7 +45,7 @@ class ModernDisplayTemplate {
         if (!systemContext_) {
             return; // No system context available
         }
-        
+
         // Common early returns for fullscreen modes
         if (handleFullscreenModes()) {
             return;
@@ -68,7 +68,7 @@ class ModernDisplayTemplate {
      */
     bool handleFullscreenModes() {
         if (!systemContext_) return false;
-        
+
         if (displayFullscreenBrewTimer(*systemContext_)) return true;
         if (displayFullscreenManualFlushTimer(*systemContext_)) return true;
         if (displayFullscreenHotWaterTimer(*systemContext_)) return true;
@@ -96,7 +96,7 @@ class ModernDisplayTemplate {
      */
     void displayTemperatureInfo(int baseX, int baseY) {
         if (!systemContext_) return;
-        
+
         systemContext_->hardwareContext().display()->setFont(u8g2_font_profont11_tf);
 
         auto*       derived = static_cast<Derived*>(this);
@@ -162,11 +162,19 @@ class ModernDisplayTemplate {
 
         // Show flush time
         if (isManualFlushState(systemContext_->machineStateContext()->getCurrentStateId())) {
-            displayBrewTime(*systemContext_, coords.brewX, coords.brewY, derived->getManualFlushLabel(), systemContext_->processCurrentBrewTime());
+            displayBrewTime(*systemContext_,
+                            coords.brewX,
+                            coords.brewY,
+                            derived->getManualFlushLabel(),
+                            systemContext_->processCurrentBrewTime());
         }
         // Show hot water time (when pump is active in PID_NORMAL or STEAM_RUNNING)
         else if (shouldDisplayHotWaterTimer(*systemContext_)) {
-            displayBrewTime(*systemContext_, coords.brewX, coords.brewY, derived->getHotWaterLabel(), systemContext_->currPumpOnTime());
+            displayBrewTime(*systemContext_,
+                            coords.brewX,
+                            coords.brewY,
+                            derived->getHotWaterLabel(),
+                            systemContext_->currPumpOnTime());
         } else if (shouldDisplayBrewTimer(*systemContext_)) {
             const bool isAutomatic = Config::getInstance().brewMode.get() == Process::BrewMode::AUTOMATIC_BREW;
             const bool brewByTime  = Config::getInstance().brewByTimeEnabled.get();
@@ -179,7 +187,11 @@ class ModernDisplayTemplate {
                                 systemContext_->processCurrentBrewTime(),
                                 systemContext_->processTotalTargetBrewTime());
             } else {
-                displayBrewTime(*systemContext_, coords.brewX, coords.brewY, derived->getBrewLabel(), systemContext_->processCurrentBrewTime());
+                displayBrewTime(*systemContext_,
+                                coords.brewX,
+                                coords.brewY,
+                                derived->getBrewLabel(),
+                                systemContext_->processCurrentBrewTime());
             }
         }
     }
@@ -296,7 +308,8 @@ class UprightTemplate : public ModernDisplayTemplate<UprightTemplate> {
             systemContext_->hardwareContext().display()->setFont(u8g2_font_profont11_tf);
             char tempBuffer[16];
             snprintf(tempBuffer, sizeof(tempBuffer), "%.1f", systemContext_->processTemperature());
-            displayMessage(*systemContext_, langstring_error_tsensor_ur[0],
+            displayMessage(*systemContext_,
+                           langstring_error_tsensor_ur[0],
                            langstring_error_tsensor_ur[1],
                            tempBuffer,
                            langstring_error_tsensor_ur[2],
@@ -305,7 +318,8 @@ class UprightTemplate : public ModernDisplayTemplate<UprightTemplate> {
             return true;
         }
 
-        if (Config::getInstance().displayPidOffLogo.get() && getCurrentDisplayState(*systemContext_) == MachineStateId::STANDBY) {
+        if (Config::getInstance().displayPidOffLogo.get() &&
+            getCurrentDisplayState(*systemContext_) == MachineStateId::STANDBY) {
             systemContext_->hardwareContext().display()->drawXBMP(6, 50, Off_Logo_width, Off_Logo_height, Off_Logo);
             systemContext_->hardwareContext().display()->setCursor(1, 110);
             systemContext_->hardwareContext().display()->setFont(u8g2_font_profont10_tf);
@@ -319,8 +333,10 @@ class UprightTemplate : public ModernDisplayTemplate<UprightTemplate> {
   private:
     void displayHeatBar() {
         systemContext_->hardwareContext().display()->drawFrame(0, 124, 64, 4);
-        systemContext_->hardwareContext().display()->drawLine(1, 125, systemContext_->processPidOutput() / 16.13 + 1, 125);
-        systemContext_->hardwareContext().display()->drawLine(1, 126, systemContext_->processPidOutput() / 16.13 + 1, 126);
+        systemContext_->hardwareContext().display()->drawLine(
+            1, 125, systemContext_->processPidOutput() / 16.13 + 1, 125);
+        systemContext_->hardwareContext().display()->drawLine(
+            1, 126, systemContext_->processPidOutput() / 16.13 + 1, 126);
     }
 
     void displayMainStatus() {
@@ -354,12 +370,19 @@ class UprightTemplate : public ModernDisplayTemplate<UprightTemplate> {
 
             if (isAutomatic && brewByWeight) {
                 const auto targetWeight = Config::getInstance().brewByWeightTargetWeight.get();
-                displayBrewWeight(*systemContext_, 1, 44, systemContext_->currBrewWeight(), targetWeight, systemContext_->scaleFailure());
+                displayBrewWeight(*systemContext_,
+                                  1,
+                                  44,
+                                  systemContext_->currBrewWeight(),
+                                  targetWeight,
+                                  systemContext_->scaleFailure());
             } else {
-                displayBrewWeight(*systemContext_, 1, 44, systemContext_->currBrewWeight(), -1, systemContext_->scaleFailure());
+                displayBrewWeight(
+                    *systemContext_, 1, 44, systemContext_->currBrewWeight(), -1, systemContext_->scaleFailure());
             }
         } else if (scaleEnabled) {
-            displayBrewWeight(*systemContext_, 1, 44, systemContext_->currReadingWeight(), -1, systemContext_->scaleFailure());
+            displayBrewWeight(
+                *systemContext_, 1, 44, systemContext_->currReadingWeight(), -1, systemContext_->scaleFailure());
         }
 
         if (pressureEnabled) {
@@ -373,7 +396,10 @@ class UprightTemplate : public ModernDisplayTemplate<UprightTemplate> {
     }
 
     void displayStatusBar() {
-        systemContext_->hardwareContext().display()->drawLine(0, CleverCoffee::Display::STATUS_BAR_Y_POSITION, CleverCoffee::Display::OLED_WIDTH / 2, CleverCoffee::Display::STATUS_BAR_Y_POSITION);
+        systemContext_->hardwareContext().display()->drawLine(0,
+                                                              CleverCoffee::Display::STATUS_BAR_Y_POSITION,
+                                                              CleverCoffee::Display::OLED_WIDTH / 2,
+                                                              CleverCoffee::Display::STATUS_BAR_Y_POSITION);
         if (!systemContext_->networkCoordinator().isOfflineMode()) {
             displayWiFiStatus(*systemContext_, 4, 2);
             displayMQTTStatus(*systemContext_, 21, 0);

@@ -18,12 +18,12 @@ class SystemContext;
 
 /**
  * @brief Check if power switch operations are allowed
- * 
+ *
  * This function is used by BaseHandler::hasPermission() as the default permission check.
- * 
+ *
  * @param ctx SystemContext reference (always valid)
  * @return true if operations are allowed, false otherwise
- * 
+ *
  * @note SystemContext is always available after initialization
  */
 inline bool isPowerSwitchOperationAllowed(const CleverCoffee::SystemContext& ctx) {
@@ -43,11 +43,12 @@ inline bool isPowerSwitchOperationAllowed(const CleverCoffee::SystemContext& ctx
  */
 class BaseHandler {
   protected:
-    const char* handlerName_;
+    const char*                  handlerName_;
     CleverCoffee::SystemContext& systemContext_;
 
   public:
-    explicit BaseHandler(const char* name, CleverCoffee::SystemContext& ctx) : handlerName_(name), systemContext_(ctx) {}
+    explicit BaseHandler(const char* name, CleverCoffee::SystemContext& ctx)
+        : handlerName_(name), systemContext_(ctx) {}
     virtual ~BaseHandler() = default;
 
     /**
@@ -90,8 +91,12 @@ class BaseHandler {
     /**
      * @brief Get SystemContext reference
      */
-    CleverCoffee::SystemContext& getSystemContext() noexcept { return systemContext_; }
-    const CleverCoffee::SystemContext& getSystemContext() const noexcept { return systemContext_; }
+    CleverCoffee::SystemContext& getSystemContext() noexcept {
+        return systemContext_;
+    }
+    const CleverCoffee::SystemContext& getSystemContext() const noexcept {
+        return systemContext_;
+    }
 
     /**
      * @brief Validate hardware components
@@ -168,7 +173,8 @@ class SwitchBasedHandler : public BaseHandler {
     Switch* switch_;
 
   public:
-    SwitchBasedHandler(const char* name, Switch* sw, CleverCoffee::SystemContext& ctx) : BaseHandler(name, ctx), switch_(sw) {}
+    SwitchBasedHandler(const char* name, Switch* sw, CleverCoffee::SystemContext& ctx)
+        : BaseHandler(name, ctx), switch_(sw) {}
 
   protected:
     bool isHardwareValid() const override {

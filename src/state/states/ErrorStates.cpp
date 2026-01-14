@@ -37,9 +37,9 @@ std::optional<MachineStateId> SensorErrorState::checkSpecificTransitions(Machine
         context.logStateTransition(getStateId(), MachineStateId::EMERGENCY_STOP, "Emergency stop during sensor error");
         return MachineStateId::EMERGENCY_STOP;
     }
-    
+
     unsigned long errorDuration = millis() - errorStartTime_;
-    
+
     if (!context.hasSensorError() && !context.hasTemperatureError()) {
         // Error resolved - check recovery delay
         using CleverCoffee::Timing::ERROR_RECOVERY_DELAY_MS;
@@ -50,7 +50,7 @@ std::optional<MachineStateId> SensorErrorState::checkSpecificTransitions(Machine
         // Error still present - reset timer
         errorStartTime_ = millis();
     }
-    
+
     // Check if error has persisted too long or too many recovery attempts
     using CleverCoffee::Timing::MAX_SENSOR_ERROR_DURATION_MS;
     if (errorDuration > MAX_SENSOR_ERROR_DURATION_MS || recoveryAttempts_ >= MAX_RECOVERY_ATTEMPTS) {
@@ -61,7 +61,7 @@ std::optional<MachineStateId> SensorErrorState::checkSpecificTransitions(Machine
         context.setPidRuntimeState(false);
         return MachineStateId::PID_DISABLED;
     }
-    
+
     return std::nullopt;
 }
 
@@ -110,7 +110,7 @@ std::optional<MachineStateId> EepromErrorState::checkSpecificTransitions(Machine
         context.logStateTransition(getStateId(), MachineStateId::EMERGENCY_STOP, "Emergency stop during EEPROM error");
         return MachineStateId::EMERGENCY_STOP;
     }
-    
+
     unsigned long errorDuration = millis() - errorStartTime_;
     using CleverCoffee::Timing::EEPROM_RECOVERY_TIMEOUT_MS;
     if (errorDuration > EEPROM_RECOVERY_TIMEOUT_MS) {
