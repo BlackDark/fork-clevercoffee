@@ -6,6 +6,7 @@
 #pragma once
 
 #include <gmock/gmock.h>
+#include <memory>
 #include "clevercoffee/network/IWiFiManager.h"
 
 /**
@@ -52,13 +53,13 @@ public:
  * Returns a mock that won't complain about unexpected calls and
  * has reasonable default return values configured.
  */
-inline ::testing::NiceMock<MockWiFiManager> createDefaultMockWiFiManager() {
-    ::testing::NiceMock<MockWiFiManager> mock;
-    ON_CALL(mock, isConnected()).WillByDefault(::testing::Return(true));
-    ON_CALL(mock, getSSID()).WillByDefault(::testing::Return(String("TestNetwork")));
-    ON_CALL(mock, requiresRestart()).WillByDefault(::testing::Return(false));
-    ON_CALL(mock, getSignalStrength()).WillByDefault(::testing::Return(-50));
-    ON_CALL(mock, setupAndConnect(::testing::_, ::testing::_, ::testing::_, ::testing::_))
+inline std::unique_ptr<::testing::NiceMock<MockWiFiManager>> createDefaultMockWiFiManager() {
+    auto mock = std::make_unique<::testing::NiceMock<MockWiFiManager>>();
+    ON_CALL(*mock, isConnected()).WillByDefault(::testing::Return(true));
+    ON_CALL(*mock, getSSID()).WillByDefault(::testing::Return(String("TestNetwork")));
+    ON_CALL(*mock, requiresRestart()).WillByDefault(::testing::Return(false));
+    ON_CALL(*mock, getSignalStrength()).WillByDefault(::testing::Return(-50));
+    ON_CALL(*mock, setupAndConnect(::testing::_, ::testing::_, ::testing::_, ::testing::_))
         .WillByDefault(::testing::Return(true));
     return mock;
 }
