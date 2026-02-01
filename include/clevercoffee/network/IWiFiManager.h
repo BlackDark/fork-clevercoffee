@@ -16,7 +16,7 @@
  * that depend on WiFi functionality without requiring actual hardware.
  */
 class IWiFiManager {
-public:
+  public:
     virtual ~IWiFiManager() = default;
 
     /**
@@ -27,11 +27,10 @@ public:
      * @param displayCallback Optional callback for display messages (line1, line2)
      * @return true if WiFi connected successfully, false if offline mode
      */
-    virtual bool setupAndConnect(
-        const String& hostname,
-        const String& password,
-        bool oledEnabled,
-        std::function<void(const char*, const char*)> displayCallback = nullptr) = 0;
+    virtual bool setupAndConnect(const String&                                 hostname,
+                                 const String&                                 password,
+                                 bool                                          oledEnabled,
+                                 std::function<void(const char*, const char*)> displayCallback = nullptr) = 0;
 
     /**
      * @brief Reset WiFi settings and restart device
