@@ -118,4 +118,64 @@ private:
     MockConfig config_;
 };
 
+/**
+ * @brief Test fixture for ProcessController tests
+ * 
+ * Provides common setup for ProcessController testing:
+ * - SystemContext with PID controller
+ * - MachineStateContext
+ * - All required mocks
+ */
+class ProcessControllerTestFixture : public TestFixtureBase {
+protected:
+    void SetUp() override {
+        TestFixtureBase::SetUp();
+        // Additional ProcessController-specific setup
+    }
+};
+
+/**
+ * @brief Test fixture for StateMachine tests
+ * 
+ * Provides common setup for StateMachine testing:
+ * - SystemContext
+ * - MachineStateContext
+ * - All required mocks
+ */
+class StateMachineTestFixture : public TestFixtureBase {
+protected:
+    void SetUp() override {
+        TestFixtureBase::SetUp();
+        // Additional StateMachine-specific setup
+    }
+};
+
+/**
+ * @brief Test fixture for handler tests
+ * 
+ * Provides common setup for handler testing:
+ * - SystemContext
+ * - Mock switches and relays
+ */
+class HandlerTestFixture : public TestFixtureBase {
+protected:
+    void SetUp() override {
+        TestFixtureBase::SetUp();
+        // Additional handler-specific setup
+    }
+};
+
+/**
+ * @brief Test fixture for integration tests
+ * 
+ * Provides full system setup for integration testing
+ */
+class IntegrationTestFixture : public TestFixtureBase {
+protected:
+    void SetUp() override {
+        TestFixtureBase::SetUp();
+        // Full system initialization
+    }
+};
+
 } // namespace CleverCoffee

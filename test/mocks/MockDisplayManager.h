@@ -8,8 +8,12 @@
 #pragma once
 
 #include <gmock/gmock.h>
-#include "../../include/clevercoffee/display/DisplayManager.h"
-#include <U8g2lib.h>
+// Forward declaration instead of including real DisplayManager to avoid U8g2 dependency
+// #include "../../include/clevercoffee/display/DisplayManager.h"
+// #include <U8g2lib.h>
+
+// Forward declaration
+class U8G2;
 
 /**
  * @class MockDisplayManager

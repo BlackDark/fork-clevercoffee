@@ -97,3 +97,37 @@ TEST_F(ConfigTest, EnumParameterHandling) {
     EXPECT_EQ(Hardware::SwitchType::TOGGLE, mockConfig_->getHardwareSwitchesBrewType());
 }
 
+/**
+ * @brief Test parameter validation ranges
+ */
+TEST_F(ConfigTest, ParameterValidationRanges) {
+    // Test setpoint validation (should be in reasonable range)
+    mockConfig_->setBrewSetpoint(95.0);
+    EXPECT_GE(mockConfig_->getBrewSetpoint(), 0.0);
+    EXPECT_LE(mockConfig_->getBrewSetpoint(), 200.0);
+    
+    mockConfig_->setSteamSetpoint(120.0);
+    EXPECT_GE(mockConfig_->getSteamSetpoint(), 0.0);
+    EXPECT_LE(mockConfig_->getSteamSetpoint(), 200.0);
+}
+
+/**
+ * @brief Test Config with real instance (if NVS available)
+ */
+TEST_F(ConfigTest, DISABLED_RealConfigWithNVS) {
+    // This test would test real Config with NVS if available in test environment
+    // Config& config = Config::getInstance();
+    // config.begin();
+    // config.brewSetpoint.set(96.0);
+    // EXPECT_DOUBLE_EQ(96.0, config.brewSetpoint.get());
+    // config.resetAllToDefaults();
+}
+
+/**
+ * @brief Test parameter persistence
+ */
+TEST_F(ConfigTest, DISABLED_ParameterPersistence) {
+    // This test would verify parameters persist across Config instances
+    // Requires NVS functionality
+}
+

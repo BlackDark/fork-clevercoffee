@@ -38,6 +38,14 @@
 #define OCT 8
 #endif
 
+// PROGMEM stubs for native tests
+#ifndef PROGMEM
+#define PROGMEM
+#endif
+#ifndef U8X8_PROGMEM
+#define U8X8_PROGMEM
+#endif
+
 // Arduino String class stub with all methods
 class String {
 public:

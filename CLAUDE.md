@@ -56,6 +56,7 @@ Follow C++ Core Guidelines. Prefer compile-time errors over runtime errors.
 - The `rg` (ripgrep) command is available for fast searches in text files.
 
 ## Documentation Sources
+- **Repository Overview**: See `REPOSITORY_SUMMARY.md` for project structure, build/test instructions, coding standards, and TDD practices.
 - If working with a new library or tool, consider looking for its documentation from its website, GitHub project, or the relevant llms.txt.
   - It is always better to have accurate, up-to-date documentation at your disposal, rather than relying on your pre-trained knowledge.
 - You can search the following directories for llms.txt collections for many projects:
