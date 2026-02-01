@@ -16,7 +16,7 @@
 
 // Forward declarations
 class DisplayManager;
-class CleverCoffeeWiFiManager;
+class IWiFiManager;
 class MQTTManager;
 
 namespace CleverCoffee {
@@ -52,7 +52,7 @@ class StateMachine {
     StateMachine(CleverCoffee::SystemContext&   systemContext,
                  CleverCoffee::HardwareManager& hardwareManager,
                  DisplayManager&                displayManager,
-                 CleverCoffeeWiFiManager&       wifiManager,
+                 IWiFiManager&                  wifiManager,
                  MQTTManager&                   mqttManager);
 
     /**

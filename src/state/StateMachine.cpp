@@ -16,7 +16,7 @@
 StateMachine::StateMachine(CleverCoffee::SystemContext&   systemContext,
                            CleverCoffee::HardwareManager& hardwareManager,
                            DisplayManager&                displayManager,
-                           CleverCoffeeWiFiManager&       wifiManager,
+                           IWiFiManager&                  wifiManager,
                            MQTTManager&                   mqttManager)
     : currentState_(nullptr), // Will be set in initialize() - temporary, will always have a state after init
       context_(systemContext, hardwareManager, displayManager, wifiManager, mqttManager), initialized_(false),

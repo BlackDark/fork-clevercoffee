@@ -25,7 +25,7 @@
 MachineStateContext::MachineStateContext(CleverCoffee::SystemContext&   systemContext,
                                          CleverCoffee::HardwareManager& hardwareManager,
                                          DisplayManager&                displayManager,
-                                         CleverCoffeeWiFiManager&       wifiManager,
+                                         IWiFiManager&                  wifiManager,
                                          MQTTManager&                   mqttManager)
     : systemContext_(systemContext), hardwareManager_(hardwareManager), displayManager_(displayManager),
       wifiManager_(wifiManager), mqttManager_(mqttManager) {}

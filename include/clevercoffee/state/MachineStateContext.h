@@ -17,7 +17,7 @@
 class Config;
 class DisplayManager;
 class MQTTManager;
-class CleverCoffeeWiFiManager;
+class IWiFiManager;
 class U8G2;
 class TempSensor;
 class Switch;
@@ -66,7 +66,7 @@ class MachineStateContext : public CleverCoffee::IHardwareContext,
     MachineStateContext(CleverCoffee::SystemContext&   systemContext,
                         CleverCoffee::HardwareManager& hardwareManager,
                         DisplayManager&                displayManager,
-                        CleverCoffeeWiFiManager&       wifiManager,
+                        IWiFiManager&                  wifiManager,
                         MQTTManager&                   mqttManager);
 
     /**
@@ -108,7 +108,7 @@ class MachineStateContext : public CleverCoffee::IHardwareContext,
      * @brief Get WiFi manager
      * @return Pointer to WiFi manager (always exists when enabled, nullptr when offline mode)
      */
-    CleverCoffeeWiFiManager& getWiFiManager() const noexcept {
+    IWiFiManager& getWiFiManager() const noexcept {
         return wifiManager_;
     }
 
@@ -754,7 +754,7 @@ class MachineStateContext : public CleverCoffee::IHardwareContext,
     // Manager references - ALL REQUIRED
     CleverCoffee::HardwareManager& hardwareManager_; // REQUIRED - CRITICAL component
     DisplayManager&                displayManager_;  // REQUIRED - always exists
-    CleverCoffeeWiFiManager&       wifiManager_;     // REQUIRED - always exists
+    IWiFiManager&                  wifiManager_;     // REQUIRED - always exists
     MQTTManager&                   mqttManager_;     // REQUIRED - always exists
 
                                                      // === Machine State Management ===
