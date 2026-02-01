@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include "IWiFiManager.h"
+
 #include <Arduino.h>
 #include <functional>
 #include <memory>
@@ -29,7 +31,7 @@ class CircuitBreaker;
  * This class provides safe management of WiFi connections using RAII principles.
  * It encapsulates all WiFi setup, connection, and configuration portal functionality.
  */
-class CleverCoffeeWiFiManager {
+class CleverCoffeeWiFiManager : public IWiFiManager {
   public:
     /**
      * @brief Constructor - initializes WiFi manager
@@ -63,30 +65,30 @@ class CleverCoffeeWiFiManager {
     bool setupAndConnect(const String&                                 hostname,
                          const String&                                 password,
                          bool                                          oledEnabled,
-                         std::function<void(const char*, const char*)> displayCallback = nullptr);
+                         std::function<void(const char*, const char*)> displayCallback = nullptr) override;
 
     /**
      * @brief Reset WiFi settings and restart device
      */
-    void resetSettings();
+    void resetSettings() override;
 
     /**
      * @brief Check if WiFi is connected
      * @return true if connected to WiFi
      */
-    bool isConnected() const;
+    bool isConnected() const override;
 
     /**
      * @brief Get the connected WiFi SSID
      * @return WiFi SSID string
      */
-    String getSSID() const;
+    String getSSID() const override;
 
     /**
      * @brief Check if restart is required after AP configuration
      * @return true if restart is needed
      */
-    bool requiresRestart() const noexcept {
+    bool requiresRestart() const noexcept override {
         return restartAfterAP_;
     }
 
@@ -99,13 +101,13 @@ class CleverCoffeeWiFiManager {
      * - Offline mode activation after max attempts
      * - Connection logging
      */
-    void checkAndMaintainConnection();
+    void checkAndMaintainConnection() override;
 
     /**
      * @brief Get the current signal strength in dBm
      * @return Signal strength in dBm
      */
-    int getSignalStrength();
+    int getSignalStrength() override;
 
   private:
     // ::WiFiManager wifiManager_; // Use global scope to avoid naming conflict
