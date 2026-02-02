@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "clevercoffee/network/IMQTTManager.h"
 #include "clevercoffee/types/GlobalTypes.h"
 
 #include <ArduinoJson.h>
@@ -36,7 +37,7 @@ class CircuitBreaker;
  * This class provides safe management of MQTT connections using RAII principles.
  * It encapsulates all MQTT setup, connection, publishing, and Home Assistant discovery.
  */
-class MQTTManager {
+class MQTTManager : public IMQTTManager {
   public:
     /**
      * @brief Constructor - initializes MQTT manager
@@ -69,7 +70,7 @@ class MQTTManager {
      * @brief Set UI coordinator for state management
      * @param coordinator Pointer to UICoordinator
      */
-    void setUICoordinator(CleverCoffee::UICoordinator* coordinator) noexcept {
+    void setUICoordinator(CleverCoffee::UICoordinator* coordinator) noexcept override {
         uiCoordinator_ = coordinator;
     }
 
@@ -77,7 +78,7 @@ class MQTTManager {
      * @brief Set Sensor coordinator for scale mode management
      * @param coordinator Pointer to SensorCoordinator
      */
-    void setSensorCoordinator(CleverCoffee::SensorCoordinator* coordinator) noexcept {
+    void setSensorCoordinator(CleverCoffee::SensorCoordinator* coordinator) noexcept override {
         sensorCoordinator_ = coordinator;
     }
 
@@ -85,7 +86,7 @@ class MQTTManager {
      * @brief Set Network coordinator for connection state management
      * @param coordinator Pointer to NetworkCoordinator
      */
-    void setNetworkCoordinator(CleverCoffee::NetworkCoordinator* coordinator) noexcept {
+    void setNetworkCoordinator(CleverCoffee::NetworkCoordinator* coordinator) noexcept override {
         networkCoordinator_ = coordinator;
     }
 
@@ -93,38 +94,38 @@ class MQTTManager {
      * @brief Set system context for state management
      * @param context Pointer to SystemContext
      */
-    void setSystemContext(CleverCoffee::SystemContext* context) noexcept {
+    void setSystemContext(CleverCoffee::SystemContext* context) noexcept override {
         systemContext_ = context;
     }
 
     /**
      * @brief Check MQTT connection and reconnect if needed
      */
-    void checkConnection();
+    void checkConnection() override;
 
     /**
      * @brief Process MQTT loop and handle messages
      */
-    void loop();
+    void loop() override;
 
     /**
      * @brief Publish system parameters to MQTT
      * @param continueOnError Whether to continue on errors
      * @return 0 on success, error code on failure
      */
-    int writeSysParamsToMQTT(bool continueOnError = true);
+    int writeSysParamsToMQTT(bool continueOnError = true) override;
 
     /**
      * @brief Send Home Assistant discovery messages
      * @return 0 on success, error code on failure
      */
-    int sendHASSIODiscoveryMsg();
+    int sendHASSIODiscoveryMsg() override;
 
     /**
      * @brief Check if MQTT is enabled
      * @return true if MQTT is enabled
      */
-    bool isEnabled() const noexcept {
+    bool isEnabled() const noexcept override {
         return mqttEnabled_;
     }
 
@@ -132,7 +133,7 @@ class MQTTManager {
      * @brief Check if MQTT is connected
      * @return true if connected
      */
-    bool isConnected() const noexcept {
+    bool isConnected() const noexcept override {
         return const_cast<PubSubClient&>(mqttClient_).connected();
     }
 
@@ -154,7 +155,7 @@ class MQTTManager {
      * @brief Set update running flag
      * @param running Whether update is running
      */
-    void setUpdateRunning(bool running) noexcept {
+    void setUpdateRunning(bool running) noexcept override {
         mqttUpdateRunning_ = running;
     }
 
@@ -162,7 +163,7 @@ class MQTTManager {
      * @brief Check if update is running
      * @return true if update is running
      */
-    bool isUpdateRunning() const noexcept {
+    bool isUpdateRunning() const noexcept override {
         return mqttUpdateRunning_;
     }
 
@@ -170,7 +171,7 @@ class MQTTManager {
      * @brief Check if was connected previously
      * @return true if was connected
      */
-    bool wasConnected() const noexcept {
+    bool wasConnected() const noexcept override {
         return mqttWasConnected_;
     }
 
@@ -178,7 +179,7 @@ class MQTTManager {
      * @brief Set was connected flag
      * @param connected Connection state
      */
-    void setWasConnected(bool connected) noexcept {
+    void setWasConnected(bool connected) noexcept override {
         mqttWasConnected_ = connected;
     }
 
