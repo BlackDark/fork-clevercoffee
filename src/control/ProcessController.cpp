@@ -11,21 +11,22 @@
 #include "clevercoffee/context/SystemContext.h"
 #include "clevercoffee/control/EmergencyStopManager.h"
 #include "clevercoffee/coordinators/SensorCoordinator.h"
-#include "clevercoffee/display/DisplayManager.h"
-#include "clevercoffee/hardware/HardwareManager.h" // Include before own header to resolve forward declaration
+#include "clevercoffee/display/IDisplayManager.h"
+#include "clevercoffee/hardware/Relay.h"
 #include "clevercoffee/hardware/scales/Scale.h"
-#include "clevercoffee/network/MQTTManager.h"
+#include "clevercoffee/network/IMQTTManager.h"
+#include "clevercoffee/state/IHardwareContext.h"
 #include "clevercoffee/state/MachineStateContext.h"
 #include "clevercoffee/types/GlobalTypes.h"
 #include "clevercoffee/utils/SystemUtils.h"
 
 #include <Arduino.h>
 
-ProcessController::ProcessController(const Config&                  config,
-                                     CleverCoffee::SystemContext&   systemContext,
-                                     CleverCoffee::HardwareManager& hardwareManager,
-                                     DisplayManager&                displayManager,
-                                     MQTTManager&                   mqttManager)
+ProcessController::ProcessController(const Config&                   config,
+                                     CleverCoffee::SystemContext&    systemContext,
+                                     CleverCoffee::IHardwareContext& hardwareManager,
+                                     IDisplayManager&                displayManager,
+                                     IMQTTManager&                   mqttManager)
     : config_(config), systemContext_(systemContext), hardwareManager_(hardwareManager),
       displayManager_(displayManager), mqttManager_(mqttManager), pidController_(nullptr), temperature_(0.0),
       pidOutput_(0.0), setpoint_(0.0), aggKp_(0.0), aggKi_(0.0), aggKd_(0.0), aggTn_(0.0), aggTv_(0.0), aggIMax_(0.0),
@@ -271,7 +272,7 @@ void ProcessController::emergencyStop() {
     pidOutput_ = 0;
     systemContext_.setProcessPidOutput(0);
 
-    hardwareManager_.safeShutdown();
+    hardwareManager_.emergencyShutdown();
 }
 
 double ProcessController::getCurrBrewTime() const {
@@ -476,7 +477,7 @@ void ProcessController::performSafeShutdown() {
     systemContext_.setProcessPidOutput(0);
 
     // Delegate hardware shutdown to HardwareManager
-    hardwareManager_.safeShutdown();
+    hardwareManager_.emergencyShutdown();
 
     LOG(INFO, "ProcessController safe shutdown completed");
 }
