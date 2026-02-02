@@ -12,14 +12,14 @@
 #include <memory>
 
 // Forward declarations
-class DisplayManager;
-class MQTTManager;
+class IDisplayManager;
+class IMQTTManager;
 class TempSensor;
 class Scale;
 class Config;
 
 namespace CleverCoffee {
-class HardwareManager;
+class IHardwareContext;
 class SystemContext;
 } // namespace CleverCoffee
 
@@ -51,11 +51,11 @@ class ProcessController {
      * @param displayManager Display manager (REQUIRED - always exists)
      * @param mqttManager MQTT manager (REQUIRED - always exists)
      */
-    ProcessController(const Config&                  config,
-                      CleverCoffee::SystemContext&   systemContext,
-                      CleverCoffee::HardwareManager& hardwareManager,
-                      DisplayManager&                displayManager,
-                      MQTTManager&                   mqttManager);
+    ProcessController(const Config&                   config,
+                      CleverCoffee::SystemContext&    systemContext,
+                      CleverCoffee::IHardwareContext& hardwareManager,
+                      IDisplayManager&                displayManager,
+                      IMQTTManager&                   mqttManager);
 
     /**
      * @brief Destructor
@@ -361,9 +361,9 @@ class ProcessController {
     CleverCoffee::SystemContext& systemContext_;
 
     // Manager dependencies - ALL REQUIRED
-    CleverCoffee::HardwareManager& hardwareManager_; // REQUIRED - CRITICAL component
-    DisplayManager&                displayManager_;  // REQUIRED - always exists
-    MQTTManager&                   mqttManager_;     // REQUIRED - always exists
+    CleverCoffee::IHardwareContext& hardwareManager_; // REQUIRED - CRITICAL component
+    IDisplayManager&                displayManager_;  // REQUIRED - always exists
+    IMQTTManager&                   mqttManager_;     // REQUIRED - always exists
 
     // PID controller
     std::unique_ptr<PID> pidController_;
