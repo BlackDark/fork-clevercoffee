@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include "OneWire.h"
+
 // Minimal stub for DallasTemperature library
 class DallasTemperature {
 public:

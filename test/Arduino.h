@@ -104,8 +104,11 @@
 #define B00111110 0x3E
 #define B00111111 0x3F
 #define B01000000 0x40
+#define B01001000 0x48
+#define B01001010 0x4A
 #define B01111111 0x7F
 #define B10000000 0x80
+#define B10001000 0x88
 #define B11111111 0xFF
 
 // PROGMEM stubs for native tests
@@ -236,6 +239,11 @@ inline void delayMicroseconds(unsigned int us) {
     // No-op in tests
 }
 
+// Arduino map function
+inline long map(long x, long in_min, long in_max, long out_min, long out_max) {
+    return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+}
+
 // Arduino stubs
 inline void setup() {}
 inline void loop() {}
@@ -311,6 +319,13 @@ public:
     IPAddress localIP() { return IPAddress(0,0,0,0); }
 };
 inline WiFiClass WiFi;
+
+// ESP stub for ESP32 chip functions
+class ESPClass {
+public:
+    void restart() {}
+};
+inline ESPClass ESP;
 
 // ESP32 hardware timer stub
 typedef struct {
