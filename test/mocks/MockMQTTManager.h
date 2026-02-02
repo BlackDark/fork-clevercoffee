@@ -1,123 +1,56 @@
 /**
  * @file MockMQTTManager.h
- * @brief Mock implementation of MQTTManager for testing
- *
- * Allows testing code that depends on MQTTManager without actual network connections.
+ * @brief Mock implementation of IMQTTManager for testing
  */
 
 #pragma once
 
 #include <gmock/gmock.h>
-#include <String.h>
-#include <PubSubClient.h>
+#include "clevercoffee/network/IMQTTManager.h"
 
 /**
  * @class MockMQTTManager
- * @brief Mock implementation of MQTTManager for testing
+ * @brief Google Mock implementation of IMQTTManager interface
  *
- * Provides EXPECT_CALL() support for MQTT operations.
- * 
- * Example usage:
- * @code
- * MockMQTTManager mockMQTT;
- * EXPECT_CALL(mockMQTT, setup(_)).WillOnce(Return(true));
- * EXPECT_CALL(mockMQTT, isEnabled()).WillRepeatedly(Return(true));
- * EXPECT_CALL(mockMQTT, isConnected()).WillRepeatedly(Return(true));
- * EXPECT_CALL(mockMQTT, loop()).Times(AtLeast(1));
- * @endcode
+ * Provides a test double for MQTTManager that can be used with
+ * GoogleTest expectations and behavior specifications.
  */
-class MockMQTTManager {
-public:
-    MockMQTTManager() = default;
-    virtual ~MockMQTTManager() = default;
+class MockMQTTManager : public IMQTTManager {
+  public:
+    MockMQTTManager()          = default;
+    ~MockMQTTManager() override = default;
 
-    /**
-     * @brief Mock method to setup MQTT
-     */
-    MOCK_METHOD(bool, setup, (const String&), ());
-
-    /**
-     * @brief Mock method to check MQTT connection
-     */
-    MOCK_METHOD(void, checkConnection, (), ());
-
-    /**
-     * @brief Mock method to process MQTT loop
-     */
-    MOCK_METHOD(void, loop, (), ());
-
-    /**
-     * @brief Mock method to publish system parameters
-     */
-    MOCK_METHOD(int, writeSysParamsToMQTT, (bool), ());
-
-    /**
-     * @brief Mock method to send Home Assistant discovery
-     */
-    MOCK_METHOD(int, sendHASSIODiscoveryMsg, (), ());
-
-    /**
-     * @brief Mock method to check if MQTT is enabled
-     */
-    MOCK_METHOD(bool, isEnabled, (), (const, noexcept));
-
-    /**
-     * @brief Mock method to check if MQTT is connected
-     */
-    MOCK_METHOD(bool, isConnected, (), (const, noexcept));
-
-    /**
-     * @brief Mock method to register parameter
-     */
-    MOCK_METHOD(void, registerParameter, (const char*, const char*), ());
-
-    /**
-     * @brief Mock method to register sensor
-     */
-    MOCK_METHOD(void, registerSensor, (const char*, std::function<double()>), ());
-
-    /**
-     * @brief Mock method to set update running flag
-     */
-    MOCK_METHOD(void, setUpdateRunning, (bool), (noexcept));
-
-    /**
-     * @brief Mock method to check if update is running
-     */
-    MOCK_METHOD(bool, isUpdateRunning, (), (const, noexcept));
-
-    /**
-     * @brief Mock method to check if was connected
-     */
-    MOCK_METHOD(bool, wasConnected, (), (const, noexcept));
-
-    /**
-     * @brief Mock method to set was connected flag
-     */
-    MOCK_METHOD(void, setWasConnected, (bool), (noexcept));
-
-    /**
-     * @brief Mock method to get MQTT client
-     */
-    MOCK_METHOD(PubSubClient&, getClient, (), (noexcept));
-
-    /**
-     * @brief Mock method to set UI coordinator
-     */
-    MOCK_METHOD(void, setUICoordinator, (void*), (noexcept));
-
-    /**
-     * @brief Mock method to set sensor coordinator
-     */
-    MOCK_METHOD(void, setSensorCoordinator, (void*), (noexcept));
-
-    /**
-     * @brief Mock method to set network coordinator
-     */
-    MOCK_METHOD(void, setNetworkCoordinator, (void*), (noexcept));
-
-    /**
-     * @brief Mock method to set system context
-     */
-    MOCK_METHOD(void, setSystemContext, (void*), (noexcept));
+    MOCK_METHOD(bool, isEnabled, (), (const, noexcept, override));
+    MOCK_METHOD(bool, isConnected, (), (const, noexcept, override));
+    MOCK_METHOD(void, checkConnection, (), (override));
+    MOCK_METHOD(void, loop, (), (override));
+    MOCK_METHOD(int, writeSysParamsToMQTT, (bool), (override));
+    MOCK_METHOD(int, sendHASSIODiscoveryMsg, (), (override));
+    MOCK_METHOD(void, setUICoordinator, (CleverCoffee::UICoordinator*), (noexcept, override));
+    MOCK_METHOD(void, setSensorCoordinator, (CleverCoffee::SensorCoordinator*), (noexcept, override));
+    MOCK_METHOD(void, setNetworkCoordinator, (CleverCoffee::NetworkCoordinator*), (noexcept, override));
+    MOCK_METHOD(void, setSystemContext, (CleverCoffee::SystemContext*), (noexcept, override));
+    MOCK_METHOD(void, setUpdateRunning, (bool), (noexcept, override));
+    MOCK_METHOD(bool, isUpdateRunning, (), (const, noexcept, override));
+    MOCK_METHOD(bool, wasConnected, (), (const, noexcept, override));
+    MOCK_METHOD(void, setWasConnected, (bool), (noexcept, override));
 };
+
+/**
+ * @brief Create a MockMQTTManager with default behavior for common scenarios
+ * @return Unique pointer to NiceMock<MockMQTTManager> with sensible defaults
+ *
+ * Default behavior:
+ * - isEnabled() returns false
+ * - isConnected() returns false
+ * - isUpdateRunning() returns false
+ * - wasConnected() returns false
+ */
+inline std::unique_ptr<testing::NiceMock<MockMQTTManager>> createDefaultMockMQTTManager() {
+    auto mock = std::make_unique<testing::NiceMock<MockMQTTManager>>();
+    ON_CALL(*mock, isEnabled()).WillByDefault(testing::Return(false));
+    ON_CALL(*mock, isConnected()).WillByDefault(testing::Return(false));
+    ON_CALL(*mock, isUpdateRunning()).WillByDefault(testing::Return(false));
+    ON_CALL(*mock, wasConnected()).WillByDefault(testing::Return(false));
+    return mock;
+}
