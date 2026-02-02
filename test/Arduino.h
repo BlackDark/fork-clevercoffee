@@ -38,6 +38,76 @@
 #define OCT 8
 #endif
 
+// Binary literal macros (B prefix)
+#define B00000000 0x00
+#define B00000001 0x01
+#define B00000010 0x02
+#define B00000011 0x03
+#define B00000100 0x04
+#define B00000101 0x05
+#define B00000110 0x06
+#define B00000111 0x07
+#define B00001000 0x08
+#define B00001001 0x09
+#define B00001010 0x0A
+#define B00001011 0x0B
+#define B00001100 0x0C
+#define B00001101 0x0D
+#define B00001110 0x0E
+#define B00001111 0x0F
+#define B00010000 0x10
+#define B00010001 0x11
+#define B00010010 0x12
+#define B00010011 0x13
+#define B00010100 0x14
+#define B00010101 0x15
+#define B00010110 0x16
+#define B00010111 0x17
+#define B00011000 0x18
+#define B00011001 0x19
+#define B00011010 0x1A
+#define B00011011 0x1B
+#define B00011100 0x1C
+#define B00011101 0x1D
+#define B00011110 0x1E
+#define B00011111 0x1F
+#define B00100000 0x20
+#define B00100001 0x21
+#define B00100010 0x22
+#define B00100011 0x23
+#define B00100100 0x24
+#define B00100101 0x25
+#define B00100110 0x26
+#define B00100111 0x27
+#define B00101000 0x28
+#define B00101001 0x29
+#define B00101010 0x2A
+#define B00101011 0x2B
+#define B00101100 0x2C
+#define B00101101 0x2D
+#define B00101110 0x2E
+#define B00101111 0x2F
+#define B00110000 0x30
+#define B00110001 0x31
+#define B00110010 0x32
+#define B00110011 0x33
+#define B00110100 0x34
+#define B00110101 0x35
+#define B00110110 0x36
+#define B00110111 0x37
+#define B00111000 0x38
+#define B00111001 0x39
+#define B00111010 0x3A
+#define B00111011 0x3B
+#define B00111100 0x3C
+#define B00111101 0x3D
+#define B00111110 0x3E
+#define B00111111 0x3F
+#define B01000000 0x40
+#define B01111111 0x7F
+#define B10000000 0x80
+#define B11111111 0xFF
+
 // PROGMEM stubs for native tests
 #ifndef PROGMEM
 #define PROGMEM

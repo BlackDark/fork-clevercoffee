@@ -19,9 +19,9 @@
 class PID {
 public:
     PID(double* input, double* output, double* setpoint,
-        double kp, double ki, double kd, int pOn, int controllerDirection) 
+        double kp, double ki, double kd, int pOn, int controllerDirection)
         : input_(input), output_(output), setpoint_(setpoint),
-          kp_(kp), ki_(ki), kd_(kd), mode_(AUTOMATIC) {}
+          kp_(kp), ki_(ki), kd_(kd), mode_(AUTOMATIC), pOnE_(pOn == P_ON_E) {}
     
     virtual ~PID() = default;
     
@@ -77,6 +77,7 @@ public:
     double GetLastDPart() const { return 0.0; }
     double GetInputError() const { return 0.0; }
     double GetDeltaInput() const { return 0.0; }
+    bool GetPonE() const { return pOnE_; }
     
 private:
     double* input_;
@@ -84,6 +85,7 @@ private:
     double* setpoint_;
     double kp_, ki_, kd_;
     int mode_;
+    bool pOnE_ = false;
     double minOutput_ = 0.0;
     double maxOutput_ = 1000.0;
     double minIntegral_ = 0.0;
