@@ -6,6 +6,7 @@
 #pragma once
 
 #include "clevercoffee/defaults.h"
+#include "clevercoffee/display/IDisplayManager.h"
 
 #include <U8g2lib.h>
 #include <memory>
@@ -18,7 +19,7 @@
  * It automatically handles display initialization and cleanup, preventing memory leaks
  * and ensuring proper display shutdown.
  */
-class DisplayManager {
+class DisplayManager : public IDisplayManager {
   public:
     /**
      * @brief Construct DisplayManager for specific display type
@@ -44,7 +45,7 @@ class DisplayManager {
      * @brief Get raw U8G2 pointer for compatibility with existing code
      * @return Pointer to U8G2 instance, or nullptr if not initialized
      */
-    U8G2* getDisplay() const noexcept {
+    U8G2* getDisplay() const noexcept override {
         return display_.get();
     }
 
@@ -52,7 +53,7 @@ class DisplayManager {
      * @brief Check if display is successfully initialized
      * @return true if display is ready for use
      */
-    bool isInitialized() const noexcept {
+    bool isInitialized() const noexcept override {
         return display_ != nullptr;
     }
 
