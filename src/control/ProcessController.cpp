@@ -132,8 +132,10 @@ void ProcessController::updateTemperature() {
     // Use SensorCoordinator from SystemContext for temperature reading (includes brew offset automatically)
     temperature_ = systemContext_.sensorCoordinator().getTemperature();
 
-    if (!systemContext_.machineStateContext()->isSteamModeActive()) {
-        // Apply brew temperature offset if not in steam mode
+    // Apply brew temperature offset if not in steam mode
+    // Note: machineStateContext may be null in tests
+    const auto* machineState = systemContext_.machineStateContext();
+    if (!machineState || !machineState->isSteamModeActive()) {
         temperature_ -= brewTempOffset_;
     }
 }

@@ -141,10 +141,8 @@ TEST_F(ProcessControllerIntegrationTest, LoadsSetpointFromConfig) {
  *
  * CRITICAL SAFETY TEST: Verifies the machine shuts down when temperature
  * exceeds the emergency threshold (default 145°C)
- *
- * DISABLED: Segfaults in SystemContext::triggerEmergencyStop - needs investigation
  */
-TEST_F(ProcessControllerIntegrationTest, DISABLED_EmergencyStopOnOvertemperature) {
+TEST_F(ProcessControllerIntegrationTest, EmergencyStopOnOvertemperature) {
     controller_->initialize();
 
     Config& config = Config::getInstance();
@@ -152,21 +150,24 @@ TEST_F(ProcessControllerIntegrationTest, DISABLED_EmergencyStopOnOvertemperature
     const double dangerousTemp = emergencyThreshold + 5.0;  // 150°C
 
     // Simulate dangerous temperature - need 3 consecutive readings for debounce
-    ON_CALL(mockHardwareManager_, getCurrentTemperature())
-        .WillByDefault(Return(dangerousTemp));
+    // Note: We set temperature_ directly since SensorCoordinator has no sensor in tests
+    controller_->temperature_ = dangerousTemp;
 
     // First two calls build up debounce counter
-    controller_->updateTemperature();
     controller_->testEmergencyConditions();
-    controller_->updateTemperature();
     controller_->testEmergencyConditions();
 
     // Third call should trigger emergency
-    controller_->updateTemperature();
     bool emergencyTriggered = controller_->testEmergencyConditions();
 
     EXPECT_TRUE(emergencyTriggered)
         << "Emergency should trigger after 3 consecutive overtemperature readings";
+
+    // Verify emergency actions were taken
+    EXPECT_FALSE(controller_->isPIDEnabled())
+        << "PID should be disabled after emergency";
+    EXPECT_EQ(0.0, controller_->getPIDOutput())
+        << "PID output should be zeroed after emergency";
 }
 
 /**
