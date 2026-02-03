@@ -175,10 +175,8 @@ TEST_F(ProcessControllerIntegrationTest, EmergencyStopOnOvertemperature) {
  *
  * SAFETY TEST: Verifies PID output stays within 0-1000 range
  * regardless of input conditions
- *
- * DISABLED: Needs PID integration work
  */
-TEST_F(ProcessControllerIntegrationTest, DISABLED_PIDOutputClampedToSafeBounds) {
+TEST_F(ProcessControllerIntegrationTest, PIDOutputClampedToSafeBounds) {
     controller_->initialize();
     controller_->setPIDEnabled(true);
 
@@ -186,8 +184,11 @@ TEST_F(ProcessControllerIntegrationTest, DISABLED_PIDOutputClampedToSafeBounds) 
     ON_CALL(mockHardwareManager_, getCurrentTemperature())
         .WillByDefault(Return(20.0));  // Far below setpoint
 
-    controller_->updateTemperature();
-    controller_->computePID();
+    // Run multiple update cycles to let PID respond
+    for (int i = 0; i < 5; i++) {
+        controller_->updateTemperature();
+        controller_->computePID();
+    }
 
     double output = controller_->getPIDOutput();
     EXPECT_GE(output, 0.0) << "PID output should not be negative";
@@ -196,10 +197,8 @@ TEST_F(ProcessControllerIntegrationTest, DISABLED_PIDOutputClampedToSafeBounds) 
 
 /**
  * TEST: PID output clamped when temperature above setpoint
- *
- * DISABLED: Needs PID integration work
  */
-TEST_F(ProcessControllerIntegrationTest, DISABLED_PIDOutputClampedWhenHot) {
+TEST_F(ProcessControllerIntegrationTest, PIDOutputClampedWhenHot) {
     controller_->initialize();
     controller_->setPIDEnabled(true);
 
@@ -207,8 +206,11 @@ TEST_F(ProcessControllerIntegrationTest, DISABLED_PIDOutputClampedWhenHot) {
     ON_CALL(mockHardwareManager_, getCurrentTemperature())
         .WillByDefault(Return(100.0));  // Above 95°C setpoint
 
-    controller_->updateTemperature();
-    controller_->computePID();
+    // Run multiple update cycles
+    for (int i = 0; i < 5; i++) {
+        controller_->updateTemperature();
+        controller_->computePID();
+    }
 
     double output = controller_->getPIDOutput();
     EXPECT_GE(output, 0.0) << "PID output should not be negative";
