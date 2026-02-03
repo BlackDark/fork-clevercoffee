@@ -25,12 +25,23 @@
 #include "../../src/coordinators/SensorCoordinator.cpp"
 
 // Stub implementations for dependencies we don't actually use in these tests
-// Stub for MachineStateContext methods
+// Stub for MachineStateContext methods that are not inline
 void MachineStateContext::setHotWaterActivity(bool) noexcept {}
 void MachineStateContext::setBrewStartRequested(bool) noexcept {}
 void MachineStateContext::setSteamStartRequested(bool) noexcept {}
 void MachineStateContext::setNormalOperationRequested(bool) noexcept {}
-bool MachineStateContext::isEmergencyStop() const { return false; }
+
+// Stub for MachineStateContext emergency stop tracking
+// Note: The inline setEmergencyStop() in header modifies emergencyStop_ member,
+// but we need to track state globally for tests since we can't instantiate MachineStateContext.
+// We override isEmergencyStop() to use our global state.
+namespace {
+    bool emergencyStopState = false;
+}
+
+bool MachineStateContext::isEmergencyStop() const {
+    return emergencyStopState;
+}
 
 // Stub for Relay
 void Relay::off() const noexcept {}
@@ -94,6 +105,7 @@ protected:
     void TearDown() override {
         controller_.reset();
         systemContext_.reset();
+        emergencyStopState = false;  // Reset for next test
     }
 };
 
