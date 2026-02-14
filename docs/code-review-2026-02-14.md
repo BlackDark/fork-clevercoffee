@@ -76,7 +76,7 @@
 - [x] I1: Complete heater control TODO
 - [x] I2: Add std::terminate() in null handler accessors
 - [x] I5: Add [[deprecated]] attributes
-- [x] I7: Document test infrastructure issue (requires build system changes)
+- [x] I7: Improved Arduino stubs for native tests (LOG macros, esp_task_wdt.h)
 - [x] I8: Fix global test state for parallel testing (thread_local)
 - [x] I9: Expand IDisplayManager interface
 - [x] I10: Add PID anti-windup handling
@@ -85,6 +85,10 @@
 ### In Progress
 - None
 
-### Pending
+### Pending / Skipped
+- I3: Inconsistent naming conventions (requires broader discussion)
 - I4: Refactor SystemContext (SKIPPED - large undertaking)
+- I6: Inconsistent forward declarations (minor issue)
 - I7 Full Fix: Configure build system to properly link source files for tests
+  - Requires comprehensive hardware stubs (U8G2, ESPAsyncWebServer, ESP32 timers)
+  - Current approach (including .cpp files directly) works well with 182 passing tests

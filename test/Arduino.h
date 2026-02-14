@@ -1,15 +1,17 @@
 /**
  * @file Arduino.h
  * @brief Arduino.h stub for native test environment
- * 
+ *
  * This file provides Arduino framework compatibility for PlatformIO native tests.
- * It should be included in the build path before the real Arduino.h
+ * It should be force-included in the build path before any other headers.
+ *
+ * Note: This file replaces the real Arduino.h for native tests, so we don't
+ * check for ARDUINO being defined - we always provide the stubs when this
+ * file is included.
  */
 
 #pragma once
 
-#ifndef ARDUINO
-// Only provide stubs if not compiling for real Arduino
 #include <cstdint>
 #include <string>
 #include <cstring>
@@ -112,11 +114,48 @@
 #define B11111111 0xFF
 
 // PROGMEM stubs for native tests
+// These need to be valid C++ syntax when used in array declarations
+// ArduinoJson uses: static type const name[] PROGMEM = {...};
+// PROGMEM must be empty or the syntax breaks on native
 #ifndef PROGMEM
 #define PROGMEM
 #endif
 #ifndef U8X8_PROGMEM
 #define U8X8_PROGMEM
+#endif
+#ifndef PGM_P
+#define PGM_P const char*
+#endif
+#ifndef PSTR
+#define PSTR(s) (s)
+#endif
+
+// pgmspace stubs for ArduinoJson compatibility
+inline uint8_t pgm_read_byte(const void* p) { return *static_cast<const uint8_t*>(p); }
+inline uint16_t pgm_read_word(const void* p) { return *static_cast<const uint16_t*>(p); }
+inline uint32_t pgm_read_dword(const void* p) { return *static_cast<const uint32_t*>(p); }
+inline float pgm_read_float(const void* p) { return *static_cast<const float*>(p); }
+inline const void* pgm_read_ptr(const void* p) { return *static_cast<const void* const*>(p); }
+
+// memcpy_P and strlen_P stubs
+inline void* memcpy_P(void* dest, const void* src, size_t n) { return memcpy(dest, src, n); }
+inline size_t strlen_P(const char* s) { return strlen(s); }
+
+// ============================================================================
+// LOG Macro Stubs
+// ============================================================================
+
+// Stub LOG macros for native tests (no-op)
+// These are defined so files that use LOG macros work without Logger.h
+// Note: Logger.h will redefine these when included, which is expected
+#ifndef LOG
+#define LOG(level, message) ((void)0)
+#endif
+#ifndef LOGF
+#define LOGF(level, format, ...) ((void)0)
+#endif
+#ifndef IFLOG
+#define IFLOG(level) if (false)
 #endif
 
 // Arduino String class stub with all methods
@@ -182,7 +221,8 @@ public:
     
     // Utility
     bool isEmpty() const { return str_.empty(); }
-    int length() const { return static_cast<int>(str_.length()); }
+    unsigned int length() const { return static_cast<unsigned int>(str_.length()); }
+    size_t size() const { return str_.size(); }  // Also add size() for std::string compatibility
     
     // Operators
     String& operator=(const String& other) { str_ = other.str_; return *this; }
@@ -355,5 +395,3 @@ public:
     void removeAll() {}
 };
 inline Preferences preferences;
-
-#endif // ARDUINO
