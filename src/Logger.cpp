@@ -3,6 +3,7 @@
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
+#include <utility>
 
 Logger::Logger(const Config& config) : config_(config), level_(config.initialLevel), server_(config.port) {
     memset(logBuffer_, 0, LOG_BUFFER_SIZE);
@@ -63,6 +64,27 @@ bool Logger::update() {
             }
             instance.client_ = instance.server_.available();
         }
+    }
+
+    // Flush queued log messages (non-blocking producers push into ring)
+    // Send until the queue is empty or the client/send operations block.
+    uint16_t head = instance.ringHead_.load(std::memory_order_acquire);
+    while (true) {
+        LogEntry& entry = instance.ring_[head];
+        bool occupied = entry.occupied.load(std::memory_order_acquire);
+        if (!occupied) {
+            break; // queue empty
+        }
+
+        // Send the message
+        instance.sendLogMessage(entry.data);
+
+        // Mark entry free
+        entry.occupied.store(false, std::memory_order_release);
+
+        // advance head
+        head = (head + 1) % LOG_RING_SIZE;
+        instance.ringHead_.store(head, std::memory_order_release);
     }
 
     return true;
@@ -179,7 +201,6 @@ void Logger::sendLogMessage(const char* message) {
     stats_.totalTime += (end_time - start_time);
     ++stats_.messagesLogged;
 }
-
 void Logger::log(const Level level, const char* file, const char* function, uint32_t line, const char* logmsg) {
     if (level < level_) {
         return;
@@ -190,9 +211,37 @@ void Logger::log(const Level level, const char* file, const char* function, uint
         logmsg = "[NULL_LOG_MESSAGE]";
     }
 
-    char fullMessage[LOG_BUFFER_SIZE + 64]; // Extra space for timestamp and level
-    formatLogMessage(level, file, function, line, logmsg, fullMessage, sizeof(fullMessage));
-    sendLogMessage(fullMessage);
+    // Attempt to enqueue the formatted message into the ring buffer.
+    // If the ring is full, drop the message to keep callers non-blocking.
+    auto& instance = getInstance();
+
+    // Format directly into a temporary buffer on the stack and then copy into ring entry
+    char tmp[LOG_BUFFER_SIZE + 64];
+    formatLogMessage(level, file, function, line, logmsg, tmp, sizeof(tmp));
+
+    // Reserve tail
+    uint16_t tail = instance.ringTail_.load(std::memory_order_acquire);
+    uint16_t nextTail = (tail + 1) % LOG_RING_SIZE;
+    LogEntry& slot = instance.ring_[tail];
+
+    // If next slot is occupied then the ring is full
+    if (instance.ring_[nextTail].occupied.load(std::memory_order_acquire)) {
+        ++instance.stats_.messagesDropped;
+        return; // drop
+    }
+
+    // Copy into slot
+    size_t len = strnlen(tmp, sizeof(tmp));
+    if (len >= LOG_ENTRY_SIZE) {
+        len = LOG_ENTRY_SIZE - 1;
+    }
+    memcpy(slot.data, tmp, len);
+    slot.data[len] = '\0';
+    slot.length = static_cast<uint16_t>(len);
+
+    // Publish
+    slot.occupied.store(true, std::memory_order_release);
+    instance.ringTail_.store(nextTail, std::memory_order_release);
 }
 
 void Logger::logf(const Level level, const char* file, const char* function, uint32_t line, const char* format, ...) {

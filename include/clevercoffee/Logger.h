@@ -12,6 +12,7 @@
 #include <array>
 #include <ctime>
 #include <stdint.h>
+#include <atomic>
 
 class Logger {
   public:
@@ -108,6 +109,7 @@ class Logger {
     // Performance statistics
     struct Stats {
         size_t        messagesLogged = 0;
+        size_t        messagesDropped = 0;
         size_t        networkErrors  = 0;
         unsigned long totalTime      = 0; // microseconds
     };
@@ -152,6 +154,21 @@ class Logger {
     // Static buffer to avoid heap fragmentation
     static constexpr size_t LOG_BUFFER_SIZE = 512;
     char                    logBuffer_[LOG_BUFFER_SIZE];
+
+    // Lock-free ring buffer for non-blocking logging
+    static constexpr size_t LOG_ENTRY_SIZE = LOG_BUFFER_SIZE + 64;
+    static constexpr size_t LOG_RING_SIZE  = 64; // configurable number of entries
+
+    struct LogEntry {
+        std::atomic<bool> occupied{false};
+        uint16_t          length{0};
+        char              data[LOG_ENTRY_SIZE];
+    };
+
+    // Circular buffer indexes
+    std::atomic<uint16_t> ringHead_{0};
+    std::atomic<uint16_t> ringTail_{0};
+    LogEntry              ring_[LOG_RING_SIZE];
 
     // Timestamp buffer
     static constexpr size_t TIMESTAMP_BUFFER_SIZE = 16;
