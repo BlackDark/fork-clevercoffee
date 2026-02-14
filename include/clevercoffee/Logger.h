@@ -13,6 +13,13 @@
 #include <ctime>
 #include <stdint.h>
 #include <atomic>
+#include <memory>
+#include <vector>
+
+#if __has_include(<esp_log.h>)
+#include <esp_log.h>
+#define HAVE_ESP_LOG 1
+#endif
 
 class Logger {
   public:
@@ -155,6 +162,7 @@ class Logger {
     static constexpr size_t LOG_BUFFER_SIZE = 512;
     char                    logBuffer_[LOG_BUFFER_SIZE];
 
+#ifndef HAVE_ESP_LOG
     // Lock-free ring buffer for non-blocking logging
     static constexpr size_t LOG_ENTRY_SIZE = LOG_BUFFER_SIZE + 64;
     static constexpr size_t LOG_RING_SIZE  = 64; // configurable number of entries
@@ -169,6 +177,23 @@ class Logger {
     std::atomic<uint16_t> ringHead_{0};
     std::atomic<uint16_t> ringTail_{0};
     LogEntry              ring_[LOG_RING_SIZE];
+
+    // Pluggable backend abstraction
+    struct ILoggerBackend {
+        virtual ~ILoggerBackend() = default;
+        virtual void begin(const Config& cfg) = 0;
+        virtual void update() = 0;
+        virtual void sink(const char* msg) = 0;
+    };
+
+    // Registered backends
+    std::vector<std::unique_ptr<ILoggerBackend>> backends_;
+
+    // Register a backend (call before begin() for custom ordering)
+    void registerBackend(std::unique_ptr<ILoggerBackend> backend) {
+        backends_.push_back(std::move(backend));
+    }
+#endif
 
     // Timestamp buffer
     static constexpr size_t TIMESTAMP_BUFFER_SIZE = 16;
