@@ -47,7 +47,6 @@ class ProcessController {
      * @param config Configuration instance
      * @param systemContext System context for sensor coordinator access (REQUIRED)
      * @param hardwareManager Hardware manager instance (REQUIRED - CRITICAL component)
-     * @param displayManager Display manager instance (OPTIONAL)
      * @param displayManager Display manager (REQUIRED - always exists)
      * @param mqttManager MQTT manager (REQUIRED - always exists)
      */

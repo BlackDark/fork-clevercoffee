@@ -15,11 +15,13 @@
 #include <atomic>
 #include <cstdint>
 
-// Volatile counters for ISR debugging (track execution without logging)
-static volatile bool     isr_enabled         = false;
-static volatile uint32_t isr_call_count      = 0;
-static volatile uint32_t isr_relay_on_count  = 0;
-static volatile uint32_t isr_relay_off_count = 0;
+// Atomic counters for ISR debugging (track execution without logging)
+// Using std::atomic instead of volatile for proper thread-safety with main thread
+// These are defined in isr.cpp to ensure single definition across translation units
+extern std::atomic<bool>     isr_enabled;
+extern std::atomic<uint32_t> isr_call_count;
+extern std::atomic<uint32_t> isr_relay_on_count;
+extern std::atomic<uint32_t> isr_relay_off_count;
 
 /**
  * @brief ISR-specific SystemContext accessor

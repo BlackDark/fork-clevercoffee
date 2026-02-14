@@ -212,19 +212,15 @@ void loop() {
         // Log ISR and loop status every 5 seconds
         unsigned long now = millis();
         if (now - lastDebugLog >= 5000) {
-            extern volatile uint32_t isr_call_count;
-            extern volatile uint32_t isr_relay_on_count;
-            extern volatile uint32_t isr_relay_off_count;
-            extern volatile bool     isr_enabled;
-
+            // ISR counters are declared in isr.h
             LOGF(DEBUG,
                  "LOOP STATUS: loops=%lu, ISR enabled=%d, ISR calls=%lu, relay_on=%lu, relay_off=%lu, temp=%.1f°C, "
                  "setpoint=%.1f°C, pidOutput=%.1f",
                  loopCount,
-                 (int)isr_enabled,
-                 isr_call_count,
-                 isr_relay_on_count,
-                 isr_relay_off_count,
+                 (int)isr_enabled.load(),
+                 isr_call_count.load(),
+                 isr_relay_on_count.load(),
+                 isr_relay_off_count.load(),
                  systemInitializer->getSystemContext().processTemperature(),
                  systemInitializer->getSystemContext().processSetpoint(),
                  systemInitializer->getSystemContext().processPidOutput());

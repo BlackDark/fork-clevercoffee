@@ -12,6 +12,7 @@
 #include "clevercoffee/utils/ModernTimer.h" // For MillisecondTimer
 
 #include <atomic>
+#include <cstdlib> // for std::terminate()
 #include <unordered_map>
 
 // Forward declarations for handlers
@@ -200,6 +201,7 @@ class SystemContext {
     BrewHandler& brewHandler() noexcept {
         if (!brewHandler_) {
             LOG(FATAL, "BrewHandler not initialized - system bug!");
+            std::terminate();
         }
         return *brewHandler_;
     }
@@ -211,6 +213,7 @@ class SystemContext {
     const BrewHandler& brewHandler() const noexcept {
         if (!brewHandler_) {
             LOG(FATAL, "BrewHandler not initialized - system bug!");
+            std::terminate();
         }
         return *brewHandler_;
     }
@@ -230,6 +233,7 @@ class SystemContext {
     HotWaterHandler& hotWaterHandler() noexcept {
         if (!hotWaterHandler_) {
             LOG(FATAL, "HotWaterHandler not initialized - system bug!");
+            std::terminate();
         }
         return *hotWaterHandler_;
     }
@@ -241,6 +245,7 @@ class SystemContext {
     const HotWaterHandler& hotWaterHandler() const noexcept {
         if (!hotWaterHandler_) {
             LOG(FATAL, "HotWaterHandler not initialized - system bug!");
+            std::terminate();
         }
         return *hotWaterHandler_;
     }
@@ -260,6 +265,7 @@ class SystemContext {
     PowerHandler& powerHandler() noexcept {
         if (!powerHandler_) {
             LOG(FATAL, "PowerHandler not initialized - system bug!");
+            std::terminate();
         }
         return *powerHandler_;
     }
@@ -271,6 +277,7 @@ class SystemContext {
     const PowerHandler& powerHandler() const noexcept {
         if (!powerHandler_) {
             LOG(FATAL, "PowerHandler not initialized - system bug!");
+            std::terminate();
         }
         return *powerHandler_;
     }
@@ -290,6 +297,7 @@ class SystemContext {
     SteamHandler& steamHandler() noexcept {
         if (!steamHandler_) {
             LOG(FATAL, "SteamHandler not initialized - system bug!");
+            std::terminate();
         }
         return *steamHandler_;
     }
@@ -301,6 +309,7 @@ class SystemContext {
     const SteamHandler& steamHandler() const noexcept {
         if (!steamHandler_) {
             LOG(FATAL, "SteamHandler not initialized - system bug!");
+            std::terminate();
         }
         return *steamHandler_;
     }
@@ -977,35 +986,36 @@ class SystemContext {
      * @return true if scale calibration mode is on
      * @deprecated Use sensorCoordinator().isScaleCalibrationMode() instead
      */
-    bool scaleCalibrationOn() const noexcept;
+    [[deprecated("Use sensorCoordinator().isScaleCalibrationMode() instead")]] bool scaleCalibrationOn() const noexcept;
 
     /**
      * @brief Set scale calibration active state
      * @param on true to activate calibration, false to deactivate
      * @deprecated Use sensorCoordinator().setScaleCalibrationMode() instead
      */
-    void setScaleCalibrationOn(bool on) noexcept;
+    [[deprecated("Use sensorCoordinator().setScaleCalibrationMode() instead")]] void setScaleCalibrationOn(
+        bool on) noexcept;
 
     /**
      * @brief Check if scale tare operation is active
      * @return true if scale tare is in progress
      * @deprecated Use sensorCoordinator().isScaleTareMode() instead
      */
-    bool scaleTareOn() const noexcept;
+    [[deprecated("Use sensorCoordinator().isScaleTareMode() instead")]] bool scaleTareOn() const noexcept;
 
     /**
      * @brief Set scale tare active state
      * @param on true to activate tare, false to deactivate
      * @deprecated Use sensorCoordinator().setScaleTareMode() instead
      */
-    void setScaleTareOn(bool on) noexcept;
+    [[deprecated("Use sensorCoordinator().setScaleTareMode() instead")]] void setScaleTareOn(bool on) noexcept;
 
     /**
      * @brief Get current brew weight reading
      * @return Current weight in grams
      * @deprecated Use sensorCoordinator().getBrewWeight() instead
      */
-    double currBrewWeight() const noexcept;
+    [[deprecated("Use sensorCoordinator().getBrewWeight() instead")]] double currBrewWeight() const noexcept;
 
     /**
      * @brief Set current brew weight
@@ -1019,7 +1029,7 @@ class SystemContext {
      * @return Current weight reading in grams
      * @deprecated Use sensorCoordinator().getWeight() instead
      */
-    double currReadingWeight() const noexcept;
+    [[deprecated("Use sensorCoordinator().getWeight() instead")]] double currReadingWeight() const noexcept;
 
     /**
      * @brief Set current scale reading weight
@@ -1045,7 +1055,7 @@ class SystemContext {
      * @return Pressure value
      * @deprecated Use sensorCoordinator().getPressure() instead
      */
-    float inputPressure() const noexcept;
+    [[deprecated("Use sensorCoordinator().getPressure() instead")]] float inputPressure() const noexcept;
 
     /**
      * @brief Set input pressure value
@@ -1190,56 +1200,56 @@ class SystemContext {
      * @return Current X (weighted input) value
      * @deprecated Pressure filter is internal to SensorCoordinator
      */
-    float inX() const noexcept;
+    [[deprecated("Pressure filter is internal to SensorCoordinator")]] float inX() const noexcept;
 
     /**
      * @brief Set pressure filter X input value
      * @param value X value to set
      * @deprecated Pressure filter is internal to SensorCoordinator
      */
-    void setInX(float value) noexcept;
+    [[deprecated("Pressure filter is internal to SensorCoordinator")]] void setInX(float value) noexcept;
 
     /**
      * @brief Get pressure filter Y output value
      * @return Current Y (filtered output) value
      * @deprecated Pressure filter is internal to SensorCoordinator
      */
-    float inY() const noexcept;
+    [[deprecated("Pressure filter is internal to SensorCoordinator")]] float inY() const noexcept;
 
     /**
      * @brief Set pressure filter Y output value
      * @param value Y value to set
      * @deprecated Pressure filter is internal to SensorCoordinator
      */
-    void setInY(float value) noexcept;
+    [[deprecated("Pressure filter is internal to SensorCoordinator")]] void setInY(float value) noexcept;
 
     /**
      * @brief Get pressure filter old value
      * @return Previous output value for derivative calculation
      * @deprecated Pressure filter is internal to SensorCoordinator
      */
-    float inOld() const noexcept;
+    [[deprecated("Pressure filter is internal to SensorCoordinator")]] float inOld() const noexcept;
 
     /**
      * @brief Set pressure filter old value
      * @param value Old value to set
      * @deprecated Pressure filter is internal to SensorCoordinator
      */
-    void setInOld(float value) noexcept;
+    [[deprecated("Pressure filter is internal to SensorCoordinator")]] void setInOld(float value) noexcept;
 
     /**
      * @brief Get pressure filter sum value
      * @return Current sum for weighted averaging
      * @deprecated Pressure filter is internal to SensorCoordinator
      */
-    float inSum() const noexcept;
+    [[deprecated("Pressure filter is internal to SensorCoordinator")]] float inSum() const noexcept;
 
     /**
      * @brief Set pressure filter sum value
      * @param value Sum value to set
      * @deprecated Pressure filter is internal to SensorCoordinator
      */
-    void setInSum(float value) noexcept;
+    [[deprecated("Pressure filter is internal to SensorCoordinator")]] void setInSum(float value) noexcept;
 
     /** @} */
     /** @} */
@@ -1260,7 +1270,7 @@ class SystemContext {
      * @return Current filtered pressure reading
      * @deprecated Use sensorCoordinator().getFilteredPressure() instead
      */
-    float inputPressureFilter() const noexcept;
+    [[deprecated("Use sensorCoordinator().getFilteredPressure() instead")]] float inputPressureFilter() const noexcept;
 
     /**
      * @brief Get weight before brew started

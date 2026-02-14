@@ -32,12 +32,6 @@ class SensorCoordinator;
 class MachineState;
 } // namespace CleverCoffee
 
-namespace CleverCoffee {
-class HardwareManager;
-class SystemContext;
-class MachineState;
-} // namespace CleverCoffee
-
 /**
  * @class MachineStateContext
  * @brief Provides unified access to all machine resources and state data

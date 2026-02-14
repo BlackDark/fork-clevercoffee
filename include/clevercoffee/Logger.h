@@ -10,10 +10,10 @@
 #include <WiFiClient.h>
 #include <WiFiServer.h>
 #include <array>
-#include <ctime>
-#include <stdint.h>
 #include <atomic>
+#include <ctime>
 #include <memory>
+#include <stdint.h>
 #include <vector>
 
 #if __has_include(<esp_log.h>)
@@ -115,10 +115,10 @@ class Logger {
 
     // Performance statistics
     struct Stats {
-        size_t        messagesLogged = 0;
+        size_t        messagesLogged  = 0;
         size_t        messagesDropped = 0;
-        size_t        networkErrors  = 0;
-        unsigned long totalTime      = 0; // microseconds
+        size_t        networkErrors   = 0;
+        unsigned long totalTime       = 0; // microseconds
     };
 
     const Stats& getStats() const {
@@ -129,8 +129,7 @@ class Logger {
     }
 
   private:
-    static Logger& getInstanceImpl();
-    static Logger& getInstanceImpl(const Config& config);
+    static Logger& getInstanceImpl(const Config* config = nullptr);
     static Config  getDefaultConfig();
 
     /**
@@ -180,10 +179,10 @@ class Logger {
 
     // Pluggable backend abstraction
     struct ILoggerBackend {
-        virtual ~ILoggerBackend() = default;
+        virtual ~ILoggerBackend()             = default;
         virtual void begin(const Config& cfg) = 0;
-        virtual void update() = 0;
-        virtual void sink(const char* msg) = 0;
+        virtual void update()                 = 0;
+        virtual void sink(const char* msg)    = 0;
     };
 
     // Registered backends

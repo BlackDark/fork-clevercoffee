@@ -7,6 +7,12 @@
 
 #include "clevercoffee/context/SystemContext.h"
 
+// Atomic counters for ISR debugging - single definitions
+std::atomic<bool>     isr_enabled{false};
+std::atomic<uint32_t> isr_call_count{0};
+std::atomic<uint32_t> isr_relay_on_count{0};
+std::atomic<uint32_t> isr_relay_off_count{0};
+
 namespace CleverCoffee {
 namespace ISR {
 // Single static pointer for ISR use only

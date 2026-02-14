@@ -19,24 +19,21 @@ Logger::Config Logger::getDefaultConfig() {
     return Config{}; // Returns a default-constructed Config
 }
 
-Logger& Logger::getInstanceImpl() {
-    static Logger instance(getDefaultConfig());
-    return instance;
-}
-
-Logger& Logger::getInstanceImpl(const Config& config) {
-    static Logger instance(config);
+Logger& Logger::getInstanceImpl(const Config* config) {
+    // Single static instance - initialized on first access
+    // If config is provided on first call, it's used; otherwise default config
+    static Logger instance = config ? Logger(*config) : Logger(getDefaultConfig());
     return instance;
 }
 
 void Logger::init() {
     // Initialize default instance with default config
-    getInstanceImpl();
+    getInstanceImpl(nullptr);
 }
 
 void Logger::init(const Config& config) {
     // Initialize default instance with provided config
-    getInstanceImpl(config);
+    getInstanceImpl(&config);
 }
 
 bool Logger::begin() {
@@ -54,15 +51,21 @@ bool Logger::begin() {
     if (instance.backends_.empty()) {
         // Serial backend (always available)
         struct SerialBackend : public Logger::ILoggerBackend {
-            void begin(const Logger::Config& cfg) override { (void)cfg; }
+            void begin(const Logger::Config& cfg) override {
+                (void)cfg;
+            }
             void update() override {}
-            void sink(const char* msg) override { if (Serial) Serial.print(msg); }
+            void sink(const char* msg) override {
+                if (Serial) Serial.print(msg);
+            }
         };
         instance.registerBackend(std::make_unique<SerialBackend>());
 
         // Network backend: simple WiFi client writer using existing server/client
         struct NetBackend : public Logger::ILoggerBackend {
-            void begin(const Logger::Config& cfg) override { (void)cfg; }
+            void begin(const Logger::Config& cfg) override {
+                (void)cfg;
+            }
             void update() override {}
             void sink(const char* msg) override {
                 // Attempt best-effort write using global client in Logger instance
@@ -106,7 +109,7 @@ bool Logger::update() {
         }
     }
 
-    #ifndef HAVE_ESP_LOG
+#ifndef HAVE_ESP_LOG
     // Give backends a chance to update (e.g., accept clients)
     for (auto& b : instance.backends_) {
         if (b) b->update();
@@ -115,8 +118,8 @@ bool Logger::update() {
     // Flush queued log messages (non-blocking producers push into ring)
     uint16_t head = instance.ringHead_.load(std::memory_order_acquire);
     while (true) {
-        LogEntry& entry = instance.ring_[head];
-        bool occupied = entry.occupied.load(std::memory_order_acquire);
+        LogEntry& entry    = instance.ring_[head];
+        bool      occupied = entry.occupied.load(std::memory_order_acquire);
         if (!occupied) {
             break; // queue empty
         }
@@ -131,7 +134,7 @@ bool Logger::update() {
         head = (head + 1) % LOG_RING_SIZE;
         instance.ringHead_.store(head, std::memory_order_release);
     }
-    #endif
+#endif
 
     return true;
 }
@@ -306,9 +309,9 @@ void Logger::log(const Level level, const char* file, const char* function, uint
     formatLogMessage(level, file, function, line, logmsg, tmp, sizeof(tmp));
 
     // Reserve tail
-    uint16_t tail = instance.ringTail_.load(std::memory_order_acquire);
-    uint16_t nextTail = (tail + 1) % LOG_RING_SIZE;
-    LogEntry& slot = instance.ring_[tail];
+    uint16_t  tail     = instance.ringTail_.load(std::memory_order_acquire);
+    uint16_t  nextTail = (tail + 1) % LOG_RING_SIZE;
+    LogEntry& slot     = instance.ring_[tail];
 
     // If next slot is occupied then the ring is full
     if (instance.ring_[nextTail].occupied.load(std::memory_order_acquire)) {
@@ -323,7 +326,7 @@ void Logger::log(const Level level, const char* file, const char* function, uint
     }
     memcpy(slot.data, tmp, len);
     slot.data[len] = '\0';
-    slot.length = static_cast<uint16_t>(len);
+    slot.length    = static_cast<uint16_t>(len);
 
     // Publish
     slot.occupied.store(true, std::memory_order_release);
