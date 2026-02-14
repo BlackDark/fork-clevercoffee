@@ -37,6 +37,7 @@
 #include "clevercoffee/types/GlobalTypes.h"
 
 // Utilities
+#include "clevercoffee/utils/Resilience.h"
 #include "clevercoffee/utils/SystemUtils.h"
 #include "clevercoffee/utils/helperUtils.h"
 #include "clevercoffee/utils/memoryUtils.h"
@@ -102,8 +103,16 @@ inline bool logInitResult(const char* component, bool success) noexcept {
 }
 } // namespace InitHelpers
 
+// Watchdog timer for system hang detection (5 second timeout)
+// If the main loop hangs, the watchdog will reset the system for safety
+static Watchdog g_watchdog(5000);
+
 void setup() {
     logMemory("Setup Start");
+
+    // Initialize watchdog early - will reset system if setup hangs
+    g_watchdog.begin();
+    LOG(INFO, "Watchdog timer initialized - system will reset if main loop hangs");
 
     // Initialize system using RAII SystemInitializer
     logMemoryBasic("Before SystemInitializer");
@@ -199,6 +208,10 @@ void setup() {
 }
 
 void loop() {
+    // Feed watchdog at the start of each loop iteration
+    // This ensures system resets if the loop hangs
+    g_watchdog.feed();
+
     // DEBUG: Log loop iteration with ISR status
     static unsigned long loopCount    = 0;
     static unsigned long lastDebugLog = millis();

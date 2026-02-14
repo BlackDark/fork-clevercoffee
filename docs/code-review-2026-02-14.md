@@ -71,10 +71,13 @@
 - [x] C2: Fix inconsistent constructor documentation
 - [x] C3: Fix Logger singleton
 - [x] C4: Change ISR counters to std::atomic
+- [x] C5: Watchdog timer integration
 - [x] C6: Document ISR-safe relay operations
 - [x] I1: Complete heater control TODO
 - [x] I2: Add std::terminate() in null handler accessors
 - [x] I5: Add [[deprecated]] attributes
+- [x] I7: Document test infrastructure issue (requires build system changes)
+- [x] I8: Fix global test state for parallel testing (thread_local)
 - [x] I9: Expand IDisplayManager interface
 - [x] I10: Add PID anti-windup handling
 - [x] I12: Fix non-atomic water tank check with pump enable
@@ -83,6 +86,5 @@
 - None
 
 ### Pending
-- C5: Watchdog timer integration (requires design discussion)
-- I4: Refactor SystemContext (large undertaking)
-- I7/I8: Fix test infrastructure
+- I4: Refactor SystemContext (SKIPPED - large undertaking)
+- I7 Full Fix: Configure build system to properly link source files for tests

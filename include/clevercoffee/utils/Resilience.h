@@ -14,6 +14,11 @@
 #include <atomic>
 #include <cmath>
 
+// ESP32 Watchdog includes
+#if defined(ESP32)
+#include "esp_task_wdt.h"
+#endif
+
 namespace CleverCoffee::Utils {
 
 /**
@@ -365,3 +370,158 @@ class CircuitBreaker {
 };
 
 } // namespace CleverCoffee::Utils
+
+/**
+ * @class Watchdog
+ * @brief Hardware watchdog timer management for ESP32
+ *
+ * Provides safe watchdog timer management to detect and recover from
+ * system hangs. The watchdog will reset the system if not fed within
+ * the specified timeout period.
+ *
+ * SAFETY: The watchdog provides a last-resort recovery mechanism.
+ * If the main loop hangs (e.g., due to deadlock, infinite loop, or
+ * hardware fault), the watchdog will reset the system, turning off
+ * all heaters and pumps for safety.
+ *
+ * Example usage:
+ * @code
+ * Watchdog wdt(5000); // 5 second timeout
+ *
+ * void setup() {
+ *     wdt.begin();
+ * }
+ *
+ * void loop() {
+ *     // ... do work ...
+ *     wdt.feed(); // Must be called within 5 seconds
+ * }
+ * @endcode
+ */
+class Watchdog {
+  public:
+    /**
+     * @brief Construct watchdog with specified timeout
+     * @param timeoutMs Timeout in milliseconds (default 5000ms = 5 seconds)
+     *
+     * Recommended timeout values:
+     * - 3000ms: Fast detection, may trigger on slow network operations
+     * - 5000ms: Balanced (default)
+     * - 10000ms: Tolerant, for systems with slow operations
+     */
+    explicit Watchdog(unsigned long timeoutMs = 5000) : timeoutMs_(timeoutMs), enabled_(false), lastFeedTime_(0) {}
+
+    /**
+     * @brief Initialize and enable the hardware watchdog
+     *
+     * On ESP32, this configures the Task Watchdog Timer (TWDT).
+     * The watchdog will reset the system if not fed within timeout.
+     */
+    void begin() {
+#if defined(ESP32)
+        // ESP32 Task Watchdog Timer configuration
+        // Using the simpler API that's compatible with older ESP32 frameworks
+        // timeout is in seconds, so convert from milliseconds
+        esp_err_t ret = esp_task_wdt_init(timeoutMs_ / 1000, true);
+        if (ret == ESP_OK) {
+            enabled_ = true;
+            LOGF(INFO, "Watchdog initialized with %lu ms timeout", timeoutMs_);
+        } else if (ret == ESP_ERR_INVALID_STATE) {
+            // Already initialized - just subscribe our task
+            enabled_ = true;
+            LOG(INFO, "Watchdog already initialized, subscribing task");
+        } else {
+            LOGF(ERROR, "Watchdog initialization failed: %d", ret);
+            return;
+        }
+
+        // Subscribe current task to watchdog
+        ret = esp_task_wdt_add(nullptr);
+        if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
+            LOGF(WARNING, "Failed to subscribe task to watchdog: %d", ret);
+        }
+
+        lastFeedTime_ = millis();
+#else
+        // Non-ESP32 platforms - watchdog not supported
+        LOG(WARNING, "Watchdog not supported on this platform");
+#endif
+    }
+
+    /**
+     * @brief Feed the watchdog (reset the timer)
+     *
+     * This must be called regularly within the timeout period.
+     * If not called within timeout, the system will reset.
+     *
+     * @return true if feed was successful
+     */
+    bool feed() {
+        if (!enabled_) {
+            return false;
+        }
+
+#if defined(ESP32)
+        esp_err_t ret = esp_task_wdt_reset();
+        if (ret == ESP_OK) {
+            lastFeedTime_ = millis();
+            return true;
+        } else {
+            // Log only occasionally to avoid spamming
+            static unsigned long lastErrorLog = 0;
+            if (millis() - lastErrorLog > 10000) {
+                LOGF(WARNING, "Watchdog feed failed: %d", ret);
+                lastErrorLog = millis();
+            }
+            return false;
+        }
+#else
+        lastFeedTime_ = millis();
+        return true;
+#endif
+    }
+
+    /**
+     * @brief Check if watchdog is enabled
+     * @return true if watchdog is active
+     */
+    bool isEnabled() const {
+        return enabled_;
+    }
+
+    /**
+     * @brief Get time since last successful feed
+     * @return Milliseconds since last feed
+     */
+    unsigned long timeSinceLastFeed() const {
+        return millis() - lastFeedTime_;
+    }
+
+    /**
+     * @brief Get configured timeout
+     * @return Timeout in milliseconds
+     */
+    unsigned long getTimeout() const {
+        return timeoutMs_;
+    }
+
+    /**
+     * @brief Check if watchdog is close to timing out
+     * @param thresholdMs Warning threshold (default 80% of timeout)
+     * @return true if time since last feed exceeds threshold
+     */
+    bool isNearTimeout(unsigned long thresholdMs = 0) const {
+        if (!enabled_) {
+            return false;
+        }
+        if (thresholdMs == 0) {
+            thresholdMs = timeoutMs_ * 80 / 100; // 80% of timeout
+        }
+        return timeSinceLastFeed() > thresholdMs;
+    }
+
+  private:
+    unsigned long timeoutMs_;    ///< Configured timeout in milliseconds
+    bool          enabled_;      ///< Watchdog is active
+    unsigned long lastFeedTime_; ///< Time of last successful feed
+};

@@ -14,12 +14,12 @@
 #include <cstring>
 
 // Note: ISR context tracking variables are in isr.cpp which isn't linked in native tests
-// Define stubs for testing
+// Define stubs for testing - using thread_local for parallel test execution
 namespace {
-    volatile bool isr_enabled = false;
-    volatile uint32_t isr_call_count = 0;
-    volatile uint32_t isr_relay_on_count = 0;
-    volatile uint32_t isr_relay_off_count = 0;
+    thread_local bool isr_enabled = false;
+    thread_local uint32_t isr_call_count = 0;
+    thread_local uint32_t isr_relay_on_count = 0;
+    thread_local uint32_t isr_relay_off_count = 0;
 }
 
 namespace CleverCoffee {

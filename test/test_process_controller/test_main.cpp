@@ -33,14 +33,19 @@ void MachineStateContext::setNormalOperationRequested(bool) noexcept {}
 
 // Stub for MachineStateContext emergency stop tracking
 // Note: The inline setEmergencyStop() in header modifies emergencyStop_ member,
-// but we need to track state globally for tests since we can't instantiate MachineStateContext.
-// We override isEmergencyStop() to use our global state.
+// but we need to track state for tests since we can't instantiate MachineStateContext.
+// Using thread_local to allow parallel test execution.
 namespace {
-    bool emergencyStopState = false;
+    thread_local bool emergencyStopState = false;
 }
 
 bool MachineStateContext::isEmergencyStop() const {
     return emergencyStopState;
+}
+
+// Helper for tests to set emergency stop state
+void setTestEmergencyStop(bool active) {
+    emergencyStopState = active;
 }
 
 // Stub for Relay
