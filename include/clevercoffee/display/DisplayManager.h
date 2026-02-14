@@ -57,6 +57,39 @@ class DisplayManager : public IDisplayManager {
         return display_ != nullptr;
     }
 
+    // === High-level display operations ===
+
+    void setPowerSave(bool enabled) noexcept override {
+        if (display_) {
+            display_->setPowerSave(enabled ? 1 : 0);
+        }
+    }
+
+    void clear() noexcept override {
+        if (display_) {
+            display_->clearBuffer();
+        }
+    }
+
+    void update() noexcept override {
+        if (display_) {
+            display_->sendBuffer();
+        }
+    }
+
+    uint8_t drawString(int x, int y, const char* text) noexcept override {
+        if (display_ && text) {
+            return display_->drawStr(x, y, text);
+        }
+        return 0;
+    }
+
+    void setFont(const uint8_t* font) noexcept override {
+        if (display_ && font) {
+            display_->setFont(font);
+        }
+    }
+
   private:
     std::unique_ptr<U8G2> display_;
 

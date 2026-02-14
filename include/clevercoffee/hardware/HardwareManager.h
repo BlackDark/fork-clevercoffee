@@ -191,9 +191,9 @@ class HardwareManager : public IHardwareContext {
     // Configuration reference (not owned)
     const Config& config_;
 
-    // Safety state
-    bool emergencyMode_  = false;
-    bool waterTankEmpty_ = false;
+    // Safety state (atomic for thread-safe access from different contexts)
+    std::atomic<bool> emergencyMode_{false};
+    std::atomic<bool> waterTankEmpty_{false};
 
     // Hardware component state tracking (to avoid redundant operations)
     // Note: heaterEnabled_ is atomic because ISR can directly control heater relay

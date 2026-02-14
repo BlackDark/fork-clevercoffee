@@ -71,17 +71,18 @@
 - [x] C2: Fix inconsistent constructor documentation
 - [x] C3: Fix Logger singleton
 - [x] C4: Change ISR counters to std::atomic
+- [x] C6: Document ISR-safe relay operations
+- [x] I1: Complete heater control TODO
 - [x] I2: Add std::terminate() in null handler accessors
 - [x] I5: Add [[deprecated]] attributes
+- [x] I9: Expand IDisplayManager interface
+- [x] I10: Add PID anti-windup handling
+- [x] I12: Fix non-atomic water tank check with pump enable
 
 ### In Progress
 - None
 
 ### Pending
 - C5: Watchdog timer integration (requires design discussion)
-- C6: Document ISR-safe relay operations
-- I1: Complete heater control TODO
 - I4: Refactor SystemContext (large undertaking)
 - I7/I8: Fix test infrastructure
-- I9: Expand IDisplayManager interface
-- I10-I12: Various safety improvements

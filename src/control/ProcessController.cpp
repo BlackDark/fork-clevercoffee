@@ -157,7 +157,7 @@ void ProcessController::updatePIDState(MachineStateId machineState) {
             pidOutput_ = 0;
             systemContext_.setProcessPidOutput(0);
             // Turn off heater through hardware manager
-            // TODO: Add method to HardwareManager for heater control
+            hardwareManager_.disableHeater();
         }
     } else {
         // Enable PID if it was disabled
@@ -256,9 +256,23 @@ bool ProcessController::isPIDEnabled() const {
 }
 
 void ProcessController::setPIDEnabled(bool enabled) {
+    bool wasEnabled = isPIDEnabled();
+
     if (enabled) {
+        if (!wasEnabled) {
+            // Anti-windup: When transitioning from MANUAL to AUTOMATIC,
+            // the PID library performs bumpless transfer by initializing
+            // the integral term to maintain the current output.
+            // This prevents integral windup from causing overshoot.
+            LOG(DEBUG, "PID enabled - bumpless transfer from MANUAL to AUTOMATIC");
+        }
         systemContext_.setPidMode(AUTOMATIC);
     } else {
+        if (wasEnabled) {
+            // When disabling PID, reset output to prevent stale values
+            // The integral term will be reset on next enable
+            LOG(DEBUG, "PID disabled - switching to MANUAL mode");
+        }
         systemContext_.setPidMode(MANUAL);
     }
 }

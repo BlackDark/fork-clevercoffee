@@ -13,6 +13,16 @@
 /**
  * @file Relay.h Relay control class
  * @brief This class provides control for relay switches
+ *
+ * ISR SAFETY: The on() and off() methods are ISR-safe.
+ * - They only perform single GPIO writes (atomic on ESP32)
+ * - They do not call any blocking functions
+ * - They do not allocate memory
+ * - They can be safely called from ISR context (e.g., PID PWM timer ISR)
+ *
+ * Note: The ISR calls these methods directly for heater relay PWM control.
+ * The HardwareManager::heaterEnabled_ state tracking is NOT updated by ISR calls,
+ * so that state is approximate when ISR is active.
  */
 class Relay {
   public:
@@ -27,11 +37,13 @@ class Relay {
 
     /**
      * @brief Switch relay on
+     * @note ISR-safe: Can be called from interrupt context
      */
     void on() const noexcept;
 
     /**
      * @brief Switch relay off
+     * @note ISR-safe: Can be called from interrupt context
      */
     void off() const noexcept;
 
