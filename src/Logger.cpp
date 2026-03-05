@@ -86,9 +86,11 @@ bool Logger::begin() {
     }
 #endif
 
-    // Start server if configured
-    if (instance.config_.enableWiFi) {
+    // Start server if WiFi is enabled AND connected
+    // WiFi must be initialized before calling server_.begin() or LWIP will crash
+    if (instance.config_.enableWiFi && WiFi.status() == WL_CONNECTED) {
         instance.server_.begin();
+        instance.serverStarted_ = true;
     }
 
     return true;
@@ -99,6 +101,12 @@ bool Logger::update() {
 
     // Handle WiFi client connections if enabled
     if (instance.config_.enableWiFi && WiFi.status() == WL_CONNECTED) {
+        // Start server if not yet started (deferred from begin() when WiFi wasn't ready)
+        if (!instance.serverStarted_) {
+            instance.server_.begin();
+            instance.serverStarted_ = true;
+        }
+
         // Accept new client if available
         if (instance.server_.hasClient()) {
             // If we already have a client, disconnect it

@@ -122,6 +122,18 @@ class StandbyCoordinator {
     }
 
     /**
+     * @brief Check if display should be turned off
+     * @return true if display off timer has expired (in standby mode and countdown finished)
+     */
+    bool shouldTurnOffDisplay() const noexcept {
+        // Display should turn off if:
+        // 1. We're in standby mode (standby timer expired)
+        // 2. Display off timer has also expired
+        return standbyModeRemainingTimeMillis_ == 0 && standbyModeRemainingTimeDisplayOffMillis_ == 0 &&
+               standbyModeStartTimeMillis_ != 0;
+    }
+
+    /**
      * @brief Initialize standby timer if not already initialized
      * Should be called when standby is enabled to start the countdown
      */

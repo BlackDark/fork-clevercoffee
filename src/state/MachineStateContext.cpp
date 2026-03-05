@@ -362,10 +362,9 @@ void MachineStateContext::exitSafeMode() const {
 
 void MachineStateContext::enterStandbyMode() const {
     // Enter power-saving standby mode
+    // Note: Display is NOT turned off here - it's handled by StandbyCoordinator
+    // after the display-off countdown expires
     LOG(INFO, "Entering standby mode - reducing power consumption");
-    if (U8G2* display = getDisplay()) {
-        display->setPowerSave(1); // Enable display power saving
-    }
 }
 
 void MachineStateContext::exitStandbyMode() const {

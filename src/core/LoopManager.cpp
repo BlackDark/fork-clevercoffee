@@ -317,6 +317,14 @@ void LoopManager::updateDisplay() {
     uiManager_.setUpdateRunning(false);
 
     if (Config::getInstance().hardwareOledEnabled.get()) {
+        // Check if display should be turned off (after standby + display-off countdown)
+        if (systemContext_.standbyCoordinator().shouldTurnOffDisplay()) {
+            if (U8G2* display = systemContext_.hardwareContext().display()) {
+                display->setPowerSave(1); // Turn off display to save power
+            }
+            return; // Don't update display while it's off
+        }
+
         // Sync UIManager buffer ready flag with UICoordinator flag
         // The display template sets the coordinator flag, we need to sync it to UIManager
         if (systemContext_.uiCoordinator().isDisplayBufferReady() && !uiManager_.isBufferReady()) {

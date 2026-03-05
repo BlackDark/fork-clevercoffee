@@ -156,6 +156,7 @@ class Logger {
     // Networking
     WiFiClient client_;
     WiFiServer server_;
+    bool       serverStarted_ = false;  // Track if WiFi server has been started
 
     // Static buffer to avoid heap fragmentation
     static constexpr size_t LOG_BUFFER_SIZE = 512;
