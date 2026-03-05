@@ -322,7 +322,7 @@ void LoopManager::updateDisplay() {
             if (U8G2* display = systemContext_.hardwareContext().display()) {
                 display->setPowerSave(1); // Turn off display to save power
             }
-            return; // Don't update display while it's off
+            return;                       // Don't update display while it's off
         }
 
         // Sync UIManager buffer ready flag with UICoordinator flag
