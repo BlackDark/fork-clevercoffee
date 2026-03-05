@@ -19,6 +19,7 @@
 #include "clevercoffee/utils/helperUtils.h"
 
 #include <Arduino.h>
+#include <algorithm>
 #include <cstdio>
 
 // Static instance for callback
@@ -233,16 +234,22 @@ void MQTTManager::messageCallback(const char* topic, const byte* data, unsigned 
     strncpy(topic_str, topic, sizeof(topic_str) - 1);
     topic_str[255] = '\0';
 
-    char data_str[length + 1];
-    memcpy(data_str, data, length);
-    data_str[length] = '\0';
+    static constexpr unsigned int MAX_DATA_LEN = 1024;
+    char                          data_str[MAX_DATA_LEN];
+    const unsigned int            copy_len = std::min(static_cast<unsigned int>(MAX_DATA_LEN - 1), length);
+    if (length >= MAX_DATA_LEN) {
+        LOGF(WARNING, "MQTT message truncated from %u to %u bytes", length, copy_len);
+    }
+    memcpy(data_str, data, copy_len);
+    data_str[copy_len] = '\0';
 
     char   topic_pattern[255];
     char   configVar[120];
     char   cmd[64];
     double data_double;
 
-    snprintf(topic_pattern, sizeof(topic_pattern), "%s%s/%%[^\\/]/%%[^\\/]", topicPrefix_.c_str(), hostname_.c_str());
+    snprintf(
+        topic_pattern, sizeof(topic_pattern), "%s%s/%%119[^\\/]/%%63[^\\/]", topicPrefix_.c_str(), hostname_.c_str());
 
     if (sscanf(topic_str, topic_pattern, configVar, cmd) != 2 || strcmp(cmd, "set") != 0) {
         LOGF(WARNING, "Invalid MQTT topic/command: %s", topic_str);

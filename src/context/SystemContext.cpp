@@ -149,7 +149,7 @@ SystemContext::DisplaySnapshot SystemContext::getDisplaySnapshot() const noexcep
     snapshot.pumpOnTime         = sensorState_.currPumpOnTime();
     snapshot.inputPressure      = sensorState_.inputPressure();
     snapshot.brewWeight         = sensorState_.currBrewWeight();
-    snapshot.isrCounter         = timing_isrCounter_;
+    snapshot.isrCounter         = timing_isrCounter_.load(std::memory_order_relaxed);
     snapshot.displayBufferReady = uiCoordinator_.isDisplayBufferReady();
 
     return snapshot;
@@ -210,15 +210,15 @@ void SystemContext::markISRReady() noexcept {
 }
 
 unsigned int SystemContext::isrCounter() const noexcept {
-    return timing_isrCounter_;
+    return timing_isrCounter_.load(std::memory_order_relaxed);
 }
 
 void SystemContext::setIsrCounter(unsigned int value) noexcept {
-    timing_isrCounter_ = value;
+    timing_isrCounter_.store(value, std::memory_order_relaxed);
 }
 
 void SystemContext::incrementIsrCounter() noexcept {
-    timing_isrCounter_++;
+    timing_isrCounter_.fetch_add(1, std::memory_order_relaxed);
 }
 
 bool SystemContext::isEmergencyStopActive() const noexcept {

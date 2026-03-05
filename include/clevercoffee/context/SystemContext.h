@@ -1400,8 +1400,8 @@ class SystemContext {
 
     // NOTE: ISR-related timing remains in SystemContext due to ISR access requirements
     // ISR code needs direct access to these members for performance and safety
-    unsigned int      timing_isrCounter_ = 0; // Accessed from ISR - must remain in SystemContext
-    std::atomic<bool> timing_isrReady_{
+    std::atomic<unsigned int> timing_isrCounter_{0}; // Accessed from ISR - must remain in SystemContext
+    std::atomic<bool>         timing_isrReady_{
         false}; ///< ISR ready flag - prevents ISR from executing before system is initialized
 
     // ===== STANDBY STATE MEMBERS =====
