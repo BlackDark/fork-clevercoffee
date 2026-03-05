@@ -12,7 +12,7 @@
 #include "clevercoffee/utils/ModernTimer.h" // For MillisecondTimer
 
 #include <atomic>
-#include <cstdlib> // for std::terminate()
+#include <cassert>
 #include <unordered_map>
 
 // Forward declarations for handlers
@@ -199,10 +199,7 @@ class SystemContext {
      * @return Reference to BrewHandler
      */
     BrewHandler& brewHandler() noexcept {
-        if (!brewHandler_) {
-            LOG(FATAL, "BrewHandler not initialized - system bug!");
-            std::terminate();
-        }
+        assert(brewHandler_ != nullptr);
         return *brewHandler_;
     }
 
@@ -211,10 +208,7 @@ class SystemContext {
      * @return Const reference to BrewHandler
      */
     const BrewHandler& brewHandler() const noexcept {
-        if (!brewHandler_) {
-            LOG(FATAL, "BrewHandler not initialized - system bug!");
-            std::terminate();
-        }
+        assert(brewHandler_ != nullptr);
         return *brewHandler_;
     }
 
@@ -231,10 +225,7 @@ class SystemContext {
      * @return Reference to HotWaterHandler
      */
     HotWaterHandler& hotWaterHandler() noexcept {
-        if (!hotWaterHandler_) {
-            LOG(FATAL, "HotWaterHandler not initialized - system bug!");
-            std::terminate();
-        }
+        assert(hotWaterHandler_ != nullptr);
         return *hotWaterHandler_;
     }
 
@@ -243,10 +234,7 @@ class SystemContext {
      * @return Const reference to HotWaterHandler
      */
     const HotWaterHandler& hotWaterHandler() const noexcept {
-        if (!hotWaterHandler_) {
-            LOG(FATAL, "HotWaterHandler not initialized - system bug!");
-            std::terminate();
-        }
+        assert(hotWaterHandler_ != nullptr);
         return *hotWaterHandler_;
     }
 
@@ -263,10 +251,7 @@ class SystemContext {
      * @return Reference to PowerHandler
      */
     PowerHandler& powerHandler() noexcept {
-        if (!powerHandler_) {
-            LOG(FATAL, "PowerHandler not initialized - system bug!");
-            std::terminate();
-        }
+        assert(powerHandler_ != nullptr);
         return *powerHandler_;
     }
 
@@ -275,10 +260,7 @@ class SystemContext {
      * @return Const reference to PowerHandler
      */
     const PowerHandler& powerHandler() const noexcept {
-        if (!powerHandler_) {
-            LOG(FATAL, "PowerHandler not initialized - system bug!");
-            std::terminate();
-        }
+        assert(powerHandler_ != nullptr);
         return *powerHandler_;
     }
 
@@ -295,10 +277,7 @@ class SystemContext {
      * @return Reference to SteamHandler
      */
     SteamHandler& steamHandler() noexcept {
-        if (!steamHandler_) {
-            LOG(FATAL, "SteamHandler not initialized - system bug!");
-            std::terminate();
-        }
+        assert(steamHandler_ != nullptr);
         return *steamHandler_;
     }
 
@@ -307,10 +286,7 @@ class SystemContext {
      * @return Const reference to SteamHandler
      */
     const SteamHandler& steamHandler() const noexcept {
-        if (!steamHandler_) {
-            LOG(FATAL, "SteamHandler not initialized - system bug!");
-            std::terminate();
-        }
+        assert(steamHandler_ != nullptr);
         return *steamHandler_;
     }
 

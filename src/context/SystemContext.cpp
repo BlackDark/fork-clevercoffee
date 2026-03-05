@@ -9,6 +9,7 @@
 #include "clevercoffee/handlers/SteamHandler.h"
 
 #include <PID_v1.h> // Required for PID method implementations
+#include <memory>
 
 namespace CleverCoffee {
 
@@ -584,19 +585,19 @@ const char* WIFI_PASSWORD = WM_PASS;
 
 // Handler instances (static storage duration, created during initialization)
 // These are created in initializeHandlers() with SystemContext reference
-static BrewHandler*     brewHandler     = nullptr;
-static HotWaterHandler* hotWaterHandler = nullptr;
-static PowerHandler*    powerHandler    = nullptr;
-static SteamHandler*    steamHandler    = nullptr;
+static std::unique_ptr<BrewHandler>     brewHandler;
+static std::unique_ptr<HotWaterHandler> hotWaterHandler;
+static std::unique_ptr<PowerHandler>    powerHandler;
+static std::unique_ptr<SteamHandler>    steamHandler;
 
 // ===== HANDLER INITIALIZATION FUNCTION =====
 
 void initializeHandlers(CleverCoffee::SystemContext& systemContext) {
     // Create handlers with SystemContext reference (required)
-    brewHandler     = new BrewHandler(systemContext);
-    hotWaterHandler = new HotWaterHandler(systemContext);
-    powerHandler    = new PowerHandler(systemContext);
-    steamHandler    = new SteamHandler(systemContext);
+    brewHandler     = std::make_unique<BrewHandler>(systemContext);
+    hotWaterHandler = std::make_unique<HotWaterHandler>(systemContext);
+    powerHandler    = std::make_unique<PowerHandler>(systemContext);
+    steamHandler    = std::make_unique<SteamHandler>(systemContext);
 
     // Initialize handler hardware
     auto& hwContext = systemContext.hardwareContext();
@@ -605,9 +606,9 @@ void initializeHandlers(CleverCoffee::SystemContext& systemContext) {
     powerHandler->setHardware(hwContext.powerSwitch());
     steamHandler->setHardware(hwContext.steamSwitch());
 
-    // Register handlers with SystemContext
-    systemContext.setBrewHandler(brewHandler);
-    systemContext.setHotWaterHandler(hotWaterHandler);
-    systemContext.setPowerHandler(powerHandler);
-    systemContext.setSteamHandler(steamHandler);
+    // Register handlers with SystemContext (non-owning pointers)
+    systemContext.setBrewHandler(brewHandler.get());
+    systemContext.setHotWaterHandler(hotWaterHandler.get());
+    systemContext.setPowerHandler(powerHandler.get());
+    systemContext.setSteamHandler(steamHandler.get());
 }
