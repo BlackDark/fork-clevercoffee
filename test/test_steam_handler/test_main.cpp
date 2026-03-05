@@ -38,7 +38,7 @@ class SteamHandlerTest : public ::testing::Test {
     void SetUp() override {
         systemContext_ = std::make_unique<SystemContext>();
         systemContext_->markReady();
-        handler_ = std::make_unique<SteamHandler>(*systemContext_);
+        handler_ = std::make_unique<SteamHandler>(*systemContext_, Config::getInstance());
 
         Config::getInstance().hardwareSwitchesSteamEnabled.set(true);
         Config::getInstance().hardwareSwitchesSteamType.set(::Hardware::SwitchType::MOMENTARY);

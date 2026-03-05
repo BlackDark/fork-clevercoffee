@@ -24,8 +24,8 @@ class HotWaterHandler : public SwitchBasedHandler {
     uint8_t   lastSwitchReading_ = LOW;
 
   public:
-    explicit HotWaterHandler(CleverCoffee::SystemContext& ctx)
-        : SwitchBasedHandler("HotWaterHandler", nullptr, ctx), pumpTimer_(60000) { // 60 second max run time
+    explicit HotWaterHandler(CleverCoffee::SystemContext& ctx, const Config& config)
+        : SwitchBasedHandler("HotWaterHandler", nullptr, ctx, config), pumpTimer_(60000) { // 60 second max run time
     }
 
     /**
@@ -45,7 +45,7 @@ class HotWaterHandler : public SwitchBasedHandler {
 
   protected:
     bool isEnabled() const override {
-        return Config::getInstance().hardwareSwitchesHotWaterEnabled.get();
+        return config_.hardwareSwitchesHotWaterEnabled.get();
     }
 
     bool hasPermission() const override {
@@ -80,7 +80,7 @@ class HotWaterHandler : public SwitchBasedHandler {
         if (!switch_) return;
 
         const uint8_t reading    = getSwitchReading();
-        const auto    switchType = Config::getInstance().hardwareSwitchesHotWaterType.get();
+        const auto    switchType = config_.hardwareSwitchesHotWaterType.get();
 
         // Detect state changes
         if (reading != lastSwitchReading_) {

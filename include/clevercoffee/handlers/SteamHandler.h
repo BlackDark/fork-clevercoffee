@@ -19,8 +19,9 @@
  */
 class SteamHandler : public SwitchBasedHandler {
   public:
-    explicit SteamHandler(CleverCoffee::SystemContext& ctx)
-        : SwitchBasedHandler("SteamHandler", nullptr, ctx), lastSwitchReading_(LOW), switchStateChanged_(false) {}
+    explicit SteamHandler(CleverCoffee::SystemContext& ctx, const Config& config)
+        : SwitchBasedHandler("SteamHandler", nullptr, ctx, config), lastSwitchReading_(LOW),
+          switchStateChanged_(false) {}
 
     /**
      * @brief Initialize with hardware switch (call after HardwareManager is ready)
@@ -78,12 +79,12 @@ class SteamHandler : public SwitchBasedHandler {
      * @return SwitchType (TOGGLE or MOMENTARY)
      */
     Hardware::SwitchType getSwitchType() const {
-        return Config::getInstance().hardwareSwitchesSteamType.get();
+        return config_.hardwareSwitchesSteamType.get();
     }
 
   protected:
     bool isEnabled() const override {
-        return Config::getInstance().hardwareSwitchesSteamEnabled.get();
+        return config_.hardwareSwitchesSteamEnabled.get();
     }
 
     void processImpl() override {
@@ -97,7 +98,7 @@ class SteamHandler : public SwitchBasedHandler {
     void processSwitchInput() {
         if (!switch_) return;
         const uint8_t reading    = getSwitchReading();
-        const auto    switchType = Config::getInstance().hardwareSwitchesSteamType.get();
+        const auto    switchType = config_.hardwareSwitchesSteamType.get();
 
         if (reading != lastSwitchReading_) {
             switchStateChanged_ = true;

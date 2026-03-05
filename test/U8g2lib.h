@@ -37,7 +37,7 @@ public:
     void begin() {}
     void clearBuffer() {}
     void sendBuffer() {}
-    void drawStr(int x, int y, const char* str) {}
+    uint8_t drawStr(int x, int y, const char* str) { return 0; }
     void setFont(const uint8_t* font) {}
     void drawXBMP(int x, int y, int w, int h, const uint8_t* bitmap) {}
     void drawVLine(int x, int y, int h) {}

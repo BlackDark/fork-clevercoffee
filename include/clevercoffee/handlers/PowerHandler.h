@@ -32,8 +32,8 @@ class PowerHandler : public SwitchBasedHandler {
     bool          trackingPressTime_;
 
   public:
-    explicit PowerHandler(CleverCoffee::SystemContext& ctx)
-        : SwitchBasedHandler("PowerHandler", nullptr, ctx), longPressStartTime_(0), trackingLongPress_(false),
+    explicit PowerHandler(CleverCoffee::SystemContext& ctx, const Config& config)
+        : SwitchBasedHandler("PowerHandler", nullptr, ctx, config), longPressStartTime_(0), trackingLongPress_(false),
           currStatePowerSwitchPressed_(false), lastPowerSwitchPressed_(false), systemInitializedTime_(0),
           firstSwitchPressTime_(0), trackingPressTime_(false) {}
 
@@ -47,7 +47,7 @@ class PowerHandler : public SwitchBasedHandler {
 
   protected:
     bool isEnabled() const override {
-        return Config::getInstance().hardwareSwitchesPowerEnabled.get();
+        return config_.hardwareSwitchesPowerEnabled.get();
     }
 
     bool hasPermission() const override {
@@ -60,7 +60,7 @@ class PowerHandler : public SwitchBasedHandler {
         recordSystemInitialization();
 
         const bool powerSwitchPressed = getSwitchReading();
-        const auto switchType         = Config::getInstance().hardwareSwitchesPowerType.get();
+        const auto switchType         = config_.hardwareSwitchesPowerType.get();
 
         if (switchType == Hardware::SwitchType::TOGGLE) {
             processTogglePowerSwitch(powerSwitchPressed);

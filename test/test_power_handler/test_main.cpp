@@ -38,7 +38,7 @@ class PowerHandlerTest : public ::testing::Test {
     void SetUp() override {
         systemContext_ = std::make_unique<SystemContext>();
         systemContext_->markReady();
-        handler_ = std::make_unique<PowerHandler>(*systemContext_);
+        handler_ = std::make_unique<PowerHandler>(*systemContext_, Config::getInstance());
 
         Config::getInstance().hardwareSwitchesPowerEnabled.set(true);
         Config::getInstance().hardwareSwitchesPowerType.set(::Hardware::SwitchType::TOGGLE);

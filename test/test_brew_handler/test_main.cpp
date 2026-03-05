@@ -39,7 +39,7 @@ class BrewHandlerTest : public ::testing::Test {
     void SetUp() override {
         systemContext_ = std::make_unique<SystemContext>();
         systemContext_->markReady();
-        handler_ = std::make_unique<BrewHandler>(*systemContext_);
+        handler_ = std::make_unique<BrewHandler>(*systemContext_, Config::getInstance());
 
         Config::getInstance().hardwareSwitchesBrewEnabled.set(true);
         Config::getInstance().hardwareSwitchesBrewType.set(::Hardware::SwitchType::MOMENTARY);

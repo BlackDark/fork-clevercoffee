@@ -45,10 +45,11 @@ class BaseHandler {
   protected:
     const char*                  handlerName_;
     CleverCoffee::SystemContext& systemContext_;
+    const Config&                config_;
 
   public:
-    explicit BaseHandler(const char* name, CleverCoffee::SystemContext& ctx)
-        : handlerName_(name), systemContext_(ctx) {}
+    explicit BaseHandler(const char* name, CleverCoffee::SystemContext& ctx, const Config& config)
+        : handlerName_(name), systemContext_(ctx), config_(config) {}
     virtual ~BaseHandler() = default;
 
     /**
@@ -173,8 +174,8 @@ class SwitchBasedHandler : public BaseHandler {
     Switch* switch_;
 
   public:
-    SwitchBasedHandler(const char* name, Switch* sw, CleverCoffee::SystemContext& ctx)
-        : BaseHandler(name, ctx), switch_(sw) {}
+    SwitchBasedHandler(const char* name, Switch* sw, CleverCoffee::SystemContext& ctx, const Config& config)
+        : BaseHandler(name, ctx, config), switch_(sw) {}
 
   protected:
     bool isHardwareValid() const override {

@@ -593,11 +593,12 @@ static std::unique_ptr<SteamHandler>    steamHandler;
 // ===== HANDLER INITIALIZATION FUNCTION =====
 
 void initializeHandlers(CleverCoffee::SystemContext& systemContext) {
-    // Create handlers with SystemContext reference (required)
-    brewHandler     = std::make_unique<BrewHandler>(systemContext);
-    hotWaterHandler = std::make_unique<HotWaterHandler>(systemContext);
-    powerHandler    = std::make_unique<PowerHandler>(systemContext);
-    steamHandler    = std::make_unique<SteamHandler>(systemContext);
+    // Create handlers with SystemContext reference and Config (required)
+    const auto& config = Config::getInstance();
+    brewHandler        = std::make_unique<BrewHandler>(systemContext, config);
+    hotWaterHandler    = std::make_unique<HotWaterHandler>(systemContext, config);
+    powerHandler       = std::make_unique<PowerHandler>(systemContext, config);
+    steamHandler       = std::make_unique<SteamHandler>(systemContext, config);
 
     // Initialize handler hardware
     auto& hwContext = systemContext.hardwareContext();

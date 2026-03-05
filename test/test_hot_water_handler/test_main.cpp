@@ -37,7 +37,7 @@ class HotWaterHandlerTest : public ::testing::Test {
     void SetUp() override {
         systemContext_ = std::make_unique<SystemContext>();
         systemContext_->markReady();
-        handler_ = std::make_unique<HotWaterHandler>(*systemContext_);
+        handler_ = std::make_unique<HotWaterHandler>(*systemContext_, Config::getInstance());
 
         Config::getInstance().hardwareSwitchesHotWaterEnabled.set(true);
         Config::getInstance().hardwareSwitchesHotWaterType.set(::Hardware::SwitchType::MOMENTARY);

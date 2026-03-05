@@ -30,8 +30,8 @@ class BrewHandler : public SwitchBasedHandler {
     bool          switchStateChanged_ = false; // Track if switch state changed
 
   public:
-    explicit BrewHandler(CleverCoffee::SystemContext& ctx)
-        : SwitchBasedHandler("BrewHandler", nullptr, ctx), pumpTimer_(300000) { // 5 minute max brew time safety
+    explicit BrewHandler(CleverCoffee::SystemContext& ctx, const Config& config)
+        : SwitchBasedHandler("BrewHandler", nullptr, ctx, config), pumpTimer_(300000) { // 5 minute max brew time safety
     }
 
     /**
@@ -92,7 +92,7 @@ class BrewHandler : public SwitchBasedHandler {
      * @return SwitchType (TOGGLE or MOMENTARY)
      */
     Hardware::SwitchType getSwitchType() const {
-        return Config::getInstance().hardwareSwitchesBrewType.get();
+        return config_.hardwareSwitchesBrewType.get();
     }
 
     /**
@@ -115,7 +115,7 @@ class BrewHandler : public SwitchBasedHandler {
 
   protected:
     bool isEnabled() const override {
-        return Config::getInstance().hardwareSwitchesBrewEnabled.get();
+        return config_.hardwareSwitchesBrewEnabled.get();
     }
 
     bool hasPermission() const override {
@@ -158,7 +158,7 @@ class BrewHandler : public SwitchBasedHandler {
         if (!switch_) return;
 
         const uint8_t reading    = getSwitchReading();
-        const auto    switchType = Config::getInstance().hardwareSwitchesBrewType.get();
+        const auto    switchType = config_.hardwareSwitchesBrewType.get();
 
         // Detect state changes
         if (reading != lastSwitchReading_) {
