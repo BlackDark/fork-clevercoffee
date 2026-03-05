@@ -202,6 +202,8 @@
 
 ## Phase 6: Inject StateMachine into LoopManager & Enable State Tests
 
+**Status**: ✅ COMPLETED (Part A — StateMachine injection). Part B deferred — all state implementation tests are empty stubs with no test logic; enabling them requires writing new test bodies and mocking MachineStateContext + handler dependencies.
+
 **Objective**: Remove the `extern std::unique_ptr<StateMachine>` hack from LoopManager and enable disabled state implementation tests.
 
 **Files to Modify**:

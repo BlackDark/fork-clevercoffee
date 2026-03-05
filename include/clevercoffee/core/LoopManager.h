@@ -12,6 +12,7 @@
 
 // Forward declarations
 class ProcessController;
+class StateMachine;
 class UIManager;
 
 namespace CleverCoffee {
@@ -55,13 +56,15 @@ class LoopManager {
      * @param sensorCoordinator Sensor coordinator for async sensor polling (REQUIRED - CRITICAL component for sensor
      * readings)
      * @param uiManager UI management system (REQUIRED - always exists)
+     * @param stateMachine State machine for state transitions (may be nullptr in tests)
      * Note: Handlers are accessed via SystemContext and are always available
      */
     explicit LoopManager(CleverCoffee::SystemContext&     systemContext,
                          CleverCoffee::HardwareManager&   hardwareManager,
                          ProcessController&               processController,
                          CleverCoffee::SensorCoordinator& sensorCoordinator,
-                         UIManager&                       uiManager);
+                         UIManager&                       uiManager,
+                         StateMachine*                    stateMachine = nullptr);
 
     /**
      * @brief Destructor
@@ -230,6 +233,7 @@ class LoopManager {
     ProcessController&               processController_; // REQUIRED - CRITICAL component for PID control
     CleverCoffee::SensorCoordinator& sensorCoordinator_; // REQUIRED - CRITICAL component for sensor readings
     UIManager&                       uiManager_;         // REQUIRED - always exists
+    StateMachine*                    stateMachine_;      // May be nullptr in tests
 
     // Initialization state
     bool initialized_;

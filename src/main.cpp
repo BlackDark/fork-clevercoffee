@@ -182,8 +182,8 @@ void setup() {
 
         // Initialize LoopManager for main loop coordination with required components as references
         auto& sensorCoord = systemContext.sensorCoordinator();
-        loopManager =
-            std::make_unique<LoopManager>(systemContext, hardwareManager, *processController, sensorCoord, uiManager);
+        loopManager       = std::make_unique<LoopManager>(
+            systemContext, hardwareManager, *processController, sensorCoord, uiManager, stateMachine.get());
         InitHelpers::logInitResult("LoopManager", loopManager->initialize());
 
         // Configure sensor update timers (uncomment and modify as needed)

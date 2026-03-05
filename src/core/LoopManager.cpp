@@ -52,9 +52,10 @@ LoopManager::LoopManager(CleverCoffee::SystemContext&     systemContext,
                          CleverCoffee::HardwareManager&   hardwareManager,
                          ProcessController&               processController,
                          CleverCoffee::SensorCoordinator& sensorCoordinator,
-                         UIManager&                       uiManager)
+                         UIManager&                       uiManager,
+                         StateMachine*                    stateMachine)
     : systemContext_(systemContext), hardwareManager_(hardwareManager), processController_(processController),
-      sensorCoordinator_(sensorCoordinator), uiManager_(uiManager), initialized_(false),
+      sensorCoordinator_(sensorCoordinator), uiManager_(uiManager), stateMachine_(stateMachine), initialized_(false),
       sensorsTimersInitialized_(false), performanceMonitoringEnabled_(false), lastLoopTime_(0), maxLoopTime_(0),
       loopCount_(0), temperatureUpdateCount_(0), pressureUpdateCount_(0), scaleUpdateCount_(0), lastTimerLogTime_(0) {
     LOG(INFO, "LoopManager created - will initialize centralized sensor timers");
@@ -579,31 +580,28 @@ void LoopManager::updateSwitchesAndStandby() {
 }
 
 void LoopManager::updateStateMachine() {
-    // State machine updates extracted from loopPid()
-    extern std::unique_ptr<StateMachine> stateMachine;
-
-    // Debug: Check if state machine exists
-    if (!stateMachine) {
+    // Check if state machine exists (may be nullptr in tests)
+    if (!stateMachine_) {
         LOG(ERROR, "CRITICAL: stateMachine is nullptr!");
         return;
     }
 
-    // Debug: Check initialization
-    if (!stateMachine->isInitialized()) {
+    // Check initialization
+    if (!stateMachine_->isInitialized()) {
         LOG(WARNING, "StateMachine not initialized yet");
         return;
     }
 
     // Get state BEFORE update
-    const MachineStateId stateBefore     = stateMachine->getCurrentStateId();
-    const char*          stateNameBefore = stateMachine->getCurrentStateName();
+    const MachineStateId stateBefore     = stateMachine_->getCurrentStateId();
+    const char*          stateNameBefore = stateMachine_->getCurrentStateName();
 
     // Update state machine (replaces handleMachineState())
-    stateMachine->update();
+    stateMachine_->update();
 
     // Get state AFTER update to detect changes
-    const MachineStateId newState       = stateMachine->getCurrentStateId();
-    const char*          stateNameAfter = stateMachine->getCurrentStateName();
+    const MachineStateId newState       = stateMachine_->getCurrentStateId();
+    const char*          stateNameAfter = stateMachine_->getCurrentStateName();
 
     // Log all state updates for debugging (throttled to reduce log spam)
     using CleverCoffee::Timing::DEBUG_LOG_THROTTLE_MS;
