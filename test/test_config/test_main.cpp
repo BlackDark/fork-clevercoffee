@@ -59,13 +59,13 @@ TEST_F(ConfigTest, MockConfigParameterAccess) {
  * @brief Test parameter default values
  */
 TEST_F(ConfigTest, ParameterDefaultValues) {
-    // Verify default values match expected
+    // Verify default values match production defaults from defaults.h
     EXPECT_TRUE(mockConfig_->getPidEnabled());
-    EXPECT_DOUBLE_EQ(95.0, mockConfig_->getBrewSetpoint());
-    EXPECT_DOUBLE_EQ(120.0, mockConfig_->getSteamSetpoint());
-    EXPECT_DOUBLE_EQ(10.0, mockConfig_->getPidRegularKp());
-    EXPECT_DOUBLE_EQ(100.0, mockConfig_->getPidRegularTn());
-    EXPECT_DOUBLE_EQ(20.0, mockConfig_->getPidRegularTv());
+    EXPECT_DOUBLE_EQ(SETPOINT, mockConfig_->getBrewSetpoint());
+    EXPECT_DOUBLE_EQ(STEAMSETPOINT, mockConfig_->getSteamSetpoint());
+    EXPECT_DOUBLE_EQ(AGGKP, mockConfig_->getPidRegularKp());
+    EXPECT_DOUBLE_EQ(AGGTN, mockConfig_->getPidRegularTn());
+    EXPECT_DOUBLE_EQ(AGGTV, mockConfig_->getPidRegularTv());
 }
 
 /**

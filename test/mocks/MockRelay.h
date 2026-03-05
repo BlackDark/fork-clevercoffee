@@ -2,31 +2,35 @@
  * @file test/mocks/MockRelay.h
  * @brief GMock implementation for Relay interface
  *
- * Allows testing code that depends on Relay behavior without actual hardware.
+ * Standalone mock that does NOT depend on GPIOPin or real hardware.
+ * Mirrors the Relay public API so it can be used as a drop-in replacement
+ * in tests via templates or dependency injection.
  */
 
 #pragma once
 
 #include <gmock/gmock.h>
-#include "../../include/clevercoffee/hardware/Relay.h"
+#include "clevercoffee/defaults.h"
 
 /**
  * @class MockRelay
  * @brief Mock implementation of Relay for testing
  *
+ * Does not require GPIOPin. Trigger type is configurable at construction.
+ *
  * Provides EXPECT_CALL() support for:
- * - on() - Turn relay on
- * - off() - Turn relay off
- * - getGPIOInstance() - Get the GPIO pin
- * - getTriggerType() - Get trigger type
+ * - on()  — Turn relay on
+ * - off() — Turn relay off
+ *
+ * getTriggerType() returns the stored value (not mocked).
  */
 class MockRelay {
- public:
+  public:
     /**
-     * @brief Constructor with GPIO pin and trigger type
+     * @brief Default constructor (HIGH_TRIGGER)
      */
-    MockRelay(GPIOPin& gpio, Hardware::RelayTriggerType trigger = Hardware::RelayTriggerType::HIGH_TRIGGER)
-        : gpio_(gpio), trigger_(trigger) {}
+    explicit MockRelay(Hardware::RelayTriggerType trigger = Hardware::RelayTriggerType::HIGH_TRIGGER)
+        : trigger_(trigger) {}
 
     /**
      * @brief Mock method to turn relay on
@@ -39,20 +43,12 @@ class MockRelay {
     MOCK_METHOD(void, off, (), (const, noexcept));
 
     /**
-     * @brief Get GPIO instance (not mocked - returns real reference)
-     */
-    GPIOPin& getGPIOInstance() const noexcept {
-        return gpio_;
-    }
-
-    /**
-     * @brief Get trigger type (not mocked - returns stored value)
+     * @brief Get trigger type (not mocked — returns stored value)
      */
     Hardware::RelayTriggerType getTriggerType() const noexcept {
         return trigger_;
     }
 
- private:
-    GPIOPin& gpio_;
+  private:
     Hardware::RelayTriggerType trigger_;
 };
