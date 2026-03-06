@@ -666,25 +666,13 @@ void WebServerManager::setupApiRoutes() {
                 return;
             }
 
-            // Prettify the JSON and redact sensitive fields
+            // Prettify the JSON for readable export
             JsonDocument               doc;
             const DeserializationError error = deserializeJson(doc, configJson);
 
             if (error) {
                 request->send(500, "application/json", "{\"error\":\"Failed to parse generated config\"}");
                 return;
-            }
-
-            // Redact password fields from export
-            static constexpr const char* sensitiveKeys[] = {
-                "mqtt.password",
-                "system.ota_password",
-                "system.auth.password",
-            };
-            for (const auto* key : sensitiveKeys) {
-                if (doc[key].is<JsonObject>()) {
-                    doc[key]["value"] = "***";
-                }
             }
 
             String prettifiedJson;
