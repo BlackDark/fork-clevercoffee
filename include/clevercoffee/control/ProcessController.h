@@ -73,7 +73,7 @@ class ProcessController {
      * @brief Initialize process controller
      * @return true if initialization successful
      */
-    bool initialize();
+    [[nodiscard]] bool initialize();
 
     /**
      * @brief Main process control update - call from main loop

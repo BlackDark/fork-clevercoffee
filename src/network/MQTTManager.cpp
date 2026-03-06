@@ -23,6 +23,10 @@
 #include <cstdio>
 
 // Static instance for callback
+// NOTE: PubSubClient::setCallback() requires a plain C function pointer (void(*)(char*, byte*, unsigned int)),
+// which cannot be a capturing lambda or std::function. The static instance_ + staticMessageCallback pattern
+// is the only viable approach to bridge the C-style callback to our instance method.
+// This is safe because only one MQTTManager instance exists in the application.
 MQTTManager* MQTTManager::instance_ = nullptr;
 
 MQTTManager::MQTTManager()
@@ -290,7 +294,6 @@ void MQTTManager::assignParameter(char* param, double value) {
             if (sensorCoordinator_) {
                 sensorCoordinator_->setScaleTareMode(static_cast<bool>(value));
             }
-            systemContext_->setScaleTareOn(static_cast<bool>(value));
             publish(param, number2string(value), true);
             LOGF(DEBUG, "MQTT special parameter %s updated to %f", param, value);
             return;
@@ -298,7 +301,6 @@ void MQTTManager::assignParameter(char* param, double value) {
             if (sensorCoordinator_) {
                 sensorCoordinator_->setScaleCalibrationMode(static_cast<bool>(value));
             }
-            systemContext_->setScaleCalibrationOn(static_cast<bool>(value));
             publish(param, number2string(value), true);
             LOGF(DEBUG, "MQTT special parameter %s updated to %f", param, value);
             return;
@@ -393,10 +395,11 @@ int MQTTManager::writeSysParamsToMQTT(bool continueOnError) {
                              systemContext_->machineStateContext()->isBackflushModeActive() ? 1 : 0);
                     paramFound = true;
                 } else if (strcmp(parameterId, "TARE_ON") == 0) {
-                    snprintf(data, sizeof(data), "%d", systemContext_->scaleTareOn() ? 1 : 0);
+                    snprintf(data, sizeof(data), "%d", systemContext_->sensorCoordinator().isScaleTareMode() ? 1 : 0);
                     paramFound = true;
                 } else if (strcmp(parameterId, "CALIBRATION_ON") == 0) {
-                    snprintf(data, sizeof(data), "%d", systemContext_->scaleCalibrationOn() ? 1 : 0);
+                    snprintf(
+                        data, sizeof(data), "%d", systemContext_->sensorCoordinator().isScaleCalibrationMode() ? 1 : 0);
                     paramFound = true;
                 } else {
                     ConfigParamDef* paramDef = Config::getInstance().findConfigParameter(parameterId);

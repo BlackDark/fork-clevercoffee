@@ -119,10 +119,10 @@ class ConfigParamDef : public BaseParamDef {
 
     virtual ~ConfigParamDef() = default;
 
-    virtual bool fromString(const String& value)     = 0;
-    virtual bool loadFromNvs(Preferences& prefs)     = 0;
-    virtual bool saveToNvs(Preferences& prefs) const = 0;
-    virtual void resetToDefault()                    = 0;
+    [[nodiscard]] virtual bool fromString(const String& value)     = 0;
+    [[nodiscard]] virtual bool loadFromNvs(Preferences& prefs)     = 0;
+    [[nodiscard]] virtual bool saveToNvs(Preferences& prefs) const = 0;
+    virtual void               resetToDefault()                    = 0;
 };
 
 /**
@@ -153,7 +153,7 @@ class ParamDef : public ConfigParamDef {
     }
 
     // Type-safe setter with validation
-    bool set(const T& value) {
+    [[nodiscard]] bool set(const T& value) {
         if (!isValid(value)) {
             LOGF(WARNING, "Invalid value for parameter '%s'", key_.c_str());
             return false;
@@ -239,7 +239,7 @@ class ParamDef : public ConfigParamDef {
     }
 
     // String deserialization - convert string to appropriate type
-    bool fromString(const String& value) override {
+    [[nodiscard]] bool fromString(const String& value) override {
         T newValue;
         if constexpr (std::is_same_v<T, bool>) {
             // Convert string "true"/"false"/"1"/"0" to boolean
@@ -262,7 +262,7 @@ class ParamDef : public ConfigParamDef {
     }
 
     // NVS persistence
-    bool loadFromNvs(Preferences& prefs) override {
+    [[nodiscard]] bool loadFromNvs(Preferences& prefs) override {
         String nvsKey = generateNvsKey();
         if (!prefs.isKey(nvsKey.c_str())) {
             return false;
@@ -285,7 +285,7 @@ class ParamDef : public ConfigParamDef {
         return true;
     }
 
-    bool saveToNvs(Preferences& prefs) const override {
+    [[nodiscard]] bool saveToNvs(Preferences& prefs) const override {
         String nvsKey = generateNvsKey();
 
         bool success = false;
@@ -368,7 +368,7 @@ class EnumParamDef : public ConfigParamDef {
         return currentValue_;
     }
 
-    bool set(const E& value) {
+    [[nodiscard]] bool set(const E& value) {
         if (!isValid(value)) {
             LOGF(WARNING, "Invalid value for enum parameter '%s'", key_.c_str());
             return false;
@@ -434,7 +434,7 @@ class EnumParamDef : public ConfigParamDef {
         }
     }
 
-    bool fromString(const String& value) override {
+    [[nodiscard]] bool fromString(const String& value) override {
         // For enum types, try to parse as integer first
         int intValue = value.toInt();
 
@@ -454,7 +454,7 @@ class EnumParamDef : public ConfigParamDef {
         return false; // No valid conversion found
     }
 
-    bool loadFromNvs(Preferences& prefs) override {
+    [[nodiscard]] bool loadFromNvs(Preferences& prefs) override {
         String nvsKey = generateNvsKey();
         if (!prefs.isKey(nvsKey.c_str())) {
             return false;
@@ -465,7 +465,7 @@ class EnumParamDef : public ConfigParamDef {
         return true;
     }
 
-    bool saveToNvs(Preferences& prefs) const override {
+    [[nodiscard]] bool saveToNvs(Preferences& prefs) const override {
         String nvsKey  = generateNvsKey();
         bool   success = prefs.putInt(nvsKey.c_str(), static_cast<int>(currentValue_));
 
@@ -1470,14 +1470,14 @@ class Config {
      */
 
     // System management
-    bool begin();
-    bool loadAll();
-    bool saveAll();
-    void resetAllToDefaults();
+    [[nodiscard]] bool begin();
+    [[nodiscard]] bool loadAll();
+    [[nodiscard]] bool saveAll();
+    void               resetAllToDefaults();
 
     // JSON export/import
-    String exportToJson();
-    bool   importFromJson(const String& json);
+    String             exportToJson();
+    [[nodiscard]] bool importFromJson(const String& json);
 
     // Web interface support
     void getAllParameters(JsonArray& array, const String& filter = "");

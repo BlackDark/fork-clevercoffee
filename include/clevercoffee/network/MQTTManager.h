@@ -64,7 +64,7 @@ class MQTTManager : public IMQTTManager {
      * @param hostname Device hostname
      * @return true if MQTT is enabled and configured
      */
-    bool setup(const String& hostname);
+    [[nodiscard]] bool setup(const String& hostname);
 
     /**
      * @brief Set UI coordinator for state management
@@ -270,7 +270,7 @@ class MQTTManager : public IMQTTManager {
      * @param retain Retain flag
      * @return true on success
      */
-    bool publish(const char* reading, const char* payload, bool retain = false);
+    [[nodiscard]] bool publish(const char* reading, const char* payload, bool retain = false);
 
     /**
      * @brief Publish large message with chunking

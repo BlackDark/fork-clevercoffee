@@ -666,13 +666,25 @@ void WebServerManager::setupApiRoutes() {
                 return;
             }
 
-            // Prettify the JSON
+            // Prettify the JSON and redact sensitive fields
             JsonDocument               doc;
             const DeserializationError error = deserializeJson(doc, configJson);
 
             if (error) {
                 request->send(500, "application/json", "{\"error\":\"Failed to parse generated config\"}");
                 return;
+            }
+
+            // Redact password fields from export
+            static constexpr const char* sensitiveKeys[] = {
+                "mqtt.password",
+                "system.ota_password",
+                "system.auth.password",
+            };
+            for (const auto* key : sensitiveKeys) {
+                if (doc[key].is<JsonObject>()) {
+                    doc[key]["value"] = "***";
+                }
             }
 
             String prettifiedJson;
@@ -704,6 +716,9 @@ void WebServerManager::setupApiRoutes() {
                 static String uploadBuffer;
                 static size_t totalSize = 0;
 
+                // Maximum config upload size: 16KB to prevent memory exhaustion
+                static constexpr size_t MAX_CONFIG_UPLOAD_SIZE = 16384;
+
                 if (index == 0) {
                     uploadBuffer = "";
                     uploadBuffer.reserve(8192);
@@ -711,11 +726,20 @@ void WebServerManager::setupApiRoutes() {
                     LOGF(INFO, "Config upload started: %s", filename.c_str());
                 }
 
+                totalSize += len;
+
+                if (totalSize > MAX_CONFIG_UPLOAD_SIZE) {
+                    LOGF(ERROR, "Config upload rejected: size %u exceeds limit %u", totalSize, MAX_CONFIG_UPLOAD_SIZE);
+                    uploadBuffer = "";
+                    request->send(413,
+                                  "application/json",
+                                  R"({"success": false, "message": "Config file too large. Maximum size is 16KB."})");
+                    return;
+                }
+
                 for (size_t i = 0; i < len; i++) {
                     uploadBuffer += static_cast<char>(data[i]);
                 }
-
-                totalSize += len;
 
                 if (final) {
                     LOGF(INFO, "Config upload finished: %s, total size: %u bytes", filename.c_str(), totalSize);
@@ -1178,7 +1202,7 @@ String WebServerManager::getWeightJsonString() const {
         }
 
         doc["weight"]     = round2(systemContext_->sensorCoordinator().getWeight());
-        doc["brewWeight"] = round2(systemContext_->currBrewWeight());
+        doc["brewWeight"] = round2(systemContext_->sensorCoordinator().getBrewWeight());
 
         String json;
         if (!safeSerializeJson(doc, json)) {

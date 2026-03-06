@@ -68,7 +68,7 @@ class Logger {
      * @brief Start the logger
      * @return Boolean indicating the success of the operation
      */
-    static bool begin();
+    [[nodiscard]] static bool begin();
 
     /**
      * @brief Update the logger - handle connections and level changes

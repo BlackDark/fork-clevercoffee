@@ -733,25 +733,6 @@ class SystemContext {
     /** @} */
 
     /**
-     * @name Utility Accessors
-     * @{
-     */
-
-    /**
-     * @brief Update pressure filter with new reading
-     * @param input Raw pressure reading
-     */
-    void updatePressureFilter(float input) noexcept;
-
-    /**
-     * @brief Get filtered pressure output
-     * @return Filtered pressure value
-     */
-    float getPressureFilterOutput() const noexcept;
-
-    /** @} */
-
-    /**
      * @name Critical Machine Control Accessors
      * Timer, Emergency Stop, and PID operations
      * @{
@@ -947,72 +928,10 @@ class SystemContext {
     /** @} */
 
     /**
-     * @name Scale and Sensor Operations
-     * @note These methods delegate to SensorCoordinator for consistency.
-     * @deprecated Prefer using sensorCoordinator() methods directly:
-     *   - Use sensorCoordinator().getBrewWeight() instead of currBrewWeight()
-     *   - Use sensorCoordinator().getWeight() instead of currReadingWeight()
-     *   - Use sensorCoordinator().isScaleCalibrationMode() instead of scaleCalibrationOn()
-     *   - Use sensorCoordinator().isScaleTareMode() instead of scaleTareOn()
+     * @name Sensor Operations
+     * @note Prefer using sensorCoordinator() methods directly for sensor readings.
      * @{
      */
-
-    /**
-     * @brief Check if scale calibration is currently active
-     * @return true if scale calibration mode is on
-     * @deprecated Use sensorCoordinator().isScaleCalibrationMode() instead
-     */
-    [[deprecated("Use sensorCoordinator().isScaleCalibrationMode() instead")]] bool scaleCalibrationOn() const noexcept;
-
-    /**
-     * @brief Set scale calibration active state
-     * @param on true to activate calibration, false to deactivate
-     * @deprecated Use sensorCoordinator().setScaleCalibrationMode() instead
-     */
-    [[deprecated("Use sensorCoordinator().setScaleCalibrationMode() instead")]] void setScaleCalibrationOn(
-        bool on) noexcept;
-
-    /**
-     * @brief Check if scale tare operation is active
-     * @return true if scale tare is in progress
-     * @deprecated Use sensorCoordinator().isScaleTareMode() instead
-     */
-    [[deprecated("Use sensorCoordinator().isScaleTareMode() instead")]] bool scaleTareOn() const noexcept;
-
-    /**
-     * @brief Set scale tare active state
-     * @param on true to activate tare, false to deactivate
-     * @deprecated Use sensorCoordinator().setScaleTareMode() instead
-     */
-    [[deprecated("Use sensorCoordinator().setScaleTareMode() instead")]] void setScaleTareOn(bool on) noexcept;
-
-    /**
-     * @brief Get current brew weight reading
-     * @return Current weight in grams
-     * @deprecated Use sensorCoordinator().getBrewWeight() instead
-     */
-    [[deprecated("Use sensorCoordinator().getBrewWeight() instead")]] double currBrewWeight() const noexcept;
-
-    /**
-     * @brief Set current brew weight
-     * @param weight Weight in grams
-     * @note This is managed by SensorCoordinator - setting directly may be overwritten
-     */
-    void setCurrBrewWeight(double weight) noexcept;
-
-    /**
-     * @brief Get current scale reading weight
-     * @return Current weight reading in grams
-     * @deprecated Use sensorCoordinator().getWeight() instead
-     */
-    [[deprecated("Use sensorCoordinator().getWeight() instead")]] double currReadingWeight() const noexcept;
-
-    /**
-     * @brief Set current scale reading weight
-     * @param weight Weight in grams
-     * @note This is managed by SensorCoordinator - setting directly may be overwritten
-     */
-    void setCurrReadingWeight(double weight) noexcept;
 
     /**
      * @brief Get current pump on time
@@ -1025,20 +944,6 @@ class SystemContext {
      * @param time Pump on time in seconds
      */
     void setCurrPumpOnTime(double time) noexcept;
-
-    /**
-     * @brief Get input pressure reading
-     * @return Pressure value
-     * @deprecated Use sensorCoordinator().getPressure() instead
-     */
-    [[deprecated("Use sensorCoordinator().getPressure() instead")]] float inputPressure() const noexcept;
-
-    /**
-     * @brief Set input pressure value
-     * @param pressure Pressure value
-     * @note This is managed by SensorCoordinator - setting directly may be overwritten
-     */
-    void setInputPressure(float pressure) noexcept;
 
     /**
      * @brief Check if scale has encountered a failure
@@ -1161,75 +1066,6 @@ class SystemContext {
 
     /** @} */
 
-    /**
-     * @name Pressure Filter Variables
-     * Exponential Moving Average filter for pressure sensor readings
-     *
-     * @note Pressure filtering is now handled internally by SensorCoordinator.
-     * These methods are kept for backward compatibility but may be removed in future.
-     * Use sensorCoordinator().getFilteredPressure() for filtered pressure readings.
-     * @{
-     */
-
-    /**
-     * @brief Get pressure filter X input value
-     * @return Current X (weighted input) value
-     * @deprecated Pressure filter is internal to SensorCoordinator
-     */
-    [[deprecated("Pressure filter is internal to SensorCoordinator")]] float inX() const noexcept;
-
-    /**
-     * @brief Set pressure filter X input value
-     * @param value X value to set
-     * @deprecated Pressure filter is internal to SensorCoordinator
-     */
-    [[deprecated("Pressure filter is internal to SensorCoordinator")]] void setInX(float value) noexcept;
-
-    /**
-     * @brief Get pressure filter Y output value
-     * @return Current Y (filtered output) value
-     * @deprecated Pressure filter is internal to SensorCoordinator
-     */
-    [[deprecated("Pressure filter is internal to SensorCoordinator")]] float inY() const noexcept;
-
-    /**
-     * @brief Set pressure filter Y output value
-     * @param value Y value to set
-     * @deprecated Pressure filter is internal to SensorCoordinator
-     */
-    [[deprecated("Pressure filter is internal to SensorCoordinator")]] void setInY(float value) noexcept;
-
-    /**
-     * @brief Get pressure filter old value
-     * @return Previous output value for derivative calculation
-     * @deprecated Pressure filter is internal to SensorCoordinator
-     */
-    [[deprecated("Pressure filter is internal to SensorCoordinator")]] float inOld() const noexcept;
-
-    /**
-     * @brief Set pressure filter old value
-     * @param value Old value to set
-     * @deprecated Pressure filter is internal to SensorCoordinator
-     */
-    [[deprecated("Pressure filter is internal to SensorCoordinator")]] void setInOld(float value) noexcept;
-
-    /**
-     * @brief Get pressure filter sum value
-     * @return Current sum for weighted averaging
-     * @deprecated Pressure filter is internal to SensorCoordinator
-     */
-    [[deprecated("Pressure filter is internal to SensorCoordinator")]] float inSum() const noexcept;
-
-    /**
-     * @brief Set pressure filter sum value
-     * @param value Sum value to set
-     * @deprecated Pressure filter is internal to SensorCoordinator
-     */
-    [[deprecated("Pressure filter is internal to SensorCoordinator")]] void setInSum(float value) noexcept;
-
-    /** @} */
-    /** @} */
-
     /// @name System Version
     /// @{
 
@@ -1240,13 +1076,6 @@ class SystemContext {
     const char* sysVersion() const noexcept;
 
     /// @}
-
-    /**
-     * @brief Get filtered input pressure value
-     * @return Current filtered pressure reading
-     * @deprecated Use sensorCoordinator().getFilteredPressure() instead
-     */
-    [[deprecated("Use sensorCoordinator().getFilteredPressure() instead")]] float inputPressureFilter() const noexcept;
 
     /**
      * @brief Get weight before brew started

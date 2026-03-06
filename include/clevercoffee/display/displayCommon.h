@@ -571,7 +571,7 @@ inline bool displayFullscreenBrewTimer(CleverCoffee::SystemContext& systemContex
                 systemContext.hardwareContext().display()->print(systemContext.processCurrentBrewTime() / 1000, 1);
                 systemContext.hardwareContext().display()->print("s");
                 systemContext.hardwareContext().display()->setCursor(5, 100);
-                systemContext.hardwareContext().display()->print(systemContext.currBrewWeight(), 1);
+                systemContext.hardwareContext().display()->print(systemContext.sensorCoordinator().getBrewWeight(), 1);
                 systemContext.hardwareContext().display()->print("g");
                 systemContext.hardwareContext().display()->setFont(u8g2_font_profont11_tf);
             } else {
@@ -587,7 +587,7 @@ inline bool displayFullscreenBrewTimer(CleverCoffee::SystemContext& systemContex
                 systemContext.hardwareContext().display()->print(systemContext.processCurrentBrewTime() / 1000, 1);
                 systemContext.hardwareContext().display()->print("s");
                 systemContext.hardwareContext().display()->setCursor(DISPLAY_WIDTH / 2, 38);
-                systemContext.hardwareContext().display()->print(systemContext.currBrewWeight(), 1);
+                systemContext.hardwareContext().display()->print(systemContext.sensorCoordinator().getBrewWeight(), 1);
                 systemContext.hardwareContext().display()->print("g");
                 systemContext.hardwareContext().display()->setFont(u8g2_font_profont11_tf);
             } else {

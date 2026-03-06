@@ -85,7 +85,7 @@ class LoopManager {
      * @brief Initialize the loop manager
      * @return true if initialization successful
      */
-    bool initialize();
+    [[nodiscard]] bool initialize();
 
     /**
      * @brief Main loop update - call this from Arduino loop()

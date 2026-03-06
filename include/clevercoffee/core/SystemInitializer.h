@@ -71,13 +71,13 @@ class SystemInitializer {
      * @brief Initialize complete system
      * @return true if initialization successful
      */
-    bool initialize();
+    [[nodiscard]] bool initialize();
 
     /**
      * @brief Check if system is initialized
      * @return true if system is ready
      */
-    bool isInitialized() const {
+    [[nodiscard]] bool isInitialized() const {
         return systemInitialized_;
     }
 
@@ -174,7 +174,7 @@ class SystemInitializer {
      * @note This is called from main.cpp after MachineStateContext is available
      * @return True if successful, false otherwise
      */
-    bool finalizeMachineState();
+    [[nodiscard]] bool finalizeMachineState();
 
   private:
     // Initialization state

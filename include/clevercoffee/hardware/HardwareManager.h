@@ -128,7 +128,7 @@ class HardwareManager : public IHardwareContext {
      * @brief Check if all critical hardware is initialized
      * @return true if critical components are ready
      */
-    bool isInitialized() const;
+    [[nodiscard]] bool isInitialized() const;
 
     /**
      * @brief Perform safe shutdown of all hardware

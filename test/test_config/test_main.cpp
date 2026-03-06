@@ -111,23 +111,11 @@ TEST_F(ConfigTest, ParameterValidationRanges) {
     EXPECT_LE(mockConfig_->getSteamSetpoint(), 200.0);
 }
 
-/**
- * @brief Test Config with real instance (if NVS available)
- */
+// DISABLED: Requires ESP32 NVS (Non-Volatile Storage) hardware — cannot run in native_test environment
 TEST_F(ConfigTest, DISABLED_RealConfigWithNVS) {
-    // This test would test real Config with NVS if available in test environment
-    // Config& config = Config::getInstance();
-    // config.begin();
-    // config.brewSetpoint.set(96.0);
-    // EXPECT_DOUBLE_EQ(96.0, config.brewSetpoint.get());
-    // config.resetAllToDefaults();
 }
 
-/**
- * @brief Test parameter persistence
- */
+// DISABLED: Requires ESP32 NVS (Non-Volatile Storage) hardware — cannot run in native_test environment
 TEST_F(ConfigTest, DISABLED_ParameterPersistence) {
-    // This test would verify parameters persist across Config instances
-    // Requires NVS functionality
 }
 

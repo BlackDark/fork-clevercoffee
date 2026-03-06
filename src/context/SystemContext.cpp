@@ -177,16 +177,8 @@ void SystemContext::setHassioFailed(bool failed) noexcept {
 }
 
 // ===== UTILITY ACCESSORS =====
-
-void SystemContext::updatePressureFilter(float input) noexcept {
-    sensorState_.setInX(input * 0.3f);
-    sensorState_.setInSum(sensorState_.inX() + sensorState_.inY());
-    sensorState_.setInOld(sensorState_.inSum());
-}
-
-float SystemContext::getPressureFilterOutput() const noexcept {
-    return sensorState_.inSum();
-}
+// NOTE: Pressure filter is now fully internal to SensorCoordinator.
+// The deprecated updatePressureFilter/getPressureFilterOutput methods have been removed.
 
 // ===== CRITICAL MACHINE CONTROL ACCESSORS =====
 
@@ -338,56 +330,15 @@ const PID* SystemContext::pidController() const noexcept {
     return pid_;
 }
 
-// ===== SCALE AND SENSOR OPERATIONS =====
-// NOTE: These methods delegate to SensorCoordinator for consistency.
-// SensorCoordinator is the single source of truth for sensor readings.
-// SensorState is kept for backward compatibility but should be migrated away.
-
-bool SystemContext::scaleCalibrationOn() const noexcept {
-    // Delegate to SensorCoordinator (single source of truth)
-    return sensorCoordinator_.isScaleCalibrationMode();
-}
-
-void SystemContext::setScaleCalibrationOn(bool on) noexcept {
-    // Delegate to SensorCoordinator (single source of truth)
-    sensorCoordinator_.setScaleCalibrationMode(on);
-    // Also update SensorState for backward compatibility
-    sensorState_.setScaleCalibrationOn(on);
-}
-
-bool SystemContext::scaleTareOn() const noexcept {
-    // Delegate to SensorCoordinator (single source of truth)
-    return sensorCoordinator_.isScaleTareMode();
-}
-
-void SystemContext::setScaleTareOn(bool on) noexcept {
-    // Delegate to SensorCoordinator (single source of truth)
-    sensorCoordinator_.setScaleTareMode(on);
-    // Also update SensorState for backward compatibility
-    sensorState_.setScaleTareOn(on);
-}
-
-double SystemContext::currBrewWeight() const noexcept {
-    // Delegate to SensorCoordinator (single source of truth)
-    return sensorCoordinator_.getBrewWeight();
-}
-
-void SystemContext::setCurrBrewWeight(double weight) noexcept {
-    // Note: Brew weight is managed by SensorCoordinator via startBrewWeightTracking()
-    // This setter is kept for backward compatibility but may be overwritten
-    sensorState_.setCurrBrewWeight(weight);
-}
-
-double SystemContext::currReadingWeight() const noexcept {
-    // Delegate to SensorCoordinator (single source of truth)
-    return sensorCoordinator_.getWeight();
-}
-
-void SystemContext::setCurrReadingWeight(double weight) noexcept {
-    // Note: Weight is managed by SensorCoordinator
-    // This setter is kept for backward compatibility but may be overwritten
-    sensorState_.setCurrReadingWeight(weight);
-}
+// ===== SENSOR OPERATIONS =====
+// NOTE: Deprecated scale/weight/pressure accessors have been removed.
+// Use sensorCoordinator() methods directly:
+//   - sensorCoordinator().getBrewWeight() instead of currBrewWeight()
+//   - sensorCoordinator().getWeight() instead of currReadingWeight()
+//   - sensorCoordinator().isScaleCalibrationMode() instead of scaleCalibrationOn()
+//   - sensorCoordinator().isScaleTareMode() instead of scaleTareOn()
+//   - sensorCoordinator().getPressure() instead of inputPressure()
+//   - sensorCoordinator().getFilteredPressure() instead of inputPressureFilter()
 
 double SystemContext::currPumpOnTime() const noexcept {
     return sensorState_.currPumpOnTime();
@@ -395,17 +346,6 @@ double SystemContext::currPumpOnTime() const noexcept {
 
 void SystemContext::setCurrPumpOnTime(double time) noexcept {
     sensorState_.setCurrPumpOnTime(time);
-}
-
-float SystemContext::inputPressure() const noexcept {
-    // Delegate to SensorCoordinator (single source of truth)
-    return sensorCoordinator_.getPressure();
-}
-
-void SystemContext::setInputPressure(float pressure) noexcept {
-    // Note: Pressure is managed by SensorCoordinator
-    // This setter is kept for backward compatibility but may be overwritten
-    sensorState_.setInputPressure(pressure);
 }
 
 bool SystemContext::scaleFailure() const noexcept {
@@ -518,44 +458,8 @@ void SystemContext::setDisplayBufferReady(bool ready) noexcept {
     }
 }
 
-// ===== PRESSURE FILTER VARIABLES =====
-
-float SystemContext::inX() const noexcept {
-    return sensorState_.inX();
-}
-
-void SystemContext::setInX(float value) noexcept {
-    sensorState_.setInX(value);
-}
-
-float SystemContext::inY() const noexcept {
-    return sensorState_.inY();
-}
-
-void SystemContext::setInY(float value) noexcept {
-    sensorState_.setInY(value);
-}
-
-float SystemContext::inOld() const noexcept {
-    return sensorState_.inOld();
-}
-
-void SystemContext::setInOld(float value) noexcept {
-    sensorState_.setInOld(value);
-}
-
-float SystemContext::inSum() const noexcept {
-    return sensorState_.inSum();
-}
-
-void SystemContext::setInSum(float value) noexcept {
-    sensorState_.setInSum(value);
-}
-
-float SystemContext::inputPressureFilter() const noexcept {
-    // Delegate to SensorCoordinator (single source of truth)
-    return sensorCoordinator_.getFilteredPressure();
-}
+// NOTE: Deprecated pressure filter methods (inX, setInX, inY, setInY, inOld, setInOld, inSum, setInSum,
+// inputPressureFilter) have been removed. Use sensorCoordinator().getFilteredPressure() instead.
 
 float SystemContext::preBrewWeight() const noexcept {
     return sensorState_.preBrewWeight();

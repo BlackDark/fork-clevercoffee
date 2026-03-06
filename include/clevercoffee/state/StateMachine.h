@@ -102,7 +102,7 @@ class StateMachine {
      * @brief Check if state machine is initialized
      * @return true if state machine is initialized
      */
-    bool isInitialized() const noexcept;
+    [[nodiscard]] bool isInitialized() const noexcept;
 
     /**
      * @brief Get state context for external access

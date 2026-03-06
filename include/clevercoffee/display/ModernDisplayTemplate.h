@@ -373,16 +373,24 @@ class UprightTemplate : public ModernDisplayTemplate<UprightTemplate> {
                 displayBrewWeight(*systemContext_,
                                   1,
                                   44,
-                                  systemContext_->currBrewWeight(),
+                                  systemContext_->sensorCoordinator().getBrewWeight(),
                                   targetWeight,
                                   systemContext_->scaleFailure());
             } else {
-                displayBrewWeight(
-                    *systemContext_, 1, 44, systemContext_->currBrewWeight(), -1, systemContext_->scaleFailure());
+                displayBrewWeight(*systemContext_,
+                                  1,
+                                  44,
+                                  systemContext_->sensorCoordinator().getBrewWeight(),
+                                  -1,
+                                  systemContext_->scaleFailure());
             }
         } else if (scaleEnabled) {
-            displayBrewWeight(
-                *systemContext_, 1, 44, systemContext_->currReadingWeight(), -1, systemContext_->scaleFailure());
+            displayBrewWeight(*systemContext_,
+                              1,
+                              44,
+                              systemContext_->sensorCoordinator().getWeight(),
+                              -1,
+                              systemContext_->scaleFailure());
         }
 
         if (pressureEnabled) {
@@ -390,7 +398,7 @@ class UprightTemplate : public ModernDisplayTemplate<UprightTemplate> {
             int yPos = scaleEnabled ? 54 : 44;
             systemContext_->hardwareContext().display()->setCursor(1, yPos);
             systemContext_->hardwareContext().display()->print(langstring_pressure_ur);
-            systemContext_->hardwareContext().display()->print(systemContext_->inputPressure(), 1);
+            systemContext_->hardwareContext().display()->print(systemContext_->sensorCoordinator().getPressure(), 1);
             systemContext_->hardwareContext().display()->print(" bar");
         }
     }
