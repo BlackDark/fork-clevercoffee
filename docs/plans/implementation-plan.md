@@ -373,15 +373,15 @@ Phase 3 (Test Infrastructure)     ──┘
 
 These items from the analyses are deferred beyond Phase 8 for reasons of scope, risk, or ROI:
 
-| Item | Reason for Deferral |
-|------|---------------------|
-| Batch NVS writes for MQTT bulk updates | Performance optimization — profile first to confirm it's a bottleneck |
-| FreeRTOS task for network | Architectural change requiring careful concurrency design; should be prototyped separately |
-| Remove empty timer callbacks | Low impact, can be done as drive-by cleanup |
-| Evaluate TLS for MQTT | Requires ESP32 memory analysis and certificate management design |
-| Split `displayCommon.h` into compilation units | Code organization — low urgency, can be done incrementally |
-| Continue decomposing SystemContext (PID management, handler registry, ISR bridge) | Large refactor — should follow after test coverage is solid |
-| Time abstraction for deterministic timer tests | Nice-to-have for test infrastructure, not blocking |
+| Item                                                                              | Reason for Deferral                                                                        |
+| --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Batch NVS writes for MQTT bulk updates                                            | Performance optimization — profile first to confirm it's a bottleneck                      |
+| FreeRTOS task for network                                                         | Architectural change requiring careful concurrency design; should be prototyped separately |
+| Remove empty timer callbacks                                                      | Low impact, can be done as drive-by cleanup                                                |
+| Evaluate TLS for MQTT                                                             | Requires ESP32 memory analysis and certificate management design                           |
+| Split `displayCommon.h` into compilation units                                    | Code organization — low urgency, can be done incrementally                                 |
+| Continue decomposing SystemContext (PID management, handler registry, ISR bridge) | Large refactor — should follow after test coverage is solid                                |
+| Time abstraction for deterministic timer tests                                    | Nice-to-have for test infrastructure, not blocking                                         |
 
 ## Notes
 
