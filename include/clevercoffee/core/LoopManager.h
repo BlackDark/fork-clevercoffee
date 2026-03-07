@@ -197,9 +197,11 @@ class LoopManager {
      * @param pressureIntervalMs Pressure sensor update interval in milliseconds
      * @param scaleIntervalMs Scale sensor update interval in milliseconds
      */
+    // clang-format off
     void configureSensorTimers(unsigned long temperatureIntervalMs = 400,  // 2.5 Hz
                                unsigned long pressureIntervalMs    = 50,   // 20 Hz
                                unsigned long scaleIntervalMs       = 100); // 10 Hz
+    // clang-format on
 
     /**
      * @brief Log configured timer intervals and actual execution frequencies

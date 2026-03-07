@@ -65,6 +65,13 @@ Follow C++ Core Guidelines. Prefer compile-time errors over runtime errors.
 - If you find a relevant llms.txt file, follow the links until you have access to the complete documentation.
 - Add documention only where necessary
 
+## Cross-Platform Pitfalls
+
+- **Case-sensitive includes**: macOS has a case-insensitive filesystem, Linux (CI) does not. `#include <String.h>` resolves to `WString.h` on macOS but fails on Linux. Always use the exact filename casing (e.g. `#include "WString.h"`).
+- **clang-format version differences**: macOS and CI (Ubuntu) may ship different clang-format versions that disagree on alignment. Use `// clang-format off/on` guards for intentionally aligned code blocks.
+- **CI runs on Ubuntu/GCC**: Local macOS builds use Clang. GCC may treat certain warnings differently. Always verify test compilation conceptually against both compilers.
+- **Test include model**: Tests use `test_build_src=false` and `#include` source `.cpp` files directly. Be careful with transitive includes — a new header pulled in via a stub can break unrelated tests.
+
 ## Regarding Dependencies:
 - Avoid introducing new external dependencies unless absolutely necessary.
 - If a new dependency is required, please state the reason.

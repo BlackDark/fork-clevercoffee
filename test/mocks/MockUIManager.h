@@ -8,14 +8,14 @@
 #pragma once
 
 #include <gmock/gmock.h>
-#include <String.h>
+#include "WString.h"
 
 /**
  * @class MockUIManager
  * @brief Mock implementation of UIManager for testing
  *
  * Provides EXPECT_CALL() support for UI operations.
- * 
+ *
  * Example usage:
  * @code
  * MockUIManager mockUI;
@@ -51,7 +51,7 @@ public:
     /**
      * @brief Mock method to display message
      */
-    MOCK_METHOD(void, displayMessage, (const String&, const String&, const String&, 
+    MOCK_METHOD(void, displayMessage, (const String&, const String&, const String&,
                                        const String&, const String&, const String&), ());
 
     /**
