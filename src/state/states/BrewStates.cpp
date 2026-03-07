@@ -14,6 +14,54 @@
 #include "clevercoffee/state/MachineStateContext.h"
 #include "clevercoffee/types/GlobalTypes.h"
 
+namespace {
+
+/**
+ * @brief Calculate the total preinfusion base time (preinfusion + pause) in milliseconds.
+ * @return Preinfusion + pause time in ms, or 0 if preinfusion is disabled.
+ */
+double calculatePreinfusionBaseTimeMs(const MachineStateContext& context) {
+    double timeMs = 0.0;
+
+    const bool preinfusionEnabled = context.getConfig().brewPreInfusionEnabled.get();
+    if (preinfusionEnabled) {
+        timeMs                    += context.getPreInfusionTime() * 1000.0;
+        const double pauseTimeSec  = context.getConfig().brewPreInfusionPause.get();
+        if (pauseTimeSec > 0.0) {
+            timeMs += pauseTimeSec * 1000.0;
+        }
+    }
+
+    return timeMs;
+}
+
+/**
+ * @brief Calculate the total target brew time (preinfusion + pause + target brew time) in milliseconds.
+ * @return Total target brew time in ms.
+ */
+double calculateTotalTargetBrewTimeMs(const MachineStateContext& context) {
+    return calculatePreinfusionBaseTimeMs(context) + context.getTargetBrewTime() * 1000.0;
+}
+
+/**
+ * @brief Initialize total target brew time on the process controller.
+ *
+ * Sets the total target brew time if in automatic brew-by-time mode,
+ * otherwise clears it to 0. Caller must ensure processController is valid.
+ */
+void initTotalTargetBrewTime(MachineStateContext& context) {
+    const bool isAutomatic = context.getConfig().brewMode.get() == Process::BrewMode::AUTOMATIC_BREW;
+    const bool brewByTime  = context.getConfig().brewByTimeEnabled.get();
+
+    if (isAutomatic && brewByTime) {
+        context.systemContext().processController()->setTotalTargetBrewTime(calculateTotalTargetBrewTimeMs(context));
+    } else {
+        context.systemContext().processController()->setTotalTargetBrewTime(0.0);
+    }
+}
+
+} // namespace
+
 // BrewStates Implementation
 void BrewPreinfusionState::onEntryImpl(MachineStateContext& context) {
     LOG(INFO, "Brew preinfusion started");
@@ -23,6 +71,9 @@ void BrewPreinfusionState::onEntryImpl(MachineStateContext& context) {
     // Initialize brew time tracking
     if (context.systemContext().processController()) {
         context.systemContext().processController()->setCurrBrewTime(0.0);
+
+        // Set total target brew time upfront so the display shows "0s/Xs" from the start
+        initTotalTargetBrewTime(context);
     }
 }
 
@@ -170,48 +221,12 @@ void BrewRunningState::onEntryImpl(MachineStateContext& context) {
     if (context.systemContext().processController()) {
         const bool isAutomatic = context.getConfig().brewMode.get() == Process::BrewMode::AUTOMATIC_BREW;
 
-        double totalBrewTimeMs = 0.0;
-        // In automatic mode, include preinfusion + pause time if applicable
-        if (isAutomatic) {
-            const bool preinfusionEnabled = context.getConfig().brewPreInfusionEnabled.get();
-            if (preinfusionEnabled) {
-                totalBrewTimeMs           += context.getPreInfusionTime() * 1000.0;
-                const double pauseTimeSec  = context.getConfig().brewPreInfusionPause.get();
-                if (pauseTimeSec > 0.0) {
-                    totalBrewTimeMs += pauseTimeSec * 1000.0;
-                }
-            }
-        }
-        // In manual mode, start from 0 (no preinfusion)
-
+        // In automatic mode, include preinfusion + pause time; in manual mode, start from 0
+        const double totalBrewTimeMs = isAutomatic ? calculatePreinfusionBaseTimeMs(context) : 0.0;
         context.systemContext().processController()->setCurrBrewTime(totalBrewTimeMs);
 
         // Set total target brew time if brew by time is enabled (automatic mode only)
-        // Total target = preinfusion + pause + target brew time
-        const bool brewByTime = context.getConfig().brewByTimeEnabled.get();
-        if (isAutomatic && brewByTime) {
-            double totalTargetTimeMs = 0.0;
-
-            // Add preinfusion time if enabled
-            const bool preinfusionEnabled = context.getConfig().brewPreInfusionEnabled.get();
-            if (preinfusionEnabled) {
-                totalTargetTimeMs += context.getPreInfusionTime() * 1000.0;
-                // Add pause time if configured
-                const double pauseTimeSec = context.getConfig().brewPreInfusionPause.get();
-                if (pauseTimeSec > 0.0) {
-                    totalTargetTimeMs += pauseTimeSec * 1000.0;
-                }
-            }
-
-            // Add target brew time
-            const double targetBrewTimeSec  = context.getTargetBrewTime();
-            totalTargetTimeMs              += targetBrewTimeSec * 1000.0;
-
-            context.systemContext().processController()->setTotalTargetBrewTime(totalTargetTimeMs);
-        } else {
-            // Clear target time in manual mode or if brew by time is disabled
-            context.systemContext().processController()->setTotalTargetBrewTime(0.0);
-        }
+        initTotalTargetBrewTime(context);
     }
 }
 
@@ -231,19 +246,8 @@ void BrewRunningState::update(MachineStateContext& context) {
     if (context.systemContext().processController()) {
         const bool isAutomatic = context.getConfig().brewMode.get() == Process::BrewMode::AUTOMATIC_BREW;
 
-        double baseBrewTimeMs = 0.0;
-        // In automatic mode, include preinfusion + pause time if applicable
-        if (isAutomatic) {
-            const bool preinfusionEnabled = context.getConfig().brewPreInfusionEnabled.get();
-            if (preinfusionEnabled) {
-                baseBrewTimeMs            += context.getPreInfusionTime() * 1000.0;
-                const double pauseTimeSec  = context.getConfig().brewPreInfusionPause.get();
-                if (pauseTimeSec > 0.0) {
-                    baseBrewTimeMs += pauseTimeSec * 1000.0;
-                }
-            }
-        }
-        // In manual mode, base time is 0 (no preinfusion)
+        // In automatic mode, include preinfusion + pause time; in manual mode, base time is 0
+        const double baseBrewTimeMs = isAutomatic ? calculatePreinfusionBaseTimeMs(context) : 0.0;
 
         const unsigned long runningElapsedMs = context.getStateElapsedTimeMs();
         const double        totalBrewTimeMs  = baseBrewTimeMs + static_cast<double>(runningElapsedMs);
