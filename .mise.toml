@@ -1,0 +1,13 @@
+min_version = "2024.1.0"
+
+[tools]
+  # Node.js + JS tooling
+  node = "24"
+  pnpm = "latest"
+
+  # Python
+  python = "3.13"
+
+[settings]
+  experimental = true
+  jobs = 4

@@ -170,7 +170,7 @@ void setup() {
         systemContext.setMachineStateContext(&stateMachine->getContext());
 
         // Finalize machine state (must be done after MachineStateContext is registered)
-        systemInitializer->finalizeMachineState();
+        (void)systemInitializer->finalizeMachineState();
 
         // Initialize ProcessController for PID control with required components as references
         processController = std::make_unique<ProcessController>(

@@ -365,7 +365,7 @@ void WebServerManager::setupApiRoutes() {
                 if (systemContext_) {
                     systemContext_->setProcessSetpoint(newSetpoint);
                 }
-                Config::getInstance().brewSetpoint.set(newSetpoint);
+                (void)Config::getInstance().brewSetpoint.set(newSetpoint);
                 request->send(200, "application/json", "{\"success\":true}");
             } else {
                 request->send(400, "application/json", "{\"error\":\"Invalid setpoint value\"}");
@@ -403,7 +403,7 @@ void WebServerManager::setupApiRoutes() {
 
             const bool currentPidState = Config::getInstance().pidEnabled.get();
             const bool newPidState     = !currentPidState;
-            Config::getInstance().pidEnabled.set(newPidState);
+            (void)Config::getInstance().pidEnabled.set(newPidState);
             if (systemContext_) {
                 systemContext_->setProcessPidEnabled(newPidState);
             }
