@@ -8,6 +8,8 @@
     "build": "VITE_BASE_PATH=/ui/ tsc -b && VITE_BASE_PATH=/ui/ vite --mode production build",
     "postbuild": "rimraf -g \"dist/**/*.html\" \"dist/**/*.js\" \"dist/**/*.css\"",
     "lint": "eslint .",
+    "test": "vitest",
+    "test:run": "vitest run",
     "tsc": "tsc --noEmit",
     "preview": "vite preview"
   },
@@ -31,7 +33,8 @@
     "sonner": "^2.0.6",
     "tailwind-merge": "^3.3.1",
     "tailwindcss": "^4.1.11",
-    "uplot": "^1.6.32"
+    "uplot": "^1.6.32",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@eslint/js": "^9.31.0",
@@ -43,11 +46,13 @@
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.20",
     "globals": "^16.3.0",
+    "jsdom": "^29.0.1",
     "rollup-plugin-gzip": "^4.1.1",
     "shadcn-ui": "^0.9.5",
     "tw-animate-css": "^1.3.5",
     "typescript": "~5.8.3",
     "typescript-eslint": "^8.38.0",
-    "vite": "^7.0.5"
+    "vite": "^7.0.5",
+    "vitest": "^4.1.2"
   }
 }

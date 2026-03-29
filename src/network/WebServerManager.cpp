@@ -61,35 +61,9 @@ const char* getContentType(const String& path) {
 }
 #endif
 
-// ==================== JSON RESPONSE BUILDER ====================
+// ==================== API RESPONSE BUILDERS ====================
 
-class JsonResponseBuilder {
-  private:
-    static char buffer[JSON_BUFFER_SIZE];
-
-  public:
-    static const char* createBoolResponse(const char* key, bool value, bool success = true) {
-        snprintf(buffer,
-                 sizeof(buffer),
-                 "{\"success\": %s, \"%s\": %s}",
-                 success ? "true" : "false",
-                 key,
-                 value ? "true" : "false");
-        return buffer;
-    }
-
-    static const char* createErrorResponse(const char* message) {
-        snprintf(buffer, sizeof(buffer), "{\"error\": \"%s\"}", message);
-        return buffer;
-    }
-
-    static const char* createSuccessResponse(const char* message) {
-        snprintf(buffer, sizeof(buffer), "{\"success\": true, \"message\": \"%s\"}", message);
-        return buffer;
-    }
-};
-
-char JsonResponseBuilder::buffer[512];
+#include "clevercoffee/utils/ApiResponses.h"
 
 // ==================== TEMPERATURE HISTORY ====================
 
@@ -388,11 +362,11 @@ void WebServerManager::setupApiRoutes() {
                  systemContext_->machineStateContext()->isSteamModeActive() ? "on" : "off");
             request->send(200,
                           "application/json",
-                          JsonResponseBuilder::createBoolResponse(
+                          ApiResponses::boolResponse(
                               "steamMode", systemContext_->machineStateContext()->isSteamModeActive()));
         } catch (const std::exception& e) {
             LOGF(ERROR, "API steam toggle failed: %s", e.what());
-            request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("Internal server error"));
+            request->send(500, "application/json", ApiResponses::errorResponse("Internal server error"));
         }
     });
 
@@ -410,10 +384,10 @@ void WebServerManager::setupApiRoutes() {
 
             LOGF(INFO, "Toggle PID state: %d", newPidState);
 
-            request->send(200, "application/json", JsonResponseBuilder::createBoolResponse("pidEnabled", newPidState));
+            request->send(200, "application/json", ApiResponses::boolResponse("pidEnabled", newPidState));
         } catch (const std::exception& e) {
             LOGF(ERROR, "API PID toggle failed: %s", e.what());
-            request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("Internal server error"));
+            request->send(500, "application/json", ApiResponses::errorResponse("Internal server error"));
         }
     });
 
@@ -435,7 +409,7 @@ void WebServerManager::setupApiRoutes() {
             request->send(200, "application/json", response);
         } catch (const std::exception& e) {
             LOGF(ERROR, "API backflush failed: %s", e.what());
-            request->send(500, "application/json", JsonResponseBuilder::createErrorResponse("Internal server error"));
+            request->send(500, "application/json", ApiResponses::errorResponse("Internal server error"));
         }
     });
 
@@ -451,42 +425,17 @@ void WebServerManager::setupApiRoutes() {
                          systemContext_->sensorCoordinator().isScaleTareMode() ? "on" : "off");
                     request->send(200,
                                   "application/json",
-                                  JsonResponseBuilder::createBoolResponse(
+                                  ApiResponses::boolResponse(
                                       "scaleTareOn", systemContext_->sensorCoordinator().isScaleTareMode()));
                 } else {
                     request->send(500,
                                   "application/json",
-                                  JsonResponseBuilder::createErrorResponse("System context not available"));
+                                  ApiResponses::errorResponse("System context not available"));
                 }
             } catch (const std::exception& e) {
                 LOGF(ERROR, "API scale tare failed: %s", e.what());
                 request->send(
-                    500, "application/json", JsonResponseBuilder::createErrorResponse("Internal server error"));
-            }
-        });
-
-        server_->on("/api/scale/calibrate", HTTP_POST, [this](AsyncWebServerRequest* request) {
-            try {
-                if (systemContext_) {
-                    systemContext_->sensorCoordinator().setScaleCalibrationMode(
-                        !systemContext_->sensorCoordinator().isScaleCalibrationMode());
-                    LOGF(INFO,
-                         "Toggle scale calibration mode: %s",
-                         systemContext_->sensorCoordinator().isScaleCalibrationMode() ? "on" : "off");
-                    request->send(
-                        200,
-                        "application/json",
-                        JsonResponseBuilder::createBoolResponse(
-                            "scaleCalibrationOn", systemContext_->sensorCoordinator().isScaleCalibrationMode()));
-                } else {
-                    request->send(500,
-                                  "application/json",
-                                  JsonResponseBuilder::createErrorResponse("System context not available"));
-                }
-            } catch (const std::exception& e) {
-                LOGF(ERROR, "API scale calibration failed: %s", e.what());
-                request->send(
-                    500, "application/json", JsonResponseBuilder::createErrorResponse("Internal server error"));
+                    500, "application/json", ApiResponses::errorResponse("Internal server error"));
             }
         });
 
@@ -501,17 +450,17 @@ void WebServerManager::setupApiRoutes() {
                     request->send(
                         200,
                         "application/json",
-                        JsonResponseBuilder::createBoolResponse(
+                        ApiResponses::boolResponse(
                             "scaleCalibrationOn", systemContext_->sensorCoordinator().isScaleCalibrationMode()));
                 } else {
                     request->send(500,
                                   "application/json",
-                                  JsonResponseBuilder::createErrorResponse("System context not available"));
+                                  ApiResponses::errorResponse("System context not available"));
                 }
             } catch (const std::exception& e) {
                 LOGF(ERROR, "API scale calibration failed: %s", e.what());
                 request->send(
-                    500, "application/json", JsonResponseBuilder::createErrorResponse("Internal server error"));
+                    500, "application/json", ApiResponses::errorResponse("Internal server error"));
             }
         });
     }
@@ -571,7 +520,7 @@ void WebServerManager::setupApiRoutes() {
 
             if (doc.overflowed()) {
                 request->send(
-                    500, "application/json", JsonResponseBuilder::createErrorResponse("timeseries JSON overflowed"));
+                    500, "application/json", ApiResponses::errorResponse("timeseries JSON overflowed"));
                 return;
             }
 
@@ -579,7 +528,7 @@ void WebServerManager::setupApiRoutes() {
             if (!safeSerializeJson(doc, json)) {
                 request->send(500,
                               "application/json",
-                              JsonResponseBuilder::createErrorResponse("Failed to serialize timeseries data"));
+                              ApiResponses::errorResponse("Failed to serialize timeseries data"));
                 return;
             }
 
@@ -587,7 +536,7 @@ void WebServerManager::setupApiRoutes() {
         } catch (const std::exception& e) {
             LOGF(ERROR, "API history failed: %s", e.what());
             request->send(
-                500, "application/json", JsonResponseBuilder::createErrorResponse("Timeseries data unavailable"));
+                500, "application/json", ApiResponses::errorResponse("Timeseries data unavailable"));
         }
     });
 
@@ -1001,7 +950,7 @@ void WebServerManager::handleNotFound(AsyncWebServerRequest* request) {
     String path = request->url();
 
     if (path.startsWith("/api/")) {
-        request->send(404, "application/json", JsonResponseBuilder::createErrorResponse("API endpoint not found"));
+        request->send(404, "application/json", ApiResponses::errorResponse("API endpoint not found"));
         return;
     }
 
