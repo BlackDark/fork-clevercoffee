@@ -1,10 +1,14 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useCleverCoffee } from "@/context/useCleverCoffee";
 import { Globe, Link, MessageCircle, Info } from "lucide-react";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 
 export function AboutPage() {
-  const { parameters } = useCleverCoffee();
+  const { parameters, fetchParameters } = useCleverCoffee();
+
+  useEffect(() => {
+    if (parameters.length === 0) fetchParameters();
+  }, [fetchParameters, parameters.length]);
 
   const cleverCoffeeVersion = useMemo(() => {
     return parameters.find((param) => param.name === "VERSION")?.value || "dev";
