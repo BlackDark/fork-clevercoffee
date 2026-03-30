@@ -1,16 +1,72 @@
 name: Build
 
-on: [push, pull_request]
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches-ignore:
+      - main
 
 jobs:
-    build:
-      runs-on: ubuntu-latest
-      steps:
-        - name: Checkout
-          uses: actions/checkout@v3
-        - name: PlatformIO Run
-          uses: karniv00l/platformio-run-action@v1
-          with:
-            silent: false
-            verbose: true
-            disable-auto-clean: false
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cache/pip
+            ~/.platformio/.cache
+          key: ${{ runner.os }}-pio-${{ hashFiles('platformio.ini') }}
+          restore-keys: |
+            ${{ runner.os }}-pio-
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install PlatformIO Core
+        run: pip install --upgrade platformio
+
+      - name: Inject slug/short variables
+        uses: rlespinasse/github-slug-action@v5
+
+      - name: Set CLEVERCOFFEE_VERSION
+        id: version
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            # If it's a tag, use the tag name
+            VERSION=${GITHUB_REF#refs/tags/}
+            echo "Using tag version: $VERSION"
+          else
+            # If it's not a tag, use 4.x.x-<branchname>
+            VERSION="4.x.x-${GITHUB_REF_SLUG}"
+            echo "Using branch version: $VERSION"
+          fi
+          echo "CLEVERCOFFEE_VERSION=$VERSION" >> $GITHUB_ENV
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Build PlatformIO Project
+        run: |
+          pio run -e esp32_usb
+          pio run -e esp32_ota
+        env:
+          CLEVERCOFFEE_VERSION: ${{ env.CLEVERCOFFEE_VERSION }}
+
+      - name: Run Native Tests
+        run: pio test -e native_test
+
+      - name: Upload firmware artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: clevercoffee-firmware-${{ steps.version.outputs.version }}
+          path: |
+            .pio/build/*/firmware.bin
+            .pio/build/*/partitions.bin
+            .pio/build/*/bootloader.bin
+          retention-days: 3
+          if-no-files-found: warn

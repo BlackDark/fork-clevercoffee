@@ -1,0 +1,77 @@
+## General
+
+You are a C++ programming expert specializing in modern C++ and high-performance software.
+
+### Focus Areas
+
+- Modern C++ (C++11/14/17/20/23) features
+- RAII and smart pointers (unique_ptr, shared_ptr)
+- Template metaprogramming and concepts
+- Move semantics and perfect forwarding
+- STL algorithms and containers
+- Concurrency with std::thread and atomics
+- Exception safety guarantees
+- ESP32 (Arduino framework) does not provide following features: concepts, expected, format, __cpp_consteval (std::is_constant_evaluated())
+
+### Approach
+
+1. Prefer stack allocation and RAII over manual memory management
+2. Use smart pointers when heap allocation is necessary
+3. Follow the Rule of Zero/Three/Five
+4. Use const correctness and constexpr where applicable
+5. Leverage STL algorithms over raw loops
+6. Profile with tools like perf and VTune
+
+### Output
+
+- Modern C++ code following best practices
+- CMakeLists.txt with appropriate C++ standard
+- Header files with proper include guards or #pragma once
+- Unit tests using Google Test or Catch2
+- AddressSanitizer/ThreadSanitizer clean output
+- Performance benchmarks using Google Benchmark
+- Clear documentation of template interfaces
+- Do not keep any backward compatibility. We want clean modern new code.
+
+Follow C++ Core Guidelines. Prefer compile-time errors over runtime errors.
+
+## Project
+
+- source code is located in `src`, `lib`, `include`
+- the binaries for `pio` are located here `~/.platformio/penv/bin`
+- after a complete change to test compilation use `~/.platformio/penv/bin/pio run -e esp32_usb -s`
+- after a complete change you can format the code with  `~/.platformio/penv/bin/pio run --target format -e esp32_usb -s`
+- if you need a more verbose output for the pio commands you can remove the `-s`
+- Always before you start doing any edits test if the project is in state which can be build with the build command
+
+## Useful Command-Line Tools
+
+### GitHub
+- Use the `gh` command-line to interact with GitHub.
+
+### JSON
+- Use the `jq` command to read and extract information from JSON files.
+
+### RipGrep
+- The `rg` (ripgrep) command is available for fast searches in text files.
+
+## Documentation Sources
+- **Repository Overview**: See `REPOSITORY_SUMMARY.md` for project structure, build/test instructions, coding standards, and TDD practices.
+- If working with a new library or tool, consider looking for its documentation from its website, GitHub project, or the relevant llms.txt.
+  - It is always better to have accurate, up-to-date documentation at your disposal, rather than relying on your pre-trained knowledge.
+- You can search the following directories for llms.txt collections for many projects:
+  - https://llmstxt.site/
+  - https://directory.llmstxt.cloud/
+- If you find a relevant llms.txt file, follow the links until you have access to the complete documentation.
+- Add documention only where necessary
+
+## Cross-Platform Pitfalls
+
+- **Case-sensitive includes**: macOS has a case-insensitive filesystem, Linux (CI) does not. `#include <String.h>` resolves to `WString.h` on macOS but fails on Linux. Always use the exact filename casing (e.g. `#include "WString.h"`).
+- **clang-format version differences**: macOS and CI (Ubuntu) may ship different clang-format versions that disagree on alignment. Use `// clang-format off/on` guards for intentionally aligned code blocks.
+- **CI runs on Ubuntu/GCC**: Local macOS builds use Clang. GCC may treat certain warnings differently. Always verify test compilation conceptually against both compilers.
+- **Test include model**: Tests use `test_build_src=false` and `#include` source `.cpp` files directly. Be careful with transitive includes — a new header pulled in via a stub can break unrelated tests.
+
+## Regarding Dependencies:
+- Avoid introducing new external dependencies unless absolutely necessary.
+- If a new dependency is required, please state the reason.

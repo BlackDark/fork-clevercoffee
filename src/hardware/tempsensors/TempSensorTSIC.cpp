@@ -4,8 +4,9 @@
  * @brief Handler for TSIC 306 temperature sensor
  */
 
-#include "TempSensorTSIC.h"
-#include "Logger.h"
+#include "clevercoffee/hardware/tempsensors/TempSensorTSIC.h"
+
+#include "clevercoffee/Logger.h"
 
 #define INITIAL_CHANGERATE 200
 #define RUNTIME_CHANGERATE 5
@@ -17,9 +18,16 @@ TempSensorTSIC::TempSensorTSIC(const int GPIOPin) {
     tsicSensor_->begin();
 }
 
+TempSensorTSIC::~TempSensorTSIC() {
+    if (tsicSensor_ != nullptr) {
+        delete tsicSensor_;
+        tsicSensor_ = nullptr;
+    }
+}
+
 bool TempSensorTSIC::sample_temperature(double& temperature) const {
     static bool validTemps = false;
-    float temp = 0.0;
+    float       temp       = 0.0;
 
     if (!validTemps) {
         temp = tsicSensor_->getTemp(INITIAL_CHANGERATE);
@@ -28,16 +36,13 @@ bool TempSensorTSIC::sample_temperature(double& temperature) const {
         if (temp > 0.0 && temp < 180.0) {
             if (temperature > 0.0 && temperature < 180.0 && abs(temperature - temp) < RUNTIME_CHANGERATE) {
                 validTemps = true;
-            }
-            else {
+            } else {
                 LOGF(WARNING, "Temperature not stable");
             }
-        }
-        else if (temp != 221 && temp != 222) {
+        } else if (temp != 221 && temp != 222) {
             LOGF(WARNING, "Temperature reading not within 0 - 180°C range: %0.01f°C", temp);
         }
-    }
-    else {
+    } else {
         temp = tsicSensor_->getTemp(RUNTIME_CHANGERATE);
     }
 

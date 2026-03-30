@@ -1,0 +1,24 @@
+{
+  "author": "BlackDark <eduard-marbach.de>",
+  "version": "1.0.0",
+  "license": "MIT",
+  "scripts": {
+    "dev": "concurrently 'pnpm run dev:ui' 'pnpm run dev:api'",
+    "dev:ui": "pnpm --filter @clevercoffee/frontend dev",
+    "dev:api": "pnpm --filter @clevercoffee/mock-server dev",
+    "prepare-esp": "pnpm --filter @clevercoffee/frontend build && pnpm run copy:dist",
+    "copy:dist": "rimraf ../data && mkdir -p ../data && mv packages/frontend/dist ../data/ui"
+  },
+  "packageManager": "pnpm@10.13.1",
+  "devDependencies": {
+    "concurrently": "^9.2.0",
+    "rimraf": "^6.0.1"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@tailwindcss/oxide",
+      "esbuild",
+      "svelte-preprocess"
+    ]
+  }
+}

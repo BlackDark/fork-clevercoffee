@@ -8,1635 +8,239 @@
 
 // STL includes
 #include <map>
+#include <memory>
+#include <string_view>
+
+// Hardware Manager (must be before SystemInitializer to resolve forward declaration)
+#include "clevercoffee/hardware/HardwareManager.h"
 
 // Libraries & Dependencies
-#include "Logger.h"
+#include "clevercoffee/Logger.h"
+#include "clevercoffee/context/SystemContext.h"
+#include "clevercoffee/core/SystemInitializer.h"
+#include "clevercoffee/network/CleverCoffeeWiFiManager.h"
+#include "clevercoffee/network/MQTTManager.h"
+
 #include <ArduinoOTA.h>
 #include <LittleFS.h>
 #include <PID_v1.h>  // for PID calculation
+#include <Preferences.h>
 #include <U8g2lib.h> // i2c display
 #include <WiFiManager.h>
 #include <os.h>
 
+// Defaults
+#include "clevercoffee/defaults.h"
+
 // Includes
-#include "Config.h"
-#include "ParameterRegistry.h"
+#include "clevercoffee/Config.h"
+#include "clevercoffee/types/GlobalTypes.h"
 
 // Utilities
-#include "utils/Timer.h"
+#include "clevercoffee/utils/Resilience.h"
+#include "clevercoffee/utils/SystemUtils.h"
+#include "clevercoffee/utils/helperUtils.h"
+#include "clevercoffee/utils/memoryUtils.h"
 
 // Hardware classes
-#include "hardware/GPIOPin.h"
-#include "hardware/IOSwitch.h"
-#include "hardware/LED.h"
-#include "hardware/Relay.h"
-#include "hardware/StandardLED.h"
-#include "hardware/Switch.h"
-#include "hardware/pinmapping.h"
-#include "hardware/tempsensors/TempSensorDallas.h"
-#include "hardware/tempsensors/TempSensorTSIC.h"
+#include "clevercoffee/hardware/GPIOPin.h"
+#include "clevercoffee/hardware/IOSwitch.h"
+#include "clevercoffee/hardware/LED.h"
+#include "clevercoffee/hardware/Relay.h"
+#include "clevercoffee/hardware/StandardLED.h"
+#include "clevercoffee/hardware/Switch.h"
+#include "clevercoffee/hardware/pinmapping.h"
+#include "clevercoffee/hardware/pressureSensor.h"
+#include "clevercoffee/hardware/tempsensors/TempSensorDallas.h"
+#include "clevercoffee/hardware/tempsensors/TempSensorTSIC.h"
+#include "clevercoffee/isr.h"
 
-// User configuration & defaults
-#include "defaults.h"
-
-hw_timer_t* timer = nullptr;
-
-#include "hardware/pressureSensor.h"
 #include <Wire.h>
 
-Config config;
+// System initializer
+std::unique_ptr<SystemInitializer> systemInitializer = nullptr;
 
-enum MachineState {
-    kInit = 0,
-    kPidNormal = 10,
-    kBrew = 20,
-    kManualFlush = 25,
-    kSteam = 30,
-    kHotWater = 40,
-    kBackflush = 50,
-    kPidDisabled = 60,
-    kWaterTankEmpty = 70,
-    kStandby = 80,
-    kEmergencyStop = 100,
-    kSensorError = 110,
-};
+// Display Manager
+#include "clevercoffee/display/DisplayManager.h"
+std::unique_ptr<DisplayManager> displayManager = nullptr;
 
-struct EnumOption {
-        MachineState state;
-        const char* name;
-};
+// Hardware Manager (already included at top)
+std::unique_ptr<CleverCoffee::HardwareManager> hardwareManager = nullptr;
 
-constexpr EnumOption machineStateOptions[] = {{kInit, "Init"},
-                                              {kPidNormal, "PID Normal"},
-                                              {kBrew, "Brew"},
-                                              {kManualFlush, "Manual Flush"},
-                                              {kHotWater, "Hot Water"},
-                                              {kSteam, "Steam"},
-                                              {kBackflush, "Backflush"},
-                                              {kWaterTankEmpty, "Water Tank Empty"},
-                                              {kEmergencyStop, "Emergency Stop"},
-                                              {kPidDisabled, "PID Disabled"},
-                                              {kStandby, "Standby Mode"},
-                                              {kSensorError, "Sensor Error"}};
+// Modern state machine
+#include "clevercoffee/state/StateMachine.h"
+std::unique_ptr<StateMachine> stateMachine = nullptr;
 
-MachineState machineState = kInit;
-MachineState lastmachinestate = kInit;
-int lastmachinestatepid = -1;
+// Modern process control
+#include "clevercoffee/control/ProcessController.h"
+std::unique_ptr<ProcessController> processController = nullptr;
 
-bool offlineMode = false;
-uint8_t displayOffline = 0;
+// Modern loop management
+#include "clevercoffee/core/LoopManager.h"
+std::unique_ptr<LoopManager> loopManager = nullptr;
 
-inline bool systemInitialized = false;
+#include "clevercoffee/display/displayTemplateManager.h"
+#include "clevercoffee/handlers/BrewHandler.h"
+#include "clevercoffee/handlers/HotWaterHandler.h"
+#include "clevercoffee/handlers/PowerHandler.h"
+#include "clevercoffee/handlers/SteamHandler.h"
 
-// Display
-U8G2* u8g2 = nullptr;
-
-bool featureFullscreenBrewTimer = false;
-bool featureFullscreenManualFlushTimer = false;
-bool featureFullscreenHotWaterTimer = false;
-double postBrewTimerDuration = POST_BREW_TIMER_DURATION;
-bool featureHeatingLogo = false;
-
-// WiFi
-WiFiManager wm;
-constexpr unsigned long wifiConnectionDelay = WIFICONNECTIONDELAY;
-constexpr unsigned int maxWifiReconnects = MAXWIFIRECONNECTS;
-String hostname = "silvia";
-auto pass = WM_PASS;
-unsigned long lastWifiConnectionAttempt = millis();
-uint8_t wifiReconnects = 0; // actual number of reconnects
-bool restartAfterAP = false;
-
-// OTA
-String otaPass;
-
-// Pressure sensor
-float inputPressure = 0;
-float inputPressureFilter = 0;
-const unsigned long intervalPressure = 100;
-unsigned long previousMillisPressure; // initialisation at the end of init()
-
-// timing flags
-bool timingDebugActive = false;
-bool includeDisplayInLogs = false;
-bool displayBufferReady = false;
-bool displayUpdateRunning = false;
-bool websiteUpdateRunning = false;
-bool mqttUpdateRunning = false;
-bool hassioUpdateRunning = false;
-bool temperatureUpdateRunning = false;
-unsigned long lastDisplayUpdate = 0;
-
-#include "utils/timingDebug.h"
-
-Switch* waterTankSensor = nullptr;
-
-GPIOPin* statusLedPin = nullptr;
-GPIOPin* brewLedPin = nullptr;
-GPIOPin* steamLedPin = nullptr;
-
-LED* statusLed = nullptr;
-LED* brewLed = nullptr;
-LED* steamLed = nullptr;
-
-GPIOPin* heaterRelayPin = nullptr;
-GPIOPin* pumpRelayPin = nullptr;
-GPIOPin* valveRelayPin = nullptr;
-
-Relay* heaterRelay = nullptr;
-Relay* pumpRelay = nullptr;
-Relay* valveRelay = nullptr;
-
-Switch* powerSwitch = nullptr;
-Switch* brewSwitch = nullptr;
-Switch* steamSwitch = nullptr;
-Switch* hotWaterSwitch = nullptr;
-
-TempSensor* tempSensor = nullptr;
-
-#include "isr.h"
-
-// Method forward declarations
-void setSteamMode(bool steamMode);
-void setPIDTunings(bool usePonM);
-void setBDPIDTunings();
-void setRuntimePidState(bool enabled);
-void loopcalibrate();
-void loopPid();
-void loopLED();
-void checkWaterTank();
-void printMachineState();
-char const* machinestateEnumToString(MachineState machineState);
-inline std::vector<const char*> getMachineStateOptions();
-float filterPressureValue(float input);
-int writeSysParamsToMQTT(bool continueOnError);
-void updateStandbyTimer();
-void resetStandbyTimer();
-void wiFiReset();
-
-// debugging water pump actions
-String hotWaterStateDebug = "off";
-String lastHotWaterStateDebug = "off";
-
-// system parameters
-bool pidON = false;
-bool usePonM = false;
-double brewSetpoint = SETPOINT;
-double brewTempOffset = TEMPOFFSET;
-double setpoint = brewSetpoint;
-double steamSetpoint = STEAMSETPOINT;
-double steamKp = STEAMKP;
-double aggKp = AGGKP;
-double aggTn = AGGTN;
-double aggTv = AGGTV;
-double aggIMax = AGGIMAX;
-double emaFactor = EMA_FACTOR;
-
-// PID - values for offline brew detection
-bool useBDPID = false;
-double aggbKp = AGGBKP;
-double aggbTn = AGGBTN;
-double aggbTv = AGGBTV;
-double aggbKi = (aggbTn == 0) ? 0 : aggbKp / aggbTn;
-double aggbKd = aggbTv * aggbKp;
-double aggKi = (aggTn == 0) ? 0 : aggKp / aggTn;
-double aggKd = aggTv * aggKp;
-
-double brewPidDelay = BREW_PID_DELAY; // Time PID will be disabled after brew started
-
-bool standbyModeOn = false;
-double standbyModeTime = STANDBY_MODE_TIME;
-
-#include "standby.h"
-
-// Variables to hold PID values (Temp input, Heater output)
-double temperature, pidOutput;
-bool steamON = false;
-bool steamFirstON = false;
-
-PID bPID(&temperature, &pidOutput, &setpoint, aggKp, aggKi, aggKd, 1, DIRECT);
-
-#include "brewHandler.h"
-#include "hotWaterHandler.h"
-
-// Other variables
-boolean emergencyStop = false;                // Emergency stop if temperature is too high
-constexpr double EmergencyStopTemp = 145;     // Temp EmergencyStopTemp
-float inX = 0, inY = 0, inOld = 0, inSum = 0; // used for filterPressureValue()
-boolean setupDone = false;
-
-// Water tank sensor
-boolean waterTankFull = true;
-Timer loopWaterTank(&checkWaterTank, 200); // Check water tank level every 200 ms
-
-// PID controller
-unsigned long previousMillistemp; // initialisation at the end of init()
-unsigned long previousMillisTimer;
-
-double setpointTemp;
-double previousInput = 0;
-
-// Embedded HTTP Server
-#include "embeddedWebserver.h"
-
-struct cmp_str {
-        bool operator()(char const* a, char const* b) const {
-            return strcmp(a, b) < 0;
-        }
-};
-
-// MQTT
-bool hassioFailed = false;
-bool mqtt_was_connected = false;
-
-#include "mqtt.h"
-
-std::map<const char*, const char*, cmp_str> mqttVars;
-std::map<const char*, std::function<double()>, cmp_str> mqttSensors = {};
-
-unsigned long lastTempEvent = 0;
-unsigned long tempEventInterval = 1000;
-
-Timer hassioDiscoveryTimer(&sendHASSIODiscoveryMsg, 300000);
-
+// Modern C++ initialization helpers
+namespace InitHelpers {
 /**
- * @brief Get Wifi signal strength and set signalBars for display
+ * @brief Check if initialization was successful with detailed logging
+ * @param component Component name for logging
+ * @param success Success status
+ * @return Success status
  */
-int getSignalStrength() {
-    if (offlineMode) return 0;
-
-    long rssi;
-
-    if (WiFi.status() == WL_CONNECTED) {
-        rssi = WiFi.RSSI();
+inline bool logInitResult(const char* component, bool success) noexcept {
+    if (success) {
+        LOGF(INFO, "%s initialized successfully", component);
+    } else {
+        LOGF(ERROR, "%s initialization failed!", component);
     }
-    else {
-        rssi = -100;
-    }
-
-    if (rssi >= -50) {
-        return 4;
-    }
-    else if (rssi < -50 && rssi >= -65) {
-        return 3;
-    }
-    else if (rssi < -65 && rssi >= -75) {
-        return 2;
-    }
-    else if (rssi < -75 && rssi >= -80) {
-        return 1;
-    }
-
-    return 0;
+    return success;
 }
-
-bool shouldDisplayBrewTimer();
-void u8g2_prepare();
-
-#include "display/displayTemplateManager.h"
-
-Timer printDisplayTimer(&DisplayTemplateManager::printScreen, 100);
-
-#include "powerHandler.h"
-#include "scaleHandler.h"
-#include "steamHandler.h"
-
-// Emergency stop if temp is too high
-void testEmergencyStop() {
-    if (temperature > EmergencyStopTemp && emergencyStop == false) {
-        emergencyStop = true;
-    }
-    else if (temperature < (brewSetpoint + 5) && emergencyStop == true) {
-        emergencyStop = false;
-    }
-}
-
-/**
- * @brief Switch to offline mode if maxWifiReconnects were exceeded during boot
- */
-void initOfflineMode() {
-    LOG(INFO, "Start offline mode with saved values, no wifi :(");
-    offlineMode = true;
-    mqtt_enabled = false;
-    mqtt_hassio_enabled = false;
-    WiFi.softAP(hostname.c_str(), pass);
-
-    if ("hardware.oled.enabled") {
-        if (!config.get<bool>("system.offline_mode")) {
-            displayOffline = 1; // don't block, this may have happened at any time
-        }
-        else {
-            displayLogo(String(langstring_offlineAP) + "\n" + hostname);
-            delay(2000); // blocking ok as this happens during boot
-            displayLogo(hostname + "\n" + WiFi.softAPIP().toString());
-            delay(2000);
-        }
-    }
-}
-
-/**
- * @brief Check if Wifi is connected, if not reconnect abort function if offline, or brew is running
- */
-void checkWifi() {
-    static uint8_t wifiConnectCounter = 1;
-    static bool wifiConnectedHandled = false;
-    if (offlineMode || checkBrewActive()) return;
-
-    // Try to connect and if it does not succeed, enter offline mode
-    if ((millis() - lastWifiConnectionAttempt >= wifiConnectionDelay) && (wifiReconnects <= maxWifiReconnects)) {
-        if (WiFi.status() != WL_CONNECTED) { // check WiFi connection status
-            wifiConnectedHandled = false;
-
-            if (wifiConnectCounter == 1) {
-                wifiReconnects++;
-                LOGF(INFO, "Attempting WIFI (re-)connection: %i", wifiReconnects);
-                wm.disconnect();
-                WiFi.begin();
-            }
-
-            delay(20);                // give WIFI some time to connect
-
-            if (WiFi.status() != WL_CONNECTED && wifiConnectCounter < 100) {
-                wifiConnectCounter++; // reconnect counter, maximum waiting time for reconnect = 20*100ms plus loop times
-            }
-            else {
-                if (wifiConnectCounter == 100) {
-                    LOGF(INFO, "Wifi Reconnection failed - %i loops", wifiConnectCounter);
-                    lastWifiConnectionAttempt = millis();
-                    wifiConnectCounter = 1;
-                }
-            }
-        }
-        else {
-            if (wifiConnectedHandled == false) {
-                LOGF(INFO, "Wifi Reconnected - %i loops", wifiConnectCounter);
-                wifiConnectedHandled = true;
-                wifiConnectCounter = 1;
-            }
-        }
-    }
-
-    if (wifiReconnects >= maxWifiReconnects && WiFi.status() != WL_CONNECTED) {
-        // no wifi connection after trying connection, initiate offline mode
-        initOfflineMode();
-    }
-    else {
-        if (WiFi.status() == WL_CONNECTED) {
-            wifiReconnects = 0;
-        }
-    }
-}
-
-/**
- * @brief Filter input value using exponential moving average filter (using fixed coefficients)
- *      After ~28 cycles the input is set to 99,66% if the real input value sum of inX and inY
- *      multiplier must be 1 increase inX multiplier to make the filter faster
- */
-float filterPressureValue(const float input) {
-    inX = static_cast<float>(input * 0.3);
-    inY = static_cast<float>(inOld * 0.7);
-    inSum = inX + inY;
-    inOld = inSum;
-
-    return inSum;
-}
-
-/**
- * @brief Handle the different states of the machine
- */
-void handleMachineState() {
-    switch (machineState) {
-        case kInit:
-            if (!pidON) {
-                machineState = kPidDisabled;
-            }
-            else {
-                machineState = kPidNormal;
-            }
-
-            if (!waterTankFull) {
-                machineState = kWaterTankEmpty;
-            }
-
-            if (tempSensor != nullptr && tempSensor->hasError()) {
-                machineState = kSensorError;
-            }
-
-            break;
-
-        case kPidNormal:
-            if (brew()) {
-                machineState = kBrew;
-
-                if (standbyModeOn) {
-                    resetStandbyTimer(machineState);
-                }
-            }
-
-            if (manualFlush()) {
-                machineState = kManualFlush;
-
-                if (standbyModeOn) {
-                    resetStandbyTimer(machineState);
-                }
-            }
-
-            if (steamON) {
-                machineState = kSteam;
-
-                if (standbyModeOn) {
-                    resetStandbyTimer(machineState);
-                }
-            }
-
-            if (checkHotWaterStates()) {
-                machineState = kHotWater;
-
-                if (standbyModeOn) {
-                    resetStandbyTimer(machineState);
-                }
-            }
-
-            if (backflushOn) {
-                machineState = kBackflush;
-
-                if (standbyModeOn) {
-                    resetStandbyTimer(machineState);
-                }
-            }
-
-            if (!pidON && machineState != kStandby) {
-                machineState = kPidDisabled;
-            }
-
-            if (!waterTankFull) {
-                machineState = kWaterTankEmpty;
-            }
-
-            if (standbyModeOn && standbyModeRemainingTimeMillis == 0) {
-                machineState = kStandby;
-                setRuntimePidState(false);
-            }
-
-            if (emergencyStop) {
-                machineState = kEmergencyStop;
-            }
-
-            if (tempSensor != nullptr && tempSensor->hasError()) {
-                machineState = kSensorError;
-            }
-
-            break;
-
-        case kBrew:
-            if (!brew()) {
-                machineState = kPidNormal;
-            }
-
-            if (machineState != kBrew) {
-                MQTTReCnctCount = 0; // allow MQTT to try to reconnect if exiting brew mode
-            }
-
-            if (!pidON) {
-                machineState = kPidDisabled;
-            }
-
-            if (emergencyStop) {
-                machineState = kEmergencyStop;
-            }
-
-            if (tempSensor != nullptr && tempSensor->hasError()) {
-                machineState = kSensorError;
-            }
-
-            break;
-
-        case kManualFlush:
-            if (!manualFlush()) {
-                machineState = kPidNormal;
-            }
-
-            if (!pidON) {
-                machineState = kPidDisabled;
-            }
-
-            if (emergencyStop) {
-                machineState = kEmergencyStop;
-            }
-
-            if (tempSensor != nullptr && tempSensor->hasError()) {
-                machineState = kSensorError;
-            }
-
-            break;
-
-        case kHotWater:
-            if (!checkHotWaterStates()) {
-                machineState = kPidNormal;
-            }
-
-            if (!pidON) {
-                machineState = kPidDisabled;
-            }
-
-            if (emergencyStop) {
-                machineState = kEmergencyStop;
-            }
-
-            if (tempSensor != nullptr && tempSensor->hasError()) {
-                machineState = kSensorError;
-            }
-
-            break;
-
-        case kSteam:
-            if (!steamON) {
-                machineState = kPidNormal;
-            }
-
-            if (checkHotWaterStates()) {
-                machineState = kHotWater;
-
-                if (standbyModeOn) {
-                    resetStandbyTimer(machineState);
-                }
-            }
-
-            if (pidON == 0) {
-                machineState = kPidDisabled;
-            }
-
-            if (standbyModeOn && standbyModeRemainingTimeMillis == 0) {
-                machineState = kStandby;
-                setRuntimePidState(false);
-                setSteamMode(false);
-            }
-
-            if (emergencyStop) {
-                machineState = kEmergencyStop;
-            }
-
-            if (tempSensor->hasError()) {
-                machineState = kSensorError;
-            }
-
-            break;
-
-        case kBackflush:
-            backflush();
-
-            if (!backflushOn) {
-                machineState = kPidNormal;
-            }
-
-            if (currBackflushState == kBackflushIdle) {
-                if (manualFlush()) {
-                    machineState = kManualFlush;
-                }
-            }
-            else {
-                if (standbyModeOn) {
-                    resetStandbyTimer(machineState);
-                }
-            }
-
-            if (!pidON) {
-                machineState = kPidDisabled;
-            }
-
-            if (!waterTankFull && (currBackflushState == kBackflushIdle || currBackflushState == kBackflushFinished)) {
-                machineState = kWaterTankEmpty;
-            }
-
-            if (standbyModeOn && standbyModeRemainingTimeMillis == 0) {
-                machineState = kStandby;
-                setRuntimePidState(false);
-            }
-
-            if (emergencyStop) {
-                machineState = kEmergencyStop;
-            }
-
-            if (tempSensor != nullptr && tempSensor->hasError()) {
-                machineState = kSensorError;
-            }
-
-            break;
-
-        case kEmergencyStop:
-            if (!emergencyStop) {
-                machineState = kPidNormal;
-            }
-
-            if (!pidON) {
-                machineState = kPidDisabled;
-            }
-
-            if (tempSensor != nullptr && tempSensor->hasError()) {
-                machineState = kSensorError;
-            }
-
-            break;
-
-        case kWaterTankEmpty:
-            if (waterTankFull) {
-                machineState = kPidNormal;
-
-                if (standbyModeOn) {
-                    resetStandbyTimer(machineState);
-                }
-            }
-
-            if (!pidON) {
-                machineState = kPidDisabled;
-            }
-
-            if (tempSensor != nullptr && tempSensor->hasError()) {
-                machineState = kSensorError;
-            }
-
-            break;
-
-        case kPidDisabled:
-            if (pidON) {
-                machineState = kPidNormal;
-            }
-
-            if (standbyModeOn && standbyModeRemainingTimeMillis == 0) {
-                machineState = kStandby;
-                setRuntimePidState(false);
-            }
-
-            if (tempSensor != nullptr && tempSensor->hasError()) {
-                machineState = kSensorError;
-            }
-
-            break;
-
-        case kStandby:
-            {
-                if (standbyModeRemainingTimeDisplayOffMillis == 0 && u8g2 != nullptr) {
-                    u8g2->setPowerSave(1);
-                }
-
-                if (pidON) {
-                    machineState = kPidNormal;
-                    resetStandbyTimer(machineState);
-
-                    if (u8g2 != nullptr) {
-                        u8g2->setPowerSave(0);
-                    }
-                }
-
-                if (brew()) {
-                    setRuntimePidState(true);
-                    machineState = kBrew;
-                    resetStandbyTimer(machineState);
-
-                    if (u8g2 != nullptr) {
-                        u8g2->setPowerSave(0);
-                    }
-                }
-
-                if (manualFlush()) {
-                    setRuntimePidState(true);
-                    machineState = kManualFlush;
-                    resetStandbyTimer(machineState);
-
-                    if (u8g2 != nullptr) {
-                        u8g2->setPowerSave(0);
-                    }
-                }
-
-                if (checkHotWaterStates()) {
-                    setRuntimePidState(true);
-                    machineState = kHotWater;
-                    resetStandbyTimer(machineState);
-
-                    if (u8g2 != nullptr) {
-                        u8g2->setPowerSave(0);
-                    }
-                }
-
-                if (steamON) {
-                    setRuntimePidState(true);
-                    machineState = kSteam;
-                    resetStandbyTimer(machineState);
-
-                    if (u8g2 != nullptr) {
-                        u8g2->setPowerSave(0);
-                    }
-                }
-
-                if (backflushOn) {
-                    machineState = kBackflush;
-                    resetStandbyTimer(machineState);
-
-                    if (u8g2 != nullptr) {
-                        u8g2->setPowerSave(0);
-                    }
-                }
-
-                if (tempSensor != nullptr && tempSensor->hasError()) {
-                    if (u8g2 != nullptr) {
-                        u8g2->setPowerSave(0);
-                    }
-
-                    machineState = kSensorError;
-                }
-
-                if (machineState != kStandby) {
-                    MQTTReCnctCount = 0; // allow MQTT to try to reconnect if exiting standby
-                }
-
-                break;
-            }
-
-        case kSensorError:
-            machineState = kSensorError;
-            break;
-    }
-
-    if (machineState != lastmachinestate) {
-        printMachineState();
-        lastmachinestate = machineState;
-    }
-}
-
-void printMachineState() {
-    LOGF(DEBUG, "new machineState: %s -> %s", machinestateEnumToString(lastmachinestate), machinestateEnumToString(machineState));
-}
-
-inline const char* machinestateEnumToString(MachineState state) {
-    for (auto& opt : machineStateOptions) {
-        if (opt.state == state) {
-            return opt.name;
-        }
-    }
-
-    return "Unknown";
-}
-
-inline std::vector<const char*> getMachineStateOptions() {
-    std::vector<const char*> options;
-
-    for (auto& opt : machineStateOptions) {
-        options.push_back(opt.name);
-    }
-
-    return options;
-}
-
-/**
- * @brief Set up internal WiFi hardware
- */
-void wiFiSetup() {
-    wm.setCleanConnect(true);
-    wm.setConnectTimeout(10); // using 10s to connect to WLAN, 5s is sometimes too short!
-    wm.setBreakAfterConfig(true);
-    wm.setConnectRetries(3);
-
-    if (wm.getWiFiIsSaved()) {
-        LOG(INFO, "Connecting to WiFi");
-    }
-
-    wm.setHostname(hostname.c_str());
-    wm.setEnableConfigPortal(false); // doesnt start config portal within autoconnect
-    wm.setDisableConfigPortal(true); // disables config portal on wifi save
-    bool wifiConnected = wm.autoConnect(hostname.c_str(), pass);
-
-    if (!wifiConnected) {
-        wm.setConfigPortalTimeout(1);  // prompt config portal to update password
-        wifiConnected = wm.startConfigPortal(hostname.c_str(), pass);
-        wm.setConfigPortalTimeout(60); // sec timeout for captive portal
-
-        if (u8g2 != nullptr) {
-            displayLogo(String(langstring_portalAP) + "\n" + hostname);
-        }
-
-        wifiConnected = wm.startConfigPortal(hostname.c_str(), pass);
-
-        if (wifiConnected) {
-            restartAfterAP = true;
-        }
-    }
-
-    if (wifiConnected) {
-        if (!config.save()) {
-            LOG(ERROR, "Failed to save config to filesystem!");
-        }
-
-        char ipStr[16];
-        IPAddress ip = WiFi.localIP();
-        snprintf(ipStr, sizeof(ipStr), "%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
-        LOGF(INFO, "WiFi connected - IP = %s", ipStr);
-
-        byte mac[6];
-        WiFi.macAddress(mac);
-        char fullMac[18];
-        snprintf(fullMac, sizeof(fullMac), "%02X:%02X:%02X:%02X:%02X:%02X", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-        LOGF(INFO, "MAC-ADDRESS: %s", fullMac);
-
-        if (u8g2 != nullptr) {
-            displayLogo(String(langstring_connectwifi) + '\n' + wm.getWiFiSSID(true));
-            delay(1500);
-
-            if (config.get<int>("display.template") == 4) {
-                snprintf(ipStr, sizeof(ipStr), "%u\n%u\n%u\n%u", ip[0], ip[1], ip[2], ip[3]);
-            }
-
-            displayLogo(String(langstring_connectip) + '\n' + String(ipStr));
-        }
-
-        if (restartAfterAP) {
-            LOG(INFO, "Restarting after successful Wifi configuration");
-            delay(1000);
-            ESP.restart();
-        }
-    }
-    else {
-        LOG(INFO, "WiFi connection timed out...");
-
-        if (u8g2 != nullptr) {
-            displayLogo(String(langstring_nowifi[0]) + '\n' + String(langstring_nowifi[1]));
-        }
-
-        wm.disconnect();
-        delay(1000);
-
-        initOfflineMode();
-    }
-}
-
-void wiFiReset() {
-    wm.resetSettings();
-
-    if (!config.save()) {
-        LOG(ERROR, "Failed to save config to filesystem!");
-    }
-
-    delay(500);
-    ESP.restart();
-}
-
-void testTimer(void) {
-    static unsigned int lastIsrWatchdog = 0;
-
-    if (millis() - previousMillisTimer > 2000) {
-        if ((isrWatchdog == lastIsrWatchdog) && (isTimer1Enabled())) {
-            LOG(ERROR, "Timer1 stopped, restarting timer");
-            heaterRelay->off();
-            disableTimer1();
-            delay(10);
-            enableTimer1();
-        }
-
-        previousMillisTimer = millis();
-        lastIsrWatchdog = isrWatchdog;
-    }
-}
-
-extern const char sysVersion[] = STR(AUTO_VERSION);
+} // namespace InitHelpers
+
+// Watchdog timer for system hang detection (5 second timeout)
+// If the main loop hangs, the watchdog will reset the system for safety
+static Watchdog g_watchdog(5000);
 
 void setup() {
-    // Start serial console
-    Serial.begin(115200);
+    logMemory("Setup Start");
 
-    // Initialize the logger
-    Logger::init(23);
+    // Initialize watchdog early - will reset system if setup hangs
+    g_watchdog.begin();
+    LOG(INFO, "Watchdog timer initialized - system will reset if main loop hangs");
 
-    if (!config.begin()) {
-        LOG(ERROR, "Failed to load config from filesystem!");
+    // Initialize system using RAII SystemInitializer
+    logMemoryBasic("Before SystemInitializer");
+    systemInitializer = std::make_unique<SystemInitializer>();
+
+    logMemoryBasic("Before SystemInitializer->initialize()");
+
+    // Traditional boolean error handling
+    if (!systemInitializer->initialize()) {
+        logMemory("SystemInitializer FAILED");
+        LOGF(ERROR, "System initialization failed! Check hardware connections.");
+        Serial.println("Critical system initialization error detected!");
+        Serial.flush();
+        exit(0);
     }
 
-    if (config.get<bool>("hardware.leds.steam.enabled")) {
-        LOG(WARNING, "Steam LED interferes with USB console communication");
+    logMemoryBasic("After SystemInitializer->initialize()");
+
+    LOGF(DEBUG,
+         "SystemInitializer::initialize() check: returned=%d, isInitialized=%d",
+         true,
+         systemInitializer->isInitialized());
+
+    // Get managers from SystemInitializer - they are owned by systemInitializer
+    // All managers are REQUIRED and always exist
+    auto& displayManager = systemInitializer->getDisplayManager();
+    auto& wifiManager    = systemInitializer->getWiFiManager();
+    auto& mqttManager    = systemInitializer->getMQTTManager();
+    auto& uiManager      = systemInitializer->getUIManager();
+    // Note: HardwareManager and SystemContext are also accessed via references in constructors
+
+    // Complete initialization steps that require global dependencies
+    if (Config::getInstance().hardwareSensorsScaleEnabled.get()) {
+        // Get sensor coordinator from system context for scale initialization
+        CleverCoffee::SensorCoordinator* sensorCoord = &systemInitializer->getSystemContext().sensorCoordinator();
+        // Scale initialization will be handled via SensorCoordinator when Scale implements ISensor
+        logMemoryBasic("Scale sensor support via SensorCoordinator");
     }
 
-    hostname = config.get<String>("system.hostname");
+    if (systemInitializer->isInitialized()) {
+        LOGF(INFO,
+             "systemInitializer->isInitialized() = true, creating StateMachine, ProcessController, and LoopManager");
 
-    ParameterRegistry::getInstance().initialize(config);
+        // Get required components (references - guaranteed to exist)
+        auto& systemContext   = systemInitializer->getSystemContext();
+        auto& hardwareManager = systemInitializer->getHardwareManager();
 
-    if (!ParameterRegistry::getInstance().isReady()) {
-        LOG(ERROR, "Failed to initialize ParameterRegistry!");
-        // TODO Error handling
-    }
-    else {
-        ParameterRegistry::getInstance().syncGlobalVariables();
-    }
+        // Create StateMachine with required components as references
+        stateMachine =
+            std::make_unique<StateMachine>(systemContext, hardwareManager, displayManager, wifiManager, mqttManager);
+        stateMachine->initialize(); // Always succeeds - uses fallback if needed
+        InitHelpers::logInitResult("StateMachine", true);
 
-    Wire.begin();
+        // Register MachineStateContext in SystemContext for safe access
+        systemContext.setMachineStateContext(&stateMachine->getContext());
 
-    if (config.get<bool>("hardware.oled.enabled")) {
-        switch (config.get<int>("hardware.oled.type")) {
-            case 0:
-                u8g2 = new U8G2_SH1106_128X64_NONAME_F_HW_I2C(U8G2_R0, U8X8_PIN_NONE, PIN_I2CSCL, PIN_I2CSDA);  // e.g. 1.3"
-                break;
-            case 1:
-                u8g2 = new U8G2_SSD1306_128X64_NONAME_F_HW_I2C(U8G2_R0, U8X8_PIN_NONE, PIN_I2CSCL, PIN_I2CSDA); // e.g. 0.96"
-                break;
-            default:
-                break;
-        }
+        // Finalize machine state (must be done after MachineStateContext is registered)
+        (void)systemInitializer->finalizeMachineState();
 
-        if (u8g2 != nullptr) {
-            if (const int i2cAddress = config.get<int>("hardware.oled.i2c_address"); i2cAddress == 0) {
-                u8g2->setI2CAddress(0x3C * 2);
-            }
-            else {
-                u8g2->setI2CAddress(0x3D * 2);
-            }
+        // Initialize ProcessController for PID control with required components as references
+        processController = std::make_unique<ProcessController>(
+            Config::getInstance(), systemContext, hardwareManager, displayManager, mqttManager);
 
-            u8g2->begin();
-            u8g2->clearBuffer();
+        // Register ProcessController in SystemContext for safe access
+        systemContext.setProcessController(processController.get());
+        InitHelpers::logInitResult("ProcessController", processController->initialize());
 
-            u8g2_prepare();
+        // Initialize LoopManager for main loop coordination with required components as references
+        auto& sensorCoord = systemContext.sensorCoordinator();
+        loopManager       = std::make_unique<LoopManager>(
+            systemContext, hardwareManager, *processController, sensorCoord, uiManager, stateMachine.get());
+        InitHelpers::logInitResult("LoopManager", loopManager->initialize());
 
-            initLangStrings(config);
-
-            const int templateId = config.get<int>("display.template");
-            DisplayTemplateManager::initializeDisplay(templateId);
-
-            if (u8g2->getUTF8Width(sysVersion) > u8g2->getDisplayWidth()) {
-                displayLogo(String("Version ") + String(sysVersion), true);
-            }
-            else {
-                displayLogo(String("Version ") + '\n' + String(sysVersion), true);
-            }
-        }
-        else {
-            LOG(ERROR, "Error initializing the display!");
-            config.set<bool>("hardware.oled.enabled", false);
-        }
+        // Configure sensor update timers (uncomment and modify as needed)
+        // loopManager->configureSensorTimers(100, 50, 100); // Temperature: 100ms (10Hz), Pressure: 50ms (20Hz), Scale:
+        // 100ms (10Hz) loopManager->configureSensorTimers(200, 100, 200); // Slower: Temperature: 200ms (5Hz),
+        // Pressure: 100ms (10Hz), Scale: 200ms (5Hz) loopManager->configureSensorTimers(50, 25, 50); // Faster:
+        // Temperature: 50ms (20Hz), Pressure: 25ms (40Hz), Scale: 50ms (20Hz)
+    } else {
+        // CRITICAL: This should never happen!
+        LOG(FATAL, "CRITICAL: systemInitializer->isInitialized() returned false!");
+        LOG(FATAL, "This means LoopManager was NOT created");
+        LOG(FATAL, "Check if SystemInitializer::initialize() is setting systemInitialized_ = true");
+        // Without LoopManager, the main loop will crash
     }
 
-    // Calculate derived values
-    aggKi = aggTn > 0 ? aggKp / aggTn : 0;
-    aggKd = aggTv * aggKp;
-    aggbKi = aggbTn > 0 ? aggbKp / aggbTn : 0;
-    aggbKd = aggbTv * aggbKp;
+    // Initialize handler objects and set up references in global state and SystemContext
+    initializeHandlers(systemInitializer->getSystemContext());
+    InitHelpers::logInitResult("Handlers", true);
 
-    initTimer1();
-
-    heaterRelayPin = new GPIOPin(PIN_HEATER, GPIOPin::OUT);
-    const auto heaterTriggerType = static_cast<Relay::TriggerType>(config.get<int>("hardware.relays.heater.trigger_type"));
-    heaterRelay = new Relay(*heaterRelayPin, heaterTriggerType);
-    heaterRelay->off();
-
-    valveRelayPin = new GPIOPin(PIN_VALVE, GPIOPin::OUT);
-    const auto valveTriggerType = static_cast<Relay::TriggerType>(config.get<int>("hardware.relays.valve.trigger_type"));
-    valveRelay = new Relay(*valveRelayPin, valveTriggerType);
-    valveRelay->off();
-
-    pumpRelayPin = new GPIOPin(PIN_PUMP, GPIOPin::OUT);
-    const auto pumpTriggerType = static_cast<Relay::TriggerType>(config.get<int>("hardware.relays.pump.trigger_type"));
-    pumpRelay = new Relay(*pumpRelayPin, pumpTriggerType);
-    pumpRelay->off();
-
-    if (config.get<bool>("hardware.switches.power.enabled")) {
-        const auto type = static_cast<Switch::Type>(config.get<int>("hardware.switches.power.type"));
-        const auto mode = static_cast<Switch::Mode>(config.get<int>("hardware.switches.power.mode"));
-        powerSwitch = new IOSwitch(PIN_POWERSWITCH, GPIOPin::IN_HARDWARE, type, mode, mode);
-    }
-
-    if (config.get<bool>("hardware.switches.steam.enabled")) {
-        const auto type = static_cast<Switch::Type>(config.get<int>("hardware.switches.steam.type"));
-        const auto mode = static_cast<Switch::Mode>(config.get<int>("hardware.switches.steam.mode"));
-        steamSwitch = new IOSwitch(PIN_STEAMSWITCH, GPIOPin::IN_HARDWARE, type, mode, mode);
-    }
-
-    if (config.get<bool>("hardware.switches.brew.enabled")) {
-        const auto type = static_cast<Switch::Type>(config.get<int>("hardware.switches.brew.type"));
-        const auto mode = static_cast<Switch::Mode>(config.get<int>("hardware.switches.brew.mode"));
-        brewSwitch = new IOSwitch(PIN_BREWSWITCH, GPIOPin::IN_HARDWARE, type, mode, mode);
-    }
-
-    if (config.get<bool>("hardware.switches.hot_water.enabled")) {
-        const auto type = static_cast<Switch::Type>(config.get<int>("hardware.switches.hot_water.type"));
-        const auto mode = static_cast<Switch::Mode>(config.get<int>("hardware.switches.hot_water.mode"));
-        hotWaterSwitch = new IOSwitch(PIN_WATERSWITCH, GPIOPin::IN_HARDWARE, type, mode, mode);
-    }
-
-    if (config.get<bool>("hardware.leds.status.enabled")) {
-        const bool inverted = config.get<bool>("hardware.leds.status.inverted");
-        statusLedPin = new GPIOPin(PIN_STATUSLED, GPIOPin::OUT);
-        statusLed = new StandardLED(*statusLedPin, inverted);
-        statusLed->turnOff();
-    }
-
-    if (config.get<bool>("hardware.leds.brew.enabled")) {
-        const bool inverted = config.get<bool>("hardware.leds.brew.inverted");
-        brewLedPin = new GPIOPin(PIN_BREWLED, GPIOPin::OUT);
-        brewLed = new StandardLED(*brewLedPin, inverted);
-        brewLed->turnOff();
-    }
-    if (config.get<bool>("hardware.leds.steam.enabled")) {
-        const bool inverted = config.get<bool>("hardware.leds.steam.inverted");
-        steamLedPin = new GPIOPin(PIN_STEAMLED, GPIOPin::OUT);
-        steamLed = new StandardLED(*steamLedPin, inverted);
-        steamLed->turnOff();
-    }
-
-    if (config.get<bool>("hardware.sensors.watertank.enabled")) {
-        const auto mode = static_cast<Switch::Mode>(config.get<int>("hardware.sensors.watertank.mode"));
-        waterTankSensor = new IOSwitch(PIN_WATERTANKSENSOR, (mode == Switch::NORMALLY_OPEN ? GPIOPin::IN_PULLDOWN : GPIOPin::IN_PULLUP), Switch::TOGGLE, mode, !mode);
-    }
-
-    if (!config.get<bool>("system.offline_mode")) { // WiFi Mode
-        wiFiSetup();
-        serverSetup();
-
-        // OTA Updates
-        if (WiFi.status() == WL_CONNECTED) {
-            otaPass = config.get<String>("system.ota_password");
-            ArduinoOTA.setHostname(hostname.c_str()); //  Device name for OTA
-            ArduinoOTA.setPassword(otaPass.c_str());  //  Password for OTA
-            ArduinoOTA.begin();
-        }
-
-        setupMqtt();
-
-        if (mqtt_enabled) {
-            // Editable values reported to MQTT
-            mqttVars["pidON"] = "pid.enabled";
-            mqttVars["brewSetpoint"] = "brew.setpoint";
-            mqttVars["brewTempOffset"] = "brew.temp_offset";
-            mqttVars["steamON"] = "STEAM_MODE";
-            mqttVars["steamSetpoint"] = "steam.setpoint";
-            mqttVars["pidUsePonM"] = "pid.use_ponm";
-            mqttVars["aggKp"] = "pid.regular.kp";
-            mqttVars["aggTn"] = "pid.regular.tn";
-            mqttVars["aggTv"] = "pid.regular.tv";
-            mqttVars["aggIMax"] = "pid.regular.i_max";
-            mqttVars["steamKp"] = "pid.steam.kp";
-            mqttVars["standbyModeOn"] = "standby.enabled";
-
-            // Values reported to MQTT
-            mqttSensors["temperature"] = [] { return temperature; };
-            mqttSensors["heaterPower"] = [] { return pidOutput / 10; };
-            mqttSensors["standbyModeTimeRemaining"] = [] { return standbyModeRemainingTimeMillis / 1000; };
-            mqttSensors["currentKp"] = [] { return bPID.GetKp(); };
-            mqttSensors["currentKi"] = [] { return bPID.GetKi(); };
-            mqttSensors["currentKd"] = [] { return bPID.GetKd(); };
-            mqttSensors["machineState"] = [] { return machineState; };
-
-            if (config.get<bool>("hardware.switches.brew.enabled")) {
-                mqttVars["aggbKp"] = "pid.bd.kp";
-                mqttVars["aggbTn"] = "pid.bd.tn";
-                mqttVars["aggbTv"] = "pid.bd.tv";
-                mqttVars["pidUseBD"] = "pid.bd.enabled";
-                mqttVars["brewPidDelay"] = "brew.pid_delay";
-                mqttSensors["currBrewTime"] = [] { return currBrewTime / 1000; };
-                mqttVars["targetBrewTime"] = "brew.by_time.target_time";
-                mqttVars["preinfusion"] = "brew.pre_infusion.time";
-                mqttVars["preinfusionPause"] = "brew.pre_infusion.pause";
-                mqttVars["backflushOn"] = "BACKFLUSH_ON";
-                mqttVars["backflushCycles"] = "backflush.cycles";
-                mqttVars["backflushFillTime"] = "backflush.fill_time";
-                mqttVars["backflushFlushTime"] = "backflush.flush_time";
-            }
-
-            if (config.get<bool>("hardware.sensors.scale.enabled")) {
-                if (config.get<bool>("brew.mode") == 1) {
-                    mqttVars["targetBrewWeight"] = "brew.by_weight.target_weight";
-                }
-
-                mqttVars["scaleCalibration"] = "hardware.sensors.scale.calibration";
-
-                if (config.get<int>("hardware.sensors.scale.type") == 0) {
-                    mqttVars["scale2Calibration"] = "hardware.sensors.scale.calibration2";
-                }
-
-                mqttVars["scaleKnownWeight"] = "hardware.sensors.scale.known_weight";
-                mqttVars["scaleTareOn"] = "TARE_ON";
-                mqttVars["scaleCalibrationOn"] = "CALIBRATION_ON";
-
-                mqttSensors["currReadingWeight"] = [] { return currReadingWeight; };
-                mqttSensors["currBrewWeight"] = [] { return currBrewWeight; };
-            }
-
-            if (config.get<bool>("hardware.sensors.pressure.enabled")) {
-                mqttSensors["pressure"] = [] { return inputPressureFilter; };
-            }
-
-            snprintf(topic_will, sizeof(topic_will), "%s%s/%s", mqtt_topic_prefix.c_str(), hostname.c_str(), "status");
-            snprintf(topic_set, sizeof(topic_set), "%s%s/+/%s", mqtt_topic_prefix.c_str(), hostname.c_str(), "set");
-            mqtt.setServer(mqtt_server_ip.c_str(), mqtt_server_port);
-            mqtt.setCallback(mqtt_callback);
-
-            checkMQTT();
-
-            if (mqtt_hassio_enabled) {
-                sendHASSIODiscoveryMsg();
-            }
-        }
-    }
-    else {
-        wm.disconnect();
-        setRuntimePidState(true);
-        delay(2000);
-        initOfflineMode();
-        serverSetup();
-    }
-
-    // Start the logger
-    Logger::begin();
-    int level = ParameterRegistry::getInstance().getParameterById("system.log_level")->getValueAs<int>();
-    Logger::setLevel(static_cast<Logger::Level>(level));
-
-    // Initialize PID controller
-    bPID.SetSampleTime(windowSize);
-    bPID.SetOutputLimits(0, windowSize);
-    bPID.SetIntegratorLimits(0, AGGIMAX);
-    bPID.SetSmoothingFactor(emaFactor);
-    bPID.SetMode(AUTOMATIC);
-
-    const int tempSensorType = config.get<int>("hardware.sensors.temperature.type");
-
-    if (tempSensorType == 0) {
-        tempSensor = new TempSensorTSIC(PIN_TEMPSENSOR);
-    }
-    else if (tempSensorType == 1) {
-        tempSensor = new TempSensorDallas(PIN_TEMPSENSOR);
-    }
-
-    if (tempSensor != nullptr) {
-        temperature = tempSensor->getCurrentTemperature();
-        temperature -= brewTempOffset;
-    }
-
-    // Initialisation MUST be at the very end of the init(), otherwise the
-    // time comparision in loop() will have a big offset
-    unsigned long currentTime = millis();
-    previousMillistemp = currentTime;
-    windowStartTime = currentTime;
-    previousMillisMQTT = currentTime;
-    lastMQTTConnectionAttempt = currentTime;
-    previousMillisTimer = currentTime;
-
-    // Init Scale
-    if (config.get<bool>("hardware.sensors.scale.enabled")) {
-        initScale();
-    }
-
-    if (config.get<bool>("hardware.sensors.pressure.enabled")) {
-        previousMillisPressure = currentTime;
-    }
-
-    if (u8g2 != nullptr) {
-        if (!(config.get<bool>("hardware.sensors.scale.enabled") && config.get<int>("hardware.sensors.scale.type") < 2)) {
-            delay(2000); // add delay if not hx711 to give time to display IP address
-        }
-    }
-
-    setupDone = true;
-
-    enableTimer1();
-
-    double fsUsage = ((double)LittleFS.usedBytes() / LittleFS.totalBytes()) * 100;
-    LOGF(INFO, "LittleFS: %d%% (used %ld bytes from %ld bytes)", (int)ceil(fsUsage), LittleFS.usedBytes(), LittleFS.totalBytes());
-
-    systemInitialized = true;
-
-    // For momentary switches, start in normal operation mode
-    if (config.get<bool>("hardware.switches.power.enabled") && config.get<int>("hardware.switches.power.type") == Switch::MOMENTARY) {
-        machineState = kPidNormal;
-        setRuntimePidState(true);
-    }
-
-    // For toggle switches, force PidOn to switch state mode
-    if (config.get<bool>("hardware.switches.power.enabled") && config.get<int>("hardware.switches.power.type") == Switch::TOGGLE) {
-        if (powerSwitch->isPressed()) {
-            setRuntimePidState(true);
-            machineState = kPidNormal;
-        }
-        else {
-            setRuntimePidState(false);
-            machineState = kPidDisabled;
-        }
-    }
+    logMemory("Setup Complete");
+    LOGF(INFO, "System setup completed via SystemInitializer - CleverCoffee ready!");
 }
 
 void loop() {
-    // Accept potential connections for remote logging
-    Logger::update();
+    // Feed watchdog at the start of each loop iteration
+    // This ensures system resets if the loop hangs
+    g_watchdog.feed();
 
-    // Update water tank sensor
-    loopWaterTank();
+    // DEBUG: Log loop iteration with ISR status
+    static unsigned long loopCount    = 0;
+    static unsigned long lastDebugLog = millis();
 
-    // Update PID settings & machine state
-    loopPid();
+    loopCount++;
 
-    // Update LED output based on machine state
-    loopLED();
+    if (loopManager) {
+        // Use modern LoopManager for coordinated main loop updates
+        loopManager->update();
 
-    // print timing related data to check what is causing stutters
-    debugTimingLoop();
+        // Log ISR and loop status every 5 seconds
+        unsigned long now = millis();
+        if (now - lastDebugLog >= 5000) {
+            // ISR counters are declared in isr.h
+            LOGF(DEBUG,
+                 "LOOP STATUS: loops=%lu, ISR enabled=%d, ISR calls=%lu, relay_on=%lu, relay_off=%lu, temp=%.1f°C, "
+                 "setpoint=%.1f°C, pidOutput=%.1f",
+                 loopCount,
+                 (int)isr_enabled.load(),
+                 isr_call_count.load(),
+                 isr_relay_on_count.load(),
+                 isr_relay_off_count.load(),
+                 systemInitializer->getSystemContext().processTemperature(),
+                 systemInitializer->getSystemContext().processSetpoint(),
+                 systemInitializer->getSystemContext().processPidOutput());
 
-    // Handle automatic config save
-    ParameterRegistry::getInstance().processPeriodicSave();
-}
-
-void loopPid() {
-
-    // Update the temperature:
-    temperatureUpdateRunning = false;
-
-    if (tempSensor != nullptr) {
-        temperature = tempSensor->getCurrentTemperature();
-
-        if (machineState != kSteam) {
-            temperature -= brewTempOffset;
+            lastDebugLog = now;
         }
+    } else {
+        LOG(ERROR, "CRITICAL: LoopManager is nullptr!");
     }
-
-    static bool wifiWasConnected = false;
-
-    // Only do Wifi stuff, if Wifi is connected
-    if (WiFi.status() == WL_CONNECTED && !offlineMode) {
-
-        if (wifiWasConnected == false) {
-            LOG(INFO, "WiFi Connected");
-            wifiWasConnected = true;
-        }
-
-        if (mqtt_enabled) {
-            mqttUpdateRunning = false;
-
-            if (getSignalStrength() > 1) {
-                checkMQTT();
-
-                // if screen is ready to refresh wait for next loop
-                if (!displayBufferReady && !temperatureUpdateRunning) {
-                    writeSysParamsToMQTT(true); // Continue on error
-                }
-            }
-
-            hassioUpdateRunning = false;
-
-            if (mqtt.connected() == 1) {
-                mqtt.loop();
-                previousMqttConnection = millis();
-
-                if (mqtt_hassio_enabled) {
-                    // resend discovery messages if not during a main function and MQTT has been disconnected but has now reconnected, or if last send failed
-                    if (!(machineState >= kBrew && machineState <= kBackflush) && ((!mqtt_was_connected || hassioFailed) && !displayBufferReady && !temperatureUpdateRunning)) {
-                        hassioDiscoveryTimer();
-                    }
-                }
-
-                mqtt_was_connected = true;
-            }
-            // Supress debug messages until we have a connection etablished
-            else if (mqtt_was_connected) {
-                LOG(INFO, "MQTT disconnected");
-                mqtt_was_connected = false;
-            }
-        }
-
-        ArduinoOTA.handle(); // For OTA
-
-        // Disable interrupt if OTA is starting, otherwise it will not work
-        ArduinoOTA.onStart([]() {
-            disableTimer1();
-            heaterRelay->off();
-        });
-
-        ArduinoOTA.onError([](ota_error_t error) { enableTimer1(); });
-
-        // Enable interrupts if OTA is finished
-        ArduinoOTA.onEnd([]() { enableTimer1(); });
-
-        wifiReconnects = 0; // reset wifi reconnects if connected
-    }
-    else {
-        wifiWasConnected = false;
-        checkWifi();
-    }
-
-    testEmergencyStop(); // test if temp is too high
-    bPID.Compute();      // the variable pidOutput now has new values from PID (will be written to heater pin in ISR.cpp)
-
-    websiteUpdateRunning = false;
-
-    // refresh website if loop does not have anoth long running process already
-    if (((millis() - lastTempEvent) > tempEventInterval) && (!mqttUpdateRunning && !hassioUpdateRunning && !displayBufferReady && !temperatureUpdateRunning)) {
-        websiteUpdateRunning = true;
-
-        // send temperatures to website endpoint
-        sendTempEvent(temperature, brewSetpoint, pidOutput / 10); // pidOutput is promill, so /10 to get percent value
-
-        lastTempEvent = millis();
-
-        if (pidON) {
-            LOGF(TRACE, "Current PID mode: %s", bPID.GetPonE() ? "PonE" : "PonM");
-
-            // P-Part
-            LOGF(TRACE, "Current PID input error: %f", bPID.GetInputError());
-            LOGF(TRACE, "Current PID P part: %f", bPID.GetLastPPart());
-            LOGF(TRACE, "Current PID kP: %f", bPID.GetKp());
-            // I-Part
-            LOGF(TRACE, "Current PID I sum: %f", bPID.GetLastIPart());
-            LOGF(TRACE, "Current PID kI: %f", bPID.GetKi());
-            // D-Part
-            LOGF(TRACE, "Current PID diff'd input: %f", bPID.GetDeltaInput());
-            LOGF(TRACE, "Current PID D part: %f", bPID.GetLastDPart());
-            LOGF(TRACE, "Current PID kD: %f", bPID.GetKd());
-            // Combined PID output
-            LOGF(TRACE, "Current PID Output: %f", pidOutput);
-            LOGF(TRACE, "Current Machinestate: %s", machinestateEnumToString(machineState));
-            // Brew
-            LOGF(TRACE, "currBrewTime %f", currBrewTime);
-            LOGF(TRACE, "Brew detected %i", checkBrewActive());
-            LOGF(TRACE, "brewPidDisabled %i", brewPidDisabled);
-        }
-    }
-
-    if (scale) {
-        checkWeight();    // Check Weight Scale in the loop
-        shotTimerScale(); // Calculation of weight of shot while brew is running
-    }
-
-    if (config.get<bool>("hardware.sensors.pressure.enabled")) {
-        if (const unsigned long currentMillisPressure = millis(); currentMillisPressure - previousMillisPressure >= intervalPressure) {
-            previousMillisPressure = currentMillisPressure;
-            inputPressure = measurePressure();
-            inputPressureFilter = filterPressureValue(inputPressure);
-        }
-    }
-
-    checkSteamSwitch();
-    checkPowerSwitch();
-
-    // set setpoint depending on steam or brew mode
-    if (steamON == 1) {
-        setpoint = steamSetpoint;
-    }
-    else if (steamON == 0) {
-        setpoint = brewSetpoint;
-    }
-
-    updateStandbyTimer();
-    handleMachineState();
-    hotWaterHandler();
-    valveSafetyShutdownCheck();
-    testTimer();
-
-    if (config.get<bool>("hardware.switches.brew.enabled")) {
-        shouldDisplayBrewTimer();
-    }
-
-    displayUpdateRunning = false;
-
-    if (u8g2 != nullptr) {
-
-        // update display on loops that have not had other major tasks running, if blocked it will send in the next loop (average 0.5ms)
-        if ((!websiteUpdateRunning && !mqttUpdateRunning && !hassioUpdateRunning && !temperatureUpdateRunning) || (millis() - lastDisplayUpdate > 500)) {
-
-            if (standbyModeRemainingTimeDisplayOffMillis > 0) {
-
-                // displayUpdateRunning currently doesn't block anything as it is near the end of the loop, but if this code block moves it can be used to block other processes
-                // sendBuffer() takes around 35ms so it flags that it has happened
-                if (displayBufferReady) {
-                    u8g2->sendBuffer();
-                    displayBufferReady = false;
-                    displayUpdateRunning = true;
-                }
-                else {
-                    printDisplayTimer();
-
-                    if (millis() - lastDisplayUpdate > 500) {
-                        u8g2->sendBuffer();
-                        displayBufferReady = false;
-                        displayUpdateRunning = true;
-                    }
-                }
-            }
-            lastDisplayUpdate = millis();
-        }
-    }
-
-    // Check if PID should run or not. If not, set to manual and force output to zero
-    if (machineState == kPidDisabled || machineState == kWaterTankEmpty || machineState == kSensorError || machineState == kEmergencyStop || machineState == kStandby || machineState == kBackflush || brewPidDisabled) {
-        if (bPID.GetMode() == 1) {
-            // Force PID shutdown
-            bPID.SetMode(0);
-            pidOutput = 0;
-            heaterRelay->off();
-        }
-    }
-    else { // no sensorerror, no pid off or no Emergency Stop
-        if (bPID.GetMode() == 0) {
-            bPID.SetMode(1);
-        }
-    }
-
-    // Regular PID operation
-    if (machineState == kPidNormal) {
-        setPIDTunings(usePonM);
-    }
-
-    // Brew PID
-    if (machineState == kBrew) {
-        if (brewPidDelay > 0 && currBrewTime > 0 && currBrewTime < brewPidDelay * 1000) {
-            // disable PID for brewPidDelay seconds, enable PID again with new tunings after that
-            if (!brewPidDisabled) {
-                brewPidDisabled = true;
-                bPID.SetMode(MANUAL);
-                pidOutput = 0;
-                heaterRelay->off();
-                LOGF(DEBUG, "disabled PID, waiting for %.0f seconds before enabling PID again", brewPidDelay);
-            }
-        }
-        else {
-            if (brewPidDisabled) {
-                // enable PID again
-                bPID.SetMode(AUTOMATIC);
-                brewPidDisabled = false;
-                LOGF(DEBUG, "Enabled PID again after %.0f seconds of brew pid delay", brewPidDelay);
-            }
-
-            if (useBDPID) {
-                setBDPIDTunings();
-            }
-            else {
-                setPIDTunings(usePonM);
-            }
-        }
-    }
-    // Reset brewPidDisabled if brew was aborted
-    if (machineState != kBrew && brewPidDisabled) {
-        // enable PID again
-        bPID.SetMode(AUTOMATIC);
-        brewPidDisabled = false;
-        LOG(DEBUG, "Enabled PID again after brew was manually stopped");
-    }
-
-    // Steam on
-    if (machineState == kSteam) {
-        if (lastmachinestatepid != machineState) {
-            LOGF(DEBUG, "new PID-Values: P=%.1f  I=%.1f  D=%.1f", 150.0, 0.0, 0.0);
-            lastmachinestatepid = machineState;
-        }
-
-        bPID.SetTunings(steamKp, 0, 0, 1);
-    }
-}
-
-void loopLED() {
-    // status LED active when not in error state and temperature is in setpoint range
-    if (config.get<bool>("hardware.leds.status.enabled") && statusLed != nullptr) {
-        bool nearSetpoint = fabs(temperature - setpoint) <= (machineState == kSteam ? 5 : config.get<float>("display.blinking.delta"));
-
-        if (machineState <= kBackflush && nearSetpoint) {
-            statusLed->turnOn();
-        }
-        else {
-            statusLed->turnOff();
-        }
-    }
-
-    // brew LED on during brew and blinking during manual flush and backflush
-    if (config.get<bool>("hardware.leds.brew.enabled") && brewLed != nullptr) {
-        brewLed->setGPIOState((machineState == kBrew) || (isrCounter < 500 && (machineState == kManualFlush || (machineState == kBackflush && currBackflushState != kBackflushIdle))));
-    }
-
-    // steam LED on if in steam mode
-    if (config.get<bool>("hardware.leds.steam.enabled") && steamLed != nullptr) {
-        steamLed->setGPIOState(machineState == kSteam);
-    }
-}
-
-void checkWaterTank() {
-    if (!config.get<bool>("hardware.sensors.watertank.enabled") || waterTankSensor == nullptr) {
-        return;
-    }
-
-    if (const bool isWaterDetected = waterTankSensor->isPressed(); isWaterDetected && !waterTankFull) {
-        waterTankFull = true;
-        LOG(INFO, "Water tank full");
-    }
-    else if (!isWaterDetected && waterTankFull) {
-        waterTankFull = false;
-        LOG(WARNING, "Water tank empty");
-    }
-}
-
-void setRuntimePidState(const bool enabled) {
-    pidON = enabled ? 1 : 0;
-    config.set<bool>("pid.enabled", enabled);
-}
-
-void setSteamMode(bool steamMode) {
-    steamON = steamMode;
-
-    if (steamON) {
-        steamFirstON = true;
-    }
-
-    if (!steamON) {
-        steamFirstON = false;
-    }
-}
-
-/**
- * @brief Safely shutdown machine operations
- * Turns off pump, valve, and heater regardless of current state
- */
-void performSafeShutdown() {
-    setRuntimePidState(false);
-
-    heaterRelay->off();
-    pumpRelay->off();
-    valveRelay->off();
-
-    // Reset all brew-related states
-    if (currBrewState != kBrewIdle) {
-        LOG(INFO, "Stopping active brew");
-        currBrewState = kBrewIdle;
-        currBrewSwitchState = kBrewSwitchIdle;
-        currBrewTime = 0;
-        startingTime = 0;
-        brewSwitchWasOff = false;
-    }
-
-    // Reset manual flush states
-    if (currManualFlushState != kManualFlushIdle) {
-        LOG(INFO, "Stopping manual group head flush");
-        currManualFlushState = kManualFlushIdle;
-        currBrewSwitchState = kBrewSwitchIdle;
-        currBrewTime = 0;
-        startingTime = 0;
-    }
-
-    // Reset backflush state
-    if (currBackflushState != kBackflushIdle) {
-        LOG(INFO, "Stopping active backflush");
-        currBackflushState = kBackflushIdle;
-        currBackflushCycles = 1;
-    }
-
-    // Reset hot water state
-    if (currHotWaterState != kHotWaterIdle) {
-        LOG(INFO, "Stopping hot water draw");
-        currHotWaterState = kHotWaterIdle;
-        currHotWaterSwitchState = kHotWaterSwitchIdle;
-        currPumpOnTime = 0;
-        pumpStartingTime = 0;
-    }
-
-    // Turn off steam mode if active
-    if (steamON) {
-        LOG(INFO, "Disabling steam mode");
-        steamON = false;
-        steamFirstON = false;
-    }
-
-    LOG(INFO, "Safe shutdown, all relays turned off");
-}
-
-void setPIDTunings(const bool usePonM) {
-    // Prevent overwriting of brewdetection values
-    // calc ki, kd
-    if (aggTn != 0) {
-        aggKi = aggKp / aggTn;
-    }
-    else {
-        aggKi = 0;
-    }
-
-    aggKd = aggTv * aggKp;
-
-    bPID.SetIntegratorLimits(0, aggIMax);
-
-    if (lastmachinestatepid != machineState) {
-        LOGF(DEBUG, "new PID-Values: P=%.1f  I=%.1f  D=%.1f", aggKp, aggKi, aggKd);
-        lastmachinestatepid = machineState;
-    }
-
-    if (usePonM) {
-        bPID.SetTunings(aggKp, aggKi, aggKd, P_ON_M);
-    }
-    else {
-        bPID.SetTunings(aggKp, aggKi, aggKd, 1);
-    }
-}
-
-void setBDPIDTunings() {
-    // calc ki, kd
-    if (aggbTn != 0) {
-        aggbKi = aggbKp / aggbTn;
-    }
-    else {
-        aggbKi = 0;
-    }
-
-    aggbKd = aggbTv * aggbKp;
-
-    if (lastmachinestatepid != machineState) {
-        LOGF(DEBUG, "new PID-Values: P=%.1f  I=%.1f  D=%.1f", aggbKp, aggbKi, aggbKd);
-        lastmachinestatepid = machineState;
-    }
-
-    bPID.SetTunings(aggbKp, aggbKi, aggbKd, 1);
 }

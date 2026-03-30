@@ -1,15 +1,23 @@
 /**
  * @file BluetoothScale.cpp
- * @brief Bluetooth scale implementation
+ * @brief Bluetooth scale implementation with ISensor support
  */
 
-#include "BluetoothScale.h"
-#include "Logger.h"
+#include "clevercoffee/hardware/scales/BluetoothScale.h"
+
+#include "clevercoffee/Logger.h"
+#include "clevercoffee/errors/ErrorCodes.h"
+
 #include <Arduino.h>
 
-BluetoothScale::BluetoothScale(bool debug) :
-    currentWeight(0.0), lastUpdateTime(0), connected(false), bleInitialized(false), lastConnectionAttempt(0), connectionAttemptInterval(5000), isUpdatingConnection(false), maxConnectionAttemptInterval(30000) {
-    bleScale = new AcaiaArduinoBLE(debug);
+using CleverCoffee::Error;
+using CleverCoffee::ErrorCode;
+using CleverCoffee::Expected;
+
+BluetoothScale::BluetoothScale()
+    : currentWeight(0.0), lastUpdateTime(0), connected(false), bleInitialized(false), lastConnectionAttempt(0),
+      connectionAttemptInterval(5000), isUpdatingConnection(false), maxConnectionAttemptInterval(30000) {
+    bleScale = new AcaiaArduinoBLE(false);
 }
 
 BluetoothScale::~BluetoothScale() {
@@ -22,11 +30,10 @@ bool BluetoothScale::init() {
     const bool success = bleScale->init();
 
     if (success) {
-        bleInitialized = true;
+        bleInitialized        = true;
         lastConnectionAttempt = millis();
         LOG(INFO, "BLE Scale initialization successful");
-    }
-    else {
+    } else {
         LOG(ERROR, "BLE Scale initialization failed");
         bleInitialized = false;
     }
@@ -57,8 +64,7 @@ void BluetoothScale::updateConnection() {
             LOG(INFO, "Bluetooth scale connected");
             // Reset connection attempt interval on successful connection
             connectionAttemptInterval = 5000;
-        }
-        else {
+        } else {
             LOG(INFO, "Bluetooth scale disconnected");
             // Only increase interval if we're not actively connecting
             if (!bleScale->isConnecting()) {
@@ -108,7 +114,7 @@ bool BluetoothScale::update() {
     return false;
 }
 
-float BluetoothScale::getWeight() const {
+float BluetoothScale::getWeight() const noexcept {
     return currentWeight;
 }
 
@@ -118,28 +124,44 @@ void BluetoothScale::tare() {
     }
 }
 
-void BluetoothScale::startTimer() const {
-    if (connected) {
-        return bleScale->startTimer();
-    }
-}
-
-void BluetoothScale::stopTimer() const {
-    if (connected) {
-        return bleScale->stopTimer();
-    }
-}
-
-void BluetoothScale::resetTimer() const {
-    if (connected) {
-        return bleScale->resetTimer();
-    }
-}
-
 void BluetoothScale::setSamples(int samples) {
     // Most BLE scales handle sampling internally
 }
 
-bool BluetoothScale::isConnected() const {
+bool BluetoothScale::isConnected() const noexcept {
     return connected;
+}
+
+// ====== ISensor Interface Implementation ======
+
+void BluetoothScale::startRead() noexcept {
+    // Bluetooth scale continuously sends data when connected
+    // This is a no-op for Bluetooth scales
+}
+
+Expected<double, Error> BluetoothScale::tryGetValue() noexcept {
+    // Check if scale is connected
+    if (!connected) {
+        return Error(ErrorCode::SENSOR_DISCONNECTED, "Bluetooth scale not connected");
+    }
+
+    // Try to update (non-blocking)
+    bool updated = update();
+
+    if (updated) {
+        lastSuccessfulRead_ = millis();
+        return static_cast<double>(currentWeight);
+    }
+
+    // Check timeout
+    if (millis() - lastSuccessfulRead_ > READ_TIMEOUT_MS) {
+        return Error(ErrorCode::SENSOR_TIMEOUT, "Bluetooth scale read timeout");
+    }
+
+    // No new data yet, but not timed out
+    return Error(ErrorCode::SENSOR_NOT_READY, "No new data yet");
+}
+
+const char* BluetoothScale::getSensorType() const noexcept {
+    return "BluetoothScale (Acaia/Compatible)";
 }

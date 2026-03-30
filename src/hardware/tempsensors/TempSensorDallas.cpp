@@ -4,22 +4,34 @@
  * @brief Handler for Dallas DS18B20 temperature sensor
  */
 
-#include "TempSensorDallas.h"
+#include "clevercoffee/hardware/tempsensors/TempSensorDallas.h"
 
 TempSensorDallas::TempSensorDallas(const int GPIOPin) {
-    oneWire_ = new OneWire(GPIOPin);
+    oneWire_      = new OneWire(GPIOPin);
     dallasSensor_ = new DallasTemperature(oneWire_);
     dallasSensor_->begin();
     dallasSensor_->getAddress(sensorDeviceAddress_, 0);
-    dallasSensor_->setResolution(sensorDeviceAddress_, 10);
-    dallasSensor_->setWaitForConversion(false);
+    dallasSensor_->setResolution(sensorDeviceAddress_, 11); // should match with sensor timings 10 -> 180ms, 11 -> 380ms
+    dallasSensor_->setWaitForConversion(false);             // do not block during temperature readings
 
     // Request first temperature conversion directly:
     dallasSensor_->requestTemperaturesByAddress(sensorDeviceAddress_);
 }
 
-bool TempSensorDallas::sample_temperature(double& temperature) const {
+TempSensorDallas::~TempSensorDallas() {
+    // Delete in reverse order of allocation
+    // Dallas depends on OneWire, so delete Dallas first
+    if (dallasSensor_ != nullptr) {
+        delete dallasSensor_;
+        dallasSensor_ = nullptr;
+    }
+    if (oneWire_ != nullptr) {
+        delete oneWire_;
+        oneWire_ = nullptr;
+    }
+}
 
+bool TempSensorDallas::sample_temperature(double& temperature) const {
     // Read temperature from device
     const auto temp = dallasSensor_->getTempC(sensorDeviceAddress_);
 
@@ -38,7 +50,8 @@ bool TempSensorDallas::sample_temperature(double& temperature) const {
     temperature = temp;
 
     // Request next temperature conversion from device, to be read the next time
-    // For 10-bit resolution the conversion takes around 188ms and our temperature reading timer clocks at 400ms - checks out!
+    // For 10-bit resolution the conversion takes around 188ms and our temperature reading timer clocks at 400ms -
+    // checks out!
     dallasSensor_->requestTemperaturesByAddress(sensorDeviceAddress_);
 
     return true;

@@ -1,19 +1,39 @@
 name: Format
 
-on: [push, pull_request]
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches-ignore:
+      - main
 
 jobs:
   format:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-      - name: PlatformIO Run
-        uses: karniv00l/platformio-run-action@v1
+
+      - uses: actions/cache@v5
         with:
-          environments: "esp32_usb"
-          targets: "check-format"
-          silent: false
-          verbose: true
-          disable-auto-clean: false
+          path: |
+            ~/.cache/pip
+            ~/.platformio/.cache
+          key: ${{ runner.os }}-pio-${{ hashFiles('platformio.ini') }}
+          restore-keys: |
+            ${{ runner.os }}-pio-
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install PlatformIO Core
+        run: pip install --upgrade platformio
+
+      - name: Check format
+        run: pio run -e esp32_usb --target check-format
+
+      - name: Run Native Tests
+        run: pio test -e native_test

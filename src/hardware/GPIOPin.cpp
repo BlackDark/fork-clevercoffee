@@ -4,21 +4,19 @@
  * @brief Abstraction of a GPIO pin
  */
 
-#include "GPIOPin.h"
+#include "clevercoffee/hardware/GPIOPin.h"
 
-GPIOPin::GPIOPin(const int pinNumber, const Type pinType) :
-    pin(pinNumber), pinType(pinType) {
-
+GPIOPin::GPIOPin(const int pinNumber, const Type pinType) : pin(pinNumber), pinType(pinType) {
     setType(pinType);
 }
 
-void GPIOPin::write(const bool value) const {
+void GPIOPin::write(const bool value) const noexcept {
     if (pinType == OUT) {
         digitalWrite(pin, value);
     }
 }
 
-int GPIOPin::read() const {
+int GPIOPin::read() const noexcept {
     if (pinType == IN_ANALOG) {
         return analogRead(pin);
     }
@@ -26,11 +24,11 @@ int GPIOPin::read() const {
     return digitalRead(pin);
 }
 
-GPIOPin::Type GPIOPin::getType() const {
+GPIOPin::Type GPIOPin::getType() const noexcept {
     return pinType;
 }
 
-void GPIOPin::setType(const Type pinType) const {
+void GPIOPin::setType(Type pinType) {
     switch (pinType) {
         case OUT:
             pinMode(pin, OUTPUT);
