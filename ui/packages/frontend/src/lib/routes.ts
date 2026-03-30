@@ -9,6 +9,7 @@ export const API_ROUTES = {
   PID: "/pid",
   BACKFLUSH: "/backflush",
   SETPOINT: "/setpoint",
+  WAKE: "/wake",
 
   // Configuration
   CONFIG: "/config",
@@ -43,4 +44,8 @@ export type ApiRoute = (typeof API_ROUTES)[keyof typeof API_ROUTES];
 
 export function getRoute(route: ApiRoute): string {
   return route;
+}
+
+export function getApiRoute(route: ApiRoute): string {
+  return `/api${route}`;
 }

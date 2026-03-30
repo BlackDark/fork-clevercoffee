@@ -293,13 +293,16 @@ void WebServerManager::setupApiRoutes() {
             return;
         }
 
-        doc["temperature"]  = systemContext_->processController()->getCurrentTemperature();
-        doc["setpoint"]     = systemContext_->processController()->getSetpoint();
-        doc["heaterPower"]  = systemContext_->processController()->getPIDOutput() / 10.0;
-        doc["machineState"] = static_cast<int>(systemContext_->machineStateContext()->getCurrentStateId());
-        doc["pidEnabled"]   = systemContext_->processController()->isPIDEnabled();
-        doc["steamMode"]    = systemContext_->machineStateContext()->isSteamModeActive();
-        doc["uptime"]       = millis();
+        const auto currentState = systemContext_->machineStateContext()->getCurrentStateId();
+        doc["temperature"]      = systemContext_->processController()->getCurrentTemperature();
+        doc["setpoint"]         = systemContext_->processController()->getSetpoint();
+        doc["heaterPower"]      = systemContext_->processController()->getPIDOutput() / 10.0;
+        doc["machineState"]     = static_cast<int>(currentState);
+        doc["isStandby"]        = (currentState == MachineStateId::STANDBY);
+        doc["standbyTime"]      = systemContext_->standbyCoordinator().getRemainingTimeMillis();
+        doc["pidEnabled"]       = systemContext_->processController()->isPIDEnabled();
+        doc["steamMode"]        = systemContext_->machineStateContext()->isSteamModeActive();
+        doc["uptime"]           = millis();
 
         if (Config::getInstance().hardwareSensorsScaleEnabled.get()) {
             doc["weight"]     = systemContext_->sensorCoordinator().getWeight();
@@ -341,6 +344,7 @@ void WebServerManager::setupApiRoutes() {
                 if (systemContext_) {
                     systemContext_->setProcessSetpoint(newSetpoint);
                     systemContext_->standbyCoordinator().reset();
+                    systemContext_->machineStateContext()->setNormalOperationRequested(true);
                 }
                 (void)Config::getInstance().brewSetpoint.set(newSetpoint);
                 request->send(200, "application/json", "{\"success\":true}");
@@ -355,12 +359,25 @@ void WebServerManager::setupApiRoutes() {
     // Health check endpoint
     server_->on("/api/health", HTTP_GET, [](AsyncWebServerRequest* request) { request->send(200); });
 
+    // Wake endpoint - reset standby timer to wake machine from standby
+    server_->on("/api/wake", HTTP_POST, [this](AsyncWebServerRequest* request) {
+        if (systemContext_) {
+            systemContext_->standbyCoordinator().reset();
+            systemContext_->machineStateContext()->setNormalOperationRequested(true);
+            LOG(INFO, "Wake from standby via API");
+            request->send(200, "application/json", "{\"success\":true}");
+        } else {
+            request->send(500, "application/json", "{\"error\":\"System context not available\"}");
+        }
+    });
+
     // Steam control endpoints
     server_->on("/api/steam", HTTP_POST, [this](AsyncWebServerRequest* request) {
         try {
             const bool steamMode = !systemContext_->machineStateContext()->isSteamModeActive();
             systemContext_->machineStateContext()->setSteamModeActive(steamMode);
             systemContext_->standbyCoordinator().reset();
+            systemContext_->machineStateContext()->setNormalOperationRequested(true);
             LOGF(INFO,
                  "Toggle steam mode: %s",
                  systemContext_->machineStateContext()->isSteamModeActive() ? "on" : "off");
@@ -385,6 +402,7 @@ void WebServerManager::setupApiRoutes() {
             if (systemContext_) {
                 systemContext_->setProcessPidEnabled(newPidState);
                 systemContext_->standbyCoordinator().reset();
+                systemContext_->machineStateContext()->setNormalOperationRequested(true);
             }
 
             LOGF(INFO, "Toggle PID state: %d", newPidState);
@@ -402,6 +420,7 @@ void WebServerManager::setupApiRoutes() {
             systemContext_->machineStateContext()->setBackflushModeActive(
                 !systemContext_->machineStateContext()->isBackflushModeActive());
             systemContext_->standbyCoordinator().reset();
+            systemContext_->machineStateContext()->setNormalOperationRequested(true);
             LOGF(INFO,
                  "Toggle backflush mode: %s",
                  systemContext_->machineStateContext()->isBackflushModeActive() ? "on" : "off");
@@ -427,6 +446,7 @@ void WebServerManager::setupApiRoutes() {
                     systemContext_->sensorCoordinator().setScaleTareMode(
                         !systemContext_->sensorCoordinator().isScaleTareMode());
                     systemContext_->standbyCoordinator().reset();
+                    systemContext_->machineStateContext()->setNormalOperationRequested(true);
                     LOGF(INFO,
                          "Toggle scale tare mode: %s",
                          systemContext_->sensorCoordinator().isScaleTareMode() ? "on" : "off");
@@ -449,6 +469,7 @@ void WebServerManager::setupApiRoutes() {
                     systemContext_->sensorCoordinator().setScaleCalibrationMode(
                         !systemContext_->sensorCoordinator().isScaleCalibrationMode());
                     systemContext_->standbyCoordinator().reset();
+                    systemContext_->machineStateContext()->setNormalOperationRequested(true);
                     LOGF(INFO,
                          "Toggle scale calibration mode: %s",
                          systemContext_->sensorCoordinator().isScaleCalibrationMode() ? "on" : "off");
@@ -469,12 +490,12 @@ void WebServerManager::setupApiRoutes() {
 
     // Config endpoint - reset standby on config changes
     server_->on("/api/config", HTTP_POST, [this](AsyncWebServerRequest* request) {
-        // Handle configuration updates
         if (request->hasParam("body", true)) {
             String body = request->getParam("body", true)->value();
             if (Config::getInstance().importFromJson(body)) {
                 if (systemContext_) {
                     systemContext_->standbyCoordinator().reset();
+                    systemContext_->machineStateContext()->setNormalOperationRequested(true);
                 }
                 request->send(200, "application/json", "{\"success\":true}");
             } else {
@@ -840,6 +861,7 @@ void WebServerManager::setupApiRoutes() {
                 } else if (hasUpdates) {
                     if (systemContext_) {
                         systemContext_->standbyCoordinator().reset();
+                        systemContext_->machineStateContext()->setNormalOperationRequested(true);
                     }
                     request->send(
                         200, "application/json", "{\"success\":true,\"message\":\"Parameters updated and saved\"}");

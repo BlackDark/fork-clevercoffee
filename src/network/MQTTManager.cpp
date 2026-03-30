@@ -283,12 +283,14 @@ void MQTTManager::assignParameter(char* param, double value) {
         if (strcmp(parameterId, "STEAM_MODE") == 0) {
             systemContext_->machineStateContext()->setSteamFirstActivated(static_cast<bool>(value));
             systemContext_->standbyCoordinator().reset();
+            systemContext_->machineStateContext()->setNormalOperationRequested(true);
             publish(param, number2string(value), true);
             LOGF(DEBUG, "MQTT special parameter %s updated to %f", param, value);
             return;
         } else if (strcmp(parameterId, "BACKFLUSH_ON") == 0) {
             systemContext_->machineStateContext()->setBackflushModeActive(static_cast<bool>(value));
             systemContext_->standbyCoordinator().reset();
+            systemContext_->machineStateContext()->setNormalOperationRequested(true);
             publish(param, number2string(value), true);
             LOGF(DEBUG, "MQTT special parameter %s updated to %f", param, value);
             return;
@@ -297,6 +299,7 @@ void MQTTManager::assignParameter(char* param, double value) {
                 sensorCoordinator_->setScaleTareMode(static_cast<bool>(value));
             }
             systemContext_->standbyCoordinator().reset();
+            systemContext_->machineStateContext()->setNormalOperationRequested(true);
             publish(param, number2string(value), true);
             LOGF(DEBUG, "MQTT special parameter %s updated to %f", param, value);
             return;
@@ -305,6 +308,7 @@ void MQTTManager::assignParameter(char* param, double value) {
                 sensorCoordinator_->setScaleCalibrationMode(static_cast<bool>(value));
             }
             systemContext_->standbyCoordinator().reset();
+            systemContext_->machineStateContext()->setNormalOperationRequested(true);
             publish(param, number2string(value), true);
             LOGF(DEBUG, "MQTT special parameter %s updated to %f", param, value);
             return;
@@ -326,6 +330,7 @@ void MQTTManager::assignParameter(char* param, double value) {
 
         if (success) {
             systemContext_->standbyCoordinator().reset();
+            systemContext_->machineStateContext()->setNormalOperationRequested(true);
             publish(param, number2string(value), true);
             LOGF(DEBUG, "MQTT parameter %s (ID: %s) updated to %f", param, parameterId, value);
         } else {
