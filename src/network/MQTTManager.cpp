@@ -282,11 +282,13 @@ void MQTTManager::assignParameter(char* param, double value) {
         // Handle special cases that don't map to config parameters
         if (strcmp(parameterId, "STEAM_MODE") == 0) {
             systemContext_->machineStateContext()->setSteamFirstActivated(static_cast<bool>(value));
+            systemContext_->standbyCoordinator().reset();
             publish(param, number2string(value), true);
             LOGF(DEBUG, "MQTT special parameter %s updated to %f", param, value);
             return;
         } else if (strcmp(parameterId, "BACKFLUSH_ON") == 0) {
             systemContext_->machineStateContext()->setBackflushModeActive(static_cast<bool>(value));
+            systemContext_->standbyCoordinator().reset();
             publish(param, number2string(value), true);
             LOGF(DEBUG, "MQTT special parameter %s updated to %f", param, value);
             return;
@@ -294,6 +296,7 @@ void MQTTManager::assignParameter(char* param, double value) {
             if (sensorCoordinator_) {
                 sensorCoordinator_->setScaleTareMode(static_cast<bool>(value));
             }
+            systemContext_->standbyCoordinator().reset();
             publish(param, number2string(value), true);
             LOGF(DEBUG, "MQTT special parameter %s updated to %f", param, value);
             return;
@@ -301,6 +304,7 @@ void MQTTManager::assignParameter(char* param, double value) {
             if (sensorCoordinator_) {
                 sensorCoordinator_->setScaleCalibrationMode(static_cast<bool>(value));
             }
+            systemContext_->standbyCoordinator().reset();
             publish(param, number2string(value), true);
             LOGF(DEBUG, "MQTT special parameter %s updated to %f", param, value);
             return;
@@ -321,6 +325,7 @@ void MQTTManager::assignParameter(char* param, double value) {
         bool success = paramDef->fromString(valueVariant);
 
         if (success) {
+            systemContext_->standbyCoordinator().reset();
             publish(param, number2string(value), true);
             LOGF(DEBUG, "MQTT parameter %s (ID: %s) updated to %f", param, parameterId, value);
         } else {
