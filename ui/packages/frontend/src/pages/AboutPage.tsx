@@ -1,6 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useCleverCoffee } from "@/context/useCleverCoffee";
-import { Globe, Github, MessageCircle, Info } from "lucide-react";
+import { Globe, Link, MessageCircle, Info } from "lucide-react";
 import { useMemo } from "react";
 
 export function AboutPage() {
@@ -75,7 +75,7 @@ export function AboutPage() {
               rel="noopener noreferrer"
             >
               <div className="flex flex-col items-center justify-center p-6 rounded-lg border bg-card hover:bg-accent/50 transition-colors duration-200 h-32">
-                <Github className="h-8 w-8 mb-3 text-gray-700 dark:text-gray-300" />
+                <Link className="h-8 w-8 mb-3 text-gray-700 dark:text-gray-300" />
                 <p className="font-medium text-center">GitHub Repository</p>
                 <p className="text-xs text-muted-foreground text-center mt-1">
                   Source code & issues
@@ -177,7 +177,7 @@ export function AboutPage() {
               rel="noopener noreferrer"
             >
               <div className="flex flex-col items-center justify-center p-6 rounded-lg border bg-card hover:bg-accent/50 transition-colors duration-200 h-32">
-                <Github className="h-8 w-8 mb-3 text-gray-700 dark:text-gray-300" />
+                <Link className="h-8 w-8 mb-3 text-gray-700 dark:text-gray-300" />
                 <p className="font-medium text-center">BrewUI Repository</p>
                 <p className="text-xs text-muted-foreground text-center mt-1">
                   Source code & issues

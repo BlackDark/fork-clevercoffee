@@ -21,7 +21,9 @@ jobs:
           path: |
             ~/.cache/pip
             ~/.platformio/.cache
-          key: ${{ runner.os }}-pio
+          key: ${{ runner.os }}-pio-${{ hashFiles('platformio.ini') }}
+          restore-keys: |
+            ${{ runner.os }}-pio-
 
       - uses: actions/setup-python@v5
         with:
@@ -32,3 +34,6 @@ jobs:
 
       - name: Check format
         run: pio run -e esp32_usb --target check-format
+
+      - name: Run Native Tests
+        run: pio test -e native_test

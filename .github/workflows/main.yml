@@ -21,7 +21,9 @@ jobs:
           path: |
             ~/.cache/pip
             ~/.platformio/.cache
-          key: ${{ runner.os }}-pio
+          key: ${{ runner.os }}-pio-${{ hashFiles('platformio.ini') }}
+          restore-keys: |
+            ${{ runner.os }}-pio-
 
       - uses: actions/setup-python@v5
         with:
@@ -49,9 +51,14 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Build PlatformIO Project
-        run: pio run
+        run: |
+          pio run -e esp32_usb
+          pio run -e esp32_ota
         env:
           CLEVERCOFFEE_VERSION: ${{ env.CLEVERCOFFEE_VERSION }}
+
+      - name: Run Native Tests
+        run: pio test -e native_test
 
       - name: Upload firmware artifacts
         uses: actions/upload-artifact@v4

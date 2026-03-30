@@ -4,31 +4,29 @@
  * @brief A relay connected to a GPIO pin
  */
 
-#include "Relay.h"
-#include "GPIOPin.h"
+#include "clevercoffee/hardware/Relay.h"
 
-Relay::Relay(GPIOPin& gpioInstance, const TriggerType trigger) :
-    gpio(gpioInstance), relayTrigger(trigger) {
-}
+#include "clevercoffee/hardware/GPIOPin.h"
 
-void Relay::on() const {
-    if (relayTrigger == HIGH_TRIGGER) {
+Relay::Relay(GPIOPin& gpioInstance, const Hardware::RelayTriggerType trigger)
+    : gpio(gpioInstance), relayTrigger(trigger) {}
+
+void Relay::on() const noexcept {
+    if (relayTrigger == Hardware::RelayTriggerType::HIGH_TRIGGER) {
         gpio.write(HIGH);
-    }
-    else {
+    } else {
         gpio.write(LOW);
     }
 }
 
-void Relay::off() const {
-    if (relayTrigger == HIGH_TRIGGER) {
+void Relay::off() const noexcept {
+    if (relayTrigger == Hardware::RelayTriggerType::HIGH_TRIGGER) {
         gpio.write(LOW);
-    }
-    else {
+    } else {
         gpio.write(HIGH);
     }
 }
 
-GPIOPin& Relay::getGPIOInstance() const {
+GPIOPin& Relay::getGPIOInstance() const noexcept {
     return gpio;
 }

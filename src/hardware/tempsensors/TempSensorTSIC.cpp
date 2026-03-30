@@ -4,8 +4,9 @@
  * @brief Handler for TSIC 306 temperature sensor
  */
 
-#include "TempSensorTSIC.h"
-#include "Logger.h"
+#include "clevercoffee/hardware/tempsensors/TempSensorTSIC.h"
+
+#include "clevercoffee/Logger.h"
 
 #define MAX_CHANGERATE 15
 
@@ -14,6 +15,13 @@ TempSensorTSIC::TempSensorTSIC(const int GPIOPin) {
     tsicSensor_ = new ZACwire(GPIOPin, 306);
     // Start sampling the TSic sensor
     tsicSensor_->begin();
+}
+
+TempSensorTSIC::~TempSensorTSIC() {
+    if (tsicSensor_ != nullptr) {
+        delete tsicSensor_;
+        tsicSensor_ = nullptr;
+    }
 }
 
 bool TempSensorTSIC::sample_temperature(double& temperature) const {
