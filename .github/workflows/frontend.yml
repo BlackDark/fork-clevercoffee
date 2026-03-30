@@ -1,0 +1,51 @@
+name: Frontend
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'ui/**'
+      - '.github/workflows/frontend.yml'
+  pull_request:
+    branches-ignore:
+      - main
+    paths:
+      - 'ui/**'
+      - '.github/workflows/frontend.yml'
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - name: Install pnpm
+        run: corepack enable pnpm
+
+      - name: Install dependencies
+        working-directory: ui
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        working-directory: ui/packages/frontend
+        run: pnpm lint
+
+      - name: Type check
+        working-directory: ui/packages/frontend
+        run: pnpm tsc
+
+      - name: Test
+        working-directory: ui/packages/frontend
+        run: pnpm test:run
+
+      - name: Build
+        working-directory: ui/packages/frontend
+        run: pnpm build
