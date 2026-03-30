@@ -119,7 +119,7 @@ export function HomePage() {
 
   // Handle function toggles by calling dedicated context methods if available
   const handleToggleFunction = async (paramName: string) => {
-    let success = false;
+    let success;
     if (paramName === "pid.enabled") {
       success = await togglePid();
     } else if (paramName === "STEAM_MODE") {
@@ -148,7 +148,7 @@ export function HomePage() {
 
   // Handle scale actions by calling dedicated context methods
   const handleScaleAction = async (paramName: string) => {
-    let success = false;
+    let success;
     if (paramName === "TARE_ON") {
       success = await toggleTareScale();
     } else if (paramName === "CALIBRATION_ON") {
