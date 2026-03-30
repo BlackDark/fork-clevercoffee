@@ -8,6 +8,9 @@ min_version = "2024.1.0"
   # Python
   python = "3.13"
 
+  # C++ tooling
+  clang-format = "latest"
+
 [settings]
   experimental = true
   jobs = 4

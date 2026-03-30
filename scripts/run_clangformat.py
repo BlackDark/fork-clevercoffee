@@ -95,11 +95,10 @@ def _run_with_docker(file_list, apply):
 
 
 def _run_with_system(file_list, apply):
-    """Run clang-format using the locally installed version (fallback)."""
     dry_run = " --dry-run " if not apply else " "
     files_arg = " ".join(f'"{f}"' for f in file_list)
 
-    cmd = f"clang-format --Werror{dry_run}-i {files_arg}"
+    cmd = f"mise exec -- clang-format --Werror{dry_run}-i {files_arg}"
 
     if env.Execute(cmd):
         env.Exit(1)
