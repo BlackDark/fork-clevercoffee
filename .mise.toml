@@ -9,7 +9,7 @@ min_version = "2024.1.0"
   python = "3.13"
 
   # C++ tooling
-  clang-format = "latest"
+  clang-format = "21"
 
 [settings]
   experimental = true
