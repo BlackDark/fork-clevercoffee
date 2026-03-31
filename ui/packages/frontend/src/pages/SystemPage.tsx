@@ -267,7 +267,7 @@ export function SystemPage() {
           <Power className="h-6 w-6 text-orange-600" />
           <h2 className="text-2xl font-semibold">System Control</h2>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {/* Machine Actions */}
           <Card>
             <CardHeader>
@@ -280,7 +280,7 @@ export function SystemPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               <p className="text-muted-foreground">
-                Wake or put the machine into standby mode.
+                Control machine power state and restart.
               </p>
               <div className="flex flex-wrap gap-2">
                 <Button
@@ -319,31 +319,14 @@ export function SystemPage() {
                   <Moon className="mr-2 h-4 w-4" />
                   Sleep
                 </Button>
+                <Button
+                  onClick={confirmRestart}
+                  className="bg-orange-500 hover:bg-orange-600 text-white"
+                >
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  Restart
+                </Button>
               </div>
-            </CardContent>
-          </Card>
-
-          {/* Restart Machine */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-orange-500/10">
-                  <Power className="h-5 w-5 text-orange-600" />
-                </div>
-                Restart Machine
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <p className="text-muted-foreground">
-                Restart the machine to apply changes or resolve issues.
-              </p>
-              <Button
-                onClick={confirmRestart}
-                className="bg-orange-500 hover:bg-orange-600 text-white"
-              >
-                <Power className="mr-2 h-4 w-4" />
-                Restart Machine
-              </Button>
             </CardContent>
           </Card>
 
