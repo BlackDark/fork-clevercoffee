@@ -45,6 +45,24 @@ export function StandbyNotification() {
     };
   }, [lastStandbyState]);
 
+  const checkStandbyNow = async () => {
+    try {
+      const response = await fetch("/api/status", {
+        signal: AbortSignal.timeout(5000),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        const isStandby = data.isStandby === true;
+        setLastStandbyState(isStandby);
+        if (!isStandby) {
+          setIsVisible(false);
+        }
+      }
+    } catch {
+      // Network errors are expected when machine is offline
+    }
+  };
+
   const handleWake = async () => {
     setIsWaking(true);
     try {
@@ -53,8 +71,7 @@ export function StandbyNotification() {
         toast.success("Machine waking up", {
           description: "Standby timer reset",
         });
-        setIsVisible(false);
-        setLastStandbyState(false);
+        await checkStandbyNow();
       } else {
         toast.error("Failed to wake machine", {
           description: "Could not connect to the machine",

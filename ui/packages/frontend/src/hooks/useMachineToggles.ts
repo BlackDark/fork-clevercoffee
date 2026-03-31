@@ -9,6 +9,7 @@ interface UseMachineTogglesReturn {
   toggleTareScale: () => Promise<boolean>;
   toggleScaleCalibration: () => Promise<boolean>;
   wakeFromStandby: () => Promise<boolean>;
+  sleepFromStandby: () => Promise<boolean>;
 }
 
 export function useMachineToggles(): UseMachineTogglesReturn {
@@ -66,6 +67,15 @@ export function useMachineToggles(): UseMachineTogglesReturn {
     }
   }, []);
 
+  const sleepFromStandby = useCallback(async () => {
+    try {
+      const response = await apiFetch(API_ROUTES.SLEEP, { method: "POST" });
+      return response.ok;
+    } catch {
+      return false;
+    }
+  }, []);
+
   return {
     togglePid,
     toggleSteam,
@@ -73,5 +83,6 @@ export function useMachineToggles(): UseMachineTogglesReturn {
     toggleTareScale,
     toggleScaleCalibration,
     wakeFromStandby,
+    sleepFromStandby,
   };
 }

@@ -41,6 +41,7 @@ interface CleverCoffeeContextValue {
   toggleTareScale: ReturnType<typeof useMachineToggles>["toggleTareScale"];
   toggleScaleCalibration: ReturnType<typeof useMachineToggles>["toggleScaleCalibration"];
   wakeFromStandby: ReturnType<typeof useMachineToggles>["wakeFromStandby"];
+  sleepFromStandby: ReturnType<typeof useMachineToggles>["sleepFromStandby"];
 }
 
 export const CleverCoffeeProvider: React.FC<{ children: React.ReactNode }> = ({
@@ -86,6 +87,7 @@ export const CleverCoffeeProvider: React.FC<{ children: React.ReactNode }> = ({
     toggleTareScale: rawToggleTareScale,
     toggleScaleCalibration: rawToggleScaleCalibration,
     wakeFromStandby: rawWakeFromStandby,
+    sleepFromStandby: rawSleepFromStandby,
   } = useMachineToggles();
 
   const togglePid = useCallback(async () => {
@@ -117,6 +119,10 @@ export const CleverCoffeeProvider: React.FC<{ children: React.ReactNode }> = ({
   const wakeFromStandby = useCallback(async () => {
     return await rawWakeFromStandby();
   }, [rawWakeFromStandby]);
+
+  const sleepFromStandby = useCallback(async () => {
+    return await rawSleepFromStandby();
+  }, [rawSleepFromStandby]);
 
   const addTempData = useCallback(
     (data: { currentTemp?: number; targetTemp?: number }) => {
@@ -233,6 +239,7 @@ export const CleverCoffeeProvider: React.FC<{ children: React.ReactNode }> = ({
     toggleTareScale,
     toggleScaleCalibration,
     wakeFromStandby,
+    sleepFromStandby,
   };
 
   return (

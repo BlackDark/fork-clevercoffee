@@ -10,6 +10,7 @@ export const API_ROUTES = {
   BACKFLUSH: "/backflush",
   SETPOINT: "/setpoint",
   WAKE: "/wake",
+  SLEEP: "/sleep",
 
   // Configuration
   CONFIG: "/config",

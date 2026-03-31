@@ -371,6 +371,17 @@ void WebServerManager::setupApiRoutes() {
         }
     });
 
+    // Sleep endpoint - force machine into standby mode
+    server_->on("/api/sleep", HTTP_POST, [this](AsyncWebServerRequest* request) {
+        if (systemContext_) {
+            systemContext_->machineStateContext()->enterStandbyMode();
+            LOG(INFO, "Enter standby/sleep via API");
+            request->send(200, "application/json", "{\"success\":true}");
+        } else {
+            request->send(500, "application/json", "{\"error\":\"System context not available\"}");
+        }
+    });
+
     // Steam control endpoints
     server_->on("/api/steam", HTTP_POST, [this](AsyncWebServerRequest* request) {
         try {

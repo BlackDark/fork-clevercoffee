@@ -9,11 +9,13 @@ import {
   AlertCircle,
   Download,
   Loader2,
+  Moon,
   Power,
   RefreshCw,
   TriangleAlert,
   Upload,
   Wifi,
+  Zap,
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -25,7 +27,7 @@ export function SystemPage() {
   const [uploadSuccess, setUploadSuccess] = useState(false);
 
   // Use the centralized hook for connection error handling
-  const { connectionError } = useCleverCoffee();
+  const { connectionError, wakeFromStandby, sleepFromStandby } = useCleverCoffee();
 
   const formatFileSize = (bytes: number) => {
     if (bytes === 0) return "0 Bytes";
@@ -265,7 +267,62 @@ export function SystemPage() {
           <Power className="h-6 w-6 text-orange-600" />
           <h2 className="text-2xl font-semibold">System Control</h2>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {/* Machine Actions */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-500/10">
+                  <Zap className="h-5 w-5 text-indigo-600" />
+                </div>
+                Machine Actions
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-muted-foreground">
+                Wake or put the machine into standby mode.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  onClick={async () => {
+                    const success = await wakeFromStandby();
+                    if (success) {
+                      toast.success("Machine woken up", {
+                        description: "Standby timer reset",
+                      });
+                    } else {
+                      toast.error("Failed to wake machine", {
+                        description: "Could not connect to the machine",
+                      });
+                    }
+                  }}
+                  className="bg-green-500 hover:bg-green-600 text-white"
+                >
+                  <Power className="mr-2 h-4 w-4" />
+                  Wake Up
+                </Button>
+                <Button
+                  onClick={async () => {
+                    const success = await sleepFromStandby();
+                    if (success) {
+                      toast.success("Machine entering standby", {
+                        description: "Machine is going to sleep",
+                      });
+                    } else {
+                      toast.error("Failed to sleep machine", {
+                        description: "Could not connect to the machine",
+                      });
+                    }
+                  }}
+                  variant="outline"
+                >
+                  <Moon className="mr-2 h-4 w-4" />
+                  Sleep
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
           {/* Restart Machine */}
           <Card>
             <CardHeader>
