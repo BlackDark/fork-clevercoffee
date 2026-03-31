@@ -374,8 +374,8 @@ void WebServerManager::setupApiRoutes() {
     // Sleep endpoint - force machine into standby mode
     server_->on("/api/sleep", HTTP_POST, [this](AsyncWebServerRequest* request) {
         if (systemContext_) {
-            systemContext_->machineStateContext()->setCurrentStateId(MachineStateId::STANDBY);
-            LOG(INFO, "Enter standby/sleep via API");
+            systemContext_->machineStateContext()->setStandbyRequested(true);
+            LOG(INFO, "Standby requested via API");
             request->send(200, "application/json", "{\"success\":true}");
         } else {
             request->send(500, "application/json", "{\"error\":\"System context not available\"}");
