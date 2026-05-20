@@ -40,6 +40,7 @@ export function HomePage() {
     heaterData,
     fetchTemperatureAndChartData,
     fetchHistoryData,
+    fetchParameters,
     updateParameter,
     saveParameters,
     retryConnection,
@@ -51,9 +52,11 @@ export function HomePage() {
   } = useCleverCoffee();
 
   useEffect(() => {
-    if (fetchHistoryData) {
-      fetchHistoryData();
-    }
+    if (parameters.length === 0) fetchParameters();
+  }, [fetchParameters, parameters.length]);
+
+  useEffect(() => {
+    if (fetchHistoryData) fetchHistoryData();
   }, [fetchHistoryData]);
 
   // Memoized filtered parameters to avoid recalculating on every render
@@ -130,7 +133,7 @@ export function HomePage() {
       // Fallback: update and save parameter
       const param = parameters.find((p) => p.name === paramName);
       if (!param) return;
-      const newValue = param.value === 1 ? 0 : 1;
+      const newValue = param.value ? false : true;
       updateParameter(paramName, newValue);
       success = await saveParameters();
     }
@@ -524,12 +527,12 @@ export function HomePage() {
                           {parameterLabels.en[param.name] || param.name}
                         </div>
                         <div className="text-sm text-muted-foreground">
-                          {param.value === 1 ? "Enabled" : "Disabled"}
+                          {param.value ? "Enabled" : "Disabled"}
                         </div>
                       </div>
                       <Switch
                         id={param.name}
-                        checked={param.value === 1}
+                        checked={!!param.value}
                         onCheckedChange={() => handleToggleFunction(param.name)}
                       />
                     </div>

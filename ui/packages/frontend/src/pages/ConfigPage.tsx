@@ -300,6 +300,10 @@ export function ConfigPage() {
     errorParams,
   } = useCleverCoffee();
 
+  useEffect(() => {
+    if (serverParameters.length === 0) fetchParameters();
+  }, [fetchParameters, serverParameters.length]);
+
   // Initialize local parameters when server parameters load
   useEffect(() => {
     if (serverParameters.length > 0) {

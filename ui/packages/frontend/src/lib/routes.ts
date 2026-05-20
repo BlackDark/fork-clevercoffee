@@ -5,42 +5,48 @@
 
 export const API_ROUTES = {
   // Machine Control
-  STEAM: "/api/steam",
-  PID: "/api/pid",
-  BACKFLUSH: "/api/backflush",
-  SETPOINT: "/api/setpoint",
+  STEAM: "/steam",
+  PID: "/pid",
+  BACKFLUSH: "/backflush",
+  SETPOINT: "/setpoint",
+  WAKE: "/wake",
+  SLEEP: "/sleep",
 
   // Configuration
-  CONFIG: "/api/config",
-  CONFIG_DOWNLOAD: "/api/config/download",
-  PARAMETERS: "/api/parameters",
-  PARAMETER_HELP: "/api/parameter-help",
+  CONFIG: "/config",
+  CONFIG_DOWNLOAD: "/config/download",
+  PARAMETERS: "/parameters",
+  PARAMETER_HELP: "/parameter-help",
 
   // Status & Telemetry
-  STATUS: "/api/status",
-  HEALTH: "/api/health",
-  TEMPERATURES: "/api/temperatures",
-  HISTORY: "/api/history",
+  STATUS: "/status",
+  HEALTH: "/health",
+  TEMPERATURES: "/temperatures",
+  HISTORY: "/history",
 
   // Scale
-  SCALE_TARE: "/api/scale/tare",
-  SCALE_CALIBRATION: "/api/scale/calibration",
+  SCALE_TARE: "/scale/tare",
+  SCALE_CALIBRATION: "/scale/calibration",
 
   // OTA
-  OTA_STATUS: "/api/ota/status",
-  OTA_FIRMWARE: "/api/ota/firmware",
-  OTA_FILESYSTEM: "/api/ota/filesystem",
-  OTA_URL: "/api/ota/url",
+  OTA_STATUS: "/ota/status",
+  OTA_FIRMWARE: "/ota/firmware",
+  OTA_FILESYSTEM: "/ota/filesystem",
+  OTA_URL: "/ota/url",
 
   // System
-  RESTART: "/api/restart",
-  FACTORY_RESET: "/api/factory-reset",
-  WIFI_RESET: "/api/wifi-reset",
-  NVS_DEBUG: "/api/nvs-debug",
+  RESTART: "/restart",
+  FACTORY_RESET: "/factory-reset",
+  WIFI_RESET: "/wifi-reset",
+  NVS_DEBUG: "/nvs-debug",
 } as const;
 
 export type ApiRoute = (typeof API_ROUTES)[keyof typeof API_ROUTES];
 
 export function getRoute(route: ApiRoute): string {
   return route;
+}
+
+export function getApiRoute(route: ApiRoute): string {
+  return `/api${route}`;
 }
