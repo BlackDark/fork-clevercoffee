@@ -5,6 +5,7 @@
 
 #include "clevercoffee/state/MachineStateContext.h"
 
+#include "clevercoffee/backflush/BackflushModeLogic.h"
 #include "clevercoffee/Config.h"
 #include "clevercoffee/context/SystemContext.h"
 #include "clevercoffee/control/ProcessController.h"
@@ -355,23 +356,29 @@ void MachineStateContext::setBackflushState(bool active) {
 }
 
 void MachineStateContext::applyBackflushMode(bool active) noexcept {
-    if (active == backflushOn_) {
-        return;
-    }
+    using CleverCoffee::Backflush::ModeChangeEffect;
+    using CleverCoffee::Backflush::resolveModeChange;
 
-    if (active && Config::getInstance().backflushCycles.get() <= 0) {
-        LOG(WARNING, "Backflush mode not enabled: backflush.cycles must be > 0");
-        return;
-    }
+    const auto effect = resolveModeChange(
+        {backflushOn_, active, Config::getInstance().backflushCycles.get()});
 
-    backflushOn_ = active;
-    if (active) {
-        setBackflushCycleCount(1);
-        setBackflushEnterRequested(true);
-        LOG(DEBUG, "Backflush mode activated");
-    } else {
-        setBackflushStopRequested(true);
-        LOG(DEBUG, "Backflush mode deactivated");
+    switch (effect) {
+        case ModeChangeEffect::None:
+            return;
+        case ModeChangeEffect::RejectedInvalidCycles:
+            LOG(WARNING, "Backflush mode not enabled: backflush.cycles must be > 0");
+            return;
+        case ModeChangeEffect::Enable:
+            backflushOn_ = true;
+            setBackflushCycleCount(1);
+            setBackflushEnterRequested(true);
+            LOG(DEBUG, "Backflush mode activated");
+            return;
+        case ModeChangeEffect::Disable:
+            backflushOn_ = false;
+            setBackflushStopRequested(true);
+            LOG(DEBUG, "Backflush mode deactivated");
+            return;
     }
 }
 
@@ -431,6 +438,10 @@ unsigned long MachineStateContext::getBackflushFillTimeMs() const {
 
 unsigned long MachineStateContext::getBackflushFlushTimeMs() const {
     return static_cast<unsigned long>(Config::getInstance().backflushFlushTime.get() * 1000);
+}
+
+int MachineStateContext::getBackflushCycles() const {
+    return Config::getInstance().backflushCycles.get();
 }
 
 // === State Timing Functions ===

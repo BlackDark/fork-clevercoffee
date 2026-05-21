@@ -5,6 +5,7 @@
 
 #include "clevercoffee/state/states/BackflushStates.h"
 
+#include "clevercoffee/backflush/BackflushModeLogic.h"
 #include "clevercoffee/Config.h"
 #include "clevercoffee/Logger.h"
 #include "clevercoffee/constants/Timing.h"
@@ -115,8 +116,9 @@ std::optional<MachineStateId> BackflushFlushingState::checkSpecificTransitions(M
     }
 
     if (context.hasStateTimeoutElapsed(context.getBackflushFlushTimeMs())) {
-        const int configuredCycles = Config::getInstance().backflushCycles.get();
-        if (context.getBackflushCycleCount() < configuredCycles) {
+        const int configuredCycles = context.getBackflushCycles();
+        if (CleverCoffee::Backflush::resolveCycleAdvance(context.getBackflushCycleCount(), configuredCycles) ==
+            CleverCoffee::Backflush::CycleAdvanceEffect::StartNextCycle) {
             context.setBackflushCycleCount(context.getBackflushCycleCount() + 1);
             context.logStateTransition(
                 getStateId(), MachineStateId::BACKFLUSH_FILLING, "Starting next backflush cycle");
@@ -153,7 +155,6 @@ std::optional<MachineStateId> BackflushFinishedState::checkSpecificTransitions(M
 
     if (context.isBackflushCycleStartRequested()) {
         context.setBackflushCycleStartRequested(false);
-        context.setBackflushCycleCount(1);
         context.logStateTransition(getStateId(), MachineStateId::BACKFLUSH_FILLING, "Backflush cycle start requested");
         return MachineStateId::BACKFLUSH_FILLING;
     }

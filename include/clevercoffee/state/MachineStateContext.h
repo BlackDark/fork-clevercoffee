@@ -678,6 +678,11 @@ class MachineStateContext : public CleverCoffee::IHardwareContext,
      */
     unsigned long getBackflushFlushTimeMs() const;
 
+    /**
+     * @brief Get configured number of backflush cycles
+     */
+    int getBackflushCycles() const;
+
     // === State Timing Functions ===
 
     /**
