@@ -1052,7 +1052,7 @@ class SystemContext {
     bool backflushMode() const noexcept;
 
     /**
-     * @brief Set backflush mode
+     * @brief Set backflush mode (also resets standby and requests normal operation)
      * @param on true to enable backflush mode
      */
     void setBackflushMode(bool on) noexcept;

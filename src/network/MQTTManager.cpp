@@ -289,8 +289,6 @@ void MQTTManager::assignParameter(char* param, double value) {
             return;
         } else if (strcmp(parameterId, "BACKFLUSH_ON") == 0) {
             systemContext_->setBackflushMode(static_cast<bool>(value));
-            systemContext_->standbyCoordinator().reset();
-            systemContext_->machineStateContext()->setNormalOperationRequested(true);
             publish(param, number2string(value), true);
             LOGF(DEBUG, "MQTT special parameter %s updated to %f", param, value);
             return;

@@ -477,10 +477,8 @@ void WebServerManager::setupApiRoutes() {
                 return;
             }
 
-            const bool backflushOn = !systemContext_->backflushMode();
-            systemContext_->setBackflushMode(backflushOn);
-            systemContext_->standbyCoordinator().reset();
-            requestNormalOperation(systemContext_);
+            systemContext_->setBackflushMode(!systemContext_->backflushMode());
+            const bool backflushOn = systemContext_->backflushMode();
             LOGF(INFO, "Toggle backflush mode: %s", backflushOn ? "on" : "off");
 
             JsonDocument doc;
