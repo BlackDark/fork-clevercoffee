@@ -477,7 +477,7 @@ void WebServerManager::setupApiRoutes() {
                 return;
             }
 
-            const bool backflushOn = !systemContext_->machineStateContext()->isBackflushModeActive();
+            const bool backflushOn = !systemContext_->backflushMode();
             systemContext_->setBackflushMode(backflushOn);
             systemContext_->standbyCoordinator().reset();
             requestNormalOperation(systemContext_);

@@ -181,7 +181,7 @@ void MachineStateContext::setPidRuntimeState(bool /*enabled*/) const {}
 void MachineStateContext::performSafeShutdown() const {}
 void MachineStateContext::setManualFlushState(bool /*active*/) const {}
 void MachineStateContext::setSteamState(bool active) { steamON_ = active; }
-void MachineStateContext::setBackflushState(bool active) { backflushOn_ = active; }
+void MachineStateContext::setBackflushState(bool active) { applyBackflushMode(active); }
 void MachineStateContext::disableWaterOperations() const {}
 void MachineStateContext::enableWaterOperations() const {}
 void MachineStateContext::enterSafeMode() const {}

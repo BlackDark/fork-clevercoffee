@@ -425,11 +425,9 @@ class MachineStateContext : public CleverCoffee::IHardwareContext,
     }
 
     /**
-     * @brief Set backflush mode state
+     * @brief Enable or disable backflush mode and request matching state transitions
      */
-    void setBackflushModeActive(bool active) noexcept {
-        backflushOn_ = active;
-    }
+    void applyBackflushMode(bool active) noexcept;
 
     /**
      * @brief Get current backflush cycle count
@@ -565,9 +563,7 @@ class MachineStateContext : public CleverCoffee::IHardwareContext,
     /**
      * @brief Set backflush start request
      */
-    void setBackflushStartRequested(bool requested) noexcept {
-        requestBackflushStart_ = requested;
-    }
+    void setBackflushStartRequested(bool requested) noexcept;
 
     /**
      * @brief Check if backflush stop is requested
@@ -579,9 +575,7 @@ class MachineStateContext : public CleverCoffee::IHardwareContext,
     /**
      * @brief Set backflush stop request
      */
-    void setBackflushStopRequested(bool requested) noexcept {
-        requestBackflushStop_ = requested;
-    }
+    void setBackflushStopRequested(bool requested) noexcept;
 
     /**
      * @brief Check if standby is requested

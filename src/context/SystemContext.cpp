@@ -439,7 +439,7 @@ bool SystemContext::backflushMode() const noexcept {
 void SystemContext::setBackflushMode(bool on) noexcept {
     if (machineStateContext_) {
         const bool wasOn = machineStateContext_->isBackflushModeActive();
-        machineStateContext_->setBackflushModeActive(on);
+        machineStateContext_->applyBackflushMode(on);
         if (wasOn && !on) {
             maintenanceCoordinator_.resetSinceBackflush();
         }

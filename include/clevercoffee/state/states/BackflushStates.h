@@ -19,12 +19,16 @@ class BackflushState : public BaseState<MachineStateId::BACKFLUSH_IDLE, Backflus
 
 class BackflushFillingState : public BaseState<MachineStateId::BACKFLUSH_FILLING, BackflushFillingState> {
   public:
+    void                          onEntryImpl(MachineStateContext& context) override;
+    void                          onExitImpl(MachineStateContext& context) override;
     void                          update(MachineStateContext& context) override;
     std::optional<MachineStateId> checkSpecificTransitions(MachineStateContext& context) override;
 };
 
 class BackflushFlushingState : public BaseState<MachineStateId::BACKFLUSH_FLUSHING, BackflushFlushingState> {
   public:
+    void                          onEntryImpl(MachineStateContext& context) override;
+    void                          onExitImpl(MachineStateContext& context) override;
     void                          update(MachineStateContext& context) override;
     std::optional<MachineStateId> checkSpecificTransitions(MachineStateContext& context) override;
 };

@@ -217,6 +217,20 @@ void MachineStateContext::resetStandbyTimerOnUserActivity() const {
     systemContext_.standbyCoordinator().reset();
 }
 
+void MachineStateContext::setBackflushStartRequested(bool requested) noexcept {
+    requestBackflushStart_ = requested;
+    if (requested) {
+        resetStandbyTimerOnUserActivity();
+    }
+}
+
+void MachineStateContext::setBackflushStopRequested(bool requested) noexcept {
+    requestBackflushStop_ = requested;
+    if (requested) {
+        resetStandbyTimerOnUserActivity();
+    }
+}
+
 void MachineStateContext::setBrewStartRequested(bool requested) noexcept {
     requestBrewStart_ = requested;
     if (requested) {
@@ -330,11 +344,26 @@ void MachineStateContext::setSteamState(bool active) {
 }
 
 void MachineStateContext::setBackflushState(bool active) {
-    // Update member variable
+    applyBackflushMode(active);
+}
+
+void MachineStateContext::applyBackflushMode(bool active) noexcept {
+    if (active == backflushOn_) {
+        return;
+    }
+
+    if (active && Config::getInstance().backflushCycles.get() <= 0) {
+        LOG(WARNING, "Backflush mode not enabled: backflush.cycles must be > 0");
+        return;
+    }
+
     backflushOn_ = active;
     if (active) {
+        setBackflushCycleCount(1);
+        setBackflushStartRequested(true);
         LOG(DEBUG, "Backflush mode activated");
     } else {
+        setBackflushStopRequested(true);
         LOG(DEBUG, "Backflush mode deactivated");
     }
 }

@@ -5,12 +5,29 @@
 
 #include "clevercoffee/state/states/BackflushStates.h"
 
+#include "clevercoffee/Config.h"
 #include "clevercoffee/Logger.h"
+#include "clevercoffee/constants/Timing.h"
 #include "clevercoffee/state/MachineStateContext.h"
 #include "clevercoffee/types/GlobalTypes.h"
 
+namespace {
+
+std::optional<MachineStateId> checkBackflushModeDisabled(MachineStateContext& context, MachineStateId fromStateId) {
+    if (context.isBackflushModeActive()) {
+        return std::nullopt;
+    }
+    context.setBackflushStopRequested(false);
+    const MachineStateId pidState = context.getPidState();
+    context.logStateTransition(fromStateId, pidState, "Backflush mode disabled");
+    return pidState;
+}
+
+} // namespace
+
 // BackflushStates Implementation
 void BackflushState::onEntryImpl(MachineStateContext& context) {
+    cleanupPumpAndValve(context);
     LOG(INFO, "Backflush idle - ready for backflush operation");
 }
 
@@ -19,6 +36,10 @@ void BackflushState::update(MachineStateContext& context) {
 }
 
 std::optional<MachineStateId> BackflushState::checkSpecificTransitions(MachineStateContext& context) {
+    if (auto disabled = checkBackflushModeDisabled(context, getStateId())) {
+        return disabled;
+    }
+
     if (context.isBackflushStartRequested()) {
         context.setBackflushStartRequested(false);
         context.logStateTransition(getStateId(), MachineStateId::BACKFLUSH_FILLING, "Backflush start requested");
@@ -27,7 +48,19 @@ std::optional<MachineStateId> BackflushState::checkSpecificTransitions(MachineSt
     return std::nullopt;
 }
 
+void BackflushFillingState::onEntryImpl(MachineStateContext& context) {
+    context.enablePump();
+    context.openWaterValve();
+    LOGF(INFO, "Backflush: filling portafilter (cycle %d)", context.getBackflushCycleCount());
+}
+
+void BackflushFillingState::onExitImpl(MachineStateContext& context) {
+    cleanupPumpAndValve(context);
+}
+
 void BackflushFillingState::update(MachineStateContext& context) {
+    context.enablePump();
+    context.openWaterValve();
     LOGF(DEBUG,
          "Backflush Filling: Temp=%.1f°C, Pressure=%.1fbar",
          context.getCurrentTemperature(),
@@ -35,14 +68,16 @@ void BackflushFillingState::update(MachineStateContext& context) {
 }
 
 std::optional<MachineStateId> BackflushFillingState::checkSpecificTransitions(MachineStateContext& context) {
-    // Check for manual stop request
+    if (auto disabled = checkBackflushModeDisabled(context, getStateId())) {
+        return disabled;
+    }
+
     if (context.isBackflushStopRequested()) {
         context.setBackflushStopRequested(false);
         context.logStateTransition(getStateId(), MachineStateId::BACKFLUSH_IDLE, "Backflush stop requested");
         return MachineStateId::BACKFLUSH_IDLE;
     }
 
-    // Check timeout using config-based fill time
     if (context.hasStateTimeoutElapsed(context.getBackflushFillTimeMs())) {
         context.logStateTransition(getStateId(), MachineStateId::BACKFLUSH_FLUSHING, "Fill time completed");
         return MachineStateId::BACKFLUSH_FLUSHING;
@@ -51,7 +86,17 @@ std::optional<MachineStateId> BackflushFillingState::checkSpecificTransitions(Ma
     return std::nullopt;
 }
 
+void BackflushFlushingState::onEntryImpl(MachineStateContext& context) {
+    cleanupPumpAndValve(context);
+    LOG(INFO, "Backflush: flushing into drip tray");
+}
+
+void BackflushFlushingState::onExitImpl(MachineStateContext& context) {
+    cleanupPumpAndValve(context);
+}
+
 void BackflushFlushingState::update(MachineStateContext& context) {
+    cleanupPumpAndValve(context);
     LOGF(DEBUG,
          "Backflush Flushing: Temp=%.1f°C, Pressure=%.1fbar",
          context.getCurrentTemperature(),
@@ -59,16 +104,27 @@ void BackflushFlushingState::update(MachineStateContext& context) {
 }
 
 std::optional<MachineStateId> BackflushFlushingState::checkSpecificTransitions(MachineStateContext& context) {
-    // Check for manual stop request
+    if (auto disabled = checkBackflushModeDisabled(context, getStateId())) {
+        return disabled;
+    }
+
     if (context.isBackflushStopRequested()) {
         context.setBackflushStopRequested(false);
         context.logStateTransition(getStateId(), MachineStateId::BACKFLUSH_IDLE, "Backflush stop requested");
         return MachineStateId::BACKFLUSH_IDLE;
     }
 
-    // Check timeout using config-based flush time
     if (context.hasStateTimeoutElapsed(context.getBackflushFlushTimeMs())) {
-        context.logStateTransition(getStateId(), MachineStateId::BACKFLUSH_FINISHED, "Flush time completed");
+        const int configuredCycles = Config::getInstance().backflushCycles.get();
+        if (context.getBackflushCycleCount() < configuredCycles) {
+            context.setBackflushCycleCount(context.getBackflushCycleCount() + 1);
+            context.logStateTransition(
+                getStateId(), MachineStateId::BACKFLUSH_FILLING, "Starting next backflush cycle");
+            return MachineStateId::BACKFLUSH_FILLING;
+        }
+
+        context.setBackflushCycleCount(1);
+        context.logStateTransition(getStateId(), MachineStateId::BACKFLUSH_FINISHED, "All backflush cycles completed");
         return MachineStateId::BACKFLUSH_FINISHED;
     }
 
@@ -76,6 +132,7 @@ std::optional<MachineStateId> BackflushFlushingState::checkSpecificTransitions(M
 }
 
 void BackflushFinishedState::onEntryImpl(MachineStateContext& context) {
+    cleanupPumpAndValve(context);
     LOG(INFO, "Backflush finished - backflush cycle complete");
 }
 
@@ -84,15 +141,24 @@ void BackflushFinishedState::update(MachineStateContext& context) {
 }
 
 std::optional<MachineStateId> BackflushFinishedState::checkSpecificTransitions(MachineStateContext& context) {
-    // Check for manual stop request
+    if (auto disabled = checkBackflushModeDisabled(context, getStateId())) {
+        return disabled;
+    }
+
     if (context.isBackflushStopRequested()) {
         context.setBackflushStopRequested(false);
         context.logStateTransition(getStateId(), MachineStateId::BACKFLUSH_IDLE, "Backflush stop requested");
         return MachineStateId::BACKFLUSH_IDLE;
     }
 
-    // Use a hardcoded 3 second timeout for the finished state (display time)
-    if (context.hasStateTimeoutElapsed(3000)) {
+    if (context.isBackflushStartRequested()) {
+        context.setBackflushStartRequested(false);
+        context.setBackflushCycleCount(1);
+        context.logStateTransition(getStateId(), MachineStateId::BACKFLUSH_FILLING, "Backflush start requested");
+        return MachineStateId::BACKFLUSH_FILLING;
+    }
+
+    if (context.hasStateTimeoutElapsed(CleverCoffee::BrewTiming::FINISHED_DISPLAY_TIMEOUT_MS)) {
         context.logStateTransition(getStateId(), MachineStateId::BACKFLUSH_IDLE, "Finished display timeout");
         return MachineStateId::BACKFLUSH_IDLE;
     }
