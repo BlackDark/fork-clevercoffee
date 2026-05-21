@@ -10,6 +10,7 @@
 #include "clevercoffee/constants/Timing.h"
 #include "clevercoffee/context/SystemContext.h"
 #include "clevercoffee/control/ProcessController.h"
+#include "clevercoffee/coordinators/SensorCoordinator.h"
 #include "clevercoffee/defaults.h"
 #include "clevercoffee/state/MachineStateContext.h"
 #include "clevercoffee/types/GlobalTypes.h"
@@ -301,6 +302,10 @@ std::optional<MachineStateId> BrewRunningState::checkSpecificTransitions(Machine
 
 void BrewFinishedState::onEntryImpl(MachineStateContext& context) {
     LOG(INFO, "Brew cycle completed");
+
+    const bool scaleEnabled = context.getConfig().hardwareSensorsScaleEnabled.get();
+    context.systemContext().maintenanceCoordinator().recordBrewIfQualified(
+        context.systemContext().processCurrentBrewTime(), context.getCurrentBrewWeight(), scaleEnabled);
 }
 
 void BrewFinishedState::onExitImpl(MachineStateContext& context) {

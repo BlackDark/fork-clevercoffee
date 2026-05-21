@@ -4,6 +4,7 @@
 #include "clevercoffee/context/ProcessState.h"
 #include "clevercoffee/context/SensorState.h"
 #include "clevercoffee/context/TimingState.h"
+#include "clevercoffee/coordinators/MaintenanceCoordinator.h"
 #include "clevercoffee/coordinators/NetworkCoordinator.h"
 #include "clevercoffee/coordinators/SensorCoordinator.h"
 #include "clevercoffee/coordinators/StandbyCoordinator.h"
@@ -157,6 +158,17 @@ class SystemContext {
      */
     const StandbyCoordinator& standbyCoordinator() const noexcept {
         return standbyCoordinator_;
+    }
+
+    /**
+     * @brief Access maintenance coordinator
+     */
+    MaintenanceCoordinator& maintenanceCoordinator() noexcept {
+        return maintenanceCoordinator_;
+    }
+
+    const MaintenanceCoordinator& maintenanceCoordinator() const noexcept {
+        return maintenanceCoordinator_;
     }
 
     /**
@@ -1126,12 +1138,13 @@ class SystemContext {
 
   private:
     // ===== COORDINATOR & CONTEXT MEMBERS =====
-    HardwareContext    hardwareContext_;    ///< Hardware component registry
-    SensorCoordinator  sensorCoordinator_;  ///< Manages sensor operation state
-    NetworkCoordinator networkCoordinator_; ///< Manages network connection state
-    UICoordinator      uiCoordinator_;      ///< Manages UI refresh and sleep state
-    StandbyCoordinator standbyCoordinator_; ///< Manages standby mode and power management
-    bool               ready_ = false;      ///< System initialization complete flag
+    HardwareContext        hardwareContext_;        ///< Hardware component registry
+    SensorCoordinator      sensorCoordinator_;      ///< Manages sensor operation state
+    NetworkCoordinator     networkCoordinator_;     ///< Manages network connection state
+    UICoordinator          uiCoordinator_;          ///< Manages UI refresh and sleep state
+    StandbyCoordinator     standbyCoordinator_;     ///< Manages standby mode and power management
+    MaintenanceCoordinator maintenanceCoordinator_; ///< Tracks shots since backflush and reminders
+    bool                   ready_ = false;          ///< System initialization complete flag
 
     // Handler references - ALL REQUIRED (always exist after initialization)
     BrewHandler*     brewHandler_     = nullptr; // Set during initializeHandlers()

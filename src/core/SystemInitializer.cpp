@@ -221,6 +221,10 @@ bool SystemInitializer::initializeConfiguration() {
     // Inject SystemContext into Config for StateParamDef lambdas
     Config::getInstance().setSystemContext(systemContext_.get());
 
+    if (!systemContext_->maintenanceCoordinator().begin()) {
+        LOG(WARNING, "Maintenance coordinator failed to load persisted state");
+    }
+
     LOG(INFO, "Configuration system ready");
 
     // Set log level from configuration
@@ -630,6 +634,8 @@ void SystemInitializer::registerMQTTParameters() {
         mqttManager_->registerParameter("backflushCycles", "backflush.cycles");
         mqttManager_->registerParameter("backflushFillTime", "backflush.fill_time");
         mqttManager_->registerParameter("backflushFlushTime", "backflush.flush_time");
+        mqttManager_->registerParameter("backflushReminderEnabled", "maintenance.backflush_reminder.enabled");
+        mqttManager_->registerParameter("backflushReminderThreshold", "maintenance.backflush_reminder.threshold");
     }
 
     // Scale-specific parameters
@@ -667,6 +673,12 @@ void SystemInitializer::registerMQTTSensors() {
     });
     mqttManager_->registerSensor("standbyModeTimeRemaining", [this] {
         return systemContext_->standbyCoordinator().getRemainingTimeMillis() / 1000.0;
+    });
+    mqttManager_->registerSensor("shotsSinceBackflush", [this] {
+        return static_cast<double>(systemContext_->maintenanceCoordinator().getShotsSinceBackflush());
+    });
+    mqttManager_->registerSensor("backflushReminderDue", [this] {
+        return systemContext_->maintenanceCoordinator().isReminderDue() ? 1.0 : 0.0;
     });
     mqttManager_->registerSensor("currentKp", [this] { return systemContext_->pidKp(); });
     mqttManager_->registerSensor("currentKi", [this] { return systemContext_->pidKi(); });

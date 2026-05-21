@@ -421,6 +421,8 @@ class UprightTemplate : public ModernDisplayTemplate<UprightTemplate> {
             Config::getInstance().hardwareSensorsScaleType.get() == Hardware::ScaleType::BLUETOOTH) {
             displayBluetoothStatus(*systemContext_, 54, 1);
         }
+
+        displayBackflushReminderIndicator(*systemContext_, 70, 0);
     }
 
   public:

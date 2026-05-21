@@ -293,16 +293,19 @@ void WebServerManager::setupApiRoutes() {
             return;
         }
 
-        const auto currentState = systemContext_->machineStateContext()->getCurrentStateId();
-        doc["temperature"]      = systemContext_->processController()->getCurrentTemperature();
-        doc["setpoint"]         = systemContext_->processController()->getSetpoint();
-        doc["heaterPower"]      = systemContext_->processController()->getPIDOutput() / 10.0;
-        doc["machineState"]     = static_cast<int>(currentState);
-        doc["isStandby"]        = (currentState == MachineStateId::STANDBY);
-        doc["standbyTime"]      = systemContext_->standbyCoordinator().getRemainingTimeMillis();
-        doc["pidEnabled"]       = systemContext_->processController()->isPIDEnabled();
-        doc["steamMode"]        = systemContext_->machineStateContext()->isSteamModeActive();
-        doc["uptime"]           = millis();
+        const auto currentState           = systemContext_->machineStateContext()->getCurrentStateId();
+        doc["temperature"]                = systemContext_->processController()->getCurrentTemperature();
+        doc["setpoint"]                   = systemContext_->processController()->getSetpoint();
+        doc["heaterPower"]                = systemContext_->processController()->getPIDOutput() / 10.0;
+        doc["machineState"]               = static_cast<int>(currentState);
+        doc["isStandby"]                  = (currentState == MachineStateId::STANDBY);
+        doc["standbyTime"]                = systemContext_->standbyCoordinator().getRemainingTimeMillis();
+        doc["pidEnabled"]                 = systemContext_->processController()->isPIDEnabled();
+        doc["steamMode"]                  = systemContext_->machineStateContext()->isSteamModeActive();
+        doc["uptime"]                     = millis();
+        doc["shotsSinceBackflush"]        = systemContext_->maintenanceCoordinator().getShotsSinceBackflush();
+        doc["backflushReminderThreshold"] = Config::getInstance().maintenanceBackflushReminderThreshold.get();
+        doc["backflushReminderDue"]       = systemContext_->maintenanceCoordinator().isReminderDue();
 
         if (Config::getInstance().hardwareSensorsScaleEnabled.get()) {
             doc["weight"]     = systemContext_->sensorCoordinator().getWeight();
@@ -428,23 +431,45 @@ void WebServerManager::setupApiRoutes() {
     // Backflush endpoint
     server_->on("/api/backflush", HTTP_POST, [this](AsyncWebServerRequest* request) {
         try {
-            systemContext_->machineStateContext()->setBackflushModeActive(
-                !systemContext_->machineStateContext()->isBackflushModeActive());
+            const bool backflushOn = !systemContext_->machineStateContext()->isBackflushModeActive();
+            systemContext_->setBackflushMode(backflushOn);
             systemContext_->standbyCoordinator().reset();
             systemContext_->machineStateContext()->setNormalOperationRequested(true);
-            LOGF(INFO,
-                 "Toggle backflush mode: %s",
-                 systemContext_->machineStateContext()->isBackflushModeActive() ? "on" : "off");
+            LOGF(INFO, "Toggle backflush mode: %s", backflushOn ? "on" : "off");
 
             JsonDocument doc;
             doc["success"]     = true;
-            doc["backflushOn"] = systemContext_->machineStateContext()->isBackflushModeActive();
+            doc["backflushOn"] = backflushOn;
 
             String response;
             serializeJson(doc, response);
             request->send(200, "application/json", response);
         } catch (const std::exception& e) {
             LOGF(ERROR, "API backflush failed: %s", e.what());
+            request->send(500, "application/json", ApiResponses::errorResponse("Internal server error"));
+        }
+    });
+
+    server_->on("/api/maintenance/reset-backflush-counter", HTTP_POST, [this](AsyncWebServerRequest* request) {
+        try {
+            if (!systemContext_) {
+                request->send(500, "application/json", ApiResponses::errorResponse("System context not available"));
+                return;
+            }
+
+            systemContext_->maintenanceCoordinator().resetSinceBackflush();
+            systemContext_->standbyCoordinator().reset();
+
+            JsonDocument doc;
+            doc["success"]              = true;
+            doc["shotsSinceBackflush"]  = systemContext_->maintenanceCoordinator().getShotsSinceBackflush();
+            doc["backflushReminderDue"] = systemContext_->maintenanceCoordinator().isReminderDue();
+
+            String response;
+            serializeJson(doc, response);
+            request->send(200, "application/json", response);
+        } catch (const std::exception& e) {
+            LOGF(ERROR, "API reset backflush counter failed: %s", e.what());
             request->send(500, "application/json", ApiResponses::errorResponse("Internal server error"));
         }
     });
@@ -828,6 +853,7 @@ void WebServerManager::setupApiRoutes() {
 
                 bool hasErrors  = false;
                 bool hasUpdates = false;
+                bool maintenanceConfigUpdated = false;
 
                 for (auto i = 0u; i < requestParams; ++i) {
                     if (const auto* p = request->getParam(i); p && p->name().length() > 0 && p->value().length() > 0) {
@@ -848,6 +874,9 @@ void WebServerManager::setupApiRoutes() {
 
                                 if (updateSuccess) {
                                     hasUpdates = true;
+                                    if (varName.startsWith("maintenance.backflush_reminder.")) {
+                                        maintenanceConfigUpdated = true;
+                                    }
                                     LOGF(INFO,
                                          "handleParameters POST: Successfully updated and saved parameter '%s' to '%s'",
                                          varName.c_str(),
@@ -871,6 +900,9 @@ void WebServerManager::setupApiRoutes() {
                     request->send(400, "application/json", "{\"error\":\"Some parameter updates failed\"}");
                 } else if (hasUpdates) {
                     if (systemContext_) {
+                        if (maintenanceConfigUpdated) {
+                            systemContext_->maintenanceCoordinator().onReminderConfigChanged();
+                        }
                         systemContext_->standbyCoordinator().reset();
                         systemContext_->machineStateContext()->setNormalOperationRequested(true);
                     }

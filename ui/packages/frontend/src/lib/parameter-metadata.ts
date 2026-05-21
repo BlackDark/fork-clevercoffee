@@ -231,6 +231,21 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     max: 60,
     defaultValue: 6,
   },
+  {
+    name: "maintenance.backflush_reminder.enabled",
+    type: ParameterTypes.BOOL,
+    min: 0,
+    max: 1,
+    defaultValue: true,
+  },
+  {
+    name: "maintenance.backflush_reminder.threshold",
+    type: ParameterTypes.UINT8,
+    min: 1,
+    max: 500,
+    defaultValue: 50,
+    requiredParameters: { "maintenance.backflush_reminder.enabled": true },
+  },
 
   // Standby Parameters
   {

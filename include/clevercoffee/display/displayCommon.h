@@ -447,6 +447,18 @@ inline void displayBluetoothStatus(CleverCoffee::SystemContext& systemContext, c
 }
 
 /**
+ * @brief Draw backflush reminder indicator on the status bar
+ */
+inline void displayBackflushReminderIndicator(CleverCoffee::SystemContext& systemContext, const int x, const int y) {
+    if (!systemContext.hardwareContext().display() || !systemContext.maintenanceCoordinator().isReminderDue()) {
+        return;
+    }
+
+    systemContext.hardwareContext().display()->setFont(u8g2_font_profont11_tf);
+    systemContext.hardwareContext().display()->drawStr(x, y, "!");
+}
+
+/**
  * @brief Draw a status bar at the top of the screen with icons for WiFi, MQTT,
  *        the system uptime and a separator line underneath
  */
@@ -469,8 +481,12 @@ inline void displayStatusbar(CleverCoffee::SystemContext& systemContext) {
         displayBluetoothStatus(systemContext, 24, 1);
     }
 
-    const auto format = "%02luh %02lum";
-    displayUptime(systemContext, 84, 0, format);
+    displayBackflushReminderIndicator(systemContext, 70, 0);
+
+    if (!systemContext.maintenanceCoordinator().isReminderDue()) {
+        const auto format = "%02luh %02lum";
+        displayUptime(systemContext, 84, 0, format);
+    }
 }
 
 /**
@@ -497,6 +513,35 @@ inline void displayMessage(CleverCoffee::SystemContext& systemContext,
     systemContext.hardwareContext().display()->setCursor(0, 50);
     systemContext.hardwareContext().display()->print(text6);
     systemContext.hardwareContext().display()->sendBuffer();
+}
+
+/**
+ * @brief Show a short backflush reminder announcement when threshold is reached
+ */
+inline bool displayBackflushReminderAnnouncement(CleverCoffee::SystemContext& systemContext) {
+    if (!systemContext.hardwareContext().display()) {
+        return false;
+    }
+
+    static unsigned long showUntilMs = 0;
+
+    if (showUntilMs == 0 && systemContext.maintenanceCoordinator().consumeReminderAnnouncement()) {
+        showUntilMs = millis() + 3000;
+    }
+
+    if (showUntilMs == 0 || millis() > showUntilMs) {
+        showUntilMs = 0;
+        return false;
+    }
+
+    displayMessage(systemContext,
+                   langstring_backflush_reminder[0],
+                   langstring_backflush_reminder[1],
+                   langstring_backflush_reminder[2],
+                   "",
+                   "",
+                   "");
+    return true;
 }
 
 /**
@@ -685,6 +730,10 @@ inline bool displayOfflineMode(CleverCoffee::SystemContext& systemContext) {
 inline bool displayMachineState(CleverCoffee::SystemContext& systemContext) {
     if (!systemContext.hardwareContext().display() || !systemContext.machineStateContext()) return false;
     if (displayOfflineMode(systemContext)) {
+        return true;
+    }
+
+    if (displayBackflushReminderAnnouncement(systemContext)) {
         return true;
     }
 

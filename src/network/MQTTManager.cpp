@@ -288,7 +288,7 @@ void MQTTManager::assignParameter(char* param, double value) {
             LOGF(DEBUG, "MQTT special parameter %s updated to %f", param, value);
             return;
         } else if (strcmp(parameterId, "BACKFLUSH_ON") == 0) {
-            systemContext_->machineStateContext()->setBackflushModeActive(static_cast<bool>(value));
+            systemContext_->setBackflushMode(static_cast<bool>(value));
             systemContext_->standbyCoordinator().reset();
             systemContext_->machineStateContext()->setNormalOperationRequested(true);
             publish(param, number2string(value), true);
@@ -331,6 +331,9 @@ void MQTTManager::assignParameter(char* param, double value) {
         if (success) {
             systemContext_->standbyCoordinator().reset();
             systemContext_->machineStateContext()->setNormalOperationRequested(true);
+            if (strncmp(parameterId, "maintenance.backflush_reminder.", 30) == 0) {
+                systemContext_->maintenanceCoordinator().onReminderConfigChanged();
+            }
             publish(param, number2string(value), true);
             LOGF(DEBUG, "MQTT parameter %s (ID: %s) updated to %f", param, parameterId, value);
         } else {
@@ -755,6 +758,8 @@ int MQTTManager::sendHASSIODiscoveryMsg() {
     failures += publishDiscovery(generateSensorDevice("machineState", "Machine State", "", "enum"));
     failures += publishDiscovery(generateSensorDevice("temperature", "Boiler Temperature", "°C", "temperature"));
     failures += publishDiscovery(generateSensorDevice("heaterPower", "Heater Power", "%", "power_factor"));
+    failures += publishDiscovery(generateSensorDevice("shotsSinceBackflush", "Shots Since Backflush", "shots", ""));
+    failures += publishDiscovery(generateSensorDevice("backflushReminderDue", "Backflush Reminder Due", "", ""));
 
     failures += publishDiscovery(
         generateNumberDevice("brewSetpoint", "Brew setpoint", BREW_SETPOINT_MIN, BREW_SETPOINT_MAX, 0.1, "°C"));

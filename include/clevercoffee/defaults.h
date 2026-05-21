@@ -35,15 +35,22 @@ constexpr double EMA_FACTOR = 0.6; // Smoothing of input that is used for Tv (de
                                    // means less smoothing but also less delay, 0 means no filtering
 constexpr double TARGET_BREW_TIME = 25.0; // brew time in seconds (only used if pump is being controlled)
 constexpr double BREW_PID_DELAY = 10.0; // delay until enabling PID controller during brew (no heating during this time)
-constexpr double PRE_INFUSION_TIME          = 2.0;  // pre-infusion time in seconds
-constexpr double PRE_INFUSION_PAUSE_TIME    = 5.0;  // pre-infusion pause time in seconds
-constexpr double TARGET_BREW_WEIGHT         = 36.0; // Target weight in grams
-constexpr double STANDBY_MODE_TIME          = 35.0; // Time in minutes until the heater is turned off
-constexpr int    BACKFLUSH_CYCLES           = 5;    // number of cycles the backflush should run
-constexpr double BACKFLUSH_FILL_TIME        = 5.0;  // time in seconds the pump is running during backflush
-constexpr double BACKFLUSH_FLUSH_TIME       = 10.0; // time in seconds the 3-way valve is open during backflush
-constexpr double POST_BREW_TIMER_DURATION   = 3.0;  // time in seconds that brew timer will be shown after brew finished
-constexpr int    MAXWIFIRECONNECTS          = 5;    // maximum number of reconnection attempts, use -1 to deactivate
+constexpr double PRE_INFUSION_TIME                   = 2.0;  // pre-infusion time in seconds
+constexpr double PRE_INFUSION_PAUSE_TIME             = 5.0;  // pre-infusion pause time in seconds
+constexpr double TARGET_BREW_WEIGHT                  = 36.0; // Target weight in grams
+constexpr double STANDBY_MODE_TIME                   = 35.0; // Time in minutes until the heater is turned off
+constexpr int    BACKFLUSH_CYCLES                    = 5;    // number of cycles the backflush should run
+constexpr double BACKFLUSH_FILL_TIME                 = 5.0;  // time in seconds the pump is running during backflush
+constexpr double BACKFLUSH_FLUSH_TIME                = 10.0; // time in seconds the 3-way valve is open during backflush
+constexpr int    BACKFLUSH_REMINDER_THRESHOLD        = 50;   // shots until backflush reminder
+constexpr int    BACKFLUSH_REMINDER_THRESHOLD_MIN    = 1;
+constexpr int    BACKFLUSH_REMINDER_THRESHOLD_MAX    = 500;
+constexpr double BACKFLUSH_REMINDER_MIN_BREW_TIME_MS = 5000.0;
+constexpr float  BACKFLUSH_REMINDER_MIN_BREW_WEIGHT_G = 10.0f;
+#define MAINTENANCE_STORAGE_NAMESPACE  "maintenance"
+#define MAINTENANCE_SHOTS_SINCE_BF_KEY "shots_since_bf"
+constexpr double POST_BREW_TIMER_DURATION   = 3.0; // time in seconds that brew timer will be shown after brew finished
+constexpr int    MAXWIFIRECONNECTS          = 5;   // maximum number of reconnection attempts, use -1 to deactivate
 constexpr unsigned long WIFICONNECTIONDELAY = 10000; // delay between reconnects in ms
 #define MQTT_USERNAME      "rancilio"                // default MQTT username
 #define MQTT_PASSWORD      "silvia"                  // default MQTT password

@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
+#include <map>
 
 // Arduino constants (must be defined before String class uses them)
 #ifndef HIGH
@@ -375,23 +376,50 @@ typedef struct {
 // ESP32 Preferences (NVS) stub
 class Preferences {
 public:
-    bool begin(const char*, bool = false) { return true; }
-    void end() {}
+    static void resetTestStore() {
+        intStore_.clear();
+        activeNamespace_.clear();
+    }
+
+    bool begin(const char* name, bool = false) {
+        activeNamespace_ = name;
+        return true;
+    }
+    void end() {
+        activeNamespace_.clear();
+    }
     bool clear() { return true; }
     size_t putString(const char*, const String&) { return 0; }
     String getString(const char*, const String& = "") { return ""; }
-    size_t putInt(const char*, int32_t) { return 0; }
-    int32_t getInt(const char*, int32_t = 0) { return 0; }
+    size_t putInt(const char* key, int32_t value) {
+        if (activeNamespace_.empty()) {
+            return 0;
+        }
+        intStore_[activeNamespace_ + ":" + key] = value;
+        return sizeof(int32_t);
+    }
+    int32_t getInt(const char* key, int32_t defaultValue = 0) {
+        if (activeNamespace_.empty()) {
+            return defaultValue;
+        }
+        const std::string fullKey = activeNamespace_ + ":" + key;
+        const auto        it      = intStore_.find(fullKey);
+        return it != intStore_.end() ? it->second : defaultValue;
+    }
     size_t putFloat(const char*, float) { return 0; }
     float getFloat(const char*, float = 0.0) { return 0.0; }
-    size_t putDouble(const char*, double) { return sizeof(double); }  // Return success (non-zero)
+    size_t putDouble(const char*, double) { return sizeof(double); }
     double getDouble(const char*, double = 0.0) { return 0.0; }
-    size_t putBool(const char*, bool) { return sizeof(bool); }  // Return success (non-zero)
+    size_t putBool(const char*, bool) { return sizeof(bool); }
     bool getBool(const char*, bool = false) { return false; }
     size_t putBytes(const char*, const void*, size_t) { return 0; }
     size_t getBytes(const char*, void*, size_t) { return 0; }
     bool remove(const char*) { return true; }
     bool isKey(const char*) { return false; }
     void removeAll() {}
+
+private:
+    static inline std::map<std::string, int32_t> intStore_;
+    static inline std::string                    activeNamespace_;
 };
 inline Preferences preferences;
