@@ -40,9 +40,9 @@ std::optional<MachineStateId> BackflushState::checkSpecificTransitions(MachineSt
         return disabled;
     }
 
-    if (context.isBackflushStartRequested()) {
-        context.setBackflushStartRequested(false);
-        context.logStateTransition(getStateId(), MachineStateId::BACKFLUSH_FILLING, "Backflush start requested");
+    if (context.isBackflushCycleStartRequested()) {
+        context.setBackflushCycleStartRequested(false);
+        context.logStateTransition(getStateId(), MachineStateId::BACKFLUSH_FILLING, "Backflush cycle start requested");
         return MachineStateId::BACKFLUSH_FILLING;
     }
     return std::nullopt;
@@ -151,10 +151,10 @@ std::optional<MachineStateId> BackflushFinishedState::checkSpecificTransitions(M
         return MachineStateId::BACKFLUSH_IDLE;
     }
 
-    if (context.isBackflushStartRequested()) {
-        context.setBackflushStartRequested(false);
+    if (context.isBackflushCycleStartRequested()) {
+        context.setBackflushCycleStartRequested(false);
         context.setBackflushCycleCount(1);
-        context.logStateTransition(getStateId(), MachineStateId::BACKFLUSH_FILLING, "Backflush start requested");
+        context.logStateTransition(getStateId(), MachineStateId::BACKFLUSH_FILLING, "Backflush cycle start requested");
         return MachineStateId::BACKFLUSH_FILLING;
     }
 

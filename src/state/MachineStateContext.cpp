@@ -217,8 +217,15 @@ void MachineStateContext::resetStandbyTimerOnUserActivity() const {
     systemContext_.standbyCoordinator().reset();
 }
 
-void MachineStateContext::setBackflushStartRequested(bool requested) noexcept {
-    requestBackflushStart_ = requested;
+void MachineStateContext::setBackflushEnterRequested(bool requested) noexcept {
+    requestEnterBackflush_ = requested;
+    if (requested) {
+        resetStandbyTimerOnUserActivity();
+    }
+}
+
+void MachineStateContext::setBackflushCycleStartRequested(bool requested) noexcept {
+    requestBackflushCycleStart_ = requested;
     if (requested) {
         resetStandbyTimerOnUserActivity();
     }
@@ -360,7 +367,7 @@ void MachineStateContext::applyBackflushMode(bool active) noexcept {
     backflushOn_ = active;
     if (active) {
         setBackflushCycleCount(1);
-        setBackflushStartRequested(true);
+        setBackflushEnterRequested(true);
         LOG(DEBUG, "Backflush mode activated");
     } else {
         setBackflushStopRequested(true);

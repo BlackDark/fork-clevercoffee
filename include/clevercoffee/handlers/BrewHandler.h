@@ -188,7 +188,7 @@ class BrewHandler : public SwitchBasedHandler {
                 if (reading == HIGH) {
                     if (currentState == MachineStateId::BACKFLUSH_IDLE ||
                         currentState == MachineStateId::BACKFLUSH_FINISHED) {
-                        context->setBackflushStartRequested(true);
+                        context->setBackflushCycleStartRequested(true);
                     } else if (isBackflushState(currentState)) {
                         context->setBackflushStopRequested(true);
                     }

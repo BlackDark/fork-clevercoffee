@@ -181,6 +181,34 @@ void MachineStateContext::setPidRuntimeState(bool /*enabled*/) const {}
 void MachineStateContext::performSafeShutdown() const {}
 void MachineStateContext::setManualFlushState(bool /*active*/) const {}
 void MachineStateContext::setSteamState(bool active) { steamON_ = active; }
+void MachineStateContext::setBackflushEnterRequested(bool requested) noexcept {
+    requestEnterBackflush_ = requested;
+}
+
+void MachineStateContext::setBackflushCycleStartRequested(bool requested) noexcept {
+    requestBackflushCycleStart_ = requested;
+}
+
+void MachineStateContext::setBackflushStopRequested(bool requested) noexcept {
+    requestBackflushStop_ = requested;
+}
+
+void MachineStateContext::applyBackflushMode(bool active) noexcept {
+    if (active == backflushOn_) {
+        return;
+    }
+    if (active && Config::getInstance().backflushCycles.get() <= 0) {
+        return;
+    }
+    backflushOn_ = active;
+    if (active) {
+        currBackflushCycles_ = 1;
+        requestEnterBackflush_ = true;
+    } else {
+        requestBackflushStop_ = true;
+    }
+}
+
 void MachineStateContext::setBackflushState(bool active) { applyBackflushMode(active); }
 void MachineStateContext::disableWaterOperations() const {}
 void MachineStateContext::enableWaterOperations() const {}

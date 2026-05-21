@@ -77,9 +77,9 @@ std::optional<MachineStateId> PidNormalState::checkSpecificTransitions(MachineSt
         context.logStateTransition(getStateId(), MachineStateId::MANUAL_FLUSH_RUNNING, "Manual flush start requested");
         return MachineStateId::MANUAL_FLUSH_RUNNING;
     }
-    if (context.isBackflushStartRequested()) {
-        context.setBackflushStartRequested(false);
-        context.logStateTransition(getStateId(), MachineStateId::BACKFLUSH_IDLE, "Backflush start requested");
+    if (context.isBackflushEnterRequested()) {
+        context.setBackflushEnterRequested(false);
+        context.logStateTransition(getStateId(), MachineStateId::BACKFLUSH_IDLE, "Backflush mode enter requested");
         return MachineStateId::BACKFLUSH_IDLE;
     }
     if (context.isStandbyRequested()) {

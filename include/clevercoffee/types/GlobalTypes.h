@@ -75,18 +75,19 @@ struct equal_cstr {
  * The state machine processes these flags and transitions accordingly.
  */
 struct MachineStateFlags {
-    bool requestBrewStart        = false;
-    bool requestBrewStop         = false;
-    bool requestManualFlushStart = false;
-    bool requestManualFlushStop  = false;
-    bool requestBackflushStart   = false;
-    bool requestBackflushStop    = false;
-    bool requestSteamStart       = false;
-    bool requestSteamStop        = false;
-    bool requestShutdown         = false;
-    bool requestStandby          = false;
-    bool requestNormalOperation  = false;
-    bool requestSensorError      = false;
+    bool requestBrewStart           = false;
+    bool requestBrewStop            = false;
+    bool requestManualFlushStart    = false;
+    bool requestManualFlushStop     = false;
+    bool requestEnterBackflush      = false;
+    bool requestBackflushCycleStart = false;
+    bool requestBackflushStop       = false;
+    bool requestSteamStart          = false;
+    bool requestSteamStop           = false;
+    bool requestShutdown            = false;
+    bool requestStandby             = false;
+    bool requestNormalOperation     = false;
+    bool requestSensorError         = false;
 };
 
 /**
