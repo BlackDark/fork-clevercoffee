@@ -194,7 +194,7 @@ void MachineStateContext::setBackflushStopRequested(bool requested) noexcept {
     requestBackflushStop_ = requested;
 }
 
-void MachineStateContext::applyBackflushMode(bool active) noexcept {
+bool MachineStateContext::applyBackflushMode(bool active) noexcept {
     using CleverCoffee::Backflush::ModeChangeEffect;
     using CleverCoffee::Backflush::resolveModeChange;
 
@@ -203,21 +203,23 @@ void MachineStateContext::applyBackflushMode(bool active) noexcept {
 
     switch (effect) {
         case ModeChangeEffect::None:
+            return true;
         case ModeChangeEffect::RejectedInvalidCycles:
-            return;
+            return false;
         case ModeChangeEffect::Enable:
             backflushOn_ = true;
             setBackflushCycleCount(1);
             setBackflushEnterRequested(true);
-            return;
+            return true;
         case ModeChangeEffect::Disable:
             backflushOn_ = false;
             setBackflushStopRequested(true);
-            return;
+            return true;
     }
+    return false;
 }
 
-void MachineStateContext::setBackflushState(bool active) { applyBackflushMode(active); }
+void MachineStateContext::setBackflushState(bool active) { (void)applyBackflushMode(active); }
 void MachineStateContext::disableWaterOperations() const {}
 void MachineStateContext::enableWaterOperations() const {}
 void MachineStateContext::enterSafeMode() const {}

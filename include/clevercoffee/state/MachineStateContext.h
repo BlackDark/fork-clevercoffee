@@ -427,7 +427,7 @@ class MachineStateContext : public CleverCoffee::IHardwareContext,
     /**
      * @brief Enable or disable backflush mode and request matching state transitions
      */
-    void applyBackflushMode(bool active) noexcept;
+    [[nodiscard]] bool applyBackflushMode(bool active) noexcept;
 
     /**
      * @brief Get current backflush cycle count

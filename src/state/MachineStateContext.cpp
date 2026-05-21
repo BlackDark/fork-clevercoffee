@@ -352,10 +352,10 @@ void MachineStateContext::setSteamState(bool active) {
 }
 
 void MachineStateContext::setBackflushState(bool active) {
-    applyBackflushMode(active);
+    (void)applyBackflushMode(active);
 }
 
-void MachineStateContext::applyBackflushMode(bool active) noexcept {
+bool MachineStateContext::applyBackflushMode(bool active) noexcept {
     using CleverCoffee::Backflush::ModeChangeEffect;
     using CleverCoffee::Backflush::resolveModeChange;
 
@@ -364,22 +364,23 @@ void MachineStateContext::applyBackflushMode(bool active) noexcept {
 
     switch (effect) {
         case ModeChangeEffect::None:
-            return;
+            return true;
         case ModeChangeEffect::RejectedInvalidCycles:
             LOG(WARNING, "Backflush mode not enabled: backflush.cycles must be > 0");
-            return;
+            return false;
         case ModeChangeEffect::Enable:
             backflushOn_ = true;
             setBackflushCycleCount(1);
             setBackflushEnterRequested(true);
             LOG(DEBUG, "Backflush mode activated");
-            return;
+            return true;
         case ModeChangeEffect::Disable:
             backflushOn_ = false;
             setBackflushStopRequested(true);
             LOG(DEBUG, "Backflush mode deactivated");
-            return;
+            return true;
     }
+    return false;
 }
 
 void MachineStateContext::disableWaterOperations() const {

@@ -1055,7 +1055,7 @@ class SystemContext {
      * @brief Set backflush mode (also resets standby and requests normal operation)
      * @param on true to enable backflush mode
      */
-    void setBackflushMode(bool on) noexcept;
+    [[nodiscard]] bool setBackflushMode(bool on) noexcept;
 
     /** @} */
 
