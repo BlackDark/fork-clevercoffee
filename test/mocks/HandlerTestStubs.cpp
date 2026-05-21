@@ -23,6 +23,7 @@
 #include "../mocks/ConfigStubs.cpp"
 #include "../../src/Logger.cpp"
 #include "../../src/coordinators/SensorCoordinator.cpp"
+#include "../../src/coordinators/MaintenanceCoordinator.cpp"
 #include "../../src/context/SystemContext.cpp"
 
 // === GPIOPin stubs (real impl uses digitalWrite/digitalRead/analogRead/pinMode) ===

@@ -55,7 +55,7 @@ void MaintenanceCoordinator::resetSinceBackflush() {
     }
 
     const int previousCount = shotsSinceBackflush_;
-    shotsSinceBackflush_ = 0;
+    shotsSinceBackflush_    = 0;
 
     if (!persistShotsSinceBackflush()) {
         shotsSinceBackflush_ = previousCount;

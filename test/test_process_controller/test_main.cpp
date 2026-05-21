@@ -23,6 +23,7 @@
 #include "../../src/control/ProcessController.cpp"
 #include "../../src/context/SystemContext.cpp"
 #include "../../src/coordinators/SensorCoordinator.cpp"
+#include "../../src/coordinators/MaintenanceCoordinator.cpp"
 
 // Stub implementations for dependencies we don't actually use in these tests
 // Stub for MachineStateContext methods that are not inline

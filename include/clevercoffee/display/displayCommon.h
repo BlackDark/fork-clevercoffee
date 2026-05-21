@@ -474,9 +474,8 @@ inline void displayMaintenanceFooter(CleverCoffee::SystemContext& systemContext)
 
     systemContext.hardwareContext().display()->setFont(u8g2_font_profont10_tf);
     systemContext.hardwareContext().display()->setCursor(0, 62);
-    const char* reminderLine = langstring_backflush_reminder[0] != nullptr
-                                   ? langstring_backflush_reminder[0]
-                                   : "Backflush recommended";
+    const char* reminderLine =
+        langstring_backflush_reminder[0] != nullptr ? langstring_backflush_reminder[0] : "Backflush recommended";
     systemContext.hardwareContext().display()->print(reminderLine);
 }
 
