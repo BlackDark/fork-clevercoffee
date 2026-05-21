@@ -5,9 +5,9 @@
 
 #include "clevercoffee/state/states/BackflushStates.h"
 
-#include "clevercoffee/backflush/BackflushModeLogic.h"
 #include "clevercoffee/Config.h"
 #include "clevercoffee/Logger.h"
+#include "clevercoffee/backflush/BackflushModeLogic.h"
 #include "clevercoffee/constants/Timing.h"
 #include "clevercoffee/state/MachineStateContext.h"
 #include "clevercoffee/types/GlobalTypes.h"

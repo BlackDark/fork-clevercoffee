@@ -5,8 +5,8 @@
 
 #include "clevercoffee/state/MachineStateContext.h"
 
-#include "clevercoffee/backflush/BackflushModeLogic.h"
 #include "clevercoffee/Config.h"
+#include "clevercoffee/backflush/BackflushModeLogic.h"
 #include "clevercoffee/context/SystemContext.h"
 #include "clevercoffee/control/ProcessController.h"
 #include "clevercoffee/coordinators/SensorCoordinator.h"
@@ -359,8 +359,7 @@ bool MachineStateContext::applyBackflushMode(bool active) noexcept {
     using CleverCoffee::Backflush::ModeChangeEffect;
     using CleverCoffee::Backflush::resolveModeChange;
 
-    const auto effect = resolveModeChange(
-        {backflushOn_, active, Config::getInstance().backflushCycles.get()});
+    const auto effect = resolveModeChange({backflushOn_, active, Config::getInstance().backflushCycles.get()});
 
     switch (effect) {
         case ModeChangeEffect::None:

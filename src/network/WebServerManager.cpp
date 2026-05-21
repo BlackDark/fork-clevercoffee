@@ -479,9 +479,8 @@ void WebServerManager::setupApiRoutes() {
 
             const bool newState = !systemContext_->backflushMode();
             if (!systemContext_->setBackflushMode(newState)) {
-                request->send(400,
-                              "application/json",
-                              ApiResponses::errorResponse("backflush.cycles must be greater than 0"));
+                request->send(
+                    400, "application/json", ApiResponses::errorResponse("backflush.cycles must be greater than 0"));
                 return;
             }
             LOGF(INFO, "Toggle backflush mode: %s", systemContext_->backflushMode() ? "on" : "off");
