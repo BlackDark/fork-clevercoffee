@@ -23,10 +23,6 @@ bool MaintenanceCoordinator::begin() {
     shotsSinceBackflush_ = prefs.getInt(MAINTENANCE_SHOTS_SINCE_BF_KEY, 0);
     prefs.end();
 
-    if (isReminderDue()) {
-        announcementPending_ = true;
-    }
-
     LOGF(INFO, "Maintenance: loaded %d shots since backflush", shotsSinceBackflush_);
     return true;
 }
@@ -41,13 +37,13 @@ void MaintenanceCoordinator::recordBrewIfQualified(double totalBrewTimeMs, float
         return;
     }
 
-    const bool wasDue = isReminderDue();
-
+    const int previousCount = shotsSinceBackflush_;
     ++shotsSinceBackflush_;
-    persistShotsSinceBackflush();
 
-    if (!wasDue && isReminderDue()) {
-        announcementPending_ = true;
+    if (!persistShotsSinceBackflush()) {
+        shotsSinceBackflush_ = previousCount;
+        LOG(ERROR, "Maintenance: reverted shot count after NVS write failure");
+        return;
     }
 
     LOGF(INFO, "Maintenance: counted brew, shots since backflush = %d", shotsSinceBackflush_);
@@ -55,13 +51,17 @@ void MaintenanceCoordinator::recordBrewIfQualified(double totalBrewTimeMs, float
 
 void MaintenanceCoordinator::resetSinceBackflush() {
     if (shotsSinceBackflush_ == 0) {
-        announcementPending_ = false;
         return;
     }
 
+    const int previousCount = shotsSinceBackflush_;
     shotsSinceBackflush_ = 0;
-    persistShotsSinceBackflush();
-    announcementPending_ = false;
+
+    if (!persistShotsSinceBackflush()) {
+        shotsSinceBackflush_ = previousCount;
+        LOG(ERROR, "Maintenance: reverted reset after NVS write failure");
+        return;
+    }
 
     LOG(INFO, "Maintenance: reset shots since backflush");
 }
@@ -72,36 +72,21 @@ bool MaintenanceCoordinator::isReminderDue() const {
                                  Config::getInstance().maintenanceBackflushReminderThreshold.get());
 }
 
-bool MaintenanceCoordinator::consumeReminderAnnouncement() {
-    if (!announcementPending_ || !isReminderDue()) {
-        announcementPending_ = false;
-        return false;
-    }
-
-    announcementPending_ = false;
-    return true;
-}
-
-void MaintenanceCoordinator::onReminderConfigChanged() {
-    if (isReminderDue()) {
-        announcementPending_ = true;
-    } else {
-        announcementPending_ = false;
-    }
-}
-
-void MaintenanceCoordinator::persistShotsSinceBackflush() const {
+bool MaintenanceCoordinator::persistShotsSinceBackflush() const {
     Preferences prefs;
     if (!prefs.begin(MAINTENANCE_STORAGE_NAMESPACE, false)) {
         LOG(ERROR, "Maintenance: failed to open NVS namespace for writing");
-        return;
+        return false;
     }
 
-    if (prefs.putInt(MAINTENANCE_SHOTS_SINCE_BF_KEY, shotsSinceBackflush_) == 0) {
+    const bool ok = prefs.putInt(MAINTENANCE_SHOTS_SINCE_BF_KEY, shotsSinceBackflush_) > 0;
+    prefs.end();
+
+    if (!ok) {
         LOG(ERROR, "Maintenance: failed to persist shots since backflush");
     }
 
-    prefs.end();
+    return ok;
 }
 
 } // namespace CleverCoffee

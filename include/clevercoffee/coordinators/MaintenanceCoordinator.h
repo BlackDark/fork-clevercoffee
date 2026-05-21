@@ -19,8 +19,6 @@ class MaintenanceCoordinator {
 
     void resetSinceBackflush();
 
-    void onReminderConfigChanged();
-
     [[nodiscard]] int getShotsSinceBackflush() const noexcept {
         return shotsSinceBackflush_;
     }
@@ -31,16 +29,10 @@ class MaintenanceCoordinator {
         return Maintenance::isReminderDueForCount(shots, enabled, threshold);
     }
 
-    /**
-     * @brief Returns true once when reminder becomes due (boot or threshold cross).
-     */
-    [[nodiscard]] bool consumeReminderAnnouncement();
-
   private:
-    void persistShotsSinceBackflush() const;
+    [[nodiscard]] bool persistShotsSinceBackflush() const;
 
-    int  shotsSinceBackflush_{0};
-    bool announcementPending_{false};
+    int shotsSinceBackflush_{0};
 };
 
 } // namespace CleverCoffee

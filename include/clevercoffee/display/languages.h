@@ -39,8 +39,7 @@ static const char* langstring_calibrate_complete;
 static const char* langstring_backflush_reminder[3];
 
 inline void initLangStrings() {
-    // English
-    if (Config::getInstance().displayLanguage.get() == System::Language::GERMAN) {
+    if (Config::getInstance().displayLanguage.get() == System::Language::ENGLISH) {
         langstring_set_temp     = "Set:   ";
         langstring_current_temp = "Temp:  ";
         langstring_brew         = "Brew: ";
@@ -84,9 +83,7 @@ inline void initLangStrings() {
         langstring_calibrate_start       = "Calibration coming up\n\nEmpty scale ";
         langstring_calibrate_in_progress = "Calibration in progress. Place known weight on scale in next 10 seconds ";
         langstring_calibrate_complete    = "Calibration done!\nNew result: ";
-    }
-    // Espanol
-    else if (Config::getInstance().displayLanguage.get() == System::Language::SPANISH) {
+    } else if (Config::getInstance().displayLanguage.get() == System::Language::SPANISH) {
         langstring_set_temp     = "Obj:  ";
         langstring_current_temp = "T:    ";
         langstring_brew         = "Brew: ";
@@ -131,9 +128,8 @@ inline void initLangStrings() {
         langstring_calibrate_in_progress =
             "Calibrando. Coloque un peso conocido en la balanza en los próximos 10 segundos ";
         langstring_calibrate_complete = "Calibración completa!\nNuevo resultado: ";
-    }
-    // German (default)
-    else {
+    } else {
+        // German
         langstring_set_temp     = "Soll:  ";
         langstring_current_temp = "Ist:   ";
         langstring_brew         = "Bezug: ";

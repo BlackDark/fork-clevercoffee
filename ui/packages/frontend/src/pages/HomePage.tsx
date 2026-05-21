@@ -27,6 +27,8 @@ import { parameterHelpTexts } from "@/lib/parameter-help-texts";
 import { useCleverCoffee } from "@/context/useCleverCoffee";
 import TemperatureChart from "@/components/charts/TemperatureChart";
 import HeaterChart from "@/components/charts/HeaterChart";
+import { HomeMaintenanceCard } from "@/components/HomeMaintenanceCard";
+import { HomeStandbyAlert } from "@/components/HomeStandbyAlert";
 
 export function HomePage() {
   const {
@@ -85,6 +87,13 @@ export function HomePage() {
         ?.value === true,
     [parameters]
   );
+
+  const backflushReminderEnabled = useMemo(() => {
+    const param = parameters.find(
+      (p) => p.name === "maintenance.backflush_reminder.enabled"
+    );
+    return param?.value === true;
+  }, [parameters]);
 
   // Memoized chart data to prevent unnecessary re-renders
   const tempChartData = useMemo(() => {
@@ -218,6 +227,8 @@ export function HomePage() {
           </AlertDescription>
         </Alert>
       )}
+
+      <HomeStandbyAlert />
 
       {/* Machine Status and Functions Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -581,6 +592,8 @@ export function HomePage() {
             )}
           </CardContent>
         </Card>
+
+        {backflushReminderEnabled && <HomeMaintenanceCard />}
       </div>
 
       {/* Temperature Chart */}

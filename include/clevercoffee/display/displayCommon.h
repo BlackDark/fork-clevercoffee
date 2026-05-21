@@ -447,15 +447,37 @@ inline void displayBluetoothStatus(CleverCoffee::SystemContext& systemContext, c
 }
 
 /**
- * @brief Draw backflush reminder indicator on the status bar
+ * @brief Draw clean reminder in the status bar when backflush is due.
+ * @return true if drawn (caller should skip uptime)
  */
-inline void displayBackflushReminderIndicator(CleverCoffee::SystemContext& systemContext, const int x, const int y) {
-    if (!systemContext.hardwareContext().display() || !systemContext.maintenanceCoordinator().isReminderDue()) {
-        return;
+inline bool displayMaintenanceStatusBar(CleverCoffee::SystemContext& systemContext, const int x, const int y) {
+    if (!systemContext.hardwareContext().display() ||
+        !Config::getInstance().maintenanceBackflushReminderEnabled.get() ||
+        !systemContext.maintenanceCoordinator().isReminderDue()) {
+        return false;
     }
 
     systemContext.hardwareContext().display()->setFont(u8g2_font_profont11_tf);
-    systemContext.hardwareContext().display()->drawStr(x, y, "!");
+    systemContext.hardwareContext().display()->drawStr(x, y, "CLEAN");
+    return true;
+}
+
+/**
+ * @brief One-line maintenance hint on the standard layout footer when clean is due
+ */
+inline void displayMaintenanceFooter(CleverCoffee::SystemContext& systemContext) {
+    if (!systemContext.hardwareContext().display() ||
+        !Config::getInstance().maintenanceBackflushReminderEnabled.get() ||
+        !systemContext.maintenanceCoordinator().isReminderDue()) {
+        return;
+    }
+
+    systemContext.hardwareContext().display()->setFont(u8g2_font_profont10_tf);
+    systemContext.hardwareContext().display()->setCursor(0, 62);
+    const char* reminderLine = langstring_backflush_reminder[0] != nullptr
+                                   ? langstring_backflush_reminder[0]
+                                   : "Backflush recommended";
+    systemContext.hardwareContext().display()->print(reminderLine);
 }
 
 /**
@@ -481,9 +503,7 @@ inline void displayStatusbar(CleverCoffee::SystemContext& systemContext) {
         displayBluetoothStatus(systemContext, 24, 1);
     }
 
-    displayBackflushReminderIndicator(systemContext, 70, 0);
-
-    if (!systemContext.maintenanceCoordinator().isReminderDue()) {
+    if (!displayMaintenanceStatusBar(systemContext, 78, 0)) {
         const auto format = "%02luh %02lum";
         displayUptime(systemContext, 84, 0, format);
     }
@@ -513,35 +533,6 @@ inline void displayMessage(CleverCoffee::SystemContext& systemContext,
     systemContext.hardwareContext().display()->setCursor(0, 50);
     systemContext.hardwareContext().display()->print(text6);
     systemContext.hardwareContext().display()->sendBuffer();
-}
-
-/**
- * @brief Show a short backflush reminder announcement when threshold is reached
- */
-inline bool displayBackflushReminderAnnouncement(CleverCoffee::SystemContext& systemContext) {
-    if (!systemContext.hardwareContext().display()) {
-        return false;
-    }
-
-    static unsigned long showUntilMs = 0;
-
-    if (showUntilMs == 0 && systemContext.maintenanceCoordinator().consumeReminderAnnouncement()) {
-        showUntilMs = millis() + 3000;
-    }
-
-    if (showUntilMs == 0 || millis() > showUntilMs) {
-        showUntilMs = 0;
-        return false;
-    }
-
-    displayMessage(systemContext,
-                   langstring_backflush_reminder[0],
-                   langstring_backflush_reminder[1],
-                   langstring_backflush_reminder[2],
-                   "",
-                   "",
-                   "");
-    return true;
 }
 
 /**
@@ -730,10 +721,6 @@ inline bool displayOfflineMode(CleverCoffee::SystemContext& systemContext) {
 inline bool displayMachineState(CleverCoffee::SystemContext& systemContext) {
     if (!systemContext.hardwareContext().display() || !systemContext.machineStateContext()) return false;
     if (displayOfflineMode(systemContext)) {
-        return true;
-    }
-
-    if (displayBackflushReminderAnnouncement(systemContext)) {
         return true;
     }
 

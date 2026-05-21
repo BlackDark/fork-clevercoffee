@@ -39,6 +39,9 @@ export const API_ROUTES = {
   FACTORY_RESET: "/factory-reset",
   WIFI_RESET: "/wifi-reset",
   NVS_DEBUG: "/nvs-debug",
+
+  // Maintenance
+  MAINTENANCE_RESET_BACKFLUSH: "/maintenance/reset-backflush-counter",
 } as const;
 
 export type ApiRoute = (typeof API_ROUTES)[keyof typeof API_ROUTES];

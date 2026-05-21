@@ -25,7 +25,7 @@ function App() {
             <Route path="*" element={<NotFoundPage />} />
           </Route>
         </Routes>
-        <Toaster />
+        <Toaster position="bottom-right" />
       </BrowserRouter>
     </ErrorBoundary>
   );

@@ -1,51 +1,25 @@
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Loader2, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
-
-interface MaintenanceStatus {
-  shotsSinceBackflush?: number;
-  backflushReminderThreshold?: number;
-  backflushReminderDue?: boolean;
-}
+import { apiFetch } from "@/lib/api-config";
+import { API_ROUTES } from "@/lib/routes";
+import { useMachineStatus } from "@/hooks/useMachineStatus";
 
 export function MaintenanceBackflushPanel() {
-  const [status, setStatus] = useState<MaintenanceStatus | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { status, loading, refetch } = useMachineStatus();
   const [resetting, setResetting] = useState(false);
-
-  const fetchStatus = useCallback(async () => {
-    try {
-      const response = await fetch("/api/status", {
-        signal: AbortSignal.timeout(5000),
-      });
-      if (response.ok) {
-        setStatus((await response.json()) as MaintenanceStatus);
-      }
-    } catch {
-      // ignore offline
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchStatus();
-    const interval = setInterval(fetchStatus, 10000);
-    return () => clearInterval(interval);
-  }, [fetchStatus]);
 
   const handleReset = async () => {
     setResetting(true);
     try {
-      const response = await fetch("/api/maintenance/reset-backflush-counter", {
+      const response = await apiFetch(API_ROUTES.MAINTENANCE_RESET_BACKFLUSH, {
         method: "POST",
       });
       if (!response.ok) {
         throw new Error("Reset failed");
       }
-      const data = (await response.json()) as MaintenanceStatus;
-      setStatus((prev) => ({ ...prev, ...data }));
+      await refetch();
       toast.success("Backflush counter reset");
     } catch {
       toast.error("Failed to reset backflush counter");

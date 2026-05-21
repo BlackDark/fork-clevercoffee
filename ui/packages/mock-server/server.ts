@@ -62,6 +62,7 @@ interface MockState {
   targetTemp: number;
   heaterPower: number;
   shotsSinceBackflush: number;
+  isStandby: boolean;
   parameters: Parameter[];
   historyData: HistoryData;
 }
@@ -106,6 +107,7 @@ let mockState: MockState = {
   targetTemp: 94.0,
   heaterPower: 75.2,
   shotsSinceBackflush: 12,
+  isStandby: false,
   parameters: parameters as Parameter[],
   historyData: {
     currentTemps: [],
@@ -133,6 +135,16 @@ const generateHistoryData = (): HistoryData => {
 };
 
 mockState.historyData = generateHistoryData();
+
+function isMaintenanceReminderEnabled(
+  enabledParam: Parameter | undefined
+): boolean {
+  if (enabledParam === undefined) {
+    return true;
+  }
+  const value = enabledParam.value;
+  return value === true || value === 1;
+}
 
 // Helper function to simulate authentication
 const simulateAuth = (
@@ -197,6 +209,34 @@ app.post(
   }
 );
 
+app.post("/api/wake", simulateAuth, (_req: Request, res: Response): void => {
+  mockState.isStandby = false;
+  console.log("Machine woken from standby");
+  res.json({ success: true });
+});
+
+app.post("/api/sleep", simulateAuth, (_req: Request, res: Response): void => {
+  mockState.isStandby = true;
+  console.log("Machine entered standby");
+  res.json({ success: true });
+});
+
+// Dev-only helpers for UI testing (mock server)
+app.post(
+  "/api/dev/shots-since-backflush",
+  simulateAuth,
+  (req: Request, res: Response): void => {
+    const count = Number(req.body?.count);
+    if (!Number.isFinite(count) || count < 0) {
+      res.status(400).json({ success: false, message: "Invalid count" });
+      return;
+    }
+    mockState.shotsSinceBackflush = count;
+    console.log(`Dev: shots since backflush set to ${count}`);
+    res.json({ success: true, shotsSinceBackflush: count });
+  }
+);
+
 app.get("/api/status", simulateAuth, (_req: Request, res: Response): void => {
   const thresholdParam = mockState.parameters.find(
     (p) => p.name === "maintenance.backflush_reminder.threshold"
@@ -206,7 +246,7 @@ app.get("/api/status", simulateAuth, (_req: Request, res: Response): void => {
   );
   const threshold =
     typeof thresholdParam?.value === "number" ? thresholdParam.value : 50;
-  const enabled = enabledParam?.value !== false;
+  const enabled = isMaintenanceReminderEnabled(enabledParam);
   const due = enabled && mockState.shotsSinceBackflush >= threshold;
 
   res.json({
@@ -215,7 +255,7 @@ app.get("/api/status", simulateAuth, (_req: Request, res: Response): void => {
     heaterPower: mockState.heaterPower,
     pidEnabled: mockState.pidEnabled,
     steamMode: mockState.steamMode,
-    isStandby: false,
+    isStandby: mockState.isStandby,
     standbyTime: 0,
     uptime: Date.now(),
     shotsSinceBackflush: mockState.shotsSinceBackflush,
@@ -237,7 +277,7 @@ app.post(
     );
     const threshold =
       typeof thresholdParam?.value === "number" ? thresholdParam.value : 50;
-    const enabled = enabledParam?.value !== false;
+    const enabled = isMaintenanceReminderEnabled(enabledParam);
 
     res.json({
       success: true,

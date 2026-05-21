@@ -253,6 +253,8 @@ bool SystemInitializer::initializeConfiguration() {
 }
 
 bool SystemInitializer::initializeDisplay() {
+    initLangStrings();
+
     // DisplayManager is ALWAYS created - it's a required component
     // Even if feature is disabled, manager exists to track state
     try {
@@ -685,7 +687,10 @@ void SystemInitializer::registerMQTTSensors() {
     mqttManager_->registerSensor("currentKd", [this] { return systemContext_->pidKd(); });
     // Machine state sensor registration - use lambda that captures systemContext
     mqttManager_->registerSensor("machineState", [this] {
-        return static_cast<double>(systemContext_->machineStateContext()->getCurrentStateId());
+        if (systemContext_ && systemContext_->machineStateContext()) {
+            return static_cast<double>(systemContext_->machineStateContext()->getCurrentStateId());
+        }
+        return static_cast<double>(MachineStateId::INIT);
     });
 
     // Brew-specific sensors

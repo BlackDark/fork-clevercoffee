@@ -330,9 +330,8 @@ void MQTTManager::assignParameter(char* param, double value) {
 
         if (success) {
             systemContext_->standbyCoordinator().reset();
-            systemContext_->machineStateContext()->setNormalOperationRequested(true);
-            if (strncmp(parameterId, "maintenance.backflush_reminder.", 30) == 0) {
-                systemContext_->maintenanceCoordinator().onReminderConfigChanged();
+            if (systemContext_->machineStateContext()) {
+                systemContext_->machineStateContext()->setNormalOperationRequested(true);
             }
             publish(param, number2string(value), true);
             LOGF(DEBUG, "MQTT parameter %s (ID: %s) updated to %f", param, parameterId, value);

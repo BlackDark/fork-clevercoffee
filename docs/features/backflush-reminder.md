@@ -98,13 +98,17 @@ Count **unless** `brewTime < 5s` **and** (scale disabled **or** `brewWeight < 10
 
 ### OLED
 
-- Status bar **`!`** when reminder is due (uptime hidden on standard template to save space)
-- **3 s announcement** on boot if already overdue, or when threshold is first crossed
+- Status bar **`CLEAN`** when reminder is due
+- Standard layout: footer line with backflush hint when due
+- Upright layout: main status shows **`CLEAN`** when due
+- No shot counter on OLED; no indicator while count is below threshold
 - Localized strings (EN / DE / ES) in [`languages.h`](../../include/clevercoffee/display/languages.h)
 
 ### Web UI
 
-- **[`BackflushReminderNotification`](../../ui/packages/frontend/src/components/BackflushReminderNotification.tsx)** — banner on all pages when due; dismiss = session-only
+- **[`MachineStatusToasts`](../../ui/packages/frontend/src/components/MachineStatusToasts.tsx)** — bottom-right Sonner toasts for standby and backflush due (session dismiss)
+- **[`HomeMaintenanceCard`](../../ui/packages/frontend/src/components/HomeMaintenanceCard.tsx)** — home page shot counter, progress bar, and clean-due alert
+- **[`HomeStandbyAlert`](../../ui/packages/frontend/src/components/HomeStandbyAlert.tsx)** — home page standby banner with wake action
 - **Config → Behavior → Maintenance** — live `X / threshold` counter + **Reset counter** button ([`MaintenanceBackflushPanel`](../../ui/packages/frontend/src/components/MaintenanceBackflushPanel.tsx))
 
 ### API
@@ -137,13 +141,13 @@ Count **unless** `brewTime < 5s` **and** (scale disabled **or** `brewWeight < 10
 - [x] Brew finished hook
 - [x] Reset on backflush mode OFF + manual API reset
 - [x] `/api/status` extension + OpenAPI update
-- [x] OLED indicator + edge-triggered announcement + i18n
+- [x] OLED shot counter + CLEAN indicator + footer hint + i18n
 - [x] Web notification + maintenance panel
 - [x] MQTT sensors, config registration, HA discovery
 - [x] Mock server support
 - [x] Unit tests (`test/test_maintenance_coordinator/`, 10 cases)
 - [x] `enabled=false` still counts, suppresses notifications
-- [x] Config/MQTT changes to reminder settings call `onReminderConfigChanged()`
+- [x] Reminder due recalculated live from config + counter (no stale announcement state)
 
 ---
 
@@ -193,10 +197,10 @@ Prioritized by likely value vs. effort.
 
 1. Brew 2 real shots → counter increments in `/api/status` and maintenance panel
 2. Short accidental brew (&lt;5s) → no increment
-3. Set threshold low (e.g. 2) → OLED `!`, web banner, announcement
+3. Set threshold low (e.g. 2) → OLED `CLEAN` + count, web toast + home card alert
 4. Toggle backflush OFF → counter resets
 5. Manual reset button → counter clears
-6. Disable reminder → counter still increments; no banner/`!`
+6. Disable reminder → counter still increments; no OLED/web reminders
 
 ---
 
@@ -212,5 +216,5 @@ Prioritized by likely value vs. effort.
 | API | `src/network/WebServerManager.cpp` |
 | MQTT | `src/network/MQTTManager.cpp`, `src/core/SystemInitializer.cpp` |
 | Display | `include/clevercoffee/display/displayCommon.h`, `languages.h`, `ModernDisplayTemplate.h` |
-| Web UI | `ui/packages/frontend/src/components/BackflushReminderNotification.tsx`, `MaintenanceBackflushPanel.tsx`, `ConfigPage.tsx` |
+| Web UI | `ui/packages/frontend/src/components/MachineStatusToasts.tsx`, `HomeMaintenanceCard.tsx`, `HomeStandbyAlert.tsx`, `MaintenanceBackflushPanel.tsx`, `ConfigPage.tsx` |
 | Tests | `test/test_maintenance_coordinator/test_main.cpp` |

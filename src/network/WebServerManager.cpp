@@ -24,6 +24,26 @@
 #define JSON_BUFFER_SIZE 512
 #define PATH_BUFFER_SIZE 128
 
+namespace {
+
+void requestNormalOperation(CleverCoffee::SystemContext* context) {
+    if (context && context->machineStateContext()) {
+        context->machineStateContext()->setNormalOperationRequested(true);
+    }
+}
+
+void requestStandby(CleverCoffee::SystemContext* context) {
+    if (context && context->machineStateContext()) {
+        context->machineStateContext()->setStandbyRequested(true);
+    }
+}
+
+bool isMachineStateReady(CleverCoffee::SystemContext* context) {
+    return context && context->machineStateContext();
+}
+
+} // namespace
+
 // Memory monitoring function
 void logMemoryUsage(const char* location) {
     size_t freeHeap    = ESP.getFreeHeap();
@@ -293,15 +313,31 @@ void WebServerManager::setupApiRoutes() {
             return;
         }
 
-        const auto currentState           = systemContext_->machineStateContext()->getCurrentStateId();
-        doc["temperature"]                = systemContext_->processController()->getCurrentTemperature();
-        doc["setpoint"]                   = systemContext_->processController()->getSetpoint();
-        doc["heaterPower"]                = systemContext_->processController()->getPIDOutput() / 10.0;
+        // WebServer starts before StateMachine registers machineStateContext in setup().
+        MachineStateId currentState = MachineStateId::INIT;
+        if (systemContext_->machineStateContext()) {
+            currentState = systemContext_->machineStateContext()->getCurrentStateId();
+        }
+
+        double temperature = systemContext_->processTemperature();
+        double setpoint    = systemContext_->processSetpoint();
+        double heaterPower = systemContext_->processPidOutput() / 10.0;
+        bool   pidEnabled  = Config::getInstance().pidEnabled.get();
+        if (systemContext_->processController()) {
+            temperature = systemContext_->processController()->getCurrentTemperature();
+            setpoint    = systemContext_->processController()->getSetpoint();
+            heaterPower = systemContext_->processController()->getPIDOutput() / 10.0;
+            pidEnabled  = systemContext_->processController()->isPIDEnabled();
+        }
+
+        doc["temperature"]                = temperature;
+        doc["setpoint"]                   = setpoint;
+        doc["heaterPower"]                = heaterPower;
         doc["machineState"]               = static_cast<int>(currentState);
         doc["isStandby"]                  = (currentState == MachineStateId::STANDBY);
         doc["standbyTime"]                = systemContext_->standbyCoordinator().getRemainingTimeMillis();
-        doc["pidEnabled"]                 = systemContext_->processController()->isPIDEnabled();
-        doc["steamMode"]                  = systemContext_->machineStateContext()->isSteamModeActive();
+        doc["pidEnabled"]                 = pidEnabled;
+        doc["steamMode"]                  = systemContext_->steamMode();
         doc["uptime"]                     = millis();
         doc["shotsSinceBackflush"]        = systemContext_->maintenanceCoordinator().getShotsSinceBackflush();
         doc["backflushReminderThreshold"] = Config::getInstance().maintenanceBackflushReminderThreshold.get();
@@ -347,7 +383,7 @@ void WebServerManager::setupApiRoutes() {
                 if (systemContext_) {
                     systemContext_->setProcessSetpoint(newSetpoint);
                     systemContext_->standbyCoordinator().reset();
-                    systemContext_->machineStateContext()->setNormalOperationRequested(true);
+                    requestNormalOperation(systemContext_);
                 }
                 (void)Config::getInstance().brewSetpoint.set(newSetpoint);
                 request->send(200, "application/json", "{\"success\":true}");
@@ -366,7 +402,7 @@ void WebServerManager::setupApiRoutes() {
     server_->on("/api/wake", HTTP_POST, [this](AsyncWebServerRequest* request) {
         if (systemContext_) {
             systemContext_->standbyCoordinator().reset();
-            systemContext_->machineStateContext()->setNormalOperationRequested(true);
+            requestNormalOperation(systemContext_);
             LOG(INFO, "Wake from standby via API");
             request->send(200, "application/json", "{\"success\":true}");
         } else {
@@ -377,7 +413,7 @@ void WebServerManager::setupApiRoutes() {
     // Sleep endpoint - force machine into standby mode
     server_->on("/api/sleep", HTTP_POST, [this](AsyncWebServerRequest* request) {
         if (systemContext_) {
-            systemContext_->machineStateContext()->setStandbyRequested(true);
+            requestStandby(systemContext_);
             LOG(INFO, "Standby requested via API");
             request->send(200, "application/json", "{\"success\":true}");
         } else {
@@ -388,10 +424,15 @@ void WebServerManager::setupApiRoutes() {
     // Steam control endpoints
     server_->on("/api/steam", HTTP_POST, [this](AsyncWebServerRequest* request) {
         try {
+            if (!isMachineStateReady(systemContext_)) {
+                request->send(503, "application/json", ApiResponses::errorResponse("Machine not ready"));
+                return;
+            }
+
             const bool steamMode = !systemContext_->machineStateContext()->isSteamModeActive();
             systemContext_->machineStateContext()->setSteamModeActive(steamMode);
             systemContext_->standbyCoordinator().reset();
-            systemContext_->machineStateContext()->setNormalOperationRequested(true);
+            requestNormalOperation(systemContext_);
             LOGF(INFO,
                  "Toggle steam mode: %s",
                  systemContext_->machineStateContext()->isSteamModeActive() ? "on" : "off");
@@ -416,7 +457,7 @@ void WebServerManager::setupApiRoutes() {
             if (systemContext_) {
                 systemContext_->setProcessPidEnabled(newPidState);
                 systemContext_->standbyCoordinator().reset();
-                systemContext_->machineStateContext()->setNormalOperationRequested(true);
+                requestNormalOperation(systemContext_);
             }
 
             LOGF(INFO, "Toggle PID state: %d", newPidState);
@@ -431,10 +472,15 @@ void WebServerManager::setupApiRoutes() {
     // Backflush endpoint
     server_->on("/api/backflush", HTTP_POST, [this](AsyncWebServerRequest* request) {
         try {
+            if (!isMachineStateReady(systemContext_)) {
+                request->send(503, "application/json", ApiResponses::errorResponse("Machine not ready"));
+                return;
+            }
+
             const bool backflushOn = !systemContext_->machineStateContext()->isBackflushModeActive();
             systemContext_->setBackflushMode(backflushOn);
             systemContext_->standbyCoordinator().reset();
-            systemContext_->machineStateContext()->setNormalOperationRequested(true);
+            requestNormalOperation(systemContext_);
             LOGF(INFO, "Toggle backflush mode: %s", backflushOn ? "on" : "off");
 
             JsonDocument doc;
@@ -482,7 +528,7 @@ void WebServerManager::setupApiRoutes() {
                     systemContext_->sensorCoordinator().setScaleTareMode(
                         !systemContext_->sensorCoordinator().isScaleTareMode());
                     systemContext_->standbyCoordinator().reset();
-                    systemContext_->machineStateContext()->setNormalOperationRequested(true);
+                    requestNormalOperation(systemContext_);
                     LOGF(INFO,
                          "Toggle scale tare mode: %s",
                          systemContext_->sensorCoordinator().isScaleTareMode() ? "on" : "off");
@@ -505,7 +551,7 @@ void WebServerManager::setupApiRoutes() {
                     systemContext_->sensorCoordinator().setScaleCalibrationMode(
                         !systemContext_->sensorCoordinator().isScaleCalibrationMode());
                     systemContext_->standbyCoordinator().reset();
-                    systemContext_->machineStateContext()->setNormalOperationRequested(true);
+                    requestNormalOperation(systemContext_);
                     LOGF(INFO,
                          "Toggle scale calibration mode: %s",
                          systemContext_->sensorCoordinator().isScaleCalibrationMode() ? "on" : "off");
@@ -531,7 +577,7 @@ void WebServerManager::setupApiRoutes() {
             if (Config::getInstance().importFromJson(body)) {
                 if (systemContext_) {
                     systemContext_->standbyCoordinator().reset();
-                    systemContext_->machineStateContext()->setNormalOperationRequested(true);
+                    requestNormalOperation(systemContext_);
                 }
                 request->send(200, "application/json", "{\"success\":true}");
             } else {
@@ -853,7 +899,6 @@ void WebServerManager::setupApiRoutes() {
 
                 bool hasErrors  = false;
                 bool hasUpdates = false;
-                bool maintenanceConfigUpdated = false;
 
                 for (auto i = 0u; i < requestParams; ++i) {
                     if (const auto* p = request->getParam(i); p && p->name().length() > 0 && p->value().length() > 0) {
@@ -874,9 +919,6 @@ void WebServerManager::setupApiRoutes() {
 
                                 if (updateSuccess) {
                                     hasUpdates = true;
-                                    if (varName.startsWith("maintenance.backflush_reminder.")) {
-                                        maintenanceConfigUpdated = true;
-                                    }
                                     LOGF(INFO,
                                          "handleParameters POST: Successfully updated and saved parameter '%s' to '%s'",
                                          varName.c_str(),
@@ -900,11 +942,8 @@ void WebServerManager::setupApiRoutes() {
                     request->send(400, "application/json", "{\"error\":\"Some parameter updates failed\"}");
                 } else if (hasUpdates) {
                     if (systemContext_) {
-                        if (maintenanceConfigUpdated) {
-                            systemContext_->maintenanceCoordinator().onReminderConfigChanged();
-                        }
                         systemContext_->standbyCoordinator().reset();
-                        systemContext_->machineStateContext()->setNormalOperationRequested(true);
+                        requestNormalOperation(systemContext_);
                     }
                     request->send(
                         200, "application/json", "{\"success\":true,\"message\":\"Parameters updated and saved\"}");

@@ -87,8 +87,6 @@ TEST_F(MaintenanceCoordinatorTest, ReminderDueUsesConfigDefaults) {
         coordinator_->recordBrewIfQualified(BACKFLUSH_REMINDER_MIN_BREW_TIME_MS, 0.0f, false);
     }
     EXPECT_TRUE(coordinator_->isReminderDue());
-    EXPECT_TRUE(coordinator_->consumeReminderAnnouncement());
-    EXPECT_FALSE(coordinator_->consumeReminderAnnouncement());
 }
 
 TEST_F(MaintenanceCoordinatorTest, DisabledReminderStillCountsButNotDue) {
@@ -100,10 +98,7 @@ TEST_F(MaintenanceCoordinatorTest, DisabledReminderStillCountsButNotDue) {
 
     EXPECT_EQ(BACKFLUSH_REMINDER_THRESHOLD, coordinator_->getShotsSinceBackflush());
     EXPECT_FALSE(coordinator_->isReminderDue());
-    EXPECT_FALSE(coordinator_->consumeReminderAnnouncement());
 
     Config::getInstance().maintenanceBackflushReminderEnabled.set(true);
-    coordinator_->onReminderConfigChanged();
     EXPECT_TRUE(coordinator_->isReminderDue());
-    EXPECT_TRUE(coordinator_->consumeReminderAnnouncement());
 }
