@@ -188,13 +188,26 @@ app.post(
   "/api/backflush",
   simulateAuth,
   (req: Request, res: Response): void => {
-    mockState.backflushOn = !mockState.backflushOn;
+    const cyclesParam = mockState.parameters.find(
+      (p) => p.name === "backflush.cycles"
+    );
+    const configuredCycles =
+      typeof cyclesParam?.value === "number" ? cyclesParam.value : 5;
+    const newState = !mockState.backflushOn;
+
+    if (newState && configuredCycles <= 0) {
+      res.status(400).json({
+        error: "backflush.cycles must be greater than 0",
+      });
+      return;
+    }
+
+    mockState.backflushOn = newState;
 
     if (!mockState.backflushOn) {
       mockState.shotsSinceBackflush = 0;
     }
 
-    // Update parameter state
     const backflushParam = mockState.parameters.find(
       (p) => p.name === "BACKFLUSH_ON"
     );
