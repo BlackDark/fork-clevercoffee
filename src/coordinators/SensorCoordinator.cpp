@@ -9,7 +9,6 @@
 #include "clevercoffee/Logger.h"
 #include "clevercoffee/hardware/Switch.h"
 #include "clevercoffee/hardware/pressureSensor.h"
-#include "clevercoffee/hardware/scales/BluetoothScale.h"
 #include "clevercoffee/types/GlobalTypes.h"
 
 #include <cmath>
@@ -196,8 +195,8 @@ void SensorCoordinator::stopBrewWeightTracking() noexcept {
 void SensorCoordinator::maybeStartAutoTare() noexcept {
     const auto& config = Config::getInstance();
     if (!config.hardwareSensorsScaleEnabled.get() ||
-        config.hardwareSensorsScaleType.get() != Hardware::ScaleType::BLUETOOTH || !config.brewByWeightEnabled.get() ||
-        !config.brewByWeightAutoTare.get()) {
+        config.hardwareSensorsScaleType.get() != ::Hardware::ScaleType::BLUETOOTH ||
+        !config.brewByWeightEnabled.get() || !config.brewByWeightAutoTare.get()) {
         return;
     }
 
@@ -205,9 +204,8 @@ void SensorCoordinator::maybeStartAutoTare() noexcept {
         return;
     }
 
-    auto* bleScale = static_cast<BluetoothScale*>(static_cast<void*>(scaleSensor_));
     LOG(INFO, "Auto-tare initiated for BLE scale");
-    bleScale->tare();
+    scaleSensor_->requestTare();
     autoTareInProgress_ = true;
     autoTareStartTime_  = millis();
 }

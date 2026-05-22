@@ -165,3 +165,7 @@ Expected<double, Error> BluetoothScale::tryGetValue() noexcept {
 const char* BluetoothScale::getSensorType() const noexcept {
     return "BluetoothScale (Acaia/Compatible)";
 }
+
+void BluetoothScale::requestTare() noexcept {
+    tare();
+}
