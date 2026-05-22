@@ -8,8 +8,6 @@
 #pragma once
 
 // system parameter defaults and ranges
-#define STR_HELPER(x) #x
-#define STR(x)        STR_HELPER(x)
 
 // default parameters
 #define STORAGE_NAMESPACE "config"       // NVS namespace for storing parameters

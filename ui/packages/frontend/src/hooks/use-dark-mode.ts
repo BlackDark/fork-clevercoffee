@@ -1,6 +1,6 @@
 // Custom useTheme hook for Vite/shadcn
 import type { ThemeProviderState } from "@/types/theme";
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useSyncExternalStore } from "react";
 
 const initialState: ThemeProviderState = {
   theme: "system",
@@ -19,18 +19,37 @@ export const useTheme = () => {
   return context;
 };
 
+function subscribeToDarkMode(onStoreChange: () => void) {
+  const media = window.matchMedia("(prefers-color-scheme: dark)");
+  media.addEventListener("change", onStoreChange);
+
+  const observer = new MutationObserver(onStoreChange);
+  observer.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ["class"],
+  });
+
+  return () => {
+    media.removeEventListener("change", onStoreChange);
+    observer.disconnect();
+  };
+}
+
+function getIsDark() {
+  return document.documentElement.classList.contains("dark");
+}
+
+function getServerIsDark() {
+  return false;
+}
+
 // This hook is for theme/dark mode only and is independent of clever coffee state.
 export function useDarkMode() {
-  const { theme } = useTheme();
-  const [isDark, setIsDark] = useState(false);
-
-  useEffect(() => {
-    // Check if the resolved theme is dark, default to false if undefined
-    const isCurrentlyDark = theme === "dark";
-    setIsDark(isCurrentlyDark);
-  }, [theme]);
-
-  return isDark;
+  return useSyncExternalStore(
+    subscribeToDarkMode,
+    getIsDark,
+    getServerIsDark
+  );
 }
 
 export function getChartTheme(isDark: boolean) {

@@ -9,16 +9,9 @@
     "prepare-esp": "pnpm --filter @clevercoffee/frontend build && pnpm run copy:dist",
     "copy:dist": "rimraf ../data && mkdir -p ../data && mv packages/frontend/dist ../data/ui"
   },
-  "packageManager": "pnpm@10.13.1",
+  "packageManager": "pnpm@11.2.2",
   "devDependencies": {
-    "concurrently": "^9.2.0",
-    "rimraf": "^6.0.1"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "@tailwindcss/oxide",
-      "esbuild",
-      "svelte-preprocess"
-    ]
+    "concurrently": "^9.2.1",
+    "rimraf": "^6.1.3"
   }
 }

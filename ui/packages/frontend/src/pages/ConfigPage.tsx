@@ -210,6 +210,29 @@ const RebootRequiredBanner = ({
   </Alert>
 );
 
+const DisabledParameterState = ({
+  disabledHint,
+}: {
+  disabledHint?: string;
+}) => (
+  <Popover>
+    <PopoverTrigger asChild>
+      <div className="flex items-center justify-center cursor-help">
+        <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 rounded-md border border-blue-200 dark:border-blue-800">
+          <HelpCircle className="h-4 w-4" />
+          <span className="text-sm font-medium">Disabled</span>
+        </div>
+      </div>
+    </PopoverTrigger>
+    <PopoverContent className="w-64 text-xs">
+      <div className="space-y-2">
+        <div className="font-medium">Parameter Disabled</div>
+        <div className="text-muted-foreground">{disabledHint}</div>
+      </div>
+    </PopoverContent>
+  </Popover>
+);
+
 // Memoized parameter input component
 const ParameterInput = React.memo(
   ({
@@ -223,27 +246,8 @@ const ParameterInput = React.memo(
     disabledHint?: string;
     onUpdate: (value: string | number | boolean) => void;
   }) => {
-    const DisabledState = () => (
-      <Popover>
-        <PopoverTrigger asChild>
-          <div className="flex items-center justify-center cursor-help">
-            <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 rounded-md border border-blue-200 dark:border-blue-800">
-              <HelpCircle className="h-4 w-4" />
-              <span className="text-sm font-medium">Disabled</span>
-            </div>
-          </div>
-        </PopoverTrigger>
-        <PopoverContent className="w-64 text-xs">
-          <div className="space-y-2">
-            <div className="font-medium">Parameter Disabled</div>
-            <div className="text-muted-foreground">{disabledHint}</div>
-          </div>
-        </PopoverContent>
-      </Popover>
-    );
-
     if (isDisabled) {
-      return <DisabledState />;
+      return <DisabledParameterState disabledHint={disabledHint} />;
     }
 
     if (isParameterBoolean(param)) {
@@ -325,7 +329,9 @@ const ParameterInput = React.memo(
 export function ConfigPage() {
   const { filter } = useParams<{ filter: string }>();
   const [isHardwareWarningOpen, setIsHardwareWarningOpen] = useState(false);
-  const [localParameters, setLocalParameters] = useState<Parameter[]>([]);
+  const [editedParameters, setEditedParameters] = useState<Parameter[] | null>(
+    null
+  );
   const [showChangesDialog, setShowChangesDialog] = useState(false);
   const [saving, setSaving] = useState(false);
   const [showRebootBanner, setShowRebootBanner] = useState(false);
@@ -341,44 +347,47 @@ export function ConfigPage() {
     errorParams,
   } = useCleverCoffee();
 
+  const [prevServerParameters, setPrevServerParameters] =
+    useState(serverParameters);
+
+  if (serverParameters !== prevServerParameters) {
+    setPrevServerParameters(serverParameters);
+    setEditedParameters(null);
+  }
+
+  const baseParameters = useMemo(
+    () =>
+      serverParameters.length > 0
+        ? ensureCompleteParameters(serverParameters).map((parameter) => ({
+            ...parameter,
+          }))
+        : [],
+    [serverParameters]
+  );
+
+  const localParameters = editedParameters ?? baseParameters;
+
   useEffect(() => {
     if (serverParameters.length === 0) fetchParameters();
   }, [fetchParameters, serverParameters.length]);
 
-  // Initialize local parameters when server parameters load
-  useEffect(() => {
-    if (serverParameters.length > 0) {
-      // Merge server parameters with metadata to get complete parameter definitions
-      const completeParameters = ensureCompleteParameters(serverParameters);
-      setLocalParameters(completeParameters.map((p) => ({ ...p })));
-    }
-  }, [serverParameters]);
-
-  // Reset local changes when leaving the page or component unmounts
-  useEffect(() => {
-    return () => {
-      // This runs when component unmounts (user navigates away)
-      setLocalParameters([]);
-    };
-  }, []);
-
   // Simple parameter update - just update local state
   const updateLocalParameter = useCallback(
     (paramName: string, newValue: string | number | boolean) => {
-      setLocalParameters((prev) =>
-        prev.map((param) =>
+      setEditedParameters((previous) => {
+        const current = previous ?? baseParameters;
+        return current.map((param) =>
           param.name === paramName ? { ...param, value: newValue } : param
-        )
-      );
+        );
+      });
     },
-    []
+    [baseParameters]
   );
 
   // Reset all changes to server state
   const resetAllChanges = useCallback(() => {
-    const completeParameters = ensureCompleteParameters(serverParameters);
-    setLocalParameters(completeParameters.map((p) => ({ ...p })));
-  }, [serverParameters]);
+    setEditedParameters(null);
+  }, []);
 
   // Calculate changes between local and server state
   const changedParameters = useMemo((): ParameterChange[] => {

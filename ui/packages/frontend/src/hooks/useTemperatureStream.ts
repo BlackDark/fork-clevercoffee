@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { apiFetch, SERVER_BASE_URL } from "@/lib/api-config";
 import { API_ROUTES } from "@/lib/routes";
 import type { TemperatureData } from "@/types/api";
@@ -10,12 +10,13 @@ interface UseTemperatureStreamReturn {
   refetch: (showLoading?: boolean) => Promise<boolean>;
 }
 
-export function useTemperatureStream(historyLoaded: boolean): UseTemperatureStreamReturn {
+export function useTemperatureStream(
+  historyLoaded: boolean,
+  onLiveChartData?: (data: TemperatureData) => void
+): UseTemperatureStreamReturn {
   const [temperatureData, setTemperatureData] = useState<TemperatureData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const addTempRef = useRef<((data: { currentTemp?: number; targetTemp?: number }) => void) | null>(null);
-  const addHeaterRef = useRef<((data: { heaterPower?: number }) => void) | null>(null);
 
   const refetch = useCallback(async (showLoading = false): Promise<boolean> => {
     try {
@@ -54,9 +55,8 @@ export function useTemperatureStream(historyLoaded: boolean): UseTemperatureStre
           setTemperatureData(data);
           setError(null);
           setIsLoading(false);
-          if (addTempRef.current && addHeaterRef.current && historyLoaded) {
-            addTempRef.current({ currentTemp: data.currentTemp, targetTemp: data.targetTemp });
-            addHeaterRef.current({ heaterPower: data.heaterPower });
+          if (historyLoaded) {
+            onLiveChartData?.(data);
           }
         } catch {
           setError("Failed to parse temperature event");
@@ -79,7 +79,7 @@ export function useTemperatureStream(historyLoaded: boolean): UseTemperatureStre
       if (events) events.close();
       if (retryTimeout) clearTimeout(retryTimeout);
     };
-  }, [historyLoaded]);
+  }, [historyLoaded, onLiveChartData]);
 
   useEffect(() => {
     const cleanup = connect();

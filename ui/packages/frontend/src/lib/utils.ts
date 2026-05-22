@@ -17,7 +17,7 @@ export function debounce<TArgs extends unknown[], TReturn>(
   func: (...args: TArgs) => TReturn,
   wait: number
 ): (...args: TArgs) => void {
-  let timeout: NodeJS.Timeout | undefined;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
 
   return (...args: TArgs): void => {
     if (timeout !== undefined) {
