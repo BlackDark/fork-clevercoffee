@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, useMemo } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import uPlot from "uplot";
 import type { Options as UPlotOptions } from "uplot";
 import "uplot/dist/uPlot.min.css";
@@ -19,6 +19,19 @@ export interface BaseChartProps {
   updatePlotData?: (plot: uPlot, newData: number[][]) => void;
   minHeight?: number;
   ariaLabel?: string;
+}
+
+function reportChartError(
+  onError: BaseChartProps["onError"],
+  setHasError: (value: boolean) => void,
+  error: unknown
+) {
+  const chartError =
+    error instanceof Error ? error : new Error(String(error));
+  queueMicrotask(() => {
+    setHasError(true);
+    onError?.(chartError);
+  });
 }
 
 export function BaseChart({
@@ -42,39 +55,32 @@ export function BaseChart({
   const isDark = useDarkMode();
   const theme = useMemo(() => getChartTheme(isDark), [isDark]);
 
-  const debouncedUpdateSize = useMemo(
-    () =>
-      debounce(() => {
-        if (chartRef.current) {
-          const containerWidth =
-            (chartRef.current as HTMLDivElement).offsetWidth - 32;
-          setChartSize({
-            width: width || Math.max(containerWidth, 100),
-            height,
-          });
-        }
-      }, 16),
-    [width, height]
-  );
-
   useEffect(() => {
-    debouncedUpdateSize();
-    const resizeObserver = new ResizeObserver(debouncedUpdateSize);
-    if (chartRef.current) {
-      resizeObserver.observe(chartRef.current);
+    const updateSize = debounce(() => {
+      const element = chartRef.current;
+      if (!element) {
+        return;
+      }
+
+      const containerWidth = element.offsetWidth - 32;
+      setChartSize({
+        width: width || Math.max(containerWidth, 100),
+        height,
+      });
+    }, 16);
+
+    updateSize();
+    const element = chartRef.current;
+    if (!element) {
+      return;
     }
+
+    const resizeObserver = new ResizeObserver(updateSize);
+    resizeObserver.observe(element);
     return () => {
       resizeObserver.disconnect();
     };
-  }, [debouncedUpdateSize]);
-
-  const handleError = useCallback(
-    (error: Error) => {
-      setHasError(true);
-      if (onError) onError(error);
-    },
-    [onError]
-  );
+  }, [width, height]);
 
   useEffect(() => {
     if (
@@ -86,10 +92,11 @@ export function BaseChart({
     ) {
       return;
     }
-    setHasError(false);
+
+    queueMicrotask(() => setHasError(false));
+
     try {
       if (!plotRef.current) {
-        // Initialize chart
         const config = createChartConfig({ chartSize, theme, isDark });
         plotRef.current = new uPlot(
           config,
@@ -102,17 +109,9 @@ export function BaseChart({
         plotRef.current.setData(data as uPlot.AlignedData);
       }
     } catch (error) {
-      handleError(error instanceof Error ? error : new Error(String(error)));
+      reportChartError(onError, setHasError, error);
     }
-  }, [
-    data,
-    createChartConfig,
-    updatePlotData,
-    handleError,
-    chartSize,
-    theme,
-    isDark,
-  ]);
+  }, [data, createChartConfig, updatePlotData, onError, chartSize, theme, isDark]);
 
   useEffect(() => {
     if (!plotRef.current || hasError || !data || data.length === 0) return;
@@ -126,17 +125,9 @@ export function BaseChart({
         chartRef.current!
       );
     } catch (error) {
-      handleError(error instanceof Error ? error : new Error(String(error)));
+      reportChartError(onError, setHasError, error);
     }
-  }, [
-    theme,
-    createChartConfig,
-    handleError,
-    data,
-    hasError,
-    chartSize,
-    isDark,
-  ]);
+  }, [theme, createChartConfig, onError, data, hasError, chartSize, isDark]);
 
   useEffect(() => {
     if (plotRef.current && !hasError) {
@@ -146,10 +137,10 @@ export function BaseChart({
           height: chartSize.height,
         });
       } catch (error) {
-        handleError(error instanceof Error ? error : new Error(String(error)));
+        reportChartError(onError, setHasError, error);
       }
     }
-  }, [chartSize, hasError, handleError]);
+  }, [chartSize, hasError, onError]);
 
   useEffect(() => {
     return () => {

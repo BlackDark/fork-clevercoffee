@@ -1,4 +1,5 @@
 import { Moon, Sun } from "lucide-react";
+import { useSyncExternalStore } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -7,16 +8,27 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useEffect, useState } from "react";
 import { useTheme } from "@/hooks/use-dark-mode";
+
+function subscribeToClientHydration() {
+  return () => {};
+}
+
+function getClientHydrated() {
+  return true;
+}
+
+function getServerHydrated() {
+  return false;
+}
 
 export function ModeToggle() {
   const { theme, setTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const mounted = useSyncExternalStore(
+    subscribeToClientHydration,
+    getClientHydrated,
+    getServerHydrated
+  );
 
   if (!mounted) {
     return null;

@@ -114,12 +114,47 @@ export const CleverCoffeeProvider: React.FC<{ children: React.ReactNode }> = ({
     getParameter,
   } = useParametersApi();
 
+  const addTempData = useCallback(
+    (data: { currentTemp?: number; targetTemp?: number }) => {
+      if (data.currentTemp != null && data.targetTemp != null) {
+        const now = new Date();
+        setTempData((prev) => ({
+          tempDates: [...prev.tempDates, now],
+          curTempVals: [...prev.curTempVals, data.currentTemp!],
+          targetTempVals: [...prev.targetTempVals, data.targetTemp!],
+        }));
+      }
+    },
+    []
+  );
+
+  const addHeaterData = useCallback((data: { heaterPower?: number }) => {
+    if (data.heaterPower !== undefined) {
+      const now = new Date();
+      setHeaterData((prev) => ({
+        heaterDates: [...prev.heaterDates, now],
+        heaterPowerVals: [...prev.heaterPowerVals, data.heaterPower!],
+      }));
+    }
+  }, []);
+
+  const handleLiveChartData = useCallback(
+    (data: TemperatureData) => {
+      addTempData({
+        currentTemp: data.currentTemp,
+        targetTemp: data.targetTemp,
+      });
+      addHeaterData({ heaterPower: data.heaterPower });
+    },
+    [addTempData, addHeaterData]
+  );
+
   const {
     temperatureData: currentTempData,
     isLoading: isLoadingTemp,
     error: temperatureError,
     refetch: refetchTemperature,
-  } = useTemperatureStream(isHistoryLoaded);
+  } = useTemperatureStream(isHistoryLoaded, handleLiveChartData);
 
   const {
     togglePid: rawTogglePid,
@@ -171,37 +206,6 @@ export const CleverCoffeeProvider: React.FC<{ children: React.ReactNode }> = ({
   const sleepFromStandby = useCallback(async () => {
     return await rawSleepFromStandby();
   }, [rawSleepFromStandby]);
-
-  const addTempData = useCallback(
-    (data: { currentTemp?: number; targetTemp?: number }) => {
-      if (data.currentTemp != null && data.targetTemp != null) {
-        const now = new Date();
-        setTempData((prev) => ({
-          tempDates: [...prev.tempDates, now],
-          curTempVals: [...prev.curTempVals, data.currentTemp!],
-          targetTempVals: [...prev.targetTempVals, data.targetTemp!],
-        }));
-      }
-    },
-    []
-  );
-
-  const addHeaterData = useCallback((data: { heaterPower?: number }) => {
-    if (data.heaterPower !== undefined) {
-      const now = new Date();
-      setHeaterData((prev) => ({
-        heaterDates: [...prev.heaterDates, now],
-        heaterPowerVals: [...prev.heaterPowerVals, data.heaterPower!],
-      }));
-    }
-  }, []);
-
-  useEffect(() => {
-    if (isHistoryLoaded && currentTempData) {
-      addTempData({ currentTemp: currentTempData.currentTemp, targetTemp: currentTempData.targetTemp });
-      addHeaterData({ heaterPower: currentTempData.heaterPower });
-    }
-  }, [isHistoryLoaded, currentTempData, addTempData, addHeaterData]);
 
   const fetchHistoryData = useCallback(async (): Promise<boolean> => {
     try {
