@@ -458,15 +458,20 @@ paths:
   /api/ota/url:
     post:
       tags: [OTA]
-      summary: Update firmware from URL
+      summary: Update firmware or filesystem from URL
       requestBody:
         content:
           application/x-www-form-urlencoded:
             schema:
               type: object
+              required: [url]
               properties:
                 url:
                   type: string
+                type:
+                  type: string
+                  enum: [firmware, filesystem]
+                  default: firmware
       responses:
         "200":
           description: Download started

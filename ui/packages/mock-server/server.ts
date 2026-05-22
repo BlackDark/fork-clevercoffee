@@ -901,6 +901,7 @@ app.post("/api/ota/url", simulateAuth, (req: Request, res: Response): void => {
   }
 
   const url = req.body.url;
+  const updateType = req.body.type === "filesystem" ? "filesystem" : "firmware";
   if (!url) {
     res.status(400).json({
       success: false,
@@ -917,12 +918,16 @@ app.post("/api/ota/url", simulateAuth, (req: Request, res: Response): void => {
     return;
   }
 
-  console.log(`🔗 Firmware URL: ${url}`);
+  console.log(`🔗 ${updateType} URL: ${url}`);
 
   // Simulate a firmware size based on URL
-  const simulatedSize = Math.floor(Math.random() * 1000000) + 500000; // 500KB - 1.5MB
+  const simulatedSize =
+    updateType === "filesystem"
+      ? Math.floor(Math.random() * 500000) + 300000 // 300KB - 800KB
+      : Math.floor(Math.random() * 1000000) + 500000; // 500KB - 1.5MB
 
   // Start the simulation
+  otaState.type = updateType;
   simulateOTAProgress("url", simulatedSize)
     .then(() => {
       // This won't be reached due to the async nature, but kept for completeness

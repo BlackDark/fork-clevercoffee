@@ -236,14 +236,13 @@ export function OTAUpdateSection() {
   const updateFromUrl = async () => {
     if (!otaUrl.trim()) {
       toast.error("No URL provided", {
-        description: "Please enter a firmware download URL.",
+        description: `Please enter a ${otaUpdateType} download URL.`,
       });
       return;
     }
 
     toast("Confirm URL Update", {
-      description:
-        "This will download and install firmware from the provided URL. The device will restart automatically. Are you sure?",
+      description: `This will download and install ${otaUpdateType} from the provided URL. The device will restart automatically. Are you sure?`,
       action: {
         label: "Update from URL",
         onClick: async () => {
@@ -276,15 +275,20 @@ export function OTAUpdateSection() {
               headers: {
                 "Content-Type": "application/x-www-form-urlencoded",
               },
-              body: `url=${encodeURIComponent(otaUrl)}`,
+              body: `url=${encodeURIComponent(otaUrl)}&type=${encodeURIComponent(otaUpdateType)}`,
             });
 
             const result = await response.json();
 
             if (result.success) {
-              toast.success("Firmware update successful", {
-                description: "Device will restart with new firmware...",
-              });
+              toast.success(
+                `${
+                  otaUpdateType.charAt(0).toUpperCase() + otaUpdateType.slice(1)
+                } update successful`,
+                {
+                  description: `Device will restart with new ${otaUpdateType}...`,
+                }
+              );
               setOtaUrl("");
             } else {
               const errorMessage = result.message || "Unknown error occurred";
@@ -294,16 +298,27 @@ export function OTAUpdateSection() {
                   description: errorMessage,
                 });
               } else {
-                toast.error("Firmware update failed", {
-                  description: errorMessage,
-                });
+                toast.error(
+                  `${
+                    otaUpdateType.charAt(0).toUpperCase() +
+                    otaUpdateType.slice(1)
+                  } update failed`,
+                  {
+                    description: errorMessage,
+                  }
+                );
               }
             }
           } catch (error: unknown) {
-            console.error("URL update error:", error);
-            toast.error("Firmware update failed", {
-              description: "Network error or device restarting...",
-            });
+            console.error(`${otaUpdateType} URL update error:`, error);
+            toast.error(
+              `${
+                otaUpdateType.charAt(0).toUpperCase() + otaUpdateType.slice(1)
+              } update failed`,
+              {
+                description: "Network error or device restarting...",
+              }
+            );
           } finally {
             clearInterval(pollInterval);
             setIsUrlUpdating(false);
@@ -474,7 +489,11 @@ export function OTAUpdateSection() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-3">
-              <Label htmlFor="otaUrlType">Firmware Download URL</Label>
+              <Label htmlFor="otaUrlType">
+                {otaUpdateType === "firmware"
+                  ? "Firmware Download URL"
+                  : "Filesystem Download URL"}
+              </Label>
               <Input
                 type="url"
                 id="otaUrlType"
