@@ -247,19 +247,29 @@ void LoopManager::updateLEDs() {
     const auto temperature  = systemContext_.processTemperature();
     const auto setpoint     = systemContext_.processSetpoint();
 
-    using CleverCoffee::Temperature::STEAM_LED_THRESHOLD_C;
-    using CleverCoffee::Temperature::TEMP_TOLERANCE_NORMAL_C;
     using CleverCoffee::Temperature::TEMP_TOLERANCE_STEAM_C;
 
     if (Config::getInstance().hardwareLedsStatusEnabled.get() && hardwareManager_.getStatusLed()) {
-        bool shouldTurnOn =
-            (machineState == MachineStateId::PID_NORMAL && (fabs(temperature - setpoint) < TEMP_TOLERANCE_NORMAL_C)) ||
-            (temperature > STEAM_LED_THRESHOLD_C && fabs(temperature - setpoint) < TEMP_TOLERANCE_STEAM_C);
+        const double statusLedDelta = Config::getInstance().displayBlinkingDelta.get();
+        const double tolerance      = isSteamState(machineState) ? TEMP_TOLERANCE_STEAM_C : statusLedDelta;
+        const bool   nearSetpoint   = fabs(temperature - setpoint) <= tolerance;
+        const bool   eligibleState =
+            static_cast<int>(machineState) <= static_cast<int>(MachineStateId::BACKFLUSH_FINISHED);
+
+        const bool shouldTurnOn = eligibleState && nearSetpoint;
         shouldTurnOn ? hardwareManager_.getStatusLed()->turnOn() : hardwareManager_.getStatusLed()->turnOff();
     }
 
     if (Config::getInstance().hardwareLedsBrewEnabled.get() && hardwareManager_.getBrewLed()) {
-        isBrewState(machineState) ? hardwareManager_.getBrewLed()->turnOn() : hardwareManager_.getBrewLed()->turnOff();
+        bool brewLedOn = isBrewState(machineState);
+        if (!brewLedOn && systemContext_.isrCounter() < 500) {
+            if (machineState == MachineStateId::MANUAL_FLUSH_RUNNING) {
+                brewLedOn = true;
+            } else if (isBackflushState(machineState) && machineState != MachineStateId::BACKFLUSH_IDLE) {
+                brewLedOn = true;
+            }
+        }
+        brewLedOn ? hardwareManager_.getBrewLed()->turnOn() : hardwareManager_.getBrewLed()->turnOff();
     }
 
     if (Config::getInstance().hardwareLedsSteamEnabled.get() && hardwareManager_.getSteamLed()) {

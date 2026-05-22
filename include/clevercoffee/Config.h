@@ -1226,6 +1226,15 @@ class Config {
                                      909,
                                      "Full screen logo will be shown if PID is disabled"};
 
+    ParamDef<double> displayBlinkingDelta{"display.blinking.delta",
+                                          DISPLAY_BLINKING_DELTA,
+                                          "Status LED Delta",
+                                          5,
+                                          910,
+                                          "Delta from setpoint for status LED and blinking temperature display",
+                                          DISPLAY_BLINKING_DELTA_MIN,
+                                          DISPLAY_BLINKING_DELTA_MAX};
+
     // === BACKFLUSH PARAMETERS (Section 6) ===
     ParamDef<int> backflushCycles{"backflush.cycles",
                                   BACKFLUSH_CYCLES,

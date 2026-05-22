@@ -98,6 +98,7 @@ export const parameterGroups: ParameterGroup[] = [
       "display.template",
       "display.inverted",
       "display.language",
+      "display.blinking.delta",
       "display.fullscreen_brew_timer",
       "display.fullscreen_manual_flush_timer",
       "display.fullscreen_hot_water_timer",
