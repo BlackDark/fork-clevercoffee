@@ -36,10 +36,10 @@ static const char* langstring_error_tsensor_ur[5];
 static const char* langstring_calibrate_start;
 static const char* langstring_calibrate_in_progress;
 static const char* langstring_calibrate_complete;
+static const char* langstring_backflush_reminder[3];
 
 inline void initLangStrings() {
-    // English
-    if (Config::getInstance().displayLanguage.get() == System::Language::GERMAN) {
+    if (Config::getInstance().displayLanguage.get() == System::Language::ENGLISH) {
         langstring_set_temp     = "Set:   ";
         langstring_current_temp = "Temp:  ";
         langstring_brew         = "Brew: ";
@@ -76,12 +76,14 @@ inline void initLangStrings() {
         langstring_backflush_start  = "to start...";
         langstring_backflush_finish = "to finish...";
 
+        langstring_backflush_reminder[0] = "Backflush recommended";
+        langstring_backflush_reminder[1] = "Run a detergent";
+        langstring_backflush_reminder[2] = "backflush cycle";
+
         langstring_calibrate_start       = "Calibration coming up\n\nEmpty scale ";
         langstring_calibrate_in_progress = "Calibration in progress. Place known weight on scale in next 10 seconds ";
         langstring_calibrate_complete    = "Calibration done!\nNew result: ";
-    }
-    // Espanol
-    else if (Config::getInstance().displayLanguage.get() == System::Language::SPANISH) {
+    } else if (Config::getInstance().displayLanguage.get() == System::Language::SPANISH) {
         langstring_set_temp     = "Obj:  ";
         langstring_current_temp = "T:    ";
         langstring_brew         = "Brew: ";
@@ -118,13 +120,16 @@ inline void initLangStrings() {
         langstring_backflush_start  = "para empezar...";
         langstring_backflush_finish = "para terminar...";
 
+        langstring_backflush_reminder[0] = "Recomendado";
+        langstring_backflush_reminder[1] = "Hacer backflush";
+        langstring_backflush_reminder[2] = "con detergente";
+
         langstring_calibrate_start = "Calibración iniciando\n\nVaciar la balanza ";
         langstring_calibrate_in_progress =
             "Calibrando. Coloque un peso conocido en la balanza en los próximos 10 segundos ";
         langstring_calibrate_complete = "Calibración completa!\nNuevo resultado: ";
-    }
-    // German (default)
-    else {
+    } else {
+        // German
         langstring_set_temp     = "Soll:  ";
         langstring_current_temp = "Ist:   ";
         langstring_brew         = "Bezug: ";
@@ -159,6 +164,10 @@ inline void initLangStrings() {
         langstring_backflush_press  = "Bruehsch. druecken";
         langstring_backflush_start  = "um zu starten...";
         langstring_backflush_finish = "um zu beenden...";
+
+        langstring_backflush_reminder[0] = "Rueckspuelen";
+        langstring_backflush_reminder[1] = "Reiniger-";
+        langstring_backflush_reminder[2] = "Rueckspuelung";
 
         langstring_calibrate_start = "Kalibrierung startet\n\nWaage leeren ";
         langstring_calibrate_in_progress =

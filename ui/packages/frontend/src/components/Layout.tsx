@@ -1,7 +1,7 @@
 import { Outlet, Link, useLocation } from "react-router-dom";
 import { ModeToggle } from "./mode-toggle";
 import { LiveStatusIndicator } from "./LiveStatusIndicator";
-import { StandbyNotification } from "./StandbyNotification";
+import { MachineStatusToasts } from "./MachineStatusToasts";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
 import { Menu, X } from "lucide-react";
@@ -30,7 +30,7 @@ export function Layout() {
 
   return (
     <div className="flex min-h-screen w-full flex-col">
-      <StandbyNotification />
+      <MachineStatusToasts />
       <header className="sticky top-0 flex h-16 items-center gap-4 border-b bg-background px-4 md:px-6 justify-between z-40">
         {/* Desktop Navigation */}
         <nav className="hidden flex-col gap-6 text-lg font-medium md:flex md:flex-row md:items-center md:gap-5 md:text-sm lg:gap-6">

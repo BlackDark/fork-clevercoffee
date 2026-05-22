@@ -437,9 +437,12 @@ bool SystemContext::backflushMode() const noexcept {
 }
 
 void SystemContext::setBackflushMode(bool on) noexcept {
-    // Delegate to MachineStateContext (single source of truth)
     if (machineStateContext_) {
+        const bool wasOn = machineStateContext_->isBackflushModeActive();
         machineStateContext_->setBackflushModeActive(on);
+        if (wasOn && !on) {
+            maintenanceCoordinator_.resetSinceBackflush();
+        }
     }
 }
 // ===== DISPLAY COORDINATION =====

@@ -265,6 +265,31 @@ paths:
                     type: number
                   pidEnabled:
                     type: boolean
+                  shotsSinceBackflush:
+                    type: integer
+                  backflushReminderThreshold:
+                    type: integer
+                  backflushReminderDue:
+                    type: boolean
+
+  /api/maintenance/reset-backflush-counter:
+    post:
+      tags: [Maintenance]
+      summary: Reset shots-since-backflush counter
+      responses:
+        "200":
+          description: Counter reset
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  shotsSinceBackflush:
+                    type: integer
+                  backflushReminderDue:
+                    type: boolean
 
   /api/health:
     get:

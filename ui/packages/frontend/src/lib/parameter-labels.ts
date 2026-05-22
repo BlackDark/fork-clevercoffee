@@ -59,6 +59,8 @@ export const parameterLabelsEN = new Map<string, string>([
   ["backflush.cycles", "Backflush Cycles"],
   ["backflush.fill_time", "Backflush Fill Time (s)"],
   ["backflush.flush_time", "Backflush Flush Time (s)"],
+  ["maintenance.backflush_reminder.enabled", "Backflush Reminder"],
+  ["maintenance.backflush_reminder.threshold", "Backflush Reminder Threshold"],
 
   // Power Settings
   ["standby.enabled", "Enable Standby Timer"],

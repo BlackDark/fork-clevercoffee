@@ -447,6 +447,39 @@ inline void displayBluetoothStatus(CleverCoffee::SystemContext& systemContext, c
 }
 
 /**
+ * @brief Draw clean reminder in the status bar when backflush is due.
+ * @return true if drawn (caller should skip uptime)
+ */
+inline bool displayMaintenanceStatusBar(CleverCoffee::SystemContext& systemContext, const int x, const int y) {
+    if (!systemContext.hardwareContext().display() ||
+        !Config::getInstance().maintenanceBackflushReminderEnabled.get() ||
+        !systemContext.maintenanceCoordinator().isReminderDue()) {
+        return false;
+    }
+
+    systemContext.hardwareContext().display()->setFont(u8g2_font_profont11_tf);
+    systemContext.hardwareContext().display()->drawStr(x, y, "CLEAN");
+    return true;
+}
+
+/**
+ * @brief One-line maintenance hint on the standard layout footer when clean is due
+ */
+inline void displayMaintenanceFooter(CleverCoffee::SystemContext& systemContext) {
+    if (!systemContext.hardwareContext().display() ||
+        !Config::getInstance().maintenanceBackflushReminderEnabled.get() ||
+        !systemContext.maintenanceCoordinator().isReminderDue()) {
+        return;
+    }
+
+    systemContext.hardwareContext().display()->setFont(u8g2_font_profont10_tf);
+    systemContext.hardwareContext().display()->setCursor(0, 62);
+    const char* reminderLine =
+        langstring_backflush_reminder[0] != nullptr ? langstring_backflush_reminder[0] : "Backflush recommended";
+    systemContext.hardwareContext().display()->print(reminderLine);
+}
+
+/**
  * @brief Draw a status bar at the top of the screen with icons for WiFi, MQTT,
  *        the system uptime and a separator line underneath
  */
@@ -469,8 +502,10 @@ inline void displayStatusbar(CleverCoffee::SystemContext& systemContext) {
         displayBluetoothStatus(systemContext, 24, 1);
     }
 
-    const auto format = "%02luh %02lum";
-    displayUptime(systemContext, 84, 0, format);
+    if (!displayMaintenanceStatusBar(systemContext, 78, 0)) {
+        const auto format = "%02luh %02lum";
+        displayUptime(systemContext, 84, 0, format);
+    }
 }
 
 /**

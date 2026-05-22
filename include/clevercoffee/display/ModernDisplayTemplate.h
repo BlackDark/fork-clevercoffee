@@ -243,6 +243,7 @@ class StandardTemplate : public ModernDisplayTemplate<StandardTemplate> {
 
         // Heat bar
         displayProgressbar(*systemContext_, systemContext_->processPidOutput() / 10, 30, 60, 98);
+        displayMaintenanceFooter(*systemContext_);
     }
 
     // Template-specific configuration methods
@@ -351,6 +352,9 @@ class UprightTemplate : public ModernDisplayTemplate<UprightTemplate> {
             systemContext_->hardwareContext().display()->print("FLUSH");
         } else if (shouldDisplayBrewTimer(*systemContext_)) {
             systemContext_->hardwareContext().display()->print("BREW");
+        } else if (Config::getInstance().maintenanceBackflushReminderEnabled.get() &&
+                   systemContext_->maintenanceCoordinator().isReminderDue()) {
+            systemContext_->hardwareContext().display()->print("CLEAN");
         } else if (fabs(systemContext_->processTemperature() - systemContext_->processSetpoint()) < 0.3) {
             if (systemContext_->isrCounter() < 500) {
                 systemContext_->hardwareContext().display()->print("OK");
@@ -421,6 +425,8 @@ class UprightTemplate : public ModernDisplayTemplate<UprightTemplate> {
             Config::getInstance().hardwareSensorsScaleType.get() == Hardware::ScaleType::BLUETOOTH) {
             displayBluetoothStatus(*systemContext_, 54, 1);
         }
+
+        displayMaintenanceStatusBar(*systemContext_, 54, 0);
     }
 
   public:

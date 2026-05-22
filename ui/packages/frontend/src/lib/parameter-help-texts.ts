@@ -39,6 +39,10 @@ export const parameterHelpTexts: Record<string, string> = {
     "Time in seconds the pump is running during one backflush cycle",
   "backflush.flush_time":
     "Time in seconds the selenoid valve stays open during one backflush cycle",
+  "maintenance.backflush_reminder.enabled":
+    "Show a reminder on the display and web UI when the shot count since last backflush reaches the threshold. Counting continues when disabled.",
+  "maintenance.backflush_reminder.threshold":
+    "Number of counted brews before a backflush reminder appears (default 50 ≈ monthly at 2 shots/day). Use lower values for water-only reminders.",
   TARE_ON: "Tare the scale for zeroing before brewing.",
   CALIBRATION_ON: "Enable scale calibration mode.",
   "hardware.sensors.scale.known_weight":

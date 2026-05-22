@@ -44,3 +44,10 @@ export interface ScaleResponse extends ApiResponse {
 export interface ConfigUploadResponse extends ApiResponse {
   restart?: boolean;
 }
+
+export interface MachineStatus {
+  isStandby?: boolean;
+  shotsSinceBackflush?: number;
+  backflushReminderThreshold?: number;
+  backflushReminderDue?: boolean;
+}

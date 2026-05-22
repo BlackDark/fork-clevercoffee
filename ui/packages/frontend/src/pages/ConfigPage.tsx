@@ -43,6 +43,7 @@ import {
   PopoverContent,
 } from "@/components/ui/popover";
 import { ParameterNavigation } from "@/components/ParameterNavigation";
+import { MaintenanceBackflushPanel } from "@/components/MaintenanceBackflushPanel";
 import {
   Collapsible,
   CollapsibleContent,
@@ -537,6 +538,9 @@ export function ConfigPage() {
                   <Card key={sectionName} className="mb-8">
                     <CardContent>
                       <h2 className="text-xl font-bold mb-4">{sectionName}</h2>
+                      {sectionName === "Maintenance" && (
+                        <MaintenanceBackflushPanel />
+                      )}
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 auto-rows-fr">
                         {sectionParams.map((param) => {
                           // Simple inline requirement check - no complex memoization

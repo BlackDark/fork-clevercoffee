@@ -113,6 +113,8 @@ export const parameterGroups: ParameterGroup[] = [
       "backflush.cycles",
       "backflush.fill_time",
       "backflush.flush_time",
+      "maintenance.backflush_reminder.enabled",
+      "maintenance.backflush_reminder.threshold",
     ],
   },
   {

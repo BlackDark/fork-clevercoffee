@@ -221,6 +221,10 @@ bool SystemInitializer::initializeConfiguration() {
     // Inject SystemContext into Config for StateParamDef lambdas
     Config::getInstance().setSystemContext(systemContext_.get());
 
+    if (!systemContext_->maintenanceCoordinator().begin()) {
+        LOG(WARNING, "Maintenance coordinator failed to load persisted state");
+    }
+
     LOG(INFO, "Configuration system ready");
 
     // Set log level from configuration
@@ -249,6 +253,8 @@ bool SystemInitializer::initializeConfiguration() {
 }
 
 bool SystemInitializer::initializeDisplay() {
+    initLangStrings();
+
     // DisplayManager is ALWAYS created - it's a required component
     // Even if feature is disabled, manager exists to track state
     try {
@@ -630,6 +636,8 @@ void SystemInitializer::registerMQTTParameters() {
         mqttManager_->registerParameter("backflushCycles", "backflush.cycles");
         mqttManager_->registerParameter("backflushFillTime", "backflush.fill_time");
         mqttManager_->registerParameter("backflushFlushTime", "backflush.flush_time");
+        mqttManager_->registerParameter("backflushReminderEnabled", "maintenance.backflush_reminder.enabled");
+        mqttManager_->registerParameter("backflushReminderThreshold", "maintenance.backflush_reminder.threshold");
     }
 
     // Scale-specific parameters
@@ -668,12 +676,21 @@ void SystemInitializer::registerMQTTSensors() {
     mqttManager_->registerSensor("standbyModeTimeRemaining", [this] {
         return systemContext_->standbyCoordinator().getRemainingTimeMillis() / 1000.0;
     });
+    mqttManager_->registerSensor("shotsSinceBackflush", [this] {
+        return static_cast<double>(systemContext_->maintenanceCoordinator().getShotsSinceBackflush());
+    });
+    mqttManager_->registerSensor("backflushReminderDue", [this] {
+        return systemContext_->maintenanceCoordinator().isReminderDue() ? 1.0 : 0.0;
+    });
     mqttManager_->registerSensor("currentKp", [this] { return systemContext_->pidKp(); });
     mqttManager_->registerSensor("currentKi", [this] { return systemContext_->pidKi(); });
     mqttManager_->registerSensor("currentKd", [this] { return systemContext_->pidKd(); });
     // Machine state sensor registration - use lambda that captures systemContext
     mqttManager_->registerSensor("machineState", [this] {
-        return static_cast<double>(systemContext_->machineStateContext()->getCurrentStateId());
+        if (systemContext_ && systemContext_->machineStateContext()) {
+            return static_cast<double>(systemContext_->machineStateContext()->getCurrentStateId());
+        }
+        return static_cast<double>(MachineStateId::INIT);
     });
 
     // Brew-specific sensors

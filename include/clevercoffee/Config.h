@@ -1254,6 +1254,25 @@ class Config {
                                         BACKFLUSH_FLUSH_TIME_MIN,
                                         BACKFLUSH_FLUSH_TIME_MAX};
 
+    ParamDef<bool> maintenanceBackflushReminderEnabled{
+        "maintenance.backflush_reminder.enabled",
+        true,
+        "Backflush Reminder",
+        6,
+        404,
+        "Show a reminder when the shot count since last backflush reaches the threshold"};
+
+    ParamDef<int> maintenanceBackflushReminderThreshold{
+        "maintenance.backflush_reminder.threshold",
+        BACKFLUSH_REMINDER_THRESHOLD,
+        "Backflush Reminder Threshold",
+        6,
+        405,
+        "Number of counted brews before a backflush reminder is shown (default ~monthly at 2 shots/day)",
+        BACKFLUSH_REMINDER_THRESHOLD_MIN,
+        BACKFLUSH_REMINDER_THRESHOLD_MAX,
+        []() { return Config::getInstance().maintenanceBackflushReminderEnabled.get(); }};
+
     // === STANDBY PARAMETERS (Section 7) ===
     ParamDef<bool> standbyEnabled{
         "standby.enabled", false, "Enable Standby Timer", 7, 801, "Turn heater off after standby time has elapsed"};

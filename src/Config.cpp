@@ -357,6 +357,8 @@ std::vector<ConfigParamDef*> Config::getAllConfigParams() {
         &backflushCycles,
         &backflushFillTime,
         &backflushFlushTime,
+        &maintenanceBackflushReminderEnabled,
+        &maintenanceBackflushReminderThreshold,
 
         // === STANDBY PARAMETERS (Section 7) ===
         &standbyEnabled,

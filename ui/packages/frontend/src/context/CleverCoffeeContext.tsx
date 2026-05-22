@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect } from "react";
 import { apiFetch } from "@/lib/api-config";
 import { API_ROUTES } from "@/lib/routes";
-import type { HistoryData, TemperatureData } from "@/types/api";
+import type { HistoryData, MachineStatus, TemperatureData } from "@/types/api";
 import { CleverCoffeeContext } from "@/context/useCleverCoffee";
 import { useParametersApi } from "@/hooks/useParametersApi";
 import { useTemperatureStream } from "@/hooks/useTemperatureStream";
@@ -42,6 +42,10 @@ interface CleverCoffeeContextValue {
   toggleScaleCalibration: ReturnType<typeof useMachineToggles>["toggleScaleCalibration"];
   wakeFromStandby: ReturnType<typeof useMachineToggles>["wakeFromStandby"];
   sleepFromStandby: ReturnType<typeof useMachineToggles>["sleepFromStandby"];
+
+  machineStatus: MachineStatus | null;
+  machineStatusLoading: boolean;
+  refetchMachineStatus: () => Promise<boolean>;
 }
 
 export const CleverCoffeeProvider: React.FC<{ children: React.ReactNode }> = ({
@@ -61,6 +65,43 @@ export const CleverCoffeeProvider: React.FC<{ children: React.ReactNode }> = ({
   const [isOnline, setIsOnline] = useState(true);
   const [lastHealthCheck, setLastHealthCheck] = useState<Date | null>(null);
   const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [machineStatus, setMachineStatus] = useState<MachineStatus | null>(null);
+  const [machineStatusLoading, setMachineStatusLoading] = useState(true);
+
+  const refetchMachineStatus = useCallback(async (): Promise<boolean> => {
+    try {
+      const response = await apiFetch(API_ROUTES.STATUS, {
+        signal: AbortSignal.timeout(5000),
+      });
+      if (response.ok) {
+        setMachineStatus((await response.json()) as MachineStatus);
+        return true;
+      }
+      setMachineStatus(null);
+      return false;
+    } catch {
+      setMachineStatus(null);
+      return false;
+    } finally {
+      setMachineStatusLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const poll = async () => {
+      if (!mounted) return;
+      await refetchMachineStatus();
+    };
+
+    poll();
+    const interval = setInterval(poll, 10000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, [refetchMachineStatus]);
 
   const {
     parameters,
@@ -102,9 +143,12 @@ export const CleverCoffeeProvider: React.FC<{ children: React.ReactNode }> = ({
   }, [rawToggleSteam, fetchParameters]);
   const toggleBackflush = useCallback(async () => {
     const success = await rawToggleBackflush();
-    if (success) { fetchParameters(false); }
+    if (success) {
+      fetchParameters(false);
+      await refetchMachineStatus();
+    }
     return success;
-  }, [rawToggleBackflush, fetchParameters]);
+  }, [rawToggleBackflush, fetchParameters, refetchMachineStatus]);
   const toggleTareScale = useCallback(async () => {
     const success = await rawToggleTareScale();
     if (success) { fetchParameters(false); }
@@ -117,8 +161,12 @@ export const CleverCoffeeProvider: React.FC<{ children: React.ReactNode }> = ({
   }, [rawToggleScaleCalibration, fetchParameters]);
 
   const wakeFromStandby = useCallback(async () => {
-    return await rawWakeFromStandby();
-  }, [rawWakeFromStandby]);
+    const success = await rawWakeFromStandby();
+    if (success) {
+      await refetchMachineStatus();
+    }
+    return success;
+  }, [rawWakeFromStandby, refetchMachineStatus]);
 
   const sleepFromStandby = useCallback(async () => {
     return await rawSleepFromStandby();
@@ -240,6 +288,9 @@ export const CleverCoffeeProvider: React.FC<{ children: React.ReactNode }> = ({
     toggleScaleCalibration,
     wakeFromStandby,
     sleepFromStandby,
+    machineStatus,
+    machineStatusLoading,
+    refetchMachineStatus,
   };
 
   return (
