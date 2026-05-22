@@ -7,6 +7,7 @@
 
 #include "clevercoffee/Config.h"
 #include "clevercoffee/Logger.h"
+#include "clevercoffee/context/SystemContext.h"
 #include "clevercoffee/backflush/BackflushModeLogic.h"
 #include "clevercoffee/constants/Timing.h"
 #include "clevercoffee/state/MachineStateContext.h"
@@ -141,6 +142,7 @@ std::optional<MachineStateId> BackflushFlushingState::checkSpecificTransitions(M
 
 void BackflushFinishedState::onEntryImpl(MachineStateContext& context) {
     cleanupPumpAndValve(context);
+    context.systemContext().maintenanceCoordinator().resetSinceBackflush();
     LOG(INFO, "Backflush finished - backflush cycle complete");
 }
 

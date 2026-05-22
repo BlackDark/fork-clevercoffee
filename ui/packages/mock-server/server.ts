@@ -204,10 +204,6 @@ app.post(
 
     mockState.backflushOn = newState;
 
-    if (!mockState.backflushOn) {
-      mockState.shotsSinceBackflush = 0;
-    }
-
     const backflushParam = mockState.parameters.find(
       (p) => p.name === "BACKFLUSH_ON"
     );

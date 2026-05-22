@@ -31,7 +31,7 @@ flowchart TD
     increment --> nvs[Persist to NVS namespace maintenance]
     increment --> due{count >= threshold and enabled?}
     due -->|Yes| notify[OLED + web reminder]
-    backflushOff[Backflush mode turned OFF] --> reset[resetSinceBackflush]
+    backflushFinished[BACKFLUSH_FINISHED onEntry] --> reset[resetSinceBackflush]
     manualReset[POST /api/maintenance/reset-backflush-counter] --> reset
     reset --> nvs
 ```
@@ -44,7 +44,7 @@ flowchart TD
 | [`MaintenanceCoordinator`](../../include/clevercoffee/coordinators/MaintenanceCoordinator.h) | Counter in RAM, NVS persistence, reminder state |
 | [`Config`](../../include/clevercoffee/Config.h) | `maintenance.backflush_reminder.enabled` / `.threshold` |
 | [`BrewFinishedState`](../../src/state/states/BrewStates.cpp) | Hook: record brew after cycle completes |
-| [`SystemContext::setBackflushMode`](../../src/context/SystemContext.cpp) | Auto-reset counter when backflush mode OFF |
+| [`BackflushFinishedState`](../../src/state/states/BackflushStates.cpp) | Auto-reset counter when all configured cycles complete |
 | Web / MQTT / OLED | Status, notifications, HA discovery |
 
 ### What counts as one shot?
@@ -70,9 +70,10 @@ Count **unless** `brewTime < 5s` **and** (scale disabled **or** `brewWeight < 10
 
 | Action | Resets counter? |
 |--------|-----------------|
-| Backflush mode toggled **OFF** (web, MQTT, UI) | Yes |
+| All configured backflush cycles complete (`BACKFLUSH_FINISHED` onEntry) | Yes |
+| Backflush mode toggled **OFF** without reaching `BACKFLUSH_FINISHED` | No |
 | `POST /api/maintenance/reset-backflush-counter` | Yes |
-| Single backflush fill/flush cycle (`BACKFLUSH_FINISHED`) | **No** (one cycle ≠ full cleaning session) |
+| Single fill/flush cycle when `backflush.cycles` > 1 | No (must finish full session) |
 | Aborted backflush → `BACKFLUSH_IDLE` | No |
 
 ---

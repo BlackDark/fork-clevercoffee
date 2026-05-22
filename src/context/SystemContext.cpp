@@ -440,12 +440,8 @@ bool SystemContext::setBackflushMode(bool on) noexcept {
     if (!machineStateContext_) {
         return false;
     }
-    const bool wasOn = machineStateContext_->isBackflushModeActive();
     if (!machineStateContext_->applyBackflushMode(on)) {
         return false;
-    }
-    if (wasOn && !on) {
-        maintenanceCoordinator_.resetSinceBackflush();
     }
     standbyCoordinator_.reset();
     machineStateContext_->setNormalOperationRequested(true);
