@@ -7,9 +7,9 @@
 
 #include "clevercoffee/Config.h"
 #include "clevercoffee/Logger.h"
-#include "clevercoffee/context/SystemContext.h"
 #include "clevercoffee/backflush/BackflushModeLogic.h"
 #include "clevercoffee/constants/Timing.h"
+#include "clevercoffee/context/SystemContext.h"
 #include "clevercoffee/state/MachineStateContext.h"
 #include "clevercoffee/types/GlobalTypes.h"
 
@@ -19,6 +19,8 @@ std::optional<MachineStateId> checkBackflushModeDisabled(MachineStateContext& co
     if (context.isBackflushModeActive()) {
         return std::nullopt;
     }
+    context.setBackflushEnterRequested(false);
+    context.setBackflushCycleStartRequested(false);
     context.setBackflushStopRequested(false);
     const MachineStateId pidState = context.getPidState();
     context.logStateTransition(fromStateId, pidState, "Backflush mode disabled");

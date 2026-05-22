@@ -371,7 +371,9 @@ bool MachineStateContext::applyBackflushMode(bool active) noexcept {
             return true;
         case ModeChangeEffect::Disable:
             backflushOn_ = false;
-            setBackflushStopRequested(true);
+            setBackflushEnterRequested(false);
+            setBackflushCycleStartRequested(false);
+            setBackflushStopRequested(false);
             LOG(DEBUG, "Backflush mode deactivated");
             return true;
     }
