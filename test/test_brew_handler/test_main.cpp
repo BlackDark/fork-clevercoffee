@@ -226,6 +226,35 @@ TEST_F(BrewHandlerTest, ValveSafetyShutdownClosesValveWhenNotBrewing) {
 // TOGGLE SWITCH TESTS
 // ============================================================================
 
+TEST_F(BrewHandlerTest, BackflushToggleSwitchDeactivatedStopsActiveCycle) {
+    Config::getInstance().hardwareSwitchesBrewType.set(::Hardware::SwitchType::TOGGLE);
+    MockSwitch mockSwitch(::Hardware::SwitchType::MOMENTARY, ::Hardware::SwitchMode::NORMALLY_OPEN);
+    handler_->setHardware(&mockSwitch, nullptr);
+    setupMachineStateContext(MachineStateId::BACKFLUSH_FILLING);
+    ASSERT_TRUE(machineStateContext_->applyBackflushMode(true));
+
+    EXPECT_CALL(mockSwitch, isPressed()).WillRepeatedly(Return(true));
+    handler_->process();
+    machineStateContext_->setBackflushStopRequested(false);
+
+    EXPECT_CALL(mockSwitch, isPressed()).WillRepeatedly(Return(false));
+    handler_->process();
+    EXPECT_TRUE(machineStateContext_->isBackflushStopRequested());
+}
+
+TEST_F(BrewHandlerTest, BackflushIdleShortPressStartsCycle) {
+    MockSwitch mockSwitch(::Hardware::SwitchType::MOMENTARY, ::Hardware::SwitchMode::NORMALLY_OPEN);
+    handler_->setHardware(&mockSwitch, nullptr);
+    setupMachineStateContext(MachineStateId::BACKFLUSH_IDLE);
+    ASSERT_TRUE(machineStateContext_->applyBackflushMode(true));
+
+    EXPECT_CALL(mockSwitch, isPressed()).WillRepeatedly(Return(true));
+    EXPECT_CALL(mockSwitch, longPressDetected()).WillRepeatedly(Return(false));
+    handler_->process();
+    EXPECT_TRUE(machineStateContext_->isBackflushCycleStartRequested());
+    EXPECT_FALSE(machineStateContext_->isManualFlushStartRequested());
+}
+
 TEST_F(BrewHandlerTest, ToggleSwitchDetectsActivationAndDeactivation) {
     Config::getInstance().hardwareSwitchesBrewType.set(::Hardware::SwitchType::TOGGLE);
     MockSwitch mockSwitch(::Hardware::SwitchType::MOMENTARY, ::Hardware::SwitchMode::NORMALLY_OPEN);

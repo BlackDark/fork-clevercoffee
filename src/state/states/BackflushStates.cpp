@@ -41,6 +41,12 @@ std::optional<MachineStateId> BackflushState::checkSpecificTransitions(MachineSt
         return disabled;
     }
 
+    if (context.isManualFlushStartRequested()) {
+        context.setManualFlushStartRequested(false);
+        context.logStateTransition(getStateId(), MachineStateId::MANUAL_FLUSH_RUNNING, "Manual flush start requested");
+        return MachineStateId::MANUAL_FLUSH_RUNNING;
+    }
+
     if (context.isBackflushCycleStartRequested()) {
         context.setBackflushCycleStartRequested(false);
         context.logStateTransition(getStateId(), MachineStateId::BACKFLUSH_FILLING, "Backflush cycle start requested");

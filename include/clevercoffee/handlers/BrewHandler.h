@@ -186,12 +186,19 @@ class BrewHandler : public SwitchBasedHandler {
 
             if (context->isBackflushModeActive() || isBackflushState(currentState)) {
                 if (reading == HIGH) {
-                    if (currentState == MachineStateId::BACKFLUSH_IDLE ||
-                        currentState == MachineStateId::BACKFLUSH_FINISHED) {
+                    if (currentState == MachineStateId::BACKFLUSH_IDLE && switch_ != nullptr &&
+                        switch_->longPressDetected()) {
+                        context->setManualFlushStartRequested(true);
+                    } else if (currentState == MachineStateId::BACKFLUSH_IDLE ||
+                               currentState == MachineStateId::BACKFLUSH_FINISHED) {
                         context->setBackflushCycleStartRequested(true);
                     } else if (isBackflushState(currentState)) {
                         context->setBackflushStopRequested(true);
                     }
+                } else if (reading == LOW && switchType == Hardware::SwitchType::TOGGLE &&
+                           isBackflushState(currentState) && currentState != MachineStateId::BACKFLUSH_IDLE &&
+                           currentState != MachineStateId::BACKFLUSH_FINISHED) {
+                    context->setBackflushStopRequested(true);
                 }
                 lastSwitchReading_ = reading;
                 return;
