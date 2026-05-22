@@ -153,7 +153,7 @@ void CleverCoffeeWiFiManager::updateHostnameFromPortal() {
 
     if (newHostname.length() > 0 && newHostname != currentHostname) {
         // Update the config system - this will automatically save to NVS
-        Config::getInstance().systemHostname.set(newHostname);
+        (void)Config::getInstance().systemHostname.set(newHostname);
         LOG(INFO, "Hostname updated from configuration portal");
     }
 }

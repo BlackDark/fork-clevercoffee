@@ -284,16 +284,16 @@ void MQTTManager::assignParameter(char* param, double value) {
             systemContext_->machineStateContext()->setSteamFirstActivated(static_cast<bool>(value));
             systemContext_->standbyCoordinator().reset();
             systemContext_->machineStateContext()->setNormalOperationRequested(true);
-            publish(param, number2string(value), true);
+            (void)publish(param, number2string(value), true);
             LOGF(DEBUG, "MQTT special parameter %s updated to %f", param, value);
             return;
         } else if (strcmp(parameterId, "BACKFLUSH_ON") == 0) {
             if (!systemContext_->setBackflushMode(static_cast<bool>(value))) {
                 LOG(WARNING, "MQTT: rejected BACKFLUSH_ON — backflush.cycles must be > 0");
-                publish(param, number2string(systemContext_->backflushMode() ? 1.0 : 0.0), true);
+                (void)publish(param, number2string(systemContext_->backflushMode() ? 1.0 : 0.0), true);
                 return;
             }
-            publish(param, number2string(value), true);
+            (void)publish(param, number2string(value), true);
             LOGF(DEBUG, "MQTT special parameter %s updated to %f", param, value);
             return;
         } else if (strcmp(parameterId, "TARE_ON") == 0) {
@@ -302,7 +302,7 @@ void MQTTManager::assignParameter(char* param, double value) {
             }
             systemContext_->standbyCoordinator().reset();
             systemContext_->machineStateContext()->setNormalOperationRequested(true);
-            publish(param, number2string(value), true);
+            (void)publish(param, number2string(value), true);
             LOGF(DEBUG, "MQTT special parameter %s updated to %f", param, value);
             return;
         } else if (strcmp(parameterId, "CALIBRATION_ON") == 0) {
@@ -311,7 +311,7 @@ void MQTTManager::assignParameter(char* param, double value) {
             }
             systemContext_->standbyCoordinator().reset();
             systemContext_->machineStateContext()->setNormalOperationRequested(true);
-            publish(param, number2string(value), true);
+            (void)publish(param, number2string(value), true);
             LOGF(DEBUG, "MQTT special parameter %s updated to %f", param, value);
             return;
         }
@@ -335,7 +335,7 @@ void MQTTManager::assignParameter(char* param, double value) {
             if (systemContext_->machineStateContext()) {
                 systemContext_->machineStateContext()->setNormalOperationRequested(true);
             }
-            publish(param, number2string(value), true);
+            (void)publish(param, number2string(value), true);
             LOGF(DEBUG, "MQTT parameter %s (ID: %s) updated to %f", param, parameterId, value);
         } else {
             LOGF(WARNING, "Failed to update MQTT parameter %s", param);
@@ -376,7 +376,7 @@ int MQTTManager::writeSysParamsToMQTT(bool continueOnError) {
 
     if (!inSensors && mqttVarsIt == mqttVars_.begin()) {
         previousMillisMQTT_ = currentMillisMQTT;
-        publish("status", "online");
+        (void)publish("status", "online");
     }
 
     mqttUpdateRunning_  = true;

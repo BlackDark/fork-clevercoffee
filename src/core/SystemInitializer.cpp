@@ -205,7 +205,7 @@ bool SystemInitializer::initializeLogger() {
     Logger::init(loggerConfig);
 
     // Start the logger
-    Logger::begin();
+    (void)Logger::begin();
 
     return true;
 }
@@ -434,8 +434,8 @@ bool SystemInitializer::initializeMQTT() {
         }
 
         if (mqttManager_->setup(Config::getInstance().systemHostname.get())) {
-            Config::getInstance().mqttEnabled.set(mqttManager_->isEnabled());
-            Config::getInstance().mqttHassioEnabled.set(true);
+            (void)Config::getInstance().mqttEnabled.set(mqttManager_->isEnabled());
+            (void)Config::getInstance().mqttHassioEnabled.set(true);
 
             registerMQTTParameters();
             registerMQTTSensors();
