@@ -242,6 +242,14 @@ TEST_F(BrewHandlerTest, BackflushToggleSwitchDeactivatedStopsActiveCycle) {
     EXPECT_TRUE(machineStateContext_->isBackflushStopRequested());
 }
 
+TEST_F(BrewHandlerTest, ApplyBackflushModeSetsEnterRequestOnly) {
+    setupMachineStateContext(MachineStateId::PID_NORMAL);
+    ASSERT_TRUE(machineStateContext_->applyBackflushMode(true));
+    EXPECT_TRUE(machineStateContext_->isBackflushEnterRequested());
+    EXPECT_FALSE(machineStateContext_->isBackflushCycleStartRequested());
+    EXPECT_TRUE(machineStateContext_->isBackflushModeActive());
+}
+
 TEST_F(BrewHandlerTest, BackflushIdleShortPressStartsCycle) {
     MockSwitch mockSwitch(::Hardware::SwitchType::MOMENTARY, ::Hardware::SwitchMode::NORMALLY_OPEN);
     handler_->setHardware(&mockSwitch, nullptr);

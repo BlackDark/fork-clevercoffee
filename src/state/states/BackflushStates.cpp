@@ -165,7 +165,7 @@ std::optional<MachineStateId> BackflushFinishedState::checkSpecificTransitions(M
         return MachineStateId::BACKFLUSH_FILLING;
     }
 
-    if (context.hasStateTimeoutElapsed(CleverCoffee::BrewTiming::FINISHED_DISPLAY_TIMEOUT_MS)) {
+    if (context.hasStateTimeoutElapsed(CleverCoffee::BackflushTiming::FINISHED_DISPLAY_TIMEOUT_MS)) {
         context.logStateTransition(getStateId(), MachineStateId::BACKFLUSH_IDLE, "Finished display timeout");
         return MachineStateId::BACKFLUSH_IDLE;
     }

@@ -81,3 +81,9 @@ constexpr double PRE_INFUSION_PAUSE_TIME_SEC = 5.0;
 constexpr double BREW_PID_DELAY_SEC          = 10.0;
 
 } // namespace CleverCoffee::BrewTiming
+
+namespace CleverCoffee::BackflushTiming {
+
+constexpr unsigned long FINISHED_DISPLAY_TIMEOUT_MS = 3000;
+
+} // namespace CleverCoffee::BackflushTiming
