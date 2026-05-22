@@ -232,6 +232,16 @@ app.post("/api/sleep", simulateAuth, (_req: Request, res: Response): void => {
 
 // Dev-only helpers for UI testing (mock server)
 app.post(
+  "/api/dev/complete-backflush-session",
+  simulateAuth,
+  (_req: Request, res: Response): void => {
+    mockState.shotsSinceBackflush = 0;
+    console.log("Dev: backflush session complete (shots counter reset)");
+    res.json({ success: true, shotsSinceBackflush: 0 });
+  }
+);
+
+app.post(
   "/api/dev/shots-since-backflush",
   simulateAuth,
   (req: Request, res: Response): void => {

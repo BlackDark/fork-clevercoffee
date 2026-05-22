@@ -290,6 +290,7 @@ void MQTTManager::assignParameter(char* param, double value) {
         } else if (strcmp(parameterId, "BACKFLUSH_ON") == 0) {
             if (!systemContext_->setBackflushMode(static_cast<bool>(value))) {
                 LOG(WARNING, "MQTT: rejected BACKFLUSH_ON — backflush.cycles must be > 0");
+                publish(param, number2string(systemContext_->backflushMode() ? 1.0 : 0.0), true);
                 return;
             }
             publish(param, number2string(value), true);

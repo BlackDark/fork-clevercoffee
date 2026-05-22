@@ -145,7 +145,7 @@ std::optional<MachineStateId> BackflushFlushingState::checkSpecificTransitions(M
 void BackflushFinishedState::onEntryImpl(MachineStateContext& context) {
     cleanupPumpAndValve(context);
     context.systemContext().maintenanceCoordinator().resetSinceBackflush();
-    LOG(INFO, "Backflush finished - backflush cycle complete");
+    LOG(INFO, "Backflush finished - all backflush cycles complete");
 }
 
 void BackflushFinishedState::update(MachineStateContext& context) {
