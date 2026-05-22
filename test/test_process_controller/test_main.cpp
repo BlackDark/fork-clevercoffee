@@ -31,6 +31,13 @@ void MachineStateContext::setHotWaterActivity(bool) noexcept {}
 void MachineStateContext::setBrewStartRequested(bool) noexcept {}
 void MachineStateContext::setSteamStartRequested(bool) noexcept {}
 void MachineStateContext::setNormalOperationRequested(bool) noexcept {}
+void MachineStateContext::setBackflushEnterRequested(bool) noexcept {}
+void MachineStateContext::setBackflushCycleStartRequested(bool) noexcept {}
+void MachineStateContext::setBackflushStopRequested(bool) noexcept {}
+bool MachineStateContext::applyBackflushMode(bool active) noexcept {
+    (void)active;
+    return true;
+}
 
 // Stub for MachineStateContext emergency stop tracking
 // Note: The inline setEmergencyStop() in header modifies emergencyStop_ member,
