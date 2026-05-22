@@ -6,6 +6,7 @@
 #include "clevercoffee/state/MachineStateContext.h"
 
 #include "clevercoffee/Config.h"
+#include "clevercoffee/backflush/BackflushModeLogic.h"
 #include "clevercoffee/context/SystemContext.h"
 #include "clevercoffee/control/ProcessController.h"
 #include "clevercoffee/coordinators/SensorCoordinator.h"
@@ -217,6 +218,27 @@ void MachineStateContext::resetStandbyTimerOnUserActivity() const {
     systemContext_.standbyCoordinator().reset();
 }
 
+void MachineStateContext::setBackflushEnterRequested(bool requested) noexcept {
+    requestEnterBackflush_ = requested;
+    if (requested) {
+        resetStandbyTimerOnUserActivity();
+    }
+}
+
+void MachineStateContext::setBackflushCycleStartRequested(bool requested) noexcept {
+    requestBackflushCycleStart_ = requested;
+    if (requested) {
+        resetStandbyTimerOnUserActivity();
+    }
+}
+
+void MachineStateContext::setBackflushStopRequested(bool requested) noexcept {
+    requestBackflushStop_ = requested;
+    if (requested) {
+        resetStandbyTimerOnUserActivity();
+    }
+}
+
 void MachineStateContext::setBrewStartRequested(bool requested) noexcept {
     requestBrewStart_ = requested;
     if (requested) {
@@ -329,14 +351,33 @@ void MachineStateContext::setSteamState(bool active) {
     }
 }
 
-void MachineStateContext::setBackflushState(bool active) {
-    // Update member variable
-    backflushOn_ = active;
-    if (active) {
-        LOG(DEBUG, "Backflush mode activated");
-    } else {
-        LOG(DEBUG, "Backflush mode deactivated");
+bool MachineStateContext::applyBackflushMode(bool active) noexcept {
+    using CleverCoffee::Backflush::ModeChangeEffect;
+    using CleverCoffee::Backflush::resolveModeChange;
+
+    const auto effect = resolveModeChange({backflushOn_, active, Config::getInstance().backflushCycles.get()});
+
+    switch (effect) {
+        case ModeChangeEffect::None:
+            return true;
+        case ModeChangeEffect::RejectedInvalidCycles:
+            LOG(WARNING, "Backflush mode not enabled: backflush.cycles must be > 0");
+            return false;
+        case ModeChangeEffect::Enable:
+            backflushOn_ = true;
+            setBackflushCycleCount(1);
+            setBackflushEnterRequested(true);
+            LOG(DEBUG, "Backflush mode activated");
+            return true;
+        case ModeChangeEffect::Disable:
+            backflushOn_ = false;
+            setBackflushEnterRequested(false);
+            setBackflushCycleStartRequested(false);
+            setBackflushStopRequested(false);
+            LOG(DEBUG, "Backflush mode deactivated");
+            return true;
     }
+    return false;
 }
 
 void MachineStateContext::disableWaterOperations() const {
@@ -395,6 +436,10 @@ unsigned long MachineStateContext::getBackflushFillTimeMs() const {
 
 unsigned long MachineStateContext::getBackflushFlushTimeMs() const {
     return static_cast<unsigned long>(Config::getInstance().backflushFlushTime.get() * 1000);
+}
+
+int MachineStateContext::getBackflushCycles() const {
+    return Config::getInstance().backflushCycles.get();
 }
 
 // === State Timing Functions ===

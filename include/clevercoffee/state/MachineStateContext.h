@@ -324,11 +324,6 @@ class MachineStateContext : public CleverCoffee::IHardwareContext,
     void setSteamState(bool active);
 
     /**
-     * @brief Set backflush state
-     */
-    void setBackflushState(bool active);
-
-    /**
      * @brief Disable water-dependent operations for safety
      */
     void disableWaterOperations() const;
@@ -425,11 +420,9 @@ class MachineStateContext : public CleverCoffee::IHardwareContext,
     }
 
     /**
-     * @brief Set backflush mode state
+     * @brief Enable or disable backflush mode and request matching state transitions
      */
-    void setBackflushModeActive(bool active) noexcept {
-        backflushOn_ = active;
-    }
+    [[nodiscard]] bool applyBackflushMode(bool active) noexcept;
 
     /**
      * @brief Get current backflush cycle count
@@ -556,18 +549,28 @@ class MachineStateContext : public CleverCoffee::IHardwareContext,
     }
 
     /**
-     * @brief Check if backflush start is requested
+     * @brief Check if entering backflush mode (PID → BACKFLUSH_IDLE) is requested
      */
-    bool isBackflushStartRequested() const noexcept {
-        return requestBackflushStart_;
+    bool isBackflushEnterRequested() const noexcept {
+        return requestEnterBackflush_;
     }
 
     /**
-     * @brief Set backflush start request
+     * @brief Set enter-backflush request (UI/MQTT toggle on)
      */
-    void setBackflushStartRequested(bool requested) noexcept {
-        requestBackflushStart_ = requested;
+    void setBackflushEnterRequested(bool requested) noexcept;
+
+    /**
+     * @brief Check if starting a backflush fill/flush cycle is requested
+     */
+    bool isBackflushCycleStartRequested() const noexcept {
+        return requestBackflushCycleStart_;
     }
+
+    /**
+     * @brief Set backflush cycle start request (brew switch in idle/finished)
+     */
+    void setBackflushCycleStartRequested(bool requested) noexcept;
 
     /**
      * @brief Check if backflush stop is requested
@@ -579,9 +582,7 @@ class MachineStateContext : public CleverCoffee::IHardwareContext,
     /**
      * @brief Set backflush stop request
      */
-    void setBackflushStopRequested(bool requested) noexcept {
-        requestBackflushStop_ = requested;
-    }
+    void setBackflushStopRequested(bool requested) noexcept;
 
     /**
      * @brief Check if standby is requested
@@ -672,6 +673,11 @@ class MachineStateContext : public CleverCoffee::IHardwareContext,
      */
     unsigned long getBackflushFlushTimeMs() const;
 
+    /**
+     * @brief Get configured number of backflush cycles
+     */
+    int getBackflushCycles() const;
+
     // === State Timing Functions ===
 
     /**
@@ -761,16 +767,17 @@ class MachineStateContext : public CleverCoffee::IHardwareContext,
     bool systemInitialized_   = false; ///< System initialization complete
 
     // === State Transition Request Flags ===
-    bool requestBrewStart_        = false; ///< Brew start requested
-    bool requestBrewStop_         = false; ///< Brew stop requested
-    bool requestSteamStart_       = false; ///< Steam start requested
-    bool requestSteamStop_        = false; ///< Steam stop requested
-    bool requestManualFlushStart_ = false; ///< Manual flush start requested
-    bool requestManualFlushStop_  = false; ///< Manual flush stop requested
-    bool requestBackflushStart_   = false; ///< Backflush start requested
-    bool requestBackflushStop_    = false; ///< Backflush stop requested
-    bool requestStandby_          = false; ///< Standby requested
-    bool requestNormalOperation_  = false; ///< Normal operation requested
+    bool requestBrewStart_           = false; ///< Brew start requested
+    bool requestBrewStop_            = false; ///< Brew stop requested
+    bool requestSteamStart_          = false; ///< Steam start requested
+    bool requestSteamStop_           = false; ///< Steam stop requested
+    bool requestManualFlushStart_    = false; ///< Manual flush start requested
+    bool requestManualFlushStop_     = false; ///< Manual flush stop requested
+    bool requestEnterBackflush_      = false; ///< Enter backflush mode (→ BACKFLUSH_IDLE)
+    bool requestBackflushCycleStart_ = false; ///< Start fill/flush cycle
+    bool requestBackflushStop_       = false; ///< Backflush stop requested
+    bool requestStandby_             = false; ///< Standby requested
+    bool requestNormalOperation_     = false; ///< Normal operation requested
 
     // State management
     MachineStateId currentStateId_ = MachineStateId::PID_DISABLED; ///< Current machine state ID

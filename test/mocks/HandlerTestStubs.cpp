@@ -17,6 +17,7 @@
 #include "clevercoffee/hardware/HardwareManager.h"
 #include "clevercoffee/display/DisplayManager.h"
 #include "clevercoffee/utils/Resilience.h"
+#include "clevercoffee/backflush/BackflushModeLogic.h"
 #include "clevercoffee/network/MQTTManager.h"
 
 // === Source includes that compile cleanly in native_test ===
@@ -181,7 +182,43 @@ void MachineStateContext::setPidRuntimeState(bool /*enabled*/) const {}
 void MachineStateContext::performSafeShutdown() const {}
 void MachineStateContext::setManualFlushState(bool /*active*/) const {}
 void MachineStateContext::setSteamState(bool active) { steamON_ = active; }
-void MachineStateContext::setBackflushState(bool active) { backflushOn_ = active; }
+void MachineStateContext::setBackflushEnterRequested(bool requested) noexcept {
+    requestEnterBackflush_ = requested;
+}
+
+void MachineStateContext::setBackflushCycleStartRequested(bool requested) noexcept {
+    requestBackflushCycleStart_ = requested;
+}
+
+void MachineStateContext::setBackflushStopRequested(bool requested) noexcept {
+    requestBackflushStop_ = requested;
+}
+
+bool MachineStateContext::applyBackflushMode(bool active) noexcept {
+    using CleverCoffee::Backflush::ModeChangeEffect;
+    using CleverCoffee::Backflush::resolveModeChange;
+
+    const auto effect = resolveModeChange({backflushOn_, active, Config::getInstance().backflushCycles.get()});
+
+    switch (effect) {
+        case ModeChangeEffect::None:
+            return true;
+        case ModeChangeEffect::RejectedInvalidCycles:
+            return false;
+        case ModeChangeEffect::Enable:
+            backflushOn_ = true;
+            setBackflushCycleCount(1);
+            setBackflushEnterRequested(true);
+            return true;
+        case ModeChangeEffect::Disable:
+            backflushOn_ = false;
+            setBackflushEnterRequested(false);
+            setBackflushCycleStartRequested(false);
+            setBackflushStopRequested(false);
+            return true;
+    }
+}
+
 void MachineStateContext::disableWaterOperations() const {}
 void MachineStateContext::enableWaterOperations() const {}
 void MachineStateContext::enterSafeMode() const {}
@@ -207,13 +244,31 @@ void MachineStateContext::logStateExit(MachineStateId /*stateId*/, const char* /
 void MachineStateContext::resetMqttReconnectCount() const {}
 
 // Configuration Access
-unsigned long MachineStateContext::getBackflushFillTimeMs() const { return 0; }
-unsigned long MachineStateContext::getBackflushFlushTimeMs() const { return 0; }
+unsigned long MachineStateContext::getBackflushFillTimeMs() const {
+    return static_cast<unsigned long>(Config::getInstance().backflushFillTime.get() * 1000);
+}
+
+unsigned long MachineStateContext::getBackflushFlushTimeMs() const {
+    return static_cast<unsigned long>(Config::getInstance().backflushFlushTime.get() * 1000);
+}
+
+int MachineStateContext::getBackflushCycles() const {
+    return Config::getInstance().backflushCycles.get();
+}
 
 // State Timing Functions
-unsigned long MachineStateContext::getStateElapsedTimeMs() const { return 0; }
-bool MachineStateContext::hasStateTimeoutElapsed(unsigned long /*timeoutMs*/) const noexcept { return false; }
-void MachineStateContext::updateStateEntryTime(std::chrono::steady_clock::time_point entryTime) { stateEntryTime_ = entryTime; }
+unsigned long MachineStateContext::getStateElapsedTimeMs() const {
+    auto elapsed = std::chrono::steady_clock::now() - stateEntryTime_;
+    return std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
+}
+
+bool MachineStateContext::hasStateTimeoutElapsed(unsigned long timeoutMs) const noexcept {
+    return getStateElapsedTimeMs() >= timeoutMs;
+}
+
+void MachineStateContext::updateStateEntryTime(std::chrono::steady_clock::time_point entryTime) {
+    stateEntryTime_ = entryTime;
+}
 
 // IHardwareContext Interface Implementation
 bool   MachineStateContext::isWaterTankEmpty() const noexcept { return false; }

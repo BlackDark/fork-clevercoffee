@@ -142,12 +142,12 @@ export const CleverCoffeeProvider: React.FC<{ children: React.ReactNode }> = ({
     return success;
   }, [rawToggleSteam, fetchParameters]);
   const toggleBackflush = useCallback(async () => {
-    const success = await rawToggleBackflush();
-    if (success) {
+    const result = await rawToggleBackflush();
+    if (result.success) {
       fetchParameters(false);
       await refetchMachineStatus();
     }
-    return success;
+    return result;
   }, [rawToggleBackflush, fetchParameters, refetchMachineStatus]);
   const toggleTareScale = useCallback(async () => {
     const success = await rawToggleTareScale();

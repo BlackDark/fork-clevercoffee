@@ -436,14 +436,19 @@ bool SystemContext::backflushMode() const noexcept {
     return false;
 }
 
-void SystemContext::setBackflushMode(bool on) noexcept {
-    if (machineStateContext_) {
-        const bool wasOn = machineStateContext_->isBackflushModeActive();
-        machineStateContext_->setBackflushModeActive(on);
-        if (wasOn && !on) {
-            maintenanceCoordinator_.resetSinceBackflush();
-        }
+bool SystemContext::setBackflushMode(bool on) noexcept {
+    if (!machineStateContext_) {
+        return false;
     }
+    const bool wasActive = machineStateContext_->isBackflushModeActive();
+    if (!machineStateContext_->applyBackflushMode(on)) {
+        return false;
+    }
+    if (wasActive != on) {
+        standbyCoordinator_.reset();
+        machineStateContext_->setNormalOperationRequested(true);
+    }
+    return true;
 }
 // ===== DISPLAY COORDINATION =====
 

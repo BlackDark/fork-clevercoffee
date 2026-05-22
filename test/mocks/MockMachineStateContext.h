@@ -96,7 +96,6 @@ class MockMachineStateContext {
     MOCK_METHOD(void, setManualFlushState, (bool), (const));
     MOCK_METHOD(void, setHotWaterState, (bool), (const));
     MOCK_METHOD(void, setSteamState, (bool), (const));
-    MOCK_METHOD(void, setBackflushState, (bool), (const));
     MOCK_METHOD(void, disableWaterOperations, (), (const));
     MOCK_METHOD(void, enableWaterOperations, (), (const));
     MOCK_METHOD(void, enterSafeMode, (), (const));

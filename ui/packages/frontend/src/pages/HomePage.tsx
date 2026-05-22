@@ -137,7 +137,19 @@ export function HomePage() {
     } else if (paramName === "STEAM_MODE") {
       success = await toggleSteam();
     } else if (paramName === "BACKFLUSH_ON") {
-      success = await toggleBackflush();
+      const result = await toggleBackflush();
+      if (result.success) {
+        toast.success(
+          `${parameterLabels.en[paramName] || paramName} toggled successfully`,
+          { description: "Setting updated via API endpoint or parameter save." }
+        );
+      } else {
+        toast.error("Failed to toggle backflush", {
+          description:
+            result.error ?? "Please check your connection and try again.",
+        });
+      }
+      return;
     } else {
       // Fallback: update and save parameter
       const param = parameters.find((p) => p.name === paramName);

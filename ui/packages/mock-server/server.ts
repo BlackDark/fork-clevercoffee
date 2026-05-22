@@ -188,13 +188,22 @@ app.post(
   "/api/backflush",
   simulateAuth,
   (req: Request, res: Response): void => {
-    mockState.backflushOn = !mockState.backflushOn;
+    const cyclesParam = mockState.parameters.find(
+      (p) => p.name === "backflush.cycles"
+    );
+    const configuredCycles =
+      typeof cyclesParam?.value === "number" ? cyclesParam.value : 5;
+    const newState = !mockState.backflushOn;
 
-    if (!mockState.backflushOn) {
-      mockState.shotsSinceBackflush = 0;
+    if (newState && configuredCycles <= 0) {
+      res.status(400).json({
+        error: "backflush.cycles must be greater than 0",
+      });
+      return;
     }
 
-    // Update parameter state
+    mockState.backflushOn = newState;
+
     const backflushParam = mockState.parameters.find(
       (p) => p.name === "BACKFLUSH_ON"
     );
@@ -222,6 +231,16 @@ app.post("/api/sleep", simulateAuth, (_req: Request, res: Response): void => {
 });
 
 // Dev-only helpers for UI testing (mock server)
+app.post(
+  "/api/dev/complete-backflush-session",
+  simulateAuth,
+  (_req: Request, res: Response): void => {
+    mockState.shotsSinceBackflush = 0;
+    console.log("Dev: backflush session complete (shots counter reset)");
+    res.json({ success: true, shotsSinceBackflush: 0 });
+  }
+);
+
 app.post(
   "/api/dev/shots-since-backflush",
   simulateAuth,

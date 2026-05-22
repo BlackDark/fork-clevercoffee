@@ -477,15 +477,17 @@ void WebServerManager::setupApiRoutes() {
                 return;
             }
 
-            const bool backflushOn = !systemContext_->machineStateContext()->isBackflushModeActive();
-            systemContext_->setBackflushMode(backflushOn);
-            systemContext_->standbyCoordinator().reset();
-            requestNormalOperation(systemContext_);
-            LOGF(INFO, "Toggle backflush mode: %s", backflushOn ? "on" : "off");
+            const bool newState = !systemContext_->backflushMode();
+            if (!systemContext_->setBackflushMode(newState)) {
+                request->send(
+                    400, "application/json", ApiResponses::errorResponse("backflush.cycles must be greater than 0"));
+                return;
+            }
+            LOGF(INFO, "Toggle backflush mode: %s", systemContext_->backflushMode() ? "on" : "off");
 
             JsonDocument doc;
             doc["success"]     = true;
-            doc["backflushOn"] = backflushOn;
+            doc["backflushOn"] = systemContext_->backflushMode();
 
             String response;
             serializeJson(doc, response);

@@ -288,9 +288,11 @@ void MQTTManager::assignParameter(char* param, double value) {
             LOGF(DEBUG, "MQTT special parameter %s updated to %f", param, value);
             return;
         } else if (strcmp(parameterId, "BACKFLUSH_ON") == 0) {
-            systemContext_->setBackflushMode(static_cast<bool>(value));
-            systemContext_->standbyCoordinator().reset();
-            systemContext_->machineStateContext()->setNormalOperationRequested(true);
+            if (!systemContext_->setBackflushMode(static_cast<bool>(value))) {
+                LOG(WARNING, "MQTT: rejected BACKFLUSH_ON — backflush.cycles must be > 0");
+                publish(param, number2string(systemContext_->backflushMode() ? 1.0 : 0.0), true);
+                return;
+            }
             publish(param, number2string(value), true);
             LOGF(DEBUG, "MQTT special parameter %s updated to %f", param, value);
             return;

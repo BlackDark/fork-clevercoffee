@@ -50,9 +50,12 @@ export function HomeMaintenanceCard() {
   };
 
   const handleBackflush = async () => {
-    const ok = await toggleBackflush();
-    if (ok) toast.success("Backflush mode toggled");
-    else toast.error("Failed to toggle backflush");
+    const result = await toggleBackflush();
+    if (result.success) toast.success("Backflush mode toggled");
+    else
+      toast.error("Failed to toggle backflush", {
+        description: result.error ?? "Please check your connection and try again.",
+      });
   };
 
   return (

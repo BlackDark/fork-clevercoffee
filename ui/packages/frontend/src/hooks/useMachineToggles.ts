@@ -1,11 +1,12 @@
 import { useCallback } from "react";
 import { apiFetch } from "@/lib/api-config";
+import { parseToggleResponse, type MachineToggleResult } from "@/lib/machine-toggle-result";
 import { API_ROUTES } from "@/lib/routes";
 
 interface UseMachineTogglesReturn {
   togglePid: () => Promise<boolean>;
   toggleSteam: () => Promise<boolean>;
-  toggleBackflush: () => Promise<boolean>;
+  toggleBackflush: () => Promise<MachineToggleResult>;
   toggleTareScale: () => Promise<boolean>;
   toggleScaleCalibration: () => Promise<boolean>;
   wakeFromStandby: () => Promise<boolean>;
@@ -34,9 +35,9 @@ export function useMachineToggles(): UseMachineTogglesReturn {
   const toggleBackflush = useCallback(async () => {
     try {
       const response = await apiFetch(API_ROUTES.BACKFLUSH, { method: "POST" });
-      return response.ok;
+      return await parseToggleResponse(response);
     } catch {
-      return false;
+      return { success: false };
     }
   }, []);
 
