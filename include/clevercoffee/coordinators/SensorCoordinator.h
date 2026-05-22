@@ -239,9 +239,15 @@ class SensorCoordinator {
     float  cachedPressureFiltered_ = 0.0f;
 
     // Brew weight tracking
-    double cachedBrewWeight_         = 0.0;
-    double preBrewWeight_            = 0.0;
-    bool   brewWeightTrackingActive_ = false;
+    double        cachedBrewWeight_         = 0.0;
+    double        preBrewWeight_            = 0.0;
+    bool          brewWeightTrackingActive_ = false;
+    bool          preBrewWeightPending_     = false;
+    bool          autoTareInProgress_       = false;
+    unsigned long autoTareStartTime_        = 0;
+
+    static constexpr float         AUTO_TARE_WEIGHT_THRESHOLD_G = 0.2f;
+    static constexpr unsigned long AUTO_TARE_TIMEOUT_MS         = 3000;
 
     // Error tracking (atomic for thread safety)
     std::atomic<bool> tempSensorError_{false};
@@ -283,6 +289,8 @@ class SensorCoordinator {
     // Helper methods
     float filterPressureValue(float input) noexcept;
     float measurePressure() noexcept;
+    void  tryCapturePreBrewWeight() noexcept;
+    void  maybeStartAutoTare() noexcept;
 };
 
 } // namespace CleverCoffee

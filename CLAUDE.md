@@ -44,6 +44,27 @@ Follow C++ Core Guidelines. Prefer compile-time errors over runtime errors.
 - if you need a more verbose output for the pio commands you can remove the `-s`
 - Always before you start doing any edits test if the project is in state which can be build with the build command
 
+### Mandatory: format and test before committing
+
+**Do not commit until all applicable checks pass.** Commits without verification are not acceptable.
+
+Run from the repository root unless noted otherwise:
+
+1. **Format** (always, before commit):
+   `~/.platformio/penv/bin/pio run --target format -e esp32_usb -s`
+2. **Build firmware** (always, before commit):
+   `~/.platformio/penv/bin/pio run -e esp32_usb -s`
+3. **Native tests** (always, before commit):
+   `~/.platformio/penv/bin/pio test -e native_test`
+4. **Frontend** (required when `ui/` files changed; run in `ui/packages/frontend`):
+   - `pnpm test:run`
+   - `pnpm lint`
+   - `pnpm tsc`
+
+If any step fails, fix the issue, re-run all applicable steps, and only then commit. Never assume tests pass without running them.
+
+**Common pitfall:** native tests include source `.cpp` files directly (`test_build_src=false`). A new hardware/library include in shared code (for example pulling in BLE headers) can break unrelated native tests — always run `pio test -e native_test` after firmware changes.
+
 ## Useful Command-Line Tools
 
 ### GitHub

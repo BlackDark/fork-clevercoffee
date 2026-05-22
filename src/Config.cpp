@@ -352,6 +352,7 @@ std::vector<ConfigParamDef*> Config::getAllConfigParams() {
         &displayTemplate,
         &displayInverted,
         &displayLanguage,
+        &displayBlinkingDelta,
 
         // === BACKFLUSH PARAMETERS (Section 6) ===
         &backflushCycles,

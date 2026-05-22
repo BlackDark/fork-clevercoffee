@@ -70,6 +70,8 @@ export const parameterHelpTexts: Record<string, string> = {
   "display.inverted": "Set the display rotation, changes require a reboot",
   "display.language":
     "Set the language for the OLED display, changes requre a reboot",
+  "display.blinking.delta":
+    "Delta from setpoint for status LED and blinking temperature display",
   "display.fullscreen_brew_timer": "Enable fullscreen overlay during brew",
   "display.fullscreen_manual_flush_timer":
     "Enable fullscreen overlay during manual flush",

@@ -769,6 +769,13 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     ],
   },
   {
+    name: "display.blinking.delta",
+    type: ParameterTypes.DOUBLE,
+    min: 0.2,
+    max: 10,
+    defaultValue: 0.3,
+  },
+  {
     name: "display.fullscreen_brew_timer",
     type: ParameterTypes.UINT8,
     min: 0,

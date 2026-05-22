@@ -45,6 +45,7 @@ export const parameterLabelsEN = new Map<string, string>([
   ["display.template", "Display Template"],
   ["display.inverted", "Invert Display"],
   ["display.language", "Display Language"],
+  ["display.blinking.delta", "Status LED Delta"],
   ["display.fullscreen_brew_timer", "Enable Fullscreen Brew Timer"],
   [
     "display.fullscreen_manual_flush_timer",

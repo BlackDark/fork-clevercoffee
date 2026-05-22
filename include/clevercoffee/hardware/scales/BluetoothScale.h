@@ -36,6 +36,7 @@ class BluetoothScale : public Scale, public ISensor {
     void                    startRead() noexcept override;
     Expected<double, Error> tryGetValue() noexcept override;
     const char*             getSensorType() const noexcept override;
+    void                    requestTare() noexcept override;
 
     void               updateConnection();
     [[nodiscard]] bool isConnecting() const;

@@ -60,6 +60,11 @@ class ISensor {
     virtual bool isConnected() const noexcept {
         return true;
     }
+
+    /**
+     * @brief Request a tare/zero operation when supported by the sensor
+     */
+    virtual void requestTare() noexcept {}
 };
 
 } // namespace CleverCoffee

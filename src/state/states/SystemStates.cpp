@@ -14,6 +14,7 @@
 void StandbyState::onEntryImpl(MachineStateContext& context) {
     LOG(INFO, "Entering standby mode - reducing power consumption");
     context.enterStandbyMode();
+    context.setSteamMode(false);
     // Disable runtime PID (does not modify config - config remains source of truth)
     context.setPidRuntimeState(false);
 }

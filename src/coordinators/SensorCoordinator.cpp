@@ -9,6 +9,9 @@
 #include "clevercoffee/Logger.h"
 #include "clevercoffee/hardware/Switch.h"
 #include "clevercoffee/hardware/pressureSensor.h"
+#include "clevercoffee/types/GlobalTypes.h"
+
+#include <cmath>
 
 namespace CleverCoffee {
 
@@ -78,7 +81,12 @@ void SensorCoordinator::updateScale() noexcept {
 
         // Update brew weight if tracking is active
         if (brewWeightTrackingActive_) {
-            cachedBrewWeight_ = cachedWeight_ - preBrewWeight_;
+            if (preBrewWeightPending_) {
+                tryCapturePreBrewWeight();
+            }
+            if (!preBrewWeightPending_) {
+                cachedBrewWeight_ = cachedWeight_ - preBrewWeight_;
+            }
         }
     } else {
         // Check error type
@@ -156,9 +164,21 @@ float SensorCoordinator::measurePressure() noexcept {
 
 void SensorCoordinator::startBrewWeightTracking() noexcept {
     LOG(INFO, "SensorCoordinator: Starting brew weight tracking");
-    preBrewWeight_            = cachedWeight_;
-    cachedBrewWeight_         = 0.0;
     brewWeightTrackingActive_ = true;
+    cachedBrewWeight_         = 0.0;
+    preBrewWeightPending_     = false;
+    autoTareInProgress_       = false;
+    autoTareStartTime_        = 0;
+
+    maybeStartAutoTare();
+
+    if (autoTareInProgress_) {
+        preBrewWeightPending_ = true;
+        LOG(DEBUG, "Deferring pre-brew weight capture until BLE auto-tare completes");
+        return;
+    }
+
+    preBrewWeight_ = cachedWeight_;
     LOGF(DEBUG, "Pre-brew weight captured: %.2f g", preBrewWeight_);
 }
 
@@ -167,6 +187,56 @@ void SensorCoordinator::stopBrewWeightTracking() noexcept {
     brewWeightTrackingActive_ = false;
     cachedBrewWeight_         = 0.0;
     preBrewWeight_            = 0.0;
+    preBrewWeightPending_     = false;
+    autoTareInProgress_       = false;
+    autoTareStartTime_        = 0;
+}
+
+void SensorCoordinator::maybeStartAutoTare() noexcept {
+    const auto& config = Config::getInstance();
+    if (!config.hardwareSensorsScaleEnabled.get() ||
+        config.hardwareSensorsScaleType.get() != ::Hardware::ScaleType::BLUETOOTH ||
+        !config.brewByWeightEnabled.get() || !config.brewByWeightAutoTare.get()) {
+        return;
+    }
+
+    if (std::fabs(cachedWeight_) <= AUTO_TARE_WEIGHT_THRESHOLD_G || scaleSensor_ == nullptr) {
+        return;
+    }
+
+    LOG(INFO, "Auto-tare initiated for BLE scale");
+    scaleSensor_->requestTare();
+    autoTareInProgress_ = true;
+    autoTareStartTime_  = millis();
+}
+
+void SensorCoordinator::tryCapturePreBrewWeight() noexcept {
+    if (!preBrewWeightPending_) {
+        return;
+    }
+
+    if (!autoTareInProgress_) {
+        preBrewWeight_        = cachedWeight_;
+        preBrewWeightPending_ = false;
+        LOGF(DEBUG, "Pre-brew weight captured: %.2f g", preBrewWeight_);
+        return;
+    }
+
+    const unsigned long elapsed = millis() - autoTareStartTime_;
+    if (elapsed < AUTO_TARE_TIMEOUT_MS && std::fabs(cachedWeight_) > AUTO_TARE_WEIGHT_THRESHOLD_G) {
+        return;
+    }
+
+    if (elapsed < AUTO_TARE_TIMEOUT_MS) {
+        LOGF(DEBUG, "Weight within target range, measured: %.1fg", cachedWeight_);
+    } else {
+        LOGF(DEBUG, "Weight tare timer expired, current weight: %.1fg", cachedWeight_);
+    }
+
+    autoTareInProgress_   = false;
+    preBrewWeight_        = cachedWeight_;
+    preBrewWeightPending_ = false;
+    LOGF(DEBUG, "Pre-brew weight captured after auto-tare: %.2f g", preBrewWeight_);
 }
 
 } // namespace CleverCoffee
