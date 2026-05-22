@@ -4,12 +4,14 @@ on:
   push:
     branches:
       - main
+      - master
     paths:
       - 'ui/**'
       - '.github/workflows/frontend.yml'
   pull_request:
     branches-ignore:
       - main
+      - master
     paths:
       - 'ui/**'
       - '.github/workflows/frontend.yml'

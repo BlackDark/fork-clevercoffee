@@ -1,0 +1,142 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cache/pip
+            ~/.platformio/.cache
+          key: ${{ runner.os }}-pio-${{ hashFiles('platformio.ini') }}
+          restore-keys: |
+            ${{ runner.os }}-pio-
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install PlatformIO Core
+        run: pip install --upgrade platformio
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - uses: pnpm/action-setup@v5
+        with:
+          version: "10"
+
+      - name: Get pnpm store directory
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Set CLEVERCOFFEE_VERSION
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          echo "Using tag version: $VERSION"
+          echo "CLEVERCOFFEE_VERSION=$VERSION" >> $GITHUB_ENV
+
+      - name: Build firmware
+        run: pio run -e esp32_usb
+        env:
+          CLEVERCOFFEE_VERSION: ${{ env.CLEVERCOFFEE_VERSION }}
+
+      - name: Build filesystem
+        run: pio run --target buildfs -e esp32_usb
+        env:
+          CLEVERCOFFEE_VERSION: ${{ env.CLEVERCOFFEE_VERSION }}
+
+      - name: Run native tests
+        run: pio test -e native_test
+
+      - name: Verify release artifacts
+        run: |
+          for file in firmware.bin littlefs.bin bootloader.bin partitions.bin; do
+            test -f ".pio/build/esp32_usb/${file}" || {
+              echo "Missing release artifact: ${file}"
+              exit 1
+            }
+          done
+
+      - name: Generate release notes
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          REPO="${{ github.repository }}"
+          BASE="https://github.com/${REPO}/releases/download/${TAG}"
+
+          printf '%s\n' \
+            "## CleverCoffee ${TAG}" \
+            "" \
+            "### OTA updates (web UI)" \
+            "" \
+            "Open **System → OTA Updates** on the device and use these direct download URLs:" \
+            "" \
+            "| File | Purpose | URL |" \
+            "|------|---------|-----|" \
+            "| \`firmware.bin\` | Application firmware | [Download](${BASE}/firmware.bin) |" \
+            "| \`littlefs.bin\` | Web UI filesystem | [Download](${BASE}/littlefs.bin) |" \
+            "" \
+            "Direct links:" \
+            "" \
+            "- Firmware: \`${BASE}/firmware.bin\`" \
+            "- Filesystem: \`${BASE}/littlefs.bin\`" \
+            "" \
+            "### USB flash (initial install or recovery)" \
+            "" \
+            "Flash all four files with the ESP Flash Download Tool or \`esptool.py\`:" \
+            "" \
+            "| File | Flash address | Purpose |" \
+            "|------|---------------|---------|" \
+            "| \`bootloader.bin\` | \`0x1000\` | ESP32 bootloader |" \
+            "| \`partitions.bin\` | \`0x8000\` | Partition table |" \
+            "| \`firmware.bin\` | \`0x10000\` | Application |" \
+            "| \`littlefs.bin\` | \`0x350000\` | Filesystem (web UI) |" \
+            "" \
+            "Merge into a single image:" \
+            "" \
+            '```bash' \
+            "esptool.py --chip esp32 merge_bin -o merged-flash.bin \\" \
+            "  --flash_mode dio --flash_size 4MB \\" \
+            "  0x1000 bootloader.bin \\" \
+            "  0x8000 partitions.bin \\" \
+            "  0x10000 firmware.bin \\" \
+            "  0x350000 littlefs.bin" \
+            '```' \
+            "" \
+            "Flash settings: SPI speed 40 MHz, SPI mode DIO, flash size 4 MB." \
+            > release_notes.md
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: CleverCoffee ${{ github.ref_name }}
+          body_path: release_notes.md
+          files: |
+            .pio/build/esp32_usb/firmware.bin
+            .pio/build/esp32_usb/littlefs.bin
+            .pio/build/esp32_usb/bootloader.bin
+            .pio/build/esp32_usb/partitions.bin
+          fail_on_unmatched_files: true
