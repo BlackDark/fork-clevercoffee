@@ -134,7 +134,12 @@ class SteamHandler : public SwitchBasedHandler {
                     }
                 } else {
                     // Toggle: activated = start steam (if not already steaming)
-                    if (currentState != MachineStateId::STEAM_RUNNING) {
+                    if (currentState == MachineStateId::STANDBY) {
+                        // In standby, only react to a rising edge so a left-on toggle does not wake steam
+                        if (lastSwitchReading_ == LOW) {
+                            context->setSteamStartRequested(true);
+                        }
+                    } else if (currentState != MachineStateId::STEAM_RUNNING) {
                         context->setSteamStartRequested(true);
                     }
                 }
