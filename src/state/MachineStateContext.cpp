@@ -351,10 +351,6 @@ void MachineStateContext::setSteamState(bool active) {
     }
 }
 
-void MachineStateContext::setBackflushState(bool active) {
-    (void)applyBackflushMode(active);
-}
-
 bool MachineStateContext::applyBackflushMode(bool active) noexcept {
     using CleverCoffee::Backflush::ModeChangeEffect;
     using CleverCoffee::Backflush::resolveModeChange;

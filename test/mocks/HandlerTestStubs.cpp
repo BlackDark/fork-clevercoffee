@@ -219,7 +219,6 @@ bool MachineStateContext::applyBackflushMode(bool active) noexcept {
     return false;
 }
 
-void MachineStateContext::setBackflushState(bool active) { (void)applyBackflushMode(active); }
 void MachineStateContext::disableWaterOperations() const {}
 void MachineStateContext::enableWaterOperations() const {}
 void MachineStateContext::enterSafeMode() const {}

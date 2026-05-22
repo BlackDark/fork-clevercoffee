@@ -324,11 +324,6 @@ class MachineStateContext : public CleverCoffee::IHardwareContext,
     void setSteamState(bool active);
 
     /**
-     * @brief Set backflush state
-     */
-    void setBackflushState(bool active);
-
-    /**
      * @brief Disable water-dependent operations for safety
      */
     void disableWaterOperations() const;
