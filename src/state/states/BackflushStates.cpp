@@ -69,8 +69,6 @@ void BackflushFillingState::onExitImpl(MachineStateContext& context) {
 }
 
 void BackflushFillingState::update(MachineStateContext& context) {
-    context.enablePump();
-    context.openWaterValve();
     LOGF(DEBUG,
          "Backflush Filling: Temp=%.1f°C, Pressure=%.1fbar",
          context.getCurrentTemperature(),
@@ -106,7 +104,6 @@ void BackflushFlushingState::onExitImpl(MachineStateContext& context) {
 }
 
 void BackflushFlushingState::update(MachineStateContext& context) {
-    cleanupPumpAndValve(context);
     LOGF(DEBUG,
          "Backflush Flushing: Temp=%.1f°C, Pressure=%.1fbar",
          context.getCurrentTemperature(),
