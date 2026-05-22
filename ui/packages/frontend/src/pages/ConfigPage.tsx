@@ -60,6 +60,12 @@ import {
 import type { Parameter, UpdateParameter } from "@/lib/parameter-types";
 import { useCleverCoffee } from "@/context/useCleverCoffee";
 import { groups2, mappedParameterGroups } from "@/lib";
+import { apiFetch } from "@/lib/api-config";
+import { API_ROUTES } from "@/lib/routes";
+import {
+  getRebootParameterLabels,
+  parameterRequiresReboot,
+} from "@/lib/parameter-reboot-required";
 
 // Extract types for better type safety
 interface ParameterChange {
@@ -170,6 +176,36 @@ const HardwareWarning = ({
           </Button>
         </CollapsibleTrigger>
       </Collapsible>
+    </AlertDescription>
+  </Alert>
+);
+
+const RebootRequiredBanner = ({
+  labels,
+  onReboot,
+  onDismiss,
+}: {
+  labels: string[];
+  onReboot: () => void;
+  onDismiss: () => void;
+}) => (
+  <Alert className="mb-4 border-blue-200 bg-blue-50 text-blue-950 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-100">
+    <ListRestart className="h-4 w-4" />
+    <AlertTitle>Reboot required</AlertTitle>
+    <AlertDescription>
+      <p className="mb-3 text-sm">
+        The following settings require a reboot to take effect:{" "}
+        <em>{labels.join(", ")}</em>
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <Button size="sm" onClick={onReboot}>
+          <ListRestart className="mr-2 h-4 w-4" />
+          Reboot Now
+        </Button>
+        <Button size="sm" variant="outline" onClick={onDismiss}>
+          Later
+        </Button>
+      </div>
     </AlertDescription>
   </Alert>
 );
@@ -292,6 +328,10 @@ export function ConfigPage() {
   const [localParameters, setLocalParameters] = useState<Parameter[]>([]);
   const [showChangesDialog, setShowChangesDialog] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [showRebootBanner, setShowRebootBanner] = useState(false);
+  const [changedRebootParamLabels, setChangedRebootParamLabels] = useState<
+    string[]
+  >([]);
 
   const {
     parameters: serverParameters,
@@ -405,13 +445,23 @@ export function ConfigPage() {
       })
     );
 
+    const rebootParamNames = changedParameters
+      .map((change) => change.name)
+      .filter(parameterRequiresReboot);
+
     try {
       const success = await saveParameters(changedParams);
 
       if (success) {
-        toast.success("Parameters saved successfully", {
-          description: `Saved ${changedParameters.length} changed parameters. Settings will take effect after restart.`,
-        });
+        if (rebootParamNames.length > 0) {
+          setChangedRebootParamLabels(getRebootParameterLabels(rebootParamNames));
+          setShowRebootBanner(true);
+          toast.success("Parameters saved successfully", {
+            description: `${rebootParamNames.length} changed setting(s) require a reboot.`,
+          });
+        } else {
+          toast.success("Parameters saved successfully");
+        }
 
         // Refresh parameters from server
         await fetchParameters();
@@ -429,6 +479,27 @@ export function ConfigPage() {
       setShowChangesDialog(false);
     }
   }, [changedParameters, saveParameters, fetchParameters]);
+
+  const handleRebootNow = useCallback(async () => {
+    setShowRebootBanner(false);
+    setChangedRebootParamLabels([]);
+    try {
+      await apiFetch(API_ROUTES.RESTART, { method: "POST" });
+      toast.success("Restart initiated", {
+        description: "Machine is restarting...",
+      });
+    } catch (error: unknown) {
+      console.log("Machine restarting...", error);
+      toast.success("Restart initiated", {
+        description: "Machine is restarting...",
+      });
+    }
+  }, []);
+
+  const dismissRebootBanner = useCallback(() => {
+    setShowRebootBanner(false);
+    setChangedRebootParamLabels([]);
+  }, []);
 
   const hasParameters = localParameters.length > 0;
   const isHardwareFilter = filter === "hardware";
@@ -451,6 +522,14 @@ export function ConfigPage() {
                 </Button>
               </AlertDescription>
             </Alert>
+          )}
+
+          {showRebootBanner && changedRebootParamLabels.length > 0 && (
+            <RebootRequiredBanner
+              labels={changedRebootParamLabels}
+              onReboot={handleRebootNow}
+              onDismiss={dismissRebootBanner}
+            />
           )}
 
           {/* Parameter Navigation and Actions */}
