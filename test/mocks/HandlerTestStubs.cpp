@@ -14,7 +14,6 @@
 // === Full header includes needed BEFORE source includes ===
 // These provide complete type definitions for classes that are only
 // forward-declared in MachineStateContext.h or other headers
-#include "clevercoffee/backflush/BackflushModeLogic.h"
 #include "clevercoffee/hardware/HardwareManager.h"
 #include "clevercoffee/display/DisplayManager.h"
 #include "clevercoffee/utils/Resilience.h"
@@ -195,28 +194,20 @@ void MachineStateContext::setBackflushStopRequested(bool requested) noexcept {
 }
 
 bool MachineStateContext::applyBackflushMode(bool active) noexcept {
-    using CleverCoffee::Backflush::ModeChangeEffect;
-    using CleverCoffee::Backflush::resolveModeChange;
-
-    const auto effect =
-        resolveModeChange({backflushOn_, active, Config::getInstance().backflushCycles.get()});
-
-    switch (effect) {
-        case ModeChangeEffect::None:
-            return true;
-        case ModeChangeEffect::RejectedInvalidCycles:
-            return false;
-        case ModeChangeEffect::Enable:
-            backflushOn_ = true;
-            setBackflushCycleCount(1);
-            setBackflushEnterRequested(true);
-            return true;
-        case ModeChangeEffect::Disable:
-            backflushOn_ = false;
-            setBackflushStopRequested(true);
-            return true;
+    if (active == backflushOn_) {
+        return true;
     }
-    return false;
+    if (active && Config::getInstance().backflushCycles.get() <= 0) {
+        return false;
+    }
+    backflushOn_ = active;
+    if (active) {
+        setBackflushCycleCount(1);
+        setBackflushEnterRequested(true);
+    } else {
+        setBackflushStopRequested(true);
+    }
+    return true;
 }
 
 void MachineStateContext::disableWaterOperations() const {}

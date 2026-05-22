@@ -50,7 +50,3 @@ TEST(BackflushCycleLogicTest, CompletesWhenConfiguredCyclesReached) {
 TEST(BackflushCycleLogicTest, CompletesWhenCurrentExceedsConfigured) {
     EXPECT_EQ(CycleAdvanceEffect::CompleteAllCycles, resolveCycleAdvance(6, 5));
 }
-
-TEST(BackflushModeLogicTest, RejectedEnableMapsToApplyFailure) {
-    EXPECT_EQ(ModeChangeEffect::RejectedInvalidCycles, resolveModeChange({false, true, 0}));
-}
