@@ -6,7 +6,7 @@ import sys
 
 # Pin clang-format version via Docker image to ensure consistent formatting
 # across macOS (local) and Linux (CI) environments.
-CLANG_TOOLS_IMAGE = "xianpengshen/clang-tools:21"
+CLANG_TOOLS_IMAGE = "xianpengshen/clang-tools:22"
 
 
 def _docker_available():
