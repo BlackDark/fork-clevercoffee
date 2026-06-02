@@ -216,6 +216,6 @@ Prioritized by likely value vs. effort.
 | Reset path | `src/context/SystemContext.cpp` |
 | API | `src/network/WebServerManager.cpp` |
 | MQTT | `src/network/MQTTManager.cpp`, `src/core/SystemInitializer.cpp` |
-| Display | `include/clevercoffee/display/displayCommon.h`, `languages.h`, `ModernDisplayTemplate.h` |
+| Display | `include/clevercoffee/display/DisplayWidgets.h`, `languages.h`, `templates/StandardTemplate.h` |
 | Web UI | `ui/packages/frontend/src/components/MachineStatusToasts.tsx`, `HomeMaintenanceCard.tsx`, `HomeStandbyAlert.tsx`, `MaintenanceBackflushPanel.tsx`, `ConfigPage.tsx` |
 | Tests | `test/test_maintenance_coordinator/test_main.cpp` |

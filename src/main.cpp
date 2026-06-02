@@ -79,7 +79,7 @@ std::unique_ptr<ProcessController> processController = nullptr;
 #include "clevercoffee/core/LoopManager.h"
 std::unique_ptr<LoopManager> loopManager = nullptr;
 
-#include "clevercoffee/display/displayTemplateManager.h"
+#include "clevercoffee/display/DisplayTemplateManager.h"
 #include "clevercoffee/handlers/BrewHandler.h"
 #include "clevercoffee/handlers/HotWaterHandler.h"
 #include "clevercoffee/handlers/PowerHandler.h"
@@ -141,7 +141,7 @@ void setup() {
     auto& displayManager = systemInitializer->getDisplayManager();
     auto& wifiManager    = systemInitializer->getWiFiManager();
     auto& mqttManager    = systemInitializer->getMQTTManager();
-    auto& uiManager      = systemInitializer->getUIManager();
+    auto& oledDriver     = systemInitializer->getOledDriver();
     // Note: HardwareManager and SystemContext are also accessed via references in constructors
 
     // Complete initialization steps that require global dependencies
@@ -183,7 +183,7 @@ void setup() {
         // Initialize LoopManager for main loop coordination with required components as references
         auto& sensorCoord = systemContext.sensorCoordinator();
         loopManager       = std::make_unique<LoopManager>(
-            systemContext, hardwareManager, *processController, sensorCoord, uiManager, stateMachine.get());
+            systemContext, hardwareManager, *processController, sensorCoord, oledDriver, stateMachine.get());
         InitHelpers::logInitResult("LoopManager", loopManager->initialize());
 
         // Configure sensor update timers (uncomment and modify as needed)

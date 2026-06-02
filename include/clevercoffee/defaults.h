@@ -184,7 +184,8 @@ enum class DisplayTemplate : int {
     MINIMAL          = 1,
     TEMPERATURE_ONLY = 2,
     SCALE            = 3,
-    UPRIGHT          = 4
+    UPRIGHT          = 4,
+    MODERN           = 5
 };
 
 // Languages

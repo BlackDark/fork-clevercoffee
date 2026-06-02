@@ -22,6 +22,9 @@ constexpr float DEFAULT_STEAM_SETPOINT_C = 120.0f;
 constexpr float TEMP_TOLERANCE_NORMAL_C = 0.3f; ///< Temperature tolerance for normal mode LED
 constexpr float TEMP_TOLERANCE_STEAM_C  = 5.0f; ///< Temperature tolerance for steam mode LED
 
+// Fullscreen heating logo when further than this below brew setpoint (PID normal mode)
+constexpr float HEATING_LOGO_THRESHOLD_C = 5.0f;
+
 // Steam mode temperature threshold for LED indication
 constexpr float STEAM_LED_THRESHOLD_C = 115.0f; ///< Temperature above which steam LED logic applies
 

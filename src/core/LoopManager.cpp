@@ -7,14 +7,15 @@
 
 #include "clevercoffee/Config.h"
 #include "clevercoffee/Logger.h"
-#include "clevercoffee/constants/Temperature.h"
 #include "clevercoffee/constants/Timing.h"
 #include "clevercoffee/context/SystemContext.h"
 #include "clevercoffee/control/ProcessController.h"
 #include "clevercoffee/coordinators/NetworkCoordinator.h"
 #include "clevercoffee/coordinators/SensorCoordinator.h"
 #include "clevercoffee/coordinators/UICoordinator.h"
-#include "clevercoffee/display/displayCommon.h"
+#include "clevercoffee/display/DisplayBrewTimerState.h"
+#include "clevercoffee/display/DisplayTemplateManager.h"
+#include "clevercoffee/display/displayHelpers.h"
 #include "clevercoffee/handlers/BrewHandler.h"
 #include "clevercoffee/handlers/HotWaterHandler.h"
 #include "clevercoffee/handlers/PowerHandler.h"
@@ -26,7 +27,7 @@
 #include "clevercoffee/network/WebServerManager.h"
 #include "clevercoffee/state/StateMachine.h"
 #include "clevercoffee/types/GlobalTypes.h"
-#include "clevercoffee/ui/UIManager.h"
+#include "clevercoffee/ui/OledDriver.h"
 #include "clevercoffee/utils/ModernTimer.h"
 
 #include <Arduino.h>
@@ -34,12 +35,7 @@
 #include <WiFi.h>
 #include <cmath>
 
-// Forward declaration for display template function
-namespace DisplayTemplateManager {
-extern void printScreen();
-}
-
-// External function declarations
+// WebSocket functions are now available via WebSocketEvents.h
 // checkBrewActive removed - now accessed via SystemContext->brewHandler()
 extern int  getSignalStrength();
 extern void disableTimer1();
@@ -52,10 +48,10 @@ LoopManager::LoopManager(CleverCoffee::SystemContext&     systemContext,
                          CleverCoffee::HardwareManager&   hardwareManager,
                          ProcessController&               processController,
                          CleverCoffee::SensorCoordinator& sensorCoordinator,
-                         UIManager&                       uiManager,
+                         OledDriver&                      oledDriver,
                          StateMachine*                    stateMachine)
     : systemContext_(systemContext), hardwareManager_(hardwareManager), processController_(processController),
-      sensorCoordinator_(sensorCoordinator), uiManager_(uiManager), stateMachine_(stateMachine), initialized_(false),
+      sensorCoordinator_(sensorCoordinator), oledDriver_(oledDriver), stateMachine_(stateMachine), initialized_(false),
       sensorsTimersInitialized_(false), performanceMonitoringEnabled_(false), lastLoopTime_(0), maxLoopTime_(0),
       loopCount_(0), temperatureUpdateCount_(0), pressureUpdateCount_(0), scaleUpdateCount_(0), lastTimerLogTime_(0) {
     LOG(INFO, "LoopManager created - will initialize centralized sensor timers");
@@ -247,13 +243,10 @@ void LoopManager::updateLEDs() {
     const auto temperature  = systemContext_.processTemperature();
     const auto setpoint     = systemContext_.processSetpoint();
 
-    using CleverCoffee::Temperature::TEMP_TOLERANCE_STEAM_C;
-
     if (Config::getInstance().hardwareLedsStatusEnabled.get() && hardwareManager_.getStatusLed()) {
-        const double statusLedDelta = Config::getInstance().displayBlinkingDelta.get();
-        const double tolerance      = isSteamState(machineState) ? TEMP_TOLERANCE_STEAM_C : statusLedDelta;
-        const bool   nearSetpoint   = fabs(temperature - setpoint) <= tolerance;
-        const bool   eligibleState =
+        const bool nearSetpoint =
+            CleverCoffee::Display::isNearSetpointForStatusLed(temperature, setpoint, machineState);
+        const bool eligibleState =
             static_cast<int>(machineState) <= static_cast<int>(MachineStateId::BACKFLUSH_FINISHED);
 
         const bool shouldTurnOn = eligibleState && nearSetpoint;
@@ -325,7 +318,7 @@ void LoopManager::updateDisplay() {
         lastDisplayLog = now;
     }
 
-    uiManager_.setUpdateRunning(false);
+    oledDriver_.setUpdateRunning(false);
 
     if (Config::getInstance().hardwareOledEnabled.get()) {
         // Check if display should be turned off (after standby + display-off countdown)
@@ -336,40 +329,36 @@ void LoopManager::updateDisplay() {
             return;                       // Don't update display while it's off
         }
 
-        // Sync UIManager buffer ready flag with UICoordinator flag
-        // The display template sets the coordinator flag, we need to sync it to UIManager
-        if (systemContext_.uiCoordinator().isDisplayBufferReady() && !uiManager_.isBufferReady()) {
-            uiManager_.setBufferReady(true);
+        // Sync OledDriver buffer ready flag with UICoordinator flag
+        if (systemContext_.uiCoordinator().isDisplayBufferReady() && !oledDriver_.isBufferReady()) {
+            oledDriver_.setBufferReady(true);
         }
+
+        // Allow display updates until the OLED is powered off in deep standby
+        const bool displayPowerCondition = !systemContext_.standbyCoordinator().shouldTurnOffDisplay();
 
         // Check if we're in a brew state - display updates are critical during brewing
         const auto currentState = systemContext_.machineStateContext()->getCurrentStateId();
         const bool isBrewActive = isBrewState(currentState) && currentState != MachineStateId::BREW_FINISHED;
 
-        // During brew, update display more aggressively (only check standby, ignore network conditions)
+        // During brew, update display more aggressively (only check display power, ignore network conditions)
         // Outside brew, use normal conditions to avoid conflicts with network operations
         bool canUpdate = false;
         if (isBrewActive) {
-            // During brew: only check standby condition, always update if buffer ready
-            bool standbyCondition = (!Config::getInstance().standbyEnabled.get() ||
-                                     systemContext_.standbyCoordinator().getRemainingTimeMillis() > 0);
-            canUpdate             = standbyCondition;
+            canUpdate = displayPowerCondition;
         } else {
-            // Normal operation: check all conditions
             bool websiteCondition = !systemContext_.uiCoordinator().isWebsiteUpdateRunning();
             bool mqttCondition    = (!systemContext_.mqttManager() || !systemContext_.mqttManager()->isUpdateRunning());
             bool hassioCondition  = !systemContext_.uiCoordinator().isHassioUpdateRunning();
-            bool standbyCondition = (!Config::getInstance().standbyEnabled.get() ||
-                                     systemContext_.standbyCoordinator().getRemainingTimeMillis() > 0);
-            canUpdate             = websiteCondition && mqttCondition && hassioCondition && standbyCondition;
+            canUpdate             = websiteCondition && mqttCondition && hassioCondition && displayPowerCondition;
         }
 
         // Update display if conditions are met and buffer is ready
-        if (canUpdate && uiManager_.isBufferReady()) {
-            uiManager_.forceUpdate();
-            uiManager_.setBufferReady(false);
+        if (canUpdate && oledDriver_.isBufferReady()) {
+            oledDriver_.forceUpdate();
+            oledDriver_.setBufferReady(false);
             systemContext_.setDisplayBufferReady(false); // Clear coordinator flag too
-            uiManager_.setUpdateRunning(true);
+            oledDriver_.setUpdateRunning(true);
         }
     }
 }
@@ -639,13 +628,7 @@ void LoopManager::updateStateMachine() {
     systemContext_.brewHandler().process();
     systemContext_.brewHandler().valveSafetyShutdownCheck();
 
-    // Update brew timer display state using UIManager - always available
-    if (Config::getInstance().hardwareSwitchesBrewEnabled.get()) {
-        uiManager_.shouldDisplayBrewTimer();
-    } else {
-        // Use inline function from displayCommon.h
-        shouldDisplayBrewTimer(systemContext_);
-    }
+    shouldDisplayBrewTimer(systemContext_);
 }
 
 void LoopManager::configureSensorTimers(unsigned long temperatureIntervalMs,

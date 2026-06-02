@@ -13,7 +13,7 @@
 // Forward declarations
 class ProcessController;
 class StateMachine;
-class UIManager;
+class OledDriver;
 
 namespace CleverCoffee {
 class SensorCoordinator;
@@ -55,7 +55,7 @@ class LoopManager {
      * @param processController Process control manager (REQUIRED - CRITICAL component for PID control)
      * @param sensorCoordinator Sensor coordinator for async sensor polling (REQUIRED - CRITICAL component for sensor
      * readings)
-     * @param uiManager UI management system (REQUIRED - always exists)
+     * @param oledDriver OLED flush driver (REQUIRED - always exists)
      * @param stateMachine State machine for state transitions (may be nullptr in tests)
      * Note: Handlers are accessed via SystemContext and are always available
      */
@@ -63,7 +63,7 @@ class LoopManager {
                          CleverCoffee::HardwareManager&   hardwareManager,
                          ProcessController&               processController,
                          CleverCoffee::SensorCoordinator& sensorCoordinator,
-                         UIManager&                       uiManager,
+                         OledDriver&                      oledDriver,
                          StateMachine*                    stateMachine = nullptr);
 
     /**
@@ -232,7 +232,7 @@ class LoopManager {
     CleverCoffee::HardwareManager&   hardwareManager_;   // REQUIRED - CRITICAL component
     ProcessController&               processController_; // REQUIRED - CRITICAL component for PID control
     CleverCoffee::SensorCoordinator& sensorCoordinator_; // REQUIRED - CRITICAL component for sensor readings
-    UIManager&                       uiManager_;         // REQUIRED - always exists
+    OledDriver&                      oledDriver_;        // REQUIRED - always exists
     StateMachine*                    stateMachine_;      // May be nullptr in tests
 
     // Initialization state

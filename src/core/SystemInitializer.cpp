@@ -11,14 +11,15 @@
 #include "clevercoffee/control/ProcessController.h"
 #include "clevercoffee/defaults.h"
 #include "clevercoffee/display/DisplayManager.h"
-#include "clevercoffee/display/displayTemplateManager.h"
+#include "clevercoffee/display/DisplayTemplateManager.h"
+#include "clevercoffee/display/DisplayWidgets.h"
 #include "clevercoffee/display/languages.h"
 #include "clevercoffee/hardware/HardwareManager.h" // Include before own header to resolve forward declaration
 #include "clevercoffee/isr.h"
 #include "clevercoffee/network/CleverCoffeeWiFiManager.h"
 #include "clevercoffee/network/MQTTManager.h"
 #include "clevercoffee/network/WebServerManager.h"
-#include "clevercoffee/ui/UIManager.h"
+#include "clevercoffee/ui/OledDriver.h"
 #include "clevercoffee/utils/SystemUtils.h"
 #include "clevercoffee/utils/memoryUtils.h"
 
@@ -41,7 +42,7 @@ extern void enableTimer1();
 
 SystemInitializer::SystemInitializer()
     : systemInitialized_(false), initState_(InitState::NOT_INITIALIZED), hostname_(), displayManager_(nullptr),
-      uiManager_(nullptr), hardwareManager_(nullptr), mqttManager_(nullptr), cleverCoffeeWiFiManager_(nullptr),
+      oledDriver_(nullptr), hardwareManager_(nullptr), mqttManager_(nullptr), cleverCoffeeWiFiManager_(nullptr),
       webServerManager_(nullptr) {}
 
 SystemInitializer::~SystemInitializer() {
@@ -87,9 +88,9 @@ bool SystemInitializer::initialize() {
         return false;
     }
 
-    // DisplayManager and UIManager always exist now - show logo if hardware is connected
+    // DisplayManager and OledDriver always exist now - show logo if hardware is connected
     if (displayManager_->isInitialized()) {
-        uiManager_->displayLogo("Version ", systemContext_->sysVersion());
+        displayLogo(*systemContext_, "Version ", systemContext_->sysVersion());
     }
 
     logMemoryBasic("After Display Init");
@@ -102,8 +103,8 @@ bool SystemInitializer::initialize() {
     if (!initializeHardware()) {
         LOG(ERROR, "Hardware initialization failed");
         logMemory("Hardware Init FAILED");
-        if (uiManager_) {
-            uiManager_->displayLogo(String("Error "), "Hardware initialization failed");
+        if (oledDriver_) {
+            displayLogo(*systemContext_, "Error ", "Hardware initialization failed");
         }
         initState_ = InitState::FAILED;
         return false;
@@ -269,10 +270,10 @@ bool SystemInitializer::initializeDisplay() {
             return false;
         }
 
-        // UIManager is ALWAYS created - required component
-        uiManager_ = std::make_unique<UIManager>(displayManager_.get(), systemContext_.get());
-        if (!uiManager_) {
-            LOG(ERROR, "Failed to create UIManager - system cannot continue");
+        // OledDriver is ALWAYS created - required component
+        oledDriver_ = std::make_unique<OledDriver>(displayManager_.get(), systemContext_.get());
+        if (!oledDriver_) {
+            LOG(ERROR, "Failed to create OledDriver - system cannot continue");
             initState_ = InitState::FAILED;
             return false;
         }
@@ -282,15 +283,13 @@ bool SystemInitializer::initializeDisplay() {
                 // Hardware is connected - proceed with full setup
                 systemContext_->hardwareContext().setDisplay(displayManager_->getDisplay());
 
-                if (uiManager_->initialize()) {
-                    LOG(INFO, "UIManager initialized successfully");
+                if (oledDriver_->initialize()) {
+                    LOG(INFO, "OledDriver initialized successfully");
                 } else {
-                    LOG(ERROR, "UIManager initialization failed!");
+                    LOG(ERROR, "OledDriver initialization failed!");
                 }
 
-                const System::DisplayTemplate templateId = Config::getInstance().displayTemplate.get();
-                DisplayTemplateManager::initializeDisplay(templateId);
-                ModernDisplayTemplateManager::setSystemContext(systemContext_.get());
+                DisplayTemplateManager::setSystemContext(systemContext_.get());
                 LOG(INFO, "Display initialization completed");
             } else {
                 // Hardware not connected, but manager exists and tracks state
@@ -298,7 +297,7 @@ bool SystemInitializer::initializeDisplay() {
                 systemContext_->hardwareContext().setDisplay(nullptr);
             }
         } else {
-            LOG(INFO, "Display disabled in configuration, but DisplayManager and UIManager created");
+            LOG(INFO, "Display disabled in configuration, but DisplayManager and OledDriver created");
         }
 
         // Manager always exists - required component
@@ -735,16 +734,16 @@ void SystemInitializer::setupWiFi() {
         std::function<void(const char*, const char*)> displayCallback = nullptr;
 
         displayCallback = [this](const char* line1, const char* line2) {
-            uiManager_->displayLogo(String(line1), line2 ? String(line2) : String(""));
+            displayLogo(*systemContext_, line1, line2 ? line2 : "");
         };
 
         // Setup WiFi with display feedback
         if (!systemContext_->cleverCoffeeWiFiManager()->setupAndConnect(
                 Config::getInstance().systemHostname.get(), WIFI_PASSWORD, false, displayCallback)) {
             systemContext_->networkCoordinator().setOfflineMode(true);
-            uiManager_->displayLogo(langstring_nowifi[0], langstring_nowifi[1]);
+            displayLogo(*systemContext_, langstring_nowifi[0], langstring_nowifi[1]);
         } else {
-            uiManager_->displayLogo("WiFi Connected", WiFi.localIP().toString());
+            displayLogo(*systemContext_, "WiFi Connected", WiFi.localIP().toString().c_str());
         }
 
         // Check if restart is required after AP configuration
@@ -756,6 +755,6 @@ void SystemInitializer::setupWiFi() {
     } catch (const std::exception& e) {
         LOG(ERROR, "Failed to initialize WiFiManager");
         systemContext_->networkCoordinator().setOfflineMode(true);
-        uiManager_->displayLogo(langstring_nowifi[0], langstring_nowifi[1]);
+        displayLogo(*systemContext_, langstring_nowifi[0], langstring_nowifi[1]);
     }
 }

@@ -44,7 +44,8 @@ const std::vector<std::pair<System::DisplayTemplate, String>>& getDisplayTemplat
         {System::DisplayTemplate::MINIMAL, "Minimal"},
         {System::DisplayTemplate::TEMPERATURE_ONLY, "Temperature Only"},
         {System::DisplayTemplate::SCALE, "Scale"},
-        {System::DisplayTemplate::UPRIGHT, "Upright"}
+        {System::DisplayTemplate::UPRIGHT, "Upright"},
+        {System::DisplayTemplate::MODERN, "Modern"}
     };
     return options;
 }

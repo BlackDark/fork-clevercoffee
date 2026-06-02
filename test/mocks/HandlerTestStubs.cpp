@@ -54,7 +54,6 @@ void HardwareManager::initializeSwitches() {}
 void HardwareManager::initializeTemperatureSensor() {}
 bool HardwareManager::isInitialized() const { return false; }
 void HardwareManager::safeShutdown() {}
-void HardwareManager::updateLEDs(MachineStateId, double, double) {}
 double HardwareManager::getCurrentTemperature() const noexcept { return 25.0; }
 bool HardwareManager::hasTemperatureError() const noexcept { return false; }
 Relay* HardwareManager::getHeaterRelay() noexcept { return nullptr; }

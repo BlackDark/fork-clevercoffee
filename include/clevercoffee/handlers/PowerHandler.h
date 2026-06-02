@@ -6,7 +6,7 @@
 
 #include "clevercoffee/Config.h"
 #include "clevercoffee/context/SystemContext.h"
-#include "clevercoffee/display/displayCommon.h"
+#include "clevercoffee/display/DisplayWidgets.h"
 #include "clevercoffee/handlers/BaseHandler.h"
 #include "clevercoffee/state/MachineState.h"
 #include "clevercoffee/state/MachineStateContext.h"
