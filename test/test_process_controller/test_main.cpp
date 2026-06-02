@@ -305,4 +305,41 @@ TEST_F(ProcessControllerIntegrationTest, PIDDisabledForDisabledState) {
     EXPECT_FALSE(shouldEnable) << "PID should be disabled in PID_DISABLED state";
 }
 
+// ============================================================================
+// BUG FIX: Safe shutdown must NOT enter emergency mode (Bug #2)
+// After PowerHandler calls performSafeShutdown, hardware must remain usable.
+// Root cause was: performSafeShutdown() called emergencyShutdown() which set
+// emergencyMode_=true permanently, blocking all subsequent hardware ops.
+// ============================================================================
+
+/**
+ * TEST: performSafeShutdown calls safeHardwareShutdown (not emergencyShutdown)
+ *
+ * Verifies the bug fix: normal power-off must NOT set emergencyMode_.
+ * If emergencyShutdown() were called, pump/valve would be permanently blocked.
+ */
+TEST_F(ProcessControllerIntegrationTest, SafeShutdownDoesNotCallEmergencyShutdown) {
+    controller_->initialize();
+
+    EXPECT_CALL(mockHardwareManager_, emergencyShutdown()).Times(0);
+    EXPECT_CALL(mockHardwareManager_, safeHardwareShutdown()).Times(1);
+
+    controller_->performSafeShutdown();
+}
+
+/**
+ * TEST: clearEmergencyMode is NOT called during safe shutdown
+ *
+ * clearEmergencyMode() is reserved for clearing real emergencies.
+ * performSafeShutdown() must not call it — the machine was never in emergency mode.
+ */
+TEST_F(ProcessControllerIntegrationTest, ClearEmergencyModeNotCalledDuringSafeShutdown) {
+    controller_->initialize();
+
+    EXPECT_CALL(mockHardwareManager_, clearEmergencyMode()).Times(0);
+    EXPECT_CALL(mockHardwareManager_, safeHardwareShutdown()).Times(1);
+
+    controller_->performSafeShutdown();
+}
+
 // Note: main() is provided by test/main.cpp

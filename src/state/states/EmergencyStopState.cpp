@@ -23,6 +23,11 @@ void EmergencyStopState::onEntryImpl(MachineStateContext& context) {
 
 void EmergencyStopState::onExitImpl(MachineStateContext& context) {
     LOG(INFO, "Emergency stop cleared - System ready for restart");
+    // Emergency entry forced runtime PID off (performEmergencyShutdown). Restore it
+    // from config so recovery resumes heating instead of leaving the machine stuck in
+    // PID_DISABLED ("disabled manually"). Config stays the source of truth: if the user
+    // had PID disabled, it remains disabled. Mirrors StandbyState::onExitImpl.
+    context.setPidRuntimeState(context.isPidConfigEnabled());
 }
 
 void EmergencyStopState::update(MachineStateContext& context) {
@@ -42,7 +47,7 @@ std::optional<MachineStateId> EmergencyStopState::checkSpecificTransitions(Machi
 }
 
 void EmergencyStopState::performEmergencyShutdown(MachineStateContext& context) {
-    context.performSafeShutdown();
+    context.emergencyShutdown();
     context.setPidRuntimeState(false);
 }
 

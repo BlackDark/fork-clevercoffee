@@ -152,6 +152,19 @@ std::optional<MachineStateId> BaseState<StateId, DerivedState>::checkTransitions
         return MachineStateId::WATER_TANK_EMPTY;
     }
 
+    // PID disable check — force transition for active operation states.
+    // Excluded: PID_DISABLED (already there), STANDBY (PID intentionally off),
+    //           error/emergency states, and INIT.
+    if constexpr (StateId != MachineStateId::PID_DISABLED && StateId != MachineStateId::PID_NORMAL &&
+                  StateId != MachineStateId::STANDBY && StateId != MachineStateId::INIT &&
+                  StateId != MachineStateId::EMERGENCY_STOP && StateId != MachineStateId::SENSOR_ERROR &&
+                  StateId != MachineStateId::WATER_TANK_EMPTY && StateId != MachineStateId::EEPROM_ERROR) {
+        if (!context.isPidRuntimeEnabled()) {
+            context.logStateTransition(getStateId(), MachineStateId::PID_DISABLED, "PID disabled during operation");
+            return MachineStateId::PID_DISABLED;
+        }
+    }
+
     // Delegate to derived class for state-specific transitions
     return checkSpecificTransitions(context);
 }

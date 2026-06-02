@@ -22,6 +22,7 @@ inline void setRuntimePidState(CleverCoffee::SystemContext& systemContext, const
     static std::mutex           pid_mutex;
     std::lock_guard<std::mutex> lock(pid_mutex);
 
+    LOGF(INFO, "PID runtime state change: %s", enabled ? "ENABLED" : "DISABLED");
     systemContext.setProcessPidEnabled(enabled);
 }
 

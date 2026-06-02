@@ -15,8 +15,13 @@ void StandbyState::onEntryImpl(MachineStateContext& context) {
     LOG(INFO, "Entering standby mode - reducing power consumption");
     context.enterStandbyMode();
     context.setSteamMode(false);
+    // Safety: Ensure pump and valve are off when entering standby
+    context.disablePump();
+    context.closeWaterValve();
     // Disable runtime PID (does not modify config - config remains source of truth)
     context.setPidRuntimeState(false);
+    // Drain stale stop flags (preserve start flags as wake triggers)
+    context.clearStaleStopRequests();
 }
 
 void StandbyState::onExitImpl(MachineStateContext& context) {
@@ -51,16 +56,24 @@ std::optional<MachineStateId> StandbyState::checkSpecificTransitions(MachineStat
 }
 
 void ManualFlushRunningState::onEntryImpl(MachineStateContext& context) {
-    LOG(INFO, "Manual flush mode activated - hardware controlled by handlers");
+    LOG(INFO, "Manual flush mode activated");
     context.setManualFlushState(true);
+    context.enablePump();
+    context.openWaterValve();
 }
 
 void ManualFlushRunningState::onExitImpl(MachineStateContext& context) {
     LOG(INFO, "Exiting manual flush mode");
+    context.disablePump();
+    context.closeWaterValve();
     context.setManualFlushState(false);
 }
 
 void ManualFlushRunningState::update(MachineStateContext& context) {
+    // Keep pump and valve active during manual flush
+    context.enablePump();
+    context.openWaterValve();
+
     LOGF(DEBUG,
          "Manual Flush Running: Temp=%.1f°C, Pressure=%.1fbar",
          context.getCurrentTemperature(),
@@ -70,10 +83,12 @@ void ManualFlushRunningState::update(MachineStateContext& context) {
 std::optional<MachineStateId> ManualFlushRunningState::checkSpecificTransitions(MachineStateContext& context) {
     if (context.isManualFlushStopRequested()) {
         context.setManualFlushStopRequested(false);
+        // Return to backflush idle since manual flush is only available from backflush mode
+        if (context.isBackflushModeActive()) {
+            context.logStateTransition(getStateId(), MachineStateId::BACKFLUSH_IDLE, "Manual flush stop requested");
+            return MachineStateId::BACKFLUSH_IDLE;
+        }
         return transitionToPidState(context, "Manual flush stop requested");
-    }
-    if (!context.isManualFlushActive()) {
-        return transitionToPidState(context, "Manual flush deactivated");
     }
     return std::nullopt;
 }

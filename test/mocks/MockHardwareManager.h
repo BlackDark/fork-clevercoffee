@@ -84,6 +84,8 @@ public:
     MOCK_METHOD(void, closeSolenoid, (), (noexcept, override));
     
     MOCK_METHOD(void, emergencyShutdown, (), (noexcept, override));
+    MOCK_METHOD(void, safeHardwareShutdown, (), (noexcept, override));
+    MOCK_METHOD(void, clearEmergencyMode, (), (noexcept, override));
 };
 
 } // namespace CleverCoffee

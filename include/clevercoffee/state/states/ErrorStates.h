@@ -18,9 +18,7 @@ class SensorErrorState : public BaseState<MachineStateId::SENSOR_ERROR, SensorEr
     std::optional<MachineStateId> checkSpecificTransitions(MachineStateContext& context) override;
 
   private:
-    static constexpr unsigned int MAX_RECOVERY_ATTEMPTS = 3;
-    unsigned long                 errorStartTime_       = 0; // Fresh on each entry (new instance)
-    unsigned int                  recoveryAttempts_     = 0; // Fresh on each entry (new instance)
+    unsigned long errorStartTime_ = 0; // Fresh on each entry (new instance)
 };
 
 class WaterTankEmptyState : public BaseState<MachineStateId::WATER_TANK_EMPTY, WaterTankEmptyState> {

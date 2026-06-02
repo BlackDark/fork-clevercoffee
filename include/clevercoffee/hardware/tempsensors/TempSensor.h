@@ -121,8 +121,10 @@ class TempSensor : public CleverCoffee::ISensor {
             return Error(ErrorCode::SENSOR_TIMEOUT, "Temperature read timeout");
         }
 
-        // Try to update temperature
-        double temp_value{};
+        // Seed with the last good reading: sensors (e.g. TSIC) use the incoming
+        // value as the previous sample to decide whether the signal has stabilised.
+        // A fresh 0.0 here would prevent stabilisation from ever latching.
+        double temp_value = last_temperature_;
         if (sample_temperature(temp_value)) {
             read_in_progress_ = false;
             last_temperature_ = temp_value;

@@ -107,8 +107,17 @@ class BrewHandler : public SwitchBasedHandler {
     }
 
     void valveSafetyShutdownCheck() {
-        // Safety check to ensure valve is closed when not brewing
-        if (!isBrewActive() && valveRelay_) {
+        // Safety check to ensure valve is closed when not in an active water-flow state.
+        // Mirrors the original: valve stays open during brew, manual flush, and backflush.
+        if (!valveRelay_) return;
+        auto* context = systemContext_.machineStateContext();
+        if (!context) return;
+        const auto state           = context->getCurrentStateId();
+        const bool waterFlowActive = (isBrewState(state) && state != MachineStateId::BREW_FINISHED) ||
+                                     isManualFlushState(state) ||
+                                     (isBackflushState(state) && state != MachineStateId::BACKFLUSH_IDLE &&
+                                      state != MachineStateId::BACKFLUSH_FINISHED);
+        if (!waterFlowActive) {
             setRelayState(valveRelay_, false);
         }
     }
@@ -184,7 +193,8 @@ class BrewHandler : public SwitchBasedHandler {
             if (!context) return;
             const auto currentState = context->getCurrentStateId();
 
-            if (context->isBackflushModeActive() || isBackflushState(currentState)) {
+            if (context->isBackflushModeActive() || isBackflushState(currentState) ||
+                isManualFlushState(currentState)) {
                 if (reading == HIGH) {
                     if (currentState == MachineStateId::BACKFLUSH_IDLE && switch_ != nullptr &&
                         switch_->longPressDetected()) {
@@ -195,10 +205,15 @@ class BrewHandler : public SwitchBasedHandler {
                     } else if (isBackflushState(currentState)) {
                         context->setBackflushStopRequested(true);
                     }
-                } else if (reading == LOW && switchType == Hardware::SwitchType::TOGGLE &&
-                           isBackflushState(currentState) && currentState != MachineStateId::BACKFLUSH_IDLE &&
-                           currentState != MachineStateId::BACKFLUSH_FINISHED) {
-                    context->setBackflushStopRequested(true);
+                } else if (reading == LOW) {
+                    // Switch released — stop manual flush or backflush cycle
+                    if (isManualFlushState(currentState)) {
+                        context->setManualFlushStopRequested(true);
+                    } else if (switchType == Hardware::SwitchType::TOGGLE && isBackflushState(currentState) &&
+                               currentState != MachineStateId::BACKFLUSH_IDLE &&
+                               currentState != MachineStateId::BACKFLUSH_FINISHED) {
+                        context->setBackflushStopRequested(true);
+                    }
                 }
                 lastSwitchReading_ = reading;
                 return;

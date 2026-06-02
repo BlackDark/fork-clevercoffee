@@ -529,8 +529,22 @@ void HardwareManager::closeSolenoid() noexcept {
 void HardwareManager::emergencyShutdown() noexcept {
     LOG(ERROR, "EMERGENCY SHUTDOWN ACTIVATED");
     emergencyMode_ = true;
+    disableAllHardware();
+    LOG(ERROR, "All hardware disabled - system in emergency mode");
+}
 
-    // Immediately disable all hardware
+void HardwareManager::clearEmergencyMode() noexcept {
+    LOG(INFO, "Emergency mode cleared - hardware can resume normal operation");
+    emergencyMode_ = false;
+}
+
+void HardwareManager::safeHardwareShutdown() noexcept {
+    LOG(INFO, "Safe hardware shutdown - disabling all hardware");
+    disableAllHardware();
+    // emergencyMode_ intentionally NOT set — hardware can be re-enabled normally
+}
+
+void HardwareManager::disableAllHardware() noexcept {
     if (heaterRelay_ && heaterEnabled_) {
         heaterRelay_->off();
         heaterEnabled_ = false;
@@ -544,8 +558,6 @@ void HardwareManager::emergencyShutdown() noexcept {
         valveState_ = CleverCoffee::Hardware::ValveState::CLOSED;
     }
     solenoidOpen_ = false;
-
-    LOG(ERROR, "All hardware disabled - system in emergency mode");
 }
 
 void HardwareManager::updateSafetyState() noexcept {
