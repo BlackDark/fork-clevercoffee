@@ -63,7 +63,7 @@ export const parameterHelpTexts: Record<string, string> = {
     "Differential time constant (in seconds) for the PID when brewing has been detected.",
   STEAM_MODE: "Toggle steam mode on or off.",
   BACKFLUSH_ON: "Toggle backflush mode on or off.",
-  VERSION: "Firmware version string.",
+  VERSION: "Firmware version (release tag or dev-YYYY-MM-DD build).",
   "standby.enabled": "Turn heater off after standby time has elapsed.",
   "standby.time":
     "Time in minutes until the heater is turned off. Timer is reset by brew, manual flush, backflush and steam.",

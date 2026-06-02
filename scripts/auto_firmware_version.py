@@ -4,89 +4,27 @@
 
 import importlib.metadata
 import os
-import re
+import sys
 
 # noinspection PyUnresolvedReferences
 Import("env")
+
+os.environ["PLATFORMIO_PROJECT_DIR"] = env["PROJECT_DIR"]
+sys.path.insert(0, os.path.join(env["PROJECT_DIR"], "scripts"))
 
 required_pkgs = {"dulwich"}
 installed_pkgs = {dist.metadata["Name"] for dist in importlib.metadata.distributions()}
 missing_pkgs = required_pkgs - installed_pkgs
 
 if missing_pkgs:
-    # Use --pure flag directly without --global-option (pip 23.1+ compatibility)
     env.Execute('$PYTHONEXE -m pip install "dulwich[pure]"')
 
-from dulwich.repo import Repo
-from dulwich.porcelain import active_branch
+from clevercoffee_version import resolve_clevercoffee_version, resolve_firmware_revision
 
+version = resolve_clevercoffee_version()
+revision = resolve_firmware_revision()
 
-def sanitize_branch_name(branch_name: str) -> str:
-    """
-    Sanitize a Git branch name for use in version strings or filenames.
-    Converts to lowercase, replaces non-alphanumeric characters with dashes,
-    and strips leading/trailing dashes.
-    """
-    # Lowercase for consistency
-    branch_name = branch_name.lower()
+print(f"CleverCoffee VERSION: {version}")
+print(f"Firmware revision: {revision}")
 
-    # Replace non-alphanumeric characters (including /, @, spaces, etc.) with dashes
-    branch_name = re.sub(r"[^a-z0-9]+", "-", branch_name)
-
-    # Remove leading/trailing dashes
-    branch_name = branch_name.strip("-")
-
-    return branch_name
-
-
-def get_version_build_flag() -> str:
-    r = Repo(".")
-
-    # Get the git commit hash
-    commit_hash = r.head().decode("utf-8")[0:7]
-
-    try:
-        branch_name = active_branch(r).decode("utf-8")
-        sanitized_branch = sanitize_branch_name(branch_name)
-    except (IndexError, KeyError):
-        # Try to get branch from environment variable or use 'detached'
-        branch_name = os.environ.get("GITHUB_REF_NAME", "detached")
-        sanitized_branch = sanitize_branch_name(branch_name)
-
-    # Read version from VERSION.txt file
-    version_file = "VERSION.txt"
-    if os.path.exists(version_file):
-        with open(version_file, "r") as f:
-            version_string = f.read().strip()
-    else:
-        version_string = "unknown"
-        print(f"Warning: {version_file} not found, using 'unknown' as version")
-
-    # Combine version string with commit hash
-    build_version = f"{version_string}+{sanitized_branch}.{commit_hash}"
-
-    build_flag = "-D AUTO_VERSION=" + build_version
-    print("Firmware Revision: " + build_version)
-
-    return build_flag
-
-
-def get_clevercoffee_version_flag() -> str:
-    """
-    Get the CLEVERCOFFEE_VERSION build flag.
-    Uses environment variable if set, otherwise uses 4.x.x-<branch> format.
-    """
-    # Check if environment variable is set (from GitHub Actions)
-    env_version = os.environ.get("CLEVERCOFFEE_VERSION")
-    if env_version:
-        version = env_version
-        print(f"Using CLEVERCOFFEE_VERSION from environment: {version}")
-    else:
-        version = "4.x.x-dev"
-        print(f"Generated CLEVERCOFFEE_VERSION: {version}")
-
-    return f'-D VERSION=\\"{version}\\"'
-
-
-env.Append(BUILD_FLAGS=[get_version_build_flag()])
-env.Append(BUILD_FLAGS=[get_clevercoffee_version_flag()])
+env.Append(BUILD_FLAGS=[f'-D VERSION=\\"{version}\\"'])

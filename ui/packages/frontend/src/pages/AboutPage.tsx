@@ -11,8 +11,14 @@ export function AboutPage() {
   }, [fetchParameters, parameters.length]);
 
   const cleverCoffeeVersion = useMemo(() => {
-    return parameters.find((param) => param.name === "VERSION")?.value || "dev";
+    return (
+      parameters.find((param) => param.name === "VERSION")?.value ||
+      import.meta.env.FIRMWARE_VERSION ||
+      "dev"
+    );
   }, [parameters]);
+
+  const brewUiVersion = import.meta.env.APP_VERSION || "dev";
 
   return (
     <div className="container mx-auto p-6 space-y-6 max-w-7xl">
@@ -39,7 +45,7 @@ export function AboutPage() {
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">BrewUI Version</span>
               <span className="font-mono text-sm bg-muted px-2 py-1 rounded">
-                {import.meta.env.APP_VERSION || "dev"}
+                {brewUiVersion}
               </span>
             </div>
           </div>
