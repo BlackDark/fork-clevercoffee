@@ -7,7 +7,7 @@
 
 #include "clevercoffee/defaults.h"
 
-#include <U8G2lib.h>
+#include <U8g2lib.h>
 
 namespace CleverCoffee::Display::Layout {
 

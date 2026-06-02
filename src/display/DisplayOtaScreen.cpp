@@ -12,7 +12,7 @@
 #include "clevercoffee/display/DisplayWidgets.h"
 #include "clevercoffee/ota.h"
 
-#include <U8G2lib.h>
+#include <U8g2lib.h>
 
 namespace {
 
