@@ -306,6 +306,22 @@ class IHardwareContext {
      */
     virtual void emergencyShutdown() noexcept = 0;
 
+    /**
+     * @brief Safe hardware shutdown — turns off all hardware without entering emergency mode.
+     *
+     * Use for intentional power-off and standby transitions. Hardware can be re-enabled
+     * normally afterwards. Does NOT set emergency mode.
+     */
+    virtual void safeHardwareShutdown() noexcept = 0;
+
+    /**
+     * @brief Clear emergency mode after conditions have been confirmed resolved.
+     *
+     * Call this once the root cause of an emergency (e.g. over-temperature) has cleared
+     * so that hardware can resume normal operation.
+     */
+    virtual void clearEmergencyMode() noexcept = 0;
+
     /** @} */
 };
 

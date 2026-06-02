@@ -13,10 +13,7 @@
 void SensorErrorState::onEntryImpl(MachineStateContext& context) {
     LOG(ERROR, "Sensor error detected - entering safe mode");
     context.enterSafeMode();
-    // Fresh instance - initialize error tracking
-    errorStartTime_   = millis();
-    recoveryAttempts_ = 1;
-    LOGF(INFO, "Sensor error recovery attempt %u/%u", recoveryAttempts_, MAX_RECOVERY_ATTEMPTS);
+    errorStartTime_ = millis();
 }
 
 void SensorErrorState::onExitImpl(MachineStateContext& context) {
@@ -41,27 +38,20 @@ std::optional<MachineStateId> SensorErrorState::checkSpecificTransitions(Machine
     unsigned long errorDuration = millis() - errorStartTime_;
 
     if (!context.hasSensorError() && !context.hasTemperatureError()) {
-        // Error resolved - check recovery delay
+        // Error resolved - wait for recovery delay before resuming
         using CleverCoffee::Timing::ERROR_RECOVERY_DELAY_MS;
         if (errorDuration > ERROR_RECOVERY_DELAY_MS) {
             return transitionToPidState(context, "Sensor error recovered");
         }
     } else {
-        // Error still present - reset timer
+        // Error still present - keep resetting the clock so recovery delay
+        // is measured from when the error actually clears, not from entry.
         errorStartTime_ = millis();
     }
 
-    // Check if error has persisted too long or too many recovery attempts
-    using CleverCoffee::Timing::MAX_SENSOR_ERROR_DURATION_MS;
-    if (errorDuration > MAX_SENSOR_ERROR_DURATION_MS || recoveryAttempts_ >= MAX_RECOVERY_ATTEMPTS) {
-        const char* reason = (recoveryAttempts_ >= MAX_RECOVERY_ATTEMPTS)
-                                 ? "Too many sensor recovery attempts - disabling PID for safety"
-                                 : "Persistent sensor error - disabling PID for safety";
-        context.logStateTransition(getStateId(), MachineStateId::PID_DISABLED, reason);
-        context.setPidRuntimeState(false);
-        return MachineStateId::PID_DISABLED;
-    }
-
+    // Stay in SENSOR_ERROR until error resolves — never transition to PID_DISABLED.
+    // A persistent sensor error requires the user to investigate; silently
+    // disabling the PID hides the problem and prevents normal recovery.
     return std::nullopt;
 }
 

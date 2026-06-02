@@ -174,12 +174,32 @@ class HardwareManager : public IHardwareContext {
     void emergencyShutdown() noexcept override;
 
     /**
+     * @brief Clear emergency mode after conditions have resolved.
+     *
+     * Only call this after a genuine emergency has been confirmed cleared
+     * (e.g. temperature has dropped back to safe range). Allows hardware to
+     * resume normal operation.
+     */
+    void clearEmergencyMode() noexcept;
+
+    /**
+     * @brief Safely shut down all hardware without activating emergency mode.
+     *
+     * Use for intentional power-off, standby transitions, and safe shutdowns.
+     * Does NOT set emergencyMode_ — hardware can be re-enabled normally.
+     */
+    void safeHardwareShutdown() noexcept;
+
+    /**
      * @brief Update safety state from sensors
      * Called periodically to check water tank status
      */
     void updateSafetyState() noexcept;
 
   private:
+    /// @brief Internal helper: turns off all relays and resets state tracking.
+    void disableAllHardware() noexcept;
+
     // Configuration reference (not owned)
     const Config& config_;
 

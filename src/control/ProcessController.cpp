@@ -331,6 +331,7 @@ bool ProcessController::testEmergencyConditions() {
         // Emergency was active but conditions are now cleared
         emergencyStopManager_->clearEmergency();
         systemContext_.setEmergencyStop(false);
+        hardwareManager_.clearEmergencyMode();
         LOG(INFO, "Emergency conditions cleared - system can resume");
     }
     return false;
@@ -492,8 +493,9 @@ void ProcessController::performSafeShutdown() {
     pidOutput_ = 0;
     systemContext_.setProcessPidOutput(0);
 
-    // Delegate hardware shutdown to HardwareManager
-    hardwareManager_.emergencyShutdown();
+    // Shut down hardware safely — does NOT set emergencyMode_ so hardware can
+    // be re-enabled after recovery (e.g. after standby or user power-off).
+    hardwareManager_.safeHardwareShutdown();
 
     LOG(INFO, "ProcessController safe shutdown completed");
 }

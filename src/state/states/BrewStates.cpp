@@ -79,9 +79,10 @@ void BrewPreinfusionState::onEntryImpl(MachineStateContext& context) {
 }
 
 void BrewPreinfusionState::onExitImpl(MachineStateContext& context) {
-    // Safety: Ensure pump and valve are disabled when exiting preinfusion
-    cleanupPumpAndValve(context);
-    LOG(DEBUG, "Brew preinfusion exit - hardware cleaned up");
+    // Pump off only — valve stays open to hold puck pressure through pause/running.
+    // Valve closure happens in BREW_RUNNING::onExitImpl or via valveSafetyShutdownCheck on abort.
+    context.disablePump();
+    LOG(DEBUG, "Brew preinfusion exit - pump off, valve held for pressure");
 }
 
 void BrewPreinfusionState::update(MachineStateContext& context) {
@@ -150,8 +151,9 @@ std::optional<MachineStateId> BrewPreinfusionState::checkSpecificTransitions(Mac
 
 void BrewPreinfusionPauseState::onEntryImpl(MachineStateContext& context) {
     LOG(INFO, "Brew preinfusion pause - blooming phase");
-    // Ensure pump and valve are closed during pause
-    cleanupPumpAndValve(context);
+    // Stop pump only — valve stays energized to retain pressure in the puck
+    context.disablePump();
+    context.openWaterValve();
     // Store preinfusion time before pause
     if (context.systemContext().processController()) {
         const double preinfusionTimeMs = context.getPreInfusionTime() * 1000.0;
@@ -160,15 +162,16 @@ void BrewPreinfusionPauseState::onEntryImpl(MachineStateContext& context) {
 }
 
 void BrewPreinfusionPauseState::onExitImpl(MachineStateContext& context) {
-    // Safety: Ensure pump and valve are disabled when exiting preinfusion pause
-    cleanupPumpAndValve(context);
-    LOG(DEBUG, "Brew preinfusion pause exit - hardware cleaned up");
+    // Pump off only — valve stays open to hold puck pressure through running.
+    // Valve closure happens in BREW_RUNNING::onExitImpl or via valveSafetyShutdownCheck on abort.
+    context.disablePump();
+    LOG(DEBUG, "Brew preinfusion pause exit - pump off, valve held for pressure");
 }
 
 void BrewPreinfusionPauseState::update(MachineStateContext& context) {
-    // Ensure pump and valve remain closed during pause
+    // Pump off during bloom; keep valve energized to hold pressure
     context.disablePump();
-    context.closeWaterValve();
+    context.openWaterValve();
 
     // Update brew time (preinfusion time + pause elapsed time)
     if (context.systemContext().processController()) {

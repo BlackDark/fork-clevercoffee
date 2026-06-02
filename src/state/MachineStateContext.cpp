@@ -594,3 +594,11 @@ void MachineStateContext::closeSolenoid() noexcept {
 void MachineStateContext::emergencyShutdown() noexcept {
     hardwareManager_.emergencyShutdown();
 }
+
+void MachineStateContext::safeHardwareShutdown() noexcept {
+    hardwareManager_.safeHardwareShutdown();
+}
+
+void MachineStateContext::clearEmergencyMode() noexcept {
+    hardwareManager_.clearEmergencyMode();
+}

@@ -32,15 +32,12 @@ bool TempSensorTSIC::sample_temperature(double& temperature) const {
     if (!validTemps) {
         temp = tsicSensor_->getTemp(INITIAL_CHANGERATE);
 
-        // if current and previous reading is in range and their difference is low then reduce changerate
-        if (temp > 0.0 && temp < 180.0) {
-            if (temperature > 0.0 && temperature < 180.0 && abs(temperature - temp) < RUNTIME_CHANGERATE) {
-                validTemps = true;
-            } else {
-                LOGF(WARNING, "Temperature not stable");
-            }
-        } else if (temp != 221 && temp != 222) {
-            LOGF(WARNING, "Temperature reading not within 0 - 180°C range: %0.01f°C", temp);
+        // Once the current and previous readings are both in range and close together,
+        // latch onto the tighter runtime change-rate so glitch smoothing becomes active.
+        // `temperature` carries the previous good reading (seeded by the caller).
+        if (temp > 0.0 && temp < 180.0 && temperature > 0.0 && temperature < 180.0 &&
+            abs(temperature - temp) < RUNTIME_CHANGERATE) {
+            validTemps = true;
         }
     } else {
         temp = tsicSensor_->getTemp(RUNTIME_CHANGERATE);
@@ -53,6 +50,14 @@ bool TempSensorTSIC::sample_temperature(double& temperature) const {
 
     if (temp == 221) {
         LOG(WARNING, "Temperature sensor not connected");
+        return false;
+    }
+
+    // Reject physically impossible readings (sensor glitches) instead of passing them
+    // through as valid. A single spurious value (e.g. -2.9°C) must not trip emergency
+    // stop; treating it as a failed read keeps the last good cached value instead.
+    if (temp <= 0.0 || temp >= 180.0) {
+        LOGF(WARNING, "Temperature reading out of range, ignoring: %.1f°C", temp);
         return false;
     }
 

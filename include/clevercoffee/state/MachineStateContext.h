@@ -626,6 +626,38 @@ class MachineStateContext : public CleverCoffee::IHardwareContext,
      */
     void setHotWaterActivity(bool active) noexcept;
 
+    /**
+     * @brief Clear ALL pending action request flags.
+     *
+     * Use on entry to states that cannot act on any requests (PID_DISABLED, error states).
+     * Prevents stale flags from causing unexpected transitions when the machine recovers.
+     */
+    void clearAllActionRequests() noexcept {
+        requestBrewStart_           = false;
+        requestBrewStop_            = false;
+        requestSteamStart_          = false;
+        requestSteamStop_           = false;
+        requestManualFlushStart_    = false;
+        requestManualFlushStop_     = false;
+        requestEnterBackflush_      = false;
+        requestBackflushCycleStart_ = false;
+        requestBackflushStop_       = false;
+        requestNormalOperation_     = false;
+        requestStandby_             = false;
+    }
+
+    /**
+     * @brief Clear only "stop" action flags (preserve start/wake signals).
+     *
+     * Use on entry to STANDBY — start requests (brew, steam) are kept as wake triggers.
+     */
+    void clearStaleStopRequests() noexcept {
+        requestBrewStop_        = false;
+        requestSteamStop_       = false;
+        requestManualFlushStop_ = false;
+        requestBackflushStop_   = false;
+    }
+
     // === Display Functions ===
 
     /**
@@ -730,6 +762,8 @@ class MachineStateContext : public CleverCoffee::IHardwareContext,
     void openSolenoid() noexcept override;
     void closeSolenoid() noexcept override;
     void emergencyShutdown() noexcept override;
+    void safeHardwareShutdown() noexcept override;
+    void clearEmergencyMode() noexcept override;
 
     // === IConfigContext Interface Implementation ===
 

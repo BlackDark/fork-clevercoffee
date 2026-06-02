@@ -108,3 +108,14 @@ Treat layout regressions (cut-off text, overlapping rows, shifting numbers, misa
 ## Regarding Dependencies:
 - Avoid introducing new external dependencies unless absolutely necessary.
 - If a new dependency is required, please state the reason.
+
+## Hardware Control Invariants (CRITICAL)
+
+When modifying state machine states, handlers, or anything touching pump/valve/heater:
+
+1. **Every state that activates pump or valve MUST deactivate them in `onExitImpl`** — the next state's `onEntry` may not run if an error interrupts the transition.
+2. **`valveSafetyShutdownCheck()` runs every loop** — it must whitelist ALL states that legitimately need the valve open (brew, manual flush, active backflush filling). If you add a new water-flow state, update this check.
+3. **`BaseState::checkTransitions` enforces PID disable for active operations** — if you add a new operational state, ensure the `constexpr` exclusion list in BaseState.h is correct.
+4. **Stale request flags** — states that cannot act on action requests (PID_DISABLED, STANDBY, error states) must drain incoming flags to prevent unexpected transitions on recovery.
+5. **State entry must be idempotent for hardware** — `update()` should reinforce the desired hardware state (e.g., keep pump enabled) because `valveSafetyShutdownCheck` or other safety mechanisms may turn things off between cycles.
+6. **Compare against original** — the reference implementation is at `/Users/marbaced/projects/clevercoffee`. When in doubt about hardware behavior, check `src/main.cpp` (`handleMachineState`), `src/brewHandler.h`, and `src/hotWaterHandler.h`.

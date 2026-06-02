@@ -42,6 +42,21 @@ GPIOPin& Relay::getGPIOInstance() const noexcept { return gpio; }
 
 // === HardwareManager stubs ===
 namespace CleverCoffee {
+
+namespace TestHardwareSpy {
+inline int disablePumpCalls     = 0;
+inline int openWaterValveCalls  = 0;
+inline int enablePumpCalls      = 0;
+inline int closeWaterValveCalls = 0;
+
+inline void reset() noexcept {
+    disablePumpCalls    = 0;
+    openWaterValveCalls = 0;
+    enablePumpCalls     = 0;
+    closeWaterValveCalls = 0;
+}
+} // namespace TestHardwareSpy
+
 HardwareManager::HardwareManager(const Config& config)
     : config_(config),
       heaterRelayPin_(0, GPIOPin::OUT),
@@ -66,17 +81,27 @@ void HardwareManager::updateHardware() noexcept {}
 void HardwareManager::enableHeater() noexcept {}
 void HardwareManager::disableHeater() noexcept {}
 void HardwareManager::setHeaterPower(uint8_t) noexcept {}
-void HardwareManager::enablePump() noexcept {}
-void HardwareManager::disablePump() noexcept {}
+void HardwareManager::enablePump() noexcept {
+    TestHardwareSpy::enablePumpCalls++;
+}
+void HardwareManager::disablePump() noexcept {
+    TestHardwareSpy::disablePumpCalls++;
+}
 void HardwareManager::setPumpPressure(float) noexcept {}
 void HardwareManager::updateValveRelay() noexcept {}
 void HardwareManager::openSteamValve() noexcept {}
 void HardwareManager::closeSteamValve() noexcept {}
-void HardwareManager::openWaterValve() noexcept {}
-void HardwareManager::closeWaterValve() noexcept {}
+void HardwareManager::openWaterValve() noexcept {
+    TestHardwareSpy::openWaterValveCalls++;
+}
+void HardwareManager::closeWaterValve() noexcept {
+    TestHardwareSpy::closeWaterValveCalls++;
+}
 void HardwareManager::openSolenoid() noexcept {}
 void HardwareManager::closeSolenoid() noexcept {}
 void HardwareManager::emergencyShutdown() noexcept {}
+void HardwareManager::safeHardwareShutdown() noexcept {}
+void HardwareManager::clearEmergencyMode() noexcept {}
 void HardwareManager::updateSafetyState() noexcept {}
 void HardwareManager::cleanupPartialInit() noexcept {}
 Scale* HardwareManager::getScale() noexcept { return nullptr; }
@@ -97,12 +122,18 @@ int  MQTTManager::writeSysParamsToMQTT(bool) { return 0; }
 int  MQTTManager::sendHASSIODiscoveryMsg() { return 0; }
 
 // === ProcessController stub (PowerHandler calls performSafeShutdown) ===
+#include "clevercoffee/constants/Temperature.h"
 #include "clevercoffee/control/ProcessController.h"
 
 ProcessController::ProcessController(const Config& config, CleverCoffee::SystemContext& ctx,
                                      CleverCoffee::IHardwareContext& hw, IDisplayManager& disp, IMQTTManager& mqtt)
     : config_(config), systemContext_(ctx), hardwareManager_(hw), displayManager_(disp), mqttManager_(mqtt) {}
 void ProcessController::performSafeShutdown() {}
+void ProcessController::setTotalTargetBrewTime(double) {}
+void ProcessController::setCurrBrewTime(double) {}
+bool ProcessController::isEmergencyCleared(double temperature) const {
+    return temperature <= static_cast<double>(CleverCoffee::Temperature::EMERGENCY_SAFE_TEMP_C);
+}
 
 // === MachineStateContext constructor stub ===
 
@@ -159,7 +190,10 @@ bool MachineStateContext::isHotWaterActive() const { return false; }
 bool MachineStateContext::isBackflushActive() const { return false; }
 
 // System State Access
-bool MachineStateContext::isPidRuntimeEnabled() const { return Config::getInstance().pidEnabled.get(); }
+// Runtime PID is a transient flag (SystemContext), distinct from the persisted
+// config flag (Config). Modeling them separately lets tests exercise emergency/
+// standby recovery, where runtime is forced off then restored from config.
+bool MachineStateContext::isPidRuntimeEnabled() const { return systemContext_.isProcessPidEnabled(); }
 bool MachineStateContext::isPidConfigEnabled() const { return Config::getInstance().pidEnabled.get(); }
 bool          MachineStateContext::isEmergencyStop() const { return emergencyStop_; }
 bool          MachineStateContext::shouldEnterStandby() const { return false; }
@@ -178,8 +212,11 @@ void MachineStateContext::setHotWaterActivity(bool /*active*/) noexcept {}
 
 // Control Functions
 void MachineStateContext::setSteamMode(bool /*enabled*/) const {}
-void MachineStateContext::setPidRuntimeState(bool /*enabled*/) const {}
-void MachineStateContext::setUserPidEnabled(bool /*enabled*/) const {}
+void MachineStateContext::setPidRuntimeState(bool enabled) const { systemContext_.setProcessPidEnabled(enabled); }
+void MachineStateContext::setUserPidEnabled(bool enabled) const {
+    (void)Config::getInstance().pidEnabled.set(enabled);
+    systemContext_.setProcessPidEnabled(enabled);
+}
 void MachineStateContext::performSafeShutdown() const {}
 void MachineStateContext::setManualFlushState(bool /*active*/) const {}
 void MachineStateContext::setSteamState(bool active) { steamON_ = active; }
@@ -279,16 +316,26 @@ void   MachineStateContext::updateHardware() noexcept {}
 void   MachineStateContext::enableHeater() noexcept {}
 void   MachineStateContext::disableHeater() noexcept {}
 void   MachineStateContext::setHeaterPower(uint8_t /*percentage*/) noexcept {}
-void   MachineStateContext::enablePump() noexcept {}
-void   MachineStateContext::disablePump() noexcept {}
+void   MachineStateContext::enablePump() noexcept {
+    hardwareManager_.enablePump();
+}
+void   MachineStateContext::disablePump() noexcept {
+    hardwareManager_.disablePump();
+}
 void   MachineStateContext::setPumpPressure(float /*bar*/) noexcept {}
 void   MachineStateContext::openSteamValve() noexcept {}
 void   MachineStateContext::closeSteamValve() noexcept {}
-void   MachineStateContext::openWaterValve() noexcept {}
-void   MachineStateContext::closeWaterValve() noexcept {}
+void   MachineStateContext::openWaterValve() noexcept {
+    hardwareManager_.openWaterValve();
+}
+void   MachineStateContext::closeWaterValve() noexcept {
+    hardwareManager_.closeWaterValve();
+}
 void   MachineStateContext::openSolenoid() noexcept {}
 void   MachineStateContext::closeSolenoid() noexcept {}
 void   MachineStateContext::emergencyShutdown() noexcept {}
+void   MachineStateContext::safeHardwareShutdown() noexcept {}
+void   MachineStateContext::clearEmergencyMode() noexcept {}
 
 // IConfigContext Interface Implementation
 double        MachineStateContext::getBrewSetpoint() const noexcept { return Config::getInstance().brewSetpoint.get(); }

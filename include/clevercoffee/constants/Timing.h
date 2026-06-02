@@ -26,8 +26,6 @@ constexpr unsigned long DEBUG_LOG_THROTTLE_MS = 5000; ///< Throttle debug logs t
 // Recovery and error handling timeouts
 constexpr unsigned long ERROR_RECOVERY_DELAY_MS    = 5000;   ///< Delay before attempting error recovery
 constexpr unsigned long EEPROM_RECOVERY_TIMEOUT_MS = 300000; ///< EEPROM recovery timeout (5 minutes)
-constexpr unsigned long MAX_SENSOR_ERROR_DURATION_MS =
-    60000; ///< Maximum sensor error duration before disabling PID (1 minute)
 constexpr unsigned long STANDBY_TIMER_RESET_INTERVAL_MS =
     30000; ///< Interval for resetting standby timer in PID state (30 seconds)
 

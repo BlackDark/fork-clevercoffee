@@ -112,11 +112,20 @@ void PidNormalState::resetStandbyTimerIfNeeded(MachineStateContext& context) con
 void PidDisabledState::onEntryImpl(MachineStateContext& context) {
     LOG(INFO, "PID disabled - operations without temperature control");
     context.setPidRuntimeState(false);
-    // Safety: Disable pump when PID is disabled to prevent runaway water dispensing
+    // Safety: Disable pump and close valve when PID is disabled
     context.disablePump();
+    context.closeWaterValve();
+    // Drain any stale action request flags to prevent unexpected transitions on re-enable
+    context.clearAllActionRequests();
 }
 
 void PidDisabledState::update(MachineStateContext& context) {
+    // Only drain stale action flags if PID remains disabled.
+    // If PID was just re-enabled, skip draining so PID_NORMAL can process pending requests.
+    if (!context.isPidRuntimeEnabled()) {
+        context.clearAllActionRequests();
+    }
+
     LOGF(DEBUG,
          "PID Disabled: Temp=%.1f°C, PidEnabled=%s",
          context.getCurrentTemperature(),
@@ -127,6 +136,12 @@ std::optional<MachineStateId> PidDisabledState::checkSpecificTransitions(Machine
     if (context.isPidRuntimeEnabled()) {
         context.logStateTransition(getStateId(), MachineStateId::PID_NORMAL, "PID enabled");
         return MachineStateId::PID_NORMAL;
+    }
+    // Check standby timeout (mirrors original kPidDisabled behavior)
+    context.initializeStandbyTimerIfNeeded();
+    if (context.shouldEnterStandby()) {
+        context.logStateTransition(getStateId(), MachineStateId::STANDBY, "Entering standby mode");
+        return MachineStateId::STANDBY;
     }
     return std::nullopt;
 }
