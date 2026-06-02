@@ -10,15 +10,13 @@ export function AboutPage() {
     if (parameters.length === 0) fetchParameters();
   }, [fetchParameters, parameters.length]);
 
-  const cleverCoffeeVersion = useMemo(() => {
+  const version = useMemo(() => {
     return (
       parameters.find((param) => param.name === "VERSION")?.value ||
-      import.meta.env.FIRMWARE_VERSION ||
+      import.meta.env.APP_VERSION ||
       "dev"
     );
   }, [parameters]);
-
-  const brewUiVersion = import.meta.env.APP_VERSION || "dev";
 
   return (
     <div className="container mx-auto p-6 space-y-6 max-w-7xl">
@@ -33,21 +31,11 @@ export function AboutPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">
-                CleverCoffee Version
-              </span>
-              <span className="font-mono text-sm bg-muted px-2 py-1 rounded">
-                {cleverCoffeeVersion}
-              </span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">BrewUI Version</span>
-              <span className="font-mono text-sm bg-muted px-2 py-1 rounded">
-                {brewUiVersion}
-              </span>
-            </div>
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground">Version</span>
+            <span className="font-mono text-sm bg-muted px-2 py-1 rounded">
+              {version}
+            </span>
           </div>
         </CardContent>
       </Card>

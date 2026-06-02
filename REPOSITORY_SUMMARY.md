@@ -66,7 +66,7 @@
 
 ### Pre-build Scripts
 
-- `clevercoffee_version.py` / `auto_firmware_version.py`: Sets `VERSION` from `CLEVERCOFFEE_VERSION` or `dev-YYYY-MM-DD`
+- `auto_firmware_version.py`: Sets `VERSION` from `CLEVERCOFFEE_VERSION` (CI) or `dev` locally
 - `run_clangformat.py`: Formats code before build
 - `build_frontend.py`: Compiles React frontend to static assets
 

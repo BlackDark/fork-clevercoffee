@@ -15,7 +15,6 @@ export default defineConfig(() => {
     plugins: [react(), tailwindcss(), gzipPlugin()],
     define: {
       APP_VERSION: JSON.stringify(process.env.VITE_APP_VERSION ?? "dev"),
-      FIRMWARE_VERSION: JSON.stringify(process.env.VITE_FIRMWARE_VERSION ?? ""),
     },
     resolve: {
       alias: {

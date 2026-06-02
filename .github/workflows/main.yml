@@ -40,14 +40,23 @@ jobs:
       - name: Install PlatformIO
         run: pip install --upgrade platformio
 
-      - name: Resolve build version
+      - name: Set CLEVERCOFFEE_VERSION
         id: version
-        run: echo "version=$(python scripts/clevercoffee_version.py)" >> "${GITHUB_OUTPUT}"
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/}"
+          else
+            VERSION="dev-$(date -u +%Y-%m-%d)"
+          fi
+          echo "CLEVERCOFFEE_VERSION=${VERSION}" >> "${GITHUB_ENV}"
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
 
       - name: Build firmware
         run: |
           pio run -e esp32_usb
           pio run -e esp32_ota
+        env:
+          CLEVERCOFFEE_VERSION: ${{ env.CLEVERCOFFEE_VERSION }}
 
       - name: Run native tests
         run: pio test -e native_test
