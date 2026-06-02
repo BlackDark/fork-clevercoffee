@@ -6,28 +6,83 @@
 #include "clevercoffee/ota.h"
 
 #include "clevercoffee/Logger.h"
+#include "clevercoffee/context/SystemContext.h"
+#include "clevercoffee/display/DisplayOtaScreen.h"
+#include "clevercoffee/utils/Resilience.h"
 #include "clevercoffee/utils/helperUtils.h"
 
 #include <ArduinoJson.h>
+#include <ArduinoOTA.h>
+#include <ESP.h>
 
 namespace OTA {
 
-// Use modern RAII singleton for state management
 namespace {
+
 inline auto& getOTAState() noexcept {
     return OTAStateManager::getInstance();
 }
-} // namespace
 
-// Legacy static variables removed - using OTAStateManager instead
+constexpr unsigned long OTA_ERROR_DISPLAY_MS    = 30000;
+constexpr unsigned long OTA_COMPLETE_DISPLAY_MS = 5000;
+constexpr unsigned long OTA_RESTART_DELAY_MS    = 1000;
 
-// Filesystem partition label (SPIFFS partition name)
-// This should match the partition table configuration
-// Common labels: "spiffs", "littlefs", "fatfs"
-// To change this label, update both this value and your partition table (partitions.csv)
 static const char* FILESYSTEM_PARTITION_LABEL = "spiffs";
 
-// Helper function to handle HTTP GET request for OTA updates
+Watchdog*                    g_watchdog       = nullptr;
+CleverCoffee::SystemContext* g_displayContext = nullptr;
+OtaSessionCallbacks          g_sessionCallbacks{};
+bool                         g_restartPending    = false;
+unsigned long                g_restartAtMs       = 0;
+uint8_t                      g_lastLoggedDecile  = 255;
+uint8_t                      g_lastDisplayDecile = 255;
+
+const char* arduinoOtaErrorMessage(unsigned errorCode) {
+    switch (errorCode) {
+        case OTA_AUTH_ERROR:
+            return "Auth failed";
+        case OTA_BEGIN_ERROR:
+            return "Begin failed";
+        case OTA_CONNECT_ERROR:
+            return "Connect failed";
+        case OTA_RECEIVE_ERROR:
+            return "Receive failed";
+        case OTA_END_ERROR:
+            return "End failed";
+        default:
+            return "Update failed";
+    }
+}
+
+void invokePrepareHardware() {
+    if (g_sessionCallbacks.prepareHardware) {
+        g_sessionCallbacks.prepareHardware();
+    }
+    if (g_watchdog) {
+        g_watchdog->suspend();
+    }
+}
+
+void invokeRestoreHardware() {
+    if (g_sessionCallbacks.restoreHardware) {
+        g_sessionCallbacks.restoreHardware();
+    }
+    if (g_watchdog) {
+        g_watchdog->resume();
+    }
+}
+
+void refreshDisplayIfNeeded(uint8_t percent) {
+    const uint8_t decile = static_cast<uint8_t>(percent / 10U);
+    if (decile == g_lastDisplayDecile && percent < 100U) {
+        return;
+    }
+    g_lastDisplayDecile = decile;
+    if (g_displayContext) {
+        refreshDisplay(*g_displayContext);
+    }
+}
+
 struct HTTPUpdateResult {
     bool        success       = false;
     int         contentLength = 0;
@@ -41,7 +96,7 @@ HTTPUpdateResult initHttpUpdate(const String& url, HTTPClient& http, WiFiClient&
     http.begin(client, url);
     http.addHeader("User-Agent", "ESP32-CleverCoffee-OTA");
 
-    int httpCode = http.GET();
+    const int httpCode = http.GET();
     if (httpCode != HTTP_CODE_OK) {
         LOGF(ERROR, "HTTP GET failed, error: %d", httpCode);
         getOTAState().setUpdateError(true, "HTTP GET failed, error: " + String(httpCode));
@@ -63,16 +118,15 @@ HTTPUpdateResult initHttpUpdate(const String& url, HTTPClient& http, WiFiClient&
     return result;
 }
 
-// Helper function to download and write OTA data
 bool downloadAndWrite(WiFiClient* stream, HTTPClient& http, int contentLength) {
     size_t  written = 0;
     uint8_t buffer[OTA_BUFFER_SIZE];
 
-    while (http.connected() && (written < contentLength)) {
-        size_t available = stream->available();
+    while (http.connected() && (written < static_cast<size_t>(contentLength))) {
+        const size_t available = stream->available();
         if (available > 0) {
-            size_t toRead    = min(available, sizeof(buffer));
-            size_t bytesRead = stream->readBytes(buffer, toRead);
+            const size_t toRead    = min(available, sizeof(buffer));
+            const size_t bytesRead = stream->readBytes(buffer, toRead);
 
             if (Update.write(buffer, bytesRead) != bytesRead) {
                 LOGF(ERROR, "Write failed at byte %d", written);
@@ -82,17 +136,16 @@ bool downloadAndWrite(WiFiClient* stream, HTTPClient& http, int contentLength) {
             }
 
             written += bytesRead;
-            getOTAState().setCurrentProgress((written * 100) / contentLength);
+            reportProgress(static_cast<uint8_t>((written * 100U) / static_cast<size_t>(contentLength)));
 
-            // Log progress every 10%
-            if (written % (contentLength / 10) == 0) {
+            if (written % static_cast<size_t>(contentLength / 10) == 0) {
                 LOGF(INFO, "OTA Progress: %d%%", getOTAState().getCurrentProgress());
             }
         }
         delay(1);
     }
 
-    if (written != contentLength) {
+    if (written != static_cast<size_t>(contentLength)) {
         LOGF(ERROR, "Written %d bytes, expected %d", written, contentLength);
         getOTAState().setUpdateError(
             true, "Incomplete download: written " + String(written) + " bytes, expected " + String(contentLength));
@@ -103,47 +156,173 @@ bool downloadAndWrite(WiFiClient* stream, HTTPClient& http, int contentLength) {
     return true;
 }
 
-// Helper function to validate file extension
 bool validateFileExtension(const String& filename, bool isFilesystem) {
     String path = filename;
     path.toLowerCase();
 
     if (isFilesystem) {
         return path.endsWith(".bin") || path.endsWith(".img");
-    } else {
-        return path.endsWith(".bin");
     }
+    return path.endsWith(".bin");
 }
 
-// Helper function to handle upload chunk processing
 bool processUploadChunk(AsyncWebServerRequest* request, size_t index, uint8_t* data, size_t len, bool isFilesystem) {
-    if (getOTAState().isUpdateStarted()) {
-        if (Update.write(data, len) != len) {
-            const String errorType = isFilesystem ? "filesystem" : "firmware";
-            LOGF(ERROR, "OTA %s update write failed at byte %d", errorType.c_str(), index + len);
-            getOTAState().setUpdateError(true,
-                                         "OTA " + errorType + " update write failed at byte " + String(index + len));
-            Update.abort();
-            getOTAState().setUpdateStarted(false);
-            request->send(500, "application/json", R"({"success": false, "message": "Write failed"})");
-            return false;
-        }
-
-        getOTAState().addUploadedSize(len);
-        getOTAState().setTotalSize(index + len);
-
-        // Update progress - estimate based on uploaded data
-        if (getOTAState().getUploadedSize() > 0) {
-            const size_t minSize = isFilesystem ? (256 * 1024) : (512 * 1024);
-            getOTAState().setCurrentProgress(
-                min(90, (int)((getOTAState().getUploadedSize() * 90) / max(getOTAState().getUploadedSize(), minSize))));
-        }
+    if (!getOTAState().isUpdateStarted()) {
+        return true;
     }
+
+    if (Update.write(data, len) != len) {
+        const String errorType = isFilesystem ? Type::Filesystem : Type::Firmware;
+        LOGF(ERROR, "OTA %s update write failed at byte %d", errorType, index + len);
+        endSessionError("OTA " + errorType + " update write failed at byte " + String(index + len));
+        Update.abort();
+        request->send(500, "application/json", R"({"success": false, "message": "Write failed"})");
+        return false;
+    }
+
+    getOTAState().addUploadedSize(len);
+    getOTAState().setTotalSize(index + len);
+
+    if (getOTAState().getUploadedSize() > 0) {
+        const size_t  minSize  = isFilesystem ? (256 * 1024) : (512 * 1024);
+        const uint8_t progress = static_cast<uint8_t>(min(
+            90,
+            static_cast<int>((getOTAState().getUploadedSize() * 90) / max(getOTAState().getUploadedSize(), minSize))));
+        reportProgress(progress);
+    }
+
     return true;
 }
 
 void resetStatus() {
     getOTAState().resetState();
+    g_lastLoggedDecile  = 255;
+    g_lastDisplayDecile = 255;
+}
+
+} // namespace
+
+void setWatchdog(Watchdog* watchdog) noexcept {
+    g_watchdog = watchdog;
+}
+
+void setDisplayContext(CleverCoffee::SystemContext* context) noexcept {
+    g_displayContext = context;
+}
+
+void setSessionCallbacks(OtaSessionCallbacks callbacks) noexcept {
+    g_sessionCallbacks = callbacks;
+}
+
+void beginSession(const char* updateType) noexcept {
+    resetStatus();
+    getOTAState().setUpdateType(updateType);
+    getOTAState().setUpdateStatus(Status::Uploading);
+    getOTAState().setUpdateStarted(true);
+    getOTAState().setCurrentProgress(0);
+    getOTAState().setUpdateError(false, "");
+    invokePrepareHardware();
+    if (g_displayContext) {
+        refreshDisplay(*g_displayContext);
+    }
+}
+
+void endSessionSuccess() noexcept {
+    getOTAState().setCurrentProgress(100);
+    getOTAState().setUpdateStatus(Status::Complete);
+    getOTAState().setUpdateStarted(false);
+    getOTAState().setUpdateError(false, "");
+    invokeRestoreHardware();
+    if (g_displayContext) {
+        refreshDisplay(*g_displayContext);
+    }
+}
+
+void endSessionError(const String& message) noexcept {
+    getOTAState().setUpdateStarted(false);
+    getOTAState().setUpdateError(true, message);
+    invokeRestoreHardware();
+    if (g_displayContext) {
+        refreshDisplay(*g_displayContext);
+    }
+}
+
+void reportProgress(uint8_t percent) noexcept {
+    getOTAState().setCurrentProgress(percent);
+    if (getOTAState().getUpdateStatus() == Status::Idle) {
+        getOTAState().setUpdateStatus(Status::Uploading);
+    }
+
+    const uint8_t decile = static_cast<uint8_t>(percent / 10U);
+    if (decile != g_lastLoggedDecile) {
+        LOGF(INFO, "OTA progress: %u%%", percent);
+        g_lastLoggedDecile = decile;
+    }
+    refreshDisplayIfNeeded(percent);
+}
+
+bool isActive() noexcept {
+    return Update.isRunning() || getOTAState().isUpdateInProgress();
+}
+
+void runMainLoopTick() noexcept {
+    ArduinoOTA.handle();
+    if (g_displayContext) {
+        refreshDisplay(*g_displayContext);
+    }
+    pollPendingRestart();
+    yield();
+}
+
+void scheduleRestart(unsigned long delayMs) noexcept {
+    g_restartPending = true;
+    g_restartAtMs    = millis() + delayMs;
+}
+
+void pollPendingRestart() noexcept {
+    if (!g_restartPending) {
+        return;
+    }
+    if (static_cast<long>(millis() - g_restartAtMs) >= 0) {
+        ESP.restart();
+    }
+}
+
+void refreshDisplay(CleverCoffee::SystemContext& context) noexcept {
+    CleverCoffee::Display::refreshOtaDisplay(context);
+}
+
+void initializeArduinoOta(const char* hostname, const char* password) {
+    ArduinoOTA.setHostname(hostname);
+    ArduinoOTA.setPassword(password);
+
+    ArduinoOTA.onStart([]() {
+        g_lastLoggedDecile  = 255;
+        g_lastDisplayDecile = 255;
+        beginSession(Type::Firmware);
+        LOG(INFO, "ArduinoOTA update started");
+    });
+
+    ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+        if (total == 0) {
+            return;
+        }
+        reportProgress(static_cast<uint8_t>((progress * 100U) / total));
+    });
+
+    ArduinoOTA.onEnd([]() {
+        endSessionSuccess();
+        scheduleRestart(OTA_RESTART_DELAY_MS);
+        LOG(INFO, "ArduinoOTA update finished");
+    });
+
+    ArduinoOTA.onError([](ota_error_t error) {
+        endSessionError(arduinoOtaErrorMessage(static_cast<unsigned>(error)));
+        LOGF(ERROR, "ArduinoOTA error: %u", static_cast<unsigned>(error));
+    });
+
+    ArduinoOTA.begin();
+    LOG(INFO, "OTA initialized");
 }
 
 bool updateFromURL(const String& url) {
@@ -155,17 +334,15 @@ bool updateFromURL(const String& url) {
 
     LOGF(INFO, "Starting OTA update from URL: %s", url.c_str());
 
-    // Reset error state
     auto& state = getOTAState();
     state.setUpdateError(false);
     state.setCurrentProgress(0);
-    state.setUpdateStatus("downloading");
+    state.setUpdateStatus(Status::Downloading);
 
     WiFiClient client;
     HTTPClient http;
 
-    // Initialize HTTP connection
-    HTTPUpdateResult httpResult = initHttpUpdate(url, http, client);
+    const HTTPUpdateResult httpResult = initHttpUpdate(url, http, client);
     if (!httpResult.success) {
         return false;
     }
@@ -179,7 +356,6 @@ bool updateFromURL(const String& url) {
         return false;
     }
 
-    // Download and write firmware
     if (!downloadAndWrite(httpResult.stream, http, httpResult.contentLength)) {
         http.end();
         return false;
@@ -191,21 +367,19 @@ bool updateFromURL(const String& url) {
         if (Update.isFinished()) {
             LOG(INFO, "OTA update completed successfully");
             getOTAState().setCurrentProgress(100);
-            getOTAState().setUpdateStatus("complete");
+            getOTAState().setUpdateStatus(Status::Complete);
             return true;
-        } else {
-            LOGF(ERROR, "OTA update not finished: %s", Update.errorString());
-            getOTAState().setUpdateError(true, "OTA update not finished: " + String(Update.errorString()));
-            return false;
         }
-    } else {
-        LOGF(ERROR, "OTA update failed: %s", Update.errorString());
-        getOTAState().setUpdateError(true, "OTA update failed: " + String(Update.errorString()));
+        LOGF(ERROR, "OTA update not finished: %s", Update.errorString());
+        getOTAState().setUpdateError(true, "OTA update not finished: " + String(Update.errorString()));
         return false;
     }
+
+    LOGF(ERROR, "OTA update failed: %s", Update.errorString());
+    getOTAState().setUpdateError(true, "OTA update failed: " + String(Update.errorString()));
+    return false;
 }
 
-// Helper for filesystem update via URL
 bool updateFilesystemFromURL(const String& url) {
     if (url.isEmpty()) {
         LOG(ERROR, "OTA filesystem update URL is empty");
@@ -215,12 +389,10 @@ bool updateFilesystemFromURL(const String& url) {
 
     LOGF(INFO, "Starting OTA filesystem update from URL: %s", url.c_str());
 
-    // Reset error state
     getOTAState().setUpdateError(false);
     getOTAState().setCurrentProgress(0);
-    getOTAState().setUpdateStatus("downloading");
+    getOTAState().setUpdateStatus(Status::Downloading);
 
-    // Validate file extension
     if (!validateFileExtension(url, true)) {
         LOGF(ERROR, "Invalid filesystem file extension: %s", url.c_str());
         getOTAState().setUpdateError(true, "Invalid filesystem file extension (.bin or .img required)");
@@ -230,8 +402,7 @@ bool updateFilesystemFromURL(const String& url) {
     WiFiClient client;
     HTTPClient http;
 
-    // Initialize HTTP connection
-    HTTPUpdateResult httpResult = initHttpUpdate(url, http, client);
+    const HTTPUpdateResult httpResult = initHttpUpdate(url, http, client);
     if (!httpResult.success) {
         return false;
     }
@@ -244,7 +415,6 @@ bool updateFilesystemFromURL(const String& url) {
         return false;
     }
 
-    // Download and write filesystem data
     if (!downloadAndWrite(httpResult.stream, http, httpResult.contentLength)) {
         http.end();
         return false;
@@ -256,23 +426,21 @@ bool updateFilesystemFromURL(const String& url) {
         if (Update.isFinished()) {
             LOG(INFO, "OTA filesystem update completed successfully");
             getOTAState().setCurrentProgress(100);
-            getOTAState().setUpdateStatus("complete");
+            getOTAState().setUpdateStatus(Status::Complete);
             return true;
-        } else {
-            LOGF(ERROR, "OTA filesystem update not finished: %s", Update.errorString());
-            getOTAState().setUpdateError(true, "OTA filesystem update not finished: " + String(Update.errorString()));
-            return false;
         }
-    } else {
-        LOGF(ERROR, "OTA filesystem update failed: %s", Update.errorString());
-        getOTAState().setUpdateError(true, "OTA filesystem update failed: " + String(Update.errorString()));
+        LOGF(ERROR, "OTA filesystem update not finished: %s", Update.errorString());
+        getOTAState().setUpdateError(true, "OTA filesystem update not finished: " + String(Update.errorString()));
         return false;
     }
+
+    LOGF(ERROR, "OTA filesystem update failed: %s", Update.errorString());
+    getOTAState().setUpdateError(true, "OTA filesystem update failed: " + String(Update.errorString()));
+    return false;
 }
 
 void handleFirmwareUpload(
     AsyncWebServerRequest* request, const String& filename, size_t index, uint8_t* data, size_t len, bool final) {
-    // Log every invocation for debugging
     LOGF(INFO,
          "handleFirmwareUpload called: filename=%s, index=%d, len=%d, final=%d",
          filename.c_str(),
@@ -280,7 +448,6 @@ void handleFirmwareUpload(
          static_cast<int>(len),
          final);
 
-    // Validate that this is a firmware file (check file extension) - only on first chunk
     if (index == 0 && !validateFileExtension(filename, false)) {
         LOGF(ERROR, "Invalid firmware file: %s (expected .bin extension)", filename.c_str());
         request->send(400,
@@ -290,7 +457,6 @@ void handleFirmwareUpload(
     }
 
     if (index == 0) {
-        // Check if an OTA update is already in progress
         if (isUpdateInProgress()) {
             LOGF(WARNING,
                  "Rejected concurrent OTA file upload attempt (current status: %s, updateStarted: %s, "
@@ -305,21 +471,15 @@ void handleFirmwareUpload(
             return;
         }
 
-        // Reset status for new upload
-        resetStatus();
-        getOTAState().setUpdateStatus("uploading");
-        getOTAState().setUpdateType("firmware");
-
         LOGF(INFO, "OTA firmware update started: %s", filename.c_str());
 
-        // Stop all operations for safe OTA update
         if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
             LOGF(ERROR, "OTA update failed to begin: %s", Update.errorString());
-            getOTAState().setUpdateError(true, "OTA update failed to begin: " + String(Update.errorString()));
             request->send(500, "application/json", R"({"success": false, "message": "Failed to begin update"})");
             return;
         }
-        getOTAState().setUpdateStarted(true);
+
+        beginSession(Type::Firmware);
     }
 
     if (!processUploadChunk(request, index, data, len, false)) {
@@ -327,30 +487,27 @@ void handleFirmwareUpload(
     }
 
     if (final) {
-        getOTAState().setUpdateStatus("processing");
-        getOTAState().setCurrentProgress(95);
+        getOTAState().setUpdateStatus(Status::Processing);
+        reportProgress(95);
 
         if (getOTAState().isUpdateStarted() && Update.end(true)) {
             LOGF(INFO, "OTA firmware update completed successfully: %d bytes", getOTAState().getTotalSize());
-            getOTAState().setCurrentProgress(100);
-            getOTAState().setUpdateStatus("complete");
+            endSessionSuccess();
             request->send(
                 200, "application/json", R"({"success": true, "message": "Update successful. Device will restart."})");
-            delay(1000);
-            ESP.restart();
+            scheduleRestart(OTA_RESTART_DELAY_MS);
         } else {
             LOGF(ERROR, "OTA update failed to finalize: %s", Update.errorString());
-            getOTAState().setUpdateError(true, "OTA update failed to finalize: " + String(Update.errorString()));
-            String errorResponse = "{\"success\": false, \"message\": \"" + getOTAState().getErrorMessage() + "\"}";
+            endSessionError("OTA update failed to finalize: " + String(Update.errorString()));
+            const String errorResponse =
+                "{\"success\": false, \"message\": \"" + getOTAState().getErrorMessage() + "\"}";
             request->send(500, "application/json", errorResponse);
         }
-        getOTAState().setUpdateStarted(false);
     }
 }
 
 void handleFilesystemUpload(
     AsyncWebServerRequest* request, const String& filename, size_t index, uint8_t* data, size_t len, bool final) {
-    // Log every invocation for debugging
     LOGF(INFO,
          "handleFilesystemUpload called: filename=%s, index=%d, len=%d, final=%d",
          filename.c_str(),
@@ -358,7 +515,6 @@ void handleFilesystemUpload(
          static_cast<int>(len),
          final);
 
-    // Validate that this is a filesystem file (check file extension) - only on first chunk
     if (index == 0 && !validateFileExtension(filename, true)) {
         LOGF(ERROR, "Invalid filesystem file: %s (expected .bin or .img extension)", filename.c_str());
         request->send(400,
@@ -368,7 +524,6 @@ void handleFilesystemUpload(
     }
 
     if (index == 0) {
-        // Check if an OTA update is already in progress
         if (isUpdateInProgress()) {
             LOGF(WARNING,
                  "Rejected concurrent OTA filesystem upload attempt (current status: %s, updateStarted: %s, "
@@ -383,27 +538,19 @@ void handleFilesystemUpload(
             return;
         }
 
-        // Reset status for new upload
-        resetStatus();
-        getOTAState().setUpdateStatus("uploading");
-        getOTAState().setUpdateType("filesystem");
-
         LOGF(INFO, "OTA filesystem update started: %s (partition: %s)", filename.c_str(), FILESYSTEM_PARTITION_LABEL);
 
-        // Stop all operations for safe OTA update - use SPIFFS partition type for filesystem
-        // Begin update with filesystem partition label
         if (!Update.begin(UPDATE_SIZE_UNKNOWN, U_SPIFFS, -1, LOW, FILESYSTEM_PARTITION_LABEL)) {
             LOGF(ERROR,
                  "OTA filesystem update failed to begin on partition '%s': %s",
                  FILESYSTEM_PARTITION_LABEL,
                  Update.errorString());
-            getOTAState().setUpdateError(true,
-                                         "OTA filesystem update failed to begin: " + String(Update.errorString()));
             request->send(
                 500, "application/json", R"({"success": false, "message": "Failed to begin filesystem update"})");
             return;
         }
-        getOTAState().setUpdateStarted(true);
+
+        beginSession(Type::Filesystem);
     }
 
     if (!processUploadChunk(request, index, data, len, true)) {
@@ -411,34 +558,31 @@ void handleFilesystemUpload(
     }
 
     if (final) {
-        getOTAState().setUpdateStatus("processing");
-        getOTAState().setCurrentProgress(95);
+        getOTAState().setUpdateStatus(Status::Processing);
+        reportProgress(95);
 
         if (getOTAState().isUpdateStarted() && Update.end(true)) {
             LOGF(INFO,
                  "OTA filesystem update completed successfully: %d bytes written to partition '%s'",
                  getOTAState().getTotalSize(),
                  FILESYSTEM_PARTITION_LABEL);
-            getOTAState().setCurrentProgress(100);
-            getOTAState().setUpdateStatus("complete");
+            endSessionSuccess();
             request->send(200,
                           "application/json",
                           R"({"success": true, "message": "Filesystem update successful. Device will restart."})");
-            delay(1000);
-            ESP.restart();
+            scheduleRestart(OTA_RESTART_DELAY_MS);
         } else {
             LOGF(ERROR, "OTA filesystem update failed to finalize: %s", Update.errorString());
-            getOTAState().setUpdateError(true,
-                                         "OTA filesystem update failed to finalize: " + String(Update.errorString()));
-            String errorResponse = "{\"success\": false, \"message\": \"" + getOTAState().getErrorMessage() + "\"}";
+            endSessionError("OTA filesystem update failed to finalize: " + String(Update.errorString()));
+            const String errorResponse =
+                "{\"success\": false, \"message\": \"" + getOTAState().getErrorMessage() + "\"}";
             request->send(500, "application/json", errorResponse);
         }
-        getOTAState().setUpdateStarted(false);
     }
 }
 
 void handleURLUpdate(AsyncWebServerRequest* request) {
-    String updateTypeParam = "firmware";
+    String updateTypeParam = Type::Firmware;
     if (request->hasParam("type", true)) {
         updateTypeParam = request->getParam("type", true)->value();
     }
@@ -448,14 +592,13 @@ void handleURLUpdate(AsyncWebServerRequest* request) {
         return;
     }
 
-    String updateUrl = request->getParam("url", true)->value();
+    const String updateUrl = request->getParam("url", true)->value();
 
     if (updateUrl.isEmpty()) {
         request->send(400, "application/json", R"({"success": false, "message": "Empty URL provided"})");
         return;
     }
 
-    // Check if an OTA update is already in progress
     if (isUpdateInProgress()) {
         LOGF(WARNING,
              "Rejected concurrent OTA URL update attempt (current status: %s, updateStarted: %s, Update.isRunning(): "
@@ -472,35 +615,33 @@ void handleURLUpdate(AsyncWebServerRequest* request) {
 
     LOGF(INFO, "Starting OTA update from URL: %s (type: %s)", updateUrl.c_str(), updateTypeParam.c_str());
 
-    // Reset status for new update
-    resetStatus();
-    getOTAState().setUpdateType(updateTypeParam);
-    getOTAState().setUpdateStatus("downloading");
+    const bool isFilesystem = updateTypeParam == Type::Filesystem;
+    beginSession(isFilesystem ? Type::Filesystem : Type::Firmware);
+    getOTAState().setUpdateStatus(Status::Downloading);
 
-    bool success = false;
-    if (updateTypeParam == "filesystem") {
-        success = updateFilesystemFromURL(updateUrl);
-    } else {
-        success = updateFromURL(updateUrl);
-    }
+    const bool success = isFilesystem ? updateFilesystemFromURL(updateUrl) : updateFromURL(updateUrl);
 
     if (success) {
+        endSessionSuccess();
         request->send(
             200, "application/json", R"({"success": true, "message": "Update successful. Device will restart."})");
-        delay(2000);
-        ESP.restart();
+        scheduleRestart(OTA_RESTART_DELAY_MS);
     } else {
-        String response = "{\"success\": false, \"message\": \"" + getOTAState().getErrorMessage() + "\"}";
+        if (!getOTAState().hasUpdateError()) {
+            endSessionError("OTA URL update failed");
+        } else {
+            endSessionError(getOTAState().getErrorMessage());
+        }
+        const String response = "{\"success\": false, \"message\": \"" + getOTAState().getErrorMessage() + "\"}";
         request->send(500, "application/json", response);
     }
 }
 
 void handleStatus(AsyncWebServerRequest* request) {
-    // Auto-reset status after 30 seconds of inactivity for completed/error states (internal cleanup)
     auto&       state      = getOTAState();
     const auto& status     = state.getUpdateStatus();
-    auto        lastUpdate = state.getLastStatusUpdate();
-    if ((status == "complete" || status == "error") && lastUpdate > 0 && (millis() - lastUpdate > 30000)) {
+    const auto  lastUpdate = state.getLastStatusUpdate();
+    if ((status == Status::Complete || status == Status::Error) && lastUpdate > 0 && (millis() - lastUpdate > 30000)) {
         resetStatus();
     }
 
@@ -556,37 +697,63 @@ String getErrorMessage() {
     return Update.errorString();
 }
 
+const String& getUpdateStatus() noexcept {
+    return getOTAState().getUpdateStatus();
+}
+
+const String& getUpdateType() noexcept {
+    return getOTAState().getUpdateType();
+}
+
+bool shouldShowOtaDisplay() noexcept {
+    auto& state = getOTAState();
+
+    if (Update.isRunning() || state.isUpdateStarted()) {
+        return true;
+    }
+
+    const auto& status = state.getUpdateStatus();
+    if (status == Status::Uploading || status == Status::Downloading || status == Status::Processing) {
+        return true;
+    }
+
+    if (state.getLastStatusUpdate() == 0) {
+        return false;
+    }
+
+    const unsigned long ageMs = millis() - state.getLastStatusUpdate();
+    if (status == Status::Error && ageMs < OTA_ERROR_DISPLAY_MS) {
+        return true;
+    }
+    if (status == Status::Complete && ageMs < OTA_COMPLETE_DISPLAY_MS) {
+        return true;
+    }
+
+    return false;
+}
+
 void setup(AsyncWebServer& server) {
     LOGF(INFO, "Setting up OTA endpoints");
 
-    // OTA Update via firmware file upload
     server.on(
         "/api/ota/firmware",
         HTTP_POST,
         [](AsyncWebServerRequest* request) {
-            // This response will be set by the upload handler
-            // If we reach here without upload handler being called, it's an error
             LOGF(ERROR, "OTA firmware upload request received without file data");
             request->send(400, "application/json", R"({"success": false, "message": "No firmware file provided"})");
         },
         handleFirmwareUpload);
 
-    // OTA Update via filesystem file upload
     server.on(
         "/api/ota/filesystem",
         HTTP_POST,
         [](AsyncWebServerRequest* request) {
-            // This response will be set by the upload handler
-            // If we reach here without upload handler being called, it's an error
             LOGF(ERROR, "OTA filesystem upload request received without file data");
             request->send(400, "application/json", R"({"success": false, "message": "No filesystem file provided"})");
         },
         handleFilesystemUpload);
 
-    // OTA Update via URL
     server.on("/api/ota/url", HTTP_POST, handleURLUpdate);
-
-    // OTA Update status endpoint
     server.on("/api/ota/status", HTTP_GET, handleStatus);
 
     LOG(INFO, "OTA endpoints registered successfully");

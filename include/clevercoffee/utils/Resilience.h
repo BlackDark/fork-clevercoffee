@@ -457,7 +457,7 @@ class Watchdog {
      * @return true if feed was successful
      */
     bool feed() {
-        if (!enabled_) {
+        if (!enabled_ || suspended_) {
             return false;
         }
 
@@ -511,7 +511,7 @@ class Watchdog {
      * @return true if time since last feed exceeds threshold
      */
     bool isNearTimeout(unsigned long thresholdMs = 0) const {
-        if (!enabled_) {
+        if (!enabled_ || suspended_) {
             return false;
         }
         if (thresholdMs == 0) {
@@ -520,8 +520,41 @@ class Watchdog {
         return timeSinceLastFeed() > thresholdMs;
     }
 
+    /**
+     * @brief Unsubscribe loop task from TWDT during blocking OTA flash writes
+     */
+    void suspend() {
+#if defined(ESP32)
+        if (!enabled_ || suspended_) {
+            return;
+        }
+        if (esp_task_wdt_delete(nullptr) == ESP_OK) {
+            suspended_ = true;
+            LOG(INFO, "Watchdog suspended for OTA");
+        }
+#endif
+    }
+
+    /**
+     * @brief Re-subscribe loop task to TWDT after OTA completes or fails
+     */
+    void resume() {
+#if defined(ESP32)
+        if (!enabled_ || !suspended_) {
+            return;
+        }
+        if (esp_task_wdt_add(nullptr) == ESP_OK) {
+            esp_task_wdt_reset();
+            suspended_    = false;
+            lastFeedTime_ = millis();
+            LOG(INFO, "Watchdog resumed after OTA");
+        }
+#endif
+    }
+
   private:
-    unsigned long timeoutMs_;    ///< Configured timeout in milliseconds
-    bool          enabled_;      ///< Watchdog is active
-    unsigned long lastFeedTime_; ///< Time of last successful feed
+    unsigned long timeoutMs_;        ///< Configured timeout in milliseconds
+    bool          enabled_;          ///< Watchdog is active
+    bool          suspended_{false}; ///< Loop task unsubscribed during OTA
+    unsigned long lastFeedTime_;     ///< Time of last successful feed
 };

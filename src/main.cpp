@@ -20,6 +20,7 @@
 #include "clevercoffee/core/SystemInitializer.h"
 #include "clevercoffee/network/CleverCoffeeWiFiManager.h"
 #include "clevercoffee/network/MQTTManager.h"
+#include "clevercoffee/utils/Resilience.h"
 
 #include <ArduinoOTA.h>
 #include <LittleFS.h>
@@ -112,7 +113,7 @@ void setup() {
 
     // Initialize system using RAII SystemInitializer
     logMemoryBasic("Before SystemInitializer");
-    systemInitializer = std::make_unique<SystemInitializer>();
+    systemInitializer = std::make_unique<SystemInitializer>(&g_watchdog);
 
     logMemoryBasic("Before SystemInitializer->initialize()");
 

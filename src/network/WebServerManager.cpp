@@ -10,6 +10,7 @@
 #include "clevercoffee/context/SystemContext.h"
 #include "clevercoffee/control/ProcessController.h"
 #include "clevercoffee/network/CleverCoffeeWiFiManager.h"
+#include "clevercoffee/ota.h"
 #include "clevercoffee/state/MachineStateContext.h"
 #include "clevercoffee/types/GlobalTypes.h"
 #include "clevercoffee/utils/SystemUtils.h"
@@ -17,6 +18,7 @@
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
+#include <AsyncJson.h>
 #include <FS.h>
 #include <Preferences.h>
 #include <unordered_map>
@@ -115,10 +117,10 @@ class TemperatureHistory {
         if (valueCount < HISTORY_SIZE) valueCount++;
     }
 
-    void generateJson(JsonDocument& doc) const {
-        auto currentTemps = doc["currentTemps"].to<JsonArray>();
-        auto targetTemps  = doc["targetTemps"].to<JsonArray>();
-        auto heaterPowers = doc["heaterPowers"].to<JsonArray>();
+    void generateJson(JsonObject obj) const {
+        auto currentTemps = obj["currentTemps"].to<JsonArray>();
+        auto targetTemps  = obj["targetTemps"].to<JsonArray>();
+        auto heaterPowers = obj["heaterPowers"].to<JsonArray>();
 
         size_t startIdx =
             (currentIndex >= valueCount) ? (currentIndex - valueCount) : (HISTORY_SIZE - (valueCount - currentIndex));
@@ -638,22 +640,12 @@ void WebServerManager::setupApiRoutes() {
         try {
             logMemoryUsage("handleTimeseries start");
 
-            JsonDocument doc;
-            tempHistory.generateJson(doc);
+            auto*      response = new AsyncJsonResponse(false);
+            JsonObject root     = response->getRoot().as<JsonObject>();
+            tempHistory.generateJson(root);
 
-            if (doc.overflowed()) {
-                request->send(500, "application/json", ApiResponses::errorResponse("timeseries JSON overflowed"));
-                return;
-            }
-
-            String json;
-            if (!safeSerializeJson(doc, json)) {
-                request->send(
-                    500, "application/json", ApiResponses::errorResponse("Failed to serialize timeseries data"));
-                return;
-            }
-
-            request->send(200, "application/json", json);
+            response->setLength();
+            request->send(response);
         } catch (const std::exception& e) {
             LOGF(ERROR, "API history failed: %s", e.what());
             request->send(500, "application/json", ApiResponses::errorResponse("Timeseries data unavailable"));
@@ -663,15 +655,14 @@ void WebServerManager::setupApiRoutes() {
     // NVS debug endpoint
     server_->on("/api/nvs-debug", HTTP_GET, [](AsyncWebServerRequest* request) {
         try {
-            JsonDocument doc;
-            JsonObject   nvsData  = doc.to<JsonObject>();
-            JsonObject   metadata = nvsData["metadata"].to<JsonObject>();
+            auto*      response = new AsyncJsonResponse(false);
+            JsonObject nvsData  = response->getRoot().as<JsonObject>();
+            JsonObject metadata = nvsData["metadata"].to<JsonObject>();
 
             Preferences prefs;
-            prefs.begin("config", true); // Read-only mode - use correct namespace
+            prefs.begin("config", true);
 
-            // Get basic NVS information
-            JsonArray allParamsArray = doc["parameters"].to<JsonArray>();
+            JsonArray allParamsArray = nvsData["parameters"].to<JsonArray>();
             Config::getInstance().getAllParameters(allParamsArray, "all");
 
             metadata["total_parameters"] = allParamsArray.size();
@@ -684,14 +675,9 @@ void WebServerManager::setupApiRoutes() {
 
             prefs.end();
 
-            String debugJson;
-            if (serializeJson(doc, debugJson) == 0) {
-                request->send(500, "application/json", "{\"error\":\"Failed to serialize NVS debug data\"}");
-                return;
-            }
-
             LOGF(INFO, "NVS Debug: basic info returned for %d parameters", allParamsArray.size());
-            request->send(200, "application/json", debugJson);
+            response->setLength();
+            request->send(response);
         } catch (const std::exception& e) {
             LOGF(ERROR, "API nvs-debug failed: %s", e.what());
             request->send(500, "application/json", "{\"error\":\"Internal server error\"}");
@@ -880,18 +866,11 @@ void WebServerManager::setupApiRoutes() {
     server_->on("/api/parameters", HTTP_ANY, [this](AsyncWebServerRequest* request) {
         try {
             if (request->method() == HTTP_GET) {
-                // Return all parameters
-                JsonDocument doc;
-                JsonArray    parametersArray = doc.to<JsonArray>();
+                auto*     response        = new AsyncJsonResponse(true);
+                JsonArray parametersArray = response->getRoot().as<JsonArray>();
                 Config::getInstance().getAllParameters(parametersArray, "all");
-
-                String json;
-                if (serializeJson(doc, json) == 0) {
-                    request->send(500, "application/json", "{\"error\":\"Failed to serialize parameters\"}");
-                    return;
-                }
-
-                request->send(200, "application/json", json);
+                response->setLength();
+                request->send(response);
             } else if (request->method() == HTTP_POST) {
                 // Update parameters from form data
                 int requestParams = request->params();
@@ -959,18 +938,20 @@ void WebServerManager::setupApiRoutes() {
         }
     });
 
+    OTA::setup(*server_);
+
     LOG(INFO, "API routes setup complete");
 }
 
 #if !FRONTEND_PREPROCESSING
 bool WebServerManager::serveGzippedFile(AsyncWebServerRequest* request, const String& path) {
-    LOGF(INFO, "Request URL: %s -> Serving path: %s", request->url().c_str(), path.c_str());
+    LOGF(DEBUG, "Request URL: %s -> Serving path: %s", request->url().c_str(), path.c_str());
 
     char gzipPath[PATH_BUFFER_SIZE];
     snprintf(gzipPath, sizeof(gzipPath), "%s.gz", path.c_str());
 
     if (LittleFS.exists(gzipPath)) {
-        LOGF(INFO, "Serving gzipped file: %s", gzipPath);
+        LOGF(DEBUG, "Serving gzipped file: %s", gzipPath);
 
         AsyncWebServerResponse* response = request->beginResponse(LittleFS, gzipPath, getContentType(path));
         response->addHeader("Content-Encoding", "gzip");
@@ -989,7 +970,7 @@ bool WebServerManager::serveGzippedFile(AsyncWebServerRequest* request, const St
         return true;
     }
 
-    LOGF(INFO, "Gzipped file not found, trying uncompressed: %s", path.c_str());
+    LOGF(DEBUG, "Gzipped file not found, trying uncompressed: %s", path.c_str());
 
     if (LittleFS.exists(path)) {
         LOGF(DEBUG, "Serving uncompressed file: %s", path.c_str());
@@ -1037,11 +1018,11 @@ void WebServerManager::setupStaticRoutes() {
     // handles all /ui paths
     server_->on("/ui", HTTP_GET, [this](AsyncWebServerRequest* request) {
         String path = request->url();
-        LOGF(INFO, "UI request for: %s", path.c_str());
+        LOGF(DEBUG, "UI request for: %s", path.c_str());
 
         // For SPA routes without file extensions, serve index.html
         if (path.indexOf('.') == -1) {
-            LOGF(INFO, "Serving index.html for SPA route: %s", path.c_str());
+            LOGF(DEBUG, "Serving index.html for SPA route: %s", path.c_str());
 
             if (serveGzippedFile(request, "/ui/index.html")) {
                 return;
