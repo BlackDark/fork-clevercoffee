@@ -10,6 +10,8 @@
 #include "clevercoffee/utils/memoryUtils.h"
 
 #include <ArduinoJson.h>
+#include <LittleFS.h>
+#include <Preferences.h>
 
 // Optimized static const enum option vectors (single instance + read-only memory)
 static const std::vector<std::pair<Hardware::SwitchType, String>> switchTypeOptions = {
@@ -225,6 +227,20 @@ bool importParameterFromJson(ConfigParamDef* param, JsonVariantConst valueVarian
     return false;
 }
 
+static JsonVariantConst resolveNestedPath(JsonObjectConst obj, const String& dotPath) {
+    int dot = dotPath.indexOf('.');
+    if (dot < 0) {
+        return obj[dotPath.c_str()];
+    }
+    const String     segment = dotPath.substring(0, dot);
+    const String     rest    = dotPath.substring(dot + 1);
+    JsonVariantConst nested  = obj[segment.c_str()];
+    if (!nested.is<JsonObjectConst>()) {
+        return JsonVariantConst{};
+    }
+    return resolveNestedPath(nested.as<JsonObjectConst>(), rest);
+}
+
 } // namespace
 
 String Config::exportToJson() {
@@ -247,6 +263,51 @@ String Config::exportToJson() {
     return output;
 }
 
+bool Config::seedFromLittleFS() {
+    {
+        Preferences prefs;
+        if (prefs.begin(STORAGE_NAMESPACE, true)) {
+            bool already = prefs.getBool("_seeded", false);
+            prefs.end();
+            if (already) return false;
+        }
+    }
+
+    if (!LittleFS.exists("/config.json")) {
+        LOG(INFO, "Config: No /config.json in LittleFS — using compiled-in defaults");
+        return false;
+    }
+
+    File f = LittleFS.open("/config.json", "r");
+    if (!f) {
+        LOG(ERROR, "Config: Failed to open /config.json");
+        return false;
+    }
+
+    const String json = f.readString();
+    f.close();
+
+    if (json.isEmpty()) {
+        LOG(WARNING, "Config: /config.json is empty");
+        return false;
+    }
+
+    LOG(INFO, "Config: First boot — seeding NVS from /config.json");
+    if (!importFromJson(json)) {
+        LOG(ERROR, "Config: Failed to import /config.json");
+        return false;
+    }
+
+    Preferences prefs;
+    if (prefs.begin(STORAGE_NAMESPACE, false)) {
+        prefs.putBool("_seeded", true);
+        prefs.end();
+    }
+
+    LOG(INFO, "Config: NVS seeded from /config.json");
+    return true;
+}
+
 bool Config::importFromJson(const String& json) {
     JsonDocument         doc;
     DeserializationError error = deserializeJson(doc, json);
@@ -261,6 +322,10 @@ bool Config::importFromJson(const String& json) {
 
     for (auto* param : allParams) {
         JsonVariantConst entry = doc[param->getKey()];
+        if (entry.isNull()) {
+            // Fallback: resolve dotted key as nested path (e.g., "system.wifi.ssid")
+            entry = resolveNestedPath(doc.as<JsonObjectConst>(), param->getKey());
+        }
         if (entry.isNull()) {
             continue;
         }

@@ -240,11 +240,21 @@ bool SystemInitializer::initializeLogger() {
 }
 
 bool SystemInitializer::initializeConfiguration() {
+    // Mount LittleFS first so we can seed NVS from /config.json on first boot
+    if (!LittleFS.begin()) {
+        LOG(WARNING, "LittleFS initialization failed — cannot seed from config.json");
+    }
+
     if (!Config::getInstance().begin()) {
         LOG(ERROR, "Failed to initialize configuration system!");
         Serial.println("Critical error detected!");
         Serial.flush();
         return false;
+    }
+
+    // On first boot, seed NVS from /config.json in LittleFS (factory provisioning / Wokwi)
+    if (Config::getInstance().seedFromLittleFS()) {
+        [[maybe_unused]] bool reloaded = Config::getInstance().loadAll(); // reload NVS to pick up imported values
     }
 
     // Inject SystemContext into Config for StateParamDef lambdas
@@ -426,13 +436,6 @@ bool SystemInitializer::initializeNetworking() {
         setupWiFi();
 
         LOG(INFO, "About to initialize WebServerManager");
-
-        // Initialize LittleFS first - this was causing the hang
-        if (!LittleFS.begin()) {
-            LOG(WARNING, "LittleFS initialization failed, web server will run without file system");
-        } else {
-            LOG(INFO, "LittleFS initialized successfully");
-        }
 
         // Initialize WebServerManager
         webServerManager_ = std::make_unique<WebServerManager>(80);
