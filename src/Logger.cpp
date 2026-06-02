@@ -6,7 +6,7 @@
 #include <utility>
 
 #if defined(ARDUINO_ARCH_ESP32)
-#include <ESP.h>
+#include <Arduino.h>
 #endif
 
 namespace {
