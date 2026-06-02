@@ -264,9 +264,14 @@ class MachineStateContext : public CleverCoffee::IHardwareContext,
     // === System State Access ===
 
     /**
-     * @brief Check if PID is enabled
+     * @brief Whether PID/heater is active right now (runtime flag in ProcessState).
      */
-    bool isPidEnabled() const;
+    bool isPidRuntimeEnabled() const;
+
+    /**
+     * @brief User's saved PID preference (NVS parameter pid.enabled).
+     */
+    bool isPidConfigEnabled() const;
 
     /**
      * @brief Check if emergency stop is active
@@ -309,9 +314,14 @@ class MachineStateContext : public CleverCoffee::IHardwareContext,
     void setSteamMode(bool enabled) const;
 
     /**
-     * @brief Set PID runtime state
+     * @brief Set PID runtime state only (no NVS write).
      */
     void setPidRuntimeState(bool enabled) const;
+
+    /**
+     * @brief User explicitly enabled/disabled PID — persists and activates.
+     */
+    void setUserPidEnabled(bool enabled) const;
 
     /**
      * @brief Set manual flush state

@@ -14,11 +14,16 @@
 #include "clevercoffee/display/DisplayTemplateManager.h"
 #include "clevercoffee/display/DisplayWidgets.h"
 #include "clevercoffee/display/languages.h"
+#include "clevercoffee/handlers/BrewHandler.h"
+#include "clevercoffee/handlers/HotWaterHandler.h"
+#include "clevercoffee/handlers/PowerHandler.h"
+#include "clevercoffee/handlers/SteamHandler.h"
 #include "clevercoffee/hardware/HardwareManager.h" // Include before own header to resolve forward declaration
 #include "clevercoffee/isr.h"
 #include "clevercoffee/network/CleverCoffeeWiFiManager.h"
 #include "clevercoffee/network/MQTTManager.h"
 #include "clevercoffee/network/WebServerManager.h"
+#include "clevercoffee/types/GlobalTypes.h"
 #include "clevercoffee/ui/OledDriver.h"
 #include "clevercoffee/utils/SystemUtils.h"
 #include "clevercoffee/utils/memoryUtils.h"
@@ -37,8 +42,6 @@ extern void enableTimer1();
 // namespace DisplayTemplateManager {
 //     extern void initializeDisplay(int templateId);
 // }
-
-// checkBrewActive removed - now accessed via SystemContext->brewHandler()
 
 SystemInitializer::SystemInitializer()
     : systemInitialized_(false), initState_(InitState::NOT_INITIALIZED), hostname_(), displayManager_(nullptr),
@@ -95,10 +98,6 @@ bool SystemInitializer::initialize() {
 
     logMemoryBasic("After Display Init");
 
-    logMemoryBasic("Before Timer1 Init");
-    initTimer1();
-    logMemoryBasic("After Timer1 Init");
-
     logMemoryBasic("Before Hardware Init");
     if (!initializeHardware()) {
         LOG(ERROR, "Hardware initialization failed");
@@ -111,6 +110,12 @@ bool SystemInitializer::initialize() {
     }
 
     logMemoryBasic("After Hardware Init");
+
+    if (!initializeHandlers()) {
+        LOG(ERROR, "Handler initialization failed");
+        initState_ = InitState::FAILED;
+        return false;
+    }
 
     // Phase 3: Network and services
     LOG(INFO, "Starting Phase 3: Network and services");
@@ -166,6 +171,9 @@ bool SystemInitializer::initialize() {
 
     LOG(DEBUG, "Calling setupTiming()");
     setupTiming();
+
+    LOG(DEBUG, "Calling initTimer1() - create timer after ISR context is available");
+    initTimer1();
 
     LOG(DEBUG, "Calling enableTimer1() - ISR will now fire");
     enableTimer1();
@@ -346,6 +354,33 @@ bool SystemInitializer::initializeHardware() {
     }
 }
 
+bool SystemInitializer::initializeHandlers() {
+    try {
+        const auto& config = Config::getInstance();
+        brewHandler_       = std::make_unique<BrewHandler>(*systemContext_, config);
+        hotWaterHandler_   = std::make_unique<HotWaterHandler>(*systemContext_, config);
+        powerHandler_      = std::make_unique<PowerHandler>(*systemContext_, config);
+        steamHandler_      = std::make_unique<SteamHandler>(*systemContext_, config);
+
+        auto& hwContext = systemContext_->hardwareContext();
+        brewHandler_->setHardware(hwContext.brewSwitch(), hwContext.valveRelay());
+        hotWaterHandler_->setHardware(hwContext.hotWaterSwitch());
+        powerHandler_->setHardware(hwContext.powerSwitch());
+        steamHandler_->setHardware(hwContext.steamSwitch());
+
+        systemContext_->setBrewHandler(brewHandler_.get());
+        systemContext_->setHotWaterHandler(hotWaterHandler_.get());
+        systemContext_->setPowerHandler(powerHandler_.get());
+        systemContext_->setSteamHandler(steamHandler_.get());
+
+        LOG(INFO, "Handlers initialized");
+        return true;
+    } catch (const std::exception& e) {
+        LOGF(ERROR, "Handler initialization failed: %s", e.what());
+        return false;
+    }
+}
+
 bool SystemInitializer::initializeNetworking() {
     // WiFiManager is ALWAYS created - it's a required component
     // Even if offline mode, manager exists to track state
@@ -364,7 +399,7 @@ bool SystemInitializer::initializeNetworking() {
             LOG(INFO, "Offline mode enabled, WiFiManager created but network disabled");
             WiFi.disconnect();
             systemContext_->networkCoordinator().setOfflineMode(true);
-            setRuntimePidState(*systemContext_, true);
+            setUserPidEnabled(*systemContext_, true);
             return true;
         }
 
@@ -438,9 +473,6 @@ bool SystemInitializer::initializeMQTT() {
 
             registerMQTTParameters();
             registerMQTTSensors();
-
-            mqttManager_->checkConnection();
-            // HASSIO discovery will be sent via timer callback
 
             LOG(INFO, "MQTT setup completed via MQTTManager");
             return true;
@@ -533,7 +565,7 @@ bool SystemInitializer::finalizeMachineState() {
             static_cast<int>(Config::getInstance().hardwareSwitchesPowerType.get()) ==
                 static_cast<int>(Hardware::SwitchType::MOMENTARY)) {
             systemContext_->machineStateContext()->setCurrentStateId(MachineStateId::PID_NORMAL);
-            setRuntimePidState(*systemContext_, true);
+            setUserPidEnabled(*systemContext_, true);
             LOG(INFO, "Machine initialized in PID Normal mode (momentary switch)");
         }
         // For toggle switches, force PidOn to switch state mode
@@ -542,7 +574,7 @@ bool SystemInitializer::finalizeMachineState() {
                      static_cast<int>(Hardware::SwitchType::TOGGLE)) {
             if (systemContext_->hardwareContext().powerSwitch() &&
                 systemContext_->hardwareContext().powerSwitch()->isPressed()) {
-                setRuntimePidState(*systemContext_, true);
+                setUserPidEnabled(*systemContext_, true);
                 systemContext_->machineStateContext()->setCurrentStateId(MachineStateId::PID_NORMAL);
                 LOG(INFO, "Machine initialized in PID Normal mode (toggle switch ON)");
             } else {

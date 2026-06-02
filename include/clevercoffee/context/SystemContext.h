@@ -207,7 +207,7 @@ class SystemContext {
     }
 
     /**
-     * @brief Get brew handler (REQUIRED - always exists after initialization)
+     * @brief Get brew handler (REQUIRED - always exists after markReady())
      * @return Reference to BrewHandler
      */
     BrewHandler& brewHandler() noexcept {
@@ -1144,13 +1144,13 @@ class SystemContext {
     UICoordinator          uiCoordinator_;          ///< Manages UI refresh and sleep state
     StandbyCoordinator     standbyCoordinator_;     ///< Manages standby mode and power management
     MaintenanceCoordinator maintenanceCoordinator_; ///< Tracks shots since backflush and reminders
-    bool                   ready_ = false;          ///< System initialization complete flag
+    std::atomic<bool>      ready_{false};           ///< System initialization complete flag
 
-    // Handler references - ALL REQUIRED (always exist after initialization)
-    BrewHandler*     brewHandler_     = nullptr; // Set during initializeHandlers()
-    HotWaterHandler* hotWaterHandler_ = nullptr; // Set during initializeHandlers()
-    PowerHandler*    powerHandler_    = nullptr; // Set during initializeHandlers()
-    SteamHandler*    steamHandler_    = nullptr; // Set during initializeHandlers()
+    // Handler references (non-owning, owned by SystemInitializer)
+    BrewHandler*     brewHandler_     = nullptr;
+    HotWaterHandler* hotWaterHandler_ = nullptr;
+    PowerHandler*    powerHandler_    = nullptr;
+    SteamHandler*    steamHandler_    = nullptr;
 
     // Controller reference (non-owning pointer)
     ProcessController* processController_ = nullptr;

@@ -23,10 +23,11 @@ export const parameterHelpTexts: Record<string, string> = {
     "Manual mode gives you full control over the brew time while Automatic mode allows you to activate brew-by-time and/or brew-by-weight. The brew will then stop at whatever target is reached first.",
   "brew.by_time.enabled":
     "Enables brew by time, so the pump stops automatically when the target brew time is reached. Only available when Brew Mode is set to Automatic",
-  "brew.target_time": "Stop brew automatically after this amount of time",
+  "brew.by_time.target_time": "Stop brew automatically after this amount of time",
   "brew.by_weight.enabled":
     "Enables brew by weight, so the pump stops automatically when the target weight is reached. Only available when Brew Mode is set to Automatic",
-  "brew.target_weight": "Brew is running until this weight has been measured",
+  "brew.by_weight.target_weight": "Brew is running until this weight has been measured",
+  "brew.by_weight.auto_tare": "Automatically tare scale before brewing",
   "brew.pre_infusion.enabled":
     "Enables pre-wetting of the coffee puck by turning on the pump for a configurable length of time.",
   "brew.pre_infusion.time":

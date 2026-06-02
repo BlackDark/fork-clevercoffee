@@ -165,6 +165,3 @@ class SteamHandler;
 // ============================================================================
 // Initialization
 // ============================================================================
-
-// Handler initialization (formerly in GlobalState.h)
-void initializeHandlers(CleverCoffee::SystemContext& systemContext);

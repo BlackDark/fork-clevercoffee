@@ -18,6 +18,10 @@ class MQTTManager;
 class WebServerManager;
 class CleverCoffeeWiFiManager;
 class PID;
+class BrewHandler;
+class HotWaterHandler;
+class PowerHandler;
+class SteamHandler;
 
 namespace CleverCoffee {
 class HardwareManager;
@@ -192,11 +196,18 @@ class SystemInitializer {
     std::unique_ptr<PID>                           pidController_;
     std::unique_ptr<CleverCoffee::SystemContext>   systemContext_;
 
+    // Handler instances (owned here, registered as non-owning pointers in SystemContext)
+    std::unique_ptr<BrewHandler>     brewHandler_;
+    std::unique_ptr<HotWaterHandler> hotWaterHandler_;
+    std::unique_ptr<PowerHandler>    powerHandler_;
+    std::unique_ptr<SteamHandler>    steamHandler_;
+
     // Initialization phases
     bool initializeLogger();
     bool initializeConfiguration();
     bool initializeDisplay();
     bool initializeHardware();
+    bool initializeHandlers();
     bool initializeNetworking();
     bool initializeMQTT();
     bool initializePID();

@@ -36,7 +36,6 @@
 #include <cmath>
 
 // WebSocket functions are now available via WebSocketEvents.h
-// checkBrewActive removed - now accessed via SystemContext->brewHandler()
 extern int  getSignalStrength();
 extern void disableTimer1();
 extern void enableTimer1();

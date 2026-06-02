@@ -80,10 +80,6 @@ std::unique_ptr<ProcessController> processController = nullptr;
 std::unique_ptr<LoopManager> loopManager = nullptr;
 
 #include "clevercoffee/display/DisplayTemplateManager.h"
-#include "clevercoffee/handlers/BrewHandler.h"
-#include "clevercoffee/handlers/HotWaterHandler.h"
-#include "clevercoffee/handlers/PowerHandler.h"
-#include "clevercoffee/handlers/SteamHandler.h"
 
 // Modern C++ initialization helpers
 namespace InitHelpers {
@@ -199,9 +195,7 @@ void setup() {
         // Without LoopManager, the main loop will crash
     }
 
-    // Initialize handler objects and set up references in global state and SystemContext
-    initializeHandlers(systemInitializer->getSystemContext());
-    InitHelpers::logInitResult("Handlers", true);
+    systemInitializer->getSystemContext().markReady();
 
     logMemory("Setup Complete");
     LOGF(INFO, "System setup completed via SystemInitializer - CleverCoffee ready!");

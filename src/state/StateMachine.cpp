@@ -180,9 +180,10 @@ void StateMachine::logStateMachineStatus() const {
 
     // Log context status for debugging
     LOGF(DEBUG,
-         "Context status: Temp=%.1f°C, Tank=%s, Sensors=%s, PID=%s",
+         "Context status: Temp=%.1f°C, Tank=%s, Sensors=%s, PID runtime=%s config=%s",
          context_.getCurrentTemperature(),
          context_.isWaterTankFull() ? "Full" : "Empty",
          context_.hasSensorError() ? "Error" : "OK",
-         context_.isPidEnabled() ? "On" : "Off");
+         context_.isPidRuntimeEnabled() ? "On" : "Off",
+         context_.isPidConfigEnabled() ? "On" : "Off");
 }

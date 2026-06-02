@@ -159,7 +159,8 @@ bool MachineStateContext::isHotWaterActive() const { return false; }
 bool MachineStateContext::isBackflushActive() const { return false; }
 
 // System State Access
-bool          MachineStateContext::isPidEnabled() const { return Config::getInstance().pidEnabled.get(); }
+bool MachineStateContext::isPidRuntimeEnabled() const { return Config::getInstance().pidEnabled.get(); }
+bool MachineStateContext::isPidConfigEnabled() const { return Config::getInstance().pidEnabled.get(); }
 bool          MachineStateContext::isEmergencyStop() const { return emergencyStop_; }
 bool          MachineStateContext::shouldEnterStandby() const { return false; }
 unsigned long MachineStateContext::getStandbyRemainingTime() const { return 0; }
@@ -178,6 +179,7 @@ void MachineStateContext::setHotWaterActivity(bool /*active*/) noexcept {}
 // Control Functions
 void MachineStateContext::setSteamMode(bool /*enabled*/) const {}
 void MachineStateContext::setPidRuntimeState(bool /*enabled*/) const {}
+void MachineStateContext::setUserPidEnabled(bool /*enabled*/) const {}
 void MachineStateContext::performSafeShutdown() const {}
 void MachineStateContext::setManualFlushState(bool /*active*/) const {}
 void MachineStateContext::setSteamState(bool active) { steamON_ = active; }
@@ -234,7 +236,7 @@ void  MachineStateContext::setDisplayPowerSave(int /*mode*/) const {}
 // Logging Functions
 void MachineStateContext::logStateTransition(MachineStateId /*from*/, MachineStateId /*to*/, const char* /*reason*/) const {}
 MachineStateId MachineStateContext::getPidState() const noexcept {
-    return isPidEnabled() ? MachineStateId::PID_NORMAL : MachineStateId::PID_DISABLED;
+    return isPidConfigEnabled() ? MachineStateId::PID_NORMAL : MachineStateId::PID_DISABLED;
 }
 void MachineStateContext::logStateEntry(MachineStateId /*stateId*/, const char* /*stateName*/) const {}
 void MachineStateContext::logStateExit(MachineStateId /*stateId*/, const char* /*stateName*/) const {}

@@ -3,10 +3,7 @@
 #include "clevercoffee/Logger.h"
 #include "clevercoffee/control/ProcessController.h"
 #include "clevercoffee/defaults.h"
-#include "clevercoffee/handlers/BrewHandler.h"
-#include "clevercoffee/handlers/HotWaterHandler.h"
-#include "clevercoffee/handlers/PowerHandler.h"
-#include "clevercoffee/handlers/SteamHandler.h"
+#include "clevercoffee/state/MachineStateContext.h"
 
 #include <PID_v1.h> // Required for PID method implementations
 #include <memory>
@@ -492,36 +489,3 @@ extern const char* WIFI_PASSWORD;
 
 // WiFi password definition
 const char* WIFI_PASSWORD = WM_PASS;
-
-// ===== HANDLER INSTANCES =====
-
-// Handler instances (static storage duration, created during initialization)
-// These are created in initializeHandlers() with SystemContext reference
-static std::unique_ptr<BrewHandler>     brewHandler;
-static std::unique_ptr<HotWaterHandler> hotWaterHandler;
-static std::unique_ptr<PowerHandler>    powerHandler;
-static std::unique_ptr<SteamHandler>    steamHandler;
-
-// ===== HANDLER INITIALIZATION FUNCTION =====
-
-void initializeHandlers(CleverCoffee::SystemContext& systemContext) {
-    // Create handlers with SystemContext reference and Config (required)
-    const auto& config = Config::getInstance();
-    brewHandler        = std::make_unique<BrewHandler>(systemContext, config);
-    hotWaterHandler    = std::make_unique<HotWaterHandler>(systemContext, config);
-    powerHandler       = std::make_unique<PowerHandler>(systemContext, config);
-    steamHandler       = std::make_unique<SteamHandler>(systemContext, config);
-
-    // Initialize handler hardware
-    auto& hwContext = systemContext.hardwareContext();
-    brewHandler->setHardware(hwContext.brewSwitch(), hwContext.valveRelay());
-    hotWaterHandler->setHardware(hwContext.hotWaterSwitch());
-    powerHandler->setHardware(hwContext.powerSwitch());
-    steamHandler->setHardware(hwContext.steamSwitch());
-
-    // Register handlers with SystemContext (non-owning pointers)
-    systemContext.setBrewHandler(brewHandler.get());
-    systemContext.setHotWaterHandler(hotWaterHandler.get());
-    systemContext.setPowerHandler(powerHandler.get());
-    systemContext.setSteamHandler(steamHandler.get());
-}
