@@ -97,7 +97,7 @@ importers:
         specifier: ^6.0.2
         version: 6.0.2(vite@8.0.14(@types/node@25.9.1)(esbuild@0.28.0)(jiti@2.6.1)(tsx@4.22.3))
       eslint:
-        specifier: ^10.4.0
+        specifier: ^10.0.0
         version: 10.4.0(jiti@2.6.1)
       eslint-plugin-react-hooks:
         specifier: ^7.1.1
