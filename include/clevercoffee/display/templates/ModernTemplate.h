@@ -287,8 +287,8 @@ class ModernTemplate : public DisplayTemplateBase<ModernTemplate> {
             if (target > 0) {
                 const int percent = constrain(static_cast<int>(current / target * 100.0), 0, 100);
                 fillWidth         = constrain(map(percent, 0, 100, 0, ModernTemplateLayout::kBrewBarW - 2),
-                                      0,
-                                      ModernTemplateLayout::kBrewBarW - 2);
+                                              0,
+                                              ModernTemplateLayout::kBrewBarW - 2);
                 snprintf(targetLabel, sizeof(targetLabel), "/ %.0fg", target);
                 hasTarget  = true;
                 labelProbe = ModernTemplateLayout::kBrewTargetWeightProbe;
@@ -301,8 +301,8 @@ class ModernTemplate : public DisplayTemplateBase<ModernTemplate> {
             if (target > 0) {
                 const int percent = constrain(static_cast<int>(current / target * 100.0), 0, 100);
                 fillWidth         = constrain(map(percent, 0, 100, 0, ModernTemplateLayout::kBrewBarW - 2),
-                                      0,
-                                      ModernTemplateLayout::kBrewBarW - 2);
+                                              0,
+                                              ModernTemplateLayout::kBrewBarW - 2);
                 snprintf(targetLabel, sizeof(targetLabel), "/ %ds", static_cast<int>(target / 1000.0));
                 hasTarget = true;
             }
