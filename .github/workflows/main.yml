@@ -39,16 +39,18 @@ jobs:
 
       - name: Set CLEVERCOFFEE_VERSION
         id: version
-        env:
-          GITHUB_REF_NAME: ${{ github.ref_name }}
         run: |
           if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
             VERSION="${GITHUB_REF#refs/tags/}"
+          elif [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
+            VERSION="4.x.x-${{ github.head_ref }}"
           else
             VERSION="4.x.x-${GITHUB_REF_NAME}"
           fi
+          # upload-artifact rejects / \ : * ? " < > | in names
+          ARTIFACT_VERSION="$(printf '%s' "$VERSION" | tr '/:\\?*\"<>|' '-')"
           echo "CLEVERCOFFEE_VERSION=${VERSION}" >> "${GITHUB_ENV}"
-          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "version=${ARTIFACT_VERSION}" >> "${GITHUB_OUTPUT}"
 
       - name: Build firmware
         run: |
