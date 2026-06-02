@@ -23,6 +23,8 @@ jobs:
 
       - name: Inject slug env
         uses: rlespinasse/github-slug-action@v5
+        with:
+          short-length: 6
 
       - uses: actions/setup-python@v6
         with:
@@ -47,8 +49,10 @@ jobs:
             VERSION="${GITHUB_REF#refs/tags/}"
             ARTIFACT_SLUG="${GITHUB_REF_NAME_SLUG_URL}"
           else
-            VERSION="4.x.x-${GITHUB_REF_POINT}"
-            ARTIFACT_SLUG="4-x-x-${GITHUB_REF_POINT_SLUG_URL}"
+            BRANCH_SLUG="${GITHUB_REF_POINT_SLUG:0:6}"
+            SHA_SHORT="${GITHUB_SHA:0:6}"
+            VERSION="dev-${BRANCH_SLUG}-${SHA_SHORT}"
+            ARTIFACT_SLUG="${VERSION}"
           fi
           echo "CLEVERCOFFEE_VERSION=${VERSION}" >> "${GITHUB_ENV}"
           echo "version=${ARTIFACT_SLUG}" >> "${GITHUB_OUTPUT}"
@@ -59,6 +63,7 @@ jobs:
           pio run -e esp32_ota
         env:
           CLEVERCOFFEE_VERSION: ${{ env.CLEVERCOFFEE_VERSION }}
+          PLATFORMIO_BUILD_FLAGS: '-D VERSION=\"${{ env.CLEVERCOFFEE_VERSION }}\"'
 
       - name: Run native tests
         run: pio test -e native_test

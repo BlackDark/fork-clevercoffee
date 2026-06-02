@@ -14,7 +14,7 @@ export default defineConfig(() => {
   const config: UserConfig = {
     plugins: [react(), tailwindcss(), gzipPlugin()],
     define: {
-      APP_VERSION: JSON.stringify(process.env.npm_package_version),
+      APP_VERSION: JSON.stringify(process.env.VITE_APP_VERSION ?? "dev"),
     },
     resolve: {
       alias: {
