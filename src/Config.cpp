@@ -193,14 +193,50 @@ void Config::resetAllToDefaults() {
     LOG(INFO, "Config: All parameters reset to defaults");
 }
 
+namespace {
+
+bool importParameterFromJson(ConfigParamDef* param, JsonVariantConst valueVariant) {
+    if (valueVariant.isNull()) {
+        return false;
+    }
+
+    JsonVariantConst importValue = valueVariant;
+    if (valueVariant.is<JsonObject>()) {
+        JsonObjectConst paramObj = valueVariant.as<JsonObjectConst>();
+        if (!paramObj["value"].is<JsonVariantConst>()) {
+            return false;
+        }
+        importValue = paramObj["value"];
+    }
+
+    if (importValue.is<bool>()) {
+        return param->fromString(importValue.as<bool>() ? String("true") : String("false"));
+    }
+    if (importValue.is<int>() || importValue.is<long>()) {
+        return param->fromString(String(importValue.as<long>()));
+    }
+    if (importValue.is<double>() || importValue.is<float>()) {
+        return param->fromString(String(importValue.as<double>()));
+    }
+    if (importValue.is<const char*>()) {
+        return param->fromString(String(importValue.as<const char*>()));
+    }
+
+    return false;
+}
+
+} // namespace
+
 String Config::exportToJson() {
     JsonDocument doc;
     JsonObject   root = doc.to<JsonObject>();
 
     auto allParams = getAllConfigParams();
     for (auto* param : allParams) {
-        JsonObject paramObj = root[param->getKey()].to<JsonObject>();
-        param->toJson(paramObj);
+        JsonDocument tempDoc;
+        JsonObject   tempObj = tempDoc.to<JsonObject>();
+        param->toJson(tempObj);
+        root[param->getKey()] = tempObj["value"];
     }
 
     String output;
@@ -224,15 +260,15 @@ bool Config::importFromJson(const String& json) {
     int  updatedCount = 0;
 
     for (auto* param : allParams) {
-        if (doc[param->getKey()].is<JsonObject>()) {
-            JsonObject paramObj = doc[param->getKey()];
-            if (paramObj["value"].is<JsonVariant>()) {
-                if (param->fromString(paramObj["value"])) {
-                    updatedCount++;
-                } else {
-                    LOGF(WARNING, "Config: Failed to import parameter: %s", param->getKey().c_str());
-                }
-            }
+        JsonVariantConst entry = doc[param->getKey()];
+        if (entry.isNull()) {
+            continue;
+        }
+
+        if (importParameterFromJson(param, entry)) {
+            updatedCount++;
+        } else {
+            LOGF(WARNING, "Config: Failed to import parameter: %s", param->getKey().c_str());
         }
     }
 

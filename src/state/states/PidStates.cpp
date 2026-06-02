@@ -45,7 +45,7 @@ void PidNormalState::update(MachineStateContext& context) {
 
 std::optional<MachineStateId> PidNormalState::checkSpecificTransitions(MachineStateContext& context) {
     // CRITICAL: Check if PID was disabled while in this state
-    if (!context.isPidEnabled()) {
+    if (!context.isPidRuntimeEnabled()) {
         context.logStateTransition(getStateId(), MachineStateId::PID_DISABLED, "PID disabled");
         return MachineStateId::PID_DISABLED;
     }
@@ -120,11 +120,11 @@ void PidDisabledState::update(MachineStateContext& context) {
     LOGF(DEBUG,
          "PID Disabled: Temp=%.1f°C, PidEnabled=%s",
          context.getCurrentTemperature(),
-         context.isPidEnabled() ? "YES" : "NO");
+         context.isPidRuntimeEnabled() ? "YES" : "NO");
 }
 
 std::optional<MachineStateId> PidDisabledState::checkSpecificTransitions(MachineStateContext& context) {
-    if (context.isPidEnabled()) {
+    if (context.isPidRuntimeEnabled()) {
         context.logStateTransition(getStateId(), MachineStateId::PID_NORMAL, "PID enabled");
         return MachineStateId::PID_NORMAL;
     }

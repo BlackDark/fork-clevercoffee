@@ -81,7 +81,8 @@ class MockMachineStateContext {
     MOCK_METHOD(bool, isBackflushActive, (), (const));
 
     // === System State Access ===
-    MOCK_METHOD(bool, isPidEnabled, (), (const));
+    MOCK_METHOD(bool, isPidRuntimeEnabled, (), (const));
+    MOCK_METHOD(bool, isPidConfigEnabled, (), (const));
     MOCK_METHOD(bool, isEmergencyStop, (), (const));
     MOCK_METHOD(bool, shouldEnterStandby, (), (const));
     MOCK_METHOD(unsigned long, getStandbyRemainingTime, (), (const));

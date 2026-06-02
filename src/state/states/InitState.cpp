@@ -43,5 +43,5 @@ bool InitState::checkSensors(MachineStateContext& context) const {
 }
 
 bool InitState::checkPidConfig(MachineStateContext& context) const {
-    return context.isPidEnabled();
+    return context.isPidRuntimeEnabled();
 }

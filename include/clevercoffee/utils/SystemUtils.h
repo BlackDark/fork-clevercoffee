@@ -12,14 +12,30 @@
  * These will be gradually moved to more appropriate locations
  */
 
+/**
+ * @brief Set runtime PID state only (no NVS write).
+ *
+ * Use for temporary off states: standby, emergency, safe shutdown, boot when
+ * mirroring config without changing the user's saved preference.
+ */
 inline void setRuntimePidState(CleverCoffee::SystemContext& systemContext, const bool enabled) {
     static std::mutex           pid_mutex;
     std::lock_guard<std::mutex> lock(pid_mutex);
 
     systemContext.setProcessPidEnabled(enabled);
-    // NOTE: Do NOT modify Config - Config is the source of truth for PID enabled state
-    // This function only sets the runtime PID state in SystemContext, not the config
-    // The config value should be preserved and used when transitioning states
+}
+
+/**
+ * @brief User explicitly enabled or disabled PID — persists and activates.
+ *
+ * Use for web UI, MQTT, power-on, and boot paths that reflect user intent.
+ */
+inline void setUserPidEnabled(CleverCoffee::SystemContext& systemContext, const bool enabled) {
+    static std::mutex           pid_mutex;
+    std::lock_guard<std::mutex> lock(pid_mutex);
+
+    (void)Config::getInstance().pidEnabled.set(enabled);
+    systemContext.setProcessPidEnabled(enabled);
 }
 
 inline void setSteamMode(CleverCoffee::SystemContext& systemContext, const bool steamMode) {

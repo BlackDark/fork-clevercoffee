@@ -451,11 +451,9 @@ void WebServerManager::setupApiRoutes() {
         try {
             LOGF(INFO, "/api/pid requested, method: %d", request->method());
 
-            const bool currentPidState = Config::getInstance().pidEnabled.get();
-            const bool newPidState     = !currentPidState;
-            (void)Config::getInstance().pidEnabled.set(newPidState);
-            if (systemContext_) {
-                systemContext_->setProcessPidEnabled(newPidState);
+            const bool newPidState = !Config::getInstance().pidEnabled.get();
+            if (isMachineStateReady(systemContext_)) {
+                systemContext_->machineStateContext()->setUserPidEnabled(newPidState);
                 systemContext_->standbyCoordinator().reset();
                 requestNormalOperation(systemContext_);
             }

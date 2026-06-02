@@ -29,9 +29,10 @@ export const parameterLabelsEN = new Map<string, string>([
   // Brew Control
   ["brew.mode", "Brew Mode"],
   ["brew.by_time.enabled", "Brew by Time"],
-  ["brew.target_time", "Target Brew Time (s)"],
+  ["brew.by_time.target_time", "Target Brew Time (s)"],
   ["brew.by_weight.enabled", "Brew by Weight"],
-  ["brew.target_weight", "Target Brew Weight (g)"],
+  ["brew.by_weight.target_weight", "Target Brew Weight (g)"],
+  ["brew.by_weight.auto_tare", "Auto-tare"],
   ["brew.pre_infusion.enabled", "Pre-Infusion"],
   ["brew.pre_infusion.time", "Pre-infusion Time (s)"],
   ["brew.pre_infusion.pause", "Pre-infusion Pause Time (s)"],

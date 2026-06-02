@@ -75,9 +75,10 @@ export const parameterGroups: ParameterGroup[] = [
     parameters: [
       "brew.mode",
       "brew.by_time.enabled",
-      "brew.target_time",
+      "brew.by_time.target_time",
       "brew.by_weight.enabled",
-      "brew.target_weight",
+      "brew.by_weight.target_weight",
+      "brew.by_weight.auto_tare",
       "brew.pre_infusion.enabled",
       "brew.pre_infusion.time",
       "brew.pre_infusion.pause",

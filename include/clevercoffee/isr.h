@@ -7,6 +7,7 @@
 
 #pragma once
 
+#include "clevercoffee/Logger.h"
 #include "clevercoffee/constants/Timing.h"
 #include "clevercoffee/context/SystemContext.h"
 #include "clevercoffee/hardware/Relay.h"
@@ -123,6 +124,7 @@ static inline void IRAM_ATTR onTimer() {
 inline void initTimer1() {
     auto* ctx = CleverCoffee::ISR::getSystemContext();
     if (!ctx) {
+        LOG(ERROR, "initTimer1: ISR SystemContext not set — heater timer not created");
         return;
     }
     hw_timer_t* timer = timerBegin(0, 80, true);

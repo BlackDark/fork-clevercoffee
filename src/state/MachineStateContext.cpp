@@ -181,7 +181,11 @@ bool MachineStateContext::isBackflushActive() const {
 
 // === System State Access ===
 
-bool MachineStateContext::isPidEnabled() const {
+bool MachineStateContext::isPidRuntimeEnabled() const {
+    return systemContext_.isProcessPidEnabled();
+}
+
+bool MachineStateContext::isPidConfigEnabled() const {
     return Config::getInstance().pidEnabled.get();
 }
 
@@ -280,6 +284,10 @@ void MachineStateContext::setPidRuntimeState(bool enabled) const {
     setRuntimePidState(systemContext_, enabled);
 }
 
+void MachineStateContext::setUserPidEnabled(bool enabled) const {
+    ::setUserPidEnabled(systemContext_, enabled);
+}
+
 void MachineStateContext::performSafeShutdown() const {
     if (auto* processController = systemContext_.processController()) {
         processController->performSafeShutdown();
@@ -311,7 +319,7 @@ void MachineStateContext::logStateTransition(MachineStateId fromState,
 }
 
 MachineStateId MachineStateContext::getPidState() const noexcept {
-    return isPidEnabled() ? MachineStateId::PID_NORMAL : MachineStateId::PID_DISABLED;
+    return isPidConfigEnabled() ? MachineStateId::PID_NORMAL : MachineStateId::PID_DISABLED;
 }
 
 void MachineStateContext::logStateEntry(MachineStateId stateId, const char* stateName) const {

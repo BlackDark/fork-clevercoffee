@@ -24,7 +24,7 @@ void StandbyState::onExitImpl(MachineStateContext& context) {
     context.exitStandbyMode();
     // Restore runtime PID state based on config (config is source of truth)
     // getPidState() will check config and return correct state (PID_NORMAL or PID_DISABLED)
-    const bool configPidEnabled = context.isPidEnabled();
+    const bool configPidEnabled = context.isPidConfigEnabled();
     context.setPidRuntimeState(configPidEnabled);
 }
 

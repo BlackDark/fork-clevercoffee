@@ -69,7 +69,7 @@ class ProcessState {
         pidOutput_ = output;
     }
 
-    // PID Enabled
+    // Runtime PID active flag (see SystemUtils: setRuntimePidState / setUserPidEnabled)
     bool pidEnabled() const noexcept {
         return pidEnabled_;
     }

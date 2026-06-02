@@ -21,6 +21,7 @@
 #include <Arduino.h>
 #include <algorithm>
 #include <cstdio>
+#include <cstring>
 
 // Static instance for callback
 // NOTE: PubSubClient::setCallback() requires a plain C function pointer (void(*)(char*, byte*, unsigned int)),
@@ -97,17 +98,19 @@ void MQTTManager::initializeClient() {
 }
 
 void MQTTManager::checkConnection() {
-    if (!systemContext_) {
+    if (!systemContext_ || !systemContext_->isReady()) {
         return;
     }
 
-    // Early return if MQTT is disabled
     if (!mqttEnabled_) {
         return;
     }
 
-    bool offlineMode = systemContext_->networkCoordinator().isOfflineMode();
-    if (offlineMode || systemContext_->brewHandler().isBrewActive()) {
+    if (systemContext_->networkCoordinator().isOfflineMode()) {
+        return;
+    }
+
+    if (systemContext_->brewHandler().isBrewActive()) {
         return;
     }
 
@@ -267,6 +270,10 @@ void MQTTManager::messageCallback(const char* topic, const byte* data, unsigned 
 }
 
 void MQTTManager::assignParameter(char* param, double value) {
+    if (!systemContext_ || !systemContext_->isReady()) {
+        return;
+    }
+
     try {
         const auto it = mqttVars_.find(param);
 
@@ -276,16 +283,18 @@ void MQTTManager::assignParameter(char* param, double value) {
         }
 
         const char* parameterId = it->second;
+        auto*       stateCtx    = systemContext_->machineStateContext();
 
         LOGF(DEBUG, "Setting MQTT parameter: %s", parameterId);
 
         // Handle special cases that don't map to config parameters
         if (strcmp(parameterId, "STEAM_MODE") == 0) {
-            systemContext_->machineStateContext()->setSteamFirstActivated(static_cast<bool>(value));
+            if (stateCtx) {
+                stateCtx->setSteamFirstActivated(static_cast<bool>(value));
+                stateCtx->setNormalOperationRequested(true);
+            }
             systemContext_->standbyCoordinator().reset();
-            systemContext_->machineStateContext()->setNormalOperationRequested(true);
             (void)publish(param, number2string(value), true);
-            LOGF(DEBUG, "MQTT special parameter %s updated to %f", param, value);
             return;
         } else if (strcmp(parameterId, "BACKFLUSH_ON") == 0) {
             if (!systemContext_->setBackflushMode(static_cast<bool>(value))) {
@@ -294,25 +303,22 @@ void MQTTManager::assignParameter(char* param, double value) {
                 return;
             }
             (void)publish(param, number2string(value), true);
-            LOGF(DEBUG, "MQTT special parameter %s updated to %f", param, value);
             return;
         } else if (strcmp(parameterId, "TARE_ON") == 0) {
             if (sensorCoordinator_) {
                 sensorCoordinator_->setScaleTareMode(static_cast<bool>(value));
             }
             systemContext_->standbyCoordinator().reset();
-            systemContext_->machineStateContext()->setNormalOperationRequested(true);
+            if (stateCtx) stateCtx->setNormalOperationRequested(true);
             (void)publish(param, number2string(value), true);
-            LOGF(DEBUG, "MQTT special parameter %s updated to %f", param, value);
             return;
         } else if (strcmp(parameterId, "CALIBRATION_ON") == 0) {
             if (sensorCoordinator_) {
                 sensorCoordinator_->setScaleCalibrationMode(static_cast<bool>(value));
             }
             systemContext_->standbyCoordinator().reset();
-            systemContext_->machineStateContext()->setNormalOperationRequested(true);
+            if (stateCtx) stateCtx->setNormalOperationRequested(true);
             (void)publish(param, number2string(value), true);
-            LOGF(DEBUG, "MQTT special parameter %s updated to %f", param, value);
             return;
         }
 
@@ -323,7 +329,6 @@ void MQTTManager::assignParameter(char* param, double value) {
             return;
         }
 
-        // Use JsonVariant to set the value (this will handle type conversion)
         JsonDocument valueDoc;
         valueDoc.set(value);
         JsonVariant valueVariant = valueDoc.as<JsonVariant>();
@@ -331,10 +336,11 @@ void MQTTManager::assignParameter(char* param, double value) {
         bool success = paramDef->fromString(valueVariant);
 
         if (success) {
-            systemContext_->standbyCoordinator().reset();
-            if (systemContext_->machineStateContext()) {
-                systemContext_->machineStateContext()->setNormalOperationRequested(true);
+            if (strcmp(parameterId, "pid.enabled") == 0) {
+                systemContext_->setProcessPidEnabled(static_cast<bool>(value));
             }
+            systemContext_->standbyCoordinator().reset();
+            if (stateCtx) stateCtx->setNormalOperationRequested(true);
             (void)publish(param, number2string(value), true);
             LOGF(DEBUG, "MQTT parameter %s (ID: %s) updated to %f", param, parameterId, value);
         } else {
@@ -358,17 +364,21 @@ int MQTTManager::writeSysParamsToMQTT(bool continueOnError) {
     static auto mqttSensorsIt = mqttSensors_.begin();
     static bool inSensors     = false;
 
-    unsigned long currentMillisMQTT = millis();
-    // Check if brewing is active (any non-idle brew state)
-    if (!systemContext_) {
+    if (!systemContext_ || !systemContext_->isReady()) {
         return 0;
     }
 
-    const auto    currentState = systemContext_->machineStateContext()->getCurrentStateId();
-    bool          isBrewActive = (isBrewState(currentState) && currentState != MachineStateId::BREW_FINISHED);
-    unsigned long interval     = isBrewActive                                ? intervalMQTTBrew_
-                                 : (currentState == MachineStateId::STANDBY) ? intervalMQTTStandby_
-                                                                             : intervalMQTT_;
+    auto* stateCtx = systemContext_->machineStateContext();
+    if (!stateCtx) {
+        return 0;
+    }
+
+    unsigned long currentMillisMQTT = millis();
+    const auto    currentState      = stateCtx->getCurrentStateId();
+    bool          isBrewActive      = (isBrewState(currentState) && currentState != MachineStateId::BREW_FINISHED);
+    unsigned long interval          = isBrewActive                                ? intervalMQTTBrew_
+                                      : (currentState == MachineStateId::STANDBY) ? intervalMQTTStandby_
+                                                                                  : intervalMQTT_;
 
     if ((currentMillisMQTT - previousMillisMQTT_ < interval) || !mqttEnabled_ || !mqttClient_.connected()) {
         return 0;
@@ -397,16 +407,10 @@ int MQTTManager::writeSysParamsToMQTT(bool continueOnError) {
             try {
                 // Handle special cases that don't map to config parameters
                 if (strcmp(parameterId, "STEAM_MODE") == 0) {
-                    snprintf(data,
-                             sizeof(data),
-                             "%d",
-                             systemContext_->machineStateContext()->isSteamFirstActivated() ? 1 : 0);
+                    snprintf(data, sizeof(data), "%d", stateCtx->isSteamFirstActivated() ? 1 : 0);
                     paramFound = true;
                 } else if (strcmp(parameterId, "BACKFLUSH_ON") == 0) {
-                    snprintf(data,
-                             sizeof(data),
-                             "%d",
-                             systemContext_->machineStateContext()->isBackflushModeActive() ? 1 : 0);
+                    snprintf(data, sizeof(data), "%d", stateCtx->isBackflushModeActive() ? 1 : 0);
                     paramFound = true;
                 } else if (strcmp(parameterId, "TARE_ON") == 0) {
                     snprintf(data, sizeof(data), "%d", systemContext_->sensorCoordinator().isScaleTareMode() ? 1 : 0);

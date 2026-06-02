@@ -154,7 +154,7 @@ class PowerHandler : public SwitchBasedHandler {
             // Request normal operation through MachineStateContext (proper state transition request)
             // This will automatically reset standby timer on user activity
             context->setNormalOperationRequested(true);
-            setRuntimePidState(systemContext_, true);
+            setUserPidEnabled(systemContext_, true);
             systemContext_.hardwareContext().display()->setPowerSave(0);
             logInfo("System powered on");
         }
