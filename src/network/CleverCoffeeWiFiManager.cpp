@@ -173,7 +173,8 @@ String CleverCoffeeWiFiManager::getSSID() const {
 }
 
 void CleverCoffeeWiFiManager::checkAndMaintainConnection() {
-    static bool wifiConnectedHandled = false;
+    static bool          wifiConnectedHandled = false;
+    static unsigned long lastMonitorLogMs     = 0;
 
     // Check offline mode from NetworkCoordinator
     if (!networkCoordinator_) {
@@ -191,7 +192,7 @@ void CleverCoffeeWiFiManager::checkAndMaintainConnection() {
     // Check circuit breaker - fail fast if circuit is open
     if (!circuitBreaker_->canAttempt(currentTime)) {
         if (!wifiConnectedHandled) {
-            LOGF(WARNING, "WiFi circuit breaker OPEN - skipping reconnection attempt (fail fast)");
+            LOGF(WARNING, "WiFi monitor: circuit breaker OPEN - skipping reconnection attempt");
             wifiConnectedHandled = true;
         }
         return;
@@ -201,8 +202,19 @@ void CleverCoffeeWiFiManager::checkAndMaintainConnection() {
     if (WiFi.status() == WL_CONNECTED) {
         // WiFi is connected - record success and reset retry policy
         if (!wifiConnectedHandled) {
-            LOGF(INFO, "WiFi connected successfully (attempt %u)", retryPolicy_->getCurrentAttempt() + 1);
+            LOGF(INFO,
+                 "WiFi monitor: connected to '%s' (%i.%i.%i.%i), RSSI %d dBm",
+                 WiFi.SSID().c_str(),
+                 WiFi.localIP()[0],
+                 WiFi.localIP()[1],
+                 WiFi.localIP()[2],
+                 WiFi.localIP()[3],
+                 WiFi.RSSI());
             wifiConnectedHandled = true;
+            lastMonitorLogMs     = currentTime;
+        } else if (currentTime - lastMonitorLogMs >= 60000) {
+            LOGF(DEBUG, "WiFi monitor: connected to '%s', RSSI %d dBm", WiFi.SSID().c_str(), WiFi.RSSI());
+            lastMonitorLogMs = currentTime;
         }
         circuitBreaker_->recordSuccess(currentTime);
         retryPolicy_->reset();
@@ -211,7 +223,10 @@ void CleverCoffeeWiFiManager::checkAndMaintainConnection() {
         return;
     }
 
-    // WiFi is not connected - check if we should retry
+    // WiFi is not connected - ensure reconnect log fires when connection is restored
+    wifiConnectedHandled = false;
+
+    // Check if we should retry
     if (!retryPolicy_->shouldRetry()) {
         // Max attempts reached - enter offline mode
         if (!isOfflineMode) {
@@ -225,19 +240,24 @@ void CleverCoffeeWiFiManager::checkAndMaintainConnection() {
 
     // Check if enough time has passed for next retry (exponential backoff)
     if (!retryPolicy_->canRetryNow(currentTime)) {
+        if (currentTime - lastMonitorLogMs >= 60000) {
+            LOGF(INFO,
+                 "WiFi monitor: disconnected, next retry in %lums (attempt %u)",
+                 retryPolicy_->getNextDelay(),
+                 retryPolicy_->getCurrentAttempt());
+            lastMonitorLogMs = currentTime;
+        }
         return; // Wait for backoff period
     }
 
     // Attempt reconnection
-    wifiConnectedHandled = false;
     retryPolicy_->incrementAttempt(currentTime);
     networkCoordinator_->incrementWifiReconnects();
     networkCoordinator_->setLastWifiConnectionAttempt(currentTime);
 
     LOGF(INFO,
-         "Attempting WiFi reconnection: attempt %u/%u (delay: %lums)",
+         "WiFi monitor: reconnect attempt %u (next retry in %lums)",
          retryPolicy_->getCurrentAttempt(),
-         retryPolicy_->isMaxAttemptsReached() ? retryPolicy_->getCurrentAttempt() : 0,
          retryPolicy_->getNextDelay());
 
     WiFi.disconnect();
@@ -255,12 +275,12 @@ void CleverCoffeeWiFiManager::checkAndMaintainConnection() {
         retryPolicy_->reset();
         networkCoordinator_->resetWifiReconnects();
         networkCoordinator_->setWifiConnected(true);
-        LOGF(INFO, "WiFi reconnected successfully on attempt %u", attemptNumber);
+        LOGF(INFO, "WiFi monitor: reconnected on attempt %u", attemptNumber);
     } else {
         // Connection failed - record failure
         circuitBreaker_->recordFailure(currentTime);
-        LOGF(DEBUG,
-             "WiFi reconnection attempt %u failed, next retry in %lums",
+        LOGF(INFO,
+             "WiFi monitor: reconnect attempt %u failed, next retry in %lums",
              retryPolicy_->getCurrentAttempt(),
              retryPolicy_->getNextDelay());
     }

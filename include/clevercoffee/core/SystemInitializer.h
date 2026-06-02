@@ -8,6 +8,8 @@
 #include "clevercoffee/Logger.h"
 
 #include <Arduino.h>
+
+class Watchdog;
 #include <functional>
 #include <memory>
 
@@ -55,8 +57,9 @@ class SystemInitializer {
   public:
     /**
      * @brief Constructor - initializes system initializer
+     * @param watchdog Optional main-loop watchdog for OTA suspend/resume
      */
-    SystemInitializer();
+    explicit SystemInitializer(Watchdog* watchdog = nullptr);
 
     /**
      * @brief Destructor - automatically cleans up resources
@@ -195,6 +198,7 @@ class SystemInitializer {
     std::unique_ptr<WebServerManager>              webServerManager_;
     std::unique_ptr<PID>                           pidController_;
     std::unique_ptr<CleverCoffee::SystemContext>   systemContext_;
+    Watchdog*                                      watchdog_{nullptr};
 
     // Handler instances (owned here, registered as non-owning pointers in SystemContext)
     std::unique_ptr<BrewHandler>     brewHandler_;
@@ -215,6 +219,7 @@ class SystemInitializer {
 
     // Network setup helpers
     void setupWiFi();
+    void setupOtaIntegration();
 
     // Helper methods
     void calculateDerivedValues();

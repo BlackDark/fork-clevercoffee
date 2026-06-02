@@ -23,13 +23,14 @@
 #include "clevercoffee/network/CleverCoffeeWiFiManager.h"
 #include "clevercoffee/network/MQTTManager.h"
 #include "clevercoffee/network/WebServerManager.h"
+#include "clevercoffee/ota.h"
 #include "clevercoffee/types/GlobalTypes.h"
 #include "clevercoffee/ui/OledDriver.h"
+#include "clevercoffee/utils/Resilience.h"
 #include "clevercoffee/utils/SystemUtils.h"
 #include "clevercoffee/utils/memoryUtils.h"
 
 #include <Arduino.h>
-#include <ArduinoOTA.h>
 #include <LittleFS.h>
 #include <PID_v1.h>
 #include <WiFi.h>
@@ -38,15 +39,34 @@
 // Forward declarations
 extern void initTimer1();
 extern void enableTimer1();
+extern void disableTimer1();
+
+namespace {
+
+// Valid for program lifetime — SystemInitializer owns the HardwareManager
+CleverCoffee::HardwareManager* g_otaHardwareManager = nullptr;
+
+void otaPrepareHardware() noexcept {
+    disableTimer1();
+    if (g_otaHardwareManager) {
+        g_otaHardwareManager->disableHeater();
+    }
+}
+
+void otaRestoreHardware() noexcept {
+    enableTimer1();
+}
+
+} // namespace
 
 // namespace DisplayTemplateManager {
 //     extern void initializeDisplay(int templateId);
 // }
 
-SystemInitializer::SystemInitializer()
+SystemInitializer::SystemInitializer(Watchdog* watchdog)
     : systemInitialized_(false), initState_(InitState::NOT_INITIALIZED), hostname_(), displayManager_(nullptr),
       oledDriver_(nullptr), hardwareManager_(nullptr), mqttManager_(nullptr), cleverCoffeeWiFiManager_(nullptr),
-      webServerManager_(nullptr) {}
+      webServerManager_(nullptr), watchdog_(watchdog) {}
 
 SystemInitializer::~SystemInitializer() {
     // Destructor implementation - unique_ptr will automatically clean up resources
@@ -428,11 +448,9 @@ bool SystemInitializer::initializeNetworking() {
 
         // OTA Updates
         if (WiFi.status() == WL_CONNECTED) {
-            String otaPass = Config::getInstance().systemOtaPassword.get();
-            ArduinoOTA.setHostname(Config::getInstance().systemHostname.get().c_str());
-            ArduinoOTA.setPassword(otaPass.c_str());
-            ArduinoOTA.begin();
-            LOG(INFO, "OTA initialized");
+            setupOtaIntegration();
+            const String otaPass = Config::getInstance().systemOtaPassword.get();
+            OTA::initializeArduinoOta(Config::getInstance().systemHostname.get().c_str(), otaPass.c_str());
         }
 
         LOG(INFO, "Network initialization completed");
@@ -441,6 +459,13 @@ bool SystemInitializer::initializeNetworking() {
         LOGF(ERROR, "Network initialization failed: %s", e.what());
         return false;
     }
+}
+
+void SystemInitializer::setupOtaIntegration() {
+    g_otaHardwareManager = hardwareManager_.get();
+    OTA::setWatchdog(watchdog_);
+    OTA::setDisplayContext(systemContext_.get());
+    OTA::setSessionCallbacks({otaPrepareHardware, otaRestoreHardware});
 }
 
 bool SystemInitializer::initializeMQTT() {

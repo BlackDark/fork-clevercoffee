@@ -1,9 +1,6 @@
 /**
  * @file ota.h
  * @brief Over-the-Air (OTA) firmware and filesystem update functionality
- *
- * Supports both firmware updates (to app partition) and filesystem updates (to SPIFFS partition).
- * The filesystem partition label is configured to "spiffs" and should match the partition table.
  */
 
 #pragma once
@@ -14,27 +11,45 @@
 #include <Update.h>
 #include <WiFi.h>
 
+namespace CleverCoffee {
+class SystemContext;
+}
+
+class Watchdog;
+
 namespace OTA {
 
-/**
- * @brief Modern RAII singleton for OTA state management
- * Replaces static variables with proper resource management and thread safety
- */
+namespace Status {
+constexpr const char* Idle        = "idle";
+constexpr const char* Uploading   = "uploading";
+constexpr const char* Downloading = "downloading";
+constexpr const char* Processing  = "processing";
+constexpr const char* Complete    = "complete";
+constexpr const char* Error       = "error";
+} // namespace Status
+
+namespace Type {
+constexpr const char* Firmware   = "firmware";
+constexpr const char* Filesystem = "filesystem";
+} // namespace Type
+
+struct OtaSessionCallbacks {
+    void (*prepareHardware)() noexcept = nullptr;
+    void (*restoreHardware)() noexcept = nullptr;
+};
+
 class OTAStateManager {
   public:
-    // Thread-safe singleton with guaranteed initialization
     static OTAStateManager& getInstance() noexcept {
         static OTAStateManager instance;
         return instance;
     }
 
-    // Delete copy/move constructors and assignment operators
     OTAStateManager(const OTAStateManager&)            = delete;
     OTAStateManager& operator=(const OTAStateManager&) = delete;
     OTAStateManager(OTAStateManager&&)                 = delete;
     OTAStateManager& operator=(OTAStateManager&&)      = delete;
 
-    // State access methods with proper encapsulation
     [[nodiscard]] bool isUpdateStarted() const noexcept {
         return updateStarted_;
     }
@@ -63,10 +78,11 @@ class OTAStateManager {
         return lastStatusUpdate_;
     }
 
-    // State modification methods
     void setUpdateStarted(bool started) noexcept {
         updateStarted_ = started;
-        if (started) lastStatusUpdate_ = millis();
+        if (started) {
+            lastStatusUpdate_ = millis();
+        }
     }
     void setTotalSize(size_t size) noexcept {
         totalSize_ = size;
@@ -83,7 +99,7 @@ class OTAStateManager {
         updateError_  = error;
         errorMessage_ = message;
         if (error) {
-            updateStatus_     = "error";
+            updateStatus_     = Status::Error;
             lastStatusUpdate_ = millis();
         }
     }
@@ -95,7 +111,6 @@ class OTAStateManager {
         updateType_ = type;
     }
 
-    // Reset all state to initial values
     void resetState() noexcept {
         updateStarted_   = false;
         totalSize_       = 0;
@@ -103,120 +118,75 @@ class OTAStateManager {
         currentProgress_ = 0;
         updateError_     = false;
         errorMessage_.clear();
-        updateStatus_ = "idle";
+        updateStatus_ = Status::Idle;
         updateType_.clear();
         lastStatusUpdate_ = 0;
     }
 
-    // Convenience method to check if any update is in progress
     [[nodiscard]] bool isUpdateInProgress() const noexcept {
         return updateStarted_ || Update.isRunning() ||
-               (updateStatus_ != "idle" && updateStatus_ != "complete" && updateStatus_ != "error");
+               (updateStatus_ != Status::Idle && updateStatus_ != Status::Complete && updateStatus_ != Status::Error);
     }
 
   private:
-    // Private constructor for singleton pattern
     OTAStateManager() noexcept {
         resetState();
     }
 
     ~OTAStateManager() = default;
 
-    // State variables (previously static)
     bool          updateStarted_{false};
     size_t        totalSize_{0};
     size_t        uploadedSize_{0};
     uint8_t       currentProgress_{0};
     bool          updateError_{false};
     String        errorMessage_{};
-    String        updateStatus_{"idle"}; // idle, uploading, processing, complete, error
-    String        updateType_{};         // firmware, filesystem, url
+    String        updateStatus_{Status::Idle};
+    String        updateType_{};
     unsigned long lastStatusUpdate_{0};
 };
 
-/**
- * @brief Initialize OTA functionality and register web server routes
- * @param server Reference to the AsyncWebServer instance
- */
 void setup(AsyncWebServer& server);
 
-/**
- * @brief Perform OTA update from a URL
- * @param url The URL to download firmware from
- * @return true if update was successful, false otherwise
- */
+void setWatchdog(Watchdog* watchdog) noexcept;
+void setDisplayContext(CleverCoffee::SystemContext* context) noexcept;
+void setSessionCallbacks(OtaSessionCallbacks callbacks) noexcept;
+
+void beginSession(const char* updateType) noexcept;
+void endSessionSuccess() noexcept;
+void endSessionError(const String& message) noexcept;
+
+void reportProgress(uint8_t percent) noexcept;
+
+[[nodiscard]] bool isActive() noexcept;
+void               runMainLoopTick() noexcept;
+
+void scheduleRestart(unsigned long delayMs = 1000) noexcept;
+void pollPendingRestart() noexcept;
+
+void refreshDisplay(CleverCoffee::SystemContext& context) noexcept;
+
+void initializeArduinoOta(const char* hostname, const char* password);
+
 bool updateFromURL(const String& url);
 
-/**
- * @brief Handle firmware file upload for OTA updates
- * @param request The web server request
- * @param filename Name of the uploaded file
- * @param index Current position in the file
- * @param data Chunk of file data
- * @param len Length of the data chunk
- * @param final True if this is the last chunk
- */
 void handleFirmwareUpload(
     AsyncWebServerRequest* request, const String& filename, size_t index, uint8_t* data, size_t len, bool final);
 
-/**
- * @brief Handle filesystem file upload for OTA updates
- * @param request The web server request
- * @param filename Name of the uploaded file
- * @param index Current position in the file
- * @param data Chunk of file data
- * @param len Length of the data chunk
- * @param final True if this is the last chunk
- */
 void handleFilesystemUpload(
     AsyncWebServerRequest* request, const String& filename, size_t index, uint8_t* data, size_t len, bool final);
 
-/**
- * @brief Handle OTA update from URL endpoint
- * @param request The web server request
- */
 void handleURLUpdate(AsyncWebServerRequest* request);
-
-/**
- * @brief Handle OTA status endpoint
- * @param request The web server request
- */
 void handleStatus(AsyncWebServerRequest* request);
 
-/**
- * @brief Get current OTA update progress
- * @return Progress percentage (0-100)
- */
-uint8_t getProgress();
-
-/**
- * @brief Check if OTA update is currently running
- * @return true if update is in progress
- */
-bool isRunning();
-
-/**
- * @brief Check if any OTA update is in progress (including preparation phases)
- * @return true if update is in progress or being prepared
- */
-bool isUpdateInProgress();
-
-/**
- * @brief Get the filesystem partition label
- * @return Filesystem partition label string
- */
-const char* getFilesystemPartitionLabel();
-
-/**
- * @brief Check if there was an OTA error
- * @return true if there was an error
- */
-bool hasError();
-
-/**
- * @brief Get the last OTA error message
- * @return Error message string
- */
-String getErrorMessage();
+[[nodiscard]] uint8_t       getProgress();
+[[nodiscard]] bool          isRunning();
+[[nodiscard]] bool          isUpdateInProgress();
+[[nodiscard]] const char*   getFilesystemPartitionLabel();
+[[nodiscard]] bool          hasError();
+[[nodiscard]] String        getErrorMessage();
+[[nodiscard]] const String& getUpdateStatus() noexcept;
+[[nodiscard]] const String& getUpdateType() noexcept;
+[[nodiscard]] bool          shouldShowOtaDisplay() noexcept;
 
 } // namespace OTA

@@ -302,6 +302,7 @@ public:
     void println(unsigned int) {}
     void println(double) {}
     void flush() {}
+    size_t write(const uint8_t*, size_t len) { return len; }
     int available() { return 0; }
     int read() { return -1; }
     operator bool() const { return true; }  // Contextually convertible to bool (required by Logger.cpp)
@@ -330,6 +331,9 @@ public:
     int connect(const char*, uint16_t) { return 0; }
     int connected() { return 0; }
     void stop() {}
+    void flush() {}
+    void setNoDelay(bool) {}
+    int availableForWrite() { return 512; }
     size_t write(const uint8_t*, size_t) { return 0; }
     size_t write(const char* str) { return str ? strlen(str) : 0; }  // Overload for const char*
     int available() { return 0; }

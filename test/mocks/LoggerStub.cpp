@@ -94,7 +94,3 @@ bool Logger::formatLogMessage(Level level, const char* file, const char* functio
     (void)bufferSize;
     return false;
 }
-
-void Logger::sendLogMessage(const char* message) {
-    (void)message;
-}

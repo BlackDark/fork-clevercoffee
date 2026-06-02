@@ -9,6 +9,7 @@
 #include "clevercoffee/constants/Timing.h"
 #include "clevercoffee/display/DisplayBrewTimerState.h"
 #include "clevercoffee/display/DisplayFullscreenModes.h"
+#include "clevercoffee/display/DisplayOtaScreen.h"
 #include "clevercoffee/display/DisplaySystemScreens.h"
 #include "clevercoffee/display/DisplayTemplatePolicy.h"
 #include "clevercoffee/display/DisplayWidgets.h"
@@ -34,6 +35,11 @@ class DisplayTemplateBase {
 
     void printScreen() {
         if (!systemContext_) {
+            return;
+        }
+
+        if (CleverCoffee::Display::drawOtaScreen(*systemContext_)) {
+            systemContext_->setDisplayBufferReady(false);
             return;
         }
 

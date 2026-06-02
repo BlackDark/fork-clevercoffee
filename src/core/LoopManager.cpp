@@ -25,6 +25,7 @@
 #include "clevercoffee/hardware/Relay.h"
 #include "clevercoffee/network/MQTTManager.h"
 #include "clevercoffee/network/WebServerManager.h"
+#include "clevercoffee/ota.h"
 #include "clevercoffee/state/StateMachine.h"
 #include "clevercoffee/types/GlobalTypes.h"
 #include "clevercoffee/ui/OledDriver.h"
@@ -32,6 +33,7 @@
 
 #include <Arduino.h>
 #include <ArduinoOTA.h>
+#include <Update.h>
 #include <WiFi.h>
 #include <cmath>
 
@@ -114,6 +116,12 @@ void LoopManager::update() {
     Logger::update();
     if (performanceMonitoringEnabled_) {
         loggerTime = millis() - stepStart;
+    }
+
+    if (OTA::isActive()) {
+        OTA::runMainLoopTick();
+        Logger::update();
+        return;
     }
 
     // 2. Hardware updates (water tank, process control, LEDs)

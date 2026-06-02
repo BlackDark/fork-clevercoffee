@@ -105,6 +105,37 @@ Treat layout regressions (cut-off text, overlapping rows, shifting numbers, misa
 - **CI runs on Ubuntu/GCC**: Local macOS builds use Clang. GCC may treat certain warnings differently. Always verify test compilation conceptually against both compilers.
 - **Test include model**: Tests use `test_build_src=false` and `#include` source `.cpp` files directly. Be careful with transitive includes — a new header pulled in via a stub can break unrelated tests.
 
+## Integration Testing
+
+See `docs/integration-tests.md` for the full manual integration test checklist.
+
+### When the user asks for a full integration test flow
+
+Run every section in `docs/integration-tests.md` in order. For each item:
+
+1. Execute the check (curl, pio command, browser action).
+2. Record PASS/FAIL with the actual output.
+3. Stop at the first FAIL — diagnose and fix before continuing.
+4. Report a summary table at the end.
+
+### Keeping the checklist current
+
+When you discover a new critical scenario during development (crash, OOM, endpoint failure, timing bug, etc.), **add it to `docs/integration-tests.md`** immediately — do not wait for a separate task. The checklist must always reflect every known failure mode.
+
+Examples of things that should be added:
+- A new API endpoint that handles large payloads
+- A concurrency scenario that caused a crash
+- A new OTA/upload path
+- A hardware interaction that can hang the device
+
+### ESP32 heap awareness
+
+ESP32 has ~320 KB total RAM. Keep these rules in mind:
+- **Static buffers** in singletons (Logger ring buffer, history arrays) must be sized conservatively. Always calculate total static RAM cost.
+- **Large JSON responses** must use `AsyncJsonResponse` (chunked streaming), never serialize to an intermediate `String` then copy into `request->send()`.
+- **WiFi logging** (telnet) must be shed under heap pressure — disconnect the client rather than crash the device.
+- After any change to buffer sizes or response handling, verify `/api/parameters?filter=all` still returns full JSON with telnet connected.
+
 ## Regarding Dependencies:
 - Avoid introducing new external dependencies unless absolutely necessary.
 - If a new dependency is required, please state the reason.
