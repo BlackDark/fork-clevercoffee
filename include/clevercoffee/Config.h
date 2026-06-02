@@ -1363,6 +1363,20 @@ class Config {
                                         1203,
                                         "Password for accessing the website and authenticating web requests"};
 
+    ParamDef<String> systemWifiSsid{"system.wifi.ssid",
+                                    WIFI_SSID_DEFAULT,
+                                    "WiFi SSID",
+                                    9,
+                                    1204,
+                                    "WiFi SSID to connect to directly (leave empty to use the configuration portal)"};
+
+    ParamDef<String> systemWifiPassword{"system.wifi.password",
+                                        WIFI_PASSWORD_DEFAULT,
+                                        "WiFi Password",
+                                        9,
+                                        1205,
+                                        "WiFi password for direct connection (leave empty for open networks)"};
+
     ParamDef<bool> systemTimingDebugEnabled{"system.timing_debug.enabled",
                                             false,
                                             "Loop timing in console",
@@ -1506,6 +1520,17 @@ class Config {
     // JSON export/import
     String             exportToJson();
     [[nodiscard]] bool importFromJson(const String& json);
+
+    /**
+     * @brief Seed NVS from /config.json in LittleFS on first boot.
+     *
+     * Only runs once (guarded by a "_seeded" flag in NVS). Useful for factory
+     * provisioning and Wokwi simulations where NVS starts empty every run.
+     * LittleFS must be mounted before calling this.
+     *
+     * @return true if values were imported, false if skipped or failed.
+     */
+    [[nodiscard]] bool seedFromLittleFS();
 
     // Web interface support
     void getAllParameters(JsonArray& array, const String& filter = "");

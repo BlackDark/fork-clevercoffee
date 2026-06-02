@@ -83,19 +83,45 @@ bool CleverCoffeeWiFiManager::attemptConnection(const String&                   
         LOG(INFO, "Connecting to WiFi");
     }
 
+    // Disable loop WDT: WiFi operations can legitimately block 10–60+ seconds during setup
+    disableLoopWDT();
+
+    const String wifiSsid     = Config::getInstance().systemWifiSsid.get();
+    const String wifiPassword = Config::getInstance().systemWifiPassword.get();
+    if (!wifiSsid.isEmpty()) {
+        LOGF(INFO, "Connecting to WiFi from config: %s", wifiSsid.c_str());
+        if (wifiPassword.isEmpty()) {
+            WiFi.begin(wifiSsid.c_str());
+        } else {
+            WiFi.begin(wifiSsid.c_str(), wifiPassword.c_str());
+        }
+
+        const unsigned long start = millis();
+        while (WiFi.status() != WL_CONNECTED && (millis() - start) < 10000) {
+            delay(100);
+        }
+
+        if (WiFi.status() == WL_CONNECTED) {
+            enableLoopWDT();
+            return true;
+        }
+
+        // Explicit SSID configured but unavailable — run offline, no portal
+        LOG(WARNING, "WiFi: configured network unavailable, running in offline mode");
+        enableLoopWDT();
+        return false;
+    }
+
     wifiManager_->setEnableConfigPortal(false); // doesn't start config portal within autoconnect
     wifiManager_->setDisableConfigPortal(true); // disables config portal on wifi save
     bool wifiConnected = wifiManager_->autoConnect(hostname.c_str(), password.c_str());
 
     if (!wifiConnected) {
-        wifiManager_->setConfigPortalTimeout(1);  // prompt config portal to update password
-        wifiConnected = wifiManager_->startConfigPortal(hostname.c_str(), password.c_str());
-        wifiManager_->setConfigPortalTimeout(60); // sec timeout for captive portal
-
         if (Config::getInstance().hardwareOledEnabled.get() && displayCallback) {
             displayCallback("Starting Portal AP", hostname.c_str());
         }
 
+        wifiManager_->setConfigPortalTimeout(60);
         wifiConnected = wifiManager_->startConfigPortal(hostname.c_str(), password.c_str());
         if (wifiConnected) {
             restartAfterAP_ = true;
@@ -103,6 +129,7 @@ bool CleverCoffeeWiFiManager::attemptConnection(const String&                   
         }
     }
 
+    enableLoopWDT();
     return wifiConnected;
 }
 

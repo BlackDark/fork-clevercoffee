@@ -56,8 +56,10 @@ constexpr unsigned long WIFICONNECTIONDELAY = 10000; // delay between reconnects
 #define MQTT_HASSIO_PREFIX "homeassistant"           // default MQTT prefix for Home Assistant
 constexpr int SCREEN_WIDTH  = 128;                   // OLED display width, in pixels
 constexpr int SCREEN_HEIGHT = 64;                    // OLED display height, in pixels
-#define AUTH_PASSWORD "admin"                        // default password for web authentication
-#define AUTH_USERNAME "admin"                        // default username for web authentication
+#define AUTH_PASSWORD         "admin"                // default password for web authentication
+#define AUTH_USERNAME         "admin"                // default username for web authentication
+#define WIFI_SSID_DEFAULT     ""                     // default wifi ssid (empty = use portal)
+#define WIFI_PASSWORD_DEFAULT ""                     // default wifi password (empty = open)
 
 // Parameter range limits - converted to constexpr for type safety
 constexpr double PID_KP_REGULAR_MIN            = 0.0;
@@ -119,6 +121,8 @@ constexpr int    PASSWORD_MAX_LENGTH           = 64;
 constexpr int    MQTT_TOPIC_MAX_LENGTH         = 48;
 constexpr int    MQTT_HASSIO_PREFIX_MAX_LENGTH = 24;
 constexpr int    HOSTNAME_MAX_LENGTH           = 64;
+constexpr int    WIFI_SSID_MAX_LENGTH          = 32;
+constexpr int    WIFI_PASSWORD_MAX_LENGTH      = 64;
 
 #ifndef VERSION
 #define VERSION "4.x.x-dev"
