@@ -21,6 +21,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Inject slug env
+        uses: rlespinasse/github-slug-action@v5
+
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
@@ -42,15 +45,13 @@ jobs:
         run: |
           if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
             VERSION="${GITHUB_REF#refs/tags/}"
-          elif [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
-            VERSION="4.x.x-${{ github.head_ref }}"
+            ARTIFACT_SLUG="${GITHUB_REF_NAME_SLUG_URL}"
           else
-            VERSION="4.x.x-${GITHUB_REF_NAME}"
+            VERSION="4.x.x-${GITHUB_REF_POINT}"
+            ARTIFACT_SLUG="4-x-x-${GITHUB_REF_POINT_SLUG_URL}"
           fi
-          # upload-artifact rejects / \ : * ? " < > | in names
-          ARTIFACT_VERSION="$(printf '%s' "$VERSION" | tr '/:\\?*\"<>|' '-')"
           echo "CLEVERCOFFEE_VERSION=${VERSION}" >> "${GITHUB_ENV}"
-          echo "version=${ARTIFACT_VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "version=${ARTIFACT_SLUG}" >> "${GITHUB_OUTPUT}"
 
       - name: Build firmware
         run: |
