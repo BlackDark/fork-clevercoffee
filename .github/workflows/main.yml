@@ -4,19 +4,26 @@ on:
   push:
     branches:
       - main
-      - master
   pull_request:
-    branches-ignore:
+    branches:
       - main
-      - master
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
         with:
-          fetch-depth: 0
+          python-version: "3.13"
 
       - uses: actions/cache@v5
         with:
@@ -27,43 +34,34 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pio-
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-
-      - name: Install PlatformIO Core
+      - name: Install PlatformIO
         run: pip install --upgrade platformio
-
-      - name: Inject slug/short variables
-        uses: rlespinasse/github-slug-action@v5
 
       - name: Set CLEVERCOFFEE_VERSION
         id: version
+        env:
+          GITHUB_REF_NAME: ${{ github.ref_name }}
         run: |
           if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
-            # If it's a tag, use the tag name
-            VERSION=${GITHUB_REF#refs/tags/}
-            echo "Using tag version: $VERSION"
+            VERSION="${GITHUB_REF#refs/tags/}"
           else
-            # If it's not a tag, use 4.x.x-<branchname>
-            VERSION="4.x.x-${GITHUB_REF_SLUG}"
-            echo "Using branch version: $VERSION"
+            VERSION="4.x.x-${GITHUB_REF_NAME}"
           fi
-          echo "CLEVERCOFFEE_VERSION=$VERSION" >> $GITHUB_ENV
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "CLEVERCOFFEE_VERSION=${VERSION}" >> "${GITHUB_ENV}"
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
 
-      - name: Build PlatformIO Project
+      - name: Build firmware
         run: |
           pio run -e esp32_usb
           pio run -e esp32_ota
         env:
           CLEVERCOFFEE_VERSION: ${{ env.CLEVERCOFFEE_VERSION }}
 
-      - name: Run Native Tests
+      - name: Run native tests
         run: pio test -e native_test
 
       - name: Upload firmware artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: clevercoffee-firmware-${{ steps.version.outputs.version }}
           path: |

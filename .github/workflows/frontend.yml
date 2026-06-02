@@ -4,52 +4,45 @@ on:
   push:
     branches:
       - main
-      - master
     paths:
-      - 'ui/**'
-      - '.github/workflows/frontend.yml'
+      - "ui/**"
+      - ".github/workflows/frontend.yml"
   pull_request:
-    branches-ignore:
+    branches:
       - main
-      - master
     paths:
-      - 'ui/**'
-      - '.github/workflows/frontend.yml'
+      - "ui/**"
+      - ".github/workflows/frontend.yml"
+
+concurrency:
+  group: frontend-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   frontend:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v6
         with:
-          fetch-depth: 0
+          version: 10
 
       - uses: actions/setup-node@v6
         with:
-          node-version: '22'
-
-      - uses: pnpm/action-setup@v5
-        with:
-          version: '10'
-
-      - name: Get pnpm store directory
-        shell: bash
-        run: |
-          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
-
-      - name: Setup pnpm cache
-        uses: actions/cache@v5
-        with:
-          path: ${{ env.STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: ui/pnpm-lock.yaml
 
       - name: Install dependencies
         working-directory: ui
-        run: |
-          echo "${{ env.HOME }}/.local/share/pnpm" >> $GITHUB_PATH
-          pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
       - name: Lint
         working-directory: ui/packages/frontend

@@ -4,19 +4,26 @@ on:
   push:
     branches:
       - main
-      - master
   pull_request:
-    branches-ignore:
+    branches:
       - main
-      - master
+
+concurrency:
+  group: format-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   format:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
         with:
-          fetch-depth: 0
+          python-version: "3.13"
 
       - uses: actions/cache@v5
         with:
@@ -27,15 +34,8 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pio-
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-
-      - name: Install PlatformIO Core
+      - name: Install PlatformIO
         run: pip install --upgrade platformio
 
-      - name: Check format
+      - name: Check clang-format
         run: pio run -e esp32_usb --target check-format
-
-      - name: Run Native Tests
-        run: pio test -e native_test

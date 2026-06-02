@@ -11,9 +11,9 @@
 #include "clevercoffee/utils/Resilience.h"
 #include "clevercoffee/utils/helperUtils.h"
 
+#include <Arduino.h>
 #include <ArduinoJson.h>
 #include <ArduinoOTA.h>
-#include <Arduino.h>
 
 namespace OTA {
 

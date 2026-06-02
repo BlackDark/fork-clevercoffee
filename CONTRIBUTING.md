@@ -114,7 +114,7 @@ In the following, the chosen coding standards are briefly summarized. The corres
 5. **Choose the correct target branch for your pull request:**  
    - For new features or improvements, open the PR against the `develop` branch.  
    - If the bug is in `develop`, target the `develop` branch.
-   - If fixing a bug found in `master`, open the PR against `master`.  
+   - If fixing a bug found in `main`, open the PR against `main`.  
    
 ## Code Review Process
 

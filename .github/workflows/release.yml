@@ -8,13 +8,19 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
         with:
-          fetch-depth: 0
+          python-version: "3.13"
 
       - uses: actions/cache@v5
         with:
@@ -25,39 +31,23 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pio-
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-
-      - name: Install PlatformIO Core
+      - name: Install PlatformIO
         run: pip install --upgrade platformio
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10
 
       - uses: actions/setup-node@v6
         with:
           node-version: "22"
-
-      - uses: pnpm/action-setup@v5
-        with:
-          version: "10"
-
-      - name: Get pnpm store directory
-        shell: bash
-        run: |
-          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
-
-      - name: Setup pnpm cache
-        uses: actions/cache@v5
-        with:
-          path: ${{ env.STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-
+          cache: pnpm
+          cache-dependency-path: ui/pnpm-lock.yaml
 
       - name: Set CLEVERCOFFEE_VERSION
         run: |
-          VERSION=${GITHUB_REF#refs/tags/}
-          echo "Using tag version: $VERSION"
-          echo "CLEVERCOFFEE_VERSION=$VERSION" >> $GITHUB_ENV
+          VERSION="${GITHUB_REF#refs/tags/}"
+          echo "CLEVERCOFFEE_VERSION=${VERSION}" >> "${GITHUB_ENV}"
 
       - name: Build firmware
         run: pio run -e esp32_usb
@@ -82,9 +72,10 @@ jobs:
           done
 
       - name: Generate release notes
+        env:
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
         run: |
-          TAG="${GITHUB_REF_NAME}"
-          REPO="${{ github.repository }}"
           BASE="https://github.com/${REPO}/releases/download/${TAG}"
 
           printf '%s\n' \
@@ -130,7 +121,7 @@ jobs:
             > release_notes.md
 
       - name: Publish GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           name: CleverCoffee ${{ github.ref_name }}
           body_path: release_notes.md
