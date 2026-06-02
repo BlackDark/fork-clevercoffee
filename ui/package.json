@@ -9,7 +9,7 @@
     "prepare-esp": "pnpm --filter @clevercoffee/frontend build && pnpm run copy:dist",
     "copy:dist": "rimraf ../data/ui && mkdir -p ../data/ui && mv packages/frontend/dist ../data/ui"
   },
-  "packageManager": "pnpm@11.2.2",
+  "packageManager": "pnpm@11.5.0",
   "devDependencies": {
     "concurrently": "^9.2.1",
     "rimraf": "^6.1.3"
