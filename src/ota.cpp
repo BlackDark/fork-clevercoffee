@@ -13,7 +13,7 @@
 
 #include <ArduinoJson.h>
 #include <ArduinoOTA.h>
-#include <ESP.h>
+#include <Arduino.h>
 
 namespace OTA {
 
