@@ -125,7 +125,7 @@ constexpr int    WIFI_SSID_MAX_LENGTH          = 32;
 constexpr int    WIFI_PASSWORD_MAX_LENGTH      = 64;
 
 #ifndef VERSION
-#define VERSION "dev-unknown"
+#define VERSION "dev"
 #endif
 
 // Conditional code removal

@@ -66,7 +66,7 @@
 
 ### Pre-build Scripts
 
-- `auto_firmware_version.py`: Sets `VERSION` from `CLEVERCOFFEE_VERSION` (CI) or `dev-<branch6>-<commit6>` locally
+- CI sets `CLEVERCOFFEE_VERSION` and `PLATFORMIO_BUILD_FLAGS=-D VERSION=\"…\"`; local builds use `dev` from `defaults.h` unless you export both env vars
 - `run_clangformat.py`: Formats code before build
 - `build_frontend.py`: Compiles React frontend to static assets
 

@@ -53,11 +53,13 @@ jobs:
         run: pio run -e esp32_usb
         env:
           CLEVERCOFFEE_VERSION: ${{ env.CLEVERCOFFEE_VERSION }}
+          PLATFORMIO_BUILD_FLAGS: '-D VERSION=\"${{ env.CLEVERCOFFEE_VERSION }}\"'
 
       - name: Build filesystem
         run: pio run --target buildfs -e esp32_usb
         env:
           CLEVERCOFFEE_VERSION: ${{ env.CLEVERCOFFEE_VERSION }}
+          PLATFORMIO_BUILD_FLAGS: '-D VERSION=\"${{ env.CLEVERCOFFEE_VERSION }}\"'
 
       - name: Run native tests
         run: pio test -e native_test

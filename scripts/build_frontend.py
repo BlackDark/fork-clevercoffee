@@ -12,10 +12,7 @@ Passes CLEVERCOFFEE_VERSION into Vite so the UI matches the firmware build.
 
 
 def main():
-    sys.path.insert(0, os.path.join(env["PROJECT_DIR"], "scripts"))
-    from clevercoffee_version import resolve_clevercoffee_version
-
-    version = resolve_clevercoffee_version()
+    version = os.environ.get("CLEVERCOFFEE_VERSION", "dev").strip() or "dev"
     build_env = os.environ.copy()
     build_env["VITE_APP_VERSION"] = version
     print(f"Building frontend with CLEVERCOFFEE_VERSION={version}")
