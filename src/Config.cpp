@@ -32,7 +32,8 @@ static const std::vector<std::pair<System::DisplayTemplate, String>> displayTemp
     {         System::DisplayTemplate::MINIMAL,          "Minimal"},
     {System::DisplayTemplate::TEMPERATURE_ONLY, "Temperature Only"},
     {           System::DisplayTemplate::SCALE,            "Scale"},
-    {         System::DisplayTemplate::UPRIGHT,          "Upright"}
+    {         System::DisplayTemplate::UPRIGHT,          "Upright"},
+    {          System::DisplayTemplate::MODERN,           "Modern"}
 };
 
 static const std::vector<std::pair<System::Language, String>> languageOptions = {

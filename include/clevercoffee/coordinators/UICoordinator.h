@@ -222,13 +222,44 @@ class UICoordinator {
 
     /** @} */
 
+    /**
+     * @name Brew timer display state
+     * @{
+     */
+
+    enum class BrewTimerDisplayState : uint8_t {
+        Idle     = 10,
+        Running  = 20,
+        PostBrew = 30,
+    };
+
+    BrewTimerDisplayState getBrewTimerDisplayState() const noexcept {
+        return brewTimerDisplayState_;
+    }
+
+    void setBrewTimerDisplayState(BrewTimerDisplayState state) noexcept {
+        brewTimerDisplayState_ = state;
+    }
+
+    uint32_t getBrewTimerEndTime() const noexcept {
+        return brewTimerEndTime_;
+    }
+
+    void setBrewTimerEndTime(uint32_t timeMs) noexcept {
+        brewTimerEndTime_ = timeMs;
+    }
+
+    /** @} */
+
   private:
-    std::atomic<bool> refreshNeeded_{false};        ///< Flag for pending display refresh
-    std::atomic<bool> autoSleepEnabled_{true};      ///< Flag for auto sleep state
-    std::atomic<bool> displayBufferReady_{false};   ///< Flag indicating display buffer is ready
-    std::atomic<bool> websiteUpdateRunning_{false}; ///< Flag for website update in progress
-    std::atomic<bool> hassioUpdateRunning_{false};  ///< Flag for HASSIO update in progress
-    std::atomic<int>  displayOffline_{0};           ///< Counter for display offline state
+    std::atomic<bool>     refreshNeeded_{false};        ///< Flag for pending display refresh
+    std::atomic<bool>     autoSleepEnabled_{true};      ///< Flag for auto sleep state
+    std::atomic<bool>     displayBufferReady_{false};   ///< Flag indicating display buffer is ready
+    std::atomic<bool>     websiteUpdateRunning_{false}; ///< Flag for website update in progress
+    std::atomic<bool>     hassioUpdateRunning_{false};  ///< Flag for HASSIO update in progress
+    std::atomic<int>      displayOffline_{0};           ///< Counter for display offline state
+    BrewTimerDisplayState brewTimerDisplayState_{BrewTimerDisplayState::Idle};
+    uint32_t              brewTimerEndTime_{0};
 };
 
 } // namespace CleverCoffee

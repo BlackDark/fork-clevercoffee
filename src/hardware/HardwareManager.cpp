@@ -245,49 +245,6 @@ void HardwareManager::safeShutdown() {
     LOG(INFO, "Safe hardware shutdown completed");
 }
 
-void HardwareManager::updateLEDs(MachineStateId machineState, double temperature, double setpoint) {
-    // Status LED - indicates when temperature is reached
-    if (config_.hardwareLedsStatusEnabled.get() && statusLed_) {
-        bool shouldTurnOn = false;
-
-        // Turn on when at target temperature (normal or steam mode)
-        using CleverCoffee::Temperature::STEAM_LED_THRESHOLD_C;
-        using CleverCoffee::Temperature::TEMP_TOLERANCE_NORMAL_C;
-        using CleverCoffee::Temperature::TEMP_TOLERANCE_STEAM_C;
-
-        if ((machineState == MachineStateId::PID_NORMAL && (abs(temperature - setpoint) < TEMP_TOLERANCE_NORMAL_C)) ||
-            (temperature > STEAM_LED_THRESHOLD_C && abs(temperature - setpoint) < TEMP_TOLERANCE_STEAM_C)) {
-            shouldTurnOn = true;
-        }
-
-        if (shouldTurnOn) {
-            statusLed_->turnOn();
-        } else {
-            statusLed_->turnOff();
-        }
-    }
-
-    // Brew LED - indicates brewing state
-    if (config_.hardwareLedsBrewEnabled.get() && brewLed_) {
-        bool inBrewState = isBrewState(machineState);
-        if (inBrewState) {
-            brewLed_->turnOn();
-        } else {
-            brewLed_->turnOff();
-        }
-    }
-
-    // Steam LED - indicates steam mode
-    if (config_.hardwareLedsSteamEnabled.get() && steamLed_) {
-        bool inSteamState = isSteamState(machineState);
-        if (inSteamState) {
-            steamLed_->turnOn();
-        } else {
-            steamLed_->turnOff();
-        }
-    }
-}
-
 // === IHardwareContext Implementation ===
 
 double HardwareManager::getCurrentTemperature() const noexcept {

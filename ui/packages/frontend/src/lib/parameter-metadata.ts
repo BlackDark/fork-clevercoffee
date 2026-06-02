@@ -739,7 +739,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     name: "display.template",
     type: ParameterTypes.ENUM,
     min: 0,
-    max: 4,
+    max: 5,
     defaultValue: 0,
     options: [
       { value: 0, label: "Standard" },
@@ -747,6 +747,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
       { value: 2, label: "Temp only" },
       { value: 3, label: "Scale" },
       { value: 4, label: "Upright" },
+      { value: 5, label: "Modern" },
     ],
   },
   {

@@ -135,14 +135,6 @@ class HardwareManager : public IHardwareContext {
      */
     void safeShutdown();
 
-    /**
-     * @brief Update LEDs based on machine state
-     * @param machineState Current machine state
-     * @param temperature Current temperature
-     * @param setpoint Target temperature setpoint
-     */
-    void updateLEDs(MachineStateId machineState, double temperature, double setpoint);
-
     // === IHardwareContext Implementation ===
 
     // Temperature Sensor

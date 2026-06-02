@@ -65,6 +65,18 @@ If any step fails, fix the issue, re-run all applicable steps, and only then com
 
 **Common pitfall:** native tests include source `.cpp` files directly (`test_build_src=false`). A new hardware/library include in shared code (for example pulling in BLE headers) can break unrelated native tests — always run `pio test -e native_test` after firmware changes.
 
+### OLED display layout (mandatory)
+
+When changing anything under `include/clevercoffee/display/`, templates, or OLED drawing code:
+
+1. **Verify fit** — All text, icons, bars, and bitmaps must fit fully within **128×64** (`DISPLAY_WIDTH` × `DISPLAY_HEIGHT`). Nothing may clip at the edges.
+2. **Verify spacing** — No overlapping rows or elements. Compute Y positions from **U8G2 bbox heights** with `setFontPosTop()` (Y = top of glyph box), not from font name alone.
+3. **Stable numeric fields** — Counting values (time, temperature, weight, etc.) must not shift when digit count changes (e.g. `9` → `10`, `9.9` → `10.0`). Reserve a **fixed pixel width** per field using the widest expected string (`getStrWidth` probe), then draw inside that box (typically **right-aligned**). Center composite blocks once; do not re-center the whole line every frame from live string width.
+4. **Alignment** — Center composite elements as visual units (horizontally on screen when appropriate). Paired controls (progress bar + value label) share the same **vertical midline** in their row — vertically center the bar with the label, not bottom-edge aligned to mismatched heights.
+5. **Double-check before finishing** — Re-read the row map after edits; anchor bottom rows from `DISPLAY_HEIGHT` when possible. Prefer `DisplayLayoutUtils.h` for fixed-width and bar+label cluster layout. See `docs/display-modern-layout.md` and `docs/display-architecture.md`.
+
+Treat layout regressions (cut-off text, overlapping rows, shifting numbers, misaligned bar/label pairs) as blocking — fix before considering the task done.
+
 ## Useful Command-Line Tools
 
 ### GitHub

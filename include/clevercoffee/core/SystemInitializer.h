@@ -13,7 +13,7 @@
 
 // Forward declarations
 class DisplayManager;
-class UIManager;
+class OledDriver;
 class MQTTManager;
 class WebServerManager;
 class CleverCoffeeWiFiManager;
@@ -104,11 +104,11 @@ class SystemInitializer {
      * @brief Get UI manager (REQUIRED)
      * @return Reference to UI manager
      */
-    UIManager& getUIManager() const {
-        if (!uiManager_) {
-            LOG(FATAL, "UIManager not initialized - system bug!");
+    OledDriver& getOledDriver() const {
+        if (!oledDriver_) {
+            LOG(FATAL, "OledDriver not initialized - system bug!");
         }
-        return *uiManager_;
+        return *oledDriver_;
     }
 
     /**
@@ -184,7 +184,7 @@ class SystemInitializer {
 
     // Manager instances
     std::unique_ptr<DisplayManager>                displayManager_;
-    std::unique_ptr<UIManager>                     uiManager_;
+    std::unique_ptr<OledDriver>                    oledDriver_;
     std::unique_ptr<CleverCoffee::HardwareManager> hardwareManager_;
     std::unique_ptr<MQTTManager>                   mqttManager_;
     std::unique_ptr<CleverCoffeeWiFiManager>       cleverCoffeeWiFiManager_;
