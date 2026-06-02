@@ -23,6 +23,8 @@ jobs:
 
       - name: Inject slug env
         uses: rlespinasse/github-slug-action@v5
+        with:
+          short-length: 6
 
       - uses: actions/setup-python@v6
         with:
@@ -45,11 +47,13 @@ jobs:
         run: |
           if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
             VERSION="${GITHUB_REF#refs/tags/}"
+            ARTIFACT_SLUG="${GITHUB_REF_NAME_SLUG_URL}"
           else
-            VERSION="dev-$(date -u +%Y-%m-%d)"
+            VERSION="$(python scripts/clevercoffee_version.py)"
+            ARTIFACT_SLUG="${VERSION}"
           fi
           echo "CLEVERCOFFEE_VERSION=${VERSION}" >> "${GITHUB_ENV}"
-          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "version=${ARTIFACT_SLUG}" >> "${GITHUB_OUTPUT}"
 
       - name: Build firmware
         run: |
