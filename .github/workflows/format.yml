@@ -37,5 +37,7 @@ jobs:
       - name: Install PlatformIO
         run: pip install --upgrade platformio
 
+      - uses: jdx/mise-action@v3
+
       - name: Check clang-format
         run: pio run -e esp32_usb --target check-format
