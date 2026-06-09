@@ -1,9 +1,41 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
-import { Card, CardContent } from "@/components/ui/card";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@radix-ui/react-collapsible";
+import {
+  AlertCircle,
+  ChevronDown,
+  ChevronUp,
+  HelpCircle,
+  ListRestart,
+  Loader2,
+  RefreshCw,
+  Save,
+  TriangleAlert,
+} from "lucide-react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useParams } from "react-router-dom";
+import { toast } from "sonner";
+import { MaintenanceBackflushPanel } from "@/components/MaintenanceBackflushPanel";
+import { ParameterNavigation } from "@/components/ParameterNavigation";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -11,61 +43,29 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import {
-  Loader2,
-  Save,
-  RefreshCw,
-  AlertCircle,
-  HelpCircle,
-  TriangleAlert,
-  ChevronUp,
-  ChevronDown,
-  ListRestart,
-} from "lucide-react";
-import { toast } from "sonner";
-import {
-  ParameterTypes,
-  isParameterBoolean,
-  isParameterEnum,
-  isParameterString,
-} from "@/lib/parameter-types";
-import parameterLabels from "@/lib/parameter-labels";
-import { parameterHelpTexts } from "@/lib/parameter-help-texts";
-import {
-  areRequiredParametersMet,
-  getMissingRequiredParametersMessage,
-} from "@/lib/parameter-utils";
-import { ensureCompleteParameters } from "@/lib/parameter-metadata";
-import {
-  Popover,
-  PopoverTrigger,
-  PopoverContent,
-} from "@/components/ui/popover";
-import { ParameterNavigation } from "@/components/ParameterNavigation";
-import { MaintenanceBackflushPanel } from "@/components/MaintenanceBackflushPanel";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@radix-ui/react-collapsible";
-import { useParams } from "react-router-dom";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import type { Parameter, UpdateParameter } from "@/lib/parameter-types";
+import { Switch } from "@/components/ui/switch";
 import { useCleverCoffee } from "@/context/useCleverCoffee";
 import { groups2, mappedParameterGroups } from "@/lib";
 import { apiFetch } from "@/lib/api-config";
-import { API_ROUTES } from "@/lib/routes";
+import { parameterHelpTexts } from "@/lib/parameter-help-texts";
+import parameterLabels from "@/lib/parameter-labels";
+import { ensureCompleteParameters } from "@/lib/parameter-metadata";
 import {
   getRebootParameterLabels,
   parameterRequiresReboot,
 } from "@/lib/parameter-reboot-required";
+import type { Parameter, UpdateParameter } from "@/lib/parameter-types";
+import {
+  isParameterBoolean,
+  isParameterEnum,
+  isParameterString,
+  ParameterTypes,
+} from "@/lib/parameter-types";
+import {
+  areRequiredParametersMet,
+  getMissingRequiredParametersMessage,
+} from "@/lib/parameter-utils";
+import { API_ROUTES } from "@/lib/routes";
 
 // Extract types for better type safety
 interface ParameterChange {
@@ -317,20 +317,20 @@ const ParameterInput = React.memo(
             param.type === ParameterTypes.FLOAT ||
               param.type === ParameterTypes.DOUBLE
               ? parseFloat(e.target.value)
-              : parseInt(e.target.value, 10)
+              : parseInt(e.target.value, 10),
           )
         }
         placeholder={`${param.min} - ${param.max}`}
       />
     );
-  }
+  },
 );
 
 export function ConfigPage() {
   const { filter } = useParams<{ filter: string }>();
   const [isHardwareWarningOpen, setIsHardwareWarningOpen] = useState(false);
   const [editedParameters, setEditedParameters] = useState<Parameter[] | null>(
-    null
+    null,
   );
   const [showChangesDialog, setShowChangesDialog] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -362,7 +362,7 @@ export function ConfigPage() {
             ...parameter,
           }))
         : [],
-    [serverParameters]
+    [serverParameters],
   );
 
   const localParameters = editedParameters ?? baseParameters;
@@ -377,11 +377,11 @@ export function ConfigPage() {
       setEditedParameters((previous) => {
         const current = previous ?? baseParameters;
         return current.map((param) =>
-          param.name === paramName ? { ...param, value: newValue } : param
+          param.name === paramName ? { ...param, value: newValue } : param,
         );
       });
     },
-    [baseParameters]
+    [baseParameters],
   );
 
   // Reset all changes to server state
@@ -402,13 +402,18 @@ export function ConfigPage() {
         // Only include parameters that exist on server and have changed values
         return serverParam && localParam.value !== serverParam.value;
       })
-      .map((localParam) => {
-        const serverParam = serverMap.get(localParam.name)!;
-        return {
-          name: localParam.name,
-          oldValue: serverParam.value as string | number | boolean,
-          newValue: localParam.value as string | number | boolean,
-        };
+      .flatMap((localParam) => {
+        const serverParam = serverMap.get(localParam.name);
+        if (!serverParam) {
+          return [];
+        }
+        return [
+          {
+            name: localParam.name,
+            oldValue: serverParam.value as string | number | boolean,
+            newValue: localParam.value as string | number | boolean,
+          },
+        ];
       });
   }, [localParameters, serverParameters]);
 
@@ -451,7 +456,7 @@ export function ConfigPage() {
       (change) => ({
         name: change.name,
         value: change.newValue,
-      })
+      }),
     );
 
     const rebootParamNames = changedParameters
@@ -463,7 +468,9 @@ export function ConfigPage() {
 
       if (success) {
         if (rebootParamNames.length > 0) {
-          setChangedRebootParamLabels(getRebootParameterLabels(rebootParamNames));
+          setChangedRebootParamLabels(
+            getRebootParameterLabels(rebootParamNames),
+          );
           setShowRebootBanner(true);
           toast.success("Parameters saved successfully", {
             description: `${rebootParamNames.length} changed setting(s) require a reboot.`,
@@ -634,12 +641,12 @@ export function ConfigPage() {
                           // Simple inline requirement check - no complex memoization
                           const isDisabled = !areRequiredParametersMet(
                             param,
-                            localParameters
+                            localParameters,
                           );
                           const disabledHint = isDisabled
                             ? getMissingRequiredParametersMessage(
                                 param,
-                                localParameters
+                                localParameters,
                               )
                             : undefined;
 
@@ -693,7 +700,7 @@ export function ConfigPage() {
                       </div>
                     </CardContent>
                   </Card>
-                )
+                ),
               )}
             </form>
           )}
@@ -716,7 +723,7 @@ export function ConfigPage() {
               <ul className="list-disc pl-5 max-h-64 overflow-y-auto">
                 {changedParameters.map((change) => {
                   const param = localParameters.find(
-                    (p) => p.name === change.name
+                    (p) => p.name === change.name,
                   );
                   const label = parameterLabels.en[change.name] || change.name;
 
@@ -725,10 +732,10 @@ export function ConfigPage() {
 
                   if (param?.options) {
                     const oldOpt = param.options.find(
-                      (opt) => opt.value === change.oldValue
+                      (opt) => opt.value === change.oldValue,
                     );
                     const newOpt = param.options.find(
-                      (opt) => opt.value === change.newValue
+                      (opt) => opt.value === change.newValue,
                     );
                     if (oldOpt) oldValueLabel = oldOpt.label;
                     if (newOpt) newValueLabel = newOpt.label;

@@ -27,7 +27,7 @@ export function ModeToggle() {
   const mounted = useSyncExternalStore(
     subscribeToClientHydration,
     getClientHydrated,
-    getServerHydrated
+    getServerHydrated,
   );
 
   if (!mounted) {

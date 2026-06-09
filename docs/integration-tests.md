@@ -83,8 +83,11 @@ A single out-of-range TSIC sample must never trip emergency stop or flood the lo
 Run from `ui/packages/frontend`:
 
 - [ ] `pnpm test:run` — all frontend tests pass
-- [ ] `pnpm lint` — no lint errors
 - [ ] `pnpm tsc` — no TypeScript errors
+
+Run from `ui/`:
+
+- [ ] `pnpm lint` — Biome lint and format check pass
 
 ---
 

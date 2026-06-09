@@ -1,34 +1,35 @@
-import React, { useMemo, useEffect } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
+import {
+  Activity,
+  AlertCircle,
+  HelpCircle,
+  Loader2,
+  RefreshCw,
+  Settings,
+  Thermometer,
+  TrendingUp,
+  Zap,
+} from "lucide-react";
+import type React from "react";
+import { useEffect, useMemo } from "react";
+import { toast } from "sonner";
+import HeaterChart from "@/components/charts/HeaterChart";
+import TemperatureChart from "@/components/charts/TemperatureChart";
+import { HomeMaintenanceCard } from "@/components/HomeMaintenanceCard";
+import { HomeStandbyAlert } from "@/components/HomeStandbyAlert";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import {
-  HelpCircle,
-  Loader2,
-  AlertCircle,
-  RefreshCw,
-  Thermometer,
-  Zap,
-  Settings,
-  TrendingUp,
-  Activity,
-} from "lucide-react";
-import { toast } from "sonner";
-import parameterLabels from "@/lib/parameter-labels";
-import { parameterHelpTexts } from "@/lib/parameter-help-texts";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import { useCleverCoffee } from "@/context/useCleverCoffee";
-import TemperatureChart from "@/components/charts/TemperatureChart";
-import HeaterChart from "@/components/charts/HeaterChart";
-import { HomeMaintenanceCard } from "@/components/HomeMaintenanceCard";
-import { HomeStandbyAlert } from "@/components/HomeStandbyAlert";
+import { parameterHelpTexts } from "@/lib/parameter-help-texts";
+import parameterLabels from "@/lib/parameter-labels";
 
 export function HomePage() {
   const {
@@ -64,33 +65,33 @@ export function HomePage() {
   // Memoized filtered parameters to avoid recalculating on every render
   const brewSetpointParam = useMemo(
     () => parameters.find((p) => p.name === "brew.setpoint"),
-    [parameters]
+    [parameters],
   );
 
   const functionToggleParams = useMemo(
     () =>
       parameters.filter((p) =>
-        ["pid.enabled", "STEAM_MODE", "BACKFLUSH_ON"].includes(p.name)
+        ["pid.enabled", "STEAM_MODE", "BACKFLUSH_ON"].includes(p.name),
       ),
-    [parameters]
+    [parameters],
   );
 
   const scaleActionParams = useMemo(
     () =>
       parameters.filter((p) => ["TARE_ON", "CALIBRATION_ON"].includes(p.name)),
-    [parameters]
+    [parameters],
   );
 
   const scaleEnabled = useMemo(
     () =>
       parameters.find((p) => p.name === "hardware.sensors.scale.enabled")
         ?.value === true,
-    [parameters]
+    [parameters],
   );
 
   const backflushReminderEnabled = useMemo(() => {
     const param = parameters.find(
-      (p) => p.name === "maintenance.backflush_reminder.enabled"
+      (p) => p.name === "maintenance.backflush_reminder.enabled",
     );
     return param?.value === true;
   }, [parameters]);
@@ -131,7 +132,7 @@ export function HomePage() {
 
   // Handle function toggles by calling dedicated context methods if available
   const handleToggleFunction = async (paramName: string) => {
-    let success;
+    let success: boolean | undefined;
     if (paramName === "pid.enabled") {
       success = await togglePid();
     } else if (paramName === "STEAM_MODE") {
@@ -141,7 +142,9 @@ export function HomePage() {
       if (result.success) {
         toast.success(
           `${parameterLabels.en[paramName] || paramName} toggled successfully`,
-          { description: "Setting updated via API endpoint or parameter save." }
+          {
+            description: "Setting updated via API endpoint or parameter save.",
+          },
         );
       } else {
         toast.error("Failed to toggle backflush", {
@@ -154,14 +157,14 @@ export function HomePage() {
       // Fallback: update and save parameter
       const param = parameters.find((p) => p.name === paramName);
       if (!param) return;
-      const newValue = param.value ? false : true;
+      const newValue = !param.value;
       updateParameter(paramName, newValue);
       success = await saveParameters();
     }
     if (success) {
       toast.success(
         `${parameterLabels.en[paramName] || paramName} toggled successfully`,
-        { description: "Setting updated via API endpoint or parameter save." }
+        { description: "Setting updated via API endpoint or parameter save." },
       );
     } else {
       toast.error("Failed to toggle", {
@@ -172,7 +175,7 @@ export function HomePage() {
 
   // Handle scale actions by calling dedicated context methods
   const handleScaleAction = async (paramName: string) => {
-    let success;
+    let success: boolean | undefined;
     if (paramName === "TARE_ON") {
       success = await toggleTareScale();
     } else if (paramName === "CALIBRATION_ON") {
@@ -184,7 +187,7 @@ export function HomePage() {
     if (success) {
       toast.success(
         `${parameterLabels.en[paramName] || paramName} action triggered`,
-        { description: "Command executed successfully" }
+        { description: "Command executed successfully" },
       );
     } else {
       toast.error("Failed to trigger action", {
@@ -280,8 +283,8 @@ export function HomePage() {
                             {temperatureError.includes("offline")
                               ? "Sensor Offline"
                               : temperatureError.includes("retrying")
-                              ? "Retrying..."
-                              : "Connection Failed"}
+                                ? "Retrying..."
+                                : "Connection Failed"}
                           </p>
                           <p className="text-xs text-muted-foreground">
                             {temperatureError}
@@ -369,8 +372,8 @@ export function HomePage() {
                             {temperatureError.includes("offline")
                               ? "Sensor Offline"
                               : temperatureError.includes("retrying")
-                              ? "Retrying..."
-                              : "Connection Failed"}
+                                ? "Retrying..."
+                                : "Connection Failed"}
                           </p>
                           <p className="text-xs text-muted-foreground">
                             {temperatureError}
@@ -488,7 +491,7 @@ export function HomePage() {
                             onChange={(e) =>
                               updateParameter(
                                 brewSetpointParam.name,
-                                e.target.value
+                                e.target.value,
                               )
                             }
                             min={brewSetpointParam.min}

@@ -1,3 +1,5 @@
+import { ChevronDown, Settings } from "lucide-react";
+import { Link, useParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -5,8 +7,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { ChevronDown, Settings } from "lucide-react";
-import { Link, useParams } from "react-router-dom";
 
 const parameterCategories = [
   {
@@ -29,7 +29,7 @@ const parameterCategories = [
 export function ParameterNavigation() {
   const { filter } = useParams<{ filter: string }>();
   const currentCategory = parameterCategories.find(
-    (cat) => cat.filter === filter
+    (cat) => cat.filter === filter,
   );
 
   return (

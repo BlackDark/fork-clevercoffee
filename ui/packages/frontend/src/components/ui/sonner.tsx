@@ -1,5 +1,5 @@
-import { useTheme } from "@/hooks/use-dark-mode";
 import { Toaster as Sonner, type ToasterProps } from "sonner";
+import { useTheme } from "@/hooks/use-dark-mode";
 
 const Toaster = ({ ...props }: ToasterProps) => {
   const { theme = "system" } = useTheme();

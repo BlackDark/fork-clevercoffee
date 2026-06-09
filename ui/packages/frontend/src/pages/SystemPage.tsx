@@ -1,10 +1,3 @@
-import { OTAUpdateSection } from "@/components/OTAUpdateSection";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { useCleverCoffee } from "@/context/useCleverCoffee";
-import { API_BASE_URL, apiFetch } from "@/lib/api-config";
 import {
   AlertCircle,
   Download,
@@ -19,6 +12,13 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { OTAUpdateSection } from "@/components/OTAUpdateSection";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { useCleverCoffee } from "@/context/useCleverCoffee";
+import { API_BASE_URL, apiFetch } from "@/lib/api-config";
 
 export function SystemPage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -27,14 +27,15 @@ export function SystemPage() {
   const [uploadSuccess, setUploadSuccess] = useState(false);
 
   // Use the centralized hook for connection error handling
-  const { connectionError, wakeFromStandby, sleepFromStandby } = useCleverCoffee();
+  const { connectionError, wakeFromStandby, sleepFromStandby } =
+    useCleverCoffee();
 
   const formatFileSize = (bytes: number) => {
     if (bytes === 0) return "0 Bytes";
     const k = 1024;
     const sizes = ["Bytes", "KB", "MB"];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+    return `${parseFloat((bytes / k ** i).toFixed(2))} ${sizes[i]}`;
   };
 
   const restartMachine = async () => {
@@ -126,7 +127,7 @@ export function SystemPage() {
       const maxSize = 50 * 1024; // 50KB
       if (file.size > maxSize) {
         setUploadMessage(
-          "Configuration file is too large. Maximum size is 50KB."
+          "Configuration file is too large. Maximum size is 50KB.",
         );
         setUploadSuccess(false);
         setSelectedFile(null);
@@ -185,9 +186,12 @@ export function SystemPage() {
         return;
       }
 
-      let result;
+      let result: { success: boolean; message?: string };
       try {
-        result = await response.json();
+        result = (await response.json()) as {
+          success: boolean;
+          message?: string;
+        };
       } catch (error: unknown) {
         setUploadMessage("Configuration uploaded successfully!");
         setUploadSuccess(true);
@@ -211,7 +215,7 @@ export function SystemPage() {
 
       if (result.success) {
         toast.success("Upload successful", {
-          description: message + " Machine will restart...",
+          description: `${message} Machine will restart...`,
         });
         // Trigger restart after successful upload
         setTimeout(() => restartMachine(), 2000);

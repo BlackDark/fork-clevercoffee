@@ -4,7 +4,7 @@ export interface MachineToggleResult {
 }
 
 export async function parseToggleResponse(
-  response: Response
+  response: Response,
 ): Promise<MachineToggleResult> {
   if (response.ok) {
     return { success: true };

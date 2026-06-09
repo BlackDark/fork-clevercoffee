@@ -56,10 +56,9 @@ Run from the repository root unless noted otherwise:
    `~/.platformio/penv/bin/pio run -e esp32_usb -s`
 3. **Native tests** (always, before commit):
    `~/.platformio/penv/bin/pio test -e native_test`
-4. **Frontend** (required when `ui/` files changed; run in `ui/packages/frontend`):
-   - `pnpm test:run`
-   - `pnpm lint`
-   - `pnpm tsc`
+4. **Frontend** (required when `ui/` files changed):
+   - From `ui/packages/frontend`: `pnpm test:run`, `pnpm tsc`
+   - From `ui/`: `pnpm lint` (Biome check + format), `pnpm format` (apply fixes)
 
 If any step fails, fix the issue, re-run all applicable steps, and only then commit. Never assume tests pass without running them.
 

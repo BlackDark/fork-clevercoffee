@@ -1,5 +1,5 @@
-import { useCleverCoffee } from "@/context/useCleverCoffee";
 import { Wifi, WifiOff } from "lucide-react";
+import { useCleverCoffee } from "@/context/useCleverCoffee";
 
 export function LiveStatusIndicator() {
   const { isOnline } = useCleverCoffee();

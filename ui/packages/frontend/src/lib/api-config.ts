@@ -45,7 +45,7 @@ export function createFetchOptions(options: RequestInit = {}): RequestInit {
  */
 export async function apiFetch(
   endpoint: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
 ): Promise<Response> {
   const url = `${API_BASE_URL}/${endpoint
     .replace(/^\//, "")
@@ -67,7 +67,7 @@ export async function apiFetch(
  */
 export async function apiJsonFetch<T = unknown>(
   endpoint: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
 ): Promise<T> {
   const response = await apiFetch(endpoint, options);
 

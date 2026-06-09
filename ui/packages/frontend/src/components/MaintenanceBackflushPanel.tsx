@@ -1,10 +1,10 @@
-import { useState } from "react";
-import { Button } from "@/components/ui/button";
 import { Loader2, RotateCcw } from "lucide-react";
+import { useState } from "react";
 import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { useMachineStatus } from "@/hooks/useMachineStatus";
 import { apiFetch } from "@/lib/api-config";
 import { API_ROUTES } from "@/lib/routes";
-import { useMachineStatus } from "@/hooks/useMachineStatus";
 
 export function MaintenanceBackflushPanel() {
   const { status, loading, refetch } = useMachineStatus();

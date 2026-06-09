@@ -274,5 +274,5 @@ export const parameterGroups: ParameterGroup[] = [
 ];
 
 export const mappedParameterGroups = new Map<string, ParameterGroup>(
-  parameterGroups.map((group) => [group.key, group])
+  parameterGroups.map((group) => [group.key, group]),
 );

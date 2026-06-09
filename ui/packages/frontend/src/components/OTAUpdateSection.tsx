@@ -1,8 +1,19 @@
+import {
+  CheckCircle,
+  Download,
+  HardDrive,
+  Link2,
+  Loader2,
+  Upload,
+  XCircle,
+} from "lucide-react";
 import { useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { toast } from "sonner";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -10,17 +21,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Label } from "@/components/ui/label";
-import {
-  Download,
-  Upload,
-  Loader2,
-  HardDrive,
-  Link2,
-  CheckCircle,
-  XCircle,
-} from "lucide-react";
-import { toast } from "sonner";
 import { apiFetch } from "@/lib/api-config";
 
 export function OTAUpdateSection() {
@@ -29,7 +29,7 @@ export function OTAUpdateSection() {
   const [otaStatus, setOtaStatus] = useState("idle");
   const [otaMessage, setOtaMessage] = useState("");
   const [otaUpdateType, setOtaUpdateType] = useState<"firmware" | "filesystem">(
-    "firmware"
+    "firmware",
   );
   const [selectedOtaFile, setSelectedOtaFile] = useState<File | null>(null);
   const [otaUrl, setOtaUrl] = useState("");
@@ -42,7 +42,7 @@ export function OTAUpdateSection() {
     const k = 1024;
     const sizes = ["Bytes", "KB", "MB"];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+    return `${parseFloat((bytes / k ** i).toFixed(2))} ${sizes[i]}`;
   };
 
   // Helper to reset OTA status
@@ -85,7 +85,7 @@ export function OTAUpdateSection() {
       } else if (otaUpdateType === "filesystem") {
         const validExtensions = [".bin", ".img"];
         isValidFile = validExtensions.some((ext) =>
-          file.name.toLowerCase().endsWith(ext)
+          file.name.toLowerCase().endsWith(ext),
         );
         maxSize = 5 * 1024 * 1024; // 5MB
         fileTypeDescription = ".bin or .img filesystem file";
@@ -104,7 +104,7 @@ export function OTAUpdateSection() {
           description: `${
             otaUpdateType.charAt(0).toUpperCase() + otaUpdateType.slice(1)
           } file is too large. Maximum size is ${Math.floor(
-            maxSize / 1024 / 1024
+            maxSize / 1024 / 1024,
           )}MB.`,
         });
         setSelectedOtaFile(null);
@@ -117,7 +117,7 @@ export function OTAUpdateSection() {
         } file selected`,
         {
           description: `Selected: ${file.name} (${formatFileSize(file.size)})`,
-        }
+        },
       );
     }
   };
@@ -144,7 +144,7 @@ export function OTAUpdateSection() {
           onClick: async () => {
             // Double-check if an update is already in progress
             const currentStatus = await pollOtaStatus();
-            if (currentStatus && currentStatus.updateInProgress) {
+            if (currentStatus?.updateInProgress) {
               toast.warning("Update already in progress", {
                 description: "Please wait for the current update to complete.",
               });
@@ -184,7 +184,7 @@ export function OTAUpdateSection() {
                   } update successful`,
                   {
                     description: `Device will restart with new ${otaUpdateType}...`,
-                  }
+                  },
                 );
                 setSelectedOtaFile(null);
               } else {
@@ -202,7 +202,7 @@ export function OTAUpdateSection() {
                     } update failed`,
                     {
                       description: errorMessage,
-                    }
+                    },
                   );
                 }
               }
@@ -214,7 +214,7 @@ export function OTAUpdateSection() {
                 } update failed`,
                 {
                   description: "Network error or device restarting...",
-                }
+                },
               );
             } finally {
               clearInterval(pollInterval);
@@ -228,7 +228,7 @@ export function OTAUpdateSection() {
             }
           },
         },
-      }
+      },
     );
   };
 
@@ -248,7 +248,7 @@ export function OTAUpdateSection() {
         onClick: async () => {
           // Double-check if an update is already in progress
           const currentStatus = await pollOtaStatus();
-          if (currentStatus && currentStatus.updateInProgress) {
+          if (currentStatus?.updateInProgress) {
             toast.warning("Update already in progress", {
               description: "Please wait for the current update to complete.",
             });
@@ -287,7 +287,7 @@ export function OTAUpdateSection() {
                 } update successful`,
                 {
                   description: `Device will restart with new ${otaUpdateType}...`,
-                }
+                },
               );
               setOtaUrl("");
             } else {
@@ -305,7 +305,7 @@ export function OTAUpdateSection() {
                   } update failed`,
                   {
                     description: errorMessage,
-                  }
+                  },
                 );
               }
             }
@@ -317,7 +317,7 @@ export function OTAUpdateSection() {
               } update failed`,
               {
                 description: "Network error or device restarting...",
-              }
+              },
             );
           } finally {
             clearInterval(pollInterval);
@@ -433,8 +433,8 @@ export function OTAUpdateSection() {
                     otaStatus === "error"
                       ? "border-red-500 bg-red-50"
                       : otaStatus === "complete"
-                      ? "border-green-500 bg-green-50"
-                      : "border-blue-500 bg-blue-50"
+                        ? "border-green-500 bg-green-50"
+                        : "border-blue-500 bg-blue-50"
                   }`}
                 >
                   <div className="flex items-center gap-2">
@@ -462,8 +462,8 @@ export function OTAUpdateSection() {
                         otaStatus === "error"
                           ? "bg-red-500"
                           : otaStatus === "complete"
-                          ? "bg-green-500"
-                          : "bg-blue-500"
+                            ? "bg-green-500"
+                            : "bg-blue-500"
                       }`}
                       style={{ width: `${otaProgress}%` }}
                     ></div>
@@ -537,8 +537,8 @@ export function OTAUpdateSection() {
                     otaStatus === "error"
                       ? "border-red-500 bg-red-50"
                       : otaStatus === "complete"
-                      ? "border-green-500 bg-green-50"
-                      : "border-indigo-500 bg-indigo-50"
+                        ? "border-green-500 bg-green-50"
+                        : "border-indigo-500 bg-indigo-50"
                   }`}
                 >
                   <div className="flex items-center gap-2">
@@ -565,8 +565,8 @@ export function OTAUpdateSection() {
                         otaStatus === "error"
                           ? "bg-red-500"
                           : otaStatus === "complete"
-                          ? "bg-green-500"
-                          : "bg-indigo-500"
+                            ? "bg-green-500"
+                            : "bg-indigo-500"
                       }`}
                       style={{ width: `${otaProgress}%` }}
                     ></div>

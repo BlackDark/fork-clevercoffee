@@ -1,7 +1,7 @@
+import { Globe, Info, Link, MessageCircle } from "lucide-react";
+import { useEffect, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useCleverCoffee } from "@/context/useCleverCoffee";
-import { Globe, Link, MessageCircle, Info } from "lucide-react";
-import { useEffect, useMemo } from "react";
 
 export function AboutPage() {
   const { parameters, fetchParameters } = useCleverCoffee();

@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState, useMemo } from "react";
-import uPlot from "uplot";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Options as UPlotOptions } from "uplot";
+import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
-import { useDarkMode, getChartTheme } from "@/hooks/use-dark-mode";
+import { getChartTheme, useDarkMode } from "@/hooks/use-dark-mode";
 import { debounce } from "@/lib/utils";
 
 export interface BaseChartProps {
@@ -24,10 +24,9 @@ export interface BaseChartProps {
 function reportChartError(
   onError: BaseChartProps["onError"],
   setHasError: (value: boolean) => void,
-  error: unknown
+  error: unknown,
 ) {
-  const chartError =
-    error instanceof Error ? error : new Error(String(error));
+  const chartError = error instanceof Error ? error : new Error(String(error));
   queueMicrotask(() => {
     setHasError(true);
     onError?.(chartError);
@@ -48,7 +47,7 @@ export function BaseChart({
   const chartRef = useRef<HTMLDivElement | null>(null);
   const plotRef = useRef<uPlot | null>(null);
   const [chartSize, setChartSize] = useState<{ width: number; height: number }>(
-    { width: 800, height }
+    { width: 800, height },
   );
   const [hasError, setHasError] = useState(false);
 
@@ -101,7 +100,7 @@ export function BaseChart({
         plotRef.current = new uPlot(
           config,
           data as uPlot.AlignedData,
-          chartRef.current
+          chartRef.current,
         );
       } else if (updatePlotData) {
         updatePlotData(plotRef.current, data);
@@ -111,19 +110,25 @@ export function BaseChart({
     } catch (error) {
       reportChartError(onError, setHasError, error);
     }
-  }, [data, createChartConfig, updatePlotData, onError, chartSize, theme, isDark]);
+  }, [
+    data,
+    createChartConfig,
+    updatePlotData,
+    onError,
+    chartSize,
+    theme,
+    isDark,
+  ]);
 
   useEffect(() => {
     if (!plotRef.current || hasError || !data || data.length === 0) return;
+    const container = chartRef.current;
+    if (!container) return;
     try {
       plotRef.current.destroy();
       plotRef.current = null;
       const config = createChartConfig({ chartSize, theme, isDark });
-      plotRef.current = new uPlot(
-        config,
-        data as uPlot.AlignedData,
-        chartRef.current!
-      );
+      plotRef.current = new uPlot(config, data as uPlot.AlignedData, container);
     } catch (error) {
       reportChartError(onError, setHasError, error);
     }

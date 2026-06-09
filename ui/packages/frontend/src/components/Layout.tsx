@@ -1,12 +1,12 @@
-import { Outlet, Link, useLocation } from "react-router-dom";
-import { ModeToggle } from "./mode-toggle";
-import { LiveStatusIndicator } from "./LiveStatusIndicator";
-import { MachineStatusToasts } from "./MachineStatusToasts";
-import { cn } from "@/lib/utils";
-import { useState } from "react";
 import { Menu, X } from "lucide-react";
+import { useState } from "react";
+import { Link, Outlet, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { basePathWithoutTrailingSlash } from "@/lib/config";
+import { cn } from "@/lib/utils";
+import { LiveStatusIndicator } from "./LiveStatusIndicator";
+import { MachineStatusToasts } from "./MachineStatusToasts";
+import { ModeToggle } from "./mode-toggle";
 
 export function Layout() {
   const location = useLocation();
@@ -56,10 +56,10 @@ export function Layout() {
               className={cn(
                 "transition-colors hover:text-foreground font-medium",
                 isActive(
-                  item.path === "/settings/behavior" ? "/settings" : item.path
+                  item.path === "/settings/behavior" ? "/settings" : item.path,
                 )
                   ? "text-foreground"
-                  : "text-muted-foreground"
+                  : "text-muted-foreground",
               )}
             >
               {item.label}
@@ -118,10 +118,12 @@ export function Layout() {
                 className={cn(
                   "flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground",
                   isActive(
-                    item.path === "/settings/behavior" ? "/settings" : item.path
+                    item.path === "/settings/behavior"
+                      ? "/settings"
+                      : item.path,
                   )
                     ? "bg-accent text-accent-foreground"
-                    : "text-muted-foreground"
+                    : "text-muted-foreground",
                 )}
                 onClick={closeMobileMenu}
               >

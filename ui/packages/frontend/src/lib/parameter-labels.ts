@@ -152,7 +152,7 @@ export const parameterLabels = new Map<string, Map<string, string>>([
  */
 export function getParameterLabel(
   parameterName: string,
-  language: string = "en"
+  language: string = "en",
 ): string {
   const langMap = parameterLabels.get(language) || parameterLabelsEN;
   return langMap.get(parameterName) || parameterName;

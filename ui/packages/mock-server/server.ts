@@ -1,8 +1,12 @@
-import express, { Request, Response, NextFunction } from "express";
+import fs from "node:fs";
+import path from "node:path";
 import cors from "cors";
+import express, {
+  type NextFunction,
+  type Request,
+  type Response,
+} from "express";
 import multer from "multer";
-import fs from "fs";
-import path from "path";
 import parameters from "./parameters";
 
 const app = express();
@@ -35,9 +39,11 @@ app.use(express.urlencoded({ extended: true }));
 const upload = multer({ dest: "uploads/" });
 
 // Type definitions
+type ParameterValue = string | number | boolean;
+
 interface Parameter {
   name: string;
-  value: any;
+  value: ParameterValue;
   section?: number;
   show?: boolean;
   type?: number;
@@ -69,7 +75,7 @@ interface MockState {
 
 interface ConfigFile {
   version: string;
-  parameters: Record<string, any>;
+  parameters: Record<string, ParameterValue>;
   system: {
     hostname: string;
     auth: {
@@ -97,7 +103,7 @@ interface ParametersQuery {
 }
 
 // Mock data store
-let mockState: MockState = {
+const mockState: MockState = {
   steamMode: false,
   pidEnabled: true,
   backflushOn: false,
@@ -137,7 +143,7 @@ const generateHistoryData = (): HistoryData => {
 mockState.historyData = generateHistoryData();
 
 function isMaintenanceReminderEnabled(
-  enabledParam: Parameter | undefined
+  enabledParam: Parameter | undefined,
 ): boolean {
   if (enabledParam === undefined) {
     return true;
@@ -148,9 +154,9 @@ function isMaintenanceReminderEnabled(
 
 // Helper function to simulate authentication
 const simulateAuth = (
-  req: Request,
-  res: Response,
-  next: NextFunction
+  _req: Request,
+  _res: Response,
+  next: NextFunction,
 ): void => {
   // For demo purposes, we'll always pass authentication
   // In a real scenario, you might want to add some basic auth simulation
@@ -158,7 +164,7 @@ const simulateAuth = (
 };
 
 // Machine control endpoints
-app.post("/api/steam", simulateAuth, (req: Request, res: Response): void => {
+app.post("/api/steam", simulateAuth, (_req: Request, res: Response): void => {
   mockState.steamMode = !mockState.steamMode;
 
   // Update parameter state
@@ -171,7 +177,7 @@ app.post("/api/steam", simulateAuth, (req: Request, res: Response): void => {
   res.json({ success: true, steamMode: mockState.steamMode });
 });
 
-app.post("/api/pid", simulateAuth, (req: Request, res: Response): void => {
+app.post("/api/pid", simulateAuth, (_req: Request, res: Response): void => {
   mockState.pidEnabled = !mockState.pidEnabled;
 
   // Update parameter state
@@ -187,9 +193,9 @@ app.post("/api/pid", simulateAuth, (req: Request, res: Response): void => {
 app.post(
   "/api/backflush",
   simulateAuth,
-  (req: Request, res: Response): void => {
+  (_req: Request, res: Response): void => {
     const cyclesParam = mockState.parameters.find(
-      (p) => p.name === "backflush.cycles"
+      (p) => p.name === "backflush.cycles",
     );
     const configuredCycles =
       typeof cyclesParam?.value === "number" ? cyclesParam.value : 5;
@@ -205,17 +211,17 @@ app.post(
     mockState.backflushOn = newState;
 
     const backflushParam = mockState.parameters.find(
-      (p) => p.name === "BACKFLUSH_ON"
+      (p) => p.name === "BACKFLUSH_ON",
     );
     if (backflushParam) {
       backflushParam.value = mockState.backflushOn ? 1 : 0;
     }
 
     console.log(
-      `Backflush mode toggled: ${mockState.backflushOn ? "ON" : "OFF"}`
+      `Backflush mode toggled: ${mockState.backflushOn ? "ON" : "OFF"}`,
     );
     res.json({ success: true, backflushOn: mockState.backflushOn });
-  }
+  },
 );
 
 app.post("/api/wake", simulateAuth, (_req: Request, res: Response): void => {
@@ -238,7 +244,7 @@ app.post(
     mockState.shotsSinceBackflush = 0;
     console.log("Dev: backflush session complete (shots counter reset)");
     res.json({ success: true, shotsSinceBackflush: 0 });
-  }
+  },
 );
 
 app.post(
@@ -253,15 +259,15 @@ app.post(
     mockState.shotsSinceBackflush = count;
     console.log(`Dev: shots since backflush set to ${count}`);
     res.json({ success: true, shotsSinceBackflush: count });
-  }
+  },
 );
 
 app.get("/api/status", simulateAuth, (_req: Request, res: Response): void => {
   const thresholdParam = mockState.parameters.find(
-    (p) => p.name === "maintenance.backflush_reminder.threshold"
+    (p) => p.name === "maintenance.backflush_reminder.threshold",
   );
   const enabledParam = mockState.parameters.find(
-    (p) => p.name === "maintenance.backflush_reminder.enabled"
+    (p) => p.name === "maintenance.backflush_reminder.enabled",
   );
   const threshold =
     typeof thresholdParam?.value === "number" ? thresholdParam.value : 50;
@@ -289,10 +295,10 @@ app.post(
   (_req: Request, res: Response): void => {
     mockState.shotsSinceBackflush = 0;
     const thresholdParam = mockState.parameters.find(
-      (p) => p.name === "maintenance.backflush_reminder.threshold"
+      (p) => p.name === "maintenance.backflush_reminder.threshold",
     );
     const enabledParam = mockState.parameters.find(
-      (p) => p.name === "maintenance.backflush_reminder.enabled"
+      (p) => p.name === "maintenance.backflush_reminder.enabled",
     );
     const threshold =
       typeof thresholdParam?.value === "number" ? thresholdParam.value : 50;
@@ -303,33 +309,33 @@ app.post(
       shotsSinceBackflush: 0,
       backflushReminderDue: enabled && 0 >= threshold,
     });
-  }
+  },
 );
 
 // Scale endpoints
 app.post(
   "/api/scale/tare",
   simulateAuth,
-  (req: Request, res: Response): void => {
+  (_req: Request, res: Response): void => {
     mockState.scaleTareOn = !mockState.scaleTareOn;
     console.log(`Scale tare: ${mockState.scaleTareOn ? "ON" : "OFF"}`);
     res.json({ success: true, scaleTareOn: mockState.scaleTareOn });
-  }
+  },
 );
 
 app.post(
   "/api/scale/calibration",
   simulateAuth,
-  (req: Request, res: Response): void => {
+  (_req: Request, res: Response): void => {
     mockState.scaleCalibrationOn = !mockState.scaleCalibrationOn;
     console.log(
-      `Scale calibration: ${mockState.scaleCalibrationOn ? "ON" : "OFF"}`
+      `Scale calibration: ${mockState.scaleCalibrationOn ? "ON" : "OFF"}`,
     );
     res.json({
       success: true,
       scaleCalibrationOn: mockState.scaleCalibrationOn,
     });
-  }
+  },
 );
 
 // Data endpoints
@@ -337,8 +343,13 @@ app.get(
   "/api/parameters",
   simulateAuth,
   (
-    req: Request<{}, Parameter[], {}, ParametersQuery>,
-    res: Response<Parameter[]>
+    req: Request<
+      Record<string, never>,
+      Parameter[],
+      Record<string, never>,
+      ParametersQuery
+    >,
+    res: Response<Parameter[]>,
   ): void => {
     const filter = req.query.filter;
     let filteredParams = mockState.parameters;
@@ -367,10 +378,10 @@ app.get(
     console.log(
       `Parameters requested (filter: ${filter || "none"}), returning ${
         filteredParams.length
-      } parameters`
+      } parameters`,
     );
     res.json(filteredParams);
-  }
+  },
 );
 
 app.post(
@@ -381,7 +392,7 @@ app.post(
 
     // Simulate parameter updates
     let hasErrors = false;
-    const updates: Array<{ name: string; value: any }> = [];
+    const updates: Array<{ name: string; value: ParameterValue }> = [];
 
     // Parse form data
     Object.keys(req.body).forEach((key) => {
@@ -398,11 +409,11 @@ app.post(
               // kCString
               param.value = value;
               break;
-            default:
+            default: {
               // kNumber
               const numValue = parseFloat(value);
               if (
-                !isNaN(numValue) &&
+                !Number.isNaN(numValue) &&
                 param.min !== undefined &&
                 param.max !== undefined &&
                 numValue >= param.min &&
@@ -412,6 +423,7 @@ app.post(
               } else {
                 hasErrors = true;
               }
+            }
           }
           updates.push({ name: key, value: param.value });
         } catch (error) {
@@ -426,7 +438,7 @@ app.post(
       success: !hasErrors,
       message: hasErrors ? "Partial Success" : "OK",
     });
-  }
+  },
 );
 
 app.get(
@@ -434,12 +446,12 @@ app.get(
   simulateAuth,
   (
     req: Request<
-      {},
+      Record<string, never>,
       { name: string; helpText: string } | { error: string },
-      {},
+      Record<string, never>,
       ParameterHelpQuery
     >,
-    res: Response
+    res: Response,
   ): void => {
     const paramName = req.query.param;
 
@@ -461,19 +473,19 @@ app.get(
       paramName.includes("pid")
         ? "PID controller behavior"
         : paramName.includes("temp")
-        ? "temperature settings"
-        : "system behavior"
+          ? "temperature settings"
+          : "system behavior"
     }.`;
 
     console.log(`Help requested for parameter: ${paramName}`);
     res.json({ name: paramName, helpText });
-  }
+  },
 );
 
 app.get(
   "/api/temperatures",
   simulateAuth,
-  (req: Request, res: Response): void => {
+  (_req: Request, res: Response): void => {
     // Alias for /api/temperature for backward compatibility
     const variation = (Math.random() - 0.5) * 0.5;
     mockState.currentTemp = Math.round((93.5 + variation) * 100) / 100;
@@ -486,43 +498,43 @@ app.get(
     };
 
     res.json(tempData);
-  }
+  },
 );
 
 app.get(
   "/api/history",
   simulateAuth,
-  (req: Request, res: Response<HistoryData>): void => {
+  (_req: Request, res: Response<HistoryData>): void => {
     console.log("History data requested");
     res.json(mockState.historyData);
-  }
+  },
 );
 
 // System endpoints
 app.post(
   "/api/wifi-reset",
   simulateAuth,
-  (req: Request, res: Response): void => {
+  (_req: Request, res: Response): void => {
     console.log("WiFi reset requested");
     res.json({
       success: true,
       message: "WiFi settings are being reset. Rebooting...",
     });
-  }
+  },
 );
 
 app.get(
   "/api/config/download",
   simulateAuth,
-  (req: Request, res: Response<ConfigFile>): void => {
+  (_req: Request, res: Response<ConfigFile>): void => {
     const config: ConfigFile = {
       version: "1.0.0",
       parameters: mockState.parameters.reduce(
-        (acc: Record<string, any>, param) => {
+        (acc: Record<string, ParameterValue>, param) => {
           acc[param.name] = param.value;
           return acc;
         },
-        {}
+        {},
       ),
       system: {
         hostname: "clevercoffee",
@@ -544,7 +556,7 @@ app.get(
     console.log("Config download requested");
     res.setHeader("Content-Disposition", 'attachment; filename="config.json"');
     res.json(config);
-  }
+  },
 );
 
 app.post(
@@ -596,10 +608,10 @@ app.post(
         fs.unlinkSync(req.file.path);
       }
     }
-  }
+  },
 );
 
-app.post("/api/restart", simulateAuth, (req: Request, res: Response): void => {
+app.post("/api/restart", simulateAuth, (_req: Request, res: Response): void => {
   console.log("Restart requested");
   res.json({ success: true, message: "Restarting..." });
 });
@@ -607,7 +619,7 @@ app.post("/api/restart", simulateAuth, (req: Request, res: Response): void => {
 app.post(
   "/api/factory-reset",
   simulateAuth,
-  (req: Request, res: Response): void => {
+  (_req: Request, res: Response): void => {
     console.log("Factory reset requested");
 
     // Reset mock state to defaults
@@ -626,7 +638,7 @@ app.post(
     });
 
     res.json({ success: true, message: "Factory reset. Restarting..." });
-  }
+  },
 );
 
 // OTA Update State
@@ -647,7 +659,7 @@ interface OTAState {
   filesystemPartition: string;
 }
 
-let otaState: OTAState = {
+const otaState: OTAState = {
   status: "idle",
   type: "",
   progress: 0,
@@ -660,7 +672,7 @@ let otaState: OTAState = {
 // Helper function to simulate OTA progress
 const simulateOTAProgress = (
   type: "firmware" | "filesystem" | "url",
-  totalSize: number = 0
+  totalSize: number = 0,
 ): Promise<void> => {
   return new Promise((resolve, reject) => {
     otaState.status = type === "url" ? "downloading" : "uploading";
@@ -672,7 +684,7 @@ const simulateOTAProgress = (
     otaState.error = undefined;
 
     console.log(
-      `🔄 Starting ${type} OTA update simulation (${totalSize} bytes)`
+      `🔄 Starting ${type} OTA update simulation (${totalSize} bytes)`,
     );
 
     let currentProgress = 0;
@@ -712,32 +724,35 @@ const simulateOTAProgress = (
       } else {
         otaState.progress = Math.min(90, currentProgress);
         otaState.uploadedSize = Math.floor(
-          (otaState.progress / 100) * totalSize
+          (otaState.progress / 100) * totalSize,
         );
       }
     }, OTA_CONFIG.UPDATE_INTERVAL);
 
     // Simulate random failure
     if (Math.random() < OTA_CONFIG.FAILURE_RATE) {
-      setTimeout(() => {
-        clearInterval(interval);
-        otaState.status = "error";
-        otaState.error = "Simulated update failure";
-        otaState.updateInProgress = false;
-        console.log(`❌ ${type} OTA update failed (simulated)`);
+      setTimeout(
+        () => {
+          clearInterval(interval);
+          otaState.status = "error";
+          otaState.error = "Simulated update failure";
+          otaState.updateInProgress = false;
+          console.log(`❌ ${type} OTA update failed (simulated)`);
 
-        setTimeout(() => {
-          // Reset error state after configured delay
-          otaState.status = "idle";
-          otaState.type = "";
-          otaState.progress = 0;
-          otaState.uploadedSize = 0;
-          otaState.totalSize = 0;
-          otaState.error = undefined;
-        }, OTA_CONFIG.ERROR_RESET_DELAY);
+          setTimeout(() => {
+            // Reset error state after configured delay
+            otaState.status = "idle";
+            otaState.type = "";
+            otaState.progress = 0;
+            otaState.uploadedSize = 0;
+            otaState.totalSize = 0;
+            otaState.error = undefined;
+          }, OTA_CONFIG.ERROR_RESET_DELAY);
 
-        reject(new Error("Simulated update failure"));
-      }, Math.random() * 5000 + 2000); // Fail after 2-7 seconds
+          reject(new Error("Simulated update failure"));
+        },
+        Math.random() * 5000 + 2000,
+      ); // Fail after 2-7 seconds
     }
   });
 };
@@ -784,13 +799,13 @@ app.post(
       res.status(400).json({
         success: false,
         message: `Firmware file is too large. Maximum size is ${Math.floor(
-          OTA_CONFIG.MAX_FIRMWARE_SIZE / 1024 / 1024
+          OTA_CONFIG.MAX_FIRMWARE_SIZE / 1024 / 1024,
         )}MB.`,
       });
       return;
     }
     console.log(
-      `📁 Firmware file: ${req.file.originalname} (${fileSize} bytes)`
+      `📁 Firmware file: ${req.file.originalname} (${fileSize} bytes)`,
     );
 
     // Start the simulation
@@ -809,7 +824,7 @@ app.post(
       success: true,
       message: "Update successful. Device will restart.",
     });
-  }
+  },
 );
 
 app.post(
@@ -841,7 +856,7 @@ app.post(
     // Validate file extension
     const validExtensions = [".bin", ".img"];
     const isValidFile = validExtensions.some((ext) =>
-      req.file!.originalname.toLowerCase().endsWith(ext)
+      req.file?.originalname.toLowerCase().endsWith(ext),
     );
 
     if (!isValidFile) {
@@ -858,13 +873,13 @@ app.post(
       res.status(400).json({
         success: false,
         message: `Filesystem file is too large. Maximum size is ${Math.floor(
-          OTA_CONFIG.MAX_FILESYSTEM_SIZE / 1024 / 1024
+          OTA_CONFIG.MAX_FILESYSTEM_SIZE / 1024 / 1024,
         )}MB.`,
       });
       return;
     }
     console.log(
-      `📁 Filesystem file: ${req.file.originalname} (${fileSize} bytes)`
+      `📁 Filesystem file: ${req.file.originalname} (${fileSize} bytes)`,
     );
 
     // Start the simulation
@@ -883,7 +898,7 @@ app.post(
       success: true,
       message: "Filesystem update successful. Device will restart.",
     });
-  }
+  },
 );
 
 app.post("/api/ota/url", simulateAuth, (req: Request, res: Response): void => {
@@ -945,7 +960,7 @@ app.post("/api/ota/url", simulateAuth, (req: Request, res: Response): void => {
 app.get(
   "/api/ota/status",
   simulateAuth,
-  (req: Request, res: Response): void => {
+  (_req: Request, res: Response): void => {
     res.json({
       updating: otaState.updateInProgress,
       updateInProgress: otaState.updateInProgress,
@@ -957,11 +972,11 @@ app.get(
       filesystemPartition: otaState.filesystemPartition,
       ...(otaState.error && { error: otaState.error }),
     });
-  }
+  },
 );
 
 // Data endpoints
-app.get("/api/health", simulateAuth, (req: Request, res: Response): void => {
+app.get("/api/health", simulateAuth, (_req: Request, res: Response): void => {
   res.json({});
 });
 
@@ -1005,12 +1020,12 @@ if (fs.existsSync(uiDistPath)) {
   app.use(express.static(uiDistPath));
 
   // SPA fallback for non-API routes
-  app.get("/*path", (req: Request, res: Response): void => {
+  app.get("/*path", (_req: Request, res: Response): void => {
     res.sendFile(path.join(uiDistPath, "index.html"));
   });
 } else {
   // Simple message if UI dist not available
-  app.get("/*path", (req: Request, res: Response): void => {
+  app.get("/*path", (_req: Request, res: Response): void => {
     res.send(`
       <h1>CleverCoffee Mock Server</h1>
       <p>Mock API server is running on port ${PORT}</p>
@@ -1044,12 +1059,12 @@ if (fs.existsSync(uiDistPath)) {
 // Start server
 app.listen(PORT, (): void => {
   console.log(
-    `🚀 CleverCoffee Mock Server running on http://localhost:${PORT}`
+    `🚀 CleverCoffee Mock Server running on http://localhost:${PORT}`,
   );
   console.log(`📡 API endpoints available at http://localhost:${PORT}/api/*`);
   console.log(`🔄 OTA update simulation enabled`);
   console.log(
-    `💡 Use this server for frontend development when ESP32 hardware is not available`
+    `💡 Use this server for frontend development when ESP32 hardware is not available`,
   );
 
   // Create uploads directory if it doesn't exist
