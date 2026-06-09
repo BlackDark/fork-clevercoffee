@@ -1,9 +1,9 @@
-import { useState, useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { apiFetch } from "@/lib/api-config";
-import { API_ROUTES } from "@/lib/routes";
+import { ensureCompleteParameters } from "@/lib/parameter-metadata";
 import type { Parameter, UpdateParameter } from "@/lib/parameter-types";
 import { groupParametersBySection } from "@/lib/parameter-utils";
-import { ensureCompleteParameters } from "@/lib/parameter-metadata";
+import { API_ROUTES } from "@/lib/routes";
 
 interface UseParametersApiReturn {
   parameters: Parameter[];
@@ -28,14 +28,19 @@ export function useParametersApi(): UseParametersApiReturn {
         setError(null);
       }
       const response = await apiFetch(`${API_ROUTES.PARAMETERS}?filter=all`);
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      if (!response.ok)
+        throw new Error(`HTTP error! status: ${response.status}`);
       const data = await response.json();
       setParameters(
-        ensureCompleteParameters(data).sort((a, b) => a.name.localeCompare(b.name))
+        ensureCompleteParameters(data).sort((a, b) =>
+          a.name.localeCompare(b.name),
+        ),
       );
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to fetch parameters");
+      setError(
+        err instanceof Error ? err.message : "Failed to fetch parameters",
+      );
     } finally {
       setLoading(false);
     }
@@ -44,10 +49,12 @@ export function useParametersApi(): UseParametersApiReturn {
   const updateParameter = useCallback(
     (name: string, value: string | number | boolean) => {
       setParameters((prev) =>
-        prev.map((param) => (param.name === name ? { ...param, value } : param))
+        prev.map((param) =>
+          param.name === name ? { ...param, value } : param,
+        ),
       );
     },
-    []
+    [],
   );
 
   const saveParameters = useCallback(
@@ -74,27 +81,30 @@ export function useParametersApi(): UseParametersApiReturn {
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
           body: formData.toString(),
         });
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        if (!response.ok)
+          throw new Error(`HTTP error! status: ${response.status}`);
         await refetch(false);
         return true;
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to save parameters");
+        setError(
+          err instanceof Error ? err.message : "Failed to save parameters",
+        );
         return false;
       }
     },
-    [parameters, refetch]
+    [parameters, refetch],
   );
 
   const getParameter = useCallback(
     (name: string): Parameter | undefined => {
       return parameters.find((param) => param.name === name);
     },
-    [parameters]
+    [parameters],
   );
 
   const parametersBySection = useMemo(
     () => groupParametersBySection(parameters),
-    [parameters]
+    [parameters],
   );
 
   return {

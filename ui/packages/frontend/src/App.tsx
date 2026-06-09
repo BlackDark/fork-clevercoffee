@@ -1,13 +1,13 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import { Layout } from "./components/Layout";
-import { HomePage } from "./pages/HomePage";
-import { ConfigPage } from "./pages/ConfigPage";
-import { SystemPage } from "./pages/SystemPage";
-import { AboutPage } from "./pages/AboutPage";
-import { NotFoundPage } from "./pages/NotFoundPage";
-import { Toaster } from "./components/ui/sonner";
-import { ErrorBoundary } from "./components/ErrorBoundary";
+import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { basePath } from "@/lib/config";
+import { ErrorBoundary } from "./components/ErrorBoundary";
+import { Layout } from "./components/Layout";
+import { Toaster } from "./components/ui/sonner";
+import { AboutPage } from "./pages/AboutPage";
+import { ConfigPage } from "./pages/ConfigPage";
+import { HomePage } from "./pages/HomePage";
+import { NotFoundPage } from "./pages/NotFoundPage";
+import { SystemPage } from "./pages/SystemPage";
 
 function App() {
   return (

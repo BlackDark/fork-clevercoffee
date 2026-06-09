@@ -1,6 +1,6 @@
-import { describe, it, expect } from "vitest";
-import { defaultParametersList } from "./parameter-metadata";
+import { describe, expect, it } from "vitest";
 import { parameterGroups } from "./parameter-groups";
+import { defaultParametersList } from "./parameter-metadata";
 
 describe("parameter metadata", () => {
   it("uses canonical brew parameter keys", () => {
@@ -14,7 +14,9 @@ describe("parameter metadata", () => {
   });
 
   it("defines metadata for every parameter shown in config groups", () => {
-    const metadataNames = new Set(defaultParametersList.map((param) => param.name));
+    const metadataNames = new Set(
+      defaultParametersList.map((param) => param.name),
+    );
     const groupNames = parameterGroups.flatMap((group) => group.parameters);
     const missing = groupNames.filter((name) => !metadataNames.has(name));
 

@@ -1,7 +1,7 @@
 import { useCallback } from "react";
-import { BaseChart } from "./BaseChart";
-import uPlot from "uplot";
+import type uPlot from "uplot";
 import type { getChartTheme } from "@/hooks/use-dark-mode";
+import { BaseChart } from "./BaseChart";
 
 export interface HeaterChartProps {
   data: number[][];
@@ -44,9 +44,9 @@ export function HeaterChart({
           label: "Heater Power",
           scale: "%",
           value: (_u: uPlot, v: number) =>
-            v == null ? "" : v.toFixed(0) + "%",
+            v == null ? "" : `${v.toFixed(0)}%`,
           stroke: theme.series.heater.power,
-          fill: theme.series.heater.power + "20",
+          fill: `${theme.series.heater.power}20`,
           width: 2,
           show: true,
           points: { show: false },
@@ -56,7 +56,7 @@ export function HeaterChart({
         {
           values: (_u: uPlot, vals: number[]) =>
             vals.map((v) =>
-              new Date(v * 1000).toLocaleString("de-DE", tzdateOptions)
+              new Date(v * 1000).toLocaleString("de-DE", tzdateOptions),
             ),
           stroke: theme.axisColor,
           grid: { stroke: theme.gridColor },
@@ -65,7 +65,7 @@ export function HeaterChart({
           side: 3,
           scale: "%",
           values: (_u: uPlot, vals: number[]) =>
-            vals.map((v) => v.toFixed(0) + "%"),
+            vals.map((v) => `${v.toFixed(0)}%`),
           stroke: theme.axisColor,
           grid: { stroke: theme.gridColor },
         },
@@ -86,7 +86,7 @@ export function HeaterChart({
         },
       },
     }),
-    [title, yRange]
+    [title, yRange],
   );
 
   // Data update logic
@@ -100,7 +100,7 @@ export function HeaterChart({
           onError(error instanceof Error ? error : new Error(String(error)));
       }
     },
-    [yRange, onError]
+    [yRange, onError],
   );
 
   return (

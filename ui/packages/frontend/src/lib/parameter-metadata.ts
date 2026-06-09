@@ -2,9 +2,9 @@
 // This replaces the old array-based parameter definitions
 
 import type {
-  ServerParameter,
   Parameter,
   ParameterTemplate,
+  ServerParameter,
 } from "./parameter-types";
 import { ParameterTypes } from "./parameter-types";
 
@@ -866,7 +866,7 @@ export const defaultParametersList: Array<ParameterTemplate> = [
 ];
 
 const mappedParameters = new Map<string, Parameter>(
-  defaultParametersList.map((p) => [p.name, { ...p, value: p.defaultValue }])
+  defaultParametersList.map((p) => [p.name, { ...p, value: p.defaultValue }]),
 );
 
 /**
@@ -884,7 +884,7 @@ export function hasParameter(name: string): boolean {
 }
 
 export const mapServerParameterToParameter = (
-  serverParameter: ServerParameter
+  serverParameter: ServerParameter,
 ): Parameter => {
   const metadata = mappedParameters.get(serverParameter.name);
 
@@ -905,7 +905,7 @@ export function getAllParameterNames(): string[] {
  * Create a parameter with default values from metadata
  */
 export function createParameterWithDefaults(
-  name: string
+  name: string,
 ): Parameter | undefined {
   const metadata = mappedParameters.get(name);
 
@@ -930,7 +930,7 @@ export function createParameterWithDefaults(
  * This fills in missing parameters with default values
  */
 export function ensureCompleteParameters(
-  serverParameters: ServerParameter[]
+  serverParameters: ServerParameter[],
 ): Parameter[] {
   const serverParamMap = new Map(serverParameters.map((p) => [p.name, p]));
   const result: Parameter[] = [];

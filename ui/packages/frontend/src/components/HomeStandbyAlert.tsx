@@ -1,10 +1,10 @@
 import { Moon, Power } from "lucide-react";
+import { toast } from "sonner";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useMachineStatus } from "@/hooks/useMachineStatus";
 import { useCleverCoffee } from "@/context/useCleverCoffee";
-import { toast } from "sonner";
+import { useMachineStatus } from "@/hooks/useMachineStatus";
 
 export function HomeStandbyAlert() {
   const { status, loading } = useMachineStatus();
@@ -33,7 +33,12 @@ export function HomeStandbyAlert() {
           The machine is in standby to save energy. Heating is reduced until you
           wake it or start using the machine again.
         </span>
-        <Button size="sm" variant="outline" className="shrink-0" onClick={handleWake}>
+        <Button
+          size="sm"
+          variant="outline"
+          className="shrink-0"
+          onClick={handleWake}
+        >
           <Power className="h-4 w-4 mr-1" />
           Wake up
         </Button>

@@ -1,27 +1,30 @@
-import type { Parameter } from "./parameter-types";
-import { getParameterLabel } from "./parameter-labels";
 import { parameterGroups } from "./parameter-groups";
+import { getParameterLabel } from "./parameter-labels";
+import type { Parameter } from "./parameter-types";
 
 /**
  * Checks if a parameter's required parameters are met
  */
 export function areRequiredParametersMet(
   parameter: Parameter,
-  allParameters: Parameter[]
+  allParameters: Parameter[],
 ): boolean {
   if (!parameter.requiredParameters) {
     return true; // No requirements, always enabled
   }
 
   // Create a lookup map for parameter values
-  const parameterValues = allParameters.reduce((acc, param) => {
-    acc[param.name] = param.value;
-    return acc;
-  }, {} as Record<string, string | number | boolean>);
+  const parameterValues = allParameters.reduce(
+    (acc, param) => {
+      acc[param.name] = param.value;
+      return acc;
+    },
+    {} as Record<string, string | number | boolean>,
+  );
 
   // Check all required parameters
   for (const [paramName, expectedValue] of Object.entries(
-    parameter.requiredParameters
+    parameter.requiredParameters,
   )) {
     const actualValue = parameterValues[paramName];
 
@@ -52,21 +55,24 @@ export function areRequiredParametersMet(
  */
 export function getMissingRequiredParametersMessage(
   parameter: Parameter,
-  allParameters: Parameter[]
+  allParameters: Parameter[],
 ): string {
   if (!parameter.requiredParameters) {
     return "";
   }
 
-  const parameterValues = allParameters.reduce((acc, param) => {
-    acc[param.name] = param.value;
-    return acc;
-  }, {} as Record<string, string | number | boolean>);
+  const parameterValues = allParameters.reduce(
+    (acc, param) => {
+      acc[param.name] = param.value;
+      return acc;
+    },
+    {} as Record<string, string | number | boolean>,
+  );
 
   const missingRequirements: string[] = [];
 
   for (const [paramName, expectedValue] of Object.entries(
-    parameter.requiredParameters
+    parameter.requiredParameters,
   )) {
     const actualValue = parameterValues[paramName];
 
@@ -109,18 +115,21 @@ export function getMissingRequiredParametersMessage(
  * Groups parameters by prefix (e.g., "pid", "brew", "hardware") with conditional filtering
  */
 export function groupParametersByPrefix(
-  parameters: Parameter[]
+  parameters: Parameter[],
 ): Record<string, Parameter[]> {
   const visibleParameters = parameters.filter(() => true); // Show all parameters
 
-  return visibleParameters.reduce((groups, param) => {
-    const prefix = param.name.split(".")[0];
-    if (!groups[prefix]) {
-      groups[prefix] = [];
-    }
-    groups[prefix].push(param);
-    return groups;
-  }, {} as Record<string, Parameter[]>);
+  return visibleParameters.reduce(
+    (groups, param) => {
+      const prefix = param.name.split(".")[0];
+      if (!groups[prefix]) {
+        groups[prefix] = [];
+      }
+      groups[prefix].push(param);
+      return groups;
+    },
+    {} as Record<string, Parameter[]>,
+  );
 }
 
 /**
@@ -128,7 +137,7 @@ export function groupParametersByPrefix(
  * This provides proper separation (e.g., scale parameters in behavior vs hardware)
  */
 export function groupParametersBySection(
-  parameters: Parameter[]
+  parameters: Parameter[],
 ): Record<string, Parameter[]> {
   const visibleParameters = parameters.filter(() => true); // Show all parameters
 
@@ -154,7 +163,7 @@ export function groupParametersBySection(
       // Fallback to prefix-based grouping for parameters not in groups
       const prefix = param.name.split(".")[0];
       const fallbackLabel = `${prefix.charAt(0).toUpperCase()}${prefix.slice(
-        1
+        1,
       )} Parameters`;
       if (!groups[fallbackLabel]) {
         groups[fallbackLabel] = [];

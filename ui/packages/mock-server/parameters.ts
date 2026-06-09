@@ -1,6 +1,6 @@
-import fs from "fs";
-import path from "path";
-import { fileURLToPath } from "url";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -16,7 +16,7 @@ export interface Parameter {
 }
 
 const parameters: Parameter[] = JSON.parse(
-  fs.readFileSync(path.join(__dirname, "./data/parameters.json"), "utf8")
+  fs.readFileSync(path.join(__dirname, "./data/parameters.json"), "utf8"),
 );
 
 export default parameters;

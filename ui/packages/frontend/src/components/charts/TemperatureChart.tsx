@@ -1,7 +1,7 @@
 import { useCallback } from "react";
+import type uPlot from "uplot";
+import type { getChartTheme } from "@/hooks/use-dark-mode";
 import { BaseChart } from "./BaseChart";
-import uPlot from "uplot";
-import { getChartTheme } from "@/hooks/use-dark-mode";
 
 export interface TemperatureChartProps {
   data: number[][];
@@ -47,10 +47,10 @@ export function TemperatureChart({
           label: "Current Temperature",
           scale: "°C",
           value: (_u: uPlot, v: number) =>
-            v == null ? "" : v.toFixed(1) + " °C",
+            v == null ? "" : `${v.toFixed(1)} °C`,
           show: true,
           stroke: theme.series.temperature.current,
-          fill: theme.series.temperature.current + "20",
+          fill: `${theme.series.temperature.current}20`,
           width: 2,
           points: { show: false },
         },
@@ -58,9 +58,9 @@ export function TemperatureChart({
           label: "Target Temperature",
           scale: "°C",
           value: (_u: uPlot, v: number) =>
-            v == null ? "" : v.toFixed(1) + " °C",
+            v == null ? "" : `${v.toFixed(1)} °C`,
           stroke: theme.series.temperature.target,
-          fill: theme.series.temperature.target + "20",
+          fill: `${theme.series.temperature.target}20`,
           width: 2,
           show: true,
           points: { show: false },
@@ -70,14 +70,14 @@ export function TemperatureChart({
         {
           values: (_u: uPlot, vals: number[]) =>
             vals.map((v) =>
-              new Date(v * 1000).toLocaleString("de-DE", tzdateOptions)
+              new Date(v * 1000).toLocaleString("de-DE", tzdateOptions),
             ),
           stroke: theme.axisColor,
           grid: { stroke: theme.gridColor },
         },
         {
           scale: "°C",
-          values: (_u: uPlot, vals: number[]) => vals.map((v) => v + "°C"),
+          values: (_u: uPlot, vals: number[]) => vals.map((v) => `${v}°C`),
           stroke: theme.axisColor,
           grid: { stroke: theme.gridColor },
         },
@@ -98,7 +98,7 @@ export function TemperatureChart({
         },
       },
     }),
-    [title, autoScaleY, tempRange]
+    [title, autoScaleY, tempRange],
   );
 
   // Data update logic
@@ -114,7 +114,7 @@ export function TemperatureChart({
           onError(error instanceof Error ? error : new Error(String(error)));
       }
     },
-    [autoScaleY, tempRange, onError]
+    [autoScaleY, tempRange, onError],
   );
 
   return (

@@ -1,6 +1,6 @@
+import { X } from "lucide-react";
 import * as React from "react";
 import { cn } from "@/lib/utils";
-import { X } from "lucide-react";
 
 export interface ToastProps extends React.HTMLAttributes<HTMLDivElement> {
   variant?: "default" | "destructive" | "success";
@@ -21,14 +21,14 @@ const Toast = React.forwardRef<HTMLDivElement, ToastProps>(
             "border-green-200 bg-green-50 text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-200":
               variant === "success",
           },
-          className
+          className,
         )}
         {...props}
       >
         {children}
       </div>
     );
-  }
+  },
 );
 Toast.displayName = "Toast";
 
@@ -46,7 +46,7 @@ const ToastAction = React.forwardRef<
     ref={ref}
     className={cn(
       "inline-flex h-8 shrink-0 items-center justify-center rounded-md border bg-transparent px-3 text-sm font-medium ring-offset-background transition-colors hover:bg-secondary focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none disabled:opacity-50",
-      className
+      className,
     )}
     onClick={action}
     aria-label={altText}
@@ -65,7 +65,7 @@ const ToastClose = React.forwardRef<
     ref={ref}
     className={cn(
       "absolute right-2 top-2 rounded-md p-1 text-foreground/50 opacity-0 transition-opacity hover:text-foreground focus:opacity-100 focus:outline-none focus:ring-2 group-hover:opacity-100",
-      className
+      className,
     )}
     {...props}
   >
@@ -94,4 +94,4 @@ const ToastDescription = React.forwardRef<
 ));
 ToastDescription.displayName = "ToastDescription";
 
-export { Toast, ToastAction, ToastClose, ToastTitle, ToastDescription };
+export { Toast, ToastAction, ToastClose, ToastDescription, ToastTitle };

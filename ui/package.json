@@ -7,10 +7,13 @@
     "dev:ui": "pnpm --filter @clevercoffee/frontend dev",
     "dev:api": "pnpm --filter @clevercoffee/mock-server dev",
     "prepare-esp": "pnpm --filter @clevercoffee/frontend build && pnpm run copy:dist",
-    "copy:dist": "rimraf ../data/ui && mkdir -p ../data/ui && mv packages/frontend/dist ../data/ui"
+    "copy:dist": "rimraf ../data/ui && mkdir -p ../data/ui && mv packages/frontend/dist ../data/ui",
+    "lint": "biome check .",
+    "format": "biome check --write ."
   },
   "packageManager": "pnpm@11.2.2",
   "devDependencies": {
+    "@biomejs/biome": "2.4.16",
     "concurrently": "10.0.1",
     "rimraf": "6.1.3"
   }

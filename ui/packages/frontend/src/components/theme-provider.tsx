@@ -1,6 +1,6 @@
+import { useEffect, useState } from "react";
 import { ThemeProviderContext } from "@/hooks/use-dark-mode";
 import type { Theme, ThemeProviderProps } from "@/types/theme";
-import { useEffect, useState } from "react";
 
 export function ThemeProvider({
   children,
@@ -9,7 +9,7 @@ export function ThemeProvider({
   ...props
 }: ThemeProviderProps) {
   const [theme, setTheme] = useState<Theme>(
-    () => (localStorage.getItem(storageKey) as Theme) || defaultTheme
+    () => (localStorage.getItem(storageKey) as Theme) || defaultTheme,
   );
 
   useEffect(() => {

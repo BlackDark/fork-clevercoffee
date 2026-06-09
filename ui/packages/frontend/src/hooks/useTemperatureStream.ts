@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { apiFetch, SERVER_BASE_URL } from "@/lib/api-config";
 import { API_ROUTES } from "@/lib/routes";
 import type { TemperatureData } from "@/types/api";
@@ -12,9 +12,10 @@ interface UseTemperatureStreamReturn {
 
 export function useTemperatureStream(
   historyLoaded: boolean,
-  onLiveChartData?: (data: TemperatureData) => void
+  onLiveChartData?: (data: TemperatureData) => void,
 ): UseTemperatureStreamReturn {
-  const [temperatureData, setTemperatureData] = useState<TemperatureData | null>(null);
+  const [temperatureData, setTemperatureData] =
+    useState<TemperatureData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -25,7 +26,8 @@ export function useTemperatureStream(
       const response = await apiFetch(API_ROUTES.TEMPERATURES, {
         signal: AbortSignal.timeout(5000),
       });
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      if (!response.ok)
+        throw new Error(`HTTP error! status: ${response.status}`);
       const data: TemperatureData = await response.json();
       setTemperatureData(data);
       setError(null);

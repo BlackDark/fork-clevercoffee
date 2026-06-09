@@ -1,10 +1,9 @@
-import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
-import path from "path";
+import path from "node:path";
 import tailwindcss from "@tailwindcss/vite";
-import type { UserConfig } from "vite";
-
+import react from "@vitejs/plugin-react";
 import gzipPlugin from "rollup-plugin-gzip";
+import type { UserConfig } from "vite";
+import { defineConfig } from "vite";
 
 // Get base path from environment variable or default to root
 const basePath = process.env.VITE_BASE_PATH || "/";

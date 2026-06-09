@@ -44,8 +44,8 @@ jobs:
         working-directory: ui
         run: pnpm install --frozen-lockfile
 
-      - name: Lint
-        working-directory: ui/packages/frontend
+      - name: Lint and format check
+        working-directory: ui
         run: pnpm lint
 
       - name: Type check

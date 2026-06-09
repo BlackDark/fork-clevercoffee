@@ -1,14 +1,14 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from "vitest";
 import {
-  TemperatureDataSchema,
   HistoryDataSchema,
-  SteamResponseSchema,
   PidResponseSchema,
-} from './schemas';
+  SteamResponseSchema,
+  TemperatureDataSchema,
+} from "./schemas";
 
-describe('API Schemas', () => {
-  describe('TemperatureDataSchema', () => {
-    it('parses valid temperature data', () => {
+describe("API Schemas", () => {
+  describe("TemperatureDataSchema", () => {
+    it("parses valid temperature data", () => {
       const data = {
         currentTemp: 93.5,
         targetTemp: 93.0,
@@ -20,14 +20,14 @@ describe('API Schemas', () => {
       expect(result.heaterPower).toBe(45.2);
     });
 
-    it('rejects invalid temperature data', () => {
-      const data = { currentTemp: 'hot' };
+    it("rejects invalid temperature data", () => {
+      const data = { currentTemp: "hot" };
       expect(() => TemperatureDataSchema.parse(data)).toThrow();
     });
   });
 
-  describe('HistoryDataSchema', () => {
-    it('parses valid history data', () => {
+  describe("HistoryDataSchema", () => {
+    it("parses valid history data", () => {
       const data = {
         currentTemps: [93.0, 93.2, 93.5],
         targetTemps: [93.0, 93.0, 93.0],
@@ -38,8 +38,8 @@ describe('API Schemas', () => {
     });
   });
 
-  describe('SteamResponseSchema', () => {
-    it('parses valid steam response', () => {
+  describe("SteamResponseSchema", () => {
+    it("parses valid steam response", () => {
       const data = { success: true, steamMode: true };
       const result = SteamResponseSchema.parse(data);
       expect(result.success).toBe(true);
@@ -47,8 +47,8 @@ describe('API Schemas', () => {
     });
   });
 
-  describe('PidResponseSchema', () => {
-    it('parses valid PID response', () => {
+  describe("PidResponseSchema", () => {
+    it("parses valid PID response", () => {
       const data = { success: true, pidEnabled: false };
       const result = PidResponseSchema.parse(data);
       expect(result.success).toBe(true);

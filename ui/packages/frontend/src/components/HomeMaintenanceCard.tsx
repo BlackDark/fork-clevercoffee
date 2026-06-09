@@ -1,14 +1,14 @@
 import { AlertTriangle, Droplets, RotateCcw } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useMachineStatus } from "@/hooks/useMachineStatus";
 import { useCleverCoffee } from "@/context/useCleverCoffee";
+import { useMachineStatus } from "@/hooks/useMachineStatus";
 import { apiFetch } from "@/lib/api-config";
 import { API_ROUTES } from "@/lib/routes";
-import { toast } from "sonner";
 
 export function HomeMaintenanceCard() {
   const { status, loading, refetch } = useMachineStatus();
@@ -54,7 +54,8 @@ export function HomeMaintenanceCard() {
     if (result.success) toast.success("Backflush mode toggled");
     else
       toast.error("Failed to toggle backflush", {
-        description: result.error ?? "Please check your connection and try again.",
+        description:
+          result.error ?? "Please check your connection and try again.",
       });
   };
 
@@ -78,7 +79,9 @@ export function HomeMaintenanceCard() {
         <div className="space-y-2">
           <div className="flex items-end justify-between gap-2">
             <div>
-              <p className="text-sm text-muted-foreground">Shots since backflush</p>
+              <p className="text-sm text-muted-foreground">
+                Shots since backflush
+              </p>
               <p className="text-3xl font-bold tracking-tight">
                 {shots}
                 <span className="text-lg font-normal text-muted-foreground">
@@ -97,7 +100,10 @@ export function HomeMaintenanceCard() {
               {due ? "Clean due" : `${Math.max(0, threshold - shots)} left`}
             </span>
           </div>
-          <Progress value={progress} className={due ? "[&>div]:bg-amber-500" : undefined} />
+          <Progress
+            value={progress}
+            className={due ? "[&>div]:bg-amber-500" : undefined}
+          />
         </div>
 
         {due && (
@@ -105,14 +111,18 @@ export function HomeMaintenanceCard() {
             <AlertTriangle className="h-4 w-4" />
             <AlertTitle>Backflush recommended</AlertTitle>
             <AlertDescription>
-              Run a detergent backflush cycle, then turn backflush mode off or reset
-              the counter when finished.
+              Run a detergent backflush cycle, then turn backflush mode off or
+              reset the counter when finished.
             </AlertDescription>
           </Alert>
         )}
 
         <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant={due ? "default" : "outline"} onClick={handleBackflush}>
+          <Button
+            size="sm"
+            variant={due ? "default" : "outline"}
+            onClick={handleBackflush}
+          >
             <Droplets className="h-4 w-4 mr-1" />
             Backflush
           </Button>

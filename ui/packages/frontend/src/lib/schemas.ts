@@ -57,7 +57,14 @@ export const ConfigUploadResponseSchema = ApiResponseSchema.extend({
 });
 
 export const OtaStatusSchema = z.object({
-  status: z.enum(["idle", "downloading", "uploading", "processing", "complete", "error"]),
+  status: z.enum([
+    "idle",
+    "downloading",
+    "uploading",
+    "processing",
+    "complete",
+    "error",
+  ]),
   progress: z.number(),
   updateInProgress: z.boolean(),
   message: z.string().optional(),

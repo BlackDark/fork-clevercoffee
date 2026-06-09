@@ -1,15 +1,18 @@
-import React, { useState, useCallback, useEffect } from "react";
+import type React from "react";
+import { useCallback, useEffect, useState } from "react";
+import { CleverCoffeeContext } from "@/context/useCleverCoffee";
+import { useMachineToggles } from "@/hooks/useMachineToggles";
+import { useParametersApi } from "@/hooks/useParametersApi";
+import { useTemperatureStream } from "@/hooks/useTemperatureStream";
 import { apiFetch } from "@/lib/api-config";
 import { API_ROUTES } from "@/lib/routes";
 import type { HistoryData, MachineStatus, TemperatureData } from "@/types/api";
-import { CleverCoffeeContext } from "@/context/useCleverCoffee";
-import { useParametersApi } from "@/hooks/useParametersApi";
-import { useTemperatureStream } from "@/hooks/useTemperatureStream";
-import { useMachineToggles } from "@/hooks/useMachineToggles";
 
 interface CleverCoffeeContextValue {
   parameters: ReturnType<typeof useParametersApi>["parameters"];
-  parametersBySection: ReturnType<typeof useParametersApi>["parametersBySection"];
+  parametersBySection: ReturnType<
+    typeof useParametersApi
+  >["parametersBySection"];
   loadingParams: ReturnType<typeof useParametersApi>["loading"];
   errorParams: ReturnType<typeof useParametersApi>["error"];
   updateParameter: ReturnType<typeof useParametersApi>["updateParameter"];
@@ -17,7 +20,11 @@ interface CleverCoffeeContextValue {
   fetchParameters: ReturnType<typeof useParametersApi>["refetch"];
   getParameter: ReturnType<typeof useParametersApi>["getParameter"];
 
-  tempData: { tempDates: Date[]; curTempVals: number[]; targetTempVals: number[] };
+  tempData: {
+    tempDates: Date[];
+    curTempVals: number[];
+    targetTempVals: number[];
+  };
   heaterData: { heaterDates: Date[]; heaterPowerVals: number[] };
   chartError: string | null;
   isHistoryLoaded: boolean;
@@ -39,7 +46,9 @@ interface CleverCoffeeContextValue {
   toggleSteam: ReturnType<typeof useMachineToggles>["toggleSteam"];
   toggleBackflush: ReturnType<typeof useMachineToggles>["toggleBackflush"];
   toggleTareScale: ReturnType<typeof useMachineToggles>["toggleTareScale"];
-  toggleScaleCalibration: ReturnType<typeof useMachineToggles>["toggleScaleCalibration"];
+  toggleScaleCalibration: ReturnType<
+    typeof useMachineToggles
+  >["toggleScaleCalibration"];
   wakeFromStandby: ReturnType<typeof useMachineToggles>["wakeFromStandby"];
   sleepFromStandby: ReturnType<typeof useMachineToggles>["sleepFromStandby"];
 
@@ -65,7 +74,9 @@ export const CleverCoffeeProvider: React.FC<{ children: React.ReactNode }> = ({
   const [isOnline, setIsOnline] = useState(true);
   const [lastHealthCheck, setLastHealthCheck] = useState<Date | null>(null);
   const [connectionError, setConnectionError] = useState<string | null>(null);
-  const [machineStatus, setMachineStatus] = useState<MachineStatus | null>(null);
+  const [machineStatus, setMachineStatus] = useState<MachineStatus | null>(
+    null,
+  );
   const [machineStatusLoading, setMachineStatusLoading] = useState(true);
 
   const refetchMachineStatus = useCallback(async (): Promise<boolean> => {
@@ -125,7 +136,7 @@ export const CleverCoffeeProvider: React.FC<{ children: React.ReactNode }> = ({
         }));
       }
     },
-    []
+    [],
   );
 
   const addHeaterData = useCallback((data: { heaterPower?: number }) => {
@@ -146,7 +157,7 @@ export const CleverCoffeeProvider: React.FC<{ children: React.ReactNode }> = ({
       });
       addHeaterData({ heaterPower: data.heaterPower });
     },
-    [addTempData, addHeaterData]
+    [addTempData, addHeaterData],
   );
 
   const {
@@ -168,12 +179,16 @@ export const CleverCoffeeProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const togglePid = useCallback(async () => {
     const success = await rawTogglePid();
-    if (success) { fetchParameters(false); }
+    if (success) {
+      fetchParameters(false);
+    }
     return success;
   }, [rawTogglePid, fetchParameters]);
   const toggleSteam = useCallback(async () => {
     const success = await rawToggleSteam();
-    if (success) { fetchParameters(false); }
+    if (success) {
+      fetchParameters(false);
+    }
     return success;
   }, [rawToggleSteam, fetchParameters]);
   const toggleBackflush = useCallback(async () => {
@@ -186,12 +201,16 @@ export const CleverCoffeeProvider: React.FC<{ children: React.ReactNode }> = ({
   }, [rawToggleBackflush, fetchParameters, refetchMachineStatus]);
   const toggleTareScale = useCallback(async () => {
     const success = await rawToggleTareScale();
-    if (success) { fetchParameters(false); }
+    if (success) {
+      fetchParameters(false);
+    }
     return success;
   }, [rawToggleTareScale, fetchParameters]);
   const toggleScaleCalibration = useCallback(async () => {
     const success = await rawToggleScaleCalibration();
-    if (success) { fetchParameters(false); }
+    if (success) {
+      fetchParameters(false);
+    }
     return success;
   }, [rawToggleScaleCalibration, fetchParameters]);
 
@@ -211,7 +230,8 @@ export const CleverCoffeeProvider: React.FC<{ children: React.ReactNode }> = ({
     try {
       setChartError(null);
       const response = await apiFetch(API_ROUTES.HISTORY);
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      if (!response.ok)
+        throw new Error(`HTTP error! status: ${response.status}`);
       const historyData: HistoryData = await response.json();
 
       const dates: Date[] = [];
@@ -221,8 +241,15 @@ export const CleverCoffeeProvider: React.FC<{ children: React.ReactNode }> = ({
         dates.push(date);
       }
 
-      setTempData({ tempDates: dates, curTempVals: historyData.currentTemps, targetTempVals: historyData.targetTemps });
-      setHeaterData({ heaterDates: dates, heaterPowerVals: historyData.heaterPowers });
+      setTempData({
+        tempDates: dates,
+        curTempVals: historyData.currentTemps,
+        targetTempVals: historyData.targetTemps,
+      });
+      setHeaterData({
+        heaterDates: dates,
+        heaterPowerVals: historyData.heaterPowers,
+      });
       setHistoryLoaded(true);
       return true;
     } catch {
@@ -234,7 +261,9 @@ export const CleverCoffeeProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const checkHealth = useCallback(async (): Promise<boolean> => {
     try {
-      const response = await apiFetch(API_ROUTES.HEALTH, { signal: AbortSignal.timeout(3000) });
+      const response = await apiFetch(API_ROUTES.HEALTH, {
+        signal: AbortSignal.timeout(3000),
+      });
       const isHealthy = response.ok;
       setIsOnline(isHealthy);
       setLastHealthCheck(new Date());
@@ -253,7 +282,7 @@ export const CleverCoffeeProvider: React.FC<{ children: React.ReactNode }> = ({
       const success = await refetchTemperature(showLoading);
       return success;
     },
-    [refetchTemperature]
+    [refetchTemperature],
   );
 
   const retryConnection = useCallback(() => {

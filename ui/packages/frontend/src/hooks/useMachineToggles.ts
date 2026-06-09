@@ -1,6 +1,9 @@
 import { useCallback } from "react";
 import { apiFetch } from "@/lib/api-config";
-import { parseToggleResponse, type MachineToggleResult } from "@/lib/machine-toggle-result";
+import {
+  type MachineToggleResult,
+  parseToggleResponse,
+} from "@/lib/machine-toggle-result";
 import { API_ROUTES } from "@/lib/routes";
 
 interface UseMachineTogglesReturn {
@@ -43,7 +46,9 @@ export function useMachineToggles(): UseMachineTogglesReturn {
 
   const toggleTareScale = useCallback(async () => {
     try {
-      const response = await apiFetch(API_ROUTES.SCALE_TARE, { method: "POST" });
+      const response = await apiFetch(API_ROUTES.SCALE_TARE, {
+        method: "POST",
+      });
       return response.ok;
     } catch {
       return false;
@@ -52,7 +57,9 @@ export function useMachineToggles(): UseMachineTogglesReturn {
 
   const toggleScaleCalibration = useCallback(async () => {
     try {
-      const response = await apiFetch(API_ROUTES.SCALE_CALIBRATION, { method: "POST" });
+      const response = await apiFetch(API_ROUTES.SCALE_CALIBRATION, {
+        method: "POST",
+      });
       return response.ok;
     } catch {
       return false;

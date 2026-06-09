@@ -1,6 +1,7 @@
 // Custom useTheme hook for Vite/shadcn
-import type { ThemeProviderState } from "@/types/theme";
+
 import { createContext, useContext, useSyncExternalStore } from "react";
+import type { ThemeProviderState } from "@/types/theme";
 
 const initialState: ThemeProviderState = {
   theme: "system",
@@ -45,11 +46,7 @@ function getServerIsDark() {
 
 // This hook is for theme/dark mode only and is independent of clever coffee state.
 export function useDarkMode() {
-  return useSyncExternalStore(
-    subscribeToDarkMode,
-    getIsDark,
-    getServerIsDark
-  );
+  return useSyncExternalStore(subscribeToDarkMode, getIsDark, getServerIsDark);
 }
 
 export function getChartTheme(isDark: boolean) {
