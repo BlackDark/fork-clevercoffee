@@ -186,9 +186,12 @@ export function SystemPage() {
         return;
       }
 
-      let result: unknown;
+      let result: { success: boolean; message?: string };
       try {
-        result = await response.json();
+        result = (await response.json()) as {
+          success: boolean;
+          message?: string;
+        };
       } catch (error: unknown) {
         setUploadMessage("Configuration uploaded successfully!");
         setUploadSuccess(true);
