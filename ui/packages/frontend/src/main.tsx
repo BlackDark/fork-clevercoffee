@@ -5,7 +5,12 @@ import { CleverCoffeeProvider } from "@/context/CleverCoffeeContext.tsx";
 import App from "./App.tsx";
 import { ThemeProvider } from "./components/theme-provider";
 
-createRoot(document.getElementById("root")!).render(
+const rootElement = document.getElementById("root");
+if (!rootElement) {
+  throw new Error("Root element #root not found");
+}
+
+createRoot(rootElement).render(
   <StrictMode>
     <ThemeProvider defaultTheme="dark" storageKey="vite-ui-theme">
       <CleverCoffeeProvider>

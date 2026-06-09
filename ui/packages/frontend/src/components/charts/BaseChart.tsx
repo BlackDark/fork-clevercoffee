@@ -122,15 +122,13 @@ export function BaseChart({
 
   useEffect(() => {
     if (!plotRef.current || hasError || !data || data.length === 0) return;
+    const container = chartRef.current;
+    if (!container) return;
     try {
       plotRef.current.destroy();
       plotRef.current = null;
       const config = createChartConfig({ chartSize, theme, isDark });
-      plotRef.current = new uPlot(
-        config,
-        data as uPlot.AlignedData,
-        chartRef.current!,
-      );
+      plotRef.current = new uPlot(config, data as uPlot.AlignedData, container);
     } catch (error) {
       reportChartError(onError, setHasError, error);
     }

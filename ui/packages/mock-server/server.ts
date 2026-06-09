@@ -39,9 +39,11 @@ app.use(express.urlencoded({ extended: true }));
 const upload = multer({ dest: "uploads/" });
 
 // Type definitions
+type ParameterValue = string | number | boolean;
+
 interface Parameter {
   name: string;
-  value: any;
+  value: ParameterValue;
   section?: number;
   show?: boolean;
   type?: number;
@@ -73,7 +75,7 @@ interface MockState {
 
 interface ConfigFile {
   version: string;
-  parameters: Record<string, any>;
+  parameters: Record<string, ParameterValue>;
   system: {
     hostname: string;
     auth: {
@@ -341,7 +343,12 @@ app.get(
   "/api/parameters",
   simulateAuth,
   (
-    req: Request<{}, Parameter[], {}, ParametersQuery>,
+    req: Request<
+      Record<string, never>,
+      Parameter[],
+      Record<string, never>,
+      ParametersQuery
+    >,
     res: Response<Parameter[]>,
   ): void => {
     const filter = req.query.filter;
@@ -385,7 +392,7 @@ app.post(
 
     // Simulate parameter updates
     let hasErrors = false;
-    const updates: Array<{ name: string; value: any }> = [];
+    const updates: Array<{ name: string; value: ParameterValue }> = [];
 
     // Parse form data
     Object.keys(req.body).forEach((key) => {
@@ -439,9 +446,9 @@ app.get(
   simulateAuth,
   (
     req: Request<
-      {},
+      Record<string, never>,
       { name: string; helpText: string } | { error: string },
-      {},
+      Record<string, never>,
       ParameterHelpQuery
     >,
     res: Response,
@@ -523,7 +530,7 @@ app.get(
     const config: ConfigFile = {
       version: "1.0.0",
       parameters: mockState.parameters.reduce(
-        (acc: Record<string, any>, param) => {
+        (acc: Record<string, ParameterValue>, param) => {
           acc[param.name] = param.value;
           return acc;
         },

@@ -128,11 +128,12 @@ export const CleverCoffeeProvider: React.FC<{ children: React.ReactNode }> = ({
   const addTempData = useCallback(
     (data: { currentTemp?: number; targetTemp?: number }) => {
       if (data.currentTemp != null && data.targetTemp != null) {
+        const { currentTemp, targetTemp } = data;
         const now = new Date();
         setTempData((prev) => ({
           tempDates: [...prev.tempDates, now],
-          curTempVals: [...prev.curTempVals, data.currentTemp!],
-          targetTempVals: [...prev.targetTempVals, data.targetTemp!],
+          curTempVals: [...prev.curTempVals, currentTemp],
+          targetTempVals: [...prev.targetTempVals, targetTemp],
         }));
       }
     },
@@ -141,10 +142,11 @@ export const CleverCoffeeProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const addHeaterData = useCallback((data: { heaterPower?: number }) => {
     if (data.heaterPower !== undefined) {
+      const { heaterPower } = data;
       const now = new Date();
       setHeaterData((prev) => ({
         heaterDates: [...prev.heaterDates, now],
-        heaterPowerVals: [...prev.heaterPowerVals, data.heaterPower!],
+        heaterPowerVals: [...prev.heaterPowerVals, heaterPower],
       }));
     }
   }, []);

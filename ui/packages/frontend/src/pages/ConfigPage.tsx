@@ -402,13 +402,18 @@ export function ConfigPage() {
         // Only include parameters that exist on server and have changed values
         return serverParam && localParam.value !== serverParam.value;
       })
-      .map((localParam) => {
-        const serverParam = serverMap.get(localParam.name)!;
-        return {
-          name: localParam.name,
-          oldValue: serverParam.value as string | number | boolean,
-          newValue: localParam.value as string | number | boolean,
-        };
+      .flatMap((localParam) => {
+        const serverParam = serverMap.get(localParam.name);
+        if (!serverParam) {
+          return [];
+        }
+        return [
+          {
+            name: localParam.name,
+            oldValue: serverParam.value as string | number | boolean,
+            newValue: localParam.value as string | number | boolean,
+          },
+        ];
       });
   }, [localParameters, serverParameters]);
 

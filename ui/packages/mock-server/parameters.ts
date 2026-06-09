@@ -4,9 +4,11 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+export type ParameterValue = string | number | boolean;
+
 export interface Parameter {
   name: string;
-  value: any;
+  value: ParameterValue;
   section?: number;
   show?: boolean;
   type?: number;
