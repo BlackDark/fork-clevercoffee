@@ -11,12 +11,13 @@
  * - Edge cases (null pointers, repeated calls)
  */
 
-#include <gtest/gtest.h>
-#include <gmock/gmock.h>
-#include "../test_support.h"
 #include "../ConfigTestHelper.h"
 #include "../mocks/MockSwitch.h"
 #include "../mocks/MockWiFiManager.h"
+#include "../test_support.h"
+
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
 
 // Include shared handler test stubs (provides SystemContext, MachineStateContext stubs, etc.)
 #include "../mocks/HandlerTestStubs.cpp"
@@ -53,10 +54,11 @@ class BrewHandlerTest : public ::testing::Test {
     }
 
     void setupMachineStateContext(MachineStateId initialState = MachineStateId::PID_NORMAL) {
-        dummyHwManager_      = std::make_unique<HardwareManager>(Config::getInstance());
-        dummyDisplayManager_ = std::make_unique<DisplayManager>(::Hardware::OLEDType::SSD1306, ::Hardware::OLEDAddress::ADDR_3C);
-        dummyMqttManager_    = std::make_unique<MQTTManager>();
-        dummyWiFiManager_    = std::make_unique<NiceMock<MockWiFiManager>>();
+        dummyHwManager_ = std::make_unique<HardwareManager>(Config::getInstance());
+        dummyDisplayManager_ =
+            std::make_unique<DisplayManager>(::Hardware::OLEDType::SSD1306, ::Hardware::OLEDAddress::ADDR_3C);
+        dummyMqttManager_ = std::make_unique<MQTTManager>();
+        dummyWiFiManager_ = std::make_unique<NiceMock<MockWiFiManager>>();
 
         machineStateContext_ = std::make_unique<MachineStateContext>(
             *systemContext_, *dummyHwManager_, *dummyDisplayManager_, *dummyWiFiManager_, *dummyMqttManager_);
@@ -64,13 +66,13 @@ class BrewHandlerTest : public ::testing::Test {
         systemContext_->setMachineStateContext(machineStateContext_.get());
     }
 
-    std::unique_ptr<SystemContext>              systemContext_;
-    std::unique_ptr<BrewHandler>                handler_;
-    std::unique_ptr<MachineStateContext>         machineStateContext_;
-    std::unique_ptr<HardwareManager>            dummyHwManager_;
-    std::unique_ptr<DisplayManager>             dummyDisplayManager_;
-    std::unique_ptr<MQTTManager>                dummyMqttManager_;
-    std::unique_ptr<NiceMock<MockWiFiManager>>  dummyWiFiManager_;
+    std::unique_ptr<SystemContext>             systemContext_;
+    std::unique_ptr<BrewHandler>               handler_;
+    std::unique_ptr<MachineStateContext>       machineStateContext_;
+    std::unique_ptr<HardwareManager>           dummyHwManager_;
+    std::unique_ptr<DisplayManager>            dummyDisplayManager_;
+    std::unique_ptr<MQTTManager>               dummyMqttManager_;
+    std::unique_ptr<NiceMock<MockWiFiManager>> dummyWiFiManager_;
 };
 
 // ============================================================================
@@ -105,8 +107,7 @@ TEST_F(BrewHandlerTest, NullSwitchReturnsFalseForAllQueries) {
 }
 
 TEST_F(BrewHandlerTest, NullSwitchIsBrewActiveReturnsFalse) {
-    EXPECT_FALSE(handler_->isBrewActive())
-        << "isBrewActive should return false when MachineStateContext is null";
+    EXPECT_FALSE(handler_->isBrewActive()) << "isBrewActive should return false when MachineStateContext is null";
 }
 
 // ============================================================================
@@ -222,6 +223,45 @@ TEST_F(BrewHandlerTest, ValveSafetyShutdownClosesValveWhenNotBrewing) {
     // No crash — valve off() called (goes through GPIOPin stub)
 }
 
+// Regression for "no water on next brew after aborting preinfusion":
+// Aborting a brew during preinfusion transitions PREINFUSION -> PID_NORMAL without
+// calling closeWaterValve() (onExit only disables the pump). The valve is closed by
+// valveSafetyShutdownCheck(). If that check pokes the relay directly it leaves
+// HardwareManager::valveState_ stuck at WATER_OPEN while the relay is physically off,
+// so the *next* openWaterValve() short-circuits (already-open) and never re-energizes
+// the relay — no water flows. The safety check must close the valve THROUGH the
+// HardwareManager abstraction so valveState_ stays in sync.
+TEST_F(BrewHandlerTest, ValveSafetyShutdownClosesValveViaHardwareAbstraction) {
+    GPIOPin    pin(1, GPIOPin::OUT);
+    Relay      valveRelay(pin, ::Hardware::RelayTriggerType::HIGH_TRIGGER);
+    MockSwitch mockSwitch(::Hardware::SwitchType::MOMENTARY, ::Hardware::SwitchMode::NORMALLY_OPEN);
+
+    handler_->setHardware(&mockSwitch, &valveRelay);
+    setupMachineStateContext(MachineStateId::PID_NORMAL);
+
+    CleverCoffee::TestHardwareSpy::reset();
+    handler_->valveSafetyShutdownCheck();
+    EXPECT_GE(CleverCoffee::TestHardwareSpy::closeWaterValveCalls, 1)
+        << "Valve safety shutdown must close the valve via HardwareManager (keeps valveState_ in sync), "
+           "not bypass it by poking the relay directly";
+}
+
+// The safety check must NOT touch the valve while a brew is actively flowing water,
+// otherwise it would close the valve mid-preinfusion/brew.
+TEST_F(BrewHandlerTest, ValveSafetyShutdownKeepsValveDuringBrew) {
+    GPIOPin    pin(1, GPIOPin::OUT);
+    Relay      valveRelay(pin, ::Hardware::RelayTriggerType::HIGH_TRIGGER);
+    MockSwitch mockSwitch(::Hardware::SwitchType::MOMENTARY, ::Hardware::SwitchMode::NORMALLY_OPEN);
+
+    handler_->setHardware(&mockSwitch, &valveRelay);
+    setupMachineStateContext(MachineStateId::BREW_PREINFUSION);
+
+    CleverCoffee::TestHardwareSpy::reset();
+    handler_->valveSafetyShutdownCheck();
+    EXPECT_EQ(CleverCoffee::TestHardwareSpy::closeWaterValveCalls, 0)
+        << "Valve must stay open during an active brew state";
+}
+
 // ============================================================================
 // TOGGLE SWITCH TESTS
 // ============================================================================
@@ -283,8 +323,7 @@ TEST_F(BrewHandlerTest, ToggleSwitchDetectsActivationAndDeactivation) {
     EXPECT_CALL(mockSwitch, isPressed()).WillRepeatedly(Return(false));
     handler_->process();
     EXPECT_TRUE(handler_->wasSwitchReleased());
-    EXPECT_TRUE(machineStateContext_->isBrewStopRequested())
-        << "Toggle off should request brew stop when brewing";
+    EXPECT_TRUE(machineStateContext_->isBrewStopRequested()) << "Toggle off should request brew stop when brewing";
 }
 
 // Note: main() is provided by test/main.cpp

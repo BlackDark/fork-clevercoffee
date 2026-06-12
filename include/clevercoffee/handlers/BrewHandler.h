@@ -118,7 +118,11 @@ class BrewHandler : public SwitchBasedHandler {
                                      (isBackflushState(state) && state != MachineStateId::BACKFLUSH_IDLE &&
                                       state != MachineStateId::BACKFLUSH_FINISHED);
         if (!waterFlowActive) {
-            setRelayState(valveRelay_, false);
+            // Close through the HardwareManager so its valveState_ bookkeeping stays in
+            // sync. Poking the relay directly leaves valveState_ stuck at WATER_OPEN while
+            // the relay is physically off, so the next openWaterValve() is a no-op and no
+            // water flows (regression after aborting a brew during preinfusion).
+            context->closeWaterValve();
         }
     }
 
