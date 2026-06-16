@@ -16,8 +16,11 @@ permissions:
   contents: read
 
 jobs:
-  build:
+  version:
     runs-on: ubuntu-latest
+    outputs:
+      clevercoffee_version: ${{ steps.version.outputs.clevercoffee_version }}
+      artifact_slug: ${{ steps.version.outputs.artifact_slug }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
@@ -25,22 +28,6 @@ jobs:
         uses: rlespinasse/github-slug-action@e6f261660910b273384c5c42b17a0217881b217a # v5
         with:
           short-length: 6
-
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
-        with:
-          python-version: "3.14"
-
-      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
-        with:
-          path: |
-            ~/.cache/pip
-            ~/.platformio/.cache
-          key: ${{ runner.os }}-pio-${{ hashFiles('platformio.ini') }}
-          restore-keys: |
-            ${{ runner.os }}-pio-
-
-      - name: Install PlatformIO
-        run: pip install --upgrade platformio
 
       - name: Set CLEVERCOFFEE_VERSION
         id: version
@@ -54,27 +41,77 @@ jobs:
             VERSION="dev-${BRANCH_SLUG}-${SHA_SHORT}"
             ARTIFACT_SLUG="${VERSION}"
           fi
-          echo "CLEVERCOFFEE_VERSION=${VERSION}" >> "${GITHUB_ENV}"
-          echo "version=${ARTIFACT_SLUG}" >> "${GITHUB_OUTPUT}"
+          echo "clevercoffee_version=${VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "artifact_slug=${ARTIFACT_SLUG}" >> "${GITHUB_OUTPUT}"
 
-      - name: Build firmware
-        run: |
-          pio run -e esp32_usb
-          pio run -e esp32_ota
+  firmware:
+    needs: version
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        env_name: [esp32_usb, esp32_ota]
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: .github/requirements-ci.txt
+
+      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        with:
+          path: |
+            ~/.platformio/.cache
+            .pio/buildcache
+          key: ${{ runner.os }}-pio-${{ hashFiles('platformio.ini', 'platformio_extra.ini') }}
+          restore-keys: |
+            ${{ runner.os }}-pio-
+
+      - name: Install PlatformIO
+        run: pip install -r .github/requirements-ci.txt
+
+      - name: Build firmware (${{ matrix.env_name }})
+        run: pio run -e ${{ matrix.env_name }}
         env:
-          CLEVERCOFFEE_VERSION: ${{ env.CLEVERCOFFEE_VERSION }}
-          PLATFORMIO_BUILD_FLAGS: '-D VERSION=\"${{ env.CLEVERCOFFEE_VERSION }}\"'
-
-      - name: Run native tests
-        run: pio test -e native_test
+          CLEVERCOFFEE_VERSION: ${{ needs.version.outputs.clevercoffee_version }}
+          PLATFORMIO_BUILD_FLAGS: '-D VERSION=\"${{ needs.version.outputs.clevercoffee_version }}\"'
 
       - name: Upload firmware artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: clevercoffee-firmware-${{ steps.version.outputs.version }}
+          name: clevercoffee-firmware-${{ matrix.env_name }}-${{ needs.version.outputs.artifact_slug }}
           path: |
-            .pio/build/*/firmware.bin
-            .pio/build/*/partitions.bin
-            .pio/build/*/bootloader.bin
+            .pio/build/${{ matrix.env_name }}/firmware.bin
+            .pio/build/${{ matrix.env_name }}/partitions.bin
+            .pio/build/${{ matrix.env_name }}/bootloader.bin
           retention-days: 3
           if-no-files-found: warn
+
+  native-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: .github/requirements-ci.txt
+
+      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        with:
+          path: |
+            ~/.platformio/.cache
+            .pio/build
+          key: ${{ runner.os }}-pio-native-${{ hashFiles('platformio.ini', 'platformio_extra.ini') }}
+          restore-keys: |
+            ${{ runner.os }}-pio-native-
+            ${{ runner.os }}-pio-
+
+      - name: Install PlatformIO
+        run: pip install -r .github/requirements-ci.txt
+
+      - name: Run native tests
+        run: pio test -e native_test
