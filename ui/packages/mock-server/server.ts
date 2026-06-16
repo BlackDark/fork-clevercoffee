@@ -74,21 +74,34 @@ interface MockState {
 }
 
 interface ConfigFile {
-  version: string;
-  parameters: Record<string, ParameterValue>;
-  system: {
-    hostname: string;
-    auth: {
+  backflush?: Record<string, unknown>;
+  brew?: Record<string, unknown>;
+  display?: Record<string, unknown>;
+  hardware?: Record<string, unknown>;
+  maintenance?: Record<string, unknown>;
+  mqtt?: Record<string, unknown>;
+  pid?: Record<string, unknown>;
+  standby?: Record<string, unknown>;
+  steam?: Record<string, unknown>;
+  system?: {
+    hostname?: string;
+    log_level?: number;
+    offline_mode?: boolean;
+    ota_password?: string;
+    auth?: {
       enabled: boolean;
       username: string;
       password: string;
     };
-  };
-  hardware: {
-    sensors: {
-      scale: {
-        enabled: boolean;
-      };
+    wifi?: {
+      ssid: string;
+      password: string;
+    };
+    showdisplay?: {
+      enabled: boolean;
+    };
+    timing_debug?: {
+      enabled: boolean;
     };
   };
 }
@@ -528,20 +541,22 @@ app.get(
   simulateAuth,
   (_req: Request, res: Response<ConfigFile>): void => {
     const config: ConfigFile = {
-      version: "1.0.0",
-      parameters: mockState.parameters.reduce(
-        (acc: Record<string, ParameterValue>, param) => {
-          acc[param.name] = param.value;
-          return acc;
-        },
-        {},
-      ),
+      brew: { setpoint: 95 },
+      pid: { enabled: mockState.pidEnabled },
+      standby: { enabled: true, time: 35 },
+      steam: { setpoint: 120 },
       system: {
         hostname: "clevercoffee",
+        log_level: 2,
+        offline_mode: false,
         auth: {
           enabled: false,
           username: "admin",
           password: "admin",
+        },
+        wifi: {
+          ssid: "",
+          password: "",
         },
       },
       hardware: {
@@ -561,53 +576,34 @@ app.get(
 
 app.post(
   "/api/config/upload",
-  upload.single("config"),
   simulateAuth,
   (req: Request, res: Response): void => {
-    if (!req.file) {
+    const config = req.body as ConfigFile | undefined;
+    if (!config || typeof config !== "object" || Object.keys(config).length === 0) {
       res.status(400).json({
         success: false,
-        message: "No config file uploaded",
+        message: "No config data provided",
+        restart: true,
       });
       return;
     }
 
-    try {
-      const configData = fs.readFileSync(req.file.path, "utf8");
-      const config = JSON.parse(configData) as ConfigFile;
-
-      // Simulate config validation
-      if (config.parameters) {
-        console.log("Config uploaded and validated");
-        res.json({
-          success: true,
-          message: "Configuration validated and applied successfully.",
-          restart: true,
-        });
-      } else {
-        res.status(400).json({
-          success: false,
-          message: "Configuration validation failed. Invalid format.",
-          restart: true,
-        });
-      }
-
-      // Clean up uploaded file
-      fs.unlinkSync(req.file.path);
-    } catch (error) {
-      console.error("Config upload error:", error);
+    const hasFlatKeys = Object.keys(config).some((key) => key.includes("."));
+    if (hasFlatKeys) {
       res.status(400).json({
         success: false,
-        message:
-          "Configuration validation failed. Please check that all parameter values are within valid ranges.",
-        restart: true,
+        message: "Flat dotted-key JSON is not supported; use nested objects",
+        restart: false,
       });
-
-      // Clean up uploaded file
-      if (req.file) {
-        fs.unlinkSync(req.file.path);
-      }
+      return;
     }
+
+    console.log("Config uploaded and validated");
+    res.json({
+      success: true,
+      message: "Configuration validated and applied successfully.",
+      restart: true,
+    });
   },
 );
 
