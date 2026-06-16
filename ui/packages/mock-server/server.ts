@@ -579,7 +579,11 @@ app.post(
   simulateAuth,
   (req: Request, res: Response): void => {
     const config = req.body as ConfigFile | undefined;
-    if (!config || typeof config !== "object" || Object.keys(config).length === 0) {
+    if (
+      !config ||
+      typeof config !== "object" ||
+      Object.keys(config).length === 0
+    ) {
       res.status(400).json({
         success: false,
         message: "No config data provided",

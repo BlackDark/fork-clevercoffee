@@ -11,8 +11,8 @@ bool copyPathSegment(const char* dotPath, char* segment, size_t segmentSize, con
         return false;
     }
 
-    const char* dot = std::strchr(dotPath, '.');
-    const size_t  len = dot ? static_cast<size_t>(dot - dotPath) : std::strlen(dotPath);
+    const char*  dot = std::strchr(dotPath, '.');
+    const size_t len = dot ? static_cast<size_t>(dot - dotPath) : std::strlen(dotPath);
     if (len == 0 || len >= segmentSize) {
         return false;
     }
