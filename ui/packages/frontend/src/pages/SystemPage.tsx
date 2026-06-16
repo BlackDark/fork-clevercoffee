@@ -137,6 +137,16 @@ export function SystemPage() {
         return;
       }
 
+      if (file.size === 0) {
+        setUploadMessage("Configuration file is empty.");
+        setUploadSuccess(false);
+        setSelectedFile(null);
+        toast.error("Empty file", {
+          description: "The selected configuration file is empty.",
+        });
+        return;
+      }
+
       setUploadMessage(`Selected: ${file.name} (${formatFileSize(file.size)})`);
       setUploadSuccess(true);
       toast.success("File selected", {
@@ -159,12 +169,19 @@ export function SystemPage() {
     setUploadMessage("Uploading configuration...");
 
     try {
-      const formData = new FormData();
-      formData.append("config", selectedFile);
+      const configJson = await selectedFile.text();
+      if (!configJson.trim()) {
+        setUploadMessage("Configuration file is empty.");
+        setUploadSuccess(false);
+        toast.error("Empty file", {
+          description: "The selected configuration file is empty.",
+        });
+        return;
+      }
 
       const response = await apiFetch("/config/upload", {
         method: "POST",
-        body: formData,
+        body: configJson,
       });
 
       if (!response.ok) {

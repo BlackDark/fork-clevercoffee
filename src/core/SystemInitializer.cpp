@@ -254,8 +254,9 @@ bool SystemInitializer::initializeConfiguration() {
 
     // On first boot, seed NVS from /config.json in LittleFS (factory provisioning / Wokwi)
     if (Config::getInstance().seedFromLittleFS()) {
-        [[maybe_unused]] bool reloaded = Config::getInstance().loadAll(); // reload NVS to pick up imported values
+        LOG(INFO, "Config: Seeded NVS from LittleFS /config.json");
     }
+    Logger::update(); // flush setup logs before WiFi (portal can block loop() for 60s)
 
     // Inject SystemContext into Config for StateParamDef lambdas
     Config::getInstance().setSystemContext(systemContext_.get());
@@ -787,6 +788,24 @@ CleverCoffeeWiFiManager& SystemInitializer::getWiFiManager() const {
 }
 
 void SystemInitializer::setupWiFi() {
+    // startConfigPortal blocks loopTask for up to 60s; suspend our TWDT subscription (disableLoopWDT
+    // only removes the Arduino framework subscription, not esp_task_wdt_add from Watchdog::begin).
+    struct WatchdogResumeGuard {
+        Watchdog* wdt;
+        explicit WatchdogResumeGuard(Watchdog* watchdog) : wdt(watchdog) {
+            if (wdt) {
+                wdt->suspend();
+            }
+        }
+        ~WatchdogResumeGuard() {
+            if (wdt) {
+                wdt->resume();
+            }
+        }
+        WatchdogResumeGuard(const WatchdogResumeGuard&)            = delete;
+        WatchdogResumeGuard& operator=(const WatchdogResumeGuard&) = delete;
+    } watchdogGuard(watchdog_);
+
     try {
         const bool oledEnabled = Config::getInstance().hardwareOledEnabled.get();
 

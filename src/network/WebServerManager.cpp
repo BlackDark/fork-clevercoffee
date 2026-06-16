@@ -6,6 +6,7 @@
 #include "clevercoffee/network/WebServerManager.h"
 
 #include "clevercoffee/Config.h"
+#include "clevercoffee/ConfigJson.h"
 #include "clevercoffee/Logger.h"
 #include "clevercoffee/context/SystemContext.h"
 #include "clevercoffee/control/ProcessController.h"
@@ -42,6 +43,22 @@ void requestStandby(CleverCoffee::SystemContext* context) {
 
 bool isMachineStateReady(CleverCoffee::SystemContext* context) {
     return context && context->machineStateContext();
+}
+
+constexpr size_t MAX_CONFIG_UPLOAD_SIZE = 16384;
+
+void sendConfigUploadResponse(AsyncWebServerRequest* request, int code, bool success, const char* message) {
+    JsonDocument doc;
+    doc["success"] = success;
+    doc["message"] = message;
+    doc["restart"] = success; // only restart after a successful apply
+
+    String payload;
+    serializeJson(doc, payload);
+
+    AsyncWebServerResponse* response = request->beginResponse(code, "application/json", payload);
+    response->addHeader("Connection", "close");
+    request->send(response);
 }
 
 } // namespace
@@ -355,26 +372,19 @@ void WebServerManager::setupApiRoutes() {
         request->send(200, "application/json", response);
     });
 
-    // Configuration endpoints
-    server_->on("/api/config", HTTP_GET, [](AsyncWebServerRequest* request) {
-        String configJson = Config::getInstance().exportToJson();
-        request->send(200, "application/json", configJson);
-    });
-
-    server_->on("/api/config", HTTP_POST, [this](AsyncWebServerRequest* request) {
-        if (request->hasParam("body", true)) {
-            String body = request->getParam("body", true)->value();
-            if (Config::getInstance().importFromJson(body)) {
-                if (systemContext_) {
-                    systemContext_->standbyCoordinator().reset();
-                }
-                request->send(200, "application/json", "{\"success\":true}");
-            } else {
-                request->send(400, "application/json", "{\"error\":\"Invalid configuration\"}");
-            }
-        } else {
-            request->send(400, "application/json", "{\"error\":\"No body provided\"}");
+    // Configuration endpoints (exact URI match — default BackwardCompatible would steal /api/config/*)
+    server_->on(AsyncURIMatcher::exact("/api/config"), HTTP_GET, [](AsyncWebServerRequest* request) {
+        // Stream the nested config so we don't keep both a serialized String and the
+        // async response copy resident at the same time.
+        auto* response = new AsyncJsonResponse();
+        Config::getInstance().exportToJsonObject(response->getRoot().to<JsonObject>());
+        if (response->overflowed()) {
+            delete response;
+            request->send(500, "application/json", "{\"error\":\"Failed to generate config\"}");
+            return;
         }
+        response->setLength();
+        request->send(response);
     });
 
     // Setpoint adjustment
@@ -572,25 +582,7 @@ void WebServerManager::setupApiRoutes() {
         });
     }
 
-    // Config endpoint - reset standby on config changes
-    server_->on("/api/config", HTTP_POST, [this](AsyncWebServerRequest* request) {
-        if (request->hasParam("body", true)) {
-            String body = request->getParam("body", true)->value();
-            if (Config::getInstance().importFromJson(body)) {
-                if (systemContext_) {
-                    systemContext_->standbyCoordinator().reset();
-                    requestNormalOperation(systemContext_);
-                }
-                request->send(200, "application/json", "{\"success\":true}");
-            } else {
-                request->send(400, "application/json", "{\"error\":\"Invalid configuration\"}");
-            }
-        } else {
-            request->send(400, "application/json", "{\"error\":\"No body provided\"}");
-        }
-    });
-
-    // Parameter help endpoint
+    // Setpoint adjustment
     server_->on("/api/parameter-help", HTTP_GET, [](AsyncWebServerRequest* request) {
         try {
             const auto* p = request->getParam("param");
@@ -711,29 +703,17 @@ void WebServerManager::setupApiRoutes() {
     });
 
     // Config download endpoint
-    server_->on("/api/config/download", HTTP_GET, [](AsyncWebServerRequest* request) {
+    server_->on(AsyncURIMatcher::exact("/api/config/download"), HTTP_GET, [](AsyncWebServerRequest* request) {
         try {
-            // Generate JSON config from current parameter values using exportToJson
-            String configJson = Config::getInstance().exportToJson();
-
-            if (configJson.isEmpty()) {
+            // Stream the nested config (single in-memory copy) and flag it as a file download.
+            auto* response = new PrettyAsyncJsonResponse();
+            Config::getInstance().exportToJsonObject(response->getRoot().to<JsonObject>());
+            if (response->overflowed()) {
+                delete response;
                 request->send(500, "application/json", "{\"error\":\"Failed to generate config\"}");
                 return;
             }
-
-            // Prettify the JSON for readable export
-            JsonDocument               doc;
-            const DeserializationError error = deserializeJson(doc, configJson);
-
-            if (error) {
-                request->send(500, "application/json", "{\"error\":\"Failed to parse generated config\"}");
-                return;
-            }
-
-            String prettifiedJson;
-            serializeJsonPretty(doc, prettifiedJson);
-
-            AsyncWebServerResponse* response = request->beginResponse(200, "application/json", prettifiedJson);
+            response->setLength();
             response->addHeader("Content-Disposition", "attachment; filename=\"config.json\"");
             request->send(response);
         } catch (const std::exception& e) {
@@ -742,78 +722,45 @@ void WebServerManager::setupApiRoutes() {
         }
     });
 
-    // Config upload endpoint with file upload handler
-    server_->on(
-        "/api/config/upload",
-        HTTP_POST,
-        [](AsyncWebServerRequest* request) {
-            // Response handled by upload handler
-        },
-        [](AsyncWebServerRequest* request,
-           const String&          filename,
-           size_t                 index,
-           uint8_t*               data,
-           size_t                 len,
-           bool                   final) {
-            try {
-                static String uploadBuffer;
-                static size_t totalSize = 0;
-
-                // Maximum config upload size: 16KB to prevent memory exhaustion
-                static constexpr size_t MAX_CONFIG_UPLOAD_SIZE = 16384;
-
-                if (index == 0) {
-                    uploadBuffer = "";
-                    uploadBuffer.reserve(8192);
-                    totalSize = 0;
-                    LOGF(INFO, "Config upload started: %s", filename.c_str());
-                }
-
-                totalSize += len;
-
-                if (totalSize > MAX_CONFIG_UPLOAD_SIZE) {
-                    LOGF(ERROR, "Config upload rejected: size %u exceeds limit %u", totalSize, MAX_CONFIG_UPLOAD_SIZE);
-                    uploadBuffer = "";
-                    request->send(413,
-                                  "application/json",
-                                  R"({"success": false, "message": "Config file too large. Maximum size is 16KB."})");
+    // Config upload: application/json body (AsyncCallbackJsonWebHandler buffers full body before parse)
+    {
+        auto& jsonHandler = server_->on(
+            AsyncURIMatcher::exact("/api/config/upload"),
+            HTTP_POST,
+            [this](AsyncWebServerRequest* request, JsonVariant& json) {
+                if (!json.is<JsonObject>()) {
+                    sendConfigUploadResponse(request, 400, false, "JSON body must be a top-level object");
                     return;
                 }
 
-                for (size_t i = 0; i < len; i++) {
-                    uploadBuffer += static_cast<char>(data[i]);
+                const JsonObjectConst root = json.as<JsonObjectConst>();
+                if (CleverCoffee::ConfigJson::usesFlatDotKeys(root)) {
+                    LOG(ERROR, "Config upload rejected: flat dotted-key JSON not supported");
+                    sendConfigUploadResponse(
+                        request,
+                        400,
+                        false,
+                        "Flat dotted-key JSON is not supported. Use nested objects (see Download Config).");
+                    return;
                 }
 
-                if (final) {
-                    LOGF(INFO, "Config upload finished: %s, total size: %u bytes", filename.c_str(), totalSize);
-
-                    if (bool isValid = Config::getInstance().importFromJson(uploadBuffer)) {
-                        LOG(INFO, "Configuration validated and applied successfully");
-
-                        AsyncWebServerResponse* response = request->beginResponse(
-                            200,
-                            "application/json",
-                            R"({"success": true, "message": "Configuration validated and applied successfully.", "restart": true})");
-
-                        response->addHeader("Connection", "close");
-                        request->send(response);
-                    } else {
-                        LOG(ERROR, "Configuration validation failed - invalid data or out of range values");
-
-                        AsyncWebServerResponse* response = request->beginResponse(
-                            400,
-                            "application/json",
-                            R"({"success": false, "message": "Configuration validation failed. Please check that all parameter values are within valid ranges.", "restart": true})");
-
-                        response->addHeader("Connection", "close");
-                        request->send(response);
-                    }
+                if (!Config::getInstance().importFromJsonObject(root)) {
+                    LOG(ERROR, "Configuration validation failed - no matching parameters or invalid values");
+                    sendConfigUploadResponse(
+                        request, 400, false, "Configuration validation failed. Use a file from Download Config.");
+                    return;
                 }
-            } catch (const std::exception& e) {
-                LOGF(ERROR, "Config upload failed: %s", e.what());
-                request->send(500, "application/json", "{\"error\":\"Upload failed\"}");
-            }
-        });
+
+                if (systemContext_) {
+                    systemContext_->standbyCoordinator().reset();
+                    requestNormalOperation(systemContext_);
+                }
+
+                LOG(INFO, "Configuration validated and applied successfully");
+                sendConfigUploadResponse(request, 200, true, "Configuration validated and applied successfully.");
+            });
+        jsonHandler.setMaxContentLength(MAX_CONFIG_UPLOAD_SIZE);
+    }
 
     // System restart endpoint
     server_->on("/api/restart", HTTP_POST, [](AsyncWebServerRequest* request) {
@@ -993,6 +940,17 @@ bool WebServerManager::serveGzippedFile(AsyncWebServerRequest* request, const St
     LOGF(INFO, "File not found: %s", path.c_str());
     return false;
 }
+
+bool WebServerManager::serveUiIndex(AsyncWebServerRequest* request) {
+    if (serveGzippedFile(request, "/ui/index.html")) {
+        return true;
+    }
+    if (LittleFS.exists("/ui/index.html")) {
+        request->send(LittleFS, "/ui/index.html", "text/html");
+        return true;
+    }
+    return false;
+}
 #endif
 
 void WebServerManager::setupStaticRoutes() {
@@ -1024,16 +982,12 @@ void WebServerManager::setupStaticRoutes() {
         if (path.indexOf('.') == -1) {
             LOGF(DEBUG, "Serving index.html for SPA route: %s", path.c_str());
 
-            if (serveGzippedFile(request, "/ui/index.html")) {
+            if (serveUiIndex(request)) {
                 return;
             }
 
-            if (LittleFS.exists("/ui/index.html")) {
-                request->send(LittleFS, "/ui/index.html", "text/html");
-                return;
-            }
-
-            request->send(404, "text/plain", "index.html not found");
+            request->send(
+                404, "text/plain", "UI not found on LittleFS. Build and upload: pio run -t uploadfs -e esp32_usb");
             return;
         }
 
@@ -1061,16 +1015,12 @@ void WebServerManager::handleNotFound(AsyncWebServerRequest* request) {
 
 #if !FRONTEND_PREPROCESSING
     if (path.startsWith("/ui/") && path.indexOf('.') == -1) {
-        if (serveGzippedFile(request, "/ui/index.html")) {
+        if (serveUiIndex(request)) {
             return;
         }
 
-        if (LittleFS.exists("/ui/index.html")) {
-            request->send(LittleFS, "/ui/index.html", "text/html");
-            return;
-        }
-
-        request->send(404, "text/plain", "UI files not found");
+        request->send(
+            404, "text/plain", "UI not found on LittleFS. Build and upload: pio run -t uploadfs -e esp32_usb");
         return;
     }
 #endif

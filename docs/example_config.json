@@ -26,12 +26,16 @@
   },
   "display": {
     "blescale_brew_timer": false,
+    "blinking": {
+      "delta": 0.3
+    },
     "fullscreen_brew_timer": true,
     "fullscreen_hot_water_timer": true,
     "fullscreen_manual_flush_timer": true,
     "heating_logo": true,
     "inverted": false,
     "language": 0,
+    "pid_off_logo": true,
     "post_brew_timer_duration": 3,
     "template": 0
   },
@@ -107,6 +111,12 @@
         "mode": 0,
         "type": 1
       }
+    }
+  },
+  "maintenance": {
+    "backflush_reminder": {
+      "enabled": true,
+      "threshold": 50
     }
   },
   "mqtt": {

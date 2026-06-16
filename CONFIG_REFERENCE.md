@@ -1,6 +1,8 @@
 ## CleverCoffee Configuration Reference
 
-This document describes all configuration parameters available in the `config.json` file in alphabetical order. Each parameter includes its purpose, valid values, and constraints.
+This document describes all configuration parameters available in the nested `config.json` file. Each parameter is identified by a dotted logical ID (for example `brew.setpoint`); in JSON files that path maps to nested objects (`"brew": { "setpoint": 95 }`).
+
+See `docs/example_config.json` for the full nested file format used by seed, download, and upload.
 
 ---
 

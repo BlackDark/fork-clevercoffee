@@ -5,6 +5,7 @@
 
 #include "clevercoffee/Config.h"
 
+#include "clevercoffee/ConfigJson.h"
 #include "clevercoffee/Logger.h"
 #include "clevercoffee/types/GlobalTypes.h"
 #include "clevercoffee/utils/memoryUtils.h"
@@ -220,43 +221,49 @@ bool importParameterFromJson(ConfigParamDef* param, JsonVariantConst valueVarian
     if (importValue.is<double>() || importValue.is<float>()) {
         return param->fromString(String(importValue.as<double>()));
     }
-    if (importValue.is<const char*>()) {
-        return param->fromString(String(importValue.as<const char*>()));
+    if (importValue.is<const char*>() || importValue.is<String>()) {
+        return param->fromString(importValue.as<String>());
     }
 
     return false;
 }
 
 static JsonVariantConst resolveNestedPath(JsonObjectConst obj, const String& dotPath) {
-    int dot = dotPath.indexOf('.');
-    if (dot < 0) {
-        return obj[dotPath.c_str()];
-    }
-    const String     segment = dotPath.substring(0, dot);
-    const String     rest    = dotPath.substring(dot + 1);
-    JsonVariantConst nested  = obj[segment.c_str()];
-    if (!nested.is<JsonObjectConst>()) {
-        return JsonVariantConst{};
-    }
-    return resolveNestedPath(nested.as<JsonObjectConst>(), rest);
+    return CleverCoffee::ConfigJson::getNested(obj, dotPath.c_str());
 }
 
 } // namespace
 
-String Config::exportToJson() {
-    JsonDocument doc;
-    JsonObject   root = doc.to<JsonObject>();
-
+void Config::exportToJsonObject(JsonObject root) {
     auto allParams = getAllConfigParams();
     for (auto* param : allParams) {
         JsonDocument tempDoc;
         JsonObject   tempObj = tempDoc.to<JsonObject>();
         param->toJson(tempObj);
-        root[param->getKey()] = tempObj["value"];
+        if (!CleverCoffee::ConfigJson::setNested(root, param->getKey().c_str(), tempObj["value"])) {
+            LOGF(WARNING, "Config: Failed to export parameter '%s' to nested JSON", param->getKey().c_str());
+        }
+    }
+}
+
+String Config::exportToJson() {
+    JsonDocument doc;
+    exportToJsonObject(doc.to<JsonObject>());
+
+    if (doc.overflowed()) {
+        LOG(ERROR, "Config: JSON export document overflowed");
+        return "{}";
     }
 
-    String output;
+    String       output;
+    const size_t jsonLength = measureJsonPretty(doc);
+    if (jsonLength == 0) {
+        LOG(ERROR, "Config: JSON export measure failed");
+        return "{}";
+    }
+    output.reserve(jsonLength + 1);
     if (serializeJsonPretty(doc, output) == 0) {
+        LOG(ERROR, "Config: JSON export serialization failed");
         return "{}";
     }
 
@@ -298,34 +305,29 @@ bool Config::seedFromLittleFS() {
         return false;
     }
 
-    Preferences prefs;
-    if (prefs.begin(STORAGE_NAMESPACE, false)) {
-        prefs.putBool("_seeded", true);
-        prefs.end();
+    if (!saveAll()) {
+        LOG(ERROR, "Config: Failed to persist seeded values to NVS");
+        return false;
     }
+
+    Preferences prefs;
+    if (!prefs.begin(STORAGE_NAMESPACE, false)) {
+        LOG(ERROR, "Config: Failed to mark NVS as seeded");
+        return false;
+    }
+    prefs.putBool("_seeded", true);
+    prefs.end();
 
     LOG(INFO, "Config: NVS seeded from /config.json");
     return true;
 }
 
-bool Config::importFromJson(const String& json) {
-    JsonDocument         doc;
-    DeserializationError error = deserializeJson(doc, json);
-
-    if (error) {
-        LOGF(ERROR, "Config: JSON parse error: %s", error.c_str());
-        return false;
-    }
-
+bool Config::importFromJsonObject(JsonObjectConst doc) {
     auto allParams    = getAllConfigParams();
     int  updatedCount = 0;
 
     for (auto* param : allParams) {
-        JsonVariantConst entry = doc[param->getKey()];
-        if (entry.isNull()) {
-            // Fallback: resolve dotted key as nested path (e.g., "system.wifi.ssid")
-            entry = resolveNestedPath(doc.as<JsonObjectConst>(), param->getKey());
-        }
+        const JsonVariantConst entry = resolveNestedPath(doc, param->getKey());
         if (entry.isNull()) {
             continue;
         }
@@ -340,6 +342,39 @@ bool Config::importFromJson(const String& json) {
     LOGF(INFO, "Config: Imported %d/%d parameters from JSON", updatedCount, allParams.size());
 
     return updatedCount > 0;
+}
+
+bool Config::importFromJson(const String& json) {
+    if (json.isEmpty()) {
+        LOG(ERROR, "Config: JSON import rejected — empty body");
+        return false;
+    }
+
+    JsonDocument         doc;
+    DeserializationError error = deserializeJson(doc, json.c_str());
+
+    if (error) {
+        LOGF(ERROR, "Config: JSON parse error: %s", error.c_str());
+        return false;
+    }
+
+    if (doc.overflowed()) {
+        LOG(ERROR, "Config: JSON document overflowed during import");
+        return false;
+    }
+
+    if (!doc.is<JsonObject>()) {
+        LOG(ERROR, "Config: JSON import requires a top-level object");
+        return false;
+    }
+
+    const JsonObjectConst root = doc.as<JsonObjectConst>();
+    if (CleverCoffee::ConfigJson::usesFlatDotKeys(root)) {
+        LOG(ERROR, "Config: flat dotted-key JSON is not supported; use nested objects (see docs/example_config.json)");
+        return false;
+    }
+
+    return importFromJsonObject(root);
 }
 
 void Config::getAllParameters(JsonArray& array, const String& filter) {
@@ -487,6 +522,8 @@ std::vector<ConfigParamDef*> Config::getAllConfigParams() {
         &systemAuthPassword,
         &systemTimingDebugEnabled,
         &systemShowdisplayEnabled,
+        &systemWifiSsid,
+        &systemWifiPassword,
 
         // === HARDWARE OLED PARAMETERS (Section 11) ===
         &hardwareOledEnabled,

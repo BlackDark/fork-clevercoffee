@@ -124,23 +124,26 @@ paths:
     get:
       tags: [Config]
       summary: Get current configuration
+      description: |
+        Returns the full machine configuration as a nested JSON object.
+        Top-level keys are domain groups (`brew`, `pid`, `system`, …).
+        Legacy flat dotted keys (e.g. `"brew.setpoint"`) are not supported.
       responses:
         "200":
-          description: Configuration object
+          description: Nested configuration object
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: true
+                $ref: "#/components/schemas/ConfigFile"
     post:
       tags: [Config]
       summary: Update configuration
+      description: Accepts the same nested JSON shape as GET /api/config and /api/config/download.
       requestBody:
         content:
           application/json:
             schema:
-              type: object
-              additionalProperties: true
+              $ref: "#/components/schemas/ConfigFile"
       responses:
         "200":
           description: Config updated
@@ -156,14 +159,49 @@ paths:
     get:
       tags: [Config]
       summary: Download full config as JSON file
+      description: |
+        Same nested JSON document as GET /api/config, served as a downloadable file.
       responses:
         "200":
-          description: Config file
+          description: Nested config file (`config.json`)
           content:
-            application/octet-stream:
+            application/json:
               schema:
-                type: string
-                format: binary
+                $ref: "#/components/schemas/ConfigFile"
+
+  /api/config/upload:
+    post:
+      tags: [Config]
+      summary: Upload and apply full configuration
+      description: |
+        Request body must be a nested JSON object (not flat dotted keys).
+        On success the device validates, persists to NVS, and restarts.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfigFile"
+      responses:
+        "200":
+          description: Configuration applied
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  restart:
+                    type: boolean
+        "400":
+          description: Invalid or empty JSON body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   /api/parameters:
     get:
@@ -552,6 +590,69 @@ paths:
 
 components:
   schemas:
+  # Nested machine configuration (seed file, download, upload, GET /api/config).
+  # Parameter logical IDs remain dotted (e.g. brew.setpoint) but JSON uses nested objects.
+    ConfigFile:
+      type: object
+      description: |
+        Full machine configuration. Top-level keys group related settings.
+        Import/export and LittleFS seed (`/config.json`) use this format only.
+      additionalProperties: true
+      properties:
+        backflush:
+          type: object
+          additionalProperties: true
+        brew:
+          type: object
+          additionalProperties: true
+        display:
+          type: object
+          additionalProperties: true
+        hardware:
+          type: object
+          additionalProperties: true
+        maintenance:
+          type: object
+          additionalProperties: true
+        mqtt:
+          type: object
+          additionalProperties: true
+        pid:
+          type: object
+          additionalProperties: true
+        standby:
+          type: object
+          additionalProperties: true
+        steam:
+          type: object
+          additionalProperties: true
+        system:
+          type: object
+          additionalProperties: true
+          properties:
+            hostname:
+              type: string
+            wifi:
+              type: object
+              properties:
+                ssid:
+                  type: string
+                password:
+                  type: string
+            auth:
+              type: object
+              additionalProperties: true
+      example:
+        system:
+          hostname: silvia
+          wifi:
+            ssid: my-network
+            password: secret
+        brew:
+          setpoint: 95
+        pid:
+          enabled: true
+
     # Common schemas for reuse
     SuccessResponse:
       type: object
