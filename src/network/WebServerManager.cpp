@@ -993,6 +993,17 @@ bool WebServerManager::serveGzippedFile(AsyncWebServerRequest* request, const St
     LOGF(INFO, "File not found: %s", path.c_str());
     return false;
 }
+
+bool WebServerManager::serveUiIndex(AsyncWebServerRequest* request) {
+    if (serveGzippedFile(request, "/ui/index.html")) {
+        return true;
+    }
+    if (LittleFS.exists("/ui/index.html")) {
+        request->send(LittleFS, "/ui/index.html", "text/html");
+        return true;
+    }
+    return false;
+}
 #endif
 
 void WebServerManager::setupStaticRoutes() {
@@ -1024,16 +1035,13 @@ void WebServerManager::setupStaticRoutes() {
         if (path.indexOf('.') == -1) {
             LOGF(DEBUG, "Serving index.html for SPA route: %s", path.c_str());
 
-            if (serveGzippedFile(request, "/ui/index.html")) {
+            if (serveUiIndex(request)) {
                 return;
             }
 
-            if (LittleFS.exists("/ui/index.html")) {
-                request->send(LittleFS, "/ui/index.html", "text/html");
-                return;
-            }
-
-            request->send(404, "text/plain", "index.html not found");
+            request->send(404,
+                          "text/plain",
+                          "UI not found on LittleFS. Build and upload: pio run -t uploadfs -e esp32_usb");
             return;
         }
 
@@ -1061,16 +1069,13 @@ void WebServerManager::handleNotFound(AsyncWebServerRequest* request) {
 
 #if !FRONTEND_PREPROCESSING
     if (path.startsWith("/ui/") && path.indexOf('.') == -1) {
-        if (serveGzippedFile(request, "/ui/index.html")) {
+        if (serveUiIndex(request)) {
             return;
         }
 
-        if (LittleFS.exists("/ui/index.html")) {
-            request->send(LittleFS, "/ui/index.html", "text/html");
-            return;
-        }
-
-        request->send(404, "text/plain", "UI files not found");
+        request->send(404,
+                      "text/plain",
+                      "UI not found on LittleFS. Build and upload: pio run -t uploadfs -e esp32_usb");
         return;
     }
 #endif

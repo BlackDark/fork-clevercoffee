@@ -123,6 +123,11 @@ class WebServerManager {
      * @brief Serve gzipped files with fallback to uncompressed
      */
     bool serveGzippedFile(AsyncWebServerRequest* request, const String& path);
+
+    /**
+     * @brief Serve SPA index.html from /ui
+     */
+    bool serveUiIndex(AsyncWebServerRequest* request);
 #endif
 
 #if FRONTEND_PREPROCESSING
