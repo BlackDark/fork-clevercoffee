@@ -9,7 +9,6 @@
 #include "clevercoffee/context/SystemContext.h"
 #include "clevercoffee/handlers/BaseHandler.h"
 #include "clevercoffee/handlers/PumpTimer.h"
-#include "clevercoffee/hardware/Relay.h"
 #include "clevercoffee/hardware/Switch.h"
 #include "clevercoffee/state/MachineState.h"
 #include "clevercoffee/state/MachineStateContext.h"
@@ -26,7 +25,6 @@ class BrewHandler : public SwitchBasedHandler {
     PumpTimer     pumpTimer_;
     unsigned long brewStartTime_      = 0;
     uint8_t       lastSwitchReading_  = LOW;
-    Relay*        valveRelay_         = nullptr;
     bool          switchStateChanged_ = false; // Track if switch state changed
 
   public:
@@ -35,13 +33,11 @@ class BrewHandler : public SwitchBasedHandler {
     }
 
     /**
-     * @brief Initialize with hardware switch and relay (call after HardwareManager is ready)
+     * @brief Initialize with hardware switch (call after HardwareManager is ready)
      * @param brewSwitch Pointer to brew switch hardware
-     * @param valveRelay Pointer to valve relay hardware
      */
-    void setHardware(Switch* brewSwitch, Relay* valveRelay) {
-        switch_     = brewSwitch;
-        valveRelay_ = valveRelay;
+    void setHardware(Switch* brewSwitch) {
+        switch_ = brewSwitch;
     }
 
     /**
@@ -109,7 +105,6 @@ class BrewHandler : public SwitchBasedHandler {
     void valveSafetyShutdownCheck() {
         // Safety check to ensure valve is closed when not in an active water-flow state.
         // Mirrors the original: valve stays open during brew, manual flush, and backflush.
-        if (!valveRelay_) return;
         auto* context = systemContext_.machineStateContext();
         if (!context) return;
         const auto state           = context->getCurrentStateId();

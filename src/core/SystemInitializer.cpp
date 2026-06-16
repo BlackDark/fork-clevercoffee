@@ -393,7 +393,7 @@ bool SystemInitializer::initializeHandlers() {
         steamHandler_      = std::make_unique<SteamHandler>(*systemContext_, config);
 
         auto& hwContext = systemContext_->hardwareContext();
-        brewHandler_->setHardware(hwContext.brewSwitch(), hwContext.valveRelay());
+        brewHandler_->setHardware(hwContext.brewSwitch());
         hotWaterHandler_->setHardware(hwContext.hotWaterSwitch());
         powerHandler_->setHardware(hwContext.powerSwitch());
         steamHandler_->setHardware(hwContext.steamSwitch());

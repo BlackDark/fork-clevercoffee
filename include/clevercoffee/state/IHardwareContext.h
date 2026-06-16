@@ -45,8 +45,8 @@ namespace CleverCoffee {
  *             return;
  *         }
  *
- *         hw.getHeaterRelay()->turnOn();
- *         hw.getPumpRelay()->turnOn();
+ *         hw.enablePump();
+ *         hw.openWaterValve();
  *
  *         double temp = hw.getCurrentTemperature();
  *         // ... use temperature ...

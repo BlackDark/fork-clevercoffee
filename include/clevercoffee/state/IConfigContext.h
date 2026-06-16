@@ -35,7 +35,7 @@ namespace CleverCoffee {
  *         double current = hw.getCurrentTemperature();
  *
  *         if (current < setpoint) {
- *             hw.getHeaterRelay()->turnOn();
+ *             hw.enableHeater();
  *         }
  *     }
  * };
