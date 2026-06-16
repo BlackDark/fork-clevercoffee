@@ -521,7 +521,8 @@ class Watchdog {
     }
 
     /**
-     * @brief Unsubscribe loop task from TWDT during blocking OTA flash writes
+     * @brief Unsubscribe loop task from TWDT during long blocking operations
+     *        (e.g. OTA flash writes, WiFi connect / config portal)
      */
     void suspend() {
 #if defined(ESP32)
@@ -530,13 +531,13 @@ class Watchdog {
         }
         if (esp_task_wdt_delete(nullptr) == ESP_OK) {
             suspended_ = true;
-            LOG(INFO, "Watchdog suspended for OTA");
+            LOG(INFO, "Watchdog suspended for blocking operation");
         }
 #endif
     }
 
     /**
-     * @brief Re-subscribe loop task to TWDT after OTA completes or fails
+     * @brief Re-subscribe loop task to TWDT after the blocking operation completes or fails
      */
     void resume() {
 #if defined(ESP32)
@@ -547,7 +548,7 @@ class Watchdog {
             esp_task_wdt_reset();
             suspended_    = false;
             lastFeedTime_ = millis();
-            LOG(INFO, "Watchdog resumed after OTA");
+            LOG(INFO, "Watchdog resumed after blocking operation");
         }
 #endif
     }
