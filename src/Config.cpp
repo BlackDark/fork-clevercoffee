@@ -298,11 +298,18 @@ bool Config::seedFromLittleFS() {
         return false;
     }
 
-    Preferences prefs;
-    if (prefs.begin(STORAGE_NAMESPACE, false)) {
-        prefs.putBool("_seeded", true);
-        prefs.end();
+    if (!saveAll()) {
+        LOG(ERROR, "Config: Failed to persist seeded values to NVS");
+        return false;
     }
+
+    Preferences prefs;
+    if (!prefs.begin(STORAGE_NAMESPACE, false)) {
+        LOG(ERROR, "Config: Failed to mark NVS as seeded");
+        return false;
+    }
+    prefs.putBool("_seeded", true);
+    prefs.end();
 
     LOG(INFO, "Config: NVS seeded from /config.json");
     return true;
@@ -487,6 +494,8 @@ std::vector<ConfigParamDef*> Config::getAllConfigParams() {
         &systemAuthPassword,
         &systemTimingDebugEnabled,
         &systemShowdisplayEnabled,
+        &systemWifiSsid,
+        &systemWifiPassword,
 
         // === HARDWARE OLED PARAMETERS (Section 11) ===
         &hardwareOledEnabled,

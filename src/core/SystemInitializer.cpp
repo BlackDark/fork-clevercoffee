@@ -254,8 +254,9 @@ bool SystemInitializer::initializeConfiguration() {
 
     // On first boot, seed NVS from /config.json in LittleFS (factory provisioning / Wokwi)
     if (Config::getInstance().seedFromLittleFS()) {
-        [[maybe_unused]] bool reloaded = Config::getInstance().loadAll(); // reload NVS to pick up imported values
+        LOG(INFO, "Config: Seeded NVS from LittleFS /config.json");
     }
+    Logger::update(); // flush setup logs before WiFi (portal can block loop() for 60s)
 
     // Inject SystemContext into Config for StateParamDef lambdas
     Config::getInstance().setSystemContext(systemContext_.get());
