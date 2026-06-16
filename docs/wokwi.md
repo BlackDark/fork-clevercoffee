@@ -34,7 +34,7 @@ web UI — just provide a `data/config.json` before flashing.
 `data/config.json` is covered by the `data/*` entry in `.gitignore` — do not commit
 it (it may contain credentials).
 
-Set `system.wifi.ssid` / `system.wifi.password` to connect directly and skip the
+Set `system.wifi.ssid` / `system.wifi.password` (nested under `"system"."wifi"` in `config.json`) to connect directly and skip the
 WiFiManager portal. For Wokwi, use the built-in `Wokwi-GUEST` open network:
 
 ```json

@@ -393,7 +393,9 @@ public:
         activeNamespace_.clear();
     }
     bool clear() { return true; }
-    size_t putString(const char*, const String&) { return 0; }
+    size_t putString(const char*, const String& value) {
+        return value.length();
+    }
     String getString(const char*, const String& = "") { return ""; }
     size_t putInt(const char* key, int32_t value) {
         if (activeNamespace_.empty()) {

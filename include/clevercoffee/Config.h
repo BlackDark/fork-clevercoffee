@@ -1517,9 +1517,11 @@ class Config {
     [[nodiscard]] bool saveAll();
     void               resetAllToDefaults();
 
-    // JSON export/import
+    // JSON export/import (nested object tree; see docs/example_config.json)
     String             exportToJson();
+    void               exportToJsonObject(JsonObject root);
     [[nodiscard]] bool importFromJson(const String& json);
+    [[nodiscard]] bool importFromJsonObject(JsonObjectConst root);
 
     /**
      * @brief Seed NVS from /config.json in LittleFS on first boot.
