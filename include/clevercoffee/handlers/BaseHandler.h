@@ -6,7 +6,6 @@
 #pragma once
 
 #include "clevercoffee/Config.h"
-#include "clevercoffee/hardware/Relay.h"
 #include "clevercoffee/hardware/Switch.h"
 
 #include <Logger.h>
@@ -128,19 +127,6 @@ class BaseHandler {
     void toggleState(bool& state) {
         state = !state;
         logDebug(state ? "State activated" : "State deactivated");
-    }
-
-    /**
-     * @brief Helper to set relay state safely
-     */
-    void setRelayState(Relay* relay, bool on) {
-        if (relay) {
-            if (on) {
-                relay->on();
-            } else {
-                relay->off();
-            }
-        }
     }
 
     /**
