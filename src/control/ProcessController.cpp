@@ -414,10 +414,8 @@ void ProcessController::disablePIDForBrewDelay() noexcept {
     pidOutput_ = 0;
     systemContext_.setProcessPidOutput(0);
 
-    // Turn off heater relay
-    if (auto* relay = hardwareManager_.getHeaterRelay()) {
-        relay->off();
-    }
+    // Turn off heater through hardware manager (keeps heaterEnabled_ in sync)
+    hardwareManager_.disableHeater();
 
     LOGF(DEBUG, "Disabled PID for brew delay (%.0f seconds)", config_.brewPidDelay.get());
 }
