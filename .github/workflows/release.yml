@@ -36,6 +36,14 @@ jobs:
       - name: Install PlatformIO
         run: pip install -r .github/requirements-ci.txt
 
+      - name: Set CLEVERCOFFEE_VERSION
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/}"
+          echo "CLEVERCOFFEE_VERSION=${VERSION}" >> "${GITHUB_ENV}"
+
+      - name: Run native tests
+        run: pio test -e native_test
+
       - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6
         with:
           version: 11
@@ -45,11 +53,6 @@ jobs:
           node-version: "24"
           cache: pnpm
           cache-dependency-path: ui/pnpm-lock.yaml
-
-      - name: Set CLEVERCOFFEE_VERSION
-        run: |
-          VERSION="${GITHUB_REF#refs/tags/}"
-          echo "CLEVERCOFFEE_VERSION=${VERSION}" >> "${GITHUB_ENV}"
 
       - name: Build firmware
         run: pio run -e esp32_usb
@@ -63,13 +66,18 @@ jobs:
           CLEVERCOFFEE_VERSION: ${{ env.CLEVERCOFFEE_VERSION }}
           PLATFORMIO_BUILD_FLAGS: '-D VERSION=\"${{ env.CLEVERCOFFEE_VERSION }}\"'
 
-      - name: Run native tests
-        run: pio test -e native_test
+      - name: Stage release artifacts
+        run: |
+          mkdir -p release-artifacts
+          for file in firmware.bin littlefs.bin bootloader.bin partitions.bin; do
+            cp ".pio/build/esp32_usb/${file}" "release-artifacts/${file}"
+          done
+          ls -la release-artifacts/
 
       - name: Verify release artifacts
         run: |
           for file in firmware.bin littlefs.bin bootloader.bin partitions.bin; do
-            test -f ".pio/build/esp32_usb/${file}" || {
+            test -f "release-artifacts/${file}" || {
               echo "Missing release artifact: ${file}"
               exit 1
             }
@@ -130,8 +138,8 @@ jobs:
           name: CleverCoffee ${{ github.ref_name }}
           body_path: release_notes.md
           files: |
-            .pio/build/esp32_usb/firmware.bin
-            .pio/build/esp32_usb/littlefs.bin
-            .pio/build/esp32_usb/bootloader.bin
-            .pio/build/esp32_usb/partitions.bin
+            release-artifacts/firmware.bin
+            release-artifacts/littlefs.bin
+            release-artifacts/bootloader.bin
+            release-artifacts/partitions.bin
           fail_on_unmatched_files: true
