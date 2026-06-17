@@ -7,7 +7,7 @@
     "dev:ui": "pnpm --filter @clevercoffee/frontend dev",
     "dev:api": "pnpm --filter @clevercoffee/mock-server dev",
     "prepare-esp": "pnpm --filter @clevercoffee/frontend build && pnpm run copy:dist",
-    "copy:dist": "rimraf ../data/ui && mv packages/frontend/dist ../data/ui",
+    "copy:dist": "mkdir -p ../data && rimraf ../data/ui && mv packages/frontend/dist ../data/ui",
     "lint": "biome check .",
     "format": "biome check --write ."
   },
