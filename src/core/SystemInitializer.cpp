@@ -793,6 +793,12 @@ void SystemInitializer::registerMQTTSensors() {
                                      [this] { return systemContext_->sensorCoordinator().getFilteredPressure(); });
     }
 
+    // Water tank sensor
+    if (Config::getInstance().hardwareSensorsWatertankEnabled.get()) {
+        mqttManager_->registerBinarySensor("waterTankFull",
+                                           [this] { return systemContext_->sensorCoordinator().isWaterTankFull(); });
+    }
+
     LOG(DEBUG, "MQTT sensors registered");
 }
 
