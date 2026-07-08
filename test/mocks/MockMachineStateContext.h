@@ -49,7 +49,6 @@ class MockMachineStateContext {
 
     // === Hardware Component Access ===
     MOCK_METHOD(TempSensor*, getTemperatureSensor, (), (const));
-    MOCK_METHOD(Switch*, getWaterTankSensor, (), (const));
     MOCK_METHOD(Switch*, getBrewSwitch, (), (const));
     MOCK_METHOD(Switch*, getSteamSwitch, (), (const));
     MOCK_METHOD(Switch*, getHotWaterSwitch, (), (const));

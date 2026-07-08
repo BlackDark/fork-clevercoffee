@@ -9,7 +9,6 @@ class MockSensorManager {
 private:
     double currentTemperature_        = 20.0;
     float currentPressure_            = 0.0f;
-    bool waterTankFull_               = true;
     bool hasTemperatureError_         = false;
     bool hasScaleError_               = false;
 
@@ -44,15 +43,6 @@ public:
 
     float getFilteredPressure() const {
         return currentPressure_;
-    }
-
-    // Water tank simulation
-    void setWaterTankFull(bool full) {
-        waterTankFull_ = full;
-    }
-
-    bool isWaterTankFull() const {
-        return waterTankFull_;
     }
 
     // Error checks

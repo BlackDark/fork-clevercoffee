@@ -1442,11 +1442,10 @@ class Config {
                                            [this]() { return systemContext_ && systemContext_->mqttManager() &&
     systemContext_->mqttManager()->isConnected(); }, StateParamDef<bool>::UpdateFrequency::FREQUENT};
 
-     StateParamDef<bool> stateWaterTank{"state.water_tank", "Water Tank Full", 6, 608,
-                                            "Water tank sensor status",
-                                            [this]() { return systemContext_ && systemContext_->machineStateContext() ?
-    systemContext_->machineStateContext()->isWaterTankFullState() : false; },
-                                            StateParamDef<bool>::UpdateFrequency::FREQUENT};
+    StateParamDef<bool> stateWaterTank{"state.water_tank", "Water Tank Full", 6, 608,
+                                       "Water tank sensor status",
+                                       [this]() { return systemContext_ &&
+    systemContext_->sensorCoordinator().isWaterTankFull(); }, StateParamDef<bool>::UpdateFrequency::FREQUENT};
 
     // === BREWING STATUS ===
     StateParamDef<double> stateBrewTime{"state.brew_time", "Current Brew Time", 7, 701,

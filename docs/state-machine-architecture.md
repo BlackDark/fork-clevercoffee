@@ -204,7 +204,7 @@ flowchart TD
 
 ### HardwareManager guards (Layer 4)
 - `enablePump()` refuses if tank empty or emergency mode active
-- `updateSafetyState()` force-disables pump when tank empties mid-brew
+- `setWaterTankEmpty()` force-disables pump when tank empties mid-brew (pushed after `SensorCoordinator::update()`, before state machine and process control in `LoopManager`)
 - `emergencyShutdown()` kills pump, valve, and heater immediately
 
 ---

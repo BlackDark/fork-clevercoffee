@@ -13,7 +13,6 @@
 #include "../mocks/MockConfig.h"
 #include "../mocks/MockLED.h"
 #include "../mocks/MockRelay.h"
-#include "../mocks/MockSensorManager.h"
 #include "../mocks/MockSwitch.h"
 
 #include "clevercoffee/context/SystemContext.h"
@@ -49,7 +48,6 @@ class TestFixtureBase : public ::testing::Test {
 
     std::unique_ptr<SystemContext> systemContext_;
     MockConfig                    mockConfig_;
-    MockSensorManager             mockSensorManager_;
 };
 
 /**

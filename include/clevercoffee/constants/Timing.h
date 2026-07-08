@@ -35,8 +35,7 @@ constexpr unsigned long SLOW_LOOP_THRESHOLD_MS         = 100;   ///< Threshold f
 constexpr unsigned int  PERFORMANCE_LOG_INTERVAL_LOOPS = 1000;  ///< Log performance stats every N loops
 
 // Loop manager timing constants
-constexpr unsigned long DISPLAY_REFRESH_INTERVAL_MS  = 100; ///< Display refresh interval
-constexpr unsigned long WATER_TANK_CHECK_INTERVAL_MS = 200; ///< Water tank sensor check interval
+constexpr unsigned long DISPLAY_REFRESH_INTERVAL_MS = 100; ///< Display refresh interval
 // Temperature sensor interval: 400ms (2.5Hz) matches DS18B20 11-bit conversion time (~380ms)
 // Optimization opportunity: Reduce to 200ms (5Hz) by using 10-bit resolution (~188ms conversion)
 // See SENSOR_OPTIMIZATION.md for details

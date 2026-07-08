@@ -46,8 +46,6 @@ public:
     MOCK_METHOD(bool, hasTemperatureError, (), (const, noexcept, override));
 
     // Water Tank Sensor
-    MOCK_METHOD(Switch*, getWaterTankSensor, (), (noexcept, override));
-    MOCK_METHOD(const Switch*, getWaterTankSensor, (), (const, noexcept, override));
     MOCK_METHOD(bool, isWaterTankEmpty, (), (const, noexcept, override));
 
     // Relay Control
@@ -62,9 +60,6 @@ public:
     // Scale Operations
     MOCK_METHOD(double, getWeight, (), (const, noexcept, override));
     MOCK_METHOD(void, tareScale, (), (noexcept, override));
-
-    // Hardware Operations
-    MOCK_METHOD(void, updateHardware, (), (noexcept, override));
 
     // High-Level Hardware Control
     MOCK_METHOD(void, enableHeater, (), (noexcept, override));
