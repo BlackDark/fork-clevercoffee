@@ -78,7 +78,34 @@ A single out-of-range TSIC sample must never trip emergency stop or flood the lo
 - [ ] If emergency does trigger (sustained overtemp/fault), recovery returns to
       `PID Normal` (state 20), not `PID disabled` — see ADR 0002 / emergency recovery fix
 
-## 9. Frontend (when `ui/` files changed)
+## 10. Water Tank Sensor, Pump Safety & MQTT/Home Assistant Export
+
+- [ ] With `hardware.sensors.watertank.enabled=true` and the sensor disconnected/dry,
+      the machine transitions to `Water Tank Empty` state and the pump refuses to
+      start (`Cannot enable pump - water tank is empty` in logs)
+- [ ] If the pump was running when the tank goes empty, it stops immediately
+      (`Water tank is empty - pump operations disabled` in logs)
+- [ ] With `hardware.sensors.watertank.keep_heater_on_empty=false` (default), the
+      heater/PID turns off when the tank goes empty
+- [ ] With `hardware.sensors.watertank.keep_heater_on_empty=true`, the heater/PID
+      continues to run (temperature keeps climbing toward setpoint) while the tank
+      is empty; brewing/hot water/backflush remain blocked (pump still can't run)
+- [ ] Refilling the tank logs `Water tank refilled - pump operations enabled` and
+      the machine returns to its previous PID state
+- [ ] With `keep_heater_on_empty=true` and standby enabled, leaving the tank empty
+      past the standby timeout moves the machine to `Standby` and turns the heater
+      off — the heater must never run unattended indefinitely
+- [ ] A standby request (power switch/MQTT) is honored while in `Water Tank Empty`
+- [ ] Removing the tank while the machine is in `Standby` does NOT wake it up
+      (it stays in standby with the heater off)
+- [ ] With a Home Assistant instance subscribed to the MQTT discovery prefix, a
+      "Water Tank" binary_sensor entity appears (wet when full, dry when empty)
+      after connecting with `hardware.sensors.watertank.enabled=true`
+- [ ] `mosquitto_sub -t '<prefix>/<hostname>/waterTankFull'` reports `ON` when full
+      and `OFF` when empty; the message is retained, so a fresh subscriber (or a
+      restarted Home Assistant) receives the current state immediately
+
+## 11. Frontend (when `ui/` files changed)
 
 Run from `ui/packages/frontend`:
 
