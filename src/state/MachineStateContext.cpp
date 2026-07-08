@@ -41,14 +41,6 @@ const TempSensor* MachineStateContext::getTempSensor() const noexcept {
     return hardwareManager_.getTempSensor();
 }
 
-Switch* MachineStateContext::getWaterTankSensor() noexcept {
-    return hardwareManager_.getWaterTankSensor();
-}
-
-const Switch* MachineStateContext::getWaterTankSensor() const noexcept {
-    return hardwareManager_.getWaterTankSensor();
-}
-
 Switch* MachineStateContext::getBrewSwitch() const {
     return hardwareManager_.getBrewSwitch();
 }
@@ -478,12 +470,6 @@ double MachineStateContext::getWeight() const noexcept {
 void MachineStateContext::tareScale() noexcept {
     // Use SensorCoordinator for scale operations
     systemContext_.sensorCoordinator().setScaleTareMode(true);
-}
-
-void MachineStateContext::updateHardware() noexcept {
-    // SensorCoordinator auto-updates in main loop, no manual call needed
-    // Access the coordinator to validate it exists, but no update call is needed
-    (void)(systemContext_.sensorCoordinator());
 }
 
 // === IConfigContext Interface Implementation ===

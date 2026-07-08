@@ -58,8 +58,7 @@ The following mock implementations are available in `test/mocks/`:
      ```
 
 6. **MockSensorManager** (`MockSensorManager.h`)
-   - Legacy mock for sensor manager
-   - Consider using MockISensor with SensorCoordinator instead
+   - Legacy mock for temperature/pressure only; use `SensorCoordinator` for water tank state
 
 ### Test Helpers
 

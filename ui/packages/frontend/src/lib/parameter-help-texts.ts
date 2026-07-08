@@ -148,6 +148,8 @@ export const parameterHelpTexts: Record<string, string> = {
   "hardware.sensors.watertank.enabled": "Enable water tank level sensor",
   "hardware.sensors.watertank.mode":
     "Electrical configuration of water tank sensor",
+  "hardware.sensors.watertank.keep_heater_on_empty":
+    "Warning: keeps the PID/heater active even when the water tank is reported empty. Only the external reservoir is protected by this sensor, not the boiler.",
   "hardware.sensors.scale.enabled":
     "Enable integrated scale for weight-based brewing",
   "hardware.sensors.scale.type": "Scale load cell configuration",

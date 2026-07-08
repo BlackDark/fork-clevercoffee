@@ -174,18 +174,6 @@ void HardwareManager::initializeSwitches() {
         LOG(INFO, "Hot water switch initialized");
     }
 
-    // Initialize water tank sensor
-    if (config_.hardwareSensorsWatertankEnabled.get()) {
-        LOG(INFO, "Initializing water tank sensor...");
-        yield(); // Prevent watchdog timeout
-        const auto          mode         = config_.hardwareSensorsWatertankMode.get();
-        const auto          initialState = (mode == SwitchMode::NORMALLY_OPEN) ? HIGH : LOW;
-        const GPIOPin::Type pinType = (mode == SwitchMode::NORMALLY_OPEN) ? GPIOPin::IN_PULLDOWN : GPIOPin::IN_PULLUP;
-        waterTankSensor_ =
-            std::make_unique<IOSwitch>(PIN_WATERTANKSENSOR, pinType, SwitchType::TOGGLE, mode, initialState);
-        LOG(INFO, "Water tank sensor initialized");
-    }
-
     LOG(INFO, "Switches initialized successfully");
 }
 
@@ -284,11 +272,6 @@ double HardwareManager::getWeight() const noexcept {
 
 void HardwareManager::tareScale() noexcept {
     // TODO: Integrate with scale when available
-}
-
-void HardwareManager::updateHardware() noexcept {
-    // Update safety state based on sensors
-    updateSafetyState();
 }
 
 void HardwareManager::enableHeater() noexcept {
@@ -560,23 +543,20 @@ void HardwareManager::disableAllHardware() noexcept {
     solenoidOpen_ = false;
 }
 
-void HardwareManager::updateSafetyState() noexcept {
-    // Check water tank sensor
-    if (waterTankSensor_) {
-        const bool tankHasWater = waterTankSensor_->isPressed();
-        if (tankHasWater != !waterTankEmpty_) {
-            waterTankEmpty_ = !tankHasWater;
-            if (waterTankEmpty_) {
-                LOG(WARNING, "Water tank is empty - pump operations disabled");
-                // Immediately disable pump if running
-                if (pumpRelay_ && pumpEnabled_) {
-                    pumpRelay_->off();
-                    pumpEnabled_ = false;
-                }
-            } else {
-                LOG(INFO, "Water tank refilled - pump operations enabled");
-            }
+void HardwareManager::setWaterTankEmpty(bool empty) noexcept {
+    if (empty == waterTankEmpty_) {
+        return;
+    }
+    waterTankEmpty_ = empty;
+    if (empty) {
+        LOG(WARNING, "Water tank is empty - pump operations disabled");
+        // Immediately disable pump if running
+        if (pumpRelay_ && pumpEnabled_) {
+            pumpRelay_->off();
+            pumpEnabled_ = false;
         }
+    } else {
+        LOG(INFO, "Water tank refilled - pump operations enabled");
     }
 }
 
@@ -600,7 +580,6 @@ void HardwareManager::cleanupPartialInit() noexcept {
         LOG(INFO, "Cleaning up switches...");
         // Switches don't need physical cleanup, just release resources
         hotWaterSwitch_.reset();
-        waterTankSensor_.reset();
         steamSwitch_.reset();
         brewSwitch_.reset();
         powerSwitch_.reset();

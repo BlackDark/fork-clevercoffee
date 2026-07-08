@@ -1113,6 +1113,15 @@ class Config {
                                                                     "Electrical configuration of water tank sensor",
                                                                     getSwitchModeOptions()};
 
+    ParamDef<bool> hardwareSensorsWatertankKeepHeaterOnEmpty{
+        "hardware.sensors.watertank.keep_heater_on_empty",
+        false,
+        "Keep Heater On When Tank Empty",
+        4,
+        2423,
+        "Warning: keeps the PID/heater active even when the water tank is reported empty. "
+        "Only the external reservoir is protected by this sensor, not the boiler."};
+
     ParamDef<bool> hardwareSensorsScaleEnabled{
         "hardware.sensors.scale.enabled", false, "Enable Scale", 4, 2501, "Enable scale functionality"};
 
@@ -1433,11 +1442,10 @@ class Config {
                                            [this]() { return systemContext_ && systemContext_->mqttManager() &&
     systemContext_->mqttManager()->isConnected(); }, StateParamDef<bool>::UpdateFrequency::FREQUENT};
 
-     StateParamDef<bool> stateWaterTank{"state.water_tank", "Water Tank Full", 6, 608,
-                                            "Water tank sensor status",
-                                            [this]() { return systemContext_ && systemContext_->machineStateContext() ?
-    systemContext_->machineStateContext()->isWaterTankFullState() : false; },
-                                            StateParamDef<bool>::UpdateFrequency::FREQUENT};
+    StateParamDef<bool> stateWaterTank{"state.water_tank", "Water Tank Full", 6, 608,
+                                       "Water tank sensor status",
+                                       [this]() { return systemContext_ &&
+    systemContext_->sensorCoordinator().isWaterTankFull(); }, StateParamDef<bool>::UpdateFrequency::FREQUENT};
 
     // === BREWING STATUS ===
     StateParamDef<double> stateBrewTime{"state.brew_time", "Current Brew Time", 7, 701,

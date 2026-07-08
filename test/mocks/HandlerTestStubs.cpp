@@ -48,12 +48,20 @@ inline int disablePumpCalls     = 0;
 inline int openWaterValveCalls  = 0;
 inline int enablePumpCalls      = 0;
 inline int closeWaterValveCalls = 0;
+inline int pumpForceOffCalls    = 0;
+inline bool waterTankEmpty      = false;
+inline bool pumpRunning         = false;
+inline bool shouldEnterStandby  = false;
 
 inline void reset() noexcept {
-    disablePumpCalls    = 0;
-    openWaterValveCalls = 0;
-    enablePumpCalls     = 0;
+    disablePumpCalls     = 0;
+    openWaterValveCalls  = 0;
+    enablePumpCalls      = 0;
     closeWaterValveCalls = 0;
+    pumpForceOffCalls    = 0;
+    waterTankEmpty       = false;
+    pumpRunning          = false;
+    shouldEnterStandby   = false;
 }
 } // namespace TestHardwareSpy
 
@@ -74,20 +82,33 @@ bool HardwareManager::hasTemperatureError() const noexcept { return false; }
 Relay* HardwareManager::getHeaterRelay() noexcept { return nullptr; }
 Relay* HardwareManager::getPumpRelay() noexcept { return nullptr; }
 Relay* HardwareManager::getValveRelay() noexcept { return nullptr; }
-bool HardwareManager::isWaterTankEmpty() const noexcept { return false; }
+bool HardwareManager::isWaterTankEmpty() const noexcept { return TestHardwareSpy::waterTankEmpty; }
 double HardwareManager::getWeight() const noexcept { return 0.0; }
 void HardwareManager::tareScale() noexcept {}
-void HardwareManager::updateHardware() noexcept {}
 void HardwareManager::enableHeater() noexcept {}
 void HardwareManager::disableHeater() noexcept {}
 void HardwareManager::setHeaterPower(uint8_t) noexcept {}
 void HardwareManager::enablePump() noexcept {
+    if (TestHardwareSpy::waterTankEmpty) {
+        return;
+    }
     TestHardwareSpy::enablePumpCalls++;
+    TestHardwareSpy::pumpRunning = true;
 }
 void HardwareManager::disablePump() noexcept {
     TestHardwareSpy::disablePumpCalls++;
+    TestHardwareSpy::pumpRunning = false;
 }
-void HardwareManager::setPumpPressure(float) noexcept {}
+void HardwareManager::setPumpPressure(float bar) noexcept {
+    if (TestHardwareSpy::waterTankEmpty) {
+        return;
+    }
+    if (bar > 0.0f) {
+        enablePump();
+    } else {
+        disablePump();
+    }
+}
 void HardwareManager::updateValveRelay() noexcept {}
 void HardwareManager::openSteamValve() noexcept {}
 void HardwareManager::closeSteamValve() noexcept {}
@@ -102,7 +123,17 @@ void HardwareManager::closeSolenoid() noexcept {}
 void HardwareManager::emergencyShutdown() noexcept {}
 void HardwareManager::safeHardwareShutdown() noexcept {}
 void HardwareManager::clearEmergencyMode() noexcept {}
-void HardwareManager::updateSafetyState() noexcept {}
+void HardwareManager::setWaterTankEmpty(bool empty) noexcept {
+    if (empty == TestHardwareSpy::waterTankEmpty) {
+        return;
+    }
+    TestHardwareSpy::waterTankEmpty = empty;
+    if (empty && TestHardwareSpy::pumpRunning) {
+        TestHardwareSpy::pumpRunning = false;
+        TestHardwareSpy::pumpForceOffCalls++;
+        TestHardwareSpy::disablePumpCalls++;
+    }
+}
 void HardwareManager::cleanupPartialInit() noexcept {}
 Scale* HardwareManager::getScale() noexcept { return nullptr; }
 const Scale* HardwareManager::getScale() const noexcept { return nullptr; }
@@ -150,8 +181,6 @@ MachineStateContext::MachineStateContext(CleverCoffee::SystemContext&   systemCo
 // Hardware Component Access
 TempSensor*       MachineStateContext::getTempSensor() noexcept { return nullptr; }
 const TempSensor* MachineStateContext::getTempSensor() const noexcept { return nullptr; }
-Switch*           MachineStateContext::getWaterTankSensor() noexcept { return nullptr; }
-const Switch*     MachineStateContext::getWaterTankSensor() const noexcept { return nullptr; }
 Switch*           MachineStateContext::getBrewSwitch() const { return nullptr; }
 Switch*           MachineStateContext::getSteamSwitch() const { return nullptr; }
 Switch*           MachineStateContext::getHotWaterSwitch() const { return nullptr; }
@@ -171,7 +200,9 @@ Scale*            MachineStateContext::getScale() const { return nullptr; }
 // Sensor Data Access
 double MachineStateContext::getCurrentTemperature() const noexcept { return 25.0; }
 bool   MachineStateContext::hasTemperatureError() const noexcept { return false; }
-bool   MachineStateContext::isWaterTankFull() const { return true; }
+bool MachineStateContext::isWaterTankFull() const {
+    return systemContext_.sensorCoordinator().isWaterTankFull();
+}
 float  MachineStateContext::getCurrentPressure() const { return 0.0f; }
 float  MachineStateContext::getFilteredPressure() const { return 0.0f; }
 float  MachineStateContext::getCurrentWeight() const noexcept { return 0.0f; }
@@ -196,7 +227,7 @@ bool MachineStateContext::isBackflushActive() const { return false; }
 bool MachineStateContext::isPidRuntimeEnabled() const { return systemContext_.isProcessPidEnabled(); }
 bool MachineStateContext::isPidConfigEnabled() const { return Config::getInstance().pidEnabled.get(); }
 bool          MachineStateContext::isEmergencyStop() const { return emergencyStop_; }
-bool          MachineStateContext::shouldEnterStandby() const { return false; }
+bool          MachineStateContext::shouldEnterStandby() const { return CleverCoffee::TestHardwareSpy::shouldEnterStandby; }
 unsigned long MachineStateContext::getStandbyRemainingTime() const { return 0; }
 
 // Timing Functions
@@ -312,7 +343,6 @@ void MachineStateContext::updateStateEntryTime(std::chrono::steady_clock::time_p
 bool   MachineStateContext::isWaterTankEmpty() const noexcept { return false; }
 double MachineStateContext::getWeight() const noexcept { return 0.0; }
 void   MachineStateContext::tareScale() noexcept {}
-void   MachineStateContext::updateHardware() noexcept {}
 void   MachineStateContext::enableHeater() noexcept {}
 void   MachineStateContext::disableHeater() noexcept {}
 void   MachineStateContext::setHeaterPower(uint8_t /*percentage*/) noexcept {}

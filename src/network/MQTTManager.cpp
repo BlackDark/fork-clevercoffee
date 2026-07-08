@@ -359,10 +359,17 @@ void MQTTManager::registerSensor(const char* topic, std::function<double()> call
     mqttSensors_[topic] = callback;
 }
 
+void MQTTManager::registerBinarySensor(const char* topic, std::function<bool()> callback) {
+    mqttBinarySensors_[topic] = callback;
+}
+
 int MQTTManager::writeSysParamsToMQTT(bool continueOnError) {
-    static auto mqttVarsIt    = mqttVars_.begin();
-    static auto mqttSensorsIt = mqttSensors_.begin();
-    static bool inSensors     = false;
+    if (!publishCursorsValid_) {
+        mqttVarsIt_          = mqttVars_.begin();
+        mqttSensorsIt_       = mqttSensors_.begin();
+        mqttBinarySensorsIt_ = mqttBinarySensors_.begin();
+        publishCursorsValid_ = true;
+    }
 
     if (!systemContext_ || !systemContext_->isReady()) {
         return 0;
@@ -384,7 +391,7 @@ int MQTTManager::writeSysParamsToMQTT(bool continueOnError) {
         return 0;
     }
 
-    if (!inSensors && mqttVarsIt == mqttVars_.begin()) {
+    if (publishPhase_ == 0 && mqttVarsIt_ == mqttVars_.begin()) {
         previousMillisMQTT_ = currentMillisMQTT;
         (void)publish("status", "online");
     }
@@ -397,10 +404,10 @@ int MQTTManager::writeSysParamsToMQTT(bool continueOnError) {
     auto& config     = Config::getInstance();
 
     // Process parameter mappings
-    if (!inSensors) {
-        while (mqttVarsIt != mqttVars_.end()) {
-            const char* mqttTopic   = mqttVarsIt->first;
-            const char* parameterId = mqttVarsIt->second;
+    if (publishPhase_ == 0) {
+        while (mqttVarsIt_ != mqttVars_.end()) {
+            const char* mqttTopic   = mqttVarsIt_->first;
+            const char* parameterId = mqttVarsIt_->second;
 
             bool paramFound = false;
 
@@ -427,7 +434,7 @@ int MQTTManager::writeSysParamsToMQTT(bool continueOnError) {
                             return 1;
                         }
                         LOGF(WARNING, "Parameter %s not found for MQTT topic %s, skipping", parameterId, mqttTopic);
-                        ++mqttVarsIt;
+                        ++mqttVarsIt_;
                         continue;
                     }
 
@@ -466,7 +473,7 @@ int MQTTManager::writeSysParamsToMQTT(bool continueOnError) {
                     return 1;
                 }
                 LOGF(WARNING, "Parameter %s not found for MQTT topic %s, skipping", parameterId, mqttTopic);
-                ++mqttVarsIt;
+                ++mqttVarsIt_;
                 continue;
             }
 
@@ -488,48 +495,107 @@ int MQTTManager::writeSysParamsToMQTT(bool continueOnError) {
                 }
             }
 
-            ++mqttVarsIt;
+            ++mqttVarsIt_;
 
             if (millis() - start >= timeBudget_) {
                 return 0;
             }
         }
 
-        mqttVarsIt = mqttVars_.begin();
-        inSensors  = true;
+        mqttVarsIt_   = mqttVars_.begin();
+        publishPhase_ = 1;
     }
 
-    // Process sensor callbacks
-    while (mqttSensorsIt != mqttSensors_.end()) {
-        const char* topic      = mqttSensorsIt->first;
-        const auto& sensorFunc = mqttSensorsIt->second;
-        std::string value      = number2string(sensorFunc());
+    // Process numeric sensor callbacks
+    if (publishPhase_ == 1) {
+        while (mqttSensorsIt_ != mqttSensors_.end()) {
+            const char* topic      = mqttSensorsIt_->first;
+            const auto& sensorFunc = mqttSensorsIt_->second;
+            std::string value      = number2string(sensorFunc());
 
-        if (mqttLastSent_[topic] != value) {
-            if (!publish(topic, value.c_str())) {
-                errorState = mqttClient_.state();
-                if (!continueOnError) {
-                    return errorState;
+            if (mqttLastSent_[topic] != value) {
+                if (!publish(topic, value.c_str())) {
+                    errorState = mqttClient_.state();
+                    if (!continueOnError) {
+                        return errorState;
+                    }
+                } else {
+                    mqttLastSent_[topic] = value;
                 }
-            } else {
-                mqttLastSent_[topic] = value;
+            }
+
+            ++mqttSensorsIt_;
+
+            if (millis() - start >= timeBudget_) {
+                return 0;
             }
         }
 
-        ++mqttSensorsIt;
-
-        if (millis() - start >= timeBudget_) {
-            return 0;
-        }
+        mqttSensorsIt_ = mqttSensors_.begin();
+        publishPhase_  = 2;
     }
 
-    mqttSensorsIt = mqttSensors_.begin();
-    inSensors     = false;
+    // Process binary sensor callbacks
+    if (publishPhase_ == 2) {
+        while (mqttBinarySensorsIt_ != mqttBinarySensors_.end()) {
+            const char* topic            = mqttBinarySensorsIt_->first;
+            const auto& binarySensorFunc = mqttBinarySensorsIt_->second;
+            const char* value            = binarySensorFunc() ? "ON" : "OFF";
+
+            if (mqttLastSent_[topic] != value) {
+                // Retained: binary state must survive broker/HA restarts — it may
+                // not change again for days, so a fresh subscriber would otherwise
+                // see "unknown" until the next transition.
+                if (!publish(topic, value, true)) {
+                    errorState = mqttClient_.state();
+                    if (!continueOnError) {
+                        return errorState;
+                    }
+                } else {
+                    mqttLastSent_[topic] = value;
+                }
+            }
+
+            ++mqttBinarySensorsIt_;
+
+            if (millis() - start >= timeBudget_) {
+                return 0;
+            }
+        }
+
+        mqttBinarySensorsIt_ = mqttBinarySensors_.begin();
+        publishPhase_        = 0;
+    }
 
     return 0;
 }
 
 // Home Assistant Discovery Implementation
+
+namespace {
+void populateDeviceMap(JsonDocument& deviceMapDoc, const String& hostname) {
+    deviceMapDoc["identifiers"]  = hostname;
+    deviceMapDoc["manufacturer"] = "CleverCoffee";
+    deviceMapDoc["name"]         = hostname;
+}
+
+void attachDeviceAndAvailability(JsonDocument& configDoc, JsonDocument& deviceMapDoc, const String& statusTopic) {
+    configDoc["payload_available"]     = "online";
+    configDoc["payload_not_available"] = "offline";
+    configDoc["availability_topic"]    = statusTopic;
+
+    auto deviceField = configDoc["device"].to<JsonObject>();
+    for (JsonPair keyValue : deviceMapDoc.as<JsonObject>()) {
+        deviceField[keyValue.key()] = keyValue.value();
+    }
+}
+
+String serializeDiscoveryJson(const JsonDocument& configDoc) {
+    String buffer;
+    serializeJson(configDoc, buffer);
+    return buffer;
+}
+} // namespace
 
 MQTTManager::DiscoveryObject MQTTManager::generateSwitchDevice(const String& name,
                                                                const String& displayName,
@@ -646,30 +712,47 @@ MQTTManager::DiscoveryObject MQTTManager::generateSensorDevice(const String& nam
     sensor_device.discovery_topic = SensorDiscoveryTopic + unique_id + "/" + name + "/config";
 
     JsonDocument deviceMapDoc;
-    deviceMapDoc["identifiers"]  = hostname_;
-    deviceMapDoc["manufacturer"] = "CleverCoffee";
-    deviceMapDoc["name"]         = hostname_;
+    populateDeviceMap(deviceMapDoc, hostname_);
 
     JsonDocument sensorConfigDoc;
-    sensorConfigDoc["name"]                  = displayName;
-    sensorConfigDoc["state_topic"]           = sensor_state_topic;
-    sensorConfigDoc["unique_id"]             = unique_id + "-" + name;
-    sensorConfigDoc["unit_of_measurement"]   = unit_of_measurement;
-    sensorConfigDoc["device_class"]          = device_class;
-    sensorConfigDoc["payload_available"]     = "online";
-    sensorConfigDoc["payload_not_available"] = "offline";
-    sensorConfigDoc["availability_topic"]    = mqtt_topic + "/status";
+    sensorConfigDoc["name"]                = displayName;
+    sensorConfigDoc["state_topic"]         = sensor_state_topic;
+    sensorConfigDoc["unique_id"]           = unique_id + "-" + name;
+    sensorConfigDoc["unit_of_measurement"] = unit_of_measurement;
+    sensorConfigDoc["device_class"]        = device_class;
+    attachDeviceAndAvailability(sensorConfigDoc, deviceMapDoc, mqtt_topic + "/status");
 
-    auto sensorDeviceField = sensorConfigDoc["device"].to<JsonObject>();
+    sensor_device.payload_json = serializeDiscoveryJson(sensorConfigDoc);
 
-    for (JsonPair keyValue : deviceMapDoc.as<JsonObject>()) {
-        sensorDeviceField[keyValue.key()] = keyValue.value();
-    }
+    return sensor_device;
+}
 
-    String sensorConfigDocBuffer;
-    serializeJson(sensorConfigDoc, sensorConfigDocBuffer);
+MQTTManager::DiscoveryObject MQTTManager::generateBinarySensorDevice(const String& name,
+                                                                     const String& displayName,
+                                                                     const String& device_class,
+                                                                     const String& payload_on,
+                                                                     const String& payload_off) {
+    String          mqtt_topic = String(topicPrefix_) + hostname_;
+    DiscoveryObject sensor_device;
+    String          unique_id                  = "clevercoffee-" + hostname_;
+    String          binarySensorDiscoveryTopic = hassioDiscoveryPrefix_ + "/binary_sensor/";
 
-    sensor_device.payload_json = sensorConfigDocBuffer;
+    String sensor_state_topic     = mqtt_topic + "/" + name;
+    sensor_device.discovery_topic = binarySensorDiscoveryTopic + unique_id + "/" + name + "/config";
+
+    JsonDocument deviceMapDoc;
+    populateDeviceMap(deviceMapDoc, hostname_);
+
+    JsonDocument sensorConfigDoc;
+    sensorConfigDoc["name"]         = displayName;
+    sensorConfigDoc["state_topic"]  = sensor_state_topic;
+    sensorConfigDoc["unique_id"]    = unique_id + "-" + name;
+    sensorConfigDoc["payload_on"]   = payload_on;
+    sensorConfigDoc["payload_off"]  = payload_off;
+    sensorConfigDoc["device_class"] = device_class;
+    attachDeviceAndAvailability(sensorConfigDoc, deviceMapDoc, mqtt_topic + "/status");
+
+    sensor_device.payload_json = serializeDiscoveryJson(sensorConfigDoc);
 
     return sensor_device;
 }
@@ -822,6 +905,10 @@ int MQTTManager::sendHASSIODiscoveryMsg() {
 
     if (Config::getInstance().hardwareSensorsPressureEnabled.get()) {
         failures += publishDiscovery(generateSensorDevice("pressure", "Pressure", "bar", "pressure"));
+    }
+
+    if (Config::getInstance().hardwareSensorsWatertankEnabled.get()) {
+        failures += publishDiscovery(generateBinarySensorDevice("waterTankFull", "Water Tank", "moisture"));
     }
 
     if (failures > 0) {

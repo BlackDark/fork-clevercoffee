@@ -110,20 +110,6 @@ class IHardwareContext {
      */
 
     /**
-     * @brief Get the water tank sensor switch
-     *
-     * @return Pointer to the water tank sensor, or nullptr if not available
-     */
-    virtual Switch* getWaterTankSensor() noexcept = 0;
-
-    /**
-     * @brief Get the water tank sensor switch (const overload)
-     *
-     * @return Const pointer to the water tank sensor, or nullptr if not available
-     */
-    virtual const Switch* getWaterTankSensor() const noexcept = 0;
-
-    /**
      * @brief Check if water tank is empty
      *
      * @return true if water tank is empty, false if water is available
@@ -199,21 +185,6 @@ class IHardwareContext {
      * Resets the scale to read zero with current load as baseline.
      */
     virtual void tareScale() noexcept = 0;
-
-    /** @} */
-
-    /**
-     * @name Hardware Operations
-     * @{
-     */
-
-    /**
-     * @brief Update all hardware components
-     *
-     * Should be called periodically to update hardware state.
-     * This may include reading sensors, updating outputs, etc.
-     */
-    virtual void updateHardware() noexcept = 0;
 
     /** @} */
 

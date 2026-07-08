@@ -152,6 +152,13 @@ class MQTTManager : public IMQTTManager {
     void registerSensor(const char* topic, std::function<double()> callback);
 
     /**
+     * @brief Register MQTT binary sensor callback
+     * @param topic MQTT topic name
+     * @param callback Function to get sensor state (true = ON, false = OFF)
+     */
+    void registerBinarySensor(const char* topic, std::function<bool()> callback);
+
+    /**
      * @brief Set update running flag
      * @param running Whether update is running
      */
@@ -230,10 +237,21 @@ class MQTTManager : public IMQTTManager {
 
     std::unordered_map<const char*, const char*, hash_cstr, equal_cstr> mqttVars_; ///< MQTT parameter mappings
     std::unordered_map<const char*, std::function<double()>, hash_cstr, equal_cstr>
-        mqttSensors_;                                                              ///< MQTT sensor callbacks
+        mqttSensors_;                                                              ///< MQTT numeric sensor callbacks
+    std::unordered_map<const char*, std::function<bool()>, hash_cstr, equal_cstr>
+        mqttBinarySensors_; ///< MQTT binary sensor callbacks (ON/OFF payloads)
 
     // Track last sent values to avoid duplicate MQTT messages (unordered_map for O(1) lookup)
     std::unordered_map<const char*, std::string, hash_cstr, equal_cstr> mqttLastSent_;
+
+    // Incremental publish state for writeSysParamsToMQTT() — persists across
+    // time-budget slices so publishing resumes where it left off. Cursors are
+    // initialized lazily on the first call, after all registrations are done.
+    int                                    publishPhase_        = 0; ///< 0 = vars, 1 = sensors, 2 = binary sensors
+    bool                                   publishCursorsValid_ = false;
+    decltype(mqttVars_)::iterator          mqttVarsIt_;
+    decltype(mqttSensors_)::iterator       mqttSensorsIt_;
+    decltype(mqttBinarySensors_)::iterator mqttBinarySensorsIt_;
 
     // Update management
     bool                           mqttUpdateRunning_;
@@ -307,6 +325,11 @@ class MQTTManager : public IMQTTManager {
                                          const String& displayName,
                                          const String& unit_of_measurement,
                                          const String& device_class);
+    DiscoveryObject generateBinarySensorDevice(const String& name,
+                                               const String& displayName,
+                                               const String& device_class,
+                                               const String& payload_on  = "ON",
+                                               const String& payload_off = "OFF");
     DiscoveryObject generateNumberDevice(const String& name,
                                          const String& displayName,
                                          int           min_value,

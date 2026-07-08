@@ -124,46 +124,18 @@ void LoopManager::update() {
         return;
     }
 
-    // 2. Hardware updates (water tank, process control, LEDs)
-    if (performanceMonitoringEnabled_) {
-        stepStart = millis();
-    }
-    updateWaterTank();
-    updateProcessControl();
-    updateLEDs();
-    if (performanceMonitoringEnabled_) {
-        hardwareTime = millis() - stepStart;
-    }
-
-    // 3. Network updates (WiFi/MQTT/OTA/WebServer)
-    if (performanceMonitoringEnabled_) {
-        stepStart = millis();
-    }
-    updateNetwork();
-    if (performanceMonitoringEnabled_) {
-        networkTime = millis() - stepStart;
-    }
-
-    // 4. Website data transmission
-    if (performanceMonitoringEnabled_) {
-        stepStart = millis();
-    }
-    updateWebsite();
-    if (performanceMonitoringEnabled_) {
-        websiteTime = millis() - stepStart;
-    }
-
-    // 5. Sensor updates
+    // 2. Sensor updates (before state/process so tank guards and PID react same loop)
     if (performanceMonitoringEnabled_) {
         stepStart = millis();
     }
     sensorCoordinator_.update();
+    hardwareManager_.setWaterTankEmpty(!sensorCoordinator_.isWaterTankFull());
     updateCentralizedSensorTimers();
     if (performanceMonitoringEnabled_) {
         sensorsTime = millis() - stepStart;
     }
 
-    // 6. Switches and standby management
+    // 3. Switches and standby management
     if (performanceMonitoringEnabled_) {
         stepStart = millis();
     }
@@ -172,13 +144,41 @@ void LoopManager::update() {
         switchesTime = millis() - stepStart;
     }
 
-    // 7. State machine updates
+    // 4. State machine updates
     if (performanceMonitoringEnabled_) {
         stepStart = millis();
     }
     updateStateMachine();
     if (performanceMonitoringEnabled_) {
         stateMachineTime = millis() - stepStart;
+    }
+
+    // 5. Process control and LEDs (after state reflects sensor input)
+    if (performanceMonitoringEnabled_) {
+        stepStart = millis();
+    }
+    updateProcessControl();
+    updateLEDs();
+    if (performanceMonitoringEnabled_) {
+        hardwareTime = millis() - stepStart;
+    }
+
+    // 6. Network updates (WiFi/MQTT/OTA/WebServer)
+    if (performanceMonitoringEnabled_) {
+        stepStart = millis();
+    }
+    updateNetwork();
+    if (performanceMonitoringEnabled_) {
+        networkTime = millis() - stepStart;
+    }
+
+    // 7. Website data transmission
+    if (performanceMonitoringEnabled_) {
+        stepStart = millis();
+    }
+    updateWebsite();
+    if (performanceMonitoringEnabled_) {
+        websiteTime = millis() - stepStart;
     }
 
     // 8. Display updates
@@ -275,15 +275,6 @@ void LoopManager::updateLEDs() {
     if (Config::getInstance().hardwareLedsSteamEnabled.get() && hardwareManager_.getSteamLed()) {
         isSteamState(machineState) ? hardwareManager_.getSteamLed()->turnOn()
                                    : hardwareManager_.getSteamLed()->turnOff();
-    }
-}
-
-void LoopManager::updateWaterTank() {
-    // Water tank monitoring is handled by the timer-based system
-    if (waterTankTimer_) {
-        (*waterTankTimer_)();
-    } else {
-        LOG(WARNING, "LoopManager: Water tank timer not initialized");
     }
 }
 
@@ -389,17 +380,7 @@ bool LoopManager::setupAllTimers() {
                                                                 std::chrono::milliseconds(DISPLAY_REFRESH_INTERVAL_MS));
         LOG(INFO, "LoopManager: General timers initialized");
 
-        // 2. Water tank monitoring timer
-        using CleverCoffee::Timing::WATER_TANK_CHECK_INTERVAL_MS;
-        waterTankTimer_ = std::make_unique<MillisecondTimer>(std::bind(&LoopManager::checkWaterTankLevel, this),
-                                                             std::chrono::milliseconds(WATER_TANK_CHECK_INTERVAL_MS));
-        if (!waterTankTimer_) {
-            LOG(ERROR, "LoopManager: Failed to create water tank timer");
-            return false;
-        }
-        LOG(INFO, "LoopManager: Water tank timer initialized (200ms interval)");
-
-        // 3. Centralized sensor timers
+        // 2. Centralized sensor timers
         using CleverCoffee::Timing::PRESSURE_SENSOR_INTERVAL_MS;
         using CleverCoffee::Timing::SCALE_SENSOR_INTERVAL_MS;
         using CleverCoffee::Timing::TEMPERATURE_SENSOR_INTERVAL_MS;
@@ -425,11 +406,6 @@ bool LoopManager::setupAllTimers() {
         LOGF(ERROR, "LoopManager: Exception creating timers: %s", e.what());
         return false;
     }
-}
-
-void LoopManager::checkWaterTankLevel() {
-    // SensorCoordinator auto-updates water tank sensor
-    // Water tank status is accessed via sensorCoordinator_.isWaterTankFull() directly
 }
 
 void LoopManager::updateTemperatureSensor() {

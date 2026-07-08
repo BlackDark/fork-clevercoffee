@@ -152,7 +152,7 @@ stateDiagram-v2
 | BACKFLUSH_FILLING | **ON** | **OPEN** | ACTIVE | Fill portafilter |
 | BACKFLUSH_FLUSHING | OFF | CLOSED | ACTIVE | Drain to drip tray |
 | BACKFLUSH_FINISHED | OFF | CLOSED | ACTIVE | All cycles done |
-| WATER_TANK_EMPTY | OFF | CLOSED | ACTIVE | Pump blocked by HardwareManager |
+| WATER_TANK_EMPTY | OFF | CLOSED | OFF‡ | Pump blocked by HardwareManager; ‡ ACTIVE if `hardware.sensors.watertank.keep_heater_on_empty` is set. Standby request and standby timeout still transition to STANDBY (heater off) so the heater never runs unattended indefinitely; an empty tank does not wake a machine already in STANDBY |
 | EMERGENCY_STOP | OFF | CLOSED | OFF | Full shutdown |
 | SENSOR_ERROR | OFF | CLOSED | OFF | Safe mode |
 | EEPROM_ERROR | OFF | CLOSED | OFF | Safe mode |
@@ -204,7 +204,7 @@ flowchart TD
 
 ### HardwareManager guards (Layer 4)
 - `enablePump()` refuses if tank empty or emergency mode active
-- `updateSafetyState()` force-disables pump when tank empties mid-brew
+- `setWaterTankEmpty()` force-disables pump when tank empties mid-brew (pushed after `SensorCoordinator::update()`, before state machine and process control in `LoopManager`)
 - `emergencyShutdown()` kills pump, valve, and heater immediately
 
 ---

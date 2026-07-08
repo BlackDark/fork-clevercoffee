@@ -18,7 +18,11 @@
 #include "clevercoffee/handlers/HotWaterHandler.h"
 #include "clevercoffee/handlers/PowerHandler.h"
 #include "clevercoffee/handlers/SteamHandler.h"
+#include "clevercoffee/hardware/GPIOPin.h"
 #include "clevercoffee/hardware/HardwareManager.h" // Include before own header to resolve forward declaration
+#include "clevercoffee/hardware/IOSwitch.h"
+#include "clevercoffee/hardware/Switch.h"
+#include "clevercoffee/hardware/pinmapping.h"
 #include "clevercoffee/isr.h"
 #include "clevercoffee/network/CleverCoffeeWiFiManager.h"
 #include "clevercoffee/network/MQTTManager.h"
@@ -35,6 +39,7 @@
 #include <PID_v1.h>
 #include <WiFi.h>
 #include <Wire.h>
+#include <memory>
 
 // Forward declarations
 extern void initTimer1();
@@ -55,6 +60,19 @@ void otaPrepareHardware() noexcept {
 
 void otaRestoreHardware() noexcept {
     enableTimer1();
+}
+
+std::unique_ptr<Switch> createWaterTankSensor(const Config& config) {
+    if (!config.hardwareSensorsWatertankEnabled.get()) {
+        return nullptr;
+    }
+
+    yield(); // Prevent watchdog timeout
+    const auto          mode         = config.hardwareSensorsWatertankMode.get();
+    const auto          initialState = (mode == ::Hardware::SwitchMode::NORMALLY_OPEN) ? HIGH : LOW;
+    const GPIOPin::Type pinType =
+        (mode == ::Hardware::SwitchMode::NORMALLY_OPEN) ? GPIOPin::IN_PULLDOWN : GPIOPin::IN_PULLUP;
+    return std::make_unique<IOSwitch>(PIN_WATERTANKSENSOR, pinType, ::Hardware::SwitchType::TOGGLE, mode, initialState);
 }
 
 } // namespace
@@ -370,7 +388,6 @@ bool SystemInitializer::initializeHardware() {
         systemContext_->hardwareContext().setBrewSwitch(hardwareManager_->getBrewSwitch());
         systemContext_->hardwareContext().setHotWaterSwitch(hardwareManager_->getHotWaterSwitch());
         systemContext_->hardwareContext().setSteamSwitch(hardwareManager_->getSteamSwitch());
-        systemContext_->hardwareContext().setWaterTankSensor(hardwareManager_->getWaterTankSensor());
 
         systemContext_->hardwareContext().setTempSensor(hardwareManager_->getTempSensor());
 
@@ -555,18 +572,17 @@ bool SystemInitializer::initializeSensors() {
             return false;
         }
 
-        // Get sensor references from HardwareManager
-        TempSensor* tempSensorRef      = hardwareManager_ ? hardwareManager_->getTempSensor() : nullptr;
-        Switch*     waterTankSensorRef = hardwareManager_ ? hardwareManager_->getWaterTankSensor() : nullptr;
-
-        // Inject sensors into SensorCoordinator
+        // Inject temperature sensor from HardwareManager
+        TempSensor* tempSensorRef = hardwareManager_ ? hardwareManager_->getTempSensor() : nullptr;
         if (tempSensorRef) {
             coord->setTemperatureSensor(tempSensorRef);
             LOG(INFO, "Temperature sensor injected into SensorCoordinator");
         }
-        if (waterTankSensorRef) {
-            coord->setWaterTankSensor(waterTankSensorRef);
-            LOG(INFO, "Water tank sensor injected into SensorCoordinator");
+
+        const auto& config = Config::getInstance();
+        if (auto waterTankSensor = createWaterTankSensor(config)) {
+            coord->setWaterTankSensor(std::move(waterTankSensor));
+            LOG(INFO, "Water tank sensor initialized in SensorCoordinator");
         }
 
         // Update global temperature variable for compatibility
@@ -775,6 +791,12 @@ void SystemInitializer::registerMQTTSensors() {
     if (Config::getInstance().hardwareSensorsPressureEnabled.get()) {
         mqttManager_->registerSensor("pressure",
                                      [this] { return systemContext_->sensorCoordinator().getFilteredPressure(); });
+    }
+
+    // Water tank sensor
+    if (Config::getInstance().hardwareSensorsWatertankEnabled.get()) {
+        mqttManager_->registerBinarySensor("waterTankFull",
+                                           [this] { return systemContext_->sensorCoordinator().isWaterTankFull(); });
     }
 
     LOG(DEBUG, "MQTT sensors registered");

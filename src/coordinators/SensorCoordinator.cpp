@@ -15,17 +15,20 @@
 
 namespace CleverCoffee {
 
-SensorCoordinator::SensorCoordinator(ISensor* tempSensor, ISensor* scaleSensor, Switch* waterTankSensor) noexcept
-    : tempSensor_(tempSensor), scaleSensor_(scaleSensor), waterTankSensor_(waterTankSensor) {
+SensorCoordinator::SensorCoordinator(ISensor* tempSensor, ISensor* scaleSensor) noexcept
+    : tempSensor_(tempSensor), scaleSensor_(scaleSensor) {
     if (tempSensor_) {
         LOG(INFO, "SensorCoordinator initialized with temperature sensor");
     }
     if (scaleSensor_) {
         LOG(INFO, "SensorCoordinator initialized with scale sensor");
     }
-    if (waterTankSensor_) {
-        LOG(INFO, "SensorCoordinator initialized with water tank sensor");
-    }
+}
+
+SensorCoordinator::~SensorCoordinator() = default;
+
+void SensorCoordinator::setWaterTankSensor(std::unique_ptr<Switch> sensor) noexcept {
+    waterTankSensor_ = std::move(sensor);
 }
 
 void SensorCoordinator::update() noexcept {
@@ -138,11 +141,9 @@ void SensorCoordinator::updateWaterTank() noexcept {
 
     if (isWaterDetected && !currentWaterTankState) {
         waterTankFull_.store(true, std::memory_order_relaxed);
-        waterTankConsecutiveReads_ = 0;
         LOG(INFO, "Water tank is full");
     } else if (!isWaterDetected && currentWaterTankState) {
         waterTankFull_.store(false, std::memory_order_relaxed);
-        waterTankConsecutiveReads_ = 0;
         LOG(INFO, "Water tank is empty");
     }
 }

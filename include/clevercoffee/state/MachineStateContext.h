@@ -123,12 +123,6 @@ class MachineStateContext : public CleverCoffee::IHardwareContext,
     const TempSensor* getTempSensor() const noexcept override;
 
     /**
-     * @brief Get water tank sensor
-     */
-    Switch*       getWaterTankSensor() noexcept override;
-    const Switch* getWaterTankSensor() const noexcept override;
-
-    /**
      * @brief Get brew switch
      */
     Switch* getBrewSwitch() const;
@@ -449,20 +443,6 @@ class MachineStateContext : public CleverCoffee::IHardwareContext,
     }
 
     /**
-     * @brief Check if water tank is full
-     */
-    bool isWaterTankFullState() const noexcept {
-        return waterTankFull_;
-    }
-
-    /**
-     * @brief Set water tank full state
-     */
-    void setWaterTankFullState(bool full) noexcept {
-        waterTankFull_ = full;
-    }
-
-    /**
      * @brief Check if system is initialized
      */
     bool isSystemInitialized() const noexcept {
@@ -746,7 +726,6 @@ class MachineStateContext : public CleverCoffee::IHardwareContext,
     bool   isWaterTankEmpty() const noexcept override;
     double getWeight() const noexcept override;
     void   tareScale() noexcept override;
-    void   updateHardware() noexcept override;
 
     // High-level hardware control (delegated to HardwareManager)
     void enableHeater() noexcept override;
@@ -807,7 +786,6 @@ class MachineStateContext : public CleverCoffee::IHardwareContext,
     bool steamFirstON_        = false; ///< Steam activated for first time
     bool backflushOn_         = false; ///< Backflush mode active
     int  currBackflushCycles_ = 1;     ///< Current backflush cycle count
-    bool waterTankFull_       = true;  ///< Water tank full state
     bool systemInitialized_   = false; ///< System initialization complete
 
     // === State Transition Request Flags ===

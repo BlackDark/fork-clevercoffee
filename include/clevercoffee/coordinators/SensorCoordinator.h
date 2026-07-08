@@ -9,6 +9,7 @@
 #include "clevercoffee/sensors/ISensor.h"
 
 #include <atomic>
+#include <memory>
 
 // Forward declarations
 class Switch;
@@ -34,11 +35,10 @@ class SensorCoordinator {
      * @brief Constructor
      * @param tempSensor Temperature sensor implementing ISensor (can be nullptr)
      * @param scaleSensor Scale sensor implementing ISensor (can be nullptr)
-     * @param waterTankSensor Water tank level sensor (can be nullptr)
      */
-    SensorCoordinator(ISensor* tempSensor      = nullptr,
-                      ISensor* scaleSensor     = nullptr,
-                      Switch*  waterTankSensor = nullptr) noexcept;
+    SensorCoordinator(ISensor* tempSensor = nullptr, ISensor* scaleSensor = nullptr) noexcept;
+
+    ~SensorCoordinator();
 
     /**
      * @brief Update all sensor readings
@@ -65,11 +65,16 @@ class SensorCoordinator {
     }
 
     /**
-     * @brief Set water tank sensor (late injection)
-     * @param sensor Water tank level sensor (can be nullptr)
+     * @brief Take ownership of the water tank level sensor
+     * @param sensor Water tank sensor (nullptr clears the owned sensor)
      */
-    void setWaterTankSensor(Switch* sensor) noexcept {
-        waterTankSensor_ = sensor;
+    void setWaterTankSensor(std::unique_ptr<Switch> sensor) noexcept;
+
+    /**
+     * @brief Get the owned water tank sensor (non-owning)
+     */
+    [[nodiscard]] Switch* getWaterTankSensor() const noexcept {
+        return waterTankSensor_.get();
     }
 
     // === Temperature Sensor ===
@@ -228,9 +233,9 @@ class SensorCoordinator {
 
   private:
     // Sensor references (not owned)
-    ISensor* tempSensor_      = nullptr;
-    ISensor* scaleSensor_     = nullptr;
-    Switch*  waterTankSensor_ = nullptr;
+    ISensor*                tempSensor_  = nullptr;
+    ISensor*                scaleSensor_ = nullptr;
+    std::unique_ptr<Switch> waterTankSensor_;
 
     // Cached values
     double cachedTemperature_      = 0.0;
@@ -271,10 +276,6 @@ class SensorCoordinator {
     float inY_   = 0.0f;
     float inOld_ = 0.0f;
     float inSum_ = 0.0f;
-
-    // Water tank debouncing
-    int                  waterTankConsecutiveReads_ = 0;
-    static constexpr int WATER_TANK_READS_NEEDED    = 3;
 
     // Scale operating modes
     std::atomic<bool> scaleTareMode_{false};        ///< Scale tare (reset to zero) mode

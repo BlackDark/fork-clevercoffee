@@ -147,9 +147,14 @@ std::optional<MachineStateId> BaseState<StateId, DerivedState>::checkTransitions
         return MachineStateId::SENSOR_ERROR;
     }
 
-    if (!context.isWaterTankFull()) {
-        context.logStateTransition(getStateId(), MachineStateId::WATER_TANK_EMPTY, "Water tank empty");
-        return MachineStateId::WATER_TANK_EMPTY;
+    // Water tank check — excluded: WATER_TANK_EMPTY (must reach its specific
+    // transitions to honor standby request/timeout while the tank stays empty)
+    // and STANDBY (heater already off; an empty tank must not wake the machine).
+    if constexpr (StateId != MachineStateId::WATER_TANK_EMPTY && StateId != MachineStateId::STANDBY) {
+        if (!context.isWaterTankFull()) {
+            context.logStateTransition(getStateId(), MachineStateId::WATER_TANK_EMPTY, "Water tank empty");
+            return MachineStateId::WATER_TANK_EMPTY;
+        }
     }
 
     // PID disable check — force transition for active operation states.

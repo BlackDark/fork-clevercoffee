@@ -85,12 +85,6 @@ class HardwareManager : public IHardwareContext {
     Switch* getHotWaterSwitch() const noexcept {
         return hotWaterSwitch_.get();
     }
-    Switch* getWaterTankSensor() noexcept {
-        return waterTankSensor_.get();
-    }
-    const Switch* getWaterTankSensor() const noexcept {
-        return waterTankSensor_.get();
-    }
 
     // Temperature sensor access
     TempSensor* getTempSensor() noexcept {
@@ -148,7 +142,6 @@ class HardwareManager : public IHardwareContext {
     bool   isWaterTankEmpty() const noexcept override;
     double getWeight() const noexcept override;
     void   tareScale() noexcept override;
-    void   updateHardware() noexcept override;
 
     // Heater Control
     void enableHeater() noexcept override;
@@ -191,10 +184,16 @@ class HardwareManager : public IHardwareContext {
     void safeHardwareShutdown() noexcept;
 
     /**
-     * @brief Update safety state from sensors
-     * Called periodically to check water tank status
+     * @brief Push the current water tank state into the hardware layer.
+     *
+     * Called from the main loop with the debounced reading from
+     * SensorCoordinator (the single source of truth for tank state).
+     * Immediately stops the pump if it's running and the tank just went
+     * empty.
+     *
+     * @param empty true if the tank is empty, false if it has water
      */
-    void updateSafetyState() noexcept;
+    void setWaterTankEmpty(bool empty) noexcept;
 
   private:
     /// @brief Internal helper: turns off all relays and resets state tracking.
@@ -266,7 +265,6 @@ class HardwareManager : public IHardwareContext {
     std::unique_ptr<Switch> brewSwitch_;
     std::unique_ptr<Switch> steamSwitch_;
     std::unique_ptr<Switch> hotWaterSwitch_;
-    std::unique_ptr<Switch> waterTankSensor_;
 
     // Temperature sensor (managed with smart pointer)
     std::unique_ptr<TempSensor> tempSensor_;

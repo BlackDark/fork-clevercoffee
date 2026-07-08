@@ -42,7 +42,7 @@ class WebServerManager;
  * - Coordinate main loop updates for all subsystems
  * - Manage timing-sensitive operations
  * - Handle LED status updates based on machine state
- * - Coordinate water tank monitoring
+ * - Push water tank state to HardwareManager after sensor reads
  * - Manage debug timing and performance monitoring
  * - Provide clean separation between loop coordination and business logic
  */
@@ -92,10 +92,11 @@ class LoopManager {
      *
      * Orchestrates updates for all subsystems in the correct order:
      * 1. Logger updates for remote logging connections
-     * 2. Water tank sensor monitoring
-     * 3. Process control (PID/temperature) updates
-     * 4. LED status updates based on machine state
-     * 5. Debug timing and performance monitoring
+     * 2. Sensor reads and water tank push to HardwareManager
+     * 3. Switches and standby management
+     * 4. State machine transitions
+     * 5. Process control (PID) and LED updates
+     * 6. Network, website, and display updates
      */
     void update();
 
@@ -106,14 +107,6 @@ class LoopManager {
      * brew LED (brewing state indicator), and steam LED (steam mode indicator).
      */
     void updateLEDs();
-
-    /**
-     * @brief Update water tank sensor monitoring
-     *
-     * Checks water tank level using timer-based monitoring system.
-     * Updates are performed every 200ms to avoid sensor noise.
-     */
-    void updateWaterTank();
 
     /**
      * @brief Update process control systems
@@ -208,7 +201,7 @@ class LoopManager {
 
   private:
     /**
-     * @brief Setup all timers (sensors, water tank, general)
+     * @brief Setup all timers (sensors, general)
      * @return true if setup successful
      */
     bool setupAllTimers();
@@ -220,7 +213,6 @@ class LoopManager {
     void updatePressureSensor();
     void updateScaleSensor();
     void updateBrewWeight();
-    void checkWaterTankLevel();
 
     /**
      * @brief Invoke all centralized sensor timers
@@ -239,7 +231,6 @@ class LoopManager {
     bool initialized_;
 
     // Centralized timer system for all sensors
-    std::unique_ptr<MillisecondTimer> waterTankTimer_;
     std::unique_ptr<MillisecondTimer> temperatureTimer_;
     std::unique_ptr<MillisecondTimer> pressureTimer_;
     std::unique_ptr<MillisecondTimer> scaleTimer_;

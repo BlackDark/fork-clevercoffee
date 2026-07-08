@@ -119,6 +119,7 @@ protected:
         controller_.reset();
         systemContext_.reset();
         emergencyStopState = false;  // Reset for next test
+        Config::getInstance().hardwareSensorsWatertankKeepHeaterOnEmpty.set(false); // Reset for next test
     }
 };
 
@@ -303,6 +304,30 @@ TEST_F(ProcessControllerIntegrationTest, PIDDisabledForDisabledState) {
 
     bool shouldEnable = controller_->shouldPIDBeEnabled(MachineStateId::PID_DISABLED);
     EXPECT_FALSE(shouldEnable) << "PID should be disabled in PID_DISABLED state";
+}
+
+/**
+ * TEST: PID is disabled for water tank empty by default
+ */
+TEST_F(ProcessControllerIntegrationTest, PIDDisabledForWaterTankEmptyByDefault) {
+    controller_->initialize();
+
+    Config::getInstance().hardwareSensorsWatertankKeepHeaterOnEmpty.set(false);
+
+    bool shouldEnable = controller_->shouldPIDBeEnabled(MachineStateId::WATER_TANK_EMPTY);
+    EXPECT_FALSE(shouldEnable) << "PID should be disabled when tank is empty by default";
+}
+
+/**
+ * TEST: PID stays enabled for water tank empty when keep-heater-on-empty is configured
+ */
+TEST_F(ProcessControllerIntegrationTest, PIDStaysEnabledWhenKeepHeaterOnEmptyConfigured) {
+    controller_->initialize();
+
+    Config::getInstance().hardwareSensorsWatertankKeepHeaterOnEmpty.set(true);
+
+    bool shouldEnable = controller_->shouldPIDBeEnabled(MachineStateId::WATER_TANK_EMPTY);
+    EXPECT_TRUE(shouldEnable) << "PID should stay enabled when keep-heater-on-empty is configured";
 }
 
 // ============================================================================

@@ -226,22 +226,6 @@ class HardwareContext {
         hotWaterSwitch_ = sw;
     }
 
-    /**
-     * @brief Get water tank sensor
-     * @return Pointer to water tank sensor (nullptr if not initialized)
-     */
-    Switch* waterTankSensor() const noexcept {
-        return waterTankSensor_;
-    }
-
-    /**
-     * @brief Register water tank sensor
-     * @param sensor Pointer to water tank sensor hardware
-     */
-    void setWaterTankSensor(Switch* sensor) noexcept {
-        waterTankSensor_ = sensor;
-    }
-
     // ========== LEDs and GPIO Pins ==========
 
     /**
@@ -357,11 +341,10 @@ class HardwareContext {
     bool                   isBluetoothScale_ = false;
 
     // Switches
-    Switch* brewSwitch_      = nullptr;
-    Switch* steamSwitch_     = nullptr;
-    Switch* powerSwitch_     = nullptr;
-    Switch* hotWaterSwitch_  = nullptr;
-    Switch* waterTankSensor_ = nullptr;
+    Switch* brewSwitch_     = nullptr;
+    Switch* steamSwitch_    = nullptr;
+    Switch* powerSwitch_    = nullptr;
+    Switch* hotWaterSwitch_ = nullptr;
 
     // LED GPIO pins
     GPIOPin* statusLedPin_ = nullptr;
