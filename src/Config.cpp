@@ -553,6 +553,7 @@ std::vector<ConfigParamDef*> Config::getAllConfigParams() {
         &hardwareSensorsPressureEnabled,
         &hardwareSensorsWatertankEnabled,
         &hardwareSensorsWatertankMode,
+        &hardwareSensorsWatertankKeepHeaterOnEmpty,
         &hardwareSensorsScaleEnabled,
         &hardwareSensorsScaleSamples,
         &hardwareSensorsScaleType,

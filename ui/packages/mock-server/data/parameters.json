@@ -672,6 +672,18 @@
     ]
   },
   {
+    "name": "hardware.sensors.watertank.keep_heater_on_empty",
+    "displayName": "Keep Heater On When Tank Empty",
+    "section": 4,
+    "position": 2423,
+    "hasHelpText": true,
+    "show": true,
+    "type": 6,
+    "value": false,
+    "min": 0,
+    "max": 1
+  },
+  {
     "name": "hardware.switches.brew.enabled",
     "displayName": "Enable Brew Switch",
     "section": 13,

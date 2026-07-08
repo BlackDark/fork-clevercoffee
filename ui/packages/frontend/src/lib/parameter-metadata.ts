@@ -741,6 +741,14 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     ],
     requiredParameters: { "hardware.sensors.watertank.enabled": true },
   },
+  {
+    name: "hardware.sensors.watertank.keep_heater_on_empty",
+    type: ParameterTypes.BOOL,
+    min: 0,
+    max: 1,
+    defaultValue: false,
+    requiredParameters: { "hardware.sensors.watertank.enabled": true },
+  },
 
   // Display Parameters
   {

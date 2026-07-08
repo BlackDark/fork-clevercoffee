@@ -312,6 +312,11 @@ For each LED type (status, brew, steam):
     - `1`: Normally closed
 - **Description**: Water tank sensor switch mode
 
+### `hardware.sensors.watertank.keep_heater_on_empty`
+- **Type**: Boolean
+- **Default**: `false`
+- **Description**: Keep the PID/heater active while the tank is reported empty. Only the external reservoir is protected by this sensor, not the boiler — enable only if you understand the boiler will not be protected from running dry independently of this sensor. The standby timeout still applies: if the tank stays empty past the configured standby time, the machine enters standby and the heater turns off, so the heater never runs unattended indefinitely.
+
 ## Switches
 
 For each switch type (brew, power, steam):

@@ -257,6 +257,7 @@ export const parameterGroups: ParameterGroup[] = [
     parameters: [
       "hardware.sensors.watertank.enabled",
       "hardware.sensors.watertank.mode",
+      "hardware.sensors.watertank.keep_heater_on_empty",
     ],
   },
   {

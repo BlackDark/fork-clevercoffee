@@ -244,8 +244,11 @@ void ProcessController::updateSetpoint(bool steamActive) {
 }
 
 bool ProcessController::shouldPIDBeEnabled(MachineStateId machineState) const {
+    const bool tankEmptyBlocksHeater =
+        machineState == MachineStateId::WATER_TANK_EMPTY && !config_.hardwareSensorsWatertankKeepHeaterOnEmpty.get();
+
     // PID should be disabled in these states
-    return !(machineState == MachineStateId::PID_DISABLED || machineState == MachineStateId::WATER_TANK_EMPTY ||
+    return !(machineState == MachineStateId::PID_DISABLED || tankEmptyBlocksHeater ||
              machineState == MachineStateId::SENSOR_ERROR || machineState == MachineStateId::EMERGENCY_STOP ||
              machineState == MachineStateId::EEPROM_ERROR || machineState == MachineStateId::STANDBY ||
              isBackflushState(machineState) || systemContext_.isProcessBrewPidDisabled());

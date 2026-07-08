@@ -134,6 +134,10 @@ export const parameterLabelsEN = new Map<string, string>([
   ["hardware.sensors.pressure.enabled", "Enable Pressure Sensor"],
   ["hardware.sensors.watertank.enabled", "Enable Water Tank Sensor"],
   ["hardware.sensors.watertank.mode", "Water Tank Sensor Mode"],
+  [
+    "hardware.sensors.watertank.keep_heater_on_empty",
+    "Keep Heater On When Tank Empty",
+  ],
   ["hardware.sensors.scale.enabled", "Enable Scale"],
   ["hardware.sensors.scale.type", "Scale Setup Type"],
   ["hardware.sensors.scale.samples", "Scale Samples"],
