@@ -51,6 +51,7 @@ inline int closeWaterValveCalls = 0;
 inline int pumpForceOffCalls    = 0;
 inline bool waterTankEmpty      = false;
 inline bool pumpRunning         = false;
+inline bool shouldEnterStandby  = false;
 
 inline void reset() noexcept {
     disablePumpCalls     = 0;
@@ -60,6 +61,7 @@ inline void reset() noexcept {
     pumpForceOffCalls    = 0;
     waterTankEmpty       = false;
     pumpRunning          = false;
+    shouldEnterStandby   = false;
 }
 } // namespace TestHardwareSpy
 
@@ -225,7 +227,7 @@ bool MachineStateContext::isBackflushActive() const { return false; }
 bool MachineStateContext::isPidRuntimeEnabled() const { return systemContext_.isProcessPidEnabled(); }
 bool MachineStateContext::isPidConfigEnabled() const { return Config::getInstance().pidEnabled.get(); }
 bool          MachineStateContext::isEmergencyStop() const { return emergencyStop_; }
-bool          MachineStateContext::shouldEnterStandby() const { return false; }
+bool          MachineStateContext::shouldEnterStandby() const { return CleverCoffee::TestHardwareSpy::shouldEnterStandby; }
 unsigned long MachineStateContext::getStandbyRemainingTime() const { return 0; }
 
 // Timing Functions

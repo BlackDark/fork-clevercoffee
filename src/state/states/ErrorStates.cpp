@@ -75,6 +75,19 @@ std::optional<MachineStateId> WaterTankEmptyState::checkSpecificTransitions(Mach
     if (context.isWaterTankFull()) {
         return transitionToPidState(context, "Water tank refilled");
     }
+    if (context.isStandbyRequested()) {
+        context.setStandbyRequested(false);
+        context.logStateTransition(getStateId(), MachineStateId::STANDBY, "Standby requested");
+        return MachineStateId::STANDBY;
+    }
+    // Safety: with keep_heater_on_empty the heater may still be running here.
+    // The standby timeout must keep working so the heater never runs unattended
+    // indefinitely while the tank stays empty.
+    context.initializeStandbyTimerIfNeeded();
+    if (context.shouldEnterStandby()) {
+        context.logStateTransition(getStateId(), MachineStateId::STANDBY, "Entering standby mode");
+        return MachineStateId::STANDBY;
+    }
     return std::nullopt;
 }
 
