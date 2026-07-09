@@ -744,12 +744,14 @@ MQTTManager::DiscoveryObject MQTTManager::generateBinarySensorDevice(const Strin
     populateDeviceMap(deviceMapDoc, hostname_);
 
     JsonDocument sensorConfigDoc;
-    sensorConfigDoc["name"]         = displayName;
-    sensorConfigDoc["state_topic"]  = sensor_state_topic;
-    sensorConfigDoc["unique_id"]    = unique_id + "-" + name;
-    sensorConfigDoc["payload_on"]   = payload_on;
-    sensorConfigDoc["payload_off"]  = payload_off;
-    sensorConfigDoc["device_class"] = device_class;
+    sensorConfigDoc["name"]        = displayName;
+    sensorConfigDoc["state_topic"] = sensor_state_topic;
+    sensorConfigDoc["unique_id"]   = unique_id + "-" + name;
+    sensorConfigDoc["payload_on"]  = payload_on;
+    sensorConfigDoc["payload_off"] = payload_off;
+    if (!device_class.isEmpty()) {
+        sensorConfigDoc["device_class"] = device_class;
+    }
     attachDeviceAndAvailability(sensorConfigDoc, deviceMapDoc, mqtt_topic + "/status");
 
     sensor_device.payload_json = serializeDiscoveryJson(sensorConfigDoc);
@@ -908,7 +910,7 @@ int MQTTManager::sendHASSIODiscoveryMsg() {
     }
 
     if (Config::getInstance().hardwareSensorsWatertankEnabled.get()) {
-        failures += publishDiscovery(generateBinarySensorDevice("waterTankFull", "Water Tank", "moisture"));
+        failures += publishDiscovery(generateBinarySensorDevice("waterTankFull", "Water Tank Full"));
     }
 
     if (failures > 0) {

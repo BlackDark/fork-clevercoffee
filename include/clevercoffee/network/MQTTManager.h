@@ -327,9 +327,9 @@ class MQTTManager : public IMQTTManager {
                                          const String& device_class);
     DiscoveryObject generateBinarySensorDevice(const String& name,
                                                const String& displayName,
-                                               const String& device_class,
-                                               const String& payload_on  = "ON",
-                                               const String& payload_off = "OFF");
+                                               const String& device_class = "",
+                                               const String& payload_on   = "ON",
+                                               const String& payload_off  = "OFF");
     DiscoveryObject generateNumberDevice(const String& name,
                                          const String& displayName,
                                          int           min_value,
