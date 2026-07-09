@@ -99,8 +99,9 @@ A single out-of-range TSIC sample must never trip emergency stop or flood the lo
 - [ ] Removing the tank while the machine is in `Standby` does NOT wake it up
       (it stays in standby with the heater off)
 - [ ] With a Home Assistant instance subscribed to the MQTT discovery prefix, a
-      "Water Tank" binary_sensor entity appears (wet when full, dry when empty)
-      after connecting with `hardware.sensors.watertank.enabled=true`
+      "Water Tank Full" binary_sensor entity appears (on when full, off when empty;
+      not classified as a moisture/leak sensor) after connecting with
+      `hardware.sensors.watertank.enabled=true`
 - [ ] `mosquitto_sub -t '<prefix>/<hostname>/waterTankFull'` reports `ON` when full
       and `OFF` when empty; the message is retained, so a fresh subscriber (or a
       restarted Home Assistant) receives the current state immediately
