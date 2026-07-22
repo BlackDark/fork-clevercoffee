@@ -11,6 +11,7 @@
 #include "clevercoffee/coordinators/NetworkCoordinator.h"
 #include "clevercoffee/display/languages.h"
 #include "clevercoffee/handlers/BrewHandler.h"
+#include "clevercoffee/network/WiFiStaConnect.h"
 #include "clevercoffee/types/GlobalTypes.h"
 #include "clevercoffee/utils/Resilience.h"
 
@@ -90,11 +91,7 @@ bool CleverCoffeeWiFiManager::attemptConnection(const String&                   
     const String wifiPassword = Config::getInstance().systemWifiPassword.get();
     if (!wifiSsid.isEmpty()) {
         LOGF(INFO, "Connecting to WiFi from config: %s", wifiSsid.c_str());
-        if (wifiPassword.isEmpty()) {
-            WiFi.begin(wifiSsid.c_str());
-        } else {
-            WiFi.begin(wifiSsid.c_str(), wifiPassword.c_str());
-        }
+        CleverCoffee::Network::beginStaWithHostname(hostname, wifiSsid, wifiPassword);
 
         const unsigned long start = millis();
         while (WiFi.status() != WL_CONNECTED && (millis() - start) < 10000) {
@@ -287,8 +284,7 @@ void CleverCoffeeWiFiManager::checkAndMaintainConnection() {
          retryPolicy_->getCurrentAttempt(),
          retryPolicy_->getNextDelay());
 
-    WiFi.disconnect();
-    WiFi.begin();
+    CleverCoffee::Network::reconnectStaWithHostname(Config::getInstance().systemHostname.get());
 
     // Use yield() instead of delay() to avoid blocking other tasks
     yield();

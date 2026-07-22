@@ -358,10 +358,69 @@ public:
         WL_DISCONNECTED = 6,
         WL_CONNECT_FAILED = 4
     } wl_status_t;
-    
-    wl_status_t status() { return WL_DISCONNECTED; }
-    String SSID() { return ""; }
+
+    void resetTestState() {
+        hostname_ = "";
+        lastSsid_ = "";
+        lastPassword_ = "";
+        beginCallCount_ = 0;
+        setHostnameCallCount_ = 0;
+        hostnameSetBeforeBegin_ = false;
+        status_ = WL_DISCONNECTED;
+    }
+
+    bool setHostname(const char* hostname) {
+        ++setHostnameCallCount_;
+        hostname_ = hostname ? hostname : "";
+        if (beginCallCount_ == 0 && hostname_.length() > 0) {
+            hostnameSetBeforeBegin_ = true;
+        }
+        return true;
+    }
+
+    wl_status_t begin(const char* ssid) {
+        ++beginCallCount_;
+        lastSsid_ = ssid ? ssid : "";
+        lastPassword_ = "";
+        status_ = WL_CONNECTED;
+        return status_;
+    }
+
+    wl_status_t begin(const char* ssid, const char* password) {
+        ++beginCallCount_;
+        lastSsid_ = ssid ? ssid : "";
+        lastPassword_ = password ? password : "";
+        status_ = WL_CONNECTED;
+        return status_;
+    }
+
+    wl_status_t begin() {
+        ++beginCallCount_;
+        status_ = WL_CONNECTED;
+        return status_;
+    }
+
+    void disconnect() { status_ = WL_DISCONNECTED; }
+
+    wl_status_t status() { return status_; }
+    String SSID() { return lastSsid_; }
     IPAddress localIP() { return IPAddress(0,0,0,0); }
+
+    const String& testHostname() const { return hostname_; }
+    const String& testLastSsid() const { return lastSsid_; }
+    const String& testLastPassword() const { return lastPassword_; }
+    int testBeginCallCount() const { return beginCallCount_; }
+    int testSetHostnameCallCount() const { return setHostnameCallCount_; }
+    bool testHostnameSetBeforeBegin() const { return hostnameSetBeforeBegin_; }
+
+private:
+    String hostname_;
+    String lastSsid_;
+    String lastPassword_;
+    int beginCallCount_ = 0;
+    int setHostnameCallCount_ = 0;
+    bool hostnameSetBeforeBegin_ = false;
+    wl_status_t status_ = WL_DISCONNECTED;
 };
 inline WiFiClass WiFi;
 
