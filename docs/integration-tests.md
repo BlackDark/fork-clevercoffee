@@ -16,8 +16,49 @@ Pre-release validation. Every item must pass before merging to main or tagging a
 
 ## 2. OTA Update
 
+All three update paths must be exercised — they use independent code paths and
+have each broken separately before.
+
+### 2a. ArduinoOTA / espota (`pio`)
+
 - [ ] `pio run -e esp32_ota -t upload` completes at 100% with "Result: OK"
 - [ ] Device reboots and responds to `/api/health` within 15s after OTA
+- [ ] Serial log shows **no** `task_wdt: Task watchdog got triggered` during the
+      transfer. The transfer blocks `loop()` for ~25s, so the Task Watchdog must
+      be suspended for its whole duration (regression: espota died at ~18% with
+      `OTA_RECEIVE_ERROR` because the watchdog rebooted the device mid-flash).
+
+### 2b. HTTP firmware upload (`/api/ota/firmware`, used by the web UI)
+
+```sh
+curl -w "\n%{http_code}\n" -X POST http://<ip>/api/ota/firmware \
+  -F "firmware=@.pio/build/esp32_usb/firmware.bin;filename=firmware.bin"
+```
+
+- [ ] Responds **200** with `{"success": true, ...}` (regression: returned 400
+      "No firmware file provided" because the request callback overwrote the
+      upload callback's response — the request callback runs *after* the body)
+- [ ] Device reboots on its own within ~20s (regression: the scheduled restart
+      never fired because it was only polled while an OTA was active)
+- [ ] Rejections return the correct status and leave `/api/ota/status` at
+      `idle`, not `error`:
+  - [ ] no file at all → 400 "No firmware file provided"
+  - [ ] `filename=bad.txt` → 400 "Invalid firmware file. Expected .bin extension."
+  - [ ] `/api/ota/filesystem` with `bad.txt` → 400 "Invalid filesystem file..."
+
+### 2c. URL-based update (`/api/ota/url`)
+
+```sh
+(cd .pio/build/esp32_usb && python3 -m http.server 8765 &)
+curl -w "\n%{http_code}\n" -X POST http://<ip>/api/ota/url \
+  -d "url=http://<host-ip>:8765/firmware.bin&type=firmware"
+```
+
+- [ ] Responds **202** immediately, before the download finishes (regression:
+      the download ran inside the async web handler, starving AsyncTCP so the
+      client got no response at all / broken pipe)
+- [ ] `/api/ota/status` reports rising `progress` with `status: "downloading"`
+- [ ] Device reboots and comes back; status returns to `idle`
 
 ## 3. USB Serial Logging
 

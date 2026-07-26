@@ -21,6 +21,7 @@ namespace OTA {
 
 namespace Status {
 constexpr const char* Idle        = "idle";
+constexpr const char* Queued      = "queued";
 constexpr const char* Uploading   = "uploading";
 constexpr const char* Downloading = "downloading";
 constexpr const char* Processing  = "processing";
@@ -177,6 +178,7 @@ void handleFilesystemUpload(
     AsyncWebServerRequest* request, const String& filename, size_t index, uint8_t* data, size_t len, bool final);
 
 void handleURLUpdate(AsyncWebServerRequest* request);
+void pollPendingUrlUpdate() noexcept;
 void handleStatus(AsyncWebServerRequest* request);
 
 [[nodiscard]] uint8_t       getProgress();

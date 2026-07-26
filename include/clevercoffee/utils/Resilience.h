@@ -435,11 +435,11 @@ class Watchdog {
             return;
         }
 
-        // Subscribe current task to watchdog
-        ret = esp_task_wdt_add(nullptr);
-        if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
-            LOGF(WARNING, "Failed to subscribe task to watchdog: %d", ret);
-        }
+        // Subscribe the Arduino loop task through the core's own helper so that
+        // loopTaskWDTEnabled stays in sync with the TWDT subscription. Using
+        // esp_task_wdt_add() directly desynchronises the core's bookkeeping and
+        // makes suspend() unable to disarm the watchdog (blocking OTA -> panic).
+        enableLoopWDT();
 
         lastFeedTime_ = millis();
 #else
@@ -523,13 +523,18 @@ class Watchdog {
     /**
      * @brief Unsubscribe loop task from TWDT during long blocking operations
      *        (e.g. OTA flash writes, WiFi connect / config portal)
+     *
+     * Idempotent: the loop task is always unsubscribed on return, so a stale
+     * suspended_ flag can never leave the watchdog armed during a blocking
+     * operation.
      */
     void suspend() {
 #if defined(ESP32)
-        if (!enabled_ || suspended_) {
+        if (!enabled_) {
             return;
         }
-        if (esp_task_wdt_delete(nullptr) == ESP_OK) {
+        disableLoopWDT();
+        if (!suspended_) {
             suspended_ = true;
             LOG(INFO, "Watchdog suspended for blocking operation");
         }
@@ -538,18 +543,20 @@ class Watchdog {
 
     /**
      * @brief Re-subscribe loop task to TWDT after the blocking operation completes or fails
+     *
+     * No-op unless suspended, so it cannot re-arm the watchdog on behalf of
+     * another owner (CleverCoffeeWiFiManager toggles the loop WDT directly too).
      */
     void resume() {
 #if defined(ESP32)
         if (!enabled_ || !suspended_) {
             return;
         }
-        if (esp_task_wdt_add(nullptr) == ESP_OK) {
-            esp_task_wdt_reset();
-            suspended_    = false;
-            lastFeedTime_ = millis();
-            LOG(INFO, "Watchdog resumed after blocking operation");
-        }
+        enableLoopWDT();
+        esp_task_wdt_reset();
+        lastFeedTime_ = millis();
+        suspended_    = false;
+        LOG(INFO, "Watchdog resumed after blocking operation");
 #endif
     }
 

@@ -63,3 +63,17 @@ inline esp_err_t esp_task_wdt_delete(void* task_handle) {
 inline esp_err_t esp_task_wdt_deinit() {
     return ESP_OK;
 }
+
+
+/**
+ * @brief Subscribe the Arduino loop task to the watchdog timer
+ *
+ * Provided by esp32-hal-misc.c on hardware; stubbed here because native tests
+ * compile with -DESP32.
+ */
+inline void enableLoopWDT() {}
+
+/**
+ * @brief Unsubscribe the Arduino loop task from the watchdog timer
+ */
+inline void disableLoopWDT() {}
