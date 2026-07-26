@@ -25,5 +25,57 @@
       groupName: "all minor updates",
       groupSlug: "all-minor-updates",
     },
+    {
+      groupName: "PlatformIO platform",
+      matchDepTypes: ["dep-pio-platform"],
+      addLabels: ["renovate", "pio", "platform"],
+    },
+    {
+      groupName: "PlatformIO library",
+      matchDepTypes: ["dep-pio-library"],
+      addLabels: ["renovate", "pio", "library"],
+    },
+  ],
+
+  customDatasources: {
+    "ds-pio-platform": {
+      description: "PlatformIO Platform Registry",
+      defaultRegistryUrlTemplate: "https://api.registry.platformio.org/v3/packages/platformio/platform/{{{packageName}}}",
+      format: "json",
+      transformTemplates: ["{\"releases\": [versions.{\"version\": name, \"releaseTimestamp\": released_at}]}"],
+    },
+    "ds-pio-library": {
+      description: "PlatformIO Library Registry",
+      defaultRegistryUrlTemplate: "https://api.registry.platformio.org/v3/packages/{{{replace '/.*' '' packageName}}}/library/{{{encodeURIComponent (replace '.*/' '' packageName)}}}",
+      format: "json",
+      transformTemplates: ["{\"releases\": [versions.{\"version\": name, \"releaseTimestamp\": released_at}]}"],
+    },
+  },
+
+  customManagers: [
+    {
+      customType: "regex",
+      description: "PlatformIO platform in platformio.ini (platform = name @^x.y.z)",
+      managerFilePatterns: ["/^platformio\\.ini$/"],
+      matchStrings: [
+        "^\\s*platform\\s*=\\s*(?<depName>[\\w\\-]+)\\s*@\\^?(?<currentValue>[\\d.]+)\\s*$",
+      ],
+      datasourceTemplate: "custom.ds-pio-platform",
+      packageNameTemplate: "{{depName}}",
+      versioningTemplate: "loose",
+      depTypeTemplate: "dep-pio-platform",
+    },
+    {
+      customType: "regex",
+      description: "PlatformIO libraries in platformio.ini lib_deps (owner/name @ x.y.z), skips git+ deps",
+      managerFilePatterns: ["/^platformio\\.ini$/"],
+      matchStrings: [
+        "^\\s*(?<depName>[\\w\\-.]+/[\\w \\-.]+[\\w\\-.])\\s*@\\s*\\^?(?<currentValue>[\\d.]+)\\s*$",
+      ],
+      datasourceTemplate: "custom.ds-pio-library",
+      packageNameTemplate: "{{depName}}",
+      versioningTemplate: "loose",
+      depTypeTemplate: "dep-pio-library",
+    },
   ],
 }
