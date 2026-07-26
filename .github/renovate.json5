@@ -57,8 +57,10 @@
       customType: "regex",
       description: "PlatformIO platform in platformio.ini (platform = name @^x.y.z)",
       managerFilePatterns: ["/^platformio\\.ini$/"],
+      // Anchors are per-file in Renovate, not per-line -> use explicit \n.
+      // Do not consume the trailing newline (would skip every other match).
       matchStrings: [
-        "^\\s*platform\\s*=\\s*(?<depName>[\\w\\-]+)\\s*@\\^?(?<currentValue>[\\d.]+)\\s*$",
+        "(?:^|\\n)[ \\t]*platform[ \\t]*=[ \\t]*(?<depName>[\\w\\-]+)[ \\t]*@[ \\t]*\\^?(?<currentValue>[\\d.]+)",
       ],
       datasourceTemplate: "custom.ds-pio-platform",
       packageNameTemplate: "{{depName}}",
@@ -69,8 +71,9 @@
       customType: "regex",
       description: "PlatformIO libraries in platformio.ini lib_deps (owner/name @ x.y.z), skips git+ deps",
       managerFilePatterns: ["/^platformio\\.ini$/"],
+      // Leading \n keeps git+ deps out (their line starts with "git+").
       matchStrings: [
-        "^\\s*(?<depName>[\\w\\-.]+/[\\w \\-.]+[\\w\\-.])\\s*@\\s*\\^?(?<currentValue>[\\d.]+)\\s*$",
+        "(?:^|\\n)[ \\t]*(?<depName>[\\w\\-.]+/[\\w \\-.]*[\\w\\-.])[ \\t]*@[ \\t]*\\^?(?<currentValue>[\\d.]+)",
       ],
       datasourceTemplate: "custom.ds-pio-library",
       packageNameTemplate: "{{depName}}",
