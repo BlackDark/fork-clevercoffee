@@ -37,7 +37,7 @@ jobs:
       - name: Install PlatformIO
         run: pip install -r .github/requirements-ci.txt
 
-      - uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4
+      - uses: jdx/mise-action@9e7f7633ff6f6d6048a9418a68d48f288f50eb14 # v4
 
       - name: Check clang-format
         run: pio run -e esp32_usb --target check-format
