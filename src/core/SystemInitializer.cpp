@@ -810,8 +810,9 @@ CleverCoffeeWiFiManager& SystemInitializer::getWiFiManager() const {
 }
 
 void SystemInitializer::setupWiFi() {
-    // startConfigPortal blocks loopTask for up to 60s; suspend our TWDT subscription (disableLoopWDT
-    // only removes the Arduino framework subscription, not esp_task_wdt_add from Watchdog::begin).
+    // startConfigPortal blocks loopTask for up to 60s, so the Task Watchdog must be
+    // suspended for its duration. Watchdog::suspend() goes through the Arduino core's
+    // disableLoopWDT(), which is the same bookkeeping CleverCoffeeWiFiManager uses.
     struct WatchdogResumeGuard {
         Watchdog* wdt;
         explicit WatchdogResumeGuard(Watchdog* watchdog) : wdt(watchdog) {
