@@ -118,6 +118,13 @@ void LoopManager::update() {
         loggerTime = millis() - stepStart;
     }
 
+    // Must run before the isActive() early-return below: a queued URL update
+    // reports as "in progress" but has not started flashing yet, so it would
+    // never get serviced from inside that branch. Likewise a restart scheduled
+    // by a finished OTA must still fire once the session is no longer active.
+    OTA::pollPendingRestart();
+    OTA::pollPendingUrlUpdate();
+
     if (OTA::isActive()) {
         OTA::runMainLoopTick();
         Logger::update();
