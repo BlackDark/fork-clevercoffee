@@ -6,7 +6,7 @@ min_version = "2024.1.0"
   pnpm = "latest"
 
   # Python
-  python = "3.14.6"
+  python = "3.14.7"
 
   # C++ tooling
   clang-format = "22"
