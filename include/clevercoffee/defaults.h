@@ -218,6 +218,12 @@ enum class BrewMode : int {
     MANUAL_BREW    = 0,
     AUTOMATIC_BREW = 1
 };
+
+enum class PowerOnBehaviour : int {
+    STANDBY = 0,
+    HEAT    = 1,
+    RESTORE = 2
+};
 } // namespace Process
 
 // Display constants

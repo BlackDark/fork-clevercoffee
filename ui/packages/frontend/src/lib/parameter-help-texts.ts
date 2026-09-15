@@ -1,5 +1,7 @@
 export const parameterHelpTexts: Record<string, string> = {
   "pid.enabled": "Enables or disables the PID temperature controller",
+  "pid.power_on_behaviour":
+    "Ignored with a toggle power switch. Default restores last PID on/off. Standby stays cold; Heat up always heats (smart plug or timer).",
   "pid.use_ponm":
     "Use PonM mode (<a href='http://brettbeauregard.com/blog/2017/06/introducing-proportional-on-measurement/' target='_blank'>details</a>)",
   "pid.ema_factor":

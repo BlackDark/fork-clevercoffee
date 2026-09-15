@@ -1292,6 +1292,19 @@ class Config {
         []() { return Config::getInstance().maintenanceBackflushReminderEnabled.get(); }};
 
     // === STANDBY PARAMETERS (Section 7) ===
+    EnumParamDef<Process::PowerOnBehaviour> pidPowerOnBehaviour{
+        "pid.power_on_behaviour",
+        Process::PowerOnBehaviour::RESTORE,
+        "Power-On Behaviour",
+        7,
+        800,
+        "Ignored with a toggle power switch. Default restores last pid.enabled. Standby stays cold; Heat up always "
+        "heats (smart plug / timer).",
+        {{Process::PowerOnBehaviour::STANDBY, "Standby"},
+          {Process::PowerOnBehaviour::HEAT, "Heat up"},
+          {Process::PowerOnBehaviour::RESTORE, "Restore last state"}}
+    };
+
     ParamDef<bool> standbyEnabled{
         "standby.enabled", false, "Enable Standby Timer", 7, 801, "Turn heater off after standby time has elapsed"};
 
