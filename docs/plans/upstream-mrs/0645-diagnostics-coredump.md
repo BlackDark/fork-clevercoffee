@@ -9,7 +9,7 @@ stake: "Field panics are invisible without a serial cable; retained boot crash s
 effort: M
 risk: medium
 priority: 6
-status: planned
+status: implemented
 created: 2026-09-11
 tags:
   - upstream-mr
@@ -56,13 +56,13 @@ Coredump path: `esp_core_dump_image_get` → `esp_partition_read` in `beginChunk
 |---|---|
 | Coredump partition | **Present.** `partitions_4M.csv`: `coredump, data, coredump, 0x3F0000, 0x10000` (64 KiB). Do not resize. |
 | `CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH` | **Already on** in Arduino-ESP32 sdkconfig (`framework-arduinoespressif32/.../sdkconfig.h`). Confirm at compile with `#if`; do not add a custom `sdkconfig.defaults` unless a build proves it is off. |
-| HTTP download | **Missing.** No `/download/coredump`. Routes live in `src/network/WebServerManager.cpp` (not `embeddedWebserver.h`). |
-| Auth | Global `AsyncAuthenticationMiddleware` **only** when `system.auth.enabled` is true (**default false**). Factory username/password are `admin`/`admin` (`AUTH_USERNAME` / `AUTH_PASSWORD`). Config download is **not** per-route authenticated. "Auth always" on the dump route with those defaults means anyone on the LAN can download a RAM image. |
+| HTTP download | **Present.** `GET /download/coredump` in `src/network/WebServerManager.cpp`. Chunked flash read; no whole-dump RAM buffer. |
+| Auth | Per-request against live config (not boot-time middleware). Auth off, empty creds, or factory `admin`/`admin` → **403**. Changed creds + missing/wrong auth → **401**. |
 | MQTT sensors | `MQTTManager::registerSensor(topic, std::function<double()>)` — **numeric only**. Cannot carry `resetReason`/`crashInfo`. `publish(reading, payload, retain)` is private and used from `sendHASSIODiscoveryMsg()`. HA discovery every 5 min (`HASSIO_DISCOVERY_INTERVAL_MS`). |
 | Empty `device_class` | `generateSensorDevice` **always writes** `device_class`, including `""`. HA already rejects that for existing empty-class sensors (`shotsSinceBackflush`, `backflushReminderDue`). Skip empty string when adding the two text sensors. |
 | `freeHeap` | **Already exists.** `memoryUtils.h` logs free heap + largest block; `/api/nvs-debug` returns `metadata.free_heap` and `min_free_heap`; Logger sheds WiFi under heap pressure (ADR-0002). Do not MQTT it. `/api/status` has no heap field. `Config::stateFreeHeap` is commented out. |
 | `maxLoopTime` | **Already exists internally.** `LoopManager::maxLoopTime_` when `performanceMonitoringEnabled_`. Different feature. Do not MQTT. |
-| Boot reset / crash capture | **Missing.** No `esp_reset_reason()`, no `esp_core_dump_*`. |
+| Boot reset / crash capture | **Present.** `BootDiagnostics::capture()` after logger init; retained MQTT `resetReason`/`crashInfo` on connect. |
 
 ADR-0002: never serialize large payloads to `String` then `request->send()`. Use chunked / `AsyncJsonResponse`. Coredump **must** be `beginChunkedResponse` reading flash into the provided buffer only.
 
@@ -106,7 +106,7 @@ Add a tiny ESP32-only module, e.g. `include/clevercoffee/diagnostics/BootDiagnos
 Implement in `WebServerManager.cpp` only. Port the upstream handler, do not copy `embeddedWebserver.h`.
 
 - Route: `GET /download/coredump` (keep upstream path so `esp-coredump` docs/scripts match).
-- **Auth:** require `system.auth.enabled`. If false → **403**, do not stream (global middleware is off; dump must not be open on the LAN). If true: attach `AsyncAuthenticationMiddleware` to **this handler only** (ESPAsyncWebServer 3.12 `handler.addMiddleware`; do not enable global middleware for this). Empty username/password → **403**. Missing/wrong auth → **401**. Factory creds are `admin`/`admin` — enabling auth without changing the password still exposes dumps on the LAN; say so in the integration-test note / help text. Coredumps contain RAM (WiFi PSK, MQTT password).
+- **Auth:** require `system.auth.enabled`. If false → **403**. Empty username/password → **403**. Factory `admin`/`admin` → **403** (dump is a RAM image). Authenticate each request against **live** config (`request->authenticate`); do not attach boot-time `authMiddleware_`. Missing/wrong auth → **401**. Coredumps contain RAM (WiFi PSK, MQTT password).
 - `#if CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH`: `esp_core_dump_image_get`; 404 `"No core dump stored"`; missing partition → 500; else `beginChunkedResponse("application/octet-stream", …)` reading `esp_partition_read(part, index, buffer, chunk)` for `min(maxLen, remaining)`. `Content-Disposition: attachment; filename="coredump.bin"`. Return 0 from the callback on read error or `index >= dumpSize`.
 - `#else`: 501 `"Core dump to flash is not enabled in this build"`.
 - **Never** `String`, `std::vector`, or `malloc(dumpSize)`. Chunk buffer is the one AsyncWebServer provides.

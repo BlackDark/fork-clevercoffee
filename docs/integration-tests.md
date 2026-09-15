@@ -158,13 +158,14 @@ A single out-of-range TSIC sample must never trip emergency stop or flood the lo
 
 ## 11. Coredump download & boot diagnostics
 
-Coredumps are a RAM image (WiFi PSK, MQTT password). Factory web auth is
-`admin`/`admin` — change it before leaving a machine on a shared LAN. Do **not**
-erase the dump as part of these checks; a second download must still 200.
+Coredumps are a RAM image (WiFi PSK, MQTT password). Factory `admin`/`admin` is
+rejected for this route even if web auth is on — set a non-default password.
+Do **not** erase the dump as part of these checks; a second download must still 200.
 
 - [ ] `system.auth.enabled=false`: `curl -sS -o /dev/null -w "%{http_code}" http://<ip>/download/coredump` → **403**, no binary body
-- [ ] Auth enabled, no credentials: same curl → **401**
-- [ ] Auth enabled, `-u admin:admin` (or configured creds), no dump stored → **404**, body `No core dump stored`
+- [ ] Auth enabled, factory `admin`/`admin`: same curl `-u admin:admin` → **403**
+- [ ] Auth enabled, non-default creds, no credentials: same curl → **401**
+- [ ] Auth enabled, non-default `-u user:pass`, no dump stored → **404**, body `No core dump stored`
 - [ ] With a dump (panic or fixture): **200**, `Content-Type: application/octet-stream`, size matches `esp_core_dump_image_get`; `/api/health` still 200; `/api/nvs-debug` free heap does not fall by ~dump size
 - [ ] Repeat the download with telnet (`nc <host> 23`) connected — device stays up
 - [ ] Second download still 200 (dump is not erased)

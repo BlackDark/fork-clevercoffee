@@ -452,7 +452,6 @@ bool SystemInitializer::initializeNetworking() {
             LOG(INFO, "Offline mode enabled, WiFiManager created but network disabled");
             WiFi.disconnect();
             systemContext_->networkCoordinator().setOfflineMode(true);
-            setUserPidEnabled(*systemContext_, true);
             return true;
         }
 

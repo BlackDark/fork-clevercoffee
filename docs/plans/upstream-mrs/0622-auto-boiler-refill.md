@@ -142,11 +142,11 @@ Refill is a **pump-on, valve-closed** operation, like hot water, **not** like fl
 | Relays | Never. Only `context.enablePump()` / `disablePump()` / `closeWaterValve()`. |
 | `HotWaterHandler` | Untouched. No forged switch presses, no `hotWaterPumpIsAutoRefill`. |
 
-**Stop conditions (all abort → PID via `transitionToPidState`):**
+**Normal stop conditions (timeout, pressure, and user abort → PID via `transitionToPidState`):**
 
 1. **Timeout** — hard cap. Default ~5 s. Max **much** tighter than upstream 60 s (vibration pump ~8–10 ml/s → 60 s is a flooded drip tray). Suggest max 15–20 s until measured. Timeout always wins even if pressure never hits.
 2. **Pressure** — if sensor enabled and target > 0 **and** a **minimum pump time** has elapsed. After steam, residual boiler pressure can already be 1–1.5 bar; upstream 0–3 bar target with no min-time can stop **immediately**. Min-time (e.g. 1–2 s) or "pressure rose by Δ after pump start" — do not copy `inputPressureFilter >= target` raw.
-3. **Tank empty / emergency / sensor error / PID off** — BaseState.
+3. **Tank empty / emergency / sensor error / PID off** — BaseState; preserve its safety-state transition.
 4. **User abort** — brew, steam, water switch, web/MQTT stop if we add one.
 
 Default **off**. Opt-in config only.

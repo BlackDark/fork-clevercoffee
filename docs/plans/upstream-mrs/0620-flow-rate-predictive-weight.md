@@ -148,6 +148,7 @@ TDD, then wire config into the existing comparison.
 
 1. **Red:** native tests for a pure stop decision. Header-only, same shape as `include/clevercoffee/maintenance/BackflushReminderLogic.h` / `test/test_backflush_mode`.
    - `shouldStopBrewByWeight(measured, target, stopOffset)` → true iff `target > 0` and `measured >= target - stopOffset`.
+   - Clamp or reject `stopOffset` so it cannot exceed `target` (`target=1`, `offset=5`, `measured=0` must not stop).
    - Table: offset 0 (today), 1 g, target 0 never stops, measured below threshold stays, exact equality stops.
 2. **Green:** implement the function. Weight branch of `BrewRunningState::checkSpecificTransitions` calls it with a new `ParamDef<double> brewByWeightStopOffset{"brew.by_weight.stop_offset", ...}` (default `0`, min 0, max 5) next to `brewByWeightTargetWeight`. Register in `Config.cpp`. Document in `CONFIG_REFERENCE.md` and `docs/example_config.json`.
 3. **Do not** add flow, MQTT, display, or `TARGET_BREW_WEIGHT_MIN` changes.
@@ -199,7 +200,7 @@ Keep Path A offset as the **named, configurable** trickle term. Replace the magi
 |------------|-------------------------|------------|---------------------|--------|
 | 0 | 0.1 | 0 | 0 | continue (below target) |
 | 0 | 0 | 0 | 0 | stop (measured == target) |
-| 1.5 | 2.0 | 1.6 | 0 | stop if using trickle offset only |
+| 1.5 | 2.0 | 1.6 | 0 | continue (`remaining > offset`, dt 0) |
 | 1.5 | 5.0 | 1.6 | 0 | continue |
 | 2.0 | 0.2 | 0 | 0.2 | stop if predicted = measured + 0.4 |
 | 0 (window empty) | 1.0 | (formula) | 0 | continue — no false early stop |
