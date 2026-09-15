@@ -65,13 +65,22 @@ curl -w "\n%{http_code}\n" -X POST http://<ip>/api/ota/url \
 - [ ] `pio device monitor -e esp32_usb` shows boot log lines (WiFi connect, state transitions)
 - [ ] Log lines appear at INFO level during normal operation (e.g. temperature readings, state changes)
 - [ ] Log level filtering works (DEBUG messages hidden at INFO level)
+- [ ] Default Restore: `pid.enabled` true heats after reboot; `pid.enabled` false stays cold
+- [ ] Standby opt-out stays cold; Heat up always heats without a button press
+- [ ] Toggle power switch still follows the physical switch regardless of the enum
 
-## 4. WiFi Telnet Logging
+## 4. WiFi Telnet Logging and reconnect
 
 - [ ] `nc <hostname> 23` connects and shows "CleverCoffee log stream connected"
 - [ ] Log lines appear when activity occurs (API calls, state changes)
 - [ ] Idle machine at INFO level = quiet telnet is expected (not a bug)
 - [ ] Telnet disconnect/reconnect works cleanly
+- [ ] After STA drop and ≥5 reconnect attempts, logs show a new retry round / circuit-breaker pause — **not** “entering offline mode”
+- [ ] When the AP returns, MQTT resumes without a reboot
+- [ ] With `system.offline_mode=true`, reconnect is skipped and MQTT stays off
+- [ ] MQTT telemetry still publishes at weak RSSI (OLED bars 0–1 / RSSI ≤ −75 dBm)
+- [ ] Unreachable MQTT broker does not freeze the brew timer for ~15 s (socket timeout 3 s)
+- [ ] After STA connect/reconnect, ping RTT to the ESP is tens of ms (WiFi power save off)
 
 ## 5. Web API Endpoints
 
@@ -147,7 +156,21 @@ A single out-of-range TSIC sample must never trip emergency stop or flood the lo
       and `OFF` when empty; the message is retained, so a fresh subscriber (or a
       restarted Home Assistant) receives the current state immediately
 
-## 11. Frontend (when `ui/` files changed)
+## 11. Coredump download & boot diagnostics
+
+Coredumps are a RAM image (WiFi PSK, MQTT password). Factory web auth is
+`admin`/`admin` — change it before leaving a machine on a shared LAN. Do **not**
+erase the dump as part of these checks; a second download must still 200.
+
+- [ ] `system.auth.enabled=false`: `curl -sS -o /dev/null -w "%{http_code}" http://<ip>/download/coredump` → **403**, no binary body
+- [ ] Auth enabled, no credentials: same curl → **401**
+- [ ] Auth enabled, `-u admin:admin` (or configured creds), no dump stored → **404**, body `No core dump stored`
+- [ ] With a dump (panic or fixture): **200**, `Content-Type: application/octet-stream`, size matches `esp_core_dump_image_get`; `/api/health` still 200; `/api/nvs-debug` free heap does not fall by ~dump size
+- [ ] Repeat the download with telnet (`nc <host> 23`) connected — device stays up
+- [ ] Second download still 200 (dump is not erased)
+- [ ] `mosquitto_sub -C 1 -t '<prefix>/<hostname>/resetReason'` and `…/crashInfo` receive retained values after MQTT connect (and after subscriber restart). `crashInfo` is the last panic, not necessarily this boot — pair with `resetReason`.
+
+## 12. Frontend (when `ui/` files changed)
 
 Run from `ui/packages/frontend`:
 
