@@ -199,6 +199,9 @@ class MQTTManager : public IMQTTManager {
     }
 
   private:
+    static constexpr int kMqttSocketTimeoutS = 3;
+    static constexpr int kMqttKeepAliveS     = 30;
+
     // MQTT client and networking
     std::unique_ptr<WiFiClient> wifiClient_;
     PubSubClient                mqttClient_;
