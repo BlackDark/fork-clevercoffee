@@ -18,6 +18,18 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     defaultValue: false,
   },
   {
+    name: "pid.power_on_behaviour",
+    type: ParameterTypes.ENUM,
+    min: 0,
+    max: 2,
+    defaultValue: 2,
+    options: [
+      { value: 0, label: "Standby" },
+      { value: 1, label: "Heat up" },
+      { value: 2, label: "Restore last state" },
+    ],
+  },
+  {
     name: "pid.use_ponm",
     type: ParameterTypes.BOOL,
     min: 0,

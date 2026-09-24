@@ -160,14 +160,14 @@ void setup() {
         // Create StateMachine with required components as references
         stateMachine =
             std::make_unique<StateMachine>(systemContext, hardwareManager, displayManager, wifiManager, mqttManager);
-        stateMachine->initialize(); // Always succeeds - uses fallback if needed
         InitHelpers::logInitResult("StateMachine", true);
 
         // Register MachineStateContext in SystemContext for safe access
         systemContext.setMachineStateContext(&stateMachine->getContext());
 
-        // Finalize machine state (must be done after MachineStateContext is registered)
-        (void)systemInitializer->finalizeMachineState();
+        // Apply power-on behaviour (runtime PID + target), then enter that state.
+        const MachineStateId bootState = systemInitializer->finalizeMachineState();
+        stateMachine->initialize(bootState);
 
         // Initialize ProcessController for PID control with required components as references
         processController = std::make_unique<ProcessController>(

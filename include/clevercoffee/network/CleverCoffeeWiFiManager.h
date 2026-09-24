@@ -97,8 +97,8 @@ class CleverCoffeeWiFiManager : public IWiFiManager {
      *
      * This method handles automatic WiFi reconnection logic including:
      * - Connection status monitoring
-     * - Reconnection attempts with backoff
-     * - Offline mode activation after max attempts
+     * - Reconnection attempts with backoff (RetryPolicy + CircuitBreaker)
+     * - Skipping reconnect only when system.offline_mode is configured
      * - Connection logging
      */
     void checkAndMaintainConnection() override;
@@ -142,6 +142,11 @@ class CleverCoffeeWiFiManager : public IWiFiManager {
      * @param displayCallback Optional callback for display messages
      */
     void handleSuccessfulConnection(bool oledEnabled, std::function<void(const char*, const char*)> displayCallback);
+
+    /**
+     * @brief Disable STA power-save while associated
+     */
+    void disableWifiSleep() noexcept;
 
     /**
      * @brief Handle WiFi connection failure

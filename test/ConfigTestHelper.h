@@ -42,6 +42,7 @@ inline void resetConfigDefaults() {
 
     // ── PID ─────────────────────────────────────────────────────────
     c.pidEnabled.resetToDefault();
+    c.pidPowerOnBehaviour.resetToDefault();
     c.pidUsePonm.resetToDefault();
     c.pidEmaFactor.resetToDefault();
     c.pidRegularKp.resetToDefault();

@@ -20,4 +20,7 @@ public:
     bool loop() { return true; }
     bool connected() { return true; }
     void disconnect() {}
+    bool setBufferSize(uint16_t) { return true; }
+    void setSocketTimeout(uint16_t) {}
+    void setKeepAlive(uint16_t) {}
 };
