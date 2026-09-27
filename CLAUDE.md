@@ -44,6 +44,20 @@ Follow C++ Core Guidelines. Prefer compile-time errors over runtime errors.
 - if you need a more verbose output for the pio commands you can remove the `-s`
 - Always before you start doing any edits test if the project is in state which can be build with the build command
 
+### Rust migration (in planning, not yet started)
+
+A phased C++ → Rust migration is planned under `docs/rust-migration/`. Start at
+`docs/rust-migration/README.md`. The execution procedure for agents lives in
+`.agents/skills/esp32-rust-migration/SKILL.md` — read it before working on any task in
+`docs/rust-migration/06-migration-task-list.md`.
+
+- The C++ firmware in `src` and `include/clevercoffee` stays in production and is the
+  parity baseline for the whole migration. Do not change its behaviour.
+- The target is the **original ESP32** (Xtensa), not an S3 or C6. `esp32_usb` refers to
+  the USB-to-UART cable; the chip has no native USB.
+- Nothing in the migration touches `pio` tooling, the partition table, or the C++ build
+  until the corresponding task in the plan says so.
+
 ### Mandatory: format and test before committing
 
 **Do not commit until all applicable checks pass.** Commits without verification are not acceptable.
