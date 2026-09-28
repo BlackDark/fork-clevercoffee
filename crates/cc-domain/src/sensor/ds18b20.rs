@@ -32,29 +32,60 @@
 //! [`Poll::Waiting`] instead of a stale reading — a difference from the C++
 //! that is recorded in `intentional-diffs.md`.
 //!
-//! # The accept/reject decision is the C++'s
+//! # The accept/reject decision
 //!
 //! `TempSensorDallas::sample_temperature` (`TempSensorDallas.cpp:26-43`) is two
-//! `if` blocks and one assignment, and the whole of it is preserved:
+//! `if` blocks and one assignment, and the port reproduces all of it plus one
+//! check the C++ defines and never performs.
 //!
-//! | fault | C++ sentinel | C++ rejects? | this port |
+//! | fault | the C++'s *value* | the C++ rejects? | this port |
 //! | --- | --- | --- | --- |
-//! | `Disconnected` | -127 | yes | rejected |
-//! | `Open` | -254 | yes | rejected |
-//! | `ShortGnd` | -253 | yes | rejected |
-//! | `ShortVdd` | -252 | yes | rejected |
-//! | `PowerOnReset` | -251 | **no** | reported, not rejected — see `s8_*` |
-//! | `InsufficientPower` | -250 | **no** | reported, not rejected |
+//! | `Disconnected` | -127 | yes (`:29-31`) | rejected, reported as `Disconnected` |
+//! | `Open` | -127 | yes (via the fold) | rejected, reported as `Open` |
+//! | `ShortGnd` | -127 | yes (via the fold) | rejected, reported as `ShortGnd` |
+//! | `ShortVdd` | -127 | yes (via the fold) | rejected, reported as `ShortVdd` |
+//! | `PowerOnReset` | -127 | yes (via the fold) | rejected, reported as `PowerOnReset` |
+//! | `InsufficientPower` | -127 | yes (via the fold) | rejected, reported as `InsufficientPower` |
+//! | `OutOfRange` | *nothing* | **no check exists** | **rejected — added by this port** |
 //!
-//! The two un-rejected faults are a real finding, not an oversight in the port:
-//! `TempSensorDallas.cpp:29-36` does not test for them, so a DS18B20 that
-//! reports power-on-reset hands the control loop **-251 °C**. That is outside
-//! `Temperature::MIN_VALID_TEMP_C` (0.0), so S1 treats it as an invalid
-//! reading and trips emergency stop — the C++ is safe here by accident, and
-//! the accident is one refactor away from not happening. Both are pinned by
-//! tests so the behaviour cannot drift silently.
+//! Two things to read out of that table.
+//!
+//! **The "via the fold" column is the finding.** `TempSensorDallas` compares
+//! against `DEVICE_DISCONNECTED_C` and the three `DEVICE_FAULT_*_C` values, but
+//! `DallasTemperature::rawToCelsius` (`DallasTemperature.cpp:406-410`) has
+//! already turned *every* one of the six raw sentinels into -127, because all
+//! six raws are at or below `DEVICE_DISCONNECTED_RAW`
+//! (`DallasTemperature.h:33-55`). So the second `if` block is dead code, and a
+//! DS18B20 that reports a power-on reset is logged as
+//! *"Temperature sensor not connected"* (`TempSensorDallas.cpp:30`). The
+//! decision is right; the diagnostic points an operator at the wiring when the
+//! fault is on the probe. Pinned by
+//! `cc_domain::sensor::onewire::div7_every_ds18b20_fault_is_rejected_by_the_cpp`.
+//!
+//! **The last row is a divergence and it is deliberate.**
+//! `TempSensor::isValidTemperature` (`TempSensor.h:91-93`) is a
+//! `static constexpr` predicate for -50..150 °C that is **never called** — not
+//! from `updateTemperature` (`:31-54`), not from `tryGetValue` (`:110-146`),
+//! not from anywhere in the tree (09 §18). So on the Dallas path a 165 °C
+//! reading is cached, folded into the 15-sample moving average and handed to the
+//! PID. The TSIC driver, by contrast, has its own range reject at
+//! `temp <= 0.0 || temp >= 180.0` (`TempSensorTSIC.cpp:59-62`).
+//!
+//! This port applies the check that `isValidTemperature` was written for, at
+//! the driver, so the two families cannot disagree about what a plausible
+//! reading is. **The trade-off is real and is recorded in
+//! `intentional-diffs.md`:** a genuine 155 °C over-temperature now reports as a
+//! *sensor read failure* rather than as a hot reading, so after ten such
+//! readings the machine reaches `SENSOR_ERROR` rather than S1's
+//! `EMERGENCY_STOP`. The over-temperature is still stopped — the heater is off
+//! in both — but the operator is told "sensor error" instead of "too hot", and
+//! the DS18B20's own alarm configuration is the right place to make that
+//! distinction precise. Failing the other way (accepting 165 °C into the PID)
+//! is what the C++ does today.
 
-use crate::onewire::{self, Ds18b20Fault, OneWireBus, OneWireError, Rom, RomSelection, ScratchPad};
+pub use crate::sensor::onewire::Ds18b20Fault;
+use crate::sensor::onewire::{self, OneWireBus, OneWireError, Rom, RomSelection, ScratchPad};
+use crate::sensor::probe::{ProbeFault, ProbeReading, ProbeSource};
 use crate::units::Millis;
 
 /// The reading cadence, in milliseconds.
@@ -81,30 +112,50 @@ pub const MAX_BAD_READINGS: u8 = 10;
 /// costs 375 ms of conversion — 25 ms inside the cadence.
 pub const RESOLUTION_BITS: u8 = 11;
 
-/// The safety-relevant range a reading must fall in to be usable.
+/// The range a reading must fall in for the driver to accept it.
 ///
-/// **Not** the C++'s. The C++ has no such check on the Dallas path at all;
-/// `TempSensor::isValidTemperature` (`TempSensor.h:91-93`, -50..150) exists but
-/// is **never called** by `updateTemperature` or `tryGetValue`. The range that
-/// *is* enforced is S1's, in `EmergencyStopManager::checkEmergencyConditions`
+/// **This is `TempSensor::isValidTemperature`'s range, applied.**
+/// `TempSensor.h:91-93`:
+///
+/// ```cpp
+/// static constexpr bool isValidTemperature(double temp) noexcept {
+///     return temp >= -50.0 && temp <= 150.0; // Practical range for coffee machines
+/// }
+/// ```
+///
+/// It is `static constexpr`, it is never called (09 §18), and the range that
+/// *is* enforced downstream is S1's, in
+/// `EmergencyStopManager::checkEmergencyConditions`
 /// (`EmergencyStopManager.cpp:25-30`): `Temperature::MIN_VALID_TEMP_C` = 0.0
 /// and `MAX_VALID_TEMP_C` = 200.0, outside which emergency stop trips
 /// immediately with no debounce.
 ///
-/// So a reading outside 0..200 does not reach the PID as if it were valid — it
-/// reaches S1, which latches. The bounds are named here so the driver's
-/// contract is stated rather than implied.
-pub const PLAUSIBLE_RANGE: (f32, f32) = (0.0, 200.0);
+/// The two ranges are not the same and the difference matters: `PLAUSIBLE_RANGE`
+/// says "a probe cannot physically be here", `S1_RANGE` says "the machine must
+/// stop if it reads here". A reading between 150 and 200 is physically possible
+/// for a DS18B20 (its range is -55..125 by spec, so actually not) and is a
+/// genuine over-temperature; a reading between -50 and 0 is a probe that is too
+/// cold for the boiler. Rejecting both at the driver is a **behaviour change**
+/// and is recorded as one.
+pub const PLAUSIBLE_RANGE: (f32, f32) = (-50.0, 150.0);
+
+/// S1's range, which the driver does **not** apply.
+///
+/// Named so that the two are visibly different numbers in the same file.
+/// `constants/Temperature.h:14-15`, enforced by
+/// `EmergencyStopManager.cpp:25-30`.
+pub const EMERGENCY_RANGE: (f32, f32) = (0.0, 200.0);
 
 /// Whether a decoded temperature is inside [`PLAUSIBLE_RANGE`].
-///
-/// Note the asymmetry with the C++: this is a *query*, not a filter. A reading
-/// that fails it is still reported to the caller, and it is S1 that acts on it.
-/// Filtering it here would be a divergence, and a dangerous one — it would turn
-/// an emergency stop into a silently-held last-good value.
 #[must_use]
 pub fn is_plausible(celsius: f32) -> bool {
     (PLAUSIBLE_RANGE.0..=PLAUSIBLE_RANGE.1).contains(&celsius)
+}
+
+/// Whether a decoded temperature would trip S1's emergency stop.
+#[must_use]
+pub fn is_emergency(celsius: f32) -> bool {
+    !(EMERGENCY_RANGE.0..=EMERGENCY_RANGE.1).contains(&celsius)
 }
 
 /// What one call to [`Driver::poll`] produced.
@@ -117,8 +168,8 @@ pub enum Poll {
     Waiting,
     /// A reading, or a fault, from a completed conversion.
     ///
-    /// `Ok` carries the decoded temperature **unfiltered** — see
-    /// [`is_plausible`].
+    /// `Ok` carries the decoded temperature. A reading outside
+    /// [`PLAUSIBLE_RANGE`] is `Err(OutOfRange)`, not `Ok` — see the module docs.
     Reading(Result<f32, Ds18b20Fault>),
 }
 
@@ -139,7 +190,7 @@ pub struct Reading {
 /// The DS18B20 driver: a ROM code, a phase, and the C++'s error counter.
 ///
 /// Generic over [`OneWireBus`] so the whole pipeline is host-testable against
-/// the fake bus in `cc_domain::onewire`'s tests. The device crate supplies a
+/// the fake bus in `cc_domain::sensor::onewire`'s tests. The device crate supplies a
 /// bit-banging implementation and nothing else.
 pub struct Driver {
     rom: Rom,
@@ -276,8 +327,17 @@ impl Driver {
             }
         };
 
-        // The C++'s accept/reject decision.
-        let value = pad.interpret(self.rom);
+        // The C++'s accept/reject decision, plus this port's range check.
+        //
+        // `interpret` is the C++'s *decode* and the C++'s six sentinel
+        // rejections; the range check is applied here, at the driver, because
+        // that is the layer the C++'s `TempSensor::sample_temperature` is
+        // modelled on and the layer the C++ forgot to finish.
+        let decoded = pad.interpret(self.rom);
+        let value = match decoded {
+            Ok(celsius) if !is_plausible(celsius) => Err(Ds18b20Fault::OutOfRange),
+            other => other,
+        };
         let rejected = value.is_err();
         if rejected {
             self.record_failure(value.err());
@@ -343,13 +403,19 @@ impl Driver {
     /// `bad_readings_` increments and saturates; `error_` is set at
     /// [`MAX_BAD_READINGS`] and cleared by any success
     /// (`TempSensor.h:41-53`).
-    pub fn record_failure(&mut self, _fault: Option<Ds18b20Fault>) {
+    ///
+    /// `fault` is **kept**, unlike the C++'s single `error_` flag. The C++
+    /// cannot: `rawToCelsius` has already collapsed all six sentinels to -127
+    /// by the time `TempSensorDallas` sees them, so the only thing it can
+    /// report is "not connected". Keeping the reason is the whole point of
+    /// [`Ds18b20Fault`], and it costs one byte.
+    pub fn record_failure(&mut self, fault: Option<Ds18b20Fault>) {
         self.bad_readings = self.bad_readings.saturating_add(1);
         if self.bad_readings >= MAX_BAD_READINGS && !self.error {
             self.error = true;
         }
         self.last = Some(Reading {
-            value: Err(Ds18b20Fault::Disconnected),
+            value: Err(fault.unwrap_or(Ds18b20Fault::Disconnected)),
             bad_readings: self.bad_readings,
             error: self.error,
         });
@@ -371,17 +437,61 @@ impl Driver {
     ///
     /// # Errors
     ///
-    /// The [`Ds18b20Fault`] the scratchpad represents, which is the C++'s
-    /// accept/reject decision and nothing else.
+    /// The [`Ds18b20Fault`] the scratchpad represents. Note this is the
+    /// *decode*, so it does **not** apply [`PLAUSIBLE_RANGE`] — that is
+    /// [`Driver::poll`]'s decision, and keeping the two apart is what lets a
+    /// test ask "what did the device say?" independently of "what will the
+    /// driver do with it?".
     pub fn decode(&self, pad: ScratchPad) -> Result<f32, Ds18b20Fault> {
         pad.interpret(self.rom)
+    }
+}
+
+/// Collapse one [`Poll`] into the [`TemperatureProbe`](crate::sensor::probe::TemperatureProbe)
+/// vocabulary, applying the same range check [`Driver::poll`] applies.
+///
+/// The mapping is a decision, so it lives here where it can be tested, rather
+/// than in a device crate's trait impl. `Poll::Started` and `Poll::Waiting` both
+/// become `None`: the trait says "nothing new", and a caller that needs to tell
+/// them apart is reaching past the interface for no benefit.
+#[must_use]
+pub fn as_probe(poll: Poll) -> Option<ProbeReading> {
+    match poll {
+        Poll::Reading(Ok(celsius)) => Some(ProbeReading {
+            celsius,
+            source: ProbeSource::Ds18b20,
+        }),
+        // `Started`, `Waiting` and a rejected read all mean "nothing new". They
+        // are one arm because on the trait they are the same thing: the driver
+        // has advanced its own bad-reading counter (which is the part S1 acts
+        // on), and the reason is still available from `Driver::last_reading()`
+        // for whoever wants to log it. A rejected read is deliberately **not** an
+        // `Err` on the trait — the bus worked, the sensor did not answer usefully.
+        Poll::Started | Poll::Waiting | Poll::Reading(Err(_)) => None,
+    }
+}
+
+/// The [`ProbeFault`] a [`Ds18b20Fault`] becomes, for the device crate's trait
+/// impl to report alongside the counter.
+#[must_use]
+pub const fn probe_fault(fault: Ds18b20Fault) -> ProbeFault {
+    match fault {
+        Ds18b20Fault::Disconnected => ProbeFault::NotConnected,
+        Ds18b20Fault::OutOfRange => ProbeFault::ReadFailed,
+        Ds18b20Fault::Open
+        | Ds18b20Fault::ShortGnd
+        | Ds18b20Fault::ShortVdd
+        | Ds18b20Fault::PowerOnReset
+        | Ds18b20Fault::InsufficientPower => ProbeFault::Ds18b20Fault(fault),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::onewire::{timing, SCRATCHPAD_LEN};
+    use crate::sensor::onewire::{
+        timing, SCRATCHPAD_LEN, SP_COUNT_REMAIN, SP_TEMP_LSB, SP_TEMP_MSB,
+    };
     use alloc::vec;
     use alloc::vec::Vec;
 
@@ -390,7 +500,7 @@ mod tests {
     /// The recovered boot log printed it as `0x41af78cdaa376928`, which is the
     /// same bytes **reversed** — 1-Wire is clocked out least-significant bit
     /// first, and the log prints the wire order. See
-    /// `cc_domain::onewire`'s `the_logged_rom_is_printed_least_significant_byte_first`.
+    /// `cc_domain::sensor::onewire`'s `the_logged_rom_is_printed_least_significant_byte_first`.
     const LIVE_ROM: Rom = Rom([0x28, 0x69, 0x37, 0xAA, 0xCD, 0x78, 0xAF, 0x41]);
 
     /// A bus that plays the part of a DS18B20: answers the scratchpad read
@@ -465,7 +575,7 @@ mod tests {
                 msb,
                 0x00,
                 0x00,
-                crate::onewire::RES_11_BIT,
+                crate::sensor::onewire::RES_11_BIT,
                 0x00,
                 0x00,
                 0x00,
@@ -493,7 +603,7 @@ mod tests {
 
     /// Advance the framing by one completed byte.
     fn step(framing: Framing, byte: u8) -> Framing {
-        use crate::onewire::{CMD_MATCH_ROM, CMD_SKIP_ROM};
+        use crate::sensor::onewire::{CMD_MATCH_ROM, CMD_SKIP_ROM};
         match framing {
             Framing::Idle => match byte {
                 CMD_SKIP_ROM => Framing::SkipRom,
@@ -509,7 +619,7 @@ mod tests {
     /// Whether `byte`, given the framing state *before* it, is a function
     /// command rather than a ROM byte.
     fn is_function_command(before: Framing, byte: u8) -> bool {
-        use crate::onewire::{CMD_MATCH_ROM, CMD_SKIP_ROM};
+        use crate::sensor::onewire::{CMD_MATCH_ROM, CMD_SKIP_ROM};
         match before {
             Framing::Idle => !matches!(byte, CMD_SKIP_ROM | CMD_MATCH_ROM),
             Framing::SkipRom | Framing::MatchRom(0) => true,
@@ -632,36 +742,188 @@ mod tests {
     // ================================================ the accept/reject set
 
     #[test]
-    fn s8_only_four_of_the_six_faults_are_rejected() {
-        // Restated at the driver level: the C++'s reject set is
-        // {Disconnected, Open, ShortGnd, ShortVdd} and nothing else
-        // (`TempSensorDallas.cpp:29-36`).
-        assert!(Ds18b20Fault::Disconnected.cpp_rejects());
-        assert!(Ds18b20Fault::Open.cpp_rejects());
-        assert!(Ds18b20Fault::ShortGnd.cpp_rejects());
-        assert!(Ds18b20Fault::ShortVdd.cpp_rejects());
-        // NOT rejected — a POR reading reaches the control loop as -251 °C.
-        assert!(!Ds18b20Fault::PowerOnReset.cpp_rejects());
-        assert!(!Ds18b20Fault::InsufficientPower.cpp_rejects());
+    fn div6_every_ds18b20_fault_is_rejected_and_named() {
+        // Restated at the driver level, against the corrected finding: the C++
+        // rejects all six (they all arrive as -127 — see
+        // `cc_domain::sensor::onewire::div7_*`), and the *only* thing this port
+        // adds is that it keeps the reason. Walk the whole pipeline rather than
+        // the enum, so a future refactor that starts folding the raws again —
+        // which is what `rawToCelsius` does — fails here.
+        // Each pad is stamped with a *valid* resolution and then a valid CRC, in
+        // that order: the resolution write invalidates the CRC, and a
+        // CRC-invalid scratchpad is `Disconnected`, which would make this test
+        // pass for the wrong reason on every case.
+        let mut pow = ScratchPad::power_on();
+        pow.0[SP_TEMP_LSB] = 0x50;
+        pow.0[SP_TEMP_MSB] = 0x05;
+        pow.0[SP_COUNT_REMAIN] = 0x0C;
+        let mut brown = ScratchPad::power_on();
+        brown.0[SP_TEMP_LSB] = 0xFF;
+        brown.0[SP_TEMP_MSB] = 0x07;
+        for (fault, pad) in [
+            // The all-zeros scratchpad needs no resolution stamp: it is rejected
+            // by the all-zeros test, which is the first check `interpret` makes
+            // and does not care about the CRC or the configuration register.
+            (Ds18b20Fault::Disconnected, ScratchPad::power_on()),
+            (Ds18b20Fault::PowerOnReset, pow),
+            (Ds18b20Fault::InsufficientPower, brown),
+        ] {
+            let mut device = FakeDevice::new();
+            let pad = if pad.is_all_zeros() {
+                pad
+            } else {
+                let stamped = pad.with_resolution(RESOLUTION_BITS).with_valid_crc();
+                assert!(stamped.crc_valid());
+                stamped
+            };
+            device.scratchpad = pad;
+            let (mut driver, start) = running(&mut device);
+            // The all-zeros pad carries a configuration byte of zero, so
+            // `calibrate` caches the 12-bit 750 ms time and a 400 ms poll would
+            // be `Waiting` rather than a read. Poll after whatever the driver
+            // actually decided the conversion time was.
+            let due = start + driver.conversion_time();
+            let got = driver.poll(&mut device, due);
+            assert_eq!(got, Ok(Poll::Reading(Err(fault))), "{fault}");
+            // The reason survives into the cached reading, which is the whole
+            // point: the C++ can only say "not connected" for all three.
+            assert_eq!(driver.last_reading().map(|r| r.value), Some(Err(fault)));
+        }
+    }
+
+    #[test]
+    fn div6_the_bad_reading_counter_reaches_s10_on_a_power_on_reset() {
+        // Ten power-on resets latch `error_`, exactly as ten disconnections do.
+        // The C++ gets this right for the wrong reason; this port gets it right
+        // for the right one and reports which.
+        let mut driver = Driver::new(LIVE_ROM);
+        for _ in 0..MAX_BAD_READINGS {
+            driver.record_failure(Some(Ds18b20Fault::PowerOnReset));
+        }
+        assert!(driver.has_error());
+        assert_eq!(
+            driver.last_reading().map(|r| r.value),
+            Some(Err(Ds18b20Fault::PowerOnReset))
+        );
     }
 
     // ==================================================== the plausibility range
 
     #[test]
-    fn s10_the_dallas_path_has_no_range_check_of_its_own() {
-        // `TempSensor::isValidTemperature` (-50..150, `TempSensor.h:91-93`) is
-        // never called. The enforced range is S1's: 0.0..200.0
-        // (`constants/Temperature.h:14-15`, `EmergencyStopManager.cpp:25-30`).
-        assert!(is_plausible(22.9));
+    fn div8_the_dallas_path_applies_the_range_check_it_never_applied() {
+        // 🔴 DIVERGENCE, added by this port. `TempSensor::isValidTemperature`
+        // is -50..150 (`TempSensor.h:91-93`) and is never called by anything.
+        // The range is now applied at the driver.
+        assert_eq!(PLAUSIBLE_RANGE, (-50.0, 150.0));
+        assert!(is_plausible(-50.0));
         assert!(is_plausible(0.0));
-        assert!(is_plausible(200.0));
-        assert!(!is_plausible(-0.1));
-        assert!(!is_plausible(200.1));
-        assert!(!is_plausible(f32::NAN));
-        // The C++'s dead helper would have allowed -50 and rejected 150.1;
-        // neither bound is used.
-        assert!(!is_plausible(-50.0));
+        assert!(is_plausible(22.9));
         assert!(is_plausible(150.0));
+        assert!(!is_plausible(-50.0625));
+        assert!(!is_plausible(150.0625));
+        assert!(!is_plausible(f32::NAN));
+        assert!(!is_plausible(f32::INFINITY));
+    }
+
+    #[test]
+    fn div8_the_two_ranges_overlap_only_between_zero_and_a_hundred_and_fifty() {
+        // S1's range is 0.0..200.0 (`constants/Temperature.h:14-15`); the
+        // driver's is -50.0..150.0. They are not nested: each has a band the
+        // other does not, and the driver's bands are exactly the readings this
+        // port now turns into "sensor read failure" instead of a temperature.
+        assert_eq!(EMERGENCY_RANGE, (0.0, 200.0));
+        assert_eq!(PLAUSIBLE_RANGE, (-50.0, 150.0));
+        assert_ne!(PLAUSIBLE_RANGE, EMERGENCY_RANGE);
+
+        // Plausible to the driver, an emergency to S1: a probe that is too cold
+        // for the boiler. Before this change the C++ passed these to the PID.
+        for celsius in [-49.0f32, -1.0] {
+            assert!(is_plausible(celsius), "{celsius} is a plausible probe");
+            assert!(is_emergency(celsius), "{celsius} would trip S1");
+        }
+        // Where they agree a reading is fine.
+        for celsius in [0.0f32, 22.9, 149.0] {
+            assert!(is_plausible(celsius) && !is_emergency(celsius), "{celsius}");
+        }
+        // The fourth quadrant, which the C++ never had: implausible to the driver
+        // and *not* an emergency for S1. 150.5..200 is where an over-temperature
+        // used to arrive at S1 and now arrives as a sensor read failure.
+        for celsius in [150.5f32, 199.0] {
+            assert!(!is_plausible(celsius), "{celsius} is not a plausible probe");
+            assert!(!is_emergency(celsius), "{celsius} is inside S1's range");
+        }
+        // And below both, which S1 would have stopped on and the driver refuses
+        // first.
+        {
+            let celsius = -60.0f32;
+            assert!(!is_plausible(celsius) && is_emergency(celsius), "{celsius}");
+        }
+        // And the two ways a reading can be refused for range, which is the
+        // asymmetry that matters: the driver refuses *below* zero where S1 also
+        // would, and *above* 150 where S1 would not until 200. The 150..200 band
+        // is where the operator's diagnostic changes from "over-temperature" to
+        // "sensor error". See the module docs and `intentional-diffs.md`.
+        assert!(is_emergency(-1.0) && is_plausible(-1.0));
+    }
+
+    #[test]
+    fn div8_a_reading_outside_the_range_is_a_read_failure_not_a_hot_temperature() {
+        // The trade-off made concrete: a 155 °C scratchpad — which the C++ would
+        // hand to the PID — is now a rejected read.
+        let mut device = FakeDevice::at_celsius(155.0);
+        let (mut driver, start) = running(&mut device);
+        assert_eq!(
+            driver.poll(&mut device, start + Millis::new(CADENCE.raw())),
+            Ok(Poll::Reading(Err(Ds18b20Fault::OutOfRange)))
+        );
+        assert!(!driver.has_error(), "one bad read is not an error yet");
+        assert_eq!(driver.last_reading().map(|r| r.bad_readings), Some(1));
+        // And it is NOT reported as a temperature, so nothing downstream can
+        // mistake it for a reading.
+        assert_eq!(as_probe(Poll::Reading(Err(Ds18b20Fault::OutOfRange))), None);
+    }
+
+    #[test]
+    fn div8_only_the_cold_end_of_the_ds18b20s_range_is_now_refused() {
+        // 🔴 The reachable size of the divergence, measured rather than assumed.
+        //
+        // The DS18B20's own range is **-55..+125 °C** (AT24+DS18B20
+        // §"Temperature measurement"). `PLAUSIBLE_RANGE` is -50..150, so:
+        //
+        // | band | reachable? | effect |
+        // | --- | --- | --- |
+        // | -55..-50 | **yes**, real readings | now refused (were passed to the PID) |
+        // | 125..150 | no, the sensor cannot report it | nothing |
+        // | 150..200 | no | S1's band only; the driver never sees it |
+        //
+        // So the divergence costs a ~5 °C band at the very bottom of the
+        // probe's range, and the over-temperature diagnostic (150..200) is
+        // unreachable from a DS18B20 however it is wired. That is a much smaller
+        // behavioural change than the module docs' framing suggests, and the
+        // asymmetry is worth stating: **the driver's upper bound is looser than
+        // the sensor's, so the upper reject never fires.**
+        for celsius in [-50.0f32, -49.0, 0.0, 22.9, 124.0, 125.0] {
+            let mut device = FakeDevice::at_celsius(celsius);
+            let (mut driver, start) = running(&mut device);
+            let got = driver.poll(&mut device, start + Millis::new(CADENCE.raw()));
+            assert_eq!(
+                got,
+                Ok(Poll::Reading(Ok(f32::from(grid(celsius)) / 128.0))),
+                "{celsius} C is inside both ranges and must be accepted"
+            );
+        }
+        // And the band the divergence actually reaches: refused.
+        for celsius in [-54.0f32, -52.0, -51.0] {
+            let mut device = FakeDevice::at_celsius(celsius);
+            let (mut driver, start) = running(&mut device);
+            assert_eq!(
+                driver.poll(&mut device, start + Millis::new(CADENCE.raw())),
+                Ok(Poll::Reading(Err(Ds18b20Fault::OutOfRange))),
+                "{celsius} C is a real reading the C++ passed to the PID"
+            );
+        }
+        // Nothing above 125 is reachable at all, so the upper bound is inert.
+        assert!(125.0 < PLAUSIBLE_RANGE.1);
     }
 
     // =================================================== the timing envelope
@@ -678,7 +940,7 @@ mod tests {
     fn the_conversion_time_is_read_from_the_device_not_assumed() {
         // `DallasTemperature::millisToWaitForConversion` (`DallasTemperature.cpp:422-429`).
         for (bits, expected) in [(9u8, 94u32), (10, 188), (11, 375), (12, 750)] {
-            let mut pad = crate::onewire::ScratchPad([0x00; 9]);
+            let mut pad = crate::sensor::onewire::ScratchPad([0x00; 9]);
             pad = pad.with_resolution(bits);
             assert_eq!(pad.conversion_time().raw(), expected, "{bits}-bit");
         }
@@ -716,7 +978,10 @@ mod tests {
         assert!(!driver.is_converting());
         assert_eq!(driver.poll(&mut device, Millis::ZERO), Ok(Poll::Started));
         assert!(driver.is_converting());
-        assert_eq!(device.commands(), vec![crate::onewire::CMD_CONVERT_T]);
+        assert_eq!(
+            device.commands(),
+            vec![crate::sensor::onewire::CMD_CONVERT_T]
+        );
     }
 
     #[test]
@@ -753,9 +1018,9 @@ mod tests {
         assert_eq!(
             device.commands(),
             vec![
-                crate::onewire::CMD_CONVERT_T,
-                crate::onewire::CMD_READ_SCRATCHPAD,
-                crate::onewire::CMD_CONVERT_T
+                crate::sensor::onewire::CMD_CONVERT_T,
+                crate::sensor::onewire::CMD_READ_SCRATCHPAD,
+                crate::sensor::onewire::CMD_CONVERT_T
             ]
         );
     }
@@ -890,8 +1155,8 @@ mod tests {
         assert_eq!(
             device.commands(),
             vec![
-                crate::onewire::CMD_CONVERT_T,
-                crate::onewire::CMD_READ_SCRATCHPAD
+                crate::sensor::onewire::CMD_CONVERT_T,
+                crate::sensor::onewire::CMD_READ_SCRATCHPAD
             ],
             "no CONVERT T after a rejected read"
         );
@@ -977,7 +1242,7 @@ mod tests {
             - device
                 .commands()
                 .iter()
-                .filter(|c| **c != crate::onewire::CMD_COPY_SCRATCHPAD)
+                .filter(|c| **c != crate::sensor::onewire::CMD_COPY_SCRATCHPAD)
                 .count();
         assert_eq!(
             writes, 0,
@@ -997,7 +1262,7 @@ mod tests {
         let match_positions: Vec<usize> = stream
             .iter()
             .enumerate()
-            .filter(|(_, &b)| b == crate::onewire::CMD_MATCH_ROM)
+            .filter(|(_, &b)| b == crate::sensor::onewire::CMD_MATCH_ROM)
             .map(|(i, _)| i)
             .collect();
         assert!(

@@ -779,23 +779,34 @@ pub struct HardwareSensorsTemperature {
 }
 
 impl Default for HardwareSensorsTemperature {
-    /// **DIVERGENCE from `Config.h:1085-1092`**, which defaults this to
-    /// `TSIC_306`.
+    /// `TSIC_306`, matching `Config.h:1085-1092`:
     ///
-    /// The C++ default names a sensor that is not fitted: the probe on this
-    /// machine is a DS18B20 (family `0x28`, measured). With the C++ default the
-    /// firmware builds a TSIC-306 driver, reads a 1-Wire bus it does not own,
-    /// and reports the result as if it came from the configured sensor. The
-    /// previous Rust firmware did the same and logged it
-    /// ([08 §4.1](../../docs/rust-migration/08-recovered-oracle.md)).
+    /// ```cpp
+    /// EnumParamDef<Hardware::TemperatureSensorType> hardwareSensorsTemperatureType{
+    ///     "hardware.sensors.temperature.type",
+    ///     Hardware::TemperatureSensorType::TSIC_306, ...
+    /// ```
     ///
-    /// `cc_safety::validate_config` now **rejects** `TSIC_306`, so the default
-    /// has to be a value that is not rejected — a default the machine refuses to
-    /// run would be worse than either alternative. `DALLAS_DS18B20` is the
-    /// driver that exists and the sensor that is fitted.
+    /// An earlier revision defaulted this to `DALLAS_DS18B20`, on the grounds
+    /// that the probe fitted to the development machine is a DS18B20 (family
+    /// `0x28`, ROM `286937aacd78af41`, measured) and that
+    /// `cc_safety::validate_config` rejected `TSIC_306` — so the C++'s default
+    /// would have been a value the machine refused to run.
+    ///
+    /// **Reversed, because the reason no longer holds.** The TSIC-306 driver now
+    /// exists (`cc_domain::sensor::tsic306`, R3-07) and `validate_config` no
+    /// longer refuses it, so there is no longer a default that the validator
+    /// rejects and no reason to prefer a development-machine fact over the C++'s
+    /// shipped default. The C++'s value is restored for parity.
+    ///
+    /// **What this does not mean** is that a TSIC-306 is fitted anywhere. The
+    /// probe on the attached machine is a DS18B20 and always has been. A
+    /// configuration left at this default on such a machine reports a
+    /// not-connected temperature sensor and says which sensor it asked for —
+    /// which is the correct, visible failure, and the thing the C++ got wrong.
     fn default() -> Self {
         Self {
-            r#type: TemperatureSensorType::DallasDs18b20,
+            r#type: TemperatureSensorType::Tsic306,
         }
     }
 }
@@ -1217,9 +1228,12 @@ pub struct SafetyView {
     pub heater_relay_trigger: RelayTriggerType,
     /// `hardware.sensors.temperature.type`.
     ///
-    /// Fifth value, and for the same reason as the other four: a probe the
-    /// firmware cannot drive is a temperature reading S1 cannot trust. See
-    /// `cc_safety::ConfigViolation::UnsupportedTemperatureSensor`.
+    /// Carried for completeness rather than for validation: both sensor types
+    /// have a driver (R1-03, R3-07), so `cc_safety::validate_config` has nothing
+    /// to say about this value and no longer takes it as a reason to refuse a
+    /// configuration. The firmware still needs to know which driver the
+    /// configuration asked for, and it reads it from the `Config`, not from the
+    /// `SafetyView`.
     pub temperature_sensor: TemperatureSensorType,
 }
 

@@ -252,11 +252,16 @@ mon-noreset port:
 # Headless boot log for CI and for agents: reset the chip, then dump UART0.
 # Requires a python with pyserial; the ESP-IDF virtualenv created by the
 # esp-idf-sys build has one.
+# Found 2026-09-28: the recipe expanded `$VIRTUAL_ENV` under `set -u` and aborted with
+# "VIRTUAL_ENV: unbound variable" on a shell that is not inside an activated ESP-IDF
+# virtualenv -- which is every shell an agent runs. The ESP-IDF venv created by the
+# esp-idf-sys build already has pyserial, so the expansion bought nothing and cost the
+# recipe.
 mon-headless port seconds="20":
     #!/usr/bin/env bash
     set -euo pipefail
     py=""
-    for c in .embuild/espressif/python_env/*/bin/python "$VIRTUAL_ENV/bin/python" python3; do
+    for c in .embuild/espressif/python_env/*/bin/python python3; do
         [ -x "$c" ] && "$c" -c 'import serial' 2>/dev/null && { py="$c"; break; }
     done
     [ -n "$py" ] || { echo "no python with pyserial found"; exit 1; }

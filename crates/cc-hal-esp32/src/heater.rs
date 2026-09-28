@@ -19,10 +19,13 @@
 //! gate — is in [`cc_domain::heater`], where it is host-testable. This file owns
 //! exactly one thing: the pin, and the peripheral that drives it.
 //!
-//! # LEDC, and why
+//! # LEDC, and why it would be the right answer
 //!
 //! [`hal::ledc`] generates the carrier in hardware. There is no ISR, no CPU, no
-//! scheduler dependency, and nothing to jitter: the duty is a register.
+//! scheduler dependency, and nothing to jitter: the duty is a register. **On a
+//! chip whose `ledc_ll_set_duty_start` is a single register write, that is
+//! strictly better than an ISR, and the tables below are why.** This one is not
+//! such a chip.
 //!
 //! | | C++ ISR chopper | LEDC |
 //! | --- | --- | --- |
@@ -162,9 +165,9 @@
 //! The decision is recorded rather than left implicit: if the carrier ever has
 //! to go above ~1 MHz, this is the line to change.
 //!
-//! # 🔴 Blocked on hardware: the 1 Hz carrier trips the interrupt watchdog
+//! # 🔴 Unusable on this chip: the 1 Hz carrier trips the interrupt watchdog
 //!
-//! Measured 2026-09-28 on the attached board. **This driver panics the chip at
+//! Measured 2026-09-28 on the attached board. **[`LedcPwm`] panics the chip at
 //! boot**, and the cause is ESP-IDF's own HAL, not this file:
 //!
 //! ```c
@@ -180,24 +183,29 @@
 //! (`components/esp_driver_ledc/src/ledc.c:1603-1606`) — interrupts masked. At
 //! the 1 Hz carrier chosen below, that is up to **one second**. The original
 //! ESP32's interrupt watchdog is **300 ms** (`components/esp_system/int_wdt.c`).
-//!
-//! The 1 Hz choice is still right *for the contactor* and the argument below is
-//! still sound; it is simply not compatible with this chip's LEDC driver, which
-//! nobody checked. The boot backtrace decodes to `ledc_set_duty_and_update` ->
+//! The boot backtrace decodes to `ledc_set_duty_and_update` ->
 //! `ledc_ll_set_duty_start`.
 //!
-//! Until it is resolved, `cc-firmware` leaves `BRING_UP_HEATER_LEDC` false and
-//! holds GPIO2 as a plain inactive output. See
-//! [09-cpp-findings.md §20](../../../docs/rust-migration/09-cpp-findings.md).
+//! **The spin is unique to this chip.** Every other `ledc_ll.h` in this tree
+//! (esp32c2, esp32c3, esp32c5, and the s3/h2/p4 equivalents) has the function
+//! body reduced to a single register write with no loop. So the tables and the
+//! arithmetic in the rest of this module are still correct and still worth
+//! having — they are what a future non-original-ESP32 target would use — and
+//! [`LedcPwm`] is the transport for that target.
 //!
-//! # ⚠ Not yet exercised on hardware, and the contactor is still unknown
+//! It is **resolved**, by not using LEDC here: `cc-firmware` builds
+//! [`TimerIsrPwm`] instead, and the boot log records that it is an ISR. See
+//! [09-cpp-findings.md §17](../../../docs/rust-migration/09-cpp-findings.md).
+//!
+//! # ⚠ The ISR path is booted but has never energised the contactor
 //!
 //! **The heater has never been energised by this code, and must not be until
 //! R1-07's safe test procedure has been run with the boiler disconnected.** What
-//! *is* verified is the arithmetic (host tests in `cc_domain::heater`), the
-//! divider feasibility (the table above, read out of ESP-IDF v5.5.5's own
-//! source), and that the firmware builds and boots with the carrier configured
-//! at duty 0.
+//! *is* verified is the arithmetic — the whole 10 ms tick-by-tick state machine
+//! in `cc_domain::heater::IsrChopper`, host-tested against the transcribed C++
+//! predicate at every counter value for every duty — and that the firmware
+//! **boots with the timer running and the gate closed**, which is the specific
+//! thing that used to panic.
 //!
 //! What is **not** verified, and cannot be verified from a datasheet-free desk:
 //!
@@ -205,23 +213,26 @@
 //!   guarantees it never asks for a pulse narrower than 10 ms, because that is
 //!   the C++'s own quantisation. Whether 10 ms is *itself* long enough is a
 //!   measurement.
-//! * **Whether a hardware-PWM output is acceptable to the coil at all.** LEDC
-//!   drives a square wave into the same pin the C++ drove. 1 Hz is a frequency
-//!   the C++ never produced, so the coil's behaviour at it is unknown even
-//!   though the C++'s 1 Hz *average* is unchanged.
-//! * **The realised frequency and duty on the pin.** No scope has been attached.
+//! * **The realised duty on the pin.** The ISR's counter is host-tested and its
+//!   decisions are the C++'s, but nothing has been measured with a scope: 100
+//!   entries a second that are *supposed* to be 50 on and 50 off could be 51 and
+//!   49 and no host test would know.
 //!
 //! The duty-versus-time measurement against a dummy load — R1-07 steps 1 and 2 —
 //! is **not** done, and **R1-07 stays open**. See
 //! `docs/rust-migration/intentional-diffs.md` #5.
 
+use alloc::sync::Arc;
 use core::marker::PhantomData;
+use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
-use cc_domain::heater::{self, GateBlock, HeaterGate};
+use cc_domain::heater::{self, AtomicChopper, GateBlock, HeaterGate};
 use cc_domain::units::{Duty, Millis};
-use esp_idf_hal::gpio::OutputPin;
+use esp_idf_hal::gpio::{Level, OutputPin, PinDriver};
 use esp_idf_hal::ledc::config::TimerConfig;
 use esp_idf_hal::ledc::{LedcChannel, LedcDriver, LedcTimer, LedcTimerDriver, Resolution};
+use esp_idf_hal::timer::config::{AlarmConfig, TimerConfig as GptimerConfig};
+use esp_idf_hal::timer::TimerDriver;
 use esp_idf_hal::units::Hertz;
 use esp_idf_svc::sys::EspError;
 
@@ -263,12 +274,11 @@ const _: () = assert!(
 
 /// The one thing `HeaterOutput` needs from whatever drives the pin.
 ///
-/// This trait is the seam that makes the R1-07 decision swappable (04 §5). Today
-/// exactly one implementation exists — [`LedcPwm`] — and the GPTimer-ISR
-/// fallback is deliberately *not* written yet, because writing a second
-/// implementation of an interface nobody has switched to is how untested code
-/// gets shipped. When the hardware test says LEDC is not acceptable, this is
-/// the trait a `TimerIsrPwm` implements and nothing else changes.
+/// This trait is the seam that makes the decision swappable (04 §5), and it has
+/// now been used for its purpose: [`TimerIsrPwm`] is the default and [`LedcPwm`]
+/// is the retained alternative, with the two differing only in what drives the
+/// pin. Nothing above this line changed when the default changed, which is the
+/// property the seam exists to have.
 ///
 /// It is deliberately tiny: one method, one integer. Everything decidable —
 /// the window, the quantisation, the gate — is decided in [`cc_domain::heater`]
@@ -290,7 +300,16 @@ pub trait HeaterDuty {
     fn apply(&mut self, counts: u32, max_duty: u32) -> Result<(), EspError>;
 }
 
-/// LEDC hardware PWM. The R1-07 decision.
+/// LEDC hardware PWM. **Not brought up, and not bringable on this chip.** See the
+/// module docs: `ledc_ll_set_duty_start`'s `while (conf1.duty_start)` spin,
+/// unique to the original ESP32, exceeds the 300 ms interrupt watchdog at any
+/// carrier slow enough to be mechanically kind.
+///
+/// Kept, type-checked and documented, because the spin exists on *this* chip
+/// only: every other `ledc_ll.h` in this tree has it removed, so this is the
+/// transport a different target would want and the tables above are the argument
+/// for it. A `#[allow(dead_code)]`-shaped struct that is never built costs a few
+/// hundred bytes of flash and saves re-deriving the divider arithmetic.
 ///
 /// # Why the timer driver is stored
 ///
@@ -390,6 +409,243 @@ where
     #[must_use]
     pub fn hardware_duty(&self) -> u32 {
         self.driver.get_duty()
+    }
+}
+
+// ===========================================================================
+// TimerIsrPwm -- the 10 ms GPTimer chopper, which is what this firmware uses
+// ===========================================================================
+
+/// The heater output, on a 10 ms `GPTimer`, with nothing shared by reference.
+///
+/// # Why the transport *is* the shared state
+///
+/// The obvious design is a `HeaterOutput<T>` that owns a pin and a state
+/// struct, with the ISR holding a pointer to the state. That needs either
+/// `&mut` (which is not `Send`, so it cannot go in a `FnMut + Send + 'static`
+/// callback) or a raw pointer or `static mut` (both `unsafe`, and the workspace
+/// denies `unsafe_code`).
+///
+/// So the split is inverted: [`TimerIsrPwm`] is an `Arc` to itself, the
+/// [`HeaterOutput`] and the ISR callback share that `Arc`, and `PinDriver` is not
+/// `Sync` (checked: `esp-idf-hal-0.47.0/src/gpio.rs:1170` declares `Send` and
+/// nothing more), so **the pin is never shared** — only the decision state is.
+/// The pin lives in the callback and nothing else can touch it, which is the
+/// strongest statement available here: there is exactly one writer of the
+/// heater pin in the whole program.
+///
+/// [`HeaterOutput`]: super::HeaterOutput
+pub struct TimerIsrPwm {
+    /// The chopper state, shared with the ISR.
+    ///
+    /// [`AtomicChopper`] is the domain crate's host-tested ISR-shaped chopper, so
+    /// the arithmetic in the callback is the same arithmetic the tests walk, and
+    /// the diagnostics below are the only thing this type adds.
+    chopper: Arc<AtomicChopper>,
+    /// Ticks the ISR has run.
+    ticks: Arc<AtomicU32>,
+    /// How many of those drove the pin high.
+    on_ticks: Arc<AtomicU32>,
+    /// The level the ISR last drove, for the log line and the readback.
+    ///
+    /// **Not** a substitute for reading the pin. The real pin readback happens
+    /// once, in `main`, before the timer is built — the only moment at which it
+    /// can be a readback at all, since the pin then belongs to the ISR. This is
+    /// the firmware's *belief* about the pin, and the boot log labels it as such.
+    level: Arc<AtomicBool>,
+    /// Held so the peripheral is not dropped out from under the callback: a
+    /// `TimerDriver` drop disables the timer.
+    _timer: TimerDriver<'static>,
+}
+
+impl TimerIsrPwm {
+    /// Take a pin and a `GPTimer`, and start a 10 ms chopper.
+    ///
+    /// The timer is configured, subscribed, enabled and started here, and the
+    /// chopper is left **disarmed** — call [`Self::arm`] once the gate is ready.
+    /// That ordering is the point: the pin is already inactive before the timer
+    /// exists, and the timer exists before the gate can open.
+    ///
+    /// # Errors
+    ///
+    /// Whatever `gptimer_new_timer`, `gptimer_set_alarm_action`,
+    /// `gptimer_register_event_callbacks`, `gptimer_enable` or `gptimer_start`
+    /// reports. The original ESP32 has four general-purpose timers and this board
+    /// wants them for other peripherals, so `ESP_ERR_NOT_FOUND` ("all hardware
+    /// timers are used up") is a real possibility and is propagated rather than
+    /// papered over — a heater with no timer is a heater that cannot be chopped.
+    /// # Note on the timer *peripheral*
+    ///
+    /// `TimerDriver::new(&config)` takes no peripheral handle: the ESP-IDF `GPTimer`
+    /// driver allocates a timer from a pool. That is not a shortcut, it is the
+    /// only way in this HAL — `esp-idf-hal` 0.47 has no `Gptimer` type and its
+    /// `timer00`/`timer01` peripherals are behind the off-by-default
+    /// `timer-legacy` feature (`esp-idf-hal-0.47.0/src/peripherals.rs:143-153`).
+    /// The original ESP32 has four general-purpose timers and the pool can return
+    /// `ESP_ERR_NOT_FOUND` when they are all taken, which is propagated.
+    pub fn new(
+        mut pin: PinDriver<'static, esp_idf_hal::gpio::InputOutput>,
+    ) -> Result<Self, EspError> {
+        let mut driver = TimerDriver::new(&GptimerConfig::default())?;
+        // One tick per `ISR_INTERVAL_US`, auto-reloading:
+        // `timerAlarmWrite(timer, ISR_TIMER_INTERVAL_US, true)` at `isr.h:88`,
+        // where the trailing `true` is the auto-reload.
+        let period =
+            core::time::Duration::from_micros(u64::from(cc_domain::heater::ISR_INTERVAL_US));
+        let alarm_count = driver.duration_to_count(period)?;
+        let alarm = AlarmConfig {
+            alarm_count,
+            reload_count: 0,
+            auto_reload_on_alarm: true,
+            ..AlarmConfig::default()
+        };
+        driver.set_alarm_action(Some(&alarm))?;
+
+        let chopper = Arc::new(AtomicChopper::new());
+        let ticks = Arc::new(AtomicU32::new(0));
+        let on_ticks = Arc::new(AtomicU32::new(0));
+        let level = Arc::new(AtomicBool::new(false));
+
+        let isr_chopper = Arc::clone(&chopper);
+        let isr_ticks = Arc::clone(&ticks);
+        let isr_on_ticks = Arc::clone(&on_ticks);
+        let isr_level = Arc::clone(&level);
+
+        // 🔴 The whole heater ISR, in eight lines. Per 04 §3.1 an ISR does
+        // "nothing beyond one GPIO write": the decision is one comparison and two
+        // atomic operations inside `AtomicChopper::tick` — which is the C++'s
+        // `isr.h:96-105` verbatim and is walked on the host at every counter
+        // value for every duty — and everything else here is three diagnostic
+        // counters and the write itself.
+        //
+        // No logging, no allocation, no lock, no FreeRTOS call.
+        driver.subscribe(move |_event| {
+            // The C++'s early return on `!ctx->isISRReady()` (`isr.h:70-73`).
+            let Some(high) = isr_chopper.tick() else {
+                return;
+            };
+            isr_ticks.fetch_add(1, Ordering::Relaxed);
+            if high {
+                isr_on_ticks.fetch_add(1, Ordering::Relaxed);
+            }
+            isr_level.store(high, Ordering::Relaxed);
+            // One GPIO write. A failure is dropped rather than propagated: there
+            // is nowhere in an ISR to put an error, and the C++ drops it too
+            // (`relay->on()` returns a bool the ISR ignores). The failure is
+            // still visible, because `level` is updated *before* the write — so
+            // the log says what the ISR intended, which is the honest thing for
+            // it to be able to say.
+            let _ = pin.set_level(if high { Level::High } else { Level::Low });
+        })?;
+
+        driver.enable()?;
+        driver.start()?;
+
+        Ok(Self {
+            chopper,
+            ticks,
+            on_ticks,
+            level,
+            _timer: driver,
+        })
+    }
+
+    /// Let the ISR drive. Call once the gate is open.
+    pub fn arm(&self) {
+        self.chopper.arm();
+    }
+
+    /// Stop the ISR driving.
+    ///
+    /// # Errors
+    ///
+    /// Never. There is no peripheral call here — the pin belongs to the ISR, and
+    /// the pin is already inactive because the gate closed the duty to zero
+    /// before this was called. See [`HeaterOutput`](super::HeaterOutput)'s
+    /// ordering note.
+    pub fn disarm(&self) -> Result<(), EspError> {
+        self.chopper.disarm();
+        Ok(())
+    }
+
+    /// The chopper state, for a caller that wants the counter.
+    #[must_use]
+    pub fn chopper(&self) -> &AtomicChopper {
+        &self.chopper
+    }
+
+    /// How many ISR ticks have run.
+    #[must_use]
+    pub fn ticks(&self) -> u32 {
+        self.ticks.load(Ordering::Relaxed)
+    }
+
+    /// How many of those drove the pin high.
+    #[must_use]
+    pub fn on_ticks(&self) -> u32 {
+        self.on_ticks.load(Ordering::Relaxed)
+    }
+
+    /// The level the ISR last drove.
+    #[must_use]
+    pub fn is_high(&self) -> bool {
+        self.level.load(Ordering::Relaxed)
+    }
+
+    /// The on-time fraction the ISR has actually delivered.
+    ///
+    /// Read from the ISR's own counters, so it is a measurement of what happened
+    /// and not a restatement of what was asked for. **It is not a measurement of
+    /// the pin** — nothing has been scoped — and R1-07's hardware test still has
+    /// to confirm that the ISR's idea of the level and the pin agree.
+    #[must_use]
+    pub fn measured_on_fraction(&self) -> f64 {
+        let ticks = self.ticks();
+        if ticks == 0 {
+            return 0.0;
+        }
+        f64::from(self.on_ticks()) / f64::from(ticks)
+    }
+}
+
+impl HeaterDuty for TimerIsrPwm {
+    /// Publish the gated duty for the ISR to chop to.
+    ///
+    /// The trait's unit is a *count* out of `max_duty`, because that is what
+    /// [`LedcPwm`] needs; this transport works in the C++'s own milliseconds, so
+    /// the count is converted back by [`duty_ms_from_fraction`]. The conversion
+    /// lands on the C++'s own 10 ms grid and is bounded by half a step — see that
+    /// function's docs, and `a_sub_step_duty_delivers_a_whole_tick_through_the_transport_too`
+    /// for what "bounded" means when the caller asks for less than one tick.
+    ///
+    /// **The gate has already run.** [`HeaterOutput`](super::HeaterOutput)
+    /// resolves the deadman before it calls this, so a count of zero here means
+    /// the deadman is shut and the ISR is chopping a zero on-time — i.e. leaving
+    /// the relay off — for the rest of the window. `AtomicChopper::set_duty` also
+    /// returns the counter to 0, so a deadman that trips at counter 500 stops the
+    /// heater for the remainder of *that* window rather than the next one.
+    ///
+    /// # Errors
+    ///
+    /// Never. There is no peripheral to fail: this writes two atomics.
+    fn apply(&mut self, counts: u32, max_duty: u32) -> Result<(), EspError> {
+        let counts = counts.min(max_duty);
+        let fraction = if max_duty == 0 {
+            0.0
+        } else {
+            #[allow(clippy::cast_precision_loss)]
+            {
+                counts as f32 / max_duty as f32
+            }
+        };
+        // A duty is 0..=WINDOW_MS (1000), which `f32` holds exactly.
+        #[allow(
+            clippy::cast_precision_loss,
+            reason = "a duty is 0..=WINDOW_MS, which f32 holds exactly"
+        )]
+        let milliseconds = heater::duty_ms_from_fraction(fraction, heater::CHOSEN_MAX_DUTY) as f32;
+        self.chopper.set_duty(Duty::new(milliseconds));
+        Ok(())
     }
 }
 

@@ -14,13 +14,12 @@
 #![deny(missing_docs)]
 
 pub mod abp2;
-pub mod ds18b20;
 pub mod error;
 pub mod hardware;
 pub mod heater;
-pub mod onewire;
 pub mod pid;
 pub mod process;
+pub mod sensor;
 pub mod state;
 pub mod switch;
 pub mod system;

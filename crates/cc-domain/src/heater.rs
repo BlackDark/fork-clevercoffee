@@ -114,6 +114,8 @@
 //! measures it, R1-07 stays open. See `docs/rust-migration/intentional-diffs.md`
 //! #5.
 
+use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+
 use crate::units::{Duty, Millis};
 
 /// The chopper window, in milliseconds.
@@ -1016,5 +1018,908 @@ mod tests {
             (actual - expected).abs() < 1e-12,
             "expected {expected}, got {actual}"
         );
+    }
+}
+
+// ===========================================================================
+// The 10 ms GPTimer ISR
+// ===========================================================================
+
+/// Convert a duty fraction at a given `max_duty` back to the C++'s millisecond
+/// scale.
+///
+/// The inverse of [`duty_counts`], and it exists because the two transports
+/// disagree about what a duty *is*: [`duty_counts`] turns the C++'s
+/// millisecond duty into a register count for [`cc_hal_esp32::heater::LedcPwm`],
+/// and this turns a register count back into milliseconds for
+/// [`cc_hal_esp32::heater::TimerIsrPwm`], which chops in the C++'s own units.
+///
+/// The result is rounded to the **nearest** 10 ms step. The register resolution
+/// ([`CHOSEN_MAX_DUTY`], 131 072) is not a multiple of the 100 steps in a window,
+/// so a round trip cannot be exact, and the error is bounded by half a step —
+/// 5 ms of a 1000 ms window, i.e. half a per cent. Rounding rather than
+/// truncating is what bounds it at half a step instead of a whole one.
+///
+/// That is the C++'s own resolution and no worse. And the *duty* the ISR is given
+/// is a whole number of 10 ms steps, which is a value `isr.h`'s predicate could
+/// have been handed directly — so the delivered duty is one the C++ could have
+/// produced.
+///
+/// # Errors
+///
+/// None. [`f64`] maths on values in `0.0 ..= 1.0`.
+#[must_use]
+pub fn duty_ms_from_fraction(fraction: f32, max_duty: u32) -> u32 {
+    if fraction <= 0.0 || max_duty == 0 {
+        return 0;
+    }
+    // Round to the *nearest* 10 ms step, not down. Truncating would make every
+    // duty biased low by up to a whole step (10 ms of 1000, i.e. 1 %); rounding
+    // bounds the error at half a step, which is 0.5 %.
+    #[allow(
+        clippy::cast_precision_loss,
+        reason = "max_duty is a duty resolution (131072), exactly an f32"
+    )]
+    let scaled = f64::from(max_duty) * f64::from(fraction.clamp(0.0, 1.0));
+    let exact_steps = scaled / f64::from(max_duty) * f64::from(CHOPPER_STEPS);
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let steps = if exact_steps <= 0.0 {
+        0u32
+    } else {
+        // `floor(x + 0.5)` without a libm: `exact_steps` is in `0..=100`, well
+        // inside the range where `f64` addition and subtraction are exact.
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let rounded = (exact_steps + 0.5) as u64;
+        rounded.min(u64::from(CHOPPER_STEPS)) as u32
+    };
+    steps * CHOPPER_STEP_MS
+}
+
+/// The 10 ms hardware-timer period the C++'s heater ISR runs at, in
+/// microseconds.
+///
+/// `Timing::ISR_TIMER_INTERVAL_US = 10000` (`constants/Timing.h:15`), written
+/// by `timerAlarmWrite(timer, ISR_TIMER_INTERVAL_US, true)` in
+/// `ISR::onTimer` (`isr.h:88`).
+///
+/// **This is the default heater output on this firmware**, not the LEDC 1 Hz
+/// carrier. R1-07 chose LEDC and it does panic the chip on the original ESP32
+/// (09 §17/§20, `ledc_ll_set_duty_start`'s `while (hw->...conf1.duty_start)`
+/// spin inside `portENTER_CRITICAL`, ~1 s against a 300 ms INT WDT). This ISR is
+/// what the C++ and the lost firmware both used and is proven on this hardware.
+pub const ISR_INTERVAL_US: u32 = 10_000;
+
+/// One heater ISR tick's worth of state, and the decision it makes.
+///
+/// 🔴 **The R1-07 decision, reversed.** R1-07 replaced this with a 1 Hz LEDC
+/// carrier on the argument — which is *correct* — that an `f` Hz square wave
+/// makes `2f` contactor operations per second, and that two per second is the
+/// right budget for a 2 kW boiler contactor. What that argument missed is what
+/// ESP-IDF's `ledc_ll_set_duty_start` does on the original ESP32
+/// (`components/hal/esp32/include/hal/ledc_ll.h:485-489`):
+///
+/// ```c
+/// while (hw->channel_group[speed_mode].channel[channel_num].conf1.duty_start);
+/// ```
+///
+/// `duty_start` is cleared by the hardware at the next timer period, and the spin
+/// runs inside `portENTER_CRITICAL(&ledc_spinlock)`
+/// (`components/esp_driver_ledc/src/ledc.c:1603-1606`) with interrupts masked.
+/// At a 1 Hz carrier that is up to one second, and the original ESP32's interrupt
+/// watchdog is 300 ms — so **every** duty write panics, including the duty-0
+/// write in `LedcPwm::new`.
+///
+/// Any carrier slow enough to be mechanically kind is therefore slow enough to
+/// trip the watchdog, and the two requirements are in direct conflict. The ISR
+/// has neither problem: 100 interrupts a second on a 240 MHz Xtensa is
+/// negligible, and its "LEDC costs zero CPU" advantage evaporates on this chip
+/// anyway. [`cc_hal_esp32::heater`] keeps `LedcPwm` behind the same
+/// [`HeaterDuty`] seam for a future chip whose `ledc_ll.h` has no spin.
+///
+/// The cost is 100 relay operations per second instead of 2, which is what the
+/// C++ has always done and what the contactor has always survived. That is the
+/// trade, stated: **contactor wear, not watchdog panics.**
+/// The decision one ISR tick makes, and the state it advances.
+// ============================================================================
+///
+/// This is `isr.h:96-118` as a state machine:
+///
+/// ```cpp
+/// if (currentPidOutput <= currentCounter) relay->off(); else relay->on();
+/// unsigned int newCounter = currentCounter + ISR_COUNTER_INCREMENT;
+/// if (newCounter >= ctx->processWindowSize()) newCounter = 0;
+/// ctx->setIsrCounter(newCounter);
+/// ```
+///
+/// Four lines, one comparison, one write, one addition and one comparison. It is
+/// here, and not in the device crate, so that it can be walked a full window at a
+/// time on the host and the *level pattern* can be asserted rather than the
+/// arithmetic.
+///
+/// # Why a struct and not just [`chopper_tick_level`]
+///
+/// [`chopper_tick_level`] is the *level* at a given counter and stays the
+/// reference definition. This adds the two things the ISR actually has and the
+/// function does not: the counter's own state, and the C++'s **armed** check.
+///
+/// # The armed check is a real hardware state, not a formality
+///
+/// `ISR::onTimer` returns early on `!ctx->isISRReady()` (`isr.h:70-73`), so the
+/// ISR never drives the relay before the system is initialised. Here `armed`
+/// plays that role, and it matters for the same reason it mattered in the C++:
+/// the timer must be running before the pin is trusted, and the pin must be at
+/// the inactive level from before the timer starts. [`arm`](Self::arm) and
+/// [`disarm`](Self::disarm) are the only ways to change it, so a caller cannot
+/// accidentally leave the ISR chopping while the gate is shut.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct IsrChopper {
+    counter_ms: u32,
+    /// The PID output in milliseconds of on-time per window, as the C++ holds it.
+    pid_output: Duty,
+    window_ms: u32,
+    armed: bool,
+}
+
+impl Default for IsrChopper {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl IsrChopper {
+    /// A disarmed chopper at counter 0, with no duty.
+    ///
+    /// **Disarmed**, so a default-constructed one cannot drive anything.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            counter_ms: 0,
+            pid_output: Duty::new(0.0),
+            window_ms: WINDOW_MS,
+            armed: false,
+        }
+    }
+
+    /// Let the ISR drive the relay. Idempotent.
+    pub const fn arm(&mut self) {
+        self.armed = true;
+    }
+
+    /// Stop the ISR driving the relay. Idempotent.
+    ///
+    /// The C++ has no equivalent — it has `isISRReady()`, which is set once and
+    /// never cleared — but the recovered firmware's *"output held off until the
+    /// supervisor beats"* ([08 §3](../../docs/rust-migration/08-recovered-oracle.md))
+    /// is exactly this, and a deadman that cannot de-energise the heater is not a
+    /// deadman.
+    pub const fn disarm(&mut self) {
+        self.armed = false;
+    }
+
+    /// Whether the ISR is allowed to drive.
+    #[must_use]
+    pub const fn is_armed(&self) -> bool {
+        self.armed
+    }
+
+    /// Set the duty for the next window, and return the counter to 0.
+    ///
+    /// A fresh window on a new duty, which is what the C++ gets for free because
+    /// its counter wraps every second and its PID output changes slowly.
+    pub const fn set_duty(&mut self, pid_output: Duty) {
+        self.pid_output = pid_output;
+        self.counter_ms = 0;
+    }
+
+    /// The current counter, in milliseconds into the window.
+    #[must_use]
+    pub const fn counter_ms(&self) -> u32 {
+        self.counter_ms
+    }
+
+    /// The configured control window, in milliseconds.
+    #[must_use]
+    pub const fn window_ms(&self) -> u32 {
+        self.window_ms
+    }
+
+    /// Change the control window.
+    ///
+    /// `ctx->processWindowSize()` (`isr.h:105`) is a runtime value in the C++
+    /// (`ProcessState::windowSize_ = 1000`, `ProcessState.h:183`), so it is one
+    /// here too. Clamped to at least one step, because a window the counter can
+    /// never fit inside would never wrap and the relay would latch on.
+    pub const fn set_window_ms(&mut self, window_ms: u32) {
+        self.window_ms = if window_ms < CHOPPER_STEP_MS {
+            CHOPPER_STEP_MS
+        } else {
+            window_ms
+        };
+        if self.counter_ms >= self.window_ms {
+            self.counter_ms = 0;
+        }
+    }
+
+    /// One ISR tick: decide the level, advance the counter, and report it.
+    ///
+    /// Returns the level the relay should be at. `None` means the ISR is
+    /// disarmed and the pin is to be left alone — the C++'s early return on
+    /// `!isISRReady()`.
+    ///
+    /// This is the *whole* of the heater ISR's arithmetic, and the device crate's
+    /// callback is this call plus one `pin.set_level`. Per 04 §3.1 an ISR does
+    /// "nothing beyond one GPIO write"; the arithmetic here is a handful of
+    /// integer operations and the comparison is the C++'s.
+    pub fn tick(&mut self) -> Option<bool> {
+        if !self.armed {
+            return None;
+        }
+        let level = chopper_tick_level(self.pid_output, self.counter_ms);
+        let next = self.counter_ms + CHOPPER_STEP_MS;
+        self.counter_ms = if next >= self.window_ms { 0 } else { next };
+        Some(level)
+    }
+}
+
+#[cfg(test)]
+#[allow(
+    clippy::float_cmp,
+    clippy::cast_precision_loss,
+    reason = "the tests compare and convert exact 10 ms grid values, which is the \
+              assertion; an approximate comparison would hide what is being pinned"
+)]
+mod isr_tests {
+    use super::*;
+    use alloc::vec::Vec;
+
+    /// Walk a full window of ISR ticks and return the level pattern.
+    fn window(counter_steps: u32, pid: Duty) -> Vec<bool> {
+        let mut chopper = IsrChopper::new();
+        chopper.set_duty(pid);
+        chopper.arm();
+        (0..counter_steps)
+            .map(|_| chopper.tick().unwrap_or(false))
+            .collect()
+    }
+
+    #[test]
+    fn a_disarmed_chopper_drives_nothing_and_a_new_one_starts_disarmed() {
+        // The C++'s `isrEnabled` check, as a state: a default-constructed chopper
+        // must not be able to energise a relay by being ticked.
+        let mut chopper = IsrChopper::new();
+        assert!(!chopper.is_armed());
+        for _ in 0..1_000 {
+            assert_eq!(chopper.tick(), None, "a disarmed chopper reports no level");
+        }
+        // And the counter does not advance either, so arming later starts from 0.
+        assert_eq!(chopper.counter_ms(), 0);
+    }
+
+    #[test]
+    fn arming_is_idempotent_and_ticking_before_it_does_nothing() {
+        let mut chopper = IsrChopper::new();
+        chopper.set_duty(Duty::new(1000.0));
+        chopper.arm();
+        chopper.arm();
+        assert!(chopper.is_armed());
+        assert_eq!(chopper.tick(), Some(true));
+        chopper.disarm();
+        chopper.disarm();
+        assert!(!chopper.is_armed());
+        assert_eq!(chopper.tick(), None);
+    }
+
+    #[test]
+    fn a_full_window_at_half_duty_is_fifty_ticks_then_fifty_not() {
+        // The C++'s steady state at pid_output 500, which `isr.h:96-102` makes
+        // one contiguous ON run of 500 ms followed by 500 ms of OFF. The pattern
+        // is asserted, not just the count, because "50 on ticks" is also what a
+        // broken ISR that chops at the wrong phase would produce.
+        let levels = window(CHOPPER_STEPS, Duty::new(500.0));
+        assert_eq!(levels.len(), 100);
+        assert!(levels[..50].iter().all(|level| *level), "first 500 ms on");
+        assert!(
+            levels[50..].iter().all(|level| !*level),
+            "last 500 ms off -- one contiguous run, not 50 scattered pulses"
+        );
+        assert_eq!(chopper_on_ticks(Duty::new(500.0)), 50);
+    }
+
+    #[test]
+    fn the_counter_makes_exactly_one_hundred_ticks_per_window() {
+        // 1000 ms of window, 10 ms of step. If this ever became 99 or 101, the
+        // delivered duty would drift from the C++'s by a per cent per window.
+        let mut chopper = IsrChopper::new();
+        chopper.set_duty(Duty::new(0.0));
+        chopper.arm();
+        assert_eq!(chopper.counter_ms(), 0, "a new duty starts at 0");
+        // One tick per 10 ms, so the counter returns to 0 after exactly
+        // `CHOPPER_STEPS` ticks. The bound is a failsafe, not the expectation:
+        // without it a counter that never wrapped would hang the test rather
+        // than fail it.
+        let mut ticks = 1u32;
+        chopper.tick();
+        while chopper.counter_ms() != 0 {
+            chopper.tick();
+            ticks += 1;
+            assert!(ticks <= 10_000, "the counter never wrapped");
+        }
+        assert_eq!(ticks, CHOPPER_STEPS);
+        assert_eq!(ticks, 100);
+    }
+
+    #[test]
+    fn the_counter_visits_exactly_the_cpps_counter_values() {
+        // `isr.h:101-105` walks 0, 10, 20, ... 990 and then wraps. Anything else
+        // — 5, 15, a value that skips, a value that lands on 1000 — would be a
+        // different duty.
+        let mut chopper = IsrChopper::new();
+        chopper.set_duty(Duty::new(0.0));
+        chopper.arm();
+        let mut seen = Vec::new();
+        for _ in 0..CHOPPER_STEPS {
+            seen.push(chopper.counter_ms());
+            chopper.tick();
+        }
+        let expected: Vec<u32> = (0..WINDOW_MS).step_by(CHOPPER_STEP_MS as usize).collect();
+        assert_eq!(seen, expected);
+        assert_eq!(seen.first(), Some(&0));
+        assert_eq!(seen.last(), Some(&990));
+        assert!(!seen.contains(&WINDOW_MS), "1000 is never a counter value");
+    }
+
+    #[test]
+    fn the_isr_pattern_is_the_transcribed_function_at_every_counter() {
+        // The state machine and the reference function must not be able to
+        // disagree: for every duty the C++ can express and every counter in the
+        // window, `tick()` at that counter must equal `chopper_tick_level`.
+        for output in [0.0f32, 0.4, 10.0, 250.0, 500.0, 750.0, 999.0, 1000.0] {
+            let mut chopper = IsrChopper::new();
+            chopper.set_duty(Duty::new(output));
+            chopper.arm();
+            for counter in (0..WINDOW_MS).step_by(CHOPPER_STEP_MS as usize) {
+                assert_eq!(chopper.counter_ms(), counter, "duty {output}");
+                let got = chopper.tick().unwrap_or(false);
+                assert_eq!(
+                    got,
+                    chopper_tick_level(Duty::new(output), counter),
+                    "duty {output} at counter {counter}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_delivered_on_time_matches_the_cpp_for_every_representable_duty() {
+        // The end-to-end property: whatever the ISR chops over a window is what
+        // the C++ would have delivered. Summed from the tick pattern, not from
+        // `chopper_on_ticks`, so the state machine is on the hook rather than
+        // only the counting helper.
+        for output in 0..=1_000u16 {
+            let duty = Duty::new(f32::from(output));
+            let on_ticks = window(CHOPPER_STEPS, duty)
+                .iter()
+                .filter(|level| **level)
+                .count();
+            #[allow(clippy::cast_possible_truncation, reason = "at most CHOPPER_STEPS")]
+            let on_ticks = on_ticks as u32;
+            assert_eq!(on_ticks, chopper_on_ticks(duty), "pid_output {output} ms");
+        }
+    }
+
+    #[test]
+    fn a_duty_of_exactly_one_step_is_one_tick_and_not_two() {
+        // The C++'s off-by-one, walked rather than asserted: `pidOutput <=
+        // counter` is off, so at pid_output 10 the counter-0 tick is on and the
+        // counter-10 tick is off. One tick, not two.
+        let levels = window(CHOPPER_STEPS, Duty::new(10.0));
+        assert!(levels[0], "counter 0 is on");
+        assert!(!levels[1], "counter 10 is off -- one tick, not two");
+        assert_eq!(levels.iter().filter(|level| **level).count(), 1);
+    }
+
+    #[test]
+    fn a_sub_step_duty_still_gets_a_whole_tick() {
+        // 0.4 ms is a tenth of a per cent, and the C++ delivers a full 10 ms
+        // because the relay is turned on at counter 0 whenever `pidOutput > 0`.
+        // Preserved, because it is what the machine has always done and a change
+        // would be a change to the contactor's duty, not to the software's
+        // arithmetic.
+        let levels = window(CHOPPER_STEPS, Duty::new(0.4));
+        assert!(levels[0]);
+        assert_eq!(levels.iter().filter(|level| **level).count(), 1);
+    }
+
+    #[test]
+    fn setting_a_duty_restarts_the_window() {
+        // The C++ gets this for free because its counter wraps every second and
+        // its PID output changes on a 1 s timescale. Making it explicit means a
+        // setpoint change takes effect on the next window rather than up to one
+        // second later, which is the same thing the C++ does and is worth
+        // stating rather than leaving to the wrap.
+        let mut chopper = IsrChopper::new();
+        chopper.set_duty(Duty::new(1000.0));
+        chopper.arm();
+        for _ in 0..37 {
+            chopper.tick();
+        }
+        assert_eq!(chopper.counter_ms(), 370);
+        chopper.set_duty(Duty::new(0.0));
+        assert_eq!(chopper.counter_ms(), 0, "a new duty starts a new window");
+        assert_eq!(chopper.tick(), Some(false));
+    }
+
+    #[test]
+    fn a_narrower_window_is_honoured_and_a_ludicrous_one_is_clamped() {
+        // `ctx->processWindowSize()` is a runtime value in the C++
+        // (`ProcessState::windowSize_`), so the port takes one. A window the
+        // counter cannot fit inside would never wrap and the relay would latch
+        // on, so it is clamped rather than trusted.
+        let mut chopper = IsrChopper::new();
+        chopper.set_duty(Duty::new(1000.0));
+        chopper.set_window_ms(100);
+        chopper.arm();
+        assert_eq!(chopper.window_ms(), 100);
+        let levels: Vec<bool> = (0..10).map(|_| chopper.tick().unwrap_or(false)).collect();
+        assert_eq!(levels, alloc::vec![true; 10]);
+
+        chopper.set_window_ms(0);
+        assert_eq!(chopper.window_ms(), CHOPPER_STEP_MS, "clamped to one step");
+        chopper.set_window_ms(5);
+        assert_eq!(chopper.window_ms(), CHOPPER_STEP_MS);
+    }
+
+    #[test]
+    fn shrinking_the_window_below_the_counter_resets_it() {
+        // The C++ compares the *next* counter against the window, so a window
+        // shrunk mid-window is applied at the next wrap, not immediately — but a
+        // counter that is already past the new window would chop outside it, so
+        // this resets. The C++ has no equivalent because its window never
+        // changes at run time.
+        let mut chopper = IsrChopper::new();
+        chopper.set_duty(Duty::new(1000.0));
+        chopper.arm();
+        for _ in 0..50 {
+            chopper.tick();
+        }
+        assert_eq!(chopper.counter_ms(), 500);
+        chopper.set_window_ms(100);
+        assert_eq!(chopper.counter_ms(), 0, "500 was outside the new window");
+    }
+
+    #[test]
+    fn the_isr_period_is_ten_milliseconds_and_matches_the_step() {
+        // `Timing::ISR_TIMER_INTERVAL_US = 10000` and
+        // `Timing::ISR_COUNTER_INCREMENT = 10` (`constants/Timing.h:15,17`).
+        // They must agree, or the counter and the clock drift apart and the
+        // window is not a window.
+        assert_eq!(ISR_INTERVAL_US, 10_000);
+        assert_eq!(ISR_INTERVAL_US / 1_000, CHOPPER_STEP_MS);
+        assert_eq!(ISR_INTERVAL_US / 1_000, 10);
+        // And 100 of them is the C++'s 1 Hz window.
+        assert_eq!(CHOPPER_STEPS * ISR_INTERVAL_US / 1_000, WINDOW_MS);
+    }
+
+    #[test]
+    fn a_hundred_interrupts_a_second_is_what_the_cpp_also_did() {
+        // The cost statement, as arithmetic: 1000 / 10 ms.
+        assert_eq!(1_000_000 / ISR_INTERVAL_US, 100);
+        // Against a 240 MHz Xtensa at 100 Hz, and against the LEDC alternative
+        // that panics on this chip. The ISR is 100 interrupts a second; the LEDC
+        // carrier would be 0 and would not boot.
+        assert_eq!(CARRIER_HZ, 1);
+    }
+}
+
+#[cfg(test)]
+#[allow(
+    clippy::float_cmp,
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "the tests convert and compare exact 10 ms grid values in f32, which \
+              is the assertion"
+)]
+mod transport_tests {
+    use super::*;
+
+    /// The millisecond duty a `pid_output` actually delivers, i.e. what the ISR
+    /// will be asked to chop to after the register round trip.
+    fn round_trip(output: u16) -> u32 {
+        let duty = Duty::new(f32::from(output));
+        let counts = duty_counts(duty, CHOSEN_MAX_DUTY);
+        duty_ms_from_fraction(
+            #[allow(clippy::cast_precision_loss)]
+            {
+                counts as f32 / CHOSEN_MAX_DUTY as f32
+            },
+            CHOSEN_MAX_DUTY,
+        )
+    }
+
+    #[test]
+    fn the_round_trip_lands_on_the_delivered_duty_the_cpp_would_have_produced() {
+        // The real invariant, and the one that matters: whatever comes back is
+        // the C++'s own delivered on-time, `chopper_on_ticks(pid) * 10 ms`, to
+        // within half a step of register quantisation.
+        //
+        // **Note what this is not**: a round trip back to `pid_output`. It cannot
+        // be, and should not be. The C++ turns a 1 ms output into a 10 ms tick —
+        // `isr.h:96` energises the relay at counter 0 whenever `pidOutput > 0` —
+        // so a 1 ms output delivers 10 ms, and the transport correctly reports
+        // 10. The *delivered* duty is the quantity the contactor sees, and that
+        // is what has to match.
+        for output in 0..=1_000u16 {
+            let duty = Duty::new(f32::from(output));
+            let expected = chopper_on_ticks(duty) * CHOPPER_STEP_MS;
+            let back = round_trip(output);
+            assert!(
+                back.abs_diff(expected) <= CHOPPER_STEP_MS / 2,
+                "pid_output {output}: delivered {expected} ms, round trip {back} ms"
+            );
+        }
+    }
+
+    #[test]
+    fn a_sub_step_duty_delivers_a_whole_tick_through_the_transport_too() {
+        // The C++'s quantisation survives the transport, which is the point: a
+        // caller asking for 1 ms gets the 10 ms the C++ would have given it, not
+        // a new 1 ms behaviour the contactor has never seen.
+        assert_eq!(round_trip(1), CHOPPER_STEP_MS);
+        assert_eq!(round_trip(9), CHOPPER_STEP_MS);
+        assert_eq!(
+            round_trip(10),
+            CHOPPER_STEP_MS,
+            "10 ms is one tick, not two"
+        );
+        assert_eq!(round_trip(20), 2 * CHOPPER_STEP_MS);
+    }
+
+    #[test]
+    fn the_round_trip_lands_on_the_cpps_own_step_grid() {
+        // Whatever comes back must be a whole number of 10 ms steps, because the
+        // ISR's counter is a 10 ms counter: a value off the grid would be a duty
+        // the C++ could never have produced.
+        for output in 0..=1_000u16 {
+            let duty = Duty::new(f32::from(output));
+            let counts = duty_counts(duty, CHOSEN_MAX_DUTY);
+            let back = duty_ms_from_fraction(
+                #[allow(clippy::cast_precision_loss)]
+                {
+                    counts as f32 / CHOSEN_MAX_DUTY as f32
+                },
+                CHOSEN_MAX_DUTY,
+            );
+            assert_eq!(back % CHOPPER_STEP_MS, 0, "{back} ms is off the 10 ms grid");
+        }
+    }
+
+    #[test]
+    fn a_zero_or_full_duty_survives_the_round_trip_exactly() {
+        // The two ends are the ones that matter: a closed gate must be a hard 0
+        // and a full-on must be a hard 1000, or the contactor is being asked for
+        // something the C++ never asked for.
+        for output in [0u16, 1_000] {
+            let duty = Duty::new(f32::from(output));
+            let counts = duty_counts(duty, CHOSEN_MAX_DUTY);
+            let back = duty_ms_from_fraction(
+                #[allow(clippy::cast_precision_loss)]
+                {
+                    counts as f32 / CHOSEN_MAX_DUTY as f32
+                },
+                CHOSEN_MAX_DUTY,
+            );
+            assert_eq!(
+                back,
+                u32::from(output),
+                "pid_output {output} did not survive"
+            );
+        }
+    }
+
+    #[test]
+    fn a_nonsense_fraction_is_clamped_rather_than_trusted() {
+        assert_eq!(duty_ms_from_fraction(0.0, CHOSEN_MAX_DUTY), 0);
+        assert_eq!(duty_ms_from_fraction(-1.0, CHOSEN_MAX_DUTY), 0);
+        assert_eq!(duty_ms_from_fraction(1.0, CHOSEN_MAX_DUTY), WINDOW_MS);
+        assert_eq!(duty_ms_from_fraction(2.0, CHOSEN_MAX_DUTY), WINDOW_MS);
+        assert_eq!(
+            duty_ms_from_fraction(1.0, 0),
+            0,
+            "a zero resolution is zero duty"
+        );
+    }
+
+    #[test]
+    fn the_isr_period_is_the_cpps_and_the_window_is_one_hertz() {
+        // The two numbers the ISR is built from, stated together: 10 ms and
+        // 1000 ms. If either moved, the delivered duty would silently change.
+        assert_eq!(ISR_INTERVAL_US, 10_000);
+        assert_eq!(WINDOW_MS, 1_000);
+        assert_eq!(CHOPPER_STEPS, 100);
+        assert_eq!(CARRIER_HZ, 1);
+    }
+}
+
+/// The same chopper, in a form an interrupt handler can hold.
+///
+/// [`IsrChopper`] is the reference: plain fields, no atomics, host-testable
+/// tick by tick. It cannot go in a `FnMut + Send + 'static` ISR callback,
+/// because `&mut IsrChopper` is neither, and this firmware denies `unsafe_code`
+/// — so a raw-pointer or `static mut` counter is not available either.
+///
+/// This is the shape that *is*: three atomics, no `unsafe`, no allocation, and
+/// the identical decision. The difference from [`IsrChopper`] is only that the
+/// counter is read and written with relaxed-ordered atomics, which is correct
+/// because **the ISR is the only writer of the counter** and the control task
+/// never reads it except for diagnostics.
+///
+/// # Why this is not "a second implementation"
+///
+/// It is the *same* function. [`chopper_tick_level`] does the decision and
+/// [`WINDOW_MS`] / [`CHOPPER_STEP_MS`] do the wrap, and both are shared. The only
+/// thing that could drift is the wrap arithmetic, so
+/// `the_atomic_chopper_and_the_reference_agree_for_a_whole_window` walks both for
+/// every duty the C++ can express and asserts they are bit-identical.
+#[derive(Debug)]
+pub struct AtomicChopper {
+    /// Milliseconds into the current window.
+    counter_ms: AtomicU32,
+    /// The duty, in milliseconds of on-time per window.
+    duty_ms: AtomicU32,
+    /// The control window. `u32` because it is an atomic; a window above 4.29e9 ms
+    /// is 49 days, which the C++'s `processWindowSize()` could be set to and which
+    /// would be nonsense, so it is clamped.
+    window_ms: AtomicU32,
+    /// Whether the ISR may drive the pin.
+    armed: AtomicBool,
+}
+
+impl Default for AtomicChopper {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl AtomicChopper {
+    /// A disarmed chopper at counter 0 with no duty.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            counter_ms: AtomicU32::new(0),
+            duty_ms: AtomicU32::new(0),
+            window_ms: AtomicU32::new(WINDOW_MS),
+            armed: AtomicBool::new(false),
+        }
+    }
+
+    /// Let the ISR drive. Idempotent.
+    pub fn arm(&self) {
+        self.armed.store(true, Ordering::SeqCst);
+    }
+
+    /// Stop the ISR driving. Idempotent.
+    pub fn disarm(&self) {
+        self.armed.store(false, Ordering::SeqCst);
+    }
+
+    /// Whether the ISR may drive.
+    #[must_use]
+    pub fn is_armed(&self) -> bool {
+        self.armed.load(Ordering::SeqCst)
+    }
+
+    /// Set the duty for the next window and return the counter to 0.
+    ///
+    /// Called from the control task, never from the ISR — which is why this takes
+    /// `&self` and uses [`Ordering::SeqCst`]: the ISR reads [`Self::tick`]'s
+    /// inputs with a relaxed load, and a duty that is half-published would show
+    /// up as one window of the wrong duty.
+    pub fn set_duty(&self, duty: Duty) {
+        #[allow(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "a duty is 0..=WINDOW_MS, which is exactly a u32"
+        )]
+        let millis = duty.raw() as u32;
+        self.duty_ms.store(millis, Ordering::SeqCst);
+        self.counter_ms.store(0, Ordering::Relaxed);
+    }
+
+    /// The duty, in milliseconds.
+    #[must_use]
+    pub fn duty_ms(&self) -> u32 {
+        self.duty_ms.load(Ordering::SeqCst)
+    }
+
+    /// The current counter, in milliseconds into the window.
+    #[must_use]
+    pub fn counter_ms(&self) -> u32 {
+        self.counter_ms.load(Ordering::Relaxed)
+    }
+
+    /// The control window, in milliseconds.
+    #[must_use]
+    pub fn window_ms(&self) -> u32 {
+        self.window_ms.load(Ordering::SeqCst)
+    }
+
+    /// Change the control window, clamping a nonsensical one.
+    pub fn set_window_ms(&self, window_ms: u32) {
+        let window = window_ms.clamp(CHOPPER_STEP_MS, u32::MAX);
+        self.window_ms.store(window, Ordering::SeqCst);
+        if self.counter_ms() >= window {
+            self.counter_ms.store(0, Ordering::Relaxed);
+        }
+    }
+
+    /// One ISR tick: decide the level, advance the counter, report it.
+    ///
+    /// `None` means the ISR is disarmed and the pin is to be left alone — the
+    /// C++'s early return on `!isISRReady()` (`isr.h:70-73`).
+    ///
+    /// This is the entire body of the heater ISR's arithmetic. The device crate's
+    /// callback is this call, a branch on the result, and one GPIO write.
+    pub fn tick(&self) -> Option<bool> {
+        if !self.armed.load(Ordering::SeqCst) {
+            return None;
+        }
+        // The counter is at most `WINDOW_MS` (1000) and the duty at most the
+        // same, so both are exact in `f32` and the cast is lossless.
+        #[allow(
+            clippy::cast_precision_loss,
+            reason = "a duty is 0..=WINDOW_MS, which f32 holds exactly"
+        )]
+        let duty = self.duty_ms() as f32;
+        let counter = self.counter_ms.load(Ordering::Relaxed);
+        let level = chopper_tick_level(Duty::new(duty), counter);
+        let next = counter.saturating_add(CHOPPER_STEP_MS);
+        self.counter_ms.store(
+            if next >= self.window_ms() { 0 } else { next },
+            Ordering::Relaxed,
+        );
+        Some(level)
+    }
+}
+
+#[cfg(test)]
+#[allow(
+    clippy::float_cmp,
+    reason = "the tests compare exact f32 values that the code under test produces \
+              by the same expression, which is the assertion"
+)]
+mod atomic_chopper_tests {
+    use super::*;
+    use alloc::vec::Vec;
+
+    /// Walk a whole window of [`AtomicChopper`] ticks.
+    fn window(duty: Duty) -> Vec<bool> {
+        let chopper = AtomicChopper::new();
+        chopper.set_duty(duty);
+        chopper.arm();
+        (0..CHOPPER_STEPS)
+            .map(|_| chopper.tick().unwrap_or(false))
+            .collect()
+    }
+
+    #[test]
+    fn the_atomic_chopper_and_the_reference_agree_for_a_whole_window() {
+        // The anti-drift test, and the reason this type is not "a second
+        // implementation": for every duty the C++ can express, the two produce
+        // bit-identical level sequences for a whole window. If the wrap
+        // arithmetic ever drifts, this fails.
+        for output in 0..=1_000u16 {
+            let duty = Duty::new(f32::from(output));
+
+            let mut reference = IsrChopper::new();
+            reference.set_duty(duty);
+            reference.arm();
+            let expected: Vec<bool> = (0..CHOPPER_STEPS)
+                .map(|_| reference.tick().unwrap_or(false))
+                .collect();
+
+            assert_eq!(window(duty), expected, "pid_output {output} ms");
+        }
+    }
+
+    #[test]
+    fn a_disarmed_atomic_chopper_drives_nothing() {
+        // A default-constructed one must not be able to energise a relay by
+        // being ticked — the same property `IsrChopper` has, and the reason
+        // `AtomicChopper::new` leaves `armed` false.
+        let chopper = AtomicChopper::new();
+        assert!(!chopper.is_armed());
+        for _ in 0..1_000 {
+            assert_eq!(chopper.tick(), None);
+        }
+        assert_eq!(chopper.counter_ms(), 0, "and the counter does not advance");
+    }
+
+    #[test]
+    fn the_counter_visits_the_cpps_counter_values() {
+        // Same walk as `the_counter_visits_exactly_the_cpps_counter_values`, on
+        // the type the ISR actually uses.
+        let chopper = AtomicChopper::new();
+        chopper.set_duty(Duty::new(0.0));
+        chopper.arm();
+        let seen: Vec<u32> = (0..CHOPPER_STEPS)
+            .map(|_| {
+                let at = chopper.counter_ms();
+                chopper.tick();
+                at
+            })
+            .collect();
+        let expected: Vec<u32> = (0..WINDOW_MS).step_by(CHOPPER_STEP_MS as usize).collect();
+        assert_eq!(seen, expected);
+    }
+
+    #[test]
+    fn setting_a_duty_over_the_transport_restarts_the_window() {
+        // The property the ISR depends on: a new duty is picked up whole, not
+        // half-way through a window. This is the sequence `HeaterDuty::apply` and
+        // the ISR produce between them, and it is what makes the gate meaningful
+        // — a deadman that trips at counter 500 of a window must stop the heater
+        // for the rest of *that* window, not the next one.
+        let chopper = AtomicChopper::new();
+        chopper.set_duty(Duty::new(1000.0));
+        chopper.arm();
+        for _ in 0..50 {
+            assert_eq!(chopper.tick(), Some(true));
+        }
+        assert_eq!(chopper.counter_ms(), 500);
+        // The gate closes: duty 0.
+        chopper.set_duty(Duty::new(0.0));
+        assert_eq!(chopper.counter_ms(), 0);
+        for _ in 0..50 {
+            assert_eq!(chopper.tick(), Some(false), "the heater is off immediately");
+        }
+    }
+
+    #[test]
+    fn arming_and_disarming_take_effect_on_the_next_tick_not_the_current_one() {
+        // The C++ reads `isrEnabled` once per ISR entry, so a change lands on the
+        // next entry. Pinned so the ordering cannot drift into a "check the flag
+        // after driving" shape, which would energise the heater for one tick after
+        // a deadman trip.
+        let chopper = AtomicChopper::new();
+        chopper.set_duty(Duty::new(1000.0));
+        chopper.arm();
+        assert_eq!(chopper.tick(), Some(true));
+        chopper.disarm();
+        assert_eq!(chopper.tick(), None, "disarm takes effect at once");
+        chopper.arm();
+        assert_eq!(chopper.tick(), Some(true), "re-arming takes effect at once");
+    }
+
+    #[test]
+    fn a_ludicrous_window_is_clamped_rather_than_letting_the_relay_latch() {
+        // A window the counter cannot reach means the counter never wraps, so the
+        // relay would stay at whatever the first tick decided. Clamped.
+        let chopper = AtomicChopper::new();
+        chopper.set_window_ms(0);
+        assert_eq!(chopper.window_ms(), CHOPPER_STEP_MS);
+        chopper.set_window_ms(5);
+        assert_eq!(chopper.window_ms(), CHOPPER_STEP_MS);
+        chopper.set_duty(Duty::new(1000.0));
+        chopper.arm();
+        assert_eq!(chopper.tick(), Some(true));
+        assert_eq!(chopper.counter_ms(), 0, "one window, one tick, wrapped");
+    }
+
+    #[test]
+    fn a_duty_written_by_the_control_task_is_seen_whole_by_the_isr() {
+        // The cross-thread property. `set_duty` is `SeqCst` and `tick` reads with
+        // `Relaxed`, which is only sound because `tick` runs on the same core as
+        // the timer interrupt and the duty is published before the next tick
+        // *entry*. This test cannot prove that ordering -- it can only pin that a
+        // duty published between two ticks is the one the next tick uses, which
+        // is the observable half of it.
+        let chopper = AtomicChopper::new();
+        chopper.arm();
+        for output in [0u16, 250, 500, 750, 1_000] {
+            chopper.set_duty(Duty::new(f32::from(output)));
+            let expected = chopper_tick_level(Duty::new(f32::from(output)), 0);
+            assert_eq!(chopper.tick(), Some(expected), "pid_output {output}");
+        }
     }
 }

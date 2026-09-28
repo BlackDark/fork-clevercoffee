@@ -17,16 +17,45 @@
 //! * This crate does not compile for a host target. Validate it with
 //!   `just lint-esp32`.
 //!
-//! Owner: R3-01. This is the R1-01 workspace skeleton, plus the R1-07 heater
-//! output in [`heater`].
+//! Owner: R3-01. This is the R1-01 workspace skeleton, the R1-07 heater output in
+//! [`heater`], and the R1-03/R3-07 temperature sensors in [`onewire`] and
+//! [`zacwire`].
+//!
+//! # 🔴 One `unsafe`, and it needs a human to ratify it
+//!
+//! [`zacwire::now_us`] is a single call to ESP-IDF's `esp_timer_get_time()`,
+//! behind a narrowly-scoped `#[allow(unsafe_code)]` with the reasoning written
+//! out at the call site. It is the **only** `unsafe` in the workspace, and the
+//! workspace lint is `unsafe_code = "deny"`.
+//!
+//! It is there because `esp-idf-hal` 0.47 has **no** `esp_timer` module and no
+//! safe monotonic clock of any kind — checked in `src/timer.rs` and
+//! `src/delay.rs`) — and the `ZACwire` protocol cannot be decoded without
+//! microsecond timestamps (04 §5's timing constraint, and the app note's
+//! ≥ 128 kHz sampling requirement). The alternatives were all worse: a C shim is
+//! the same `unsafe` in another file, a `GPTimer` count read is also `unsafe` FFI
+//! *and* a 24-bit wrap to difference by hand, and `std::time::Instant` has no
+//! documented clock on this target.
+//!
+//! If the decision is "no `unsafe`, anywhere", then the honest consequence is
+//! that the TSIC-306 driver has no device implementation, and that is a decision
+//! to take explicitly rather than by omission.
 
 #![no_std]
 #![deny(clippy::pedantic)] // workspace lints already do this; restated per crate
 
+// `Arc`, for the one place the heater ISR and the control task must share a
+// value. `alloc` is already linked (`esp-idf-hal`'s `std` feature pulls it in
+// and the firmware is a `std` binary), so this costs nothing; what it would cost
+// is `&mut` across a thread boundary, which is `unsafe` and is not available.
+extern crate alloc;
+
 pub mod heater;
 pub mod onewire;
 pub mod sensors;
+pub mod zacwire;
 
-pub use heater::{HeaterDuty, HeaterOutput, LedcPwm, CARRIER_HZ, RESOLUTION};
+pub use heater::{HeaterDuty, HeaterOutput, LedcPwm, TimerIsrPwm, CARRIER_HZ, RESOLUTION};
 pub use onewire::GpioOneWire;
 pub use sensors::{Abp2I2c, Abp2Pressure, GpioIn};
+pub use zacwire::ZacwireCapture;

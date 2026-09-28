@@ -100,12 +100,21 @@ pub struct SafetyConfig {
     /// [`validate_config`]. See [`RelayTriggerType`]: a low-trigger heater relay
     /// cannot be made safe in firmware.
     pub heater_relay_trigger: RelayTriggerType,
-    /// `hardware.sensors.temperature.type` — needed only by
-    /// [`validate_config`], and here for the same reason: a temperature sensor
-    /// the firmware cannot drive is a temperature reading S1 cannot trust.
+    /// `hardware.sensors.temperature.type`.
     ///
-    /// See [`TemperatureSensorType`] and
-    /// [`ConfigViolation::UnsupportedTemperatureSensor`].
+    /// **Not used by [`validate_config`] any more**, and that is a deliberate
+    /// reversal. It is still here because a configuration's sensor type is part
+    /// of the configuration and the firmware has to carry it somewhere, and
+    /// because the `cc-config` schema and this struct are the two ends of the
+    /// same key.
+    ///
+    /// Both sensor types are now implemented — see
+    /// [`cc_domain::sensor::ds18b20`] and [`cc_domain::sensor::tsic306`] — so
+    /// there is no `ConfigViolation` left for either of them and nothing to
+    /// validate. An earlier revision refused `TSIC_306`
+    /// ([`ConfigViolation::UnsupportedTemperatureSensor`], removed) on the
+    /// grounds that no Rust driver existed; the driver now exists and that
+    /// variant is gone.
     pub temperature_sensor: TemperatureSensorType,
 }
 
@@ -125,18 +134,28 @@ impl Default for SafetyConfig {
             emergency_hysteresis: Celsius::new(5.0),
             steam_setpoint: Celsius::new(120.0),
             heater_relay_trigger: RelayTriggerType::HighTrigger,
-            // DIVERGENCE from `Config.h:1085-1092`, which defaults
-            // `hardware.sensors.temperature.type` to `TSIC_306`. That default is
-            // wrong for the machine as built: the probe fitted is a DS18B20
-            // (family 0x28, measured), and the TSIC-306 driver was never
-            // implemented in the previous Rust firmware, which logged
-            // "config asks for Tsic306 but only the DS18B20 driver exists;
-            // reading the 1-Wire bus anyway"
-            // ([08 §4.1](../../../docs/rust-migration/08-recovered-oracle.md)).
-            // Defaulting to the driver that exists is what makes the
-            // `TSIC_306` rejection below coherent — a default that is itself
-            // rejected would mean the machine refuses to run its own defaults.
-            temperature_sensor: TemperatureSensorType::DallasDs18b20,
+            // `TSIC_306`, matching `Config.h:1085-1092`:
+            //
+            //   EnumParamDef<Hardware::TemperatureSensorType> hardwareSensorsTemperatureType{
+            //       "hardware.sensors.temperature.type",
+            //       Hardware::TemperatureSensorType::TSIC_306, ...
+            //
+            // An earlier revision defaulted this to `DALLAS_DS18B20` and made
+            // `validate_config` reject `TSIC_306`, so that a default which the
+            // validator refused could never be the machine's own configuration.
+            // That reasoning was sound *given a missing driver*; the driver now
+            // exists (`cc_domain::sensor::tsic306`, R3-07) and both types are
+            // supported, so the parity default is restored.
+            //
+            // **What this does not mean:** that a TSIC-306 is fitted to this
+            // machine. It is not — the probe on the board is a DS18B20 (family
+            // 0x28, ROM `286937aacd78af41`, measured 2026-09-28). A machine
+            // built with this default and a DS18B20 fitted reports
+            // `NOT_CONNECTED`/no-presence and says so, because the two drivers
+            // fail differently and visibly. `cc-firmware` therefore selects the
+            // driver from the *board*, not from this default; see its
+            // `PROBE` constant.
+            temperature_sensor: TemperatureSensorType::Tsic306,
         }
     }
 }
@@ -736,11 +755,11 @@ pub fn validate_config(cfg: &SafetyConfig) -> Result<(), ConfigViolation> {
         return Err(ConfigViolation::HeaterRelayLowTrigger);
     }
 
-    if cfg.temperature_sensor == TemperatureSensorType::Tsic306 {
-        return Err(ConfigViolation::UnsupportedTemperatureSensor {
-            requested: cfg.temperature_sensor,
-        });
-    }
+    // `cfg.temperature_sensor` is deliberately not checked. Both types have a
+    // driver (R1-03 for the DS18B20, R3-07 for the TSIC-306), so there is no
+    // value of this field the firmware cannot honour. The check that used to be
+    // here refused `TSIC_306`; see `ConfigViolation`'s note.
+    let _ = cfg.temperature_sensor;
 
     Ok(())
 }

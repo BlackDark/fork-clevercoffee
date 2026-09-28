@@ -560,15 +560,22 @@ fn the_safety_view_names_exactly_the_safety_relevant_values() {
 }
 
 #[test]
-fn the_default_temperature_sensor_is_the_one_that_is_fitted() {
-    // DIVERGENCE from `Config.h:1085-1092`, which defaults this to
-    // `TSIC_306`. The probe on this machine is a DS18B20 (family 0x28,
-    // measured), and `cc_safety::validate_config` **rejects** `TSIC_306` — so a
-    // `TSIC_306` default would be a configuration the machine refuses to run.
+fn the_default_temperature_sensor_is_the_cpps_tsic_306() {
+    // PARITY with `Config.h:1085-1092`, which defaults this to `TSIC_306`.
+    //
+    // An earlier revision defaulted it to `DALLAS_DS18B20` and made
+    // `cc_safety::validate_config` reject `TSIC_306`, so that a default the
+    // validator refuses could not be the machine's own configuration. Both of
+    // those are now reversed (R3-07): the driver exists, the validator accepts
+    // it, and the C++'s value is restored.
+    //
+    // The probe fitted to the attached machine is a DS18B20 and always has been
+    // — so a machine running these defaults reports a not-connected temperature
+    // sensor and says so, rather than silently reading a bus it does not own.
     let config = Config::default();
     assert_eq!(
         config.hardware.sensors.temperature.r#type,
-        TemperatureSensorType::DallasDs18b20
+        TemperatureSensorType::Tsic306
     );
     // And the schema default must agree, or the export test catches it.
     let spec = schema::SCHEMA
@@ -577,7 +584,7 @@ fn the_default_temperature_sensor_is_the_one_that_is_fitted() {
         .expect("the parameter is registered");
     assert_eq!(
         spec.default,
-        ParamValue::Enum(TemperatureSensorType::DallasDs18b20 as i8)
+        ParamValue::Enum(TemperatureSensorType::Tsic306 as i8)
     );
     // The wire value is unchanged: both enums are positional
     // (`defaults.h:170-173`), so a C++-written NVS still parses.

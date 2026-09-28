@@ -815,11 +815,12 @@ pub const SCHEMA: &[ParamSpec] = &[
     ParamSpec::new(
         "hardware.sensors.temperature.type",
         ParamKind::Enum,
-        // DALLAS_DS18B20, not the C++'s TSIC_306: see
-        // `HardwareSensorsTemperature`'s Default impl. Both the schema default
-        // and the struct default must agree, or `Config::default()` and
-        // `schema::SCHEMA` diverge and the export test fails.
-        ParamValue::Enum(TemperatureSensorType::DallasDs18b20 as i8),
+        // TSIC_306, the C++'s value at `Config.h:1085-1092`. Both the schema
+        // default and the struct default must agree, or `Config::default()` and
+        // `schema::SCHEMA` diverge and the export test fails. See
+        // `HardwareSensorsTemperature`'s Default impl for why this was
+        // `DALLAS_DS18B20` in an earlier revision and is not now.
+        ParamValue::Enum(TemperatureSensorType::Tsic306 as i8),
         None,
         None,
     ),

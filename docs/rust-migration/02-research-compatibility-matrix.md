@@ -235,6 +235,24 @@ adaptive max-change-rate of 200 °C/sample → 5 °C/sample, and rejects `temp <
 to stop glitches from tripping emergency stop — **both behaviours are safety-relevant and
 must be preserved**). Spike R1-03.
 
+**STATUS 2026-09-28 (R3-07): implemented, and 🔴 unverified on hardware.**
+`cc_domain::sensor::tsic306` implements the app note's §1.3 decoder — strobe measured
+from the start bit, `pulse > strobe` per bit, even parity per packet, the stop-bit gap
+checked as a two-window interval between falling edges — and is host-tested against a
+waveform synthesised from the spec's own duty cycles.
+`cc_hal_esp32::zacwire` is the device capture, and is **not brought up**: the pin it
+would use is carrying 1-Wire traffic from the DS18B20 that is actually fitted.
+**No TSIC-306 has ever been attached to this machine**, so a green test run is evidence
+about the arithmetic and about nothing else. Two things in the above are now known to be
+wrong or misleading and are called out in the code: `temp >= 180` **cannot fire** on a
+TSIC-306 (its span ends at 150 °C), and the change-rate constants are used in *two
+different units* in two adjacent C++ files (see `intentional-diffs.md` #7).
+Also learned: `esp-idf-hal` 0.47 has no `AtomicU64` on this target, so the edge ring
+packs the level and a 31-bit timestamp into one `AtomicU32`; and there is no
+safe timestamped per-edge GPIO callback anywhere in this HAL, so the capture is a
+≥128 kHz **poller** (which is what the app note asks for anyway) rather than the
+falling-edge ISR it suggests.
+
 ### DS18B20 / 1-Wire — no mature Rust driver
 
 | Crate | Version | Date | Verdict |

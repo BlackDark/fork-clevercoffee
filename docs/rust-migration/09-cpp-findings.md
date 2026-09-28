@@ -244,6 +244,21 @@ replaces.
 
 ## 17. 🔴🔴 `TempSensorDallas` accepts −251 °C and −250 °C, and cannot reach the faults it checks
 
+> **🔴 THE TITLE OF THIS SECTION IS WRONG, AND WAS WRONG WHEN IT WAS WRITTEN
+> (2026-09-28, R1-03/R3-07).** The title claims the C++ accepts -251 °C and -250 °C.
+> It does not: `rawToCelsius` folds them to -127 and `TempSensorDallas`'s first `if`
+> rejects them, exactly as it rejects the other four. The body text below gets the
+> *mechanism* right — all six raws are at or below `DEVICE_DISCONNECTED_RAW` — but then
+> draws the wrong conclusion from it. Read
+> [the correction in §18](#18-🔴-corrected-2026-09-28-the-ds18b20s-power-sentinels-are-rejected)
+> instead; it is short, it is right, and it has a test that stops it being re-inverted
+> (`cc_domain::sensor::onewire::div7_every_ds18b20_fault_is_rejected_by_the_cpp`).
+>
+> **What survives from the original finding**, and is the part worth keeping: the C++
+> rejects all six faults but reports all six as *"Temperature sensor not connected"*,
+> so a power-on reset on the probe sends an operator to look at the wiring. And
+> `rawToCelsius` cannot represent -55 °C, the bottom of the DS18B20's range.
+
 **Found 2026-09-28 while porting the DS18B20 (R1-03 / R3-06).**
 
 `TempSensorDallas::sample_temperature` (`TempSensorDallas.cpp:26-43`) is two
@@ -502,16 +517,51 @@ available for a future chip that supports it. `LedcPwm` is not brought up
 The 100 Hz/ISR CPU cost is ~100 IRQs/s on a 240 MHz Xtensa — negligible. The "LEDC costs
 zero CPU" argument in 04 §5 does not survive contact on this chip.
 
-## 18. `TempSensorDallas` cannot reach the faults it checks
+## 18. 🔴 CORRECTED 2026-09-28: the DS18B20's power sentinels **are** rejected
 
-`TempSensorDallas.cpp` rejects `DEVICE_FAULT_OPEN_C`, `DEVICE_FAULT_SHORTGND_C` and
-`DEVICE_FAULT_SHORTVDD_C`, but those are **MAX31850-only** sentinels. A DS18B20 has no such
-fault codes; the two faults it does have arrive as `-127`. So the three checks are dead
-code, and the check it omits (`-127`) is the one that matters.
+The first version of this section claimed that `TempSensorDallas` "accepts −251 and
+−250" and that the three wiring checks are "dead code". **Both claims were wrong**, and the
+reason is one line of the library the C++ wraps
+(`.pio/libdeps/esp32_usb/DallasTemperature/DallasTemperature.cpp:406-410`):
 
-It also **accepts −251 and −250**, which are the DS18B20's power-on sentinel values, and
-`rawToCelsius` cannot represent −55 °C (the bottom of the 11-bit grid is −0.125, but the
-conversion underflows for the out-of-power range).
+```cpp
+if (raw <= DEVICE_DISCONNECTED_RAW) return DEVICE_DISCONNECTED_C;
+return (float)raw * 0.0078125f;
+```
+
+`calculateTemperature` returns the **raw** sentinels (`DallasTemperature.h:33-55`):
+
+| fault | raw | `<= -7040`? | what `rawToCelsius` returns | what `TempSensorDallas` sees |
+| --- | --- | --- | --- | --- |
+| `Disconnected` | -7040 | yes | -127 | `== DEVICE_DISCONNECTED_C` → **rejected** |
+| `Open` (MAX31850) | -32512 | yes | -127 | rejected |
+| `ShortGnd` (MAX31850) | -32384 | yes | -127 | rejected |
+| `ShortVdd` (MAX31850) | -32256 | yes | -127 | rejected |
+| `PowerOnReset` (DS18B20) | -32128 | yes | -127 | rejected |
+| `InsufficientPower` (DS18B20) | -32000 | yes | -127 | rejected |
+
+**All six are rejected.** The second `if` block (`TempSensorDallas.cpp:33-35`), which
+compares against -254/-253/-252, *is* dead — but not because those faults are
+unreachable, because `rawToCelsius` can never produce those values.
+
+What the C++ actually gets wrong is the **message**: a DS18B20 reporting a power-on
+reset is logged as *"Temperature sensor not connected"* (`:30`), which sends an operator
+to look at the wiring when the fault is on the probe.
+
+**The real, still-true findings from this section:**
+
+* `rawToCelsius` cannot read **-55 °C**. `DEVICE_DISCONNECTED_RAW` is -7040, which is
+  exactly -55 °C in 1/128 units, so the bottom of the DS18B20's range is reported as
+  disconnected. A genuine off-by-one in the library; preserved and pinned
+  (`cc_domain::sensor::onewire::s6_minus_55_c_is_reported_as_disconnected`).
+* The three MAX31850 wiring faults are unreachable on a DS18B20, so on *this* machine the
+  second `if` block is dead — but it is kept in the port, so a swapped probe fails closed.
+
+Pinned by `cc_domain::sensor::onewire::div7_every_ds18b20_fault_is_rejected_by_the_cpp`,
+whose test name exists specifically so this correction cannot be re-inverted.
+
+See also §17 above, which is the long-form version of the same finding and carries the
+same correction.
 
 ## 19. The moving-average filter divides 0/0 on its first sample
 
@@ -521,5 +571,45 @@ count before the first sample is committed, producing `NaN` on the first reading
 ## 20. The temperature path has no range check
 
 `isValidTemperature` in `TempSensor.h` is **dead code** — the Dallas path never calls it,
-so there is no `-50..150 °C` validation on the DS18B20 reading. Combined with §18, a
-sentinel value can reach PID and emergency-stop logic.
+so there is no `-50..150 °C` validation on the DS18B20 reading. A 165 °C reading is
+therefore cached, averaged and handed to the PID.
+
+**🔴 CLOSED 2026-09-28 (R1-03/R3-07).** The check is now applied, in
+`cc_domain::sensor::ds18b20::Driver::poll`, as a rejected read rather than a temperature.
+The reachable cost is small and was measured rather than assumed: the DS18B20's own
+range is **-55..+125 °C**, so the only real readings the new check refuses are the
+**-55..-50 °C** band, and the upper bound is inert because the sensor cannot report above
+150 at all. What *does* change is the diagnostic for a genuine over-temperature in
+150..200 °C: it now arrives as a *sensor read failure*, so the machine reaches
+`SENSOR_ERROR` rather than `EMERGENCY_STOP`. The heater is off either way.
+
+Tests: `cc_domain::sensor::ds18b20::div8_the_dallas_path_applies_the_range_check_it_never_applied`,
+`::div8_the_two_ranges_overlap_only_between_zero_and_a_hundred_and_fifty`,
+`::div8_only_the_cold_end_of_the_ds18b20s_range_is_now_refused`,
+`::div8_a_reading_outside_the_range_is_a_read_failure_not_a_hot_temperature`.
+See `intentional-diffs.md` #8.
+
+The original "combined with §18, a sentinel value can reach PID" claim is **withdrawn**:
+§18 is corrected above and no sentinel reaches the PID.
+
+---
+
+## 21. New C++ findings from the sensor port (2026-09-28)
+
+- **§17 correction:** `rawToCelsius` (`DallasTemperature.cpp:406-410`) folds every raw at or
+  below −7040 to −127, and the two power-on sentinels are −32128 / −32000, so **all six
+  DS18B20 faults are in fact rejected** by the C++. The three MAX31850-only checks are
+  still dead here, but for a different reason: `rawToCelsius` cannot produce
+  −254/−253/−252. What the C++ gets wrong is the **message** — a power-on reset is logged
+  as "not connected". Pinned by `div7_every_ds18b20_fault_is_rejected_by_the_cpp`.
+- **`TempSensorTSIC::validTemps` is a function-local `static` inside a `const` member
+  function** — process-global, never reset, shared between instances. Per-instance state
+  in the port.
+- **The C++'s TSIC no-signal timeout is 100 ms against a 10 Hz sensor**, i.e. one
+  transmission period with zero margin. The port uses 250 ms.
+- **`temp >= 180` and `temp <= 0.0` are both effectively dead bounds on a TSIC-306**:
+  the 11-bit span ends at 150 °C, and 0.00 °C is off the grid. First victim is DS 511.
+- **The TSIC change-rate constant is used in two different units in two adjacent C++
+  files**: `ZACwire.cpp:58` compares it against a gradient in raw counts, while
+  `TempSensorTSIC.cpp:39` compares it against degrees. Unresolved; the port applies
+  degrees and exposes `COUNT_SCALE`.

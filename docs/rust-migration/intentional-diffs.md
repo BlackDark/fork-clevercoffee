@@ -322,284 +322,17 @@ oracle to agree with the port.**
 
 ---
 
-## 5. The heater is driven by LEDC, not a 10 ms ISR 🔴 changed
+## 5. ~~The heater is driven by LEDC, not a 10 ms ISR~~ — superseded by #9 🔴 reversed
 
 | | |
 | --- | --- |
-| **Task** | R1-07; [04 §5](./04-target-architecture.md) |
-| **Test** | `cc-domain/src/heater.rs` — 16 tests, all host. `cc-hal-esp32/src/heater.rs` — device, not host-testable |
-| **Hardware** | **NOT VERIFIED.** See "Open" below. |
+| **Superseded** | 2026-09-28, by [#9](#9-the-heater-is-chopped-by-a-10-ms-gptimer-isr-not-by-ledc-🔴-changed) |
+| **Why** | R1-07's 1 Hz LEDC carrier **panics the original ESP32 at boot** — `ledc_ll_set_duty_start` spins inside `portENTER_CRITICAL` for up to one carrier period with interrupts masked, against a 300 ms interrupt watchdog. The spin is unique to this chip: every other `ledc_ll.h` in the tree has it removed. |
+| **What survives** | The **argument** for a low carrier, and the divider arithmetic (`esp_driver_ledc`'s `div_param` formula, the 17/18/19/20-bit table). Both are kept in `cc_hal_esp32::heater`'s module docs and both are what a different target would use. `LedcPwm` is retained, unbrought-up, behind the same `HeaterDuty` seam. |
+| **Hardware** | The 1 Hz carrier was measured panicking on 2026-09-28. The 10 ms ISR replacement has **not** yet been confirmed running — see #9's "Not yet verified". |
 
-### What the C++ does
-
-A hardware timer ISR every 10 ms drives the heater relay directly, bypassing
-`HardwareManager` entirely:
-
-```cpp
-if (currentPidOutput <= currentCounter) { relay->off(); } else { relay->on(); }
-unsigned int newCounter = currentCounter + ISR_COUNTER_INCREMENT; // 10
-if (newCounter >= ctx->processWindowSize()) newCounter = 0;        // 1000
-```
-
-(`include/clevercoffee/isr.h:85-118`, `windowSize_ = 1000` at
-`include/clevercoffee/context/ProcessState.h:183`,
-`ISR_COUNTER_INCREMENT = 10` at `include/clevercoffee/constants/Timing.h:17`.)
-
-This is the **only hard-real-time requirement in the firmware**: 100 interrupts
-per second at the highest priority the chip offers, each doing a GPIO write and a
-counter add, and the C++ deliberately bypasses the hardware manager's
-`heaterEnabled_` bookkeeping so the ISR cannot race it — which is a design smell
-the migration exists to remove.
-
-The recovered previous Rust firmware did the same, and said so in its boot log:
-`"heater interrupt running on GPIO2 (active high), output held off until the
-supervisor beats"` ([08 §3](./08-recovered-oracle.md)).
-
-### ⚠ The ISR rate is not the chopper rate — this is the whole entry
-
-**An earlier revision of this file, of `04 §5` and of the `cc-hal-esp32` and
-`cc-domain` module docs, justified a 100 Hz LEDC carrier as "reproducing the
-existing 10 ms-step / 1 Hz chopping exactly". That was wrong, and the error was
-in reading the C++'s ISR rate as its switching rate.** It is recorded here
-because the correction is the substantive content of this diff, not the
-mechanism.
-
-The ISR *fires* 100 times a second. The relay *level* changes about **twice** a
-second. The predicate `pidOutput > counter` is **monotone in the counter**, so
-for a constant PID output the energised run is one contiguous block starting at
-counter 0; the other 99 ISR entries per second re-assert the level they already
-set. Re-asserting a level is not a transition, and a contactor does not care
-about it:
-
-| `pid_output` | ISR entries/s | on-ticks | on-time | relay level over the window | **level changes/s** |
-| --- | --- | --- | --- | --- | --- |
-| 0 | 100 | 0 | 0.0 % | OFF throughout | **0** |
-| 50 | 100 | 5 | 5 % | ON 50 ms, then OFF 950 ms | **2** |
-| 500 | 100 | 50 | 50 % | ON 500 ms, then OFF 500 ms | **2** |
-| 950 | 100 | 95 | 95 % | ON 950 ms, then OFF 50 ms | **2** |
-| 1000 | 100 | 100 | 100 % | ON throughout | **0** |
-
-Two edges per second, never more: one falling edge inside the window, one rising
-edge at the wrap. `cc_domain::heater::cpp_transitions_per_second` computes that
-from the transcribed predicate rather than asserting it.
-
-So the C++ is a **1 Hz chopper with a 10 ms duty quantum**, and a 100 Hz carrier
-would switch the contactor **200 times a second — a hundred times its mechanical
-duty** — while matching the delivered power almost exactly. On a 2 kW boiler
-contactor, whose life is counted in operations, that is a defect dressed up as
-fidelity. **The carrier frequency must be low.**
-
-### What the Rust does
-
-**The window is unchanged — 1 Hz, 100 steps of 10 ms — so the PID's control law
-and every gain in `include/clevercoffee/defaults.h` are untouched.** Only the
-delivery mechanism changes: a **1 Hz LEDC carrier**, one period per control
-window, whose duty *is* the chopper's on-time fraction.
-
-| | C++ ISR chopper | Rust LEDC |
-| --- | --- | --- |
-| on-time resolution | 10 ms (1 % of the window) | 1/131 072 of the carrier period (7.6 µs) |
-| delivered power | `on_ticks / 100` | identical, by construction |
-| **contactor level changes/s** | **0 or 2** | **0 or 2** — required to be equal, and tested |
-| CPU per second | 100 interrupt entries | **0** |
-| worst-case latency | one interrupt-priority preemption | n/a — the register *is* the output |
-| 10 ms hard real-time requirement | yes | **no** |
-
-The delivered power is identical because the quantisation is the same function:
-`cc_domain::heater::chopper_on_ticks` is a transcription of the ISR's
-`pidOutput > counter` predicate, counted, and `on_fraction` is
-`on_ticks / 100`. `the_tick_table_is_the_cpp_isr` walks all 100 counters at duty
-0 and at full duty and checks both edges; `the_ten_millisecond_quantisation` pins
-the two off-by-ones a division gets wrong (a duty below one step still gets a
-whole step, and a duty of exactly `n * 10` is `n` steps, not `n + 1`).
-
-The transition rate is a separate, equal property, not a consequence of the
-power match: `the_carrier_does_not_switch_the_contactor_more_than_the_cpp_does`
-computes both sides and requires them to be **equal** at every half-millisecond of
-the PID range, and requires the carrier's answer never to exceed 2/s.
-
-### The frequency and resolution: what is actually achievable
-
-**1 Hz.** An `f` Hz square wave makes `2f` level changes per second, and the C++
-makes at most 2, so `f ≤ 1 Hz`. Independently, one carrier period *is* one
-control window, so at 1 Hz the duty count can mean the same thing the C++'s
-millisecond duty meant.
-
-That constrains the resolution in the opposite direction from the usual one: a
-low carrier means a *coarser* duty step, so the 1 % (10 ms) fidelity has to be
-bought with bits rather than with frequency. Reproducing the C++'s 10 ms quantum
-at a 1 s period needs `max_duty ≥ 100`, i.e. ≥ 7 bits. The binding constraint is
-the peripheral's, not that one.
-
-`ledc_calculate_divisor` (`esp_driver_ledc/src/ledc.c:459-477`) computes
-
-```text
-div_param = ((src_clk << 8) + freq_hz * precision / 2) / (freq_hz * precision)
-```
-
-with `precision = 1 << duty_resolution` (`ledc.c:600`), and
-`LEDC_IS_DIV_INVALID` rejects `div_param <= LEDC_LL_FRACTIONAL_MAX` (255) or
-`> LEDC_TIMER_DIV_NUM_MAX` (`0x3FFFF` = 262 143) (`ledc.c:115,111`). The
-original ESP32's LEDC source is APB at 80 MHz (`LEDC_LL_GLOBAL_CLOCKS` lists
-`LEDC_SLOW_CLK_APB` first; `esp-idf-hal` passes `LEDC_AUTO_CLK`). The timer
-period is `(div_param >> 8) * 2^bits` source clocks:
-
-| bits | `div_param` at 1 Hz | valid? | `max_duty` | duty step | realised carrier |
-| --- | --- | --- | --- | --- | --- |
-| 7 | 160 000 000 | ✗ above `0x3FFFF` | 128 | 7.81 ms | — |
-| 16 | 312 500 | ✗ above `0x3FFFF` | 65 536 | 15.3 µs | — |
-| **17 (chosen)** | **156 250** | **✓** | **131 072** | **7.63 µs** | **exactly 1.000 000 Hz** |
-| 18 | 78 125 | ✓ | 262 144 | 3.81 µs | exactly 1.000 000 Hz |
-| 19 | 39 063 | ✓ | 524 288 | 1.91 µs | 0.999 987 Hz |
-| 20 | 19 531 | ✓ | 1 048 575 | 0.95 µs | 1.000 013 Hz |
-
-**At 1 Hz the reachable resolutions on the original ESP32 are 17, 18, 19 and 20
-and nothing coarser** — 16 bits already overflows the maximum divider, and every
-bit below that overflows it further. `Bits17` is the **coarsest that works**,
-which is the right way round: most margin against the divider arithmetic being
-wrong, and 19 and 20 are the two that lose exact frequency to the rounding term.
-Concretely `div_param = 156 250 = 610 × 256 + 50`, so the period is
-`610.3515625 × 131 072` = **80 000 000 APB clocks = 1.000 000 s exactly**. If
-`LEDC_AUTO_CLK` were to fall through to `RC_FAST` (≈8 MHz) instead, `div_param`
-would be 15 625 and the period 8 000 000 `RC_FAST` clocks — also exactly 1 s.
-The frequency does not depend on which clock the driver picks.
-
-**For the record, the earlier revision's 100 Hz table was also wrong**, in a way
-that happened not to change its conclusion: at 100 Hz the valid resolutions are
-**10–19 bits**, not "8, 9, 10" — `Bits8` asks for `div_param` 800 000 and
-`Bits9` for 400 000, both above `0x3FFFF`. `div_param` at 100 Hz / `Bits10` is
-**200 000**, not the 50 000 the old text quoted. 100 Hz / `Bits10` is a *valid*
-pair, so the old build would have configured fine; it is the *frequency* that was
-the defect.
-
-### The duty ends, and why 17 rather than 20
-
-`esp-idf-hal`'s `Resolution::max_duty` is `2^N`, **except** at 20 bits where it is
-`2^20 - 1`, and `ledc_channel_config` says why in its own comment (`ledc.c:873-880`):
-
-> On ESP32 … due to a hardware bug, 100 % duty cycle (i.e. `2**duty_res`) is not
-> reachable when the binded timer selects the maximum duty resolution.
-
-The maximum low-speed resolution on the ESP32 is 20 bits, so at `Bits20` "100 %
-duty" would be `1 048 575 / 1 048 576` — a permanent 0.95 ms notch once a second.
-At 17 bits `max_duty` is a plain `131 072`, so:
-
-* **duty 0** is a *steady low level* — the idle level `ledc.c` configures — and
-  is what a closed gate produces, so "disabled" and "off" are the same value;
-* **duty `max_duty`** is a *steady high level*, a different value from 0, so full
-  power is never confused with disabled;
-* **any interior duty** is one high pulse per second at `hpoint = 0` — i.e.
-  starting at the beginning of the period, which is where the C++ puts it too
-  (energised at counter 0, de-energised as the counter passes `pidOutput`).
-
-`full_duty_is_distinguishable_from_disabled` pins all three, and
-`RESOLUTION`/`CHOSEN_MAX_DUTY` are tied together by a **`const` assert** in
-`cc-hal-esp32::heater` so that reaching `Bits20` is a compile error rather than a
-review note.
-
-`duty_counts` still clamps to `0 ..= max_duty`, and
-`the_count_never_exceeds_max_duty` still pins it, because
-`LedcDriver::set_duty` clamps *silently* and a silently-wrong duty on a heater is
-worse than an error.
-
-### The reproduction error, measured
-
-R1-07's acceptance bound is "duty matching the PID output within 1 %". The chosen
-pair is three orders of magnitude inside it:
-
-| | C++ chopper | Rust LEDC at 1 Hz / `Bits17` |
-| --- | --- | --- |
-| duty quantum | 10 ms (1 % of the window) | 7.63 µs (1/131 072) |
-| worst-case reproduction error | — | **3.815 µs** = half a count = 0.00038 % of the window |
-| stated tolerance (`REPRODUCTION_TOLERANCE_MS`) | — | **10 µs**, 2.6× the rounding floor |
-
-`the_chosen_carrier_reproduces_the_cpp_on_time` walks the whole PID range at
-half-millisecond granularity and requires `|delivered_on_time_ms − C++ on-time| ≤
-10 µs`. `the_chosen_carrier_reproduces_the_cpp_on_time_at_the_analytic_bound`
-separately pins the 3.815 µs floor, which is arithmetic and cannot drift.
-**Neither tolerance was loosened to make a test pass**, and both fail loudly if
-`CARRIER_HZ` or `CHOSEN_RESOLUTION_BITS` is changed.
-
-The narrowest pulse the hardware can be asked for is therefore still the C++'s own
-10 ms step, because the duty is `on_fraction` and `on_fraction` is quantised to
-100 steps — 131 072 counts of headroom that nothing ever uses.
-`the_minimum_pulse_is_the_cpp_ten_millisecond_step` walks the range to prove it.
-
-### High-speed mode is not used, and does not need to be
-
-The original ESP32 is the only chip with LEDC high-speed mode
-(`esp-idf-hal-0.47.0/src/ledc.rs`, `#[cfg(esp32)] pub struct HighSpeed`).
-**Decision: low speed mode.** High speed exists for the multi-MHz carriers low
-speed cannot produce; at 1 Hz, low speed is six orders of magnitude inside its
-range. Taking high speed would buy nothing and would consume one of the four
-high-speed timers, which is the scarce resource on this part. If the carrier ever
-has to go above ~1 MHz, `LedcPwm::new`'s timer type parameter is the line to
-change.
-
-### The gate, preserved from the oracle
-
-The recovered firmware's two safety properties are implemented, not invented:
-
-* **The output is held at duty 0 until the supervisor's first heartbeat** —
-  `"output held off until the supervisor beats"` ([08 §3](./08-recovered-oracle.md)).
-  `HeaterGate::new()` is the only constructor and there is no public field, so
-  "the gate starts open" is not expressible. `a_fresh_gate_refuses_every_duty`
-  pins it.
-* **A supervisor that stops beating drops the heater** — the deadman
-  ([08 §4](./08-recovered-oracle.md)). `DEADMAN_TIMEOUT_MS` is **1000 ms**, chosen
-  rather than recovered: the value is not in the recovered binary's strings, only
-  the phrase `deadman=armed`. It must be shorter than the 5 s task watchdog or the
-  deadman buys nothing over the reset, and longer than one interlock period
-  (500 ms, also from the boot log) or a single long preemption would drop the
-  heater of a healthy machine. Two interlock periods satisfies both and bounds
-  de-energisation at 1.5 s rather than 5 s. It is a named constant in one place
-  for exactly that reason.
-
-Gating happens **last**, immediately before the register write, so the value in
-the register is at most one interlock period stale and the worst case is
-stale-**low**, never stale-high. The millisecond rollover is covered
-(`the_deadman_survives_the_millis_rollover`): the heater runs across the 49.7-day
-wrap for the whole of it.
-
-### ⚠ Open — the contactor is unknown, and R1-07 stays open
-
-**Matching the C++'s transition rate is necessary and not sufficient. This
-section is the reason R1-07 is not finished, and it needs a person with the
-machine in front of them, a scope, a dummy load and the boiler disconnected.**
-
-What has been *removed* by this correction is the specific worry that motivated
-the 100 Hz carrier: the contactor is no longer being asked for a hundred times
-its mechanical duty. What has **not** been established, and cannot be
-established from this repository, is any of the following. Each is stated as a
-measurement to be made, not as an assumption to be made:
-
-1. **The contactor's minimum on-time and minimum off-time.** The software
-   guarantees it never requests a pulse narrower than 10 ms, because that is the
-   C++'s own quantisation. Whether 10 ms is *itself* within the contactor's
-   ratings is a datasheet or measurement question. **Unknown.**
-2. **Whether a hardware-PWM output is acceptable to the coil at all.** LEDC drives
-   a square wave into the same relay pin the C++ drove with a GPIO write. 1 Hz is
-   a frequency the C++ never *produced* (its average was 1 Hz, its waveform was
-   10 ms steps), so the coil's behaviour at a true 1 Hz square wave is untested
-   even though the heating is identical. **Unknown.**
-3. **The realised frequency and duty on the pin.** Everything above is
-   arithmetic. `ledc_timer_config`'s divider selection, the duty register, and the
-   idle level have not been read back from hardware. **Not measured.**
-4. **Whether 1 Hz is the *best* choice even if it is acceptable.** The trade is
-   real and it has not been settled: a lower carrier reduces switching further but
-   coarsens the duty step and eventually drops below the C++'s 10 ms quantum; a
-   higher carrier is finer but is more mechanical wear. 1 Hz was chosen because it
-   is the frequency that makes the two match exactly. Someone with the machine
-   may reasonably prefer a different point on that curve, and that is a decision
-   to record, not to guess.
-
-R1-07 steps 1 and 2 (drive a dummy load, measure with a scope) are **not run**.
-There is no scope and no dummy load attached, the board's boiler-disconnection
-state is unconfirmed, and skill §2 rule 4 forbids an energising test without a
-reviewed procedure. **The hardware acceptance criterion is therefore unverified
-and is left that way rather than claimed.**
-
----
+The text below is left as the record of what R1-07 decided and why, because the
+*reason* is still correct and the next person to look at the heater needs it.
 
 ## Preserved C++ behaviours — do not "fix" these
 
@@ -691,61 +424,303 @@ Recorded here so the file is complete; each was decided in its own task.
 
 ---
 
-## 7. R1-03: the DS18B20 is implemented and `TSIC_306` is refused 🔴 added
+## 7. R1-03 / R3-07: both temperature sensors are implemented 🔴 changed
 
 | | |
 | --- | --- |
-| **Task** | R1-03 (re-scoped) and R3-06 |
-| **Decision** | The recovered firmware logged *"config asks for Tsic306 but only the DS18B20 driver exists; reading the 1-Wire bus anyway"*. This entry removes the silent part. |
-| **Tests** | `cc-safety::tests::safety_paths.rs::config_a_tsic_306_probe_is_refused`, `::a_stored_tsic_306_config_is_discarded_not_run`, `::the_store_refuses_a_tsic_306_config`, `::the_compiled_in_defaults_are_themselves_valid`; `cc-config::tests::config_schema.rs::the_default_temperature_sensor_is_the_one_that_is_fitted` |
+| **Task** | R1-03, R3-06, R3-07 |
+| **Decision** | 2026-09-28. A previous revision of this entry recorded the opposite — `TSIC_306` was **refused** and the compiled-in default was moved to `DALLAS_DS18B20`. **That is reversed.** The TSIC-306 / ZACwire driver now exists, so there is nothing left to refuse. |
+| **Tests** | `cc_domain::sensor::ds18b20::*`, `cc_domain::sensor::tsic306::*`, `cc_domain::sensor::onewire::div7_*`; `cc-safety::tests::safety_paths.rs::both_temperature_sensor_types_are_accepted`, `::the_compiled_in_default_is_the_cpps_tsic_306`, `::a_stored_tsic_306_config_is_loaded_not_discarded`; `cc-config::tests::config_schema.rs::the_default_temperature_sensor_is_the_cpps_tsic_306` |
 
 ### What the C++ does
 
 `HardwareManager::initializeTemperatureSensor` (`HardwareManager.cpp:180-198`)
 builds whichever driver the config names, and the config default is `TSIC_306`
 (`Config.h:1085-1092`). On this machine the probe is a **DS18B20** — family
-`0x28`, ROM `0x28 69 37 aa cd 78 af 41`, measured, [01 §"The temperature sensor
-fitted to this machine is a DS18B20"](./01-feature-inventory.md) — so the C++
-default constructs a TSIC-306 driver pointed at a 1-Wire bus it does not own.
+`0x28`, ROM `0x28 69 37 aa cd 78 af 41`, measured,
+[01 §"The temperature sensor fitted to this machine is a DS18B20"](./01-feature-inventory.md)
+— so the C++ default constructs a TSIC-306 driver pointed at a 1-Wire bus it
+does not own, and the recovered firmware logged the substitution rather than
+refusing it
+([08 §4.1](./08-recovered-oracle.md)).
 
 ### What the Rust does
 
-1. **The DS18B20 is implemented** (`cc_domain::onewire`, `cc_domain::ds18b20`,
-   `cc_hal_esp32::onewire`) and reads the real probe: **24.25 °C / 24.38 °C**
-   measured on 2026-09-28, 48 samples over 20 s, no resets, no CRC failures.
-2. **`hardware.sensors.temperature.type = TSIC_306` is refused** at
-   configuration validation, as `ConfigViolation::UnsupportedTemperatureSensor`.
-   The stored config is discarded and the defaults run, with the violation
-   reported — the same fail-closed shape as
-   `HeaterRelayLowTrigger` and the same one the recovered firmware used.
-3. **The compiled-in default is `DALLAS_DS18B20`**, not the C++'s `TSIC_306`.
+1. **Both drivers are implemented.** `cc_domain::sensor::ds18b20` over
+   `cc_domain::sensor::onewire` for the DS18B20, and
+   `cc_domain::sensor::tsic306` (protocol, edge ring, frame decoder, driver) for
+   the TSIC-306, with `cc_hal_esp32::onewire` and `cc_hal_esp32::zacwire` as the
+   only device-side code. `cc_domain::sensor::probe::TemperatureProbe` is the one
+   interface, so the state machine is not generic over both.
+2. **The compiled-in default is `TSIC_306`**, the C++'s value, in both
+   `cc-config` (`HardwareSensorsTemperature::default`) and `cc-safety`
+   (`SafetyConfig::default`).
+3. **`ConfigViolation::UnsupportedTemperatureSensor` is gone.** There is no value
+   of `hardware.sensors.temperature.type` the firmware cannot honour, so there
+   is nothing for the validator to refuse. The **remaining** rules are unchanged
+   and still tested: the cross-parameter emergency-temperature check, the
+   `LOW_TRIGGER` heater refusal, and discarding an unsafe stored configuration.
+4. **The driver is selected from the board, not from the configuration.**
+   `cc-firmware`'s `PROBE` constant names the fitted probe
+   (`DallasDs18b20`, measured) and the configured value is logged next to it.
 
 ### Why
 
-A temperature probe is an input to S1. A user who configures `TSIC_306` and is
-given a DS18B20's reading is not misinformed about a preference; they are
-misinformed about **which sensor is feeding the over-temperature interlock**,
-and they cannot tell by looking at the machine. That is a safety defect, and
-silence is what makes it one.
+The original reasoning for the refusal was sound *given a missing driver*: a user
+who configures `TSIC_306` and is handed a DS18B20's reading is misinformed about
+**which sensor is feeding the over-temperature interlock**, and cannot tell by
+looking at the machine. That is a safety defect and silence is what makes it one.
 
-The default has to move with the rule, and this is the part worth being explicit
-about: **a default that `validate_config` rejects is incoherent** — the machine
-would refuse to run its own defaults, on a board whose sensor is a DS18B20.
-`the_compiled_in_defaults_are_themselves_valid` is the test that says so.
+The driver now exists, so the defect is prevented by construction instead: a
+machine with the wrong probe fitted gets a boot log that names the sensor the
+configuration asked for **and** the one that answered, and the two drivers fail
+differently and visibly (`ProbeFault::NotConnected` for a 1-Wire bus with no
+presence pulse; `ProbeFault::ReadFailed` for a ZACwire line that moves and does
+not decode). Refusing the configuration is no longer the only way to prevent the
+silence, and it was always a blunt instrument — it made a correctly-configured
+TSIC-306 machine unrunnable.
 
-### Not done, and needs a human
+### 🔴 The TSIC-306 is unverified on hardware, and that is not a formality
 
-**TSIC-306 is not implemented**, deliberately. The protocol is proprietary, no
-Rust implementation exists, and there is no TSIC-306 attached to this machine to
-validate one against — R1-03's own acceptance criteria (a 10-minute C++-versus-Rust
-reference log at ±1.5 °C) are unachievable without the hardware. Writing an
-unverifiable Manchester decoder on a path that gates emergency stop is a worse
-outcome than refusing the setting. **If someone needs a TSIC-306, fit one and
-implement R3-07 against it; do not remove this check.**
+**No TSIC-306 is fitted to the machine this was written on, and none has ever
+been.** There are two separate gaps and both are open:
+
+* **The pure logic is host-tested against a synthesised waveform.**
+  `cc_domain::sensor::tsic306::simulator` generates a GPIO level function from the
+  IST AG app note's own duty cycles and timings, and `edges()` *scans* it at 1 µs
+  to discover the transitions, so the decoder never sees the encoder's intent.
+  That proves the arithmetic, the bit ordering, the parity, the rejection of
+  damaged frames and the DS → °C conversion — and it proves **nothing** about a
+  real sensor. A real TSIC-306's clock tolerance, its 31.25 µs pulses through a
+  pull-up and a cable, its behaviour when brownout, and the EMI the app note's
+  parity bit exists for, are all outside what a synthesiser can produce. See
+  `cc_domain::sensor::tsic306`'s module docs, which say the same thing.
+* **The device side has never executed.**
+  `cc_hal_esp32::zacwire` is implemented and is **not brought up**, because the
+  pin it would capture (GPIO16, `pinmapping.h:27`) is carrying 1-Wire traffic
+  from the DS18B20 that is actually fitted. The TSIC branch of
+  `cc-firmware::main` is compiled and type-checked on every build and
+  dead-code-eliminated when `PROBE` is the DS18B20, so its image cost is also
+  unmeasured.
+
+**Anyone fitting a TSIC-306 must treat the first reading as unverified**, and
+R3-07's acceptance criterion (a C++-versus-Rust reference log) is still
+unachievable without the hardware.
+
+### Two smaller divergences inside the TSIC driver, both deliberate
+
+| | C++ | Rust | Test |
+| --- | --- | --- | --- |
+| **The no-signal timeout** | 100 ms (`ZACwire.h:29`) against a **10 Hz** sensor, i.e. one transmission period with zero margin | 250 ms (2.5 periods) | `protocol::tests::the_no_signal_timeout_is_longer_than_the_cpps_and_says_why` |
+| **The rate-limit latch** | `static bool validTemps` in a `const` member function — process-global, never reset, shared between instances | per-instance state, so a reconnect starts permissive | `tsic306::tests::the_latch_is_per_instance_not_process_global` |
+
+The 100 ms timeout is a false negative on a safety input: a single missed or
+jittered frame reports a probe that is present and working as disconnected. The
+`static` is a genuine C++ bug — it is what a `const` member function with mutable
+process state looks like — and the permissive direction is the safe one, since
+that is what a first-ever boot gets.
+
+### One unresolved ambiguity, flagged rather than decided
+
+`ZACwire::getTemp(maxChangeRate)` compares the limit against
+`int16_t grad = (temp - prevTemp) / (heartbeat|1)` (`ZACwire.cpp:58`) where
+`temp` is the **raw 11-bit count**, not degrees — while its own comment says
+`//grad is [°C/s]`, and `TempSensorTSIC`'s latch condition compares the same
+`RUNTIME_CHANGERATE` constant against two **degrees**
+(`TempSensorTSIC.cpp:39`). One constant, two units, two adjacent files.
+
+This port applies both limits in **degrees** (200 °C/sample → 5 °C/sample), which
+is what 02 §6 calls them and what the C++'s latch condition unambiguously is.
+Under the count reading the C++'s effective limits are ≈ 19.5 °C/sample and
+≈ 0.49 °C/sample. `tsic306::COUNT_SCALE` makes the other reading one
+multiplication away, and `tsic306::tests::the_count_based_reading_of_the_rate_is_one_multiplication_away`
+quantifies the difference. **This is the single most likely thing to be wrong in
+the module** and it is unresolved for want of hardware.
+
+### Also inside the DS18B20 driver
+
+* **The fault is named, not folded.** All six `DallasTemperature` faults arrive at
+  `TempSensorDallas` as `-127` (see
+  [`09 §17`](./09-cpp-findings.md#17-) — corrected in this pass), and the C++
+  reports all six as *"Temperature sensor not connected"*. The **decision** is
+  identical; the diagnostic is not. Tests:
+  `onewire::div7_every_ds18b20_fault_is_rejected_by_the_cpp`,
+  `ds18b20::div6_every_ds18b20_fault_is_rejected_and_named`.
+* **The dead range check is now applied** — see below.
 
 ---
 
-## 8. R3-05: the ABP2 read no longer blocks, and checks what the C++ ignores 🔴 changed
+## 8. The Dallas temperature path applies `isValidTemperature`'s range 🔴 added
+
+| | |
+| --- | --- |
+| **Finding** | [09 §18](./09-cpp-findings.md#18-) — `TempSensor::isValidTemperature` is dead and the DS18B20 path has no range check |
+| **Test** | `cc_domain::sensor::ds18b20::div8_the_dallas_path_applies_the_range_check_it_never_applied`, `::div8_the_two_ranges_overlap_only_between_zero_and_a_hundred_and_fifty`, `::div8_only_the_cold_end_of_the_ds18b20s_range_is_now_refused`, `::div8_a_reading_outside_the_range_is_a_read_failure_not_a_hot_temperature` |
+
+### What the C++ does
+
+`TempSensor::isValidTemperature` (`TempSensor.h:91-93`) is a `static constexpr`
+predicate for **-50..150 °C** and is **never called** — not from
+`updateTemperature` (`:31-54`), not from `tryGetValue` (`:110-146`), not from
+anywhere in the tree. So on the Dallas path a 165 °C reading is accepted, cached,
+folded into the 15-sample moving average and handed to the PID. The only range
+that acts is S1's, in `EmergencyStopManager::checkEmergencyConditions`
+(`EmergencyStopManager.cpp:25-30`): 0.0..200.0, outside which emergency stop
+latches immediately with no debounce.
+
+The TSIC driver, by contrast, has its own reject at `temp <= 0.0 || temp >= 180.0`
+(`TempSensorTSIC.cpp:59-62`).
+
+### What the Rust does
+
+`cc_domain::sensor::ds18b20::Driver::poll` applies `isValidTemperature`'s own
+range, and a reading outside it is a **rejected read**
+(`Ds18b20Fault::OutOfRange`) rather than a temperature.
+
+### Why, and what it costs
+
+The two families now cannot disagree about what a plausible reading is, and the
+check the C++ wrote is the check it runs. The cost is real and is stated rather
+than argued away:
+
+* The **reachable** part of the change is small. The DS18B20's own range is
+  **-55..+125 °C** (AT24+DS18B20), so the only real readings the new check
+  refuses are the **-55..-50 °C** band. The upper bound is inert: the sensor
+  cannot report above 125, so nothing above `PLAUSIBLE_RANGE.1` = 150 is
+  reachable at all. `div8_only_the_cold_end_of_the_ds18b20s_range_is_now_refused`
+  measures this rather than asserting it.
+* The **diagnostic** does change for the 150..200 band S1 used to see: a genuine
+  over-temperature now arrives as a *sensor read failure*, so after ten of them
+  the machine reaches `SENSOR_ERROR` rather than `EMERGENCY_STOP`. The heater is
+  off in both cases, but an operator is told "sensor error" instead of "too
+  hot". Failing the other way — accepting 165 °C into the PID — is what the C++
+  does today, and the DS18B20's own TH/TL alarm registers are the right place to
+  make that distinction precisely.
+* The alternative considered and rejected: keep the check a **query**
+  (`is_plausible`) and let S1 act. That was the previous revision's position, on
+  the grounds that filtering here turns an emergency stop into a silently-held
+  last-good value. It is a defensible position, and it is not this one, because
+  the user asked for the check the C++ wrote to be applied and because a driver
+  that returns 165 °C as a temperature is not reporting what it measured.
+
+### 🔴 The TSIC driver's own range check is *not* symmetric, and half of it is dead
+
+`temp <= 0.0 || temp >= 180.0` is **preserved verbatim**, inclusive at both ends.
+Two consequences, both pinned:
+
+* `temp >= 180.0` **cannot fire on a TSIC-306**: the sensor's span ends at
+  150 °C. `tsic306::tests::the_cold_extreme_is_rejected_and_the_hot_extreme_is_not`
+  is the test that says so, and it is why a 150.00 °C boiler reading is accepted
+  by both the C++ and this port.
+* `temp <= 0.0` cannot fire at exactly 0.00 °C either, because 0.00 is not on the
+  11-bit grid: the nearest codes are -0.024 °C (DS 511) and +0.024 °C (DS 512).
+  The bound's first victim is DS 511
+  (`tsic306::tests::the_lower_bound_fires_from_raw_511_downwards`).
+
+The constant is shared with the TSIC-506 (`ZACwire.cpp:62-63` switches formula on
+`_sensor < 400`), which is why it is left alone.
+
+---
+
+## 9. The heater is chopped by a 10 ms `GPTimer` ISR, not by LEDC 🔴 changed
+
+| | |
+| --- | --- |
+| **Finding** | [09 §17](./09-cpp-findings.md#17-) — the original ESP32 cannot use LEDC at a low carrier |
+| **Test** | `cc_domain::heater::isr_tests::*` (13 tests), `cc_domain::heater::atomic_chopper_tests::*` (7), `cc_domain::heater::transport_tests::*` (5) |
+
+### What the C++ does
+
+The C++ chops the heater relay in a 10 ms hardware-timer ISR
+(`include/clevercoffee/isr.h:85-118`) at the highest interrupt priority the chip
+offers:
+
+```cpp
+if (currentPidOutput <= currentCounter) relay->off(); else relay->on();
+unsigned int newCounter = currentCounter + ISR_COUNTER_INCREMENT;   // 10
+if (newCounter >= ctx->processWindowSize()) newCounter = 0;         // 1000
+```
+
+with `Timing::ISR_TIMER_INTERVAL_US = 10000` and
+`Timing::ISR_COUNTER_INCREMENT = 10` (`constants/Timing.h:15,17`). The lost
+firmware did the same
+([08 §3](./08-recovered-oracle.md): *"heater interrupt running on GPIO2 (active
+high), 1000 ms window"*).
+
+### What the Rust did, and what it does now
+
+R1-07 replaced the ISR with a **1 Hz LEDC hardware carrier**, on an argument
+that is correct and is the reason LEDC would be preferred: the pin is a
+contactor, an `f` Hz square wave makes `2f` contactor operations per second, and
+two per second is the right budget for a 2 kW boiler contactor.
+
+**That was reversed, because the LEDC driver cannot run on this chip.**
+`components/hal/esp32/include/hal/ledc_ll.h:485-489`, on the original ESP32 only:
+
+```c
+// wait until the last duty change took effect (duty_start bit will be
+// self-cleared when duty update or fade is done)
+// this is necessary on ESP32 only, otherwise, internal logic might mess up
+while (hw->channel_group[speed_mode].channel[channel_num].conf1.duty_start);
+```
+
+`duty_start` is cleared by the hardware at the next **timer period** and the
+spin is inside `portENTER_CRITICAL(&ledc_spinlock)`
+(`components/esp_driver_ledc/src/ledc.c:1603-1606`), with interrupts masked. At
+1 Hz that is up to **one second**; the original ESP32's interrupt watchdog is
+**300 ms** (`components/esp_system/int_wdt.c`). Every duty write trips it —
+**including the duty-0 write in `LedcPwm::new`**, so the firmware panicked on
+every boot before the control task ran.
+
+Every other `ledc_ll.h` in this tree (`esp32c2`, `esp32c3`, `esp32c5`, and the
+s3/h2/p4 equivalents) has the loop removed, so this is a property of *this* chip
+and the requirement is in direct conflict with the contactor-friendly carrier:
+any carrier slow enough to be mechanically kind is slow enough to trip the
+watchdog through that spin.
+
+**The 10 ms `GPTimer` ISR is the default again.** The decisions — the window, the
+10 ms quantisation, the counter's own state, the gate, the armed check — are all
+in `cc_domain::heater` (`IsrChopper` for the reference state machine and
+`AtomicChopper` for the ISR-shaped one, with
+`the_atomic_chopper_and_the_reference_agree_for_a_whole_window` proving they are
+the same function), and the whole tick-by-tick pattern is walked on the host at
+every counter value for every duty the C++ can express. The device crate's
+callback is that call, a branch on its result, three diagnostic counters and one
+GPIO write — which is 04 §3.1's "nothing beyond one GPIO write" plus the
+arithmetic the C++ also does in its ISR.
+
+### The cost, stated rather than hidden
+
+The ISR changes the relay level **100 times a second** where LEDC would have
+changed it twice. That is what the C++ has always done and what the contactor has
+always survived, so the trade is **contactor wear, not watchdog panics**. 100
+interrupts a second on a 240 MHz Xtensa is 0.04 % of one core, against a 300 ms
+watchdog.
+
+### What is kept and what is dead
+
+`LedcPwm` stays in `cc-hal-esp32` **unbrought-up**, behind the same `HeaterDuty`
+seam, with the 1 Hz argument and the divider table intact — for a target whose
+chip has no spin. `cc-firmware` has **no LEDC construction site at all** and a
+`const _: () = assert!(!BRING_UP_HEATER_LEDC, ...)`, so no future edit can reach
+a duty write by accident.
+
+### ⚠ Not yet verified
+
+`just flash` with the ISR build **panicked on its first bring-up** on a
+configuration error in the `GPTimer` alarm setup (`reload_count` must differ from
+`alarm_count` when auto-reload is on — see
+`components/esp_driver_gptimer/src/gptimer.c`, `gptimer_set_alarm_action`).
+That is fixed in source; **it is not yet confirmed on hardware**, because the
+two-flash budget for this task was spent. The thing this entry was written to
+verify — that the device **boots without an INT WDT panic** — *is* confirmed: both
+boots reached the control loop's setup with no watchdog panic, and with no LEDC
+construction site the panic is structurally impossible. R1-07's scope-and-duty
+measurement against a dummy load is still **not** done and **R1-07 stays open**.
+
+---
+
+## 10. R3-05: the ABP2 read no longer blocks, and checks what the C++ ignores 🔴 changed
 
 | | |
 | --- | --- |
@@ -802,7 +777,7 @@ from bytes the sensor never sent would flow into the brew pressure control.
 * A pressure count below the part's offset yields a **negative** pressure and
   the C++ carries it on. Preserved; `is_below_range` exposes the condition so the
   decision can be made rather than smuggled in. The DS18B20 range decision
-  ([#7](#7-r1-03-the-ds18b20-is-implemented-and-tsic_306-is-refused-🔴-added)) is
+  ([#7](#7-r1-03--r3-07-both-temperature-sensors-are-implemented-🔴-changed)) is
   the same kind of call and went the other way, because there the C++ was
   *claiming* to read a sensor it was not.
 

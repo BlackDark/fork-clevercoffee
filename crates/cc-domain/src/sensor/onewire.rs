@@ -463,9 +463,9 @@ pub fn write_scratchpad<B: OneWireBus>(
 pub const SCRATCHPAD_LEN: usize = 9;
 
 /// Scratchpad index of the temperature LSB register.
-const SP_TEMP_LSB: usize = 0;
+pub(crate) const SP_TEMP_LSB: usize = 0;
 /// Scratchpad index of the temperature MSB register.
-const SP_TEMP_MSB: usize = 1;
+pub(crate) const SP_TEMP_MSB: usize = 1;
 /// Scratchpad index of the high alarm register.
 const SP_HIGH_ALARM: usize = 2;
 /// Scratchpad index of the low alarm register.
@@ -477,7 +477,7 @@ const SP_LOW_ALARM: usize = 3;
 /// Scratchpad index of the configuration register (resolution).
 const SP_CONFIGURATION: usize = 4;
 /// Scratchpad index of `COUNT REMAIN`.
-const SP_COUNT_REMAIN: usize = 6;
+pub(crate) const SP_COUNT_REMAIN: usize = 6;
 /// Scratchpad index of `COUNT PER °C`.
 const SP_COUNT_PER_C: usize = 7;
 /// Scratchpad index of the CRC.
@@ -619,8 +619,9 @@ impl ScratchPad {
         // for `DS1825MODEL` with the configuration bit 7 set
         // (`DallasTemperature.cpp:539-552`); note it returns the *raw* sentinel,
         // which `rawToCelsius` then folds to -127. The distinction survives
-        // here only because `TempSensorDallas.cpp:33-35` checks the three
-        // `-25x` Celsius sentinels — see `s5_the_dallas_fault_sentinels_are_ckd`.
+        // here only because this port does not fold: it names the fault. See
+        // `div7_every_ds18b20_fault_is_rejected_by_the_cpp` and
+        // `s5_the_dallas_wiring_sentinels_are_ckd`.
         if rom.family() == FAMILY_MAX31850
             && self.0[SP_CONFIGURATION] & 0x80 != 0
             && self.0[SP_TEMP_LSB] & 1 != 0
@@ -735,45 +736,75 @@ pub enum Ds18b20Fault {
     ShortVdd,
     /// `DEVICE_POWER_ON_RESET_C` = -251. **Not rejected by the C++.**
     PowerOnReset,
-    /// `DEVICE_INSUFFICIENT_POWER_C` = -250. **Not rejected by the C++.**
+    /// `DEVICE_INSUFFICIENT_POWER_C` = -250.
     InsufficientPower,
+    /// 🔴 **Added by this port.** The decoded temperature is outside
+    /// `TempSensor::isValidTemperature`'s -50..150, which the C++ computes and
+    /// never calls (09 §18).
+    ///
+    /// There is no C++ sentinel for this, because there is no C++ check: the
+    /// C++ hands a 165 °C reading to the PID. See [`crate::sensor::ds18b20`] and
+    /// `intentional-diffs.md`.
+    OutOfRange,
 }
 
 impl Ds18b20Fault {
     /// The Celsius sentinel the C++ would have returned for this fault.
     ///
-    /// `rawToCelsius` folds every raw sentinel at or below -7040 to
-    /// `DEVICE_DISCONNECTED_C`, so *as the C++ surfaces it* all five are -127.
-    /// The distinction survives in `TempSensorDallas`'s own comparisons only
-    /// because it compares against `-254`/`-253`/`-252` — which
-    /// `rawToCelsius` can never produce. See
-    /// `s5_the_dallas_fault_sentinels_are_ckd`.
+    /// # Every one of the six is -127, and that is the whole finding
+    ///
+    /// `rawToCelsius` (`DallasTemperature.cpp:406-410`) folds *every* raw value
+    /// at or below `DEVICE_DISCONNECTED_RAW` to `DEVICE_DISCONNECTED_C`:
+    ///
+    /// | fault | its raw sentinel | `<= -7040`? | what `rawToCelsius` returns |
+    /// | --- | --- | --- | --- |
+    /// | `Disconnected` | -7040 | yes | **-127** |
+    /// | `Open` | -32512 | yes | **-127** |
+    /// | `ShortGnd` | -32384 | yes | **-127** |
+    /// | `ShortVdd` | -32256 | yes | **-127** |
+    /// | `PowerOnReset` | -32128 | yes | **-127** |
+    /// | `InsufficientPower` | -32000 | yes | **-127** |
+    ///
+    /// (`DallasTemperature.h:33-55` for the constants.) So the six distinct
+    /// `DEVICE_*_C` values the header defines are all unreachable as *returned
+    /// values*, and `TempSensorDallas`'s second `if` block
+    /// (`TempSensorDallas.cpp:33-35`), which tests for -254/-253/-252, is dead
+    /// code. `None` is returned for [`OutOfRange`](Self::OutOfRange) only,
+    /// because the C++ has no such check and therefore no sentinel at all.
     #[must_use]
-    pub const fn cpp_sentinel(self) -> f32 {
+    pub const fn cpp_sentinel(self) -> Option<f32> {
         match self {
-            Self::Disconnected => -127.0,
-            Self::Open => -254.0,
-            Self::ShortGnd => -253.0,
-            Self::ShortVdd => -252.0,
-            Self::PowerOnReset => -251.0,
-            Self::InsufficientPower => -250.0,
+            Self::Disconnected
+            | Self::Open
+            | Self::ShortGnd
+            | Self::ShortVdd
+            | Self::PowerOnReset
+            | Self::InsufficientPower => Some(-127.0),
+            Self::OutOfRange => None,
         }
     }
 
     /// Whether `TempSensorDallas::sample_temperature` rejects this fault.
     ///
-    /// Ported from the two `if` blocks at `TempSensorDallas.cpp:29-36`:
-    /// `DEVICE_DISCONNECTED_C`, then `DEVICE_FAULT_OPEN_C` /
-    /// `DEVICE_FAULT_SHORTGND_C` / `DEVICE_FAULT_SHORTVDD_C`. Nothing else is
-    /// rejected — `DEVICE_POWER_ON_RESET_C` and
-    /// `DEVICE_INSUFFICIENT_POWER_C` are **not** checked, so the C++ accepts
-    /// -251 °C and -250 °C as valid readings. Preserved.
+    /// **All six, and that corrects a claim made in 09 §17.**
+    ///
+    /// The first `if` tests `temp == DEVICE_DISCONNECTED_C`
+    /// (`TempSensorDallas.cpp:29-31`), and per the table on
+    /// [`cpp_sentinel`](Self::cpp_sentinel) *every* sensor fault arrives as
+    /// exactly that. So the second `if` block (`:33-35`) never fires, and a
+    /// DS18B20 reporting a power-on reset is rejected — as "not connected".
+    ///
+    /// An earlier revision of this port recorded `PowerOnReset` and
+    /// `InsufficientPower` as **not** rejected, on the reading that
+    /// `DEVICE_POWER_ON_RESET_C` (-251) reaches the control loop as a
+    /// temperature. It does not: `calculateTemperature` returns the *raw*
+    /// sentinel (`DallasTemperature.cpp:571-573`, `:574`), and `rawToCelsius`
+    /// folds it to -127 two lines later. 09 §17 has been corrected; the test
+    /// `div7_every_ds18b20_fault_is_rejected_by_the_cpp` pins the truth so it
+    /// cannot be re-instated.
     #[must_use]
     pub const fn cpp_rejects(self) -> bool {
-        matches!(
-            self,
-            Self::Disconnected | Self::Open | Self::ShortGnd | Self::ShortVdd
-        )
+        !matches!(self, Self::OutOfRange)
     }
 }
 
@@ -786,12 +817,18 @@ impl core::fmt::Display for Ds18b20Fault {
             Self::ShortVdd => "short to VDD",
             Self::PowerOnReset => "power-on reset",
             Self::InsufficientPower => "insufficient power",
+            Self::OutOfRange => "outside -50..150 C",
         };
         f.write_str(text)
     }
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::float_cmp,
+    reason = "the tests compare the -127 and -25x Celsius sentinels, which is the \
+              assertion; an approximate comparison would hide which sentinel fired"
+)]
 mod tests {
     use super::*;
     use alloc::vec;
@@ -1158,12 +1195,14 @@ mod tests {
     }
 
     #[test]
-    fn s5_the_dallas_fault_sentinels_are_ckd() {
-        // PRESERVED C++ BEHAVIOUR. The MAX31850 *can* reach them, and the C++
-        // rejects them. The port keeps the same three rejections even though a
-        // DS18B20 never produces them, so a machine whose probe is swapped for
-        // a MAX31850 fails closed rather than reading a fault code as a
-        // temperature.
+    fn s5_the_dallas_wiring_sentinels_are_ckd() {
+        // The MAX31850 *can* reach the three wiring faults, and the C++ rejects
+        // them — as -127, by the fold documented on
+        // [`Ds18b20Fault::cpp_sentinel`], not as the -254/-253/-252 that
+        // `TempSensorDallas.cpp:33-35` compares against. The port keeps the
+        // three rejections and reports the *reason*, so a machine whose probe is
+        // swapped for a MAX31850 fails closed with a diagnostic that points at
+        // the wiring.
         let max31850 = Rom([FAMILY_MAX31850, 0x28, 0x69, 0x37, 0xAA, 0xCD, 0x78, 0xAF]);
         for (alarm_bits, expected) in [
             (0b001u8, Ds18b20Fault::Open),
@@ -1185,15 +1224,50 @@ mod tests {
     }
 
     #[test]
-    fn s8_only_four_of_the_six_faults_are_rejected() {
-        // PRESERVED C++ BEHAVIOUR, and the reason a POR reading reaches the
-        // control loop as -251 °C in the C++.
-        assert!(Ds18b20Fault::Disconnected.cpp_rejects());
-        assert!(Ds18b20Fault::Open.cpp_rejects());
-        assert!(Ds18b20Fault::ShortGnd.cpp_rejects());
-        assert!(Ds18b20Fault::ShortVdd.cpp_rejects());
-        assert!(!Ds18b20Fault::PowerOnReset.cpp_rejects());
-        assert!(!Ds18b20Fault::InsufficientPower.cpp_rejects());
+    fn div7_every_ds18b20_fault_is_rejected_by_the_cpp() {
+        // 🔴 CORRECTION to an earlier claim in this repository.
+        //
+        // 09 §17 used to say the C++ "accepts -251 °C and -250 °C", on the
+        // grounds that `TempSensorDallas.cpp:29-36` tests for -127 and for
+        // -254/-253/-252 but not for the two power sentinels. That is wrong, and
+        // the reason is one line of the library the C++ wraps:
+        //
+        //   DallasTemperature.cpp:406-410
+        //     if (raw <= DEVICE_DISCONNECTED_RAW) return DEVICE_DISCONNECTED_C;
+        //     return (float)raw * 0.0078125f;
+        //
+        // `calculateTemperature` returns the *raw* sentinels
+        // (`DallasTemperature.h:49-55`): DEVICE_POWER_ON_RESET_RAW is -32128 and
+        // DEVICE_INSUFFICIENT_POWER_RAW is -32000. Both are far below
+        // DEVICE_DISCONNECTED_RAW (-7040), so both fold to -127 before
+        // `TempSensorDallas` ever sees them, and the first `if` catches them.
+        //
+        // So the C++ rejects all six. What it gets wrong is the *message*: a
+        // power-on reset is logged as "Temperature sensor not connected"
+        // (`TempSensorDallas.cpp:30`). The port keeps the rejection and fixes
+        // the message — see `div6_*` in `sensor::ds18b20`.
+        for (fault, raw) in [
+            (Ds18b20Fault::Disconnected, DISCONNECTED_RAW),
+            (Ds18b20Fault::Open, -32512),
+            (Ds18b20Fault::ShortGnd, -32384),
+            (Ds18b20Fault::ShortVdd, -32256),
+            (Ds18b20Fault::PowerOnReset, -32128),
+            (Ds18b20Fault::InsufficientPower, -32000),
+        ] {
+            assert!(raw <= DISCONNECTED_RAW, "{fault}: raw {raw} must fold");
+            assert_eq!(fault.cpp_sentinel(), Some(-127.0), "{fault}");
+            assert!(fault.cpp_rejects(), "{fault} must be rejected");
+            // And the fold is not a claim about the enum: it is the library's
+            // own arithmetic.
+            assert_eq!(raw_to_celsius(raw), -127.0, "{fault}");
+        }
+    }
+
+    #[test]
+    fn the_only_fault_the_cpp_has_no_sentinel_for_is_ours() {
+        // `OutOfRange` is added by this port; the C++ has no such check.
+        assert!(!Ds18b20Fault::OutOfRange.cpp_rejects());
+        assert_eq!(Ds18b20Fault::OutOfRange.cpp_sentinel(), None);
     }
 
     #[test]

@@ -839,106 +839,143 @@ fn config_a_high_trigger_heater_relay_is_accepted() {
     assert_eq!(validate_config(&cfg), Ok(()));
 }
 
-// ============================ the temperature sensor type (R1-03's decision)
+// ==================== the temperature sensor type (R3-07 reversed R1-03)
+
+// Both sensor types are supported, so there is nothing here to validate. The
+// four tests that used to assert a `TSIC_306` refusal are replaced, not deleted:
+// the behaviour they pinned was real and worth pinning — a firmware must not
+// accept a sensor setting it cannot honour — and the thing that has changed is
+// that there is no such setting any more.
+//
+// What is *not* given up is the underlying complaint. The C++ accepted
+// `TSIC_306` and then read the 1-Wire bus anyway, silently substituting one
+// probe for another. That is now prevented by construction rather than by
+// refusing the configuration: `cc_domain::sensor` has a `TemperatureProbe` trait
+// with a real implementation per sensor, the firmware selects the driver from
+// the board, and a probe that does not answer is reported as
+// `ProbeFault::NotConnected` with the configured sensor type in the log line.
 
 #[test]
-fn config_a_tsic_306_probe_is_refused() {
-    // THE DECISION, as a test. `hardware.sensors.temperature.type = TSIC_306`
-    // is rejected at validation, because the C++ accepted it and then read the
-    // 1-Wire bus anyway: a user told they had a TSIC-306 was given a DS18B20's
-    // reading with no indication of the substitution, and a temperature probe is
-    // an input to S1.
-    let cfg = SafetyConfig {
-        temperature_sensor: TemperatureSensorType::Tsic306,
-        ..SafetyConfig::default()
-    };
-    assert_eq!(
-        validate_config(&cfg),
-        Err(ConfigViolation::UnsupportedTemperatureSensor {
-            requested: TemperatureSensorType::Tsic306
-        })
-    );
+fn both_temperature_sensor_types_are_accepted() {
+    // The reversal, as a test. `Hardware::TemperatureSensorType` has exactly two
+    // values and neither is refused.
+    for sensor in [
+        TemperatureSensorType::Tsic306,
+        TemperatureSensorType::DallasDs18b20,
+    ] {
+        let cfg = SafetyConfig {
+            temperature_sensor: sensor,
+            ..SafetyConfig::default()
+        };
+        assert_eq!(validate_config(&cfg), Ok(()), "{sensor:?} must be accepted");
+        assert_eq!(
+            check_storable(&cfg),
+            Ok(&cfg),
+            "{sensor:?} must be storable"
+        );
+    }
 }
 
 #[test]
-fn config_a_ds18b20_probe_is_accepted() {
-    // The sensor that is actually fitted: family 0x28, ROM 0x286937aacd78af41.
-    let cfg = SafetyConfig {
-        temperature_sensor: TemperatureSensorType::DallasDs18b20,
-        ..SafetyConfig::default()
-    };
-    assert_eq!(validate_config(&cfg), Ok(()));
-}
-
-#[test]
-fn the_compiled_in_defaults_are_themselves_valid() {
-    // **The rule that makes the decision coherent.** The default has to be a
-    // value `validate_config` accepts, or `load_or_default(None)` would hand
-    // the machine a configuration it refuses to run. The C++ default
-    // (`Config.h:1085-1092`) is `TSIC_306`, which this check rejects, so
-    // `SafetyConfig::default()` is `DALLAS_DS18B20` — the driver that exists
-    // and the probe that is fitted.
+fn the_compiled_in_default_is_the_cpps_tsic_306() {
+    // `Config.h:1085-1092`:
+    //
+    //   EnumParamDef<Hardware::TemperatureSensorType> hardwareSensorsTemperatureType{
+    //       "hardware.sensors.temperature.type",
+    //       Hardware::TemperatureSensorType::TSIC_306, ...
+    //
+    // An earlier revision defaulted to `DALLAS_DS18B20` *and* refused
+    // `TSIC_306`, on the reasoning that a default the validator rejects is a
+    // machine that will not run its own defaults. That reasoning was correct
+    // while the driver was missing; the driver exists (R3-07) and the C++'s
+    // value is restored.
     let defaults = SafetyConfig::default();
+    assert_eq!(defaults.temperature_sensor, TemperatureSensorType::Tsic306);
     assert_eq!(validate_config(&defaults), Ok(()));
-    assert_eq!(
-        defaults.temperature_sensor,
-        TemperatureSensorType::DallasDs18b20
-    );
-    // And `check_storable` agrees, so the defaults can be written back.
     assert_eq!(check_storable(&defaults), Ok(&defaults));
 }
 
 #[test]
-fn a_stored_tsic_306_config_is_discarded_not_run() {
-    // The fail-closed behaviour, end to end: an unsafe stored config is
-    // discarded and the defaults run, with the violation reported so the log
-    // says why. The machine does not silently read the wrong bus.
+fn a_stored_tsic_306_config_is_loaded_not_discarded() {
+    // The end-to-end consequence of the reversal: a stored `TSIC_306`
+    // configuration is now a legitimate configuration, so it loads as
+    // `ConfigOrigin::Stored` rather than being thrown away. Getting this wrong in
+    // either direction is bad — a machine configured for a TSIC-306 that silently
+    // falls back to defaults it was not configured for, or one that refuses to
+    // run a setting it is entitled to use.
     let stored = SafetyConfig {
         temperature_sensor: TemperatureSensorType::Tsic306,
         ..SafetyConfig::default()
     };
     let loaded = load_or_default(Some(&stored));
-    assert_eq!(loaded.config, SafetyConfig::default());
-    assert_eq!(
-        loaded.origin,
-        ConfigOrigin::DiscardedUnsafe(ConfigViolation::UnsupportedTemperatureSensor {
-            requested: TemperatureSensorType::Tsic306
-        })
-    );
+    assert_eq!(loaded.config, stored);
+    assert_eq!(loaded.origin, ConfigOrigin::Stored);
 }
 
 #[test]
-fn the_store_refuses_a_tsic_306_config() {
-    // "refusing to store an unsafe configuration" (08 §4.1), so the bad value
-    // cannot even reach NVS.
-    let unsafe_cfg = SafetyConfig {
-        temperature_sensor: TemperatureSensorType::Tsic306,
+fn a_stored_ds18b20_config_is_loaded_too() {
+    // The other half: this machine's own probe, configured explicitly, is also
+    // accepted and run as configured.
+    let stored = SafetyConfig {
+        temperature_sensor: TemperatureSensorType::DallasDs18b20,
         ..SafetyConfig::default()
     };
-    assert!(check_storable(&unsafe_cfg).is_err());
+    let loaded = load_or_default(Some(&stored));
+    assert_eq!(loaded.config, stored);
+    assert_eq!(loaded.origin, ConfigOrigin::Stored);
 }
 
 #[test]
-fn the_relay_rule_is_checked_before_the_sensor_rule() {
-    // Both wrong: the first violation is reported, so the diagnostic is stable
-    // and the more dangerous problem (an energised heater at reset) is the one
-    // named.
-    let cfg = SafetyConfig {
+fn the_sensor_type_is_not_what_makes_a_config_unsafe() {
+    // The rules that *remain*, restated together so the set is visible: the
+    // cross-parameter emergency-temperature check and the `LOW_TRIGGER` heater
+    // refusal. The sensor type is not a third one.
+    let unsafe_steam = SafetyConfig {
+        emergency_temp: Celsius::new(100.0),
+        steam_setpoint: Celsius::new(120.0),
+        ..SafetyConfig::default()
+    };
+    assert!(matches!(
+        validate_config(&unsafe_steam),
+        Err(ConfigViolation::EmergencyTempTooLowForSteam { .. })
+    ));
+
+    let unsafe_relay = SafetyConfig {
         heater_relay_trigger: RelayTriggerType::LowTrigger,
-        temperature_sensor: TemperatureSensorType::Tsic306,
         ..SafetyConfig::default()
     };
     assert_eq!(
-        validate_config(&cfg),
+        validate_config(&unsafe_relay),
         Err(ConfigViolation::HeaterRelayLowTrigger)
     );
+
+    // And the sensor type is genuinely orthogonal: varying it across every value
+    // changes nothing about either verdict.
+    for sensor in [
+        TemperatureSensorType::Tsic306,
+        TemperatureSensorType::DallasDs18b20,
+    ] {
+        let mut with_steam = unsafe_steam;
+        with_steam.temperature_sensor = sensor;
+        assert!(validate_config(&with_steam).is_err(), "{sensor:?}");
+        let mut with_relay = unsafe_relay;
+        with_relay.temperature_sensor = sensor;
+        assert_eq!(
+            validate_config(&with_relay),
+            Err(ConfigViolation::HeaterRelayLowTrigger),
+            "{sensor:?}"
+        );
+    }
 }
 
 #[test]
-fn the_steam_rule_is_checked_before_the_sensor_rule() {
+fn the_steam_rule_is_still_the_first_check() {
+    // Both parameters wrong: the cross-parameter steam rule is reported, so the
+    // diagnostic is stable and the ordering of the checks is pinned rather than
+    // implied.
     let cfg = SafetyConfig {
         emergency_temp: Celsius::new(100.0),
-        temperature_sensor: TemperatureSensorType::Tsic306,
+        heater_relay_trigger: RelayTriggerType::LowTrigger,
         ..SafetyConfig::default()
     };
     assert!(matches!(
