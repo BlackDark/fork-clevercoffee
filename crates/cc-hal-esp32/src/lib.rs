@@ -17,7 +17,12 @@
 //! * This crate does not compile for a host target. Validate it with
 //!   `just lint-esp32`.
 //!
-//! Owner: R3-01. This is the R1-01 workspace skeleton.
+//! Owner: R3-01. This is the R1-01 workspace skeleton, plus the R1-07 heater
+//! output in [`heater`].
 
 #![no_std]
 #![deny(clippy::pedantic)] // workspace lints already do this; restated per crate
+
+pub mod heater;
+
+pub use heater::{HeaterDuty, HeaterOutput, LedcPwm, CARRIER_HZ, RESOLUTION};

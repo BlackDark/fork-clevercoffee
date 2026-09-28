@@ -15,6 +15,7 @@
 
 pub mod error;
 pub mod hardware;
+pub mod heater;
 pub mod pid;
 pub mod process;
 pub mod state;

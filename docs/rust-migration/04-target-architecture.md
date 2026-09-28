@@ -309,21 +309,92 @@ Zero CPU, zero jitter, immune to scheduler stalls.
 
 > **This is a behaviour change and must be recorded as one.** The C++ implementation is
 > a **1 Hz / 100-step chopper**: `windowSize_ = 1000` ms (`context/ProcessState.h:183`)
-> with `ISR_COUNTER_INCREMENT = 10` per 10 ms tick. Moving to LEDC changes the effective
-> PWM period. ADR-0004's Neutral list does not currently mention this. R1-07 must decide
-> the target frequency, record it, and add it to `intentional-diffs.md`. Two more caveats
+> with `ISR_COUNTER_INCREMENT = 10` per 10 ms tick. R1-07 must decide the target frequency,
+> record it, and add it to `intentional-diffs.md`. Two more caveats
 > from `esp-idf-hal/src/ledc.rs`: the duty must not exceed `2^N - 1` at max resolution
 > (20-bit on the original ESP32, 14-bit elsewhere), and the **original ESP32 is the only
 > chip with LEDC high-speed mode**. Driving a *relay* coil is defensible — the machine
-> already chops it today — but the contactor's minimum on/off time constrains the choice. `HardwareManager::setHeaterPower`
+> already chops it today — but the contactor's minimum on/off time constrains the choice, and
+> that constraint is **still unmeasured**. `HardwareManager::setHeaterPower`
 already models a percentage that is currently a TODO (`HardwareManager.cpp:305-318`), so
 this also un-finishes a known stub.
+>
+> ⚠ **"The contactor already chops it today" bounds the *duty cycle*, not the *rate*.
+> Read the ISR rate as the switching rate and the target frequency comes out a hundred
+> times too high.** See the R1-07 decision below.
 
 Fallback: a **GPTimer** (`hal::timer`) with `auto_reload_on_alarm` at 10 ms, whose ISR
 only does `pin.set_level()` and `counter += 10; if counter >= window { counter = 0 }`. This
 is the direct translation of `isr.h:96-118`, and the RTL-style test in
 [06 — Task list](./06-migration-task-list.md) R1-07 is a table-driven unit test over
 `(pid_output, counter) -> level` run on the host.
+
+> ### R1-07 decision, recorded 2026-09-28 — **corrected 2026-09-28**
+>
+> **LEDC hardware PWM, 1 Hz carrier, `Bits17` resolution, low-speed mode.** The
+> **1 Hz chopper window is kept**, so the PID's control law and every gain in
+> `defaults.h` are unchanged; only the delivery mechanism moves. The window
+> arithmetic, the duty→count mapping and the deadman gate are in
+> `cc_domain::heater` (host-testable); the pin is in `cc-hal-esp32::heater`, behind
+> the `HeaterDuty` seam so the GPTimer fallback stays swappable.
+>
+> **The carrier is low, and that is a hardware requirement, not a rounding
+> argument.** The C++ ISR fires 100 times a second, but its predicate
+> `pidOutput > counter` is monotone, so the relay level changes **twice** a second
+> (one falling edge inside the window, one rising edge at the wrap) — and not at
+> all at duty 0 or at full duty. A square wave makes `2f` changes per second, so
+> `f ≤ 1 Hz`, and 1 Hz is also the only frequency at which one carrier period *is*
+> one control window. An earlier revision of this document specified **100 Hz** on
+> the reasoning that it "reproduces the existing 10 ms-step / 1 Hz chopping
+> exactly". **That was wrong** — 100 Hz would switch a 2 kW boiler contactor
+> **200 times a second, a hundred times the C++'s mechanical duty** — and it has
+> been corrected here, in `intentional-diffs.md` #5, and in both crate module docs.
+>
+> Three facts about the pair, read out of ESP-IDF v5.5.5's own source rather than
+> guessed (`ledc_calculate_divisor`, `esp_driver_ledc/src/ledc.c:459-477`;
+> `LEDC_IS_DIV_INVALID`, `ledc.c:115,111`; `precision = 1 << duty_resolution`,
+> `ledc.c:600`):
+>
+> 1. **At 1 Hz the reachable resolutions on the original ESP32 are 17, 18, 19 and
+>    20, and nothing coarser** — `div_param = (80e6 << 8) / (1 · 2^bits)` exceeds
+>    `0x3FFFF` at 16 bits and below. `Bits17` is the coarsest that works
+>    (`div_param` 156 250, period exactly 80 000 000 APB clocks = **1.000 000 Hz**),
+>    and coarsest-that-works leaves the most margin against the divider maths
+>    being wrong. The C++ chopper is reproduced to **3.8 µs** — 0.0004 % of the
+>    window, three orders of magnitude inside the 1 % acceptance bound.
+>    *For the record, the discarded 100 Hz analysis was also wrong in its table: at
+>    100 Hz the valid resolutions are 10–19 bits, not 8–10, and `div_param` at
+>    100 Hz / `Bits10` is 200 000, not 50 000.*
+> 2. **`Bits20` must be avoided, and a `const` assert keeps it out.** ESP-IDF's own
+>    comment in `ledc_channel_config` says that on the ESP32 "100 % duty cycle
+>    (i.e. `2**duty_res`) is not reachable when the binded timer selects the
+>    maximum duty resolution", and 20 bits is the maximum — which is also why
+>    `Resolution::max_duty` is `2^20 - 1` there. At 17 bits, `max_duty` is a plain
+>    `131 072`, so duty `max_duty` is a *steady high level* and duty 0 a *steady
+>    low level*, and the two are distinguishable — which is what makes "disabled"
+>    a different register value from "100 %".
+> 3. **High-speed mode is not needed.** It exists for multi-MHz carriers; at 1 Hz
+>    low speed is six orders of magnitude inside its range, and high-speed timers
+>    are the scarce resource on this part.
+>
+> **Not yet verified on hardware, and this is why R1-07 is still open.** Matching
+> the C++'s transition rate is *necessary and not sufficient*. Still unknown, and
+> **not guessed here**:
+>
+> * the contactor's **minimum on-time and off-time** — the software guarantees it
+>   never requests a pulse narrower than the C++'s own 10 ms step, but whether
+>   10 ms is inside the contactor's ratings is a datasheet/measurement question;
+> * **whether a hardware-PWM output is acceptable to the coil at all** at 1 Hz, a
+>   frequency the C++ never *produced* even though its average was 1 Hz;
+> * the **realised frequency and duty on the pin** — no scope has been attached;
+> * whether 1 Hz is the *best* point on the wear-versus-resolution curve, which is
+>   a decision for someone with the machine.
+>
+> R1-07 steps 1 and 2 (dummy load, scope) are **not run**: no scope is attached, the
+> board's boiler-disconnection state is unconfirmed, and skill §2 rule 4 forbids an
+> energising test without a reviewed procedure. The hardware acceptance criterion
+> is unverified and is left that way. See
+> [`intentional-diffs.md` #5](./intentional-diffs.md#5-the-heater-is-driven-by-ledc-not-a-10-ms-isr-🔴-changed).
 
 Either way, `HardwareActuator` owns `pin` and `window` and nothing else touches them. The
 `heater_enabled` boolean the C++ code maintains is **deleted** — the actuator's own

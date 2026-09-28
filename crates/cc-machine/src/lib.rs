@@ -93,9 +93,10 @@ pub use backflush::{
     apply_backflush_mode, resolve_cycle_advance, resolve_mode_change, CycleAdvanceEffect,
     ModeChangeEffect, ModeChangeInput, ModeChangeOutcome,
 };
+pub use cc_safety::steam_flow_allowed;
 pub use cc_safety::water_flow_allowed;
 pub use context::Context;
-pub use effect::Effect;
+pub use effect::{Effect, PumpWatchdog};
 pub use event::{Command, Event, Sensors, SwitchId};
 pub use guards::{should_pid_be_enabled, Guard};
 pub use machine::{
@@ -229,6 +230,23 @@ fn tick(m: &mut Machine, ctx: &Context<'_>, now: Millis, fx: &mut Vec<Effect>) {
     // one place.
     if !cc_safety::water_flow_allowed(m.state) {
         fx.push(Effect::CloseWaterValve);
+    }
+
+    // ---- steamValveSafetyShutdownCheck() — **does not exist in the C++** ------
+    //
+    // The mirror of the check above, and the closest thing this port has to
+    // `BrewHandler::valveSafetyShutdownCheck`'s steam counterpart. There is no
+    // such function in the C++: `openSteamValve` checks only `emergencyMode_`
+    // and nothing calls it either. See 09 §2 and
+    // `intentional-diffs.md` #2.
+    //
+    // It is here because steam and water share **one relay**
+    // (`ValveState.h:8-11`, GPIO17 in `pinmapping.h:39`), so an ungated steam
+    // valve is an ungated *water* valve. The whitelist is
+    // `cc_safety::steam_flow_allowed`, whose derivation is in that function's
+    // documentation: `STEAM_RUNNING` and nothing else.
+    if !cc_safety::steam_flow_allowed(m.state) {
+        fx.push(Effect::CloseSteamValve);
     }
 
     // ---- PowerHandler::checkForLongPressReboot (PowerHandler.h:142-147) ----

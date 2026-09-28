@@ -12,9 +12,9 @@ use cc_domain::hardware::RelayTriggerType;
 use cc_domain::state::MachineState;
 use cc_domain::units::{Celsius, Millis};
 use cc_safety::{
-    can_clear, check_storable, load_or_default, reduce, validate_config, water_flow_allowed,
-    ConfigOrigin, ConfigViolation, LoadedConfig, Outcome, Reason, SafetyConfig, SafetyState,
-    Telemetry, Verdict, DEBOUNCE_COUNT, EMERGENCY_SAFE_TEMP_C,
+    can_clear, check_storable, load_or_default, reduce, steam_flow_allowed, validate_config,
+    water_flow_allowed, ConfigOrigin, ConfigViolation, LoadedConfig, Outcome, Reason, SafetyConfig,
+    SafetyState, Telemetry, Verdict, DEBOUNCE_COUNT, EMERGENCY_SAFE_TEMP_C,
 };
 
 /// The compiled-in defaults: `emergency_temp` 150, `hysteresis` 5, steam
@@ -502,20 +502,39 @@ fn s4_empty_tank_does_not_block_the_heater() {
 }
 
 #[test]
-fn s4_empty_tank_does_not_block_the_water_valve() {
-    // Parity note: the C++ does not gate `openWaterValve` on the tank. Only
-    // `enablePump` and `setPumpPressure` check `waterTankEmpty_`
-    // (HardwareManager.cpp:325-328, 398-406). Blocking the valve as well would
-    // be defensible but is a behaviour change, so it is recorded rather than
-    // taken.
+fn div1_s4_empty_tank_blocks_the_water_valve_too() {
+    // **Divergence from the C++, see `intentional-diffs.md` #3 / 09 §3.** The C++
+    // gates only `enablePump` and `setPumpPressure` on `waterTankEmpty_`
+    // (`HardwareManager.cpp:325-328,398-406`); `openWaterValve` checks only
+    // `emergencyMode_`. The port refuses the valve as well.
     let out = reduce(
         &SafetyState::CLEAR,
         &Telemetry::new(Celsius::new(20.0), false, MachineState::BrewRunning),
         &cfg(),
         Millis::ZERO,
     );
-    assert!(verdict_of(&out).may_open_water);
+    assert!(
+        !verdict_of(&out).may_open_water,
+        "an empty tank closes the valve"
+    );
     assert!(!verdict_of(&out).may_pump);
+    assert!(matches!(
+        verdict_of(&out).reason,
+        Some(Reason::WaterTankEmpty)
+    ));
+
+    // A full tank in the same state lifts both.
+    let refilled = reduce(
+        &out.state,
+        &Telemetry::new(Celsius::new(20.0), true, MachineState::BrewRunning),
+        &cfg(),
+        Millis::ZERO,
+    );
+    assert!(verdict_of(&refilled).may_open_water);
+    assert!(verdict_of(&refilled).may_pump);
+
+    // The *heater* is untouched: the boiler is a separate vessel.
+    assert!(verdict_of(&out).may_heat);
 }
 
 #[test]
@@ -643,14 +662,30 @@ fn s5_a_water_flow_state_permits_the_water_valve() {
         Millis::ZERO,
     );
     assert!(verdict_of(&out).may_open_water);
-    assert!(verdict_of(&out).reason.is_none(), "nothing to report");
+    // The tank is full and the state is a water-flow state, so the *only* thing
+    // left to report is the steam whitelist (S5') — which BREW_RUNNING is
+    // deliberately not on. See 09 §2: the steam valve is the same relay.
+    assert!(matches!(
+        verdict_of(&out).reason,
+        Some(Reason::NotASteamState {
+            state: MachineState::BrewRunning
+        })
+    ));
 }
 
+// ======================================================= S5' — steam whitelist —
+//
+// The C++ has NO steam-valve whitelist: `openSteamValve` checks only
+// `emergencyMode_` (HardwareManager.cpp:397-400) and there is no
+// `steamSafetyShutdownCheck` anywhere in the tree. The port adds one, because
+// the steam valve is the *same physical relay* as the water valve
+// (ValveState.h:8-11) and the port can reach it.
+// See 09 §2 and `intentional-diffs.md` #2.
+
 #[test]
-fn s5_the_steam_valve_is_not_whitelist_gated() {
-    // Parity note, and a real gap in the C++: `openSteamValve` checks only
-    // `emergencyMode_` (HardwareManager.cpp:397-400) and there is no
-    // `steamSafetyShutdownCheck`. S5's whitelist covers the water valve only.
+fn div2_the_steam_valve_is_whitelist_gated() {
+    // A water-flow state must NOT leave the steam valve permitted. In the C++
+    // this verdict says `true`.
     let out = reduce(
         &SafetyState::CLEAR,
         &Telemetry::new(Celsius::new(20.0), true, MachineState::BrewRunning),
@@ -658,9 +693,64 @@ fn s5_the_steam_valve_is_not_whitelist_gated() {
         Millis::ZERO,
     );
     assert!(
-        verdict_of(&out).may_open_steam,
-        "the C++ does not gate the steam valve on the state, and neither do we"
+        !verdict_of(&out).may_open_steam,
+        "divergence: the C++ does not gate the steam valve on the state; the port does"
     );
+    assert!(matches!(
+        verdict_of(&out).reason,
+        Some(Reason::NotASteamState {
+            state: MachineState::BrewRunning
+        })
+    ));
+}
+
+#[test]
+fn div2_steam_running_is_the_only_state_that_may_flow_steam() {
+    // The whitelist, asserted rather than described: exactly one state.
+    let allowed: Vec<MachineState> = cc_domain::state::ALL
+        .iter()
+        .copied()
+        .filter(|s| steam_flow_allowed(*s))
+        .collect();
+    assert_eq!(
+        allowed,
+        [MachineState::SteamRunning],
+        "the steam whitelist is STEAM_RUNNING and nothing else — \
+         SteamStates.cpp:16 is the only setSteamMode(true) in the tree"
+    );
+
+    let out = reduce(
+        &SafetyState::CLEAR,
+        &Telemetry::new(Celsius::new(120.0), true, MachineState::SteamRunning),
+        &cfg(),
+        Millis::ZERO,
+    );
+    assert!(verdict_of(&out).may_open_steam);
+    // STEAM_RUNNING is deliberately *not* on the water whitelist (S5), so the
+    // water valve is closed while steam flows — the same relay, one permission.
+    assert!(!verdict_of(&out).may_open_water);
+    assert!(matches!(
+        verdict_of(&out).reason,
+        Some(Reason::NotAWaterFlowState {
+            state: MachineState::SteamRunning
+        })
+    ));
+}
+
+#[test]
+fn div2_the_two_whitelists_never_agree_on_a_state() {
+    // The property that makes the single-state steam whitelist correct rather
+    // than merely narrow: because the steam and water valves are one relay, a
+    // state that were on both lists would re-open S5's hole from the other
+    // side. There must be no such state.
+    for state in cc_domain::state::ALL {
+        assert!(
+            !(water_flow_allowed(state) && steam_flow_allowed(state)),
+            "{} is on both whitelists: the shared relay could be opened for water \
+             in a state that the steam whitelist claims for steam",
+            state.name()
+        );
+    }
 }
 
 // ======================================================= Configuration rules —
@@ -859,6 +949,11 @@ fn reduce_is_a_pure_function_of_its_inputs() {
 
 #[test]
 fn a_healthy_brew_permits_everything() {
+    // The one state that permits all four actuators does not exist: the water
+    // whitelist and the steam whitelist are disjoint by design (the shared
+    // relay). What is asserted here is the shape of a healthy, unlatched
+    // verdict in a brew — the pump, the water valve and the heater are all
+    // permitted, the steam valve is not, and the reason says which rule.
     let out = reduce(
         &SafetyState::CLEAR,
         &Telemetry::new(Celsius::new(94.5), true, MachineState::BrewRunning),
@@ -871,9 +966,11 @@ fn a_healthy_brew_permits_everything() {
             may_heat: true,
             may_pump: true,
             may_open_water: true,
-            may_open_steam: true,
+            may_open_steam: false,
             latched: false,
-            reason: None,
+            reason: Some(Reason::NotASteamState {
+                state: MachineState::BrewRunning
+            }),
         }
     );
 }

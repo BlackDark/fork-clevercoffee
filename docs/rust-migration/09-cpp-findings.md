@@ -1,11 +1,29 @@
 # C++ findings — bugs and ambiguities found while porting
 
 Found 2026-09-28 while implementing R2-04/R2-05/R2-06. **Every one of these was
-*preserved* in the Rust port, not silently fixed**, each pinned by a named parity test.
-They are recorded here because they are decisions, not accidents.
+*preserved* in the Rust port, not silently fixed**, each pinned by a named parity
+test. They are recorded here because they are decisions, not accidents.
 
 Each becomes a line in [`intentional-diffs.md`](./intentional-diffs.md) (R1-08) when the
 Rust behaviour intentionally diverges.
+
+> **Updated 2026-09-28 (R1-07 + safety-gap work).** Four findings have since been
+> **closed on purpose** — §1, §2, §3 and §11 — and each now has a `div<N>_` test
+> instead of an `s<N>_` one. The text below is left as the record of what the C++
+> does; the divergence and its reasoning live in
+> [`intentional-diffs.md`](./intentional-diffs.md). A `div<N>_` test replaces its
+> `s<N>_` counterpart; the two are never both present, because they would disagree.
+>
+> | finding | closed by | test |
+> | --- | --- | --- |
+> | §1 integer division by zero | [intentional-diffs #4](./intentional-diffs.md#4-the-pid-derivative-is-taken-over-the-real-elapsed-time-🔴-fixed) | `cc-domain::pid_parity::scenario_d_the_cpp_goes_nan_and_this_port_does_not` |
+> | §2 no steam-valve whitelist | [intentional-diffs #2](./intentional-diffs.md#2-the-steam-valve-is-whitelist-gated-🔴-added) | `cc-machine::parity_findings::div2_the_steam_valve_is_whitelist_gated` |
+> | §3 water valve not tank-gated | [intentional-diffs #3](./intentional-diffs.md#3-the-water-valve-is-gated-on-the-water-tank-🔴-added) | `cc-machine::parity_findings::div3_the_water_valve_is_tank_gated` |
+> | §11 pump timeouts dead | [intentional-diffs #1](./intentional-diffs.md#1-both-pump-safety-timeouts-are-armed-🔴-closed) | `cc_machine::parity_findings::div1_the_pump_timeouts_are_armed` |
+>
+> §4, §5, §6, §7, §12–§16 remain **preserved** and are listed in the
+> "Preserved C++ behaviours" table of
+> [`intentional-diffs.md`](./intentional-diffs.md#preserved-cpp-behaviours--do-not-fix-these).
 
 ---
 
@@ -27,9 +45,13 @@ that moves the PID window off 1000 ms trips this immediately. The Rust port expo
 trap explicitly as `cc_domain::Controller::derivative_seconds()` so the next person
 cannot step on it.
 
-- Rust: preserved. Scenario D of the PID oracle pins the `NaN` behaviour.
-- **Decision needed:** clamp or reject at configuration time, or document 1000 ms as a
-  hard invariant of the chopper. Recommend the latter plus an assertion.
+- **Rust: FIXED 2026-09-28** (R1-07). The port divides by the real elapsed time in
+  `f64`, so the trap cannot occur at any window. Scenarios A–C of the PID oracle are
+  still bit-identical to the C++; scenario D is retained *as the C++'s `NaN`* and the
+  divergence is asserted. See
+  [`intentional-diffs.md` #4](./intentional-diffs.md#4-the-pid-derivative-is-taken-over-the-real-elapsed-time-🔴-fixed).
+- The `Controller::derivative_seconds` / `derivative_seconds_at` pair keeps the trap
+  documented.
 
 ## 2. The steam valve has no safety whitelist at all
 
@@ -39,16 +61,26 @@ state whitelist. `openSteamValve()` (`HardwareManager.cpp:397-400`) checks **onl
 
 So the steam valve can be commanded open in any state, while the water valve cannot.
 
-- Rust: preserved, pinned by `s5_the_steam_valve_is_not_whitelist_gated`.
-- **This is a real safety gap**, not a port artifact. Recommend adding a steam whitelist
-  symmetric to S5 in the Rust port and recording it as an intentional divergence.
+- **Rust: CLOSED 2026-09-28.** The port has `cc_safety::steam_flow_allowed` —
+  `STEAM_RUNNING` and nothing else, a `match` with no wildcard arm — plus a
+  `steamValveSafetyShutdownCheck` in the reducer's tail. Pinned by
+  `div2_the_steam_valve_is_whitelist_gated`, which **replaced**
+  `s5_the_steam_valve_is_not_whitelist_gated`. See
+  [`intentional-diffs.md` #2](./intentional-diffs.md#2-the-steam-valve-is-whitelist-gated-🔴-added)
+  for the derivation from the C++.
+- This was a real safety gap, not a port artifact: steam and water share **one relay**
+  (`ValveState.h:8-11`), so an ungated steam valve is an ungated water valve.
 
 ## 3. The water valve is not gated on an empty tank
 
 Only `enablePump` and `setPumpPressure` check `waterTankEmpty_`
 (`HardwareManager.cpp:325-328, 398-406`). `openWaterValve` does not.
 
-- Rust: preserved, pinned by `s4_empty_tank_does_not_block_the_water_valve`.
+- **Rust: CLOSED 2026-09-28.** The verdict's `may_open_water` now requires the tank to
+  be full as well as the state to be on the S5 whitelist. Pinned by
+  `div1_s4_empty_tank_blocks_the_water_valve_too` and
+  `div3_the_water_valve_is_tank_gated`. See
+  [`intentional-diffs.md` #3](./intentional-diffs.md#3-the-water-valve-is-gated-on-the-water-tank-🔴-added).
 
 ## 4. S1 keeps heating through the debounce window
 
@@ -142,10 +174,15 @@ never fire.** Hold the water switch indefinitely and the pump runs indefinitely.
 the single most serious finding in this document — it is an unbounded pump run on a
 machine with a heated boiler.
 
-- Rust: the timeouts are **reachable** in the port (armed on the activating edge). This
-  is a deliberate divergence and a strictly-safer one; the alternative would have deleted
-  a check the C++ clearly intended.
-- Pinned by `s11_the_pump_timeouts_are_never_armed`.
+- **Rust: CLOSED 2026-09-28.** Both timeouts are now **armed on the activating edge** and
+  a trip emits `Effect::PumpTimeoutFired`, whose message is the C++'s own `logError`
+  text verbatim — so a field log answers "did this ever trip?" Deliberately
+  one-directional: the Rust can trip a watchdog the C++ cannot. Pinned by
+  `div1_the_pump_timeouts_are_armed`, which **replaced**
+  `s11_the_pump_timeouts_are_never_armed`. See
+  [`intentional-diffs.md` #1](./intentional-diffs.md#1-both-pump-safety-timeouts-are-armed-🔴-closed).
+- **Not covered, on purpose:** `MANUAL_FLUSH_RUNNING` and the backflush fill/flush phases
+  also run the pump and neither C++ timer covers them. Recorded as a follow-up.
 
 ## 12. 🔴 `SensorErrorState`'s recovery clock is measured from the wrong instant
 

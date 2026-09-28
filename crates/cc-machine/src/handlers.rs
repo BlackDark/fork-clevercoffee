@@ -19,10 +19,10 @@
 //!
 //! It does not touch an actuator. The only handler that reaches hardware in the
 //! C++ is `HotWaterHandler::checkPumpTimeout` (`HotWaterHandler.h:114-122`),
-//! which calls `context.disablePump()` — and it is dead, see
-//! [`crate::timing::PUMP_TIMEOUTS_NEVER_ARM`]. It is ported anyway, as a
-//! `DisablePump` effect, so that if the timer is ever armed the behaviour is
-//! already right.
+//! which calls `context.disablePump()` — and it is dead in the C++, because
+//! `PumpTimer::start()` is never called (09 §11). It is ported anyway, as a
+//! `DisablePump` effect, and here it is *reachable*: [`pump_timeouts`] arms both
+//! watchdogs on the activating edge.
 //!
 //! # The `hasPermission` layer
 //!
@@ -39,7 +39,7 @@ use cc_domain::hardware::SwitchType;
 use cc_domain::state::MachineState;
 
 use crate::context::Context;
-use crate::effect::Effect;
+use crate::effect::{Effect, PumpWatchdog};
 use crate::event::{Event, SwitchId};
 use crate::machine::{Machine, Request};
 
@@ -466,18 +466,59 @@ fn hot_water_switch(machine: &mut Machine, ctx: &Context<'_>) -> Vec<Effect> {
 /// `BrewHandler::checkPumpTimeout` (`BrewHandler.h:254-262`) and
 /// `HotWaterHandler::checkPumpTimeout` (`HotWaterHandler.h:114-122`).
 ///
-/// # Preserved deliberately, and dead — see `09-cpp-findings.md` §11
+/// # Divergence, and a deliberate one — see 09 §11
 ///
-/// `PumpTimer::isExpired()` is false unless `start()` was called, and nothing
-/// calls it. Both functions are therefore unreachable in the shipped firmware.
+/// In the C++ both functions are **unreachable**:
 ///
-/// They are ported anyway, and *are* reachable here, because the reducer has an
-/// explicit `brew_pump_started_at` field where the C++ has a timer that is never
-/// started. The difference is deliberate and one-directional: the Rust can trip
-/// a watchdog the C++ cannot. A port that dropped the check would have removed a
-/// safety function the C++ *intended* to have, and the whole point of a
-/// parity-preserving port is that such a decision gets made on the record rather
-/// than by accident.
+/// ```cpp
+/// bool isExpired() const {
+///     if (!isRunning_ || startTime_ == 0) return false;
+///     return (millis() - startTime_) > maxRunTime_;
+/// }
+/// ```
+/// (`handlers/PumpTimer.h:23-26`)
+///
+/// `isRunning_` starts `false` (`PumpTimer.h:14`) and `start()` is never called
+/// anywhere in the tree, so `isExpired()` is unconditionally `false`. The
+/// 5-minute brew limit and the 60-second hot-water limit cannot fire; holding
+/// the water switch runs the pump indefinitely.
+///
+/// Here both are **armed on the activating edge** — see [`arm_pump_watchdogs`] —
+/// so both are reachable, and a trip is announced through
+/// [`Effect::PumpTimeoutFired`] before the action it causes. That is the whole
+/// divergence: the Rust can trip a watchdog the C++ cannot. Dropping the check
+/// instead would have deleted a safety function the C++ plainly intended to
+/// have, and doing that on the record is what `intentional-diffs.md` is for.
+///
+/// # What counts as "the activating edge"
+///
+/// `PumpTimer::start()` in the C++ would sit next to the code that turns the
+/// pump **on**, so the port arms where the pump is actually commanded on, not
+/// where the state merely *permits* it:
+///
+/// | watchdog | armed while |
+/// | --- | --- |
+/// | brew | the current state is one whose `update()` pushes `Effect::EnablePump` — `BREW_PREINFUSION` or `BREW_RUNNING` (`BrewStates.cpp:70,245`) |
+/// | hot water | the water switch is held in a state that dispenses hot water — `PID_NORMAL` (`PidStates.cpp:36-38`) |
+///
+/// `BREW_PREINFUSION_PAUSE` deliberately does **not** arm the brew watchdog: its
+/// `update()` pushes `Effect::DisablePump` (`BrewStates.cpp:172`), so a pause is
+/// not pump run time. It is also a state the watchdog's own
+/// `isBrewActive()` guard accepts, which is exactly why arming on the state
+/// alone would have counted the pause against the five minutes.
+///
+/// The hot-water watchdog is armed on the switch, not on the state, because
+/// `HotWaterHandler::isHotWaterActive()` is itself just the switch reading
+/// (`HotWaterHandler.h:39-44`) and the expiry test is
+/// `isExpired() && isHotWaterActive()`. The state is included in the arming
+/// condition so that `STEAM_RUNNING` — where the *same* switch means water
+/// injection, not hot water — does not start the hot-water clock.
+///
+/// **Not covered, deliberately:** `MANUAL_FLUSH_RUNNING` and the two
+/// `BACKFLUSH_*RUNNING` phases also run the pump, and **neither** C++ timer
+/// covers them, so neither does the port. Extending a watchdog is a
+/// specification change, not a parity fix; it is recorded as a follow-up
+/// rather than smuggled in here.
 ///
 /// # The brew one sets a flag, it does not transition
 ///
@@ -491,20 +532,71 @@ fn hot_water_switch(machine: &mut Machine, ctx: &Context<'_>) -> Vec<Effect> {
 pub fn pump_timeouts(machine: &mut Machine) -> Vec<Effect> {
     let mut fx = Vec::new();
 
+    arm_pump_watchdogs(machine);
+
     // `BrewHandler.h:255`: `if (pumpTimer_.isExpired() && isBrewActive())`.
     // `isBrewActive` is "a brew state other than BREW_FINISHED"
     // (`BrewHandler.h:98-103`).
     if brew_timer_expired(machine) && brew_is_active(machine.state) {
+        // `BrewHandler.h:256`: `logError("Pump timeout - stopping for safety")`.
+        // Unreachable in the C++; see the module docs.
+        fx.push(Effect::PumpTimeoutFired {
+            watchdog: PumpWatchdog::Brew,
+        });
         machine.requests.brew_stop = true;
     }
 
     // `HotWaterHandler.h:115`: `if (pumpTimer_.isExpired() && isHotWaterActive())`.
     // `isHotWaterActive` is the switch level (`HotWaterHandler.h:39-44`).
     if hot_water_timer_expired(machine) && machine.switches.hot_water {
+        // `HotWaterHandler.h:117`, also recovered verbatim from the previous
+        // Rust firmware (08 §4.2).
+        fx.push(Effect::PumpTimeoutFired {
+            watchdog: PumpWatchdog::HotWater,
+        });
         fx.push(Effect::DisablePump);
     }
 
     fx
+}
+
+/// Start and stop the two pump watchdogs on the pump-on / pump-off edges.
+///
+/// This is the `PumpTimer::start()` the C++ does not have. The deadline check
+/// itself is unchanged (`pump_timeouts` above); this only decides *when the
+/// clock runs*, and it is deliberately a latch: a watchdog that re-armed itself
+/// every loop could never expire.
+///
+/// Exposed as its own `pub fn` so the arming rule is a nameable, testable thing
+/// rather than four lines buried in the tick.
+pub fn arm_pump_watchdogs(machine: &mut Machine) {
+    machine.brew_pump_started_at = if brew_pump_running(machine) {
+        machine.brew_pump_started_at.or(Some(machine.now))
+    } else {
+        None
+    };
+    machine.hot_water_pump_started_at = if hot_water_pump_running(machine) {
+        machine.hot_water_pump_started_at.or(Some(machine.now))
+    } else {
+        None
+    };
+}
+
+/// Is the pump being commanded on by a *brew* state this loop?
+fn brew_pump_running(machine: &Machine) -> bool {
+    matches!(
+        machine.state,
+        MachineState::BrewPreinfusion | MachineState::BrewRunning
+    )
+}
+
+/// Is the pump being commanded on by the hot-water switch this loop?
+///
+/// `PID_NORMAL` is the only state in which the water switch means "hot water";
+/// in `STEAM_RUNNING` it means water injection (`SteamStates.cpp:36-46`) and
+/// `HotWaterHandler::isHotWaterActive()` is not consulted for that path.
+fn hot_water_pump_running(machine: &Machine) -> bool {
+    machine.state == MachineState::PidNormal && machine.switches.hot_water
 }
 
 /// `PumpTimer::isExpired()` for the brew handler, given that the reducer arms the

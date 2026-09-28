@@ -366,6 +366,47 @@ Each spike is a **throwaway `examples/` binary in the workspace**, deleted or mo
 > R1-03 has the same constraint: a temperature sensor on a **live boiler** can act on a
 > real heater. Do not connect a sensor spike to a live boiler.
 
+##### R1-07 progress, 2026-09-28 — the decision is made, the hardware test is not done
+
+| Step | Status |
+| --- | --- |
+| 0. Verify `hal::ledc`'s real API from the installed source | **done** — `esp-idf-hal-0.47.0/src/ledc.rs`; the signatures used are `LedcTimerDriver::new(timer, &TimerConfig)`, `LedcDriver::new(channel, &timer_driver, pin)`, `set_duty(u32)`, `get_duty()`, `get_max_duty()`. `set_duty` clamps to `max_duty` **silently**. |
+| 0b. Derive the carrier from the C++'s **transition rate**, not its ISR rate | **done, and it changed the answer.** The ISR fires 100×/s but the level changes 0 or 2×/s; `cc_domain::heater::cpp_transitions_per_second` computes that from the transcribed predicate. `f ≤ 1 Hz`. The earlier 100 Hz specification is withdrawn — see 04 §5 and `intentional-diffs.md` #5. |
+| 1. Drive a dummy load from LEDC, measure with a scope | **NOT DONE.** No dummy load and no scope are attached to this machine, and the board's boiler-disconnection state is unconfirmed. Left un-run rather than claimed. |
+| 2. Same from a GPTimer, measure jitter | **NOT DONE**, and not written: `HeaterDuty` is the seam and only the LEDC implementation exists. |
+| 3. Host-test the `(pid_output, counter) -> level` translation at 0, at window, and every wrap boundary | **done** — `cc_domain::heater`, 16 tests: `the_tick_table_is_the_cpp_isr` walks all 100 counters at duty 0 and at full duty; `the_ten_millisecond_quantisation` pins both off-by-ones; `duty_counts_at_the_chosen_resolution` pins monotonicity; `the_chosen_carrier_reproduces_the_cpp_on_time` pins the 10 µs on-time tolerance and `…_at_the_analytic_bound` the 3.8 µs floor. |
+| 3b. Host-test that the carrier does not switch the contactor more than the C++ does | **done** — `the_carrier_does_not_switch_the_contactor_more_than_the_cpp_does` computes both sides and requires them **equal** at every half-millisecond of the PID range, and never above 2/s. Also `the_minimum_pulse_is_the_cpp_ten_millisecond_step` and `full_duty_is_distinguishable_from_disabled`. |
+| 4. Honour `hardware.relays.*.trigger_type` | **partly** — `cc_safety::validate_config` refuses a `LOW_TRIGGER` **heater** relay outright (08 §4.1). R3-03 applies the trigger type to the pin. |
+
+**Decision: LEDC, 1 Hz, `Bits17`, low-speed mode; the 1 Hz chopper window is
+kept so the PID is unchanged.** Recorded in
+[`intentional-diffs.md` #5](./intentional-diffs.md#5-the-heater-is-driven-by-ledc-not-a-10-ms-isr-🔴-changed)
+and in 04 §5.
+
+**R1-07 is NOT complete.** Its acceptance criterion is measured duty within 1 %
+across the full range, and that requires steps 1 and 2. What *is* established: the
+arithmetic is host-tested, the frequency/resolution pair was derived from
+ESP-IDF's own divider maths rather than guessed, the firmware builds and links
+with the carrier at duty 0, and the latching gate plus deadman are implemented
+from the recovered oracle (08 §3, §4).
+
+**Open, and it is a hardware question that nobody has answered.** The carrier now
+matches the C++'s contactor duty, which removes the specific worry that motivated
+the 100 Hz design, but three things remain **unmeasured** and are recorded as
+measurements to take rather than assumptions to make:
+
+* the contactor's **minimum on/off time** — the software guarantees it never
+  requests a pulse narrower than the C++'s own 10 ms step, but whether 10 ms is
+  inside the contactor's ratings is a datasheet/measurement question;
+* **whether a hardware-PWM output is acceptable to the coil at all** at 1 Hz, a
+  frequency the C++ never *produced* even though its average was 1 Hz;
+* the **realised frequency and duty on the pin** — no scope has been attached;
+  and, relatedly, whether 1 Hz is the best point on the
+  wear-versus-duty-resolution curve, which is a decision for someone with the
+  machine in front of them.
+
+**R1-07 stays open until steps 1 and 2 are run with the boiler disconnected.**
+
 ### R1-08 — Parity baseline capture (required before Gate 1)
 
 - **Objective:** create the reference the migration is measured against. Currently

@@ -16,7 +16,8 @@
 //! | **S2** emergency latch | `src/hardware/HardwareManager.cpp:278-321,353,398,443` | [`Verdict`] permissions |
 //! | **S3** emergency recovery | `EmergencyStopManager.cpp:71-90` | [`reduce`] |
 //! | **S4** water tank empty | `HardwareManager.cpp:325-328,546-561` | [`Verdict::may_pump`] |
-//! | **S5** valve fail-safe | `include/clevercoffee/handlers/BrewHandler.h:105-122` | [`water_flow_allowed`] |
+//! | **S5** water-valve fail-safe | `include/clevercoffee/handlers/BrewHandler.h:105-122` | [`water_flow_allowed`] |
+//! | **S5'** steam-valve fail-safe | **absent in the C++** — see [`steam_flow_allowed`] | [`steam_flow_allowed`] |
 //!
 //! Plus the two fail-closed configuration rules recovered from the previous
 //! Rust firmware ([08 §4.1](../docs/rust-migration/08-recovered-oracle.md)):
@@ -24,6 +25,22 @@
 //!
 //! # Semantics that are *not* the C++'s, and why
 //!
+//! These are deliberate, human-approved divergences. Every one is a line in
+//! [`intentional-diffs.md`](../../docs/rust-migration/intentional-diffs.md)
+//! and is pinned by a `div_`-prefixed test, so a parity harness that reports a
+//! diff there knows it is expected.
+//!
+//! * **S4 gates the water valve as well as the pump.** The C++ checks
+//!   `waterTankEmpty_` in `enablePump` and `setPumpPressure` only
+//!   (`HardwareManager.cpp:325-328,398-406`); `openWaterValve` does not check it
+//!   ([09 §3](../docs/rust-migration/09-cpp-findings.md)). Emptying the tank and
+//!   then entering a brew state opened the water valve against a dry reservoir.
+//!   Gating it costs nothing — the S5 whitelist is consulted in the same breath —
+//!   and removes a way to be wrong.
+//! * **S5' is new.** The C++ has no steam-valve whitelist at all
+//!   ([09 §2](../docs/rust-migration/09-cpp-findings.md)); see
+//!   [`steam_flow_allowed`] for the derivation and for why it is not merely
+//!   theoretical.
 //! * **S4 is edge-free here.** The C++ kills a running pump inside
 //!   `setWaterTankEmpty(true)` — an *event* on the empty→empty edge
 //!   (`HardwareManager.cpp:546-561`). Here the verdict simply says
@@ -225,6 +242,15 @@ pub enum Reason {
         /// The state that was refused.
         state: MachineState,
     },
+    /// S5': the current state is not one in which steam may flow.
+    ///
+    /// **No C++ equivalent** — `openSteamValve` checks only `emergencyMode_`
+    /// ([09 §2](../../docs/rust-migration/09-cpp-findings.md)). See
+    /// [`steam_flow_allowed`].
+    NotASteamState {
+        /// The state that was refused.
+        state: MachineState,
+    },
 }
 
 /// The decision: may each actuator be energised right now?
@@ -250,9 +276,19 @@ pub struct Verdict {
     /// water tank is empty.
     pub may_pump: bool,
     /// May the water (three-way) valve be energised? `false` when the latch is
-    /// set **or** the current state is not a water-flow state.
+    /// set, when the water tank is empty, **or** when the current state is not a
+    /// water-flow state.
+    ///
+    /// The tank condition is a **deliberate divergence** ([09 §3](../../docs/rust-migration/09-cpp-findings.md)):
+    /// the C++'s `openWaterValve` checks only `emergencyMode_`.
     pub may_open_water: bool,
-    /// May the steam valve be energised? `false` when the latch is set.
+    /// May the steam valve be energised? `false` when the latch is set **or**
+    /// the current state is not a steam-flow state.
+    ///
+    /// The state condition is a **deliberate divergence**
+    /// ([09 §2](../../docs/rust-migration/09-cpp-findings.md)): the C++'s
+    /// `openSteamValve` checks only `emergencyMode_`, and the steam and water
+    /// valves are the *same physical relay*.
     pub may_open_steam: bool,
     /// Whether the emergency latch is set after this reduce.
     pub latched: bool,
@@ -346,6 +382,111 @@ pub const fn water_flow_allowed(state: MachineState) -> bool {
     }
 }
 
+/// S5': may steam flow in this state?
+///
+/// A `match` with **no `_` arm**, for the same reason as
+/// [`water_flow_allowed`]: a new state must be classified before it compiles.
+/// There is no C++ expression to transcribe here, so the whitelist is derived —
+/// and the derivation is the argument, so it is written out.
+///
+/// # The C++ has no steam whitelist at all
+///
+/// ```cpp
+/// void HardwareManager::openSteamValve() noexcept {
+///     if (emergencyMode_) {
+///         LOG(WARNING, "Cannot open steam valve - emergency mode active");
+///         return;
+///     }
+///     ...
+/// ```
+/// (`src/hardware/HardwareManager.cpp:397-400`)
+///
+/// `emergencyMode_` is the *only* check. There is no `steamSafetyShutdownCheck`
+/// anywhere in the tree — `BrewHandler::valveSafetyShutdownCheck`
+/// (`BrewHandler.h:105-122`) is the water valve's, and it names only the water
+/// relay. The same three lines, minus the whitelist, at
+/// `MachineStateContext.cpp:556-558`.
+///
+/// # Why that is a real gap and not a theoretical one
+///
+/// Steam and water share **one relay**:
+///
+/// > "Steam and water valves share the same physical relay. This enum tracks
+/// > which valve(s) should be open, ensuring correct relay control."
+///
+/// — `include/clevercoffee/hardware/ValveState.h:8-11`.
+///
+/// The pin map confirms it: one valve relay, GPIO17
+/// (`include/clevercoffee/hardware/pinmapping.h:39`). So an ungated
+/// `openSteamValve()` does not open some other solenoid — **it energises the
+/// very relay that S5 spends its whole existence keeping closed.** The C++ is
+/// protected only by the accident that nothing calls it: `rg -n openSteamValve`
+/// over `src/` and `include/` finds the definition, the pass-through, the
+/// interface declaration and nothing else. A port that gives the state machine
+/// the ability to express it — which this one does, via
+/// `Effect::OpenSteamValve` — inherits the gap with none of the accident.
+///
+/// # The derivation
+///
+/// The whitelist is *the set of states in which steam is drawn*. From the C++:
+///
+/// 1. `SteamRunningState::onEntryImpl` is the **only** place in the tree that
+///    turns steam mode on: `context.setSteamMode(true)`
+///    (`src/state/states/SteamStates.cpp:16`). Every other state either never
+///    touches it or clears it — `SteamRunningState::onExitImpl` (`:21`),
+///    `SystemStates.cpp:17`.
+///
+/// 2. Steam mode is what the process controller keys off to select the steam
+///    setpoint, and nothing else: `updateSetpoint(isSteamModeActive())`
+///    (`src/control/ProcessController.cpp:119-120`, `:235-244`). So the
+///    *only* state in which the machine is holding the boiler at
+///    `steam.setpoint` is `STEAM_RUNNING`.
+///
+/// 3. Water injection during steam — the second place the C++ moves water while
+///    steaming — happens **inside** `STEAM_RUNNING`, not in a state of its own:
+///    `SteamRunningState::update` drives the pump from the water switch
+///    (`SteamStates.cpp:36-46`). `MachineStateId` has no injection state; the
+///    eleven state ids in `MachineStateIds.h` include exactly one steam state
+///    (`STEAM_RUNNING = 51`).
+///
+/// 4. `WebServerManager.cpp:444-445` can flip `isSteamModeActive()` directly
+///    over HTTP without changing the state. That is a debug surface, and it is
+///    the case that makes a *mode-based* gate wrong: the steam mode would be on
+///    in `PID_NORMAL`, where the setpoint has not changed and no steam can be
+///    drawn. A state-based whitelist ignores it, correctly.
+///
+/// Therefore: **`STEAM_RUNNING`, and only `STEAM_RUNNING`.** Every other state —
+/// including `PID_NORMAL`, `BREW_RUNNING`, `BACKFLUSH_FILLING` and `STANDBY` —
+/// must hold the steam valve closed.
+///
+/// The single-state whitelist is not a stub left for later. A wider one would be
+/// actively wrong: because the relay is shared, listing a water-flow state as a
+/// steam state would make `may_open_steam` agree with `may_open_water` and
+/// quietly re-open S5's hole from the other side.
+#[must_use]
+pub const fn steam_flow_allowed(state: MachineState) -> bool {
+    match state {
+        MachineState::SteamRunning => true,
+        MachineState::Init
+        | MachineState::PidNormal
+        | MachineState::BrewPreinfusion
+        | MachineState::BrewPreinfusionPause
+        | MachineState::BrewRunning
+        | MachineState::BrewFinished
+        | MachineState::ManualFlushRunning
+        | MachineState::BackflushIdle
+        | MachineState::BackflushFilling
+        | MachineState::BackflushFlushing
+        | MachineState::BackflushFinished
+        | MachineState::WaterTankEmpty
+        | MachineState::EmergencyStop
+        | MachineState::PidDisabled
+        | MachineState::Standby
+        | MachineState::SensorError
+        | MachineState::EepromError => false,
+    }
+}
+
 /// The whole safety decision, as a pure function.
 ///
 /// Runs once per control tick, before the PID computes and before any state
@@ -371,13 +512,16 @@ pub const fn water_flow_allowed(state: MachineState) -> bool {
 ///    those two temperatures the counter is left alone, which is the hysteresis
 ///    that stops the machine oscillating around the threshold.
 /// 4. **S2.** If latched, nothing may be energised.
-/// 5. **S4.** An empty tank blocks the pump only.
+/// 5. **S4.** An empty tank blocks the pump and — deliberately, unlike the C++
+///    — the water valve. The boiler is fed from the reservoir, so an empty tank
+///    means the pump is running dry; leaving the valve open is not what makes
+///    that safe, it is just as much of a mistake.
 /// 6. **S5.** A state outside [`water_flow_allowed`] blocks the water valve.
-///    Note this is the water (three-way) valve only. The steam valve is *not*
-///    whitelist-gated in the C++ — `openSteamValve` checks only
-///    `emergencyMode_` (`HardwareManager.cpp:397-400`) and no `steamSafetyShutdownCheck`
-///    exists. That gap is preserved here for parity and called out in the crate
-///    report; closing it is a deliberate, recorded change, not a port.
+/// 7. **S5'.** A state outside [`steam_flow_allowed`] blocks the steam valve.
+///    This check does not exist in the C++ at all
+///    ([09 §2](../../docs/rust-migration/09-cpp-findings.md)); it is added here
+///    because the steam valve is the same relay as the water valve and the port
+///    can reach it. See [`steam_flow_allowed`] for the derivation.
 #[must_use]
 pub fn reduce(
     prev: &SafetyState,
@@ -439,16 +583,27 @@ pub fn reduce(
         };
     }
 
-    // ---- S4 and S5: the per-actuator interlocks. ---------------------------
+    // ---- S4, S5 and S5': the per-actuator interlocks. ----------------------
     let mut verdict = Verdict::ALL_PERMITTED;
     if !telemetry.water_tank_full {
         verdict.may_pump = false;
+        // Deliberate divergence from the C++ (09 §3): `openWaterValve` does not
+        // check `waterTankEmpty_` there.
+        verdict.may_open_water = false;
         verdict.reason = Some(Reason::WaterTankEmpty);
     }
     if !water_flow_allowed(telemetry.state) {
         verdict.may_open_water = false;
         if verdict.reason.is_none() {
             verdict.reason = Some(Reason::NotAWaterFlowState {
+                state: telemetry.state,
+            });
+        }
+    }
+    if !steam_flow_allowed(telemetry.state) {
+        verdict.may_open_steam = false;
+        if verdict.reason.is_none() {
+            verdict.reason = Some(Reason::NotASteamState {
                 state: telemetry.state,
             });
         }

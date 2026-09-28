@@ -52,9 +52,12 @@ pub trait Actuators {
     fn close_water_valve(&mut self);
     /// `HardwareManager::openSteamValve()`.
     ///
-    /// **Never called by the state machine** — see [`Effect::OpenSteamValve`]
-    /// and `09-cpp-findings.md` §2. It exists on the port because the port has
-    /// to be able to say it.
+    /// **Never emitted by the reducer** — see [`Effect::OpenSteamValve`] and
+    /// `09-cpp-findings.md` §2. The gate is `cc_safety::steam_flow_allowed`,
+    /// enforced in the reducer's tail (`CloseSteamValve` outside
+    /// `STEAM_RUNNING`) and again in the device implementation's
+    /// `may_open_steam` check (R3-03). It exists on the port because the port
+    /// has to be able to say it.
     fn open_steam_valve(&mut self);
     /// `HardwareManager::closeSteamValve()`.
     fn close_steam_valve(&mut self);
@@ -184,6 +187,14 @@ pub fn apply_one(
         Effect::ResetMqttReconnectCount => side.on_reset_mqtt_reconnect_count(),
         Effect::WakeDisplay => side.on_wake_display(),
         Effect::RequestReboot => side.on_request_reboot(),
+
+        // ---- observability ---------------------------------------------------
+        // `BrewHandler::checkPumpTimeout`'s `logError("Pump timeout - stopping
+        // for safety")` and the hot-water equivalent. In the C++ these lines are
+        // unreachable (09 §11); here they are the only way a field operator can
+        // learn that a watchdog fired, which is the point of the effect. The
+        // action that follows is a separate effect, in the C++'s order.
+        Effect::PumpTimeoutFired { watchdog } => side.on_log(watchdog.message()),
     }
 
     let _ = machine;

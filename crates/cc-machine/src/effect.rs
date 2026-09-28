@@ -47,13 +47,15 @@ pub enum Effect {
     CloseWaterValve,
     /// `context.openSteamValve()` (`MachineStateContext.cpp:556`).
     ///
-    /// **Preserved deliberately, see `09-cpp-findings.md` §2.** Nothing in the
-    /// C++ ever calls this: the steam valve is driven by the steam PID in
-    /// `ProcessController`, not by a state, and the *state machine* has no
-    /// steam-valve whitelist at all. The effect exists because the state
-    /// machine must be able to express it, and the pin test
-    /// `s5_the_steam_valve_is_not_whitelist_gated` pins the fact that
-    /// nothing emits it.
+    /// **Deliberate divergence, see 09 §2 / `intentional-diffs.md` #2.** The C++
+    /// has no steam-valve whitelist at all and nothing ever calls it. This port
+    /// gates it on `cc_safety::steam_flow_allowed` — `STEAM_RUNNING` and nothing
+    /// else — in two places: the reducer's tail closes the valve in every other
+    /// state (the `steamValveSafetyShutdownCheck` this port adds), and the
+    /// verdict's `may_open_steam` refuses the actuator call. The effect still
+    /// exists because the state machine must be able to express it, and because
+    /// the shared-relay argument means "the C++ never calls it" is a fact about
+    /// the call graph, not a safety property.
     OpenSteamValve,
     /// `context.closeSteamValve()` (`MachineStateContext.cpp:560`).
     CloseSteamValve,
@@ -156,6 +158,72 @@ pub enum Effect {
     /// `POWER_REBOOT_DISPLAY_MS` delay is a *shell* concern, because a pure
     /// function may not sleep.
     RequestReboot,
+    /// A pump watchdog expired.
+    ///
+    /// **Divergence, see 09 §11 / `intentional-diffs.md` #1.** In the C++ both
+    /// watchdogs are dead code — `PumpTimer::start()` is never called, so
+    /// `isExpired()` is unconditionally `false` and the two `logError` lines
+    /// that would announce a trip are unreachable. The port arms both on the
+    /// activating edge, so this effect is reachable, and it is emitted *so the
+    /// trip is visible in the field log* rather than being a silent hardware
+    /// change: an operator needs to be able to tell that a five-minute brew
+    /// timeout exists and fired, which is the only way to diagnose a
+    /// marginal-boiler machine.
+    ///
+    /// The two C++ messages this stands for, verbatim:
+    ///
+    /// * `BrewHandler::checkPumpTimeout` — `"Pump timeout - stopping for safety"`
+    ///   (`BrewHandler.h:256`)
+    /// * `HotWaterHandler::checkPumpTimeout` — `"Hot water pump timeout - stopping
+    ///   for safety"` (`HotWaterHandler.h:117`; also recovered verbatim from the
+    ///   previous Rust firmware, [08 §4.2](../../docs/rust-migration/08-recovered-oracle.md))
+    ///
+    /// The applier turns it into the log line; the *action* that follows
+    /// (`Request::BrewStop` / `Effect::DisablePump`) is a separate effect, in
+    /// the C++'s order.
+    PumpTimeoutFired {
+        /// Which watchdog fired.
+        watchdog: PumpWatchdog,
+    },
+}
+
+/// Which of the C++'s two `PumpTimer` instances expired.
+///
+/// `BrewHandler` owns a `pumpTimer_(300000)` and `HotWaterHandler` a
+/// `pumpTimer_(60000)`; they are separate objects with separate deadlines, so
+/// they are separate variants rather than one flag. See [`timing::BREW_PUMP_TIMEOUT_MS`]
+/// and [`timing::HOT_WATER_PUMP_TIMEOUT_MS`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum PumpWatchdog {
+    /// `BrewHandler::pumpTimer_` — 300 000 ms.
+    Brew,
+    /// `HotWaterHandler::pumpTimer_` — 60 000 ms.
+    HotWater,
+}
+
+impl PumpWatchdog {
+    /// The C++'s `logError` text, verbatim.
+    ///
+    /// Quoted rather than re-worded so a grep for the C++ message finds it, and
+    /// so a log line from the Rust firmware is recognisable as the same event.
+    #[must_use]
+    pub const fn message(self) -> &'static str {
+        match self {
+            // BrewHandler.h:256
+            Self::Brew => "Pump timeout - stopping for safety",
+            // HotWaterHandler.h:117
+            Self::HotWater => "Hot water pump timeout - stopping for safety",
+        }
+    }
+
+    /// The deadline, for a log line that says how far over it ran.
+    #[must_use]
+    pub const fn timeout_ms(self) -> u32 {
+        match self {
+            Self::Brew => crate::timing::BREW_PUMP_TIMEOUT_MS,
+            Self::HotWater => crate::timing::HOT_WATER_PUMP_TIMEOUT_MS,
+        }
+    }
 }
 
 impl Effect {
@@ -209,6 +277,7 @@ impl Effect {
             Self::ResetMqttReconnectCount => "ResetMqttReconnectCount",
             Self::WakeDisplay => "WakeDisplay",
             Self::RequestReboot => "RequestReboot",
+            Self::PumpTimeoutFired { .. } => "PumpTimeoutFired",
         }
     }
 }
@@ -280,6 +349,9 @@ mod tests {
             Effect::ResetMqttReconnectCount,
             Effect::WakeDisplay,
             Effect::RequestReboot,
+            Effect::PumpTimeoutFired {
+                watchdog: PumpWatchdog::Brew,
+            },
         ];
         for effect in all {
             assert!(!effect.name().is_empty());

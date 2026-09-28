@@ -10,14 +10,16 @@ blocked.
 
 | Field | Value |
 | --- | --- |
-| Current phase | **Phase 1 (R1)** — R0-04 and R1-01 executed 2026-09-28 |
+| Current phase | **Phase 1 (R1)** — R0-04, R1-01 and R1-07 executed 2026-09-28 |
 | Next task | **R1-02** (executor decision) — needs no hardware |
 | Plan reviewed | 2026-09-28 by two adversarial subagents; 24 hard factual errors and 5 blocking tooling defects found and **fixed**. See 06 and 07. |
 | ADR-0004 status | **Proposed** (becomes Accepted at Gate 1) |
 | C++ baseline | `pio run -e esp32_usb` **succeeds**; `firmware.bin` = 1,546,240 B; `pio test -e native_test` = **340/340 pass** in 55 s |
 | Rust workspace | **Exists** at the repo root (8 crates; 5 portable + 3 device). Builds, links, boots and runs. |
+| Host tests | **443** (was 420). 63 `cc-domain`, 62 `cc-safety`, 257 `cc-machine`, 61 `cc-config`. The five added to `cc-domain` are the R1-07 carrier tests (on-time reproduction, transition rate, minimum pulse, 100 % vs disabled). |
 | Device image | **382,528 B** flashable app image, first measurement (07 §5). App slot 1,835,008 B → **+1,452,480 B headroom**. |
 | Connected device | `/dev/cu.usbserial-204140` — `esp32` rev v3.0, 4 MB flash, dual core, WiFi+BT, MAC `ec:62:60:76:b5:3c`. Auto-reset works; a headless UART capture script is at `scripts/serial-log.py`. |
+| Heater output | **LEDC at 1 Hz / Bits17**, decision recorded and **corrected** from an erroneous 100 Hz; **never energised**. Hardware duty test NOT run — see the R1-07 entry below. |
 
 ---
 
@@ -250,6 +252,111 @@ Found by adversarial review. Each was a real error in an earlier draft of these 
    for one loop `PidNormalState::update` re-enables the pump. Pinned as `s15_…`.
 
 All six are **preserved**, not fixed, each with a `s<N>_`-prefixed test.
+
+### R1-07 + safety-gap work (2026-09-28) ✅ for the host, ❌ for the hardware
+
+Four findings closed on purpose (see [`docs/rust-migration/intentional-diffs.md`](../../docs/rust-migration/intentional-diffs.md),
+which is now **created** and is R1-08's deliverable):
+
+1. **Pump timeouts armed** (09 §11) — on the pump-on edge, with
+   `Effect::PumpTimeoutFired` carrying the C++'s own `logError` text.
+2. **Steam-valve whitelist added** (09 §2) — `cc_safety::steam_flow_allowed`,
+   `STEAM_RUNNING` only, `match` with no wildcard arm, plus a
+   `steamValveSafetyShutdownCheck` in the reducer's tail.
+3. **Water valve tank-gated** (09 §3).
+4. **PID derivative over the real elapsed time** (09 §1).
+
+Each replaced its `s<N>_` test with a `div<N>_` one. 420 → 443 host tests.
+
+#### The finding that made the steam whitelist more than a formality
+
+> "Steam and water valves share the same physical relay."
+> — `include/clevercoffee/hardware/ValveState.h:8-11`
+
+`rg -n openSteamValve src/ include/` finds **no call site at all** — only the
+definition, the `MachineStateContext` pass-through and the interface declaration.
+So in the C++ the gap is closed by an accident of the call graph, and an
+ungated `openSteamValve()` is an ungated **water** valve. The whitelist derivation
+is written out in `cc_safety::steam_flow_allowed`'s doc comment; the two
+whitelists are asserted **disjoint** by a test, because a wider steam list would
+re-open S5's hole from the other side.
+
+#### PID parity, measured
+
+Oracle scenarios A–C (the 1000 ms window) are **bit-identical, max |delta| 0.0**,
+before and after. A new scenario E drives the 1000 ms window on ragged
+timestamps to quantify the residual: **max |delta| = 1.0** on a ±1000 output,
+arising only on steps that arrive *late*. Scenario D is **retained in the oracle
+as the C++'s `NaN`** — do not "fix" the oracle to agree with the port, it is the
+only evidence for the divergence.
+
+#### Heater output: LEDC, and four things the plan got wrong
+
+1. **The C++'s ISR rate is not its switching rate — this is the big one.** The
+   10 ms ISR fires 100 times a second, but its predicate `pidOutput > counter`
+   is monotone, so the relay **level** changes **twice** a second (one falling
+   edge inside the window, one rising edge at the wrap) and not at all at duty 0
+   or full duty. An `f` Hz square wave makes `2f`, so **`f ≤ 1 Hz`**. An earlier
+   revision of this file, of 04 §5 and of both crate module docs specified
+   **100 Hz** because it "reproduces the existing 10 ms-step / 1 Hz chopping
+   exactly". **That was wrong** and has been corrected: 100 Hz would have switched
+   a 2 kW contactor **200 times a second, a hundred times its mechanical duty**,
+   while matching delivered power almost exactly. A carrier frequency is a
+   *mechanical* duty, not a fidelity setting. The carrier is now **1 Hz** — one
+   period per control window, which is also the only frequency at which the duty
+   count can mean the same thing the C++'s millisecond duty meant.
+2. **The low carrier has to be paid for in bits, and the divider is what
+   limits them.** At 1 Hz, `div_param = (80e6 << 8) / (1 · 2^bits)` in
+   ESP-IDF v5.5.5's `ledc_calculate_divisor`
+   (`esp_driver_ledc/src/ledc.c:459-477`, `precision = 1 << duty_resolution` at
+   `ledc.c:600`), and `LEDC_IS_DIV_INVALID` rejects `div_param ≤ 255` or
+   `> 0x3FFFF` (`ledc.c:115,111`). At 1 Hz the reachable resolutions are
+   **17, 18, 19, 20 and nothing coarser** — 16 bits already overflows the maximum
+   divider. **`Bits17` chosen**: the coarsest that works, `div_param` 156 250,
+   period exactly 80 000 000 APB clocks = **1.000 000 Hz**. Duty step 7.63 µs, so
+   the C++ chopper is reproduced to **3.8 µs** — three orders of magnitude inside
+   the 1 % bound. *(The discarded 100 Hz table was also wrong: at 100 Hz the valid
+   resolutions are 10–19, not 8–10, and `div_param` at 100 Hz/`Bits10` is
+   200 000, not 50 000.)*
+3. **`Bits20` must be avoided — it is the resolution ESP-IDF says cannot reach
+   100 % duty on the ESP32.** `ledc_channel_config`'s own comment: "due to a
+   hardware bug, 100 % duty cycle (i.e. `2**duty_res`) is not reachable when the
+   binded timer selects the maximum duty resolution", and 20 bits is the maximum
+   — which is why `Resolution::max_duty` is `2^20 - 1` there. At 17 bits
+   `max_duty` is a plain `131 072`, so full power is a *steady high level* and
+   duty 0 a *steady low level*, i.e. "disabled" and "100 %" are different
+   register values. `RESOLUTION` and `cc_domain::heater::CHOSEN_MAX_DUTY` are tied
+   by a **`const` assert** in `cc-hal-esp32::heater`, so reaching `Bits20` is a
+   compile error, not a review note.
+4. **High-speed mode is not needed.** It exists for multi-MHz carriers. At 1 Hz
+   low speed is six orders of magnitude inside its range, and high-speed timers
+   are the scarce resource on this part. Decision recorded, not left implicit.
+
+**The contactor itself is still unknown, and R1-07 is *not* finished until
+somebody with the machine measures it.** Matching the C++'s transition rate is
+necessary and not sufficient. Still open, recorded as measurements and not as
+assumptions: the contactor's **minimum on/off time** (the software guarantees it
+never requests a pulse narrower than the C++'s own 10 ms step, but whether 10 ms
+is inside the contactor's ratings is a datasheet/measurement question);
+**whether a hardware-PWM output is acceptable to the coil at all** at 1 Hz, a
+frequency the C++ never *produced* even though its average was 1 Hz; the
+**realised frequency and duty on the pin**; and whether 1 Hz is the best point on
+the wear-versus-duty-resolution curve.
+
+#### R1-07: what was NOT done
+
+* **The device was not flashed.** Not needed: the duty arithmetic is host-tested,
+  the divisor feasibility was read out of ESP-IDF's own source, and the firmware
+  builds and links. Flashing to observe "duty 0" would have bought nothing over
+  reading the code, and the board's boiler disconnection state is unconfirmed —
+  which under skill §2 rule 4 means no energising test may run at all.
+* **R1-07 steps 1 and 2 (drive a dummy load, measure with a scope) are NOT done.**
+  There is no dummy load and no scope attached. Acceptance ("duty matching the PID
+  output within 1 %") is therefore **unverified on hardware**, and R1-07's
+  `HW: yes` is unsatisfied. Left un-run rather than claimed.
+* **The GPTimer fallback is not written.** `HeaterDuty` is the seam; one
+  implementation exists. Writing a second implementation of an interface nobody
+  has switched to is how untested code gets shipped.
 
 ## Findings to carry forward
 

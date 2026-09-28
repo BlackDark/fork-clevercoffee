@@ -10,55 +10,74 @@
 //! reviewed, and a parity harness that reports "zero unexplained diffs" would
 //! then be reporting a lie.
 //!
-//! Closing a finding is a **deliberate divergence**, recorded in
-//! `intentional-diffs.md` by R1-08/R4-09, with its own test. None of these are
-//! closed here.
+//! # …unless it is closed on purpose
+//!
+//! A finding that has been **closed** gets a `div<N>_` test instead, naming the
+//! behaviour the port now has. A `s<N>_` test that has been replaced must be
+//! deleted, not left alongside, or the pair would disagree.
+//!
+//! The closed ones, all in
+//! [`intentional-diffs.md`](../../docs/rust-migration/intentional-diffs.md):
+//!
+//! | closed finding | test |
+//! | --- | --- |
+//! | 09 §11 the pump watchdogs are dead | [`div1_the_pump_timeouts_are_armed`], [`div1_the_watchdogs_arm_only_while_the_pump_is_commanded_on`], [`div1_the_watchdogs_re_arm_after_a_release`] |
+//! | 09 §2 the steam valve has no whitelist | [`div2_the_steam_valve_is_whitelist_gated`] |
+//! | 09 §3 the water valve is not tank-gated | [`div3_the_water_valve_is_tank_gated`] |
+//!
+//! 09 §1 (the PID's integer division) is closed too, but in `cc-domain` rather
+//! than here: `cc_domain::pid_parity::scenario_d_the_cpp_goes_nan_and_this_port_does_not`.
 //!
 //! # Index
 //!
 //! | test | finding | applies? |
 //! | --- | --- | --- |
-//! | [`s2_the_steam_valve_is_not_whitelist_gated`] | §2 the steam valve has no safety whitelist | **yes** |
-//! | [`s3_the_water_valve_is_not_gated_on_an_empty_tank`] | §3 the water valve is not tank-gated | **yes** |
-//! | [`s4_the_emergency_debounce_keeps_the_heater_on`] | §4 S1's debounce keeps heating | **yes** |
-//! | [`s5_the_emergency_threshold_constant_is_dead`] | §5 two dead "145 °C" constants | **yes** |
+//! | [`div2_the_steam_valve_is_whitelist_gated`] | §2 the steam valve has no safety whitelist | **closed** |
+//! | [`div3_the_water_valve_is_tank_gated`] | §3 the water valve is not tank-gated | **closed** |
+//! | [`s4_the_emergency_debounce_keeps_the_heater_on`] | §4 S1's debounce keeps heating | yes |
+//! | [`s5_the_emergency_threshold_constant_is_dead`] | §5 two dead "145 °C" constants | yes |
 //! | [`s6_the_anti_windup_dead_band_can_freeze_the_integrator`] | §6 anti-windup gate | no (PID, R2-04) |
 //! | [`s7_the_shipped_pid_gains_look_like_bang_bang`] | §7 gains look like on/off | no (PID, R2-04) |
 //! | [`s8_config_validation_is_per_parameter_only`] | §8 no cross-parameter validation | no (`cc-safety`, R2-05) |
-//! | [`s1_the_pid_sample_time_is_integer_divided_by_1000`] | §1 integer division by zero | no (PID, R2-04) |
-//! | [`s11_the_pump_timeouts_are_never_armed`] | **new** — the pump watchdogs are dead | **yes** |
-//! | [`s12_the_sensor_error_recovery_clock_is_never_reset`] | **new** — `ErrorStates.cpp:49` is unreachable | **yes** |
-//! | [`s13_backflush_filling_never_re_asserts_its_hardware`] | **new** — violates ADR-0003's own rule | **yes** |
-//! | [`s14_the_water_switch_does_not_wake_the_machine_from_standby`] | **new** — `hasUserActivity()` is a stub | **yes** |
-//! | [`s15_the_power_off_happens_before_the_standby_request`] | **new** — a one-tick window | **yes** |
+//! | [`s1_the_pid_sample_time_is_integer_divided_by_1000`] | §1 integer division by zero | **fixed** in `cc-domain`, R1-07 |
+//! | [`div1_the_pump_timeouts_are_armed`] | **new** — the pump watchdogs are dead | **closed** |
+//! | [`s12_the_sensor_error_recovery_clock_is_never_reset`] | **new** — `ErrorStates.cpp:49` is unreachable | yes |
+//! | [`s13_backflush_filling_never_re_asserts_its_hardware`] | **new** — violates ADR-0003's own rule | yes |
+//! | [`s14_the_water_switch_does_not_wake_the_machine_from_standby`] | **new** — `hasUserActivity()` is a stub | yes |
+//! | [`s15_the_power_off_happens_before_the_standby_request`] | **new** — a one-tick window | yes |
 
 mod common;
 
 use cc_domain::state::MachineState;
 use cc_domain::units::{Celsius, Millis};
-use cc_machine::{reduce, water_flow_allowed, Command, Effect, Event, Request, Sensors, SwitchId};
+use cc_machine::{
+    reduce, steam_flow_allowed, water_flow_allowed, Command, Effect, Event, PumpWatchdog, Request,
+    Sensors, SwitchId,
+};
 use common::Harness;
 
 // ---------------------------------------------------------------------------
-// §2 — the steam valve has no safety whitelist
+// §2 — the steam valve had no safety whitelist. CLOSED.
 // ---------------------------------------------------------------------------
 
-/// **Preserved deliberately, see 09 §2.** The water valve is gated by
-/// `cc_safety::water_flow_allowed`; the steam valve is gated by nothing.
+/// **Divergence, see [`intentional-diffs.md`](../../docs/rust-migration/intentional-diffs.md)
+/// #2 and 09 §2.** This replaces `s2_the_steam_valve_is_not_whitelist_gated`,
+/// which pinned the C++ behaviour.
 ///
-/// `HardwareManager::openSteamValve` checks only `emergencyMode_`
-/// (`HardwareManager.cpp:397-400`) and there is no `steamSafetyShutdownCheck`
-/// anywhere in the tree. The steam valve is driven by the steam PID in
-/// `ProcessController`, not by any state — so in the C++ the state machine cannot
-/// reach it at all.
+/// Three things are asserted, and all three matter:
 ///
-/// The port can reach it, because `Effect::OpenSteamValve` exists. What is pinned
-/// is that **nothing emits it**: over every state and every event, the steam
-/// valve is never opened or closed by the state machine. If a future state starts
-/// emitting it, this fails — which is the point, because adding a steam-valve
-/// whitelist is a deliberate decision and not a side effect.
+/// 1. **The whitelist exists and is `STEAM_RUNNING` and nothing else.**
+///    `cc_safety::steam_flow_allowed` is a `match` with no wildcard arm, so
+///    adding a 19th state is a compile error until someone classifies it.
+/// 2. **The reducer honours it.** Over every state and every event, the steam
+///    valve is never *opened* outside `STEAM_RUNNING`, and is *closed* in every
+///    other state — the `steamValveSafetyShutdownCheck` this port adds, which is
+///    the mirror of S5 and the only reason the gap cannot be reopened by a new
+///    state.
+/// 3. **The two whitelists are disjoint**, because the steam and water valves
+///    are the same physical relay (`ValveState.h:8-11`).
 #[test]
-fn s2_the_steam_valve_is_not_whitelist_gated() {
+fn div2_the_steam_valve_is_whitelist_gated() {
     let config = common::automatic_brew_with_preinfusion();
     let ctx = common::context_for(&config);
 
@@ -66,51 +85,86 @@ fn s2_the_steam_valve_is_not_whitelist_gated() {
         let mut machine = machine_in(state);
         for ev in all_events() {
             let (next, fx) = reduce(&machine, &ctx, ev);
-            assert_eq!(
-                common::count(&fx, Effect::OpenSteamValve),
-                0,
-                "{state:?} x {ev:?} opened the steam valve"
-            );
-            assert_eq!(
-                common::count(&fx, Effect::CloseSteamValve),
-                0,
-                "{state:?} x {ev:?} closed the steam valve"
-            );
+            if steam_flow_allowed(state) {
+                // STEAM_RUNNING: the port leaves the valve alone rather than
+                // opening it, because nothing in the C++ ever asked for steam
+                // to be drawn (see the module note on `Effect::OpenSteamValve`).
+                assert_eq!(
+                    common::count(&fx, Effect::OpenSteamValve),
+                    0,
+                    "{state:?} x {ev:?}: no state may open the steam valve yet"
+                );
+                assert_eq!(
+                    common::count(&fx, Effect::CloseSteamValve),
+                    0,
+                    "{state:?} x {ev:?} closed the steam valve inside the whitelist"
+                );
+            } else {
+                assert_eq!(
+                    common::count(&fx, Effect::OpenSteamValve),
+                    0,
+                    "{state:?} x {ev:?} opened the steam valve outside the whitelist"
+                );
+            }
             machine = next;
         }
     }
 
-    // And the asymmetry is explicit: 18 states, six on the water whitelist, and
-    // the steam valve has no whitelist at all — not even a subset.
+    // The fail-safe close: every tick in a non-steam state asserts the valve
+    // closed, exactly as S5 does for the water valve.
+    for state in cc_domain::state::ALL {
+        if steam_flow_allowed(state) {
+            continue;
+        }
+        let mut h = Harness::in_state(state);
+        let fx = h.tick();
+        assert!(
+            common::has(&fx, Effect::CloseSteamValve),
+            "{state:?} must assert the steam valve closed: {fx:?}"
+        );
+    }
+
+    // The whitelist itself: one state, and it is the one that means "steam".
+    let steam: Vec<MachineState> = cc_domain::state::ALL
+        .iter()
+        .copied()
+        .filter(|s| steam_flow_allowed(*s))
+        .collect();
+    assert_eq!(steam, [MachineState::SteamRunning]);
+
+    // The two lists are disjoint, because the two "valves" are one relay.
     let water: Vec<MachineState> = cc_domain::state::ALL
         .iter()
         .copied()
         .filter(|s| water_flow_allowed(*s))
         .collect();
-    assert_eq!(water.len(), 6);
+    assert_eq!(water.len(), 6, "S5's whitelist is unchanged by this fix");
     assert!(
-        MachineState::SteamRunning.is_steam_state()
-            && !water_flow_allowed(MachineState::SteamRunning),
-        "the state that is *about* steam is not on the water whitelist"
+        water.iter().all(|s| !steam_flow_allowed(*s)),
+        "no state may be on both whitelists: the shared relay would be openable \
+         for water in a state the steam list claims"
     );
 }
 
 // ---------------------------------------------------------------------------
-// §3 — the water valve is not gated on an empty tank
+// §3 — the water valve was not gated on an empty tank. CLOSED.
 // ---------------------------------------------------------------------------
 
-/// **Preserved deliberately, see 09 §3.** Only `enablePump` and `setPumpPressure`
-/// check `waterTankEmpty_` (`HardwareManager.cpp:325-328, 398-406`).
-/// `openWaterValve` does not.
+/// **Divergence, see [`intentional-diffs.md`](../../docs/rust-migration/intentional-diffs.md)
+/// #3 and 09 §3.** This replaces `s3_the_water_valve_is_not_gated_on_an_empty_tank`,
+/// which pinned the C++ behaviour.
 ///
-/// So the C++ will open the water valve with a dry tank, and the pump — the part
-/// that would actually move water — is refused. The observable consequence in the
-/// port is that a `WATER_TANK_EMPTY` machine still gets `CloseWaterValve` from the
-/// S5 check (so the valve is not *left* open) but nothing refuses an
-/// `OpenWaterValve`.
+/// The C++ checks `waterTankEmpty_` in `enablePump` and `setPumpPressure`
+/// (`HardwareManager.cpp:325-328,398-406`) and **not** in `openWaterValve`, so an
+/// empty tank in a water-flow state still permits the valve. The port refuses
+/// it.
+///
+/// The heater is deliberately *not* gated on the tank: the boiler is a separate
+/// vessel, and `hardware.sensors.watertank.keep_heater_on_empty` is a real
+/// configuration the machine must honour.
 #[test]
-fn s3_the_water_valve_is_not_gated_on_an_empty_tank() {
-    // `cc-safety`'s verdict refuses the pump and nothing else.
+fn div3_the_water_valve_is_tank_gated() {
+    // `cc-safety`'s verdict now refuses the pump *and* the valve.
     let verdict = cc_safety::reduce(
         &cc_safety::SafetyState::CLEAR,
         &cc_safety::Telemetry::new(Celsius::new(25.0), false, MachineState::BrewRunning),
@@ -119,18 +173,38 @@ fn s3_the_water_valve_is_not_gated_on_an_empty_tank() {
     );
     assert!(!verdict.verdict.may_pump, "S4 refuses the pump");
     assert!(
-        verdict.verdict.may_open_water,
-        "preserved: S4 does NOT refuse the water valve — see 09 §3"
+        !verdict.verdict.may_open_water,
+        "divergence: S4 also refuses the water valve — see 09 §3"
     );
+    assert!(verdict.verdict.may_heat, "the boiler is a separate vessel");
 
-    // And the verdict's `may_open_water` is governed only by the state whitelist.
-    let in_water_state = cc_safety::reduce(
+    // The S5 whitelist still governs it independently: a full tank in a
+    // non-water-flow state is still refused.
+    let not_a_water_state = cc_safety::reduce(
         &cc_safety::SafetyState::CLEAR,
-        &cc_safety::Telemetry::new(Celsius::new(25.0), false, MachineState::BrewRunning),
+        &cc_safety::Telemetry::new(Celsius::new(25.0), true, MachineState::Standby),
         &cc_safety::SafetyConfig::default(),
         Millis::new(0),
     );
-    assert!(in_water_state.verdict.may_open_water);
+    assert!(!not_a_water_state.verdict.may_open_water);
+    assert!(not_a_water_state.verdict.may_pump);
+    assert!(matches!(
+        not_a_water_state.verdict.reason,
+        Some(cc_safety::Reason::NotAWaterFlowState {
+            state: MachineState::Standby
+        })
+    ));
+
+    // And a refilled tank in a brew state permits it again, so the gate is not
+    // a one-way door.
+    let refilled = cc_safety::reduce(
+        &verdict.state,
+        &cc_safety::Telemetry::new(Celsius::new(25.0), true, MachineState::BrewRunning),
+        &cc_safety::SafetyConfig::default(),
+        Millis::new(0),
+    );
+    assert!(refilled.verdict.may_open_water);
+    assert!(refilled.verdict.may_pump);
 }
 
 // ---------------------------------------------------------------------------
@@ -232,69 +306,225 @@ fn s5_the_emergency_threshold_constant_is_dead() {
 }
 
 // ---------------------------------------------------------------------------
-// §11 (new) — the pump watchdogs are never armed
+// §11 (new) — the pump watchdogs were never armed. CLOSED.
 // ---------------------------------------------------------------------------
 
-/// **Preserved deliberately; new finding, see `timing::PUMP_TIMEOUTS_NEVER_ARM`.**
+/// **Divergence, see [`intentional-diffs.md`](../../docs/rust-migration/intentional-diffs.md)
+/// #1 and 09 §11.** This replaces `s11_the_pump_timeouts_are_never_armed`, which
+/// pinned the C++ behaviour.
 ///
-/// `BrewHandler::checkPumpTimeout` (`BrewHandler.h:254-262`) and
-/// `HotWaterHandler::checkPumpTimeout` (`HotWaterHandler.h:114-122`) are the only
-/// run-time bound on how long the pump may run. Both are inert: `PumpTimer`
-/// initialises `isRunning_ = false` (`PumpTimer.h:14`) and **nothing calls
-/// `start()`**, so `isExpired()` returns `false` unconditionally.
+/// In the C++ both watchdogs are dead: `PumpTimer` initialises
+/// `isRunning_ = false` (`PumpTimer.h:14`) and **nothing calls `start()`**, so
+/// `isExpired()` returns `false` unconditionally and the two `logError` lines
+/// are unreachable. Hold the water switch forever and the pump runs forever.
 ///
-/// In the C++ that means: hold the water switch forever and the pump runs
-/// forever. There is no timeout.
-///
-/// The port keeps the check and makes it *reachable* (the reducer has an explicit
-/// `brew_pump_started_at` where the C++ has a timer nobody starts), so the port
-/// is strictly safer here. What is pinned is that the check exists, that the brew
-/// one requests a stop rather than transitioning, and that an unarmed timer never
-/// fires.
+/// Here both are **armed on the activating edge** and a trip is **announced**
+/// before it acts. The C++'s constants and its two actions are unchanged.
 #[test]
-fn s11_the_pump_timeouts_are_never_armed() {
+fn div1_the_pump_timeouts_are_armed() {
     // The constants survive, with the C++'s values.
     assert_eq!(cc_machine::timing::BREW_PUMP_TIMEOUT_MS, 300_000);
     assert_eq!(cc_machine::timing::HOT_WATER_PUMP_TIMEOUT_MS, 60_000);
-    // A `const` block rather than a runtime assert: the finding is a fact
-    // about the C++, and the compiler already knows its value.
-    const { assert!(cc_machine::timing::PUMP_TIMEOUTS_NEVER_ARM) };
 
-    // An unarmed timer never fires: the C++'s
-    // `if (!isRunning_ || startTime_ == 0) return false;` (`PumpTimer.h:24`).
+    // ---- the brew watchdog -------------------------------------------------
     let mut h = Harness::in_state(MachineState::BrewRunning);
-    h.machine.brew_pump_started_at = None;
-    h.machine.hot_water_pump_started_at = None;
-    h.machine.switches.hot_water = true;
     h.config.brew.mode = cc_domain::process::BrewMode::Manual;
-    let fx = h.elapse(10 * 60_000);
-    assert!(
-        !h.requested(Request::BrewStop),
-        "an unarmed pump timer must not request a brew stop: {fx:?}"
+
+    // The activating edge: `BrewRunningState::update` pushes `EnablePump`
+    // (`BrewStates.cpp:245`), and that is where the clock starts.
+    let fx = h.elapse(10);
+    assert!(common::has(&fx, Effect::EnablePump), "{fx:?}");
+    assert_eq!(
+        h.machine.brew_pump_started_at,
+        Some(Millis::new(10)),
+        "the watchdog arms on the pump-on edge"
     );
 
-    // Armed, the brew watchdog requests a stop — and does **not** transition in
-    // the same tick, because `BrewHandler.h:259` sets a flag that
-    // `checkTransitions` consumes on the *next* loop.
-    let mut h2 = Harness::in_state(MachineState::BrewRunning);
-    h2.config.brew.mode = cc_domain::process::BrewMode::Manual;
-    h2.machine.brew_pump_started_at = Some(Millis::new(0));
-    let fx = h2.elapse(300_001);
-    assert!(h2.requested(Request::BrewStop), "{fx:?}");
+    // Hold the brew open, one second at a time, and find the trip.
+    let deadline = cc_machine::timing::BREW_PUMP_TIMEOUT_MS;
+    let mut elapsed = 10;
+    let mut trip = None;
+    while elapsed < deadline + 5_000 {
+        elapsed += 1_000;
+        let fx = h.elapse(1_000);
+        if common::has(
+            &fx,
+            Effect::PumpTimeoutFired {
+                watchdog: PumpWatchdog::Brew,
+            },
+        ) {
+            trip = Some((elapsed, fx));
+            break;
+        }
+    }
+    let (at, fx) = trip.expect("the brew watchdog never fired");
+    assert!(at > deadline, "it fired after the deadline, at {at} ms");
     assert_eq!(
-        h2.state(),
+        at,
+        deadline + 10 + 1_000,
+        "`isExpired` is a strict `>`, so the first tick strictly past the deadline"
+    );
+
+    // Announced before it acts. `pump_timeouts` runs after `states::update`
+    // (`LoopManager` step 4-tail), so the pump and valve writes for this tick
+    // precede it; what matters is that the trip is *visible*, and that it is
+    // emitted at all rather than being a silent hardware change.
+    assert!(
+        common::has(
+            &fx,
+            Effect::PumpTimeoutFired {
+                watchdog: PumpWatchdog::Brew
+            }
+        ),
+        "{fx:?}"
+    );
+    assert_eq!(
+        PumpWatchdog::Brew.message(),
+        "Pump timeout - stopping for safety",
+        "BrewHandler.h:256, verbatim"
+    );
+    assert!(!fx.contains(&Effect::DisablePump), "{fx:?}");
+
+    // And the C++'s action, unchanged: a brew-stop **request**, consumed by the
+    // *next* `checkTransitions` (`BrewHandler.h:259`).
+    assert!(h.requested(Request::BrewStop), "{fx:?}");
+    assert_eq!(
+        h.state(),
         MachineState::BrewRunning,
         "the request must not transition in the same tick"
     );
-    let fx = h2.tick();
-    assert_eq!(h2.state(), MachineState::BrewFinished, "{fx:?}");
+    let fx = h.tick();
+    assert_eq!(h.state(), MachineState::BrewFinished, "{fx:?}");
 
-    // Armed, the hot-water watchdog stops the pump.
-    let mut h3 = Harness::in_state(MachineState::PidNormal);
-    h3.machine.hot_water_pump_started_at = Some(Millis::new(0));
-    h3.machine.switches.hot_water = true;
-    let fx = h3.elapse(60_001);
-    assert!(common::has(&fx, Effect::DisablePump), "{fx:?}");
+    // Leaving the pump-on state disarms, so a second brew gets the full five
+    // minutes rather than inheriting the first one's elapsed time.
+    assert_eq!(h.machine.brew_pump_started_at, None);
+
+    // ---- the hot-water watchdog -------------------------------------------
+    let mut g = Harness::in_state(MachineState::PidNormal);
+    let _ = g.press(SwitchId::HotWater);
+    let fx = g.elapse(10);
+    assert!(common::has(&fx, Effect::EnablePump), "{fx:?}");
+    assert_eq!(
+        g.machine.hot_water_pump_started_at,
+        Some(Millis::new(10)),
+        "the hot-water watchdog arms when the water switch is held in PID_NORMAL"
+    );
+
+    let deadline = cc_machine::timing::HOT_WATER_PUMP_TIMEOUT_MS;
+    let mut elapsed = 10;
+    let mut trip = None;
+    while elapsed < deadline + 5_000 {
+        elapsed += 1_000;
+        let fx = g.elapse(1_000);
+        if common::has(
+            &fx,
+            Effect::PumpTimeoutFired {
+                watchdog: PumpWatchdog::HotWater,
+            },
+        ) {
+            trip = Some((elapsed, fx));
+            break;
+        }
+    }
+    let (at, fx) = trip.expect("the hot-water watchdog never fired");
+    assert!(at > deadline, "it fired after the deadline, at {at} ms");
+
+    // `HotWaterHandler.h:116-120`: log, then `context.disablePump()`. The
+    // tick's own `EnablePump` (from `PidNormalState::update`, which sees the
+    // switch still held) precedes both — which is the point of asserting the
+    // *order of the two watchdog effects*, not their absolute index.
+    let announced = common::index_of(
+        &fx,
+        Effect::PumpTimeoutFired {
+            watchdog: PumpWatchdog::HotWater,
+        },
+    );
+    let stopped = common::index_of(&fx, Effect::DisablePump);
+    assert_eq!(announced, Some(1), "{fx:?}");
+    assert_eq!(stopped, Some(2), "log first, then stop the pump: {fx:?}");
+    assert_eq!(
+        PumpWatchdog::HotWater.message(),
+        "Hot water pump timeout - stopping for safety",
+        "HotWaterHandler.h:117, verbatim (and recovered from the previous Rust \
+         firmware, 08 §4.2)"
+    );
+}
+
+/// The arming rule is not "any brew state" and not "any state with the switch
+/// held". Asserted against `arm_pump_watchdogs` **directly** rather than through
+/// a tick, because a tick also *transitions*: `BREW_PREINFUSION_PAUSE` moves to
+/// `BREW_RUNNING` inside the same tick (the pause is time-based) and would
+/// therefore be armed for the wrong reason.
+#[test]
+fn div1_the_watchdogs_arm_only_while_the_pump_is_commanded_on() {
+    for (state, hot_water, brew_armed, hot_water_armed) in [
+        // The two brew states whose `update()` pushes `EnablePump`
+        // (`BrewStates.cpp:70,245`).
+        (MachineState::BrewPreinfusion, false, true, false),
+        (MachineState::BrewRunning, false, true, false),
+        // A pause is a brew state the C++'s own `isBrewActive()` accepts, but
+        // its `update()` pushes `DisablePump` (`BrewStates.cpp:172`), so a pause
+        // is not pump run time and must not run the clock.
+        (MachineState::BrewPreinfusionPause, false, false, false),
+        (MachineState::BrewFinished, false, false, false),
+        // Not covered by either C++ timer, and deliberately not extended here.
+        (MachineState::ManualFlushRunning, false, false, false),
+        (MachineState::BackflushFilling, false, false, false),
+        // The water switch means hot water only in PID_NORMAL.
+        (MachineState::PidNormal, true, false, true),
+        (MachineState::PidNormal, false, false, false),
+        // In STEAM_RUNNING the same switch means water *injection*, not hot
+        // water (`SteamStates.cpp:36-46`), so it must not start that clock.
+        (MachineState::SteamRunning, true, false, false),
+    ] {
+        let (brew, hot) = arming_result(state, hot_water);
+        assert_eq!(
+            brew.is_some(),
+            brew_armed,
+            "{state:?} (water switch {hot_water}): brew watchdog arming"
+        );
+        assert_eq!(
+            hot.is_some(),
+            hot_water_armed,
+            "{state:?} (water switch {hot_water}): hot-water watchdog arming"
+        );
+    }
+}
+
+/// One call of `arm_pump_watchdogs` on a machine in `state` at t = 10 ms.
+fn arming_result(state: MachineState, hot_water: bool) -> (Option<Millis>, Option<Millis>) {
+    let mut h = Harness::in_state(state);
+    h.machine.switches.hot_water = hot_water;
+    h.advance_clock(10);
+    cc_machine::handlers::arm_pump_watchdogs(&mut h.machine);
+    (
+        h.machine.brew_pump_started_at,
+        h.machine.hot_water_pump_started_at,
+    )
+}
+
+#[test]
+fn div1_the_watchdogs_re_arm_after_a_release() {
+    // Releasing the water switch stops the clock, so a later hold gets the full
+    // sixty seconds rather than inheriting the first one's elapsed time.
+    let mut r = Harness::in_state(MachineState::PidNormal);
+    let _ = r.press(SwitchId::HotWater);
+    let _ = r.elapse(10);
+    assert!(r.machine.hot_water_pump_started_at.is_some());
+    let _ = r.release(SwitchId::HotWater);
+    let _ = r.elapse(10);
+    assert_eq!(
+        r.machine.hot_water_pump_started_at, None,
+        "releasing the switch stops the clock"
+    );
+    let _ = r.press(SwitchId::HotWater);
+    let _ = r.elapse(10);
+    assert_eq!(
+        r.machine.hot_water_pump_started_at,
+        Some(Millis::new(30)),
+        "and the next hold starts a fresh sixty seconds"
+    );
 }
 
 // ---------------------------------------------------------------------------

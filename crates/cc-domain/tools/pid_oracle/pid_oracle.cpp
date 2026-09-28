@@ -250,6 +250,13 @@ static void scenario_c_manual_automatic_and_limits() {
  * time to `processWindowSize()` = 1000 ms, but it is one `SetSampleTime(500)`
  * away, and R1-07 (heater output method) is exactly the task that would
  * introduce a different window.
+ *
+ * NOTE: the Rust port FIXES this. `Controller::derivative_seconds_at` divides
+ * by the real elapsed time in f64, so the port does not reproduce the NaN. This
+ * scenario is retained verbatim as the record of what the C++ does, and
+ * `crates/cc-domain/src/pid_parity.rs` measures the divergence against it. Do
+ * not "fix" the oracle to agree with the port — that would destroy the only
+ * evidence for intentional-diffs.md line 4.
  */
 static void scenario_d_sub_second_sample_time_is_nan() {
     std::printf("O scenario_d_sub_second_sample_time_is_nan\n");
@@ -278,10 +285,54 @@ static void scenario_d_sub_second_sample_time_is_nan() {
     compute(pid, 2500);
 }
 
+/*
+ * D-PID-1, second half: at the *shipped* 1000 ms window the C++'s divisor is
+ * `1000 / 1000` == 1 s, a constant, whatever the real interval between Compute()
+ * calls was. This scenario calls Compute() on deliberately ragged timestamps so
+ * the recorded vector shows that: the input steps by exactly 2.0 between samples
+ * while the C++ reports a dInput that reflects a fixed 1.0 s.
+ *
+ * The port divides by the elapsed time, so it reports 2.0 / elapsed there. This
+ * is the one place the port can differ from the C++ at the production window,
+ * and it is quantified rather than asserted: `pid_parity.rs` replays this
+ * sequence and reports the maximum |delta|.
+ */
+static void scenario_e_late_steps_use_the_nominal_window() {
+    std::printf("O scenario_e_late_steps_use_the_nominal_window\n");
+    g_oracle_millis = 0;
+
+    g_input    = 60.0;
+    g_setpoint = 95.0;
+    g_output   = 0.0;
+    PID pid(&g_input, &g_output, &g_setpoint, 1.0, 0.0, 1.0, P_ON_E, DIRECT);
+    pid.SetOutputLimits(-1000.0, 1000.0);
+    pid.SetIntegratorLimits(-1000.0, 1000.0);
+    pid.SetSampleTime(1000);
+    /* EMA 0: the filtered difference is then exactly the input difference, so
+     * the printed dInput is directly readable. */
+    pid.SetSmoothingFactor(0.0);
+    pid.SetMode(AUTOMATIC);
+
+    /* The constructor set lastTime = millis() - 100 (the *default* sample
+     * time), so the first Compute() at t = 0 already sees a full 1000 ms
+     * elapse. */
+    compute(pid, 0);
+
+    g_input = 62.0;
+    compute(pid, 1000); /* exactly on the window */
+    g_input = 64.0;
+    compute(pid, 2500); /* 1500 ms late */
+    g_input = 66.0;
+    compute(pid, 3500); /* exactly on the window again */
+    g_input = 68.0;
+    compute(pid, 5500); /* 2000 ms late */
+}
+
 int main() {
     scenario_a_production_pon_e();
     scenario_b_brew_detection_pon_m();
     scenario_c_manual_automatic_and_limits();
     scenario_d_sub_second_sample_time_is_nan();
+    scenario_e_late_steps_use_the_nominal_window();
     return 0;
 }

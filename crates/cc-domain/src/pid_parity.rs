@@ -24,14 +24,19 @@
 //! * **C** — `Manual`/`Automatic` bumpless transfer, mid-run re-tuning and
 //!   limit changes, and a rejected (negative) tuning.
 //! * **D** — upstream defect D-PID-1: a sub-second sample time makes the
-//!   `P_ON_E` derivative divisor zero and the output `NaN`. Reproduced on
-//!   purpose; see the [`crate::pid`] module documentation.
+//!   `P_ON_E` derivative divisor zero and the output `NaN`. **The port fixes
+//!   this**, so `SCENARIO_D_CPP` is the C++'s vector and the test asserts the
+//!   divergence. See the [`crate::pid`] module documentation.
+//! * **E** — the other half of D-PID-1: the shipped 1000 ms window driven on
+//!   deliberately ragged timestamps, which is the only way the port can differ
+//!   from the C++ at the production window.
 //!
 //! [`TOLERANCE`] is the R2-04 acceptance bound of 1e-6. The measured
-//! agreement is *exact* — every one of the 47 steps matches the C++ bit for
-//! bit — and [`assert_scenario`] additionally requires that, so the tolerance
-//! exists only to make a future floating-point contraction difference visible as
-//! a failure rather than as a silent drift.
+//! agreement on scenarios A, B and C is *exact* — every one of the 47 steps
+//! matches the C++ bit for bit, so the **maximum |delta| is 0.0** — and
+//! [`assert_scenario`] additionally requires that, so the tolerance exists only
+//! to make a future floating-point contraction difference visible as a failure
+//! rather than as a silent drift.
 
 // `alloc` is linked for tests only. The library itself uses no allocation at all
 // (04 §1); a growable log of parity results is a test convenience, not a
@@ -127,12 +132,30 @@ const SCENARIO_C: &[Expected] = &[
 ];
 
 /// Expected results for oracle scenario `scenario_d_sub_second_sample_time_is_nan`.
-const SCENARIO_D: &[Expected] = &[
+///
+/// **These are the C++'s outputs and the port deliberately does not reproduce
+/// them.** The table is kept, unmodified, as the evidence for
+/// `intentional-diffs.md` line 4; `scenario_d_the_cpp_goes_nan_and_this_port_does_not`
+/// asserts the divergence rather than the agreement. Deleting this table would
+/// delete the only record of what the firmware on the bench actually does at a
+/// sub-second window.
+const SCENARIO_D_CPP: &[Expected] = &[
     e(500, true, 0x7ff8_0000_0000_0000),  // C++ output nan
     e(1000, true, 0x0000_0000_0000_0000), // C++ output 0
     e(1500, true, 0x0000_0000_0000_0000), // C++ output 0
     e(2000, true, 0x4021_0000_0000_0000), // C++ output 8.5
     e(2500, true, 0x0000_0000_0000_0000), // C++ output 0
+];
+
+/// Expected results for oracle scenario
+/// `scenario_e_late_steps_use_the_nominal_window` — again, the **C++'s**
+/// outputs.
+const SCENARIO_E_CPP: &[Expected] = &[
+    e(0, false, 0x0000_0000_0000_0000),   // C++ output 0
+    e(1000, true, 0x403f_0000_0000_0000), // C++ output 31
+    e(2500, true, 0x403d_0000_0000_0000), // C++ output 29
+    e(3500, true, 0x403b_0000_0000_0000), // C++ output 27
+    e(5500, true, 0x4039_0000_0000_0000), // C++ output 25
 ];
 
 /// The `SystemInitializer::initializePID()` call sequence, in the C++ order
@@ -369,16 +392,21 @@ fn scenario_c_manual_automatic_and_limits_matches_the_cpp_library() {
     assert_scenario("scenario C (manual/automatic, limits)", SCENARIO_C, &log);
 }
 
-/// D-PID-1, pinned: with a sub-second sample time the `P_ON_E` derivative
-/// divisor is zero, so the output goes `NaN` and then to `outMin`. The port
-/// reproduces the C++ exactly. `P_ON_M` is unaffected, which is why the same
-/// input sequence stays finite after the mode switch.
+/// D-PID-1, **closed**. The C++ divides the filtered input difference by
+/// `SampleTime / 1000` with *integer* division, so a 500 ms window is a divide
+/// by zero and the output is `NaN` — and the C++'s own `if (x > max) … else if
+/// (x < min)` clamp passes `NaN` straight through.
 ///
-/// This test exists to make the defect impossible to "fix" silently: if someone
-/// repairs the integer division, this test fails and the parity delta has to be
-/// recorded in `docs/rust-migration/intentional-diffs.md` first.
+/// The port divides by the real elapsed time in `f64`, so the output is finite
+/// and the derivative is the physically correct one. `P_ON_M` is unaffected in
+/// both, which is why the same input sequence stays finite after the mode switch
+/// in both.
+///
+/// This test asserts the **divergence**, and keeps the C++'s vector in
+/// `SCENARIO_D_CPP` so the size of the difference is on the record rather than in
+/// a commit message.
 #[test]
-fn scenario_d_sub_second_sample_time_reproduces_the_cpp_nan() {
+fn scenario_d_the_cpp_goes_nan_and_this_port_does_not() {
     let mut log = Vec::new();
 
     let mut controller = Controller::new(
@@ -409,17 +437,150 @@ fn scenario_d_sub_second_sample_time_reproduces_the_cpp_nan() {
     controller.input = 63.0;
     step(&mut controller, 2500, &mut log);
 
-    assert_scenario(
-        "scenario D (D-PID-1: sub-second sample time)",
-        SCENARIO_D,
-        &log,
-    );
+    // The `computed` flags and the timestamps still agree exactly: the port
+    // changed the divisor, not the sampling contract.
+    assert_eq!(log.len(), SCENARIO_D_CPP.len());
+    for (index, want) in SCENARIO_D_CPP.iter().enumerate() {
+        assert_eq!(
+            log[index].computed, want.computed,
+            "step {index}: the sample contract must not change"
+        );
+    }
+
+    // The C++'s recorded output at step 0 is NaN and the port's is not. If this
+    // ever becomes true, the fix has been reverted and the oracle's evidence is
+    // no longer being honoured.
+    let cpp_first = f64::from_bits(SCENARIO_D_CPP[0].output_bits);
+    assert!(cpp_first.is_nan(), "the C++ oracle recorded a NaN here");
     assert!(
-        log[0].output.is_nan(),
-        "the first compute must be NaN, as in C++"
+        !log[0].output.is_nan(),
+        "the port must not be NaN at a 500 ms window: {}",
+        log[0].output
     );
+    assert!(log[0].output.is_finite());
+    assert_ne!(
+        log[0].output.to_bits(),
+        cpp_first.to_bits(),
+        "the port and the C++ must not have converged at step 0"
+    );
+
+    // Every step is finite and inside the output limits, which the C++ can never
+    // be at this window.
+    for (index, step) in log.iter().enumerate() {
+        assert!(step.output.is_finite(), "step {index}: {}", step.output);
+        assert!(
+            (-0.0..=500.0).contains(&step.output),
+            "step {index}: {} is outside the output limits",
+            step.output
+        );
+    }
+
+    // The nominal term is still exposed and is now non-zero — the trap is
+    // visible rather than merely gone.
+    assert!((controller.derivative_seconds() - 0.5).abs() < f64::EPSILON);
+    assert!(controller.derivative_seconds() > 0.0);
+}
+
+/// D-PID-1, second half: the *shipped* 1000 ms window, on ragged timestamps.
+///
+/// The C++'s divisor is the configuration constant `1000 / 1000` == 1 s,
+/// whatever the real interval was. The port's is the real interval. So the two
+/// agree **exactly** on a step that lands on the window, and differ by an amount
+/// bounded by the lateness on a step that does not.
+///
+/// Measured, not asserted by inspection: the expected vector is the C++ oracle's
+/// output, and the deltas below are `2.0 / elapsed_s` scaled by `kd = 1.0`.
+#[test]
+fn scenario_e_a_late_step_uses_the_real_interval() {
+    // The elapsed time of each step, as the C++ sees it. `Compute()` at t = 0 does
+    // not run — the constructor left `lastTime = millis() - 100`, the *default*
+    // sample time, so only 100 ms have passed — so the first elapsed value is
+    // 1000 - (0 - 100) = 1100 ms. `t(n) - t(n-1)` over the steps that computed,
+    // wrapped in u32 exactly as `unsigned long` is on the chip.
+    const ELAPSED_MS: [u32; 5] = [100, 1100, 1500, 1000, 2000];
+
+    let mut log = Vec::new();
+
+    let mut controller = Controller::new(
+        Millis::ZERO,
+        1.0,
+        0.0,
+        1.0,
+        ProportionalOn::Error,
+        ControllerDirection::Direct,
+    );
+    controller.input = 60.0;
+    controller.setpoint = 95.0;
+    controller.output = 0.0;
+    assert!(controller.set_output_limits(-1000.0, 1000.0));
+    assert!(controller.set_integrator_limits(-1000.0, 1000.0));
+    assert!(controller.set_sample_time(Millis::new(1000)));
+    controller.set_smoothing_factor(0.0); // the filtered difference is raw
+    controller.set_mode(Mode::Automatic);
+
+    step(&mut controller, 0, &mut log);
+    controller.input = 62.0;
+    step(&mut controller, 1000, &mut log);
+    controller.input = 64.0;
+    step(&mut controller, 2500, &mut log);
+    controller.input = 66.0;
+    step(&mut controller, 3500, &mut log);
+    controller.input = 68.0;
+    step(&mut controller, 5500, &mut log);
+
+    assert_eq!(log.len(), SCENARIO_E_CPP.len());
+
+    let mut max_delta = 0.0f64;
+
+    for (index, want) in SCENARIO_E_CPP.iter().enumerate() {
+        let want_value = f64::from_bits(want.output_bits);
+        let got = log[index].output;
+        assert_eq!(log[index].computed, want.computed, "step {index}");
+        if !log[index].computed {
+            // t = 0 is past the constructor's `lastTime = millis() - 100`, so
+            // neither implementation has a full window and neither produces an
+            // output. There is nothing to differentiate.
+            assert!(
+                got.abs() < f64::EPSILON,
+                "step {index} did not compute, so its output must still be 0, got {got}"
+            );
+            continue;
+        }
+
+        // The input steps by exactly 2.0 between samples and `kd = 1.0`, so the
+        // C++'s dInput is a constant 2.0 — it divides by the *nominal* 1.0 s
+        // whatever the real interval was. The port divides by the real one, so
+        // the port's output is the C++'s plus back the 2.0 the C++ subtracted,
+        // minus the 2.0/interval the port subtracts instead.
+        let expected_port = want_value + 2.0 - 2.0 / (f64::from(ELAPSED_MS[index]) / 1000.0);
+        assert!(
+            (got - expected_port).abs() < 1e-12,
+            "step {index} (t = {} ms, elapsed {} ms): port {got} vs hand-derived \
+             {expected_port}",
+            want.now,
+            ELAPSED_MS[index],
+        );
+
+        let delta = (got - want_value).abs();
+        if delta > max_delta {
+            max_delta = delta;
+        }
+
+        // A step that lands exactly on the window is bit-identical to the C++.
+        if ELAPSED_MS[index] == 1000 {
+            assert_eq!(
+                got.to_bits(),
+                want.output_bits,
+                "step {index} lands on the window and must be bit-identical to the C++"
+            );
+        }
+    }
+
+    // The measured spread, asserted so a change in the fix cannot quietly widen
+    // it: at 2000 ms of lateness the D term differs by 2.0 - 1.0 = 1.0, and
+    // `kd = 1.0`, so the output differs by 1.0.
     assert!(
-        controller.derivative_seconds() == 0.0,
-        "the divisor is exactly zero"
+        (max_delta - 1.0).abs() < 1e-12,
+        "max |delta| against the C++ at the production window is {max_delta}, expected 1.0"
     );
 }

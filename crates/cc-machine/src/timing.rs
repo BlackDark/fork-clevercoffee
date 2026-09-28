@@ -64,26 +64,25 @@ pub const STANDBY_UPDATE_GRANULARITY_MS: u32 = 1_000;
 /// `pumpTimer_(300000) // 5 minute max brew time safety`
 /// (`BrewHandler.h:32`).
 ///
-/// **Preserved deliberately, and dead.** `PumpTimer::isExpired()` returns false
-/// unless `start()` was called, and nothing in `BrewHandler` ever calls it (see
-/// [`PUMP_TIMEOUTS_NEVER_ARM`]). The constant is carried so the port is
-/// faithful, not because anything reads it.
+/// **Dead in the C++, live here** — see 09 §11 and
+/// [`PUMP_TIMEOUTS_NEVER_ARM`]. The port arms it on the pump-on edge in
+/// [`crate::handlers::arm_pump_watchdogs`].
 pub const BREW_PUMP_TIMEOUT_MS: u32 = 300_000;
 
 /// The hot-water handler's maximum run time.
 /// `HotWaterHandler`'s constructor: `pumpTimer_(60000) // 60 second max run
-/// time` (`HotWaterHandler.h:28`). Dead in the same way as
+/// time` (`HotWaterHandler.h:28`). Dead in the C++ in the same way as
 /// [`BREW_PUMP_TIMEOUT_MS`].
 pub const HOT_WATER_PUMP_TIMEOUT_MS: u32 = 60_000;
 
-/// Whether the two `PumpTimer` watchdog checks can ever fire.
+/// Whether the two `PumpTimer` watchdog checks can ever fire **in the C++**.
 ///
-/// # Preserved deliberately, see `09-cpp-findings.md` §11
+/// # Dead in the C++, armed in the port — see 09 §11
 ///
 /// `BrewHandler::checkPumpTimeout` (`BrewHandler.h:254-262`) and
 /// `HotWaterHandler::checkPumpTimeout` (`HotWaterHandler.h:114-122`) are the
 /// firmware's only *run-time* bound on how long the pump may run continuously.
-/// Both are inert:
+/// In the C++ both are inert:
 ///
 /// ```cpp
 /// bool isExpired() const {
@@ -99,11 +98,19 @@ pub const HOT_WATER_PUMP_TIMEOUT_MS: u32 = 60_000;
 /// both `isExpired()` calls return `false` unconditionally and the pump can run
 /// for as long as the operator holds the switch.
 ///
-/// This is a **new finding**, not in doc 09. It is a real loss of protection
-/// (S-class: an unbounded pump run heats the boiler path and can be triggered
-/// by a stuck or shorted switch) and it is preserved rather than fixed so that
-/// the port's diff against the C++ is empty. Closing it is a deliberate change
-/// for R4-09's `intentional-diffs.md`.
+/// **This constant is a statement about the C++, not about this port.** It
+/// stays `true` because the fact it records is still true of the firmware we are
+/// replacing. The port's behaviour is the opposite: both watchdogs are armed on
+/// the activating edge by [`crate::handlers::arm_pump_watchdogs`], a trip emits
+/// [`crate::Effect::PumpTimeoutFired`] so it is visible in the log, and then the
+/// C++'s own action — a brew-stop request, or `DisablePump`.
+///
+/// Deliberately **not** done: rejecting the deadline at construction time
+/// instead of arming it. The check is a protection, it is the C++'s own, and the
+/// only question was whether it could ever run.
+///
+/// This is a **deliberate divergence** and is line 1 of
+/// `docs/rust-migration/intentional-diffs.md`.
 pub const PUMP_TIMEOUTS_NEVER_ARM: bool = true;
 
 #[cfg(test)]

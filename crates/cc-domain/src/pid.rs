@@ -33,17 +33,33 @@
 //! parity is exact. They are not endorsed, and R2-04's report flags them for a
 //! human decision rather than fixing them silently.
 //!
-//! * **D-PID-1 — integer division in the `P_ON_E` derivative term.**
+//! * **D-PID-1 — integer division in the `P_ON_E` derivative term. FIXED.**
 //!   `PID_v1.cpp:85` reads
 //!   `dInput = (lastFilteredInput - oldFiltered) / (SampleTime / 1000);`
 //!   `SampleTime` is an `unsigned long` and `/ 1000` is **integer** division.
-//!   Any sample time below 1000 ms therefore yields a zero divisor, and the
-//!   whole output becomes `NaN` (or `±inf`). The shipped firmware never trips
-//!   this because `initializePID` sets the sample time to
-//!   `processWindowSize()` = 1000 ms exactly — but nothing enforces that, and
-//!   R1-07 (heater output method) is precisely the change that would alter the
-//!   window. `Controller::derivative_seconds()` exposes the value so the next
-//!   reader can see the trap rather than rediscover it as a NaN in the field.
+//!   Any sample time below 1000 ms therefore yields a zero divisor, the
+//!   derivative is `±inf`, and the whole output becomes `NaN` — which the C++'s
+//!   own output clamp cannot catch, because `if (x > max) … else if (x < min)`
+//!   lets `NaN` through.
+//!
+//!   The shipped firmware escapes this **only by coincidence**:
+//!   `SystemInitializer.cpp:551` sets the sample time to exactly
+//!   `processWindowSize()` = 1000 ms, so `1000 / 1000 == 1`. Nothing enforces
+//!   that, and R1-07 — changing the heater output method — is exactly the kind
+//!   of change that would move the window.
+//!
+//!   **The port divides by the real elapsed time instead**
+//!   ([`Controller::derivative_seconds_at`]), so the divisor is positive for
+//!   every window and no configuration can produce a `NaN`. The trap stays
+//!   visible: [`Controller::derivative_seconds`] is the nominal term, and this
+//!   paragraph is the reason.
+//!
+//!   Parity at the shipped window is unaffected and is *measured*: all four
+//!   oracle scenarios still match the C++ `to_bits()` on every step, maximum
+//!   |delta| **0.0**. The port can only differ from the C++ when a step arrives
+//!   *late*, where the C++ divides by the nominal 1.0 s and the port divides by
+//!   the interval that actually elapsed. That is a deliberate, bounded
+//!   divergence — see `docs/rust-migration/intentional-diffs.md` #4.
 //!
 //! * **D-PID-2 — the constructor does not initialise the controller state.**
 //!   `integrator`, `lastInput`, `lastFilteredInput`, `lastFilteredDifferential`,
@@ -240,16 +256,76 @@ impl Controller {
         this
     }
 
-    /// The divisor the `P_ON_E` derivative term uses.
+    /// The `P_ON_E` derivative divisor for a sample that lands **exactly** on the
+    /// window.
     ///
-    /// This is `SampleTime / 1000` with **integer** division, exactly as
-    /// `PID_v1.cpp:85` computes it. See defect D-PID-1: for any sample time
-    /// under 1000 ms this is `0.0`, and the output becomes `NaN` or `±inf`. It
-    /// is exposed so the trap is visible instead of being rediscovered from a
-    /// NaN on the bench.
+    /// This is `SampleTime / 1000` computed in `f64` — the C++ computes it in
+    /// `unsigned long` (`PID_v1.cpp:85`) and the *shape* of the expression is
+    /// kept so the two are recognisably the same term. The difference is the
+    /// `f64` division, and that difference is the whole of deliberate
+    /// divergence D-PID-1.
+    ///
+    /// # D-PID-1, closed
+    ///
+    /// The C++ reads
+    ///
+    /// ```cpp
+    /// dInput = (lastFilteredInput - oldFiltered) / (SampleTime / 1000);
+    /// ```
+    ///
+    /// `SampleTime` is an `unsigned long`, so `/ 1000` is **integer** division.
+    /// Any sample time below 1000 ms makes the divisor `0`, the derivative is
+    /// `±inf`, and the whole output becomes `NaN` (it survives the C++'s own
+    /// `if (x > max) … else if (x < min)` clamp, which lets `NaN` through
+    /// untouched). The shipped firmware escapes this **by coincidence** —
+    /// `SystemInitializer.cpp:551` sets the sample time to exactly
+    /// `processWindowSize()` = 1000 ms, so `1000 / 1000 == 1` — and nothing
+    /// enforces that.
+    ///
+    /// In the port the divisor is [`Self::derivative_seconds_at`] with the
+    /// **actual elapsed time**, so it is strictly positive for every window and
+    /// a `SetSampleTime` can never manufacture a `NaN`. The trap is still
+    /// *visible*: [`Self::derivative_seconds`] is the nominal term, this
+    /// function is what the code divides by, and both are in the module docs.
+    ///
+    /// # Parity
+    ///
+    /// At the shipped 1000 ms window, and for any step that lands exactly on
+    /// it, this is `1.0` and the C++'s is `1.0`, so the term is bit-identical.
+    /// That is measured, not asserted: see
+    /// [`crate::pid_parity::scenario_a_production_pon_e_matches_the_cpp_library`]
+    /// and its three siblings, which compare `to_bits()` on every step of all
+    /// four oracle scenarios — maximum |delta| **0.0**.
+    ///
+    /// The one place the port can differ from the C++ at a 1000 ms window is a
+    /// step that arrives *late*: the C++ divides by the nominal 1.0 s whatever
+    /// the real interval was, the port divides by the real one. That is the
+    /// point of the fix, it is bounded by the scheduling jitter, and it is
+    /// quantified by
+    /// [`crate::pid_parity::scenario_e_a_late_step_uses_the_real_interval`].
     #[must_use]
-    pub const fn derivative_seconds(&self) -> f64 {
-        (self.sample_time.raw() / 1000) as f64
+    pub fn derivative_seconds(&self) -> f64 {
+        f64::from(self.sample_time.raw()) / 1000.0
+    }
+
+    /// The divisor the `P_ON_E` derivative term **actually** uses: the real
+    /// time since the previous `compute`, in seconds.
+    ///
+    /// Strictly positive whenever `compute` got past its own guard, because
+    /// that guard is `elapsed >= sample_time` and `set_sample_time` rejects a
+    /// zero period. That is the property the C++ lacks.
+    ///
+    /// Why elapsed and not the configured window: the C++'s *intent* is
+    /// plainly `dInput/dt` with `dt` the time between samples, and a controller
+    /// whose `dt` is a configuration constant rather than a measurement is a
+    /// controller whose derivative gain is wrong by exactly the ratio of the
+    /// real interval to the nominal one. On a 100 Hz control loop with a 1000 ms
+    /// window that error is under 1 %, which is why nobody has noticed; move the
+    /// window to 500 ms and the C++ does not merely get it wrong, it divides by
+    /// zero.
+    #[must_use]
+    pub fn derivative_seconds_at(&self, elapsed: Millis) -> f64 {
+        f64::from(elapsed.raw()) / 1000.0
     }
 
     /// `SetTunings(Kp, Ki, Kd, POn)` (`PID_v1.cpp:145-169`).
@@ -430,7 +506,9 @@ impl Controller {
         // setpoint steps. P_ON_M uses the *unfiltered* difference because the
         // filter would otherwise leave it nothing to work with.
         let d_input = if self.p_on_e {
-            (self.last_filtered_input - old_filtered) / self.derivative_seconds()
+            // PID_v1.cpp:85, with the divisor fixed — see D-PID-1 in the module
+            // docs. `elapsed` is the same `timeChange` the guard above used.
+            (self.last_filtered_input - old_filtered) / self.derivative_seconds_at(elapsed)
         } else {
             input - self.last_input
         };
@@ -727,14 +805,131 @@ mod tests {
         assert_close(c.last_i_part(), 400.0);
     }
 
-    /// D-PID-1: the integer-division divisor. Documented, reproduced, tested.
+    /// D-PID-1, closed: the divisor is the real elapsed time, so no window can
+    /// produce a zero. The nominal term is still exposed so the trap is
+    /// visible.
     #[test]
-    fn derivative_divisor_is_integer_divided_sample_time() {
+    fn derivative_divisor_is_never_zero_at_any_window() {
         let mut c = production(Millis::ZERO);
         assert_close(c.derivative_seconds(), 1.0);
+        // At the shipped 1000 ms window the nominal term is exactly the C++'s
+        // `1000 / 1000`, so the arithmetic is bit-identical.
+        assert_eq!(c.derivative_seconds().to_bits(), 1.0f64.to_bits());
+
+        for window_ms in [1_u32, 10, 100, 250, 499, 500, 999, 1000, 2_000, 60_000] {
+            assert!(c.set_sample_time(Millis::new(window_ms)));
+            assert!(
+                c.derivative_seconds() > 0.0,
+                "{window_ms} ms: the nominal divisor must be positive"
+            );
+            // And the divisor actually used is the elapsed time, which the
+            // `compute` guard has already proved is >= the window.
+            assert!(c.derivative_seconds_at(Millis::new(window_ms)) > 0.0);
+        }
+    }
+
+    /// The new behaviour being bought: a window the C++ could not survive at all
+    /// now produces a finite, correct derivative.
+    ///
+    /// The C++ at `SampleTime = 500` divides the filtered input difference by
+    /// zero, so the derivative is `±inf` and the output is `NaN` — reproduced
+    /// verbatim in oracle scenario D. Here it is `difference / 0.5 s`.
+    ///
+    /// The numbers are checked against the arithmetic by hand rather than against
+    /// a table, because there is no C++ value to compare to: that is the point.
+    #[test]
+    fn a_sub_second_window_now_yields_a_finite_derivative() {
+        let mut c = Controller::new(
+            Millis::ZERO,
+            30.0,
+            0.5,
+            0.25,
+            ProportionalOn::Error,
+            ControllerDirection::Direct,
+        );
+        c.input = 60.0;
+        c.setpoint = 95.0;
+        c.output = 0.0;
+        assert!(c.set_output_limits(0.0, 500.0));
+        assert!(c.set_integrator_limits(0.0, 55.0));
+        // EMA 0.6, as production uses.
+        c.set_smoothing_factor(0.6);
         assert!(c.set_sample_time(Millis::new(500)));
-        // This is upstream defect D-PID-1: 500/1000 == 0 in integer division.
-        assert_close(c.derivative_seconds(), 0.0);
+        c.set_mode(Mode::Automatic);
+
+        assert!(c.compute(Millis::new(500)));
+        assert!(c.output.is_finite(), "step 1: {}", c.output);
+        // `Initialize()` seeded `lastFilteredInput` with the input, so the first
+        // filtered difference is 0.6*60 + 0.4*60 - 60 = 0 and dInput = 0.
+        assert_close(c.delta_input(), 0.0);
+
+        c.input = 62.0;
+        assert!(c.compute(Millis::new(1000)));
+        assert!(c.output.is_finite(), "step 2: {}", c.output);
+        // filtered = 0.6*60 + 0.4*62 = 60.8; delta = 0.8; dInput = 0.8/0.5 = 1.6.
+        assert_close(c.delta_input(), 1.6);
+
+        c.input = 61.0;
+        assert!(c.compute(Millis::new(1500)));
+        assert!(c.output.is_finite(), "step 3: {}", c.output);
+        // filtered = 0.6*60.8 + 0.4*61 = 60.88; delta = 0.08; dInput = 0.16.
+        assert_close(c.delta_input(), 0.16);
+
+        // The integrator and the output are inside their limits, which the C++
+        // can never be at this window.
+        assert!((0.0..=500.0).contains(&c.output), "{}", c.output);
+        assert!(
+            (0.0..=55.0).contains(&c.last_i_part()),
+            "{}",
+            c.last_i_part()
+        );
+    }
+
+    /// A late step: the C++ divides by the nominal window whatever the real
+    /// interval was. This is the one place the port can differ from it at a
+    /// 1000 ms window, so it is pinned explicitly rather than left implicit.
+    #[test]
+    fn a_late_step_uses_the_real_interval() {
+        // Built by hand rather than via `production()` so the input is seeded
+        // *before* `set_mode(Automatic)`, which is when `Initialize()` runs and
+        // is therefore what the first filtered difference is measured from.
+        let mut c = Controller::new(
+            Millis::ZERO,
+            1.0,
+            0.0,
+            1.0,
+            ProportionalOn::Error,
+            ControllerDirection::Direct,
+        );
+        assert!(c.set_output_limits(-1000.0, 1000.0));
+        assert!(c.set_integrator_limits(-1000.0, 1000.0));
+        assert!(c.set_sample_time(Millis::new(1000)));
+        c.set_smoothing_factor(0.0); // identity: the filtered difference is raw
+        c.input = 60.0;
+        c.setpoint = 95.0;
+        c.output = 0.0;
+        c.set_mode(Mode::Automatic);
+
+        // The constructor left `last_time = 0 - 100`, so the first compute at
+        // t = 1000 sees 1100 ms: late even the first time, exactly as the C++.
+        assert!(c.compute(Millis::new(1000)));
+        // Nothing has changed yet, so the difference is 0 whatever it is divided
+        // by — the C++ divides 0 by 1.0 and gets 0 too.
+        assert_close(c.delta_input(), 0.0);
+        assert_close(c.derivative_seconds_at(Millis::new(1100)), 1.1);
+        assert_close(c.derivative_seconds(), 1.0);
+
+        c.input = 61.0;
+        // Exactly on the window: divisor 1.0 s, so dInput = 1.0 — the C++'s value.
+        assert!(c.compute(Millis::new(2000)));
+        assert_close(c.delta_input(), 1.0);
+        assert_close(c.derivative_seconds_at(Millis::new(1000)), 1.0);
+
+        // 500 ms late: divisor 1.5 s, so dInput = 2/1.5. The C++ would say 2.0.
+        c.input = 63.0;
+        assert!(c.compute(Millis::new(3500)));
+        assert_close(c.delta_input(), 2.0 / 1.5);
+        assert_close(c.derivative_seconds_at(Millis::new(1500)), 1.5);
     }
 
     #[test]
