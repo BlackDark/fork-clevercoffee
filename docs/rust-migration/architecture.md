@@ -97,11 +97,15 @@ task reaches into another's data.
 
 Three primitives only, chosen to make the failure modes obvious:
 
-- **`Command` queue** — bounded (16), `heapless::spsc` or an `esp-idf-svc` queue.
-  Every external actor (HTTP, MQTT, and the UI's own button handling) submits
-  commands; only `control` consumes them. Commands are *requests*, never direct
-  actuator writes. This is how the C++ "action request flags" work already, made
-  explicit.
+- **`Command` queue** — bounded (16), `esp_idf_hal::task::queue::Queue`. Every
+  external actor (HTTP, MQTT, and the UI's own button handling) submits commands; only
+  `control` consumes them. Commands are *requests*, never direct actuator writes. This
+  is how the C++ "action request flags" work already, made explicit.
+  **`Queue<T>` is bounded by `T: Copy`, so no `String`, `Vec` or `Box` may appear in a
+  message** — use `heapless::String<N>`, an index, or a small `Copy` struct, and put the
+  bound on the enum so the compiler enforces it. Note `heapless::Deque` **cannot** serve
+  as a cross-task channel at all: it has no interior mutability, so a producer in
+  another task cannot push without a lock.
 - **`StateSnapshot`** — one `control`-written, many-reader seqlock holding
   temperature, setpoint, duty, state id, brew timer, error flags. Readers retry on a
   torn read. This replaces the C++ `SystemContext` shared-accessor pattern and
@@ -125,6 +129,12 @@ Three primitives only, chosen to make the failure modes obvious:
   locks, no logging, no `esp_idf_svc` calls. `task::CriticalSection` is a FreeRTOS
   mutex and is **not** ISR-safe; `interrupt::IsrCriticalSection` is, and is not
   needed here because a single atomic suffices.
+- **Safety effects are never routed through a queue.** The interlock decision and the
+  resulting actuator write happen in the **same tick, by direct call**. The C++ trips
+  over-temperature in the same loop iteration, and that latency *is* the safety budget;
+  a queue would add a scheduling hop on the most safety-critical path and the consumer
+  could be preempted. Queues carry work *outward* to slow consumers (display, MQTT,
+  web) only.
 - **Backpressure**: every queue is bounded and every full-queue case has a named
   behaviour — `Command` full → reject with an error to the caller (HTTP 503, MQTT
   logged); `StorageCmd` full → reject and surface; log ring full → drop the message,
@@ -152,16 +162,34 @@ There are no detached futures to cancel because the design is threads, not async
 
 ### 2.6 Watchdog
 
-The ESP32 task watchdog (5 s, panic on trigger) subscribes **`control` and `ui`**,
-not the idle tasks. That is a change from the C++ behaviour, which uses
-`enableLoopWDT()` and feeds only from `loop()`.
+The ESP32 task watchdog (5 s, panic on trigger) subscribes **`control` only**.
+That is a change from the C++ behaviour, which uses `enableLoopWDT()` and feeds only
+from `loop()`.
 
-- `control` feeds once per tick. A stalled control task is the condition that most
-  needs a reset, and it is the one the C++ actually covers.
-- `ui` feeds per frame, which catches an I²C bus hang.
-- `net` is deliberately **not** subscribed — network operations are legitimately
-  slow, and the C++ already has to `suspend()` the watchdog around them.
-  Subscribing it would only reintroduce that dance.
+**This is forced by the API, not merely chosen.** `TWDTDriver` is `Send` but **not
+`Sync`**, and `WatchdogSubscription` holds a `PhantomData<&'s mut ()>` with
+`feed(&mut self)` — so there is no shareable driver and no shareable feed handle. The
+driver must be **moved into** the control task, which subscribes itself. An earlier
+version of this section specified subscribing `control` **and** `ui`; that cannot be
+built. See [prior-implementation-findings.md §8.1](prior-implementation-findings.md).
+
+The forced design is also the better one: single-subscriber makes "only the control
+task can feed the watchdog" structural, so a network stall cannot feed it and thereby
+hide a control fault.
+
+- `control` feeds once per tick, owning the driver. A stalled control task is the
+  condition that most needs a reset, and it is the one the C++ actually covers.
+- `ui` and `net` are **not** subscribed. Network operations are legitimately slow, and
+  the C++ already has to `suspend()` the watchdog around them.
+- **`TWDTConfig` requires a third field, `subscribed_idle_tasks: EnumSet<Core>`**,
+  which defaults from `CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0/1`. ESP-IDF subscribes
+  the idle tasks **unless those are set to `n`**, so "only the control task is
+  subscribed" is not automatic — it must be configured, and verified rather than
+  assumed.
+- A **deadman heartbeat** is a stronger complement to consider: the recovered oracle
+  held the heater off until a supervisor heartbeat arrived and de-energised it within
+  500 ms of the beat stopping, rather than waiting for the 5 s watchdog reset. See
+  [prior-implementation-findings.md §10.1](prior-implementation-findings.md) O1/O2.
 - Bring-up runs **without** the watchdog armed, and arms it only once `control` is
   running and feeding. The C++ arms it across the whole of `initialize()` and never
   feeds it, surviving on scattered `yield()` calls. Recorded as a deliberate change.
@@ -298,9 +326,18 @@ before any fallible step, any logging and any config load:
      that this project has not measured. Recorded in the task list as a hardware
      observation, not a code task.
    - The relay trigger polarity lives in config, which is not loaded yet. Resolution:
-     read the three trigger-type keys from NVS **directly** in this first step, with
-     a fail-safe default of `LOW_TRIGGER` (drive HIGH), before the full config
-     registry initialises.
+     read the three trigger-type keys from NVS **directly** in this first step, before
+     the full config registry initialises.
+   - 🔴 **ESCALATED — the default is contested and must not be implemented as
+     originally written.** This section previously specified a fail-safe default of
+     `LOW_TRIGGER` (drive HIGH). The lost oracle firmware and the parallel
+     implementation both **refuse a `LOW_TRIGGER` heater configuration outright**, on
+     the grounds that an undriven GPIO during reset energises the heater and no
+     firmware can prevent it. That argument is sound, which makes the old default
+     arguably the *un*safe one. Compounding it, **the relay polarity on this machine is
+     unverified** and cannot be determined without a meter on the coil. See
+     [prior-implementation-findings.md §7.1](prior-implementation-findings.md) and task
+     BOARD-2.
 2. **Check the flash layout** (§3.1). If `ccfs` is missing, log once and **halt** —
    actuators are already safe from step 1.
 3. Serial and logging.
@@ -460,8 +497,14 @@ Everything that the 303 existing C++ tests cover, and nothing else:
 - `layout`: the flash-layout precondition (C13, §3.1) as a pure function over a
   partition list.
 - `display`: layout maths, template selection, the brew-timer state machine, and the
-  U8g2 anchor shim. Renders into an `embedded-graphics` `DrawTarget`, so it is
-  host-testable into a simulator buffer.
+  U8g2 anchor shim. Renders into a framebuffer, so it is host-testable into a buffer.
+  **Whether that framebuffer implements `embedded-graphics::DrawTarget` is an open
+  decision, not a settled one** — the parallel implementation deliberately did not,
+  because U8g2's coordinate-wrap clipping and balanced string-width behaviour do not
+  survive being expressed as `embedded-graphics` primitives, and because raw U8g2 font
+  data is 135 KB smaller than `ImageRaw`. See
+  [prior-implementation-findings.md §12.4](prior-implementation-findings.md). Decide
+  before the templates are finished.
 - `tsic`: the ZACwire decoder as a pure function over a symbol slice.
 
 `cc-domain` is `no_std` + `alloc`, has **no** dependency on `esp-*` anything, and

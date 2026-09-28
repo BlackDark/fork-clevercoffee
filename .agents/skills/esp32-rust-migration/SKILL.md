@@ -61,12 +61,14 @@ One task, within its stated scope. Concretely:
 Run these, in this order, and **read the output**:
 
 ```bash
-just fmt          # format
 just lint         # clippy, warnings denied, host crates AND every target
 just test         # host tests
 just build esp32  # target build
 just size esp32   # app image vs the app partition
+just fmt          # LAST, so the committed tree is formatted
 ```
+
+**Stop at the first FAIL.** Diagnose it; do not push through to keep momentum.
 
 Then **review your own diff** with `git diff` before you even think about
 committing. Look for: debug leftovers, `todo!()`/`unimplemented!()`, commented-out
@@ -166,6 +168,46 @@ ADR 0005 is a decision, not a gap to be helpfully filled. Specifically, do **not
 
 If a task seems to need any of these, that is a contradiction. Report it.
 
+## 6b. Safety rules carried from the parallel implementation
+
+These came out of the other effort's experience. They are not optional.
+
+- **Do not weaken a safety path to make a test pass.** If parity appears to require
+  removing a safety check, that is a bug in the plan — escalate.
+- **Safety effects never go through a queue.** The interlock decision and the actuator
+  write happen in the same tick by direct call. The C++ trips over-temperature in the
+  same loop iteration and that latency *is* the safety budget. Queues carry work outward
+  to slow consumers only.
+- **A temperature-sensor spike is an actuator-risk task**, not a read-only one: a sensor
+  on a live boiler can act on a real heater. Never connect a sensor spike to a live
+  boiler.
+- **Never run brew, backflush or manual flush during a spike.** If a real boiler is
+  genuinely required, a person must be present with a hand on the power switch.
+- **Only one firmware is on the chip at a time.** To compare sensor behaviour: flash
+  C++, record a 10-minute reference log, flash Rust, record the same, diff offline.
+- **`PORT` is always explicit and no recipe may glob `/dev/cu.*`.** If more than one
+  candidate port appears and you cannot tell them apart, stop and ask.
+- **A flash dump is a secret and must never enter the repository** — NVS contains Wi-Fi
+  credentials in plaintext. Keep dumps in a scratch directory outside the project.
+- **"A target is not supported because it builds."** Support requires flashed *and*
+  exercised.
+- **Escalation has three tiers.** A *small surprise* (a version moved, a recipe needs a
+  flag) — adapt, record it, continue. A *design-level surprise* (a sensor is
+  undecodable, the image will not fit, an executor choice inverts) — **stop, do not
+  improvise an architecture**, update the ADR with evidence, state the options,
+  escalate. **Anything touching a safety path — stop and escalate, always**, even if the
+  change looks small.
+
+Two traps that will cost a day each if hit blind:
+
+- **Check `esp-wifi-provisioning` before adopting it**, not after:
+  `cargo tree -e features -p esp-idf-hal | grep rmt`. It forces `rmt-legacy` graph-wide,
+  which removes `hal::onewire` **and** `hal::timer` — breaking the heater PWM, 1-Wire and
+  the RMT sensor path at once.
+- **A floating-point instruction anywhere in an ISR panics this chip.** Verify by reading
+  the disassembly, not the source; a naive `.s` grep false-positives on `divn.s`, `un.s`
+  and `moveqz.s`.
+
 ## 7. Secrets
 
 - `.env` holds `WIFI_SSID` and `WIFI_PASS`. Load them only from inside tooling
@@ -174,8 +216,9 @@ If a task seems to need any of these, that is a contradiction. Report it.
 - No credential in terminal output, logs, commits, example files or shell history.
 - `scripts/nvs_inspect.py` prints key names, types and sizes only, never values.
   Keep it that way. Use `--digest` to compare values without seeing them.
-- If you dump flash, treat the dump as secret: NVS contains Wi-Fi credentials.
-  Write dumps under the gitignored `research/`, never into the repo proper.
+- **A flash dump must never enter the repository at all** — NVS contains Wi-Fi
+  credentials in plaintext. Keep dumps in a scratch directory outside the project. Do not
+  commit a flash dump.
 
 ## 8. When findings contradict the plan
 

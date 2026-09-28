@@ -156,7 +156,7 @@ Two traps to carry into implementation:
 | critical sections | verified — `task::CriticalSection` (FreeRTOS recursive mutex, **not ISR-safe**) vs `interrupt::IsrCriticalSection` / `interrupt::free` |
 | `critical-section` / `embassy-sync` impls | verified, behind features |
 | `embassy-time` | verified via the `embassy-time-driver` feature — **but see §6, it does not link on its own** |
-| `embassy-executor` | needs prototype — no integration crate; `task::block_on`, `IsrReactor`, `edge-executor` are the documented paths |
+| `embassy-executor` | **unsupported — concrete disqualifier, not an unknown.** `esp-idf-hal`'s `critical-section` impl is a FreeRTOS *recursive mutex*, not disable-interrupts, and `embassy-executor` synchronises through `critical-section`, so it is **not ISR-safe on this platform**. `wake-from-isr` is documented as "only enable if you plan to use `edge-executor`". Executor choice is itself unverified as of 2026-09: the maintainer uses `embassy-executor` personally ([esp-idf-svc#630](https://github.com/esp-rs/esp-idf-svc/issues/630)), while `async-executor` and `edge-executor` ≤0.4.1 had priority-inversion and hang reports. Keep the architecture executor-agnostic. |
 | `tokio` | unsupported — only via an unstable `mio_unsupported_force_poll_poll` cfg |
 
 **Threads-first, not async-first.** That matches how the existing firmware is
@@ -510,6 +510,11 @@ Carried into [task-list.md](task-list.md) as explicit spikes or as open risk.
 | U11 | Whether the water-tank switch polarity or the other four is wrong. | A real behavioural question for parity. | Needs a user/hardware decision |
 | **U12** | **Does `config.json` as exported by the old web UI round-trip into the new firmware?** This replaces U2 and is now the *only* data-compatibility surface. | If wrong, users cannot migrate their settings at all. | ORACLE-4, DOMAIN-8 |
 | **U13** | Does the boot layout guard actually fire on a device carrying the C++ partition table? | It is what makes a half-migrated machine inert rather than dangerous. | BOOT-1, SPIKE-8 |
+| **U14** | **Which relay polarity is this machine wired for?** Undetermined. Needs a meter on the coil, boiler disconnected, a person present, written procedure. | The whole `LOW_TRIGGER`-refusal question turns on it, and a wrong default energises a 2 kW heater at reset. | [prior §7.1](prior-implementation-findings.md), BOARD-2 |
+| **U15** | Is `-D warnings` achievable on the device target? Not until ~1300 `esp_idf_*` cfgs are declared in `check-cfg`. | A CI gate this plan already specifies. | [prior §8.3](prior-implementation-findings.md) |
+| **U16** | Does `u8g2-fonts` (or any Rust renderer) reproduce U8g2's **coordinate-wrap clipping**, where a glyph box above the display is clipped rather than dropped? | A port using signed coordinates renders blank where the C++ renders a partial glyph. | [prior §12.2](prior-implementation-findings.md), SPIKE-5 |
+| **U17** | What is the real gzipped web-UI size? The frontend cannot be built on this host, so `buildfs` has never run. Only datapoint: a live device reported **225,280 of 393,216 bytes used**. | Sizes the filesystem partition. | ADR 0005, CUT-0 |
+| **U18** | Contactor limits: minimum on/off time, whether 1 Hz is acceptable to the coil at all, and the realised duty on the pin. No scope has been attached by either effort. | The heater acceptance criterion is unverified on both sides. | [prior §8.6](prior-implementation-findings.md), BOARD-3 |
 
 ---
 

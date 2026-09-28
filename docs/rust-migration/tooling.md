@@ -86,7 +86,15 @@ The task brief asks for these to be named, so:
 
 4. **A filesystem that supports symlinks.** ESP-IDF cannot build without them.
 
-5. **Roughly 5 GB of disk** for ESP-IDF, its tools and the build directory.
+5. **Roughly 5 GB of disk** for ESP-IDF, its tools and the build directory. The first
+   `esp-idf-sys` build compiles all of ESP-IDF **twice** (std and no_std), around
+   15–25 minutes.
+
+6. **Retries.** This host intermittently drops outbound TLS — the same URL succeeds and
+   fails minutes apart for `espup`, cargo and python while `curl` and `git` keep
+   working. **A single failure is not evidence of a blocker.** If `espup install` fails
+   on its GitHub release query, pass `--toolchain-version 1.97.0.0 --skip-version-parse`
+   (the two go together; the latter is rejected without the former).
    `ESP_IDF_TOOLS_INSTALL_DIR = "global"` in `.mise.toml` keeps the ESP-IDF
    checkout in `~/.espressif` rather than inside the repo.
 
@@ -149,7 +157,7 @@ Two consequences worth knowing:
 | `size <target>` | app image size vs the `app0` size parsed from `partitions_4M.csv` |
 | `board-info <port>` | read-only chip identification |
 | `flash <target> <port>` | chip-guarded flash |
-| `monitor <port>` | serial monitor at 115200 |
+| `monitor <port>` | serial monitor at 115200 — **needs a TTY, so unusable from CI or an agent**; a headless capture script driving DTR/RTS is needed for those |
 | `provision <port>` | Wi-Fi credentials from `.env` into NVS over USB |
 | `provision-check <port>` | build and verify a provisioning image, write nothing |
 | `nvs-report <port>` | dump and summarise a device's NVS, values never printed |
@@ -227,8 +235,18 @@ Three jobs:
    green. The C++ firmware is the parity oracle; if it stops building we lose the
    ability to check the port against real behaviour.
 
+⚠️ **`-D warnings` will not pass on the device target once real device code exists.**
+`esp-idf-sys` 0.38 emits roughly **1300 `esp_idf_*` cfgs** but cannot emit matching
+`rustc-check-cfg`, so every use is an `unexpected_cfgs` warning. Each cfg actually used
+has to be declared in `[lints.rust] unexpected_cfgs = { check-cfg = [...] }` first. The
+host job is unaffected. See
+[prior-implementation-findings.md §8.3](prior-implementation-findings.md).
+
 **No blanket allows.** Clippy runs with `-D warnings` and there is no
-`#![allow(...)]` at crate level anywhere. `Cargo.toml` declares the lint intent in
+`#![allow(...)]` at crate level anywhere. An `#[allow]` must name a single lint and
+carry a reason; a **named module-level** allow with justification is acceptable during
+the initial port, which is the escape hatch that stops a port either fighting Clippy
+forever or nuking it. `Cargo.toml` declares the lint intent in
 `[workspace.lints]` so it lives in the repo rather than only in a workflow file.
 If a lint fires, fix it or annotate the specific line with a reason.
 
@@ -389,7 +407,7 @@ Nothing has been flashed.
 | `Cargo.toml` | host workspace, lint intent, release profile |
 | `crates/cc-{domain,hal,drivers}/` | host-testable crates |
 | `firmware/Cargo.toml` | target workspace |
-| `firmware/.cargo/config.toml` | triple, ldproxy, `build-std`, `MCU`, `ESP_IDF_VERSION` |
+| `firmware/.cargo/config.toml` | triple, ldproxy, `build-std`, `MCU`, `ESP_IDF_VERSION`, `--cfg espidf_time64` (mandatory — without it the build silently uses 32-bit `time_t`). Note the partition table **cannot** be set from `sdkconfig.defaults`; the knob is `[idf] partition_table` here plus `--partition-table` at flash time |
 | `.github/workflows/rust.yml` | host gates, per-target builds, size check, C++ baseline |
 | `scripts/provision.py` | NVS key derivation, image generation, guarded write |
 | `scripts/nvs_inspect.py` | read-only NVS inspection that never prints values |

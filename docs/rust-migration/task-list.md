@@ -233,6 +233,30 @@ Phase 1 can complete regardless of P0.
   reverse) need a stated policy. Proposal: unknown keys are reported and skipped, not
   fatal — an old export must still be importable into a newer firmware.
 
+### SAFETY-1 — deadman heartbeat and fail-closed config (from the recovered oracle)
+- **Kind:** implementation. **HW:** no to build and test. **Prereq:** DOMAIN-2, DOMAIN-4.
+- **Objective:** adopt three safety behaviours the recovered oracle firmware had and
+  neither current plan does. All are host-testable as pure logic.
+- **Steps:**
+  1. **Deadman latch** — the heater output stays off until the control task's first
+     heartbeat, and de-energises if the heartbeat stops for longer than the interlock
+     period. The oracle used 500 ms, against a 5 s watchdog. Expose `deadman_armed` /
+     `deadman_tripped` in telemetry.
+  2. **Fail-closed config** — refuse to *store* an unsafe configuration, and **discard a
+     stored configuration that is unsafe**, running defaults instead. Covers the
+     cross-parameter rule `emergency_temp > steam_setpoint + emergency_hysteresis`
+     (10 °C of margin at defaults, 25 °C at range maxima) — without it the machine trips
+     emergency stop during normal steam use.
+  3. **Output verification** — feed *measured* heater on-time back into telemetry
+     (`last_window_on_ticks`, `observed_on_fraction`) so a commanded duty can be checked
+     against the delivered one.
+- **Acceptance:** host tests for each; a test that a config which would self-trip is
+  rejected on store *and* discarded on load.
+- **Safety:** all three are strictly-safer additions. Declare them in ADR 0005's
+  changed-behaviour list.
+- **Uncertainty:** 500 ms is the oracle's value, and their own analysis judges a
+  per-tick re-assert stronger. Treat it as an upper bound.
+
 ### BOOT-1 — flash layout guard
 - **Kind:** implementation. **HW:** no to build and test, esp32 to validate.
 - **Prereq:** DOMAIN-1. **Blocks:** any on-device task.
@@ -348,7 +372,21 @@ These run early because they are the tasks that can invalidate the design. Each 
   firmware first. If unavailable, record it as unverified rather than assuming.
 
 ### SPIKE-4 — ZACwire decode via RMT against real TSIC hardware
-- **Kind:** research. **HW:** esp32 + TSIC 306 on GPIO 16.
+- 🔴 **CANNOT RUN AS WRITTEN — the probe fitted to this machine is a DS18B20, not a
+  TSIC-306.** It answered 1-Wire with ROM `0x41af78cdaa376928`, family `0x28`, 11-bit,
+  live 22.88–23.25 °C; a ZACwire sensor would not answer 1-Wire at all. Meanwhile
+  `Config.h:1087` defaults to `TSIC_306` and nothing detects the mismatch — and the
+  recovered oracle firmware logged *"config asks for Tsic306 but only the DS18B20 driver
+  exists; reading the 1-Wire bus anyway"*. So TSIC is not the spike that can invalidate
+  the approach; **deciding what the config value does is.** Re-scope to: (a) confirm the
+  fitted probe under the **C++** firmware, since the measurement came from a Rust image
+  that does not log the probe pin; (b) decide whether an unsupported probe type is
+  refused at config time, as the oracle's fail-closed validation would suggest; (c) keep
+  the ZACwire work host-side only until TSIC hardware is actually available. See
+  [prior-implementation-findings.md §9.1](prior-implementation-findings.md).
+- ⚠️ **This is an actuator-risk task, not a read-only one.** A temperature sensor on a
+  live boiler can act on a real heater. Do not connect a sensor spike to a live boiler.
+- **Kind:** research. **HW:** esp32 + TSIC 306 on GPIO 16 — **not currently fitted**.
 - **Objective:** confirm RMT RX capture recovers the waveform reliably with Wi-Fi
   active. This is the only timing-critical driver.
 - **Steps:** configure `RxChannelDriver` at 1 µs resolution, glitch filter ~2–5 µs,
@@ -388,8 +426,23 @@ These run early because they are the tasks that can invalidate the design. Each 
 - **Kind:** research. **HW:** esp32. **Prereq:** SPIKE-2, P0.
 - **Objective:** confirm the USB NVS-write path actually results in a Wi-Fi
   connection, and decide the long-term mechanism.
-- **Steps:** `just provision <port>` against a blank-NVS device; boot; confirm
-  association. Then evaluate reprovisioning and the merge problem.
+- **Steps:** **Step 0, before anything else** — if `esp-wifi-provisioning` is being
+  considered, run `cargo tree -e features -p esp-idf-hal | grep rmt`. That crate depends
+  on `esp-idf-hal` with a **non-optional `rmt-legacy` feature**, Cargo unifies features
+  graph-wide, and `not(feature = "rmt-legacy")` is exactly what gates `hal::onewire`
+  **and** `hal::timer`. Adopting it would silently remove the GPTimer and 1-Wire modules
+  and break BOARD-3, DRV-1 and DRV-3. If it appears, do not use the crate; hand-build the
+  portal and record why. See
+  [prior-implementation-findings.md §7.2](prior-implementation-findings.md).
+  Then: `just provision <port>` against a blank-NVS device; boot; confirm association;
+  evaluate reprovisioning and the merge problem.
+- **Note — one option is closed by hardware:** the ESP-IDF `wifi_provisioning`
+  component's "USB Serial" transport requires native USB-Serial-JTAG and **does not
+  exist on the original ESP32**.
+- **Proven shapes to copy:** the recovered oracle shipped *both* a UART line protocol
+  (`wifi set <ssid>` with **the password on the next line** — which avoids the argv leak
+  — plus `wifi clear`/`status`/`apply`) and an on-device captive portal. Both are proven
+  on this hardware.
 - **Acceptance:** device associates using credentials never printed or committed.
 - **Safety:** credentials from `.env` only; nothing echoed.
 - **Uncertainty:** the write half of the transport is unverified (see
@@ -431,6 +484,15 @@ Phase 3 starts.
   with actuators connected.
 - **Declared change:** fixes the C++ window where a low-trigger relay is briefly
   energised between `pinMode()` and `off()`.
+- 🔴 **BLOCKED — needs a user decision before implementation.** This task originally
+  defaulted the trigger type to `LOW_TRIGGER` (drive HIGH) as the fail-safe. Both the
+  recovered oracle firmware and the parallel implementation **refuse a `LOW_TRIGGER`
+  heater outright**, because an undriven GPIO during reset energises the heater and no
+  firmware can prevent that. If they are right, this task's default is the unsafe one.
+  Compounding it, **the relay polarity on this machine is unverified** and needs a meter
+  on the coil with the boiler disconnected and a person present. Refusing `LOW_TRIGGER`
+  also makes a machine genuinely wired that way unrunnable — a product decision. See
+  [prior-implementation-findings.md §7.1](prior-implementation-findings.md).
 
 ### BOARD-3 — heater PWM and the ISR
 - **Kind:** implementation. **HW:** esp32. **Prereq:** BOARD-2, DOMAIN-2.

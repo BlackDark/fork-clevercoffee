@@ -41,8 +41,32 @@ Consequences that shape every later decision:
 - Xtensa, not RISC-V. Rust support comes from the Espressif fork via `espup`, not
   from upstream stable Rust (**device-verified**, §1.4).
 - No native USB peripheral. Serial, flashing and monitoring all run over the
-  board's external USB-UART bridge (**repo-verified**: `monitor_speed = 115200`,
-  `platformio.ini:37`; no USB-CDC code anywhere).
+  board's external USB-UART bridge — identified as a **WCH CH340**, VID `0x1A86` /
+  PID `0x7523`; **no Silicon Labs device is present at all**, so a CP2102 assumption
+  would be wrong for this board (**device-verified**). Auto-reset works (DTR→GPIO0,
+  RTS→EN): 5/5 first-try connects, no manual BOOT+EN dance. **The link is flaky above
+  460800 baud — stay at the default rate.** `debug_tool = esp-prog` in
+  `platformio.ini` is probably wrong for this board (it needs an FT2232H probe), so
+  `pio debug`/gdb is expected to fail — untested, so do not promise a gdb workflow.
+- **Flash: DIO @ 40 MHz, JEDEC `0xD8`/`0x4016`, 4 MB.** ESP-IDF logs
+  `detected chip: generic` because `0xD8` is not in its vendor table, and **SFDP could
+  not be read** (esptool 4.11.0 aborts on reads wider than 32 bits), so the part is
+  unidentifiable from software and **QIO support is unverified — do not "upgrade" to
+  QIO**, it looks like free speed and is not safe to change (**device-verified**).
+- **No PSRAM**, evidenced by zero `psram`/`spiram` mentions in a full boot log and by
+  `heap_init` listing only DRAM/D-IRAM/IRAM regions — **with the caveat** that ESP-IDF
+  only probes PSRAM when `CONFIG_SPIRAM` is set. Cheapest closure: assert
+  `esp_psram_get_size()` in the first Rust `main` (*needs confirmation*).
+- The module is an **ESP32-WROOM-32E**, not a WROVER — `Flash voltage set by a
+  strapping pin to 3.3V` excludes WROVER-E's 1.8 V VDD_SDIO. Nobody read the silkscreen
+  (*needs confirmation*). It matters because a WROVER would put GPIO16/17 on in-package
+  PSRAM.
+- **GPIO16 and GPIO17 are not strapping pins** — the strapping pins are exactly GPIO0,
+  GPIO2, MTDI/12, MTDO/15 and GPIO5 (Datasheet v5.3 Table 3-1). GPIO16/17 are
+  flash/PSRAM pins, unused inside a WROOM-32E, and both measured working
+  (**device-verified**). Retires a phantom risk; GPIO2 remains a genuine strapping pin.
+- **Revision v3.0 is the newest original-ESP32 silicon**, so the errata concern is moot
+  and only RF is even in question.
 - Revision v3.0 is exactly the floor `esp-hal` requires, and it qualifies for the
   `CONFIG_ESP32_REV_MIN_3` size optimisation.
 
@@ -126,6 +150,12 @@ port is therefore also an IDF major-version jump.
 RAM:   [=         ]  14.1% (used 75240 bytes from 532480 bytes)
 Flash: [========= ]  90.4% (used 1539657 bytes from 1703936 bytes)
 ```
+
+Byte-exact, from the artefacts: `firmware.bin` **1,546,240 B** (DROM 394,996 /
+DRAM 26,096 / IRAM 37,636 / IROM 1,035,684 / IRAM 51,204), `bootloader.bin` 17,536 B,
+`partitions.bin` 3,072 B, headroom **157,696 B = 154.0 KiB (9.25 %)**. PlatformIO's
+1,539,657 B differs by 7,583 B — the 24-byte image header, 8-byte segment padding and a
+trailing SHA-256.
 
 **Flash is the binding constraint on the C++ side: 90.4 % of the 1.625 MB app
 partition, 160 KiB of headroom.** This number is the reason binary size was
