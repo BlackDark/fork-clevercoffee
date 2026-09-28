@@ -29,6 +29,22 @@
 export ESP_IDF_VERSION := "v5.5.5"
 export RUSTFLAGS := "--cfg espidf_time64"
 
+# A just `export` assignment is injected into EVERY recipe's environment, so
+# this single line is what makes `cargo`, `rustup`, `espflash`, `cargo-espflash`
+# and `ldproxy` reachable. They are cargo-installed and are NOT on PATH in a
+# plain login shell, which is how R1-01 left half the recipes failing with
+# "command not found". Do NOT prefix individual recipes with this.
+export PATH := env_var_or_default("PATH", "") + ":" + home_dir() + "/.cargo/bin"
+
+# REQUIRED. A virtual workspace has no root crate, and esp-idf-sys reads
+# `[[package.metadata.esp-idf-sys]]` (which carries `extra_components`, e.g. the
+# LittleFS managed component) ONLY from the root crate
+# (esp-idf-sys/build/config.rs:92-122). Without this it prints
+# "could not identify the root crate" and SILENTLY IGNORES the metadata, so
+# `svc::fs::littlefs` would later fail with a confusing error.
+# Found 2026-09-28 during R1-01.
+export ESP_IDF_SYS_ROOT_CRATE := "cc-firmware"
+
 mcu_esp32 := "esp32"
 mcu_esp32s3 := "esp32s3"
 mcu_esp32c6 := "esp32c6"
@@ -42,7 +58,10 @@ bin_esp32 := "firmware"
 
 # DEVIATION D1. Resolved at run time, because the host triple depends on the
 # machine (macOS arm64 in CI and on this laptop, x86_64 elsewhere).
-host_target := `rustc -vV | sed -n 's/^host: //p'`
+# Backticks run in a shell WITHOUT the `export PATH` above applied, so this must
+# not depend on cargo being found. Hardcode the current host with a runtime
+# override; `just doctor` prints it so a mismatch is visible.
+host_target := env_var_or_default("CC_HOST_TARGET", "aarch64-apple-darwin")
 
 # The five portable crates. The three device crates do not compile for a host
 # target, so `cargo test --workspace` / `cargo clippy --workspace` are wrong.
