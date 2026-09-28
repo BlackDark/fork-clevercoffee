@@ -17,6 +17,7 @@ Related: [03 — Decision record](./03-decision-record.md) (the 154 KB problem) 
 | `app0` slot (current table) | **1,703,936 B** (`0x1A0000`) | `partitions_4M.csv` |
 | **Headroom** | **157,696 B (154.0 KiB)** | arithmetic, verified |
 | A Rust esp-idf image with `std`, measured | **≥ 1,835,008 B — it filled a 1,835,008 B slot** | [08 §2](./08-recovered-oracle.md#2-partition-table-it-used): the recovered firmware's app0 image occupied its slot to the last non-`0xFF` byte |
+| **Our own minimal image, measured 2026-09-28 (R1-01)** | **382,528 B** — blink-equivalent: `std`, logging, three GPIO pins, a TWDT-fed control task, and the whole default ESP-IDF component set | `just size`; recorded in `size-baseline.json` as label `r1-01-minimal` |
 
 **154 KiB will not hold a Rust esp-idf image.** The partition table must change. This
 document tracks *how much* room we won and *what* is spending it.
@@ -151,6 +152,47 @@ Verdict: fits / does not fit. Action: <none | drop §3 item N>.
 ```
 
 ---
+
+## 6b. Recorded: image size — Phase 1 minimal image (2026-09-28, R1-01)
+
+```
+target:      xtensa-esp32-espidf (esp32), ESP-IDF v5.5.5, release + lto=fat, strip=symbols
+image:       target/xtensa-esp32-espidf/release/firmware  ->  382,528 B flashable app image
+app slot:    rust/partitions_4M.csv app0  0x1C0000  ->  1,835,008 B
+headroom:                                       +  1,452,480 B (79.15 %)
+baseline:    docs/rust-migration/size-baseline.json  (label r1-01-minimal)
+delta:                                        n/a — this is the first datapoint
+```
+
+| Section | Bytes | Where it goes |
+| --- | ---: | --- |
+| `.flash.text` | 251,380 | code: `std` + `esp-idf-svc` + the firmware |
+| `.flash.rodata` | 71,264 | strings, vtables, panic metadata |
+| `.flash.appdesc` | 256 | `esp_app_desc` |
+| `.iram0.vectors` + `.iram0.text` | 47,451 | code that must run from IRAM (ISR vectors, `__init` paths) |
+| `.dram0.data` | 11,492 | static RAM, initialised |
+| `.dram0.bss` | 2,400 | static RAM, zeroed |
+| **Static RAM total** | **61,343** | ADR-0002's 30 KB heap-shed threshold is measured against this |
+| ELF total (incl. `.comment`, `.xtensa.info`) | 384,530 | the flashable image is smaller after segment padding |
+
+**What this number means.** 382,528 B for a blink-equivalent is dominated by ESP-IDF
+itself (the default component set: wifi, lwip, mbedtls, fatfs, spiffs, mqtt, nvs,
+http_server, …) — *not* by anything in `cc-*`. `cargo bloat` cannot attribute it
+(`Error: parsing failed cause 'symbols section is missing'`, because the release
+profile strips symbols), so the per-crate attribution method in §4 has to come from
+the final link map
+(`target/<triple>/release/build/esp-idf-sys-*/out/build/libespidf.map`) until that
+is automated.
+
+**The oracle filled a 1,835,008 B slot; we use 382,528 B.** Either the oracle
+embedded a large asset (a React SPA is 300 KB–1 MB built, so this is the likely
+explanation — see §2), or it linked far more of ESP-IDF than the default component
+set. Until R2-03 measures the embedded SPA, assume **the SPA is the dominant term**
+and size the partition table around it, not around this number.
+
+**Still unknown (07 §7, unchanged by R1-01):** the embedded SPA size, the price of
+each §3 drop, and whether `rust/partitions_4M.csv`'s 0x60000 filesystem is enough if
+the SPA stays on LittleFS.
 
 ## 7. Open items
 

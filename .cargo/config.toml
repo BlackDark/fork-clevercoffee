@@ -1,0 +1,34 @@
+# CleverCoffee — Rust workspace cargo configuration.
+#
+# Keep the build knobs here in sync with the `justfile` module-level variables
+# (05 §4) and the `firmware` CI job env (05 §6). `just doctor` asserts them.
+
+[build]
+# The production target. The original ESP32 is Xtensa LX6 — see skill §1 fact 1.
+target = "xtensa-esp32-espidf"
+# Must match RUSTFLAGS in the justfile. `--cfg espidf_time64` is what
+# esp-idf-sys 0.38 looks for; without it the build silently uses 32-bit time_t
+# and diverges from CI.
+rustflags = ["--cfg", "espidf_time64"]
+
+# The ESP-IDF link must go through `ldproxy`, which wraps the Xtensa `ld` and
+# resolves the `--defsym`/`-T` script gymnastics of the ESP-IDF linker setup.
+# `esp-idf-sys` emits `--ldproxy-linker`/`--ldproxy-cwd` as link args, so if the
+# linker is the bare `xtensa-esp32-elf-gcc` the link dies with
+# "unrecognized command-line option '--ldproxy-linker'".
+# embuild detects this via `$RUSTC_LINKER` and only warns if it is missing, so
+# the failure surfaces late. Scoped to the device triple: the host crates must
+# still link with the system linker.
+[target.xtensa-esp32-espidf]
+linker = "ldproxy"
+
+[unstable]
+# The `esp` toolchain is a nightly fork, so this is available. On a stable host
+# cargo this section is ignored with a warning (verified — see the R1-01 report).
+build-std = ["std", "panic_abort"]
+
+[idf]
+# Relative to the workspace root. Deliberately NOT copied from the upstream
+# esp-idf repo's partitions.csv, and deliberately NOT the C++
+# partitions_4M.csv (which is 0x1A0000 per slot and would not hold a Rust image).
+partition_table = "rust/partitions_4M.csv"

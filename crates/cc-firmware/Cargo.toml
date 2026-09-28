@@ -1,0 +1,55 @@
+[package]
+name = "cc-firmware"
+description = "The CleverCoffee device binary."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# Exactly ONE binary, named `firmware` (04 §6). NOT bin/esp32 + bin/esp32s3 +
+# bin/esp32c6: `cargo espflash` cannot tell which binary to flash from `--target`
+# alone, so the artifact path must be unambiguous. Note this means the artifact
+# is `target/xtensa-esp32-espidf/release/firmware`, NOT `.../cc-firmware` — the
+# path in 05 §6's CI snippet is stale.
+[[bin]]
+name = "firmware"
+path = "src/main.rs"
+test = false
+bench = false
+# Do not link the built-in cargo test harness into the device binary: there is
+# no test harness on the ESP32 and the linker would fail. Same as the official
+# esp-rs template.
+harness = false
+
+[dependencies]
+cc-domain.workspace = true
+cc-config.workspace = true
+cc-machine.workspace = true
+cc-display.workspace = true
+cc-safety.workspace = true
+cc-hal-esp32.workspace = true
+cc-provisioning.workspace = true
+esp-idf-hal.workspace = true
+esp-idf-svc.workspace = true
+log.workspace = true
+
+# `embuild` is a BUILD dependency of the *binary* crate, not just of esp-idf-sys.
+# esp-idf-sys publishes its link args / cfgs as `links` metadata
+# (`DEP_ESP_IDF_SYS_EMBUILD_LINK_ARGS`), but Cargo does not propagate a
+# dependency's `cargo:rustc-link-arg` to this package, so without
+# `build.rs` -> `embuild::espidf::sysenv::output()` the final link has no
+# ESP-IDF archives and fails with hundreds of undefined references
+# (`pthread_create`, `write`, `abort`, ...). The version MUST match the embuild
+# that the pinned esp-idf-sys builds with — 0.33.5, re-verified at R2-01.
+[build-dependencies]
+embuild = "=0.33.5"
+
+[lints]
+workspace = true
+
+# LittleFS is a managed component. Without it `esp_idf_svc::fs::littlefs` does
+# not compile: the Rust module is gated on
+# `esp_idf_comp_joltwallet__littlefs_enabled` (04 §6).
+[[package.metadata.esp-idf-sys.extra_components]]
+remote_component = { name = "joltwallet/littlefs", version = "^1.22" }

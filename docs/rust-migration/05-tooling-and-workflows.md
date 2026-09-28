@@ -371,6 +371,35 @@ size-bench mcu="esp32":            ## ⚠ HARDWARE — control-loop timing on de
 | Host benchmarks | `just bench` |
 | Regenerate display goldens | `just snapshot-display` |
 
+## 4b. R1-01 corrections (verified 2026-09-28, on real hardware)
+
+Everything in §4 above is the *pre-R1-01* text. Building and flashing a real image on
+2026-09-28 proved six things wrong or missing. The repository's `justfile`,
+`.cargo/config.toml` and `crates/cc-firmware/build.rs` already implement the fixes;
+this section records them so the text above is not read as authoritative.
+
+| # | What actually happens | Required configuration |
+| --- | --- | --- |
+| 1 | `esp-idf-sys` publishes its link arguments as *`links` metadata*, and Cargo does **not** forward a dependency's `cargo:rustc-link-arg` to the binary package. Without this, the final link contains no ESP-IDF archives and fails with undefined `pthread_create`, `write`, `abort`, `sched_yield`, … | `crates/cc-firmware/build.rs` = `embuild::espidf::sysenv::output();` and `[build-dependencies] embuild = "=0.33.5"`. Same as `esp-idf-template/cargo/build.rs`. |
+| 2 | The link line contains `--ldproxy-linker` / `--ldproxy-cwd`, which the bare Xtensa `gcc` rejects. | `[target.xtensa-esp32-espidf] linker = "ldproxy"` in `.cargo/config.toml`. The key is **`linker`**, not `rustc-linker` (cargo 1.97 rejects the latter there). |
+| 3 | rustc resolves the linker from `PATH`; ESP-IDF's line names `xtensa-esp32-elf-gcc`. | `just env-file` writes `.rust-esp-env.sh`, which every device recipe sources. §2's `source "$HOME/exports"` covers the espup case; `env-file` also covers the case where only the ESP-IDF-installed GCC exists. |
+| 4 | The flashable app image does **not** contain the partition table — the first byte is the 0xE9 app magic. | The flash recipe must pass `--partition-table rust/partitions_4M.csv`. §3's "flash it explicitly" is load-bearing. |
+| 5 | A **virtual** workspace has no "root crate", and `esp-idf-sys` reads `[[package.metadata.esp-idf-sys]]` from the root crate's manifest only (`esp-idf-sys/build/config.rs:92-122`). It then prints `cargo:warning=could not identify the root crate and ESP_IDF_SYS_ROOT_CRATE not specified` and **ignores `extra_components`**. | `ESP_IDF_SYS_ROOT_CRATE = "cc-firmware"` in `.cargo/config.toml [env]`. Until this is set, 04 §6's LittleFS component is silently absent. |
+| 6 | The binary is named `firmware`, so the artifact is `target/<triple>/release/firmware`. | The upload path in §6's `firmware` job (`.../release/cc-firmware`) is wrong. |
+
+Two more environment facts:
+
+- **`espup install` needs `--toolchain-version` on this host.** Without it the first
+  step (a `api.github.com` "latest release" query) fails. `--skip-version-parse`
+  *requires* `--toolchain-version`; they go together. The `.mise.toml`
+  `xensa-toolchain` task now passes `--toolchain-version 1.97.0.0`.
+- **This host's network path intermittently drops outbound TLS.** The same URL
+  succeeds and fails minutes apart, for `espup` (reqwest), the `esp` toolchain's
+  `cargo`, and `python` — while `curl` and `git` succeed throughout. Every
+  provisioning step needs retries; one failure is not evidence of a blocker.
+- `espflash monitor` requires a TTY, so it is unusable from CI or an agent. Use
+  `just mon-headless <port>`, which drives DTR/RTS itself and dumps UART0.
+
 ## 5. Wi-Fi provisioning
 
 ### The hard constraint

@@ -1,0 +1,20 @@
+[package]
+name = "cc-hal-esp32"
+description = "The only crate that talks to ESP-IDF: board, drivers, actuators, watchdog."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+cc-domain.workspace = true
+cc-config.workspace = true
+cc-machine.workspace = true
+esp-idf-hal.workspace = true
+esp-idf-svc.workspace = true
+esp-idf-sys.workspace = true
+log.workspace = true
+
+[lints]
+workspace = true

@@ -10,13 +10,14 @@ blocked.
 
 | Field | Value |
 | --- | --- |
-| Current phase | **Not started** — plan delivered, no Rust code written yet |
-| Next task | **R0-01** (confirm the physical board) — blocked on hardware |
+| Current phase | **Phase 1 (R1)** — R0-04 and R1-01 executed 2026-09-28 |
+| Next task | **R1-02** (executor decision) — needs no hardware |
 | Plan reviewed | 2026-09-28 by two adversarial subagents; 24 hard factual errors and 5 blocking tooling defects found and **fixed**. See 06 and 07. |
 | ADR-0004 status | **Proposed** (becomes Accepted at Gate 1) |
 | C++ baseline | `pio run -e esp32_usb` **succeeds**; `firmware.bin` = 1,546,240 B; `pio test -e native_test` = **340/340 pass** in 55 s |
-| Rust workspace | **Does not exist yet** (created by R1-01) |
-| Connected device | **None** (verified 2026-09-28) |
+| Rust workspace | **Exists** at the repo root (8 crates; 5 portable + 3 device). Builds, links, boots and runs. |
+| Device image | **382,528 B** flashable app image, first measurement (07 §5). App slot 1,835,008 B → **+1,452,480 B headroom**. |
+| Connected device | `/dev/cu.usbserial-204140` — `esp32` rev v3.0, 4 MB flash, dual core, WiFi+BT, MAC `ec:62:60:76:b5:3c`. Auto-reset works; a headless UART capture script is at `scripts/serial-log.py`. |
 
 ---
 
@@ -44,10 +45,11 @@ headroom.** A Rust esp-idf image with `std` will not fit. R0-02 and R2-03 addres
 
 | Blocker | Blocks | Needs |
 | --- | --- | --- |
-| **No ESP32 device attached.** `ioreg -p IOUSB` and `/dev/cu.*` show no Espressif device; `DEBUG_GUIDE.md` expects `/dev/ttyUSB0`, which does not exist. | Every HW task: R0-01, R1-01, R1-03, R1-04 (on-device), R1-06, R1-07, all of R3, all of R4 | A DevKitC-V4 board plugged in |
+| ~~No ESP32 device attached.~~ **Resolved 2026-09-28**: `/dev/cu.usbserial-204140` is present and is an `esp32` rev v3.0, 4 MB, dual core. | — | — |
+| **Flaky outbound TLS on this host** (same URL succeeds and fails minutes later) | Every provisioning step: `espup install`, `cargo fetch`, the ESP-IDF clone, `idf_tools.py` | Retries. Do not record a single failure as "no network". |
 | `mise` tools declared but not installed | `pio run --target format`, frontend build | `mise install` |
-| Whether `cargo bloat` works on macOS arm64 | `just size` attribution detail | R1-01; fallback is `.map` + `xtensa-esp32-elf-size` |
-| Rust toolchain not installed | R1-01 | `just setup` |
+| ~~Whether `cargo bloat` works on macOS arm64~~ **No** (0.12.1, no symtab) | — | Fallback in use: `xtensa-esp32-elf-size -A` + the final link map |
+| ~~Rust toolchain not installed~~ **Installed** (`esp` 1.97.0.0) | — | — |
 
 Build-only spikes (R1-02, R1-04 layout, R1-05) can proceed without hardware.
 
@@ -55,7 +57,91 @@ Build-only spikes (R1-02, R1-04 layout, R1-05) can proceed without hardware.
 
 ## Completed tasks
 
-_None yet._
+### R0-04 — C++ baseline (2026-09-28)
+
+- `pio run -e esp32_usb` → success, `firmware.bin` = **1,546,240 B**.
+- `pio test -e native_test` → **340/340** test cases pass in 22.5 s (the previously
+  recorded 55 s is from a cold build).
+- `pio run -t buildfs` **fails**: `Failed to fetch metadata from
+  https://registry.npmjs.org/pnpm: error sending request`. `curl` to the same URL
+  succeeds, so the registry is reachable and this is a **transient/flaky network
+  path on this host**, not an outage. Do not record it as "npm is down".
+
+### R1-01 — workspace + toolchain proof (2026-09-28) ✅
+
+- `esp-idf-svc` 0.53.0 / `esp-idf-hal` 0.47.0 / `esp-idf-sys` 0.38.1 build, link, boot
+  and run on this host for `xtensa-esp32-espidf` at ESP-IDF **v5.5.5**. **U1 did not
+  materialise.**
+- Flashed once and captured the boot log: ESP-IDF v5.5.5 banner, our partition table,
+  `heater/valve/pump all inactive (LOW)` readback assertion, `esp_task_wdt_add -> 0`,
+  1 Hz heartbeat.
+- **First image measurement: 382,528 B** (see 07 §5 and `size-baseline.json`).
+- `just fmt-check`, `just lint`, `just test`, `just lint-esp32` (`-D warnings`),
+  `just build-esp32`, `just size`, `just size-check` all pass.
+
+#### R1-01: the plan was wrong in six places (all fixed in the repo, re-verify before R2-01)
+
+1. **The device binary crate needs a `build.rs`.** `esp-idf-sys` publishes its link
+   args as `links` metadata, and Cargo does not forward a dependency's
+   `cargo:rustc-link-arg` to the binary. Without
+   `build.rs` → `embuild::espidf::sysenv::output()` (plus `[build-dependencies]
+   embuild = "=0.33.5"`) the final link contains **no ESP-IDF archives** and dies with
+   undefined references to `pthread_create`, `write`, `abort`, `sched_yield`, …
+   04 §6 and 05 §2 do not mention this. The official esp-rs template has it.
+2. **`.cargo/config.toml` must set the linker to `ldproxy`** for the device triple
+   (`[target.xtensa-esp32-espidf] linker = "ldproxy"`), or the link fails with
+   `unrecognized command-line option '--ldproxy-linker'`. Note the key is `linker`,
+   **not** `rustc-linker`, under `[target.<triple>]` in cargo 1.97.
+3. **The Xtensa GCC must be on `PATH` for the build**, or rustc fails with
+   ``linker `xtensa-esp32-elf-gcc` not found``. 05 §2 covers this only implicitly via
+   espup's `export-esp.sh`; `just env-file` now generates `.rust-esp-env.sh` from
+   whichever toolchain is actually installed.
+4. **The app image does NOT contain the partition table** (its first byte is the 0xE9
+   app magic). The table is a separate 3,072 B image at 0x8000, so the flash recipe
+   must pass `--partition-table` — 05 §3's rule that partition tables are "flashed
+   explicitly" is correct and load-bearing, not a style preference.
+5. **A virtual workspace has no "root crate"**, and `esp-idf-sys` takes
+   `[[package.metadata.esp-idf-sys]]` **only from the root crate's** `Cargo.toml`
+   (`esp-idf-sys/build/config.rs:92-122`). In this layout it prints
+   `cargo:warning=could not identify the root crate and ESP_IDF_SYS_ROOT_CRATE not
+   specified` and **silently ignores `extra_components`** — i.e. 04 §6's LittleFS
+   component. `ESP_IDF_SYS_ROOT_CRATE=cc-firmware` is required in `.cargo/config.toml`
+   `[env]`. **Verify the LittleFS component is actually present before using
+   `svc::fs::littlefs`.**
+6. **The binary is named `firmware`, so the artifact is
+   `target/<triple>/release/firmware`** — 05 §6's CI upload path
+   (`.../release/cc-firmware`) is wrong. 04 §6 says so; 05 §6 was not updated.
+
+Plus one environment fact worth carrying: **this host's network path intermittently
+drops outbound TLS connections** (same URL/second succeeds and fails minutes later;
+`espup` failed 3× on `api.github.com`, the `esp` toolchain's cargo failed 4× on
+`index.crates.io`, while `curl` and `git` succeeded throughout). Every provisioning
+step — `espup install`, `cargo fetch`, the ESP-IDF git clone, `idf_tools.py install`
+— needs retries. Do not conclude a host is blocked from a single failure.
+
+#### R1-01: host state that differs from the plan
+
+- `espup 0.17.1` is installed, but `espup install` **without `--toolchain-version`
+  fails** in its first step (the GitHub "latest release" query). Use
+  `espup install --targets esp32,esp32s2,esp32s3 --toolchain-version 1.97.0.0
+  --skip-version-parse`. The `esp` toolchain installed is **1.97.0.0** (rustc
+  1.97.0-nightly); it has `aarch64-apple-darwin` std and `rust-src`, and the Xtensa
+  targets are built with `-Zbuild-std=std,panic_abort`.
+- **The RUSTUP_HOME concern did not materialise**: `rustup run esp rustc --version`
+  works, because `espup` and the system rustup share `~/.rustup`. `just doctor`
+  asserts it.
+- `ldproxy` 0.3.5, `espflash` 4.6.0, `cargo-espflash` 4.6.0, `cargo-binstall` 1.24.0,
+  `cargo-bloat` 0.12.1, `just` 1.58.0 are installed.
+- **`cargo bloat` does not work here** (0.12.1): `Error: parsing failed cause
+  'symbols section is missing'`, because `[profile.release] strip = "symbols"` leaves
+  no symtab and re-running with `--config 'profile.release.strip="none"'` does not
+  help (it inspects its own artifact). Use `xtensa-esp32-elf-size -A` plus the final
+  link map at
+  `target/<triple>/release/build/esp-idf-sys-*/out/build/libespidf.map`.
+- `espflash monitor` needs a TTY, so it cannot be used from an agent or CI. Use
+  `just mon-headless <port>` (`scripts/serial-log.py`).
+- `just --justfile just/size.just` changes the working directory to `just/`, so the
+  root `justfile` delegates with `--working-directory .`.
 
 ---
 

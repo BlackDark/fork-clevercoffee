@@ -1,16 +1,42 @@
 min_version = "2024.1.0"
 
 [tools]
-  # Node.js + JS tooling
+  # --- existing C++ / frontend tooling (unchanged) ---
   node = "24"
   pnpm = "latest"
-
-  # Python
   python = "3.14.7"
-
-  # C++ tooling
   clang-format = "23.1.1"
+
+  # --- Rust / migration tooling (05 §2) ---
+  just = "latest"
+  # Host-side cargo tools only. The DEVICE toolchain is `esp`
+  # (rust-toolchain.toml), which mise cannot install — see `[tasks.xensa-toolchain]`.
+  rust = "stable"
+  "cargo:espflash" = "4.6.0"
+  "cargo:cargo-espflash" = "4.6.0"
+  "cargo:espup" = "latest"
+  # On crates.io (0.3.5). Do NOT curl the esp-rs/embuild GitHub release: its
+  # latest is v0.3.2 (2022) and its assets are named by Rust triple, so the URL
+  # 404s (05 §2 correction).
+  "cargo:ldproxy" = "0.3.5"
 
 [settings]
   experimental = true
   jobs = 4
+
+[tasks.xensa-toolchain]
+description = "Install/refresh the esp-rs Xtensa toolchain — the one step mise cannot own"
+run = [
+  # NOTE: each array element is its OWN shell, so these must stay separate
+  # commands and must not rely on variables set by a previous element.
+  "cargo install --locked espup --force || true",
+  # VERIFIED 2026-09-28 on this host: `espup install` without --toolchain-version
+  # dies in its first step, querying
+  # https://api.github.com/repos/esp-rs/rust-build/releases/latest
+  # ("error sending request ... operation timed out"). The tag has to be passed
+  # explicitly, and --skip-version-parse is what makes that possible
+  # (it is rejected without it). Latest is currently 1.97.0.0; re-check the
+  # release list before bumping.
+  "espup install --targets esp32,esp32s2,esp32s3 --toolchain-version 1.97.0.0 --skip-version-parse",
+  "just env-file",
+]

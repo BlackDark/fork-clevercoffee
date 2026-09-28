@@ -1,0 +1,92 @@
+# CleverCoffee — Rust firmware workspace.
+#
+# The workspace is at the REPOSITORY ROOT (04 §6), not in a subdirectory: the
+# justfile, scripts/ and ui/ already live here and a subdirectory would put the
+# recipes' relative paths in the wrong place.
+#
+# Crate roles:
+#   cc-domain, cc-safety, cc-machine, cc-display, cc-config  portable, no_std,
+#       host-testable, MUST NOT name esp_idf_{svc,hal,sys} (CI grep, 05 §6)
+#   cc-hal-esp32, cc-provisioning, cc-firmware                 device-only;
+#       they do not compile for a host target and are therefore NOT in
+#       `default-members`.
+
+[workspace]
+resolver = "2"
+members = [
+    "crates/cc-domain",
+    "crates/cc-safety",
+    "crates/cc-config",
+    "crates/cc-machine",
+    "crates/cc-display",
+    "crates/cc-hal-esp32",
+    "crates/cc-provisioning",
+    "crates/cc-firmware",
+]
+# `cargo test` / `cargo clippy` with no `-p` must not try to build the device
+# crates on the host (05 §4, 04 §6 "What compiles and tests on the host").
+default-members = [
+    "crates/cc-domain",
+    "crates/cc-safety",
+    "crates/cc-config",
+    "crates/cc-machine",
+    "crates/cc-display",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/rbvsystems/CleverCoffee"
+
+[workspace.dependencies]
+# Portable crates. No esp-idf anywhere in this group — enforced by CI.
+cc-domain = { path = "crates/cc-domain" }
+cc-safety = { path = "crates/cc-safety" }
+cc-machine = { path = "crates/cc-machine" }
+cc-display = { path = "crates/cc-display" }
+cc-config = { path = "crates/cc-config" }
+
+# Device crates.
+cc-hal-esp32 = { path = "crates/cc-hal-esp32" }
+cc-provisioning = { path = "crates/cc-provisioning" }
+
+# ESP-IDF. Exact pins, per 06 R1-01 step 3.
+esp-idf-svc = "=0.53.0"
+esp-idf-hal = "=0.47.0"
+esp-idf-sys = "=0.38.1"
+# `log` output is routed to UART0 by esp-idf-svc's own logger when its `log`
+# feature is on, so no extra logger crate is needed.
+log = { version = "0.4", default-features = false }
+
+# The `esp` toolchain is a nightly fork, so the device build runs on the
+# unstable channel's lints. `-D clippy::pedantic` is declared HERE and nowhere
+# else (04 §1.7, skill rule 8): passing it on the command line as well
+# double-flags and hides the real config.
+
+[workspace.lints.rust]
+missing_docs = "warn"
+unsafe_code = "deny"
+# `esp-idf-sys` 0.38 emits ~1300 `esp_idf_*` cfgs from the ESP-IDF kconfig
+# (`cargo:rustc-cfg=...`, `esp-idf-sys/build/common.rs:239`) but cannot emit
+# `rustc-check-cfg` for them, so every use of one is an `unexpected_cfgs`
+# warning. The three we use are declared here; R1-03 etc. must add theirs in the
+# same place. Without this, `-D warnings` on the device target is unachievable.
+unexpected_cfgs = { level = "warn", check-cfg = [
+    "cfg(esp_idf_version_at_least_5_1_0)",
+    "cfg(esp_idf_version_at_least_5_5_0)",
+    "cfg(esp_idf_version_at_least_6_0_0)",
+] }
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+
+[profile.release]
+opt-level = "s"     # size is the binding constraint (07); debug info off below
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+overflow-checks = true

@@ -1,0 +1,16 @@
+[package]
+name = "cc-machine"
+description = "The 18-state machine as a pure Elm-style reducer plus its ports."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+cc-domain.workspace = true
+cc-config.workspace = true
+cc-safety.workspace = true
+
+[lints]
+workspace = true
