@@ -35,16 +35,29 @@ default:
 
 # ── setup ────────────────────────────────────────────────────────────────────
 
-# Install rustup, the Xtensa Rust fork, ESP host tools and the python venv.
+# Install the Xtensa Rust fork, ESP host tools and the python venv.
+#
+# PREREQUISITE: rustup must already be installed and cargo on PATH. See README.md.
 setup:
     #!/usr/bin/env bash
     set -euo pipefail
-    if ! command -v rustup >/dev/null 2>&1; then
-      echo "==> installing rustup (mise must NOT manage rust; see tooling.md)"
-      curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-        | sh -s -- -y --default-toolchain stable --profile minimal
-    fi
     export PATH="$HOME/.cargo/bin:$PATH"
+    if ! command -v rustup >/dev/null 2>&1; then
+      echo "!! rustup is required and is not installed." >&2
+      echo "   mise cannot manage it -- its cargo shim shadows rustup's and breaks" >&2
+      echo "   the Xtensa build. Install it first, then re-run 'just setup':" >&2
+      echo >&2
+      echo "     brew install rustup    # or https://rustup.rs" >&2
+      echo "     rustup default stable" >&2
+      exit 1
+    fi
+    if ! command -v cargo >/dev/null 2>&1; then
+      echo "!! rustup is installed but 'cargo' is not on PATH." >&2
+      echo "   Homebrew's formula installs only rustup; the cargo proxy lives in" >&2
+      echo "   ~/.cargo/bin. Run 'rustup default stable', then add ~/.cargo/bin to" >&2
+      echo "   your PATH." >&2
+      exit 1
+    fi
     if command -v mise >/dev/null 2>&1; then
       echo "==> mise install"; mise install
     else
@@ -96,12 +109,18 @@ doctor:
     else echo "  .venv                 MISSING — run: just setup"; fail=1; fi
     cargo_path=$(command -v cargo || true)
     case "$cargo_path" in
+      "")
+        echo
+        echo "!! cargo is not on PATH. rustup is a prerequisite -- see README.md."
+        fail=1 ;;
       *"/mise/"*)
         echo
         echo "!! cargo resolves to $cargo_path (a mise shim)."
         echo "   rust-toolchain.toml will be ignored and the Xtensa build will fail"
-        echo "   with \"can't find crate for \\\`core\\\`\". Fix: mise unuse rust"
+        echo "   with \"can't find crate for core\". Fix: mise unuse rust"
         fail=1 ;;
+      *)
+        printf '  %-22s %s\n' "cargo path" "$cargo_path" ;;
     esac
     exit $fail
 

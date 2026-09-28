@@ -1,5 +1,20 @@
 min_version = "2024.1.0"
 
+# ── REQUIRED BEFORE `just setup` ─────────────────────────────────────────────
+# rustup must already be installed and `cargo` must be on PATH. mise cannot manage
+# it: mise's own `rust` tool installs a non-rustup Rust whose `cargo` shim shadows
+# rustup's, which makes rust-toolchain.toml be ignored and the Xtensa build fail
+# with "can't find crate for `core`". The same reason rules out mise's `cargo:`
+# backend, so espflash/espup/ldproxy are installed by `just setup` at pinned
+# versions instead.
+#
+#   brew install rustup          # or https://rustup.rs
+#   rustup default stable        # populates ~/.cargo/bin with the cargo proxy
+#
+# Homebrew's formula installs only /opt/homebrew/bin/rustup; the cargo and rustc
+# proxies live in ~/.cargo/bin, so that must be on PATH. `just doctor` checks all
+# of this. See README.md and docs/rust-migration/tooling.md.
+
 [tools]
   # Node.js + JS tooling
   node = "24"
@@ -13,19 +28,6 @@ min_version = "2024.1.0"
 
   # Task runner
   just = "1.58.0"
-
-# The Rust toolchain is deliberately NOT managed by mise, and neither are the
-# cargo-installed ESP tools.
-#
-# mise's `rust` tool installs a non-rustup Rust whose `cargo` shim shadows
-# rustup's, which makes rust-toolchain.toml be ignored and the Xtensa build fail
-# with "can't find crate for `core`". And mise's `cargo:` backend would require
-# mise to own Rust for exactly that reason, while also shimming espflash so that
-# it shadows the real binary.
-#
-# So: Rust comes from rustup, the Xtensa fork from espup, and espflash/espup/
-# ldproxy from cargo-binstall at pinned versions. `just setup` does all of it and
-# `just doctor` verifies it. Pinned versions live in docs/rust-migration/tooling.md.
 
 [env]
   # Pinned ESP-IDF version for the Rust firmware. esp-idf-hal/svc require >=5.3;

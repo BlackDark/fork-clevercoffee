@@ -11,7 +11,12 @@ says so.
 
 ## 1. Quick start
 
+**Install rustup first.** It is a prerequisite that mise cannot manage — see §2.2.
+
 ```bash
+brew install rustup     # or https://rustup.rs
+rustup default stable   # populates ~/.cargo/bin with the cargo proxy
+
 just setup                                  # once
 just doctor                                 # verify the toolchain
 just test                                   # host tests — the fast loop
@@ -34,7 +39,7 @@ means flashing the wrong image at an actuator-driving device.
 | Managed by | Tools |
 |---|---|
 | **mise** (`.mise.toml`) | node 24, pnpm, python 3.14.7, clang-format 23.1.2, just 1.58.0 |
-| **rustup** (`rust-toolchain.toml`) | the `esp` channel — the Espressif Rust fork |
+| **rustup** (`rust-toolchain.toml`) | the `esp` channel — the Espressif Rust fork. **Install rustup yourself; `just setup` requires it and will not install it.** |
 | **espup** (pinned 0.17.1) | Xtensa Rust 1.97.0.0, `xtensa-esp-elf` GCC, Xtensa LLVM |
 | **cargo-binstall**, pinned | `espflash` 4.6.0, `espup` 0.17.1, `ldproxy` 0.3.5 |
 | **`.venv`**, pinned | `platformio` 6.2.0, `esp-idf-nvs-partition-gen` |
@@ -44,8 +49,20 @@ means flashing the wrong image at an actuator-driving device.
 
 The task brief asks for these to be named, so:
 
-1. **Rust itself must come from rustup, not mise.** This is not a preference, it is
-   a hard incompatibility that was hit and diagnosed during SPIKE-1.
+1. **Rust itself must come from rustup, not mise, and rustup must be installed
+   before `just setup` runs.** This is not a preference, it is a hard
+   incompatibility that was hit and diagnosed during SPIKE-1.
+
+   ```bash
+   brew install rustup     # or https://rustup.rs
+   rustup default stable
+   ```
+
+   Homebrew's formula installs only `/opt/homebrew/bin/rustup`. The `cargo` and
+   `rustc` proxies live in `~/.cargo/bin`, so **that directory must be on `PATH`** —
+   `rustup --version` working is not sufficient. `just setup` checks for both and
+   fails with instructions rather than guessing; `just doctor` reports which `cargo`
+   is actually resolving.
 
    mise's `rust` tool installs a non-rustup Rust and puts a `cargo` shim on `PATH`
    that shadows rustup's. With that shim active, `rust-toolchain.toml` is ignored,
@@ -173,10 +190,10 @@ no DFU on this chip, so `espflash-uart` is the only method in the table today.
 ### 4.3 Verified on this host
 
 ```
-just doctor      -> all green: rustup 1.29.1, just 1.58.0, mise 2026.9.15,
-                    cargo 1.97.0-nightly (1.97.0.0), espflash 4.6.0,
-                    rustc +esp 1.97.0-nightly, xtensa-esp32-espidf available,
-                    pio 6.2.0
+just doctor      -> all green: rustup 1.29.1 (homebrew), just 1.58.0,
+                    mise 2026.9.15, cargo 1.97.0-nightly (1.97.0.0) resolving to
+                    ~/.cargo/bin/cargo, espflash 4.6.0, rustc +esp 1.97.0-nightly,
+                    xtensa-esp32-espidf available, pio 6.2.0
 just fmt-check   -> clean, both workspaces
 just lint        -> clean, host crates and esp32, warnings denied
 just test        -> passes (skeleton crates, 0 tests yet)
@@ -376,3 +393,4 @@ Nothing has been flashed.
 | `.github/workflows/rust.yml` | host gates, per-target builds, size check, C++ baseline |
 | `scripts/provision.py` | NVS key derivation, image generation, guarded write |
 | `scripts/nvs_inspect.py` | read-only NVS inspection that never prints values |
+| `tests/fixtures/config-export-cpp.json` | real C++ `config.json` export, credential fields scrubbed — the ORACLE-4 fixture |

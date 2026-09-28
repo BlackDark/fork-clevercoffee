@@ -9,6 +9,11 @@ data/*
 /firmware/target/
 /firmware/.embuild/
 
+# Unscrubbed config export / device seed at the repo root. A real export contains
+# the machine's Wi-Fi password in plaintext. The scrubbed fixture lives at
+# tests/fixtures/config-export-cpp.json.
+/config.json
+
 # Python tooling venv created by `just setup` (platformio + nvs partition gen)
 .venv/
 

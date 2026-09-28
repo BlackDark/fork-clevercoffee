@@ -119,12 +119,19 @@ Phase 1 can complete regardless of P0.
   need reproducing. Replaced by ORACLE-4.
 
 ### ORACLE-4 — capture a real `config.json` export as a golden fixture
+- **Status: DONE.** The project owner supplied a real export on 2026-09-28. It is
+  committed as `tests/fixtures/config-export-cpp.json` with the 8 credential-bearing
+  fields scrubbed to explicit placeholders; provenance and the scrub list are in
+  `tests/fixtures/README.md`. Verified: nested dotted-path JSON, 10 top-level
+  sections, **96 leaf parameters** — matching the registered-parameter count derived
+  in the inventory — and bare scalar values rather than `{value: …}` wrappers.
+  What remains unverified: whether re-importing it into the **C++** firmware
+  round-trips, which is worth one check before treating it as the oracle.
 - **Kind:** implementation. **HW:** esp32 *or* the Wokwi simulator. **Blocks:** DOMAIN-8.
 - **Objective:** `config.json` is now the **only** compatibility surface (C12), so we
   need a real specimen of what the old web UI actually emits — not what the code
   suggests it emits.
-- **Files:** `tests/fixtures/config-export-cpp.json`; a short note on how it was
-  produced.
+- **Files:** `tests/fixtures/config-export-cpp.json`, `tests/fixtures/README.md`.
 - **Steps:** run the C++ firmware (device or Wokwi), set a spread of parameters
   covering `bool`, `int`, `double`, `String` and every enum, then
   `GET /api/config/download`. Also capture `docs/example_config.json` as a second
