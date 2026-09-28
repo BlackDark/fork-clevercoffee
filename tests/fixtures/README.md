@@ -21,6 +21,11 @@ Shape, as verified:
   `Config::getAllConfigParams()` in the inventory
 - values are bare scalars, not `{value: …}` wrappers — note the C++ importer accepts
   both, so a reader must tolerate either
+- **no `emergency*` key appears anywhere**, which independently confirms inventory
+  finding §7.1 item 10 from real device data: `emergencyStopTemp` and
+  `emergencyStopHysteresis` are declared in `Config.h` but absent from
+  `getAllConfigParams()`, so they never persist and never export. 98 declared minus
+  those 2 is exactly the 96 seen here. DOMAIN-4 registers them.
 
 ### Credential fields are scrubbed
 

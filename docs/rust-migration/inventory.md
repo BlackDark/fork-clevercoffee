@@ -926,7 +926,13 @@ mode to avoid.
 9. **A scale fault forces `SENSOR_ERROR`** and kills the heater, via an OR over
    temperature and scale errors. **repo-verified.**
 10. **`emergencyStopTemp` / `emergencyStopHysteresis` are not in the config
-    registry** — unpersisted, unexported, unresettable. §6.6. **repo-verified.**
+    registry** — unpersisted, unexported, unresettable. §6.6.
+    **repo-verified _and_ now confirmed from real device data:** a `config.json`
+    exported from a running C++ firmware
+    (`tests/fixtures/config-export-cpp.json`) contains **96 leaf parameters and no
+    `emergency*` key at all**, which is exactly the 98-declared-minus-2-unregistered
+    gap predicted from reading `Config.cpp`. A user exporting their settings for
+    migration silently loses these two, and they are safety-relevant.
 11. **Water-tank switch `initialState` polarity is inverted** relative to the four
     config switches. **needs confirmation.**
 12. **Exactly `0.0 °C` counts as a valid temperature** in the emergency check.
