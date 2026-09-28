@@ -19,3 +19,16 @@ CleverCoffee_Flash_Package
 
 .claude/
 .env
+
+# Rust / espup
+target/
+.espup-env.sh
+
+# Research notes downloaded from upstream sources
+research/
+
+# Spike build artifacts; the sources are tracked, the outputs are not
+spikes/*/target/
+
+# espup writes its export file to the home directory by default; keep ours out of git
+export-esp.sh

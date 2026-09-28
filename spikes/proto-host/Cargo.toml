@@ -1,0 +1,9 @@
+[package]
+name = "proto-host"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+serialport = { version = "4.10", default-features = false }
+base64 = "0.22"
+crc32fast = "1"

@@ -1,16 +1,43 @@
 min_version = "2024.1.0"
 
-[tools]
-  # Node.js + JS tooling
-  node = "24"
-  pnpm = "latest"
-
-  # Python
-  python = "3.14.7"
-
-  # C++ tooling
-  clang-format = "23.1.2"
-
 [settings]
-  experimental = true
-  jobs = 4
+experimental = true
+jobs = 4
+
+# ---------------------------------------------------------------------------
+# C++ toolchain. Removed in the final migration phase (task T-14).
+# ---------------------------------------------------------------------------
+[tools]
+node = "24.21.0"
+pnpm = "11.25.0"
+python = "3.14.7"
+clang-format = "23.1.2"
+
+# ---------------------------------------------------------------------------
+# Rust toolchain for the ESP32 firmware.
+#
+# `just setup` runs `mise install` and then `mise exec -- just espup-install`,
+# which installs the Xtensa fork of rustc, the Xtensa LLVM and the Xtensa GCC
+# into the rustup `esp` toolchain. That step cannot be expressed as a mise tool
+# because it installs a rustup toolchain plus two external SDKs, so it is a
+# just recipe that runs inside the mise environment. See docs/rust-migration/
+# tooling.md for the host requirements it cannot cover.
+# ---------------------------------------------------------------------------
+just = "1.58.0"
+
+# espflash is not in the mise registry and its ubi backend cannot pick the right
+# asset out of a release that ships one zip per target triple. The http backend
+# pins the exact x86_64 Linux binary by sha256, which is auditable and works.
+"http:espflash-4.6.0" = { version = "4.6.0", url = "https://github.com/esp-rs/espflash/releases/download/v4.6.0/espflash-x86_64-unknown-linux-gnu.zip", bin = "espflash", checksum = { sha256 = "c4fcfa32ddc3155608f003a230e6f3c184eff9641ec9cfa8eb54f1b515d403e7" }, strip = 1 }
+"http:espup-0.17.1" = { version = "0.17.1", url = "https://github.com/esp-rs/espup/releases/download/v0.17.1/espup-x86_64-unknown-linux-gnu", bin = "espup", checksum = { sha256 = "dbe54e9907b687809dbe1b955731569ed6df2b525362710d676256c5c8cf9ccd" } }
+
+[env]
+# Build all three targets through the same target directory, and never let a
+# release build silently drop the debug info the panic handler needs.
+CARGO_TERM_COLOR = "always"
+
+[tool_alias]
+f = "cargo fmt --all"
+c = "cargo clippy --all-targets --all-features"
+b = "cargo build"
+t = "cargo test"

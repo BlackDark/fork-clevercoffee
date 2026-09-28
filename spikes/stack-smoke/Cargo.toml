@@ -1,0 +1,37 @@
+[package]
+name = "stack-smoke"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+esp-hal = { version = "1.2", features = ["log-04", "unstable"] }
+esp-rtos = { version = "0.4", features = ["embassy", "log-04", "esp-radio"] }
+esp-alloc = "0.11"
+esp-backtrace = { version = "0.20", features = ["panic-handler", "println"] }
+esp-bootloader-esp-idf = { version = "0.6" }
+esp-println = { version = "0.18", features = ["log-04"] }
+esp-storage = "0.10"
+esp-radio = { version = "1.0.0-beta.1", features = ["log-04", "unstable", "wifi"] }
+embassy-executor = "0.10"
+embassy-time = "0.5"
+embassy-net = { version = "0.9", features = ["dhcpv4", "medium-ethernet", "tcp", "dns", "proto-ipv4", "proto-ipv6", "medium-ethernet"] }
+embassy-sync = "0.8"
+embassy-usb-driver = "0.2"
+embedded-io-async = "0.7"
+static_cell = "2.1"
+log = "0.4"
+reqwless = { version = "0.14", default-features = false }
+critical-section = "1"
+embedded-hal = "1.0"
+embedded-hal-async = "1.0"
+
+[features]
+esp32 = ["esp-hal/esp32", "esp-rtos/esp32", "esp-alloc/esp32", "esp-backtrace/esp32", "esp-bootloader-esp-idf/esp32", "esp-println/esp32", "esp-storage/esp32", "esp-radio/esp32"]
+esp32s3 = ["esp-hal/esp32s3", "esp-rtos/esp32s3", "esp-alloc/esp32s3", "esp-backtrace/esp32s3", "esp-bootloader-esp-idf/esp32s3", "esp-println/esp32s3", "esp-storage/esp32s3", "esp-radio/esp32s3"]
+esp32c6 = ["esp-hal/esp32c6", "esp-rtos/esp32c6", "esp-alloc/esp32c6", "esp-backtrace/esp32c6", "esp-bootloader-esp-idf/esp32c6", "esp-println/esp32c6", "esp-storage/esp32c6", "esp-radio/esp32c6"]
+
+[profile.release]
+debug = true
+lto = "fat"
+codegen-units = 1

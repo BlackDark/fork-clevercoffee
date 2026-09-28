@@ -1,0 +1,28 @@
+[package]
+name = "hal-smoke"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+esp-hal = { version = "1.2", features = ["log-04"] }
+esp-rtos = { version = "0.4", features = ["embassy", "log-04"] }
+esp-alloc = "0.11"
+esp-backtrace = { version = "0.20", features = ["panic-handler", "println"] }
+esp-bootloader-esp-idf = { version = "0.6" }
+esp-println = { version = "0.18", features = ["log-04"] }
+embassy-executor = "0.10"
+embassy-time = "0.5"
+embassy-sync = "0.8"
+static_cell = "2.1"
+log = "0.4"
+
+[features]
+esp32 = ["esp-hal/esp32", "esp-rtos/esp32", "esp-alloc/esp32", "esp-backtrace/esp32", "esp-bootloader-esp-idf/esp32", "esp-println/esp32"]
+esp32s3 = ["esp-hal/esp32s3", "esp-rtos/esp32s3", "esp-alloc/esp32s3", "esp-backtrace/esp32s3", "esp-bootloader-esp-idf/esp32s3", "esp-println/esp32s3"]
+esp32c6 = ["esp-hal/esp32c6", "esp-rtos/esp32c6", "esp-alloc/esp32c6", "esp-backtrace/esp32c6", "esp-bootloader-esp-idf/esp32c6", "esp-println/esp32c6"]
+
+[profile.release]
+debug = true
+lto = "fat"
+codegen-units = 1
