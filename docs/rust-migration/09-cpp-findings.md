@@ -115,3 +115,90 @@ The Rust default config blob serialises to **2077 bytes**. The recovered firmwar
 `cc_firmware: config: nvs (2071 B stored)` (see [08 — Oracle](./08-recovered-oracle.md) §3)
 for a 98-key schema whose source no longer exists. A 6-byte delta against a lost
 firmware is strong evidence the parameter shape is correct.
+
+---
+
+## 11. 🔴 Both pump safety timeouts are dead code
+
+`PumpTimer::isExpired()` (`PumpTimer.h:30-33`) returns `false` unless `isRunning_` is set,
+and `isRunning_` is only set by `PumpTimer::start()`.
+
+**`start()` is never called anywhere in the tree.** The complete set of references is:
+
+| File | Reference |
+| --- | --- |
+| `HotWaterHandler.h:23` | member declaration `PumpTimer pumpTimer_` |
+| `HotWaterHandler.h:28` | constructor, `pumpTimer_(60000)` |
+| `HotWaterHandler.h:115` | `pumpTimer_.isExpired()` **read** |
+| `BrewHandler.h:25` | member declaration `PumpTimer pumpTimer_` |
+| `BrewHandler.h:32` | constructor, `pumpTimer_(300000)` |
+| `BrewHandler.h:255` | `pumpTimer_.isExpired()` **read** |
+
+No call site. So `isRunning_` is permanently `false` and **`isExpired()` is
+unconditionally `false`.**
+
+**Consequence: the 5-minute brew pump limit and the 60-second hot-water pump limit can
+never fire.** Hold the water switch indefinitely and the pump runs indefinitely. This is
+the single most serious finding in this document — it is an unbounded pump run on a
+machine with a heated boiler.
+
+- Rust: the timeouts are **reachable** in the port (armed on the activating edge). This
+  is a deliberate divergence and a strictly-safer one; the alternative would have deleted
+  a check the C++ clearly intended.
+- Pinned by `s11_the_pump_timeouts_are_never_armed`.
+
+## 12. 🔴 `SensorErrorState`'s recovery clock is measured from the wrong instant
+
+`ErrorStates.cpp:47-50` documents the recovery delay as running "from when the error
+actually clears". In fact, the sensor-error guard in `BaseState.h:145-148` has **no
+exclusion list**, so while the probe is faulted `checkSpecificTransitions()` is never
+reached. The delay is therefore measured from **entry into `SENSOR_ERROR`**.
+
+**Consequence:** a fault that persists for an hour recovers immediately on clear.
+
+- Rust: preserved. Pinned by `s12_the_sensor_error_recovery_clock_is_never_reset`.
+
+## 13. Backflush states never re-assert their hardware in `update()`
+
+All four backflush `update()` methods only log. **This is not unique to `Filling`** —
+`Filling`, `Flushing`, `Idle` and `Finished` all fail to re-assert.
+
+The severity differs:
+
+- **`BackflushFillingState`** is the worse case. Its `onEntryImpl` calls `enablePump()`
+  and `openWaterValve()`, and nothing re-asserts either. ADR-0003 exists precisely because
+  of this class of bug — a state that enables hardware without re-asserting it loses the
+  hardware to any safety check that intervenes.
+- **`BackflushFlushingState`** `onEntryImpl` calls `cleanupPumpAndValve()`, so the
+  failure mode is inverted: a safety check that opens the valve mid-flush is never
+  re-closed.
+
+- Rust: preserved. Pinned by `s13_*`.
+
+## 14. The water switch cannot wake the machine from standby
+
+`hasUserActivity()` and `shouldExitStandby()` are hard `return false` stubs
+(`MachineStateContext.cpp:419-429`). The water switch resets the standby countdown and
+does nothing else.
+
+## 15. `powerOff()` shuts down before requesting standby
+
+`PowerHandler.h:167-170` performs the safe shutdown *before* requesting standby, so for
+one loop the machine is in `PID_NORMAL` with hardware off — and `PidNormalState::update`
+re-enables the pump if the water switch happens to be held.
+
+---
+
+## 16. The C++ state-machine test coverage is much thinner than 340 cases suggests
+
+Worth recording so nobody treats the C++ suite as a complete safety net:
+
+- `test_state_machine` exercises **only gMock plumbing**; its own comment says *"Full
+  StateMachine tests require additional setup"*.
+- `test_pid_state_transitions` tests **hand-written mock states**, not the real ones.
+- `test_steam_water_injection` and `test_pid_mode_water_dispensing` do not include the
+  real state source files at all.
+
+The Rust port replaces these with real state coverage and a 4140-pair exhaustive table,
+which is why it has 255 tests in `cc-machine` against 150 in the fifteen C++ suites it
+replaces.

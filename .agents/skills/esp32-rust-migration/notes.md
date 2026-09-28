@@ -209,6 +209,48 @@ Found by adversarial review. Each was a real error in an earlier draft of these 
 14. **The CI firmware job had no `env:` block**, so it silently used the default ESP-IDF
     and omitted `--cfg espidf_time64`.
 
+### R2-08 — `cc-machine`: the state machine as a pure reducer (2026-09-28) ✅
+
+- `crates/cc-machine/` is `no_std + alloc`, host-testable, and depends only on
+  `cc-domain`, `cc-safety`, `cc-config` (`cargo tree` confirms no `esp_idf_*`).
+- `reduce(&Machine, &Context, Event) -> (Machine, Vec<Effect>)`. `Machine` is a
+  `Copy` value with no interior mutability; `Effect` is the only path to hardware
+  and `applier::apply` is the only function that turns one into actuator calls.
+- 18 states × 46 events × 5 machine flavours = **4140 pairs** in the exhaustive
+  table, plus a 64-tick convergence drive of every pair.
+- **255 tests** in `cc-machine` (47 unit + 208 integration, of which 27 are
+  `#[ignore]`d records of C++ mock cases that have no Rust equivalent).
+  Workspace total 165 → **420**.
+
+#### R2-08: the C++ state machine is not what the docs say it is
+
+1. **`test_state_machine` does not test the state machine.** All five cases are
+   gMock plumbing; its own comment says "Full StateMachine tests require additional
+   setup" (`test_state_machine/test_main.cpp:18-19`). Same for
+   `test_pid_state_transitions` (mock states, not the real ones) and, in part, for
+   `test_steam_water_injection` / `test_pid_mode_water_dispensing` (self-contained
+   mock contexts, the real state files are never included). **The C++ has far less
+   state-machine coverage than the 340-case count suggests.**
+2. **ADR-0003 is violated by the code it was written for.**
+   `BackflushFillingState::update` (`BackflushStates.cpp:71-76`) only logs, so the
+   one backflush state that runs the pump never re-asserts it — while its four
+   siblings all do. Pinned as `s13_…`.
+3. **`SensorErrorState`'s recovery-clock reset is unreachable.**
+   `ErrorStates.cpp:47-50` intends to measure the recovery delay from when the
+   sensor error *clears*, but `BaseState::checkTransitions` returns `SENSOR_ERROR`
+   (a discarded self-transition) before `checkSpecificTransitions` is ever
+   reached, so the delay is measured from entry. Pinned as `s12_…`.
+4. **Both pump watchdogs are dead.** `PumpTimer::start()` is never called, so
+   `BrewHandler::checkPumpTimeout` and `HotWaterHandler::checkPumpTimeout` can
+   never fire. Pinned as `s11_…`; the port keeps the check and makes it reachable.
+5. **`hasUserActivity()` is a hard `return false`**
+   (`MachineStateContext.cpp:419-423`), so the water switch cannot wake the machine
+   from standby. Pinned as `s14_…`.
+6. **`powerOff()` shuts the hardware down before setting the standby request**, so
+   for one loop `PidNormalState::update` re-enables the pump. Pinned as `s15_…`.
+
+All six are **preserved**, not fixed, each with a `s<N>_`-prefixed test.
+
 ## Findings to carry forward
 
 Recorded during the initial audit; these are **bugs in the C++ firmware that must be
