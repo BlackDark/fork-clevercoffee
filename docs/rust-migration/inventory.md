@@ -2,7 +2,7 @@
 
 **Status:** Complete (A1)
 **Last updated:** 2026-09-28
-**Related:** [compatibility-matrix.md](compatibility-matrix.md) · [architecture.md](architecture.md) · [tooling.md](tooling.md) · [task-list.md](task-list.md) · [ADR 0004](../adr/0004-rust-migration-platform-selection.md) · [execution skill](../../.agents/skills/esp32-rust-migration/SKILL.md)
+**Related:** [prior-implementation-findings.md](prior-implementation-findings.md) · [compatibility-matrix.md](compatibility-matrix.md) · [architecture.md](architecture.md) · [tooling.md](tooling.md) · [task-list.md](task-list.md) · [ADR 0004](../adr/0004-rust-migration-platform-selection.md) · [execution skill](../../.agents/skills/esp32-rust-migration/SKILL.md)
 
 This is the reference description of what the firmware does today, written so a
 Rust rewrite can be planned against facts rather than assumptions. Every claim
@@ -649,6 +649,19 @@ Power-on hazards for the rewrite (**repo-verified**):
 held indefinitely** on failure. So the 0–200 °C validity check will not fire on a
 dead sensor unless the cached value is itself out of range; the `SENSOR_ERROR`
 state is the actual protection.
+
+**The recovery delay is measured from entry, not from the error clearing — and the
+source comment says the opposite (repo-verified).** `SensorErrorState::checkSpecificTransitions`
+resets `errorStartTime_ = millis()` in its error-still-present branch
+(`ErrorStates.cpp:49`), and the comment above it states the delay is therefore
+"measured from when the error actually clears, not from entry". It is not: the sensor
+guard at `BaseState.h:145-148` has **no `if constexpr` exclusion for `SENSOR_ERROR`**,
+so while the probe is faulted `checkTransitions` returns `SENSOR_ERROR` before ever
+delegating to `checkSpecificTransitions`, `executeTransition` discards the
+self-transition, and the reset never runs. Consequence: a fault that persists for an
+hour recovers immediately on clear, rather than 5 s after it clears. Found by the
+parallel implementation and verified here — see
+[prior-implementation-findings.md §3.1](prior-implementation-findings.md).
 
 `hasSensorError()` is `temperatureError || scaleError`, so **a scale fault takes
 the whole machine into `SENSOR_ERROR` and the heater off** — even though the scale

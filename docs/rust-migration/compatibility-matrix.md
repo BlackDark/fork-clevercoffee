@@ -2,7 +2,7 @@
 
 **Status:** Complete (A2)
 **Last updated:** 2026-09-28
-**Related:** [inventory.md](inventory.md) · [ADR 0004](../adr/0004-rust-migration-platform-selection.md) · [architecture.md](architecture.md) · [task-list.md](task-list.md) · [execution skill](../../.agents/skills/esp32-rust-migration/SKILL.md)
+**Related:** [prior-implementation-findings.md](prior-implementation-findings.md) · [inventory.md](inventory.md) · [ADR 0004](../adr/0004-rust-migration-platform-selection.md) · [architecture.md](architecture.md) · [task-list.md](task-list.md) · [execution skill](../../.agents/skills/esp32-rust-migration/SKILL.md)
 
 Per-capability evidence for the two candidate Rust platforms and for every driver
 the firmware needs. All crates.io versions and dates were checked **2026-09-28**.
@@ -398,7 +398,16 @@ the firmware uses are bundled: `u8g2_font_fub20_tf` (5433 B) and
 `u8g2_font_profont17_tf` (3137 B), out of 1999 fonts, each behind a unit struct
 with `include_bytes!` so **only named fonts get linked** (~8.6 KB for the two).
 
-**There is a verified anchor mismatch.** `OledDriver.cpp` calls
+**⚠️ CONTRADICTED, unresolved -- do not build on this section yet.** The parallel
+implementation reports that `OledDriver::prepareDisplay` **never calls
+`setFontPosTop`**, and that this made the Modern `fub20` readout at y=14 render at rows
+-9..13 and be clipped off the panel. That came out of a pixel diff against real U8g2,
+so it carries more weight than the read below. If it is right, this whole anchor
+analysis needs redoing and the C++ display has a live clipping bug. Settle it against
+`src/display/OledDriver.cpp` before trusting either -- see
+[prior-implementation-findings.md §3.2](prior-implementation-findings.md).
+
+**Anchor mismatch, as originally read.** `OledDriver.cpp` calls
 `setFontRefHeightExtendedText()` *and* `setFontPosTop()`. U8g2's
 `u8g2_font_calc_vref_top` returns `font_ref_ascent + 1`, and in XTEXT mode
 `u8g2_UpdateRefHeight` raises `font_ref_ascent` to `max(ascent_A, ascent_para)`.

@@ -2,7 +2,7 @@
 
 **Status:** Design accepted (A3)
 **Last updated:** 2026-09-28
-**Related:** [inventory.md](inventory.md) · [compatibility-matrix.md](compatibility-matrix.md) · [ADR 0004](../adr/0004-rust-migration-platform-selection.md) · [tooling.md](tooling.md) · [task-list.md](task-list.md) · [execution skill](../../.agents/skills/esp32-rust-migration/SKILL.md)
+**Related:** [prior-implementation-findings.md](prior-implementation-findings.md) · [inventory.md](inventory.md) · [compatibility-matrix.md](compatibility-matrix.md) · [ADR 0004](../adr/0004-rust-migration-platform-selection.md) · [tooling.md](tooling.md) · [task-list.md](task-list.md) · [execution skill](../../.agents/skills/esp32-rust-migration/SKILL.md)
 
 Platform is fixed by [ADR 0004](../adr/0004-rust-migration-platform-selection.md):
 ESP-IDF / std on `xtensa-esp32-espidf`, ESP-IDF v5.3.6, `esp-idf-hal` 0.47 +
@@ -212,12 +212,29 @@ The ISR itself stays as small as today's:
 
 ```rust
 // 10 ms tick. No allocation, no locks, no logging, no esp_idf_svc calls.
+// The comparison MUST stay integer -- see the constraint below.
 fn on_tick(counter: &mut u16, relay: &HeaterPin) {
     let duty = HEATER_DUTY.load(Ordering::Relaxed);
     if duty <= *counter { relay.off() } else { relay.on() }
     *counter = (*counter + TICK_MS) % WINDOW_MS;
 }
 ```
+
+**The integer comparison is a hard chip constraint, not a style preference.** A single
+floating-point instruction anywhere in a level-1 ISR panics the original ESP32:
+`Coprocessor exception`, `EXCCAUSE 0x4`. Xtensa never saves coprocessor state across an
+interrupt, so the FP save area is null and the handler panics.
+`CONFIG_FREERTOS_FPU_IN_ISR` is the opt-in and defaults to off. There is no
+compile-time warning, and **the C++ escapes it only by accident** -- GCC lowers its
+`double` compare to soft-float calls while the `esp` Rust target advertises
+`target_feature="fp"`, so LLVM emits hardware FP from identical source. This was hit
+and diagnosed on hardware by the parallel implementation; see
+[prior-implementation-findings.md §1.1](prior-implementation-findings.md). Keep
+`AtomicU16` and integer compares, and verify by reading the disassembly rather than the
+source.
+
+For the same reason `HEATER_DUTY` is milliseconds-on as a `u16` rather than a fraction:
+there must be no float anywhere on the path the ISR reads.
 
 `HEATER_DUTY` is written only by `control`, after interlocks. If `control` dies, the
 watchdog resets the chip; until it does, the last duty persists for at most one
