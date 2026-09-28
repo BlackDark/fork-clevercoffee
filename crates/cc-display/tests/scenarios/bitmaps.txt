@@ -1,0 +1,79 @@
+# Every bitmap in `bitmaps.h`, at its own dimensions. A wrong width or
+# height in `bitmaps.rs` shows up here as a clipped or stretched icon.
+
+## antenna_ok
+rot R0
+font p10
+pos top
+clear
+xbmp antenna_ok 0 0 0 0
+
+## antenna_nok
+rot R0
+font p10
+pos top
+clear
+xbmp antenna_nok 0 0 0 0
+
+## bluetooth
+rot R0
+font p10
+pos top
+clear
+xbmp bluetooth 0 0 0 0
+
+## logo
+rot R0
+font p10
+pos top
+clear
+xbmp logo 0 0 0 0
+
+## heating_logo
+rot R0
+font p10
+pos top
+clear
+xbmp heating_logo 0 0 0 0
+
+## off_logo
+rot R0
+font p10
+pos top
+clear
+xbmp off_logo 0 0 0 0
+
+## steam_logo
+rot R0
+font p10
+pos top
+clear
+xbmp steam_logo 0 0 0 0
+
+## brew_cup
+rot R0
+font p10
+pos top
+clear
+xbmp brew_cup 0 0 0 0
+
+## hot_water_logo
+rot R0
+font p10
+pos top
+clear
+xbmp hot_water_logo 0 0 0 0
+
+## water_empty
+rot R0
+font p10
+pos top
+clear
+xbmp water_empty 0 0 0 0
+
+## manual_flush
+rot R0
+font p10
+pos top
+clear
+xbmp manual_flush 0 0 0 0

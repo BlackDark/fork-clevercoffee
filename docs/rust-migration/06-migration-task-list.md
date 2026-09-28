@@ -471,6 +471,26 @@ of the behavioural surface.
 | **R2-09b** | Decide the display/SH1106/optional-feature **feature-flag set** from the first size measurement — see [07 — Image size budget](./07-image-size-budget.md). | R2-09 | no | `rust/partitions_4M.csv` and the feature set are agreed, and `intentional-diffs.md` lists anything dropped to fit. |
 | **R2-10** | `cc-display`: framebuffer, `DrawTarget`, ported glyphs, the layout helpers, 6 templates, and the golden-image harness with the AGENTS.md fit/spacing assertions. | R1-04 | no | `cargo test -p cc-display`; goldens regenerated with `just snapshot-display`; reviewer signs off on the diff against the C++ render. |
 
+**R2-10 status: engine parity and the golden harness are done; the
+template-layout sign-off is not.** See
+[`docs/display-parity.md`](../../docs/display-parity.md) for what is proven and
+what is not. Three gaps, in the order they should be closed:
+
+1. **The goldens record the port, not the C++.** All 48 images pass, and
+   `just test-display-parity` reports zero differing pixels against real U8g2
+   across eleven scenarios. But the *normal* layouts are not compared against a
+   rendered C++ frame, which is the task's own exit criterion. Closing it needs a
+   `SystemContext` stub small enough to be obviously faithful.
+2. **The goldens have already earned their keep.** The first `modern` render
+   showed the large `fub20` temperature clipped off the top of the panel, because
+   nothing called `OledDriver::prepareDisplay`'s `setFontPosTop` /
+   `setFontRefHeightExtendedText`. Fixed in `Display::prepare_display`. Expect
+   more of the same in the Modern row map and the bottom-row bar.
+3. **`DrawTarget` is not implemented** and the deviation is recorded as *open*,
+   not decided — see [`intentional-diffs.md` §6](./intentional-diffs.md). It
+   should be resolved before the templates are finished, because the resolution
+   may change the drawing path.
+
 ### Gate 2
 
 - **Size gate** (see [07 — Image size budget](./07-image-size-budget.md) §5): `just size`

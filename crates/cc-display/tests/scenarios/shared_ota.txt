@@ -1,0 +1,10 @@
+# The OTA screen's title and progress bar, transcribed from
+# `DisplayOtaScreen.cpp`. The bar is `drawFrame` plus a filled box, so it
+# exercises the frame path at the one size where it is easy to get wrong.
+rot R0
+font p17
+pos top
+clear
+str 0 0 "Updating firmware"
+frame 0 20 128 10
+box 2 22 60 6

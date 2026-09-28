@@ -1,0 +1,19 @@
+# The draw colour and power save, which the C++ toggles for inverted
+# regions, and the `clear` that has to win over both.
+rot R0
+font p17
+pos top
+clear
+str 0 0 "SET"
+color 1
+str 0 14 "ERASE"
+color 0
+clear
+str 0 0 "PS off"
+powersave 1
+str 0 14 "PS on"
+powersave 0
+color 1
+str 0 28 "invisible"
+clear
+str 0 28 "visible"

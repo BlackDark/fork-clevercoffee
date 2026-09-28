@@ -625,6 +625,56 @@ These are C++ bugs the port **reproduces on purpose**. A diff at any of these is
 
 ---
 
+## 6. `cc-display` does not implement `embedded-graphics::DrawTarget` 🟡 open
+
+| | |
+| --- | --- |
+| **Task** | R2-10, whose stated architecture (R1-04 step 1) calls for an `embedded-graphics` `DrawTarget` |
+| **Status** | **Not done, and not decided.** Recorded here because it is a deviation from a written plan, not a silent omission. |
+| **Test** | — there is nothing to pin; the claim is about an API that does not exist |
+
+### What the plan says
+
+`cc-display` should render through `embedded-graphics::DrawTarget`, so that the
+display implements a standard trait and could be driven by `embedded-graphics`
+fonts and shapes.
+
+### What the crate does
+
+It implements its own framebuffer and its own U8g2-compatible draw calls,
+against no third-party crates. The reasons given in `crates/cc-display/Cargo.toml`:
+
+* `cc-display` is `no_std` **with no `alloc`**, and the display is a fixed
+  `[u8; 1024]` page buffer. The device has ~320 KB of RAM; a display layer that
+  can allocate is a display layer that can fail to allocate.
+* The crate's whole job is bit-exact U8g2 parity, and U8g2 has behaviour that
+  does not survive being expressed as `embedded-graphics` primitives — notably
+  the 16-bit coordinate wrap in `u8g2_is_intersection_decision_tree` (see
+  [`docs/display-parity.md`](../../docs/display-parity.md)) and U8g2's
+  last-glyph and balanced-width quirks in `getStrWidth`. Going through a
+  `DrawTarget` would mean re-deriving those on the far side.
+* The ten embedded fonts are raw U8g2 RLE (42,722 bytes) rather than
+  `ImageRaw` (177,723 bytes), a measured 135,001-byte saving on a
+  size-constrained target.
+
+### Why this needs a decision rather than a footnote
+
+The saving and the `no_std` argument are real, and the parity argument is
+decisive *for the current requirement*. But R1-04 step 1 was chosen for a reason
+this file does not record, and "we did not need it" is not the same as "we
+decided not to". If the intent was ever to make the display drivable by
+`embedded-graphics` — for a simulator, a test harness, or a future non-OLED
+panel — then this deviation forecloses it and the decision should be revisited
+**before** the templates are finished, not after.
+
+Recommended resolution: either amend R1-04 to record that `cc-display` is
+U8g2-specific by design, or add a thin `DrawTarget` adapter over
+`cc_display::display::Display` that satisfies the trait without putting it on
+the drawing path. The adapter is a few dozen lines and costs the firmware
+nothing; the design change is not cheap.
+
+---
+
 ## Also intentional, from before this file existed
 
 Recorded here so the file is complete; each was decided in its own task.

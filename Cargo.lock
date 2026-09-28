@@ -177,6 +177,9 @@ dependencies = [
 [[package]]
 name = "cc-display"
 version = "0.1.0"
+dependencies = [
+ "cc-domain",
+]
 
 [[package]]
 name = "cc-domain"

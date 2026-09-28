@@ -1,0 +1,12 @@
+# The fullscreen brew timer: an `fub30` clock, an `fub20` target and a
+# `profont10` label -- the only place all three of those fonts are on screen
+# together, so a metrics bug in any of them is visible at once.
+rot R0
+font f30
+pos top
+clear
+str 10 6 "00:25"
+font f20
+str 20 34 "00:45"
+font p10
+str 30 60 "Target"

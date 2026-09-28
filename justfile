@@ -147,15 +147,33 @@ lint-esp32c6:
 
 # Host tests for every portable crate. NOT --workspace: the device crates do not
 # compile for a host target.
+# DEVIATION D2: `--features cc-display/scenarios`, see the header. The display
+# crate is `no_std` with no `alloc`, so the scenario runner behind the parity
+# oracle and the goldens sits behind an off-by-default feature. Naming it as
+# `cc-display/scenarios` rather than plain `scenarios` keeps this working for the
+# whole host crate list.
 test:
-    cargo test {{host_crates}} --target {{host_target}}
+    cargo test {{host_crates}} --features cc-display/scenarios --target {{host_target}}
 
 test-domain:
     cargo test -p cc-domain -p cc-safety --target {{host_target}}
 
 # Regenerate OLED golden images (host).
+#
+# `--features scenarios` is required: `cc-display` is `no_std` with no `alloc`, and
+# the scenario runner that backs the parity oracle needs both. The feature is off
+# by default and is not enabled for the device build, so `cargo build -p
+# cc-firmware` still cannot pull a heap into the display crate.
+#
+# Read the diff before committing a regenerated golden: every pixel is supposed to
+# stay put.
 snapshot-display:
-    cargo test -p cc-display --target {{host_target}} -- --ignored render_goldens
+    cargo test -p cc-display --features scenarios --target {{host_target}} -- --ignored render_goldens
+
+# Display parity against the real U8g2 the firmware links. Needs the U8g2 tree
+# from `pio run -e esp32_usb`, and takes about a minute (it rebuilds the oracle).
+test-display-parity:
+    cargo test -p cc-display --features scenarios --target {{host_target}} --test parity -- --ignored
 
 # ---------------------------------------------------------------------- build
 

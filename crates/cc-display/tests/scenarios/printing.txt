@@ -1,0 +1,16 @@
+# `print` at the cursor and the three `print` overloads the templates use.
+# The formatted ones are checked against C `snprintf` over 80,000 cases in
+# `tests/fmt_parity.rs`; this is the on-screen check that the formatted
+# text lands where the template put the cursor.
+rot R0
+font p17
+pos top
+clear
+str 0 0 "at the cursor:"
+cursor 0 16
+print "12345"
+printf1 0 32 93.5
+printf0 0 48 12.0
+printf1 0 60 -7.25
+printi 0 16 42
+printi 0 16 -7
