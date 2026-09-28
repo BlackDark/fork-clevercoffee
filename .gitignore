@@ -18,3 +18,4 @@ platformio_extra.ini
 CleverCoffee_Flash_Package
 
 .claude/
+.env
