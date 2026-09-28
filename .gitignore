@@ -2,7 +2,18 @@
 data/*
 
 # ignore PlatformIO build directory
-.pio/*
+.pio
+
+# Rust build output
+/target/
+/firmware/target/
+/firmware/.embuild/
+
+# Python tooling venv created by `just setup` (platformio + nvs partition gen)
+.venv/
+
+# Downloaded upstream docs/sources for migration research (not part of the build)
+research/*
 
 # ignore configuration files
 **/.vscode

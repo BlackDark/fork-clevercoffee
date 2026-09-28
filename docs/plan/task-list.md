@@ -1,5 +1,12 @@
 # CleverCoffee — Task List & Recommendations
 
+> **Superseded (2026-09-28).** This plan is stale: it is dated 2026-03-28, its test
+> count is wrong, and it derives from four documents (`improvement.md`,
+> `architecture.md`, `code-review-2026-02-14.md`, `implementation-plan.md`) that are
+> not in the repository. The active plan is
+> [docs/rust-migration/task-list.md](../rust-migration/task-list.md).
+
+
 **Last Updated:** 2026-03-28  
 **Status:** Build passes, 234 tests pass  
 **Based on:** `improvement.md`, `architecture.md`, `code-review-2026-02-14.md`, `implementation-plan.md`

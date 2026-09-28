@@ -1,0 +1,161 @@
+name: Rust firmware
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+concurrency:
+  group: rust-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # Fail the build if the app image no longer fits the app partition, rather than
+  # discovering it at flash time. See docs/rust-migration/tooling.md.
+  APP_PARTITION_BYTES: "1703936"
+
+jobs:
+  # Fast gates that need no ESP toolchain: the host crates hold all control logic,
+  # so this job is the one that actually gates correctness.
+  host:
+    name: host — fmt, clippy, tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install stable Rust
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt,clippy
+          rustup override set stable
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: host-cargo-${{ hashFiles('Cargo.lock', 'crates/*/Cargo.toml') }}
+          restore-keys: host-cargo-
+
+      - name: Format check
+        run: cargo fmt --all -- --check
+
+      # Warnings denied. There are no blanket allows in this repo: if a lint fires,
+      # fix it or annotate the specific line with a reason.
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+      - name: Host tests
+        run: cargo test --workspace --all-features
+
+  # Builds for every target in the justfile's target table. A target counts as
+  # supported only once it has ALSO been validated on that hardware — CI proves it
+  # compiles, not that it works. See docs/rust-migration/task-list.md.
+  firmware:
+    name: firmware — ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: esp32
+            chip: esp32
+            triple: xtensa-esp32-espidf
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install rustup
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --default-toolchain none --profile minimal
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      # The original ESP32 is Xtensa, which upstream Rust does not target, so the
+      # toolchain comes from the Espressif fork via espup. Versions are pinned to
+      # match docs/rust-migration/tooling.md.
+      - name: Install espup toolchain
+        run: |
+          cargo install espup --version 0.17.1 --locked
+          cargo install ldproxy --version 0.3.5 --locked
+          cargo install espflash --version 4.6.0 --locked
+          espup install --targets ${{ matrix.chip }} --export-file "$HOME/export-esp.sh"
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.espressif
+            firmware/target
+          key: fw-${{ matrix.target }}-${{ hashFiles('firmware/**/Cargo.toml', 'firmware/.cargo/config.toml') }}
+          restore-keys: fw-${{ matrix.target }}-
+
+      - name: Format check
+        working-directory: firmware
+        run: |
+          . "$HOME/export-esp.sh"
+          cargo fmt --all -- --check
+
+      - name: Clippy
+        working-directory: firmware
+        run: |
+          . "$HOME/export-esp.sh"
+          cargo clippy --workspace --target ${{ matrix.triple }} --all-features -- -D warnings
+
+      - name: Build
+        working-directory: firmware
+        run: |
+          . "$HOME/export-esp.sh"
+          cargo build --release --target ${{ matrix.triple }}
+
+      - name: Check the image fits the app partition
+        run: |
+          . "$HOME/export-esp.sh"
+          elf="firmware/target/${{ matrix.triple }}/release/clevercoffee"
+          espflash save-image --chip ${{ matrix.chip }} "$elf" image.bin
+          bytes=$(stat -c%s image.bin)
+          limit="${APP_PARTITION_BYTES}"
+          pct=$(( 100 * bytes / limit ))
+          echo "app image ${bytes} bytes = ${pct}% of ${limit}"
+          if [ "$bytes" -gt "$limit" ]; then
+            echo "::error::app image (${bytes} B) exceeds the app partition (${limit} B)"
+            exit 1
+          fi
+          if [ "$pct" -gt 85 ]; then
+            echo "::warning::app image is at ${pct}% of the app partition"
+          fi
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: rust-firmware-${{ matrix.target }}
+          path: image.bin
+          retention-days: 3
+          if-no-files-found: error
+
+  # The C++ firmware is the parity oracle for the migration. If it stops building,
+  # we lose the ability to check the Rust port against real behaviour.
+  cpp-baseline:
+    name: C++ baseline still builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.14"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            ~/.platformio/.cache
+            .pio/buildcache
+          key: cpp-baseline-${{ hashFiles('platformio.ini') }}
+          restore-keys: cpp-baseline-
+      - run: pip install -r .github/requirements-ci.txt
+      - run: pio run -e esp32_usb
+      - run: pio test -e native_test

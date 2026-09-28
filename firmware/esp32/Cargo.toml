@@ -1,0 +1,22 @@
+[package]
+name = "clevercoffee"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "clevercoffee"
+path = "src/main.rs"
+harness = false
+
+[dependencies]
+cc-app.workspace = true
+cc-board.workspace = true
+esp-idf-svc.workspace = true
+log.workspace = true
+anyhow.workspace = true
+
+[build-dependencies]
+embuild = "0.33"

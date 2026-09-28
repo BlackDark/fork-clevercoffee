@@ -11,6 +11,30 @@ min_version = "2024.1.0"
   # C++ tooling
   clang-format = "23.1.2"
 
+  # Task runner
+  just = "1.58.0"
+
+# The Rust toolchain is deliberately NOT managed by mise, and neither are the
+# cargo-installed ESP tools.
+#
+# mise's `rust` tool installs a non-rustup Rust whose `cargo` shim shadows
+# rustup's, which makes rust-toolchain.toml be ignored and the Xtensa build fail
+# with "can't find crate for `core`". And mise's `cargo:` backend would require
+# mise to own Rust for exactly that reason, while also shimming espflash so that
+# it shadows the real binary.
+#
+# So: Rust comes from rustup, the Xtensa fork from espup, and espflash/espup/
+# ldproxy from cargo-binstall at pinned versions. `just setup` does all of it and
+# `just doctor` verifies it. Pinned versions live in docs/rust-migration/tooling.md.
+
+[env]
+  # Pinned ESP-IDF version for the Rust firmware. esp-idf-hal/svc require >=5.3;
+  # ESP-IDF 7.0 is scheduled to remove the legacy I2C driver esp-idf-hal wraps,
+  # so this stays on a 5.x release until that wrapper is replaced upstream.
+  ESP_IDF_VERSION = "v5.3.6"
+  # Keep the ESP-IDF checkout and tools out of the repo working tree.
+  ESP_IDF_TOOLS_INSTALL_DIR = "global"
+
 [settings]
   experimental = true
   jobs = 4

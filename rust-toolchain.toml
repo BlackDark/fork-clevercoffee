@@ -1,0 +1,5 @@
+# The original ESP32 is Xtensa LX6, which upstream Rust does not target.
+# The `esp` channel is the Espressif fork installed by espup (`just setup`).
+# Do not change this to a stable channel: it will not build.
+[toolchain]
+channel = "esp"

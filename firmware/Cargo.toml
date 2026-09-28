@@ -1,0 +1,41 @@
+# Target workspace: the crates that require the ESP toolchain.
+#
+# Separate from the root workspace on purpose — these need -Zbuild-std, ldproxy
+# and ESP-IDF, none of which should slow down the host test loop. The host crates
+# in ../crates are path dependencies, not members, so `cargo test --workspace` at
+# the repo root never pulls in anything that needs hardware.
+#
+# See docs/rust-migration/architecture.md section 6.
+
+[workspace]
+resolver = "2"
+members = ["esp32", "cc-board", "cc-app"]
+
+[workspace.package]
+edition = "2021"
+rust-version = "1.82"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/BlackDark/fork-clevercoffee"
+
+[workspace.dependencies]
+cc-domain = { path = "../crates/cc-domain" }
+cc-hal = { path = "../crates/cc-hal" }
+cc-drivers = { path = "../crates/cc-drivers" }
+cc-board = { path = "cc-board" }
+cc-app = { path = "cc-app" }
+esp-idf-svc = "0.53"
+esp-idf-hal = "0.47"
+log = { version = "0.4", default-features = false }
+anyhow = "1"
+
+[profile.release]
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
+incremental = false
+
+[profile.dev]
+opt-level = "s"
+debug = true

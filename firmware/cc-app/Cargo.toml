@@ -1,0 +1,16 @@
+[package]
+name = "cc-app"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+cc-domain.workspace = true
+cc-hal.workspace = true
+esp-idf-svc.workspace = true
+esp-idf-hal.workspace = true
+log.workspace = true
+cc-board.workspace = true
+cc-drivers.workspace = true

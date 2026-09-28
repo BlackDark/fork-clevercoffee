@@ -1,0 +1,39 @@
+# Host workspace: the crates that build and test WITHOUT the ESP toolchain.
+#
+# The target-only crates (cc-board, cc-app, the firmware binary) live in the
+# separate workspace at firmware/esp32, because they need -Zbuild-std, a linker
+# proxy and ESP-IDF. Keeping them out of this workspace is what makes
+# `just test` and `just fmt-check` fast and hardware-free.
+#
+# See docs/rust-migration/architecture.md section 6.
+
+[workspace]
+resolver = "2"
+members = ["crates/cc-domain", "crates/cc-hal", "crates/cc-drivers"]
+exclude = ["firmware", "research"]
+
+[workspace.package]
+edition = "2021"
+rust-version = "1.82"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/BlackDark/fork-clevercoffee"
+
+[workspace.lints.rust]
+unsafe_code = "warn"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+# Denied in CI via `-D warnings`; listed here so the intent is in the repo and
+# not only in a workflow file.
+todo = "warn"
+unimplemented = "warn"
+panic_in_result_fn = "warn"
+float_cmp = "warn"
+indexing_slicing = "warn"
+
+[profile.release]
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
