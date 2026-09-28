@@ -519,6 +519,18 @@ impl TimerIsrPwm {
         // counters and the write itself.
         //
         // No logging, no allocation, no lock, no FreeRTOS call.
+        //
+        // 🔴 And **no floating point**, which is not a style preference but a
+        // hardware requirement: an FPU instruction in a level-1 ISR is a fatal
+        // coprocessor exception on the original ESP32, because Xtensa only
+        // moves the FP save area between *threads* and an ISR has none. This
+        // ISR booted and panicked here for exactly that reason until
+        // `AtomicChopper::tick` was made integer-only
+        // (`heater::chopper_tick_level_ms`); see
+        // `docs/rust-migration/09-cpp-findings.md` §22. `tick` is the only
+        // arithmetic below, so keeping it integer is what keeps this closure
+        // FP-free — do not reintroduce a float here, and do not "fix" a
+        // clippy pedantic cast warning by widening to `f32`.
         driver.subscribe(move |_event| {
             // The C++'s early return on `!ctx->isISRReady()` (`isr.h:70-73`).
             let Some(high) = isr_chopper.tick() else {

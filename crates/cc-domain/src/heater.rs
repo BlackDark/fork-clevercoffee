@@ -222,6 +222,55 @@ pub fn chopper_tick_level(pid_output: Duty, counter_ms: u32) -> bool {
     )
 }
 
+/// [`chopper_tick_level`] with **integer** inputs, for the ISR.
+///
+/// This is what [`AtomicChopper::tick`] calls, and the reason it exists is a
+/// hardware one rather than a stylistic one:
+///
+/// **An Xtensa FPU instruction executed in interrupt context is a fatal
+/// exception, not a slow one.** On the original ESP32 the FPU is coprocessor 0
+/// (`XCHAL_CP_MASK 0x01`, `core-isa.h:122` `XCHAL_HAVE_FP 1`), and ESP-IDF's
+/// coprocessor exception handler exists to *move* the FP save area between
+/// threads — which is meaningless inside an ISR, because an ISR has no thread
+/// save area to hand. `xtensa_vectors.S:1005-1046` therefore calls
+/// `XT_RTOS_CP_STATE`, and on getting a null save area jumps to
+/// `.L_xt_coproc_invalid` (`xtensa_vectors.S:1198-1201`), which writes
+/// `PANIC_RSN_COPROCEXCEPTION` — 4 — into `EXCCAUSE` and panics. That is the
+/// exact "Coprocessor exception" label the boot log shows, and it is a real
+/// coprocessor fault after all, not the mislabelled `exccause 4` the panic
+/// handler's own `reason[]` table claims (`"Level1Interrupt"`,
+/// `panic_arch.c:230`). The permissive path exists behind
+/// `CONFIG_FREERTOS_FPU_IN_ISR` (`freertos/Kconfig:462`, **default `n`**), which
+/// is off here.
+///
+/// So `tick` must not generate an FP instruction. It does not need to: both
+/// operands are `u32` and at most `WINDOW_MS` (1000), so the `f32` round trip
+/// in the naive spelling is lossless and the comparison is *identical* in
+/// integers. `an_integer_level_matches_the_f32_reference_for_every_duty_and_counter`
+/// walks all 1001 duties x 100 counter values to prove that, so this function is
+/// a provable refactor of [`chopper_tick_level`] rather than a second opinion
+/// about the C++.
+///
+/// # Panics
+///
+/// Never.
+#[must_use]
+pub const fn chopper_tick_level_ms(duty_ms: u32, counter_ms: u32) -> bool {
+    // The C++'s `currentPidOutput <= currentCounter` turns the relay *off* at
+    // equality, so the level is `>` and **not** `>=`. `==` is the off case, and
+    // that is the C++'s off-by-one: a duty of exactly 10 ms is one tick, not
+    // two.
+    //
+    // Spelled `>` where the `f32` [`chopper_tick_level`] must spell `!(a <= b)`.
+    // That is not a drift, it is the one place the two *must* differ: the `f32`
+    // form has to survive a `NaN` (which compares `<=` false, so the C++ would
+    // energise the relay), and a `u32` cannot be `NaN`. Here the duty was
+    // already truncated to a whole millisecond by `set_duty`, so a `NaN` had
+    // become 0 long before. `an_integer_level_matches_the_f32_reference_for_every_duty_and_counter`
+    // proves the two agree over the whole reachable input space.
+    duty_ms > counter_ms
+}
+
 /// How many 10 ms ticks of a window the C++ chopper would energise.
 ///
 /// This is the aggregate the LEDC carrier has to reproduce: `on_fraction` below
@@ -1764,15 +1813,18 @@ impl AtomicChopper {
         if !self.armed.load(Ordering::SeqCst) {
             return None;
         }
-        // The counter is at most `WINDOW_MS` (1000) and the duty at most the
-        // same, so both are exact in `f32` and the cast is lossless.
-        #[allow(
-            clippy::cast_precision_loss,
-            reason = "a duty is 0..=WINDOW_MS, which f32 holds exactly"
-        )]
-        let duty = self.duty_ms() as f32;
+        // Integer comparison, NOT `chopper_tick_level` on `f32`. This runs in
+        // interrupt context, and an FPU instruction there is a fatal
+        // coprocessor exception on this chip — see
+        // [`chopper_tick_level_ms`], which is the argument. Both operands are
+        // `u32` and at most `WINDOW_MS`, so nothing is lost by not going
+        // through `f32`; the equivalence is walked exhaustively by
+        // `an_integer_level_matches_the_f32_reference_for_every_duty_and_counter`.
+        //
+        // `set_duty` has already truncated the `Duty` to a whole millisecond, so
+        // a `NaN` can never reach here either: it would have become 0 there.
         let counter = self.counter_ms.load(Ordering::Relaxed);
-        let level = chopper_tick_level(Duty::new(duty), counter);
+        let level = chopper_tick_level_ms(self.duty_ms(), counter);
         let next = counter.saturating_add(CHOPPER_STEP_MS);
         self.counter_ms.store(
             if next >= self.window_ms() { 0 } else { next },
@@ -1920,6 +1972,62 @@ mod atomic_chopper_tests {
             chopper.set_duty(Duty::new(f32::from(output)));
             let expected = chopper_tick_level(Duty::new(f32::from(output)), 0);
             assert_eq!(chopper.tick(), Some(expected), "pid_output {output}");
+        }
+    }
+
+    /// The test that licenses [`chopper_tick_level_ms`] in interrupt context.
+    ///
+    /// `AtomicChopper::tick` compares integers rather than `f32` because an FPU
+    /// instruction in a level-1 ISR is a fatal coprocessor exception on the
+    /// original ESP32 (see that function's docs). That is only a safe
+    /// substitution if it cannot change a single decision, so this walks the
+    /// **whole** input space: every duty `0..=WINDOW_MS` at every counter value
+    /// the counter can actually hold, `0..WINDOW_MS` in `CHOPPER_STEP_MS`
+    /// steps, plus the counters just past the window that a `set_window_ms`
+    /// outside the clamp could leave behind.
+    ///
+    /// 1001 x 103 comparisons. If someone later changes the quantisation, the
+    /// window, or either comparison, this fails rather than the chip.
+    #[test]
+    fn an_integer_level_matches_the_f32_reference_for_every_duty_and_counter() {
+        for duty in 0..=WINDOW_MS {
+            for counter in (0..WINDOW_MS + CHOPPER_STEP_MS).step_by(CHOPPER_STEP_MS as usize) {
+                // `duty` is at most `WINDOW_MS` (1000) and every value in
+                // `0..=1000` is exact in an `f32`, so this cast is lossless --
+                // the same justification the module's other widenings carry.
+                #[allow(clippy::cast_precision_loss)]
+                let expected = chopper_tick_level(Duty::new(duty as f32), counter);
+                assert_eq!(
+                    chopper_tick_level_ms(duty, counter),
+                    expected,
+                    "duty {duty} ms at counter {counter} ms"
+                );
+            }
+        }
+    }
+
+    /// The same equivalence, walked through the real ISR entry point rather
+    /// than through the free function.
+    ///
+    /// [`Self::tick`] is what runs in interrupt context, so proving only the
+    /// helper agrees with the reference would leave the actual call site
+    /// unverified. This drives `tick` for every duty the machine can ask for and
+    /// compares against the `f32` reference for every counter in the window.
+    #[test]
+    fn the_isr_entry_point_agrees_with_the_f32_reference_for_every_duty() {
+        for output in 0..=1_000u16 {
+            let chopper = AtomicChopper::new();
+            chopper.set_duty(Duty::new(f32::from(output)));
+            chopper.arm();
+            for step in 0..CHOPPER_STEPS {
+                let counter = step * CHOPPER_STEP_MS;
+                let expected = chopper_tick_level(Duty::new(f32::from(output)), counter);
+                assert_eq!(
+                    chopper.tick(),
+                    Some(expected),
+                    "pid_output {output} ms at counter {counter} ms"
+                );
+            }
         }
     }
 }

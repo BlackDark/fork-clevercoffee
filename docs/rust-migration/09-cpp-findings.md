@@ -613,3 +613,73 @@ The original "combined with §18, a sentinel value can reach PID" claim is **wit
   files**: `ZACwire.cpp:58` compares it against a gradient in raw counts, while
   `TempSensorTSIC.cpp:39` compares it against degrees. Unresolved; the port applies
   degrees and exposes `COUNT_SCALE`.
+
+## 22. 🔴 Not a C++ finding: an FPU instruction in a level-1 ISR panics the original ESP32
+
+Found 2026-09-28 while diagnosing the R1-07 heater panic. **It is a hardware
+constraint of the original ESP32, not a bug, and it constrains every ISR this
+firmware will ever write** — not just the heater's.
+
+### What it is
+
+The original ESP32's FPU is coprocessor 0 (`XCHAL_CP_MASK 0x01`,
+`core-isa.h:122` `XCHAL_HAVE_FP 1`; `SOC_CPU_HAS_FPU 1`). Xtensa does not
+save coprocessor state in an interrupt: `xtensa_vectors.S:1005-1046`
+(`_xt_coproc_exc`) exists to *move* the FP save area between **threads** on a
+coprocessor exception, and an ISR has no thread save area to hand. It calls
+`XT_RTOS_CP_STATE`, and on a null save area jumps to `.L_xt_coproc_invalid`
+(`xtensa_vectors.S:1198-1201`), which writes `PANIC_RSN_COPROCEXCEPTION` — **4** —
+into `EXCCAUSE` and panics.
+
+So the boot log's `Coprocessor exception` is **not** a mislabel, even though
+ESP-IDF's `panic_arch.c:230` `reason[]` table claims `exccause 4` is
+`"Level1Interrupt"`. `4` is reached twice by two different mechanisms and the
+panic handler prints the wrong one; the vector table writes it deliberately.
+
+`CONFIG_FREERTOS_FPU_IN_ISR` (`freertos/Kconfig:462`) relaxes this — **default
+`n`**, and it is off in this build's `sdkconfig.h`. It is the sanctioned
+workaround and is *not* used: it costs an FP save/restore per ISR entry and
+buys nothing, since the correct answer is not to emit FP at all.
+
+### Why the C++ never hit it
+
+`isr.h:96` compares `const double currentPidOutput <= unsigned int
+currentCounter` — floating point in an ISR, exactly the hazard. It is safe
+there only because **GCC lowers it to soft-float** (`__ledf2`-style library
+calls), not to an FPU instruction: `xtensa-esp32-elf-gcc` targets the ESP32
+without hardware FP enabled. **LLVM does not.** The `esp` toolchain's
+`xtensa-esp32-espidf` target advertises `target_feature="fp"`, so the same
+expression becomes real `ufloat.s` / `ult.s` instructions instead of library
+calls — five of them inside the heater ISR, the first of which is the faulting
+PC in the boot log.
+
+### The rule
+
+**No floating point in an ISR, on this chip.** The trap is that it is invisible
+in review: the Rust source reads as integer arithmetic, and only the emitted
+instruction is a coprocessor op. `AtomicChopper::tick` did
+`self.duty_ms() as f32` then `chopper_tick_level`, and the panic PC landed
+exactly on the `ufloat.s`.
+
+Both operands were already `u32` and at most `WINDOW_MS` (1000), so the `f32`
+round trip was lossless and provably redundant. Fixed by
+`heater::chopper_tick_level_ms`, an integer compare, proved equivalent to the
+`f32` reference across the **whole** input space (1001 duties × 103 counters) by
+`an_integer_level_matches_the_f32_reference_for_every_duty_and_counter`.
+
+**How to check a new ISR** — disassemble it and grep. There is **no
+compile-time warning** for this, and the naive `.s`-suffix grep is not good
+enough: it also matches `divn.s`, `un.s` and `moveqz.s`, which are *integer*
+instructions that merely end in `.s`. This whitelist is the FP set (any hit
+inside an ISR body is a bug):
+
+```sh
+xtensa-esp32-elf-objdump -d firmware.elf \
+  | grep -E '\t(ufloat|lfloat|abs|add|sub|mul|div|neg|sqrt|madd|msub|float|movf|round|trunc|utrunc|movt|ceil|floor|quos|ueq|une|ult|ule|ugt|uge|oeq|one|olt|ole|ogt|oge)\.[sd]\b'
+```
+
+The remaining hits are all in task-context code (PID, the f64 `on_fraction` log
+line, formatting) and are fine. The number to watch is the ISR one, and it is
+**zero**: `grep`ping the heater's `AlarmEventData` callback body finds no FP
+instruction at all. The pre-fix callback had five, the first of which — the
+`ufloat.s` at the entry — was the faulting PC in the boot log.

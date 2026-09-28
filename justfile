@@ -196,6 +196,38 @@ build-esp32c6:
 build-all:
     @just build-esp32
 
+# ------------------------------------------------- diagnostic build (unstripped)
+
+# DIAGNOSTIC ONLY. Identical codegen to `--release` (same opt-level, same fat
+# LTO, same panic=abort, same overflow-checks) but `strip = "none"` and
+# `debug = 2`, so a panic backtrace resolves to symbol names. The release
+# profile is NOT modified -- `just size` and the shipped image depend on it.
+# Never flash this to a machine you care about: DWARF is dead weight in flash.
+diag-build:
+    {{env_prefix}} MCU={{mcu_esp32}} cargo build --profile diagnostic -p cc-firmware \
+        --bin {{bin_esp32}} --target {{tgt_esp32}} -Zbuild-std=std,panic_abort
+
+# Flash the unstripped build. Same partition table and chip as `just flash`.
+diag-flash port:
+    {{env_prefix}} cargo espflash flash --profile diagnostic --package cc-firmware \
+        --bin {{bin_esp32}} --target {{tgt_esp32}} --port {{port}} --chip {{mcu_esp32}} \
+        --partition-table rust/partitions_4M.csv
+
+# Resolve backtrace addresses against the diagnostic ELF. `just diag-addr2line
+# 0x40112379 0x400d6dbe` (or paste a whole `Backtrace:` line).
+diag-addr2line *addresses:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    elf="target/{{tgt_esp32}}/diagnostic/firmware"
+    if [ ! -f "$elf" ]; then echo "no $elf -- run: just diag-build"; exit 1; fi
+    a2l=""
+    for c in .embuild/espressif/tools/xtensa-esp-elf/*/xtensa-esp-elf/bin \
+             "$HOME"/.rustup/toolchains/esp/xtensa-esp-elf/*/xtensa-esp-elf/bin; do
+        [ -x "$c/xtensa-esp32-elf-addr2line" ] && { a2l="$c/xtensa-esp32-elf-addr2line"; break; }
+    done
+    [ -n "$a2l" ] || { echo "no xtensa addr2line found"; exit 1; }
+    "$a2l" -pfiaC -e "$elf" {{addresses}}
+
 # ----------------------------------------------------------------------- size
 
 # Image size vs the app slot, and the delta vs the previous gate. Run after

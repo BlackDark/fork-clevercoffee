@@ -99,3 +99,21 @@ codegen-units = 1
 panic = "abort"
 strip = "symbols"
 overflow-checks = true
+
+# DIAGNOSTIC ONLY -- never shipped, never measured by `just size`.
+#
+# `just build-esp32` strips the release ELF (`strip = "symbols"`), so a panic
+# backtrace from a release image resolves to nothing: every frame comes back
+# `??`. This profile is byte-for-byte the same codegen as release -- same
+# `opt-level`, same `lto = "fat"`, same `codegen-units = 1`, same
+# `panic = "abort"`, same `overflow-checks` -- with the symbol table kept and
+# DWARF level 2 emitted, so `addr2line -pfiaC` can name the frames.
+#
+# It exists so a release-only panic can still be diagnosed; it is NOT a
+# substitute for release. `debug = 2` costs flash and the device build is
+# size-constrained (07), so nothing outside `just diag-build` / `just
+# diag-flash` / `just diag-addr2line` may use it.
+[profile.diagnostic]
+inherits = "release"
+strip = "none"
+debug = 2
