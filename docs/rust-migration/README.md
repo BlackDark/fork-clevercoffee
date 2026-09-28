@@ -23,6 +23,7 @@ Read in this order.
 | 05 | [Tooling and workflows](./05-tooling-and-workflows.md) | mise setup, the `just` recipes, flashing rules, Wi-Fi provisioning, CI. |
 | 06 | [Migration task list](./06-migration-task-list.md) | R0–R4, one task at a time, with dependencies, gates, acceptance criteria, and the 33-suite test coverage map. |
 | 07 | [Image size budget](./07-image-size-budget.md) | The 154 KiB problem, the rebalance arithmetic, the drop order, and the per-gate size report. |
+| 08 | [Recovered oracle](./08-recovered-oracle.md) | A complete Rust firmware that previously ran on this board, recovered from a flash dump. Source is gone; design decisions, partition table, config schema and safety design are the only surviving record. |
 
 Execution guidance lives in the agent skill:
 [`../../.agents/skills/esp32-rust-migration/SKILL.md`](../../.agents/skills/esp32-rust-migration/SKILL.md).

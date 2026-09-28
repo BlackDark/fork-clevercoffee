@@ -16,10 +16,15 @@ Related: [03 — Decision record](./03-decision-record.md) (the 154 KB problem) 
 | C++ `firmware.bin` | **1,546,240 B** | measured, `pio run -e esp32_usb` 2026-09-28 |
 | `app0` slot (current table) | **1,703,936 B** (`0x1A0000`) | `partitions_4M.csv` |
 | **Headroom** | **157,696 B (154.0 KiB)** | arithmetic, verified |
-| A typical Rust esp-idf image with `std` | **1.5–2.5 MB** | research, [02](./02-research-compatibility-matrix.md) |
+| A Rust esp-idf image with `std`, measured | **≥ 1,835,008 B — it filled a 1,835,008 B slot** | [08 §2](./08-recovered-oracle.md#2-partition-table-it-used): the recovered firmware's app0 image occupied its slot to the last non-`0xFF` byte |
 
 **154 KiB will not hold a Rust esp-idf image.** The partition table must change. This
 document tracks *how much* room we won and *what* is spending it.
+
+> **The rebalance is no longer a hypothesis.** The recovered firmware (08 §2) used
+> `app0/app1 = 0x1C0000` (1,835,008 B) and `littlefs = 0x60000` (393,216 B) — +128 KB per
+> app slot, taken from 256 KB of filesystem. That is exactly what the formula below
+> produces, and it is the **known-good target** for R0-02 / R2-03.
 
 ### The arithmetic R0-02 must respect
 

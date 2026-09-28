@@ -1,6 +1,9 @@
 # CleverCoffee — Feature Inventory (pre-migration baseline)
 
 **Status:** Frozen baseline for the Rust migration. Read-only reference.
+**See also:** [08 — Recovered oracle](./08-recovered-oracle.md) — a complete Rust
+firmware that previously ran on this board, recovered from flash before the device was
+erased. Its source is gone; the binary is the only surviving record.
 **Captured:** 2026-09-28, against `main` @ `2006b71`.
 **Purpose:** Every feature the current C++ firmware provides, mapped to source files and
 hardware. Any Rust implementation that omits a row here is a behavioural regression.
@@ -26,14 +29,17 @@ ESP32-S3, C3, C6, H2, or S2.
 
 | Property | Value | Evidence |
 | --- | --- | --- |
-| Chip | ESP32 (original) | `platformio.ini:9` `platform = espressif32 @^7.0.1`; `README.md:5` `esptool.py --chip esp32` |
-| Board | `az-delivery-devkit-v4` (AZ-Delivery ESP32-DevKitC-V4) | `platformio.ini:12`; `REPOSITORY_SUMMARY.md:43` |
+| Chip | ESP32 (original), **silicon revision v3.0** | `platformio.ini:9` `platform = espressif32 @^7.0.1`; `README.md:5` `esptool.py --chip esp32`. Revision **measured on hardware 2026-09-28**: `esptool.py --chip esp32 chip_id` → `Chip is ESP32-D0WD-V3 (revision v3.0)`, and the ESP-IDF boot log prints `efuse_init: Chip rev: v3.0` (`Min chip rev: v0.0`, `Max chip rev: v3.99`) |
+| Module | **ESP32-WROOM-32E** (high confidence; see [§10](#10-local-environment-state-2026-09-28--what-is-and-is-not-verified) for the evidence chain and the one open gap) | 4 MB flash, VDD_SDIO = 3.3 V, no PSRAM reported at boot, GPIO16/17 in active use — all measured; part marking not photographed |
+| Board | `az-delivery-devkit-v4` (AZ-Delivery ESP32-DevKitC-V4) | `platformio.ini:12`; `REPOSITORY_SUMMARY.md:43`; board JSON `~/.platformio/platforms/espressif32/boards/az-delivery-devkit-v4.json` |
 | Board history | `esp32dev` → `nodemcuv2` → `az-delivery-devkit-v4` (commit `0dafb58`) | `git log -p platformio.ini` |
 | Framework | Arduino (ESP-IDF 4.4 under Arduino core 2.0.x) | `platformio.ini:36` `framework = arduino` |
 | C++ standard | `-std=gnu++2a` | `platformio.ini:28` |
 | Filesystem | LittleFS | `platformio.ini:13` |
-| Flash | 4 MB, DIO, 40 MHz | `README.md:5`; `.github/workflows/release.yml:125,132` |
-| USB | **None.** USB-to-UART bridge (CP210x class) | no `HWCDC`/`TinyUSB`/`usb_serial_jtag` anywhere in `src/`+`include/`; `DEBUG_GUIDE.md:15` uses `/dev/ttyUSB0`; `pinmapping.h:45` moves `PIN_STEAMLED` off GPIO 1 because "UART TX" |
+| Flash | 4 MB, **DIO**, 40 MHz — **verified on hardware 2026-09-28** | `esptool.py flash_id` → `Detected flash size: 4MB`, JEDEC `0xD8` / `0x4016`; 2nd-stage bootloader prints `boot.esp32: SPI Speed : 40MHz`, `SPI Mode : DIO`, `SPI Flash Size : 4MB`. Both `bootloader.bin` and `firmware.bin` image headers encode `flash_mode = 0x02` (DIO), flash size "keep", 20 MHz. Also `README.md:5`; `.github/workflows/release.yml:125,132` |
+| PSRAM | **None.** | No `spiram`/`psram` line anywhere in the ESP-IDF 5.5.5 boot log; `heap_init` lists only DRAM/IRAM regions. See §10 for the caveat that this is conditional on `CONFIG_SPIRAM` in the build that produced that log |
+| USB | **None on the chip — the "no native USB" claim HOLDS and is now positively verified.** The USB device on this host is a **WCH CH340** USB-to-UART bridge (VID `0x1A86`, PID `0x7523`), *not* a CP210x/CP2102N. | `ioreg -p IOUSB -l -w 0` on 2026-09-28. The original ESP32 has no USB peripheral (ESP32 Series Datasheet v5.3 peripheral list), so USB CDC / TinyUSB / USB-Serial-JTAG remain impossible — the §8 conclusion is unaffected by the bridge being a CH340 rather than a CP210x. Corroborating: no `HWCDC`/`TinyUSB`/`usb_serial_jtag` anywhere in `src/`+`include/`; `DEBUG_GUIDE.md:15` uses `/dev/ttyUSB0`; `pinmapping.h:45` moves `PIN_STEAMLED` off GPIO 1 because "UART TX". The CP2102N claim in `.agents/skills/esp32-rust-migration/SKILL.md` §1 is **wrong for this board** |
+| Auto-reset | **Present and working.** DTR/RTS auto-reset achieved connection 5/5 times with no manual BOOT+EN | `esptool.py chip_id` / `flash_id` / `read_flash_status` / `read_flash_sfdp` / `get_security_info`, all `--port /dev/cu.usbserial-204140`, no manual intervention. Contradicts the warning in `SKILL.md` §6 |
 | `MAX_GPIO_PINS` | 40 (compile-time constant) | `pinmapping.h:58` |
 
 > **The `esp32_usb` PlatformIO environment name is a misnomer.** It means "upload over the
@@ -107,9 +113,25 @@ validate the map at compile time.
 | --- | --- | --- | --- |
 | 22 / 21 | `PIN_I2CSCL` / `PIN_I2CSDA` | I2C0 — OLED + ABP2 pressure sensor | `:53-54` |
 
-GPIOs 6-11 and 16-17 are also flash/PSRAM-strapping on the original ESP32 (per `esp-idf-hal`
-docs); this project uses 16 and 17 anyway, which works but is worth knowing for a future
-hardware revision.
+> **Correction (2026-09-28, verified on hardware).** An earlier version of this section said
+> "GPIOs 6-11 and 16-17 are also flash/PSRAM-**strapping** on the original ESP32". That is the
+> wrong term and it is now settled:
+>
+> - **Strapping pins** are exactly GPIO0, GPIO2, MTDI (GPIO12), MTDO (GPIO15) and GPIO5
+>   (ESP32 Series Datasheet v5.3, Table 3-1 *Default Configuration of Strapping Pins*).
+>   **GPIO16 and GPIO17 are not strapping pins.**
+> - GPIO6-11 and, on modules with in-package memory, GPIO16/17 are **flash/PSRAM pins** —
+>   "not recommended for other uses" per Datasheet Table 2-5. On the ESP32-WROOM-32E they are
+>   *not* connected to anything inside the module and are led out to the board, so they are
+>   free to use. On an ESP32-WROVER (D0WDR2-V3) the same pins go to the in-package 2 MB PSRAM
+>   as `CE#` and `SCLK` (Table 2-5; ESP-WROVER-KIT v2 docs: *"the two GPIOs are not broken out
+>   to the board's pin headers in order to ensure reliable performance"*).
+> - **Measured:** the firmware currently running on this board drives the valve on GPIO17 and
+>   reads a live DS18B20 on the 1-Wire bus (GPIO16 is the strongly-inferred probe pin; the
+>   running log does not print it). Both pins work.
+>
+> Conclusion: **GPIO16 (temp sensor) and GPIO17 (valve) are fine on this board.** The risk was
+> real for a WROVER module and is nil for the WROOM-32E that is actually fitted — see §10.
 
 ---
 
@@ -151,6 +173,29 @@ hardware revision.
 | F32 | Backflush cycles + maintenance reminder | `src/state/states/BackflushStates.cpp`, `src/coordinators/MaintenanceCoordinator.cpp` | NVS | Low |
 | F33 | Sensor coordinator with async start/try-get | `src/coordinators/SensorCoordinator.cpp` | — | Low |
 | F34 | Wokwi simulation | `diagram.json`, `tools/platformio_wokwi.py` | — | Optional |
+
+### ⚠ The temperature sensor fitted to this machine is a DS18B20, not a TSIC-306
+
+**Measured on hardware 2026-09-28** (boot log of the image currently running on the board):
+
+```
+W cc_firmware: config asks for Tsic306 but only the DS18B20 driver exists; reading the 1-Wire bus anyway
+I cc_firmware::sensor: sensor: DS18B20 at 0x41af78cdaa376928 (family 0x28), 11-bit resolution, reading every 400 ms
+I cc_firmware::supervisor: PidDisabled temp=22.88 setpoint=95.0 ...
+```
+
+A 1-Wire device with **family code `0x28` = DS18B20** answered on the probe and produced
+live, varying room-temperature readings. A TSIC-306/ZACwire sensor would not respond to
+1-Wire at all. So on *this* machine **F9 is not the installed sensor; F10 is.**
+
+- Evidence strength: the log comes from a **Rust** image, not the C++ one, and it does not
+  print the probe pin. GPIO16 is a strong inference (it matches `pinmapping.h:27`, and the
+  same log names GPIO2/GPIO17/GPIO27 for heater/valve/pump exactly as `pinmapping.h` does).
+  **Re-confirm by booting the C++ firmware before R1-03 is scheduled.**
+- **Consequence for the plan:** R1-03 (TSIC-306 decoder, flagged *highest risk* and "the one
+  spike that can invalidate the whole approach") is aimed at hardware that is not attached
+  here. Either the sensor is swapped, or R1-03 is re-scoped to R3-06 (DS18B20). **This needs a
+  human decision — see §10.**
 
 ### F13/F14 are dead code — do not migrate
 
@@ -426,27 +471,34 @@ hand-written stubs in `test/` (`test/Arduino.h`, `test/Wire.h`, `test/Preference
 `test/ZACwire.h`, `test/U8g2lib.h`, `test/OneWire.h`, `test/DallasTemperature.h`,
 `test/WiFi*.h`, `test/PubSubClient.h`, `test/esp_task_wdt.h`, `test/esp_system.h`,
 `test/esp_heap_caps.h`). **Verified 2026-09-28: 340 test cases, 340 pass** (`pio test -e native_test`, 55 s). Note `docs/plan/task-list.md` still says 234 — it is stale.
+**Re-verified 2026-09-28 at `34bf308`: 340 test cases, 340 succeeded in 22.382 s** (warm cache; see §10.2.2).
 
 ---
 
 ## 10. Local environment state (2026-09-28) — what is and is not verified
 
-**Verified on this machine**
+**Tooling verified on this machine**
 
 - `~/.platformio/penv/bin/pio` → PlatformIO Core 6.2.0.
-- `.mise.toml` present and now trusted; declares node 24, pnpm, python 3.14.7,
-  clang-format 23.1.1 — all currently **missing** (not installed).
-- `git` clean at `2006b71`; no `rustup`, no `cargo`, no `just`, no `espflash`.
-- `~/.platformio/platforms` does not exist — the `espressif32` platform has never been
-  installed here, so the C++ firmware has **not** been built in this environment.
+- `~/.platformio/platforms/` **now exists**: `espressif32` and `native`. The C++ firmware **has
+  been built here** (the earlier claim that it never had been is stale).
+- `esptool.py` v4.11.0 at `~/.platformio/packages/tool-esptoolpy/esptool.py`
+  (PlatformIO-bundled; `espflash` is still not installed — that is R1-01's job).
+- `git` clean at **`34bf30898f0aa4f1ec7225c1f01e52de916e6b47`** on branch `rewrite/rust`;
+  `git status --short` is empty.
+- `node` v26.10.0 and `pnpm` 12.6.0 are on `PATH` (Homebrew, **not** mise). `rustup`, `cargo`
+  and `just` are still absent.
+- **Network limitation, new:** `registry.npmjs.org` is **unreachable** from this machine
+  (`curl` → HTTP `000`, connection failure) while `github.com` returns `200`. Therefore
+  `pnpm install` cannot run and **the frontend cannot be built here.** This blocks
+  `pio run -t buildfs` and therefore the real LittleFS image size (see R0-02).
 
-**NOT verified — no hardware**
+**Hardware is now attached** (it was not when this section was first written)
 
-- `ioreg -p IOUSB` and `system_profiler SPUSBDataType` show **no Espressif device**.
-  `/dev/cu.*` contains only Bluetooth devices and a debug console.
-- `DEBUG_GUIDE.md` expects `/dev/ttyUSB0`; it does not exist.
-- **Conclusion: no ESP32 test board is currently attached to this machine.** No flashing,
-  monitor, or hardware validation is possible until one is connected.
+- `/dev/cu.usbserial-204140` — the ESP32 board. `ioreg -p IOUSB` resolves it, so the previous
+  "no Espressif device / no board attached" conclusion is stale.
+- **The device is running a Rust `cc_firmware` image, not the C++ firmware.** See the loud
+  warning below — this is the most consequential finding of this pass.
 
 **NOT verified — documentation vs. code discrepancies found during the audit**
 
@@ -458,16 +510,185 @@ hand-written stubs in `test/` (`test/Arduino.h`, `test/Wire.h`, `test/Preference
 - `CONFIG_REFERENCE.md:114` documents `display.blescale_brew_timer` and `:165-172`
   documents `display.blinking.mode` — neither exists in the code.
 
-**Still to confirm on physical hardware**
+---
 
-| Question | Why it matters |
+## 10.1 🔴 Findings that CONTRADICT the migration plan
+
+Read these before scheduling any Phase 1 task. Each one invalidates or reshapes a documented
+assumption.
+
+### 🔴 1. The board is running a Rust firmware built by someone else, not the C++ firmware
+
+The boot log captured over UART at 115200 on 2026-09-28:
+
+```
+I (29)  boot: ESP-IDF v5.5.5 2nd stage bootloader
+I (31)  boot: chip revision: v3.0
+I (716) app_init: Project name:     libespidf
+I (724) app_init: App version:      v0.0.1-3-gfb0564a-dirty
+I (729) app_init: Compile time:     Sep 26 2026 22:39:21
+I (811) cc_firmware: config: FreeRTOS tick 1000 Hz, heater window 1000 ms, interlock 500 ms
+I (887) cc_firmware: heater interrupt running on GPIO2 (active high), output held off until the supervisor beats
+I (888) cc_firmware: pump on GPIO27, valve on GPIO17, both asserted off
+I (948) cc_firmware::ota: partitions: app slot 1835008 B, littlefs 393216 B
+I (5373) esp_idf_svc::http::server: Started Httpd server with config Configuration { http_port: 80, ... }
+I (5373) cc_firmware::web: littlefs: 225280 of 393216 bytes used
+```
+
+`fb0564a` is **not an object in this repository** (`git cat-file -t fb0564a` → invalid object
+name), and no `Cargo.toml` containing `esp-idf-svc` exists under `~/projects`. The image is
+therefore from a different clone, a deleted worktree, or another machine.
+
+**Consequences:**
+
+1. The whole of Phase 1 (R1-01 … R1-08) has, at least partly, already been executed somewhere
+   that is not in this repository. The plan's assumption that nothing has been built is false.
+   **Locate that tree before starting R1-01**, or a second divergent Rust firmware will be
+   created.
+2. The running image uses a **different partition table from the root `partitions_4M.csv`**:
+
+   | Partition | root `partitions_4M.csv` (C++) | table live on the device (Rust) |
+   | --- | --- | --- |
+   | `nvs` | `0x9000` / `0x5000` (20,480 B) | `0x9000` / `0x5000` (20,480 B) |
+   | `otadata` | `0xE000` / `0x2000` (8,192 B) | `0xE000` / `0x2000` (8,192 B) |
+   | `app0` | `0x10000` / `0x1A0000` (1,703,936 B) | `0x10000` / `0x1C0000` (**1,835,008 B**) |
+   | `app1` | `0x1B0000` / `0x1A0000` (1,703,936 B) | `0x1D0000` / `0x1C0000` (**1,835,008 B**) |
+   | fs | `0x350000` / `0xA0000` (655,360 B) | `0x390000` / `0x60000` (**393,216 B**) |
+   | `coredump` | `0x3F0000` / `0x10000` (65,536 B) | `0x3F0000` / `0x10000` (65,536 B) |
+
+   An R0-02-style rebalance is **already live on the device**, and it differs from the
+   arithmetic in 06 R0-02. R0-02 must reconcile the two rather than restart from the root CSV.
+3. The device has **Wi-Fi credentials written into its NVS** by that image ("credentials
+   written at flash time"). Any R1-08 parity capture that diffs `/api/wifi` or the NVS
+   contents must not commit them.
+
+### 🔴 2. The USB-to-UART bridge is a CH340, not a CP2102N
+
+Measured: VID `0x1A86`, PID `0x7523`, `iProduct` = `"USB Serial"`, `iSerialNumber` = absent
+(macOS therefore names the node from `locationID` `0x20414000` → `usbserial-204140`).
+`0x1A86` is QinHeng/WCH and `0x7523` is the **CH340** family. The bridge being a CH340 rather
+than a CP210x changes **nothing** in the plan (it is still a plain UART bridge, so the "no
+native USB" conclusion is unaffected), but `SKILL.md` §1 and `README.md` state CP2102N and
+that is wrong for this board. Install a WCH CH34x/CH340 driver note in `DEBUG_GUIDE.md`.
+
+### 🔴 3. Auto-reset works — no manual BOOT+EN needed
+
+`SKILL.md` §6 says *"The original ESP32 may need a manual BOOT+RST. Some DevKitC boards lack
+the EN↔GND capacitor."* On this board the DTR/RTS auto-reset circuit is **present and
+reliable**: five consecutive `esptool.py` invocations connected with no manual intervention.
+`just flash <port>` can be non-interactive. Keep the `espflash hold-in-reset` fallback, but
+do not build the workflow around it being needed.
+
+### 🔴 4. A DS18B20 is fitted, not a TSIC-306 — R1-03's premise is wrong for this machine
+
+See the callout in §3. **R1-03 is the single most expensive task in the plan** ("the one spike
+that can invalidate the whole approach") and it targets a sensor that is not on this board.
+Needs a human decision before R1-03 is scheduled.
+
+### 🔴 5. Silicon is revision v3.0 — the errata worry in the old table was unfounded
+
+`esptool.py chip_id` → `Chip is ESP32-D0WD-V3 (revision v3.0)`; the boot log independently
+prints `efuse_init: Min chip rev: v0.0 / Max chip rev: v3.99 / Chip rev: v3.0`. v3.0 is the
+newest original-ESP32 silicon, so the "errata affecting RF and USB-serial behaviour" concern
+in the old table is largely moot — v3.0 still has no USB peripheral at all, so only RF is
+even in question. Record it and move on.
+
+### ⚠ 6. `debug_tool = esp-prog` is probably wrong for this board (not tested)
+
+`platformio.ini:47` sets `debug_tool = esp-prog` for `esp32_usb`, which needs an FT2232H-class
+probe. This board exposes only a CH340 UART bridge; there is no JTAG probe on it. `pio run`
+(upload) is unaffected — that uses esptool over the UART — but **`pio debug` / gdb is expected
+to fail.** Not verified: `pio debug` was not run (it would need a live GDB session and a
+booted target). R1-01 should decide how debugging is done, and `SKILL.md` §5's `just lint-esp32`
+/ gate flow assumes a working toolchain only, not gdb, so nothing is blocked — but do not
+promise gdb.
+
+---
+
+## 10.2 Physical board — verified findings (replaces the old "still to confirm" table)
+
+Every row below was measured on the board at `/dev/cu.usbserial-204140` on **2026-09-28**.
+"Measured" = read out of the chip over esptool or out of the device's own boot log.
+"Datasheet" = read from an Espressif primary source. "Assumed" = inference, flagged as such.
+
+| # | Question | Verdict | How it was determined | Evidence |
+| --- | --- | --- | --- | --- |
+| 1 | **Exact module: WROOM-32E vs WROVER?** | **ESP32-WROOM-32E** (high confidence; one gap — see §10.3) | Measured (4 independent signals) | (a) 4 MB flash; (b) esptool reports `Flash voltage set by a strapping pin to 3.3V` — **excludes WROVER-E**, whose VDD_SDIO is 1.8 V (ESP32-WROVER-E datasheet v2.3, §Boot Configurations / block diagram); (c) the ESP-IDF 5.5.5 boot log contains **no** `spiram`/`psiram` line and `heap_init` lists only DRAM/D-IRAM/IRAM regions; (d) GPIO16 and GPIO17 are in active use in the running firmware, and on a WROVER (`D0WDR2-V3`) those pins carry the in-package PSRAM `CE#`/`SCLK` (ESP32 Series Datasheet v5.3, Table 2-5) |
+| 2 | **Silicon revision** | **v3.0** | Measured, two independent sources | `esptool.py --chip esp32 --port … chip_id` → `Chip is ESP32-D0WD-V3 (revision v3.0)`, `Features: WiFi, BT, Dual Core, 240MHz, VRef calibration in efuse, Coding Scheme None`, `Crystal is 40MHz`. Boot log: `boot: chip revision: v3.0` and `efuse_init: Chip rev: v3.0`. Note `esp32` has no OTP Chip ID, so esptool reads the MAC instead: `ec:62:60:76:b5:3c` |
+| 3 | **Flash size** | **4 MB** (4,194,304 B) | Measured | `esptool.py flash_id` → `Detected flash size: 4MB`; boot log → `boot.esp32: SPI Flash Size : 4MB`; board JSON `upload.flash_size = "4MB"`, `maximum_size = 4194304` |
+| 4 | **Flash chip identity** | JEDEC **`0xD8` / `0x4016`**, 4 MB. The *physical part* is **UNVERIFIED** | Measured (JEDEC bytes); the part number is not determinable from software | `esptool.py flash_id` → `Manufacturer: d8`, `Device: 4016`, `Detected flash size: 4MB`, `Flash voltage set by a strapping pin to 3.3V`. ESP-IDF logs `spi_flash: detected chip: generic` — i.e. `0xD8` is **not** in IDF's vendor table, so IDF falls back to the generic NOR driver. Device ID `0x4016` is the density code shared by GD25Q32 and W25Q32 (both 32 Mbit), but the manufacturer byte `0xD8` is not a JEDEC-registered code I could identify from a primary source. **Do not assume GD25Q32.** `read_flash_status` → `Status value: 0x0200`. SFDP could not be read: esptool 4.11.0 aborts with *"Reading more than 32 bits back from a SPI flash operation is unsupported"* |
+| 5 | **DIO vs QIO, and clock** | **DIO @ 40 MHz.** QIO is *not* configured | Measured | Image header of **both** `bootloader.bin` and `firmware.bin`: `flash_mode = 0x02` (DIO), flash size nibble `0` ("keep"), frequency nibble `0x2` (20 MHz). The 2nd-stage bootloader re-configures to 40 MHz: `boot.esp32: SPI Speed : 40MHz`, `SPI Mode : DIO`. `boot:0x13 (SPI_FAST_FLASH_BOOT)`. **Whether this `0xD8` part supports QIO at all is UNVERIFIED** — no QIO attempt is logged and the part is unidentified; do not enable QIO |
+| 6 | **PSRAM present?** | **No — none detected.** Fully conclusive answer still requires one more check (§10.3) | Measured (boot log, conditional) | Zero occurrences of `psram`, `spiram` or `memspiram` in the full ESP-IDF 5.5.5 boot log. `heap_init: Initializing. RAM available for dynamic allocation:` lists only `3FFAE6E0 len 0x1920 (6 KiB): DRAM`, `3FFBA470 len 0x25B90 (150 KiB): DRAM`, `3FFE0440 len 0x3AE0 (14 KiB): D/IRAM`, `3FFE4350 len 0x1BCB0 (111 KiB): D/IRAM`, `40098008 len 0x7FF8 (31 KiB): IRAM` — **no external-memory heap**. Caveat: ESP-IDF only probes PSRAM when `CONFIG_SPIRAM` is enabled, and the sdkconfig of the image that produced this log is not in this repository |
+| 7 | **Auto-reset circuit (EN↔GND cap)?** | **Present and working** | Measured | Five consecutive esptool runs (`chip_id`, `flash_id`, `read_flash_status`, `read_flash_sfdp`, `get_security_info`) all reached *"Connecting......"* on the first attempt at `--baud 115200`, and each ended with `Hard resetting via RTS pin`. No manual BOOT+EN was used at any point. The CH340's DTR/RTS drive the auto-reset transistors. **Non-interactive flashing is viable** — see 🔴 3 |
+| 8 | **USB identity** | **WCH CH340**, VID `0x1A86` (6790), PID `0x7523` (29987) | Measured | `ioreg -p IOUSB -l -w 0`, node `USB Serial@20414000`: `idVendor = 6790`, `idProduct = 29987`, `bDeviceClass = 255`, `bcdUSB = 272` (USB 2.0), `USBSpeed = 1` (full-speed 12 Mbit/s), `locationID = 541147136`, `iProduct = 2`, `iSerialNumber = 0` (no serial string → macOS derives `usbserial-204140` from the location). `system_profiler SPUSBDataType` returns nothing on this host. **No Silicon Labs (`0x10C4`) device is present at all** — see 🔴 2 |
+| 9 | **Do GPIO16/GPIO17 really work?** | **Yes — both work** | Measured + datasheet | Datasheet: strapping pins are GPIO0, GPIO2, MTDI/GPIO12, MTDO/GPIO15, GPIO5 (ESP32 Series Datasheet v5.3, Table 3-1). GPIO16/17 are flash/PSRAM *pins* (Table 2-5), not strapping pins, and are unused inside a WROOM-32E. Measured: the running firmware logs `pump on GPIO27, valve on GPIO17, both asserted off` and drives the heater on GPIO2, and a live 1-Wire device answers on the temp-sensor bus. §2 has been corrected |
+| 10 | **Which temperature sensor is fitted?** | **DS18B20** (1-Wire), not the TSIC-306 default | Measured | Boot log: `cc_firmware::sensor: sensor: DS18B20 at 0x41af78cdaa376928 (family 0x28), 11-bit resolution, reading every 400 ms`, plus `temp=22.88` … `temp=23.25` live values. Caveat: the log is from a **Rust** image, not the C++ one, and it does not print the probe pin (GPIO16 is inferred from `pinmapping.h:27` plus the matching GPIO2/17/27 pins). **Re-confirm on the C++ firmware** — see 🔴 4 |
+| 11 | **Relay board active-high or active-low?** | **UNVERIFIED** | Not determinable read-only from a laptop | The only signal available is an *assumption* in the running Rust image: `heater interrupt running on GPIO2 (active high)`. That is a firmware belief, not a measurement. C++ defaults to `HIGH_TRIGGER`. To settle it, put a multimeter or scope on the relay coil and watch the level when the firmware commands the heater off — **needs a person at the machine and a written safe procedure** (see 06 R1-07). Must not be improvised |
+| 12 | **Free flash after the current C++ build** | See the size table below | Measured | `pio run -e esp32_usb` + `stat` |
+| 13 | **Free flash in LittleFS / `buildfs`** | **UNVERIFIED — `buildfs` cannot run on this machine** | Attempted, blocked by network | `pio run -e esp32_usb -t buildfs` fails in the `pre:` hook `scripts/build_frontend.py` → `pnpm install` → `Error: × resolve pnpm@11.25.0 … Failed to fetch metadata from https://registry.npmjs.org/pnpm`. `curl --max-time 12 https://registry.npmjs.org/pnpm` → HTTP `000`; `https://github.com` → `200`. `ui/node_modules` does not exist. **Not worked around, by instruction.** Also note the `packageManager` field pins `pnpm@11.25.0` while the installed pnpm is 12.6.0, so `corepack` tries to self-download |
+
+### 10.2.1 Measured C++ image sizes (2026-09-28, `34bf308`, `pio run -e esp32_usb`)
+
+Exact byte sizes of the build artifacts:
+
+| Artifact | Bytes | Note |
+| --- | --- | --- |
+| `.pio/build/esp32_usb/firmware.bin` | **1,546,240** | 5 segments; DROM 0x606F4 (394,996 B), DRAM 0x65F0 (26,096 B), IRAM 0x09304 (37,636 B), IROM 0xFCFA4 (1,035,684 B), IRAM 0xC804 (51,204 B) |
+| `.pio/build/esp32_usb/bootloader.bin` | **17,536** | 2nd stage; header DIO / 20 MHz / size "keep" |
+| `.pio/build/esp32_usb/partitions.bin` | **3,072** | binary table, magic `0x50AA`; matches the root `partitions_4M.csv` (verified by decoding the entries) |
+| `.pio/build/esp32_usb/firmware.elf` | 51,335,052 | — |
+| `littlefs.bin` | **absent** | `buildfs` never completed — see row 13 |
+| Data source dir | **absent** | `data/` does not exist (gitignored; produced by `pnpm copy:dist`) |
+
+Free-space arithmetic against the **root `partitions_4M.csv`** (this is the C++ baseline; it is
+*not* the table live on the device — see 🔴 1):
+
+| Region | Size | Used | Free |
+| --- | --- | --- | --- |
+| `app0` / `app1` slot | 1,703,936 B (0x1A0000 = 1,664 KiB) | 1,546,240 B (`firmware.bin`) | **157,696 B = 154.0 KiB (9.25 % headroom)** |
+| `spiffs` (LittleFS) | 655,360 B (0xA0000 = 640 KiB) | **UNKNOWN** | **UNKNOWN** — `buildfs` blocked |
+| `nvs` | 20,480 B | runtime | — |
+| `otadata` | 8,192 B | runtime | — |
+| `coredump` | 65,536 B | runtime | — |
+| Total flash | 4,194,304 B (4 MiB) | table ends exactly at `0x400000` | 0 B unused |
+
+PlatformIO's own accounting for the same build: `RAM: 14.1 % (used 75,240 bytes from
+532,480 bytes)`, `Flash: 90.4 % (used 1,539,657 bytes from 1,703,936 bytes)`. (1,539,657 vs
+1,546,240: the ELF is 7,583 B smaller than the packaged `.bin` because of the 24-byte image
+header, 8-byte-per-segment padding and the trailing SHA-256 digest.)
+
+Reference point from the image **live on the device** (Rust, different table — 🔴 1):
+app slot **1,835,008 B**, LittleFS **393,216 B of which 225,280 B used → 167,936 B free**.
+
+### 10.2.2 Re-verified baseline (R0-04 inputs)
+
+| Command | Result |
 | --- | --- |
-| Exact module on the board: ESP32-WROOM-32E vs WROVER-32E | flash size, PSRAM presence |
-| Chip revision (v0/v1/v2/v3 silicon) | errata affecting RF and USB-serial behaviour |
-| Does GPIO 16 (temp sensor) and GPIO 17 (valve) really work alongside the module strapping pins | they are documented as not-recommended on ESP32 |
-| Relay board active-high vs active-low in the field | `trigger_type` defaults to `HIGH_TRIGGER` |
-| Which temperature sensor variant is actually installed (TSIC-306 default) | different wire protocol |
-| Free flash after `pio run -t buildfs` | 640 KB `spiffs` budget |
+| `git rev-parse HEAD` | `34bf30898f0aa4f1ec7225c1f01e52de916e6b47` |
+| `git branch --show-current` | `rewrite/rust` |
+| `git status --short` | *(empty — clean tree)* |
+| `pio run -e esp32_usb` | **SUCCESS**, 3.86 s (incremental). Tooling note: `tool-mklittlefs @ ~1.203.0` was auto-installed during the failed `buildfs` run |
+| `pio test -e native_test` | **340 test cases, 340 succeeded, 00:00:22.382**. All 33 suites + 4 sub-suites PASSED. (The "55 s" quoted in §9 includes compilation; with a warm build cache the run itself is 22.4 s) |
+| `pio run -e esp32_usb -t buildfs` | **FAILED** — npm registry unreachable, see row 13 |
+
+### 10.2.3 Re-verified native-test count
+
+`docs/plan/task-list.md`'s "234" remains stale, as does nothing else — **340 is correct**
+(06 §"C++ test-suite coverage map" already says 340).
+
+## 10.3 Still UNVERIFIED — what is missing and exactly how to close it
+
+| Gap | Why it is still open | Cheapest way to close it |
+| --- | --- | --- |
+| **Module part marking** — is it *literally* stamped WROOM-32E? | Four independent software signals all point to WROOM-32E, but none of them reads the module's silkscreen/label. A WROVER-4MB has 4 MB flash **and** 3.3 V VDD_SDIO, so flash size and rail voltage alone do not exclude it. Only signals (c) and (d) exclude it, and both are conditional on the running image's build config | **Photograph the module** (R0-01 originally asked for this). One close-up of the metal can ends it. Alternatively, the board must be opened |
+| **PSRAM, conclusively** | The boot log's silence about PSRAM is only meaningful if the image that produced it was built with `CONFIG_SPIRAM=y`. That sdkconfig is not in this repository | Add `esp_psram_get_size()` and an `assert`/log of the result to the **R1-01** minimal `main` (which already does a pin readback and asserts). One boot answers it with a compile-time-checked value. Until then, "no PSRAM" is a high-confidence inference, not a measurement |
+| **Which physical flash part is `0xD8:0x4016`?** | `0xD8` is not in ESP-IDF's vendor table (hence `detected chip: generic`) and is not a JEDEC code I could identify from a primary source. `0x4016` only fixes the density (32 Mbit / 4 MB) | Read the chip's markings off the board, or read the 64-bit flash unique ID (RDUID) — ESP-IDF's `esp_flash_read_unique_chip_id` can do this, or `esptool` with a newer version than 4.11.0 (SFDP is blocked by a 4.11.0 limitation: *"Reading more than 32 bits back from a SPI flash operation is unsupported"*) |
+| **QIO capability of that flash part** | QIO needs the part's Quad-Enable bit set correctly; the part is unidentified, so there is no datasheet to check against | Read the part number (above) and check its datasheet. **Until then: stay on DIO** — DIO is proven working |
+| **Relay active-high vs active-low** | Only a firmware *belief* is available (`GPIO2 (active high)` from the Rust image) | Multimeter or scope on the relay coil while the firmware commands the heater off. **Needs a written safe test procedure, reviewed, boiler disconnected, person present** (06 R1-07). Not to be improvised |
+| **Real LittleFS image size** | `pnpm install` cannot reach `registry.npmjs.org` from this machine | Restore npm-registry access (or pre-populate `ui/node_modules` and `data/ui` from a machine that has it), then `pio run -e esp32_usb -t buildfs`. This is the **R0-02** prerequisite |
+| **Whether the C++ firmware reads a DS18B20 too** | The DS18B20 evidence came from a Rust image | Flash the C++ firmware and read the boot log. Do this before R1-03 is scheduled (🔴 4) |
+| **`pio debug` / gdb** | `debug_tool = esp-prog` needs an FT2232H probe; this board has only a CH340. Not tested | Decide in R1-01. Until decided, **do not promise a gdb workflow** — `espflash` + `defmt`/log-based debugging is the likely answer |
+| **Where the Rust firmware on the device came from** | `fb0564a` is not a git object here and no matching workspace exists under `~/projects` | Ask whoever flashed it, or search the filesystem for another clone. **Do this before R1-01** (🔴 1) |
 
 ---
 

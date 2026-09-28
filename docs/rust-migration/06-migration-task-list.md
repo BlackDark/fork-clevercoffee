@@ -183,17 +183,34 @@ Each spike is a **throwaway `examples/` binary in the workspace**, deleted or mo
 - **Uncertainty:** U2 — no authoritative recommendation exists. This is a
   document-the-evidence task as much as a benchmark.
 
-### R1-03 — TSIC-306 / ZACwire decoder ⚠ HIGHEST RISK
+### R1-03 — DS18B20 / 1-Wire driver (⚠ re-scoped 2026-09-28)
 
-- **Objective:** decode the TSIC-306 protocol from Rust reliably enough for temperature
-  control, including every safety behaviour the C++ version has.
+- **RE-SCOPED 2026-09-28.** This was "TSIC-306 / ZACwire, the highest-risk spike that can
+  invalidate the whole approach". Two measurements invalidate that framing:
+  1. **A DS18B20 is physically fitted** (family `0x28`, 11-bit, ROM
+     `0x41af78cdaa376928`, live readings 22.9–23.3 °C). Not a TSIC-306.
+  2. **The recovered firmware shipped 1-Wire only** and logged *"config asks for Tsic306
+     but only the DS18B20 driver exists; reading the 1-Wire bus anyway"* (08 §3).
+  So TSIC-306 is a **config option that was never implemented**, not the shipping sensor.
+  This task is now: **port DS18B20 correctly, and decide what
+  `hardware.sensors.temperature.type = TSIC_306` does** (implement, or reject at
+  config-validation time — the oracle's fail-closed config validation is the precedent,
+  08 §4.1).
+- **Objective:** read a DS18B20 reliably enough for temperature control, including every
+  safety behaviour the C++ version has, plus the TSIC-306 decision above.
 - **Prereqs:** R1-01. **HW required.**
 - **Reference material:** the IST AG app note `ATTSic_E2.3.0.pdf`; the existing
   `ZACwire` C library; `src/hardware/tempsensors/TempSensorTSIC.cpp`.
 - **Steps:**
-  1. Port the protocol from the app note: 8 kHz, 125 µs bit window, `Tstrobe` = 62.5 µs,
-     duty-cycle encoding (start 50 %, `1` 75 %, `0` 25 %), two packets with even parity,
-     `T = DS/2047 · 200 − 50`.
+  1. **1-Wire first.** Port the C++ DS18B20 path: reset/presence, `0xCC` skip-ROM,
+     `0x44` convert, `0xBE` read scratchpad, CRC8, 11-bit resolution (~375 ms),
+     non-blocking, 400 ms cadence. Note `esp_idf_hal::delay` rounds `delay_ns` up to 1 µs,
+     which is adequate for 1-Wire (3–65 µs slots) but **not** for HX711.
+  2. **TSIC-306, only if the decision is "implement".** The protocol, from the IST app
+     note: 8 kHz, 125 µs bit window, `Tstrobe` = 62.5 µs, duty-cycle encoding (start 50 %,
+     `1` 75 %, `0` 25 %), two packets with even parity, `T = DS/2047 · 200 − 50`, and
+     **a ≥ 128 kHz sampling rate for acquiring the start bit** (app note; the plan
+     previously omitted this, the most concrete timing constraint in the protocol).
   2. Implement a **falling-edge ISR** that measures `Tstrobe` on the start bit then
      samples after each of the next 9 falling edges. Verify the ISR stays within budget
      (~2.7 ms worst case per the app note).
@@ -405,7 +422,7 @@ of the behavioural surface.
 | **R2-02** | Add the CI lint-hygiene greps (no `#![allow(`, no bare `esp_idf_` in portable crates) and enable `clippy::pedantic` as deny. | R1-01 | no | The greps are in `.github/workflows/rust.yml` and fail on a deliberately added violation. |
 | **R2-03** | Apply the R0-02 partition rebalance. Keep `nvs`, `otadata`, `coredump` byte-identical. | R0-02, R1-01 | no | `just build-esp32` produces an image that fits with recorded headroom; `cargo espflash` flashes without error. |
 | **R2-04** | `cc-domain`: units, enums, `MachineState` (18 variants), `ErrorCode`, and a port of the Arduino PID library. | Gate 1 | no | `cargo test -p cc-domain`; PID output matches the C++ for a fixed input sequence. |
-| **R2-05** | `cc-safety`: the `SafetyMonitor` — S1 (3-count debounce, immediate trip on out-of-range), S2 (emergency latch), S3 (recovery below 100 °C), S4 (water tank), S5 (`water_flow_allowed` with a `match` that has no `_` arm, so a new water-flow state is a compile error). | Gate 1 | no | `cargo test -p cc-safety`; every branch of 01 §6 is a named test; adding a water-flow state without updating the whitelist **fails to compile** (tested by a `trybuild`-style case or a documented manual check). |
+| **R2-05** | `cc-safety`: the `SafetyMonitor` — S1 (3-count debounce, immediate trip on out-of-range), S2 (emergency latch), S3 (recovery below 100 °C), S4 (water tank), S5 (`water_flow_allowed` with a `match` that has no `_` arm, so a new water-flow state is a compile error). **Plus the two fail-closed rules recovered from the oracle (08 §4.1), which the plan did not have:** (a) **cross-parameter validation** — `safety.emergency_temp` must exceed `steam.setpoint + safety.emergency_hysteresis`, else the machine trips itself during normal steam use; (b) **refuse a stored config that fails validation** — discard it, run defaults, and refuse to store an unsafe one. | Gate 1 | no | `cargo test -p cc-safety`; every branch of 01 §6 is a named test; adding a water-flow state without updating the whitelist **fails to compile** (tested by a `trybuild`-style case or a documented manual check). |
 | **R2-06** | `cc-config`: the 96-parameter registered schema (98 after the `safety.emergency_*` fix), the `ConfigStore` trait, NVS-independent JSON import/export, and a `Secret<T>` wrapper whose `Debug`/`Display` redact. | Gate 1 | no | `cargo test -p cc-config`; round-trip; defaults; the `safety.emergency_temp` registration bug from [01 §10](./01-feature-inventory.md#10-local-environment-state-2026-09-28--what-is-and-is-not-verified) is **fixed**, with a test that fails against the old behaviour. |
 | **R2-07** | Drop scale support (F13/F14) per R0-03. | R0-03 | no | No HX711 or BLE code in the Rust tree; documented in the release notes. |
 | **R2-08** | `cc-machine`: the state machine as an **Elm-style reducer** ([04 §3.1](./04-target-architecture.md#31-internal-structure-functional-core-imperative-shell)) — `reduce(state, ctx, event) -> (state, Vec<Effect>)`, 18 states, per-state `on_entry`/`on_exit`/`update` per ADR-0003, the global guards, and the handlers. **Do not** port `LoopManager::update()` as-is: its eight ordered steps reaching into ten-plus subsystems ([01 §4](./01-feature-inventory.md#4-execution-model-today)) is the defect being fixed. | R2-04, R2-05, R2-06 | no | The C++ suites `test_state_machine`, `test_pid_state_transitions`, `test_brew_preinfusion_pause`, `test_steam_water_injection`, `test_backflush_states`, `test_backflush_mode`, `test_state_flow_integration`, `test_power_handler`, `test_brew_handler`, `test_hot_water_handler`, `test_steam_handler` are ported and pass. Plus an **exhaustive `state × event` table** over the reducer — every pair reaches a named verdict. Every state that energises hardware disables it in `on_exit` **and** re-asserts it in `update`. `applier.apply()` is the only function that calls `Actuators`. |
@@ -430,7 +447,7 @@ of the behavioural surface.
 | --- | --- | --- | --- | --- |
 | **R3-01** | `cc-hal-esp32`: `Board` trait + the ESP32-DevKitC impl, the full pin map from [01 §2](./01-feature-inventory.md#2-pin-map--includeclevercoffeehardwarepinmappingh), and a `const` pin assertion. | Gate 2 | no | Compiles; a deliberately wrong pin fails to compile with a clear message. |
 | **R3-02** | `GpioIn` with 20 ms debounce and 500 ms long-press, matching `IOSwitch.cpp`. The water-tank switch is a `GpioIn` too. | R3-01 | yes | Debounce and long-press match the C++ on hardware; water-tank-empty kills the pump within one tick. |
-| **R3-03** | `Actuators`: the single owner of pump, valve, heater. `ValveState` enum preserved. Emergency latch and water-tank interlock checked **inside** the methods, not at call sites. | R3-01, R2-05 | yes | Every method refuses when the latch is set; `close_*` always works. A test that tries to bypass via a state cannot. |
+| **R3-03** | `Actuators`: the single owner of pump, valve, heater. `ValveState` enum preserved. Emergency latch and water-tank interlock checked **inside** the methods, not at call sites. **Plus the deadman heartbeat (08 §4): the heater output is gated by a latching heartbeat — the plan currently has no equivalent and relies on a 5 s watchdog reset, which leaves the heater energised far too long.** Also **reject `LOW_TRIGGER` for the heater relay**: an undriven GPIO at reset would energise it, so a `LOW_TRIGGER` heater config must be refused at config-validation time (08 §4.1) — this is a real hole in the current C++ firmware, which honours the setting. | R3-01, R2-05 | yes | Every method refuses when the latch is set; `close_*` always works. A test that tries to bypass via a state cannot. |
 | **R3-04** | `HeaterOutput` per the R1-07 decision. `heater_enabled` boolean **deleted**. | R1-07, R3-03 | yes | ⚠ Safe test procedure. Duty cycle correct; no other task may write the pin. |
 | **R3-05** | `Abp2Pressure` over I2C with the 10 ms conversion wait made **non-blocking** (the C++ version blocks the loop 20 % of the time). | R3-01 | yes | Pressure matches the C++ reading; the control loop is no longer stalled. |
 | **R3-06** | `OneWireDs18b20` — port the C, non-blocking, 11-bit, 400 ms cadence. | R3-01 | yes | Matches the C++ reading; disconnected/short/open faults are detected. Only needed if `temp-ds18b20` is enabled. |

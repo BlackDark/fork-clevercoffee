@@ -193,9 +193,10 @@ Rules:
 - **`just reflash` is destructive** (it erases NVS, which holds all config and Wi-Fi
   credentials). It requires a typed `ERASE`. Do not run it to "fix" a problem without
   understanding the consequence.
-- **The original ESP32 may need a manual BOOT+RST.** Some DevKitC boards lack the EN↔GND
-  capacitor, so auto-reset does not work. `espflash hold-in-reset` exists for this. If
-  flashing fails, that is the first thing to check — not the firmware.
+- **Auto-reset works on this board** (measured 2026-09-28: 5/5 first-try connects, no
+  manual BOOT+EN needed). Do not assume a manual dance is required. If flashing fails,
+  check `espflash board-info` and the cable first — **not** the firmware. The link is
+  flaky above 460800 baud; stay at the default rate.
 - **A target is supported only after it is flashed and exercised.** Until then, a
   successful build for ESP32-S3 or ESP32-C6 proves nothing. When you do verify one, update
   01 §1 with exactly what was tested.
@@ -289,5 +290,12 @@ You will find things the research could not have known. When that happens:
 ## 11. Support files
 
 - [`notes.md`](./notes.md) — current state, completed tasks, open blockers. Update it.
+- [`../../docs/rust-migration/08-recovered-oracle.md`](../../docs/rust-migration/08-recovered-oracle.md)
+  — **read before designing anything.** A complete Rust firmware previously ran on this
+  board; its source is gone but the binary was recovered from flash. It contains a
+  **deadman heartbeat**, **config-time cross-parameter safety validation**, a **refusal of
+  `LOW_TRIGGER` heater relays**, the working **UART Wi-Fi provisioning** protocol, and a
+  known-good partition layout. The plan has been revised to adopt these — do not reinvent
+  them.
 - [`checklists.md`](./checklists.md) — copy-paste validation checklists per phase and per
   task type.
