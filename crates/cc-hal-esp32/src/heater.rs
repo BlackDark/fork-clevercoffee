@@ -162,6 +162,34 @@
 //! The decision is recorded rather than left implicit: if the carrier ever has
 //! to go above ~1 MHz, this is the line to change.
 //!
+//! # 🔴 Blocked on hardware: the 1 Hz carrier trips the interrupt watchdog
+//!
+//! Measured 2026-09-28 on the attached board. **This driver panics the chip at
+//! boot**, and the cause is ESP-IDF's own HAL, not this file:
+//!
+//! ```c
+//! // components/hal/esp32/include/hal/ledc_ll.h:485-489, ESP-IDF v5.5.5
+//! // wait until the last duty change took effect (duty_start bit will be
+//! // self-cleared when duty update or fade is done)
+//! // this is necessary on ESP32 only, otherwise, internal logic might mess up
+//! while (hw->channel_group[speed_mode].channel[channel_num].conf1.duty_start);
+//! ```
+//!
+//! `duty_start` is cleared by the hardware at the next **timer period**, and the
+//! spin is inside `portENTER_CRITICAL(&ledc_spinlock)`
+//! (`components/esp_driver_ledc/src/ledc.c:1603-1606`) — interrupts masked. At
+//! the 1 Hz carrier chosen below, that is up to **one second**. The original
+//! ESP32's interrupt watchdog is **300 ms** (`components/esp_system/int_wdt.c`).
+//!
+//! The 1 Hz choice is still right *for the contactor* and the argument below is
+//! still sound; it is simply not compatible with this chip's LEDC driver, which
+//! nobody checked. The boot backtrace decodes to `ledc_set_duty_and_update` ->
+//! `ledc_ll_set_duty_start`.
+//!
+//! Until it is resolved, `cc-firmware` leaves `BRING_UP_HEATER_LEDC` false and
+//! holds GPIO2 as a plain inactive output. See
+//! [09-cpp-findings.md §20](../../../docs/rust-migration/09-cpp-findings.md).
+//!
 //! # ⚠ Not yet exercised on hardware, and the contactor is still unknown
 //!
 //! **The heater has never been energised by this code, and must not be until

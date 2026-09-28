@@ -24,5 +24,9 @@
 #![deny(clippy::pedantic)] // workspace lints already do this; restated per crate
 
 pub mod heater;
+pub mod onewire;
+pub mod sensors;
 
 pub use heater::{HeaterDuty, HeaterOutput, LedcPwm, CARRIER_HZ, RESOLUTION};
+pub use onewire::GpioOneWire;
+pub use sensors::{Abp2I2c, Abp2Pressure, GpioIn};

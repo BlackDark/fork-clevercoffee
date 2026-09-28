@@ -61,7 +61,7 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
-use cc_domain::hardware::RelayTriggerType;
+use cc_domain::hardware::{RelayTriggerType, TemperatureSensorType};
 use cc_domain::state::MachineState;
 use cc_domain::units::{Celsius, Millis};
 
@@ -100,6 +100,13 @@ pub struct SafetyConfig {
     /// [`validate_config`]. See [`RelayTriggerType`]: a low-trigger heater relay
     /// cannot be made safe in firmware.
     pub heater_relay_trigger: RelayTriggerType,
+    /// `hardware.sensors.temperature.type` — needed only by
+    /// [`validate_config`], and here for the same reason: a temperature sensor
+    /// the firmware cannot drive is a temperature reading S1 cannot trust.
+    ///
+    /// See [`TemperatureSensorType`] and
+    /// [`ConfigViolation::UnsupportedTemperatureSensor`].
+    pub temperature_sensor: TemperatureSensorType,
 }
 
 impl Default for SafetyConfig {
@@ -118,6 +125,18 @@ impl Default for SafetyConfig {
             emergency_hysteresis: Celsius::new(5.0),
             steam_setpoint: Celsius::new(120.0),
             heater_relay_trigger: RelayTriggerType::HighTrigger,
+            // DIVERGENCE from `Config.h:1085-1092`, which defaults
+            // `hardware.sensors.temperature.type` to `TSIC_306`. That default is
+            // wrong for the machine as built: the probe fitted is a DS18B20
+            // (family 0x28, measured), and the TSIC-306 driver was never
+            // implemented in the previous Rust firmware, which logged
+            // "config asks for Tsic306 but only the DS18B20 driver exists;
+            // reading the 1-Wire bus anyway"
+            // ([08 §4.1](../../../docs/rust-migration/08-recovered-oracle.md)).
+            // Defaulting to the driver that exists is what makes the
+            // `TSIC_306` rejection below coherent — a default that is itself
+            // rejected would mean the machine refuses to run its own defaults.
+            temperature_sensor: TemperatureSensorType::DallasDs18b20,
         }
     }
 }
@@ -652,6 +671,33 @@ pub enum ConfigViolation {
     /// energised on every boot. This is a wiring property, not a code path, so
     /// no amount of firmware can make it safe.
     HeaterRelayLowTrigger,
+    /// A temperature sensor type this firmware has no driver for.
+    ///
+    /// **`TSIC_306` / `ZACwire` only.** The protocol is proprietary, no Rust
+    /// implementation exists, and there is no TSIC-306 attached to this machine
+    /// to validate one against — the probe actually fitted is a DS18B20
+    /// (family `0x28`, measured on the board).
+    ///
+    /// The C++ accepted the setting and then read the 1-Wire bus anyway, so a
+    /// user who configured `TSIC_306` was told they had a TSIC-306 and given a
+    /// DS18B20's reading, with no indication of the substitution. That is a
+    /// safety defect, not a convenience gap: a temperature probe is an input to
+    /// S1, and "which sensor is this" is exactly the question a user cannot
+    /// answer by looking at the machine. The previous Rust firmware logged the
+    /// substitution and carried on
+    /// ([08 §4.1](../../../docs/rust-migration/08-recovered-oracle.md)); the
+    /// silent part is what this removes.
+    ///
+    /// Refusing the configuration is the fail-closed pattern already used for
+    /// [`ConfigViolation::HeaterRelayLowTrigger`], and the one recovered from
+    /// that previous firmware: *"refusing to store an unsafe configuration"*.
+    ///
+    /// To support a TSIC-306 the answer is to fit one and implement R3-07
+    /// against it, not to remove this check.
+    UnsupportedTemperatureSensor {
+        /// The sensor type that was asked for.
+        requested: TemperatureSensorType,
+    },
 }
 
 /// Validate a configuration before it is run or stored.
@@ -688,6 +734,12 @@ pub fn validate_config(cfg: &SafetyConfig) -> Result<(), ConfigViolation> {
 
     if cfg.heater_relay_trigger == RelayTriggerType::LowTrigger {
         return Err(ConfigViolation::HeaterRelayLowTrigger);
+    }
+
+    if cfg.temperature_sensor == TemperatureSensorType::Tsic306 {
+        return Err(ConfigViolation::UnsupportedTemperatureSensor {
+            requested: cfg.temperature_sensor,
+        });
     }
 
     Ok(())

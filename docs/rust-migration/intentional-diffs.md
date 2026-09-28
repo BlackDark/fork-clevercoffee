@@ -688,3 +688,126 @@ Recorded here so the file is complete; each was decided in its own task.
 | `Duty` is bounded at `0..=1000`, i.e. the PID output is a **millisecond** duty, not `setHeaterPower`'s `uint8_t` percent | The C++ heater path is a PWM window compared against the PID output, and `HardwareManager::setHeaterPower` (`HardwareManager.cpp:305-318`) is a TODO stub | `cc-domain/src/units.rs::tests::duty_bound_is_the_chopper_window` |
 | Blocked steam mode being requested from the C++ test suite (`test_steam_handler`, `test_steam_water_injection`) | 27 `#[ignore]`d records of C++ mock cases with no Rust equivalent, each with a comment saying why | the `#[ignore]` attributes themselves |
 | SSE over WebSocket for the UI's live channel | R1-05; `EspHttpConnection::write` (chunked) and `raw_connection().write_all` both ship in `esp-idf-svc` 0.53 | R1-05 |
+
+---
+
+## 7. R1-03: the DS18B20 is implemented and `TSIC_306` is refused 🔴 added
+
+| | |
+| --- | --- |
+| **Task** | R1-03 (re-scoped) and R3-06 |
+| **Decision** | The recovered firmware logged *"config asks for Tsic306 but only the DS18B20 driver exists; reading the 1-Wire bus anyway"*. This entry removes the silent part. |
+| **Tests** | `cc-safety::tests::safety_paths.rs::config_a_tsic_306_probe_is_refused`, `::a_stored_tsic_306_config_is_discarded_not_run`, `::the_store_refuses_a_tsic_306_config`, `::the_compiled_in_defaults_are_themselves_valid`; `cc-config::tests::config_schema.rs::the_default_temperature_sensor_is_the_one_that_is_fitted` |
+
+### What the C++ does
+
+`HardwareManager::initializeTemperatureSensor` (`HardwareManager.cpp:180-198`)
+builds whichever driver the config names, and the config default is `TSIC_306`
+(`Config.h:1085-1092`). On this machine the probe is a **DS18B20** — family
+`0x28`, ROM `0x28 69 37 aa cd 78 af 41`, measured, [01 §"The temperature sensor
+fitted to this machine is a DS18B20"](./01-feature-inventory.md) — so the C++
+default constructs a TSIC-306 driver pointed at a 1-Wire bus it does not own.
+
+### What the Rust does
+
+1. **The DS18B20 is implemented** (`cc_domain::onewire`, `cc_domain::ds18b20`,
+   `cc_hal_esp32::onewire`) and reads the real probe: **24.25 °C / 24.38 °C**
+   measured on 2026-09-28, 48 samples over 20 s, no resets, no CRC failures.
+2. **`hardware.sensors.temperature.type = TSIC_306` is refused** at
+   configuration validation, as `ConfigViolation::UnsupportedTemperatureSensor`.
+   The stored config is discarded and the defaults run, with the violation
+   reported — the same fail-closed shape as
+   `HeaterRelayLowTrigger` and the same one the recovered firmware used.
+3. **The compiled-in default is `DALLAS_DS18B20`**, not the C++'s `TSIC_306`.
+
+### Why
+
+A temperature probe is an input to S1. A user who configures `TSIC_306` and is
+given a DS18B20's reading is not misinformed about a preference; they are
+misinformed about **which sensor is feeding the over-temperature interlock**,
+and they cannot tell by looking at the machine. That is a safety defect, and
+silence is what makes it one.
+
+The default has to move with the rule, and this is the part worth being explicit
+about: **a default that `validate_config` rejects is incoherent** — the machine
+would refuse to run its own defaults, on a board whose sensor is a DS18B20.
+`the_compiled_in_defaults_are_themselves_valid` is the test that says so.
+
+### Not done, and needs a human
+
+**TSIC-306 is not implemented**, deliberately. The protocol is proprietary, no
+Rust implementation exists, and there is no TSIC-306 attached to this machine to
+validate one against — R1-03's own acceptance criteria (a 10-minute C++-versus-Rust
+reference log at ±1.5 °C) are unachievable without the hardware. Writing an
+unverifiable Manchester decoder on a path that gates emergency stop is a worse
+outcome than refusing the setting. **If someone needs a TSIC-306, fit one and
+implement R3-07 against it; do not remove this check.**
+
+---
+
+## 8. R3-05: the ABP2 read no longer blocks, and checks what the C++ ignores 🔴 changed
+
+| | |
+| --- | --- |
+| **Task** | R3-05 |
+| **Tests** | `cc_domain::abp2::tests::div1_a_short_read_is_an_error_not_a_stale_sample`, `::div2_a_nack_on_the_command_is_an_error`, `::the_first_poll_writes_the_command_and_returns_immediately`, `::the_cpp_would_have_slept_twenty_percent_of_the_loop` |
+
+### What the C++ does
+
+`measurePressure()` (`pressureSensor.h:35-40`), called from
+`SensorCoordinator::updatePressure` on **every loop iteration**, with
+`PRESSURE_UPDATE_INTERVAL_MS = 50` (`SensorCoordinator.h:271`):
+
+```cpp
+int stat  = Wire.write(ABP2_cmd, 3);
+stat     |= Wire.endTransmission();
+delay(ABP2_READ_DELAY_MS);        // 10 ms, unconditionally
+Wire.requestFrom(ABP2_id, static_cast<uint8_t>(7));
+```
+
+Three things, all of them wrong in the same direction:
+
+* `delay(10)` out of every 50 ms is **20 % of the control loop asleep**,
+  permanently, whether or not anything is brewing.
+* `stat` is computed and **never read**, so a NAK on the address is invisible.
+* `requestFrom`'s return value is discarded, so a short read leaves stale bytes
+  in the `ABP2_data` globals and the firmware converts **the previous sample**
+  as if it were fresh.
+
+### What the Rust does
+
+* The 10 ms is a **deadline**, not a sleep. `Driver::poll` writes the command on
+  one tick and reads on a later one; the loop's own sleep covers the wait. The
+  driver never asks the caller to block.
+* `endTransmission`'s result and the byte count are both checked
+  (`div1`, `div2`). A short read is an error and the previous value is kept.
+* The update rate is **unchanged**: the next command is anchored on the previous
+  *command*, not on the read, so the period is still 50 ms with the 10 ms inside
+  it rather than 60 ms.
+
+### Why
+
+This is one of the only two real performance wins in the migration (the other is
+R1-07's LEDC carrier, which is currently blocked — see
+[`09-cpp-findings.md` §17](./09-cpp-findings.md#17-)). A plausible pressure built
+from bytes the sensor never sent would flow into the brew pressure control.
+
+### Known, and deliberately not changed
+
+* `counts_to_percentage` divides by the **full scale** while `counts_to_bar`
+  divides by the output span, so 10 bar reads as 90 % rather than 100 %
+  (`pressureSensor.h:50` vs `:53-54`). The C++ does this and it is preserved and
+  pinned, because the percentage is a log field and the bar figure is the one
+  the control loop uses.
+* A pressure count below the part's offset yields a **negative** pressure and
+  the C++ carries it on. Preserved; `is_below_range` exposes the condition so the
+  decision can be made rather than smuggled in. The DS18B20 range decision
+  ([#7](#7-r1-03-the-ds18b20-is-implemented-and-tsic_306-is-refused-🔴-added)) is
+  the same kind of call and went the other way, because there the C++ was
+  *claiming* to read a sensor it was not.
+
+### Also changed, and smaller
+
+The I²C bus runs at **400 kHz**, where Arduino's `Wire.begin()` defaults to
+100 kHz. 400 kHz is the ABP2's maximum and comfortable for the SSD1306 on the
+same bus, so it is strictly less bus time for a shared peripheral.

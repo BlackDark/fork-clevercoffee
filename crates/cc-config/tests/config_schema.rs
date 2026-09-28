@@ -12,7 +12,7 @@ use cc_config::config::SafetyView;
 use cc_config::json::{ImportError, RejectReason};
 use cc_config::schema::{self, ParamValue};
 use cc_config::{json_export, json_import, Config, ConfigStore, Secret, StoreError};
-use cc_domain::hardware::RelayTriggerType;
+use cc_domain::hardware::{RelayTriggerType, TemperatureSensorType};
 
 use support::MemStore;
 
@@ -541,17 +541,48 @@ fn the_json_blob_does_contain_the_credentials_because_the_machine_needs_them() {
 }
 
 #[test]
-fn the_safety_view_names_exactly_the_four_safety_relevant_values() {
+fn the_safety_view_names_exactly_the_safety_relevant_values() {
     let mut config = Config::default();
     config.safety.emergency_temp = 165.0;
     config.safety.emergency_hysteresis = 9.0;
     config.steam.setpoint = 118.0;
     config.hardware.relays.heater.trigger_type = RelayTriggerType::HighTrigger;
+    config.hardware.sensors.temperature.r#type = TemperatureSensorType::DallasDs18b20;
     let view: SafetyView = config.safety_view();
     assert!((view.emergency_temp - 165.0).abs() < 1e-12);
     assert!((view.emergency_hysteresis - 9.0).abs() < 1e-12);
     assert!((view.steam_setpoint - 118.0).abs() < 1e-12);
     assert_eq!(view.heater_relay_trigger, RelayTriggerType::HighTrigger);
+    assert_eq!(
+        view.temperature_sensor,
+        TemperatureSensorType::DallasDs18b20
+    );
+}
+
+#[test]
+fn the_default_temperature_sensor_is_the_one_that_is_fitted() {
+    // DIVERGENCE from `Config.h:1085-1092`, which defaults this to
+    // `TSIC_306`. The probe on this machine is a DS18B20 (family 0x28,
+    // measured), and `cc_safety::validate_config` **rejects** `TSIC_306` — so a
+    // `TSIC_306` default would be a configuration the machine refuses to run.
+    let config = Config::default();
+    assert_eq!(
+        config.hardware.sensors.temperature.r#type,
+        TemperatureSensorType::DallasDs18b20
+    );
+    // And the schema default must agree, or the export test catches it.
+    let spec = schema::SCHEMA
+        .iter()
+        .find(|s| s.key == "hardware.sensors.temperature.type")
+        .expect("the parameter is registered");
+    assert_eq!(
+        spec.default,
+        ParamValue::Enum(TemperatureSensorType::DallasDs18b20 as i8)
+    );
+    // The wire value is unchanged: both enums are positional
+    // (`defaults.h:170-173`), so a C++-written NVS still parses.
+    assert_eq!(TemperatureSensorType::DallasDs18b20 as i8, 1);
+    assert_eq!(TemperatureSensorType::Tsic306 as i8, 0);
 }
 
 // ==================================================================== store —

@@ -779,9 +779,23 @@ pub struct HardwareSensorsTemperature {
 }
 
 impl Default for HardwareSensorsTemperature {
+    /// **DIVERGENCE from `Config.h:1085-1092`**, which defaults this to
+    /// `TSIC_306`.
+    ///
+    /// The C++ default names a sensor that is not fitted: the probe on this
+    /// machine is a DS18B20 (family `0x28`, measured). With the C++ default the
+    /// firmware builds a TSIC-306 driver, reads a 1-Wire bus it does not own,
+    /// and reports the result as if it came from the configured sensor. The
+    /// previous Rust firmware did the same and logged it
+    /// ([08 §4.1](../../docs/rust-migration/08-recovered-oracle.md)).
+    ///
+    /// `cc_safety::validate_config` now **rejects** `TSIC_306`, so the default
+    /// has to be a value that is not rejected — a default the machine refuses to
+    /// run would be worse than either alternative. `DALLAS_DS18B20` is the
+    /// driver that exists and the sensor that is fitted.
     fn default() -> Self {
         Self {
-            r#type: TemperatureSensorType::Tsic306,
+            r#type: TemperatureSensorType::DallasDs18b20,
         }
     }
 }
@@ -1188,9 +1202,9 @@ impl Default for Safety {
 ///
 /// `cc-config` cannot depend on `cc-safety` — the dependency direction in 04 §6
 /// makes them siblings, both below `cc-machine` — so this is a plain view of the
-/// four values, and `cc-firmware` (or `cc-hal-esp32`) converts it with
-/// `cc_safety::SafetyConfig::from(view)` at wiring time. Keeping the struct
-/// here means the four values are named in exactly one place.
+/// safety-relevant values, and `cc-firmware` (or `cc-hal-esp32`) converts it
+/// with `cc_safety::SafetyConfig::from(view)` at wiring time. Keeping the struct
+/// here means those values are named in exactly one place.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SafetyView {
     /// `safety.emergency_temp`.
@@ -1201,6 +1215,12 @@ pub struct SafetyView {
     pub steam_setpoint: f64,
     /// `hardware.relays.heater.trigger_type`.
     pub heater_relay_trigger: RelayTriggerType,
+    /// `hardware.sensors.temperature.type`.
+    ///
+    /// Fifth value, and for the same reason as the other four: a probe the
+    /// firmware cannot drive is a temperature reading S1 cannot trust. See
+    /// `cc_safety::ConfigViolation::UnsupportedTemperatureSensor`.
+    pub temperature_sensor: TemperatureSensorType,
 }
 
 impl Config {
@@ -1217,6 +1237,7 @@ impl Config {
             emergency_hysteresis: self.safety.emergency_hysteresis,
             steam_setpoint: self.steam.setpoint,
             heater_relay_trigger: self.hardware.relays.heater.trigger_type,
+            temperature_sensor: self.hardware.sensors.temperature.r#type,
         }
     }
 

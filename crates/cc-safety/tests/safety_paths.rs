@@ -8,7 +8,7 @@
 //! on the verdict the applier is obliged to write, which is the same decision
 //! observed one layer earlier.
 
-use cc_domain::hardware::RelayTriggerType;
+use cc_domain::hardware::{RelayTriggerType, TemperatureSensorType};
 use cc_domain::state::MachineState;
 use cc_domain::units::{Celsius, Millis};
 use cc_safety::{
@@ -837,6 +837,114 @@ fn config_a_high_trigger_heater_relay_is_accepted() {
         ..SafetyConfig::default()
     };
     assert_eq!(validate_config(&cfg), Ok(()));
+}
+
+// ============================ the temperature sensor type (R1-03's decision)
+
+#[test]
+fn config_a_tsic_306_probe_is_refused() {
+    // THE DECISION, as a test. `hardware.sensors.temperature.type = TSIC_306`
+    // is rejected at validation, because the C++ accepted it and then read the
+    // 1-Wire bus anyway: a user told they had a TSIC-306 was given a DS18B20's
+    // reading with no indication of the substitution, and a temperature probe is
+    // an input to S1.
+    let cfg = SafetyConfig {
+        temperature_sensor: TemperatureSensorType::Tsic306,
+        ..SafetyConfig::default()
+    };
+    assert_eq!(
+        validate_config(&cfg),
+        Err(ConfigViolation::UnsupportedTemperatureSensor {
+            requested: TemperatureSensorType::Tsic306
+        })
+    );
+}
+
+#[test]
+fn config_a_ds18b20_probe_is_accepted() {
+    // The sensor that is actually fitted: family 0x28, ROM 0x286937aacd78af41.
+    let cfg = SafetyConfig {
+        temperature_sensor: TemperatureSensorType::DallasDs18b20,
+        ..SafetyConfig::default()
+    };
+    assert_eq!(validate_config(&cfg), Ok(()));
+}
+
+#[test]
+fn the_compiled_in_defaults_are_themselves_valid() {
+    // **The rule that makes the decision coherent.** The default has to be a
+    // value `validate_config` accepts, or `load_or_default(None)` would hand
+    // the machine a configuration it refuses to run. The C++ default
+    // (`Config.h:1085-1092`) is `TSIC_306`, which this check rejects, so
+    // `SafetyConfig::default()` is `DALLAS_DS18B20` — the driver that exists
+    // and the probe that is fitted.
+    let defaults = SafetyConfig::default();
+    assert_eq!(validate_config(&defaults), Ok(()));
+    assert_eq!(
+        defaults.temperature_sensor,
+        TemperatureSensorType::DallasDs18b20
+    );
+    // And `check_storable` agrees, so the defaults can be written back.
+    assert_eq!(check_storable(&defaults), Ok(&defaults));
+}
+
+#[test]
+fn a_stored_tsic_306_config_is_discarded_not_run() {
+    // The fail-closed behaviour, end to end: an unsafe stored config is
+    // discarded and the defaults run, with the violation reported so the log
+    // says why. The machine does not silently read the wrong bus.
+    let stored = SafetyConfig {
+        temperature_sensor: TemperatureSensorType::Tsic306,
+        ..SafetyConfig::default()
+    };
+    let loaded = load_or_default(Some(&stored));
+    assert_eq!(loaded.config, SafetyConfig::default());
+    assert_eq!(
+        loaded.origin,
+        ConfigOrigin::DiscardedUnsafe(ConfigViolation::UnsupportedTemperatureSensor {
+            requested: TemperatureSensorType::Tsic306
+        })
+    );
+}
+
+#[test]
+fn the_store_refuses_a_tsic_306_config() {
+    // "refusing to store an unsafe configuration" (08 §4.1), so the bad value
+    // cannot even reach NVS.
+    let unsafe_cfg = SafetyConfig {
+        temperature_sensor: TemperatureSensorType::Tsic306,
+        ..SafetyConfig::default()
+    };
+    assert!(check_storable(&unsafe_cfg).is_err());
+}
+
+#[test]
+fn the_relay_rule_is_checked_before_the_sensor_rule() {
+    // Both wrong: the first violation is reported, so the diagnostic is stable
+    // and the more dangerous problem (an energised heater at reset) is the one
+    // named.
+    let cfg = SafetyConfig {
+        heater_relay_trigger: RelayTriggerType::LowTrigger,
+        temperature_sensor: TemperatureSensorType::Tsic306,
+        ..SafetyConfig::default()
+    };
+    assert_eq!(
+        validate_config(&cfg),
+        Err(ConfigViolation::HeaterRelayLowTrigger)
+    );
+}
+
+#[test]
+fn the_steam_rule_is_checked_before_the_sensor_rule() {
+    let cfg = SafetyConfig {
+        emergency_temp: Celsius::new(100.0),
+        temperature_sensor: TemperatureSensorType::Tsic306,
+        ..SafetyConfig::default()
+    };
+    assert!(matches!(
+        validate_config(&cfg),
+        Err(ConfigViolation::EmergencyTempTooLowForSteam { .. })
+    ));
 }
 
 #[test]

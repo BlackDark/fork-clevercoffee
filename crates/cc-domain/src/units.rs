@@ -177,8 +177,25 @@ impl Millis {
 
     /// Whether at least `interval` has elapsed since `earlier`.
     #[must_use]
-    pub const fn elapsed_since(self, earlier: Self, interval: Self) -> bool {
+    pub fn elapsed_since(self, earlier: Self, interval: Self) -> bool {
         self.since(earlier).0 >= interval.0
+    }
+
+    /// Whether the wall clock has reached `deadline`.
+    ///
+    /// This is **not** `self.since(deadline) == 0` and it is not
+    /// `self.since(deadline) < 0`. `since` wraps, so a `self` that is *before*
+    /// `deadline` produces a huge positive interval and every naive comparison
+    /// gets it backwards — the bug this method exists to make impossible.
+    ///
+    /// The rule is the standard one: a signed 32-bit difference is negative
+    /// exactly when the high bit is set, so "now has reached the deadline" is
+    /// "the wrapping difference has its high bit clear". This is correct for
+    /// any deadline less than 2^31 ms — 24.8 days — ahead, which every
+    /// interval in this firmware is by orders of magnitude.
+    #[must_use]
+    pub fn has_reached(self, deadline: Self) -> bool {
+        self.0.wrapping_sub(deadline.0) < 0x8000_0000
     }
 
     /// Seconds as an `f64`, for the few places that need a float duration.
@@ -192,7 +209,28 @@ impl Millis {
 
 impl From<u32> for Millis {
     fn from(raw: u32) -> Self {
-        Self(raw)
+        Self::new(raw)
+    }
+}
+
+/// Millisecond arithmetic, wrapping like the C++'s `unsigned long`.
+///
+/// `impl Add for Millis` is here because a deadline pipeline cannot be written
+/// without "now plus an interval", and hand-rolling `Millis::new(now.raw() + n)`
+/// at every call site is exactly the kind of unit mix-up these newtypes exist
+/// to prevent. Wrapping rather than panicking is the same choice
+/// [`Millis::since`] documents.
+impl core::ops::Add for Millis {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self {
+        Self(self.0.wrapping_add(rhs.0))
+    }
+}
+
+impl core::ops::AddAssign for Millis {
+    fn add_assign(&mut self, rhs: Self) {
+        self.0 = self.0.wrapping_add(rhs.0);
     }
 }
 
@@ -244,6 +282,54 @@ mod tests {
         assert_eq!(after.since(before), Millis::new(0x1100));
         assert!(after.elapsed_since(before, Millis::new(1000)));
         assert!(!after.elapsed_since(before, Millis::new(5000)));
+    }
+
+    #[test]
+    fn millis_addition_wraps_rather_than_panicking() {
+        // A deadline pipeline is written as `now + interval`, and the C++
+        // relies on 32-bit wraparound to keep working across the 49.7-day
+        // rollover. `saturating_add` would freeze a deadline for the last 49.7
+        // days of every cycle, so this must wrap.
+        assert_eq!(Millis::new(10) + Millis::new(5), Millis::new(15));
+        assert_eq!(
+            Millis::new(0xFFFF_FFFF) + Millis::new(2),
+            Millis::new(1),
+            "a deadline must wrap, not saturate"
+        );
+        let mut now = Millis::new(0xFFFF_FFF0);
+        now += Millis::new(0x20);
+        assert_eq!(now, Millis::new(0x10));
+    }
+
+    #[test]
+    fn millis_deadlines_are_reached_in_the_right_order() {
+        // The case that a naive `now.since(deadline) < interval` gets backwards:
+        // `now` is BEFORE the deadline, so `since` wraps to ~4.29e9.
+        let now = Millis::new(11);
+        let deadline = now + Millis::new(50);
+        assert!(
+            !now.has_reached(deadline),
+            "11 ms has not reached a deadline of 61 ms"
+        );
+        assert!(
+            !(now + Millis::new(49)).has_reached(deadline),
+            "49 ms short"
+        );
+        assert!(
+            (now + Millis::new(50)).has_reached(deadline),
+            "exactly on it"
+        );
+        assert!((now + Millis::new(51)).has_reached(deadline));
+        // And across the rollover, which is where the wrapping actually bites.
+        let before = Millis::new(u32::MAX - 10);
+        let across = before + Millis::new(20);
+        assert!(!before.has_reached(across));
+        assert!(
+            !(before + Millis::new(19)).has_reached(across),
+            "1 ms short"
+        );
+        assert!((before + Millis::new(20)).has_reached(across), "wrapped");
+        assert_eq!(across.raw(), 9);
     }
 
     #[test]
