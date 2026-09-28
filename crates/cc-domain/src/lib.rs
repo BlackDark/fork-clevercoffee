@@ -1,5 +1,5 @@
-//! Pure domain vocabulary for the Clever Coffee firmware: units, enums, the 18 machine states,
-//! error codes, the PID controller, and the compile-time policy whitelists.
+//! Pure domain vocabulary for the Clever Coffee firmware: units, enums, the 18 machine
+//! states, error codes, the PID controller, and the compile-time policy whitelists.
 //!
 //! # Rules
 //!
@@ -11,3 +11,21 @@
 
 #![no_std]
 #![forbid(unsafe_code)] // already denied workspace-wide; restated for clarity
+#![deny(missing_docs)]
+
+pub mod error;
+pub mod hardware;
+pub mod pid;
+pub mod process;
+pub mod state;
+pub mod system;
+pub mod units;
+
+#[cfg(test)]
+extern crate alloc;
+
+#[cfg(test)]
+mod pid_parity;
+
+pub use error::ErrorCode;
+pub use state::MachineState;

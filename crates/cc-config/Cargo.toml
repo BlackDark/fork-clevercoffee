@@ -9,6 +9,17 @@ repository.workspace = true
 
 [dependencies]
 cc-domain.workspace = true
+# The configuration value is serialised to/from the single NVS blob. See the
+# crate docs for why the key type is `&'static str` rather than a heapless
+# string and why the text fields are `alloc::string::String`.
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+# `std` only for the tests, so `json_export`'s pretty-printed comparison and the
+# `unwrap`-free ergonomics of the test harness are available. The library itself
+# builds with `no_std + alloc`.
+serde_json = { workspace = true, features = ["std"] }
 
 [lints]
 workspace = true

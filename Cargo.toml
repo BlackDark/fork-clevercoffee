@@ -52,6 +52,15 @@ cc-config = { path = "crates/cc-config" }
 cc-hal-esp32 = { path = "crates/cc-hal-esp32" }
 cc-provisioning = { path = "crates/cc-provisioning" }
 
+# `cc-config` is the only portable crate with third-party dependencies: serde for
+# the configuration value's Serialize/Deserialize, and serde_json for the nested
+# JSON blob. Both are pulled in already by esp-idf-svc, so this adds no new
+# download to the device build. `default-features = false` + `alloc` keeps
+# cc-config no_std (04 §1); the `std` feature is re-enabled under `cfg(test)` for
+# `serde_json::to_string_pretty` in the round-trip tests.
+serde = { version = "1.0", default-features = false, features = ["derive", "alloc"] }
+serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
+
 # ESP-IDF. Exact pins, per 06 R1-01 step 3.
 esp-idf-svc = "=0.53.0"
 esp-idf-hal = "=0.47.0"

@@ -170,6 +170,8 @@ name = "cc-config"
 version = "0.1.0"
 dependencies = [
  "cc-domain",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
