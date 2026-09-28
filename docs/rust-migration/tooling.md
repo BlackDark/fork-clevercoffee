@@ -2,7 +2,7 @@
 
 **Status:** Implemented and verified on this host (A4)
 **Last updated:** 2026-09-28
-**Related:** [inventory.md](inventory.md) · [compatibility-matrix.md](compatibility-matrix.md) · [architecture.md](architecture.md) · [ADR 0004](../adr/0004-rust-migration-platform-selection.md) · [task-list.md](task-list.md) · [execution skill](../../.agents/skills/esp32-rust-migration/SKILL.md)
+**Related:** [ADR 0005](../adr/0005-no-backward-compatibility-usb-flash-migration.md) · [inventory.md](inventory.md) · [compatibility-matrix.md](compatibility-matrix.md) · [architecture.md](architecture.md) · [ADR 0004](../adr/0004-rust-migration-platform-selection.md) · [task-list.md](task-list.md) · [execution skill](../../.agents/skills/esp32-rust-migration/SKILL.md)
 
 Everything here has been run on this machine. Where something is unverified it
 says so.
@@ -187,8 +187,8 @@ just provision-check -> image built and verified, nothing written
 just nvs-report  -> device NVS read and summarised
 ```
 
-`just flash` has **not** been run: the attached device is not in a re-flashable
-state without a user decision (see §7).
+`just flash` has **not** been run: it would erase an app someone else put on the
+attached board (see §7).
 
 ---
 
@@ -225,6 +225,10 @@ a runner and may need a cache warm-up before it is quick.
 
 ### 6.1 Mechanisms evaluated
 
+Since [ADR 0005](../adr/0005-no-backward-compatibility-usb-flash-migration.md),
+USB is the *only* supported way to get firmware onto a device, so provisioning over
+USB is the primary path rather than a convenience.
+
 | Mechanism | Needs firmware support | Works unprovisioned | Verdict |
 |---|---|---|---|
 | **Direct NVS write over USB** | no | yes | **chosen for v1 — verified feasible here** |
@@ -239,27 +243,29 @@ firmware cooperation.
 
 ### 6.2 What was verified, and how
 
-The firmware reads Wi-Fi credentials from NVS namespace `config` under keys
-derived as `"p" + fnv1a32(dotted.path)` in **lowercase, unpadded** hex — Arduino's
-`String(hash, HEX)`. `scripts/provision.py` reproduces that derivation exactly,
-builds a real NVS image with **Espressif's own** `esp-idf-nvs-partition-gen`
-(rather than hand-rolling NVS page state and CRCs), and writes it with `espflash
-write-bin 0x9000`.
+The Rust firmware reads Wi-Fi credentials from NVS namespace `wifi`, keys `ssid`
+and `pass`, as plain strings — deliberately outside the configuration blob, so a
+host tool can write them before any firmware has run without understanding the
+configuration schema. `scripts/provision.py` builds a real NVS image with
+**Espressif's own** `esp-idf-nvs-partition-gen` (rather than hand-rolling NVS page
+state and CRCs) and writes it with `espflash write-bin 0x9000`.
+
+This is simpler than it was before ADR 0005: there is no hash derivation to
+reproduce, so there is nothing to get subtly wrong.
 
 Verified end-to-end on this host, short of the final write:
 
 ```
 $ just provision-check /dev/cu.usbserial-204140
-==> NVS keys: p1434a4d8 (ssid), pe1f06d5e (password)
-==> namespace: config   generator: -m esp_idf_nvs_partition_gen
+==> NVS namespace wifi, keys ssid + pass
+==> generator: -m esp_idf_nvs_partition_gen
 ==> built NVS image, 20480 bytes
 ==> image verified: both keys present as type str
 ==> dry run, nothing written
 ```
 
 The generated image was independently parsed by `scripts/nvs_inspect.py`, which
-confirmed namespace `config` with both keys as NVS `str` entries — matching
-`Preferences::putString` → `nvs_set_str`. The read half of the transport
+confirmed namespace `wifi` with both keys as NVS `str` entries. The read half of the transport
 (`espflash read-flash`) was separately exercised against the real device, so both
 directions of the mechanism are proven.
 
@@ -281,8 +287,8 @@ connects with those credentials. Both are blocked on the device state in §7.
   a one-way efuse burn attached, so it is not something this migration does
   unilaterally.
 - **Reprovisioning.** Re-running `just provision` works, but **regenerating an NVS
-  image replaces the whole partition**, which would erase every other stored
-  setting. The tool therefore reads the device's NVS first and **refuses to write
+  image replaces the whole partition**, which would erase the configuration blob
+  alongside the credentials. The tool therefore reads the device's NVS first and **refuses to write
   if it is not blank**, telling you to inspect it and pass `--merge-anyway` if that
   is really what you want. A true merge, or the serial-console command in task
   NET-5, is the better long-term answer.
@@ -311,10 +317,10 @@ enforces:
 
 ---
 
-## 7. Device state: what blocks the hardware path
+## 7. Device state
 
-The attached device is **not running this repo's C++ firmware**, and this needs a
-decision before any flashing happens. Evidence in `research/device/FINDINGS.md`.
+The attached device is not running this repo's C++ firmware. Evidence in
+`research/device/FINDINGS.md`.
 
 Read from the device:
 
@@ -323,31 +329,35 @@ Read from the device:
   `21:48:33 Sep 28 2026` local. `libespidf` is the project name an **esp-idf-sys
   (Rust + ESP-IDF)** build produces, so a Rust binary was flashed shortly before
   this session.
-- **The partition table does not match `partitions_4M.csv`:**
+- **Its partition table matches neither the C++ table nor the new Rust table:**
 
   | | app0 | app1 | filesystem |
   |---|---|---|---|
-  | On device | `0x010000`, 1792 KB | `0x1d0000`, 1792 KB | `0x390000`, 384 KB, label **`littlefs`**, subtype littlefs |
-  | This repo | `0x010000`, 1664 KB | `0x1b0000`, 1664 KB | `0x350000`, 640 KB, label **`spiffs`**, subtype spiffs |
+  | On device | `0x010000`, 1792 KB | `0x1d0000`, 1792 KB | `0x390000`, 384 KB, label `littlefs` |
+  | C++ (`partitions_4M.csv`) | `0x010000`, 1664 KB | `0x1b0000`, 1664 KB | `0x350000`, 640 KB, label `spiffs` |
+  | **Rust (`partitions_rust_4m.csv`)** | `0x010000`, 1664 KB | `0x1b0000`, 1664 KB | `0x350000`, 640 KB, label **`ccfs`** |
 
-  The label difference matters: the C++ filesystem-OTA path looks up the literal
-  label `spiffs` and would not find this partition.
 - **NVS is completely blank** — all 20480 bytes `0xFF`, 0 of 5 pages written, no
-  namespaces. There is no stored configuration on this device.
+  namespaces.
 
-Consequences:
+### What [ADR 0005](../adr/0005-no-backward-compatibility-usb-flash-migration.md) changed here
 
-1. The C++ firmware's on-device behaviour cannot be observed without re-flashing,
-   so device-side parity checks are blocked.
-2. The NVS config-continuity claim cannot be tested against this device as found —
-   there is nothing to preserve. Testing it means first flashing the C++ firmware
-   and letting it write config. Nothing here contradicts the byte-compatibility
-   analysis; there is simply no data to test against yet.
-3. Flashing this repo's partition table would change the layout and erase the
-   384 KB `littlefs` region, destroying whatever the current Rust app uses.
+Most of what used to be blocking is not any more:
 
-**That is a user decision, so nothing was flashed.** See the task list's
-prerequisites and the final report.
+- The blank NVS **no longer matters**. Nothing needs preserving, and the device would
+  be provisioned and configured from scratch regardless.
+- The partition-table mismatch **no longer needs resolving** — we define our own, and
+  `just flash` writes it alongside the app.
+- Because this device's table has no `ccfs` partition, the Rust firmware would
+  correctly refuse to boot on it as it stands. That is the layout guard working, and
+  it makes a useful negative test for SPIKE-8.
+
+**What still needs a nod:** flashing erases the Rust app someone put there an hour
+before this session, along with its 384 KB `littlefs` region. The migration model
+implies that is expected, but it destroys someone's work, so confirm before the first
+`just flash`. Tracked as task-list prerequisite **P0.1**.
+
+Nothing has been flashed.
 
 ---
 
@@ -356,6 +366,7 @@ prerequisites and the final report.
 | Path | Purpose |
 |---|---|
 | `justfile` | every recipe; the target table |
+| `partitions_rust_4m.csv` | the Rust partition table; `ccfs` replaces `spiffs` (ADR 0005) |
 | `.mise.toml` | node, pnpm, python, clang-format, just; `ESP_IDF_VERSION`; why Rust is excluded |
 | `rust-toolchain.toml` | pins the `esp` channel |
 | `Cargo.toml` | host workspace, lint intent, release profile |

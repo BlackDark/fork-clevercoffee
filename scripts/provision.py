@@ -3,13 +3,15 @@
 
 Mechanism
 ---------
-The firmware reads Wi-Fi credentials from NVS namespace ``config`` under keys
-derived as ``"p" + fnv1a32(dotted.path)`` in lowercase hex (Arduino
-``String(hash, HEX)``, no zero padding). This tool derives the same keys, builds
-a real NVS partition image with Espressif's own ``nvs_partition_gen.py``, and
-writes it with ``espflash write-bin``. No firmware cooperation is required, so it
-works on a device that has never been provisioned and on one whose firmware
-cannot reach the network.
+The Rust firmware reads Wi-Fi credentials from NVS namespace ``wifi``, keys ``ssid``
+and ``pass``, as plain strings. They are deliberately kept outside the configuration
+blob (see docs/adr/0005) so that a host tool can write them before any firmware has
+run, without needing to understand the configuration schema.
+
+This tool builds a real NVS partition image with Espressif's own NVS partition
+generator and writes it with ``espflash write-bin``. No firmware cooperation is
+required, so it works on a device that has never been provisioned and on one whose
+firmware cannot reach the network.
 
 Credentials come from ``.env`` (``WIFI_SSID``, ``WIFI_PASS``) and are read by the
 caller, never taken on the command line — argv is visible to every process on the
@@ -41,31 +43,12 @@ import sys
 import tempfile
 from pathlib import Path
 
+# Offsets come from partitions_rust_4m.csv. Keep them in sync with it.
 NVS_OFFSET = 0x9000
 NVS_SIZE = 0x5000
-NAMESPACE = "config"
-
-# Dotted config paths, from include/clevercoffee/Config.h.
-SSID_PATH = "system.wifi.ssid"
-PASS_PATH = "system.wifi.password"
-
-
-def fnv1a32(text: str) -> int:
-    """FNV-1a 32-bit, byte-for-byte as Config.h implements it."""
-    h = 2166136261
-    for byte in text.encode("utf-8"):
-        h ^= byte
-        h = (h * 16777619) & 0xFFFFFFFF
-    return h
-
-
-def nvs_key(dotted_path: str) -> str:
-    """Reproduce ParamDef::generateNvsKey(): "p" + Arduino String(hash, HEX).
-
-    Arduino's String(uint32, HEX) is lowercase and unpadded, so a hash with
-    leading zero nibbles yields a shorter key. Do not zero-pad this.
-    """
-    return "p" + format(fnv1a32(dotted_path), "x")
+NAMESPACE = "wifi"
+SSID_KEY = "ssid"
+PASS_KEY = "pass"
 
 
 def find_nvs_generator() -> list[str] | None:
@@ -119,13 +102,12 @@ def device_nvs_is_blank(port: str, espflash: str) -> bool | None:
 def build_image(ssid: str, password: str, generator: list[str], out: Path) -> None:
     """Build an NVS image holding just the two credential keys, as strings."""
     csv = out.with_suffix(".csv")
-    # `data,string` matches Preferences::putString -> nvs_set_str, which is how the
-    # firmware stores these two parameters.
+    # `data,string` -> nvs_set_str, matching how the firmware reads them.
     csv.write_text(
         "key,type,encoding,value\n"
         f"{NAMESPACE},namespace,,\n"
-        f"{nvs_key(SSID_PATH)},data,string,{ssid}\n"
-        f"{nvs_key(PASS_PATH)},data,string,{password}\n",
+        f"{SSID_KEY},data,string,{ssid}\n"
+        f"{PASS_KEY},data,string,{password}\n",
         encoding="utf-8",
     )
     try:
@@ -177,8 +159,8 @@ def main() -> int:
         )
         return 1
 
-    print(f"==> NVS keys: {nvs_key(SSID_PATH)} (ssid), {nvs_key(PASS_PATH)} (password)")
-    print(f"==> namespace: {NAMESPACE}   generator: {' '.join(generator[-2:])}")
+    print(f"==> NVS namespace {NAMESPACE}, keys {SSID_KEY} + {PASS_KEY}")
+    print(f"==> generator: {' '.join(generator[-2:])}")
 
     if not args.dry_run:
         blank = device_nvs_is_blank(args.port, espflash)
@@ -209,7 +191,7 @@ def main() -> int:
             capture_output=True,
             text=True,
         )
-        for key in (nvs_key(SSID_PATH), nvs_key(PASS_PATH)):
+        for key in (SSID_KEY, PASS_KEY):
             if key not in verify.stdout:
                 print(f"!! generated image does not contain {key}", file=sys.stderr)
                 print(verify.stdout, verify.stderr, file=sys.stderr)

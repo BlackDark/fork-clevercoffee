@@ -33,29 +33,29 @@ Commit messages start with the task ID. **Commit only after validation passes.**
 
 ---
 
-## Prerequisite P0 — device availability (BLOCKING, needs the user)
+## Prerequisite P0 — device availability (mostly resolved)
 
-**The attached device is not in a re-flashable state without a decision.** See
-[tooling.md §7](tooling.md) and `research/device/FINDINGS.md`.
+**Resolved by [ADR 0005](../adr/0005-no-backward-compatibility-usb-flash-migration.md)
+(2026-09-28).** Backward compatibility was dropped, which answers two of the three
+original questions outright:
 
-It currently runs a Rust/ESP-IDF binary (`project_name: libespidf`, ESP-IDF
-v5.5.5, built 2026-09-28 21:48 local), its partition table does not match
-`partitions_4M.csv` (1792 KB app slots and a 384 KB partition labelled `littlefs`,
-versus 1664 KB slots and a 640 KB `spiffs`), and its NVS is completely blank.
+- ~~Which partition table is authoritative?~~ **Neither.** The Rust firmware defines
+  its own, `partitions_rust_4m.csv`.
+- ~~Is a device with the C++ firmware and real stored config available?~~
+  **Not needed.** SPIKE-3 is deleted; nothing has to be preserved.
 
-Questions for the user, in priority order:
+**One question remains, and it is a courtesy check rather than a design blocker.**
+The attached device currently runs a Rust/ESP-IDF binary that is not ours
+(`project_name: libespidf`, ESP-IDF v5.5.5, built 2026-09-28 21:48 local) with a
+partition table matching neither the C++ nor the new Rust table, and a blank NVS.
+See `research/device/FINDINGS.md`.
 
-1. **May this device be re-flashed?** Flashing this repo's partition table changes
-   the layout and erases the 384 KB `littlefs` region.
-2. **Is a device with the C++ firmware and real stored config available?** Needed
-   for SPIKE-3 (NVS continuity) and all parity checks. The current device has
-   nothing to preserve.
-3. **Which partition table is authoritative** — the repo's `partitions_4M.csv`, or
-   the device's? The label difference (`spiffs` vs `littlefs`) changes the
-   filesystem-OTA path.
+> **P0.1 — may this board be erased?** Flashing the new table overwrites that app
+> and its 384 KB `littlefs` region. The stated migration model ("users flash and
+> reconfigure over USB") implies yes, but it erases someone's work, so confirm
+> before the first `just flash`.
 
-Until P0 is answered, every `HW: esp32` task below is blocked. Every `HW: no` task
-can proceed.
+Until P0.1 is confirmed, prefer `HW: no` tasks. Everything in Phase 1 is `HW: no`.
 
 ---
 
@@ -69,6 +69,7 @@ can proceed.
 | **F-3** | implementation | Architecture and crate split | done → [architecture.md](architecture.md) |
 | **F-4** | implementation | Tooling: mise, justfile, CI, provisioning | done → [tooling.md](tooling.md) |
 | **F-5** | implementation | Decision record | done → [ADR 0004](../adr/0004-rust-migration-platform-selection.md) |
+| **F-6** | implementation | Compatibility break: new partition table, restructured NVS, `config.json` migration, boot guard | done → [ADR 0005](../adr/0005-no-backward-compatibility-usb-flash-migration.md) |
 
 **Phase 0 exit gate — met:** `just doctor`, `just fmt-check`, `just lint`,
 `just test`, `just build esp32` and `just size esp32` all pass on this host; the
@@ -112,16 +113,29 @@ Phase 1 can complete regardless of P0.
 - **Uncertainty:** the EWMA filter's warm-up makes the first samples
   initial-condition dependent — capture from a defined reset.
 
-### ORACLE-3 — capture NVS key vectors from the C++
-- **Kind:** implementation. **HW:** no.
-- **Objective:** prove the Rust `"p" + FNV-1a` derivation matches the C++ for every
-  registered parameter.
-- **Files:** new C++ test dumping `dotted.path → nvs key` for all ~97 registered
-  parameters; `research/nvs-keys.csv`.
-- **Acceptance:** CSV committed; **key collisions explicitly checked and reported**
-  (the C++ has no collision detection on a 32-bit hash).
-- **Uncertainty:** if two parameters collide, that is a live bug in the shipped
-  firmware. Stop and report rather than working around it.
+### ~~ORACLE-3~~ — capture NVS key vectors from the C++
+- **Deleted** by [ADR 0005](../adr/0005-no-backward-compatibility-usb-flash-migration.md).
+  The Rust firmware does not read the C++ NVS layout, so its key derivation does not
+  need reproducing. Replaced by ORACLE-4.
+
+### ORACLE-4 — capture a real `config.json` export as a golden fixture
+- **Kind:** implementation. **HW:** esp32 *or* the Wokwi simulator. **Blocks:** DOMAIN-8.
+- **Objective:** `config.json` is now the **only** compatibility surface (C12), so we
+  need a real specimen of what the old web UI actually emits — not what the code
+  suggests it emits.
+- **Files:** `tests/fixtures/config-export-cpp.json`; a short note on how it was
+  produced.
+- **Steps:** run the C++ firmware (device or Wokwi), set a spread of parameters
+  covering `bool`, `int`, `double`, `String` and every enum, then
+  `GET /api/config/download`. Also capture `docs/example_config.json` as a second
+  fixture since that is the documented seed format.
+- **Acceptance:** fixture committed; every registered parameter present; the two
+  fixtures differ only where expected.
+- **Safety:** read-only HTTP; no actuator involved.
+- **Uncertainty:** the exporter writes values at nested dotted paths and the importer
+  accepts either a bare value or a `{value: …}` wrapper. Capture whichever form the
+  real export uses and **do not assume symmetry** — verify it round-trips through the
+  C++ itself first.
 
 ### DOMAIN-1 — state ids and the pre-emptive safety chain
 - **Kind:** implementation. **HW:** no. **Prereq:** none.
@@ -170,19 +184,68 @@ Phase 1 can complete regardless of P0.
 - **Uncertainty:** if any golden vector cannot be matched, stop and report rather
   than adjusting the tolerance.
 
-### DOMAIN-4 — config schema, validation and NVS key derivation
-- **Kind:** implementation. **HW:** no. **Prereq:** ORACLE-3.
-- **Objective:** the ~97 registered parameters with ranges, defaults and the exact
-  key derivation.
+### DOMAIN-4 — config schema, validation and the versioned store
+- **Kind:** implementation. **HW:** no. **Prereq:** none (was ORACLE-3, now deleted).
+- **Objective:** the ~97 parameters with ranges and defaults, plus `postcard`
+  encode/decode of the single versioned blob described in
+  [ADR 0005](../adr/0005-no-backward-compatibility-usb-flash-migration.md) §3.
 - **Files:** `crates/cc-domain/src/config/`.
-- **Steps:** port the schema; implement `nvs_key()` as a pure function; **register
-  `emergencyStopTemp` and `emergencyStopHysteresis`**, which the C++ declares but
-  omits from its registry.
-- **Acceptance:** every row of `research/nvs-keys.csv` reproduced exactly; range
-  validation tested at both bounds; `just test` passes.
-- **Declared change:** the two emergency parameters become persisted and exported.
-- **Uncertainty:** string length limits are currently unenforced in the C++.
-  Reproduce that for now and note it; changing it is a separate decision.
+- **Steps:** port the schema; `#[derive(Serialize, Deserialize)]` over one `Config`
+  struct with a `SCHEMA_VERSION` constant; **register `emergencyStopTemp` and
+  `emergencyStopHysteresis`**, which the C++ declares but omits from its registry.
+  **Do not** port the `"p" + FNV-1a` key derivation, the per-`set()` write-through, or
+  the 15-character key workaround — none of them exist in the new scheme.
+- **Acceptance:** blob round-trips for every parameter; range validation tested at
+  both bounds; a test that an unknown `ver` is rejected rather than decoded;
+  `just test` passes.
+- **Declared changes:** the two emergency parameters become persisted and exported;
+  saving becomes one atomic blob write instead of ~97 open/write/close cycles.
+- **Uncertainty:** string length limits are unenforced in the C++ (the
+  `*_MAX_LENGTH` constants only feed UI metadata). Here we **should** enforce them,
+  because there is no compatibility reason not to — but it is a behaviour change, so
+  declare it.
+
+### DOMAIN-8 — `config.json` import and export
+- **Kind:** implementation. **HW:** no. **Prereq:** DOMAIN-4, ORACLE-4.
+- **Objective:** the user-facing migration path (C12). Import the old UI's export
+  format; export the same shape.
+- **Files:** `crates/cc-domain/src/config/json.rs`.
+- **Steps:** parse nested dotted-path JSON, accepting both a bare value and a
+  `{value: …}` wrapper as the C++ importer does; reject legacy flat dotted-key
+  documents as it also does; return a **report** — accepted, rejected-with-reason,
+  unknown-key, out-of-range — rather than a bool.
+- **Acceptance:** `tests/fixtures/config-export-cpp.json` imports with every
+  parameter accounted for; export re-produces an equivalent document;
+  malformed/partial/garbage inputs are rejected with specific reasons; `just test`
+  passes.
+- **Declared change:** the C++ importer returns success if **≥ 1** parameter updated,
+  so a mostly-garbage upload reports success. The Rust importer reports precisely
+  what it accepted and rejected. This is the difference between a user believing
+  their settings migrated and knowing.
+- **Uncertainty:** parameters that exist in the C++ and not in the Rust build (or the
+  reverse) need a stated policy. Proposal: unknown keys are reported and skipped, not
+  fatal — an old export must still be importable into a newer firmware.
+
+### BOOT-1 — flash layout guard
+- **Kind:** implementation. **HW:** no to build and test, esp32 to validate.
+- **Prereq:** DOMAIN-1. **Blocks:** any on-device task.
+- **Objective:** make C13 structural — a device with the wrong flash layout is inert,
+  not degraded. See [architecture.md §3.1](architecture.md).
+- **Files:** `crates/cc-domain/src/layout.rs`; the call site in `firmware/esp32/src/main.rs`.
+- **Steps:** a pure `layout_ok(&[PartitionInfo]) -> Result<(), LayoutFault>` requiring
+  a `ccfs` partition with subtype `littlefs`; call it in `main` **immediately after**
+  the actuators are safed and **before** anything else; on `Err`, log once naming the
+  cause and the remedy, then halt — no control task, no heater ISR, no Wi-Fi.
+- **Acceptance:** host tests for the happy case, for the **C++ table** (must fail),
+  for an empty list, and for a `ccfs` with the wrong subtype; `just build esp32`
+  passes.
+- **Safety:** this is a safety interlock. The ordering requirement — after safing,
+  before everything — is the whole point; a guard that halts while the heater is
+  live is worse than no guard. Assert the ordering in a test if it can be expressed.
+- **Rollback:** revert; the guard is additive.
+- **Uncertainty:** it is a safety interlock, **not** anti-tamper. Anyone with a USB
+  cable can flash anything; the goal is that the *accidental* half-migrated state
+  cannot run. Do not gold-plate it into a signature check.
 
 ### DOMAIN-5 — emergency stop, brew, steam, backflush, standby, maintenance
 - **Kind:** implementation. **HW:** no. **Prereq:** DOMAIN-1, DOMAIN-4.
@@ -251,20 +314,31 @@ These run early because they are the tasks that can invalidate the design. Each 
   side note. Also observe whether the relay pins float between reset and first
   instruction — [architecture.md §4.1](architecture.md) open question 1.
 
-### SPIKE-3 — NVS config continuity against a real device
-- **Kind:** research. **HW:** esp32 **with the C++ firmware and real config**.
-- **Prereq:** P0 question 2.
-- **Objective:** prove the Rust firmware reads config written by the C++ firmware.
-  This is the claim that protects deployed machines.
-- **Steps:** flash the C++ firmware; set a range of parameters through the web UI
-  covering `bool`, `int`, `double` and `String`; `just nvs-report <port>` and keep
-  the digests; flash a Rust image that reads and logs every parameter; compare.
-- **Acceptance:** every parameter matches. **Doubles and floats must be read via
-  `get_blob` + `from_le_bytes`** — `get_u32`/`get_u64` will silently give garbage.
-- **Safety:** read-only on the Rust side; no actuator involved.
-- **Uncertainty:** currently **blocked** — the attached device's NVS is blank, so
-  there is nothing to read back. This is the single most important unverified claim
-  in the whole plan.
+### ~~SPIKE-3~~ — NVS config continuity against a real device
+- **Deleted** by [ADR 0005](../adr/0005-no-backward-compatibility-usb-flash-migration.md).
+  It was the most important unverified claim in the plan; the requirement it verified
+  no longer exists. Replaced by SPIKE-8.
+
+### SPIKE-8 — layout guard and config.json migration on-device
+- **Kind:** research. **HW:** esp32. **Prereq:** P0.1, BOOT-1, DOMAIN-8, SPIKE-2.
+- **Objective:** prove the two mechanisms that replace backward compatibility actually
+  work on hardware: the layout guard halts, and a real `config.json` imports.
+- **Steps:**
+  1. Flash the Rust firmware with the **C++** partition table. Confirm it logs the
+     layout fault and halts. Measure the heater, pump and valve pins and confirm each
+     is inactive.
+  2. Re-flash with `partitions_rust_4m.csv`. Confirm normal boot.
+  3. Import `tests/fixtures/config-export-cpp.json` through the web UI, reboot, and
+     confirm every parameter survived.
+  4. Attempt an app-only OTA of the Rust image from a device running the C++ firmware,
+     if one is available, and confirm the result is a halted device rather than a
+     running one.
+- **Acceptance:** recorded logs for each step; measured pin levels for step 1; a
+  parameter-by-parameter diff for step 3.
+- **Safety:** actuators isolated throughout; step 1 exists precisely to prove they
+  stay safe.
+- **Uncertainty:** step 4 needs a second device or a willingness to re-flash the C++
+  firmware first. If unavailable, record it as unverified rather than assuming.
 
 ### SPIKE-4 — ZACwire decode via RMT against real TSIC hardware
 - **Kind:** research. **HW:** esp32 + TSIC 306 on GPIO 16.
@@ -418,11 +492,16 @@ tolerance, PWM verified with the heating element isolated.
 - **Safety:** heater interlocked off for the whole task.
 
 ### APP-2 — config store over NVS
-- **Kind:** implementation. **Prereq:** DOMAIN-4, SPIKE-3.
-- **Objective:** `KvStore` over `EspNvs` with the Preferences encoding, floats and
-  doubles as little-endian blobs.
-- **Declared change:** writes are batched through the `storage` task instead of one
-  open/write/close per parameter on the network task.
+- **Kind:** implementation. **Prereq:** DOMAIN-4.
+- **Objective:** `KvStore` over `EspNvs`: namespace `wifi` with plain `ssid`/`pass`
+  strings, namespace `cfg` with `ver` (u16) and the `postcard` blob.
+- **Steps:** read `ver` first and refuse to decode a blob whose version is unknown;
+  on first boot with no blob, import `/config.json` from `ccfs` if present, else use
+  defaults.
+- **Acceptance:** on-device write, power-cycle, read-back of every parameter.
+- **Declared change:** one atomic blob write through the `storage` task, instead of
+  one open/write/close per parameter on the network task. Wi-Fi credentials live
+  outside the blob so provisioning and config reset are independent.
 
 ### NET-1 — Wi-Fi supervision
 - **Kind:** implementation. **Prereq:** APP-1.
@@ -460,8 +539,10 @@ tolerance, PWM verified with the heating element isolated.
 - **Safety:** all actuators forced safe for the whole session — the C++ disables the
   timer and heater first and so must this. **Unlike the C++, `control` keeps running**
   with the heater interlocked rather than the whole loop returning early.
-- **Uncertainty:** the filesystem partition label is a P0 question (`spiffs` vs
-  `littlefs`).
+- **Declared change:** **old → new OTA is not supported and must not appear to
+  work.** New → new OTA is. The layout guard (BOOT-1) is what enforces the former;
+  this task must not add anything that weakens it.
+- **Uncertainty:** none on the label any more — it is `ccfs`, per ADR 0005.
 
 ### NET-5 — serial provisioning command
 - **Kind:** implementation. **HW:** esp32. **Prereq:** SPIKE-7.
@@ -517,6 +598,22 @@ matches the C++ side by side.
   supervision, and a physical means of cutting power. It is listed so it is not
   forgotten, not so an agent can decide to do it.
 
+### CUT-0 — user-facing migration procedure
+- **Kind:** implementation. **HW:** no. **Prereq:** DOMAIN-8, BOOT-1.
+- **Objective:** document the manual migration, because there is no automatic one and
+  **a user who flashes without exporting first loses their configuration
+  irrecoverably.**
+- **Files:** `docs/rust-migration/migrating-from-cpp.md`; a pointer from `README.md`.
+- **Steps:** write the four-step procedure — export `config.json` from the old web UI,
+  flash over USB, provision Wi-Fi, import `config.json` — with the data-loss warning
+  as the **first** line, not a footnote. Include what the layout-fault halt message
+  looks like and what to do about it.
+- **Acceptance:** a reader who has never seen this repo can follow it; every command
+  is copy-pasteable and has been run.
+- **Uncertainty:** whether the old UI's export button works on every firmware version
+  users may be running. If not, `docs/example_config.json` plus hand-editing is the
+  fallback and must be documented as such.
+
 ### CUT-2 — release workflow
 - **Kind:** implementation. **Prereq:** PARITY-1..4.
 - **Objective:** extend `release.yml` to publish the Rust artefacts alongside the
@@ -558,6 +655,8 @@ Recorded so they are not silently dropped.
 
 | Item | Why deferred |
 |---|---|
+| **OTA from the C++ firmware to the Rust firmware** | **Explicitly out of scope** per [ADR 0005](../adr/0005-no-backward-compatibility-usb-flash-migration.md). It must not work, and BOOT-1 enforces that. Users flash over USB. |
+| **Reading the C++ NVS layout** | Out of scope for the same reason. `config.json` is the migration path. The byte-compatibility analysis is retained in the compatibility matrix §2.3 in case it is ever wanted. |
 | HX711 scale driver | The scale is **dead code** in the C++ — never instantiated, `getWeight()` returns 0.0. Reviving it is a feature decision, not a migration task. |
 | Acaia BLE scale | Same. Also needs a protocol codec written from scratch (no crate) and has a `trouble-host`/`esp-radio` version-skew problem on the no_std path. |
 | Wi-Fi + BLE coexistence | Only matters if the scale is revived. Unhandled in the C++ too, and there is no evidence it was ever tested. |

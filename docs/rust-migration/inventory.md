@@ -145,9 +145,15 @@ treated as the gating risk for the migration (see [ADR 0004](../adr/0004-rust-mi
 | `coredump` | data | coredump | 0x3F0000 | 64 KB |
 
 The `spiffs`-labelled partition is formatted **LittleFS**, not SPIFFS. That is the
-normal Arduino-ESP32 convention, but the filesystem-OTA path keys off the literal
-label `spiffs`, so a rewrite must preserve it (**repo-verified**, `ota.cpp`
-`FILESYSTEM_PARTITION_LABEL`).
+normal Arduino-ESP32 convention, and the filesystem-OTA path keys off the literal
+label `spiffs` (**repo-verified**, `ota.cpp` `FILESYSTEM_PARTITION_LABEL`).
+
+**The Rust firmware deliberately does not preserve this table.** Per
+[ADR 0005](../adr/0005-no-backward-compatibility-usb-flash-migration.md) it uses
+`partitions_rust_4m.csv`, which keeps the app-slot geometry but renames the
+filesystem partition to `ccfs` with the honest `littlefs` subtype. Because the C++
+firmware can only write a partition labelled `spiffs`, that rename is part of what
+makes an old-to-new OTA fail rather than half-succeed.
 
 ### 2.4 Environments, scripts, workflows
 
@@ -844,12 +850,19 @@ uses `String::toInt()`/`toDouble()`, which return 0 on garbage — so `"abc"`
 silently becomes `0` and then passes any range that includes 0.
 
 **There is no schema version and no migration path.** Combined with hash-derived
-keys, this is the single biggest data-compatibility risk: new firmware can only
-read an existing device's config if it reproduces the exact FNV-1a-over-dotted-path
-derivation *and* the exact Preferences type encoding.
+keys, this was the single biggest data-compatibility risk.
+**[ADR 0005](../adr/0005-no-backward-compatibility-usb-flash-migration.md) removed
+the risk by removing the requirement:** the Rust firmware does not read this layout
+at all. Migration is manual — the user exports `config.json` from the old web UI and
+imports it into the new firmware — so the compatibility surface moves from an opaque
+binary NVS layout to a human-readable JSON file. The scheme above is now history
+rather than a constraint, and worth reading mainly to understand what the new scheme
+deliberately avoids.
 
 `importFromJsonObject` returns true if **≥ 1** parameter updated, so a mostly
-garbage upload reports success.
+garbage upload reports success. **That is the format the Rust import must accept,
+and it must be stricter about it** — reporting exactly what it took and what it
+rejected, rather than declaring success on one recognised field.
 
 ### 6.7 Logging
 

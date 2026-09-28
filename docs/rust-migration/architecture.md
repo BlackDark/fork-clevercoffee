@@ -26,12 +26,14 @@ These come from the inventory and are not negotiable.
 | C3 | The heater PWM period is **1000 ms with 10 ms resolution** (100 duty steps). Duty is expressed in milliseconds-on per window, 0..1000. Existing config and MQTT values depend on that unit. | inventory §5.5 |
 | C4 | The pre-emptive safety transition order — emergency > sensor error > tank empty > PID disabled > state-specific — must be reproduced exactly, including the per-state exclusions. | inventory §5.3 |
 | C5 | State ids keep their numeric values, or the range predicates (`isBrewState` 31..34, `isBackflushState` 60..63, LED eligibility ≤ 63) must be replaced by explicit sets. | inventory §5.1 |
-| C6 | NVS layout is frozen: namespace `config`, keys `"p" + FNV-1a(dotted path)` hex, Arduino `Preferences` type encoding, floats/doubles as little-endian blobs. | compatibility matrix §2.3 |
-| C7 | The partition table is frozen, `spiffs` label included. The web UI stays a gzip-only bundle on that partition. | inventory §2.3, §6.3 |
+| C6 | ~~NVS layout is frozen~~ **Struck by [ADR 0005](../adr/0005-no-backward-compatibility-usb-flash-migration.md).** NVS is ours to design: namespace `wifi` holds plain `ssid`/`pass` strings, namespace `cfg` holds `ver` (u16) and one `postcard` blob. | [ADR 0005](../adr/0005-no-backward-compatibility-usb-flash-migration.md) |
+| C7 | ~~The partition table is frozen, `spiffs` label included~~ **Struck by ADR 0005.** The Rust firmware uses `partitions_rust_4m.csv` with the filesystem partition labelled `ccfs`, and **must refuse to boot without it** — see §3.1. | ADR 0005 |
 | C8 | The HTTP surface in `docs/api/openapi.yaml` is the contract, with the four known mismatches fixed rather than reproduced. | inventory §6.2 |
 | C9 | ~320 KB total RAM, shared with the Wi-Fi stack, the HTTP server and the display buffer. ADR 0002's memory budget still applies. | `docs/adr/0002-*` |
 | C10 | All control logic must be testable on the host without hardware. It largely already is — 303 C++ test cases — and that must not regress. | inventory §2.5 |
 | C11 | ADR 0003's hardware-control contract lists four regressions introduced by the last refactor. They are the known traps for this one. | `docs/adr/0003-*` |
+| **C12** | **`config.json` as exported by the old web UI is the only compatibility surface.** The Rust firmware must import that nested dotted-path format, and its own export must stay the same shape. | ADR 0005 |
+| **C13** | **A half-migrated device must be inert, not merely degraded.** The old firmware can OTA an arbitrary app image and ESP-IDF images are relocatable across slots, so the break has to be enforced at runtime. | ADR 0005 |
 
 ---
 
@@ -222,6 +224,44 @@ watchdog resets the chip; until it does, the last duty persists for at most one
 window — the same exposure as today, and the reason the watchdog subscribes
 `control` specifically.
 
+### 3.1 The layout guard — making C13 structural
+
+The other way the heater can be energised wrongly is not a race but a
+misconfiguration: the Rust firmware running against the C++ partition table, after
+someone OTA'd the app from an old device. ESP-IDF images are relocatable across OTA
+slots, so that boots. There is no `ccfs` partition, so there are no web assets and
+no initialised configuration — and a heater, pump and valve are still wired up.
+
+The guard is a startup precondition, not a feature:
+
+```rust
+/// Runs immediately after the actuators are driven safe, and before anything else.
+/// Pure decision, so it is host-testable; the caller supplies the partition list.
+pub fn layout_ok(parts: &[PartitionInfo]) -> Result<(), LayoutFault> {
+    parts.iter()
+        .find(|p| p.label == "ccfs" && p.subtype == SubType::LittleFs)
+        .map(|_| ())
+        .ok_or(LayoutFault::MissingCcfs)
+}
+```
+
+On `Err`, the firmware logs one message naming the cause and the remedy, and
+**halts**: no control task, no heater ISR, no Wi-Fi. Actuators are already safe
+because this runs after startup step 1.
+
+Three properties, each mapping to a test:
+
+1. The check runs **after** the actuators are safe and **before** anything that
+   could energise them, so a failed check cannot leave a hot machine.
+2. It is a pure function over a partition list, so every case is host-testable
+   without hardware.
+3. The C++ firmware cannot produce a `ccfs` partition, and its filesystem-OTA path
+   looks up the literal label `spiffs`, so it cannot create or write one either.
+
+This is a safety interlock, not an anti-tamper measure. Someone with a USB cable can
+flash whatever they like; the point is that the *accidental* half-migrated state is
+inert rather than dangerous.
+
 ---
 
 ## 4. Startup and shutdown
@@ -244,18 +284,24 @@ before any fallible step, any logging and any config load:
      read the three trigger-type keys from NVS **directly** in this first step, with
      a fail-safe default of `LOW_TRIGGER` (drive HIGH), before the full config
      registry initialises.
-2. Serial and logging.
-3. Config load from NVS, with the LittleFS `/config.json` first-boot seed.
-4. Peripherals: I²C bus, temperature sensor, pressure sensor, water-tank input,
+2. **Check the flash layout** (§3.1). If `ccfs` is missing, log once and **halt** —
+   actuators are already safe from step 1.
+3. Serial and logging.
+4. Config load: read `cfg/ver` and `cfg/blob` from NVS. On a missing or unreadable
+   blob, fall back to compiled-in defaults and log at ERROR. On first boot, also
+   look for `/config.json` on `ccfs` and import it (the same path the user's manual
+   migration uses).
+5. Peripherals: I²C bus, temperature sensor, pressure sensor, water-tank input,
    switches, LEDs, display.
-5. Start `control` — **in a safe state with the heater interlocked off**, and start
+6. Start `control` — **in a safe state with the heater interlocked off**, and start
    the heater ISR only once `control` is ticking.
-6. Arm the watchdog.
-7. Start `storage`, `ui`.
-8. Start `net` (Wi-Fi, then HTTP, then MQTT). **Non-fatal**, matching the C++
-   offline-mode behaviour: a machine with no network still makes coffee.
-9. Release the startup interlock, letting `control` follow the state machine into
-   `PID_NORMAL` or `PID_DISABLED` according to the power-switch type.
+7. Arm the watchdog.
+8. Start `storage`, `ui`.
+9. Start `net` (Wi-Fi, then HTTP, then MQTT). **Non-fatal**, matching the C++
+   offline-mode behaviour: a machine with no network still makes coffee. Wi-Fi
+   credentials come from `wifi/ssid` and `wifi/pass`.
+10. Release the startup interlock, letting `control` follow the state machine into
+    `PID_NORMAL` or `PID_DISABLED` according to the power-switch type.
 
 Failure policy, as a table, because the C++ has five inconsistent styles
 (inventory §5.13):
@@ -263,12 +309,17 @@ Failure policy, as a table, because the C++ has five inconsistent styles
 | Failure | Behaviour |
 |---|---|
 | Output safing | Impossible to fail; it is direct register work with no allocation |
+| **Flash layout check** | **Halt with actuators safe.** Not a fallback — a half-migrated device must be inert (C13) |
 | Config load | Fall back to compiled-in defaults, log at ERROR, continue |
 | Temperature sensor | Continue; `control` starts in `SENSOR_ERROR` with the heater off. **Change from C++**, which boots normally with no sensor. |
 | Display | Continue without a display, log at WARN — same as C++ |
 | Pressure sensor / scale | Continue, feature disabled |
 | Wi-Fi / HTTP / MQTT | Continue in offline mode — same as C++ |
-| `control` cannot start | The only fatal case: log at FATAL, then `esp_restart()`. No `exit(0)`, no falling through with a null manager. |
+| `control` cannot start | The only *fatal-with-restart* case: log at FATAL, then `esp_restart()`. No `exit(0)`, no falling through with a null manager. |
+
+Note the distinction between the two failure styles. The layout check **halts** —
+retrying cannot help, and rebooting into the same wrong layout would be a reset
+loop. `control` failing to start **restarts**, because that is plausibly transient.
 
 That last row deliberately removes the C++ path where `isInitialized()` is false,
 three FATALs are logged, and the firmware continues into `loop()` with
@@ -317,8 +368,8 @@ Exactly one owner per resource. Everything else asks.
 | Water-tank GPIO | `control` | `StateSnapshot` |
 | I²C bus | **shared**, `Mutex<I2cDriver>` | display (`ui`) and pressure (`control`) |
 | Display | `ui` | `StateSnapshot` |
-| NVS | `storage` | `StorageCmd` |
-| LittleFS (web UI) | `http` | read-only |
+| NVS (`wifi` + `cfg`) | `storage` | `StorageCmd` |
+| LittleFS `ccfs` (web UI, `/config.json`) | `http` | read-only |
 | Wi-Fi, MQTT, SSE | `net` | `Command`, `StateSnapshot` |
 | OTA partitions | OTA task | — |
 | `esp_timer` (10 ms control tick) | `control` | — |
@@ -386,8 +437,11 @@ Everything that the 303 existing C++ tests cover, and nothing else:
 - `interlocks`: `Interlocks::any_blocking()` and the `shouldPIDBeEnabled` rule set.
 - `emergency`: the debounce and hysteresis state machine.
 - `brew`, `backflush`, `steam`, `standby`, `maintenance`: the existing handler logic.
-- `config`: the parameter schema, ranges, validation, and the **`"p" + FNV-1a`
-  key derivation** (C6) — a pure function, so it is host-testable against the C++.
+- `config`: the parameter schema, ranges, validation, `postcard` (de)serialisation
+  of the versioned blob, and **`config.json` import/export in the old UI's nested
+  dotted-path shape** (C12). All pure functions, so all host-testable.
+- `layout`: the flash-layout precondition (C13, §3.1) as a pure function over a
+  partition list.
 - `display`: layout maths, template selection, the brew-timer state machine, and the
   U8g2 anchor shim. Renders into an `embedded-graphics` `DrawTarget`, so it is
   host-testable into a simulator buffer.
@@ -426,8 +480,9 @@ resolves the C++'s two-clocks problem (`steady_clock` vs `millis()`) by having o
 
 The only crate that knows about ESP-IDF. Pin map as constants (C1 from the
 inventory: there are no board variants today), `cc-hal` implementations over
-`esp-idf-hal`, the `KvStore` implementation over `EspNvs` — **including the
-float/double-as-blob rule** (C6) — and the GPTimer heater PWM.
+`esp-idf-hal`, the `KvStore` implementation over `EspNvs` (namespace `wifi` for the
+two credential strings, namespace `cfg` for `ver` + the blob), and the GPTimer
+heater PWM.
 
 The board axis exists here as a feature, not a directory tree. Adding a variant
 means adding a pin-map module and a feature; the shared logic does not move.
@@ -466,11 +521,12 @@ what makes `just test` fast — see [tooling.md](tooling.md).
 | Safety chain (C4) | one test per state × per pre-emptive condition, asserting the target state and that the heater duty is 0 | host |
 | Interlocks (C1) | `HeaterCommand::duty` is 0 for every blocking interlock; property test over the interlock powerset | host |
 | PID parity | golden vectors captured from the C++ `PID_v1` under test, replayed against the Rust port | host |
-| Config keys (C6) | the `"p" + FNV-1a` derivation checked against values generated by the C++ | host |
+| Config round-trip (C12) | a real `config.json` exported from the C++ UI imports, re-exports identically, and blob encode/decode round-trips | host |
+| Layout guard (C13) | every partition-list case, including the C++ table, asserts halt | host |
 | ZACwire decode | recorded symbol slices → expected °C, including parity failures and the sentinels 221/222 | host |
 | Display | render into a buffer, compare against a golden image | host |
 | Drivers | mock `embedded-hal` bus, including NAK and short-read paths | host |
-| NVS round-trip | write with C++, read with Rust, on the device | **device** |
+| NVS round-trip | write and read back the config blob and credentials on the device | **device** |
 | Timing | measure control-tick jitter and PWM edge accuracy on the device | **device** |
 | Wi-Fi / MQTT / HTTP / OTA | on the device | **device** |
 

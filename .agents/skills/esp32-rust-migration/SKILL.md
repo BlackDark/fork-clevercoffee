@@ -18,16 +18,21 @@ rule below about actuators is there for that reason.
 In this order. Do not skip ahead to code.
 
 1. `docs/adr/0004-rust-migration-platform-selection.md` — the platform decision,
-   what it accepts, and the list of **deliberate behaviour changes**.
-2. `docs/rust-migration/architecture.md` — the execution model, component
+   what it accepts, and the list of **deliberate behaviour changes**. Read its
+   amendment banner: ADR 0005 removed its strongest argument.
+2. `docs/adr/0005-no-backward-compatibility-usb-flash-migration.md` — **there is no
+   backward compatibility.** NVS is restructured, the partition table is new,
+   old-to-new OTA must not work, and migration is a user-exported `config.json`.
+   This overrides anything older that says otherwise.
+3. `docs/rust-migration/architecture.md` — the execution model, component
    boundaries, hardware ownership, crate split and safe-startup order.
-3. `docs/rust-migration/inventory.md` — what the C++ firmware actually does, and
+4. `docs/rust-migration/inventory.md` — what the C++ firmware actually does, and
    §7, which is the list of contradictions and latent bugs you must not
    accidentally "fix" or accidentally reproduce.
-4. `docs/rust-migration/compatibility-matrix.md` — per-capability verdicts, and §5,
+5. `docs/rust-migration/compatibility-matrix.md` — per-capability verdicts, and §5,
    everything still unverified.
-5. `docs/rust-migration/tooling.md` — how to build, test, flash and provision.
-6. `docs/rust-migration/task-list.md` — find your task and **read its
+6. `docs/rust-migration/tooling.md` — how to build, test, flash and provision.
+7. `docs/rust-migration/task-list.md` — find your task and **read its
    prerequisites and dependencies**. Confirm every prerequisite is actually done,
    not merely listed.
 
@@ -146,6 +151,20 @@ In the commit message and, for research tasks, in the relevant doc:
 - If validation **fails**, or hardware is unavailable, or a spike fails with no
   viable alternative: **record the blocker and the next action, and make no success
   commit.** A commit that says a task is done when it is not is worse than no commit.
+
+## 6a. Do not reintroduce backward compatibility
+
+ADR 0005 is a decision, not a gap to be helpfully filled. Specifically, do **not**:
+
+- read or write the C++ NVS layout, or reproduce its `"p" + FNV-1a` key derivation;
+- restore the `spiffs` partition label, or make the firmware tolerate a missing
+  `ccfs` partition;
+- weaken or bypass the boot layout guard — it is what keeps a half-migrated machine
+  inert, and a machine that boots "mostly fine" against the wrong layout still has a
+  heater attached;
+- add an old-to-new OTA path, or anything that makes one appear to work.
+
+If a task seems to need any of these, that is a contradiction. Report it.
 
 ## 7. Secrets
 

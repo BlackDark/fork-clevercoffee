@@ -177,7 +177,7 @@ size target:
     [ -f "$elf" ] || { echo "build first: just build {{ target }}" >&2; exit 1; }
     espflash save-image --chip "$chip" "$elf" "/tmp/cc-{{ target }}.bin"
     bytes=$(stat -f%z "/tmp/cc-{{ target }}.bin" 2>/dev/null || stat -c%s "/tmp/cc-{{ target }}.bin")
-    part=$(awk -F, '/^app0/ {gsub(/ /,"",$5); print $5}' partitions_4M.csv)
+    part=$(awk -F, '/^app0/ {gsub(/ /,"",$5); print $5}' partitions_rust_4m.csv)
     ./.venv/bin/python - "$bytes" "$part" <<'PY'
     import sys
     n = int(sys.argv[1]); p = int(sys.argv[2], 16)
@@ -237,8 +237,11 @@ flash target port: (_assert-chip target port) (build target)
       espflash-uart)
         # Original ESP32 has no native USB: UART via the board's USB-serial
         # bridge. No USB-JTAG, no DFU.
+        # Writes bootloader + partition table + app in one operation, because the
+        # Rust firmware refuses to boot without its own `ccfs` partition (ADR 0005)
+        # and an app-only flash would leave a halted device.
         espflash flash --chip "$chip" --port "{{ port }}" \
-          --partition-table partitions_4M.csv "$elf" ;;
+          --partition-table partitions_rust_4m.csv "$elf" ;;
       *)
         echo "no flash method '$method' implemented" >&2; exit 2 ;;
     esac

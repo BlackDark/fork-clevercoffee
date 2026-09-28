@@ -1,0 +1,25 @@
+# Partition table for the Rust firmware, 4MB flash.
+#
+# Deliberately NOT compatible with partitions_4M.csv. There is no upgrade path
+# from the C++ firmware: users flash over USB and re-import their configuration
+# from a config.json exported by the old web UI. See docs/adr/0005.
+#
+# App slot geometry is unchanged from the C++ table on purpose, so the binary-size
+# budget measured in SPIKE-1 still applies without re-verification.
+#
+# The filesystem partition is renamed spiffs -> ccfs and its subtype corrected to
+# littlefs (the C++ table declared subtype spiffs while formatting LittleFS). Two
+# things follow, and both are intentional:
+#   - the C++ firmware's filesystem-OTA path looks up the literal label "spiffs"
+#     and will not find this partition, so it cannot write it;
+#   - the Rust firmware requires "ccfs" to exist at boot and halts with all
+#     actuators safe if it is missing, which is what stops an app-only OTA from
+#     the old firmware leaving a half-migrated machine running.
+#
+# Name,     Type, SubType,  Offset,   Size,     Notes
+nvs,        data, nvs,      0x9000,   0x5000,   # 20KB  wifi creds + config blob
+otadata,    data, ota,      0xE000,   0x2000,   # 8KB
+app0,       app,  ota_0,    0x10000,  0x1A0000, # 1664KB
+app1,       app,  ota_1,    0x1B0000, 0x1A0000, # 1664KB
+ccfs,       data, littlefs, 0x350000, 0xA0000,  # 640KB web UI assets
+coredump,   data, coredump, 0x3F0000, 0x10000,  # 64KB

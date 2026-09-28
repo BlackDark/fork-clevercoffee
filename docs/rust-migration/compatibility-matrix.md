@@ -110,7 +110,14 @@ known future cost. Not a present blocker — we build against v5.3.6.
 | LittleFS / SPIFFS / FATFS | all three in `esp-idf-svc/src/fs/` | verified |
 | Logging | `EspIdfLogger` implements `log::Log` with ESP-IDF-identical output; `init_from_esp_idf()` honours `CONFIG_LOG_*` | verified (**linked here**) |
 
-### 2.3 The NVS question — the decisive row
+### 2.3 The NVS question — no longer a requirement
+
+> **Superseded by [ADR 0005](../adr/0005-no-backward-compatibility-usb-flash-migration.md).**
+> Backward compatibility was dropped: NVS may be restructured, and migration happens
+> by exporting `config.json` from the old web UI and importing it into the new
+> firmware. Nothing below is needed any more. It is kept because it was the decisive
+> argument in ADR 0004, so anyone re-reading that record needs to see what was
+> removed — and because it would matter again if a compatible read is ever wanted.
 
 **Reading an existing device's config is byte-exact, and provable.** Arduino's
 `Preferences` has no encoding of its own; it is a direct `nvs_set_*` passthrough:
@@ -130,7 +137,7 @@ known future cost. Not a present blocker — we build against v5.3.6.
 `esp_idf_svc::nvs::EspNvs` exposes matching `get_`/`set_` for every integer width,
 `get_str`/`set_str`, `get_blob`/`set_blob`, `blob_len`, `str_len`, `erase_all`.
 So the `config` namespace with its `"p" + FNV-1a-hex` keys maps 1:1.
-**Verdict: verified.**
+**Verdict: verified, but no longer required.**
 
 Two traps to carry into implementation:
 
@@ -262,7 +269,15 @@ no published `esp-radio` memory breakdown to budget against
 
 ### 3.4 Where bare metal runs out of road for *this* product
 
-Two gaps are unsolved by the vendor and both sit on the critical path to not
+> **Re-scoped by [ADR 0005](../adr/0005-no-backward-compatibility-usb-flash-migration.md).**
+> Both gaps below were about *preserving deployed state*. That requirement is gone,
+> so neither is blocking any more. Gap 1 disappears entirely — a greenfield store
+> like `sequential-storage` 8.0.1 was already rated verified. Gap 2 shrinks from
+> "no path exists" to "needs a prototype": with the layout free, a bare-metal build
+> could define its own asset format and stream it from flash. They are kept for the
+> record because they are what ADR 0004 turned on.
+
+Two gaps are unsolved by the vendor and both sat on the critical path to not
 breaking existing machines:
 
 1. **Reading the existing ESP-IDF NVS partition** has exactly one candidate,
@@ -474,7 +489,7 @@ Carried into [task-list.md](task-list.md) as explicit spikes or as open risk.
 | # | Item | Why it matters | Where it is handled |
 |---|---|---|---|
 | U1 | **Nothing has been flashed.** Every runtime claim is compile/link-level only. | Wi-Fi stability, timing, reconnect behaviour and heap use are all unproven. | SPIKE-2, and every phase gate |
-| U2 | Reading a **real device's** NVS `config` namespace — byte compatibility is proven by construction, not by experiment. | If wrong, users lose their settings. | SPIKE-3 |
+| ~~U2~~ | ~~Reading a real device's NVS `config` namespace~~ **Dropped** — ADR 0005 removed the requirement. Replaced by U12. | — | SPIKE-3 deleted |
 | U3 | ZACwire decode via RMT against real TSIC hardware. | The only timing-critical driver. | SPIKE-4 |
 | U4 | Pixel parity of `u8g2-fonts` vs U8g2's C renderer. | Visible regression if wrong. | SPIKE-5 |
 | U5 | SSE behaviour under `EspHttpServer`'s socket limits. | The web UI's live telemetry channel. | SPIKE-6 |
@@ -484,6 +499,8 @@ Carried into [task-list.md](task-list.md) as explicit spikes or as open risk.
 | U9 | Licences for 11 of 13 third-party libraries. | Only affects what we may copy from them. | Resolved by not copying; ADR 0004 §Licence |
 | U10 | `esp-idf-hal`'s I²C wrapping an EOL IDF driver. | Forces ESP-IDF ≤ 6.x, or a wrapper we write. | Pinned IDF; recorded risk |
 | U11 | Whether the water-tank switch polarity or the other four is wrong. | A real behavioural question for parity. | Needs a user/hardware decision |
+| **U12** | **Does `config.json` as exported by the old web UI round-trip into the new firmware?** This replaces U2 and is now the *only* data-compatibility surface. | If wrong, users cannot migrate their settings at all. | ORACLE-4, DOMAIN-8 |
+| **U13** | Does the boot layout guard actually fire on a device carrying the C++ partition table? | It is what makes a half-migrated machine inert rather than dangerous. | BOOT-1, SPIKE-8 |
 
 ---
 

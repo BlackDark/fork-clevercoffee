@@ -4,6 +4,16 @@
 
 Accepted (2026-09-28)
 
+**Amended by [ADR 0005](0005-no-backward-compatibility-usb-flash-migration.md)
+(2026-09-28): backward compatibility is no longer required.** That removes this
+record's *strongest* argument (argument 1, NVS config continuity) and weakens
+argument 2 (serving the deployed LittleFS web UI). The selected platform does not
+change — arguments 3 to 6 and SPIKE-1's measurement carry it on their own — but the
+margin over the bare-metal alternative is narrower than this record implies. Read
+ADR 0005 §Consequences before using this one to justify anything, and treat the
+"Immediate consequences" items about NVS keys and the frozen partition table as
+superseded.
+
 **Related:** [inventory.md](../rust-migration/inventory.md) · [compatibility-matrix.md](../rust-migration/compatibility-matrix.md) · [architecture.md](../rust-migration/architecture.md) · [task-list.md](../rust-migration/task-list.md)
 
 ## Context
@@ -92,12 +102,21 @@ rendering, no font data, no PID, no config registry and no state machine; the
    2025-11-19, README still pinning an older `esp-storage`, and a licence
    discrepancy between crates.io and its repo. There is no Espressif-official
    no_std NVS reader. If it fails, deployed machines lose their settings.
+
+   > **Superseded by [ADR 0005](0005-no-backward-compatibility-usb-flash-migration.md).**
+   > Backward compatibility is no longer required, so this argument is moot. It was
+   > the strongest one in this record. See ADR 0005 §Effect on ADR 0004.
 2. **The web UI has no path on B at all.** `littlefs2` binds the C littlefs, but no
    glue to `esp-storage` exists and no instance was found of anyone mounting an
    ESP-IDF littlefs partition from no_std Rust. `picoserve` serves compile-time
    `&'static [u8]`, not a filesystem. On A, `esp-idf-svc` ships LittleFS, SPIFFS and
    FATFS, and `EspPartition` gives raw access by label. This is the closest thing to
    a disqualifying gap found in the whole analysis.
+
+   > **Weakened by [ADR 0005](0005-no-backward-compatibility-usb-flash-migration.md).**
+   > With the partition layout free, a bare-metal build could define its own asset
+   > format on a data partition and stream it from flash. The gap shrinks from "no
+   > path exists" to "needs a prototype".
 3. **Wi-Fi on A is the stack the device is already proven on.** The ESP-IDF
    Wi-Fi/lwIP/mbedTLS/httpd paths are identical to today's. On B, `esp-radio` is
    pre-1.0 with open issues that are hostile to an appliance: no WPA3 station on
@@ -150,13 +169,23 @@ Recorded plainly, because these are real and B is better at each of them:
 
 ### Revisit conditions
 
+**Updated by [ADR 0005](0005-no-backward-compatibility-usb-flash-migration.md):**
+the two data-compatibility gaps below no longer block, so reopening now needs a
+lower bar than this list implies. What remains is the Wi-Fi maturity and RAM
+question.
+
 This decision should be reopened if any of these becomes true:
 
-- `esp-nvs` (or an Espressif-official equivalent) reaches production maturity **and**
-  a no_std path to mount the existing LittleFS partition appears. Those are the two
-  gaps that decided against B.
+- ~~`esp-nvs` (or an Espressif-official equivalent) reaches production maturity
+  **and** a no_std path to mount the existing LittleFS partition appears.~~
+  **No longer relevant** — NVS may be restructured and the layout is ours to
+  choose, so neither is required. A bare-metal build would need only *some* way to
+  store config and serve assets, which is a much lower bar.
 - `esp-radio` reaches 1.0 with [#5889](https://github.com/esp-rs/esp-hal/issues/5889)
-  and [#1600](https://github.com/esp-rs/esp-hal/issues/1600) closed.
+  and [#1600](https://github.com/esp-rs/esp-hal/issues/1600) closed. **This is now
+  the main condition.**
+- A measured RAM budget for `esp-radio` on esp32 is published, or measured by us,
+  showing enough headroom for the display, PID, MQTT and web buffers.
 - The `esp-idf-*` crates go unmaintained for two or more release cycles.
 - The product moves to an ESP32-S3 or -C6, which would remove the Xtensa nightly
   constraint and change B's risk profile substantially.
@@ -178,10 +207,16 @@ seam exists.
 - The C++ firmware stays in the tree and buildable for the whole migration. It is
   the parity oracle: every behavioural claim is checked against it, not against the
   documentation.
-- The partition table is unchanged, **including the `spiffs` label**, so the
-  existing filesystem-OTA path and the deployed web UI keep working.
-- NVS keys keep the `"p" + FNV-1a(dotted path)` derivation. Floats and doubles must
-  be read with `get_blob` + `from_le_bytes`, **not** `get_u32`/`get_u64`.
+- ~~The partition table is unchanged, **including the `spiffs` label**, so the
+  existing filesystem-OTA path and the deployed web UI keep working.~~
+  **Superseded by [ADR 0005](0005-no-backward-compatibility-usb-flash-migration.md):**
+  the Rust firmware uses `partitions_rust_4m.csv` with the filesystem partition
+  renamed `ccfs`, and refuses to boot without it.
+- ~~NVS keys keep the `"p" + FNV-1a(dotted path)` derivation. Floats and doubles must
+  be read with `get_blob` + `from_le_bytes`, **not** `get_u32`/`get_u64`.~~
+  **Superseded by ADR 0005:** configuration is a single versioned `postcard` blob,
+  Wi-Fi credentials are two plain string keys, and `config.json` is the migration
+  interface.
 
 ### Deliberate behaviour changes
 
