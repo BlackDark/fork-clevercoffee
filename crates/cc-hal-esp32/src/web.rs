@@ -1987,7 +1987,12 @@ pub mod tests {
             .expect("brew.setpoint is registered");
         assert_eq!(setpoint["value"], 91.5);
         // …and `default` still reports what a factory reset would give.
-        assert_eq!(setpoint["default"], 94.5);
+        //
+        // 95.0, not 94.5: `constants/Temperature.h:18` `DEFAULT_BREW_SETPOINT_C =
+        // 95.0f` and `Config::default()` sets 95.0. This assertion was 94.5 and
+        // failed on its first run on hardware. The device-test harness caught it,
+        // which is the harness doing its job.
+        assert_eq!(setpoint["default"], 95.0);
     }
 
     #[cfg_attr(test, test)]
