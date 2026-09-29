@@ -348,3 +348,48 @@ list is `State::may_hold_water_valve_open()` in `crates/domain/src/state.rs`, an
 the *one* direction that is a safety property — a state that commands the valve must be allowed to
 hold it — rather than the equality the previous version asserted, which is exactly the assertion
 that would have hidden this.
+
+### D57 — The config exporter wrote keys the importer rejects, so an export could not be re-imported
+
+`crates/config/src/import.rs`, `export()`. The exporter emitted each parameter's **full dotted
+key as a leaf name inside its group object**: `"pid": { "pid.regular.kp": 50.0 }`. The import
+format, which is the same document the C++ firmware wrote and the same one
+`config-export-schema.md` documents, nests: `"pid": { "regular": { "kp": 50.0 } }`. Sixteen keys
+in a real export therefore named parameters the schema does not have, and because this port
+rejects unknown fields rather than ignoring them — a deliberate fix, D13's family — **every
+export this port produced was refused by its own importer**. The C++ did not notice, because its
+importer ignored unknown fields, which is the same defect as D13 seen from the other end.
+
+**Impact:** `/api/config/download`, the USB config export and any "save my settings" round trip
+produced a file the machine itself would then reject. A user restoring their own backup would be
+told the backup was corrupt.
+
+**Severity:** high for the migration path, which is the one thing this port exists to provide.
+
+**Fix:** the exporter emits the key relative to its group and nests the remaining segments, with
+a two-level open stack so siblings share one intermediate object. Two tests hold it: the export is
+parsed and validated by the same importer with zero unknown keys and zero rejections, and the
+repository's own `config.json` still imports clean. A comma-state bug in the first attempt (an
+intermediate object emitted `{,`) was caught by the same round-trip test, which is the argument
+for having it.
+
+### D58 — `format_version` was written by the exporter and rejected by the importer
+
+`crates/config/src/json.rs` and `import.rs`. `config-export-schema.md` line 237 specifies
+`format_version` as "top level, in the export and accepted in an import", and the exporter wrote
+it. The importer had no such parameter, so the key was resolved to the dotted path
+`format_version`, matched against the schema, missed, and **rejected as an unknown field**.
+
+**Impact:** every real C++ export — which is the file a user migrating from the C++ firmware
+actually has, and the only migration path this port offers — carries `format_version: 1` and was
+refused outright. The repository's own `config.json` happens not to carry it, which is why the
+T-06 fixture tests passed and this survived two review passes.
+
+**Severity:** critical for the migration, and invisible to the repository's own fixtures.
+
+**Fix:** `format_version` is a property of the document, not a setting, so it is recorded on
+`ResolvedDoc` rather than inserted as a parameter. A version this firmware does not read is
+refused **by name and in full**, before any field is looked at, because a document from a newer
+firmware may mean something different by the same key and half-applying it is how a downgrade
+destroys a configuration. A test feeds a `format_version: 2` document and asserts that nothing is
+applied.

@@ -64,7 +64,9 @@ rustc 1.98.1 stable (RISC-V).
 | Heater PWM timing | unverified | unverified | unverified | No device, and the PWM ISR is not written. |
 | Web API parity | host-tested, 31 route tests | same | same | The socket layer is not written. |
 | Config import | host-tested | host-tested | host-tested | The device half is written and host-tested; not run on a device. |
-| Control scenarios (brew, backflush, faults, deadlines) | host-tested, 21 scenarios | same | same | The pin drivers behind them are build-unverified. |
+| Control scenarios (brew, backflush, faults, deadlines) | host-tested, 21 scenarios | same | host-tested **and compiled** | The pin drivers behind them are build-unverified. |
+| Configuration load from flash | host-tested, including the region format and the export round trip | same | **compiled and linked** | The partition read is compiled; no flash has been read. |
+| Home Assistant discovery documents | host-tested | same | same | No broker, and the client is not chosen. |
 | MQTT and Home Assistant discovery | host-tested against generated documents | same | same | No broker, and the client is not chosen. |
 | `just wifi` and `just config-import` | unverified | unverified | unverified | No device. |
 | Boot pin map on a real board | host-tested as data, **board crate uncompiled** | host-tested as data, **board crate uncompiled** | host-tested as data and **board crate compiled and linked**, not flashed | No device. The C6 compile is the only chip-level evidence in this checkout. |

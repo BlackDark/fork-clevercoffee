@@ -366,9 +366,15 @@ Exit gate: all three targets build; the mock-actuator image boots on the bench d
   assert!` blocks, so the data table and the hand-written macro cannot drift apart without a
   compile error. That is the check a host test could not give, and it is why the numbers appear
   twice.
-- Deliberately **not** wired: the Wi-Fi stack, the HTTP socket, the sensor drivers and the display
-  bus. Writing four I/O paths no test in this checkout can exercise would be a worse outcome than
-  writing none, and each of them has a host-tested core already waiting for it.
+- **Now wired, and compiled for the C6:** the boot order reads the `config` partition out of flash
+  through the bootloader's partition table, hands it to the app's loader, and the machine is
+  constructed from the result. The sensor aggregator is polled once per tick with each driver on
+  its own period. A region that is absent, unparseable or rejected leaves the machine on its
+  compiled defaults, which is a machine that brews rather than one that will not start.
+- Deliberately **not** wired: the Wi-Fi stack, the HTTP socket, the 1-Wire temperature driver, the
+  scale, the pressure sensor and the display bus. The first two are I/O no test here can exercise;
+  the last three are drivers that exist and are host-tested but need pins and a bus the board
+  crates do not construct yet. The parity report lists them in the order they should be closed.
 - **Fixes:** D01, D04, D05
 
 ---
@@ -406,6 +412,12 @@ Exit gate: host tests green, all three targets build, the API is complete.
   emergency stop was evaluated on the *filtered* temperature, so a genuine over-temperature took
   six seconds to trip a fifteen-sample mean; and a sensor fault was routed into the latched
   emergency stop, which turned a recoverable fault into a machine that needed unplugging.
+- **Also done:** the configuration bridge (`config_rt`), which was the missing link between the
+  99-parameter schema and the machine's thirty fields and had no tests because it did not exist.
+  Its coverage test fails when a parameter is neither read nor listed as inert, which is how a
+  setting that looks live and is not gets caught. The sensor aggregator (`sensors`) reads each
+  driver on its own period. The storage loader (`store`) turns flash bytes into a machine
+  configuration with four named failure modes.
 - **Not verified:** on hardware. The task bodies are synchronous functions and the scheduling,
   priorities and watchdog timer are the firmware's, which is stated in the code rather than papered
   over.
@@ -547,12 +559,13 @@ Exit gate: the end-to-end import check passes on device; the migration guide is 
   A load-energizing test needs the user's explicit approval and a written safe procedure.
 - **Rollback:** n/a
 - **Open uncertainty:** none
-- **Partly done.** The functional and API legs are host-driven and are asserted in the crates
-  themselves: 21 control scenarios, 31 API route tests, 14 provisioning tests and 63 display tests.
-  What is missing is a single checklist document tying those to the C++ behaviours row by row, and
-  the control legs on hardware, which needs a device and a heater-disabled build. Neither the
-  checklist nor the device legs were produced in this run; the per-task test suites are the
-  evidence that exists.
+- **Done, except the device legs.** `docs/rust-migration/parity-report.md` is the checklist: every
+  C++ behaviour, what the port does, and a row of pass, fixed, deviation, gap or unverified, with
+  the test that is the evidence. It names four deviations with their reasons, six gaps in the
+  order they should be closed, and the rows that cannot be closed without hardware.
+- **Not done:** the control legs on hardware, which need a device and a heater-disabled build, and
+  therefore still need a device. Every row that touches a relay, a heater or a sensor is
+  host-tested against a fake and nothing more.
 - **Fixes:** n/a
 
 ### T-21. Display layout verification on device

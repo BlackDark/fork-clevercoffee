@@ -210,6 +210,26 @@ impl Parser<'_> {
             self.expect(b':')?;
             self.skip_ws();
             let saved = key.clone();
+            // A top-level `format_version` names the document, not a setting. Recorded on the
+            // document rather than inserted as a parameter, because there is no `format_version`
+            // parameter and inserting it would make every real C++ export fail with an unknown
+            // key. Recorded as defect D58.
+            if saved.is_empty() && name == "format_version" {
+                if let Some(v) = self.integer()? {
+                    self.out.doc.format_version = Some(v as u16);
+                }
+                self.skip_ws();
+                match self.peek() {
+                    Some(b',') => self.pos += 1,
+                    Some(b'}') => {
+                        self.pos += 1;
+                        return Ok(());
+                    }
+                    Some(_) => return Err(ParseError::UnexpectedByte { at: self.pos }),
+                    None => return Err(ParseError::UnexpectedEnd),
+                }
+                continue;
+            }
             // Extend the path with `.name`. An object whose name is too long to extend is
             // recorded as unknown rather than truncated, because a truncated key could collide
             // with a real one.
@@ -243,6 +263,29 @@ impl Parser<'_> {
     /// Parses an array. An array has no place in the config schema, so its elements are
     /// recorded under the enclosing key and will be rejected as unknown, but they are parsed so
     /// that one stray `[` does not turn the whole file into a parse error with no report.
+    /// Reads an integer, or `None` if the next value is not one.
+    fn integer(&mut self) -> Result<Option<i64>, ParseError> {
+        let start = self.pos;
+        if self.peek() == Some(b'-') {
+            self.pos += 1;
+        }
+        let digits_start = self.pos;
+        while let Some(b) = self.peek() {
+            if b.is_ascii_digit() {
+                self.pos += 1;
+            } else {
+                break;
+            }
+        }
+        if self.pos == digits_start {
+            self.pos = start;
+            return Ok(None);
+        }
+        let text = core::str::from_utf8(&self.input[start..self.pos])
+            .map_err(|_| ParseError::UnexpectedEnd)?;
+        Ok(text.parse::<i64>().ok())
+    }
+
     fn array(&mut self, key: &mut heapless::String<96>, depth: usize) -> Result<(), ParseError> {
         self.expect(b'[')?;
         self.skip_ws();

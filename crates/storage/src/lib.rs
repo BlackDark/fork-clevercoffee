@@ -152,6 +152,26 @@ impl Partition {
         &self.bytes
     }
 
+    /// A partition holding exactly the bytes given.
+    ///
+    /// The one constructor a caller outside this crate needs: the firmware reads a partition out of
+    /// flash and hands the bytes over. `None` when the slice is the wrong length, rather than a
+    /// truncated region, because a region that is half a region reads as a corrupt region and the
+    /// report would be about the firmware rather than about the flash.
+    pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
+        if bytes.len() != SLOT_SIZE * 2 {
+            return None;
+        }
+        let mut p = Self::blank();
+        p.bytes.copy_from_slice(bytes);
+        Some(p)
+    }
+
+    /// The writable form, for a caller filling the region in place.
+    pub fn as_bytes_mut(&mut self) -> &mut [u8] {
+        &mut self.bytes
+    }
+
     /// Reads both slots and returns the newer valid one.
     ///
     /// The comparison is wraparound-safe, because `generation` is a `u16` that will wrap after
@@ -330,6 +350,15 @@ impl Region {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_region_built_from_bytes_reads_back_what_it_was_given() {
+        let written = Partition::with_payload(b"{\"a\":1}");
+        let rebuilt = Partition::from_bytes(written.as_bytes()).expect("the right length");
+        assert_eq!(rebuilt.as_bytes(), written.as_bytes());
+        assert!(Partition::from_bytes(b"short").is_none());
+        assert!(Partition::from_bytes(&[0u8; SLOT_SIZE * 2 + 1]).is_none());
+    }
 
     #[test]
     fn a_blank_partition_reads_as_no_configuration() {

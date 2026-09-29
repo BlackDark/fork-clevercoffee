@@ -73,6 +73,27 @@ pub struct RuntimeConfig {
     pub brew_switch_enabled: bool,
     /// `hardware.switches.brew.enabled`. With it off, no brew request is accepted at all.
     pub brew_switch_present: bool,
+    /// `steam.setpoint`. The machine has one PID and one boiler, so this is the setpoint the PID
+    /// is given while the state is `STEAM_RUNNING`. The C++ had the same two numbers and switched
+    /// between them in the state handler.
+    pub steam_setpoint_c: f64,
+    /// `pid.use_ponm`: the proportional term acts on the measurement rather than the error.
+    pub pid_proportional_on_measurement: bool,
+    /// `pid.ema`, the input filter's smoothing factor.
+    pub pid_ema_factor: f64,
+    /// `pid.regular.i_max`, the integrator limit. The C++ hardcoded 0 to 55 and ignored this
+    /// setting entirely.
+    pub pid_integrator_max: f64,
+    /// `brew.temp_offset`, added to the reading for the brew's own display and control.
+    pub brew_temp_offset_c: f64,
+    /// Whether each switch is fitted. A machine without a steam switch cannot be asked to steam.
+    pub steam_switch_present: bool,
+    pub hot_water_switch_present: bool,
+    pub power_switch_present: bool,
+    /// Whether a scale and a pressure sensor are fitted, which is also what decides whether their
+    /// rows exist on the display and whether `/api/status` carries a weight.
+    pub scale_enabled: bool,
+    pub pressure_enabled: bool,
     /// The delay at the start of a brew during which the heater is held off, so the pump gets
     /// clean water. C++ `Timing.h:33`, `BREW_PID_DELAY`.
     pub brew_pid_delay_ms: u32,
@@ -89,7 +110,13 @@ impl Default for RuntimeConfig {
     fn default() -> Self {
         Self {
             // C++ `defaults.h`: 93.0 C.
-            setpoint_c: 93.0,
+            setpoint_c: 95.0,
+            steam_setpoint_c: 135.0,
+            steam_switch_present: true,
+            hot_water_switch_present: true,
+            power_switch_present: true,
+            scale_enabled: true,
+            pressure_enabled: true,
             brew_by_time_enabled: true,
             brew_by_weight_enabled: false,
             brew_target_time_ms: 27_000,
@@ -112,12 +139,16 @@ impl Default for RuntimeConfig {
             brew_switch_present: true,
             brew_pid_delay_ms: 0,
             emergency: Thresholds::default(),
-            // C++ `defaults.h`: Kp 10, Tn 100, Tv 10.
+            // C++ `defaults.h`.
             pid: Gains {
-                kp: 10.0,
-                tn: 100.0,
-                tv: 10.0,
+                kp: 62.0,
+                tn: 52.0,
+                tv: 11.5,
             },
+            pid_proportional_on_measurement: false,
+            pid_ema_factor: 0.6,
+            pid_integrator_max: 55.0,
+            brew_temp_offset_c: 0.0,
             pid_enabled_at_boot: true,
             pump_timeout_brew_ms: Timing::BREW_PUMP_TIMEOUT.as_millis() as u32,
             pump_timeout_hot_water_ms: Timing::HOT_WATER_PUMP_TIMEOUT.as_millis() as u32,
@@ -378,11 +409,31 @@ impl<A: Actuators> Machine<A> {
     /// effect here rather than being read live out of storage on the control path.
     pub fn apply_config(&mut self, config: RuntimeConfig) {
         self.pid.set_gains(config.pid);
+        self.pid
+            .set_proportional_on_measurement(config.pid_proportional_on_measurement);
         self.pid_enabled = config.pid_enabled_at_boot;
         self.config = config;
     }
 
+    /// The reading the machine controls on.
+    ///
+    /// The filter's output, plus `brew.temp_offset` while a brew is running. The offset is the
+    /// user's correction for their particular machine, so it applies to the shot and not to the
+    /// idle reading on the display.
     pub fn temperature_c(&self) -> Option<f64> {
+        self.filter.celsius().map(|t| {
+            if self.brew_running() {
+                t + self.config.brew_temp_offset_c
+            } else {
+                t
+            }
+        })
+    }
+
+    /// The raw filtered reading, before any offset. What the display shows and what the emergency
+    /// stop evaluates, because both are about the real temperature rather than the user's
+    /// correction to it.
+    pub fn raw_temperature_c(&self) -> Option<f64> {
         self.filter.celsius()
     }
 
@@ -985,7 +1036,15 @@ impl<A: Actuators> Machine<A> {
             return;
         }
         self.last_pid_sample_ms = self.now_ms;
-        let out = self.pid.compute(self.now_ms, temp, self.setpoint_c());
+        // Steam runs at its own setpoint. One boiler, one PID, two targets: the C++ switched
+        // between them in the steam state handler, and doing it here means the transition table
+        // cannot move the machine out of steam and leave the PID aimed at 135 C.
+        let target = if self.state == State::SteamRunning {
+            self.config.steam_setpoint_c
+        } else {
+            self.setpoint_c()
+        };
+        let out = self.pid.compute(self.now_ms, temp, target);
         self.pid_output = out.output;
     }
 

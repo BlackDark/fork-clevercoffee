@@ -14,6 +14,7 @@ path = "src/lib.rs"
 [dependencies]
 clevercoffee-app = { workspace = true }
 clevercoffee-hal-traits = { workspace = true }
+clevercoffee-storage = { workspace = true }
 # Optional, because a build can only contain one chip. Feature unification would otherwise
 # compile all three chips' metadata into one binary, which does not link. Each board feature
 # turns exactly one of these on.
@@ -25,6 +26,7 @@ esp-rtos = { workspace = true, features = ["embassy"] }
 esp-alloc = { workspace = true }
 esp-backtrace = { workspace = true }
 esp-bootloader-esp-idf = { workspace = true }
+esp-storage = { workspace = true }
 esp-println = { workspace = true }
 embassy-executor = { workspace = true }
 embassy-time = { workspace = true }
@@ -58,6 +60,7 @@ board-esp32 = [
     "esp-rtos/esp32",
     "esp-alloc/esp32",
     "esp-backtrace/esp32",
+    "esp-storage/esp32",
     "esp-bootloader-esp-idf/esp32",
     "esp-println/uart",
     "esp-println/esp32",
@@ -69,6 +72,7 @@ board-esp32s3 = [
     "esp-rtos/esp32s3",
     "esp-alloc/esp32s3",
     "esp-backtrace/esp32s3",
+    "esp-storage/esp32s3",
     "esp-bootloader-esp-idf/esp32s3",
     "esp-println/jtag-serial",
     "esp-println/esp32s3",
@@ -80,6 +84,7 @@ board-esp32c6 = [
     "esp-rtos/esp32c6",
     "esp-alloc/esp32c6",
     "esp-backtrace/esp32c6",
+    "esp-storage/esp32c6",
     "esp-bootloader-esp-idf/esp32c6",
     "esp-println/jtag-serial",
     "esp-println/esp32c6",

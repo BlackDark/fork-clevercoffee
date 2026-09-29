@@ -18,14 +18,16 @@ was compiled for a chip.
 
 ## The current numbers
 
-- 17 crates, 557 host tests in the workspace, 55 in the provisioning tool.
+- 17 crates, 596 host tests in the workspace, 55 in the provisioning tool.
 - Host gate, all green: `cargo +stable fmt --all -- --check`, `cargo +stable clippy --workspace
   --exclude clevercoffee-fw --exclude clevercoffee-bsp-* --all-targets -- -D warnings`, the
   workspace tests, `tools/check-deps.py`, `tools/check-secrets.py`, and the provisioning tool's
   tests.
 - **`just check-fw esp32c6` passes**, and `cargo build --release --target
   riscv32imac-unknown-none-elf -p clevercoffee-fw --features board-esp32c6,prov-usb-cdc` links a
-  1.76 MB image. The `check-fw` recipe now falls back to the stable toolchain when the `esp` fork
+  2.19 MB image. The C6 binary reads its config partition out of flash, validates it, builds the
+  machine from it and polls the sensor aggregator, so the wiring between the region, the schema and
+  the control path is compiled rather than described. The `check-fw` recipe now falls back to the stable toolchain when the `esp` fork
   is absent, which is what makes a RISC-V target checkable on a host that cannot install it.
 - `just check-fw esp32` and `just check-fw esp32s3`: **cannot run here.** The Xtensa chips need the
   Espressif fork of rustc and `just espup-install` fetches an x86-64 `espup`, which exits 126 on
@@ -58,7 +60,7 @@ was compiled for a chip.
 | T-17 MQTT and HA discovery | generator and parser done | the client is not chosen and the socket is not written |
 | T-18 telnet logging | ring buffer and server done | the listener is not written |
 | T-19 end-to-end import | not started | blocked on a device |
-| T-20 parity check | partly done | the evidence is the per-task suites; no checklist document, no device legs |
+| T-20 parity check | **done except the device legs** | `parity-report.md`: every behaviour, a row, the evidence; the hardware legs need a device |
 | T-21 display on device | not started | blocked on a device |
 | T-22 remove the C++ tree | not started | and it should not be: its prerequisite is a parity gate that cannot pass |
 
@@ -85,8 +87,8 @@ After that, in this order:
 2. **The network stack and the socket layer.** `esp-radio` and `embassy-net` are build-verified in
    the spikes. The API handlers, the MQTT generator, the line server and the provisioning protocol
    are all written and all take an injected stream, so this is wiring rather than design.
-3. **T-20's checklist document**, which is a writing task and needs no device for the functional
-   and API legs.
+3. **The HTTP socket and the network stack.** Every handler, the discovery generator, the line
+   server and the provisioning protocol are written and all take an injected stream. This is wiring.
 4. T-19 and T-21 when a board exists.
 
 ## Three defects found in this session

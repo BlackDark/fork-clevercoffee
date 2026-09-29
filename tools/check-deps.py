@@ -69,6 +69,7 @@ LAYERS: dict[str, set[str]] = {
         # For the `SensorSource` associated type on the loop. The firmware is the top of the
         # layering, so this is the one crate that may reach sideways for a trait it must name.
         "clevercoffee-hal-traits",
+        "clevercoffee-storage",
         "clevercoffee-bsp-esp32",
         "clevercoffee-bsp-esp32s3",
         "clevercoffee-bsp-esp32c6",

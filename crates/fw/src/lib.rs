@@ -33,6 +33,9 @@
 
 #![no_std]
 
+pub mod config;
+pub mod sensors;
+
 use embassy_time::{Duration, Timer};
 
 /// The control tick. 1 ms is the state machine's own granularity.

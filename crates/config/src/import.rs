@@ -49,6 +49,9 @@ impl Report {
     }
 }
 
+/// The document format this firmware reads and writes.
+pub const FORMAT_VERSION: u16 = 1;
+
 /// Why a field was rejected.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Reason {
@@ -58,6 +61,9 @@ pub enum Reason {
     WrongType,
     /// Outside the parameter's range, and clamping was not requested.
     OutOfRange,
+    /// The document declares a `format_version` this firmware does not read. Nothing is applied,
+    /// because a document from a newer firmware may mean something different by the same key.
+    UnsupportedVersion,
     /// A text value over its length limit, or carrying a control character.
     TooLong,
     /// A number that is not a number, or is infinite.
@@ -173,6 +179,16 @@ impl<'a> Import<'a> {
 /// result so the validation rules can be tested without a parser.
 pub fn validate<'a>(resolved: &'a ResolvedDoc, allow_clamp: bool) -> Import<'a> {
     let mut out = Import::new(allow_clamp);
+
+    // The document's own version comes first, before any field is read. A document from a newer
+    // firmware may name a field this one does not have, and half-applying it is how a downgrade
+    // destroys a configuration. Named, refused, nothing applied.
+    if let Some(version) = resolved.format_version {
+        if version != FORMAT_VERSION {
+            out.reject(u16::MAX, Key::Unknown, Reason::UnsupportedVersion);
+            return out;
+        }
+    }
 
     for (key, value) in resolved.fields() {
         // Every stored field was matched to the schema when it was inserted, so this cannot
@@ -390,6 +406,13 @@ pub struct Field {
 pub struct ResolvedDoc {
     fields: Vec<Field, { schema::count() }>,
     unknown_keys: Vec<UnknownKey, 16>,
+    /// The document's `format_version`, when it carried one.
+    ///
+    /// Not a schema parameter, because it is not a setting: it names the *shape* of the document
+    /// around the settings. It is accepted because every C++ export carries `format_version: 1`
+    /// and an importer that rejected it would refuse the one file a migrating user actually has.
+    /// A version this firmware does not know is refused by name, rather than half-applied.
+    pub format_version: Option<u16>,
 }
 
 /// A key the schema does not have, kept only so the report can name it. Stored truncated,
@@ -421,6 +444,7 @@ impl ResolvedDoc {
         Self {
             fields: Vec::new(),
             unknown_keys: Vec::new(),
+            format_version: None,
         }
     }
 
@@ -501,20 +525,61 @@ pub fn export(applied: &dyn Fn(&'static str) -> Option<Value<'static>>) -> Strin
         let _ = out.push_str(",\n  \"");
         let _ = out.push_str(group.name());
         let _ = out.push_str("\": {");
+        // The keys are nested, not flat. `brew.by_time.target_time` is written as
+        // `"by_time": { "target_time": 25 }`, because that is the shape the import format reads and
+        // the shape the C++ firmware wrote: an export that the importer rejects is not an export,
+        // and this one used to emit `"by_time": { "brew.by_time.target_time": 25 }`, which named
+        // sixteen keys the schema does not have. Recorded as defect D57.
+        let mut open: heapless::Vec<&'static str, 2> = heapless::Vec::new();
         let mut first = true;
         for p in schema::group(group) {
+            let Some(rest) = p
+                .key
+                .strip_prefix(group.name())
+                .and_then(|r| r.strip_prefix('.'))
+            else {
+                // A key that is not under its own group is a schema bug, and writing it flat would
+                // hide it behind a plausible-looking document. Skipped and visible instead.
+                continue;
+            };
+            let parts: heapless::Vec<&str, 3> = rest.split('.').collect();
+            for (i, part) in parts[..parts.len() - 1].iter().enumerate() {
+                if open.get(i) != Some(part) {
+                    // Close everything deeper than this level, then close anything at it.
+                    while open.len() > i {
+                        open.pop();
+                        let _ = out.push_str("\n    }");
+                    }
+                    if !first {
+                        let _ = out.push(',');
+                    }
+                    let _ = out.push_str("\n    \"");
+                    let _ = out.push_str(part);
+                    let _ = out.push_str("\": {");
+                    let _ = open.push(part).ok();
+                    // A freshly opened object has no members yet, so the next member must not be
+                    // preceded by a comma. Getting this wrong writes `{,` and the document does
+                    // not parse, which is exactly what the first attempt at this exporter did.
+                    first = true;
+                }
+            }
+            while open.len() > parts.len() - 1 {
+                open.pop();
+                let _ = out.push_str("\n    }");
+            }
             if !first {
                 let _ = out.push(',');
             }
             first = false;
             let _ = out.push_str("\n    \"");
-            let _ = out.push_str(p.key);
+            let _ = out.push_str(parts[parts.len() - 1]);
             let _ = out.push_str("\": ");
             match applied(p.key) {
                 Some(v) => {
                     if p.secret {
                         // Redacted. The frontend does not read a secret back, so this is not a
-                        // user-visible break.
+                        // user-visible break, and a plaintext credential in a downloaded file is
+                        // the defect D14 recorded.
                         let _ = out.push_str("\"\"");
                     } else {
                         write_value(&mut out, &v);
@@ -528,6 +593,9 @@ pub fn export(applied: &dyn Fn(&'static str) -> Option<Value<'static>>) -> Strin
                     }
                 }
             }
+        }
+        while open.pop().is_some() {
+            let _ = out.push_str("\n    }");
         }
         let _ = out.push_str("\n  }");
     }
@@ -812,11 +880,15 @@ mod tests {
         let nothing = |_: &'static str| None;
         let json = export(&nothing);
         for key in schema::secret_keys() {
+            // The key is written as a *leaf* name now, so the assertion looks for the last
+            // segment rather than the whole dotted path. A secret that is present but empty is
+            // redacted; a secret that is missing has not been exported at all, which is worse.
+            let leaf = key.rsplit('.').next().unwrap_or(key);
             let mut wanted = heapless::String::<64>::new();
-            let _ = core::fmt::Write::write_fmt(&mut wanted, format_args!("\"{key}\""));
+            let _ = core::fmt::Write::write_fmt(&mut wanted, format_args!("\"{leaf}\": \"\""));
             assert!(
                 json.contains(wanted.as_str()),
-                "{key} is missing from the export"
+                "{key} is not present and redacted in the export"
             );
         }
         // The compiled defaults for the four secrets are otapass, silvia, admin and empty. None
@@ -826,11 +898,11 @@ mod tests {
             "the OTA password leaked into the export"
         );
         assert!(
-            json.contains("\"system.auth.password\": \"\""),
+            json.contains("\"password\": \"\""),
             "a redacted password should be an empty string"
         );
         assert!(
-            json.contains("\"system.auth.username\": \"admin\""),
+            json.contains("\"username\": \"admin\""),
             "the user name is not a secret and should still be readable"
         );
     }
@@ -857,6 +929,77 @@ mod tests {
         out.push_str(core::str::from_utf8(&bytes).expect("fixture is UTF-8"))
             .expect("fixture fits the test buffer");
         out
+    }
+
+    #[test]
+    fn an_export_is_importable_by_its_own_importer() {
+        // The property the exporter did not have, and the one that makes the whole migration work:
+        // what `export` writes must come back through `parse` and `validate` with no unknown keys
+        // and nothing rejected. It is a round trip, so it catches a nesting mistake, a value that
+        // changes shape on the way out, and a key that the importer cannot resolve. Recorded as
+        // defect D57, which is what the old exporter produced.
+        let all_defaults = |_: &'static str| None;
+        let json = export(&all_defaults);
+        let doc = crate::json::parse(json.as_bytes()).expect("an export must parse");
+        let r = validate(doc.resolved(), false);
+        assert_eq!(
+            r.report.unknown, 0,
+            "the export names {} keys the schema does not have: {:?}",
+            r.report.unknown, r.findings
+        );
+        assert_eq!(r.report.rejected, 0, "{:?}", r.findings);
+        assert!(r.report.is_applicable());
+        assert!(
+            r.report.accepted > 80,
+            "most of the file should have been read back"
+        );
+    }
+
+    #[test]
+    fn a_document_from_a_newer_firmware_is_refused_in_full_and_by_name() {
+        // D58's other half. A downgrade must not half-apply a document it does not fully
+        // understand, so the version is checked before a single field is read.
+        let mut d = doc(&[("brew.setpoint", Value::Number(92.0))]);
+        d.format_version = Some(2);
+        let r = validate(&d, false);
+        assert!(!r.report.is_applicable());
+        assert!(matches!(
+            r.findings.first().map(|f| f.reason),
+            Some(Reason::UnsupportedVersion)
+        ));
+    }
+
+    #[test]
+    fn a_document_from_this_firmware_is_accepted_with_its_version() {
+        let mut d = doc(&[("brew.setpoint", Value::Number(92.0))]);
+        d.format_version = Some(crate::import::FORMAT_VERSION);
+        let r = validate(&d, false);
+        assert!(r.report.is_applicable(), "{:?}", r.findings);
+        assert_eq!(r.report.accepted, 1);
+    }
+
+    #[test]
+    fn an_export_carries_the_values_it_is_given() {
+        let values = |key: &'static str| match key {
+            "brew.setpoint" => Some(Value::Number(92.5)),
+            "pid.regular.kp" => Some(Value::Number(41.0)),
+            "brew.by_time.enabled" => Some(Value::Bool(true)),
+            "system.hostname" => Some(Value::Text("kitchen")),
+            _ => None,
+        };
+        let json = export(&values);
+        assert!(json.contains("92.500"), "{json}");
+        assert!(json.contains("41.000"), "{json}");
+        assert!(
+            json.contains("\"kitchen\""),
+            "a text value is exported verbatim: {json}"
+        );
+        // And the nesting is the import format's, not a flat key inside a group.
+        assert!(json.contains("\"by_time\""), "{json}");
+        assert!(
+            !json.contains("brew.by_time.enabled"),
+            "no flat dotted keys: {json}"
+        );
     }
 
     #[test]

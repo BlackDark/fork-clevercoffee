@@ -69,6 +69,7 @@ esp-rtos = { version = "0.4", default-features = false, features = ["embassy"] }
 esp-alloc = { version = "0.11", default-features = false }
 esp-backtrace = { version = "0.20", default-features = false, features = ["panic-handler", "println"] }
 esp-bootloader-esp-idf = { version = "0.6", default-features = false }
+esp-storage = { version = "0.10", default-features = false }
 # The log transport follows the board, not the operator's port choice: UART on the ESP32, which
 # has no native USB, and USB Serial/JTAG on the S3 and C6. Cargo allows one version of a crate
 # per build, so the choice has to be a feature of this one dependency rather than a second

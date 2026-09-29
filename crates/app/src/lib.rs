@@ -12,6 +12,8 @@
 //!   transition becomes an actuator command. Generic over the [`Actuators`] implementation.
 //! - [`tasks`] holds the task bodies as synchronous steps, so a scenario test is a loop of two
 //!   calls rather than an executor. The scheduling and the watchdog timer are the firmware's.
+//! - [`config_rt`] turns a validated configuration document into the values the machine reads.
+//! - [`sensors`] reads each driver on its own period and hands the machine one snapshot a tick.
 //! - [`api`] implements the thirty routes of `api-contract.md` as pure functions.
 //! - [`prov`] is the device half of the provisioning protocol.
 //! - [`mqtt`] is the typed parser and the Home Assistant discovery generator.
@@ -34,10 +36,13 @@
 
 pub mod api;
 pub mod boot;
+pub mod config_rt;
 pub mod log;
 pub mod machine;
 pub mod mqtt;
 pub mod prov;
+pub mod sensors;
+pub mod store;
 pub mod tasks;
 
 pub use boot::Runtime;

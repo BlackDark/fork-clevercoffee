@@ -242,6 +242,7 @@ dependencies = [
  "clevercoffee-bsp-esp32c6",
  "clevercoffee-bsp-esp32s3",
  "clevercoffee-hal-traits",
+ "clevercoffee-storage",
  "embassy-executor",
  "embassy-time",
  "esp-alloc",
@@ -250,6 +251,7 @@ dependencies = [
  "esp-hal",
  "esp-println",
  "esp-rtos",
+ "esp-storage",
 ]
 
 [[package]]
