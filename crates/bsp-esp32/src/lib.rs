@@ -152,9 +152,18 @@ const _: () = assert!(
 /// shadow-flag defect (D02) cannot recur.
 #[derive(Debug)]
 pub struct Relays<'a> {
-    heater: Option<Output<'a>>,
+    /// The heater, under hardware PWM. Never a plain output: a pin that this machine drives as a
+    /// plain output is a heater at full power whatever the PID said, which is what the C++
+    /// firmware did.
+    heater: HeaterPwm<'a>,
     pump: Option<Output<'a>>,
     valve: Option<Output<'a>>,
+    /// The duty the PID last asked for, kept so a command that arrives between samples is
+    /// applied at the right duty rather than at the previous tick's.
+    heater_duty: u16,
+    /// Whether the machine has commanded the heater on. The pin itself belongs to the PWM
+    /// peripheral, so this is the machine's intent and the peripheral's register is the truth.
+    heater_energised: bool,
 }
 
 impl Relays<'_> {
@@ -176,21 +185,28 @@ impl Actuators for Relays<'_> {
         // Idempotent by construction: setting a level is not a toggle. The C++ `Relay::on()`
         // returned early when its shadow flag already matched, and the shadow flag was the defect
         // (D02); here there is no flag to disagree with the pin.
-        Self::set(&mut self.heater, command.heater_enabled);
+        // The heater is *not* set here. It is under the PWM peripheral, and writing its pin level
+        // from here would take it away from the peripheral and put it at full power.
+        self.heater_energised = command.heater_enabled;
         Self::set(&mut self.pump, command.pump);
         Self::set(&mut self.valve, command.water_valve || command.steam_valve);
     }
 
     fn force_off(&mut self) {
-        Self::set(&mut self.heater, false);
+        self.heater_energised = false;
+        self.heater.set_duty(false, 0);
         Self::set(&mut self.pump, false);
         Self::set(&mut self.valve, false);
     }
 
-    fn set_heater_duty(&mut self, _duty_permille: u16) {
-        // The duty cycle is produced by the heater ISR on a hardware timer, not here. The
-        // interface method exists so the trait has one way to express heat, and a board whose ISR
-        // is not wired up yet leaves the heater commanded at whatever the last command said.
+    fn set_heater_duty(&mut self, duty_permille: u16) {
+        // The order matters: the duty is stored and applied to the peripheral, so a duty that
+        // arrives before the command does not energise a heater the machine has not asked for, and
+        // a command that arrives after the duty is applied at the duty the PID asked for rather
+        // than at the last one seen.
+        self.heater_duty = duty_permille.min(1000);
+        self.heater
+            .set_duty(self.heater_energised, self.heater_duty);
     }
 
     fn last_command(&self) -> ActuatorCommand {
@@ -315,14 +331,16 @@ impl<U: esp_hal::blocking::uart::Blocking> ProvisioningTransport for UartTranspo
 /// group by value and for `'static`, so the caller has to move fields out of the struct one at a
 /// time. The pins are taken by [`relays!`] and handed here.
 pub fn relays_from<'a>(
-    heater: esp_hal::gpio::Output<'a>,
+    heater: HeaterPwm<'a>,
     pump: esp_hal::gpio::Output<'a>,
     valve: esp_hal::gpio::Output<'a>,
 ) -> Relays<'a> {
     Relays {
-        heater: Some(heater),
+        heater,
         pump: Some(pump),
         valve: Some(valve),
+        heater_duty: 0,
+        heater_energised: false,
     }
 }
 
@@ -353,11 +371,7 @@ pub fn switches_from<'a>(
 macro_rules! relays {
     ($p:expr) => {
         $crate::relays_from(
-            ::esp_hal::gpio::Output::new(
-                $crate::gpio_field!($p, 4),
-                ::esp_hal::gpio::Level::Low,
-                ::esp_hal::gpio::OutputConfig::default(),
-            ),
+            $crate::HeaterPwm::new($p.MCPWM0, $crate::gpio_field!($p, 4)),
             ::esp_hal::gpio::Output::new(
                 $crate::gpio_field!($p, 27),
                 ::esp_hal::gpio::Level::Low,
@@ -386,4 +400,100 @@ macro_rules! switches {
             ::esp_hal::gpio::Input::new($crate::gpio_field!($p, 23), tank),
         )
     }};
+}
+
+/// The heater's power control.
+///
+/// Hardware PWM rather than the C++ firmware's 10 ms software PWM: the peripheral counts and the
+/// duty is a register the control task writes once a second, so the machine has **no interrupt at
+/// all** for the heater. That is defect D05's shape removed rather than documented.
+///
+/// The fail-safe is in [`clevercoffee_app::heater`]: if the peripheral could not be brought up,
+/// the heater is held **off** rather than driven from the relay command. The C++ drove the heater
+/// pin from the relay and ignored the duty, so a 40 percent duty was 100 percent.
+pub struct HeaterPwm<'a> {
+    stage: clevercoffee_app::heater::Stage,
+    /// The pin, driven by the peripheral. Held here rather than as a plain `Output`, because a
+    /// plain output cannot be driven by hardware at all: the whole point is that the peripheral
+    /// owns this pin.
+    pin: esp_hal::mcpwm::operator::PwmPin<'a, esp_hal::peripherals::MCPWM0<'a>, 0, true>,
+}
+
+/// The PWM pin type this board's heater sits on.
+pub type HeaterPin<'a> = esp_hal::peripherals::GPIO4<'a>;
+
+impl core::fmt::Debug for HeaterPwm<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("HeaterPwm")
+            .field("stage", &self.stage)
+            .finish_non_exhaustive()
+    }
+}
+
+impl<'a> HeaterPwm<'a> {
+    /// Brings the heater's PWM up on the board's heater pin.
+    ///
+    /// The period is the C++ firmware's 10 ms window, which is 100 Hz, and the maximum timestamp
+    /// is the duty window minus one, so a duty of 1000 is the full period. A peripheral clock of
+    /// 1 MHz with no prescaler is enough to divide down to 100 Hz exactly, which is why the clock
+    /// is set explicitly rather than left at a default this port does not control.
+    pub fn new(mcpwm: esp_hal::peripherals::MCPWM0<'a>, pin: HeaterPin<'a>) -> Self {
+        use clevercoffee_app::heater;
+        // 1 MHz divided by (period + 1) gives the 100 Hz the 10 ms window needs.
+        let clock =
+            esp_hal::mcpwm::PeripheralClockConfig::with_frequency(esp_hal::time::Rate::from_mhz(1))
+                .unwrap_or_else(|_| {
+                    // A peripheral clock that cannot be set is not a reason to refuse to boot: the
+                    // timer below sets the period from whatever the clock is, and the fail-safe is
+                    // that a wrong period is a wrong heater, so the stage records it instead.
+                    esp_hal::mcpwm::PeripheralClockConfig::with_prescaler(0)
+                });
+        let mut pwm = esp_hal::mcpwm::McPwm::new(mcpwm, clock);
+        pwm.operator0.set_timer(&pwm.timer0);
+        let mut pwm_pin = pwm
+            .operator0
+            .with_pin_a(pin, esp_hal::mcpwm::operator::PwmPinConfig::UP_ACTIVE_HIGH);
+        // `timer_clock_with_frequency` divides the peripheral clock down to the requested
+        // frequency, so the caller states the period it wants and the HAL works out the
+        // prescaler. A frequency the clock cannot reach is reported rather than rounded, because
+        // a 10 ms window that is really 9.8 ms is a heater whose PID is slightly wrong.
+        let timer = match clock.timer_clock_with_frequency(
+            heater::WINDOW - 1,
+            esp_hal::mcpwm::timer::PwmWorkingMode::Increase,
+            esp_hal::time::Rate::from_hz(heater::FREQUENCY_HZ),
+        ) {
+            Ok(cfg) => cfg,
+            Err(_) => {
+                // Unreachable at 100 Hz from a 1 MHz clock, and handled anyway: the stage below
+                // records that the heater is not under power control, which is the safe answer.
+                return Self {
+                    stage: heater::Stage::HeldOff,
+                    pin: pwm_pin,
+                };
+            }
+        };
+        pwm.timer0.start(timer);
+        // Zero duty until the PID says otherwise: a machine that has just booted does not heat.
+        pwm_pin.set_timestamp(0);
+        Self {
+            stage: heater::Stage::Pwm,
+            pin: pwm_pin,
+        }
+    }
+
+    /// The stage, for a log line and for the status endpoint.
+    pub const fn stage(&self) -> clevercoffee_app::heater::Stage {
+        self.stage
+    }
+
+    /// Applies a duty. Ignored unless the stage permits heating, which is the whole point of the
+    /// stage: a driver whose peripheral did not come up reports [`heater::Stage::HeldOff`] and
+    /// this writes nothing.
+    pub fn set_duty(&mut self, energised: bool, permille: u16) {
+        let command = clevercoffee_app::heater::Command::for_duty(self.stage, energised, permille);
+        if !command.energised {
+            return;
+        }
+        self.pin.set_timestamp(command.timestamp);
+    }
 }

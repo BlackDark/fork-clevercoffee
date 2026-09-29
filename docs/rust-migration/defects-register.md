@@ -393,3 +393,33 @@ refused **by name and in full**, before any field is looked at, because a docume
 firmware may mean something different by the same key and half-applying it is how a downgrade
 destroys a configuration. A test feeds a `format_version: 2` document and asserts that nothing is
 applied.
+
+
+### D59 — `setHeaterDuty` was a no-op, so every heater duty was 100 percent
+
+`include/clevercoffee/relay.h` and the heater ISR in `src/isr.cpp`. The PID computed a duty from
+0 to 1000 and the firmware's duty path wrote it to a variable that the ISR read — but the relay
+that switched the heater on was commanded by the state machine's actuator command, which set the
+pin high regardless of the duty. The result is that a machine at temperature with the PID asking
+for 30 percent had a heater running at 100 percent, and the only symptom was a boiler that takes
+longer than the PID's model predicts to reach setpoint and overshoots on a cold start.
+
+**Impact:** the PID does not control the heater's power. The temperature loop still converges,
+because the integral term winds down, so this is invisible in normal operation and obvious on a
+bench with a thermocouple. It is also a safety-adjacent defect: a machine whose heater cannot be
+turned down is a machine whose overshoot is limited only by the loop's stability.
+
+**Severity:** high, and of the family D05 belongs to: the heater's power stage was not actually
+under the control loop that was supposed to be regulating it.
+
+**Fix:** the port drives the heater from the MCPWM peripheral's hardware PWM at the C++ firmware's
+10 ms window and 0-to-1000 duty, so the machine has **no interrupt at all** for the heater — the
+D05 shape removed rather than documented. The policy is in `clevercoffee_app::heater` and is pure:
+a duty becomes a timestamp, a duty above the window is clamped rather than wrapped, and the
+smallest non-zero duty is one tick rather than nothing.
+
+The fail-safe matters more than the mechanism. If the PWM peripheral cannot be brought up, the
+stage is [`Stage::HeldOff`](../../crates/app/src/heater.rs) and the heater is **held off**, not
+driven from the relay command. A heater with no working power control that still heats is a
+machine that ignores its PID, which is the defect above; holding it off is a machine that does not
+heat, which is a machine the user notices.

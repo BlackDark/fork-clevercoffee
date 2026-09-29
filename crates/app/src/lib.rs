@@ -39,6 +39,7 @@
 pub mod api;
 pub mod boot;
 pub mod config_rt;
+pub mod heater;
 pub mod log;
 pub mod machine;
 pub mod mqtt;

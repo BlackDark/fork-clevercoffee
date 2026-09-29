@@ -30,7 +30,7 @@ a recording fake, not that a machine did it.
 | --- | --- | --- | --- | --- |
 | Machine powers on into temperature control | `INIT` → `PID_NORMAL` | same | pass | `boot::a_runtime_with_the_compiled_defaults_settles_and_heats` |
 | Heater follows the PID at a 1 s sample | `PID_v1`, 0..1000 | same library, same window | pass | `domain/src/pid.rs` |
-| Heater PWM at a 10 ms window | ISR, `Timing.h:16` | interval kept; ISR not written | gap | — |
+| Heater power control | 10 ms software PWM in an ISR | **hardware PWM**, no interrupt at all | fixed | **D05**, `heater.rs` |
 | Brew by time, total including pre-infusion | `BrewStates.cpp:279` | same comparison | pass | `scenarios::a_normal_brew_...` |
 | Brew by weight | `BrewStates.cpp` | same | pass | `domain/src/transition.rs` |
 | Manual brew skips pre-infusion | `brew.mode` 0 | same | pass | `config_rt` + `transition` |
@@ -126,16 +126,13 @@ loss of fidelity.
    all thirty handlers are written and tested end to end; what is missing is `esp-radio` bringing
    up an interface and `embassy-net` accepting a socket. That is a `.await` away, and it cannot be
    exercised in this checkout.
-2. **The heater PWM ISR.** The interval and the window are kept, and the duty is a value on the
-   actuator trait, but no interrupt drives a pin. The heater therefore has a command and no power
-   stage control.
-3. **The sensor drivers in the firmware.** The DS18B20, ABP2 and HX711 drivers are written and
+2. **The sensor drivers in the firmware.** The DS18B20, ABP2 and HX711 drivers are written and
    host-tested. The aggregator reads them. Nothing constructs them: the 1-Wire bus is bit-banged
    and cannot be done from an async task without blocking the executor, which is the shape of D05.
-4. **The display bus.** The framebuffer, the templates and the page diff are written and tested.
+3. **The display bus.** The framebuffer, the templates and the page diff are written and tested.
    No SSD1306 driver moves the pages to the panel.
-5. **MQTT's socket and the line server's listener.** Both halves exist; the listeners do not.
-6. **The relay polarity setting.** `hardware.relays.*.trigger_type` is registered and listed as
+4. **MQTT's socket and the line server's listener.** Both halves exist; the listeners do not.
+5. **The relay polarity setting.** `hardware.relays.*.trigger_type` is registered and listed as
    inert: this port wires the relays active-low, which is what the machines in the field have, and
    a machine wired the other way would need a firmware change rather than a setting.
 

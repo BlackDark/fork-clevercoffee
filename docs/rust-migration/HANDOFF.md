@@ -18,7 +18,7 @@ was compiled for a chip.
 
 ## The current numbers
 
-- 17 crates, 604 host tests in the workspace, 55 in the provisioning tool.
+- 17 crates, 613 host tests in the workspace, 55 in the provisioning tool.
 - Host gate, all green: `cargo +stable fmt --all -- --check`, `cargo +stable clippy --workspace
   --exclude clevercoffee-fw --exclude clevercoffee-bsp-* --all-targets -- -D warnings`, the
   workspace tests, `tools/check-deps.py`, `tools/check-secrets.py`, and the provisioning tool's
@@ -84,15 +84,21 @@ After that, in this order:
 1. **The sensor drivers in the firmware.** The `bsp` crates build a machine that reads the panel
    switches and the water tank and nothing else. The DS18B20, ABP2 and HX711 drivers exist and are
    host-tested; nothing calls them.
-2. **The network stack and the socket layer.** `esp-radio` and `embassy-net` are build-verified in
-   the spikes. The API handlers, the MQTT generator, the line server and the provisioning protocol
-   are all written and all take an injected stream, so this is wiring rather than design.
+2. **The network stack.** `esp-radio` and `embassy-net` are build-verified in the spikes. The API
+   is served end to end over the connection bridge and every handler is tested, so this is wiring
+   rather than design.
 3. **Wi-Fi and the listener.** The API is served end to end over the bridge and a real request
    comes back out of it in a host test; what is missing is `esp-radio` and `embassy-net`.
 4. T-19 and T-21 when a board exists.
 
 ## Three defects found in this session
 
+- **D59**, the heater's power control: `setHeaterDuty` did nothing and the relay command drove
+  the pin, so every duty was 100 percent. The port drives the heater from hardware PWM, and a
+  peripheral that will not start holds the heater *off* rather than at full power.
+- **D57** and **D58**, the config exporter wrote keys the importer rejects and `format_version`
+  was rejected outright, which together meant the one file a migrating user actually has — a real
+  C++ export — was refused.
 - **D56**, the valve interlock: `BrewHandler::valveSafetyShutdownCheck` closed the water valve in
   `PID_NORMAL` and `STEAM_RUNNING`, which are the two states the hot-water dispense runs inside, so
   hot water pumped with the valve shut. The interlock list now names them, and the domain's test
@@ -158,8 +164,9 @@ T-19, T-20, T-21.
 ## Defects found and fixed so far
 
 The register is `docs/rust-migration/defects-register.md`. Fixed in the port so far: D03, D11,
-D12, D13, D14, D23, D26, D27, D29, D33, D41, D42, D45, D46, D47, D49, D50, D51, D52, D54, D56. D54
-and D56 were found while porting and were not in the original register.
+D12, D13, D14, D23, D26, D27, D29, D33, D41, D42, D45, D46, D47, D49, D50, D51, D52, D54, D56,
+D57, D58, D59. D54, D56, D57, D58 and D59 were found while porting and were not in the original
+register.
 
 ## Process notes
 

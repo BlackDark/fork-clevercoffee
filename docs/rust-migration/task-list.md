@@ -375,7 +375,11 @@ Exit gate: all three targets build; the mock-actuator image boots on the bench d
   scale, the pressure sensor and the display bus. The first two are I/O no test here can exercise;
   the last three are drivers that exist and are host-tested but need pins and a bus the board
   crates do not construct yet. The parity report lists them in the order they should be closed.
-- **Fixes:** D01, D04, D05
+- **Done, the heater:** the heater is driven from the MCPWM peripheral at the C++ firmware's 10 ms
+  window, so the machine has no interrupt for it at all, and a peripheral that will not start
+  holds the heater **off** rather than driving the pin.
+- **Fixes:** D01, D04, D05, and D59 (found here: the duty path was a no-op, so every heater duty
+  was 100 percent)
 
 ---
 
