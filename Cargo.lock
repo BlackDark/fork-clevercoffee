@@ -191,7 +191,7 @@ version = "0.1.0"
 name = "clevercoffee-drivers-pressure"
 version = "0.1.0"
 dependencies = [
- "clevercoffee-hal-traits",
+ "heapless 0.8.0",
 ]
 
 [[package]]
@@ -206,6 +206,7 @@ name = "clevercoffee-drivers-tsic"
 version = "0.1.0"
 dependencies = [
  "clevercoffee-hal-traits",
+ "heapless 0.8.0",
 ]
 
 [[package]]

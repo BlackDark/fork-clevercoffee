@@ -1,15 +1,11 @@
 [package]
 name = "clevercoffee-drivers-pressure"
-description = "Honeywell ABP2 pressure sensor driver."
+description = "Honeywell ABP2 pressure sensor: start conversion, read later, never block."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
-[dependencies]
-clevercoffee-hal-traits = { workspace = true }
-
 [dev-dependencies]
-clevercoffee-hal-traits = { workspace = true }
-
+heapless = { workspace = true }

@@ -33,6 +33,9 @@ pub enum Script {
     Empty,
     /// Every bit written is read back unchanged, for testing byte framing rather than a protocol.
     Echo,
+    /// One device that answers a scratchpad read with a fixed nine bytes, for testing a device
+    /// layer's decoding rather than the bus.
+    Scratchpad([u8; 9]),
 }
 
 impl Script {
@@ -66,6 +69,11 @@ impl Script {
 
     pub fn echo() -> Self {
         Script::Echo
+    }
+
+    /// A device that returns `scratchpad` when asked to read one.
+    pub fn scratchpad(scratchpad: &[u8; 9]) -> Self {
+        Script::Scratchpad(*scratchpad)
     }
 }
 
@@ -160,7 +168,7 @@ impl FakeBus {
             Script::Device(a) => *a,
             Script::Multi(v) => v.first().copied().unwrap_or(Address::ZERO),
             Script::AlwaysSame => Address([0x28, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07]),
-            Script::Echo => Address::ZERO,
+            Script::Echo | Script::Scratchpad(_) => Address::ZERO,
             Script::RomWithBadCrc => Address([0x28, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77]),
             Script::Empty | Script::NoAck => Address::ZERO,
         }
@@ -290,6 +298,11 @@ impl BitOps for FakeBus {
     }
 
     fn read_bit(&mut self, _t: &Timings) -> bool {
+        if let Script::Scratchpad(_) = self.script {
+            if !self.presence_pending && self.to_read.is_empty() {
+                return true;
+            }
+        }
         // The presence pulse comes first and is not part of the device's data.
         if self.presence_pending {
             self.presence_pending = false;
@@ -350,6 +363,11 @@ impl BitOps for FakeBus {
                 // The branch bits are recorded in `write_bit` and answered in `read_bit`.
                 self.search_path = Some(Vec::new());
                 self.search_reads = 0;
+            }
+            Script::Scratchpad(sp) => {
+                // A device layer asks for a scratchpad read and gets these nine bytes.
+                let bytes = *sp;
+                self.queue(&bytes);
             }
             Script::Device(a) => {
                 let rom = a.0;

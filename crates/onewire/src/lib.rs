@@ -29,7 +29,9 @@
 #![forbid(unsafe_code)]
 #![deny(missing_debug_implementations)]
 
-#[cfg(test)]
+// The simulated bus is a feature rather than `cfg(test)` so another crate's tests can drive the
+// real driver against it. A driver test is only worth having if it exercises the real bus code.
+#[cfg(any(test, feature = "test-support"))]
 pub mod test_bus;
 
 pub mod crc;
@@ -171,6 +173,12 @@ impl<T: BitOps> Bus<T> {
 
     pub fn timings(&self) -> &Timings {
         &self.timings
+    }
+
+    /// Takes the bit operations back out, for a caller that discovered the device on this bus and
+    /// now wants to keep driving it.
+    pub fn ops_owned(self) -> T {
+        self.ops
     }
 
     /// The bit operations, for a caller that needs the strong pullup or the raw line.

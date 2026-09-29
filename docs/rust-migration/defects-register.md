@@ -297,3 +297,25 @@ enforced without narrowing the range.
 ### D53 — Dead and stale code
 
 `examples/` (6 files, all including headers that do not exist), `scripts/auto_compression.py` (disabled, references a pre-Vue asset list), `test/TESTING_GUIDE.md` (references two deleted test directories and a stale test count), `PlatformIO::check_tool = clangtidy` with no `.clang-tidy` file and no CI job, `HX711Scale.cpp` and `BluetoothScale.cpp` with no construction site, `PIN_ZC` and `PIN_ROTARY_*` with no code reference, `HardwareManager::setHeaterPower` and `setPumpPressure` as TODO stubs, `openSolenoid` as a TODO stub, `getAllStateParams` as a no-op, `Valve::openSteamValve` with no caller. **Fix:** the final phase deletes the C++ tree outright rather than porting dead code.
+
+### D54 — The ABP2 pressure reading is seven bytes and takes its temperature from a status byte
+
+`include/clevercoffee/hardware/pressureSensor.h`. `ABP2_data[7]` is seven bytes and the loop reads
+seven, then builds the temperature count from `ABP2_data[6] + ABP2_data[5]*256 + ABP2_data[4]*65536`
+and converts it with `* 270.0 / 16777215.0 - 40.0`. An ABP2 returns two six-byte words, three
+status and three data bytes each: twelve bytes. The seventh byte the C++ read is the *second word's
+status*, not temperature data, and the first word's three data bytes end at index 3, so the C++
+temperature count mixes one status byte with two data bytes. **Fix:** the port reads the full
+twelve-byte frame, checks both status bytes for a diagnostic fault before converting anything, and
+takes each word's three data bytes from its own position. It also rejects a count outside the
+configured span rather than converting it into a negative pressure that the over-pressure logic
+would treat as valid.
+
+### D55 — The pressure read blocks the main loop for ten milliseconds
+
+`include/clevercoffee/hardware/pressureSensor.h`, `measurePressure()`. After the convert command
+it calls `delay(ABP2_READ_DELAY_MS)`, ten milliseconds with the whole main loop stopped. At the
+100 ms debug interval the effect is small, but at any faster sampling rate it is a tenth of the time
+the control loop is not running. **Fix:** `Abp2::start_conversion` returns immediately and
+`Abp2::read` is called later; `Abp2::settle_ms` states the requirement and the caller spends it.
+No driver in this port sleeps. This is the concrete form of defect D08.

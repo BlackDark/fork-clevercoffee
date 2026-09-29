@@ -265,7 +265,12 @@ Exit gate: all three targets build; each driver has host tests.
 - **Rollback:** n/a
 - **Open uncertainty:** whether the fitted hardware is the ABP2 variant the C++ code assumes.
   The C++ header says ABP2-LANT010BG2A3XX. **needs confirmation** from the user.
-- **Fixes:** D08 (no blocking delay in the loop)
+- **Done:** `cargo test -p clevercoffee-drivers-pressure`, 13 tests. The conversion is a transaction
+  and never a sleep, a stuck conversion is a short read rather than a stale value, an out-of-span
+  count is refused, a NACK is reported, and both words' status bytes are checked before anything is
+  converted.
+- **Fixes:** D08 and D55 (no blocking delay anywhere in the read path), D54 (the frame is
+  twelve bytes, not seven)
 
 ### T-11. HX711 scale driver
 - **Type:** implement
@@ -278,6 +283,10 @@ Exit gate: all three targets build; each driver has host tests.
 - **Hardware:** **yes**, ESP32, for the timing
 - **Safety:** init must be bounded, so a missing load cell cannot hang the boot.
 - **Rollback:** n/a
+- **Done:** `cargo test -p clevercoffee-drivers-scale`, 18 tests. The C++ unbounded init loop is
+  bounded and reported rather than hanging the boot, a tare with no samples fails instead of
+  zeroing against nothing, a dual scale with a dead cell reports nothing rather than half the
+  weight, and the weight is `None` until a conversion has completed.
 - **Open uncertainty:** none
 - **Fixes:** D29 (bounded retries), D30 (a configured sensor that is absent is an error)
 

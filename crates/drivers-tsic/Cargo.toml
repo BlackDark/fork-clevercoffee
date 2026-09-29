@@ -11,5 +11,5 @@ publish.workspace = true
 clevercoffee-hal-traits = { workspace = true }
 
 [dev-dependencies]
-clevercoffee-hal-traits = { workspace = true }
+heapless = { workspace = true }
 

@@ -12,6 +12,5 @@ clevercoffee-hal-traits = { workspace = true }
 clevercoffee-onewire = { workspace = true }
 
 [dev-dependencies]
-clevercoffee-hal-traits = { workspace = true }
-clevercoffee-onewire = { workspace = true }
-
+# The simulated bus, so these tests drive the real bus code rather than a stub of the device.
+clevercoffee-onewire = { workspace = true, features = ["test-support"] }
