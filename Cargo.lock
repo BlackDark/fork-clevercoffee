@@ -256,6 +256,9 @@ dependencies = [
 [[package]]
 name = "clevercoffee-storage"
 version = "0.1.0"
+dependencies = [
+ "heapless 0.8.0",
+]
 
 [[package]]
 name = "const-default"

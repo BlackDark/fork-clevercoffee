@@ -74,18 +74,39 @@ impl Group {
         Group::Hardware,
         Group::System,
     ];
+
+    /// Every group, including , which the C++ firmware never exported because its two
+    /// parameters were never registered (defect D12). An export that omits them cannot be
+    /// re-imported with them set, so they have to be in the document.
+    pub const ALL_ALL: [Group; 11] = [
+        Group::Pid,
+        Group::Brew,
+        Group::Steam,
+        Group::Safety,
+        Group::Display,
+        Group::Backflush,
+        Group::Maintenance,
+        Group::Standby,
+        Group::Mqtt,
+        Group::Hardware,
+        Group::System,
+    ];
 }
 
 /// A parameter's value. Small enough to copy, and it needs no allocation.
+///
+/// The lifetime is on the string variant because a value comes from three places with three
+/// lifetimes: the compiled defaults, the flash, and a document the user just uploaded. Borrowing
+/// keeps all three free, and a value never outlives the buffer it was decoded from.
 #[derive(Clone, Copy, PartialEq, Debug)]
-pub enum Value {
+pub enum Value<'a> {
     Bool(bool),
     Int(i32),
     Number(f64),
     Enum(i32),
     /// At most [`MAX_TEXT`] bytes. Longer values are rejected at the boundary, so a value that
     /// reaches the store is always this long or shorter.
-    Text(&'static str),
+    Text(&'a str),
 }
 
 /// The length limit for a text parameter. The longest allowed value in the table is the MQTT
@@ -95,12 +116,12 @@ pub const MAX_TEXT: usize = 64;
 
 /// One row of the schema.
 #[derive(Clone, Copy, Debug)]
-pub struct Param {
+pub struct Param<'a> {
     /// The dotted path, which is the key in the JSON, the name in the API and the MQTT topic.
     pub key: &'static str,
     pub group: Group,
     pub kind: ValueType,
-    pub default: Value,
+    pub default: Value<'a>,
     /// Inclusive lower bound for `Int` and `Number`. Meaningless for the others.
     pub min: f64,
     /// Inclusive upper bound. Meaningless for the others.
@@ -118,7 +139,7 @@ pub struct Param {
     pub help: &'static str,
 }
 
-impl Param {
+impl<'a> Param<'a> {
     /// The display order, which is this parameter's position in [`PARAMS`].
     ///
     /// A method rather than a field, so the value cannot drift from the table. The C++ table
@@ -136,13 +157,13 @@ impl Param {
     }
 }
 
-impl Param {
+impl<'a> Param<'a> {
     /// Whether a value is acceptable for this parameter.
     ///
     /// One function, called on every write and on every decode, so a value that reaches the
     /// machine has been checked. The C++ `set()` checked and `loadFromNvs()` did not, which is
     /// how a corrupted blob put an arbitrary setpoint into live control (defect D11).
-    pub fn accepts(&self, value: Value) -> bool {
+    pub fn accepts(&self, value: Value<'_>) -> bool {
         match (self.kind, value) {
             (ValueType::Bool, Value::Bool(_)) | (ValueType::Enum, Value::Enum(_)) => true,
             (ValueType::Int, Value::Int(v)) => {
@@ -181,7 +202,7 @@ fn is_valid_utf8(s: &str) -> bool {
 macro_rules! params {
     ($($konst:ident => $key:literal, $group:ident, $kind:ident, $default:expr, $min:expr, $max:expr, $max_len:expr, $secret:expr, $forbid_zero:expr, $help:literal;)*) => {
         /// The complete parameter list. One row per setting; nothing outside this table exists.
-        pub static PARAMS: &[Param] = &[
+        pub static PARAMS: &[Param<'static>] = &[
             $(Param {
                 key: $key,
                 group: Group::$group,
@@ -199,7 +220,7 @@ macro_rules! params {
 }
 
 /// The parameters in display order, which is their position in the table.
-pub fn ordered() -> impl Iterator<Item = &'static Param> {
+pub fn ordered() -> impl Iterator<Item = &'static Param<'static>> {
     PARAMS.iter()
 }
 
@@ -330,12 +351,12 @@ params! {
 }
 
 /// Looks a parameter up by its dotted key.
-pub fn find(key: &str) -> Option<&'static Param> {
+pub fn find(key: &str) -> Option<&'static Param<'static>> {
     PARAMS.iter().find(|p| p.key == key)
 }
 
 /// Looks a parameter up by index into [`PARAMS`].
-pub fn by_index(index: usize) -> Option<&'static Param> {
+pub fn by_index(index: usize) -> Option<&'static Param<'static>> {
     PARAMS.get(index)
 }
 
@@ -345,7 +366,7 @@ pub const fn count() -> usize {
 }
 
 /// The parameters in one group, in declaration order.
-pub fn group(group: Group) -> impl Iterator<Item = &'static Param> {
+pub fn group(group: Group) -> impl Iterator<Item = &'static Param<'static>> {
     PARAMS.iter().filter(move |p| p.group == group)
 }
 
@@ -365,7 +386,7 @@ pub const DEFAULT_HOSTNAME: &str = "silvia";
 
 /// Renders a value for a log line, with a secret replaced. Nothing that reaches a log or an
 /// export may contain one.
-pub fn display_for_log(key: &str, value: &Value) -> String<96> {
+pub fn display_for_log<'a>(key: &str, value: &Value<'a>) -> String<96> {
     let mut out = String::new();
     if is_secret(key) {
         let _ = out.push_str("<redacted>");

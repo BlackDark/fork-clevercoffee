@@ -9,8 +9,11 @@
 #![forbid(unsafe_code)]
 #![deny(missing_debug_implementations)]
 
+pub mod import;
+pub mod json;
 pub mod schema;
 
+pub use import::{validate, Import, Reason, Report, ResolvedDoc};
 pub use schema::{
     by_index, count, find, group, is_secret, secret_keys, Group, Param, Value, ValueType, PARAMS,
 };

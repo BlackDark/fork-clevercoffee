@@ -10,4 +10,4 @@ publish.workspace = true
 [dependencies]
 
 [dev-dependencies]
-
+heapless = { workspace = true }

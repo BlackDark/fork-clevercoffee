@@ -123,9 +123,10 @@ Exit gate: host tests green, `just check` passes, both phases build for all thre
 - **Steps:** implement the A/B slot region described in
   [architecture.md](architecture.md#32-config-region-format): magic, format version, slot
   generation, length, CRC-32, a SHA-256 prefix, the payload, read-back verification on write.
-- **Acceptance:** `cargo test -p storage` covers: a clean boot, a boot with one corrupt slot, a
+- **Acceptance:** `cargo test -p storage`, 35 tests. A clean boot, a boot with one corrupt slot, a
   boot with both slots corrupt, a torn write leaving the older slot intact, a generation
-  wraparound, and a payload one byte too long.
+  wraparound, a payload one byte too long, a length that does not fit the slot, and a version this
+  firmware does not read in either direction.
 - **Hardware:** no
 - **Safety:** the "both slots corrupt falls back to defaults" test is a safety case, because a
   corrupt setpoint must never reach the PID.
@@ -139,11 +140,15 @@ Exit gate: host tests green, `just check` passes, both phases build for all thre
 - **Files:** `crates/config/src/import.rs`, `crates/config/src/export.rs`
 - **Steps:** implement the three accepted input shapes and the validation and reporting rules in
   [architecture.md](architecture.md#5-config-import).
-- **Acceptance:** `cargo test -p config` imports the repository's `config.json` and
-  `docs/example_config.json` and asserts the exact report for each, including the
-  `display.blescale_brew_timer` unknown field and the missing `mqtt` keys. Further cases: a
-  value above max, a value below min, a wrong type, an explicit null, a flat dotted key at depth
-  two, a partial file, and a file with a secret whose value must not appear in the report.
+- **Acceptance:** `cargo test -p clevercoffee-config`, 63 tests. The repository's own
+  `config.json` is read from disk and must import with zero unknown keys, zero rejections and
+  zero clamps; `docs/example_config.json` must fail with exactly one unknown field named, and
+  must import cleanly once that one field is dropped. Further cases: a value above max, a value
+  below min, a wrong type, an explicit null, a nested document that resolves to the same dotted
+  key as a flat one, a partial document, an over-long text value, a string containing a control
+  character, nesting past the depth limit, and a secret whose value must not appear in the
+  report. The JSON parser is in `crates/config/src/json.rs`, separate from the validation rules
+  so each can be tested without the other.
 - **Hardware:** no
 - **Safety:** the "nothing is applied when anything is rejected" test is the gate.
 - **Rollback:** n/a
