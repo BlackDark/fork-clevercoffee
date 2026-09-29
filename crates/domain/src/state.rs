@@ -124,6 +124,13 @@ impl State {
                 | State::ManualFlushRunning
                 | State::BackflushFilling
                 | State::BackflushFlushing
+                // `PID_NORMAL` and `STEAM_RUNNING` are here because the hot-water dispense runs
+                // inside them, with no state of its own (`PidStates.cpp:33-43`,
+                // `SteamStates.cpp:36-46`), and the C++ valve interlock
+                // (`BrewHandler::valveSafetyShutdownCheck`) closed the valve in both of them. That
+                // made the hot-water dispense pump with the valve shut. Recorded as defect D56.
+                | State::PidNormal
+                | State::SteamRunning
         )
     }
 
@@ -232,14 +239,18 @@ pub mod tests {
     }
 
     #[test]
-    fn the_valve_interlock_list_is_exactly_the_six_water_flow_states() {
-        let open: [State; 6] = [
+    fn the_valve_interlock_list_is_exactly_the_water_flow_states() {
+        let open: [State; 8] = [
             State::BrewPreinfusion,
             State::BrewPreinfusionPause,
             State::BrewRunning,
             State::ManualFlushRunning,
             State::BackflushFilling,
             State::BackflushFlushing,
+            // The two states the hot-water dispense runs inside. See D56: excluding them is what
+            // made the C++ hot water pump with the valve shut.
+            State::PidNormal,
+            State::SteamRunning,
         ];
         // Walking every state and counting, rather than building a list: the test's job is to
         // catch a seventh state that opens the valve, and a count plus a spot check does that
@@ -250,8 +261,8 @@ pub mod tests {
             .count();
         assert_eq!(open.len(), listed);
         assert_eq!(
-            listed, 6,
-            "exactly six states may hold the water valve open"
+            listed, 8,
+            "exactly eight states may hold the water valve open"
         );
         for state in open {
             assert!(
@@ -259,12 +270,7 @@ pub mod tests {
                 "{state} is listed but does not open it"
             );
         }
-        for state in [
-            State::BrewFinished,
-            State::SteamRunning,
-            State::PidNormal,
-            State::Init,
-        ] {
+        for state in [State::BrewFinished, State::Init] {
             assert!(
                 !state.may_hold_water_valve_open(),
                 "{state} is a common state and must not hold the valve"

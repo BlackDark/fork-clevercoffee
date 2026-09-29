@@ -26,13 +26,16 @@ ROOT = Path(__file__).resolve().parent.parent
 LAYERS: dict[str, set[str]] = {
     # Bottom: pure logic, no I/O, no hardware.
     "clevercoffee-domain": set(),
+    "clevercoffee-board-profiles": set(),
     "clevercoffee-hal-traits": {"clevercoffee-domain"},
     "clevercoffee-onewire": {"clevercoffee-hal-traits"},
     "clevercoffee-ds18b20": {"clevercoffee-hal-traits", "clevercoffee-onewire"},
     "clevercoffee-storage": set(),
     "clevercoffee-config": set(),
     "clevercoffee-http": set(),
-    "clevercoffee-display": {"clevercoffee-hal-traits"},
+    # The display templates switch on `domain::State`, so they need the state enum as well as the
+    # traits. Both are below the display in the layering.
+    "clevercoffee-display": {"clevercoffee-hal-traits", "clevercoffee-domain"},
     "clevercoffee-drivers-pressure": {"clevercoffee-hal-traits"},
     "clevercoffee-drivers-scale": {"clevercoffee-hal-traits"},
     "clevercoffee-drivers-tsic": {"clevercoffee-hal-traits"},
@@ -46,20 +49,26 @@ LAYERS: dict[str, set[str]] = {
     "clevercoffee-bsp-esp32": {
         "clevercoffee-domain",
         "clevercoffee-hal-traits",
+        "clevercoffee-board-profiles",
         "clevercoffee-app",
     },
     "clevercoffee-bsp-esp32s3": {
         "clevercoffee-domain",
         "clevercoffee-hal-traits",
+        "clevercoffee-board-profiles",
         "clevercoffee-app",
     },
     "clevercoffee-bsp-esp32c6": {
         "clevercoffee-domain",
         "clevercoffee-hal-traits",
+        "clevercoffee-board-profiles",
         "clevercoffee-app",
     },
     "clevercoffee-fw": {
         "clevercoffee-app",
+        # For the `SensorSource` associated type on the loop. The firmware is the top of the
+        # layering, so this is the one crate that may reach sideways for a trait it must name.
+        "clevercoffee-hal-traits",
         "clevercoffee-bsp-esp32",
         "clevercoffee-bsp-esp32s3",
         "clevercoffee-bsp-esp32c6",

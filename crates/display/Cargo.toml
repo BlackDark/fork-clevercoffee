@@ -9,7 +9,12 @@ publish.workspace = true
 
 [dependencies]
 clevercoffee-hal-traits = { workspace = true }
+# The templates switch on `domain::State`, so the display needs the state enum. This is still
+# below the HAL traits in the layering; tools/check-deps.py records it.
+clevercoffee-domain = { workspace = true }
+heapless = { workspace = true }
 
 [dev-dependencies]
 clevercoffee-hal-traits = { workspace = true }
-
+clevercoffee-domain = { workspace = true }
+heapless = { workspace = true }

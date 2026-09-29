@@ -308,6 +308,16 @@ Exit gate: all three targets build; each driver has host tests.
 - **Open uncertainty:** the exact font metrics. The C++ U8G2 fonts cannot be measured from the
   repository, so the metrics table is a new input. This is the single largest unknown in the
   display port and it is why the task is sized at 1200 to 1800 lines.
+- **Done:** `cargo test -p clevercoffee-display`, 63 tests across the crate and the layout suite.
+  The font is one 5x7 table at two integer scales rather than the five U8G2 fonts, so every width
+  in the crate is `cell_width * scale` and no layout can assume a proportional font. The
+  framebuffer diffs against the last flushed frame, which costs a second kilobyte and is what makes
+  D31's fix real: an unchanged re-render sends nothing, a one-degree change on a template with no
+  thermometer sends one page. The six templates render in all eighteen states in all three
+  languages with a zero clip count, and the tests assert the ink bands, the fixed-width numeric
+  fields and the bar/label midline on pixels.
+- **Not verified:** the physical rendering, and the font's legibility on a real panel. The metrics
+  are a new input, which is what T-21 exists to check.
 - **Fixes:** D31 (dirty pages only, 400 kHz bus)
 
 ---
@@ -337,6 +347,28 @@ Exit gate: all three targets build; the mock-actuator image boots on the bench d
   [board-pinouts.md](board-pinouts.md). The C6 has 14 usable pins against 17 needed, so by the
   user's decision of 2026-09-29 the three indicator LEDs and the second HX711 load cell are
   disabled on that board, behind a compile-time capability the shared logic already handles.
+- **Partly done.** The pin maps, the capability sets and the per-chip unusable-pin lists moved into
+  a new `crates/board-profiles` crate, because a pin map is data and a data error is invisible in
+  review. Twelve host tests check each map: every essential signal is mapped, no two signals share
+  a pin, nothing lands on the flash bus, USB, UART0 or JTAG, the ESP32's four switches are on
+  input-only pins and say that they need an external pull, the C6 fits fourteen usable pins, and
+  only the ESP32 lacks native USB. The three `bsp-*` crates take their numbers from that crate and
+  add the pin construction, the relay owner, the switch inputs and the provisioning transport; the
+  `fw` binaries run the boot order and the loop.
+- **Blocked, and this is the one task in this phase that is not done:** the Xtensa toolchain. The
+  host is aarch64 and `just espup-install` fetches an x86-64 `espup`, so it exits 126 and the `esp`
+  rustc fork is never installed. **`just check-fw esp32c6` does pass**, because the C6 is RISC-V
+  and needs only a `rustup target add`; the `check-fw` recipe now falls back to the stable
+  toolchain when the fork is absent, which is how it was verified here. `check-fw esp32` and
+  `esp32s3` have not been run, so those two board crates and binaries are **uncompiled**. Next
+  action for whoever has an x86-64 host: `just setup`, then the two remaining `check-fw` targets.
+- The pin numbers a board crate hands to the HAL are tied to the profile by `const _: () =
+  assert!` blocks, so the data table and the hand-written macro cannot drift apart without a
+  compile error. That is the check a host test could not give, and it is why the numbers appear
+  twice.
+- Deliberately **not** wired: the Wi-Fi stack, the HTTP socket, the sensor drivers and the display
+  bus. Writing four I/O paths no test in this checkout can exercise would be a worse outcome than
+  writing none, and each of them has a host-tested core already waiting for it.
 - **Fixes:** D01, D04, D05
 
 ---
@@ -364,7 +396,20 @@ Exit gate: host tests green, all three targets build, the API is complete.
   of `pump_on` commands; that assertion is explicit.
 - **Rollback:** n/a
 - **Open uncertainty:** none
-- **Fixes:** D09, D22, D33
+- **Done:** `cargo test -p clevercoffee-app`, 123 tests, of which 21 are whole-machine scenarios
+  driven against `RecordingActuators`: a normal brew, an abort in pre-infusion, an abort in the
+  pause, a manual flush, a backflush run, a tank emptying mid-brew, an emergency stop from twelve
+  states, standby and wake, a sensor fault and its recovery delay, a watchdog that is not fed, and
+  a stuck switch held past the pump deadline. Three real defects surfaced while writing them and are
+  fixed: the service mode was expressed as "the PID is off" in the transition input, which ejected
+  the machine from whatever it was doing the moment provisioning started (D01's second half); the
+  emergency stop was evaluated on the *filtered* temperature, so a genuine over-temperature took
+  six seconds to trip a fifteen-sample mean; and a sensor fault was routed into the latched
+  emergency stop, which turned a recoverable fault into a machine that needed unplugging.
+- **Not verified:** on hardware. The task bodies are synchronous functions and the scheduling,
+  priorities and watchdog timer are the firmware's, which is stated in the code rather than papered
+  over.
+- **Fixes:** D09, D22, D33, and D56 (found here: the valve interlock closed the hot-water valve)
 
 ### T-15. Provisioning protocol on device
 - **Type:** implement
@@ -381,6 +426,12 @@ Exit gate: host tests green, all three targets build, the API is complete.
 - **Open uncertainty:** whether the USB Serial/JTAG CDC path works at 115200 baud on both S3 and
   C6. The C++ firmware had a note that the USB console stops during light sleep, which affects
   the C6. **needs confirmation** on device.
+- **Done:** `cargo test -p clevercoffee-app --test provisioning`, 14 tests: a full exchange from
+  `PING` through the credentials to a chunked config, the actuator trace proving the machine is
+  de-energised before the port is read and stays off for the session, a walk of every command
+  asserting that no reply the device can produce contains the password, a bad CRC, an over-long
+  document, an overrunning chunk, a malformed line, a closed port and a factory reset.
+- **Not verified:** on a device, and the board crates' transports have not been compiled.
 - **Fixes:** n/a
 
 ### T-16. Web API implementation
@@ -402,6 +453,13 @@ Exit gate: host tests green, all three targets build, the API is complete.
 - **Safety:** handlers must not block. A test asserts no handler contains an await.
 - **Rollback:** n/a
 - **Open uncertainty:** none; the user confirmed OTA stays, so the frontend is unchanged
+- **Done:** `cargo test -p clevercoffee-app --test api_routes`, 31 tests over all thirty routes: the
+  success case and each documented error case, the 401 the C++ never produced, the 409 while
+  brewing, the URL allow-list the C++ did not have, the extension check the firmware route was
+  missing, the transactional upload with its counts, the redaction, and the "no handler awaits"
+  check run against this crate's own source.
+- **Not verified:** the socket layer. The handlers are pure functions over a `Backend`; nothing
+  binds them to a TCP stream yet, and `/api/status` cannot answer on a machine until it is.
 - **Fixes:** D01, D10, D15, D16, D17, D24, D25, D26, D28, D32
 
 ### T-17. MQTT and Home Assistant discovery
@@ -418,7 +476,14 @@ Exit gate: host tests green, all three targets build, the API is complete.
 - **Safety:** the `sscanf` return-value bug in the C++ inbound path (uninitialised value on a
   non-numeric payload) must not be reproduced: the parser is typed.
 - **Rollback:** the feature is behind a config flag
-- **Open uncertainty:** which `no_std` MQTT client to use. `rumqttc` is a candidate.
+- **Open uncertainty:** which `no_std` MQTT client to use. `rumqttc` is a candidate. The generator
+  and the parser are written against no client at all, so this decision does not block them.
+- **Done:** the discovery generator and the inbound parser, with 11 host tests: every entity in
+  every feature combination produces a document under the topic the C++ used, a number document
+  carries its range and step, a sensor carries its unit and class and no command topic, the output
+  is byte-identical across calls, and the parser refuses a non-numeric payload rather than acting
+  on an uninitialised value.
+- **Not verified:** the publish path. No broker and no client.
 - **Fixes:** D43 (dead code not ported)
 
 ### T-18. Telnet logging
@@ -433,7 +498,14 @@ Exit gate: host tests green, all three targets build, the API is complete.
 - **Safety:** the buffer is statically sized and the count is in the heap budget.
 - **Rollback:** n/a
 - **Open uncertainty:** whether to keep this at all. It was RFC 2217-adjacent in the C++ code.
-  Proposed: keep it simple, no RFC 2217 telnet negotiation.
+  Proposed: keep it simple, no RFC 2217 telnet negotiation. **Still open, not confirmed.**
+- **Done:** the ring buffer and the line server, with 10 host tests: wraparound, a full ring
+  dropping the oldest rather than blocking, a filtered level that is counted but not stored, an
+  over-long line truncated rather than split, a tail of the newest lines, and the case that matters
+  most, a client that stops reading being dropped in one write while the ring is left untouched.
+  4 KB, statically sized, which is the same budget the C++ allocated at boot.
+- **Not verified:** the socket. The server is a state machine over an injected transport, so the
+  "never block on a stalled client" property is tested; the listener is not written.
 - **Fixes:** D38, D39
 
 ---
@@ -475,6 +547,12 @@ Exit gate: the end-to-end import check passes on device; the migration guide is 
   A load-energizing test needs the user's explicit approval and a written safe procedure.
 - **Rollback:** n/a
 - **Open uncertainty:** none
+- **Partly done.** The functional and API legs are host-driven and are asserted in the crates
+  themselves: 21 control scenarios, 31 API route tests, 14 provisioning tests and 63 display tests.
+  What is missing is a single checklist document tying those to the C++ behaviours row by row, and
+  the control legs on hardware, which needs a device and a heater-disabled build. Neither the
+  checklist nor the device legs were produced in this run; the per-task test suites are the
+  evidence that exists.
 - **Fixes:** n/a
 
 ### T-21. Display layout verification on device

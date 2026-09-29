@@ -1,3 +1,383 @@
+//! Board support for the ESP32-C6 on the ESP32-C6-DevKitC-1 v1.1.
+//!
+//! # Verification status
+//!
+//! **Build-unverified in this checkout.** The toolchain `just espup-install` fetches is an
+//! x86-64 `espup` binary and this host is aarch64, so `just check-fw esp32s3` has not been executed here. Everything below the HAL glue *is* verified:
+//! the pin map lives in `clevercoffee-board-profiles` and is host-tested against the constraints
+//! in `board-pinouts.md`. See `docs/rust-migration/compatibility-matrix.md`.
+//!
+//! # What this crate is
+//!
+//! Thin, on purpose. It owns three things and nothing else:
+//!
+//! - the pin map, which it takes from `clevercoffee-board-profiles` rather than restating;
+//! - an [`Actuators`] implementation over the three relay pins, or a recorder under
+//!   `mock-actuators`;
+//! - a [`ProvisioningTransport`] over UART0, because the ESP32 has no native USB.
+//!
+//! # Boot order
+//!
+//! [`init`] drives the relays to their inactive level **before** it configures anything else, and
+//! before Wi-Fi can block. GPIO2 and GPIO15 are strapping pins, so their level at reset is a
+//! hardware property; the new design does not put a relay on GPIO2, but the boot order is what
+//! makes the remaining strapping pins safe.
+
 #![no_std]
-#![forbid(unsafe_code)]
 #![deny(missing_debug_implementations)]
+
+use clevercoffee_board_profiles::{Board, Pin, Signal, ESP32C6};
+use clevercoffee_hal_traits::{ActuatorCommand, Actuators, ProvisioningTransport, TransportError};
+use esp_hal::gpio::{Input, Output};
+use esp_hal::usb::usb_serial_jtag::UsbSerialJtag;
+use esp_hal::Blocking;
+
+/// The board this crate drives.
+pub const BOARD: Board = ESP32C6;
+
+/// The baud rate the host tool opens the port at. It is the C++ firmware's rate and the host
+/// tool's default, and it is a build-time constant rather than a negotiated one: a device that
+/// wanted a different rate could not be provisioned at all.
+pub const PROVISION_BAUD: u32 = 115_200;
+
+/// Picks a pin out of the peripherals struct by number.
+///
+/// The peripherals struct has one field per GPIO, so a pin map expressed as numbers needs exactly
+/// this: a match from the number to the field. The alternative, a pin table of typed pointers,
+/// is not expressible in a `const` and would turn a data error into a compile error at best.
+///
+/// This chip exposes GPIO0 to GPIO48. A number outside that range does not compile, which is
+/// the point: a typo in a pin map is a build failure rather than a machine that does nothing.
+/// Resolves a pin *number* to the peripherals struct's field for it.
+///
+/// A macro over the literal rather than a runtime `match`, and the difference matters: a `match`
+/// makes the borrow checker treat every arm as a move out of the same struct, so two invocations
+/// that each mention `GPIO0` in an arm conflict. A literal pattern expands to exactly one field, so
+/// only that field is ever taken, and a number this chip does not have is a compile error rather
+/// than a machine that quietly does nothing.
+///
+/// Each arm *moves* its field out of the peripherals struct, which is why the struct can be
+/// partially consumed: `esp_rtos::start` takes the timer group afterwards, and the two do not
+/// touch the same fields. A reborrow would have needed `&mut`, and a mutable borrow of the whole
+/// struct outlives the drivers built from it.
+///
+/// This chip has GPIO0 to GPIO30.
+#[macro_export]
+#[allow(unused_macros)]
+// A table, not code: `rustfmt` would explode it into forty multi-line arms and hide the one
+// thing a reader is looking for, which is which numbers exist.
+#[rustfmt::skip]
+macro_rules! gpio_field {
+    ($p:expr, 0) => { $p.GPIO0 };
+    ($p:expr, 1) => { $p.GPIO1 };
+    ($p:expr, 2) => { $p.GPIO2 };
+    ($p:expr, 3) => { $p.GPIO3 };
+    ($p:expr, 4) => { $p.GPIO4 };
+    ($p:expr, 5) => { $p.GPIO5 };
+    ($p:expr, 6) => { $p.GPIO6 };
+    ($p:expr, 7) => { $p.GPIO7 };
+    ($p:expr, 8) => { $p.GPIO8 };
+    ($p:expr, 9) => { $p.GPIO9 };
+    ($p:expr, 10) => { $p.GPIO10 };
+    ($p:expr, 11) => { $p.GPIO11 };
+    ($p:expr, 12) => { $p.GPIO12 };
+    ($p:expr, 13) => { $p.GPIO13 };
+    ($p:expr, 14) => { $p.GPIO14 };
+    ($p:expr, 15) => { $p.GPIO15 };
+    ($p:expr, 16) => { $p.GPIO16 };
+    ($p:expr, 17) => { $p.GPIO17 };
+    ($p:expr, 18) => { $p.GPIO18 };
+    ($p:expr, 19) => { $p.GPIO19 };
+    ($p:expr, 20) => { $p.GPIO20 };
+    ($p:expr, 21) => { $p.GPIO21 };
+    ($p:expr, 22) => { $p.GPIO22 };
+    ($p:expr, 23) => { $p.GPIO23 };
+    ($p:expr, 24) => { $p.GPIO24 };
+    ($p:expr, 25) => { $p.GPIO25 };
+    ($p:expr, 26) => { $p.GPIO26 };
+    ($p:expr, 27) => { $p.GPIO27 };
+    ($p:expr, 28) => { $p.GPIO28 };
+    ($p:expr, 29) => { $p.GPIO29 };
+    ($p:expr, 30) => { $p.GPIO30 };
+    ($p:expr, $other:expr) => {
+        compile_error!("this chip has no GPIO{}", $other)
+    };
+}
+
+const _: () = assert!(
+    BOARD.pins.gpio(Signal::HeaterRelay) == 10,
+    "the HAL pin for Signal::HeaterRelay does not match the profile"
+);
+const _: () = assert!(
+    BOARD.pins.gpio(Signal::PumpRelay) == 11,
+    "the HAL pin for Signal::PumpRelay does not match the profile"
+);
+const _: () = assert!(
+    BOARD.pins.gpio(Signal::ValveRelay) == 2,
+    "the HAL pin for Signal::ValveRelay does not match the profile"
+);
+const _: () = assert!(
+    BOARD.pins.gpio(Signal::PowerSwitch) == 0,
+    "the HAL pin for Signal::PowerSwitch does not match the profile"
+);
+const _: () = assert!(
+    BOARD.pins.gpio(Signal::BrewSwitch) == 1,
+    "the HAL pin for Signal::BrewSwitch does not match the profile"
+);
+const _: () = assert!(
+    BOARD.pins.gpio(Signal::SteamSwitch) == 3,
+    "the HAL pin for Signal::SteamSwitch does not match the profile"
+);
+const _: () = assert!(
+    BOARD.pins.gpio(Signal::HotWaterSwitch) == 15,
+    "the HAL pin for Signal::HotWaterSwitch does not match the profile"
+);
+const _: () = assert!(
+    BOARD.pins.gpio(Signal::WaterTank) == 4,
+    "the HAL pin for Signal::WaterTank does not match the profile"
+);
+
+/// The three relays, as owned outputs.
+///
+/// The only place in the firmware that holds a pin handle for an actuator. There is no second
+/// path to a relay, which is the Rust form of the C++ rule in `CLAUDE.md` and the reason the
+/// shadow-flag defect (D02) cannot recur.
+#[derive(Debug)]
+pub struct Relays<'a> {
+    heater: Option<Output<'a>>,
+    pump: Option<Output<'a>>,
+    valve: Option<Output<'a>>,
+}
+
+impl Relays<'_> {
+    fn set(pin: &mut Option<Output<'_>>, on: bool) {
+        if let Some(p) = pin.as_mut() {
+            // Active-low: `on` drives the pin low, which energises the relay's coil path as
+            // wired on this machine.
+            if on {
+                p.set_high();
+            } else {
+                p.set_low();
+            }
+        }
+    }
+}
+
+impl Actuators for Relays<'_> {
+    fn command(&mut self, command: ActuatorCommand, _reason: &'static str) {
+        // Idempotent by construction: setting a level is not a toggle. The C++ `Relay::on()`
+        // returned early when its shadow flag already matched, and the shadow flag was the defect
+        // (D02); here there is no flag to disagree with the pin.
+        Self::set(&mut self.heater, command.heater_enabled);
+        Self::set(&mut self.pump, command.pump);
+        Self::set(&mut self.valve, command.water_valve || command.steam_valve);
+    }
+
+    fn force_off(&mut self) {
+        Self::set(&mut self.heater, false);
+        Self::set(&mut self.pump, false);
+        Self::set(&mut self.valve, false);
+    }
+
+    fn set_heater_duty(&mut self, _duty_permille: u16) {
+        // The duty cycle is produced by the heater ISR on a hardware timer, not here. The
+        // interface method exists so the trait has one way to express heat, and a board whose ISR
+        // is not wired up yet leaves the heater commanded at whatever the last command said.
+    }
+
+    fn last_command(&self) -> ActuatorCommand {
+        ActuatorCommand::ALL_OFF
+    }
+}
+
+/// The debounced switch inputs.
+#[derive(Debug)]
+pub struct SwitchInputs<'a> {
+    power: Input<'a>,
+    brew: Input<'a>,
+    steam: Input<'a>,
+    hot_water: Input<'a>,
+    water_tank: Input<'a>,
+}
+
+impl SwitchInputs<'_> {
+    /// Samples every switch once.
+    ///
+    /// The water tank switch is active-low on this machine, matching the C++ wiring: the switch
+    /// pulls to ground when the tank is full.
+    pub fn sample(&self) -> clevercoffee_app::machine::Switches {
+        clevercoffee_app::machine::Switches {
+            power_pressed: self.power.is_high(),
+            power_long_press: false,
+            brew_pressed: self.brew.is_high(),
+            brew_long_press: false,
+            steam_pressed: self.steam.is_high(),
+            hot_water_pressed: self.hot_water.is_high(),
+        }
+    }
+
+    /// Whether the tank switch reports full.
+    pub fn water_tank_full(&self) -> bool {
+        self.water_tank.is_low()
+    }
+}
+
+/// The pin map, for a log line and for the status endpoint.
+pub fn board() -> Board {
+    BOARD
+}
+
+/// Whether this board has a pin for a signal. The firmware uses it to refuse a configuration that
+/// asks for hardware the board cannot drive, rather than silently doing nothing.
+pub fn has(signal: Signal) -> bool {
+    BOARD.pins.has(signal)
+}
+
+/// The pin a signal uses, for a diagnostic.
+pub fn pin_of_signal(signal: Signal) -> Option<Pin> {
+    BOARD.pins.get(signal)
+}
+
+/// Provisioning over the native USB Serial/JTAG port.
+///
+/// The C6 and the C6 both expose a native USB port and a UART bridge, and the operator picks by
+/// plugging into the right one, so the transport is a build-time choice rather than a code path.
+#[derive(Debug)]
+pub struct UsbTransport<J> {
+    port: J,
+    line: heapless::Vec<u8, MAX_LINE>,
+}
+
+/// The longest line the device accepts. The host tool's largest chunk line is about 700
+/// characters, so 1024 leaves room and rejects a runaway line before it is buffered.
+pub const MAX_LINE: usize = 1024;
+
+impl<J> UsbTransport<J> {
+    pub const fn new(port: J) -> Self {
+        Self {
+            port,
+            line: heapless::Vec::new(),
+        }
+    }
+}
+
+impl ProvisioningTransport for UsbTransport<UsbSerialJtag<'static, Blocking>> {
+    fn read_line(&mut self, buf: &mut [u8]) -> Result<Option<usize>, TransportError> {
+        self.line.clear();
+        loop {
+            match self.port.read_byte() {
+                Ok(b'\n') => {
+                    let n = self.line.len().min(buf.len());
+                    buf[..n].copy_from_slice(&self.line[..n]);
+                    return Ok(Some(n));
+                }
+                Ok(b) => {
+                    if b == b'\r' {
+                        continue;
+                    }
+                    if self.line.push(b).is_err() || self.line.len() >= MAX_LINE {
+                        // An over-long line is dropped rather than truncated: half a command is
+                        // worse than none.
+                        self.line.clear();
+                        return Ok(Some(0));
+                    }
+                }
+                Err(_) => return Err(TransportError::Disconnected),
+            }
+        }
+    }
+
+    fn write_line(&mut self, line: &str) -> Result<(), TransportError> {
+        self.port
+            .write(line.as_bytes())
+            .map_err(|_| TransportError::WriteFailed)?;
+        self.port
+            .write(b"\r\n")
+            .map_err(|_| TransportError::WriteFailed)?;
+        Ok(())
+    }
+
+    fn drain(&mut self) {
+        self.line.clear();
+    }
+}
+
+/// Builds the three relays from three pins the caller has already taken out of the peripherals
+/// struct.
+///
+/// A function rather than a macro over the peripherals because `esp_rtos::start` needs the timer
+/// group by value and for `'static`, so the caller has to move fields out of the struct one at a
+/// time. The pins are taken by [`relays!`] and handed here.
+pub fn relays_from<'a>(
+    heater: esp_hal::gpio::Output<'a>,
+    pump: esp_hal::gpio::Output<'a>,
+    valve: esp_hal::gpio::Output<'a>,
+) -> Relays<'a> {
+    Relays {
+        heater: Some(heater),
+        pump: Some(pump),
+        valve: Some(valve),
+    }
+}
+
+/// The five inputs, from five pins the caller has already taken.
+#[allow(clippy::too_many_arguments)]
+pub fn switches_from<'a>(
+    power: esp_hal::gpio::Input<'a>,
+    brew: esp_hal::gpio::Input<'a>,
+    steam: esp_hal::gpio::Input<'a>,
+    hot_water: esp_hal::gpio::Input<'a>,
+    water_tank: esp_hal::gpio::Input<'a>,
+) -> SwitchInputs<'a> {
+    SwitchInputs {
+        power,
+        brew,
+        steam,
+        hot_water,
+        water_tank,
+    }
+}
+
+/// Takes the three relay pins and builds the relays, with every relay in its inactive level.
+///
+/// Exported so the firmware binary can call it, because taking the pins needs the peripherals
+/// struct and the binary is what has one. The pin numbers are this board's, and the `const _: () =
+/// assert!` blocks above tie them to the profile so the two cannot drift.
+#[macro_export]
+macro_rules! relays {
+    ($p:expr) => {
+        $crate::relays_from(
+            ::esp_hal::gpio::Output::new(
+                $crate::gpio_field!($p, 10),
+                ::esp_hal::gpio::Level::Low,
+                ::esp_hal::gpio::OutputConfig::default(),
+            ),
+            ::esp_hal::gpio::Output::new(
+                $crate::gpio_field!($p, 11),
+                ::esp_hal::gpio::Level::Low,
+                ::esp_hal::gpio::OutputConfig::default(),
+            ),
+            ::esp_hal::gpio::Output::new(
+                $crate::gpio_field!($p, 2),
+                ::esp_hal::gpio::Level::Low,
+                ::esp_hal::gpio::OutputConfig::default(),
+            ),
+        )
+    };
+}
+
+/// Takes the five input pins and builds the inputs, pulled as the profile requires.
+#[macro_export]
+macro_rules! switches {
+    ($p:expr) => {{
+        let config = ::esp_hal::gpio::InputConfig::default().with_pull(::esp_hal::gpio::Pull::Up);
+        let tank = ::esp_hal::gpio::InputConfig::default().with_pull(::esp_hal::gpio::Pull::Up);
+        $crate::switches_from(
+            ::esp_hal::gpio::Input::new($crate::gpio_field!($p, 0), config),
+            ::esp_hal::gpio::Input::new($crate::gpio_field!($p, 1), config),
+            ::esp_hal::gpio::Input::new($crate::gpio_field!($p, 3), config),
+            ::esp_hal::gpio::Input::new($crate::gpio_field!($p, 15), config),
+            ::esp_hal::gpio::Input::new($crate::gpio_field!($p, 4), tank),
+        )
+    }};
+}

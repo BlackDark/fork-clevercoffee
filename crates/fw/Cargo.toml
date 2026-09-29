@@ -13,6 +13,7 @@ path = "src/lib.rs"
 
 [dependencies]
 clevercoffee-app = { workspace = true }
+clevercoffee-hal-traits = { workspace = true }
 # Optional, because a build can only contain one chip. Feature unification would otherwise
 # compile all three chips' metadata into one binary, which does not link. Each board feature
 # turns exactly one of these on.

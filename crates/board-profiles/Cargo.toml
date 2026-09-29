@@ -1,0 +1,11 @@
+[package]
+name = "clevercoffee-board-profiles"
+description = "The three pin maps and capability sets, as data, with no hardware dependency."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+heapless = { workspace = true }

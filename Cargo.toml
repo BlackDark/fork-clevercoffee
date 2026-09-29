@@ -9,6 +9,7 @@ members = [
     "crates/drivers-scale",
     "crates/drivers-tsic",
     "crates/display",
+    "crates/board-profiles",
     "crates/http",
     "crates/storage",
     "crates/config",
@@ -42,6 +43,7 @@ publish = false
 # sideways fails CI rather than turning into a cycle nobody notices.
 clevercoffee-domain = { path = "crates/domain" }
 clevercoffee-hal-traits = { path = "crates/hal-traits" }
+clevercoffee-board-profiles = { path = "crates/board-profiles" }
 clevercoffee-onewire = { path = "crates/onewire" }
 clevercoffee-ds18b20 = { path = "crates/ds18b20" }
 clevercoffee-storage = { path = "crates/storage" }

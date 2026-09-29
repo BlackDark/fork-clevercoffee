@@ -1064,10 +1064,13 @@ mod tests {
     fn every_state_has_an_explicit_actuator_command_that_matches_the_interlocks() {
         for state in ALL_STATES {
             let a = actuators_for(state);
-            assert_eq!(
-                a.water_valve,
-                state.may_hold_water_valve_open(),
-                "{state}: valve command disagrees with the interlock"
+            // One direction only: a state that commands the valve must be allowed to hold it. The
+            // converse is deliberately not required, because `PID_NORMAL` and `STEAM_RUNNING` are
+            // allowed the valve for the hot-water dispense while their own command leaves it shut
+            // (D56). Asserting equality here is what would have hidden that.
+            assert!(
+                !a.water_valve || state.may_hold_water_valve_open(),
+                "{state}: commands the valve in a state the interlock forbids"
             );
             assert_eq!(
                 a.pump,

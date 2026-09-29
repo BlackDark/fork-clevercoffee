@@ -1,6 +1,6 @@
 [package]
 name = "clevercoffee-bsp-esp32s3"
-description = "Board support for the ESP32 on the ESP32-DevKitC V4."
+description = "Board support for the ESP32-S3-DevKitC-1 v1.1."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -11,6 +11,8 @@ publish.workspace = true
 clevercoffee-domain = { workspace = true }
 clevercoffee-hal-traits = { workspace = true }
 clevercoffee-app = { workspace = true }
+clevercoffee-board-profiles = { workspace = true }
+heapless = { workspace = true }
 esp-hal = { workspace = true, features = ["esp32s3"] }
 esp-rtos = { workspace = true, features = ["esp32s3"] }
 esp-alloc = { workspace = true, features = ["esp32s3"] }

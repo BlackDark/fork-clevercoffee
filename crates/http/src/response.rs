@@ -16,8 +16,10 @@ use crate::writer::SliceWriter;
 #[repr(u16)]
 pub enum Status {
     Ok = 200,
+    Accepted = 202,
     NoContent = 204,
     PartialContent = 206,
+    Found = 302,
     BadRequest = 400,
     Unauthorized = 401,
     Forbidden = 403,
@@ -27,6 +29,7 @@ pub enum Status {
     PayloadTooLarge = 413,
     UriTooLong = 414,
     UnsupportedMediaType = 415,
+    UnprocessableEntity = 422,
     TooManyRequests = 429,
     InternalServerError = 500,
     NotImplemented = 501,
@@ -41,8 +44,10 @@ impl Status {
     pub const fn reason(self) -> &'static str {
         match self {
             Status::Ok => "OK",
+            Status::Accepted => "Accepted",
             Status::NoContent => "No Content",
             Status::PartialContent => "Partial Content",
+            Status::Found => "Found",
             Status::BadRequest => "Bad Request",
             Status::Unauthorized => "Unauthorized",
             Status::Forbidden => "Forbidden",
@@ -52,6 +57,7 @@ impl Status {
             Status::PayloadTooLarge => "Payload TooLarge",
             Status::UriTooLong => "URI Too Long",
             Status::UnsupportedMediaType => "Unsupported Media Type",
+            Status::UnprocessableEntity => "Unprocessable Entity",
             Status::TooManyRequests => "Too Many Requests",
             Status::InternalServerError => "Internal Server Error",
             Status::NotImplemented => "Not Implemented",

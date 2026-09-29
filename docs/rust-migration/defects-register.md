@@ -319,3 +319,32 @@ it calls `delay(ABP2_READ_DELAY_MS)`, ten milliseconds with the whole main loop 
 the control loop is not running. **Fix:** `Abp2::start_conversion` returns immediately and
 `Abp2::read` is called later; `Abp2::settle_ms` states the requirement and the caller spends it.
 No driver in this port sleeps. This is the concrete form of defect D08.
+
+### D56 — The valve interlock closed the hot-water valve, so hot water pumped with the valve shut
+
+`include/clevercoffee/handlers/BrewHandler.h:105-122` and `include/clevercoffee/state/*.h`. The
+valve safety check closes the water valve in any state that is not a brew, a manual flush or a
+backflush fill or flush. The hot-water dispense, however, runs *inside* `PID_NORMAL` and
+`STEAM_RUNNING` with no state of its own (`src/../PidStates.cpp:33-43`,
+`SteamStates.cpp:36-46`), so the check closed the valve on every tick of a hot-water dispense while
+the pump kept running. A machine in that state pumps with the three-way valve shut: no water
+reaches the group, the pump runs against a closed path, and the UI shows a dispense that is
+happening. The two lists disagreed for the same reason the C++ lists always disagreed: one place
+decided which states move water, another decided which states may hold the valve, and the hot-water
+path existed in only one of them.
+
+**Impact:** the hot-water button is broken on the C++ firmware for any configuration that reaches
+`PID_NORMAL`, which is the default. Whether a user has ever noticed depends on whether their
+machine's three-way valve plumbing happens to pass water with the solenoid de-energised, which is a
+property of the plumbing rather than of the firmware.
+
+**Severity:** high for the feature, medium for safety: the pump runs longer than it should with no
+flow, and the heater is on throughout.
+
+**Fix:** the interlock's question is "may water flow here", and the answer is the list of states in
+which water may flow, which includes the two states the hot-water dispense runs inside. The port's
+list is `State::may_hold_water_valve_open()` in `crates/domain/src/state.rs`, and it now names
+`PidNormal` and `SteamRunning` explicitly with a comment saying why. The domain's own test asserts
+the *one* direction that is a safety property — a state that commands the valve must be allowed to
+hold it — rather than the equality the previous version asserted, which is exactly the assertion
+that would have hidden this.

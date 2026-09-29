@@ -141,6 +141,7 @@ with `cargo test`. Concretely:
 | --- | --- | --- |
 | Domain logic | nothing | one crate, no chip cfgs |
 | HAL traits | nothing | one crate, trait definitions only |
+| Pin maps | the GPIO numbers | one crate of plain data, so a pin map is host-testable |
 | Drivers | pin numbers and peripheral instances | a `Board` trait, one impl per board |
 | BSP | pin map, peripheral selection, clock config | one module per board behind a cargo feature |
 | Provisioning transport | UART0 vs USB Serial/JTAG, and on S3/C6 both are present | one `ProvisioningTransport` trait, one impl per transport |
@@ -165,6 +166,7 @@ clevercoffee-hal-traits   the traits every hardware implementation satisfies
 clevercoffee-onewire / ds18b20 / drivers-* / display   device drivers
 clevercoffee-storage / config / http   portable subsystems
 clevercoffee-app      tasks, wiring, routes, provisioning, MQTT
+clevercoffee-board-profiles            the three pin maps, as data
 clevercoffee-bsp-<board>               pin maps and the HAL bindings for one chip
 clevercoffee-fw       the binaries, the panic handler, the compile-time feature guards
 ```
@@ -188,18 +190,20 @@ notices.
 | `config` | the parameter schema, ranges, defaults, the old-format import mapping | yes |
 | `app` | tasks, state machine wiring, HTTP routes, provisioning protocol, MQTT | mostly; the HAL sits behind traits |
 | `bsp-<board>` | pin map, peripheral selection, the `Actuators` impl, display init, provisioning transport | compile only, per target |
+| `board-profiles` | the three pin maps, the capability sets, the per-chip unusable-pin lists | yes, against the rules in `board-pinouts.md` |
 | `fw` | the three binaries, the panic handler, the compile-time feature guards | no |
 
-That is sixteen crates: eleven host-testable, three board-specific, one firmware, plus `fw`.
+That is seventeen crates: twelve host-testable, three board-specific, one firmware, plus `fw`.
 
 Dependency rules, enforced by `tools/check-deps.py` in CI:
 
-- `domain`, `storage`, `config`, `http` and `display` depend on **no** other workspace crate.
+- `domain`, `storage`, `config`, `http` and `board-profiles` depend on **no** other workspace
+  crate. `display` depends on `hal-traits` and `domain`, because its templates switch on `State`.
 - `hal-traits` depends only on `domain`.
 - `onewire`, `ds18b20` and the driver crates depend only on `hal-traits`.
 - `app` depends on `domain`, `hal-traits`, `config`, `storage` and `http`, and on nothing above
   itself.
-- `bsp-*` depends on `domain`, `hal-traits` and `app`, and on the HAL. It depends on no other
+- `bsp-*` depends on `domain`, `hal-traits`, `board-profiles` and `app`, and on the HAL. It depends on no other
   `bsp-*`, because that would tie two chips together.
 - `fw` depends on `app` and the HAL, and on **at most one** `bsp-*`.
 - Only `fw` and the `bsp-*` crates may name a chip, and only `fw` selects a board feature. A build

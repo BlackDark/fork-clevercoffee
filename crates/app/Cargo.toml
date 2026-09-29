@@ -13,6 +13,7 @@ clevercoffee-hal-traits = { workspace = true }
 clevercoffee-config = { workspace = true }
 clevercoffee-storage = { workspace = true }
 clevercoffee-http = { workspace = true }
+heapless = { workspace = true }
 
 [dev-dependencies]
 clevercoffee-domain = { workspace = true }
@@ -20,4 +21,3 @@ clevercoffee-hal-traits = { workspace = true }
 clevercoffee-config = { workspace = true }
 clevercoffee-storage = { workspace = true }
 clevercoffee-http = { workspace = true }
-

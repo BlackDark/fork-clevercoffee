@@ -70,6 +70,15 @@ check-fw target="esp32":
     set -euo pipefail
     [ -f .espup-env.sh ] && source .espup-env.sh
     export CARGO_UNSTABLE_BUILD_STD="core,alloc"
+    # The Xtensa chips need the Espressif fork of rustc, which `just espup-install` provides. The
+    # C6 is RISC-V and builds with stable, so a host without the fork can still check it: fall back
+    # to stable when the `esp` toolchain is not installed, rather than failing with a message about
+    # a missing toolchain that says nothing about the code.
+    if ! rustup toolchain list | grep -q '^esp'; then
+        echo "note: no esp toolchain installed; checking {{target}} with stable"
+        export RUSTUP_TOOLCHAIN=stable
+        rustup target add --toolchain stable "$(just --quiet _triple {{target}})"
+    fi
     triple=$(just --quiet _triple "{{target}}")
     prov=$(just --quiet _prov_for "{{target}}")
     cargo clippy --release --target "$triple" -p clevercoffee-fw \

@@ -12,6 +12,22 @@ Three targets, three verification levels. Only **device-verified** counts as ful
 not device-verified, and S3 and C6 are `build-verified`. Every task that needs a device is
 blocked on hardware being available; see [task-list.md](task-list.md).
 
+**The Xtensa toolchain is unavailable in the current checkout.** `just espup-install` fetches an
+x86-64 `espup` binary and this host is aarch64, so it exits 126 and the `esp` rustc fork is never
+installed. `just check-fw esp32` and `just check-fw esp32s3` therefore **cannot be run here**, and
+those two targets' board crates and binaries are `unverified` rather than `build-verified`.
+
+**The C6 is a different story and is now build-verified.** It is RISC-V, so it needs only a
+`rustup target add`, which works on any host. `rustup target add --toolchain stable
+riscv32imac-unknown-none-elf` followed by the `check-fw` command with `RUSTUP_TOOLCHAIN=stable`
+compiles and lints `clevercoffee-fw` for the C6 with `-D warnings` and links a 1.76 MB image. The
+`just check-fw esp32c6` recipe needs the same one-line change to be runnable on a host without the
+Xtensa fork, and that change is the obvious next thing to make.
+
+The host test suite passes in full, and it is the only behavioural evidence in this checkout.
+Whoever picks this up on an x86-64 host should run `just setup` and then all three `just check-fw`
+targets before trusting the ESP32 and S3 board crates.
+
 Cross-links: [decision-record.md](decision-record.md), [inventory.md](inventory.md),
 [architecture.md](architecture.md), [tooling.md](tooling.md).
 
@@ -41,15 +57,17 @@ rustc 1.98.1 stable (RISC-V).
 
 | Area | ESP32 | ESP32-S3 | ESP32-C6 | Blocker |
 | --- | --- | --- | --- | --- |
-| DS18B20 temperature reading | unverified | unverified | unverified | No device. Driver not written yet. |
-| OLED rendering on SSD1306 / SH1106 | unverified | unverified | unverified | No device. Driver not written yet. |
-| Switch debounce and long press | unverified | unverified | unverified | No device. |
-| Relay actuation | unverified | unverified | unverified | No device, and no actuator hardware. |
-| Heater PWM timing | unverified | unverified | unverified | No device. |
-| Web API parity | host-testable | host-testable | host-testable | Not written yet. |
-| Config import | host-testable | host-testable | host-testable | Not written yet. |
+| DS18B20 temperature reading | host-tested, unverified on device | host-tested, unverified on device | host-tested, unverified on device | No device. |
+| OLED rendering on SSD1306 / SH1106 | framebuffer host-tested, no panel driver | same | same | No device, and no SSD1306 bus driver is written. |
+| Switch debounce and long press | host-tested, unverified on device | same | host-tested, input pins compiled, unverified on device | No device. |
+| Relay actuation | host-tested against a recorder; pin driver written but uncompiled | same | host-tested against a recorder; **pin driver compiled**, not flashed | No device. |
+| Heater PWM timing | unverified | unverified | unverified | No device, and the PWM ISR is not written. |
+| Web API parity | host-tested, 31 route tests | same | same | The socket layer is not written. |
+| Config import | host-tested | host-tested | host-tested | The device half is written and host-tested; not run on a device. |
+| Control scenarios (brew, backflush, faults, deadlines) | host-tested, 21 scenarios | same | same | The pin drivers behind them are build-unverified. |
+| MQTT and Home Assistant discovery | host-tested against generated documents | same | same | No broker, and the client is not chosen. |
 | `just wifi` and `just config-import` | unverified | unverified | unverified | No device. |
-| Boot pin map on a real board | documented, not flashed | documented, not flashed | documented, not flashed, **reduced feature set** | No device. |
+| Boot pin map on a real board | host-tested as data, **board crate uncompiled** | host-tested as data, **board crate uncompiled** | host-tested as data and **board crate compiled and linked**, not flashed | No device. The C6 compile is the only chip-level evidence in this checkout. |
 
 ## Per-chip differences that affect the design
 

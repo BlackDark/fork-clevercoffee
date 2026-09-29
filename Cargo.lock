@@ -131,6 +131,14 @@ dependencies = [
  "clevercoffee-hal-traits",
  "clevercoffee-http",
  "clevercoffee-storage",
+ "heapless 0.8.0",
+]
+
+[[package]]
+name = "clevercoffee-board-profiles"
+version = "0.1.0"
+dependencies = [
+ "heapless 0.8.0",
 ]
 
 [[package]]
@@ -138,11 +146,13 @@ name = "clevercoffee-bsp-esp32"
 version = "0.1.0"
 dependencies = [
  "clevercoffee-app",
+ "clevercoffee-board-profiles",
  "clevercoffee-domain",
  "clevercoffee-hal-traits",
  "esp-alloc",
  "esp-hal",
  "esp-rtos",
+ "heapless 0.8.0",
 ]
 
 [[package]]
@@ -150,11 +160,13 @@ name = "clevercoffee-bsp-esp32c6"
 version = "0.1.0"
 dependencies = [
  "clevercoffee-app",
+ "clevercoffee-board-profiles",
  "clevercoffee-domain",
  "clevercoffee-hal-traits",
  "esp-alloc",
  "esp-hal",
  "esp-rtos",
+ "heapless 0.8.0",
 ]
 
 [[package]]
@@ -162,11 +174,13 @@ name = "clevercoffee-bsp-esp32s3"
 version = "0.1.0"
 dependencies = [
  "clevercoffee-app",
+ "clevercoffee-board-profiles",
  "clevercoffee-domain",
  "clevercoffee-hal-traits",
  "esp-alloc",
  "esp-hal",
  "esp-rtos",
+ "heapless 0.8.0",
 ]
 
 [[package]]
@@ -180,7 +194,9 @@ dependencies = [
 name = "clevercoffee-display"
 version = "0.1.0"
 dependencies = [
+ "clevercoffee-domain",
  "clevercoffee-hal-traits",
+ "heapless 0.8.0",
 ]
 
 [[package]]
@@ -225,6 +241,7 @@ dependencies = [
  "clevercoffee-bsp-esp32",
  "clevercoffee-bsp-esp32c6",
  "clevercoffee-bsp-esp32s3",
+ "clevercoffee-hal-traits",
  "embassy-executor",
  "embassy-time",
  "esp-alloc",
