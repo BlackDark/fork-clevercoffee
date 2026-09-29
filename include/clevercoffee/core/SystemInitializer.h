@@ -6,6 +6,7 @@
 #pragma once
 
 #include "clevercoffee/Logger.h"
+#include "clevercoffee/state/MachineStateIds.h"
 
 #include <Arduino.h>
 
@@ -179,9 +180,9 @@ class SystemInitializer {
     /**
      * @brief Finalize machine state - must be called AFTER StateMachine is created and registered
      * @note This is called from main.cpp after MachineStateContext is available
-     * @return True if successful, false otherwise
+     * @return Target boot state for StateMachine::initialize (INIT on failure)
      */
-    [[nodiscard]] bool finalizeMachineState();
+    [[nodiscard]] MachineStateId finalizeMachineState();
 
   private:
     // Initialization state

@@ -497,13 +497,9 @@ void LoopManager::updateNetwork() {
         if (mqttManager->isEnabled() && mqttManager->isConnected()) {
             mqttManager->setUpdateRunning(false);
 
-            if (systemContext_.cleverCoffeeWiFiManager() &&
-                systemContext_.cleverCoffeeWiFiManager()->getSignalStrength() > 1) {
-                // Note: Sensor updates are now automatic and non-blocking, so no need to check tempNotRunning
-                bool displayBufferNotReady = !systemContext_.uiCoordinator().isDisplayBufferReady();
-                if (displayBufferNotReady) {
-                    mqttManager->writeSysParamsToMQTT(true);
-                }
+            bool displayBufferNotReady = !systemContext_.uiCoordinator().isDisplayBufferReady();
+            if (displayBufferNotReady) {
+                mqttManager->writeSysParamsToMQTT(true);
             }
 
             // Home Assistant discovery (handled by timer callback)

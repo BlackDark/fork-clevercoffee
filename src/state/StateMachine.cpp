@@ -58,6 +58,7 @@ void StateMachine::initialize(MachineStateId initialStateId) {
     // Call state entry callback
     LOG(INFO, "StateMachine entering initial state");
     currentState_->onEntry(context_);
+    context_.setCurrentStateId(currentState_->getStateId());
 
     initialized_           = true;
     totalStateTransitions_ = 1; // Count initial state as first transition
@@ -146,6 +147,7 @@ void StateMachine::executeTransition(MachineStateId newStateId, const char* reas
 
     // Call entry callback on new state
     currentState_->onEntry(context_);
+    context_.setCurrentStateId(currentState_->getStateId());
 }
 
 MachineStateId StateMachine::getCurrentStateId() const noexcept {

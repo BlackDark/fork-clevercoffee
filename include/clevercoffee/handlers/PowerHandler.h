@@ -125,7 +125,8 @@ class PowerHandler : public SwitchBasedHandler {
         // Toggle power state
         auto* context = systemContext_.machineStateContext();
         if (!context) return;
-        if (context->getCurrentStateId() == MachineStateId::STANDBY) {
+        if (context->getCurrentStateId() == MachineStateId::STANDBY ||
+            context->getCurrentStateId() == MachineStateId::PID_DISABLED) {
             powerOn();
         } else {
             powerOff();
@@ -170,6 +171,7 @@ class PowerHandler : public SwitchBasedHandler {
             context->setStandbyRequested(true);
             // Use StandbyCoordinator to mark immediate standby activation
             systemContext_.standbyCoordinator().setRemainingTimeMillis(0);
+            setUserPidEnabled(systemContext_, false);
             logInfo("System powered off");
         }
     }

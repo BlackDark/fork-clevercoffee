@@ -122,7 +122,7 @@ export const parameterGroups: ParameterGroup[] = [
   {
     key: "powerSettings",
     label: "Power Settings",
-    parameters: ["standby.enabled", "standby.time"],
+    parameters: ["pid.power_on_behaviour", "standby.enabled", "standby.time"],
   },
   {
     key: "mqttSettings",

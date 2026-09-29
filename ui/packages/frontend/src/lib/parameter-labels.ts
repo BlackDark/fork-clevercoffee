@@ -5,6 +5,7 @@
 export const parameterLabelsEN = new Map<string, string>([
   // PID Parameters
   ["pid.enabled", "Enable PID Controller"],
+  ["pid.power_on_behaviour", "Power-On Behaviour"],
   ["pid.use_ponm", "Enable PonM"],
   ["pid.ema_factor", "PID EMA Factor"],
   ["pid.regular.kp", "PID Kp"],

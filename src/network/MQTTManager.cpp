@@ -12,6 +12,7 @@
 #include "clevercoffee/coordinators/SensorCoordinator.h"
 #include "clevercoffee/coordinators/UICoordinator.h"
 #include "clevercoffee/defaults.h"
+#include "clevercoffee/diagnostics/BootDiagnostics.h"
 #include "clevercoffee/handlers/BrewHandler.h"
 #include "clevercoffee/state/MachineStateContext.h"
 #include "clevercoffee/types/GlobalTypes.h"
@@ -95,6 +96,8 @@ bool MQTTManager::setup(const String& hostname) {
 void MQTTManager::initializeClient() {
     // Set larger buffer size for Home Assistant discovery messages
     mqttClient_.setBufferSize(1024);
+    mqttClient_.setSocketTimeout(kMqttSocketTimeoutS);
+    mqttClient_.setKeepAlive(kMqttKeepAliveS);
 }
 
 void MQTTManager::checkConnection() {
@@ -174,6 +177,8 @@ void MQTTManager::checkConnection() {
         retryPolicy_->reset();
         reconnectCount_   = 0;
         mqttWasConnected_ = true;
+        (void)publish("resetReason", CleverCoffee::BootDiagnostics::resetReasonString(), true);
+        (void)publish("crashInfo", CleverCoffee::BootDiagnostics::crashInfoString(), true);
         LOGF(DEBUG, "MQTT reconnected successfully on attempt %u", retryPolicy_->getCurrentAttempt());
     } else {
         // Connection failed - record failure
@@ -719,7 +724,9 @@ MQTTManager::DiscoveryObject MQTTManager::generateSensorDevice(const String& nam
     sensorConfigDoc["state_topic"]         = sensor_state_topic;
     sensorConfigDoc["unique_id"]           = unique_id + "-" + name;
     sensorConfigDoc["unit_of_measurement"] = unit_of_measurement;
-    sensorConfigDoc["device_class"]        = device_class;
+    if (!device_class.isEmpty()) {
+        sensorConfigDoc["device_class"] = device_class;
+    }
     attachDeviceAndAvailability(sensorConfigDoc, deviceMapDoc, mqtt_topic + "/status");
 
     sensor_device.payload_json = serializeDiscoveryJson(sensorConfigDoc);
@@ -846,6 +853,8 @@ int MQTTManager::sendHASSIODiscoveryMsg() {
 
     // Always published devices
     failures += publishDiscovery(generateSensorDevice("machineState", "Machine State", "", "enum"));
+    failures += publishDiscovery(generateSensorDevice("resetReason", "Reset Reason", "", ""));
+    failures += publishDiscovery(generateSensorDevice("crashInfo", "Last Crash", "", ""));
     failures += publishDiscovery(generateSensorDevice("temperature", "Boiler Temperature", "°C", "temperature"));
     failures += publishDiscovery(generateSensorDevice("heaterPower", "Heater Power", "%", "power_factor"));
     failures += publishDiscovery(generateSensorDevice("shotsSinceBackflush", "Shots Since Backflush", "shots", ""));

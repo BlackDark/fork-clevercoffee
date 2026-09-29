@@ -147,6 +147,8 @@ void CleverCoffeeWiFiManager::handleSuccessfulConnection(
 
     LOGF(DEBUG, "MAC-ADDRESS: %s", completemac);
 
+    disableWifiSleep();
+
     if (oledEnabled && displayCallback) {
         displayCallback(langstring_connectwifi1, wifiManager_->getWiFiSSID(true).c_str());
     }
@@ -156,6 +158,10 @@ void CleverCoffeeWiFiManager::handleSuccessfulConnection(
         delay(1000);
         ESP.restart();
     }
+}
+
+void CleverCoffeeWiFiManager::disableWifiSleep() noexcept {
+    WiFi.setSleep(false);
 }
 
 void CleverCoffeeWiFiManager::handleConnectionFailure(bool                                          oledEnabled,
@@ -197,8 +203,9 @@ String CleverCoffeeWiFiManager::getSSID() const {
 }
 
 void CleverCoffeeWiFiManager::checkAndMaintainConnection() {
-    static bool          wifiConnectedHandled = false;
-    static unsigned long lastMonitorLogMs     = 0;
+    static bool          connectedLogged  = false;
+    static bool          cbOpenLogged     = false;
+    static unsigned long lastMonitorLogMs = 0;
 
     // Check offline mode from NetworkCoordinator
     if (!networkCoordinator_) {
@@ -206,26 +213,29 @@ void CleverCoffeeWiFiManager::checkAndMaintainConnection() {
         return;
     }
 
-    bool isOfflineMode = networkCoordinator_->isOfflineMode();
-
-    // Don't attempt reconnection if in offline mode
-    if (isOfflineMode) return;
+    // Intentional product offline only — runtime reconnect exhaustion must not latch.
+    if (Config::getInstance().systemOfflineMode.get()) {
+        return;
+    }
 
     const unsigned long currentTime = millis();
 
     // Check circuit breaker - fail fast if circuit is open
     if (!circuitBreaker_->canAttempt(currentTime)) {
-        if (!wifiConnectedHandled) {
+        if (!cbOpenLogged) {
             LOGF(WARNING, "WiFi monitor: circuit breaker OPEN - skipping reconnection attempt");
-            wifiConnectedHandled = true;
+            cbOpenLogged = true;
         }
         return;
     }
 
+    cbOpenLogged = false;
+
     // Check if WiFi is connected
     if (WiFi.status() == WL_CONNECTED) {
         // WiFi is connected - record success and reset retry policy
-        if (!wifiConnectedHandled) {
+        disableWifiSleep();
+        if (!connectedLogged) {
             LOGF(INFO,
                  "WiFi monitor: connected to '%s' (%i.%i.%i.%i), RSSI %d dBm",
                  WiFi.SSID().c_str(),
@@ -234,8 +244,8 @@ void CleverCoffeeWiFiManager::checkAndMaintainConnection() {
                  WiFi.localIP()[2],
                  WiFi.localIP()[3],
                  WiFi.RSSI());
-            wifiConnectedHandled = true;
-            lastMonitorLogMs     = currentTime;
+            connectedLogged  = true;
+            lastMonitorLogMs = currentTime;
         } else if (currentTime - lastMonitorLogMs >= 60000) {
             LOGF(DEBUG, "WiFi monitor: connected to '%s', RSSI %d dBm", WiFi.SSID().c_str(), WiFi.RSSI());
             lastMonitorLogMs = currentTime;
@@ -248,17 +258,14 @@ void CleverCoffeeWiFiManager::checkAndMaintainConnection() {
     }
 
     // WiFi is not connected - ensure reconnect log fires when connection is restored
-    wifiConnectedHandled = false;
+    connectedLogged = false;
 
     // Check if we should retry
     if (!retryPolicy_->shouldRetry()) {
-        // Max attempts reached - enter offline mode
-        if (!isOfflineMode) {
-            networkCoordinator_->setOfflineMode(true);
-            LOGF(WARNING,
-                 "WiFi max reconnection attempts reached (%u) - entering offline mode",
-                 retryPolicy_->getCurrentAttempt());
-        }
+        LOGF(INFO,
+             "WiFi still down after %u attempts, pausing before the next round",
+             retryPolicy_->getCurrentAttempt());
+        retryPolicy_->reset();
         return;
     }
 
@@ -306,14 +313,6 @@ void CleverCoffeeWiFiManager::checkAndMaintainConnection() {
              "WiFi monitor: reconnect attempt %u failed, next retry in %lums",
              retryPolicy_->getCurrentAttempt(),
              retryPolicy_->getNextDelay());
-    }
-
-    // Enter offline mode if circuit breaker is open and max attempts reached
-    if (circuitBreaker_->isOpen() && retryPolicy_->isMaxAttemptsReached()) {
-        if (!isOfflineMode) {
-            networkCoordinator_->setOfflineMode(true);
-            LOG(WARNING, "WiFi circuit breaker OPEN and max attempts reached - entering offline mode");
-        }
     }
 }
 

@@ -5,6 +5,7 @@
 
 #include <gtest/gtest.h>
 #include "../test_support.h"
+#include "../ConfigTestHelper.h"
 #include "../mocks/MockConfig.h"
 #include "clevercoffee/Config.h"
 #include "clevercoffee/defaults.h"
@@ -109,6 +110,11 @@ TEST_F(ConfigTest, ParameterValidationRanges) {
     mockConfig_->setSteamSetpoint(120.0);
     EXPECT_GE(mockConfig_->getSteamSetpoint(), 0.0);
     EXPECT_LE(mockConfig_->getSteamSetpoint(), 200.0);
+}
+
+TEST(ConfigDefaults, PidPowerOnBehaviourIsRestore) {
+    resetConfigDefaults();
+    EXPECT_EQ(Config::getInstance().pidPowerOnBehaviour.get(), Process::PowerOnBehaviour::RESTORE);
 }
 
 // DISABLED: Requires ESP32 NVS (Non-Volatile Storage) hardware — cannot run in native_test environment

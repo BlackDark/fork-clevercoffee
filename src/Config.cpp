@@ -499,6 +499,7 @@ std::vector<ConfigParamDef*> Config::getAllConfigParams() {
         &maintenanceBackflushReminderThreshold,
 
         // === STANDBY PARAMETERS (Section 7) ===
+        &pidPowerOnBehaviour,
         &standbyEnabled,
         &standbyTime,
 

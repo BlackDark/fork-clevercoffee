@@ -9,7 +9,9 @@
 #include "clevercoffee/Logger.h"
 #include "clevercoffee/context/SystemContext.h"
 #include "clevercoffee/control/ProcessController.h"
+#include "clevercoffee/core/PowerOnBehaviour.h"
 #include "clevercoffee/defaults.h"
+#include "clevercoffee/diagnostics/BootDiagnostics.h"
 #include "clevercoffee/display/DisplayManager.h"
 #include "clevercoffee/display/DisplayTemplateManager.h"
 #include "clevercoffee/display/DisplayWidgets.h"
@@ -28,6 +30,7 @@
 #include "clevercoffee/network/MQTTManager.h"
 #include "clevercoffee/network/WebServerManager.h"
 #include "clevercoffee/ota.h"
+#include "clevercoffee/state/MachineStateIds.h"
 #include "clevercoffee/types/GlobalTypes.h"
 #include "clevercoffee/ui/OledDriver.h"
 #include "clevercoffee/utils/Resilience.h"
@@ -254,6 +257,8 @@ bool SystemInitializer::initializeLogger() {
     // Start the logger
     (void)Logger::begin();
 
+    CleverCoffee::BootDiagnostics::capture();
+
     return true;
 }
 
@@ -447,7 +452,6 @@ bool SystemInitializer::initializeNetworking() {
             LOG(INFO, "Offline mode enabled, WiFiManager created but network disabled");
             WiFi.disconnect();
             systemContext_->networkCoordinator().setOfflineMode(true);
-            setUserPidEnabled(*systemContext_, true);
             return true;
         }
 
@@ -603,46 +607,47 @@ bool SystemInitializer::initializeSensors() {
     }
 }
 
-bool SystemInitializer::finalizeMachineState() {
+MachineStateId SystemInitializer::finalizeMachineState() {
     try {
-        // For momentary switches, start in normal operation mode
-        if (Config::getInstance().hardwareSwitchesPowerEnabled.get() &&
-            static_cast<int>(Config::getInstance().hardwareSwitchesPowerType.get()) ==
-                static_cast<int>(Hardware::SwitchType::MOMENTARY)) {
-            systemContext_->machineStateContext()->setCurrentStateId(MachineStateId::PID_NORMAL);
-            setUserPidEnabled(*systemContext_, true);
-            LOG(INFO, "Machine initialized in PID Normal mode (momentary switch)");
-        }
-        // For toggle switches, force PidOn to switch state mode
-        else if (Config::getInstance().hardwareSwitchesPowerEnabled.get() &&
-                 static_cast<int>(Config::getInstance().hardwareSwitchesPowerType.get()) ==
-                     static_cast<int>(Hardware::SwitchType::TOGGLE)) {
-            if (systemContext_->hardwareContext().powerSwitch() &&
-                systemContext_->hardwareContext().powerSwitch()->isPressed()) {
-                setUserPidEnabled(*systemContext_, true);
-                systemContext_->machineStateContext()->setCurrentStateId(MachineStateId::PID_NORMAL);
-                LOG(INFO, "Machine initialized in PID Normal mode (toggle switch ON)");
-            } else {
-                setRuntimePidState(*systemContext_, false);
-                systemContext_->machineStateContext()->setCurrentStateId(MachineStateId::PID_DISABLED);
-                LOG(INFO, "Machine initialized in PID Disabled mode (toggle switch OFF)");
-            }
-        }
-        // No power switch - use config PID setting
-        else {
-            const bool configPidEnabled = Config::getInstance().pidEnabled.get();
-            setRuntimePidState(*systemContext_, configPidEnabled);
-            systemContext_->machineStateContext()->setCurrentStateId(configPidEnabled ? MachineStateId::PID_NORMAL
-                                                                                      : MachineStateId::PID_DISABLED);
-            LOG(INFO,
-                configPidEnabled ? "Machine initialized in PID Normal mode (config enabled)"
-                                 : "Machine initialized in PID Disabled mode (config disabled)");
+        auto* context = systemContext_->machineStateContext();
+        if (!context) {
+            LOG(ERROR, "Machine state finalization failed: no MachineStateContext");
+            return MachineStateId::INIT;
         }
 
-        return true;
+        const bool powerEnabled  = Config::getInstance().hardwareSwitchesPowerEnabled.get();
+        const auto switchType    = Config::getInstance().hardwareSwitchesPowerType.get();
+        bool       togglePressed = false;
+        if (powerEnabled && switchType == Hardware::SwitchType::TOGGLE) {
+            togglePressed = systemContext_->hardwareContext().powerSwitch() &&
+                            systemContext_->hardwareContext().powerSwitch()->isPressed();
+        }
+
+        const auto resolution =
+            CleverCoffee::Core::resolvePowerOnBehaviour(powerEnabled,
+                                                        switchType,
+                                                        togglePressed,
+                                                        Config::getInstance().pidPowerOnBehaviour.get(),
+                                                        Config::getInstance().pidEnabled.get());
+
+        if (resolution.persistPid) {
+            setUserPidEnabled(*systemContext_, true);
+        } else {
+            setRuntimePidState(*systemContext_, resolution.runtimePid);
+        }
+
+        if (resolution.resetStandbyTimer) {
+            context->resetStandbyTimer(resolution.state);
+        }
+
+        LOGF(INFO,
+             "Machine power-on target state %d (runtime PID %s)",
+             static_cast<int>(resolution.state),
+             resolution.runtimePid ? "on" : "off");
+        return resolution.state;
     } catch (const std::exception& e) {
         LOGF(ERROR, "Machine state finalization failed: %s", e.what());
-        return false;
+        return MachineStateId::INIT;
     }
 }
 
@@ -842,7 +847,6 @@ void SystemInitializer::setupWiFi() {
         // Setup WiFi with display feedback
         if (!systemContext_->cleverCoffeeWiFiManager()->setupAndConnect(
                 Config::getInstance().systemHostname.get(), WIFI_PASSWORD, false, displayCallback)) {
-            systemContext_->networkCoordinator().setOfflineMode(true);
             displayLogo(*systemContext_, langstring_nowifi[0], langstring_nowifi[1]);
         } else {
             displayLogo(*systemContext_, "WiFi Connected", WiFi.localIP().toString().c_str());

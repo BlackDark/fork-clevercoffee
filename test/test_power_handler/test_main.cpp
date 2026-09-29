@@ -206,6 +206,7 @@ TEST_F(PowerHandlerTest, MomentarySwitchPowerOffFromNormal) {
     MockSwitch mockSwitch(::Hardware::SwitchType::TOGGLE, ::Hardware::SwitchMode::NORMALLY_OPEN);
     handler_->setHardware(&mockSwitch);
     setupMachineStateContext(MachineStateId::PID_NORMAL);
+    ASSERT_TRUE(Config::getInstance().pidEnabled.set(true));
 
     // Set millis to simulate time after initialization
     g_test_millis = 6000;
@@ -225,6 +226,32 @@ TEST_F(PowerHandlerTest, MomentarySwitchPowerOffFromNormal) {
 
     EXPECT_TRUE(machineStateContext_->isStandbyRequested())
         << "Momentary press from PID_NORMAL should request standby";
+    EXPECT_FALSE(Config::getInstance().pidEnabled.get())
+        << "Momentary power-off is user intent and must persist pid.enabled false";
+}
+
+TEST_F(PowerHandlerTest, MomentarySwitchPowerOnFromPidDisabled) {
+    Config::getInstance().hardwareSwitchesPowerType.set(::Hardware::SwitchType::MOMENTARY);
+    MockSwitch mockSwitch(::Hardware::SwitchType::TOGGLE, ::Hardware::SwitchMode::NORMALLY_OPEN);
+    handler_->setHardware(&mockSwitch);
+    setupMachineStateContext(MachineStateId::PID_DISABLED);
+
+    g_test_millis = 6000;
+
+    EXPECT_CALL(mockSwitch, isPressed()).WillRepeatedly(Return(false));
+    EXPECT_CALL(mockSwitch, longPressDetected()).WillRepeatedly(Return(false));
+    handler_->process();
+
+    g_test_millis = 12000;
+
+    EXPECT_CALL(mockSwitch, isPressed()).WillRepeatedly(Return(true));
+    EXPECT_CALL(mockSwitch, longPressDetected()).WillRepeatedly(Return(false));
+    handler_->process();
+
+    EXPECT_TRUE(machineStateContext_->isNormalOperationRequested())
+        << "Momentary press from PID_DISABLED should request normal operation";
+    EXPECT_FALSE(machineStateContext_->isStandbyRequested())
+        << "Momentary press from PID_DISABLED must not request standby";
 }
 
 // ============================================================================
