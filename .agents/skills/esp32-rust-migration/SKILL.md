@@ -30,6 +30,38 @@ Before touching anything, read these in order. Do not skip to the task list.
 Also read [`notes.md`](./notes.md) in this skill directory: it records the current state,
 what has been done, and what is blocked. **Update it when you finish a task.**
 
+### The device you are working on
+
+| | |
+| --- | --- |
+| Board | ESP32-DevKitC V4, **ESP32-WROOM-32E** = the original ESP32 (Xtensa LX6, rev v3.0) |
+| MAC | `ec:62:60:76:b5:3c` |
+| Serial port | `/dev/cu.usbserial-204140` (WCH **CH340**, not CP2102N) |
+| Flash | 4 MB, DIO @ 40 MHz, no PSRAM |
+| **`system.hostname`** | **`test-cc-rust`** |
+| Link speed | 115200. **Unreliable above ~460800** — use `just mon`, not a raw high-rate reader. |
+
+**The device answers to `test-cc-rust`, not `silvia`.** The C++ default is `silvia`
+(`include/clevercoffee/defaults.h:14`) and the C++ firmware is unchanged and still uses
+it. Both firmwares share a network during the migration, so the name distinguishes them.
+The single definition is `cc_config::schema::DEFAULT_HOSTNAME` — change it there, never at
+a use site, and change `docs/example_config.json` with it (an import test parses that exact
+file, which is what keeps the two in step). Rationale:
+[`intentional-diffs.md` §12](../../../docs/rust-migration/intentional-diffs.md).
+
+`mqtt.password` also defaults to `"silvia"`. That is a **credential, not a name** — leave
+it.
+
+### Where the work actually is
+
+**R4-01 is the critical path and it is not done.** `cc-machine` is a declared dependency
+of `cc-firmware` but `cc_machine::` appears **nowhere in the firmware source** — the 420-test
+reducer has never run on hardware, the control task is a hand-rolled heuristic that drops
+web commands, and **there is no state machine, no PID and no brewing on the device**.
+Do not assume a task is complete because its description reads as though it is; see
+["Where the migration actually is"](../../../docs/rust-migration/README.md#where-the-migration-actually-is)
+for the full done / not-started / deliberately-absent split.
+
 ---
 
 ## 1. The three facts that catch people out

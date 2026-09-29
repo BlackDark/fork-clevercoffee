@@ -2,11 +2,45 @@
 
 Plan for migrating the CleverCoffee ESP32 firmware from C++/Arduino to Rust.
 
-**Status:** plan complete, migration not started. ADR-0004 is **Proposed**, pending the
-Phase 1 spikes.
+**Status:** in progress. R0–R3 largely implemented; **R4-01 (wiring the reducer into the
+control task) is the critical path** — the `cc-machine` reducer is complete and heavily
+tested on the host but is not yet connected to the hardware. See "Where the migration
+actually is" below.
 **Started:** 2026-09-28.
 **C++ baseline verified green:** `pio run -e esp32_usb` succeeds (`firmware.bin`
-1,546,240 B); `pio test -e native_test` → 340/340 pass in 55 s.
+1,546,240 B); `pio test -e native_test` → 340/340 pass in 55 s. The C++ is the parity
+baseline and is **never modified or flashed** during the port.
+
+---
+
+## The device
+
+| | |
+| --- | --- |
+| Board | ESP32-DevKitC V4, **ESP32-WROOM-32E** (original ESP32, Xtensa LX6, rev v3.0) |
+| MAC | `ec:62:60:76:b5:3c` |
+| Serial | `/dev/cu.usbserial-204140` (WCH CH340, **not** CP2102N) |
+| Flash | 4 MB, DIO @ 40 MHz, no PSRAM |
+| USB bridge | CH340 — the chip has **no native USB**; the port is a UART bridge |
+| **`system.hostname`** | **`test-cc-rust`** — `cc_config::schema::DEFAULT_HOSTNAME` |
+| Link speed | 115200. **The port is unreliable above ~460800.** |
+
+### The hostname is not the product name
+
+The Rust firmware defaults to **`test-cc-rust`**, not the C++'s `silvia`
+(`include/clevercoffee/defaults.h:14`). This is deliberate and load-bearing during the
+migration: **both firmwares run on the same network and the C++ is not
+interchangeable with the Rust** — the port diverges on pump timeouts, the steam-valve
+whitelist and the PID divide. A hostname that says which firmware answered is worth more
+than a brand-neutral one. The C++ is unchanged and still answers to `silvia`.
+
+One definition: `cc_config::schema::DEFAULT_HOSTNAME`. Change the name there, and
+`docs/example_config.json` with it — an existing import test parses that exact file, so
+the two cannot drift apart. Full rationale in
+[intentional-diffs.md §12](./intentional-diffs.md#12-the-devices-default-hostname-is-test-cc-rust-not-silvia-).
+
+> `mqtt.password`'s default is *also* `"silvia"`. That is a **credential, not a name**,
+> and it is deliberately left alone.
 
 ---
 
@@ -71,6 +105,43 @@ PSRAM, and whether the auto-reset circuit is present). It is blocked — **no ES
 is currently attached to this machine.**
 
 ---
+
+## Where the migration actually is
+
+Recorded 2026-09-29. Read this before planning anything — several task IDs look
+complete from their description and are not.
+
+**Done and hardware-verified.** NVS config store, Wi-Fi STA with the
+hostname-before-associate ordering, UART provisioning (a full round trip survives a
+reboot), MQTT, HTTP + SSE (24 routes, 98 parameters), the 10 ms heater ISR, DS18B20 and
+TSIC-306 sensors, the HX711 scale (R3-17), 89 on-device unit tests that actually **run**,
+and the host-side domain/config/machine/display/display-parity/safety crates (900+ tests).
+
+**The critical gap: R4-01.** `cc-machine` is a declared dependency of `cc-firmware` but
+`cc_machine::` appears **nowhere in the firmware source**. The reducer — 420 tests, a
+4140-pair exhaustive transition table, the architectural centrepiece of
+[04 §3.1](./04-target-architecture.md) — has never run on hardware. The control task is a
+hand-rolled heuristic that acknowledges web commands and drops them. **There is no state
+machine, no PID and no brewing on the device yet.** Nothing after R4-01 can be trusted
+until it lands.
+
+**Not started.** R3-09 (OLED display — no `ssd1306` dependency exists, so the display
+library is a host-only artifact that has never lit a panel), R3-15 (OTA — a
+`unavailable_json` stub), R3-18 (Acaia BLE scale), R3-05 (the ABP2 pressure driver exists
+but nothing constructs it), the `/ui` SPA mount, and the telnet transport that ADR-0002's
+heap-shed is supposed to protect.
+
+**Deliberately absent.** The C++ **baseline capture** (R1-08). The harness works and 13
+scenarios report `BASELINE-MISSING` with exit 2. Capturing it means flashing the C++,
+which runs its own control loop on a powered, wired machine — the human has declined that,
+and nothing fabricated is better than a baseline that was never measured.
+
+**Two measurements that will shape the later gates.** Static RAM is **131,688 B — 42 % of
+the ESP32's 320 KB**, roughly double the pre-network figure, so *RAM rather than flash is
+now the binding constraint* and ADR-0002's 30 KB shed margin was tuned against a much
+smaller baseline. And the control tick already overruns its 10 ms budget in ~62 % of
+ticks, independent of any scale ([09 §24](./09-cpp-findings.md)) — R4-01b's "zero ticks
+over 10 ms" currently fails, and the fix must not be to relax the budget.
 
 ## How the migration runs
 

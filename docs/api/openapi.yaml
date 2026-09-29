@@ -644,7 +644,7 @@ components:
               additionalProperties: true
       example:
         system:
-          hostname: silvia
+          hostname: test-cc-rust
           wifi:
             ssid: my-network
             password: secret

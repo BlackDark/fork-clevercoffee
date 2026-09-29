@@ -504,7 +504,7 @@ For each switch type (brew, power, steam):
 
 ### `system.hostname`
 - **Type**: String
-- **Default**: `"silvia"`
+- **Default**: `"test-cc-rust"` (the C++ firmware's default is `"silvia"`)
 - **Max Length**: 32 characters
 - **Description**: Network hostname for the device
 

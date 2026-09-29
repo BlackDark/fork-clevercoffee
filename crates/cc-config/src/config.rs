@@ -1094,7 +1094,7 @@ pub struct System {
 impl Default for System {
     fn default() -> Self {
         Self {
-            hostname: String::from("silvia"),
+            hostname: String::from(crate::schema::DEFAULT_HOSTNAME),
             ota_password: Secret::new(String::from("otapass")),
             offline_mode: false,
             log_level: LogLevel::Info,

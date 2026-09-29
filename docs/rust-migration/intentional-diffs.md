@@ -895,3 +895,35 @@ their side, not a decision to drop the feature. Both scales are ported and made 
 **The C++ spin loops are not copied.** `HX711Scale.cpp:44` and `:51` spin unbounded
 (01 §5). Rust gives them real timeouts; that is a deliberate difference, not an
 accident.
+
+---
+
+## 12. The device's default hostname is `test-cc-rust`, not `silvia` 🔴 changed
+
+**Decided 2026-09-29 by the human**, replacing the C++ default in
+`include/clevercoffee/defaults.h:14` (`#define HOSTNAME "silvia"`).
+
+The reason is operational, not cosmetic: **during the migration the C++ and the Rust
+firmware are on the same network.** Both answering to `silvia.local` makes it ambiguous
+which firmware answered a request, and the two are *not* interchangeable — the Rust port
+diverges deliberately (pump timeouts armed, steam valve whitelist closed, PID divide
+fixed). A hostname that is unambiguous about which firmware is talking is worth more
+than one that is brand-neutral.
+
+`test-cc-rust` says both halves: this is a test device, and it is the Rust port.
+
+**One definition, not several.** `cc_config::schema::DEFAULT_HOSTNAME` is the single
+source. `Config::default()` and the schema's `system.hostname` both reference it, and
+`config_schema.rs` asserts against the constant rather than a literal — so a rename
+cannot half-apply. `docs/example_config.json` is kept in step by an existing import test
+that parses that exact file, which is what makes the pairing a guard rather than a
+convention.
+
+**The C++ firmware is unchanged and still answers to `silvia`.** That is the point: the
+two are distinguishable. Nothing in the port depends on the value — the name reaches the
+netif only as `DHCPClientSettings::hostname`, so an operator can set `system.hostname` to
+anything, including `silvia`, from the web UI.
+
+`mqtt.password`'s default is also `"silvia"` (`defaults.h:54`). That is a **credential**,
+not a name, and it is deliberately **not** renamed — it is a placeholder in both
+firmwares and changing it in one would break a config the other reads.

@@ -5,7 +5,10 @@ Pre-release validation. Every item must pass before merging to main or tagging a
 ## Prerequisites
 
 - Device flashed with the build under test (USB or OTA)
-- Device connected to WiFi and reachable at its hostname (e.g. `test-silvia2.lan`)
+- Device connected to WiFi and reachable at its hostname. The Rust firmware
+  defaults to **`test-cc-rust`** (`cc_config::schema::DEFAULT_HOSTNAME`); the C++
+  firmware defaults to `silvia`. The name distinguishes the two firmwares, which
+  share a network during the migration.
 - Serial monitor available (USB) **or** telnet client for WiFi logging
 
 ## 1. Build & Unit Tests

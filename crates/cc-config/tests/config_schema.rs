@@ -158,7 +158,7 @@ fn defaults_match_the_cpp_defaults_h() {
     assert!(c.display.heating_logo);
     assert!(c.maintenance.backflush_reminder.enabled);
     assert_eq!(c.mqtt.port, 1883);
-    assert_eq!(c.system.hostname, "silvia");
+    assert_eq!(c.system.hostname, cc_config::schema::DEFAULT_HOSTNAME);
     assert!(c.system.wifi.ssid.is_empty());
 }
 
@@ -695,7 +695,7 @@ fn a_document_in_the_shape_of_the_shipped_example_imports() {
         "pid": { "enabled": true, "regular": { "kp": 62, "tn": 52, "tv": 11.5, "i_max": 55 } },
         "safety": { "emergency_temp": 150, "emergency_hysteresis": 5 },
         "steam": { "setpoint": 120 },
-        "system": { "hostname": "silvia", "wifi": { "ssid": "test-ssid", "password": "test-pass" } }
+        "system": { "hostname": "test-cc-rust", "wifi": { "ssid": "test-ssid", "password": "test-pass" } }
     }"#;
     let parsed = json_import(text).expect("the shipped example must import");
     assert_eq!(parsed.brew.mode, cc_domain::process::BrewMode::Automatic);

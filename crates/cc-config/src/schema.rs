@@ -63,6 +63,22 @@ use cc_domain::system::{DisplayTemplate, Language, LogLevel};
 /// headroom for keys added later without another migration.
 pub const MAX_KEY_LEN: usize = 64;
 
+/// The device's default network name.
+///
+/// The C++ default is `"silvia"` (`include/clevercoffee/defaults.h:14`), which
+/// is the product's own name. **This is a deliberate divergence**, decided
+/// 2026-09-29: the development device is named for what it is, so that a
+/// hostname on the network is never ambiguous about which firmware is running
+/// it. `"test-cc-rust"` says both halves — it is a test device, and it is the
+/// Rust port — which matters because the C++ and the Rust firmware are on the
+/// same network during the migration and would otherwise collide on
+/// `silvia.local`.
+///
+/// The C++ firmware is unchanged and still answers to `silvia`. An operator who
+/// wants the product name back sets `system.hostname` in the config; nothing
+/// else in the port depends on the value.
+pub const DEFAULT_HOSTNAME: &str = "test-cc-rust";
+
 /// The number of parameters this crate registers.
 ///
 /// 96 as the C++ registers them, plus the two `safety.*` parameters it defines
@@ -612,7 +628,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ParamSpec::new(
         "system.hostname",
         ParamKind::Text,
-        ParamValue::Text("silvia"),
+        ParamValue::Text(DEFAULT_HOSTNAME),
         None,
         None,
     ),

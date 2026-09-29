@@ -44,15 +44,26 @@ Follow C++ Core Guidelines. Prefer compile-time errors over runtime errors.
 - if you need a more verbose output for the pio commands you can remove the `-s`
 - Always before you start doing any edits test if the project is in state which can be build with the build command
 
-### Rust migration (in planning, not yet started)
+### Rust migration (in progress — R4-01 is the critical path)
 
-A phased C++ → Rust migration is planned under `docs/rust-migration/`. Start at
-`docs/rust-migration/README.md`. The execution procedure for agents lives in
+A phased C++ → Rust migration is under way in this repo. Start at
+`docs/rust-migration/README.md`, and read
+["Where the migration actually is"](./docs/rust-migration/README.md#where-the-migration-actually-is)
+**before planning any work** — several task IDs read as complete in
+`06-migration-task-list.md` and are not. The execution procedure for agents lives in
 `.agents/skills/esp32-rust-migration/SKILL.md` — read it before working on any task in
 `docs/rust-migration/06-migration-task-list.md`.
 
+**The development device's hostname is `test-cc-rust`** (`cc_config::schema::DEFAULT_HOSTNAME`),
+not `silvia`. The C++ default is `silvia` and the C++ firmware is unchanged: the distinct
+name is what tells the two firmwares apart on one network. Change the name only in
+`cc_config::schema::DEFAULT_HOSTNAME`, and keep `docs/example_config.json` in step (an
+import test parses that file). `mqtt.password` also defaults to `silvia` — that is a
+credential, not a name, and is deliberately left alone.
+
 - The C++ firmware in `src` and `include/clevercoffee` stays in production and is the
-  parity baseline for the whole migration. Do not change its behaviour.
+  parity baseline for the whole migration. Do not change its behaviour. **Never flash the
+  C++ image** — it runs its own control loop on a powered, wired machine.
 - The target is the **original ESP32** (Xtensa), not an S3 or C6. `esp32_usb` refers to
   the USB-to-UART cable; the chip has no native USB.
 - Nothing in the migration touches `pio` tooling, the partition table, or the C++ build

@@ -8,18 +8,26 @@ blocked.
 
 ## Current state
 
+> ⚠ **Updated 2026-09-29.** The table below supersedes the 2026-09-28 entry. If you are
+> reading a task description and assuming it is done because it sounds finished, check
+> [README §Where the migration actually is](../../../docs/rust-migration/README.md#where-the-migration-actually-is).
+
 | Field | Value |
 | --- | --- |
-| Current phase | **Phase 1 (R1)** — R0-04, R1-01, R1-07 and the R1-08 harness executed |
-| Next task | **R1-02** (executor decision) — needs no hardware. **R1-08 is not complete**: the harness and the scenario set exist and are tested; the C++ baseline is not captured, so Gate 1 is not passable and `just parity` exits non-zero saying so. |
+| Current phase | **Phase 3 done, entering Phase 4 (R4).** R0, R1, R2 and most of R3 implemented. |
+| **Critical path** | **R4-01 — the reducer is NOT wired to the hardware.** `cc_machine::` appears nowhere in `cc-firmware/src`; the control task is a heuristic that drops web commands. **No state machine, no PID, no brewing on the device yet.** |
+| **Device hostname** | **`test-cc-rust`** (`cc_config::schema::DEFAULT_HOSTNAME`). The C++ default is `silvia` and the C++ is unchanged — the name is what distinguishes the two firmwares on one network. `mqtt.password`'s default is *also* `silvia`; that is a credential, leave it. See [intentional-diffs §12](../../../docs/rust-migration/intentional-diffs.md). |
 | Plan reviewed | 2026-09-28 by two adversarial subagents; 24 hard factual errors and 5 blocking tooling defects found and **fixed**. See 06 and 07. |
-| ADR-0004 status | **Proposed** (becomes Accepted at Gate 1) |
-| C++ baseline | `pio run -e esp32_usb` **succeeds**; `firmware.bin` = 1,546,240 B; `pio test -e native_test` = **340/340 pass** in 55 s |
-| Rust workspace | **Exists** at the repo root (8 crates; 5 portable + 3 device). Builds, links, boots and runs. |
-| Host tests | **443** (was 420). 63 `cc-domain`, 62 `cc-safety`, 257 `cc-machine`, 61 `cc-config`. The five added to `cc-domain` are the R1-07 carrier tests (on-time reproduction, transition rate, minimum pulse, 100 % vs disabled). |
-| Device image | **382,528 B** flashable app image, first measurement (07 §5). App slot 1,835,008 B → **+1,452,480 B headroom**. |
-| Connected device | `/dev/cu.usbserial-204140` — `esp32` rev v3.0, 4 MB flash, dual core, WiFi+BT, MAC `ec:62:60:76:b5:3c`. Auto-reset works; a headless UART capture script is at `scripts/serial-log.py`. |
-| Heater output | **LEDC at 1 Hz / Bits17**, decision recorded and **corrected** from an erroneous 100 Hz; **never energised**. Hardware duty test NOT run — see the R1-07 entry below. |
+| ADR-0004 status | **Accepted** in practice — `esp-idf-svc` 0.53.0 / ESP-IDF v5.5.5 is what is built. |
+| C++ baseline | `pio run -e esp32_usb` **succeeds**; `firmware.bin` = 1,546,240 B; `pio test -e native_test` = **340/340 pass**. **The C++ is never modified or flashed** — the human has declined the C++ baseline capture for exactly that reason. |
+| Rust workspace | 10 crates. Builds, links, boots, runs on hardware. |
+| Host tests | **900+** passing. |
+| **Device tests** | **89 passing on real hardware** via `just test-esp32`. This gate did not exist until R1-08's follow-up and its absence had already let three device bugs ship. |
+| Device image | **1,216,816 B** of an 1,835,008 B slot (33.7 % headroom). 382,528 B at R1; the growth is attributed in 07 §8–§10. |
+| **Static RAM** | **131,688 B — 42 % of the ESP32's 320 KB**, roughly double the pre-network figure. **RAM, not flash, is now the binding constraint**, and ADR-0002's 30 KB shed margin was tuned against a much smaller baseline. |
+| Connected device | `/dev/cu.usbserial-204140` — `esp32` rev v3.0, 4 MB, dual core, WiFi+BT, MAC `ec:62:60:76:b5:3c`. **WCH CH340**, not CP2102N. Link unreliable above ~460800. |
+| Heater output | **10 ms GPTimer ISR**, not LEDC (LEDC cannot do a 1 Hz carrier on this chip — 09 §17). **Never energised** except in a deliberate, logged panic-probe. |
+| Known regression | The control tick overruns its 10 ms budget in ~62 % of ticks, **independent of any scale** (09 §24). R4-01b's "zero ticks over 10 ms" currently fails. Do not fix it by relaxing the budget. |
 
 ---
 
