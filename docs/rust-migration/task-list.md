@@ -60,15 +60,18 @@ runs.
   integer ids so the frontend's state rendering keeps working; port the timing constants from
   `include/clevercoffee/constants/Timing.h`; port the PID from `lib/Arduino-PID-Library` with
   the same output scaling (0-1000) and window (1000 ms).
-- **Acceptance:** `cargo test -p domain` covers every state, every transition and its priority
-  order, and the PID against three hand-computed step responses.
+- **Acceptance:** `cargo test -p clevercoffee-domain` covers every state, every transition and
+  its priority order, the actuator command for every state against the interlock lists, the
+  emergency-stop evaluator across its whole range, the sensor fault latch, and the PID.
+  82 tests, all passing.
 - **Hardware:** no
 - **Safety:** the transition table is the safety-critical part. Every test asserts the exact
-  target state, not just that a transition happened.
+  target state, not just that a transition happened, and one test walks all eighteen states
+  asserting that each one's actuator command agrees with the interlock lists.
 - **Rollback:** n/a, new crate
 - **Open uncertainty:** none; the C++ table is fully specified in the source
-- **Fixes:** D21 (a state with no hardware action is now a compile error, because the state
-  carries its own command)
+- **Fixes:** D03 (a failed read is a fault, and a faulted sensor yields no value at all), D09,
+  D18, D21, D33, D45, D46, D47, D49, D50, D51
 
 ### T-03. HAL traits and the mock actuator mode
 - **Type:** implement
@@ -485,7 +488,7 @@ Exit gate: the end-to-end import check passes on device; the migration guide is 
 - **Rollback:** the whole phase is one commit on its own branch, so reverting is a single
   `git revert`. This is why it is its own task with its own review.
 - **Open uncertainty:** none
-- **Fixes:** D35, D43
+- **Fixes:** D35, D52
 
 ---
 

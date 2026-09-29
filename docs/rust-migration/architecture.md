@@ -477,7 +477,7 @@ blob.
 | --- | --- |
 | D01 OTA leaves actuators energized | OTA is refused unless the machine is idle; `Actuators::force_off()` is called on the OTA path and in the safety task |
 | D02 `heaterEnabled_` never set, shutdown paths inert | `Actuators` has no shadow boolean; `heater_off()` always writes the pin |
-| D03 disconnected temperature sensor never detected | a reading that fails CRC or is out of range latches `SensorFault`; the heater is inhibited until a valid reading arrives; the fault is a state, not a log line |
+| D03 disconnected temperature sensor never detected | a reading that fails CRC, is out of range, or is not finite latches `SensorFault`; the filter then yields `None` rather than a stale mean, so a dead sensor cannot reach the PID; the heater is inhibited until a valid reading arrives |
 | D04 unchecked display pointer | no raw pointers; the display is a trait object owned by one task and absent displays are a `None` variant handled at construction |
 | D05 ISR calls flash-resident code | the ISR reads an atomic and writes one pin, both inlined in the interrupt handler |
 | D06 OTA state raced between tasks | one executor; the OTA state is owned by the `net` task and is only mutated through messages |

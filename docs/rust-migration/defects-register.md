@@ -260,6 +260,30 @@ configured, so the strapping sample is correct. See
 
 `include/clevercoffee/Config.h:29-37,210-211,256-257,271-300`. `UINT8`, `FLOAT` and a second `DOUBLE` are declared; `getParamType()` never returns them, and `float` falls through to `INT`. A `ParamDef<float>` would pass the `static_assert` but fail to load and fail to save. **Fix:** the schema has exactly the types the wire format supports, and the compiler rejects anything else.
 
-### D44 — Dead and stale code
+### D45 — The PID gains configured for the brew phase are always overwritten by the brew-detection gains
+
+`src/core/SystemInitializer.cpp:649-670`. `calculateDerivedValues()` computes `aggKi` and `aggKd` from the regular gains, stores them, and then immediately recomputes both from the brew-detection gains and stores those over the top, with the comment at `:662` "Note: aggbKi and aggbKd are mapped to aggKi/aggKd for now". `initializePID()` at `:541-544` then reads `processPidAggKi()` and `processPidAggKd()`, so the initial tuning is always the BD set, whatever `pid.regular.*` says. In the shipped `config.json` that is `pid.bd` kp 50 / tn 0 / tv 20 against `pid.regular` kp 50 / tn 200 / tv 20: the observable difference is the integral action, which the BD set has none of because its `tn` is zero. **Fix:** the Rust port takes the gain set from the state machine, so a brew uses the regular gains and only the brew-detection window uses the BD ones. `Pid` holds one `Gains` and the selection between regular, steam and BD belongs to the control task, which is where the state is known.
+
+### D46 — The initial PID integrator limit is hardcoded and contradicts the configuration
+
+`src/core/SystemInitializer.cpp:553` sets the integrator limits to `(0, 55.0)` with the comment "AGGIMAX constant", before any state transition has run. The configured `pid.regular.i_max` is not applied there; `ProcessController::calculatePIDParameters()` reads it into `aggIMax_` at `src/control/ProcessController.cpp:47` and passes it to `setPidIntegratorLimits` at `:211`, which runs on the first state change and thereafter on every PID re-tune. So the effective limit is the configured value, but only after the first transition, and the two disagree until then: with the shipped `config.json` (`i_max: 75`) the boot-time limit is 55 and the running limit is 75. **Fix:** the Rust port takes the limit as a constructor argument with no hardcoded default, so there is only ever one value.
+
+### D47 — The Arduino PID's input filter starts at zero, so the first heater compute is suppressed
+
+`lib/Arduino-PID-Library/PID_v1.cpp`. `lastFilteredInput` is initialised to 0, so the first `Compute()` sees `dInput = ((1-alpha)*input - 0) / dt`, which with this firmware's `kd` of roughly 713 is about -14 000 counts. The output is then clamped to 0, so the heater does not start for one full sample period and the machine appears to ignore the first temperature reading after boot. **Fix:** the port seeds the filter with the first real reading, so the first derivative term is 0. A test pins this, because the symptom is a machine that seems not to heat at all and is easy to misread as a sensor fault.
+
+### D49 — The backflush flush phase closes the water valve, so the group cannot drain
+
+`src/state/states/BackflushStates.cpp:97-98`. `BackflushFlushingState::onEntryImpl` calls `cleanupPumpAndValve`, which is `disablePump()` plus `closeWaterValve()` (`include/clevercoffee/state/BaseState.h:129-132`), and `update()` at `:106-111` re-asserts neither. The state therefore sits for the whole flush period with the water valve shut, which is what isolates the group. The same file logs "flushing into drip tray" at `:99`, and `BrewHandler::valveSafetyShutdownCheck` explicitly lists `BACKFLUSH_FLUSHING` among the states that may hold the valve open (`include/clevercoffee/handlers/BrewHandler.h:114`), so the C++ contradicts itself about what the phase is for. With the valve shut the group holds the water it was just filled with. **Fix:** the Rust port opens the valve and stops the pump for the flush phase, matching the interlock whitelist and the log message, and the heater stays off as in every other backflush phase.
+
+### D50 — The steam and manual-flush start flags are edge requests the C++ consumed but the pure function cannot
+
+`src/state/states/SteamStates.cpp:52-54` and `src/state/states/SystemStates.cpp:84-92` read and clear a request flag, so a stale start flag cannot terminate a running phase. A pure function has no such consumption. **Fix:** the control task raises the request for exactly one tick, which makes the edge explicit and removes the possibility of a stale flag.
+
+### D51 — The manual-flush edge out of `PID_NORMAL` is dead in the C++
+
+`src/state/states/PidStates.cpp:75-79` transitions to `MANUAL_FLUSH_RUNNING` when `requestManualFlushStart_` is set, but nothing ever sets that flag: it is only read there and cleared at `MachineStateContext.h:620`. The reachable edge is `BACKFLUSH_IDLE` to `MANUAL_FLUSH_RUNNING` (`BackflushStates.cpp:47-51`). **Fix:** the Rust table has both edges, so the dead one is a working path rather than a silent gap, and the difference is documented here.
+
+### D52 — Dead and stale code
 
 `examples/` (6 files, all including headers that do not exist), `scripts/auto_compression.py` (disabled, references a pre-Vue asset list), `test/TESTING_GUIDE.md` (references two deleted test directories and a stale test count), `PlatformIO::check_tool = clangtidy` with no `.clang-tidy` file and no CI job, `HX711Scale.cpp` and `BluetoothScale.cpp` with no construction site, `PIN_ZC` and `PIN_ROTARY_*` with no code reference, `HardwareManager::setHeaterPower` and `setPumpPressure` as TODO stubs, `openSolenoid` as a TODO stub, `getAllStateParams` as a no-op, `Valve::openSteamValve` with no caller. **Fix:** the final phase deletes the C++ tree outright rather than porting dead code.
