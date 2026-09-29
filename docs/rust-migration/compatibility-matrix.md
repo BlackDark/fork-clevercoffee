@@ -61,14 +61,15 @@ rustc 1.98.1 stable (RISC-V).
 | OLED rendering on SSD1306 / SH1106 | framebuffer host-tested, no panel driver | same | same | No device, and no SSD1306 bus driver is written. |
 | Switch debounce and long press | host-tested, unverified on device | same | host-tested, input pins compiled, unverified on device | No device. |
 | Relay actuation | host-tested against a recorder; pin driver written but uncompiled | same | host-tested against a recorder; **pin driver compiled**, not flashed | No device. |
-| Heater PWM timing | unverified | unverified | unverified | No device, and the PWM ISR is not written. |
+| Web API over a connection | host-tested end to end over the bridge | same | same | No socket has carried a byte; the Wi-Fi association is not written. |
+| Heater power control | host-tested policy, **compiled** for the C6 only | same, uncompiled | same, compiled | Hardware PWM at a 10 ms window, no interrupt. The ESP32 and S3 pins are uncompiled. |
 | Web API parity | host-tested, 31 route tests | same | same | The socket layer is not written. |
 | Config import | host-tested | host-tested | host-tested | The device half is written and host-tested; not run on a device. |
 | Control scenarios (brew, backflush, faults, deadlines) | host-tested, 21 scenarios | same | host-tested **and compiled** | The pin drivers behind them are build-unverified. |
 | Configuration load from flash | host-tested, including the region format and the export round trip | same | **compiled and linked** | The partition read is compiled; no flash has been read. |
 | Home Assistant discovery documents | host-tested | same | same | No broker, and the client is not chosen. |
 | MQTT and Home Assistant discovery | host-tested against generated documents | same | same | No broker, and the client is not chosen. |
-| `just wifi` and `just config-import` | unverified | unverified | unverified | No device. |
+| `just wifi` and `just config-import` | host-tested protocol, unverified on a device | same | same | No device. |
 | Boot pin map on a real board | host-tested as data, **board crate uncompiled** | host-tested as data, **board crate uncompiled** | host-tested as data and **board crate compiled and linked**, not flashed | No device. The C6 compile is the only chip-level evidence in this checkout. |
 
 ## Per-chip differences that affect the design
