@@ -56,7 +56,10 @@
 //! There is deliberately **no** control loop, no state machine and no sensor
 //! here. Those arrive at R2-08 and R3-xx.
 
+mod network;
+
 use core::error::Error;
+use std::sync::Arc;
 
 use cc_domain::hardware::TemperatureSensorType;
 use cc_domain::sensor::ds18b20::{self as ds18b20_domain, Driver as Ds18b20Driver};
@@ -67,6 +70,7 @@ use cc_domain::units::{Duty, Millis};
 use cc_hal_esp32::heater::{HeaterOutput, TimerIsrPwm};
 use cc_hal_esp32::onewire::GpioOneWire;
 use cc_hal_esp32::sensors::pins;
+use cc_hal_esp32::time::now_ms;
 use cc_hal_esp32::zacwire::{self, ZacwireCapture};
 use core::fmt::Write as _;
 use esp_idf_hal::delay::FreeRtos;
@@ -218,6 +222,31 @@ const DS18B20_ROM: Rom = Rom([0x28, 0x69, 0x37, 0xAA, 0xCD, 0x78, 0xAF, 0x41]);
 /// Stack size of the control task, from the priority table in 04 §2.
 const CONTROL_STACK_BYTES: usize = 8 * 1024;
 
+/// `MachineState::PidNormal`'s discriminant, for `/api/status`.
+///
+/// **This firmware has no state machine wired in yet** — R2-08's reducer is a
+/// separate crate and its handlers are not connected to this bring-up binary — so
+/// the reported state is a constant. It is a named constant rather than a
+/// literal so the number a browser sees traces to
+/// `cc_domain::state::MachineState` and not to a magic number, and so the one
+/// line to change when the reducer is connected is findable.
+const MACHINE_STATE_PID_NORMAL: i32 = cc_domain::state::MachineState::PidNormal as i32;
+
+/// The SSE event cadence, in milliseconds.
+///
+/// `WebServerManager::tempEventInterval_` as driven from
+/// `LoopManager::updateWebsite`. One second, and the reason the `new_temps`
+/// frame is small: it goes out per connected client per interval.
+const SSE_INTERVAL_MS: u32 = 1_000;
+
+/// How often the heap is logged, in milliseconds.
+///
+/// Sixty seconds. The heap moves on a scale of minutes under normal load and on
+/// a scale of milliseconds under an OOM — and the OOM case is the one that
+/// crashes before the next line would be printed, so this interval is for the
+/// operator's benefit, not the machine's.
+const HEAP_LOG_INTERVAL_MS: u32 = 60_000;
+
 /// ESP-IDF version this binary was compiled against, as a coarse string. Logged
 /// so a device is never diagnosed against the wrong IDF version: 08 records the
 /// oracle was built with v5.5.5 and 05 §1 pins the same. `esp-idf-sys` emits
@@ -236,18 +265,80 @@ const IDF_VERSION: &str = if cfg!(esp_idf_version_at_least_6_0_0) {
 
 /// Entry point. The `esp-idf-sys` `binstart` feature provides the C `main` that
 /// calls this.
+///
+/// It does almost nothing: it hands the whole startup sequence to
+/// [`bring_up`] on a thread whose stack is [`BRING_UP_STACK_BYTES`], and joins
+/// it. The reason is in that constant; the short version is that `app_main`
+/// runs on ESP-IDF's main task with a `CONFIG_ESP_MAIN_TASK_STACK_SIZE`-byte
+/// stack (3584 in this build) and the startup sequence needs more than three
+/// times that, so running it here overflows into DRAM and the symptom is an
+/// allocator assert inside ESP-IDF's `tlsf` that names nothing useful.
 fn main() -> Result<(), Box<dyn Error>> {
-    // Must run before `Peripherals::take()`: it applies the ESP-IDF linker
-    // patches (`esp_idf_hal::sys::link_patches`).
+    // Must run before anything else, and before the thread: it applies the
+    // ESP-IDF linker patches (`esp_idf_hal::sys::link_patches`) and brings up
+    // the log sink, and both are process-wide. Their own stack frames are a few
+    // dozen bytes, which is what makes them safe to leave on the small stack.
     esp_idf_svc::sys::link_patches();
-
-    // Routes the `log` crate into the ESP-IDF log system, i.e. UART0 at 115200.
-    // The level comes from RUST_LOG and defaults to Info.
     esp_idf_svc::log::init_from_env();
-
     info!("Clever Coffee Rust firmware — R1-01 toolchain bring-up");
     info!("target: xtensa-esp32-espidf, ESP-IDF: {IDF_VERSION}");
 
+    // `Box<dyn Error>` is not `Send`, so the thread's return type is the
+    // message rather than the error value, and the message is carried back as
+    // an `io::Error` because that is how a `String` becomes a `Box<dyn Error>`.
+    // The chain is flattened here, at the one place a boot failure is reported;
+    // everything downstream of it is a single line on the console anyway.
+    let outcome = std::thread::Builder::new()
+        .name("bring-up".into())
+        .stack_size(BRING_UP_STACK_BYTES)
+        .spawn(|| bring_up().map_err(|err| std::io::Error::other(format!("{err}"))))
+        .map_err(|err| -> Box<dyn Error> { err.into() })?
+        .join()
+        .map_err(|_| -> Box<dyn Error> { "the bring-up task panicked".into() })?;
+    outcome.map_err(|err| -> Box<dyn Error> { err.into() })
+}
+
+/// The stack the startup sequence runs on, in bytes.
+///
+/// **Derived from the disassembly, not guessed.** The `diagnostic` profile is
+/// byte-for-byte the same codegen as `release` (see the `justfile`), so
+/// `xtensa-esp32-elf-objdump --dwarf=frames` on it gives the exact
+/// `DW_CFA_def_cfa_offset` of every frame. The deepest chain in the startup
+/// sequence, and its frames:
+///
+/// | frame | bytes |
+/// | --- | --- |
+/// | `firmware::bring_up` | 2400 |
+/// | `network::bring_up_config` | 1584 |
+/// | `BlobConfigStore::<EspNvsBlob>::{load,save}`, which inlines the whole `Config` serde | 3088 |
+/// | five levels of `Deserialize` into the nested `Config` | ~450 each |
+/// | `f64::from_str` (grisu), the leaf of every float parameter | 1712 |
+///
+/// which is about 11 KB. This constant is 16 KB, so the deepest chain has
+/// roughly 40 % headroom.
+///
+/// The cost is 16 KB of the 154 KB DRAM heap, permanently: `FreeRTOS` takes a
+/// task's stack from the same pool everything else comes from. That is 10 % of
+/// the heap spent on not crashing, and the alternative — making the decode
+/// shallower — is a change to `cc-config`'s serde shape that would have to be
+/// redone for every future nesting level.
+///
+/// **How to re-derive it after a change:** re-run the `DWARF` dump above, add
+/// the frames on the deepest path, and round up. A frame that grows should be
+/// noticed here; the alternative is finding out from a `tlsf` assert whose
+/// backtrace does not pass through this function.
+const BRING_UP_STACK_BYTES: usize = 16 * 1024;
+
+/// The startup sequence, 04 §4, in order.
+#[allow(
+    clippy::too_many_lines,
+    reason = "this IS the startup sequence 04 §4 specifies, in order, and it \
+              is read as a list. Splitting it would hide the ordering, which is \
+              the one property that matters: the actuators are driven inactive \
+              before the sensor, the sensor before the network, and the network \
+              before any task exists."
+)]
+fn bring_up() -> Result<(), Box<dyn Error>> {
     let peripherals = Peripherals::take()?;
 
     // The TWDT driver is *moved* into the control task so the subscription
@@ -340,15 +431,133 @@ fn main() -> Result<(), Box<dyn Error>> {
     // the pump and the valve; nothing else may drive them.
     let _actuators = (water_valve, pump);
 
+    // ---- R3: storage and the network tier ------------------------------
+    //
+    // 7. The configuration store, loaded through the fail-closed rule. This is
+    //    before the Wi-Fi bring-up because the SSID and the hostname it needs
+    //    come out of it, and because the boot log's line about a discarded
+    //    configuration is the first thing an operator with a misbehaving machine
+    //    needs to see.
+    //
+    //    Destructured rather than used as a struct: `store` moves into the
+    //    control task (the only writer — `ConfigStore::load`/`save` take
+    //    `&mut self`, and one owner beats a lock), `nvs_description` is the one
+    //    thing the HTTP server is given about NVS, and `origin` is printed here
+    //    and never needed again.
+    let network::Booted {
+        config,
+        origin,
+        store,
+        nvs_description,
+    } = network::bring_up_config()?;
+    info!(
+        "nvs: {nvs_description} — the C++ firmware's `config` namespace is a \
+         different key space and is ignored by design (R3-08, decided 2026-09-28)"
+    );
+    info!("nvs: the boot decision was `{origin:?}`");
+
+    // 8. The shared HTTP state and the network→control command queue.
+    let net = Arc::new(network::Network::new());
+    let commands = Arc::new(cc_hal_esp32::task::CommandQueue::new());
+
+    // 9. Wi-Fi. Brought up only when a network is configured: the netif is
+    //    created with the hostname on it (the ordering `WiFiStaConnect.h` exists
+    //    to protect) and the monitor takes it from there.
+    // Held for the life of `main` so the netif is never torn down while the httpd
+    // task is serving `/api/status`.
+    // 8b. The network stack, **before** the radio and before the HTTP server and
+    //     unconditionally. `esp_netif_init` and `esp_event_loop_create_default`
+    //     are once-per-process, and everything that opens a socket needs them —
+    //     including the HTTP server, which does not care whether a radio
+    //     exists. An unprovisioned machine must still serve `/api/status` and a
+    //     telnet console, or there is no way to find out why it is unprovisioned.
+    let sys_loop = cc_hal_esp32::wifi::init_stack()?;
+    info!("netif: lwIP and the default event loop are up");
+
+    let _wifi = if config.is_wifi_provisioned() {
+        Some(bring_up_wifi(peripherals.modem, &config, &sys_loop)?)
+    } else {
+        info!("wifi: no SSID configured — the UART provisioning task will run");
+        None
+    };
+
+    // 10. The HTTP server. `EspHttpServer` is neither `Send` nor `Sync`, so it
+    //     lives in this frame — and `main` blocks on `control.join()` for the
+    //     life of the process, so its `Drop` (which stops the httpd task) never
+    //     runs. See `network::start_http`.
+    let _http = network::start_http(&net, &config, &nvs_description, Arc::clone(&commands))?;
+
+    // 11b. The UART provisioning task, **only** when there is no SSID (04 §3.2:
+    //     "The provisioning task is only spawned when no valid credentials
+    //     exist, and it exits after success. It is never a permanent task").
+    //     `Config::is_wifi_provisioned` is that same predicate, so the rule is one
+    //     named function rather than two spellings of "the SSID is empty".
+    //
+    //     The handoff is shared with the control task, which is what does the
+    //     writing: the store moved into that task in step 7, and a credential
+    //     cannot be stored by a task that does not hold the store.
+    let handoff = network::Handoff::new();
+    if config.is_wifi_provisioned() {
+        info!("wifi: a credential is stored — the provisioning task is not started");
+    } else {
+        start_provisioning(
+            peripherals.uart0,
+            peripherals.pins.gpio1,
+            peripherals.pins.gpio3,
+            handoff.clone(),
+        );
+    }
+
+    // 11. MQTT, only when a broker is configured. `cc_config::Mqtt::default` has
+    //     `enabled = false` and an empty broker, so an unprovisioned machine
+    //     does not spend 4 KB of task stack and 2 KB of buffers on a client with
+    //     nowhere to connect — the C++'s `MQTTManager.cpp:79-83` does the same.
+    let mqtt_configured = cc_hal_esp32::mqtt::is_configured(&config);
+    let mqtt_connected = if mqtt_configured {
+        match cc_hal_esp32::mqtt::Client::new(&config) {
+            Ok(client) => {
+                info!("mqtt: {}", client.describe());
+                // `Client::new` returns before the TCP connect completes -- it
+                // is asynchronous on the client's own task -- so this is `false`
+                // on a first boot and is not evidence of a fault. The
+                // `ever_connected` flag is what a later check would read.
+                client.ever_connected()
+            }
+            Err(err) => {
+                warn!("mqtt: the client did not start: {err:?}");
+                false
+            }
+        }
+    } else {
+        info!("mqtt: not configured (mqtt.enabled is false or mqtt.broker is empty)");
+        false
+    };
+
     // 5 + 6. The control task owns the watchdog subscription, the heartbeat, and
     //        the heater's deadman. It is also the *only* thing that can open the
-    //        heater gate.
+    //        heater gate, and — since step 7 moved the store here — the only
+    //        thing that can write the configuration.
     let control = std::thread::Builder::new()
         .name("control".into())
         .stack_size(CONTROL_STACK_BYTES)
-        .spawn(move || {
-            if let Err(err) = control_task(twdt, heater, &mut temp_sensor) {
-                error!("control task failed: {err}");
+        .spawn({
+            let net = Arc::clone(&net);
+            let commands = Arc::clone(&commands);
+            move || {
+                if let Err(err) = control_task(
+                    twdt,
+                    heater,
+                    &mut temp_sensor,
+                    &net,
+                    &commands,
+                    config.brew.setpoint,
+                    mqtt_configured,
+                    mqtt_connected,
+                    store,
+                    &handoff,
+                ) {
+                    error!("control task failed: {err}");
+                }
             }
         })?;
 
@@ -433,7 +642,11 @@ fn bring_up_ds18b20(
         Err(OneWireError::Bus(err)) => error!("temperature: 1-Wire bus error {err}"),
     }
 
-    Ok(TemperatureSensor::Dallas { bus, driver })
+    Ok(TemperatureSensor::Dallas {
+        bus,
+        driver,
+        last_reading: None,
+    })
 }
 
 /// The `TSIC-306` arm: a `ZACwire` edge capture and the domain driver.
@@ -503,6 +716,7 @@ fn bring_up_tsic306(
     }
     Ok(TemperatureSensor::Tsic {
         driver: Tsic306::new(capture),
+        last_reading: None,
     })
 }
 
@@ -525,15 +739,41 @@ enum TemperatureSensor {
     Dallas {
         bus: GpioOneWire<'static>,
         driver: Ds18b20Driver,
+        /// The most recent reading, so the control task can publish it without a
+        /// match on which driver is fitted.
+        last_reading: LastReading,
     },
     /// A `ZACwire` edge capture, which is also the driver's `EdgeSource`, so there
     /// is one owner of the pin, one owner of the ring, and nothing shared.
     Tsic {
         driver: Tsic306<ZacwireCapture<'static>>,
+        /// The most recent reading. See [`TemperatureSensor::Dallas`].
+        last_reading: LastReading,
     },
 }
 
+/// `(celsius, plausible)` — the most recent reading.
+///
+/// The pair is kept together because that is what S1 consumes: the C++ keeps
+/// `TempSensor::value_` and `TempSensor::error_` apart
+/// (`TempSensor.h:88-95`) and `EmergencyStopManager` branches on the *flag*,
+/// not on a NaN.
+type LastReading = Option<(f64, bool)>;
+
 impl TemperatureSensor {
+    /// The most recent reading, and whether it was plausible.
+    ///
+    /// `None` before the first conversion completes, which is why
+    /// `/api/temperatures` reports a temperature before it reports a plausible
+    /// one: reporting `null` for a probe that has not spoken yet is honest, and
+    /// reporting `0.0` is a disconnected probe wearing a plausible value.
+    #[must_use]
+    pub fn last_reading(&self) -> LastReading {
+        match self {
+            Self::Dallas { last_reading, .. } | Self::Tsic { last_reading, .. } => *last_reading,
+        }
+    }
+
     /// One step of whichever driver is fitted, and a log line for it.
     ///
     /// Both arms are non-blocking by construction — the `DS18B20` waits on a
@@ -541,9 +781,15 @@ impl TemperatureSensor {
     /// bounded window and returns — so this never stalls the control loop.
     fn poll(&mut self, now: Millis) {
         match self {
-            Self::Dallas { bus, driver } => {
+            Self::Dallas {
+                bus,
+                driver,
+                last_reading,
+            } => {
                 match driver.poll(bus, now) {
                     Ok(ds18b20_domain::Poll::Reading(Ok(celsius))) => {
+                        *last_reading =
+                            Some((f64::from(celsius), ds18b20_domain::is_plausible(celsius)));
                         info!(
                             "temperature: {celsius:.2} C (plausible: {})",
                             ds18b20_domain::is_plausible(celsius)
@@ -566,11 +812,18 @@ impl TemperatureSensor {
                     }
                 }
             }
-            Self::Tsic { driver } => {
+            Self::Tsic {
+                driver,
+                last_reading,
+            } => {
                 let mut buffer = tsic306_domain::ring::EdgeBuffer::new();
                 let outcome = driver.poll(&mut buffer);
                 match outcome {
                     tsic306_domain::Outcome::Reading(celsius) => {
+                        // A `ZACwire` frame that decodes is a reading, and a
+                        // decoded frame is by construction plausible (the decoder
+                        // range-checks), so the flag is unconditionally true here.
+                        *last_reading = Some((f64::from(celsius), true));
                         info!("temperature: {celsius:.2} C (ZACwire)");
                     }
                     other => {
@@ -605,14 +858,31 @@ fn format_rom(rom: Rom) -> String {
 type Heater = HeaterOutput<TimerIsrPwm>;
 
 /// The control task: sole subscriber and sole feeder of the task watchdog
-/// (04 §2, §3.4), and the only task that may open the heater gate.
+/// (04 §2, §3.4), the only task that may open the heater gate, and the only
+/// owner of the configuration store.
 ///
 /// It takes the heater by value, so the gate cannot be beaten from anywhere
-/// else: there is exactly one holder of `&mut HeaterGate` in the program.
+/// else: there is exactly one holder of `&mut HeaterGate` in the program. It
+/// takes the store by value for the same reason — `ConfigStore::load` and
+/// `save` both need `&mut self`, and one owner is better than a lock.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the control task's inputs are the task's inputs; grouping them \
+              into a struct would be a struct that exists only to be \
+              destructured, and 04 §2's priority table is clearer as an \
+              explicit signature"
+)]
 fn control_task(
     twdt: TWDT<'_>,
     mut heater: Heater,
     temp: &mut TemperatureSensor,
+    net: &Arc<network::Network>,
+    commands: &Arc<cc_hal_esp32::task::CommandQueue>,
+    setpoint: f64,
+    mqtt_configured: bool,
+    mqtt_connected: bool,
+    mut store: cc_config::blob_store::BlobConfigStore<cc_hal_esp32::nvs::EspNvsBlob>,
+    handoff: &network::Handoff,
 ) -> Result<(), EspError> {
     // `TWDTConfig::new()` takes the timeout and the panic-on-trigger behaviour
     // from the ESP-IDF kconfig. R3-10 replaces this with explicit values, which
@@ -642,9 +912,47 @@ fn control_task(
     info!("heater gate open? no — first beat not yet taken; duty {applied}");
 
     let mut tick: u32 = 0;
+    let mut last_sse_ms: u32 = 0;
+    let mut last_heap_log_ms: u32 = 0;
     loop {
         watchdog.feed()?;
         tick = tick.wrapping_add(1);
+
+        // The network→control queue, drained at the top of every tick (04 §3.2).
+        // A command is a *request*: nothing here acts on the radio or the
+        // actuators directly, so a POST cannot reach past the tick.
+        while let Some(command) = commands.recv() {
+            info!("control: command {command:?}");
+            if command == cc_hal_esp32::web::Command::Restart {
+                net.shared.set_reboot_requested();
+            }
+            // Every other command needs the state machine (R2-08's handlers),
+            // which is not wired into this bring-up binary. Acknowledged and
+            // dropped, with the log line above, so the request is visibly
+            // understood rather than silently lost.
+        }
+
+        // A credential typed on the console. This is the one place a `wifi set`
+        // becomes durable, and it is here because the store is: the UART task
+        // cannot write what it does not own, so it hands the value over and
+        // this task picks it up within one control period.
+        //
+        // The reboot is unconditional on success and absent on failure. A stored
+        // credential is useless until the radio is re-brought-up against it, and
+        // `CleverCoffeeWiFiManager.cpp:148-151` does the same after a portal
+        // save; a failed write leaves the machine running on what it already
+        // has, which is the safe direction, and the operator sees the `error!`.
+        if let Some(staged) = handoff.take() {
+            match network::apply_staged(&mut store, staged) {
+                Ok(()) => {
+                    info!("config: a wifi credential from the console was stored; rebooting");
+                    restart_now();
+                }
+                Err(err) => {
+                    error!("config: the credential from the console was NOT stored: {err}");
+                }
+            }
+        }
 
         // The supervisor heartbeat. This is what opens the deadman, and it is
         // deliberately the *same* beat as the watchdog feed: one thing that is
@@ -673,6 +981,52 @@ fn control_task(
         // nine-byte scratchpad). The TSIC-306 arm samples for a bounded window
         // and returns.
         temp.poll(now);
+        // The reading, for the telemetry publish. `TemperatureSensor` owns the
+        // driver, so this is the one number the control task reads out of it per
+        // tick — and it is `None` until the first conversion completes, which
+        // `/api/temperatures` reports as `null` rather than as a fake 0 °C.
+        let last_reading = temp.last_reading();
+
+        // A reboot request, honoured here and not in the HTTP handler. A handler
+        // that called `esp_restart` directly could reset the machine from inside
+        // a request; this is between ticks, after the watchdog has been fed.
+        if net.shared.take_reboot_request() {
+            info!("control: reboot requested — restarting");
+            // A 500 ms pause so the HTTP response has left the socket and the
+            // `202 Accepted` has reached the operator's browser, rather than the
+            // connection being cut mid-write. The C++ does the same
+            // (`WebServerManager.cpp:696`, `delay(1000)` before its restart).
+            FreeRtos::delay_ms(500);
+            restart_now();
+        }
+
+        // The telemetry publish and the SSE broadcast, at the C++'s cadence
+        // (`WebServerManager.cpp:1128-1143` driven from
+        // `LoopManager::updateWebsite`, gated on `tempEventInterval_`).
+        let uptime = now_ms();
+        net.shared.publish(network::telemetry_from(
+            network::Reading {
+                state: MACHINE_STATE_PID_NORMAL,
+                temperature_c: last_reading.map_or(f64::NAN, |(celsius, _)| celsius),
+                setpoint_c: setpoint,
+                // Always 0: there is no PID in this build, and a fabricated
+                // non-zero heater power would be a lie on the display and in
+                // every telemetry consumer.
+                heater_power_pct: 0.0,
+                mqtt_configured,
+                mqtt_connected,
+            },
+            uptime,
+            None,
+        ));
+        if uptime.wrapping_sub(last_sse_ms) >= SSE_INTERVAL_MS {
+            last_sse_ms = uptime;
+            network::broadcast_temps(net);
+        }
+        if uptime.wrapping_sub(last_heap_log_ms) >= HEAP_LOG_INTERVAL_MS {
+            last_heap_log_ms = uptime;
+            network::log_heap_once_a_minute(net);
+        }
 
         FreeRtos::delay_ms(CONTROL_TICK_MS);
 
@@ -685,4 +1039,81 @@ fn control_task(
             info!("heater: 10 ms ISR armed after the first supervisor beat");
         }
     }
+}
+
+/// Spawn the UART provisioning task on UART0.
+///
+/// **Only called when there is no SSID**, per 04 §3.2. A failure to install the
+/// UART driver is **not** fatal — it warns and returns, and the machine runs
+/// with no network surface rather than refusing to boot.
+fn start_provisioning(
+    uart: esp_idf_hal::uart::UART0<'static>,
+    tx: esp_idf_hal::gpio::Gpio1<'static>,
+    rx: esp_idf_hal::gpio::Gpio3<'static>,
+    handoff: network::Handoff,
+) {
+    let serial = match cc_hal_esp32::provisioning::Serial::new(uart, tx, rx) {
+        Ok(serial) => serial,
+        Err(err) => {
+            warn!("serial: the UART driver did not install: {err:?} -- provisioning is off");
+            return;
+        }
+    };
+    if let Err(err) = std::thread::Builder::new()
+        .name("provision".into())
+        .stack_size(network::PROVISION_THREAD_STACK_BYTES)
+        .spawn(move || network::run_provisioning(serial, handoff))
+    {
+        warn!("serial: the provisioning task did not start: {err}");
+    }
+}
+
+/// Reset the chip.
+///
+/// The reboot paths (`POST /api/restart`, `/api/factory-reset`,
+/// `/api/wifi-reset`, and the control task's own decision after it has stored a
+/// credential typed on the console) all land here, and the alternative to this
+/// call is a `loop { FreeRtos::delay_ms(1_000) }` that never returns — which is
+/// worse, because the machine would sit there with its relays in whatever state
+/// the last tick left them rather than dropping them on reset.
+///
+/// The **drain** is not here and must not be added back: it lives in
+/// [`cc_hal_esp32::restart::restart_now`], which every reboot path in the
+/// workspace now shares. `esp_restart()` does not flush UART0 — it cut the
+/// clock on the bytes in the UART's shift register — so calling `esp_restart()`
+/// directly loses the console lines printed just before the reboot. That was a
+/// shipped device bug.
+fn restart_now() -> ! {
+    cc_hal_esp32::restart::restart_now()
+}
+
+/// Bring the station interface up and associate.
+///
+/// # Errors
+///
+/// [`EspError`] from the netif, the driver, or the association itself. The
+/// caller treats a failure as "the machine runs offline", which is what a
+/// machine with no radio does.
+fn bring_up_wifi(
+    modem: esp_idf_hal::modem::Modem<'static>,
+    config: &cc_config::Config,
+    sys_loop: &esp_idf_svc::eventloop::EspSystemEventLoop,
+) -> Result<cc_hal_esp32::Sta, EspError> {
+    // The hostname goes in with the netif, before `wifi.start()`, so the DHCP
+    // client identifier is fixed before the first association. See
+    // `cc_hal_esp32::wifi`'s module documentation.
+    let mut sta = cc_hal_esp32::Sta::new(modem, &config.system.hostname, sys_loop)?;
+    sta.connect(
+        &config.system.wifi.ssid,
+        config.system.wifi.password.expose(),
+    )?;
+    if sta.wait_for_connection() {
+        info!("wifi: associated, {}", sta.describe());
+    } else {
+        // The C++'s behaviour at `CleverCoffeeWiFiManager.cpp:105-110`: an
+        // explicit SSID that does not associate means offline mode, no portal.
+        warn!("wifi: the configured network is unavailable — running offline");
+        sta.leave_offline();
+    }
+    Ok(sta)
 }

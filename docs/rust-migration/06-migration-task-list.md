@@ -441,6 +441,40 @@ measurements to take rather than assumptions to make:
 - **Why Phase 1:** without this, "parity" is an unmeasurable word, and it is the
   migration's primary correctness instrument.
 
+#### R1-08 status, 2026-09-29 — the harness exists; the C++ baseline does not
+
+| Step | Status |
+| --- | --- |
+| 1. Scenario format | **done** — [`10-scenario-format.md`](./10-scenario-format.md), implemented by `crates/cc-parity/src/scenario.rs`. Seven stimulus kinds, a capture spec, and nine assertion kinds. |
+| 2. Scenario set | **done** — 17 scenarios in `docs/rust-migration/scenarios/`, covering all twelve named here plus S1's no-debounce path, S4's refill, S7's reboot path, S6's heater bound and S9's watchdog. Every dry_run scenario is **executed and its assertions checked** by `cc-parity`'s own tests, so a broken scenario fails `just parity-test` rather than a phase gate. |
+| 3. C++ baseline | **NOT DONE.** `docs/rust-migration/baseline/cpp/` is empty and `just parity` reports every scenario `BASELINE-MISSING` and exits **2**. Not a skip: nothing has been compared with anything. See the reasoning in [`baseline/README.md`](./baseline/README.md) — capturing one means flashing the C++ image and running its control loop against a real boiler, which needs the reviewed safe-test procedure and a human present. **No baseline was fabricated.** |
+| 4. `intentional-diffs.md` | **done** — the file existed; R1-08 added the five machine-readable `ledger` blocks the runner classifies against, each naming a heading in the same document so the prose and the ledger cannot drift. |
+
+**The safety problem, and how it was solved.** Twelve of the seventeen scenarios would
+energise a pump, a valve or a heater. They are `dry_run`: `cc-parity` drives the **real**
+reducer and the **real** safety monitor in process on the host, and the `Actuators` it
+hands them is a `Vec` of call names. There is no GPIO in the crate, no `cc-hal-esp32` in
+its dependency tree, and no path from a scenario file to a pin — so `brew_by_time` really
+does emit `Effect::EnablePump`, the harness really does assert on it, and nothing is
+energised. That is what makes the set runnable with no device attached.
+
+**Two findings the harness produced before any baseline existed**, both now pinned:
+
+* The safety monitor has to run on the **sensor cadence** (400 ms,
+  `constants/Timing.h:42`), not the 10 ms control loop. Running it every tick made
+  S1's three-reading debounce trip on one reading repeated 30 times in 300 ms, so the
+  most safety-relevant timing constant in the firmware was untestable. `overtemp_trip`
+  now trips at 800 ms, on the third reading, as the C++ does.
+* **`OpenSteamValve` is never emitted by the reducer**, because the steam valve is a
+  solenoid the machine cannot open by itself. The S5' whitelist therefore acts in the
+  *close* direction, and `steam_on_off` asserts that. Asserting an open would have been
+  asserting something neither firmware does.
+
+**Gate 1 is still not passable**, and the runner is what says so: `just parity` exits
+non-zero with `INCOMPLETE: 13 scenario(s) have no C++ baseline`. The C++ half of the
+harness — driving a `dry_run` scenario through the C++ state machine — is R4-03's work
+and is not built.
+
 ### Gate 1
 
 - **All four of R1-01, R1-02, R1-03, R1-07 pass, and R1-08 has produced a committed

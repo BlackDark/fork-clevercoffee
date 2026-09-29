@@ -45,6 +45,15 @@ export PATH := env_var_or_default("PATH", "") + ":" + home_dir() + "/.cargo/bin"
 # Found 2026-09-28 during R1-01.
 export ESP_IDF_SYS_ROOT_CRATE := "cc-firmware"
 
+# Force the esp toolchain on every recipe. `rust-toolchain.toml` pins
+# `channel = "esp"`, but rustup gives an AMBIENT `RUSTUP_TOOLCHAIN` precedence
+# over that file. If a shell (or CI, or an agent's environment) happens to
+# export `RUSTUP_TOOLCHAIN=stable`, every device recipe then fails with
+# "the -Z flag is only accepted on the nightly channel of Cargo" -- and the
+# host recipes would silently run on the wrong compiler instead. Found
+# 2026-09-28. Setting it here makes the recipes immune to ambient state.
+export RUSTUP_TOOLCHAIN := "esp"
+
 mcu_esp32 := "esp32"
 mcu_esp32s3 := "esp32s3"
 mcu_esp32c6 := "esp32c6"
@@ -63,10 +72,16 @@ bin_esp32 := "firmware"
 # override; `just doctor` prints it so a mismatch is visible.
 host_target := env_var_or_default("CC_HOST_TARGET", "aarch64-apple-darwin")
 
-# The five portable crates. The three device crates do not compile for a host
+# The five portable crates. The device crates do not compile for a host
 # target, so `cargo test --workspace` / `cargo clippy --workspace` are wrong.
 host_crates := "-p cc-domain -p cc-safety -p cc-machine -p cc-display -p cc-config"
-dev_crates := "-p cc-hal-esp32 -p cc-provisioning -p cc-firmware"
+# `cc-device-tests` is in here because `--all-targets` type-checks it like the
+# other device crates. It is the runner, NOT the firmware; see `test-esp32`.
+dev_crates := "-p cc-hal-esp32 -p cc-provisioning -p cc-firmware -p cc-device-tests"
+
+# The on-target test image. NEVER flashed as the firmware; `just flash` is
+# hard-wired to `{{bin_esp32}}` so there is no recipe that can confuse them.
+bin_tests := "firmware-tests"
 
 # Source the generated environment file (D2) without failing when it is absent.
 env_prefix := "[ -f .rust-esp-env.sh ] && . ./.rust-esp-env.sh || true; "
@@ -129,7 +144,12 @@ fmt-check:
 lint:
     cargo clippy {{host_crates}} --all-targets --target {{host_target}} -- -D warnings
 
-lint-esp32:
+# The audit runs FIRST and unconditionally, because `lint-esp32` is the recipe
+# that made 67 device tests look green while nothing ever executed them. It is
+# three greps, needs no device and no cargo, and it is what stops that from
+# recurring: a new device-crate `#[test]` that nobody registered with the
+# on-target runner is a lint failure, not a test that silently never runs.
+lint-esp32: test-audit
     {{env_prefix}} MCU={{mcu_esp32}} cargo clippy {{dev_crates}} --all-targets \
         --target {{tgt_esp32}} -Zbuild-std=std,panic_abort -- -D warnings
 
@@ -157,6 +177,60 @@ test:
 
 test-domain:
     cargo test -p cc-domain -p cc-safety --target {{host_target}}
+
+# THE RECURRENCE GUARD. Fails if any device-crate test exists that the on-target
+# runner cannot execute: a bare `#[test]` (the compiler deletes it unless the
+# crate is built with --test), a `#[cfg_attr(test, test)]` that is missing from
+# `cc_hal_esp32::device_tests::CASES`, a registry entry with no matching test,
+# or any `#[ignore]`. Runs in well under a second and needs no hardware, which
+# is what makes it cheap enough to be a dependency of `lint-esp32` and of
+# `test-esp32` rather than a thing someone remembers to run.
+test-audit:
+    @python3 scripts/device-test-audit.py .
+
+# ------------------------------------------- on-target (device) unit tests
+#
+# The suite that `just test` cannot reach. `cc-hal-esp32` does not build for a
+# host target, so its 67 `#[test]` functions are executable only by flashing
+# `firmware-tests` and reading the console.
+#
+# Exits NON-ZERO when any case fails. That is the whole point: the recipe that
+# replaced "nothing ran" must not be a recipe that always exits 0.
+#
+# PORT is positional and REQUIRED, as for `flash`. Run `just identify <port>`
+# first. It flashes the test image and leaves it on the chip, so run
+# `just flash <port>` before putting the machine back into service.
+test-esp32 port: test-audit
+    #!/usr/bin/env bash
+    set -euo pipefail
+    {{env_prefix}} cargo espflash flash --release --package cc-device-tests \
+        --bin {{bin_tests}} --target {{tgt_esp32}} --port {{port}} \
+        --chip {{mcu_esp32}} --partition-table rust/partitions_4M.csv
+    py=""
+    for c in .embuild/espressif/python_env/*/bin/python python3; do
+        [ -x "$c" ] && "$c" -c 'import serial' 2>/dev/null && { py="$c"; break; }
+    done
+    [ -n "$py" ] || { echo "no python with pyserial found" >&2; exit 1; }
+    "$py" scripts/device-tests.py {{port}}
+
+# Build the on-target test image without flashing. Same opt-level, same
+# panic=abort, same overflow-checks as the release profile, so what is measured
+# here is what runs on the chip.
+build-tests-esp32:
+    {{env_prefix}} MCU={{mcu_esp32}} cargo build --release -p cc-device-tests \
+        --bin {{bin_tests}} --target {{tgt_esp32}} -Zbuild-std=std,panic_abort
+
+# Everything a gate must run that does not need hardware. `test-esp32` is NOT
+# in the chain because it needs a board and a port; the guard against "the device
+# tests never run" is `test-audit`, which is in `lint-esp32`, which is here.
+gate:
+    @just fmt-check
+    @just lint
+    @just lint-esp32
+    @just test
+    @just parity-test
+    @just build-esp32
+    @just size-check
 
 # Regenerate OLED golden images (host).
 #
@@ -304,9 +378,20 @@ logs host:
 
 # --------------------------------------------------------------------- parity
 
-# The parity scenario runner is created by 06 R1-08, BEFORE any parity gate.
+# The parity scenario runner (06 R1-08). DEVIATION from the original recipe: the
+# host target is passed explicitly, for the same reason as `lint`/`test` — see D1
+# in the header. `scripts/parity/run.sh` passes it through.
 parity port host:
     ./scripts/parity/run.sh {{port}} {{host}}
+
+# The harness's own tests. NOT part of `just test`: `cc-parity` is the migration's
+# measuring instrument, not firmware, and its tests are the thing that decides
+# whether a phase gate can be claimed. They read `docs/rust-migration/scenarios/`
+# and the real `intentional-diffs.md`, so they also check that the scenario set
+# loads, that every dry_run scenario meets its own assertions, that S1-S11 are all
+# covered, and that a synthetic *undeclared* diff fails the runner.
+parity-test:
+    cargo test -p cc-parity --target {{host_target}}
 
 # ------------------------------------------------------------------ benchmark
 

@@ -1,0 +1,60 @@
+# The happy path, and the S5 valve fail-safe under it.
+#
+# `BrewHandler::valveSafetyShutdownCheck` (`BrewHandler.h:105-122`) runs on
+# **every** loop, after the state machine, and closes the water valve unless the
+# current state is on the whitelist. It is the reason a state that forgets to
+# close its valve still cannot leave it open: the fail-safe runs regardless.
+name: brew_by_time
+title: An automatic brew by time runs pre-infusion, pause, flow, and finishes on its own
+mode: dry_run
+covers: [S5, S11]
+
+# 3 s pre-infusion + 2 s pause + 25 s flow, plus the post-brew tail. Stated
+# rather than inferred: the run is quiet for the whole 25 s of flow.
+duration_ms: 40000
+
+why: >
+  The reference flow, and the one every other brew scenario is a perturbation of.
+  `BREW_PREINFUSION` (pump + valve, no heat) → `BREW_PREINFUSION_PAUSE` (valve
+  closed, pump off) → `BREW_RUNNING` (pump + valve) → `BREW_FINISHED`
+  (`BrewStates.cpp`). The shot ends itself because
+  `initTotalTargetBrewTime` (`BrewStates.cpp:53-62`) put a target on the brew
+  timer: pre-infusion base + `brew.by_time.target_time`.
+
+  The `order` assertion is the S5 argument. `valveSafetyShutdownCheck` runs
+  *after* the state machine's `update()` and `onEntry()` in the same loop, so a
+  state that asserts "valve open" and the fail-safe that asserts "valve closed"
+  are both applied in one tick and resolved by the whitelist — not by which call
+  came last. An ordering regression here would leave the valve open in
+  `BREW_PREINFUSION_PAUSE`, which is exactly the state whose name says it must
+  not be.
+
+config:
+  set:
+    pid.enabled: true
+    brew.mode: 1                       # Automatic
+    brew.pre_infusion.enabled: true
+    brew.pre_infusion.time: 3.0
+    brew.pre_infusion.pause: 2.0
+    brew.by_time.enabled: true
+    brew.by_time.target_time: 25.0
+    hardware.switches.brew.enabled: true
+    hardware.sensors.watertank.enabled: true
+
+stimuli:
+  - { at_ms: 0,    kind: button, switch: brew, action: press }
+  - { at_ms: 100,  kind: sensor, temperature_c: 95.0, water_tank_full: true }
+
+capture:
+  state_transitions: true
+  effects: true
+
+assert:
+  - { kind: visited_states, value: [BREW_PREINFUSION, BREW_PREINFUSION_PAUSE, BREW_RUNNING, BREW_FINISHED, PID_NORMAL] }
+  - { kind: final_state, value: PID_NORMAL }
+  - { kind: always, effect: EnablePump }
+  - { kind: always, effect: OpenWaterValve }
+  # S5: the valve is closed on entry to every non-water-flow state, so the
+  # fail-safe effect is emitted in the pause between the two flow states.
+  - { kind: ordering, before: CloseWaterValve, after: OpenWaterValve }
+  - { kind: actuator_safe }

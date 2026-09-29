@@ -50,12 +50,42 @@
 // is `&mut` across a thread boundary, which is `unsafe` and is not available.
 extern crate alloc;
 
+// `std` for exactly one thing: `std::sync::Mutex`, which the HTTP handlers use
+// to read the telemetry snapshot the control task publishes. `esp-idf-svc` is
+// built with its `std` feature and the firmware is a `std` binary, so this
+// links nothing new -- but it does mean this crate is not `no_std`, and the
+// alternative (a hand-rolled spin lock, or `critical-section`, which 04 §3.2
+// notes is a FreeRTOS recursive mutex and therefore *not* usable from a task
+// that could be preempted by the httpd task) is worse.
+extern crate std;
+
+#[cfg(feature = "device-tests")]
+#[doc(hidden)]
+pub mod device_tests;
+
+pub mod heap;
 pub mod heater;
+pub mod mqtt;
+pub mod nvs;
 pub mod onewire;
+pub mod provisioning;
+pub mod restart;
 pub mod sensors;
+pub mod task;
+pub mod telnet;
+pub mod time;
+pub mod web;
+pub mod wifi;
 pub mod zacwire;
 
+pub use heap::{free_heap, min_free_heap, HEAP_SHED_BYTES};
 pub use heater::{HeaterDuty, HeaterOutput, LedcPwm, TimerIsrPwm, CARRIER_HZ, RESOLUTION};
+pub use nvs::EspNvsBlob;
 pub use onewire::GpioOneWire;
+pub use restart::{drain_console, restart_now};
 pub use sensors::{Abp2I2c, Abp2Pressure, GpioIn};
+pub use task::CommandQueue;
+pub use time::now_ms;
+pub use web::{Shared, Telemetry, Web};
+pub use wifi::Sta;
 pub use zacwire::ZacwireCapture;

@@ -1,0 +1,67 @@
+# S4 — the water tank empties mid-brew.
+#
+# `HardwareManager::setWaterTankEmpty(true)` kills a running pump immediately
+# (`HardwareManager.cpp:546-561`) and `enablePump` refuses while it is empty
+# (`:325-328`). `PidNormalState` / the global guard route the machine to
+# `WATER_TANK_EMPTY`, and `BrewHandler::hasPermission` refuses the brew paths
+# there (`BrewHandler.h:147-150`).
+name: water_tank_empty_mid_brew
+title: An empty tank mid-brew kills the pump and moves the machine to WATER_TANK_EMPTY
+mode: dry_run
+covers: [S4, S5]
+
+duration_ms: 8000
+
+why: >
+  S4. The debounce on the tank input is `SensorCoordinator`'s, not the
+  actuator's: the actuator responds to the *state* of the switch, so the pump
+  stops within one tick of the edge rather than one debounce later.
+
+  The heater is deliberately *not* gated on the tank — the boiler is a separate
+  vessel and `hardware.sensors.watertank.keep_heater_on_empty` is a real
+  configuration. `ProcessController::shouldPIDBeEnabled`
+  (`ProcessController.cpp:247-248`) honours it, and this scenario runs with the
+  default `false`, so the heater is gated.
+
+  Asserted in `water_tank_refill`: the machine returns to PID_NORMAL when the
+  tank is refilled, and `keep_heater_on_empty: true` keeps the PID running.
+
+config:
+  set:
+    pid.enabled: true
+    brew.mode: 1                       # Automatic
+    brew.pre_infusion.enabled: true
+    brew.pre_infusion.time: 3.0
+    brew.pre_infusion.pause: 0.0
+    brew.by_time.enabled: false        # a manual brew, so the switch ends it
+    hardware.switches.brew.enabled: true
+    hardware.sensors.watertank.enabled: true
+    hardware.sensors.watertank.keep_heater_on_empty: false
+
+stimuli:
+  - { at_ms: 0,    kind: button, switch: brew, action: press }
+  - { at_ms: 100,  kind: sensor, temperature_c: 95.0, water_tank_full: true }
+  # The tank empties during the flow phase, 5 s in: 3 s of pre-infusion puts
+  # the machine in BREW_RUNNING at 3 s, and the pump and the valve are open.
+  - { at_ms: 5000, kind: sensor, temperature_c: 95.0, water_tank_full: false }
+
+capture:
+  state_transitions: true
+  effects: true
+
+assert:
+  - { kind: visited_states, value: [BREW_PREINFUSION, BREW_RUNNING, WATER_TANK_EMPTY] }
+  - { kind: always, effect: EnablePump }
+  # After the tank empties, nothing may be energised. S4 blocks the pump and S5
+  # closes the valve.
+  # One loop *after* the reading, and the reason is the C++'s own order:
+  # `StateMachine::update()` runs `currentState_->update(context)` and only then
+  # `checkTransitions(context)` (`StateMachine.cpp:81-86`), so on the tick the
+  # tank empties, `BrewRunningState::update` re-asserts the pump and the guard
+  # fires in the same iteration. `BrewRunningState::onExitImpl` then turns both
+  # off. One loop of exposure, once, in the C++ too — asserted here so a port
+  # that closed it *sooner* would be visible and a port that did not close it at
+  # all would fail.
+  - { kind: never, effect: EnablePump, after_ms: 5010 }
+  - { kind: never, effect: OpenWaterValve, after_ms: 5010 }
+  - { kind: actuator_safe }

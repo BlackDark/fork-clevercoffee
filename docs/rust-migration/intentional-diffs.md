@@ -105,6 +105,11 @@ pump, and **neither** C++ timer covers them. Extending a watchdog's scope is a
 specification change, not a parity fix, so it is recorded here as an open
 follow-up rather than smuggled in.
 
+```ledger
+{"id":"div1","heading":"## 1. Both pump safety timeouts are armed","scenarios":["brew_by_time","brew_aborted_mid_flow","backflush_full_cycle","steam_on_off","water_tank_empty_mid_brew"],
+ "matchers":["/effect rust:.*PumpTimeoutFired/","/log .*Pump timeout - stopping for safety/","/log .*Hot water pump timeout - stopping for safety/"]}
+```
+
 ---
 
 ## 2. The steam valve is whitelist-gated 🔴 added
@@ -191,6 +196,11 @@ make `may_open_steam` agree with `may_open_water` and quietly re-open S5's hole
 from the other side. Hence the third test above: **the two whitelists must be
 disjoint**, and a test enforces it.
 
+```ledger
+{"id":"div2","heading":"## 2. The steam valve is whitelist-gated","scenarios":[],
+ "matchers":["/effect rust:CloseSteamValve/","/effect cpp:.*CloseSteamValve/","/actuator.steam_valve/"]}
+```
+
 ---
 
 ## 3. The water valve is gated on the water tank 🔴 added
@@ -225,6 +235,11 @@ S5 whitelist is consulted in the same breath.
 **The heater is deliberately not gated on the tank.** The boiler is a separate
 vessel and `hardware.sensors.watertank.keep_heater_on_empty` is a real
 configuration the machine must honour.
+
+```ledger
+{"id":"div3","heading":"## 3. The water valve is gated on the water tank","scenarios":["water_tank_empty_mid_brew","water_tank_refill","ota_start_from_idle","ota_start_during_brew"],
+ "matchers":["/effect rust:.*OpenWaterValve/","/effect cpp:.*OpenWaterValve/","/actuator.water_valve/"]}
+```
 
 ---
 
@@ -319,6 +334,11 @@ that lands exactly on the window is bit-identical, which the test asserts.
 `scenario_d` in `crates/cc-domain/tools/pid_oracle/pid_oracle.cpp` still produces
 `NaN`, on purpose. It is the only evidence for this entry. **Do not change the
 oracle to agree with the port.**
+
+```ledger
+{"id":"div4","heading":"## 4. The PID derivative is taken over the real elapsed time","scenarios":[],
+ "matchers":["/effect rust:SetHeaterDuty/","/effect cpp:SetHeaterDuty/"]}
+```
 
 ---
 
@@ -421,6 +441,11 @@ Recorded here so the file is complete; each was decided in its own task.
 | `Duty` is bounded at `0..=1000`, i.e. the PID output is a **millisecond** duty, not `setHeaterPower`'s `uint8_t` percent | The C++ heater path is a PWM window compared against the PID output, and `HardwareManager::setHeaterPower` (`HardwareManager.cpp:305-318`) is a TODO stub | `cc-domain/src/units.rs::tests::duty_bound_is_the_chopper_window` |
 | Blocked steam mode being requested from the C++ test suite (`test_steam_handler`, `test_steam_water_injection`) | 27 `#[ignore]`d records of C++ mock cases with no Rust equivalent, each with a comment saying why | the `#[ignore]` attributes themselves |
 | SSE over WebSocket for the UI's live channel | R1-05; `EspHttpConnection::write` (chunked) and `raw_connection().write_all` both ship in `esp-idf-svc` 0.53 | R1-05 |
+
+```ledger
+{"id":"ota_gap","heading":"## Also intentional, from before this file existed","scenarios":["ota_start_from_idle","ota_start_during_brew"],
+ "matchers":["/effect rust:SafeHardwareShutdown/","/effect cpp:.*SafeHardwareShutdown/","/effect rust:EnablePump/","/effect cpp:EnablePump/"]}
+```
 
 ---
 

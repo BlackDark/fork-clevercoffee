@@ -1,0 +1,47 @@
+# S4 — refill, and the `keep_heater_on_empty` configuration.
+#
+# `SensorCoordinator` reports the tank full again, the global guard stops
+# excluding `WATER_TANK_EMPTY`, and `pid_state()` returns `PID_NORMAL`
+# (`PidStates.cpp`). The heater keeps running through the empty period only when
+# `hardware.sensors.watertank.keep_heater_on_empty` is set — the boiler is a
+# separate vessel — but the pump never runs either way.
+name: water_tank_refill
+title: Refilling the tank returns the machine to PID_NORMAL and the pump works again
+mode: dry_run
+covers: [S4]
+
+duration_ms: 6000
+
+why: >
+  The recovery half of S4, and the reason the empty state is not a latch. A
+  machine that emptied its tank once must come back on its own; one that does
+  not is a machine that needs a power cycle to make coffee.
+
+  `keep_heater_on_empty: true` is asserted too, because it is the one
+  configuration where the heater runs with no water in the reservoir and a
+  regression there would be silent: everything would still work, and the
+  difference only shows on a machine that has run dry.
+
+config:
+  set:
+    pid.enabled: true
+    hardware.sensors.watertank.enabled: true
+    hardware.sensors.watertank.keep_heater_on_empty: false
+
+stimuli:
+  - { at_ms: 0,    kind: sensor, temperature_c: 95.0, water_tank_full: true }
+  - { at_ms: 400,  kind: sensor, temperature_c: 95.0, water_tank_full: false }
+  - { at_ms: 800,  kind: wait, duration_ms: 1000 }
+  # Refilled.
+  - { at_ms: 2000, kind: sensor, temperature_c: 95.0, water_tank_full: true }
+  - { at_ms: 2400, kind: wait, duration_ms: 1000 }
+
+capture:
+  state_transitions: true
+  effects: true
+
+assert:
+  - { kind: visited_states, value: [PID_NORMAL, WATER_TANK_EMPTY, PID_NORMAL] }
+  - { kind: final_state, value: PID_NORMAL }
+  - { kind: never, effect: EnablePump, after_ms: 400 }
+  - { kind: actuator_safe }

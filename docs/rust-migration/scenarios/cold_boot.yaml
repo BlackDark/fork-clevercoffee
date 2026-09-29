@@ -1,0 +1,59 @@
+# S10 — the boot sequence, on the device.
+#
+# The only scenario that must touch hardware to mean anything: the subject is
+# the device, not the logic. `SystemInitializer::initialize` unwinds in reverse
+# order on a partial failure, relays last and each explicitly off
+# (`HardwareManager.cpp:563-639`), and that is a property of the C++ code
+# *running*, not of any reducer.
+#
+# SAFETY: PID is disabled, so the heater command is zero for the whole run; no
+# switch is pressed, so the pump never runs; no steam is requested, so the valve
+# never opens. The captured `/api/status` is the evidence.
+name: cold_boot
+title: The machine boots, reaches PID_DISABLED, and reads a plausible temperature
+mode: hardware
+covers: [S10, S7]
+
+duration_ms: 6000
+
+why: >
+  S10 and the boot half of S7. `pid.enabled: false` sends
+  `SystemInitializer::finalizeMachineState` (`SystemInitializer.cpp:633-641`)
+  down the "power switch off" arm, so the machine lands in `PID_DISABLED` and
+  `ProcessController::shouldPIDBeEnabled`
+  (`ProcessController.cpp:246-248`) is false — the heater command is zero and
+  stays zero.
+
+  `machineState: 90` is `PID_DISABLED` in the C++'s `MachineStateId` enum
+  (`MachineStateIds.h`). It is asserted as the integer because that is what
+  `/api/status` returns (`WebServerManager.cpp:360`,
+  `doc["machineState"] = static_cast<int>(currentState)`) and integers are what
+  two firmwares can be compared on.
+
+config:
+  set:
+    pid.enabled: false
+    hardware.sensors.watertank.enabled: true
+    hardware.oled.enabled: true
+
+stimuli:
+  - { at_ms: 0, kind: rest }
+
+capture:
+  state_transitions: true
+  effects: false                      # there is no effect stream on the device
+  endpoints:
+    - /api/status
+    - /api/temperatures
+    - /api/health
+  log_patterns:
+    - "Entering state"
+    - "Exiting state"
+    - "PID controller initialized"
+
+assert:
+  - { kind: final_state, value: PID_DISABLED }
+  # PID_DISABLED is 90 in `MachineStateIds.h`.
+  - { kind: http, path: /api/status, expect: { machineState: 90, pidEnabled: false } }
+  - { kind: http, path: /api/health, expect: {} }
+  - { kind: actuator_safe }

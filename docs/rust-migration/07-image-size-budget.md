@@ -202,3 +202,50 @@ the SPA stays on LittleFS.
 | The embedded SPA size | R0-02 | Drives whether `spiffs` can shrink to 64 KB |
 | The price of each §3 drop | R2-09b | Feature-matrix build, one run per candidate |
 | `cargo bloat` availability on macOS arm64 | R1-01 | If unavailable, use `.map` + `xtensa-esp32-elf-size` only |
+
+---
+
+## 8. Measured growth at R3, and what it was
+
+The first real content milestone — NVS, Wi-Fi, UART provisioning, MQTT, HTTP+SSE —
+moved the image from **382,528 B** to **1,349,344 B** (+966,816 B, +252 %).
+`just size-check` correctly failed it (>10 % growth). The 252 % is not mostly *our*
+code. Measured with `just diag-build` + `nm --size-sort` (the release ELF is stripped,
+so symbols come from the `diagnostic` profile, which has identical codegen):
+
+| bucket | bytes | symbols |
+| --- | ---: | ---: |
+| `std::backtrace` + `addr2line` | 108,382 | 113 |
+| `gimli` / `object_rs` DWARF reader | 101,147 | 147 |
+| `serde` (derive + json) | 84,264 | 167 |
+| mbedTLS / TLS | 82,916 | 606 |
+| `core::fmt` | 25,576 | 236 |
+| `printf` family | 23,952 | 16 |
+| http parser | 9,253 | 7 |
+| **all symbols** | **1,124,321** | |
+
+Per-section at that point: `.flash.text` 1,019,528 B, `.flash.rodata` 215,212 B,
+static RAM 133,128 B.
+
+### What is avoidable
+
+1. **`std::backtrace` + `gimli` ≈ 210 KB — the single biggest item.** This is *panic
+   backtrace symbolization*: it links a DWARF reader and the `addr2line` machinery so a
+   panic can print symbol names. It is **useless on the device** — there is no ELF on
+   flash, so it can only ever produce addresses. Decoding happens host-side with
+   `just diag-addr2line` against the saved core dump. **This should be removed.**
+2. **mbedTLS ≈ 83 KB** is linked but the MQTT client is plain TCP and the HTTP server is
+   plain HTTP. Verify whether anything actually needs TLS; if not, drop the component.
+3. `serde` at 84 KB is load-bearing (the config blob) — keep.
+4. Static RAM **133,128 B** is 42 % of the ESP32's 320 KB and has roughly doubled from
+   62 KB. ADR-0002's 30 KB heap-shed threshold was tuned against ~75 KB of static use, so
+   the margin is now much thinner. **This is a bigger risk than the flash number.**
+
+### Decision
+
+Re-baseline the `r1-01-minimal` point to a **post-R3 record** and open a new task to
+remove the backtrace machinery before the image is accepted. Growing 252 % and then
+moving the goalposts is how a 1.8 MB slot gets exhausted silently, so the removal is
+tracked as a task rather than absorbed.
+
+**Flash is not the current binding constraint — static RAM is.**

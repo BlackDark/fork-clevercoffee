@@ -13,6 +13,7 @@ use cc_config::json::{ImportError, RejectReason};
 use cc_config::schema::{self, ParamValue};
 use cc_config::{json_export, json_import, Config, ConfigStore, Secret, StoreError};
 use cc_domain::hardware::{RelayTriggerType, TemperatureSensorType};
+use cc_domain::units::Celsius;
 
 use support::MemStore;
 
@@ -549,9 +550,12 @@ fn the_safety_view_names_exactly_the_safety_relevant_values() {
     config.hardware.relays.heater.trigger_type = RelayTriggerType::HighTrigger;
     config.hardware.sensors.temperature.r#type = TemperatureSensorType::DallasDs18b20;
     let view: SafetyView = config.safety_view();
-    assert!((view.emergency_temp - 165.0).abs() < 1e-12);
-    assert!((view.emergency_hysteresis - 9.0).abs() < 1e-12);
-    assert!((view.steam_setpoint - 118.0).abs() < 1e-12);
+    // `SafetyView` is `Celsius`-typed so the join with `cc_safety::SafetyConfig`
+    // is a copy rather than a narrowing cast (see `SafetyView::emergency_temp`),
+    // so the assertions are against `Celsius`, not against a float.
+    assert_eq!(view.emergency_temp, Celsius::new(165.0));
+    assert_eq!(view.emergency_hysteresis, Celsius::new(9.0));
+    assert_eq!(view.steam_setpoint, Celsius::new(118.0));
     assert_eq!(view.heater_relay_trigger, RelayTriggerType::HighTrigger);
     assert_eq!(
         view.temperature_sensor,
@@ -699,6 +703,63 @@ fn a_document_in_the_shape_of_the_shipped_example_imports() {
     assert!(parsed.display.fullscreen_brew_timer);
     assert_eq!(parsed.system.wifi.ssid, "test-ssid");
     assert!((parsed.safety.emergency_temp - 150.0).abs() < 1e-9);
+}
+
+// =========================================================== wifi credential
+
+#[test]
+fn a_provisioned_credential_is_stored_and_cleared_as_one_thing() {
+    let mut config = Config::default();
+    assert!(
+        !config.is_wifi_provisioned(),
+        "the defaults are unprovisioned"
+    );
+
+    config.set_wifi_credential(String::from("kitchen"), String::from("hunter2"));
+    assert!(config.is_wifi_provisioned());
+    assert_eq!(config.system.wifi.ssid, "kitchen");
+    assert_eq!(config.wifi_password(), "hunter2");
+
+    config.clear_wifi_credential();
+    assert!(!config.is_wifi_provisioned());
+    assert!(config.system.wifi.ssid.is_empty());
+    // A cleared credential must leave an *empty* password, not the old one.
+    assert!(config.wifi_password().is_empty());
+}
+
+#[test]
+fn an_open_network_is_a_credential_with_an_empty_password() {
+    // `system.wifi.password` is documented as "leave empty for open networks",
+    // so an empty password is a value, not the absence of one. What makes a
+    // machine unprovisioned is an empty SSID, and only that.
+    let mut config = Config::default();
+    config.set_wifi_credential(String::from("guest"), String::new());
+    assert!(config.is_wifi_provisioned());
+    assert!(config.wifi_password().is_empty());
+}
+
+#[test]
+fn a_stored_credential_survives_a_blob_round_trip() {
+    // The provisioning path is only useful if the write is durable, and the
+    // durability question is the store's, not the setter's — so the test spans
+    // both. `Debug` must not leak the password anywhere along the way.
+    let mut store = MemStore::empty();
+    let mut config = Config::default();
+    config.set_wifi_credential(String::from("kitchen"), String::from("hunter2"));
+    store.save(&config).expect("save");
+
+    let mut reloaded = store.load().expect("load").expect("a blob was written");
+    assert!(reloaded.is_wifi_provisioned());
+    assert_eq!(reloaded.wifi_password(), "hunter2");
+    assert!(
+        !format!("{reloaded:?}").contains("hunter2"),
+        "the Debug of a Config must not carry the Wi-Fi password"
+    );
+
+    reloaded.clear_wifi_credential();
+    store.save(&reloaded).expect("save the cleared credential");
+    let third = store.load().expect("load").expect("a blob was written");
+    assert!(!third.is_wifi_provisioned());
 }
 
 #[test]

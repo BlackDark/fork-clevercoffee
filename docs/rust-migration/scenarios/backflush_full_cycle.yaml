@@ -1,0 +1,85 @@
+# S5 — the backflush cycle, and the two states that do not re-assert.
+#
+# `BACKFLUSH_FILLING` is on the S5 whitelist and its `update`
+# (`BackflushStates.cpp:71-76`) only logs, so nothing re-asserts its pump or
+# valve. That is a **preserved** C++ defect (09 §13, `intentional-diffs.md`'s
+# preserved-behaviour table) and the scenario exists to keep it preserved rather
+# than to fix it: if a future change makes `FILLING` re-assert, this scenario
+# will show a diff, and that diff must be a deliberate one.
+name: backflush_full_cycle
+title: A two-cycle backflush runs filling and flushing twice and reaches BACKFLUSH_FINISHED
+mode: dry_run
+covers: [S5]
+
+# Two cycles of 3 s fill + 5 s flush = 16 s, plus BACKFLUSH_FINISHED's 3 s
+# display timeout. 30 s with margin.
+duration_ms: 30000
+
+why: >
+  `BrewHandler::processSwitchInput` (`BrewHandler.h:198-200`) reads
+  `longPressDetected()` to tell a short press (start a cycle) from a long press
+  (start a manual flush) in `BACKFLUSH_IDLE`, so this scenario uses a short
+  press. The cycle counter starts at 1, not 0 (`MachineStateContext.h:788`), and
+  `resolveCycleAdvance(1, 5)` runs cycles 1..=5.
+
+  09 §13 is the finding this pins: all four backflush states fail to re-assert
+  their hardware in `update`, and `FILLING` is the worse case because it is on
+  the whitelist, so `valveSafetyShutdownCheck` does not close its valve either.
+  A pump survives an arbitrary number of loops in exactly the one state where
+  nothing re-asserts it. Preserved on purpose, and named.
+
+config:
+  set:
+    pid.enabled: true
+    backflush.cycles: 2
+    # The registered minimums: `backflush.fill_time` 3 s and
+    # `backflush.flush_time` 5 s (cc-config's schema, transcribed from
+    # `Config.h`). Two cycles is 16 s, hence the 25 s run below.
+    backflush.fill_time: 3.0
+    backflush.flush_time: 5.0
+    hardware.switches.brew.enabled: true
+    # MOMENTARY, not the registered default of TOGGLE. With a toggle, the
+    # release is a backflush-stop request (`BrewHandler.h:213-224`) and the
+    # cycle ends before it flushes; the real machine's switch type is a wiring
+    # choice, and this scenario is about the cycle, not about the switch.
+    hardware.switches.brew.type: 0
+    hardware.sensors.watertank.enabled: true
+
+stimuli:
+  # Backflush mode on, then a short press per cycle. The brew switch is the
+  # backflush switch: `BrewHandler::processSwitchInput` (`BrewHandler.h:198-200`)
+  # reads `longPressDetected()` to tell a short press (start a cycle) from a
+  # long press (start a manual flush) in BACKFLUSH_IDLE, and each completed
+  # cycle returns to BACKFLUSH_IDLE waiting for the next press.
+  - { at_ms: 0,    kind: mqtt, command: BACKFLUSH_ENTER }
+  - { at_ms: 100,  kind: sensor, temperature_c: 95.0, water_tank_full: true }
+  - { at_ms: 200,  kind: button, switch: brew, action: press }
+  # No second press. `BackflushFlushingState::checkSpecificTransitions` calls
+  # `resolveCycleAdvance(cycle, configured)` on the flush timeout and starts the
+  # next cycle itself (`BackflushStates.cpp:113-140`), so one press runs all
+  # `backflush.cycles` of them. A press during a backflush state is a *stop*
+  # request, not a start (`BrewHandler.h:206-224`), so adding one here would end
+  # the run early — which is exactly what it did the first time.
+
+capture:
+  state_transitions: true
+  effects: true
+
+assert:
+  # The cycle is driven by the flush timeout, so one press runs both cycles.
+  # BACKFLUSH_FINISHED then holds for `BACKFLUSH_FINISHED_DISPLAY_TIMEOUT_MS`
+  # (3 s, `timing.rs`) and returns to BACKFLUSH_IDLE — it does not go straight
+  # to a PID state, so the run ends in BACKFLUSH_IDLE and the machine is still
+  # in backflush mode.
+  - { kind: visited_states, value: [BACKFLUSH_IDLE, BACKFLUSH_FILLING, BACKFLUSH_FLUSHING, BACKFLUSH_FILLING, BACKFLUSH_FLUSHING, BACKFLUSH_FINISHED, BACKFLUSH_IDLE] }
+  - { kind: final_state, value: BACKFLUSH_IDLE }
+  - { kind: always, effect: ResetShotsSinceBackflush }
+  - { kind: always, effect: EnablePump }
+  # S5: the valve fail-safe runs in the same loop as the state machine, so the
+  # close between the two flow states is the whitelist resolving a conflict
+  # rather than whichever call happened to be last.
+  - { kind: ordering, before: CloseWaterValve, after: OpenWaterValve }
+  # 09 §13, preserved: BACKFLUSH_FILLING is on the water-flow whitelist and its
+  # `update` only logs, so nothing re-asserts its pump. A regression that fixed
+  # it would show a diff here, and that diff would have to be deliberate.
+  - { kind: no_fluid_flow }

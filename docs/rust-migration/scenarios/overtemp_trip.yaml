@@ -1,0 +1,53 @@
+# S1/S2/S3 — over-temperature: trip, latch, recover.
+#
+# The trip is a three-reading debounce (`EmergencyStopManager::DEBOUNCE_COUNT`,
+# `EmergencyStopManager.h:106`) at a 400 ms sensor interval, so the trip lands on
+# the third reading about 1.2 s after the boiler goes over. The latch blocks
+# every energising call (`HardwareManager.cpp:278,306,321,353,398,443`) and can
+# only be cleared below 100 °C (`EmergencyStopManager.cpp:83-87`).
+name: overtemp_trip
+title: Three readings over safety.emergency_temp latch emergency stop
+mode: dry_run
+covers: [S1, S2]
+
+duration_ms: 4000
+
+why: >
+  S1 and S2. `EmergencyStopManager::checkEmergencyConditions`
+  (`EmergencyStopManager.cpp:17-69`) counts consecutive readings above
+  `safety.emergency_temp` and latches at three. A reading outside
+  `Celsius::MIN..=Celsius::MAX` latches immediately with no debounce (`:25-30`),
+  which is the TSIC-306's 221/222 fault sentinels. The latch then refuses
+  `enableHeater`, `enablePump`, `openWaterValve` and `setHeaterPower`.
+
+  Asserted here: the trip happens on the third reading and not the second, and
+  every actuator is off afterwards. Asserted in `overtemp_invalid_reading`:
+  the no-debounce path.
+
+config:
+  set:
+    pid.enabled: true
+    safety.emergency_temp: 150.0
+    safety.emergency_hysteresis: 5.0
+    hardware.sensors.watertank.enabled: true
+
+stimuli:
+  # Two readings over the threshold: the debounce counter is at 2 and the
+  # machine is still running.
+  - { at_ms: 0,    kind: sensor, temperature_c: 152.0, water_tank_full: true }
+  - { at_ms: 400,  kind: sensor, temperature_c: 152.0, water_tank_full: true }
+  # The third: the latch closes.
+  - { at_ms: 800,  kind: sensor, temperature_c: 152.0, water_tank_full: true }
+
+capture:
+  state_transitions: true
+  effects: true
+
+assert:
+  - { kind: visited_states, value: [EMERGENCY_STOP] }
+  - { kind: always, effect: EmergencyShutdown }
+  # After the trip nothing may be energised, ever.
+  - { kind: never, effect: EnablePump, after_ms: 800 }
+  - { kind: never, effect: OpenWaterValve, after_ms: 800 }
+  - { kind: never, effect: EnableHeater, after_ms: 800 }
+  - { kind: count, effect: EmergencyShutdown, min: 1 }

@@ -25,7 +25,8 @@ Read in this order.
 | 07 | [Image size budget](./07-image-size-budget.md) | The 154 KiB problem, the rebalance arithmetic, the drop order, and the per-gate size report. |
 | 08 | [Recovered oracle](./08-recovered-oracle.md) | A complete Rust firmware that previously ran on this board, recovered from a flash dump. Source is gone; design decisions, partition table, config schema and safety design are the only surviving record. |
 | 09 | [C++ findings](./09-cpp-findings.md) | Every bug and ambiguity found in the C++ while porting it, each pinned by a named parity test — and which of them have since been closed on purpose. |
-| — | [**Intentional divergences**](./intentional-diffs.md) | Where the Rust firmware **deliberately differs** from the C++ it replaces, why, and the test that pins each one. A parity diff here is expected, not a regression. Start here when a diff appears. |
+| 10 | [Parity scenario format](./10-scenario-format.md) | The declarative format `just parity` replays: the seven stimulus kinds, what is captured, and what an assertion can claim. Read this before adding a scenario. |
+| — | [**Intentional divergences**](./intentional-diffs.md) | Where the Rust firmware **deliberately differs** from the C++ it replaces, why, and the test that pins each one. A parity diff here is expected, not a regression. Start here when a diff appears. Carries the machine-readable `ledger` blocks `just parity` classifies diffs against. |
 
 Execution guidance lives in the agent skill:
 [`../../.agents/skills/esp32-rust-migration/SKILL.md`](../../.agents/skills/esp32-rust-migration/SKILL.md).

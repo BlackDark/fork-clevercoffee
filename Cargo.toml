@@ -22,6 +22,20 @@ members = [
     "crates/cc-hal-esp32",
     "crates/cc-provisioning",
     "crates/cc-firmware",
+    # DEVICE-ONLY TOOL, deliberately outside `default-members`: the on-target
+    # unit test runner (`just test-esp32`). It exists because `cc-hal-esp32`
+    # cannot be tested by `cargo test` -- it names `esp_idf_hal` -- so its
+    # `#[test]` functions were type-checked and never run. Not in `host_crates`
+    # for the same reason `cc-firmware` is not: it does not compile for a host
+    # target. It is NEVER flashed as the firmware.
+    "crates/cc-device-tests",
+    # HOST-ONLY TOOL, deliberately outside `default-members`. This is the
+    # `just parity` runner: it drives `cc-machine`'s reducer in process on the
+    # build machine with a recording `Actuators` standing in for the GPIO. It is
+    # a `std` crate that no device crate depends on, so it can never reach a
+    # pin, and it is not in `host_crates` because `just test` is the firmware's
+    # test suite, not the harness's. Test it with `cargo test -p cc-parity`.
+    "crates/cc-parity",
 ]
 # `cargo test` / `cargo clippy` with no `-p` must not try to build the device
 # crates on the host (05 §4, 04 §6 "What compiles and tests on the host").
@@ -67,7 +81,21 @@ esp-idf-hal = "=0.47.0"
 esp-idf-sys = "=0.38.1"
 # `log` output is routed to UART0 by esp-idf-svc's own logger when its `log`
 # feature is on, so no extra logger crate is needed.
+# Already a transitive dependency of `esp-idf-svc`; named directly because
+# `cc-hal-esp32` constructs `heapless::String`s for the `embedded-svc` Wi-Fi
+# configuration types. No new download.
+heapless = { version = "0.9", default-features = false, features = ["alloc"] }
 log = { version = "0.4", default-features = false }
+
+# Test-only. `cc-hal-esp32`'s unit tests build a fake `embedded_io::Read` for the
+# telnet pump and parse its own JSON response bodies; neither is needed by the
+# shipped library, so both live in `[dev-dependencies]`. Both are already in the
+# tree — `embedded-io` under `esp-idf-hal` (pinned to the same 0.7.1 the
+# `Read`/`ErrorType` traits come from, so the fake reader implements *that*
+# trait, not a second copy of it), and `serde_json` under `cc-config`. Neither
+# adds a download to the device build; `[dev-dependencies]` are not linked into
+# `cargo build --release`.
+embedded-io = "0.7.1"
 
 # The `esp` toolchain is a nightly fork, so the device build runs on the
 # unstable channel's lints. `-D clippy::pedantic` is declared HERE and nowhere

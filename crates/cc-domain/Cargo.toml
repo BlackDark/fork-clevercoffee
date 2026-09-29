@@ -7,5 +7,16 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+# `cc-domain` has NO dependency on by default -- it is the crate a reviewer
+# reads to be certain nothing influences a safety verdict (04 §6). This one is
+# off by default and exists solely so `Secret<T>` can be transparent to
+# serialisation, which `cc-config` needs to round-trip its four credential
+# fields through the NVS blob. See `src/secret.rs`.
+serde = ["dep:serde"]
+
+[dependencies]
+serde = { workspace = true, optional = true }
+
 [lints]
 workspace = true

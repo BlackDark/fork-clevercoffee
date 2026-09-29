@@ -1,18 +1,15 @@
 //! A string that refuses to print itself.
 //!
-//! Skill rule 7: "Never put a credential anywhere it can leak. Not in source,
-//! not in a command-line argument, not in a log, not in a commit, not in an
-//! unencrypted example file." The cheapest place to enforce that is the type:
-//! if a password's `Debug` and `Display` print `[redacted]`, then it cannot be
-//! logged by accident, no matter how the log statement is written.
+//! **The type now lives in `cc-domain`** — see
+//! [`cc_domain::secret`] for the full rationale, which is mostly about the
+//! fifth credential-bearing field (the UART provisioning password, R3-12) that
+//! does not live in a `Config` at all.
 //!
-//! `Secret<T>` is **transparent to serialisation** — it writes and reads the
-//! inner value unchanged, so a `Config` containing secrets round-trips through
-//! the store and the web API exactly as the plain values would. That is
-//! deliberate and is the one thing this type does *not* protect against: the
-//! stored blob and the `/api/config/download` response contain the plaintext
-//! credentials, because the machine has to be able to use them. Redaction is
-//! for *diagnostics*, not for storage.
+//! This module re-exports it so that `cc_config::Secret` — the path
+//! `cc-config`'s own `Config` API uses, and the path its documentation and
+//! tests refer to — keeps working unchanged. The `serde` impls are enabled
+//! here, because a `Config` has to round-trip through the store and the web
+//! API with its credentials intact.
 //!
 //! ```
 //! extern crate alloc;
@@ -27,85 +24,10 @@
 //! assert_eq!(wifi_password.expose(), "hunter2");
 //! ```
 
-use core::fmt;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
-/// The text every redacted value renders as.
-pub const REDACTED: &str = "[redacted]";
-
-/// A value that must not appear in diagnostics.
-///
-/// See the module documentation for what this does and does not protect.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
-pub struct Secret<T>(T);
-
-impl<T> Secret<T> {
-    /// Wrap a value.
-    pub const fn new(value: T) -> Self {
-        Self(value)
-    }
-
-    /// Read the value.
-    ///
-    /// Named `expose` rather than `get` or `value` so that every read is
-    /// greppable. A reviewer can then find every place a credential leaves the
-    /// `Secret`, and there are only a handful.
-    pub fn expose(&self) -> &T {
-        &self.0
-    }
-
-    /// Read the value for the Wi-Fi / MQTT / HTTP client that needs it.
-    pub fn expose_mut(&mut self) -> &mut T {
-        &mut self.0
-    }
-
-    /// Replace the value.
-    pub fn set(&mut self, value: T) {
-        self.0 = value;
-    }
-
-    /// Discard the value and take the inner type.
-    pub fn into_inner(self) -> T {
-        self.0
-    }
-
-    /// Apply a function to the inner value.
-    pub fn map<U>(self, f: impl FnOnce(T) -> U) -> Secret<U> {
-        Secret(f(self.0))
-    }
-}
-
-/// Always `[redacted]`, whatever `T` is.
-impl<T> fmt::Debug for Secret<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(REDACTED)
-    }
-}
-
-/// Always `[redacted]`, whatever `T` is.
-impl<T> fmt::Display for Secret<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(REDACTED)
-    }
-}
-
-/// Transparent: the inner value is written as-is.
-impl<T: Serialize> Serialize for Secret<T> {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        self.0.serialize(serializer)
-    }
-}
-
-/// Transparent: the inner value is read as-is.
-impl<'de, T: Deserialize<'de>> Deserialize<'de> for Secret<T> {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        T::deserialize(deserializer).map(Self)
-    }
-}
+pub use cc_domain::secret::{Secret, REDACTED};
 
 #[cfg(test)]
 mod tests {
-    // `#![no_std]` means the prelude has no `format!`, `String` or `Vec`.
     use alloc::{format, string::String};
 
     use super::*;
@@ -146,6 +68,9 @@ mod tests {
 
     #[test]
     fn serialisation_is_transparent() {
+        // This is the one property the re-export does NOT inherit for free: the
+        // `serde` feature of `cc-domain` has to be on, or the config blob would
+        // not round-trip its four credential fields.
         let s = Secret::new(String::from("hunter2"));
         let json = serde_json::to_string(&s).unwrap_or_default();
         assert_eq!(json, "\"hunter2\"");

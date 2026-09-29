@@ -1,0 +1,61 @@
+# S9 — the Wi-Fi watchdog suspension.
+#
+# A Wi-Fi connect blocks for up to 10 s and the provisioning portal for up to
+# 60 s. The 5 s TWDT would fire in both cases, so the watchdog is suspended
+# around them (`SystemInitializer.cpp:816-830`). Without the suspension the
+# device reboots in a loop and never joins the network — which is a *liveness*
+# failure, not a safety one, and is why it is easy to leave unhandled.
+#
+# SAFETY: nothing here energises an actuator. The scenario's only interaction
+# with the machine is the HTTP API and the serial log.
+name: wifi_connect_does_not_reboot
+title: The device stays reachable across a Wi-Fi reconnect, and the watchdog never fires
+mode: hardware
+covers: [S9, S7]
+
+why: >
+  S9 and S7. `Test_support.h`'s TWDT stub is a host test of the *stub*, not of
+  the firmware, so the only way to know the watchdog is genuinely suspended
+  around the connect is to make the device reconnect and watch it survive.
+
+  The observable is `/api/health` answering continuously and no
+  `task_wdt`/`interrupt wdt` line in the log. ESP-IDF's interrupt watchdog is
+  300 ms on the original ESP32, which is a separate and tighter budget than the
+  5 s task watchdog — and it is the one that caught the LEDC carrier during
+  R1-07 (09 §17), so the log is checked for both.
+
+  A 10 s connect is 2× the 5 s TWDT, so an unsuspended watchdog **must** fire.
+  That is what makes this a test rather than a wait.
+
+config:
+  set:
+    pid.enabled: false
+    hardware.sensors.watertank.enabled: true
+# The SSID and password are NOT set here. A scenario file is a git-tracked
+# artifact and a credential in one is a leak that outlives every later cleanup;
+# the parser refuses the four credential keys outright. The device keeps its own
+# credentials in NVS, which is where they belong.
+
+duration_ms: 45000
+stimuli:
+  - { at_ms: 0, kind: rest }
+  # Long enough for the boot, the association and one connect attempt to have
+  # completed twice over.
+
+capture:
+  state_transitions: true
+  effects: false
+  endpoints:
+    - /api/health
+    - /api/status
+  log_patterns:
+    - "Entering state"
+    - "task_wdt"
+    - "interrupt wdt"
+    - "Task watchdog got triggered"
+    - "WiFi"
+
+assert:
+  - { kind: http, path: /api/health, expect: {} }
+  - { kind: final_state, value: PID_DISABLED }
+  - { kind: actuator_safe }

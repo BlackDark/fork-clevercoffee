@@ -1,0 +1,54 @@
+# S8 — an OTA session from idle.
+#
+# The gap 01 §6 records: while `OTA::isActive()`, `LoopManager::update()`
+# returns early (`LoopManager.cpp:128-132`), so the state machine does not run
+# and the pump and valve are not driven. `OTA::beginSession()` disables the
+# heater and stops timer 1 (`SystemInitializer.cpp:54-59`) and nothing else.
+name: ota_start_from_idle
+title: An OTA session from idle leaves the heater, pump and valve off for the whole flash
+mode: dry_run
+covers: [S8]
+
+# The session is closed explicitly at 20 s, so the assertions cover the whole
+# flash window and then the loop resuming.
+duration_ms: 26000
+
+why: >
+  S8. From idle the C++'s `disableHeater()` happens to be sufficient, which is
+  why the gap went unnoticed: the gap is only reachable from a state that had
+  something running. `ota_start_during_brew` is the scenario that exposes it.
+
+  The port's requirement (01 §6, R3-15) is `safe_hardware_shutdown()` — pump,
+  valve **and** heater — not `disable_heater()`. Asserted here as a negation
+  because the expected Rust answer and the C++'s differ for the reachable case;
+  from idle they agree, and this scenario is the control for that.
+
+  The assertions are per-actuator rather than `actuator_safe` because the
+  session is still open at the end of the run, and the machine is inside it.
+
+config:
+  set:
+    pid.enabled: true
+    hardware.sensors.watertank.enabled: true
+
+stimuli:
+  - { at_ms: 0,     kind: sensor, temperature_c: 95.0, water_tank_full: true }
+  - { at_ms: 500,   kind: ota, action: begin, path: firmware.bin }
+  - { at_ms: 20000, kind: ota, action: end }
+
+capture:
+  state_transitions: true
+  effects: true
+
+# The window is the session: 500 ms to 20 s. The `never` assertions are bounded
+# on both sides because after `ota: end` the machine is *supposed* to resume —
+# an unbounded `never` would fail on correct behaviour six seconds after the
+# thing it is about.
+assert:
+  - { kind: always, effect: SafeHardwareShutdown }
+  - { kind: never, effect: EnablePump, after_ms: 500, before_ms: 20000 }
+  - { kind: never, effect: OpenWaterValve, after_ms: 500, before_ms: 20000 }
+  - { kind: never, effect: EnableHeater, after_ms: 500, before_ms: 20000 }
+  - { kind: never, effect: SetHeaterDuty, after_ms: 500, before_ms: 20000 }
+  # And nothing was left running when the session closed.
+  - { kind: no_fluid_flow }

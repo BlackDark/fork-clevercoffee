@@ -7,6 +7,17 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+# Compiles this crate's `#[test]` functions as ordinary `pub fn`s and publishes
+# them through `device_tests::CASES`, so the on-target runner
+# (`just test-esp32`, crate `cc-device-tests`) can call them.
+#
+# NEVER enabled by the shipped `firmware` binary: `cargo build --release -p
+# cc-firmware` does not name it, so the release image is unchanged. Enabling it
+# makes the test modules `pub`, which is a link-time-only difference the
+# optimiser removes anyway, but the point is that it is never on.
+device-tests = []
+
 [dependencies]
 cc-domain.workspace = true
 cc-config.workspace = true
@@ -14,7 +25,30 @@ cc-machine.workspace = true
 esp-idf-hal.workspace = true
 esp-idf-svc.workspace = true
 esp-idf-sys.workspace = true
+# `heapless` is the string type the `embedded-svc` configuration structs use --
+# `ClientConfiguration::ssid` is a `heapless::String<32>` and
+# `DHCPClientSettings::hostname` a `heapless::String<30>`. It is already in the
+# tree as a transitive dependency of `esp-idf-svc`, so naming it directly adds
+# no new download to the device build.
+heapless.workspace = true
 log.workspace = true
+
+# Used ONLY by this crate's own `#[test]` functions, but they must be regular
+# dependencies, not `[dev-dependencies]`: the on-target runner
+# (`crates/cc-device-tests`, `just test-esp32`) compiles this crate as an
+# ordinary library with `--features device-tests`, and Cargo does not link
+# `[dev-dependencies]` into that. The alternative -- keeping them as dev-deps and
+# duplicating the tests behind `#[cfg(feature = "device-tests")]` -- would mean
+# two copies of every assertion, which is the failure mode this whole harness
+# exists to remove.
+#
+# Neither adds anything to the shipped image: `embedded-io` is already in the
+# graph under `esp-idf-hal` (and must be the SAME version, because `Read`'s
+# supertrait is that crate's `ErrorType` and a second copy would be a different
+# trait) and `serde_json` is already in the graph under `cc-config`. Nothing in
+# the firmware's own code names either, so the linker drops both.
+embedded-io.workspace = true
+serde_json.workspace = true
 
 [lints]
 workspace = true

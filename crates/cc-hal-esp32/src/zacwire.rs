@@ -109,72 +109,19 @@ pub const IDLE_POLL_US: u32 = 1_000;
 /// last bits of a transmission that started late.
 pub const BURST_HOLD_US: u32 = 3_000;
 
-/// The microsecond clock, the one `unsafe` in this file.
+/// The microsecond clock.
 ///
-/// # Why this is `unsafe`, and why it is the only `unsafe` here
-///
-/// The workspace denies `unsafe_code` and this is a deliberate, narrow
-/// exception — **it needs a human to ratify it, and the alternative is not
-/// implementing the device side of this driver at all.**
-///
-/// `esp_timer_get_time()` (`components/esp_timer/include/esp_timer.h:223`) is
-/// declared:
-///
-/// ```c
-/// /// @brief Get time in microseconds. This function may be called from
-/// /// any ISR or task with the following restrictions:
-/// /// ...
-/// int64_t esp_timer_get_time(void);
-/// ```
-///
-/// Its own documentation says it may be called from any task or ISR, takes no
-/// arguments, allocates nothing, takes no lock that could deadlock, and has no
-/// preconditions to uphold. It is a read of the APB-backed timer register plus a
-/// software accumulator. **The `unsafe` here is the FFI boundary, not a
-/// contract this file can break.**
-///
-/// The alternatives were checked and are all worse:
-///
-/// * calling it from a C shim would be the same `unsafe` in a different file;
-/// * a `GPTimer` read (`gptimer_get_raw_count`) is also `unsafe` FFI and gives a
-///   24-bit wrapping count that has to be differenced by hand — strictly more
-///   code for strictly less precision;
-/// * `std::time::Instant` is not usable here: `esp-idf-sys` 0.38.1 ships no
-///   `std` shim of its own (`src/` has `alloc.rs`, `stdio.rs`, `start.rs` and
-///   nothing time-related), and this target's `std` does not document a clock.
+/// Re-exported from [`crate::time`], which is where the workspace's two clock
+/// and heap `unsafe` calls live and where the reasoning for them is written
+/// out once. This module used to own the function; moving it means the `unsafe`
+/// is in one place rather than two, and that the `ZACwire` driver and the network
+/// tier's timeouts provably use the *same* clock — which matters because the
+/// `ZACwire` ring packs an edge timestamp beside its level in one `AtomicU32` and
+/// a second, differently-truncated clock would not compose with it.
 ///
 /// 1 µs resolution against the app note's 7.8 µs requirement is **7.8x margin**,
 /// and against the 62.5 µs decision boundary it is 1.6 %.
-///
-/// The low 31 bits are kept, because that is what
-/// [`EdgeRing`](cc_domain::sensor::tsic306::ring::EdgeRing) packs alongside the
-/// level in one `AtomicU32` — the original ESP32 has no `AtomicU64`. The 35.8
-/// minute wrap is harmless and the argument is in that module's docs.
-#[allow(
-    unsafe_code,
-    clippy::cast_possible_truncation,
-    reason = "esp_timer_get_time() is a no-precondition, ISR-safe ESP-IDF \
-              function and this HAL exposes no safe clock. See this function's \
-              docs; the exception needs a human to ratify it."
-)]
-#[must_use]
-pub fn now_us() -> u32 {
-    // Truncating a `u64` microsecond count to `u32` wraps every ~71.6 minutes.
-    // That is not a defect for a decoder that only ever looks at differences
-    // across a 2.75 ms burst, and it is stated rather than hidden: the ring's
-    // `Edge::at_us` is a `u32` and every subtraction in `decode_frame` is
-    // `saturating_sub`, so a wrap inside a burst — which cannot happen at 125 µs
-    // per bit — would only ever *reject* a frame, never mis-decode one.
-    let micros = unsafe { esp_idf_svc::sys::esp_timer_get_time() };
-    // The count is non-negative by contract, so only the width is lost.
-    #[allow(
-        clippy::cast_sign_loss,
-        reason = "esp_timer_get_time() is documented as returning a non-negative \
-                  microsecond count"
-    )]
-    let low_31 = (micros as u32) & 0x7FFF_FFFF;
-    low_31
-}
+pub use crate::time::now_us;
 
 /// What the sampler is currently doing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

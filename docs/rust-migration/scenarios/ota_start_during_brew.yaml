@@ -1,0 +1,70 @@
+# S8 — an OTA session started while the pump is running. **The C++ gap.**
+#
+# `LoopManager::update()` returns early while `OTA::isActive()`
+# (`LoopManager.cpp:128-132`), so nothing drives the pump or the valve for the
+# duration of a ~25 s flash. `OTA::beginSession()` calls `disableHeater()` and
+# `disableTimer1()` (`SystemInitializer.cpp:54-59`) and stops there. The design
+# assumes the previous state's `onExit` already cleaned up — which it did, at
+# the moment the *brew* ended, not at the moment the flash began.
+name: ota_start_during_brew
+title: An OTA session during a brew closes the pump and the valve, not just the heater
+mode: dry_run
+covers: [S8, S5]
+
+duration_ms: 26000
+
+why: >
+  The scenario that makes the gap concrete. On the C++ firmware, a flash started
+  mid-brew leaves the pump and the three-way valve in whatever state the brew
+  left them for the whole transfer. On the Rust port the session performs
+  `safe_hardware_shutdown()` — pump, valve and heater — and the state machine is
+  not run for the session's duration.
+
+  So the C++ baseline for this scenario records `EnablePump` and `OpenWaterValve`
+  with no `DisablePump` / `CloseWaterValve` after them, and the Rust observation
+  does not. **That diff is the fix working**, and `intentional-diffs.md`'s
+  ledger entry for the OTA gap is what classifies it as expected rather than as a
+  regression. The scenario is the only one in the set whose expected outcome is
+  deliberately *not* the C++'s.
+
+config:
+  set:
+    pid.enabled: true
+    brew.mode: 1                       # Automatic
+    brew.pre_infusion.enabled: true
+    brew.pre_infusion.time: 3.0
+    brew.pre_infusion.pause: 0.0
+    brew.by_time.enabled: false        # a manual brew, so the switch ends it
+    hardware.switches.brew.enabled: true
+    hardware.sensors.watertank.enabled: true
+
+stimuli:
+  - { at_ms: 0,    kind: button, switch: brew, action: press }
+  - { at_ms: 100,  kind: sensor, temperature_c: 95.0, water_tank_full: true }
+  # The flash starts 1 s in, with the pump and valve open.
+  - { at_ms: 1000, kind: ota, action: begin, path: firmware.bin }
+  # The session closes while the brew switch is still held, so the machine
+  # resumes the interrupted shot. That is the point.
+  - { at_ms: 20000, kind: ota, action: end }
+
+capture:
+  state_transitions: true
+  effects: true
+
+assert:
+  # The pump and the valve were genuinely running when the flash began.
+  - { kind: always, effect: EnablePump }
+  - { kind: always, effect: OpenWaterValve }
+  # And nothing re-energises them while the session is open. Bounded at 20 s,
+  # where `ota: end` closes it: after that the machine is supposed to resume.
+  - { kind: never, effect: EnablePump, after_ms: 1000, before_ms: 20000 }
+  - { kind: never, effect: OpenWaterValve, after_ms: 1000, before_ms: 20000 }
+  - { kind: always, effect: SafeHardwareShutdown }
+  # NOT `no_fluid_flow`. The brew was a *manual* one and the brew switch is
+  # still held at 20 s, so when the session closes the machine resumes the
+  # interrupted shot and the pump comes back on. That is the C++'s behaviour
+  # too — a flash does not cancel a brew, it suspends the loop — and it is why
+  # the assertions above are windowed rather than absolute. Asserting
+  # `no_fluid_flow` here would be asserting a cancellation that neither firmware
+  # performs.
+  - { kind: always, effect: EnterState }

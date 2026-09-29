@@ -1,0 +1,57 @@
+# S3 — emergency-stop recovery.
+#
+# The latch clears only when the reading is both valid AND at or below
+# `EMERGENCY_SAFE_TEMP_C` (100 °C), and `EmergencyStopState::onExitImpl` restores
+# the runtime PID flag from config so recovery resumes heating rather than
+# leaving the machine stuck in PID_DISABLED
+# (`EmergencyStopState.cpp:24-31`).
+name: overtemp_recovery
+title: Emergency stop clears below 100 C and the runtime PID is restored from config
+mode: dry_run
+covers: [S1, S2, S3]
+
+duration_ms: 8000
+
+why: >
+  S3. `EmergencyStopManager::isEmergencyCleared`
+  (`EmergencyStopManager.cpp:71-90`) requires the reading to be plausible and
+  `<= 100.0`; the comparison is `>`, so exactly 100.0 °C clears. Between
+  `emergency_temp - hysteresis` and 100 °C the counter is left alone, which is
+  the hysteresis band that stops the machine oscillating around the threshold.
+
+  Asserted here: 120 °C is *not* enough to clear (it is in the band and above
+  the safe temperature), and 95 °C is. The recovery path matters because
+  `onExitImpl` has to restore the runtime PID or a machine that tripped once
+  would never heat again.
+
+config:
+  set:
+    pid.enabled: true
+    safety.emergency_temp: 150.0
+    safety.emergency_hysteresis: 5.0
+    hardware.sensors.watertank.enabled: true
+
+stimuli:
+  # Trip it.
+  - { at_ms: 0,    kind: sensor, temperature_c: 152.0, water_tank_full: true }
+  - { at_ms: 400,  kind: sensor, temperature_c: 152.0, water_tank_full: true }
+  - { at_ms: 800,  kind: sensor, temperature_c: 152.0, water_tank_full: true }
+  - { at_ms: 1200, kind: wait, duration_ms: 500 }
+  # 120 C: below the threshold, above EMERGENCY_SAFE_TEMP_C. Not a recovery.
+  - { at_ms: 2000, kind: sensor, temperature_c: 120.0, water_tank_full: true }
+  - { at_ms: 2400, kind: wait, duration_ms: 500 }
+  # 95 C: plausible and at or below 100. Recovery.
+  - { at_ms: 3000, kind: sensor, temperature_c: 95.0, water_tank_full: true }
+  - { at_ms: 3400, kind: wait, duration_ms: 1000 }
+
+capture:
+  state_transitions: true
+  effects: true
+
+assert:
+  - { kind: visited_states, value: [EMERGENCY_STOP, PID_NORMAL] }
+  - { kind: final_state, value: PID_NORMAL }
+  # The machine is running again, so it is not in the known-safe state. The
+  # actuator assertions are the per-actuator ones instead.
+  - { kind: always, effect: SetPidRuntime }
+  - { kind: count, effect: EnterState, min: 2 }

@@ -41,6 +41,7 @@ use cc_domain::hardware::{
 };
 use cc_domain::process::BrewMode;
 use cc_domain::system::{DisplayTemplate, Language, LogLevel};
+use cc_domain::units::Celsius;
 use serde::{Deserialize, Serialize};
 
 use crate::secret::Secret;
@@ -1218,12 +1219,20 @@ impl Default for Safety {
 /// here means those values are named in exactly one place.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SafetyView {
-    /// `safety.emergency_temp`.
-    pub emergency_temp: f64,
-    /// `safety.emergency_hysteresis`.
-    pub emergency_hysteresis: f64,
-    /// `steam.setpoint`.
-    pub steam_setpoint: f64,
+    /// `safety.emergency_temp`, as a [`Celsius`].
+    ///
+    /// A `Celsius` and not the `f64` the field holds, because the consumer is
+    /// `cc_safety::SafetyConfig`, which is `Celsius`-typed, and a `f64`-typed
+    /// view of an `f32`-typed consumer pushes a narrowing cast into the one
+    /// caller that does the conversion. Converting here makes the loss visible
+    /// and happens once: 0.01 °C at the extremes of the parameter's range.
+    pub emergency_temp: Celsius,
+    /// `safety.emergency_hysteresis`, as a [`Celsius`]. See
+    /// [`SafetyView::emergency_temp`] for why.
+    pub emergency_hysteresis: Celsius,
+    /// `steam.setpoint`, as a [`Celsius`]. See [`SafetyView::emergency_temp`]
+    /// for why.
+    pub steam_setpoint: Celsius,
     /// `hardware.relays.heater.trigger_type`.
     pub heater_relay_trigger: RelayTriggerType,
     /// `hardware.sensors.temperature.type`.
@@ -1245,11 +1254,24 @@ impl Config {
     /// configuration is discarded rather than run. See
     /// [`crate::store`] for where that wiring happens.
     #[must_use]
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "the three narrowing casts are the point of this method, and \
+                  this is the one place they happen. The `Config` fields are \
+                  `f64` because the C++ uses `double` for every non-integer \
+                  parameter (`Config.h`); `cc_safety::SafetyConfig` is \
+                  `Celsius`-typed, which is `f32`. Over the schema's ranges \
+                  (emergency_temp 120..180, emergency_hysteresis 1..15, \
+                  steam_setpoint 100..140) the loss is under 1e-5 C, which is \
+                  four orders of magnitude below the probe's 0.0625 C \
+                  resolution. Doing it here rather than in the caller is what \
+                  keeps the loss in one place and out of `cc-firmware`."
+    )]
     pub fn safety_view(&self) -> SafetyView {
         SafetyView {
-            emergency_temp: self.safety.emergency_temp,
-            emergency_hysteresis: self.safety.emergency_hysteresis,
-            steam_setpoint: self.steam.setpoint,
+            emergency_temp: Celsius::new(self.safety.emergency_temp as f32),
+            emergency_hysteresis: Celsius::new(self.safety.emergency_hysteresis as f32),
+            steam_setpoint: Celsius::new(self.steam.setpoint as f32),
             heater_relay_trigger: self.hardware.relays.heater.trigger_type,
             temperature_sensor: self.hardware.sensors.temperature.r#type,
         }
@@ -1339,6 +1361,44 @@ impl Config {
     #[must_use]
     pub fn wifi_password(&self) -> &str {
         self.system.wifi.password.expose()
+    }
+
+    /// Store the `system.wifi.*` credential that a provisioning session captured.
+    ///
+    /// `ssid` and `password` are the two halves of one thing — a network name
+    /// without its key (or the reverse) cannot connect — so they are set
+    /// together and there is no way to write half a credential.
+    ///
+    /// An empty `password` is a **valid** value and means an open network; the
+    /// schema says so (`system.wifi.password`, *"leave empty for open
+    /// networks"*), and the machine will try to associate without a key rather
+    /// than refusing. Use [`Config::clear_wifi_credential`] to go back to
+    /// unprovisioned.
+    pub fn set_wifi_credential(&mut self, ssid: String, password: String) {
+        self.system.wifi.ssid = ssid;
+        self.system.wifi.password.set(password);
+    }
+
+    /// Forget the stored `system.wifi.*` credential.
+    ///
+    /// The machine is unprovisioned again: the next boot finds no SSID, brings
+    /// no radio up, and spawns the provisioning task. The password becomes the
+    /// empty string rather than being left dangling, because a blank `Secret`
+    /// and a `Secret` holding an old key are different states and only one of
+    /// them means "no credentials".
+    pub fn clear_wifi_credential(&mut self) {
+        self.set_wifi_credential(String::new(), String::new());
+    }
+
+    /// Whether a `system.wifi.ssid` is stored.
+    ///
+    /// The definition of "provisioned" the boot sequence uses
+    /// (04 §3.2: *"the provisioning task is only spawned when no valid
+    /// credentials exist"*), and the same predicate `POST /api/wifi-reset`
+    /// restores.
+    #[must_use]
+    pub fn is_wifi_provisioned(&self) -> bool {
+        !self.system.wifi.ssid.is_empty()
     }
 
     /// The MQTT password, for the MQTT client.

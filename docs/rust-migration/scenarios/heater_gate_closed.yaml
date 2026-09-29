@@ -1,0 +1,58 @@
+# The heater gate, closed, on the device.
+#
+# This is the hardware counterpart of `overtemp_trip`, and it is deliberately
+# *not* a hardware over-temperature test — see the note below.
+name: heater_gate_closed
+title: With the PID disabled, the heater command is zero for the whole run
+mode: hardware
+covers: [S1, S6, S7]
+
+duration_ms: 10000
+
+why: >
+  A real over-temperature on this machine needs the boiler to be at 160 °C, and
+  the only way to get there is to energise the heater. So the on-device
+  over-temperature path is **not** covered here, and pretending otherwise would
+  be the worst kind of test: it would either heat a boiler without the written
+  safe procedure R1-07 requires, or it would be named `overtemp` while checking
+  nothing.
+
+  What is covered is the part that *is* safe to check on hardware and is the
+  precondition for the trip mattering: with `pid.enabled: false` the machine
+  lands in `PID_DISABLED`, `shouldPIDBeEnabled`
+  (`ProcessController.cpp:246-248`) is false, and the heater command is zero —
+  before, during and after any of this. A regression that let a duty through
+  with the PID disabled would show up here as a non-zero `heaterPower` in
+  `/api/status`, which is the observable.
+
+  S6's arithmetic (the counter wrap and the 10 ms quantisation) is a property of
+  `cc_domain::heater`'s reference state machine, not of the reducer, and is
+  host-tested there in 13 `isr_tests`. What the reducer contributes is the
+  *bound*: `SetHeaterDuty` is 0..=1000, the chopper window
+  (`Config::HEATER_WINDOW_MS`), and never a percent.
+
+  To close S1 on hardware, someone has to write the procedure for heating a
+  boiler to 160 °C under observation, get it reviewed, and run it with a person
+  present. That is a task-list item, not a scenario.
+
+config:
+  set:
+    pid.enabled: false
+    hardware.sensors.watertank.enabled: true
+
+stimuli:
+  - { at_ms: 0,    kind: rest }
+
+capture:
+  state_transitions: true
+  effects: false
+  endpoints:
+    - /api/status
+  log_patterns:
+    - "Entering state"
+    - "heater"
+
+assert:
+  - { kind: final_state, value: PID_DISABLED }
+  - { kind: http, path: /api/status, expect: { machineState: 90, pidEnabled: false, heaterPower: 0.0 } }
+  - { kind: actuator_safe }

@@ -10,8 +10,8 @@ blocked.
 
 | Field | Value |
 | --- | --- |
-| Current phase | **Phase 1 (R1)** — R0-04, R1-01 and R1-07 executed 2026-09-28 |
-| Next task | **R1-02** (executor decision) — needs no hardware |
+| Current phase | **Phase 1 (R1)** — R0-04, R1-01, R1-07 and the R1-08 harness executed |
+| Next task | **R1-02** (executor decision) — needs no hardware. **R1-08 is not complete**: the harness and the scenario set exist and are tested; the C++ baseline is not captured, so Gate 1 is not passable and `just parity` exits non-zero saying so. |
 | Plan reviewed | 2026-09-28 by two adversarial subagents; 24 hard factual errors and 5 blocking tooling defects found and **fixed**. See 06 and 07. |
 | ADR-0004 status | **Proposed** (becomes Accepted at Gate 1) |
 | C++ baseline | `pio run -e esp32_usb` **succeeds**; `firmware.bin` = 1,546,240 B; `pio test -e native_test` = **340/340 pass** in 55 s |
@@ -58,6 +58,56 @@ Build-only spikes (R1-02, R1-04 layout, R1-05) can proceed without hardware.
 ---
 
 ## Completed tasks
+
+### R1-08 (partially) — the parity harness (2026-09-29) ⚠ baseline NOT captured
+
+The migration's correctness instrument now exists; the reference it measures against
+does not.
+
+**Built and tested:**
+
+- **The scenario format**, specified in
+  [`docs/rust-migration/10-scenario-format.md`](../../docs/rust-migration/10-scenario-format.md)
+  and implemented by `crates/cc-parity`. Seven stimulus kinds (`rest`, `wait`,
+  `button`, `sensor`, `config`, `mqtt`, `ota`), a capture spec, and nine assertion kinds.
+- **17 scenarios** in `docs/rust-migration/scenarios/`, covering S1–S11. Twelve of them
+  would energise an actuator; all twelve are `dry_run`.
+- **`scripts/parity/run.sh`**, which `just parity` calls. It runs each scenario, diffs
+  the observation against `baseline/cpp/`, classifies every diff against the ledger, and
+  exits non-zero on anything unexplained.
+- **The divergence ledger** — five `ledger` blocks inside `intentional-diffs.md`, each
+  naming a heading in the same document so the two cannot drift.
+- **71 tests** in `cc-parity` (`just parity-test`), including the required proof that a
+  synthetic **undeclared** diff makes the runner exit non-zero, and that a declared one
+  does not.
+
+**Not built, and it is the reason Gate 1 is not passable:**
+
+- `docs/rust-migration/baseline/cpp/` is **empty**. `just parity` reports every scenario
+  `BASELINE-MISSING` and exits **2**. Capturing one means flashing the **C++** image and
+  letting its control loop run against a real boiler — a reviewed safe-test procedure
+  and a human present, neither of which R1-08 had. **No baseline was fabricated.**
+- The **C++ half of a `dry_run` scenario** — driving the same stimuli through the C++
+  state machine — is R4-03's work. The Rust half, the format, the ledger and the runner
+  are done.
+
+**Two findings the harness produced before any baseline existed:**
+
+1. **The safety monitor must run on the sensor cadence, not the control loop.** Run
+   every 10 ms tick, S1's three-reading debounce trips on one reading repeated 30 times
+   in 300 ms, and the most safety-relevant timing constant in the firmware is
+   untestable. `overtemp_trip` now trips at 800 ms on the third reading, as the C++ does
+   (`Timing::TEMPERATURE_SENSOR_INTERVAL_MS` = 400 ms).
+2. **`OpenSteamValve` is never emitted by the reducer** — the steam valve is a solenoid
+   the machine cannot open by itself. The S5' whitelist therefore acts in the *close*
+   direction, and `steam_on_off` asserts that. An assertion that the valve was opened
+   would have been asserting something neither firmware does.
+
+**Do not skip the actuator-safety note when picking this up.** The dry-run safety
+property is *structural*, not a convention: `cc-parity` has no GPIO, no `cc-hal-esp32`
+in its tree, and its `Actuators` is a `Vec` of call names. Keep it that way — adding a
+device dependency to `cc-parity` would remove the only thing that lets twelve
+actuator-energising scenarios run with no machine attached.
 
 ### R0-04 — C++ baseline (2026-09-28)
 
@@ -357,6 +407,91 @@ the wear-versus-duty-resolution curve.
 * **The GPTimer fallback is not written.** `HeaterDuty` is the seam; one
   implementation exists. Writing a second implementation of an interface nobody
   has switched to is how untested code gets shipped.
+
+## R3 hardware findings (2026-09-29)
+
+Four defects found on the device during the R3 storage-and-network slice, and one
+process gap that let three of them through. All four are now fixed in the working
+tree; **nothing is committed**.
+
+1. **`app_main`'s stack is 3.5 KB and the startup sequence needs ~11 KB.** The
+   symptom is not a stack-overflow report: it is
+   `assert failed: block_trim_free tlsf_control_functions.h:548 (block must be free)`,
+   an allocator assert on corrupted DRAM, with a backtrace that names
+   `BlobConfigStore::load`. Measured with
+   `xtensa-esp32-elf-objdump --dwarf=frames` on the `diagnostic` ELF (same codegen as
+   `release`): `bring_up` 2400 B + `bring_up_config` 1584 B + the blob store's
+   load/save 3088 B + five levels of `Deserialize` ~450 B each + `f64::from_str`
+   1712 B.
+   **Fix:** the startup sequence moved to a `bring-up` task with an explicit 16 KB
+   stack (`BRING_UP_STACK_BYTES` in `crates/cc-firmware/src/main.rs`, with the
+   derivation in its doc comment). `main` is now a trampoline.
+   **Lesson worth more than the fix:** *any* task's stack must be sized from
+   `.debug_frame`, not from a feeling. `CONTROL_STACK_BYTES` (8 KB) was a guess.
+2. **The password window lasted zero milliseconds.**
+   `Session::expire_window` tested `now.wrapping_sub(opened + WINDOW) >= WINDOW`.
+   `wrapping_sub` of a *negative* difference is a number near `u32::MAX`, so the
+   condition was true on the first poll after `wifi set`. Every password line was
+   therefore parsed as a command and rejected, and UART provisioning could never
+   complete — with a success-looking `ok ssid accepted` on the console.
+   **Fix:** the rule moved to `cc_domain::provisioning::password_window_expired` and is
+   host-tested, including across the 32-bit wrap.
+3. **`/events` starves the whole HTTP server.** ESP-IDF's `httpd` is one task; the
+   `/events` handler loops inside it writing a frame per second, so with one SSE
+   client connected **every other endpoint stops answering** (measured: 150
+   consecutive `/api/parameters?filter=all` requests all timed out, and answered in
+   22–140 ms within a second of closing the stream). The C++ does **not** have this
+   problem: `AsyncEventSource` (`WebServerManager.cpp:302-319`) returns from the
+   handler on connect and pushes from the loop task, so httpd is never held.
+   → **R3-14 is not at parity.** The Rust `/events` is a pull loop where the C++ is a
+   push. `Sse::broadcast` and `cc_hal_esp32::web`'s client list are the push design and
+   are **not wired**; `network::broadcast_temps` counts a push attempt and says so.
+   Until it is, the UI and the API cannot be used at the same time.
+4. **`esp_restart()` does not flush UART0, so the last two lines before a reboot are
+   lost.** Both the provisioning task's `CCWIFI ok accepted …` reply and the control
+   task's `config: a wifi credential from the console was stored` receipt were dropped
+   by the reset that followed them. The write is queued to the UART ring; the ROM
+   reset does not drain it. → every reboot path needs a `uart_wait_tx_done` (or an
+   equivalent) before `esp_restart()`. `scripts/drive-provisioning.py` treats the
+   absence of those two lines as inconclusive for that reason.
+5. **There is no `just test-esp32`, so `cc-hal-esp32`'s unit tests never run.**
+   `just lint-esp32` compiles them (≈50 of them) and `just test` cannot build the
+   crate for a host target, so every one of them has been type-checked and never
+   executed. That is the whole story of findings 2 and 4: the window arithmetic was
+   *tested* — in a test that has never been run, by a machine that has never been
+   asked. Either add a runner recipe or move the pure logic out of the device crate
+   into `cc-domain`, where `just test` reaches it.
+
+Also recorded, and *not* fixed:
+
+* **The log mute (`LOG_MUTED`) has no consumer.** `cc_hal_esp32::provisioning` sets and
+  clears it correctly and the module documentation used to claim a log facade read it.
+  None does. On this board the framing is safe anyway — the log stream is written to
+  UART0 TX and the parser reads UART0 RX, so the firmware cannot read its own log — but
+  the moment R3-11's telnet pump lands, a log stream the machine can also *read* is a
+  real hazard and that flag is the whole of rule 5.
+* **`/api/parameters?filter=all` returns 5 of the C++'s 10 fields.** The C++
+  (`Config.h:99-109,227-236`) sends `name`, `label`, `section`, `order`, `helpText`,
+  `type`, `value`, `default`, `min`, `max`. The Rust sends `name`, `type`, `default`,
+  `min`, `max` — **`value` is missing, and it is the field the UI renders.**
+  `cc_config::schema::ParamSpec` carries no `label`/`section`/`order`/`helpText`, and
+  the live `Config` needed for `value` is already in `Web::start`. → R3-14 parity work.
+* **`Sse::sent` / `Sse::dropped` are counted but not exposed**, so the soak numbers in
+  the R3 report are client-side. `/api/nvs-debug` is the obvious home.
+* **`/api/status` cannot see the radio.** `telemetry_from(reading, uptime, wifi)` takes
+  an `Option<&Sta>` and the control task always passes `None` — it has no `Sta`
+  handle, which is the point of 04 §3.2. Measured: the machine was associated at
+  RSSI −53 dBm, signal 3/4, IP `10.0.1.168`, and `/api/status` reported
+  `wifiAssociated: false, wifiSignal: 0, ip: null`. The radio has to publish its own
+  numbers into `Shared` (which `with_wifi` already knows how to merge); the
+  alternative — handing the control task a `&Sta` — is exactly the coupling 04 §3.2
+  forbids.
+* **`objdump -d` is unusable for 09 §22 on this image.** `.flash.text` opens on a data
+  table, objdump loses instruction sync and prints raw words for the next 275 KB —
+  including `TimerDriver::handle_isr`, the heater's ISR body. A grep over that output
+  reports "zero FP instructions" for a function it never decoded. Extract each symbol's
+  own bytes and disassemble them as `-b binary` instead. **Re-run §22 with that method
+  before trusting any future FPU result.**
 
 ## Findings to carry forward
 

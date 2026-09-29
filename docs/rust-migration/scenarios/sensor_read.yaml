@@ -1,0 +1,56 @@
+# A real sensor read, on the device.
+#
+# The DS18B20 on this machine is a genuine 11-bit 1-Wire probe, and the driver
+# has four ways to fail that the reducer cannot see: no presence pulse, a CRC
+# error, a short read, and a reading outside `isValidTemperature`'s range
+# (`TempSensor.h:91-93`, which the C++ never calls — 09 §18).
+#
+# SAFETY: PID is disabled, so the heater command is zero. A sensor read cannot
+# energise anything by itself, and with the heater gated it cannot cause the
+# heater to be commanded.
+name: sensor_read
+title: The fitted probe produces a plausible reading and no fault
+mode: hardware
+covers: [S1, S7]
+
+duration_ms: 8000
+
+why: >
+  S1's input. `TempSensor::updateTemperature` (`TempSensor.h:31-54`) reads on a
+  400 ms cadence and the DS18B20 needs ~375 ms for an 11-bit conversion, so a
+  plausible reading has to appear within a second or the cadence is wrong.
+
+  The temperature value itself is **not** asserted numerically. It depends on
+  the boiler, the ambient temperature and the probe, none of which two runs
+  share; asserting a number would make the scenario fail on a warm day. What is
+  asserted is the *shape*: a number came back, and the machine did not fault.
+
+  The `isValidTemperature` range is the C++'s own, −50..150 °C, and the port now
+  applies it (09 §18, `intentional-diffs.md` #8). A reading outside it arrives as
+  a read failure and, after ten of them, as `SENSOR_ERROR`.
+
+config:
+  set:
+    pid.enabled: false
+    hardware.sensors.temperature.type: 0   # 0 = DALLAS_DS18B20
+    hardware.sensors.watertank.enabled: true
+
+stimuli:
+  - { at_ms: 0,    kind: rest }
+
+capture:
+  state_transitions: true
+  effects: false
+  endpoints:
+    - /api/status
+    - /api/temperatures
+  log_patterns:
+    - "Temperature"
+    - "Entering state"
+
+assert:
+  - { kind: http, path: /api/status, expect: { machineState: 90, pidEnabled: false } }
+  # The endpoint answers 200 with a temperature key, and no fault state was
+  # reached — asserted by the absence of SENSOR_ERROR in the state list.
+  - { kind: not_visited, value: [SENSOR_ERROR, EMERGENCY_STOP, EEPROM_ERROR] }
+  - { kind: actuator_safe }

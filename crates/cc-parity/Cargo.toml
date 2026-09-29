@@ -1,0 +1,38 @@
+[package]
+name = "cc-parity"
+description = "The parity scenario harness: run a scenario, observe it, diff against the C++ baseline."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# HOST ONLY. This crate is the `just parity` runner: it drives `cc-machine`'s
+# reducer in process on the build machine, with a recording `Actuators`
+# implementation standing in for the GPIO. It is deliberately NOT a member of
+# `default-members` and NOT in the justfile's `host_crates`, because it is a
+# tool rather than a library the firmware links.
+#
+# It is listed in `members` so that `cargo build -p cc-parity` and
+# `cargo test -p cc-parity` work, and it is excluded from every device build by
+# being a `std` crate that no device crate depends on.
+[dependencies]
+cc-domain.workspace = true
+cc-safety.workspace = true
+cc-machine.workspace = true
+cc-config.workspace = true
+serde = { workspace = true }
+serde_json = { workspace = true }
+# `serde_yaml` itself is deprecated and unmaintained since 2024; `serde_yaml_ng`
+# is the drop-in maintained fork with the same API surface. The scenario files
+# are hand-written YAML because they are read and reviewed by humans as well as
+# by the runner, and a JSON scenario file with 12 stimuli is unreviewable.
+serde_yaml_ng = "0.10"
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+# The end-to-end tests spawn the real binary (`CARGO_BIN_EXE_cc-parity`) and
+# parse its JSON, so `serde_json` and the crate itself are needed under `test`.
+serde_json = { workspace = true, features = ["std"] }

@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-cc-domain.workspace = true
+cc-domain = { workspace = true, features = ["serde"] }
 # The configuration value is serialised to/from the single NVS blob. See the
 # crate docs for why the key type is `&'static str` rather than a heapless
 # string and why the text fields are `alloc::string::String`.

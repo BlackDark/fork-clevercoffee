@@ -1,0 +1,46 @@
+# S1 — the no-debounce path.
+#
+# `EmergencyStopManager::checkEmergencyConditions` (`EmergencyStopManager.cpp:25-30`)
+# tests the range *before* the debounce counter, and the comment says why:
+# "no debouncing for safety". A probe reporting 222 °C is a faulted sensor, not a
+# temperature, and three samples of it would take 1.2 s during which a 2 kW
+# boiler is still being told to heat.
+name: overtemp_invalid_reading
+title: An implausible reading trips emergency stop immediately, with no debounce
+mode: dry_run
+covers: [S1, S2]
+
+duration_ms: 4000
+
+why: >
+  The half of S1 the debounce does not cover. 221 and 222 are the TSIC-306's
+  fault sentinels (`TempSensorTSIC.cpp`) and a NaN is a faulted DS18B20. None of
+  them is a temperature, so none of them may be debounced.
+
+  The opposite direction matters too and is asserted here: a reading exactly on
+  the boundary of `Celsius::MIN..=Celsius::MAX` is *inside* the range and must
+  not trip on its own.
+
+config:
+  set:
+    pid.enabled: true
+    safety.emergency_temp: 150.0
+    safety.emergency_hysteresis: 5.0
+    hardware.sensors.watertank.enabled: true
+
+stimuli:
+  # A healthy machine.
+  - { at_ms: 0,    kind: sensor, temperature_c: 95.0, water_tank_full: true }
+  - { at_ms: 400,  kind: wait, duration_ms: 500 }
+  # The DS18B20's "not connected" sentinel. One sample, no debounce.
+  - { at_ms: 1000, kind: sensor, temperature_c: 222.0, water_tank_full: true }
+
+capture:
+  state_transitions: true
+  effects: true
+
+assert:
+  - { kind: visited_states, value: [PID_NORMAL, EMERGENCY_STOP] }
+  - { kind: always, effect: EmergencyShutdown }
+  - { kind: never, effect: EnableHeater, after_ms: 1000 }
+  - { kind: never, effect: EnablePump, after_ms: 1000 }

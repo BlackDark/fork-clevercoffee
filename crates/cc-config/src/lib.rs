@@ -28,17 +28,20 @@
 //!   in the oracle (08 §3: 2071 bytes, unencrypted). They are plaintext here
 //!   too — the machine has to be able to *use* them — but wrapped in
 //!   [`Secret`] so that no log line, `Debug` dump or panic message can print
-//!   one.
+//!   one. The type itself now lives in `cc-domain`, because the UART
+//!   provisioning parser (R3-12) has a fifth credential that is not part of a
+//!   `Config` at all.
 //!
 //! # What is deliberately different
 //!
 //! | # | Change | Why |
 //! | --- | --- | --- |
 //! | 1 | `safety.emergency_temp` and `safety.emergency_hysteresis` are registered | The C++ defines them, reads them, and never registers them, so they reset on every reboot. Finding 1 of 01 §10. |
-//! | 2 | One JSON blob instead of 98 FNV-1a-hashed NVS keys | Atomic, readable, and 1/98th of the NVS traffic. 08 §6. |
+//! | 2 | One JSON blob instead of 98 FNV-1a-hashed NVS keys | Atomic, readable, and 1/98th of the NVS traffic. 08 §6. [`blob_store`] |
 //! | 3 | A bad value rejects the whole import | The C++ logs a warning and continues, then reports success. |
 //! | 4 | Text parameters have one storage-length bound | The C++ has eight length constants and checks none of them. See [`json`]. |
 //! | 5 | Credentials redact in `Debug`/`Display` | Skill rule 7. |
+//! | 6 | A C++-written NVS is ignored, not migrated | Decided 2026-09-28. See [`blob_store`]. |
 //!
 //! Cross-parameter safety validation lives in `cc-safety`
 //! (`validate_config` / `load_or_default`), not here, because `cc-config` may
@@ -70,12 +73,16 @@ use cc_domain::hardware::{
 use cc_domain::process::BrewMode;
 use cc_domain::system::{DisplayTemplate, Language, LogLevel};
 
+pub mod blob_store;
 pub mod config;
+pub mod discovery;
+pub mod form;
 pub mod json;
 pub mod schema;
 pub mod secret;
 pub mod store;
 
+pub use blob_store::{BlobBackend, BlobConfigStore, KEY as NVS_KEY, NAMESPACE as NVS_NAMESPACE};
 pub use config::Config;
 pub use json::{json_export, json_import, ImportError};
 pub use schema::{ParamKind, ParamSpec, ParamValue, SCHEMA};
