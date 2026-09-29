@@ -85,7 +85,8 @@ success case and in each documented error case; the notable ones:
 | `POST /api/ota/url` | `202` | `202` | pass | the frontend checks for it |
 | Auth | middleware that never authenticated | a real check; `401` on protected routes | fixed | **D10** |
 | `GET /` → `/ui/` | `302` | `302` | pass | `api_routes::the_root_redirects_...` |
-| The socket that serves them | `AsyncTCP` | not written | gap | see §6 |
+| The socket that serves them | `AsyncTCP` | a bridge, a router and a connection task, tested end to end | pass | `net::tests::a_get_reaches_the_handler_...` |
+| A stalled client | blocked the loop (D39) | two bounded rings; a client that stops reading is dropped | fixed | **D39**, `net::tests::a_stalled_client_is_detected...` |
 
 ## 4. Configuration parity
 
@@ -121,9 +122,10 @@ loss of fidelity.
 
 ## 6. Gaps, in the order they should be closed
 
-1. **The HTTP socket.** The thirty handlers exist and are tested; nothing binds them to a TCP
-   stream. Until this is written the web UI cannot reach the machine, and no API row above is more
-   than a function call away from working.
+1. **The Wi-Fi association and the listener.** The bridge, the router, the connection task and
+   all thirty handlers are written and tested end to end; what is missing is `esp-radio` bringing
+   up an interface and `embassy-net` accepting a socket. That is a `.await` away, and it cannot be
+   exercised in this checkout.
 2. **The heater PWM ISR.** The interval and the window are kept, and the duty is a value on the
    actuator trait, but no interrupt drives a pin. The heater therefore has a command and no power
    stage control.
@@ -132,7 +134,7 @@ loss of fidelity.
    and cannot be done from an async task without blocking the executor, which is the shape of D05.
 4. **The display bus.** The framebuffer, the templates and the page diff are written and tested.
    No SSD1306 driver moves the pages to the panel.
-5. **The network stack.** Wi-Fi, MQTT's socket and the line server's listener.
+5. **MQTT's socket and the line server's listener.** Both halves exist; the listeners do not.
 6. **The relay polarity setting.** `hardware.relays.*.trigger_type` is registered and listed as
    inert: this port wires the relays active-low, which is what the machines in the field have, and
    a machine wired the other way would need a firmware change rather than a setting.

@@ -34,6 +34,7 @@
 #![no_std]
 
 pub mod config;
+pub mod net;
 pub mod sensors;
 
 use embassy_time::{Duration, Timer};

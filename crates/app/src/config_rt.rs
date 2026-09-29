@@ -494,7 +494,7 @@ mod tests {
     fn doc_with(pairs: &[(&str, DocValue)]) -> ResolvedDoc {
         let mut d = ResolvedDoc::new();
         for (k, v) in pairs {
-            d.insert(k, v.clone());
+            d.insert(k, *v);
         }
         d
     }

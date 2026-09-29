@@ -15,6 +15,8 @@
 //! - [`config_rt`] turns a validated configuration document into the values the machine reads.
 //! - [`sensors`] reads each driver on its own period and hands the machine one snapshot a tick.
 //! - [`api`] implements the thirty routes of `api-contract.md` as pure functions.
+//! - [`net`] joins those handlers to a connection, over a bounded bridge that a stalled client
+//!   cannot turn into a stalled control loop.
 //! - [`prov`] is the device half of the provisioning protocol.
 //! - [`mqtt`] is the typed parser and the Home Assistant discovery generator.
 //! - [`log`] is the bounded ring buffer and the line server.
@@ -40,6 +42,7 @@ pub mod config_rt;
 pub mod log;
 pub mod machine;
 pub mod mqtt;
+pub mod net;
 pub mod prov;
 pub mod sensors;
 pub mod store;

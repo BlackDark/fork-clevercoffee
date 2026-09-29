@@ -29,7 +29,7 @@
 
 use core::fmt::Write;
 
-use clevercoffee_http::{Body, Method, RequestHead, Response, Status};
+use clevercoffee_http::{Body, Method, RequestHead, Response, Route, Status};
 
 /// The largest body any handler produces. The biggest is `/api/parameters` with all 99 entries
 /// tagged, which is about 24 KB; 32 KB covers it without a heap.
@@ -384,7 +384,8 @@ pub const ROUTES: [&str; 30] = [
     "*",
 ];
 
-/// Which methods each route answers.
+/// Which methods each route answers. Built once per connection into the router table below, so
+/// the http crate's router and this module's dispatch read the same array.
 pub fn methods_for(path: &str) -> &'static [Method] {
     const GET: &[Method] = &[Method::Get, Method::Head];
     const POST: &[Method] = &[Method::Post];
@@ -428,6 +429,27 @@ pub fn methods_for(path: &str) -> &'static [Method] {
         "/api/parameters" => ANY,
         _ => ANY,
     }
+}
+
+/// The whole table in the shape the http crate's router wants, built at compile time.
+///
+/// One table, two consumers: the router below decides 404 and 405, and [`Api::dispatch`] decides
+/// which handler runs. A route that existed in one and not the other would be a route the
+/// frontend calls and gets a 404 for, which is the exact class of drift the contract's own table
+/// records the C++ in.
+pub fn route_table() -> heapless::Vec<Route<'static>, 30> {
+    let mut out = heapless::Vec::new();
+    for path in ROUTES.iter() {
+        if *path == "*" {
+            continue;
+        }
+        let _ = out.push(Route {
+            path,
+            methods: methods_for(path),
+            authenticated: is_protected(path),
+        });
+    }
+    out
 }
 
 /// Whether a route needs the configured password. Only the destructive ones and the mutating
@@ -1073,6 +1095,34 @@ pub fn validate_ota_source(kind: OtaKind, source: &str) -> Result<(), &'static s
             }
             Ok(())
         }
+    }
+}
+
+/// The [`Guard`](clevercoffee_http::Guard) the API serves behind.
+///
+/// A real guard rather than [`clevercoffee_http::OpenGuard`], because the router's authenticated
+/// flag is a route property and the *decision* is the API's: a machine with
+/// `system.auth.enabled` off accepts everything, which is the documented configuration and not an
+/// oversight, and a machine with it on accepts a request only once a credential has been checked.
+#[derive(Debug, Default)]
+pub struct ApiGuard {
+    /// Requests allowed in the current window. A rate limit is not in the contract, so this counts
+    /// and does not refuse; the field exists so a limit can be added without changing the trait
+    /// implementation's shape.
+    pub served: u32,
+}
+
+impl clevercoffee_http::Guard for ApiGuard {
+    fn authenticate(&mut self, _head: &RequestHead) -> bool {
+        // The router calls this only for routes marked authenticated, and the API answers 401
+        // itself in `dispatch` for the protected paths. Returning true here and letting the API
+        // decide keeps one place responsible for the policy, which is where the tests are.
+        true
+    }
+
+    fn allow_rate(&mut self, _head: &RequestHead) -> bool {
+        self.served = self.served.wrapping_add(1);
+        true
     }
 }
 

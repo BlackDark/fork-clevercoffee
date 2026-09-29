@@ -115,8 +115,15 @@ pub enum Reply<'a> {
 }
 
 /// Handles one request and returns what to write.
+///
+/// The returned lifetime is tied to the handler as well as to the body, so a handler may build its
+/// response in a buffer it owns. That is the difference between a handler that can answer with a
+/// 32 KB `/api/parameters` document and one that must borrow the request, which would mean the
+/// only responses expressible are the ones that echo something. Tying the borrow to `self` rather
+/// than leaking is the whole point: a firmware that leaks a response per request is a firmware
+/// that dies after a few thousand page loads.
 pub trait Handler {
-    fn handle<'a>(&mut self, head: &RequestHead, body: &'a [u8]) -> Reply<'a>;
+    fn handle<'a>(&'a mut self, head: &RequestHead, body: &'a [u8]) -> Reply<'a>;
 }
 
 /// The read buffer size. A request head is at most a few hundred bytes and the largest body the
@@ -262,8 +269,8 @@ fn body_len(head: &RequestHead) -> usize {
 /// Applies the router, the guard and the handler, in that order.
 fn decide<'a, G: Guard, H: Handler>(
     router: &Router<'_>,
-    guard: &mut G,
-    handler: &mut H,
+    guard: &'a mut G,
+    handler: &'a mut H,
     head: &RequestHead,
     body: &'a [u8],
 ) -> Reply<'a> {

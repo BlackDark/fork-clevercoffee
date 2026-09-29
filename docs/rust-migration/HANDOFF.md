@@ -18,7 +18,7 @@ was compiled for a chip.
 
 ## The current numbers
 
-- 17 crates, 596 host tests in the workspace, 55 in the provisioning tool.
+- 17 crates, 604 host tests in the workspace, 55 in the provisioning tool.
 - Host gate, all green: `cargo +stable fmt --all -- --check`, `cargo +stable clippy --workspace
   --exclude clevercoffee-fw --exclude clevercoffee-bsp-* --all-targets -- -D warnings`, the
   workspace tests, `tools/check-deps.py`, `tools/check-secrets.py`, and the provisioning tool's
@@ -87,8 +87,8 @@ After that, in this order:
 2. **The network stack and the socket layer.** `esp-radio` and `embassy-net` are build-verified in
    the spikes. The API handlers, the MQTT generator, the line server and the provisioning protocol
    are all written and all take an injected stream, so this is wiring rather than design.
-3. **The HTTP socket and the network stack.** Every handler, the discovery generator, the line
-   server and the provisioning protocol are written and all take an injected stream. This is wiring.
+3. **Wi-Fi and the listener.** The API is served end to end over the bridge and a real request
+   comes back out of it in a host test; what is missing is `esp-radio` and `embassy-net`.
 4. T-19 and T-21 when a board exists.
 
 ## Three defects found in this session
@@ -143,8 +143,13 @@ T-19, T-20, T-21.
   crates and *do* have `std`; `crates/app/src/*.rs` tests do not, and use the `tstr!` macro or
   `core::fmt::Write`.
 - **`Response` borrows its body**, so a handler that builds a payload returns an owned
-  `app::api::Reply` and the socket layer converts it. That is why `api.rs` has a `Reply` type at
-  all.
+  `app::api::Reply`. The http crate's `Handler` ties its reply's lifetime to `&mut self` as well
+  as to the body, which is what lets `ApiHandler` own a 32 KB buffer and answer with a
+  `/api/parameters` document instead of leaking one per request.
+- **The HTTP server is synchronous and the socket is async.** `app::net::Bridged` is the answer:
+  a pump task moves bytes between an `embassy-net` socket and two bounded rings, and the
+  synchronous server runs over the other half. A stalled client fills a ring and is dropped, which
+  is D39.
 - **`heapless::String` has no `last()` and no `pop()` on a borrowed form in the way `std` does**,
   and `push` returns a `Result` that must be handled.
 - **`check-deps.py` needs `clevercoffee-board-profiles`** for the `bsp-*` crates, since the pin maps

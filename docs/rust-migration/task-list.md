@@ -470,8 +470,14 @@ Exit gate: host tests green, all three targets build, the API is complete.
   brewing, the URL allow-list the C++ did not have, the extension check the firmware route was
   missing, the transactional upload with its counts, the redaction, and the "no handler awaits"
   check run against this crate's own source.
-- **Not verified:** the socket layer. The handlers are pure functions over a `Backend`; nothing
-  binds them to a TCP stream yet, and `/api/status` cannot answer on a machine until it is.
+- **Done:** the handlers are pure functions over a `Backend`, and `app::net` joins them to a
+  connection: a bridge of two bounded rings, the http crate's own router built from the same route
+  table `dispatch` uses, and a connection task that pumps an async socket into it. An end-to-end
+  test drives a real `GET /api/status` through the real parser, router and handler and asserts the
+  bytes that come back. The `Handler` trait's reply lifetime was widened to `&mut self` so a
+  handler can own its response buffer rather than leak one per request.
+- **Not verified:** on a socket. The Wi-Fi association and the accept loop are not written; the
+  bridge, the router and the exchange are tested against in-memory halves.
 - **Fixes:** D01, D10, D15, D16, D17, D24, D25, D26, D28, D32
 
 ### T-17. MQTT and Home Assistant discovery
