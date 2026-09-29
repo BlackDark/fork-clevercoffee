@@ -7,7 +7,7 @@ ESP32-C6. The decision and its alternatives are in
 
 Cross-links: [inventory.md](inventory.md), [defects-register.md](defects-register.md),
 [task-list.md](task-list.md), [config-export-schema.md](config-export-schema.md),
-[api-contract.md](api-contract.md).
+[api-contract.md](api-contract.md), [board-pinouts.md](board-pinouts.md).
 
 ---
 
@@ -143,12 +143,14 @@ with `cargo test`. Concretely:
 | HAL traits | nothing | one crate, trait definitions only |
 | Drivers | pin numbers and peripheral instances | a `Board` trait, one impl per board |
 | BSP | pin map, peripheral selection, clock config | one module per board behind a cargo feature |
-| Provisioning transport | UART0 vs USB Serial/JTAG | one `ProvisioningTransport` trait, two impls |
+| Provisioning transport | UART0 vs USB Serial/JTAG, and on S3/C6 both are present | one `ProvisioningTransport` trait, one impl per transport |
 | App | nothing | wires the selected board |
 
 Target selection is a cargo feature: exactly one of `board-esp32`, `board-esp32s3`,
 `board-esp32c6`, and exactly one of `prov-uart`, `prov-usb-cdc`. This is a compile error rather
-than a runtime branch when a combination is wrong.
+than a runtime branch when a combination is wrong. The pin map for each board is in
+[board-pinouts.md](board-pinouts.md), and the C6 map does not currently fit: the project needs 17
+pins and the ESP32-C6-DevKitC-1 exposes 16.
 
 ---
 
@@ -178,6 +180,7 @@ fw (one binary per board, #[main], panic handler, image metadata)
 | `hal-traits` | `Actuators`, `TemperatureSensor`, `Display`, `Switch`, `Scale`, `Storage`, `ProvisioningTransport`, `Clock` | yes (compile only) |
 | `onewire` | bit-bang transport, timing model, ROM search, CRC-8 | yes, against a simulated bus |
 | `ds18b20` | command layer over `onewire` | yes |
+| `ds18b20` selection | both sensors are kept; `hardware.sensors.temperature.type` chooses at boot | yes |
 | `drivers-hx711` | HX711 driver | yes, against a scripted waveform |
 | `drivers-tsic` | TSIC driver | yes |
 | `http` | HTTP/1.1 server, routing, SSE, static assets from flash | yes, over an in-memory socket |
@@ -259,18 +262,30 @@ without a migration table keyed on firmware version.
 
 ### 3.3 OTA
 
-Two app slots, selected through `otadata`. An update is:
+Two app slots, selected through `otadata`. The C++ firmware's three update paths are all kept,
+because the user is keeping OTA; what changes is that each path is **correct** rather than
+removed.
 
-1. Refuse if the machine is not idle. This is the fix for D01: the C++ firmware accepted an OTA
-   while brewing and left the pump and valve energized.
+| Path | C++ | Rust |
+| --- | --- | --- |
+| HTTP file upload, `/api/ota/firmware` and `/api/ota/filesystem` | unauthenticated (D17), firmware variant skips the extension check | kept, authenticated when `system.auth.enabled` is set, extension check on both variants, requires the machine to be idle (D01) |
+| URL download, `/api/ota/url` | no scheme or host allow-list, so the device fetches any URL reachable from the ESP32 (D16) | kept, but the URL must be `https` or `http` with a host on a small allow-list, and the firmware variant gains the extension check it was missing |
+| espota, ArduinoOTA | password-protected | kept, password from `system.ota_password` |
+| USB, through the provisioning channel | n/a | new, and the preferred path |
+
+Every update path runs the same sequence:
+
+1. Refuse unless the machine is idle, then `Actuators::force_off()`. This is the fix for D01: the
+   C++ firmware accepted an OTA while brewing and left the pump and valve energized.
 2. Stream the image into the inactive slot, verifying the image header and a trailing SHA-256.
-3. Verify the written slot by reading it back and comparing the digest.
+3. Read the slot back and compare the digest.
 4. Switch the boot partition in `otadata`.
 5. Reboot.
 
-There is no URL-download path and no espota path. Both existed in the C++ firmware, both are
-unauthenticated remote code execution surfaces, and both are recorded as defects (D16, D17).
-Users update over USB, which is the same channel as provisioning.
+Two app slots at 1.5 MB is enough for all four paths. The spike binary is a 99 KB app image, and
+the largest thing the firmware will hold is the web asset blob, which lives in its own region, so
+the app slot is not a constraint. If a future feature pushes the image past the slot, the fix is
+to shrink `assets` or to grow both slots on the 8 MB S3 and C6 boards, not to drop OTA.
 
 ---
 
@@ -376,9 +391,13 @@ access-point step, and the device confirms the result without echoing a secret.
 
 | Board | Transport | Verified |
 | --- | --- | --- |
-| ESP32 | UART0 through the USB-serial bridge, 115200 8N1 | builds (`spikes/stack-smoke`) |
-| ESP32-S3 | USB Serial/JTAG CDC | builds (`spikes/usb-smoke`) |
-| ESP32-C6 | USB Serial/JTAG CDC | builds (`spikes/usb-smoke`) |
+| ESP32 | UART0 through the USB-UART bridge, 115200 8N1. The board has no native USB. | builds (`spikes/stack-smoke`) |
+| ESP32-S3 | USB Serial/JTAG CDC, or UART0: the board has both a native port and a bridge | builds (`spikes/usb-smoke`, `spikes/stack-smoke`) |
+| ESP32-C6 | USB Serial/JTAG CDC, or UART0: the board has both a native port and a bridge | builds (`spikes/usb-smoke`, `spikes/stack-smoke`) |
+
+Both S3 and C6 expose a UART0 bridge as well as a native USB port, so the firmware supports both
+transports on those boards and the user picks by plugging into the right port. See
+[board-pinouts.md](board-pinouts.md#6-usb-and-the-provisioning-transport-per-board).
 
 `just wifi <port>` and `just config-import <port> <file>` open the port, speak the line protocol,
 read the result line, print a status code, and exit non-zero on failure. They work on a freshly
@@ -457,8 +476,10 @@ blob.
 | D13 import reports success on partial failure | the importer is transactional and returns a structured report |
 | D14 secret fields exported in plaintext | the schema marks secrets; export and every status response redact them |
 | D15 `/api/temperatures` returns errors with HTTP 200 | error bodies are only ever sent with a non-2xx status |
-| D16 firmware-from-URL has no validation | the URL update path is removed entirely |
-| D17 OTA is unauthenticated | the OTA path is USB-only and requires the device to be idle |
+| D16 firmware-from-URL has no validation | the URL path is kept but requires an `http`/`https` scheme, a host on an allow-list, and the same extension check the filesystem variant already had |
+| D17 OTA is unauthenticated | every OTA path requires the configured password, and refuses to start unless the machine is idle |
+
+| D36 heater relay on a boot-mode strapping pin, driven late | the board map moves it to GPIO4, and actuators are driven inactive before anything else is configured, so the strapping sample is correct |
 
 The remaining entries in [defects-register.md](defects-register.md) are C++-only and are fixed
 by construction, by not carrying the pattern over, or are documented as accepted differences.

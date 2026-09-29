@@ -8,7 +8,8 @@ Severity: **critical** (can heat, pump or flood unattended), **high** (wrong beh
 or a security hole), **medium** (a defect with a workaround), **low** (hygiene).
 
 Cross-links: [inventory.md](inventory.md), [architecture.md](architecture.md),
-[api-contract.md](api-contract.md), [config-export-schema.md](config-export-schema.md).
+[api-contract.md](api-contract.md), [config-export-schema.md](config-export-schema.md),
+[board-pinouts.md](board-pinouts.md).
 
 ---
 
@@ -140,11 +141,11 @@ Cross-links: [inventory.md](inventory.md), [architecture.md](architecture.md),
 
 ### D16 — Firmware-from-URL has no validation and is an SSRF vector
 
-`src/ota.cpp:380-433` and `:626-677`. `POST /api/ota/url` fetches an arbitrary URL with no scheme or host allow-list, and the firmware variant applies no extension check at all, unlike the filesystem variant. The device will stream any reachable content into the app partition. **Fix:** the URL update path is removed.
+`src/ota.cpp:380-433` and `:626-677`. `POST /api/ota/url` fetches an arbitrary URL with no scheme or host allow-list, and the firmware variant applies no extension check at all, unlike the filesystem variant. The device will stream any reachable content into the app partition. **Fix:** the path is kept (the user confirmed OTA stays) but requires an `http` or `https` scheme, a host on a small allow-list, and the same extension check the filesystem variant already had.
 
 ### D17 — OTA is unauthenticated
 
-`src/ota.cpp:847-866`. `system.ota_password` is only used for espota; the HTTP OTA endpoints never check it. **Fix:** OTA is USB-only and requires the machine to be idle.
+`src/ota.cpp:847-866`. `system.ota_password` is only used for espota; the HTTP OTA endpoints never check it. **Fix:** every OTA path, HTTP and espota and USB, requires the configured password, and refuses to start unless the machine is idle, which is also the D01 fix.
 
 ### D18 — The 10 ms ISR reads a non-atomic `double` written by the PID
 
@@ -220,34 +221,45 @@ Cross-links: [inventory.md](inventory.md), [architecture.md](architecture.md),
 
 ## Low
 
-### D36 — The switch `isPressed()` is not idempotent
+### D36 — The heater relay sits on a boot-mode strapping pin and is driven late
+
+`include/clevercoffee/hardware/pinmapping.h:40` puts the heater relay on GPIO2, and
+`src/hardware/HardwareManager.cpp:70-93` creates the relays, and drives them off, only after the
+logger, LittleFS, NVS, I2C and the display are up. ESP32 Datasheet v5.3, table 3-1, lists GPIO2
+as a boot-mode strapping pin sampled at reset. The steam LED is on GPIO1, which is UART0 TX, and
+the C++ pin map already notes the conflict. **Fix:** the new board map moves the heater to GPIO4,
+and the boot order drives every actuator to its inactive state before anything else is
+configured, so the strapping sample is correct. See
+[board-pinouts.md](board-pinouts.md#53-proposed-pin-maps).
+
+### D37 — The switch `isPressed()` is not idempotent
 
 `src/hardware/IOSwitch.cpp:19-52`. It mutates debounce and long-press state, yet it is called several times per loop from the sensor coordinator, the power handler and two states, so the first caller's timestamp wins and later callers see stale readings for the same loop pass. **Fix:** a switch is sampled once per tick into an immutable snapshot that everything downstream reads.
 
-### D37 — Locks protect state whose readers take none
+### D38 — Locks protect state whose readers take none
 
 `include/clevercoffee/utils/SystemUtils.h:21-53`. `setRuntimePidState`, `setUserPidEnabled` and `setSteamMode` lock a function-local static mutex, but the protected fields are plain bools read without a lock, and everything runs on one task. False assurance plus three wasted mutex cycles per state entry. **Fix:** no locks in the control path.
 
-### D38 — Logger nesting can overflow the 8 KB loop task stack
+### D39 — Logger nesting can overflow the 8 KB loop task stack
 
 `src/Logger.cpp:212,245,281`, `include/clevercoffee/Logger.h:159-161`. A nested `LOGF` chain uses about 576 bytes of stack plus `vsnprintf`'s frame, and states log from entry, exit, update and transition checks, so two or three frames can nest. The task stack is the framework default and is not raised in `platformio.ini`. **Fix:** logging writes into a fixed-size stack buffer and formats in place, with no nested frames.
 
-### D39 — The hot-path logging races on the level
+### D40 — The hot-path logging races on the level
 
 `include/clevercoffee/Logger.h:150`, `src/Logger.cpp:235,272`. `level_` is a plain enum written by `setLevel` and read by every log statement, from two tasks. **Fix:** an atomic, or better, compile-time filtering with a runtime override in a cell.
 
-### D40 — ADR 0002's concurrency rationale is wrong
+### D41 — ADR 0002's concurrency rationale is wrong
 
 `docs/adr/0002-*.md:31` against `platformio.ini:21`. The ADR justifies the lock-free ring by asserting the main loop is on core 1 and AsyncTCP on core 0; the build forces `CONFIG_ASYNC_TCP_RUNNING_CORE=1`, so both are on core 1 and there is only preemption. The CAS is still correct; the reasoning is not. **Fix:** rewritten in the Rust architecture, where there is only one executor.
 
-### D41 — Duplicate ordering values make parameter order non-deterministic
+### D42 — Duplicate ordering values make parameter order non-deterministic
 
 `include/clevercoffee/Config.h:1344,1350,817,835`. `system.offline_mode` and `system.log_level` both use order 1103; `safety.emergency_temp` and `steam.setpoint` both use 203. **Fix:** the schema's order is derived from declaration index, not a hand-written number.
 
-### D42 — `ParamType` has unused variants and a broken float case
+### D43 — `ParamType` has unused variants and a broken float case
 
 `include/clevercoffee/Config.h:29-37,210-211,256-257,271-300`. `UINT8`, `FLOAT` and a second `DOUBLE` are declared; `getParamType()` never returns them, and `float` falls through to `INT`. A `ParamDef<float>` would pass the `static_assert` but fail to load and fail to save. **Fix:** the schema has exactly the types the wire format supports, and the compiler rejects anything else.
 
-### D43 — Dead and stale code
+### D44 — Dead and stale code
 
 `examples/` (6 files, all including headers that do not exist), `scripts/auto_compression.py` (disabled, references a pre-Vue asset list), `test/TESTING_GUIDE.md` (references two deleted test directories and a stale test count), `PlatformIO::check_tool = clangtidy` with no `.clang-tidy` file and no CI job, `HX711Scale.cpp` and `BluetoothScale.cpp` with no construction site, `PIN_ZC` and `PIN_ROTARY_*` with no code reference, `HardwareManager::setHeaterPower` and `setPumpPressure` as TODO stubs, `openSolenoid` as a TODO stub, `getAllStateParams` as a no-op, `Valve::openSteamValve` with no caller. **Fix:** the final phase deletes the C++ tree outright rather than porting dead code.

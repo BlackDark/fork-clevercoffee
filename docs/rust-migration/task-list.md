@@ -204,6 +204,27 @@ Exit gate: all three targets build; each driver has host tests.
   the device test confirms them.
 - **Fixes:** D03 (CRC failure and out-of-range are a fault, not a value)
 
+### T-09b. TSIC 306 driver
+- **Type:** implement
+- **Prereqs:** T-01, T-03
+- **Files:** `crates/drivers-tsic/**`
+- **Steps:** the pulse-train protocol behind the C++ `ZACwire` library, as a second
+  implementation of the `TemperatureSensor` trait. The selection between DS18B20 and TSIC is
+  `hardware.sensors.temperature.type`, resolved once at boot. **Both sensors are kept**, per the
+  user on 2026-09-29.
+- **Acceptance:** host tests drive the driver from a simulated pulse train, covering a normal
+  reading, the 222 read-failed and 221 not-connected sentinels, a reading at or below 0 C, a
+  reading at or above 180 C, and the initial and runtime change rates. A test asserts that
+  selecting an unavailable sensor type fails at boot with a named error rather than reading zero.
+- **Hardware:** **no** for the driver; the bench has a DS18B20, so this path stays
+  build-verified until a TSIC-equipped machine exists
+- **Safety:** the same D03 rule applies: a failed read is a fault, not a value
+- **Rollback:** n/a
+- **Open uncertainty:** the exact TSIC timing is taken from the C++ `ZACwire` configuration
+  (`INITIAL_CHANGERATE` 200, `RUNTIME_CHANGERATE` 5,
+  `src/hardware/tempsensors/TempSensorTSIC.cpp:11-12`), not from a TSIC datasheet
+- **Fixes:** D03, D43 (the dead `testEmergencyStop` path is not ported)
+
 ### T-10. Pressure sensor driver
 - **Type:** implement
 - **Prereqs:** T-03
@@ -276,8 +297,12 @@ Exit gate: all three targets build; the mock-actuator image boots on the bench d
   is configured. Verified by reading the startup path, and by the mock image on device.
 - **Rollback:** `just flash` reverts; the old C++ firmware is recoverable by flashing it again
   over USB, which is why the migration guide says to export the config first
-- **Open uncertainty:** the S3 and C6 pin maps do not exist yet. They need hardware or a board
-  schematic from the user. **needs confirmation.**
+- **Open uncertainty:** the ESP32 and S3 pin maps are settled in
+  [board-pinouts.md](board-pinouts.md#5-proposed-pin-maps). **The C6 map does not fit**: the
+  project needs 17 pins and the ESP32-C6-DevKitC-1 exposes 16. This task cannot complete the C6
+  board module until the user picks a different C6 board, an I2C IO expander, or a reduced C6
+  feature set. The ESP32 and S3 modules are unblocked by this. **This is the first blocking
+  question in the plan.**
 - **Fixes:** D01, D04, D05
 
 ---
@@ -328,19 +353,22 @@ Exit gate: host tests green, all three targets build, the API is complete.
 - **Type:** implement
 - **Prereqs:** T-07, T-14
 - **Files:** `crates/app/src/api/**`
-- **Steps:** all 26 routes from [api-contract.md](api-contract.md) as pure handler functions.
-  Remove the four OTA routes and repoint or remove the frontend's OTA section.
+- **Steps:** all 30 routes from [api-contract.md](api-contract.md) as pure handler functions,
+  including the four OTA routes, which are **kept** and corrected rather than removed: every OTA
+  path requires the configured password, refuses to start unless the machine is idle, and the URL
+  variant gains a scheme and host allow-list plus the extension check it was missing. The
+  frontend is therefore unchanged.
 - **Acceptance:** `cargo test -p app` asserts, for every route, the exact status code and the
   exact response body shape from the contract, in the success case and in each error case. Then,
   on device: `GET /api/status`, `GET /api/parameters`, `GET /api/config`, `GET /api/history`,
-  `GET /api/temperatures`, and the UI loads and renders.
+  `GET /api/temperatures`, and the UI loads and renders. The OTA tests must include: an
+  unauthenticated upload is rejected, an upload while brewing is rejected with 409, a URL
+  outside the allow-list is rejected, and a valid update reaches a reboot.
 - **Hardware:** **yes**, ESP32
 - **Safety:** handlers must not block. A test asserts no handler contains an await.
 - **Rollback:** n/a
-- **Open uncertainty:** the frontend's OTA section references removed routes. The frontend is
-  otherwise unchanged, but this is a deviation from "reuse the existing frontend assets
-  unchanged" and needs the user's decision: repoint it at the USB flow, or remove the section.
-- **Fixes:** D10, D15, D24, D25, D26, D28, D32
+- **Open uncertainty:** none; the user confirmed OTA stays, so the frontend is unchanged
+- **Fixes:** D01, D10, D15, D16, D17, D24, D25, D26, D28, D32
 
 ### T-17. MQTT and Home Assistant discovery
 - **Type:** implement
@@ -462,14 +490,19 @@ Exit gate: the end-to-end import check passes on device; the migration guide is 
 
 | Item | Reason | Options presented to the user |
 | --- | --- | --- |
-| Acaia Bluetooth scale (P3) | The scale is dead code in the C++ firmware, so there is no parity pressure. A BLE stack swap plus a vendor protocol is 600 to 1000 lines with no test bench. | Defer past the migration, or drop. **Recommended: defer.** |
-| TSIC 306 temperature sensor | The default config selects the TSIC, but the C++ `ZACwire` library has no Rust equivalent and the test bench has a DS18B20. The DS18B20 path is the one with a driver plan. | Keep TSIC as a second driver, or make DS18B20 the only sensor and update the default config. **Recommended: DS18B20 only**, and the user confirms the real hardware. |
-| Wi-Fi captive portal (P7) | USB provisioning replaces it, and it blocks the loop for up to 60 seconds. | Drop. **Needs the user's confirmation.** |
-| Wokwi simulation (P8) | Wokwi runs the PlatformIO build; the Rust firmware cannot run there. | Drop `diagram.json`, `wokwi.toml` and the two wokwi scripts. **Recommended: drop.** |
-| NVS encryption at rest | The config region is a single self-describing blob, so this is addable later without a format change. | Accept as a documented limitation, or schedule it. **Recommended: accept for now.** |
-| Telnet log server RFC 2217 features (P6) | The C++ implementation is not actually RFC 2217. | Ship a plain line server. **Recommended: ship it plain.** |
+| Acaia Bluetooth scale (P3) | The scale is dead code in the C++ firmware, so there is no parity pressure. A BLE stack swap plus a vendor protocol is 600 to 1000 lines with no test bench. | **Deferred** (user, 2026-09-29). The HX711 path covers brew-by-weight. |
+| Wi-Fi captive portal (P7) | USB provisioning replaces it, and it blocks the loop for up to 60 seconds. | **Dropped** (user, 2026-09-29). |
+| Wokwi simulation (P8) | Wokwi runs the PlatformIO build; the Rust firmware cannot run there. | **Dropped** (user, 2026-09-29), with the rest of the C++ tree in T-22. |
+| HTTP OTA and URL OTA | The plan proposed deleting them. The user wants OTA kept. | **Kept and corrected** (user, 2026-09-29): authenticated, idle-only, URL allow-list, plus a USB path. |
+| TSIC 306 temperature sensor | No Rust equivalent for `ZACwire`. | **Both sensors kept** (user, 2026-09-29). The TSIC driver is task T-09b, build-verified until a TSIC machine exists. |
+| NVS encryption at rest | The config region is a single self-describing blob, so this is addable later without a format change. | Accept as a documented limitation. **Still open, not confirmed by the user.** |
+| Telnet log server RFC 2217 features (P6) | The C++ implementation is not actually RFC 2217. | Ship a plain line server. **Still open, not confirmed by the user.** |
+| ESP32-C6 pin budget (P9) | 17 pins needed, 16 exposed on the ESP32-C6-DevKitC-1. | **Needs a user decision**: a different C6 board, an I2C IO expander, or a reduced C6 feature set. Evidence in [board-pinouts.md](board-pinouts.md). |
 
 ## Hardware-dependent tasks, in one place
 
 T-09, T-11, T-12, T-13, T-14, T-15, T-16, T-17, T-18, T-19, T-20, T-21. All are blocked with no
-board connected. T-10 and T-01 to T-08 are not.
+board connected. T-01 to T-08 and T-09b are not.
+
+T-13 is additionally blocked on a **decision**, not on hardware: the C6 pin map does not fit.
+The ESP32 and S3 halves of T-13 can proceed while that is open.

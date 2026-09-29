@@ -20,6 +20,7 @@ the original ESP32, ESP32-S3 and ESP32-C6. Read the design before touching code.
 | `docs/rust-migration/compatibility-matrix.md` | What is device-verified, build-verified or unverified, per target |
 | `docs/rust-migration/api-contract.md` | Every route, payload and status code |
 | `docs/rust-migration/config-export-schema.md` | Every config field, range and default |
+| `docs/rust-migration/board-pinouts.md` | The pin map for each board, the input-only and strapping rules, and the C6 pin-budget finding |
 | `docs/rust-migration/tooling.md` | The recipes and the host requirements |
 
 Check the task's prerequisites are all committed before starting. If a prerequisite is not

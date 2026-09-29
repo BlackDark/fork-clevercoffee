@@ -51,16 +51,27 @@ is `none` in the C++ firmware regardless of configuration, because of D10.
 | 20 | POST | `/api/restart` | none | 200, 500 | same |
 | 21 | POST | `/api/factory-reset` | none | 200, 500 | same |
 | 22 | ANY | `/api/parameters` | none | 200, 400, 405, 500 | same, plus 401 |
-| 23 | GET | `/events` | none | 200 SSE | same |
-| 24 | GET | `/` | none | 302 to `/ui/` | same |
-| 25 | GET | `/ui/**` | none | 200, 404 | same |
-| 26 | * | anything else | none | 404 JSON for `/api/`, 404 text otherwise | same |
+| 23 | POST | `/api/ota/firmware` | none (D17) | 200, 400, 409, 500 | same, plus 401 when auth is on, plus 409 when busy |
+| 24 | POST | `/api/ota/filesystem` | none (D17) | 200, 400, 409, 500 | same |
+| 25 | POST | `/api/ota/url` | none (D17) | 202, 400, 409 | same, plus 401, plus 400 for a rejected URL |
+| 26 | GET | `/api/ota/status` | none | 200 | same |
+| 27 | GET | `/events` | none | 200 SSE | same |
+| 28 | GET | `/` | none | 302 to `/ui/` | same |
+| 29 | GET | `/ui/**` | none | 200, 404 | same |
+| 30 | * | anything else | none | 404 JSON for `/api/`, 404 text otherwise | same |
 
-**Removed routes.** `POST /api/ota/firmware`, `POST /api/ota/filesystem`, `POST /api/ota/url` and
-`GET /api/ota/status` are removed. OTA is USB-only (D16, D17). The frontend's OTA section
-(`ui/packages/frontend/src/components/OTAUpdateSection.tsx`) must be removed or repointed at the
-USB flow; that is a task in [task-list.md](task-list.md), and it means the frontend is **not**
-entirely unchanged. See the note in the task list.
+**OTA is kept**, in all four paths, because the user confirmed it stays. The plan had proposed
+deleting these four routes; they are instead corrected:
+
+- every OTA path requires the configured password when `system.auth.enabled` is set, and refuses
+  to start unless the machine is idle (D01, D17);
+- `/api/ota/url` requires an `http` or `https` scheme and a host on a small allow-list, and the
+  firmware variant gains the extension check the filesystem variant already had (D16);
+- a USB OTA path is added through the provisioning channel.
+
+The frontend's OTA section (`ui/packages/frontend/src/components/OTAUpdateSection.tsx`) is
+therefore **unchanged**: same routes, same payloads, same status codes. The one deviation is the
+extra 401 when auth is enabled, which a correctly configured frontend already handles.
 
 `POST /api/config` is documented in `openapi.yaml` but does not exist in the code. It stays
 absent.
@@ -166,7 +177,7 @@ The `id` field is milliseconds since boot, matching the C++ firmware.
 
 ### OTA and static assets
 
-The OTA routes are removed. `GET /ui/**` serves from the `assets` flash region. The C++ server
+The four OTA routes are kept with the corrections above. `GET /ui/**` serves from the `assets` flash region. The C++ server
 sets `Content-Encoding: gzip` whenever a `.gz` sibling exists, with no `Vary` and no negotiation;
 the Rust server negotiates on `Accept-Encoding` and sets `Vary`. `index.html` is served with
 `no-cache`, everything else with `max-age=604800`, matching C++.
@@ -191,9 +202,9 @@ code is itself a defect, in which case it follows the corrected behaviour and sa
 | 10 | `/api/parameter-help` returns an array, no parameters | requires `?param=`, returns `{name, helpText}`, 422/404 | the code |
 | 11 | `/api/temperatures` returns `{heaterPowers[], heaterTemps[], ambientTemp}` | returns `{currentTemp, targetTemp, heaterPower}` | the code, errors only with 500 (D15) |
 | 12 | `/api/history` returns `{data: []}` | returns `{currentTemps[], targetTemps[], heaterPowers[]}` | the code |
-| 13 | `/api/ota/status` has `message`, enum lacks `queued` | no `message`; has `updating`, `type`, `uploadedSize`, `totalSize`, `filesystemPartition`; `queued` exists | removed |
-| 14 | `/api/ota/url` returns 200 | returns 202 | removed |
-| 15 | OTA upload documents only 200 | also 400, 409, 500 | removed |
+| 13 | `/api/ota/status` has `message`, enum lacks `queued` | no `message`; has `updating`, `type`, `uploadedSize`, `totalSize`, `filesystemPartition`; `queued` exists | the code, and `queued` is documented |
+| 14 | `/api/ota/url` returns 200 | returns 202 | the code |
+| 15 | OTA upload documents only 200 | also 400, 409, 500 | the code, plus 401 |
 | 16 | `/api/config/upload` documents 200/400 | also 413 and library-generated 400s | 200/400/413 |
 | 17 | config upload "persists to NVS, and restarts" | does not restart; `restart: true` is a hint | same meaning, documented |
 | 18 | `/api/scale/*` always exist | only when the scale is enabled at boot, else 404 | same |

@@ -229,6 +229,7 @@ or TSIC read, the I2C display flush (~90 ms at 100 kHz), and the OTA URL downloa
 | Arduino-PID (vendored, `lib/Arduino-PID-Library`) | vendored | own implementation, ~150 lines, host-testable | low |
 | U8g2 | 2.36.18 | `ssd1306` / `embedded-graphics` (unverified per chip) | medium |
 | DallasTemperature + OneWire | 4.0.6 / 2.3.8 | no adequate crate, see decision record | high |
+| ZACwire (TSIC 306) | 2.0.0 | own crate; **both sensors are kept**, see decision record | medium |
 | ZACwire (TSIC) | 2.0.0 | own crate | medium |
 | HX711_ADC | 1.2.12 | own crate, ~150 lines | medium |
 | AcaiaArduinoBLE | 4.0.1 (git) | TrouBLE + own Acaia client, or drop | high |
@@ -311,12 +312,13 @@ engineering estimates in lines of new Rust plus test harness.
 | --- | --- | --- | --- | --- |
 | P1 | Web server with 30 routes and SSE | No embedded Rust HTTP server with ESP32 track record; the largest single subsystem in the C++ code and entirely untested | 1500-2500 | Split into its own task; build a minimal no_std HTTP/1.1 server crate, test handler logic on host |
 | P2 | DS18B20 driver | No maintained Rust crate; `ds18b20` 0.1.1 is 6 years stale and pins `embedded-hal` 0.2.3 while `esp-hal` 1.x exposes 1.0 | 300-500 | Write our own `one-wire` + `ds18b20` crate, host-testable against a bit-level model |
-| P3 | Acaia Bluetooth scale | BLE stack swap plus a vendor protocol; scale is dead code today so there is no parity pressure | 600-1000 | Defer to a later phase, or drop with approval; the HX711 path is enough for brew-by-weight |
+| P3 | Acaia Bluetooth scale | BLE stack swap plus a vendor protocol; scale is dead code today so there is no parity pressure | 600-1000 | **Deferred** (user, 2026-09-29). The HX711 path covers brew-by-weight. |
 | P4 | 6 display templates with pixel-accurate layout | 3146 lines in C++, zero tests, and the C++ test stub cannot measure glyph bounding boxes | 1200-1800 | Port the layout engine with a font-metrics table and a host framebuffer; treat as its own phase |
 | P5 | MQTT + Home Assistant discovery | 1388 lines in C++, zero tests, needs a broker to verify | 700-1000 | Split; host-test the discovery-document generator against golden JSON, defer broker verification to a device phase |
-| P6 | Telnet logging | RFC 2217-ish log stream on port 23, low value for the migration | 200-300 | Keep as a simple line server, or defer. Proposed: defer to a post-migration task |
-| P7 | Wi-Fi captive portal | Replaced by USB provisioning in the new design | 0 | Drop. `needs confirmation` from the user that the portal is not required |
-| P8 | Wokwi simulation | Requires PlatformIO; the Rust firmware cannot run in Wokwi | 0 | Drop `diagram.json`, `wokwi.toml` and `tools/platformio_wokwi.py` in the final phase |
+| P6 | Telnet logging | RFC 2217-ish log stream on port 23, low value for the migration | 200-300 | Keep as a plain line server, no RFC 2217 negotiation |
+| P7 | Wi-Fi captive portal | Replaced by USB provisioning; blocks the loop for up to 60 s | 0 | **Dropped** (user, 2026-09-29) |
+| P8 | Wokwi simulation | Requires PlatformIO; the Rust firmware cannot run in Wokwi | 0 | **Dropped** (user, 2026-09-29), in the final phase with the rest of the C++ tree |
+| P9 | ESP32-C6 has too few pins | The project needs 17 pins; the ESP32-C6-DevKitC-1 exposes 16 on the header, six of which are the module's SDIO flash bus and two the native USB. The ESP32 and S3 both expose more than 17. | unknown, depends on the fix | **Needs a user decision** among: a different C6 board, an I2C IO expander, or a reduced C6 feature set. Evidence in [board-pinouts.md](board-pinouts.md#5-proposed-pin-maps) |
 
 ---
 

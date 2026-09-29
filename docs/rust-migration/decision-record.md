@@ -179,16 +179,53 @@ carried over. This is a clean break by design: see [architecture.md](architectur
 upstream example
 ([examples/ota/update](https://raw.githubusercontent.com/esp-rs/esp-hal/main/examples/ota/update/src/main.rs))
 shows switching the boot partition. Decision: two `ota_0` / `ota_1` app partitions, a 32 KB
-`otadata` partition, and an `app` update written by the firmware from either an HTTP upload or a
-provisioned blob, followed by a partition switch and reboot. The C++ espota path is dropped; so
-is the URL-download path, because it is an unauthenticated SSRF vector
-([defects-register.md](defects-register.md) D16).
+`otadata` partition, and an `app` update written by the firmware from an HTTP upload, a URL
+download, an espota push, or a blob sent over the provisioning channel, followed by a partition
+switch and reboot.
+
+All four paths are kept; see [Decision: OTA is kept](#decision-ota-is-kept-in-all-four-paths).
 
 ---
 
 ## Decision: the Wi-Fi captive portal is dropped
 
-`WiFiManager` (a git dependency in the C++ build) runs a 60-second blocking captive portal at
-boot when no SSID is configured. The new provisioning channel over USB removes the need for it,
-and the C++ portal blocks the main loop for up to 60 seconds. This is listed as problem feature
-P7 in [inventory.md](inventory.md) and needs the user's confirmation before it is dropped.
+**Confirmed by the user on 2026-09-29.** `WiFiManager` (a git dependency in the C++ build) runs a
+60-second blocking captive portal at boot when no SSID is configured. The new provisioning channel
+over USB removes the need for it, and the C++ portal blocks the main loop for up to 60 seconds.
+
+## Decision: both temperature sensors are kept
+
+**Confirmed by the user on 2026-09-29.** The plan had proposed dropping the TSIC 306 in favour of
+the DS18B20, because the bench has a DS18B20 and `ZACwire` has no Rust equivalent. Both are kept
+instead: `hardware.sensors.temperature.type` selects one at boot, and the TSIC driver is a second
+command layer over the same `TemperatureSensor` trait. The bench device has a DS18B20, so the TSIC
+path stays build-verified until a TSIC-equipped machine is available.
+
+## Decision: OTA is kept, in all four paths
+
+**Confirmed by the user on 2026-09-29: remove OTA only if space becomes a problem, otherwise
+keep it.** The plan had proposed deleting the HTTP OTA routes on the grounds that they are
+unauthenticated (D17) and that the URL variant is an SSRF vector (D16). Both remain, corrected
+rather than removed:
+
+- every OTA path requires the configured password;
+- every OTA path refuses to start unless the machine is idle, which is also the fix for D01;
+- the URL variant gains a scheme and host allow-list, and the firmware variant gains the
+  extension check the filesystem variant already had;
+- a USB OTA path is added alongside, through the provisioning channel.
+
+Space is not a constraint. Two 1.5 MB app slots against a 99 KB image, with the web assets in
+their own region. If a future feature does push the image past the slot, the lever is the asset
+region or, on the 8 MB S3 and C6 boards, larger slots.
+
+## Decision: the C6 pin map does not fit, and needs a user decision
+
+**Found on 2026-09-29 while researching dev board pinouts.** The project needs 17 pins: 3 relays,
+3 LEDs, 4 panel switches, a water-tank input, a 1-Wire data pin, 3 HX711 pins and 2 I2C pins. The
+ESP32-C6-DevKitC-1 exposes **16** GPIOs on its header, six of which are the module's SDIO flash
+bus and two of which are the native USB D- and D+. The ESP32 and ESP32-S3 both expose comfortably
+more than 17.
+
+The options are a different C6 board, an I2C IO expander, or a reduced C6 feature set. Which one
+is a user decision, and it is the first open question of task T-13. Full evidence, including a
+candidate map that does not fit, is in [board-pinouts.md](board-pinouts.md).

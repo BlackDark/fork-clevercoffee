@@ -49,6 +49,7 @@ rustc 1.98.1 stable (RISC-V).
 | Web API parity | host-testable | host-testable | host-testable | Not written yet. |
 | Config import | host-testable | host-testable | host-testable | Not written yet. |
 | `just wifi` and `just config-import` | unverified | unverified | unverified | No device. |
+| Boot pin map on a real board | documented, not flashed | documented, not flashed | **does not fit the board** | No device, and the C6 pin budget is short. |
 
 ## Per-chip differences that affect the design
 
@@ -56,16 +57,25 @@ rustc 1.98.1 stable (RISC-V).
 | --- | --- | --- | --- |
 | Architecture | Xtensa LX6, needs the Espressif rustc fork | Xtensa LX7, same fork | RISC-V, uses stable rustup |
 | Native USB | none | USB Serial/JTAG | USB Serial/JTAG |
-| GPIO count | 0-39 | 0-21, 26-48 (**no GPIO22-25**) | 0-30 |
+| GPIO count | 0-39, of which 34-39 are input-only | 0-21 and 26-48 (**no GPIO22-25**), none input-only | 0-30, none input-only, but the dev board exposes only 16 |
+| Pins this project needs | 17, fits | 17, fits | 17 needed, **16 exposed on ESP32-C6-DevKitC-1** |
+| Dev board | ESP32-DevKitC V4 | ESP32-S3-DevKitC-1 v1.1 | ESP32-C6-DevKitC-1 v1.2 |
 | PSRAM | none on this board | available | available |
 | USB OTG device | no | no | no |
 | OTA and provisioning over USB | UART0 through the USB-serial bridge | native CDC | native CDC |
 
-The GPIO gap matters: the C++ pin map assigns SDA 21, SCL 22, valve 17, pump 27, heater 2,
-switches 34, 35, 36, 39 and water tank 23. **None of GPIO22-25 exist on the S3**, and the C6 has
-no input-only pins in the ESP32 sense. Any hardware configuration for S3 or C6 is therefore a
-new board definition, not a port of the existing one. The task list treats per-board pin maps as
-a separate, explicitly board-scoped task.
+The GPIO gap matters, and the evidence is in
+[board-pinouts.md](board-pinouts.md). Three findings:
+
+1. **The C++ pin map cannot be reused on S3 or C6.** S3 has no GPIO22-25, so the SDA 21 / SCL 22
+   assignment is gone. The full map for each board is in
+   [board-pinouts.md](board-pinouts.md#5-proposed-pin-maps).
+2. **The input-only pin constraint is ESP32-only.** The four panel switches sit on GPIO34, 35, 36
+   and 39 with no internal pull, so the board must supply external resistors. S3 and C6 have no
+   input-only pins, so the same signals can use internal pulls there.
+3. **The C6 dev board does not have enough pins.** 17 are needed; the ESP32-C6-DevKitC-1 exposes
+   16, six of which are the module's SDIO flash bus and two the native USB. This is problem
+   feature P9 and blocks the C6 half of task T-13 on a user decision.
 
 ## Library-level compatibility
 
