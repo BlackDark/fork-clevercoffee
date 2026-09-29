@@ -1,2 +1,3 @@
 {"label": "r1-01-minimal", "recorded_utc": "2026-09-28T07:39:49+00:00", "git": "398efc2", "mcu": "esp32", "image_bytes": 382528, "app_slot_bytes": 1835008, "headroom_bytes": 1452480}
 {"label": "r3-storage-network", "recorded_utc": "2026-09-29T09:47:45+00:00", "git": "aa54861", "mcu": "esp32", "image_bytes": 1349344, "app_slot_bytes": 1835008, "headroom_bytes": 485664}
+{"label": "post-r3-backtrace-removal", "recorded_utc": "2026-09-29T12:41:01+00:00", "git": "ad0f81e", "mcu": "esp32", "image_bytes": 1186768, "app_slot_bytes": 1835008, "headroom_bytes": 648240}

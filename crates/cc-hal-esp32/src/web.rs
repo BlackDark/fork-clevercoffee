@@ -31,24 +31,45 @@
 //!   "Connection reset by peer" in the operator's terminal, which looks like a
 //!   network problem rather than the memory problem it is.
 //!
-//! # SSE: the 02 §4 finding, resolved
+//! # SSE: the handler must return, because httpd is one task
 //!
-//! 02 §4 recorded SSE on ESP-IDF as "the biggest web-tier unknown" and proposed
-//! a `esp-idf-sys` FFI shim. **That suggestion was wrong, and 02 §4's own
-//! evidence says so**: `EspHttpConnection::write` *is*
-//! `httpd_resp_send_chunk` (`esp-idf-svc` 0.53.0 `src/http/server.rs:1121-1135`),
-//! so chunked transfer-coding is already available, and
-//! `EspHttpConnection::raw_connection().write_all()` (`:1143`) is a raw
-//! `write(2)` on the socket behind the request, for when chunked framing is not
-//! wanted. Both ship. No FFI, no `unsafe`, no shim.
+//! **02 §4 was half right, and the earlier version of this file was wrong about
+//! the other half.** 02 §4 recorded SSE on ESP-IDF as "the biggest web-tier
+//! unknown" and proposed an `esp-idf-sys` FFI shim. The shim is needed — but not
+//! for the reason given. Chunked transfer-coding was never the problem:
+//! `EspHttpConnection::write` *is* `httpd_resp_send_chunk` (`esp-idf-svc` 0.53.0
+//! `src/http/server.rs:1121-1135`). The problem is **whose task the write
+//! happens on**.
 //!
-//! [`Sse::Mode`] picks between them, and the default is chunked because it is
-//! the one that goes through ESP-IDF's send path and therefore the one that
-//! respects the socket's send timeout. A browser's `EventSource` accepts
-//! `Transfer-Encoding: chunked` — the WHATWG concern in
+//! ESP-IDF's httpd is a single task serving every route. `httpd_server_init`
+//! creates one thread (`components/esp_http_server/src/httpd_main.c:533`) and
+//! `httpd_thread` (`:329-350`) is `while (1) { httpd_server(hd); }` over one
+//! `select()`. `esp-idf-svc` adds no per-connection task and no async layer for
+//! HTTP. So a `/events` handler that loops while it streams is a web server that
+//! serves nobody — and this file used to do exactly that.
+//!
+//! Measured on hardware, one browser tab with the stream open:
+//!
+//! | | 60 sequential `GET /api/parameters` |
+//! |---|---|
+//! | no stream connected | 60/60 `200`, 22–133 ms each |
+//! | one `/events` client | **55/60 timed out** at the client's 5 s limit; the 5 that got through took 6–7 s |
+//!
+//! The C++ has no such failure because `ESPAsyncWebServer`'s `AsyncEventSource`
+//! **returns from its handler** and is pushed to later from the main loop
+//! (`WebServerManager.cpp:308-319`; senders at `:1128-1152`, driven by
+//! `LoopManager::updateWebsite`).
+//!
+//! So the shape here is the C++'s shape: the handler sets the response headers,
+//! detaches the request with `httpd_req_async_handler_begin`, registers it in a
+//! bounded list and **returns**; a dedicated broadcaster task does every write.
+//! The seam is [`crate::web_async`] — the second `unsafe` in the workspace, and
+//! it documents each of its three calls.
+//!
+//! A browser's `EventSource` accepts `Transfer-Encoding: chunked`; the WHATWG
+//! concern in
 //! [espressif/esp-idf#14121](https://github.com/espressif/esp-idf/issues/14121)
-//! is about intermediaries that buffer, not about the browser — and if a
-//! deployment ever does need the raw path, one `const` changes it.
+//! is about intermediaries that buffer, not about the browser.
 //!
 //! # What the handlers can see
 //!
@@ -63,6 +84,7 @@
 //! than a plausible-looking zero. A handler that returns `0 g` for a scale the
 //! firmware cannot read is a lie that costs a support call.
 
+use alloc::collections::VecDeque;
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::sync::Arc;
@@ -118,6 +140,33 @@ pub const SSE_EVENT_INTERVAL_MS: u32 = 1_000;
 /// silent connection first, so an idle `/events` gets a comment frame. 15 s is
 /// under the common 30 s NAT floor and well above the 1 s event cadence.
 pub const SSE_KEEPALIVE_MS: u32 = 15_000;
+
+/// How often the broadcaster task looks for a due frame.
+///
+/// 50 ms, against a 1 s event interval and a 15 s keepalive, so a due frame is
+/// at most 50 ms late. The cost is one task wakeup every 50 ms whether or not
+/// anyone is streaming, which is why it is not 10 ms: there is nothing to gain
+/// from resolving a due frame faster than a browser paints.
+pub const SSE_POLL_MS: u32 = 50;
+
+/// The broadcaster task's stack.
+///
+/// 4096 B. It formats the same JSON the httpd task used to format on its own
+/// 8192 B stack ([`configuration`]), so this is not smaller in the way that
+/// matters — but it is a *different* task, so the httpd task's stack no longer
+/// has to accommodate streaming at all, and 4096 is what the formatting needs
+/// with nothing else on the stack.
+const SSE_BROADCASTER_STACK_BYTES: usize = 4096;
+
+/// How many pushed frames may wait for the broadcaster.
+///
+/// Four. The producers are the control task at [`SSE_EVENT_INTERVAL_MS`] and the
+/// weight event, so the mailbox is emptied roughly 20× faster than it fills; it
+/// exists to carry a push across the one broadcaster pass, not to buffer. Four
+/// is enough that a broadcaster pass delayed by a slow client does not start
+/// dropping, and small enough that a wedged broadcaster cannot grow the heap
+/// without bound on a machine with 320 KB of it.
+const SSE_MAILBOX_DEPTH: usize = 4;
 
 /// The server's URI-handler budget.
 ///
@@ -262,6 +311,13 @@ impl Shared {
     }
 
     /// Replace the telemetry snapshot.
+    ///
+    /// **A whole-slot replace, not a merge.** There are two publishers — the
+    /// control task, through [`Telemetry`]'s machine fields, and the radio,
+    /// through the four fields [`network::publish_radio`] owns — so whoever calls
+    /// this must leave the other's fields alone. In practice that means the
+    /// control task publishes first and the radio second in the same tick; see
+    /// `publish_radio` for why the order matters.
     pub fn publish(&self, telemetry: Telemetry) {
         if let Ok(mut slot) = self.telemetry.lock() {
             *slot = telemetry;
@@ -317,50 +373,85 @@ impl Default for Shared {
 /// How the SSE stream frames are written.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum SseMode {
-    /// `EspHttpConnection::write` → `httpd_resp_send_chunk`
-    /// (`esp-idf-svc` `src/http/server.rs:1121-1135`).
+    /// `httpd_resp_send_chunk`, via the detached request in
+    /// [`crate::web_async::AsyncReq`].
     ///
-    /// The default, and the reason 02 §4's proposed FFI shim is not needed:
-    /// this *is* the chunked API, in safe Rust, going through ESP-IDF's send
-    /// path and therefore respecting `send_wait_timeout`.
+    /// The default, and the only mode that can work: a chunked write needs a
+    /// `httpd_req_t*`, and holding one across the handler's return is only
+    /// sound once `httpd_req_async_handler_begin` has copied it out. It is also
+    /// the mode that respects the socket's `send_wait_timeout`.
     #[default]
     Chunked,
-    /// `EspHttpConnection::raw_connection().write_all()` (`server.rs:1143`) — a
-    /// raw `write(2)` on the socket behind the request.
+}
+
+/// The most `/events` clients that will be served at once.
+///
+/// **The C++ has no such limit** — `AsyncEventSource` grows a linked list and
+/// the browser tabs all get a stream. This firmware does, and the reason is
+/// [`MAX_OPEN_SOCKETS`]: ESP-IDF's httpd has a fixed session pool, an SSE client
+/// occupies one session for as long as it is connected, and a browser opens
+/// several connections of its own for the SPA. Two leaves three of five for
+/// `/api/*`, which is the number the ADR-0002 reproducer (6–10 parallel
+/// requests) needs to be served rather than queued behind a stream.
+///
+/// The cost of the cap is stated rather than hidden: a third tab gets a `503`
+/// and an error in the browser console instead of a working stream. The
+/// alternative — letting the session pool fill — is the failure this whole
+/// change exists to remove, in the other direction.
+pub const SSE_MAX_CLIENTS: usize = 2;
+
+/// One connected `/events` client.
+///
+/// Owns the request handed over by `httpd_req_async_handler_begin`, plus the
+/// two deadlines that decide what it gets next. Everything is per-client because
+/// a browser that connects late must not inherit another's keepalive schedule —
+/// and, more importantly, because a client whose write fails must be removable
+/// without disturbing the others.
+struct SseClient {
+    req: crate::web_async::AsyncReq,
+    /// Whether the C++'s `hello` is still owed to this client.
     ///
-    /// Not the default, and the difference is worth naming: this bypasses
-    /// ESP-IDF's send path entirely, so it does not respect `send_wait_timeout`
-    /// and will block for as long as the TCP window says. That is the right
-    /// trade for a deliberately-open stream and the wrong one for a request
-    /// handler.
-    Raw,
+    /// A browser's `EventSource` dispatches nothing until it sees a frame, so
+    /// without it the connection looks dead to the UI until the first event
+    /// arrives. `WebServerManager.cpp:308-317` sends it from `onConnect`.
+    await_hello: bool,
+    /// When this client last got a frame of any kind. The keepalive deadline is
+    /// measured from here so a busy stream does not also emit keepalives.
+    last_write_ms: u32,
 }
 
 /// The `/events` stream's broadcast state.
 ///
 /// The C++'s `AsyncEventSource` keeps a client list and every producer pushes to
-/// all of them (`WebServerManager.cpp:1163`). Here there is at most **one**
-/// client, which is the difference that makes this a `Mutex<Option<..>>` rather
-/// than a fan-out: `httpd_sess_get_ctx`/`open` gives one session per connection,
-/// and a second browser tab is a second connection that the second
-/// registration will simply not be told about. Recorded here rather than
-/// silently truncated — a second tab showing a stale machine is a bug report.
+/// all of them (`WebServerManager.cpp:1163`). This is now a real list, bounded by
+/// [`SSE_MAX_CLIENTS`], and it lives in an `Arc` shared between the httpd task
+/// (which adds and removes clients) and the broadcaster task (which writes).
 pub struct Sse {
     mode: SseMode,
-    clients: AtomicU32,
+    clients: Mutex<Vec<SseClient>>,
+    mailbox: Mutex<VecDeque<String>>,
+    connected: AtomicU32,
+    rejected: AtomicU32,
+    pushed: AtomicU32,
     sent: AtomicU32,
     dropped: AtomicU32,
+    dropped_frames: AtomicU32,
 }
 
 impl Sse {
-    /// A stream in the given framing mode.
+    /// An empty stream in the given framing mode.
     #[must_use]
-    pub const fn new(mode: SseMode) -> Self {
+    pub fn new(mode: SseMode) -> Self {
         Self {
             mode,
-            clients: AtomicU32::new(0),
+            clients: Mutex::new(Vec::new()),
+            mailbox: Mutex::new(VecDeque::new()),
+            connected: AtomicU32::new(0),
+            rejected: AtomicU32::new(0),
+            pushed: AtomicU32::new(0),
             sent: AtomicU32::new(0),
             dropped: AtomicU32::new(0),
+            dropped_frames: AtomicU32::new(0),
         }
     }
 
@@ -371,9 +462,24 @@ impl Sse {
     }
 
     /// How many clients have connected since boot.
+    ///
+    /// Counts *connections*, not concurrent clients, so it keeps rising after
+    /// a tab is closed. [`Sse::connected_now`] is the concurrent figure.
     #[must_use]
     pub fn clients(&self) -> u32 {
-        self.clients.load(Ordering::SeqCst)
+        self.connected.load(Ordering::SeqCst)
+    }
+
+    /// How many clients are connected right now.
+    #[must_use]
+    pub fn connected_now(&self) -> usize {
+        self.clients.lock().map_or(0, |c| c.len())
+    }
+
+    /// How many connections were refused for want of a free client slot.
+    #[must_use]
+    pub fn rejected(&self) -> u32 {
+        self.rejected.load(Ordering::SeqCst)
     }
 
     /// How many event frames have been written.
@@ -392,6 +498,22 @@ impl Sse {
         self.dropped.load(Ordering::SeqCst)
     }
 
+    /// How many pushes have been offered to the stream.
+    #[must_use]
+    pub fn pushed(&self) -> u32 {
+        self.pushed.load(Ordering::SeqCst)
+    }
+
+    /// How many pushed frames were discarded because the mailbox was full.
+    ///
+    /// Separate from [`Sse::dropped`] because they are different failures: a
+    /// `dropped` frame reached a client that had gone, a `dropped_frames` frame
+    /// never left the machine at all.
+    #[must_use]
+    pub fn dropped_frames(&self) -> u32 {
+        self.dropped_frames.load(Ordering::SeqCst)
+    }
+
     /// One SSE frame: `event: <name>\ndata: <payload>\n\n`.
     #[must_use]
     pub fn frame(event: &str, payload: &str) -> String {
@@ -405,6 +527,26 @@ impl Sse {
     #[must_use]
     pub fn keepalive() -> String {
         format!(": {}\n\n", now_ms())
+    }
+
+    /// Add a client, or refuse it because the stream is full.
+    fn attach(&self, req: crate::web_async::AsyncReq) -> bool {
+        let now = now_ms();
+        // A poisoned lock means some other client write panicked. Refusing is
+        // the only safe answer: the list's length is the bound that keeps the
+        // httpd task's socket budget intact.
+        let Ok(mut clients) = self.clients.lock() else {
+            return false;
+        };
+        if clients.len() >= SSE_MAX_CLIENTS {
+            return false;
+        }
+        clients.push(SseClient {
+            req,
+            await_hello: true,
+            last_write_ms: now,
+        });
+        true
     }
 }
 
@@ -815,9 +957,10 @@ impl Web {
             })?;
         }
         {
+            let config = Arc::clone(config);
             let shared = Arc::clone(&shared);
             server.fn_handler::<EspError, _>("/api/parameters", Method::Get, move |mut req| {
-                let body = parameters_json();
+                let body = parameters_json(&config);
                 respond_large(req.connection(), &shared, &body)
             })?;
         }
@@ -932,11 +1075,19 @@ impl Web {
         }
 
         // --- SSE ---------------------------------------------------------
+        // The handler must return: ESP-IDF's httpd is one task, so a handler
+        // that does not return is a server that does not serve. It sets the
+        // response headers, detaches the request, registers it, and leaves.
+        // `spawn_broadcaster` below owns the writing.
+        #[allow(
+            unsafe_code,
+            reason = "the `/events` handler must detach its request and return, \
+                      or the single-task httpd stops serving every other route; \
+                      see `crate::web_async` for the full argument"
+        )]
         {
-            let shared = Arc::clone(&shared);
             let sse = Arc::clone(&sse);
             server.fn_handler::<EspError, _>("/events", Method::Get, move |mut req| {
-                sse.clients.fetch_add(1, Ordering::SeqCst);
                 let conn = req.connection();
                 conn.initiate_response(
                     200,
@@ -947,14 +1098,42 @@ impl Web {
                         ("Connection", "keep-alive"),
                     ],
                 )?;
-                // The C++'s `onConnect` sends a `hello` event
-                // (WebServerManager.cpp:308-317). A browser's `EventSource`
-                // dispatches nothing until it sees a frame, so without this the
-                // connection looks dead to the UI for its first interval.
-                let hello = Sse::frame("hello", "{\"connected\":true}");
-                stream(&sse, conn, &hello, &shared, SseMode::Chunked)
+                sse.connected.fetch_add(1, Ordering::SeqCst);
+                // `initiate_response` has already set the status, type and
+                // headers on the request, and `httpd_req_async_handler_begin`
+                // copies exactly those into the detached request. Doing it in
+                // this order is what makes the browser see
+                // `Content-Type: text/event-stream` on the response.
+                let Some(async_req) = (unsafe {
+                    // SAFETY: `conn` is the live connection of the handler
+                    // running right now, and `initiate_response` above was the
+                    // last thing to touch it — which is what makes the header
+                    // copy inside `begin` correct. `web_async`'s module docs
+                    // carry the full argument.
+                    crate::web_async::begin_detached(esp_idf_svc::handle::RawHandle::handle(conn))
+                }) else {
+                    warn!("sse: could not detach the request");
+                    sse.rejected.fetch_add(1, Ordering::Relaxed);
+                    return respond(conn, 503, &error_body("sse unavailable"));
+                };
+                if sse.attach(async_req) {
+                    // The C++'s `onConnect` sends a `hello` event
+                    // (WebServerManager.cpp:308-317). A browser's `EventSource`
+                    // dispatches nothing until it sees a frame, so without this
+                    // the connection looks dead to the UI for its first
+                    // interval. The broadcaster writes it on its first pass.
+                    Ok(())
+                } else {
+                    sse.rejected.fetch_add(1, Ordering::Relaxed);
+                    respond(conn, 503, &error_body("too many event-stream clients"))
+                }
             })?;
         }
+
+        // The broadcaster is the only writer of `/events`, and it is not the
+        // httpd task. Started after the routes so a client cannot connect to a
+        // stream nobody is servicing.
+        spawn_broadcaster(Arc::clone(&sse))?;
 
         info!(
             "http: listening on port {HTTP_PORT}, {} routes, {} B handler budget",
@@ -1014,20 +1193,51 @@ impl Web {
 
 /// The `/api/parameters` body: every registered parameter, C++ shape.
 ///
-/// `Config::getAllParameters(array, "all")` (`WebServerManager.cpp:818`).
-/// Each entry is `{name, type, value, min, max}` — the C++'s `toJson` output
-/// (`:851-866`), which the React UI's parameter editor reads.
+/// `Config::getAllParameters(array, "all")` (`WebServerManager.cpp:818`), which
+/// is a loop of `param->toJson(paramObj)` (`:401-404`).
 ///
-/// **The values are not included.** `cc_config`'s `ParamSpec` carries the
-/// defaults and the ranges, not the live values, and the live values live in
-/// the `Config` the control task owns. So this reports the schema — the names,
-/// the types, the ranges and the defaults — which is what the editor needs to
-/// render, and leaves the values to a `GET /api/config` or an
-/// `SSE new_temps`. That split is also what keeps the four credentials out of
-/// an unauthenticated endpoint.
+/// # The C++'s ten fields, and the six this firmware emits
+///
+/// `BaseParamDef::toJsonBase` (`Config.h:99-109`) writes `name`, `label`,
+/// `section`, `order`, `helpText` and `type`; `ParamDef::toJson`
+/// (`:215-238`) adds `value`, `default`, and — for the arithmetic kinds only —
+/// `min` and `max`. That is ten.
+///
+/// This emits `name`, `type`, `value`, `default`, `min`, `max`: six. **The four
+/// missing are `label`, `section`, `order` and `helpText`, and they are missing
+/// because there is no data for them, not because they were overlooked.**
+/// `cc_config::schema::ParamSpec` carries `key`, `kind`, `default`, `min` and
+/// `max`; the C++'s `displayName_`, `section_`, `order_` and `helpText_` are
+/// per-parameter literals in `Config.h` that the Rust schema never recorded, and
+/// inventing them would put text in front of an operator's UI that the C++ does
+/// not have. That is a `cc-config` data gap, recorded here rather than papered
+/// over. The UI's editor works without them — it labels by `name`.
+///
+/// # The value is the stored one, and what "live" means today
+///
+/// `value` is the C++'s `currentValue_` (`Config.h:226-238`) — what the machine
+/// is configured with, not the compiled-in default. The compiled-in default is
+/// reported separately as `default`, which is the C++'s `defaultValue_`. A
+/// firmware that reported the default in both places would show a
+/// saved-and-reloaded operator's settings as if they had been lost.
+///
+/// **It is the `Config` as of boot, and that is currently the same thing.** The
+/// only runtime writer of the store is the Wi-Fi provisioning path
+/// (`network::apply_staged`), and it is followed by a reboot, so between boots
+/// nothing changes the configuration the web layer holds. The day a
+/// `POST /api/config` or a `POST /api/parameters` writer exists — neither is
+/// registered yet — this has to read the control task's copy rather than the one
+/// captured at boot, or `value` will silently go stale. The `Arc<Config>` is
+/// what makes that a one-line change; until then it would be a lie to call this
+/// live.
 #[must_use]
-pub fn parameters_json() -> String {
-    let mut out = String::with_capacity(SCHEMA.len() * 96);
+pub fn parameters_json(config: &Config) -> String {
+    // Sized from the C++'s measured ~19 KB (`ADR-0002` §2) plus the `value`
+    // field this adds, so the buffer is not reallocated mid-build: a
+    // reallocation here is a second copy of a 20 KB buffer, which is precisely
+    // the shape ADR-0002 is about.
+    let mut out = String::with_capacity(SCHEMA.len() * 160);
+    let values = cc_config::values_for(config);
     let _ = write!(out, "[");
     for (index, spec) in SCHEMA.iter().enumerate() {
         if index > 0 {
@@ -1035,9 +1245,19 @@ pub fn parameters_json() -> String {
         }
         let _ = write!(
             out,
-            "{{\"name\":\"{}\",\"type\":{},\"default\":{},\"min\":{},\"max\":{}}}",
+            "{{\"name\":\"{}\",\"type\":{},\"value\":{},",
             spec.key,
             spec.kind.cpp_param_type(),
+            // A `None` here is a `SCHEMA`/`live_value` disagreement, which
+            // `cc_config::json`'s own test rules out. `null` is the honest
+            // rendering if it ever happens: the key is present, the value is
+            // not, and the React editor shows an empty field rather than the
+            // default silently presented as the current setting.
+            values[index].map_or_else(|| String::from("null"), live_value_json),
+        );
+        let _ = write!(
+            out,
+            "\"default\":{},\"min\":{},\"max\":{}}}",
             param_value_json(spec.default),
             opt_number(spec.min),
             opt_number(spec.max),
@@ -1045,6 +1265,24 @@ pub fn parameters_json() -> String {
     }
     let _ = write!(out, "]");
     out
+}
+
+/// A live value as JSON.
+///
+/// The same type distinctions as [`param_value_json`], and for the same reason:
+/// the C++'s `toJson` distinguishes `bool` from `int` from `double` from
+/// `const char*`, and a `"94.5"` where the editor expects a number makes it
+/// refuse the input.
+fn live_value_json(value: cc_config::LiveValue<'_>) -> String {
+    match value {
+        cc_config::LiveValue::Bool(b) => String::from(if b { "true" } else { "false" }),
+        cc_config::LiveValue::Int(i) => i.to_string(),
+        cc_config::LiveValue::Float(f) => f.to_string(),
+        cc_config::LiveValue::Text(t) => format!("\"{t}\""),
+        // An enum is an integer on the wire, the same as `ParamValue::Enum`,
+        // and `Config.h:105` writes the discriminant as an `int`.
+        cc_config::LiveValue::Enum(i) => i.to_string(),
+    }
 }
 
 fn opt_number(value: Option<f64>) -> String {
@@ -1067,73 +1305,154 @@ fn param_value_json(value: ParamValue<'_>) -> String {
     }
 }
 
-/// Write an SSE preamble and hold the connection open.
+/// The broadcaster task: everything `/events` writes, on a task that is not
+/// the httpd task.
 ///
-/// **The 02 §4 finding, resolved by using the API that exists.** 02 §4 proposed
-/// an `esp-idf-sys` FFI shim for "send preamble only, keep socket open" and
-/// recorded the workaround as grabbing the socket fd and writing raw frames.
-/// Both of those are now unnecessary:
+/// This function is the fix. The previous `/events` handler looped **inside**
+/// the handler, and ESP-IDF's httpd is one task for the whole server
+/// (`httpd_main.c:533` creates the single `httpd` thread; `httpd_thread` at
+/// `:329` is `while (1) { httpd_server(hd); }` over one `select()`), so a
+/// looping handler is a looping server. Measured on hardware before this
+/// change: with one browser tab holding a stream open, 55 of 60 sequential
+/// `GET /api/parameters` requests timed out at the client's 5 s limit, and the
+/// five that did get through took 6–7 s. The C++ does not have this failure
+/// because `ESPAsyncWebServer`'s `AsyncEventSource` **returns from its handler**
+/// and pushes events later from the main loop task
+/// (`WebServerManager.cpp:308-319` registers the source; the senders at
+/// `:1128-1152` run from `LoopManager::updateWebsite`).
 ///
-/// * `EspHttpConnection::write` **is** `httpd_resp_send_chunk`
-///   (`esp-idf-svc` 0.53.0 `src/http/server.rs:1121-1135`), so chunked
-///   transfer-coding is available in safe Rust, going through ESP-IDF's send
-///   path and therefore respecting `send_wait_timeout`;
-/// * `EspHttpConnection::raw_connection().write_all()` (`:1143`) is a raw
-///   `write(2)` on the same socket, for a caller that wants no chunk framing.
+/// The shape here is deliberately the same: the handler registers a detached
+/// request and returns; this task does the writing. Nothing in this loop runs on
+/// the httpd task, so `/api/*` latency is independent of how many streams are
+/// open.
 ///
-/// [`SseMode`] picks. Chunked is the default because it is the one that cannot
-/// block unboundedly.
-fn stream(
-    sse: &Sse,
-    conn: &mut EspHttpConnection<'_>,
-    first: &str,
-    shared: &Shared,
-    mode: SseMode,
-) -> Result<(), EspError> {
-    sse.sent.fetch_add(1, Ordering::SeqCst);
-    let wrote = match mode {
-        SseMode::Chunked => conn.write_all(first.as_bytes()).is_ok(),
-        SseMode::Raw => conn
-            .raw_connection()
-            .and_then(|raw| raw.write_all(first.as_bytes()))
-            .is_ok(),
-    };
-    if !wrote {
-        sse.dropped.fetch_add(1, Ordering::Relaxed);
-        return Ok(());
+/// The 50 ms sleep is the loop's only cost when idle. It is not a busy-wait on
+/// the httpd task, and it is shorter than it needs to be for correctness — it
+/// only bounds how late a due frame is noticed.
+/// # Errors
+///
+/// Never, in practice, and that is deliberate: a thread that cannot be created
+/// is not a condition the firmware can serve around, but it is also not a reason
+/// to refuse to boot. The web API works without `/events`, so a failure here is
+/// logged and the machine comes up. The `Result` is kept because the caller is
+/// already in a `Result`-returning function and inventing a second error type
+/// for "the SSE stream will not run" would be worse than an always-`Ok` one.
+pub fn spawn_broadcaster(sse: Arc<Sse>) -> Result<(), EspError> {
+    let spawned = std::thread::Builder::new()
+        .name("sse-broadcast".into())
+        .stack_size(SSE_BROADCASTER_STACK_BYTES)
+        .spawn(move || broadcaster(&sse));
+    match spawned {
+        Ok(_) => {
+            info!("sse: broadcaster task started");
+            Ok(())
+        }
+        Err(e) => {
+            warn!("sse: no broadcaster task ({e}) — /events will not stream");
+            Ok(())
+        }
     }
+}
 
-    let mut last_event = now_ms();
-    let mut last_keepalive = now_ms();
+/// Transport frames to every client. It originates only the keepalive.
+///
+/// It reads no machine state, and deliberately so: the C++'s `AsyncEventSource`
+/// reads none either. The producer is the control task (`broadcast_temps`,
+/// `WebServerManager.cpp:1128-1143` driven from `LoopManager::updateWebsite`),
+/// and giving the broadcaster a `Shared` would invite the next reader to start
+/// generating telemetry here — the coupling 04 §3.2 exists to prevent.
+fn broadcaster(sse: &Sse) {
     loop {
         let now = now_ms();
-        let snapshot = shared.snapshot();
-        let frame = if now.wrapping_sub(last_event) >= SSE_EVENT_INTERVAL_MS {
-            last_event = now;
-            Sse::frame("new_temps", &temperatures_json(&snapshot))
-        } else if now.wrapping_sub(last_keepalive) >= SSE_KEEPALIVE_MS {
-            last_keepalive = now;
-            Sse::keepalive()
+
+        // Take the pushed frames out first, so the lock is not held across the
+        // client writes below. Frames go to every client before the cadence
+        // frames do, so a pushed `weight` is not stuck behind a `new_temps`.
+        let pushed: VecDeque<String> = if let Ok(mut m) = sse.mailbox.lock() {
+            std::mem::take(&mut *m)
         } else {
-            esp_idf_hal::delay::FreeRtos::delay_ms(50);
-            continue;
+            VecDeque::new()
         };
 
-        sse.sent.fetch_add(1, Ordering::SeqCst);
-        let wrote = match mode {
-            SseMode::Chunked => conn.write_all(frame.as_bytes()).is_ok(),
-            SseMode::Raw => conn
-                .raw_connection()
-                .and_then(|raw| raw.write_all(frame.as_bytes()))
-                .is_ok(),
+        let Ok(mut locked) = sse.clients.lock() else {
+            esp_idf_hal::delay::FreeRtos::delay_ms(SSE_POLL_MS);
+            continue;
         };
-        if !wrote {
-            // A closed client is the normal end of an SSE stream, not an error.
-            // Counting it is what makes "zero drops over ten minutes" a
-            // measurement.
-            sse.dropped.fetch_add(1, Ordering::Relaxed);
-            return Ok(());
+        let mut clients = std::mem::take(&mut *locked);
+        drop(locked);
+
+        let mut survivors = Vec::with_capacity(clients.len());
+        for mut client in clients.drain(..) {
+            let mut ok = true;
+
+            if client.await_hello {
+                let hello = Sse::frame("hello", "{\"connected\":true}");
+                ok = client.req.write(&hello).is_ok();
+                if ok {
+                    sse.sent.fetch_add(1, Ordering::SeqCst);
+                    client.await_hello = false;
+                }
+            }
+
+            if ok {
+                for frame in &pushed {
+                    if client.req.write(frame).is_err() {
+                        ok = false;
+                        sse.dropped.fetch_add(1, Ordering::Relaxed);
+                        break;
+                    }
+                    sse.sent.fetch_add(1, Ordering::SeqCst);
+                    client.last_write_ms = now;
+                }
+            }
+
+            // The keepalive is the broadcaster's own, and the only thing it
+            // originates: the C++'s `AsyncEventSource` has no timer of its own
+            // and its `new_temps` cadence is the main loop's
+            // (`WebServerManager.cpp:1128-1143`), which is `broadcast_temps`
+            // here. So the two producers are the control task (events) and this
+            // task (liveness), and neither duplicates the other. It is measured
+            // from the last write of any kind, so a stream that is receiving
+            // events does not also emit keepalives.
+            if ok && now.wrapping_sub(client.last_write_ms) >= SSE_KEEPALIVE_MS {
+                let keepalive = Sse::keepalive();
+                if client.req.write(&keepalive).is_err() {
+                    ok = false;
+                } else {
+                    sse.sent.fetch_add(1, Ordering::SeqCst);
+                    client.last_write_ms = now;
+                }
+            }
+
+            if ok {
+                survivors.push(client);
+            } else {
+                // A closed client is the normal end of an SSE stream, not an
+                // error. Counting it is what makes "zero drops over ten
+                // minutes" a measurement.
+                sse.dropped.fetch_add(1, Ordering::Relaxed);
+                client.req.complete();
+            }
         }
+
+        // Put the survivors back, and keep any client that connected while this
+        // task had the list detached. The handler appends, so the fresh one
+        // goes after the survivors; ordering does not matter because every
+        // client gets the same frames.
+        if let Ok(mut slot) = sse.clients.lock() {
+            survivors.append(&mut *slot);
+            *slot = survivors;
+        } else {
+            // The lock is poisoned, so nobody can be using the list. Completing
+            // every request is the only way to hand the sessions back; leaking
+            // them would eventually stop httpd accepting connections at all
+            // (`esp_http_server.h:864-866`).
+            for client in survivors {
+                client.req.complete();
+            }
+        }
+
+        esp_idf_hal::delay::FreeRtos::delay_ms(SSE_POLL_MS);
     }
 }
 
@@ -1223,25 +1542,32 @@ impl Sse {
     /// Note that a push was attempted, whether or not a client received it.
     ///
     /// Counted so that "the control task is producing events" and "a client is
-    /// receiving them" are two different numbers. While the client list does
-    /// not exist the two are equal by construction and the count is not a
-    /// delivery measurement — which is why [`Sse::sent`] and
-    /// [`Sse::dropped`], which the stream itself increments, are the ones the
-    /// R3-14 acceptance criterion is stated against.
+    /// receiving them" are two different numbers.
     pub fn note_push_attempt(&self) {
-        self.clients.fetch_add(0, Ordering::Relaxed);
+        self.pushed.fetch_add(1, Ordering::Relaxed);
     }
 
     /// Push a frame to every connected client.
     ///
-    /// There is at most one, because `httpd_sess_get_ctx` gives one session per
-    /// connection and a second browser tab is a second connection that this
-    /// broadcast cannot reach. **That is a real gap, not a simplification** — a
-    /// second tab shows a stale machine — and it is closed by keeping a client
-    /// list rather than a counter, which is R3-16's work when the transport
-    /// exists.
-    pub fn broadcast(&self, _frame: String) {
-        // No client list yet: see the doc comment on the field.
+    /// The C++'s `AsyncEventSource::send` (`WebServerManager.cpp:1163`): every
+    /// producer pushes, and every client receives. It cannot write from the
+    /// caller's task — the sockets belong to the broadcaster — so it hands the
+    /// frame over through a bounded mailbox, and the broadcaster drains it on
+    /// its next pass (at most [`SSE_POLL_MS`] later).
+    ///
+    /// A full mailbox drops the **newest** frame and counts it in
+    /// [`Sse::dropped_frames`], rather than blocking the caller. The caller is
+    /// the control task, and blocking it to serve a browser tab is the same
+    /// mistake as blocking the httpd task, one layer over.
+    pub fn broadcast(&self, frame: String) {
+        let Ok(mut mailbox) = self.mailbox.lock() else {
+            self.dropped_frames.fetch_add(1, Ordering::Relaxed);
+            return;
+        };
+        if mailbox.len() == SSE_MAILBOX_DEPTH && mailbox.pop_front().is_some() {
+            self.dropped_frames.fetch_add(1, Ordering::Relaxed);
+        }
+        mailbox.push_back(frame);
     }
 }
 
@@ -1482,10 +1808,73 @@ pub mod tests {
 
     #[cfg_attr(test, test)]
     pub fn the_default_sse_mode_is_the_chunked_one() {
-        // The reason 02 section 4's proposed FFI shim is not needed: chunked
-        // transfer-coding already ships, in safe Rust.
+        // Chunked framing is the only mode left: it is the one that keeps
+        // `send_wait_timeout` and the only one that can be written from a
+        // detached request.
         assert_eq!(SseMode::default(), SseMode::Chunked);
         assert_eq!(Sse::new(SseMode::default()).mode(), SseMode::Chunked);
+    }
+
+    #[cfg_attr(test, test)]
+    pub fn the_client_cap_leaves_sockets_for_the_api() {
+        // The bound that keeps one browser tab from starving `/api/*`. ESP-IDF's
+        // httpd has a fixed session pool and an SSE client holds its session for
+        // as long as it is connected, so the cap is a socket budget, not a
+        // politeness limit. ADR-0002's reproducer fires 6-10 parallel API
+        // requests; this asserts at least three sockets stay available.
+        const { assert!(SSE_MAX_CLIENTS < MAX_OPEN_SOCKETS) };
+        const { assert!(MAX_OPEN_SOCKETS - SSE_MAX_CLIENTS >= 3) };
+    }
+
+    #[cfg_attr(test, test)]
+    pub fn a_fresh_stream_has_no_clients_and_no_counters() {
+        let sse = Sse::new(SseMode::Chunked);
+        assert_eq!(sse.connected_now(), 0);
+        assert_eq!(sse.clients(), 0);
+        assert_eq!(sse.rejected(), 0);
+        assert_eq!(sse.sent(), 0);
+        assert_eq!(sse.dropped(), 0);
+        assert_eq!(sse.pushed(), 0);
+        assert_eq!(sse.dropped_frames(), 0);
+    }
+
+    /// How many frames the mailbox is holding.
+    ///
+    /// A `usize` rather than the `Result`: the on-target build has no `std`, so
+    /// `MutexGuard` is not `PartialEq` there and comparing the `Result` directly
+    /// would compile for the host and fail for the device. That asymmetry is
+    /// exactly what `just lint-esp32` exists to catch, and this is the shape it
+    /// caught.
+    fn mailbox_len(sse: &Sse) -> usize {
+        sse.mailbox.lock().map_or(0, |m| m.len())
+    }
+
+    #[cfg_attr(test, test)]
+    pub fn a_push_counts_and_a_full_mailbox_counts_the_drop() {
+        // `Sse::broadcast` is the C++'s `AsyncEventSource::send` path, and it
+        // must not block its caller: the caller is the control task. A mailbox
+        // that filled is counted, not waited on.
+        let sse = Sse::new(SseMode::Chunked);
+        for i in 0..SSE_MAILBOX_DEPTH {
+            sse.broadcast(Sse::frame("weight", &format!("{{\"n\":{i}}}")));
+        }
+        sse.note_push_attempt();
+        assert_eq!(sse.pushed(), 1);
+        assert_eq!(sse.dropped_frames(), 0);
+        assert_eq!(mailbox_len(&sse), SSE_MAILBOX_DEPTH);
+
+        // One more than the mailbox holds: the oldest is discarded and counted.
+        sse.broadcast(Sse::frame("weight", "{\"n\":99}"));
+        assert_eq!(sse.dropped_frames(), 1);
+        assert_eq!(mailbox_len(&sse), SSE_MAILBOX_DEPTH);
+    }
+
+    #[cfg_attr(test, test)]
+    pub fn the_broadcaster_cadence_fits_under_the_poll_interval() {
+        // The broadcaster can only be as responsive as its poll, and the poll
+        // must not be the thing that makes the loop a busy-wait.
+        const { assert!(SSE_POLL_MS < SSE_EVENT_INTERVAL_MS) };
+        const { assert!(SSE_POLL_MS <= 100) };
     }
 
     #[cfg_attr(test, test)]
@@ -1524,6 +1913,157 @@ pub mod tests {
         };
         shared.publish(t.clone());
         assert_eq!(shared.snapshot(), t);
+    }
+
+    #[cfg_attr(test, test)]
+    pub fn the_parameters_body_carries_a_value_for_every_parameter() {
+        // `Config.h:226-238`: `toJson` writes `value` alongside `default`, and
+        // it is the *current* value. A parameter with no `value` is the shape
+        // the React editor cannot render, and it was the shape this firmware
+        // shipped: the response had five fields and the C++ has ten.
+        let body = parameters_json(&Config::default());
+        let parsed: serde_json::Value = serde_json::from_str(&body).expect("valid JSON");
+        let entries = parsed.as_array().expect("an array");
+        assert_eq!(entries.len(), SCHEMA.len());
+        for entry in entries {
+            let object = entry.as_object().expect("an object");
+            for key in ["name", "type", "value", "default", "min", "max"] {
+                assert!(
+                    object.contains_key(key),
+                    "{} has no {key}: {}",
+                    object.get("name").and_then(|n| n.as_str()).unwrap_or("?"),
+                    body
+                );
+            }
+        }
+    }
+
+    #[cfg_attr(test, test)]
+    pub fn a_parameter_value_is_typed_like_its_default() {
+        // The C++'s `toJson` distinguishes `bool` from `int` from `double` from
+        // `const char*`, and so does this. A quoted number makes the React
+        // editor's number input refuse the value, so the two fields of a pair
+        // must agree on shape — not merely both be present.
+        let body = parameters_json(&Config::default());
+        let parsed: serde_json::Value = serde_json::from_str(&body).expect("valid JSON");
+        for entry in parsed.as_array().expect("an array") {
+            let object = entry.as_object().expect("an object");
+            let name = object["name"].as_str().unwrap_or("?");
+            let value = &object["value"];
+            let default = &object["default"];
+            assert_eq!(
+                value.is_boolean(),
+                default.is_boolean(),
+                "{name}: value {value} and default {default} disagree on bool-ness"
+            );
+            assert_eq!(
+                value.is_number(),
+                default.is_number(),
+                "{name}: value {value} and default {default} disagree on number-ness"
+            );
+            assert_eq!(
+                value.is_string(),
+                default.is_string(),
+                "{name}: value {value} and default {default} disagree on string-ness"
+            );
+        }
+    }
+
+    #[cfg_attr(test, test)]
+    pub fn a_set_parameter_reports_the_stored_value_not_the_default() {
+        // The regression `value` exists to prevent: a firmware that reported
+        // the compiled-in default would show a saved-and-reloaded operator's
+        // settings as if they had been lost.
+        let mut config = Config::default();
+        config.brew.setpoint = 91.5;
+        let body = parameters_json(&config);
+        let parsed: serde_json::Value = serde_json::from_str(&body).expect("valid JSON");
+        let setpoint = parsed
+            .as_array()
+            .expect("an array")
+            .iter()
+            .map(|e| e.as_object().expect("an object"))
+            .find(|o| o["name"] == "brew.setpoint")
+            .expect("brew.setpoint is registered");
+        assert_eq!(setpoint["value"], 91.5);
+        // …and `default` still reports what a factory reset would give.
+        assert_eq!(setpoint["default"], 94.5);
+    }
+
+    #[cfg_attr(test, test)]
+    pub fn the_radio_fields_survive_a_machine_publish() {
+        // The two-publisher contract, and the reason the control task publishes
+        // the radio *after* the machine telemetry. `publish` replaces the whole
+        // slot, so a machine publish that ran second would erase the radio's
+        // four fields and `/api/status` would go back to `wifiAssociated: false`
+        // — which is the bug this ordering exists to prevent.
+        let shared = Shared::new();
+        // The radio publishes first.
+        if let Ok(mut slot) = shared.telemetry.lock() {
+            slot.wifi_associated = true;
+            slot.signal = 4;
+            slot.ip = Some(alloc::string::String::from("10.0.0.7"));
+        }
+        // …and the control task's publish is the one that must not run second.
+        let before = shared.snapshot();
+        shared.publish(telemetry_with_radio_untouched(&before));
+        let after = shared.snapshot();
+        assert!(
+            after.wifi_associated,
+            "the machine publish erased the radio's association flag"
+        );
+        assert_eq!(after.signal, 4);
+        assert_eq!(after.ip, before.ip);
+    }
+
+    /// What a control task's `publish` looks like when it is careful: it carries
+    /// the machine fields and *reuses* the radio's, because the two are separate
+    /// publishers and a whole-slot replace is the only thing `Shared` offers.
+    fn telemetry_with_radio_untouched(previous: &Telemetry) -> Telemetry {
+        Telemetry {
+            machine_state: 20,
+            temperature_c: 93.5,
+            signal: previous.signal,
+            wifi_associated: previous.wifi_associated,
+            wifi_offline: previous.wifi_offline,
+            ip: previous.ip.clone(),
+            ..Telemetry::default()
+        }
+    }
+
+    #[cfg_attr(test, test)]
+    pub fn a_default_snapshot_reports_no_radio_rather_than_a_fabricated_one() {
+        // What `/api/status` said before the radio published: no association, no
+        // signal, no address. These are the *absence* readings, and they must
+        // read as absence — a fabricated `wifiSignal: 3` or a plausible-looking
+        // address would be a lie an operator cannot act on.
+        let t = Telemetry::default();
+        assert!(!t.wifi_associated);
+        assert_eq!(t.signal, 0);
+        assert!(t.ip.is_none());
+        let json = status_json(&t);
+        assert!(json.contains("\"wifiAssociated\":false"), "{json}");
+        assert!(json.contains("\"wifiSignal\":0"), "{json}");
+        assert!(json.contains("\"ip\":null"), "{json}");
+    }
+
+    #[cfg_attr(test, test)]
+    pub fn the_status_body_reports_an_associated_radio() {
+        // The positive case, and the shape the C++'s reader expects: the keys
+        // are always present, and they carry the radio's numbers when there are
+        // any. `/api/status` had no `wifi*` key at all in the C++
+        // (`WebServerManager.cpp:352-363`), so these are this firmware's
+        // additions, kept stable because the UI reads them.
+        let t = Telemetry {
+            wifi_associated: true,
+            signal: 4,
+            ip: Some(alloc::string::String::from("10.0.0.7")),
+            ..Telemetry::default()
+        };
+        let json = status_json(&t);
+        assert!(json.contains("\"wifiAssociated\":true"), "{json}");
+        assert!(json.contains("\"wifiSignal\":4"), "{json}");
+        assert!(json.contains("\"ip\":\"10.0.0.7\""), "{json}");
     }
 
     #[cfg_attr(test, test)]

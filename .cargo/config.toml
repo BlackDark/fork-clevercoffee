@@ -26,6 +26,16 @@ linker = "ldproxy"
 # The `esp` toolchain is a nightly fork, so this is available. On a stable host
 # cargo this section is ignored with a warning (verified — see the R1-01 report).
 build-std = ["std", "panic_abort"]
+# std's `backtrace-trace-only` feature (upstream, "For use with -Zbuild-std").
+# Cargo's build-std turns std's `backtrace` feature on by default, which makes
+# the panic hook link the whole `addr2line`/`object` DWARF reader (gimli) so it
+# can turn frame addresses into symbol names. The app image carries only its
+# 256-byte descriptor, not a symbol table, so on the device that can only ever
+# produce addresses. `backtrace-trace-only` makes
+# `std::sys::backtrace::_print_fmt` walk the frames and print the raw PCs
+# instead, which drops addr2line/object/miniz_oxide from the link. The PCs are
+# resolved host-side with `just diag-addr2line`. 07-image-size-budget.md §9.
+build-std-features = ["std/backtrace-trace-only"]
 
 [idf]
 # Relative to the workspace root. Deliberately NOT copied from the upstream

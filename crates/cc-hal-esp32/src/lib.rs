@@ -21,14 +21,26 @@
 //! [`heater`], and the R1-03/R3-07 temperature sensors in [`onewire`] and
 //! [`zacwire`].
 //!
-//! # 🔴 One `unsafe`, and it needs a human to ratify it
+//! # 🔴 Two `unsafe`, and they need a human to ratify them
 //!
 //! [`zacwire::now_us`] is a single call to ESP-IDF's `esp_timer_get_time()`,
 //! behind a narrowly-scoped `#[allow(unsafe_code)]` with the reasoning written
-//! out at the call site. It is the **only** `unsafe` in the workspace, and the
-//! workspace lint is `unsafe_code = "deny"`.
+//! out at the call site.
 //!
-//! It is there because `esp-idf-hal` 0.47 has **no** `esp_timer` module and no
+//! [`web_async`] is the second, and it is the one that matters more: three
+//! `httpd_*` calls that let the `/events` handler **return** while a separate
+//! task does the writing. It exists because ESP-IDF's httpd is a single task
+//! (`httpd_main.c:533`), so a handler that holds a stream open is a server that
+//! serves nobody — measured on hardware, 55 of 60 concurrent API requests timed
+//! out with one browser tab streaming. `esp-idf-svc` 0.53.0 has no safe way to
+//! express it, and ESP-IDF's own `httpd_req_async_handler_begin` is the
+//! documented answer (`esp_http_server.h:840-873`). The module documents each
+//! call, the `Send` claim, and the Kconfig that would invalidate it.
+//!
+//! The workspace lint is `unsafe_code = "deny"`, so both are `#[allow]`ed with
+//! their reasoning at the call site rather than globally.
+//!
+//! [`zacwire::now_us`] is there because `esp-idf-hal` 0.47 has **no** `esp_timer` module and no
 //! safe monotonic clock of any kind — checked in `src/timer.rs` and
 //! `src/delay.rs`) — and the `ZACwire` protocol cannot be decoded without
 //! microsecond timestamps (04 §5's timing constraint, and the app note's
@@ -75,6 +87,7 @@ pub mod task;
 pub mod telnet;
 pub mod time;
 pub mod web;
+pub mod web_async;
 pub mod wifi;
 pub mod zacwire;
 

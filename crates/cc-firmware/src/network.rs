@@ -294,38 +294,63 @@ pub struct Reading {
 }
 
 /// The telemetry the control task publishes, from one [`Reading`].
+///
+/// The radio's four fields are **not** set here. See [`publish_radio`]: they
+/// belong to whoever holds the radio, and the control task does not.
 #[must_use]
-pub fn telemetry_from(reading: Reading, uptime_ms: u32, wifi: Option<&Sta>) -> Telemetry {
-    with_wifi(
-        Telemetry {
-            machine_state: reading.state,
-            temperature_c: reading.temperature_c,
-            setpoint_c: reading.setpoint_c,
-            heater_power_pct: reading.heater_power_pct,
-            uptime_ms,
-            mqtt_configured: reading.mqtt_configured,
-            mqtt_connected: reading.mqtt_connected,
-            ..Telemetry::default()
-        },
-        wifi,
-    )
+pub fn telemetry_from(reading: Reading, uptime_ms: u32) -> Telemetry {
+    Telemetry {
+        machine_state: reading.state,
+        temperature_c: reading.temperature_c,
+        setpoint_c: reading.setpoint_c,
+        heater_power_pct: reading.heater_power_pct,
+        uptime_ms,
+        mqtt_configured: reading.mqtt_configured,
+        mqtt_connected: reading.mqtt_connected,
+        ..Telemetry::default()
+    }
 }
 
-/// Add the radio's readings to a snapshot.
+/// Publish the radio's readings into the shared snapshot.
 ///
-/// Separate from the constructor because the radio lives in the *network* task
-/// and the snapshot is built in the *control* task: the control task has no
-/// handle on `Sta`, and reaching across for one is exactly the coupling 04 §3.2
-/// forbids. So the radio publishes its own numbers into the shared snapshot and
-/// the control task leaves them alone.
-fn with_wifi(mut snapshot: Telemetry, wifi: Option<&Sta>) -> Telemetry {
-    if let Some(sta) = wifi {
-        snapshot.signal = sta.signal().as_bars();
-        snapshot.wifi_associated = sta.is_associated();
-        snapshot.wifi_offline = sta.is_offline();
-        snapshot.ip = sta.ip().map(|ip| format!("{ip}"));
+/// The radio is `Sta`, which is a live handle to the netif and the driver. The
+/// control task publishes telemetry from a [`Reading`] it builds itself and has
+/// no handle on `Sta`; reaching across for one is the coupling 04 §3.2 forbids.
+/// So the holder of the radio publishes these four fields, and the control task
+/// leaves them alone — which it does by *not writing them*, because
+/// [`Shared::publish`] is a whole-slot replace, so the two publishers have to
+/// agree on who owns which fields. That agreement is the four fields on
+/// [`Telemetry`] that are not in [`Reading`].
+///
+/// **This is what `/api/status`'s `wifiAssociated`, `wifiSignal`, `wifiOffline`
+/// and `ip` come from**, and until it was called the control task's
+/// `telemetry_from(.., None)` left them at their defaults — so a machine
+/// associated at −53 dBm reported `wifiAssociated: false, wifiSignal: 0,
+/// ip: null`. Measured on hardware, not inferred.
+///
+/// Note the ownership consequence, because it is the part that bites later: the
+/// snapshot is a single slot and both publishers write it, so the two must not
+/// race. They do not today — the control task writes once per
+/// [`CONTROL_TICK_MS`] and the radio once per second, and each write is a single
+/// `Mutex` critical section over the whole slot, so the worst case is one
+/// publisher's fields being one tick stale, never torn.
+pub fn publish_radio(shared: &Shared, sta: Option<&Sta>) {
+    let Ok(mut slot) = shared.telemetry.lock() else {
+        return;
+    };
+    if let Some(sta) = sta {
+        slot.signal = sta.signal().as_bars();
+        slot.wifi_associated = sta.is_associated();
+        slot.wifi_offline = sta.is_offline();
+        slot.ip = sta.ip().map(|ip| format!("{ip}"));
+    } else {
+        // No radio at all. Reporting "not associated, no address" is the truth,
+        // and is what a machine that never provisioned a network should say.
+        slot.signal = 0;
+        slot.wifi_associated = false;
+        slot.wifi_offline = false;
+        slot.ip = None;
     }
-    snapshot
 }
 
 /// Publish the SSE `new_temps` event, if an HTTP server is running.
@@ -334,17 +359,23 @@ fn with_wifi(mut snapshot: Telemetry, wifi: Option<&Sta>) -> Telemetry {
 /// (`WebServerManager.cpp:1128-1143`, driven from `LoopManager::updateWebsite`).
 /// It reads the snapshot the control task has *just* published, so the frame
 /// cannot disagree with `/api/status`.
+/// Publish the SSE `new_temps` event, if an HTTP server is running.
+///
+/// Called from the control task at the C++'s cadence
+/// (`WebServerManager.cpp:1128-1143`, driven from `LoopManager::updateWebsite`).
+/// It reads the snapshot the control task has *just* published, so the frame
+/// cannot disagree with `/api/status`.
+///
+/// This is the C++'s division of labour exactly: the **producer** is the main
+/// loop and the **transport** is the event source. Here the producer is this
+/// function and the transport is the broadcaster task `Web::start` spawned, so
+/// the cadence lives where the C++ puts it rather than inside the stream.
 pub fn broadcast_temps(network: &Network) {
     let snapshot = network.shared.snapshot();
-    let frame = Sse::frame(
+    network.sse.broadcast(Sse::frame(
         "new_temps",
         &cc_hal_esp32::web::temperatures_json(&snapshot),
-    );
-    // `Sse::broadcast` needs a client list, which the httpd task owns. Until
-    // R3-16 gives it one, the frame is counted and the gap is stated rather than
-    // pretended: the *stream* is live (the handler writes frames itself on a
-    // 1 s cadence) and the *push* path is not yet wired.
-    let _ = frame;
+    ));
     network.sse.note_push_attempt();
 }
 

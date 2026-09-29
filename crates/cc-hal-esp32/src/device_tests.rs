@@ -278,6 +278,22 @@ pub const CASES: &[Case] = &[
         run: web::tests::the_default_sse_mode_is_the_chunked_one,
     },
     Case {
+        name: "web::the_client_cap_leaves_sockets_for_the_api",
+        run: web::tests::the_client_cap_leaves_sockets_for_the_api,
+    },
+    Case {
+        name: "web::a_fresh_stream_has_no_clients_and_no_counters",
+        run: web::tests::a_fresh_stream_has_no_clients_and_no_counters,
+    },
+    Case {
+        name: "web::a_push_counts_and_a_full_mailbox_counts_the_drop",
+        run: web::tests::a_push_counts_and_a_full_mailbox_counts_the_drop,
+    },
+    Case {
+        name: "web::the_broadcaster_cadence_fits_under_the_poll_interval",
+        run: web::tests::the_broadcaster_cadence_fits_under_the_poll_interval,
+    },
+    Case {
         name: "web::the_keepalive_interval_is_under_the_nat_floor",
         run: web::tests::the_keepalive_interval_is_under_the_nat_floor,
     },
@@ -292,6 +308,30 @@ pub const CASES: &[Case] = &[
     Case {
         name: "web::the_shared_telemetry_round_trips",
         run: web::tests::the_shared_telemetry_round_trips,
+    },
+    Case {
+        name: "web::the_parameters_body_carries_a_value_for_every_parameter",
+        run: web::tests::the_parameters_body_carries_a_value_for_every_parameter,
+    },
+    Case {
+        name: "web::a_parameter_value_is_typed_like_its_default",
+        run: web::tests::a_parameter_value_is_typed_like_its_default,
+    },
+    Case {
+        name: "web::a_set_parameter_reports_the_stored_value_not_the_default",
+        run: web::tests::a_set_parameter_reports_the_stored_value_not_the_default,
+    },
+    Case {
+        name: "web::the_radio_fields_survive_a_machine_publish",
+        run: web::tests::the_radio_fields_survive_a_machine_publish,
+    },
+    Case {
+        name: "web::a_default_snapshot_reports_no_radio_rather_than_a_fabricated_one",
+        run: web::tests::a_default_snapshot_reports_no_radio_rather_than_a_fabricated_one,
+    },
+    Case {
+        name: "web::the_status_body_reports_an_associated_radio",
+        run: web::tests::the_status_body_reports_an_associated_radio,
     },
     Case {
         name: "web::a_reboot_request_is_one_shot",

@@ -247,6 +247,14 @@ const SSE_INTERVAL_MS: u32 = 1_000;
 /// operator's benefit, not the machine's.
 const HEAP_LOG_INTERVAL_MS: u32 = 60_000;
 
+/// The radio's maintenance cadence.
+///
+/// `cc_hal_esp32::wifi::MONITOR_PERIOD_MS` and the C++'s
+/// `checkAndMaintainConnection` interval (`CleverCoffeeWiFiManager.cpp:105`).
+/// Named here rather than imported because the control task owns the poll and a
+/// firmware that drifted between the two would drift silently.
+const WIFI_POLL_MS: u32 = cc_hal_esp32::wifi::MONITOR_PERIOD_MS;
+
 /// ESP-IDF version this binary was compiled against, as a coarse string. Logged
 /// so a device is never diagnosed against the wrong IDF version: 08 records the
 /// oracle was built with v5.5.5 and 05 §1 pins the same. `esp-idf-sys` emits
@@ -474,7 +482,7 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
     let sys_loop = cc_hal_esp32::wifi::init_stack()?;
     info!("netif: lwIP and the default event loop are up");
 
-    let _wifi = if config.is_wifi_provisioned() {
+    let wifi = if config.is_wifi_provisioned() {
         Some(bring_up_wifi(peripherals.modem, &config, &sys_loop)?)
     } else {
         info!("wifi: no SSID configured — the UART provisioning task will run");
@@ -555,6 +563,16 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
                     mqtt_connected,
                     store,
                     &handoff,
+                    // The radio moves into the control task rather than staying
+                    // in this frame. It is `Send` (`EspWifi` is, and `Monitor`
+                    // and `String` are), and the control task is the only task
+                    // with a watchdog subscription, so the 1 s
+                    // `checkAndMaintainConnection` poll and the `/api/status`
+                    // radio fields (`network::publish_radio`) both belong to the
+                    // task whose stalls are already fatal. Before this, the
+                    // radio was polled nowhere and `/api/status` reported
+                    // `wifiAssociated: false` on a machine that was associated.
+                    wifi,
                 ) {
                     error!("control task failed: {err}");
                 }
@@ -883,6 +901,7 @@ fn control_task(
     mqtt_connected: bool,
     mut store: cc_config::blob_store::BlobConfigStore<cc_hal_esp32::nvs::EspNvsBlob>,
     handoff: &network::Handoff,
+    mut sta: Option<cc_hal_esp32::Sta>,
 ) -> Result<(), EspError> {
     // `TWDTConfig::new()` takes the timeout and the panic-on-trigger behaviour
     // from the ESP-IDF kconfig. R3-10 replaces this with explicit values, which
@@ -914,6 +933,7 @@ fn control_task(
     let mut tick: u32 = 0;
     let mut last_sse_ms: u32 = 0;
     let mut last_heap_log_ms: u32 = 0;
+    let mut wifi_last_ms: u32 = 0;
     loop {
         watchdog.feed()?;
         tick = tick.wrapping_add(1);
@@ -1017,8 +1037,33 @@ fn control_task(
                 mqtt_connected,
             },
             uptime,
-            None,
         ));
+
+        // The radio's readings, published **after** the telemetry above and on
+        // every tick rather than only on a radio poll. The order is load-bearing:
+        // `Shared::publish` replaces the whole slot, so a radio publish before it
+        // would be erased by the very next tick, and `/api/status` would go back
+        // to reporting `wifiAssociated: false` — which is exactly the bug this
+        // replaced. The signal bucket and the DHCP address also change without a
+        // reconnect, and `/api/status` polls far more often than the radio does.
+        network::publish_radio(&net.shared, sta.as_ref());
+
+        // The radio's own maintenance, on the C++'s 1 s cadence
+        // (`CleverCoffeeWiFiManager::checkAndMaintainConnection`, and
+        // `cc_hal_esp32::wifi::MONITOR_PERIOD_MS`). `Sta` is `Send` and the
+        // control task is the one place a 1 s poll belongs — it is the task with
+        // a heartbeat and a watchdog, so a poll that stalls is visible.
+        if uptime.wrapping_sub(wifi_last_ms) >= WIFI_POLL_MS {
+            wifi_last_ms = uptime;
+            if let Some(radio) = sta.as_mut() {
+                if radio.poll() {
+                    // The C++'s `networkCoordinator_->setOfflineMode`. The
+                    // machine keeps serving on the LAN, which is the point of
+                    // offline mode.
+                    warn!("wifi: offline mode — unreachable off-LAN");
+                }
+            }
+        }
         if uptime.wrapping_sub(last_sse_ms) >= SSE_INTERVAL_MS {
             last_sse_ms = uptime;
             network::broadcast_temps(net);
