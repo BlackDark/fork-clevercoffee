@@ -165,9 +165,13 @@ Exit gate: host tests green, `just check` passes, both phases build for all thre
   chunked responses, SSE, `Accept-Encoding` negotiation, static asset serving from a byte
   source, and an authentication hook. The socket layer is injected so the whole thing runs on
   the host.
-- **Acceptance:** `cargo test -p http` covers request parsing for every method the frontend uses,
-  chunked and content-length bodies, multipart upload, keep-alive, a malformed request line, a
-  request larger than the limit, SSE framing, and gzip negotiation.
+- **Acceptance:** `cargo test -p clevercoffee-http`, 86 tests. Request parsing for every method the
+  frontend uses, a body arriving at the offset the parser reported, a request split across
+  several reads, keep-alive from the version and the `Connection` header, a malformed request
+  line, a request line and a header line and a header count over their limits, an obsolete folded
+  header, a chunked body, an absolute-form target, SSE framing and its terminal chunk, and gzip
+  negotiation including a `q=0` refusal. The connection loop runs over an injected stream, so
+  every test exercises the real parse, route, guard and write path.
 - **Hardware:** no
 - **Safety:** the request size limit and the header count limit must have tests, because an
   unbounded allocation on an embedded target is an OOM.
