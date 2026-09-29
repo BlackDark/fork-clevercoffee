@@ -253,7 +253,7 @@ dependencies = [
 name = "clevercoffee-onewire"
 version = "0.1.0"
 dependencies = [
- "clevercoffee-hal-traits",
+ "heapless 0.8.0",
 ]
 
 [[package]]

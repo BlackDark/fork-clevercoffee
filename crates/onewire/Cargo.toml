@@ -1,6 +1,6 @@
 [package]
 name = "clevercoffee-onewire"
-description = "1-Wire bit-bang transport, ROM search and CRC-8. No hardware here."
+description = "1-Wire protocol: ROM search, byte transfer and CRC-8. No pin driving here."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,8 +8,4 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
-clevercoffee-hal-traits = { workspace = true }
-
-[dev-dependencies]
-clevercoffee-hal-traits = { workspace = true }
-
+heapless = { workspace = true }

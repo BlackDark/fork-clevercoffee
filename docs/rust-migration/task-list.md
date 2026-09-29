@@ -210,11 +210,13 @@ Exit gate: all three targets build; each driver has host tests.
 - **Files:** `crates/onewire/**`, `crates/ds18b20/**`
 - **Steps:** the bit-bang transport with an explicit timing model, ROM search, the CRC-8 Dallas
   family, and the command layer: `CONVERT_TEMP`, wait, `READ_SCRATCHPAD`, resolution handling for
-  9 to 12 bits, and the error sentinels.
-- **Acceptance:** host tests run the driver against a simulated bus that models the slave's
-  response timing, covering: a single-drop and a multi-drop ROM search, CRC failure on a
-  corrupted byte, a disconnected bus, a stale scratchpad read at each resolution, and the
-  conversion wait at 9, 10, 11 and 12 bits.
+  9 to 12 bits.
+- **Acceptance:** `cargo test -p clevercoffee-onewire`, 24 tests: byte framing and its
+  least-significant-bit-first wire order, the CRC against a corrupted byte at every position, an
+  unconnected bus, a device that does not acknowledge, a ROM with a bad CRC being refused, the
+  wire shape of a ROM search (64 bit pairs, 64 branch decisions, 8 CRC bits), and a search that
+  cannot terminate being bounded. The DS18B20 half, with the scratchpad and the conversion wait at
+  9 to 12 bits, is T-09 continued.
 - **Hardware:** **yes**, ESP32, to confirm the real bit timings
 - **Safety:** the driver must never return a plausible-looking value after a CRC failure. There
   is a test for exactly that.
@@ -222,6 +224,11 @@ Exit gate: all three targets build; each driver has host tests.
 - **Open uncertainty:** the actual DS18B20 conversion times (750/375/188/94 ms) were not
   verified from the datasheet in this run. The host test asserts the values the driver uses, and
   the device test confirms them.
+- **Not verified:** multi-drop ROM *enumeration*. The search algorithm is Stoffregen's and its wire
+  shape is asserted, but the simulated bus cannot yet model several devices driving the line
+  simultaneously, so which devices a search returns is not proven. A real machine has one DS18B20
+  on its bus, so this is a gap in the tests rather than a path the machine takes. Recorded here
+  rather than covered by a weaker assertion that would read like more than it is.
 - **Fixes:** D03 (CRC failure and out-of-range are a fault, not a value)
 
 ### T-09b. TSIC 306 driver
