@@ -284,6 +284,16 @@ configured, so the strapping sample is correct. See
 
 `src/state/states/PidStates.cpp:75-79` transitions to `MANUAL_FLUSH_RUNNING` when `requestManualFlushStart_` is set, but nothing ever sets that flag: it is only read there and cleared at `MachineStateContext.h:620`. The reachable edge is `BACKFLUSH_IDLE` to `MANUAL_FLUSH_RUNNING` (`BackflushStates.cpp:47-51`). **Fix:** the Rust table has both edges, so the dead one is a working path rather than a silent gap, and the difference is documented here.
 
-### D52 — Dead and stale code
+### D52 — The scale calibration range permits a zero divisor
+
+`include/clevercoffee/Config.h:1151-1160`. The calibration is a **divisor** applied to the raw
+load-cell counts, and the accepted range is -999999 to 999999, which includes zero. A zero
+calibration produces a division by zero, and the negative half of the range is legitimate: the
+shipped `config.json` has -1750.05 and -1685.21, because an inverted load cell really does read
+negative. So the range cannot be tightened to exclude zero without also excluding real devices.
+**Fix:** the schema keeps the signed range and adds a separate `forbid_zero` flag, so the rule is
+enforced without narrowing the range.
+
+### D53 — Dead and stale code
 
 `examples/` (6 files, all including headers that do not exist), `scripts/auto_compression.py` (disabled, references a pre-Vue asset list), `test/TESTING_GUIDE.md` (references two deleted test directories and a stale test count), `PlatformIO::check_tool = clangtidy` with no `.clang-tidy` file and no CI job, `HX711Scale.cpp` and `BluetoothScale.cpp` with no construction site, `PIN_ZC` and `PIN_ROTARY_*` with no code reference, `HardwareManager::setHeaterPower` and `setPumpPressure` as TODO stubs, `openSolenoid` as a TODO stub, `getAllStateParams` as a no-op, `Valve::openSteamValve` with no caller. **Fix:** the final phase deletes the C++ tree outright rather than porting dead code.

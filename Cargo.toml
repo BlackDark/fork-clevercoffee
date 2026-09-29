@@ -56,6 +56,7 @@ clevercoffee-bsp-esp32c6 = { path = "crates/bsp-esp32c6" }
 serde = { version = "1", default-features = false, features = ["derive", "alloc"] }
 serde_json = { version = "1", default-features = false, features = ["alloc"] }
 crc32fast = { version = "1", default-features = false }
+heapless = { version = "0.8", default-features = false }
 sha2 = { version = "0.11", default-features = false }
 base64 = { version = "0.22", default-features = false, features = ["alloc"] }
 

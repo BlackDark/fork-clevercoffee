@@ -105,8 +105,10 @@ runs.
 - **Safety:** every range is a safety limit. The test above is the gate.
 - **Rollback:** n/a
 - **Open uncertainty:** none
-- **Fixes:** D12 (unregistered parameters cannot exist), D23 (length limits enforced), D41
-  (deterministic order), D42 (no dead type variants)
+- **Fixes:** D12 (unregistered parameters cannot exist), D23 (length limits enforced), D26
+  (group filters mean what they say), D27 (typed values, no 2-decimal truncation), D41
+  (deterministic order), D42 (no dead type variants), D52 (a zero calibration divisor is
+  rejected)
 
 ---
 
@@ -488,7 +490,7 @@ Exit gate: the end-to-end import check passes on device; the migration guide is 
 - **Rollback:** the whole phase is one commit on its own branch, so reverting is a single
   `git revert`. This is why it is its own task with its own review.
 - **Open uncertainty:** none
-- **Fixes:** D35, D52
+- **Fixes:** D35, D53
 
 ---
 

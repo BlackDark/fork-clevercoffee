@@ -8,6 +8,8 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+heapless = { version = "0.8", default-features = false }
+
 clevercoffee-domain = { workspace = true }
 
 [dev-dependencies]

@@ -172,6 +172,9 @@ dependencies = [
 [[package]]
 name = "clevercoffee-config"
 version = "0.1.0"
+dependencies = [
+ "heapless 0.8.0",
+]
 
 [[package]]
 name = "clevercoffee-display"
@@ -236,6 +239,7 @@ name = "clevercoffee-hal-traits"
 version = "0.1.0"
 dependencies = [
  "clevercoffee-domain",
+ "heapless 0.8.0",
 ]
 
 [[package]]
