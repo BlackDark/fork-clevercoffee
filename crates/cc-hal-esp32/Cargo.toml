@@ -22,6 +22,21 @@ device-tests = []
 cc-domain.workspace = true
 cc-config.workspace = true
 cc-machine.workspace = true
+# For `cc_safety::steam_flow_allowed`, which the `Actuators` impl applies
+# **inside** `open_steam_valve` (R4-01). The whitelist is a `match` with no
+# wildcard arm over all eighteen `MachineState` variants, so naming it here
+# rather than re-deriving the list is what makes the two callers of that list
+# the same one. `cc-safety` is `no_std` and depends only on `cc-domain`, so it
+# adds nothing to the device link.
+cc-safety.workspace = true
+# The SSD1306 driver, R3-09. NOT `cc-display`: the templates are rendered by the
+# host-tested display crate and arrive here as a `&[u8; 1024]` already in the
+# controller's page order, so the HAL never needs to know what is on screen.
+ssd1306.workspace = true
+# `ssd1306` returns `display_interface::DisplayError` and takes
+# `WriteOnlyDataCommand`, and neither is re-exported. Naming it is naming a
+# crate `ssd1306` already pulls in, so it adds nothing to the device build.
+display-interface.workspace = true
 esp-idf-hal.workspace = true
 esp-idf-svc.workspace = true
 esp-idf-sys.workspace = true

@@ -56,6 +56,7 @@
 //! There is deliberately **no** control loop, no state machine and no sensor
 //! here. Those arrive at R2-08 and R3-xx.
 
+mod control;
 mod network;
 
 use core::error::Error;
@@ -67,26 +68,52 @@ use cc_domain::sensor::ds18b20::{self as ds18b20_domain, Driver as Ds18b20Driver
 use cc_domain::sensor::onewire::{OneWireError, Rom};
 use cc_domain::sensor::tsic306 as tsic306_domain;
 use cc_domain::sensor::tsic306::Tsic306;
-use cc_domain::units::{Duty, Millis};
+use cc_domain::units::{Celsius, Millis};
 use cc_hal_esp32::heater::{HeaterOutput, TimerIsrPwm};
 use cc_hal_esp32::onewire::GpioOneWire;
 use cc_hal_esp32::sensors::pins;
 use cc_hal_esp32::time::now_ms;
 use cc_hal_esp32::zacwire::{self, ZacwireCapture};
+use cc_hal_esp32::SwitchBank;
+use cc_machine::Event;
 use core::fmt::Write as _;
 use esp_idf_hal::delay::FreeRtos;
 use esp_idf_hal::gpio::{InputOutput, InputPin, Level, OutputPin, PinDriver, Pull};
 use esp_idf_hal::peripherals::Peripherals;
 use esp_idf_hal::task::watchdog::{TWDTConfig, TWDTDriver, TWDT};
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 
 type EspError = esp_idf_svc::sys::EspError;
 
 /// The level that means "actuator de-energised" for a `HIGH_TRIGGER` relay.
 const INACTIVE: Level = Level::Low;
 
-/// Heartbeat period of the control task, and therefore the watchdog feed period.
-const HEARTBEAT_MS: u32 = 1000;
+/// The deadman gate's beat period, and therefore the upper bound on how long the
+/// heater can stay energised after the control task stops.
+///
+/// **The beat is now every tick, not every second.** Before R4-01 the heartbeat
+/// was synthesised as `tick * HEARTBEAT_MS` — a *guess* at the clock made from
+/// the tick count, which is only the elapsed time if every tick took exactly
+/// [`CONTROL_TICK_MS`]. It now reads [`cc_hal_esp32::time::now_ms`], so the beat
+/// is the real time. This constant is what the 2-interlock-period deadman
+/// (`cc_domain::heater::DEADMAN_TIMEOUT_MS`, 1000 ms) is measured against: the
+/// 400 ms period is comfortably inside it, and the previous 1000 ms period was
+/// *exactly* it, which left no margin for a late tick.
+///
+/// The watchdog feed has the same period, deliberately: one signal that the task
+/// is alive, not two that could disagree.
+const HEARTBEAT_MS: u32 = CONTROL_TICK_MS;
+
+// Stated at compile time so the relationship cannot rot: the deadman drops the
+// heater if the beat is older than `DEADMAN_TIMEOUT_MS`, so a tick period at or
+// above it would mean a single late tick drops the heater. One interlock period
+// of headroom is what makes the deadman a *supervisor* failure detector rather
+// than a jitter detector. See `cc_domain::heater::DEADMAN_TIMEOUT_MS`.
+const _: () = assert!(
+    HEARTBEAT_MS * 2 <= cc_domain::heater::DEADMAN_TIMEOUT_MS,
+    "the control tick must be at most half the deadman timeout, or one late \
+     tick drops the heater"
+);
 
 /// How long the control task sleeps between iterations, in milliseconds.
 ///
@@ -280,16 +307,6 @@ const TICK_BASELINE_TICKS: u32 = 25;
 /// "after" the scale needs.
 const TICK_REPORT_INTERVAL_MS: u32 = 60_000;
 
-/// `MachineState::PidNormal`'s discriminant, for `/api/status`.
-///
-/// **This firmware has no state machine wired in yet** — R2-08's reducer is a
-/// separate crate and its handlers are not connected to this bring-up binary — so
-/// the reported state is a constant. It is a named constant rather than a
-/// literal so the number a browser sees traces to
-/// `cc_domain::state::MachineState` and not to a magic number, and so the one
-/// line to change when the reducer is connected is findable.
-const MACHINE_STATE_PID_NORMAL: i32 = cc_domain::state::MachineState::PidNormal as i32;
-
 /// The SSE event cadence, in milliseconds.
 ///
 /// `WebServerManager::tempEventInterval_` as driven from
@@ -425,7 +442,7 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
     // whichever driver [`PROBE`] names is built on it. This is a **read**: the
     // 1-Wire bus is open-drain and the ZACwire line is an input, so nothing on
     // this pin is ever energised.
-    let mut temp_sensor = bring_up_temperature_sensor(peripherals.pins.gpio16)?;
+    let temp_sensor = bring_up_temperature_sensor(peripherals.pins.gpio16)?;
 
     // 2. The two plain actuator pins to `inactive`, in `main`, before any task
     //    exists, so there is no window in which a task could observe them
@@ -471,7 +488,14 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
     // `cc_domain::heater::CHOSEN_MAX_DUTY`. A `max_duty` of 1 means the control
     // task's `set_duty` is a pure pass-through of the gate's decision, with no
     // second quantisation.
-    let heater = HeaterOutput::new(transport, 1);
+    //
+    // **The transport choice is the firmware's, and it is stated here** rather
+    // than as an enum in `cc-hal-esp32::actuators`: R1-07 had a `LedcPwm` arm and
+    // a stand-in, and the stand-in is what the build used because the `LEDC` arm
+    // panicked the chip (`HEATER_LEDC_DEFECT` above). `LedcPwm` stays in
+    // `cc-hal-esp32` behind the same `HeaterDuty` seam for a target whose chip
+    // does not have the spin, and this is the one line a different target changes.
+    let heater: HeaterOutput<TimerIsrPwm> = HeaterOutput::new(transport, 1);
 
     // 5. Read the actuator pins back and assert. A failure here means an actuator
     //    is not in the state the machine considers safe, so nothing else may
@@ -512,10 +536,61 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
         clock: peripherals.pins.gpio33,
     };
 
-    // The plain drivers stay owned by `main` for the lifetime of the process.
-    // In the real firmware they become `Actuators` (R3-03), the single owner of
-    // the pump and the valve; nothing else may drive them.
-    let _actuators = (water_valve, pump);
+    // 5e. The I²C pins, reserved for whichever of the two I²C devices this
+    //     machine has fitted.
+    //
+    //     **The ABP2 and the SSD1306 share one bus** — `PIN_I2CSDA`/`PIN_I2CSCL`
+    //     are GPIO21/22 (`pinmapping.h:53-54`) and `04 §7` calls the bus
+    //     "a mutex-guarded shared resource". The display driver is a separate
+    //     piece of work (R4-xx) and it has not landed, so **this** task takes
+    //     `I2C0` for the pressure sensor and the display task will have to share
+    //     it. The reservation is here, next to the scale's, so the person who
+    //     wires the OLED finds the conflict at the pin stage rather than as a
+    //     `Peripherals::take` failure. See the note in `bring_up_pressure`.
+    let i2c_pins = I2cPins {
+        peripheral: peripherals.i2c0,
+        sda: peripherals.pins.gpio21,
+        scl: peripherals.pins.gpio22,
+    };
+
+    // 5c. The actuator facade, which becomes the single owner of the pump, the
+    //     valve relay and the heater.
+    //
+    //     Built here, from the three drivers the readback above just proved
+    //     inactive, and **moved into the control task** below. That move is the
+    //     ownership statement: after it, the only `PinDriver<'static,
+    //     InputOutput>` for GPIO17, GPIO27 and GPIO2 in the whole program is
+    //     inside `cc_hal_esp32::Actuators`, and the only way to reach one of them
+    //     is `cc_machine::applier::apply`. That is 04 §3.1's "a new state cannot
+    //     accidentally poke a relay, because it has no way to reach one" made
+    //     structural rather than aspirational.
+    //
+    //     The `test_only` inhibit is set here and **never changed afterwards**.
+    //     See [`TEST_ONLY_INHIBIT`] for what is held off and why.
+    let mut actuators = cc_hal_esp32::Actuators::new(pump, water_valve, heater);
+    actuators.set_inhibit(TEST_ONLY_INHIBIT);
+    info!(
+        "actuators: pump=GPIO27 valve=GPIO17 heater=GPIO2 owned by the control task; \
+         test_only inhibit pump={} valve={} heater={}",
+        TEST_ONLY_INHIBIT.pump, TEST_ONLY_INHIBIT.valve, TEST_ONLY_INHIBIT.heater
+    );
+
+    // 5d. The five operator inputs: the four switches and the tank float.
+    //
+    //     These are **inputs**, so taking them here cannot energise anything, and
+    //     the configuration that decides how they are wired is not loaded yet —
+    //     so the pins are reserved and `SwitchBank::new` is called below, once
+    //     `config` exists. Same shape as the scale's pin reservation above and
+    //     for the same reason: `Peripherals::take` happens once, and a driver
+    //     that only sometimes exists must not be what decides which pins it
+    //     hands out.
+    let switch_pins = SwitchPins {
+        power: peripherals.pins.gpio39,
+        brew: peripherals.pins.gpio34,
+        steam: peripherals.pins.gpio35,
+        hot_water: peripherals.pins.gpio36,
+        water_tank: peripherals.pins.gpio23,
+    };
 
     // ---- R3: storage and the network tier ------------------------------
     //
@@ -579,6 +654,40 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
             config.hardware.sensors.scale.enabled,
         );
     }
+
+    // 7c. The five operator inputs. Built here because this is the first point
+    //     at which `config` exists, and the switch's type and mode come from it
+    //     (`hardware.switches.*.type` / `.mode`, `Config.h:988-1060`).
+    //
+    //     A failure here is **fatal**, unlike the scale's. A scale that will not
+    //     start costs a weight reading; a switch bank that will not configure
+    //     costs every physical control the machine has, and the machine would sit
+    //     there accepting web commands it could not be overridden on. The C++
+    //     ignores the return of `pinMode` (`GPIOPin.cpp`) and reports a dead
+    //     switch as a machine that does nothing, which is the same fault with
+    //     less information.
+    let switches = SwitchBank::new(
+        switch_pins.power,
+        switch_pins.brew,
+        switch_pins.steam,
+        switch_pins.hot_water,
+        switch_pins.water_tank,
+        &config,
+    )?;
+
+    // 7d. The ABP2 pressure sensor, when one is fitted.
+    //
+    //     `hardware.sensors.pressure.enabled` is the gate, exactly as
+    //     `SensorCoordinator::updatePressure` uses it
+    //     (`src/coordinators/SensorCoordinator.cpp:108-110`) — and the default is
+    //     `false`, so a machine with no ABP2 fitted does not spend a bus, a
+    //     driver or a 20 Hz deadline on one. What the C++ *cannot* do is read one
+    //     without blocking: `pressureSensor.h:35` does `delay(10)` on every
+    //     50 ms sample, which is 20 % of the C++ loop's wall clock (01 §4, and
+    //     R4-01b's first listed win). `cc_domain::abp2::Driver` makes the 10 ms a
+    //     deadline instead, so the sample is spread across ticks and nothing
+    //     sleeps.
+    let pressure = bring_up_pressure(i2c_pins, &config);
 
     // 8. The shared HTTP state and the network→control command queue.
     let net = Arc::new(network::Network::new());
@@ -659,41 +768,62 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
 
     // 5 + 6. The control task owns the watchdog subscription, the heartbeat, and
     //        the heater's deadman. It is also the *only* thing that can open the
-    //        heater gate, and — since step 7 moved the store here — the only
-    //        thing that can write the configuration.
+    //        heater gate, the *only* thing that can write an actuator pin, and —
+    //        since step 7 moved the store here — the only thing that can write the
+    //        configuration.
+    //
+    //        `actuators` and `switches` move in. That move is the whole of 04 §3.1
+    //        at the task level: after it, this thread holds every capability that
+    //        can move a relay, and `cc_machine::applier::apply` is the only path
+    //        from the state machine to one of them.
+    //
+    //        `config` moves in too, and it is a **clone**: `network::start_http`
+    //        already took its own `Arc<Config>` for `/api/config` and
+    //        `/api/parameters`, and `Context` borrows rather than owns (it is
+    //        `Copy` and rebuilt every event — `cc_machine::context`'s rationale).
+    //        So the control task holds the authoritative value the HTTP server
+    //        does *not* see, and a `POST /api/parameters` that changes the
+    //        setpoint is visible to the state machine on the next event and to
+    //        `/api/config` only after a reboot. **That asymmetry is real and is
+    //        recorded**, not papered over: it is the same shape as the C++'s
+    //        singleton, minus the singleton.
+    let control_config = config.clone();
+    let known_weight = config.hardware.sensors.scale.known_weight;
+    // The radio moves into the control task rather than staying in this frame.
+    // It is `Send` (`EspWifi` is, and `Monitor` and `String` are), and the
+    // control task is the only task with a watchdog subscription, so the 1 s
+    // `checkAndMaintainConnection` poll and the `/api/status` radio fields
+    // (`network::publish_radio`) both belong to the task whose stalls are already
+    // fatal. Before this, the radio was polled nowhere and `/api/status`
+    // reported `wifiAssociated: false` on a machine that was associated.
+    //
+    // **The box is built here, in `bring_up`'s 16 KB frame**, and the closure
+    // carries only a pointer. See `ControlArgs` for why that matters: a by-value
+    // argument is materialised in the caller's frame, and the caller here *is*
+    // the 8 KB control stack.
+    let args = Box::new(ControlArgs {
+        twdt,
+        actuators,
+        switches,
+        pressure,
+        temp: temp_sensor,
+        net: Arc::clone(&net),
+        commands: Arc::clone(&commands),
+        config: control_config,
+        known_weight,
+        mqtt_configured,
+        mqtt_connected,
+        store,
+        sampler,
+        handoff: handoff.clone(),
+        sta: wifi,
+    });
     let control = std::thread::Builder::new()
         .name("control".into())
         .stack_size(CONTROL_STACK_BYTES)
-        .spawn({
-            let net = Arc::clone(&net);
-            let commands = Arc::clone(&commands);
-            move || {
-                if let Err(err) = control_task(
-                    twdt,
-                    heater,
-                    &mut temp_sensor,
-                    &net,
-                    &commands,
-                    config.brew.setpoint,
-                    config.hardware.sensors.scale.known_weight,
-                    mqtt_configured,
-                    mqtt_connected,
-                    store,
-                    sampler,
-                    &handoff,
-                    // The radio moves into the control task rather than staying
-                    // in this frame. It is `Send` (`EspWifi` is, and `Monitor`
-                    // and `String` are), and the control task is the only task
-                    // with a watchdog subscription, so the 1 s
-                    // `checkAndMaintainConnection` poll and the `/api/status`
-                    // radio fields (`network::publish_radio`) both belong to the
-                    // task whose stalls are already fatal. Before this, the
-                    // radio was polled nowhere and `/api/status` reported
-                    // `wifiAssociated: false` on a machine that was associated.
-                    wifi,
-                ) {
-                    error!("control task failed: {err}");
-                }
+        .spawn(move || {
+            if let Err(err) = control_task(args) {
+                error!("control task failed: {err}");
             }
         })?;
 
@@ -983,6 +1113,143 @@ fn format_rom(rom: Rom) -> String {
     out
 }
 
+/// The five operator inputs, taken from `Peripherals` and held until the
+/// configuration says how they are wired.
+///
+/// Same shape and same reason as [`ScalePins`]: the pins are reserved before the
+/// configuration is loaded, and the driver is built after. `SwitchBank::new`
+/// takes them by value and returns the bank, so there is one owner of each pin
+/// from `Peripherals::take()` onwards.
+struct SwitchPins {
+    /// `PIN_POWERSWITCH` (GPIO39).
+    power: esp_idf_hal::gpio::Gpio39<'static>,
+    /// `PIN_BREWSWITCH` (GPIO34).
+    brew: esp_idf_hal::gpio::Gpio34<'static>,
+    /// `PIN_STEAMSWITCH` (GPIO35).
+    steam: esp_idf_hal::gpio::Gpio35<'static>,
+    /// `PIN_WATERSWITCH` (GPIO36) — the hot-water button.
+    hot_water: esp_idf_hal::gpio::Gpio36<'static>,
+    /// `PIN_WATERTANKSENSOR` (GPIO23) — the tank float.
+    water_tank: esp_idf_hal::gpio::Gpio23<'static>,
+}
+
+/// The shared I²C bus, taken from `Peripherals` and held until the ABP2 is built.
+///
+/// `I2C0` plus its two pins. **The ABP2 and the SSD1306 share this bus** —
+/// `PIN_I2CSDA`/`PIN_I2CSCL` are GPIO21/22 for both (`pinmapping.h:53-54`) —
+/// so whichever of the two lands second has to share the driver. 04 §7 calls it
+/// "a mutex-guarded shared bus"; the mutex is R3-12's work and does not exist
+/// yet, so **R4-01 takes the bus for the pressure sensor** and the display task
+/// will have to either share this driver (`Abp2I2c::from_driver` exists for
+/// exactly that) or wait.
+struct I2cPins {
+    /// `I2C0`, the only I²C peripheral this build uses.
+    peripheral: esp_idf_hal::i2c::I2C0<'static>,
+    /// `PIN_I2CSDA` (GPIO21).
+    sda: esp_idf_hal::gpio::Gpio21<'static>,
+    /// `PIN_I2CSCL` (GPIO22).
+    scl: esp_idf_hal::gpio::Gpio22<'static>,
+}
+
+/// Build the ABP2 pressure sensor, when one is fitted.
+///
+/// `hardware.sensors.pressure.enabled` is the gate, exactly as
+/// `SensorCoordinator::updatePressure` uses it
+/// (`src/coordinators/SensorCoordinator.cpp:108-110`). It defaults to `false`, and
+/// so a machine with no ABP2 spends no bus, no driver and no 20 Hz deadline on
+/// one — and `/api/status` publishes `pressure: null`, which is the C++'s
+/// "no pressure sensor" (`WebServerManager.cpp:356-372` omits the key).
+///
+/// A failure is **not** fatal. A pressure sensor that does not answer costs a
+/// telemetry field, not the machine: the C++ guards on the same flag and, when
+/// the flag is on, would simply log and carry on. Refusing to boot would be a
+/// regression.
+///
+/// # What this fixes
+///
+/// `pressureSensor.h:35` does `delay(10)` inside `measurePressure()`, called from
+/// `SensorCoordinator::updatePressure` on a 50 ms cadence
+/// (`constants/Timing.h`). That is 10 ms of a 50 ms period — **20 % of the
+/// control loop's wall clock spent asleep** (01 §4, and the first of R4-01b's
+/// three listed wins). `cc_domain::abp2::Driver` makes the 10 ms a *deadline*
+/// instead: the conversion command is written on one tick and the answer read on
+/// a later one, so the sensor costs two I²C transactions spread over 10 ms of
+/// normal control-loop work and no sleep at all.
+fn bring_up_pressure(
+    pins: I2cPins,
+    config: &cc_config::Config,
+) -> Option<cc_hal_esp32::Abp2Pressure<'static>> {
+    if !config.hardware.sensors.pressure.enabled {
+        info!(
+            "pressure: hardware.sensors.pressure.enabled is false — no ABP2 (the C++ \
+             makes the same check, SensorCoordinator.cpp:108)"
+        );
+        return None;
+    }
+    let sda: cc_hal_esp32::sensors::SdaPin = pins.sda.into();
+    let scl: cc_hal_esp32::sensors::SclPin = pins.scl.into();
+    match cc_hal_esp32::Abp2I2c::new(pins.peripheral, sda, scl) {
+        Ok(bus) => {
+            let sensor = cc_hal_esp32::Abp2Pressure::new(bus);
+            info!(
+                "pressure: ABP2 on I2C0 (SDA GPIO{} SCL GPIO{}) at 0x{:02X}, \
+                 non-blocking — the C++'s 10 ms delay is a deadline here, \
+                 cadence {} ms",
+                cc_hal_esp32::sensors::pins::I2C_SDA,
+                cc_hal_esp32::sensors::pins::I2C_SCL,
+                cc_domain::abp2::ADDRESS,
+                cc_domain::abp2::CADENCE.raw(),
+            );
+            Some(sensor)
+        }
+        Err(err) => {
+            warn!("pressure: the I2C bus did not come up: {err:?} — no pressure reading");
+            None
+        }
+    }
+}
+
+/// Persist `brew.setpoint` and report the outcome.
+///
+/// `WebServerManager.cpp:400` persists it inside the same handler that sets it,
+/// so the two cannot disagree. Here the split is because the *running* setpoint
+/// belongs to the control task's `Control` and the *stored* one belongs to the
+/// store, and the store is the only durable thing — so the write is what makes
+/// the change survive a reboot, and a failure to write is an `error!` rather than
+/// a silent divergence.
+fn persist_setpoint(
+    store: &mut cc_config::blob_store::BlobConfigStore<cc_hal_esp32::nvs::EspNvsBlob>,
+    celsius: f64,
+    config: &cc_config::Config,
+) {
+    let mut updated = config.clone();
+    updated.brew.setpoint = celsius;
+    match store.save(&updated) {
+        Ok(()) => info!("config: brew.setpoint = {celsius} persisted"),
+        Err(err) => {
+            error!("config: brew.setpoint = {celsius} was applied but NOT persisted: {err}");
+        }
+    }
+}
+
+/// Persist `pid.enabled`, for the same reason as [`persist_setpoint`].
+///
+/// `setUserPidEnabled` persists the preference **and** sets the runtime flag
+/// (`SystemUtils.h:34-40`), and `Command::SetUserPidEnabled` is the reducer half
+/// of that. This is the other half.
+fn persist_pid_enabled(
+    store: &mut cc_config::blob_store::BlobConfigStore<cc_hal_esp32::nvs::EspNvsBlob>,
+    enabled: bool,
+    config: &cc_config::Config,
+) {
+    let mut updated = config.clone();
+    updated.pid.enabled = enabled;
+    match store.save(&updated) {
+        Ok(()) => info!("config: pid.enabled = {enabled} persisted"),
+        Err(err) => error!("config: pid.enabled = {enabled} was applied but NOT persisted: {err}"),
+    }
+}
+
 /// The three scale pins, taken from `Peripherals` and held until the driver is
 /// built.
 ///
@@ -1124,93 +1391,260 @@ fn bring_up_scale(
     Ok(Some(sampler))
 }
 
-/// The heater transport, held by the control task.
+/// 🔴 The `test_only` inhibit for R4-01's acceptance run.
 ///
-/// One arm, not two. R1-07 had a `LedcPwm` arm here and a stand-in, and the
-/// stand-in is what the build used because the `LEDC` arm panicked the chip; now
-/// that the ISR is the real transport, an enum with one variant is a lie about
-/// there being a choice, and the `LEDC` alternative lives in `cc-hal-esp32` behind
-/// `HeaterDuty` where it belongs. `BRING_UP_HEATER_LEDC` is the switch, and it is
-/// `false`.
-type Heater = HeaterOutput<TimerIsrPwm>;
+/// **The pump and the valve relay are held off. The heater is not.** That split
+/// is the whole of the safety argument for this task, so it is spelled out.
+///
+/// * **Why the pump and the valve are inhibited.** A brew switch press — or a
+///   `POST /api/brew`, or a `backflush` command — makes the reducer emit
+///   `EnablePump` and `OpenWaterValve`, and the state machine's job is to emit
+///   them. The human has a real machine with a real reservoir, and R4-01's
+///   acceptance criterion is about the **PID**, not about water. The inhibit
+///   makes "the pump did not run" mean "the pump was inhibited", which
+///   `cc_hal_esp32::actuators` counts and logs, rather than leaving the
+///   distinction to a reading of `/api/status`.
+///
+/// * **Why the heater is not.** The acceptance criterion the human will check by
+///   hand is *"with a target temperature of 30 °C the heater must NOT be at
+///   100 % output"*. That is a statement about a duty the heater **reached**,
+///   and it cannot be answered by a duty the code computed and then refused to
+///   apply. The heater runs through `HeaterOutput::set_duty` and the 10 ms ISR
+///   either way, and the deadman gate is armed on the first supervisor beat
+///   exactly as it is in any other build — so the thing being proven is the real
+///   path, not a shadow of it.
+///
+/// * **What bounds it.** A 30 °C setpoint against a ~24 °C boiler is a ~6 K
+///   error, which is well inside the emergency threshold
+///   (`safety.emergency_temp`, default 150 °C, `Config.h:813-829`) and inside the
+///   200 °C plausibility ceiling. Nothing here can run away: S1 trips on three
+///   consecutive readings above the threshold, and the state machine's own
+///   `should_pid_be_enabled` refuses the duty in `PID_DISABLED`, `SENSOR_ERROR`,
+///   `EMERGENCY_STOP`, `STANDBY` and every backflush state.
+///
+/// **To return to a machine that can brew:** set
+/// [`cc_hal_esp32::Inhibit::NONE`]. That is a one-line change and a rebuild, and
+/// it is the correct ship state once R4-04's safety-path procedures have been
+/// written and reviewed — 06 lists them as a separate task for exactly this
+/// reason.
+const TEST_ONLY_INHIBIT: cc_hal_esp32::Inhibit = cc_hal_esp32::Inhibit {
+    pump: true,
+    valve: true,
+    heater: false,
+};
+
+/// The long-press "REBOOTING" pause, in milliseconds.
+///
+/// `PowerHandler::triggerSystemReboot` (`PowerHandler.h:177-192`) shows the
+/// message and waits. There is no display in this build, so the wait is all that
+/// survives of it — and it is still load-bearing: it is what lets the operator
+/// see that the long press did something before the console goes away.
+const REBOOT_DISPLAY_MS: u32 = 1_000;
+
+/// How often the PID's own P/I/D and the actuator refusals are logged, in
+/// milliseconds.
+///
+/// Once a second: often enough that a saturation is visible while it is
+/// happening, rare enough that the console stays readable during a brew. The
+/// C++ logs the same numbers on a state change only
+/// (`ProcessController.cpp:176-197`), which is not enough — a PID that pins at
+/// 100 % without a state change is exactly the failure this exists to catch.
+const PID_LOG_INTERVAL_MS: u32 = 1_000;
+
+/// The control task's inputs, as one struct.
+///
+/// A struct rather than thirteen positional arguments because the list has grown
+/// past the point where a call site can be read: the argument order stopped
+/// carrying information, which is the failure a `too_many_arguments` allowance
+/// papers over rather than fixes. Named fields at the call site are also what
+/// makes a "did the heater go in here or there?" question answerable.
+///
+/// # It is passed as a `Box`, and that is load-bearing
+///
+/// 04 §2 gives the control task **8 KB** of stack. This struct is ~1.5 KB of it
+/// (`Config` alone is 632 bytes, plus five debounced switches, the actuator
+/// facade with its heater transport, the scale, the radio and the store), and a
+/// by-value argument is **materialised in the caller's frame and then copied into
+/// the callee's**: the thread closure's frame *is* the control task's stack, so
+/// passing it by value cost two live copies of the whole struct before
+/// `control_task`'s first statement. That overflowed the 8 KB stack on hardware
+/// and the machine died in `Handoff::take` on a garbage pointer, four steps into
+/// the tick — a fault that points at nothing resembling its cause.
+///
+/// `Box` puts one pointer on the stack and the bytes on the heap, and the heap
+/// is measured (ADR-0002's floor, the once-a-minute report). The alternative —
+/// a bigger stack — spends a permanent 8 KB more of DRAM on a value that is
+/// genuinely large, and would hide the next frame that grows.
+struct ControlArgs {
+    /// The task watchdog, moved in so the subscription belongs to this task and
+    /// no other.
+    twdt: TWDT<'static>,
+    /// The actuator facade: the only owner of the pump, the valve and the
+    /// heater, and the only thing that can beat the heater's deadman.
+    actuators: cc_hal_esp32::Actuators,
+    /// The five operator inputs, debounced.
+    switches: cc_hal_esp32::SwitchBank,
+    /// The ABP2, when one is fitted.
+    pressure: Option<cc_hal_esp32::Abp2Pressure<'static>>,
+    /// The temperature probe. **Owned**, not borrowed: the control task polls it
+    /// every tick for the rest of the process, and a `&'static mut` would be a
+    /// lifetime this call site cannot honestly promise — `bring_up` blocks on
+    /// `control.join()` rather than running forever, so the borrow's scope is
+    /// the whole program either way and an owned value says so without the
+    /// `'static` claim.
+    temp: TemperatureSensor,
+    /// The shared HTTP/MQTT telemetry slot.
+    net: Arc<network::Network>,
+    /// The bounded network→control command queue (04 §3.2).
+    commands: Arc<cc_hal_esp32::task::CommandQueue>,
+    /// The authoritative configuration, as the control task's own copy.
+    config: cc_config::Config,
+    /// `hardware.sensors.scale.known_weight`, for a calibration request.
+    known_weight: f64,
+    /// Whether a broker is configured at all.
+    mqtt_configured: bool,
+    /// Whether MQTT has a session.
+    mqtt_connected: bool,
+    /// The configuration store. **Moved**, not borrowed: `ConfigStore::load` and
+    /// `save` both take `&mut self` and one owner beats a lock.
+    store: cc_config::blob_store::BlobConfigStore<cc_hal_esp32::nvs::EspNvsBlob>,
+    /// The scale's sampling task, owned for the rest of the process.
+    sampler: Option<cc_hal_esp32::Sampler>,
+    /// The UART provisioning handoff.
+    handoff: network::Handoff,
+    /// The radio.
+    sta: Option<cc_hal_esp32::Sta>,
+}
+
+// Stated at compile time, because the number is the whole argument for the
+// `Box` and it is the kind of thing that grows silently. `Config` is 632 bytes
+// of it; the rest is five debounced switches, the actuator facade (which
+// contains the heater transport), the scale, the radio and the store.
+//
+// A raise here is not automatically wrong — the struct is on the heap now, so
+// the cost is heap rather than stack — but it should be a decision rather than a
+// diff, because it is roughly this many bytes of the ~154 KB DRAM heap.
+const _: () = assert!(
+    std::mem::size_of::<ControlArgs>() < 2048,
+    "ControlArgs has outgrown 2 KB; see its documentation before raising this"
+);
 
 /// The control task: sole subscriber and sole feeder of the task watchdog
-/// (04 §2, §3.4), the only task that may open the heater gate, and the only
-/// owner of the configuration store.
+/// (04 §2, §3.4), the only task that may open the heater gate, the only task
+/// that may write an actuator pin, and the only owner of the configuration
+/// store.
 ///
-/// It takes the heater by value, so the gate cannot be beaten from anywhere
-/// else: there is exactly one holder of `&mut HeaterGate` in the program. It
-/// takes the store by value for the same reason — `ConfigStore::load` and
-/// `save` both need `&mut self`, and one owner is better than a lock.
-#[allow(
-    clippy::too_many_arguments,
-    reason = "the control task's inputs are the task's inputs; grouping them \
-              into a struct would be a struct that exists only to be \
-              destructured, and 04 §2's priority table is clearer as an \
-              explicit signature"
-)]
+/// # What it owns, and why that is the point
+///
+/// Before R4-01 this task owned the watchdog and a heater transport and nothing
+/// else, and the state machine did not exist on the device at all. Now it owns
+/// [`cc_hal_esp32::Actuators`], which owns every actuator pin, and
+/// [`control::Control`], which owns the reducer. The tick below is therefore the
+/// **only** path from a sensor reading to a relay in the whole program, and
+/// `cc_machine::applier::apply` is the only function in it that writes hardware.
+///
+/// # The tick, in order, and why the order is the C++'s
+///
+/// 1. **Feed the watchdog.** First, always. A control loop that can starve
+///    itself is the failure the watchdog exists to catch, and feeding it last
+///    would mean a tick that overran is reported as a tick that hung.
+/// 2. **Drain the command queue** (04 §3.2). Every command becomes an
+///    [`cc_machine::Event::Command`] and goes through the reducer, so a `POST`
+///    cannot reach past the tick into control state — the coupling 04 §3.2 exists
+///    to remove.
+/// 3. **Take a staged Wi-Fi credential**, if the console staged one.
+/// 4. **Sense**: the temperature, the five switches, the pressure, the tank.
+/// 5. **Beat the heater's deadman**, on the *same* signal as the watchdog feed.
+///    One thing that is alive, one signal, rather than two that could disagree.
+/// 6. **Decide**: fold the events through `cc_machine::reduce`.
+/// 7. **Act**: `cc_machine::apply`, front to back, no coalescing.
+/// 8. **Notify**: telemetry, SSE, the radio, the scale's events.
+/// 9. **Sleep** for the period.
+///
+/// Steps 4-7 are [`control::Control::tick`] plus the applier, and they are the
+/// part R4-01b measures.
 #[allow(
     clippy::too_many_lines,
     reason = "this IS the control tick, and it is read as a list of what \
-              happens in one period: feed the watchdog, drain the command \
-              queue, take the staged credential, beat the heater gate, poll the \
-              temperature, drain the scale, publish. Splitting it would hide the \
-              ordering, which is the one property that matters -- the watchdog is \
-              fed first and the reboot is taken last, and both of those are \
-              properties of the list rather than of any one step."
+              happens in one period. Splitting it would hide the ordering, which \
+              is the one property that matters -- the watchdog is fed first and \
+              the reboot is taken last, and both of those are properties of the \
+              list rather than of any one step."
 )]
-#[allow(
-    clippy::needless_pass_by_value,
-    reason = "`sampler` is owned by this task for the rest of the process: it \
-              holds a queue shared with a task at a higher priority, and a \
-              `&` would suggest the caller could still stop or replace it"
-)]
-fn control_task(
-    twdt: TWDT<'_>,
-    mut heater: Heater,
-    temp: &mut TemperatureSensor,
-    net: &Arc<network::Network>,
-    commands: &Arc<cc_hal_esp32::task::CommandQueue>,
-    setpoint: f64,
-    known_weight: f64,
-    mqtt_configured: bool,
-    mqtt_connected: bool,
-    mut store: cc_config::blob_store::BlobConfigStore<cc_hal_esp32::nvs::EspNvsBlob>,
-    sampler: Option<cc_hal_esp32::Sampler>,
-    handoff: &network::Handoff,
-    mut sta: Option<cc_hal_esp32::Sta>,
-) -> Result<(), EspError> {
+fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
+    let ControlArgs {
+        twdt,
+        mut actuators,
+        mut switches,
+        mut pressure,
+        mut temp,
+        net,
+        commands,
+        mut config,
+        known_weight,
+        mqtt_configured,
+        mqtt_connected,
+        mut store,
+        sampler,
+        handoff,
+        mut sta,
+    } = *args;
     // `TWDTConfig::new()` takes the timeout and the panic-on-trigger behaviour
     // from the ESP-IDF kconfig. R3-10 replaces this with explicit values, which
     // needs an `enumset` dependency to build the `EnumSet<Core>` of subscribed
     // idle tasks — deliberately not added in the spike.
-    let config = TWDTConfig::new();
+    let wdt_config = TWDTConfig::new();
     info!(
         "control task: watchdog timeout {:?}, panic_on_trigger {}",
-        config.duration, config.panic_on_trigger
+        wdt_config.duration, wdt_config.panic_on_trigger
     );
 
-    let mut driver = TWDTDriver::new(twdt, &config)?;
+    let mut driver = TWDTDriver::new(twdt, &wdt_config)?;
     let mut watchdog = driver.watch_current_task()?;
-    info!("control task: esp_task_wdt_add -> 0 (subscribed)");
+    info!(
+        "control task: esp_task_wdt_add -> 0 (subscribed); tick and deadman beat \
+         every {HEARTBEAT_MS} ms, deadman {} ms",
+        cc_domain::heater::DEADMAN_TIMEOUT_MS
+    );
 
-    // Before the first beat the gate is closed, so this write is a no-op on the
-    // hardware. It is made anyway so the log line below has something to report
-    // and so the code path is exercised from the first iteration.
+    let mut side = cc_hal_esp32::FirmwareSide::new();
+
+    // The machine, booted through the reducer. `SystemInitializer::finalizeMachineState`
+    // reads the power switch *before* the state machine exists, so the switch
+    // bank is polled once here rather than inside the reducer.
     //
-    // **The chopper stays disarmed until after the first beat.** Arming it before
-    // the gate has been beaten once would mean the ISR is running at duty 0
-    // before anything had decided the heater may be considered at all, which is
-    // the C++'s ordering (`ctx->isISRReady()`, `isr.h:70-73`) and the recovered
-    // firmware's *"output held off until the supervisor beats"* (08 §3).
-    let now = cc_domain::units::Millis::ZERO;
-    let applied = heater.set_duty(now, Duty::new(0.0))?;
-    info!("heater gate open? no — first beat not yet taken; duty {applied}");
+    // That first poll is a **dead** read for a debounced switch, and deliberately
+    // so: `Debounced` seeds its state to "not pressed" and only accepts a change
+    // after [`DEBOUNCE`] (20 ms), so the level reported here is the C++'s
+    // `currentState == HIGH` on the first loop, which `IOSwitch.cpp:19` also
+    // seeds to `LOW`. A toggle power switch therefore reads "off" at boot even if
+    // the operator has it on, and the machine starts in `PID_DISABLED` — which is
+    // the C++'s behaviour, not a bug in the port, and the reason the next tick
+    // (400 ms later, twenty debounce windows) is what settles it.
+    let boot_now = Millis::new(now_ms());
+    let _ = switches.poll(boot_now);
+    let power_pressed = config
+        .hardware
+        .switches
+        .power
+        .enabled
+        .then_some(switches.levels().power);
+    let (mut control, boot_effects) = control::Control::boot(&config, boot_now, power_pressed);
+    {
+        // The boot effects are applied by the same path as every other tick's,
+        // and the facade is told the clock first because its methods take none.
+        actuators.set_now(boot_now);
+        actuators.set_state(control.state());
+        actuators.set_water_tank_full(switches.water_tank_full());
+        actuators.set_latched(control.safety_state().latched);
+        cc_machine::apply(&mut actuators, &mut side, control.machine(), &boot_effects);
+    }
 
     let mut tick: u32 = 0;
     let mut last_sse_ms: u32 = 0;
     let mut last_heap_log_ms: u32 = 0;
     let mut wifi_last_ms: u32 = 0;
+    let mut last_pid_log_ms: u32 = 0;
 
     // 🔴 The tick-timing measurement, which is R3-17's "the control tick is
     // unaffected" acceptance criterion and R4-01b's instrument.
@@ -1233,13 +1667,19 @@ fn control_task(
         // at the top of the loop, immediately after the last tick's sleep, so it
         // excludes the sleep itself — the sleep is the tick's *period*, and
         // including it would report 400 ms every time and say nothing.
-        let tick_begun_ms = now_ms();
+        let tick_began_ms = now_ms();
         watchdog.feed()?;
         tick = tick.wrapping_add(1);
+        let now = Millis::new(tick_began_ms);
 
-        // The network→control queue, drained at the top of every tick (04 §3.2).
-        // A command is a *request*: nothing here acts on the radio or the
-        // actuators directly, so a POST cannot reach past the tick.
+        // ---- 2. the network→control queue, drained at the top of every tick --
+        //
+        // A command is a *request*: each one becomes a
+        // `cc_machine::Event::Command` and is folded by the reducer, so a POST
+        // cannot reach past the tick into control state. The reboot and the scale
+        // commands are the two that are not reducer events, and they are the two
+        // that are genuinely not about the machine's state.
+        let mut effects: Vec<cc_machine::Effect> = Vec::new();
         while let Some(command) = commands.recv() {
             info!("control: command {command:?}");
             match command {
@@ -1266,18 +1706,117 @@ fn control_task(
                     }
                     None => warn!("scale: calibration requested with no scale fitted"),
                 },
-                // Every other command needs the state machine (R2-08's handlers),
-                // which is not wired into this bring-up binary. Acknowledged and
-                // dropped, with the log line above, so the request is visibly
-                // understood rather than silently lost.
-                _ => {}
+                // The setpoint. `WebServerManager.cpp:391-408` does three things:
+                // set the process setpoint, reset the standby countdown, and
+                // **persist** `brewSetpoint`. All three happen here — the first
+                // two as reducer events, the third as a store write, because the
+                // store is this task's.
+                cc_hal_esp32::web::Command::SetSetpoint(celsius) => {
+                    let celsius = f64::from(celsius);
+                    config.brew.setpoint = celsius;
+                    control.set_setpoint(celsius);
+                    persist_setpoint(&mut store, celsius, &config);
+                    // `requestNormalOperation(systemContext_)` — the C++'s third
+                    // line, and the reason a setpoint change also wakes the
+                    // machine.
+                    control.feed(
+                        &config,
+                        Event::Command(cc_machine::Command::NormalOperation),
+                        &mut effects,
+                    );
+                }
+                // `POST /api/pid?on=0|1` toggles `Config::pidEnabled` **and** calls
+                // `setUserPidEnabled` (`WebServerManager.cpp:472-492`), which
+                // persists the preference *and* sets the runtime flag. The web
+                // layer here sends the intended value rather than a toggle, so
+                // the command is that one `cc_machine::Command::SetUserPidEnabled`.
+                cc_hal_esp32::web::Command::SetPid(enabled) => {
+                    config.pid.enabled = enabled;
+                    persist_pid_enabled(&mut store, enabled, &config);
+                    control.feed(
+                        &config,
+                        Event::Command(cc_machine::Command::SetUserPidEnabled(enabled)),
+                        &mut effects,
+                    );
+                }
+                // `POST /api/steam?on=0|1` **toggles** steam mode in the C++
+                // (`WebServerManager.cpp:445-446`); the web layer here sends the
+                // intended value, so it is mapped to the two requests the reducer
+                // understands. A steam *mode* toggle with no steam state is what
+                // `SteamRunning`'s entry does; `SteamStart` is the request that
+                // gets there.
+                cc_hal_esp32::web::Command::SetSteam(on) => {
+                    let request = if on {
+                        cc_machine::Command::SteamStart
+                    } else {
+                        cc_machine::Command::SteamStop
+                    };
+                    control.feed(&config, Event::Command(request), &mut effects);
+                }
+                // `setBackflushMode(newState)` (`WebServerManager.cpp:502`) —
+                // including `currBackflushCycles_ = 1` on the enable arm, which
+                // is `apply_backflush_mode`'s job and is already the reducer's
+                // (`cc_machine::backflush`).
+                cc_hal_esp32::web::Command::SetBackflush(on) => {
+                    // The reducer's `BackflushEnter` is the enable arm only; the
+                    // disable arm is `BackflushStop`, which the C++ reaches
+                    // through the same handler. Mapping `false` to the stop
+                    // request is the honest translation: it is what "leave
+                    // backflush mode" means to the state machine.
+                    let request = if on {
+                        cc_machine::Command::BackflushEnter
+                    } else {
+                        cc_machine::Command::BackflushStop
+                    };
+                    control.feed(&config, Event::Command(request), &mut effects);
+                }
+                cc_hal_esp32::web::Command::StartBackflush => {
+                    control.feed(
+                        &config,
+                        Event::Command(cc_machine::Command::BackflushCycleStart),
+                        &mut effects,
+                    );
+                }
+                // `requestStandby(systemContext_)` / `requestNormalOperation(...)`
+                // (`WebServerManager.cpp:417-425`).
+                cc_hal_esp32::web::Command::Sleep => {
+                    control.feed(
+                        &config,
+                        Event::Command(cc_machine::Command::Standby),
+                        &mut effects,
+                    );
+                }
+                cc_hal_esp32::web::Command::Wake => {
+                    control.feed(
+                        &config,
+                        Event::Command(cc_machine::Command::NormalOperation),
+                        &mut effects,
+                    );
+                }
+                // `maintenanceCoordinator().resetSinceBackflush()`
+                // (`WebServerManager.cpp:528-537`). See
+                // `Control::reset_shots_since_backflush` for why this one write
+                // exists outside the reducer and why it is the only one.
+                cc_hal_esp32::web::Command::ResetBackflushCounter => {
+                    control.reset_shots_since_backflush();
+                }
+                // The three that are still inert, listed so the log line says
+                // *which* rather than "acknowledged and dropped".
+                cc_hal_esp32::web::Command::WifiReset => {
+                    warn!("control: POST /api/wifi-reset is not wired into this build (R3-16)");
+                }
+                cc_hal_esp32::web::Command::FactoryReset => {
+                    warn!("control: POST /api/factory-reset is not wired into this build (R3-16)");
+                }
             }
         }
 
-        // A credential typed on the console. This is the one place a `wifi set`
-        // becomes durable, and it is here because the store is: the UART task
-        // cannot write what it does not own, so it hands the value over and
-        // this task picks it up within one control period.
+        // ---- 3. a credential typed on the console ---------------------------
+        //
+        // This is the one place a `wifi set` becomes durable, and it is here
+        // because the store is: the UART task cannot write what it does not own,
+        // so it hands the value over and this task picks it up within one control
+        // period.
         //
         // The reboot is unconditional on success and absent on failure. A stored
         // credential is useless until the radio is re-brought-up against it, and
@@ -1296,27 +1835,8 @@ fn control_task(
             }
         }
 
-        // The supervisor heartbeat. This is what opens the deadman, and it is
-        // deliberately the *same* beat as the watchdog feed: one thing that is
-        // alive, one signal, rather than two that could disagree.
-        let now = cc_domain::units::Millis::new(tick.wrapping_mul(HEARTBEAT_MS));
-        heater.gate().heartbeat(now);
-
-        // The heater command. Duty 0 in this binary: there is no PID here yet,
-        // and R1-07's hardware test has not been run with the boiler
-        // disconnected. The call is made anyway so the gated path is the one that
-        // runs, and so the log line below is real.
-        let applied = heater.set_duty(now, Duty::new(0.0))?;
-        info!(
-            "control heartbeat {tick} — watchdog fed, duty {applied} of {}, \
-             gate {}, ISR ticks {}, on {} ({:.3})",
-            heater.max_duty(),
-            heater.blocked_at(now).is_none(),
-            heater.transport().ticks(),
-            heater.transport().on_ticks(),
-            heater.transport().measured_on_fraction(),
-        );
-
+        // ---- 4. SENSE ---------------------------------------------------------
+        //
         // The temperature read. Non-blocking by construction: the DS18B20's
         // conversion wait is a deadline the loop's own sleep covers, and the bus
         // transactions are the only time spent there (~2 ms of bit-banging for a
@@ -1329,14 +1849,104 @@ fn control_task(
         // `/api/temperatures` reports as `null` rather than as a fake 0 °C.
         let last_reading = temp.last_reading();
 
+        // The switch edges. `SwitchBank::poll` returns nothing on a tick where
+        // no contact moved, which on a healthy machine is nearly every tick, and
+        // the returned `Vec` is a `heapless::Vec` on the control path — no
+        // allocation between the pin and the reducer.
+        let edges = switches.poll(now);
+
+        // The pressure, non-blocking. `abp2::Driver::poll` writes the conversion
+        // command on one tick and reads the answer on a later one, so the C++'s
+        // `delay(10)` (20 % of its loop's wall clock, 01 §4) never happens.
+        let pressure_bar = pressure.as_mut().and_then(|sensor| match sensor.poll(now) {
+            Ok(cc_domain::abp2::Poll::Sample(sample)) => Some(f64::from(sample.pressure.raw())),
+            Ok(_) => None,
+            Err(err) => {
+                // The C++ discards a failed read and keeps the previous value
+                // (`pressureSensor.h:30-38`); here the same — the machine keeps
+                // the last good sample and the fault is logged at most once per
+                // read cadence by the driver itself.
+                debug!("control: ABP2 read: {err:?}");
+                None
+            }
+        });
+
+        let tank_full = switches.water_tank_full();
+
+        // ---- 5. beat the deadman, on the same signal as the watchdog feed ----
+        //
+        // One thing that is alive, one signal, rather than two that could
+        // disagree. The gate is *only* opened by this line, and only the control
+        // task holds a `&mut HeaterGate`, so "the supervisor is running" is a
+        // precondition of heating rather than a hope about task ordering
+        // (08 §3's "output held off until the supervisor beats").
+        actuators.gate().heartbeat(now);
+
+        // The facade is told the clock and the two facts the interlocks are a
+        // function of, **before** the effects are applied, so a duty the reducer
+        // emits in this very tick is judged against this tick's state.
+        actuators.set_now(now);
+        actuators.set_water_tank_full(tank_full);
+        actuators.set_state(control.state());
+        actuators.set_latched(control.safety_state().latched);
+
+        // ---- 6 + 7. DECIDE, then ACT ------------------------------------------
+        //
+        // The sample the reducer sees. `has_temperature_error` is the C++'s
+        // `hasTemperatureSensorError()` and is `true` until the first *plausible*
+        // reading, which is what keeps S1 from tripping on the boot-time zero and
+        // is also what sends the machine to `SENSOR_ERROR` rather than pretending
+        // a boiler is at 25 °C.
+        let sensors = cc_machine::Sensors {
+            // 🔴 The reading is `Celsius::new(0.0)` until the first conversion
+            // completes, and `has_temperature_error` is `true` for exactly that
+            // window. **That pairing is deliberate and it is what keeps the
+            // machine safe at boot:** `has_sensor_error()` sends the reducer to
+            // `SENSOR_ERROR` (`BaseState.h:145-148`), whose
+            // `should_pid_be_enabled` is `false`, so the duty is zeroed before a
+            // boiler that has not been measured can be asked for full power. The
+            // C++ gets this for free from `SensorCoordinator`'s own error flag
+            // being false and its cached temperature being 0.0 — which means the
+            // C++'s first PID compute sees a 0 °C input against a 95 °C setpoint.
+            // The emergency threshold (150 °C default) does not catch that,
+            // because 0 °C is a *plausible* temperature; only the sensor-error
+            // path does. **The C++'s behaviour here is not reproduced**, and this
+            // is a deliberate divergence rather than a bug fix: see the boot-window
+            // note in `docs/rust-migration/intentional-diffs.md` (#12).
+            temperature: last_reading.map_or(Celsius::new(0.0), |(celsius, _)| {
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    reason = "a DS18B20 reading is a multiple of its own \
+                              0.0625 C resolution, so f32 holds it exactly"
+                )]
+                Celsius::new(celsius as f32)
+            }),
+            water_tank_full: tank_full,
+            has_temperature_error: last_reading.is_none_or(|(_, plausible)| !plausible),
+            // The scale is not part of `Sensors::has_sensor_error`'s contract
+            // here: `has_scale_error` is a separate field and the C++'s
+            // `hasSensorError()` ORs the two (`SensorCoordinator.h:190-192`).
+            // A machine with no scale has no scale error, so this is `false`.
+            has_scale_error: sampler.as_ref().is_some_and(|s| s.telemetry().faulted()),
+            brew_weight: 0.0,
+        };
+
+        let mut tick_effects = control.tick(&config, sensors, &edges, now);
+        // The queue's effects were already folded above; `Control::tick` starts
+        // its own vector, so the two are concatenated in the C++'s order —
+        // commands first (step 3 of the loop), then the tick's own.
+        effects.append(&mut tick_effects);
+        cc_machine::apply(&mut actuators, &mut side, control.machine(), &effects);
+
         // The scale's events, drained every tick, and the weight. See
         // `drain_scale`: the event drain is the only place a tare can be
         // persisted, because this task is the only holder of the store.
         let weight_g = drain_scale(sampler.as_ref(), &mut store);
 
-        // A reboot request, honoured here and not in the HTTP handler. A handler
-        // that called `esp_restart` directly could reset the machine from inside
-        // a request; this is between ticks, after the watchdog has been fed.
+        // A reboot request from the HTTP layer, honoured here and not in the
+        // handler. A handler that called `esp_restart` directly could reset the
+        // machine from inside a request; this is between ticks, after the
+        // watchdog has been fed.
         if net.shared.take_reboot_request() {
             info!("control: reboot requested — restarting");
             // A 500 ms pause so the HTTP response has left the socket and the
@@ -1347,19 +1957,70 @@ fn control_task(
             restart_now();
         }
 
+        // A reboot the *reducer* asked for — the power switch's long press, which
+        // is `PowerHandler::triggerSystemReboot` (`PowerHandler.h:177-192`) and
+        // the only path to `ESP.restart()` the C++ has that does not come from
+        // HTTP. `FirmwareSide` records it rather than restarting inside the
+        // applier, because `Effect::RequestReboot` sits in the middle of this
+        // tick's effect list and restarting there would abandon the effects
+        // after it — including a `CloseWaterValve`.
+        if side.take_reboot_request() {
+            info!("control: the state machine asked for a reboot (power switch long press)");
+            // `PowerHandler::triggerSystemReboot`'s own order: shut the hardware
+            // down safely, then restart. The safe shutdown is a real effect
+            // through the real applier, so a valve left open by a state that
+            // forgot to close it is closed before the chip resets.
+            let machine = *control.machine();
+            cc_machine::apply_one(
+                &mut actuators,
+                &mut side,
+                &machine,
+                cc_machine::Effect::SafeHardwareShutdown,
+            );
+            FreeRtos::delay_ms(REBOOT_DISPLAY_MS);
+            restart_now();
+        }
+
+        // ---- 8. NOTIFY ------------------------------------------------------
+        //
         // The telemetry publish and the SSE broadcast, at the C++'s cadence
         // (`WebServerManager.cpp:1128-1143` driven from
         // `LoopManager::updateWebsite`, gated on `tempEventInterval_`).
         let uptime = now_ms();
+        let state = control.state();
+        let machine = *control.machine();
         net.shared.publish(network::telemetry_from(
             network::Reading {
-                state: MACHINE_STATE_PID_NORMAL,
+                state: state as i32,
                 temperature_c: last_reading.map_or(f64::NAN, |(celsius, _)| celsius),
-                setpoint_c: setpoint,
-                // Always 0: there is no PID in this build, and a fabricated
-                // non-zero heater power would be a lie on the display and in
-                // every telemetry consumer.
-                heater_power_pct: 0.0,
+                setpoint_c: control.setpoint(),
+                heater_power_pct: f64::from(control.pid_output()) / 10.0,
+                pid_enabled: machine.pid.mode_enabled,
+                brewing: state.is_brew_state()
+                    && state != cc_domain::state::MachineState::BrewFinished,
+                standby: state == cc_domain::state::MachineState::Standby,
+                standby_remaining_ms: machine.standby.remaining_ms,
+                // `currBackflushCycles_` starts at 1 and only ever counts up, so
+                // a negative value is unreachable; the cast is a formality that
+                // documents it. `shots_since_backflush` is `i32` because that is
+                // what `MachineStateContext.h:788` declares and what the reducer
+                // keeps.
+                #[allow(
+                    clippy::cast_sign_loss,
+                    reason = "the counter is `i32` because \
+                              MachineStateContext.h:788 declares it that way, \
+                              but it starts at 0 and is only ever incremented \
+                              while brewing and reset to 0 on entering \
+                              BACKFLUSH_FINISHED, so it is never negative"
+                )]
+                shots_since_backflush: machine.shots_since_backflush.max(0) as u32,
+                water_tank_full: config
+                    .hardware
+                    .sensors
+                    .watertank
+                    .enabled
+                    .then_some(tank_full),
+                pressure_bar,
                 mqtt_configured,
                 mqtt_connected,
             },
@@ -1394,11 +2055,67 @@ fn control_task(
         }
         if uptime.wrapping_sub(last_sse_ms) >= SSE_INTERVAL_MS {
             last_sse_ms = uptime;
-            network::broadcast_temps(net);
+            network::broadcast_temps(&net);
         }
         if uptime.wrapping_sub(last_heap_log_ms) >= HEAP_LOG_INTERVAL_MS {
             last_heap_log_ms = uptime;
-            network::log_heap_once_a_minute(net);
+            network::log_heap_once_a_minute(&net);
+        }
+
+        // The heartbeat line, and the PID's own numbers beside them.
+        //
+        // 🔴 The `duty` and `requested` figures here are the **PID's output**,
+        // and `on_ticks`/`on` are the ISR's own counters — the only view of the
+        // heater pin that exists, because the pin belongs to the ISR (see
+        // `cc_hal_esp32::heater::TimerIsrPwm`). A non-zero `duty` with a zero `on`
+        // is therefore a *readback failure*, not a heater that is not working, and
+        // a non-zero `on` with a zero `duty` is impossible: the duty is the only
+        // thing that moves the pin.
+        let heater = actuators.heater();
+        info!(
+            "control heartbeat {tick} — watchdog fed, state {:?}, duty {:.0} ms, \
+             applied {}, gate {}, ISR ticks {}, on {} ({:.3})",
+            state,
+            control.pid_output(),
+            heater.applied_duty(),
+            heater.blocked_at(now).is_none(),
+            heater.transport().ticks(),
+            heater.transport().on_ticks(),
+            heater.transport().measured_on_fraction(),
+        );
+
+        // The PID's own P/I/D, once a second. This is the line that answers
+        // "is the controller doing something sensible", and it is why
+        // `cc_domain::Controller` kept the Arduino library's three getters
+        // (`PID_v1.h:279-292`) that nothing in the firmware needed until now.
+        if tick_began_ms.wrapping_sub(last_pid_log_ms) >= PID_LOG_INTERVAL_MS {
+            last_pid_log_ms = tick_began_ms;
+            let (p, i, d) = control.pid_terms();
+            let refusals = actuators.refusals();
+            let (pump_active, valve_active) = actuators.pins_read_active();
+            // `PID_v1.h:127` defines the error as `setpoint - input`, so the
+            // log prints that, not its negation: a cold boiler at a 30 °C
+            // setpoint must read `error=+6.4 K`, which is the sign the P term
+            // was computed from.
+            let measured_c = f64::from(sensors.temperature.raw());
+            let error_k = control.setpoint() - measured_c;
+            info!(
+                "control: T={:.2} C  setpoint={:.2} C  error={:.2} K  \
+                 duty={:.1} ms ({:.1} %)  P={p:.1} I={i:.1} D={d:.1}  \
+                 tank_full={tank_full}  valve={:?}  \
+                 refused pump={} water={} steam={} heater={}  \
+                 pins pump={pump_active} valve={valve_active}",
+                measured_c,
+                control.setpoint(),
+                error_k,
+                f64::from(control.pid_output()),
+                f64::from(control.pid_output()) / 10.0,
+                actuators.valve_state(),
+                refusals.pump,
+                refusals.water_valve,
+                refusals.steam_valve,
+                refusals.heater,
+            );
         }
 
         // 🔴 The tick's own cost, measured **before** the sleep.
@@ -1411,7 +2128,7 @@ fn control_task(
         // hardware and fixed here, which is the only reason it is worth writing
         // down: a timing instrument that has never disagreed with a result is
         // not known to be working.
-        let tick_elapsed_ms = now_ms().wrapping_sub(tick_begun_ms);
+        let tick_elapsed_ms = now_ms().wrapping_sub(tick_began_ms);
         if tick_elapsed_ms > tick_worst_ms {
             tick_worst_ms = tick_elapsed_ms;
         }
@@ -1423,8 +2140,8 @@ fn control_task(
             tick_over_budget += 1;
         }
 
-        if tick_begun_ms.wrapping_sub(last_tick_report_ms) >= TICK_REPORT_INTERVAL_MS {
-            last_tick_report_ms = tick_begun_ms;
+        if tick_began_ms.wrapping_sub(last_tick_report_ms) >= TICK_REPORT_INTERVAL_MS {
+            last_tick_report_ms = tick_began_ms;
             info!(
                 "control tick: worst {tick_worst_ms} ms of the last {tick} \
                  (baseline {baseline_worst_ms} ms over the first \
@@ -1441,9 +2158,11 @@ fn control_task(
             );
         }
 
-        // The tick's period. This is the sleep, and it is what the 10 ms figure
-        // in 04 §2 is about; the measurement above is the work, which is the
-        // number that has to stay under `TICK_BUDGET_MS`.
+        // ---- 9. the tick's period -------------------------------------------
+        //
+        // This is the sleep, and it is what the 10 ms figure in 04 §2 is about;
+        // the measurement above is the work, which is the number that has to stay
+        // under `TICK_BUDGET_MS`.
         FreeRtos::delay_ms(CONTROL_TICK_MS);
 
         // Arm the chopper once a beat has been taken. Doing it *after* the first
@@ -1451,7 +2170,7 @@ fn control_task(
         // through the gate. `tick == 1` rather than a flag, so there is exactly
         // one place that can arm it and it is obviously after the first beat.
         if tick == 1 {
-            heater.transport().arm();
+            actuators.arm_heater_isr();
             info!("heater: 10 ms ISR armed after the first supervisor beat");
         }
     }

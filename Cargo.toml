@@ -87,6 +87,21 @@ esp-idf-sys = "=0.38.1"
 heapless = { version = "0.9", default-features = false, features = ["alloc"] }
 log = { version = "0.4", default-features = false }
 
+# The OLED stack (R3-09). Two crates, one version line between them: `ssd1306`
+# is re-exported through `display_interface`, so naming the transport's own
+# error and data types is naming a crate that is already in the graph the
+# moment `ssd1306` is -- no second download, no second copy.
+#
+# `default-features = false` drops `ssd1306`'s `graphics` feature, and with it
+# `embedded-graphics-core`. That feature only gates `DrawTarget` on
+# `BufferedGraphicsMode`, and this driver uses `BasicMode` and feeds it
+# `cc-display`'s own framebuffer, so the whole drawing stack would be linked,
+# uncalled, for nothing. The `async` feature is off for the same reason: the
+# firmware's I2C is the blocking `embedded-hal 1.0` one that `esp-idf-hal`
+# 0.47.0 implements.
+ssd1306 = { version = "0.10.0", default-features = false }
+display-interface = "0.5.0"
+
 # Test-only. `cc-hal-esp32`'s unit tests build a fake `embedded_io::Read` for the
 # telnet pump and parse its own JSON response bodies; neither is needed by the
 # shipped library, so both live in `[dev-dependencies]`. Both are already in the

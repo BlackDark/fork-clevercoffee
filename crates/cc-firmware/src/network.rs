@@ -277,16 +277,53 @@ pub fn start_http(
 /// `(i32, f64, f64, f64, u32, Option<&Sta>, bool, bool)` cannot be read without
 /// counting the arguments against the field order of
 /// [`cc_hal_esp32::web::Telemetry`].
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "`Reading` is a *report of facts about the machine*, one field per \
+              key the C++'s `/api/status` publishes -- and seven of those are \
+              booleans because seven of the C++'s are \
+              (`WebServerManager.cpp:350-361`). Turning them into enums would \
+              make the publisher unreadable and would not make the data any \
+              more correct. The same reasoning is on `cc_hal_esp32::Telemetry`, \
+              whose payload this fills, and it is pinned there by \
+              `the_cpp_keys_are_the_schema`."
+)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Reading {
     /// `MachineState`'s integer discriminant, as `/api/status` publishes it.
     pub state: i32,
     /// The boiler temperature in °C, or `f64::NAN` before the first conversion.
     pub temperature_c: f64,
-    /// The brew setpoint in °C, from `brew.setpoint`.
+    /// The active setpoint in °C — `brew.setpoint + brew.temp_offset`, or
+    /// `steam.setpoint` while steam mode is on
+    /// (`ProcessController::updateSetpoint`, `ProcessController.cpp:235-244`).
     pub setpoint_c: f64,
-    /// The PID output in per cent. Always 0 here: there is no PID in this build.
+    /// The PID output in per cent: `machine.pid.output / 10`, the C++'s own
+    /// conversion (`WebServerManager.cpp:352`).
+    ///
+    /// **What this is not:** a measurement of the pin. It is what the controller
+    /// computed, and `cc_hal_esp32::Actuators` is what decides whether that
+    /// reaches the heater — so with a tank interlock, an emergency latch or a
+    /// `test_only` inhibit in force, this can be non-zero while the boiler is
+    /// cold. That is the honest reading and it is the C++'s: the C++ publishes
+    /// `processPidOutput`, not a pin.
     pub heater_power_pct: f64,
+    /// `context.isPidRuntimeEnabled()`.
+    pub pid_enabled: bool,
+    /// `isBrewState(state) && state != BREW_FINISHED`
+    /// (`BrewHandler::isBrewActive`).
+    pub brewing: bool,
+    /// `state == STANDBY`.
+    pub standby: bool,
+    /// `StandbyCoordinator::standbyModeRemainingMillis()`.
+    pub standby_remaining_ms: u32,
+    /// `MaintenanceCoordinator::shotsSinceBackflush()`.
+    pub shots_since_backflush: u32,
+    /// `SensorCoordinator::isWaterTankFull()`, or `None` when no float is fitted.
+    pub water_tank_full: Option<bool>,
+    /// The ABP2's reading in bar, or `None` when no pressure sensor is fitted or
+    /// it has not answered.
+    pub pressure_bar: Option<f64>,
     /// `mqtt.enabled` and a non-empty `mqtt.broker`.
     pub mqtt_configured: bool,
     /// Whether MQTT has a session.
@@ -304,6 +341,16 @@ pub fn telemetry_from(reading: Reading, uptime_ms: u32, weight_g: Option<f64>) -
         temperature_c: reading.temperature_c,
         setpoint_c: reading.setpoint_c,
         heater_power_pct: reading.heater_power_pct,
+        pid_enabled: reading.pid_enabled,
+        brewing: reading.brewing,
+        standby: reading.standby,
+        standby_remaining_ms: reading.standby_remaining_ms,
+        shots_since_backflush: reading.shots_since_backflush,
+        // `None` publishes as `"waterTankFull":null`, which is what the C++'s
+        // "no float switch fitted" is: the key is only emitted when
+        // `hardwareSensorsWatertankEnabled` (`WebServerManager.cpp:356-372`).
+        water_tank_full: reading.water_tank_full,
+        pressure_bar: reading.pressure_bar,
         uptime_ms,
         mqtt_configured: reading.mqtt_configured,
         mqtt_connected: reading.mqtt_connected,

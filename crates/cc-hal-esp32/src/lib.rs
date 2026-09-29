@@ -75,6 +75,8 @@ extern crate std;
 #[doc(hidden)]
 pub mod device_tests;
 
+pub mod actuators;
+pub mod display;
 pub mod heap;
 pub mod heater;
 pub mod mqtt;
@@ -84,6 +86,7 @@ pub mod provisioning;
 pub mod restart;
 pub mod scale;
 pub mod sensors;
+pub mod switches;
 pub mod task;
 pub mod telnet;
 pub mod time;
@@ -92,6 +95,8 @@ pub mod web_async;
 pub mod wifi;
 pub mod zacwire;
 
+pub use actuators::{Actuators, FirmwareSide, Inhibit, Interlock, ValveState};
+pub use display::{Oled, PanelOled, FRAMEBUFFER_LEN, REFRESH_INTERVAL_MS};
 pub use heap::{free_heap, min_free_heap, HEAP_SHED_BYTES};
 pub use heater::{HeaterDuty, HeaterOutput, LedcPwm, TimerIsrPwm, CARRIER_HZ, RESOLUTION};
 pub use nvs::EspNvsBlob;
@@ -99,6 +104,7 @@ pub use onewire::GpioOneWire;
 pub use restart::{drain_console, restart_now};
 pub use scale::{GpioHx711, Sampler, SamplerCommand, SamplerEvent};
 pub use sensors::{Abp2I2c, Abp2Pressure, GpioIn};
+pub use switches::{Levels, SwitchBank};
 pub use task::CommandQueue;
 pub use time::now_ms;
 pub use web::{Shared, Telemetry, Web};

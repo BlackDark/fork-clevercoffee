@@ -30,7 +30,7 @@
 //! in `src/*.rs` disagree in either direction. Adding a test and forgetting to
 //! register it is a build failure, not a quietly skipped test.
 
-use crate::{heap, mqtt, provisioning, scale, task, telnet, time, web, wifi};
+use crate::{actuators, display, heap, mqtt, provisioning, scale, task, telnet, time, web, wifi};
 
 /// One registered unit test: the name the console shows, and the function to
 /// call.
@@ -45,6 +45,90 @@ pub struct Case {
 
 /// Every unit test in `cc-hal-esp32`, in source order.
 pub const CASES: &[Case] = &[
+    Case {
+        name: "actuators::a_latched_machine_may_energise_nothing",
+        run: actuators::tests::a_latched_machine_may_energise_nothing,
+    },
+    Case {
+        name: "actuators::an_empty_tank_stops_the_pump_and_the_water_valve_but_not_the_heater",
+        run: actuators::tests::an_empty_tank_stops_the_pump_and_the_water_valve_but_not_the_heater,
+    },
+    Case {
+        name: "actuators::the_water_valve_is_gated_on_an_empty_tank_which_the_cpp_does_not_do",
+        run: actuators::tests::the_water_valve_is_gated_on_an_empty_tank_which_the_cpp_does_not_do,
+    },
+    Case {
+        name: "actuators::the_steam_valve_is_whitelist_gated_to_steam_running",
+        run: actuators::tests::the_steam_valve_is_whitelist_gated_to_steam_running,
+    },
+    Case {
+        name: "actuators::an_inhibit_holds_its_own_actuator_and_nothing_else",
+        run: actuators::tests::an_inhibit_holds_its_own_actuator_and_nothing_else,
+    },
+    Case {
+        name: "actuators::a_healthy_interlock_permits_the_pump_the_valves_and_the_heater",
+        run: actuators::tests::a_healthy_interlock_permits_the_pump_the_valves_and_the_heater,
+    },
+    Case {
+        name: "actuators::the_valve_relay_is_off_only_when_both_valves_are_closed",
+        run: actuators::tests::the_valve_relay_is_off_only_when_both_valves_are_closed,
+    },
+    Case {
+        name: "actuators::an_empty_tank_at_boot_does_not_block_the_pump",
+        run: actuators::tests::an_empty_tank_at_boot_does_not_block_the_pump,
+    },
+    Case {
+        name: "display::the_geometry_is_a_128_by_64_page_buffer",
+        run: display::tests::the_geometry_is_a_128_by_64_page_buffer,
+    },
+    Case {
+        name: "display::the_addresses_are_the_datasheet_pair",
+        run: display::tests::the_addresses_are_the_datasheet_pair,
+    },
+    Case {
+        name: "display::the_refresh_interval_is_the_csqs_hundred_milliseconds",
+        run: display::tests::the_refresh_interval_is_the_csqs_hundred_milliseconds,
+    },
+    Case {
+        name: "display::a_frame_is_eight_writes_not_sixty_four",
+        run: display::tests::a_frame_is_eight_writes_not_sixty_four,
+    },
+    Case {
+        name: "display::the_init_sequence_is_u8g2s_ssd1306_noname_sequence",
+        run: display::tests::the_init_sequence_is_u8g2s_ssd1306_noname_sequence,
+    },
+    Case {
+        name: "display::the_init_sequence_remaps_segments_and_reverses_com",
+        run: display::tests::the_init_sequence_remaps_segments_and_reverses_com,
+    },
+    Case {
+        name: "display::the_init_sequence_sets_the_contrast_the_cpp_set",
+        run: display::tests::the_init_sequence_sets_the_contrast_the_cpp_set,
+    },
+    Case {
+        name: "display::the_panel_comes_up_in_horizontal_addressing_mode",
+        run: display::tests::the_panel_comes_up_in_horizontal_addressing_mode,
+    },
+    Case {
+        name: "display::bring_up_sends_u8g2s_sequence_then_the_display_on_it_appends",
+        run: display::tests::bring_up_sends_u8g2s_sequence_then_the_display_on_it_appends,
+    },
+    Case {
+        name: "display::a_flush_puts_the_whole_frame_on_the_wire_in_page_order",
+        run: display::tests::a_flush_puts_the_whole_frame_on_the_wire_in_page_order,
+    },
+    Case {
+        name: "display::power_save_blanks_the_panel_and_waking_restores_the_frame",
+        run: display::tests::power_save_blanks_the_panel_and_waking_restores_the_frame,
+    },
+    Case {
+        name: "display::the_refresh_gate_fires_every_hundred_milliseconds",
+        run: display::tests::the_refresh_gate_fires_every_hundred_milliseconds,
+    },
+    Case {
+        name: "display::the_refresh_gate_survives_the_49_day_millisecond_wrap",
+        run: display::tests::the_refresh_gate_survives_the_49_day_millisecond_wrap,
+    },
     Case {
         name: "heap::the_shed_floor_is_the_adrs_thirty_kilobytes",
         run: heap::tests::the_shed_floor_is_the_adrs_thirty_kilobytes,
