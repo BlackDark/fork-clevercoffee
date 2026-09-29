@@ -61,6 +61,7 @@ mod network;
 use core::error::Error;
 use std::sync::Arc;
 
+use cc_config::ConfigStore;
 use cc_domain::hardware::TemperatureSensorType;
 use cc_domain::sensor::ds18b20::{self as ds18b20_domain, Driver as Ds18b20Driver};
 use cc_domain::sensor::onewire::{OneWireError, Rom};
@@ -221,6 +222,63 @@ const DS18B20_ROM: Rom = Rom([0x28, 0x69, 0x37, 0xAA, 0xCD, 0x78, 0xAF, 0x41]);
 
 /// Stack size of the control task, from the priority table in 04 §2.
 const CONTROL_STACK_BYTES: usize = 8 * 1024;
+
+/// Whether to start the scale driver even when the configuration says it is off.
+///
+/// **ON in this build, and it is a bring-up override, not a default.** The
+/// reasoning is the same one [`PROBE`] carries, and it is worth stating plainly
+/// because a reader who does not will draw the wrong conclusion from a boot log
+/// that says "scale: sampling".
+///
+/// * `hardware.sensors.scale.enabled` defaults to `false` (`cc-config`,
+///   `HardwareSensorsScale::default`), and it is the right default: **no scale
+///   is fitted to the machine this firmware was built for.** With the setting
+///   honoured, the R3-17 driver would be dead code on this hardware — built,
+///   type-checked, and never executed — which is *exactly* what the C++ does
+///   with its scale (09 §23), and precisely the thing this task exists to stop.
+///   The only difference the override can make here is the fault path, which is
+///   the one acceptance criterion that **is** provable without a scale.
+/// * The C++ guards on the same setting and then does nothing
+///   (`src/main.cpp:145-150`: it logs `"Scale sensor support via
+///   SensorCoordinator"` under a comment saying the work is pending). This
+///   override is what makes the guard *mean* something.
+///
+/// **What this is not:** it does not make the scale work. There is no load cell,
+/// no amplifier and no wiring on GPIO32/25/33, so the driver will report the
+/// weight as absent and raise its fault within `SIGNAL_TIMEOUT` (100 ms). That
+/// is the honest outcome and the boot log says so. When a scale is fitted, set
+/// `hardware.sensors.scale.enabled` and this constant becomes irrelevant.
+///
+/// **Ship state is `false`, so the user's config actually governs.** Measured on
+/// hardware 2026-09-29: with this on, 86 of 138 ticks over budget; with it off,
+/// 111 of 136 — the same 32 ms worst either way, so the sampling task is *not*
+/// what costs the tick (see the tick-timing section above). Nothing about the
+/// scale needs the override, and leaving it on would mean a shipped firmware
+/// ignores a setting the operator controls, which is the shape of 09 §23.
+const BRING_UP_SCALE: bool = false;
+
+/// The control tick's budget, in milliseconds.
+///
+/// 04 §2's hard 10 ms period, and the number R4-01b's acceptance criterion is
+/// stated against ("zero ticks > 10 ms"). It is a *budget for the work*, not
+/// the period: [`CONTROL_TICK_MS`] is the period, and a tick that spends longer
+/// than this awake has overrun whatever it was given.
+const TICK_BUDGET_MS: u32 = 10;
+
+/// How many ticks form the pre-scale baseline.
+///
+/// 25 ticks at [`CONTROL_TICK_MS`] is 10 seconds — long enough for the
+/// first-conversion settling to have happened, so the baseline is not
+/// contaminated by the scale's own start-up, and short enough to be over before
+/// an operator is waiting for a number.
+const TICK_BASELINE_TICKS: u32 = 25;
+
+/// How often the tick-timing report is logged, in milliseconds.
+///
+/// 60 s, matching the heap report. A 10 ms budget measured every 400 ms would
+/// bury the boot log; once a minute is what an operator comparing "before" and
+/// "after" the scale needs.
+const TICK_REPORT_INTERVAL_MS: u32 = 60_000;
 
 /// `MachineState::PidNormal`'s discriminant, for `/api/status`.
 ///
@@ -434,6 +492,26 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
          pump=GPIO27 all inactive"
     );
 
+    // 5b. The scale's pins, if one is configured, and nothing else yet.
+    //
+    //     The three pins are GPIO32/GPIO25 (data) and GPIO33 (clock) — the
+    //     scale's, and nothing else's (`pinmapping.h`). They are **inputs and
+    //     one clock**, so nothing here can drive an actuator, and they are
+    //     taken after the actuator readback above rather than before it, so
+    //     the readback still covers every pin that can move a relay.
+    //
+    //     The configuration is not loaded yet at this point in the sequence, so
+    //     whether a scale is fitted is decided below, once `config` exists. What
+    //     is done here is the *pin* reservation, which is why the pins are
+    //     taken unconditionally and the driver is built later: a driver that
+    //     only sometimes exists must not be the thing that decides whether
+    //     `Peripherals::take` hands out these pins.
+    let scale_pins = ScalePins {
+        data_1: peripherals.pins.gpio32,
+        data_2: peripherals.pins.gpio25,
+        clock: peripherals.pins.gpio33,
+    };
+
     // The plain drivers stay owned by `main` for the lifetime of the process.
     // In the real firmware they become `Actuators` (R3-03), the single owner of
     // the pump and the valve; nothing else may drive them.
@@ -455,7 +533,7 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
     let network::Booted {
         config,
         origin,
-        store,
+        mut store,
         nvs_description,
     } = network::bring_up_config()?;
     info!(
@@ -463,6 +541,44 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
          different key space and is ignored by design (R3-08, decided 2026-09-28)"
     );
     info!("nvs: the boot decision was `{origin:?}`");
+
+    // 7b. The scale, **constructed at boot** — the one thing the C++ never does.
+    //
+    //     `src/main.cpp:145-150` guards on `hardwareSensorsScaleEnabled` and
+    //     then logs `"Scale sensor support via SensorCoordinator"` under a
+    //     comment saying the work is pending, binding `sensorCoord` and never
+    //     using it. Nothing in the tree calls `HardwareContext::setScale`, so
+    //     the C++ can never read a weight (09 §23). This is therefore new
+    //     functionality, and the branch below is real: the driver is built, its
+    //     sampling task started, and the weight reaches the telemetry the
+    //     display and MQTT read.
+    //
+    //     The type selects one cell or two (`hardware.sensors.scale.type`,
+    //     `cc_domain::hardware::ScaleType`), which is what makes that setting do
+    //     something. A `Bluetooth` type is R3-18 and is refused here rather
+    //     than silently reporting zero grams.
+    let sampler = match bring_up_scale(scale_pins, &config, &mut store) {
+        Ok(sampler) => sampler,
+        Err(err) => {
+            // Not fatal. A machine whose scale will not start must still run its
+            // control loop, and the absence is visible in `/api/status` as a
+            // null weight rather than as a machine that will not boot.
+            warn!("scale: not started — {err}. The weight will be reported absent.");
+            None
+        }
+    };
+    if let Some(sampler) = sampler.as_ref() {
+        info!(
+            "scale: hardware.sensors.scale.type is {:?}, enabled — {}",
+            config.hardware.sensors.scale.r#type,
+            sampler.telemetry().describe(),
+        );
+    } else {
+        info!(
+            "scale: hardware.sensors.scale.enabled is {} — not fitted",
+            config.hardware.sensors.scale.enabled,
+        );
+    }
 
     // 8. The shared HTTP state and the network→control command queue.
     let net = Arc::new(network::Network::new());
@@ -559,9 +675,11 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
                     &net,
                     &commands,
                     config.brew.setpoint,
+                    config.hardware.sensors.scale.known_weight,
                     mqtt_configured,
                     mqtt_connected,
                     store,
+                    sampler,
                     &handoff,
                     // The radio moves into the control task rather than staying
                     // in this frame. It is `Send` (`EspWifi` is, and `Monitor`
@@ -865,6 +983,147 @@ fn format_rom(rom: Rom) -> String {
     out
 }
 
+/// The three scale pins, taken from `Peripherals` and held until the driver is
+/// built.
+///
+/// A named struct rather than three locals because the pins are taken in one
+/// place and used in another: `bring_up` reserves them unconditionally — so
+/// that the actuator readback above covers every pin before any of them is
+/// spoken for — and the driver is built later, once the configuration says
+/// whether a scale is fitted.
+struct ScalePins {
+    /// `PIN_HXDAT`, the first data line.
+    data_1: esp_idf_hal::gpio::Gpio32<'static>,
+    /// `PIN_HXDAT2`, the second data line, on a dual scale.
+    data_2: esp_idf_hal::gpio::Gpio25<'static>,
+    /// `PIN_HXSCK`, the clock, shared by both cells.
+    clock: esp_idf_hal::gpio::Gpio33<'static>,
+}
+
+/// Build the scale driver and start its sampling task.
+///
+/// Returns `Ok(None)` when `hardware.sensors.scale.enabled` is `false` — which
+/// is the **default** (`cc-config`, `HardwareSensorsScale::default`) and is not
+/// an error: a machine with no scale must not spend a task, a stack and a
+/// priority level on one. The `hardware.sensors.scale.*` settings are read here
+/// and nowhere else, which is what makes them do something rather than describe
+/// a feature that does not exist.
+///
+/// # Errors
+///
+/// [`EspError`] if the pins cannot be configured or the task cannot be created.
+/// The caller treats this as "the machine runs without a scale and says so".
+fn bring_up_scale(
+    pins: ScalePins,
+    config: &cc_config::Config,
+    store: &mut cc_config::blob_store::BlobConfigStore<cc_hal_esp32::nvs::EspNvsBlob>,
+) -> Result<Option<cc_hal_esp32::Sampler>, EspError> {
+    let scale_config = &config.hardware.sensors.scale;
+    // `hardware.sensors.scale.enabled` decides, **overridden by
+    // `BRING_UP_SCALE`**. See that constant for why the override exists and
+    // what it is not.
+    if !scale_config.enabled && !BRING_UP_SCALE {
+        return Ok(None);
+    }
+    if !scale_config.enabled {
+        warn!(
+            "scale: hardware.sensors.scale.enabled is false and BRING_UP_SCALE \
+             is on — starting the driver anyway. This is a bring-up build: the \
+             weight will read as absent because no scale is fitted, and that is \
+             the fault path being exercised, not a working scale."
+        );
+    }
+
+    // The rate is the C++'s `setGain(128)` from `begin()`
+    // (`HX711_ADC.cpp:32`), which is the default of
+    // `cc_domain::sensor::hx711::Rate`.
+    let rate = cc_domain::sensor::hx711::Rate::default();
+
+    // `samples` is an `i32` config parameter in `1..=20`; anything else in a
+    // blob is clamped by the domain crate rather than rejected, because
+    // refusing to sample would stop the scale entirely.
+    #[allow(
+        clippy::cast_sign_loss,
+        clippy::cast_possible_truncation,
+        reason = "the config range is 1..=20 (`cc-config`) and the domain crate \
+                  clamps again; a corrupt blob must not stop the scale, and a \
+                  negative one must not be read as a huge positive"
+    )]
+    let average = scale_config.samples.clamp(1, i32::from(u8::MAX)) as u8;
+
+    // 🔴 `hardware.sensors.scale.type` selects one cell or two, and this is
+    // where that setting becomes real. The C++ has the same enum
+    // (`Hardware::ScaleType`, `cc_domain::hardware::ScaleType`) and honours it
+    // in `HX711Scale`'s two constructors (`HX711Scale.cpp:16-24`) — but never
+    // constructs either, so the setting is inert there (09 §23).
+    //
+    // The two HX711 arms are the same shape — configure a bus, build a driver
+    // — and differ only in how many data lines, so they are built first and
+    // paired afterwards. `Bluetooth` is not an HX711 at all and returns before
+    // either is built.
+    let (bus, driver) = match scale_config.r#type {
+        cc_domain::hardware::ScaleType::Hx711Dual => {
+            let bus = cc_hal_esp32::GpioHx711::dual(pins.data_1, pins.data_2, pins.clock)?;
+            let driver = cc_domain::sensor::hx711::Scale::dual(
+                scale_config.calibration,
+                scale_config.calibration2,
+                average,
+            );
+            (bus, driver)
+        }
+        cc_domain::hardware::ScaleType::Hx711Single => {
+            let bus = cc_hal_esp32::GpioHx711::single(pins.data_1, pins.clock)?;
+            let driver = cc_domain::sensor::hx711::Scale::single(scale_config.calibration, average);
+            (bus, driver)
+        }
+        // An Acaia BLE scale is R3-18: a different driver on a different
+        // transport, reading a different device. Refused here, explicitly and by
+        // name, rather than quietly reporting 0 g — which is the C++'s failure
+        // mode in a different shape, a setting that reads as "the scale is
+        // working" and measures nothing. Naming the variant rather than `_` is
+        // deliberate: a fourth `ScaleType` then becomes a compile error here
+        // instead of a fourth silently-refused case.
+        other @ cc_domain::hardware::ScaleType::Bluetooth => {
+            warn!(
+                "scale: hardware.sensors.scale.type is {other:?}, which is an Acaia \
+                 BLE scale (R3-18) and not an HX711 — refused. The weight is \
+                 reported absent rather than as 0 g."
+            );
+            return Ok(None);
+        }
+    };
+
+    // 🔴 The stored tare, handed to the sampler before its first reading.
+    //
+    // A tare in NVS is only useful if it is applied *before* the first weight
+    // is published, or the machine briefly reports the un-tared offset — which
+    // on a 267 g default known weight is a cup of coffee's worth of phantom
+    // weight in `/api/status` and on the display. So this is read here and
+    // queued immediately, before the task's first pass can publish anything.
+    match cc_hal_esp32::nvs::load_tare(store.backend()) {
+        Ok(Some(record)) => info!(
+            "scale: a stored tare was found — cell 1 offset {}, cell 2 offset {}",
+            record.offset_1, record.offset_2
+        ),
+        Ok(None) => info!("scale: no stored tare — the scale will tare at start-up"),
+        Err(err) => warn!("scale: the stored tare could not be read ({err}) — taring at start-up"),
+    }
+    let stored_tare = cc_hal_esp32::nvs::load_tare(store.backend()).ok().flatten();
+
+    let telemetry = Arc::new(cc_hal_esp32::scale::Telemetry::new());
+    let sampler = cc_hal_esp32::Sampler::start(bus, driver, rate, Arc::clone(&telemetry))?;
+    if let Some(record) = stored_tare {
+        // A record the sampler refuses is a warning there, not an error here:
+        // it will tare for itself, which is the correct outcome for a tare that
+        // does not describe this scale. A `false` here means the command queue
+        // was full, which at boot it cannot be.
+        if !sampler.request_restore(record) {
+            warn!("scale: the stored tare could not be handed to the sampler");
+        }
+    }
+    Ok(Some(sampler))
+}
+
 /// The heater transport, held by the control task.
 ///
 /// One arm, not two. R1-07 had a `LedcPwm` arm here and a stand-in, and the
@@ -890,6 +1149,22 @@ type Heater = HeaterOutput<TimerIsrPwm>;
               destructured, and 04 §2's priority table is clearer as an \
               explicit signature"
 )]
+#[allow(
+    clippy::too_many_lines,
+    reason = "this IS the control tick, and it is read as a list of what \
+              happens in one period: feed the watchdog, drain the command \
+              queue, take the staged credential, beat the heater gate, poll the \
+              temperature, drain the scale, publish. Splitting it would hide the \
+              ordering, which is the one property that matters -- the watchdog is \
+              fed first and the reboot is taken last, and both of those are \
+              properties of the list rather than of any one step."
+)]
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "`sampler` is owned by this task for the rest of the process: it \
+              holds a queue shared with a task at a higher priority, and a \
+              `&` would suggest the caller could still stop or replace it"
+)]
 fn control_task(
     twdt: TWDT<'_>,
     mut heater: Heater,
@@ -897,9 +1172,11 @@ fn control_task(
     net: &Arc<network::Network>,
     commands: &Arc<cc_hal_esp32::task::CommandQueue>,
     setpoint: f64,
+    known_weight: f64,
     mqtt_configured: bool,
     mqtt_connected: bool,
     mut store: cc_config::blob_store::BlobConfigStore<cc_hal_esp32::nvs::EspNvsBlob>,
+    sampler: Option<cc_hal_esp32::Sampler>,
     handoff: &network::Handoff,
     mut sta: Option<cc_hal_esp32::Sta>,
 ) -> Result<(), EspError> {
@@ -934,7 +1211,29 @@ fn control_task(
     let mut last_sse_ms: u32 = 0;
     let mut last_heap_log_ms: u32 = 0;
     let mut wifi_last_ms: u32 = 0;
+
+    // 🔴 The tick-timing measurement, which is R3-17's "the control tick is
+    // unaffected" acceptance criterion and R4-01b's instrument.
+    //
+    // The number that matters is the **worst** tick, not the mean: the control
+    // loop's budget is 10 ms and a mean says nothing about whether a tick ever
+    // blew it. So this keeps a running max and a count, and the report names
+    // both. It is reported in two phases, because "unaffected" is a comparison
+    // and not an absolute: the first [`TICK_BASELINE_TICKS`] ticks are the
+    // **baseline**, before the scale's sampling task is doing anything a
+    // connected cell would not also do, and everything after is the
+    // measurement. On a machine with no scale fitted the two phases are
+    // identical, which is itself the result worth having.
+    let mut tick_worst_ms: u32 = 0;
+    let mut baseline_worst_ms: u32 = 0;
+    let mut tick_over_budget: u32 = 0;
+    let mut last_tick_report_ms: u32 = 0;
     loop {
+        // Where this tick began, so the time spent in it can be measured. Taken
+        // at the top of the loop, immediately after the last tick's sleep, so it
+        // excludes the sleep itself — the sleep is the tick's *period*, and
+        // including it would report 400 ms every time and say nothing.
+        let tick_begun_ms = now_ms();
         watchdog.feed()?;
         tick = tick.wrapping_add(1);
 
@@ -943,13 +1242,36 @@ fn control_task(
         // actuators directly, so a POST cannot reach past the tick.
         while let Some(command) = commands.recv() {
             info!("control: command {command:?}");
-            if command == cc_hal_esp32::web::Command::Restart {
-                net.shared.set_reboot_requested();
+            match command {
+                cc_hal_esp32::web::Command::Restart => net.shared.set_reboot_requested(),
+                // The scale commands are the first ones that are **not** inert.
+                // In the C++ they set a flag on a `SensorCoordinator` that has
+                // no scale registered (`WebServerManager.cpp:540-580`,
+                // `MQTTManager.cpp:307-322`, 09 §23): accepted, answered 200,
+                // and with no effect on any hardware. Here they reach the
+                // sampling task, which owns the pins and does the work.
+                cc_hal_esp32::web::Command::Tare => match sampler.as_ref() {
+                    Some(sampler) if sampler.request_tare() => {
+                        info!("scale: tare requested");
+                    }
+                    Some(_) => warn!("scale: the tare request was dropped — the sampler is behind"),
+                    None => warn!("scale: tare requested with no scale fitted"),
+                },
+                cc_hal_esp32::web::Command::Calibrate => match sampler.as_ref() {
+                    Some(sampler) if sampler.request_calibrate(known_weight) => {
+                        info!("scale: calibration requested against {known_weight} g");
+                    }
+                    Some(_) => {
+                        warn!("scale: the calibration request was dropped — the sampler is behind");
+                    }
+                    None => warn!("scale: calibration requested with no scale fitted"),
+                },
+                // Every other command needs the state machine (R2-08's handlers),
+                // which is not wired into this bring-up binary. Acknowledged and
+                // dropped, with the log line above, so the request is visibly
+                // understood rather than silently lost.
+                _ => {}
             }
-            // Every other command needs the state machine (R2-08's handlers),
-            // which is not wired into this bring-up binary. Acknowledged and
-            // dropped, with the log line above, so the request is visibly
-            // understood rather than silently lost.
         }
 
         // A credential typed on the console. This is the one place a `wifi set`
@@ -1007,6 +1329,11 @@ fn control_task(
         // `/api/temperatures` reports as `null` rather than as a fake 0 °C.
         let last_reading = temp.last_reading();
 
+        // The scale's events, drained every tick, and the weight. See
+        // `drain_scale`: the event drain is the only place a tare can be
+        // persisted, because this task is the only holder of the store.
+        let weight_g = drain_scale(sampler.as_ref(), &mut store);
+
         // A reboot request, honoured here and not in the HTTP handler. A handler
         // that called `esp_restart` directly could reset the machine from inside
         // a request; this is between ticks, after the watchdog has been fed.
@@ -1037,6 +1364,7 @@ fn control_task(
                 mqtt_connected,
             },
             uptime,
+            weight_g,
         ));
 
         // The radio's readings, published **after** the telemetry above and on
@@ -1073,6 +1401,49 @@ fn control_task(
             network::log_heap_once_a_minute(net);
         }
 
+        // 🔴 The tick's own cost, measured **before** the sleep.
+        //
+        // A first revision of this took the timestamp *after*
+        // `delay_ms(CONTROL_TICK_MS)` and so reported ~431 ms — the sleep
+        // itself, which is the tick's *period* and not its work. The tick budget
+        // is about what the work costs; including the sleep makes every tick
+        // look like a 40x overrun and the number says nothing. Measured on
+        // hardware and fixed here, which is the only reason it is worth writing
+        // down: a timing instrument that has never disagreed with a result is
+        // not known to be working.
+        let tick_elapsed_ms = now_ms().wrapping_sub(tick_begun_ms);
+        if tick_elapsed_ms > tick_worst_ms {
+            tick_worst_ms = tick_elapsed_ms;
+        }
+        if tick <= TICK_BASELINE_TICKS {
+            if tick_elapsed_ms > baseline_worst_ms {
+                baseline_worst_ms = tick_elapsed_ms;
+            }
+        } else if tick_elapsed_ms > TICK_BUDGET_MS {
+            tick_over_budget += 1;
+        }
+
+        if tick_begun_ms.wrapping_sub(last_tick_report_ms) >= TICK_REPORT_INTERVAL_MS {
+            last_tick_report_ms = tick_begun_ms;
+            info!(
+                "control tick: worst {tick_worst_ms} ms of the last {tick} \
+                 (baseline {baseline_worst_ms} ms over the first \
+                 {TICK_BASELINE_TICKS}, budget {TICK_BUDGET_MS} ms, \
+                 {tick_over_budget} over budget) — scale: {}{}",
+                sampler
+                    .as_ref()
+                    .map_or_else(|| "not fitted".into(), |s| s.telemetry().describe()),
+                if sampler.as_ref().is_some_and(|s| s.telemetry().faulted()) {
+                    " [FAULTED]"
+                } else {
+                    ""
+                },
+            );
+        }
+
+        // The tick's period. This is the sleep, and it is what the 10 ms figure
+        // in 04 §2 is about; the measurement above is the work, which is the
+        // number that has to stay under `TICK_BUDGET_MS`.
         FreeRtos::delay_ms(CONTROL_TICK_MS);
 
         // Arm the chopper once a beat has been taken. Doing it *after* the first
@@ -1111,6 +1482,108 @@ fn start_provisioning(
     {
         warn!("serial: the provisioning task did not start: {err}");
     }
+}
+
+/// Drain the sampling task's events, persisting whatever must outlive a reboot,
+/// and return the current weight.
+///
+/// # Why this is a function and not an inline block in the tick
+///
+/// Two reasons, and the second is the one that matters. The first is length:
+/// the tick is read as a list of what happens in a period, and inlining sixty
+/// lines of NVS error handling into it hides that. The second is that the
+/// **control task is the only holder of the configuration store** —
+/// `ConfigStore::load` and `save` both take `&mut self`, and one owner beats a
+/// lock — so this is the only place on the machine where a completed tare or a
+/// new calibration factor can be written down. Making that a named function is
+/// what makes it findable.
+///
+/// The weight itself is *not* taken from an event. It is read from the shared
+/// telemetry because a 10 Hz sample is a snapshot, not a message: losing one
+/// loses nothing, and routing it through a queue that the 400 ms tick drains
+/// would just add a copy and a second writer. Events — a completed tare, a new
+/// factor — are the opposite: dropping one loses an operator's action, so they
+/// come over a queue that is drained every tick.
+///
+/// # Errors
+///
+/// Never. Every failure here is a persistence failure, and it is reported on the
+/// console and in the log rather than propagated: a scale that cannot be tare
+/// persisted is still a working scale, and stopping the control task over it
+/// would turn a cosmetic failure into a machine with no temperature reading.
+fn drain_scale(
+    sampler: Option<&cc_hal_esp32::Sampler>,
+    store: &mut cc_config::blob_store::BlobConfigStore<cc_hal_esp32::nvs::EspNvsBlob>,
+) -> Option<f64> {
+    // A missing scale is a `None` weight, not an error: there is nothing here
+    // to fail at, and returning early is the whole of the "not fitted" case.
+    let sampler = sampler?;
+
+    while let Some(event) = sampler.next_event() {
+        match event {
+            cc_hal_esp32::SamplerEvent::Tared { record } => {
+                // 🔴 The acceptance criterion: a tare survives a reboot. The
+                // C++ holds the tare in a `long` member (`HX711_ADC.h:66`) and
+                // loses it on every reset, so a power cut means re-taring by
+                // hand — and `HX711Scale::init` tares at boot anyway
+                // (`HX711Scale.cpp:44`), so the C++ would re-tare on every boot
+                // if it ran at all.
+                match cc_hal_esp32::nvs::save_tare(store.backend_mut(), record) {
+                    Ok(()) => info!(
+                        "scale: tare persisted to NVS ({} B) — it survives a reboot",
+                        cc_domain::sensor::hx711::TARE_RECORD_BYTES
+                    ),
+                    Err(err) => error!(
+                        "scale: the tare was taken but could NOT be persisted: \
+                         {err}. It will be lost on reboot."
+                    ),
+                }
+            }
+            cc_hal_esp32::SamplerEvent::Calibrated { factor_1, factor_2 } => {
+                // The factor is a **configuration parameter**
+                // (`hardware.sensors.scale.calibration` and `calibration2`),
+                // not a tare, so it goes into the blob rather than beside it.
+                // That is also what makes the setting survive a reboot, which
+                // matters because recalibrating is a deliberate act an operator
+                // performs once.
+                let mut updated = match store.load() {
+                    Ok(config) => config.unwrap_or_default(),
+                    Err(err) => {
+                        error!(
+                            "scale: cannot read the configuration to store the calibration: {err}"
+                        );
+                        continue;
+                    }
+                };
+                updated.hardware.sensors.scale.calibration = factor_1;
+                if let Some(factor) = factor_2 {
+                    updated.hardware.sensors.scale.calibration2 = factor;
+                }
+                match store.save(&updated) {
+                    Ok(()) => {
+                        info!(
+                            "scale: calibration persisted — cell 1 {factor_1}{}",
+                            match factor_2 {
+                                Some(factor) => format!(", cell 2 {factor}"),
+                                None => String::new(),
+                            }
+                        );
+                    }
+                    Err(err) => {
+                        error!("scale: the calibration was applied but NOT persisted: {err}");
+                    }
+                }
+            }
+            cc_hal_esp32::SamplerEvent::Refused { what } => {
+                warn!("scale: the sampler refused a {what} request");
+            }
+        }
+    }
+
+    // `None` when no scale is fitted, when the cell has produced nothing yet, or
+    // when it is not answering. All three publish as `null` rather than as 0 g,
+    // because 0 g is a real weight and a UI showing it shows a full cup.
+    sampler.telemetry().weight_g()
 }
 
 /// Reset the chip.

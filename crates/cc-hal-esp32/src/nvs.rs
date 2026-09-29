@@ -58,6 +58,7 @@ use alloc::vec::Vec;
 
 use cc_config::blob_store::BlobBackend;
 use cc_config::store::StoreError;
+use cc_domain::sensor::hx711::{decode_tare, encode_tare, TareRecord};
 use esp_idf_svc::nvs::{EspDefaultNvs, EspDefaultNvsPartition, EspNvs};
 
 /// An NVS namespace opened read-write, behind [`BlobBackend`].
@@ -147,4 +148,50 @@ impl BlobBackend for EspNvsBlob {
             StoreError::WriteFailed
         })
     }
+}
+
+/// The NVS key the scale's tare lives under.
+///
+/// `cc.scale.tare` — 12 characters, inside the 15-character NVS limit, in the
+/// same `cc` namespace as the configuration blob and carrying the same `cc.`
+/// prefix so a human reading `nvs_dump` can tell which firmware wrote what.
+///
+/// **A separate key rather than a field in the configuration blob.** A tare is
+/// not a parameter: it is not in the C++'s 98 `ParamDef`s, it has no range, no
+/// default and no UI, and `GET /api/parameters` would gain an entry that the
+/// web UI would then have to render. The C++ keeps the tare in a `long` member
+/// (`HX711_ADC.h:66`) and loses it on every reset; this is where it goes
+/// instead.
+pub const TARE_KEY: &str = "cc.scale.tare";
+
+/// Read the stored tare, if there is a readable one.
+///
+/// # Errors
+///
+/// [`StoreError::Unavailable`] if the namespace could not be read. The caller
+/// substitutes "no stored tare", because a scale that cannot restore its tare
+/// can still tare at start-up — losing a tare is an inconvenience, not a fault.
+pub fn load_tare(nvs: &EspNvsBlob) -> Result<Option<TareRecord>, StoreError> {
+    let Some(bytes) = nvs.get(TARE_KEY)? else {
+        return Ok(None);
+    };
+    let Some(record) = decode_tare(&bytes) else {
+        // Not an error: a blob this firmware did not write, or one written by an
+        // older encoding. The start-up tare covers it.
+        log::warn!("nvs: the stored scale tare is not readable — ignoring it");
+        return Ok(None);
+    };
+    Ok(Some(record))
+}
+
+/// Write the tare.
+///
+/// # Errors
+///
+/// [`StoreError::WriteFailed`] or [`StoreError::Unavailable`]. A failed write
+/// leaves the previous tare in place, which is the same atomicity
+/// [`cc_config::BlobConfigStore::save`] relies on: `set_blob` erases, sets and
+/// commits, and the commit is the only thing that publishes the new page.
+pub fn save_tare(nvs: &mut EspNvsBlob, record: TareRecord) -> Result<(), StoreError> {
+    nvs.set(TARE_KEY, &encode_tare(record))
 }

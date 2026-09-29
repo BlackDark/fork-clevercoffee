@@ -151,8 +151,8 @@ validate the map at compile time.
 | F10 | Temperature sensor — DS18B20 / 1-Wire | `src/hardware/tempsensors/TempSensorDallas.cpp` | GPIO 16 | Medium (no mature crate) |
 | F11 | Rate-of-change filter, blinking phase | `include/clevercoffee/hardware/tempsensors/TempSensor.h` | — | Low |
 | F12 | Pressure sensor — Honeywell ABP2 I2C | `include/clevercoffee/hardware/pressureSensor.h` (header-only) | I2C 0x28 | Medium (10 ms blocking read) |
-| F13 | Scale — HX711 ×1 or ×2 | `src/hardware/scales/HX711Scale.cpp` | GPIO 32/25/33 | **Dead code** |
-| F14 | Scale — Acaia BLE | `src/hardware/scales/BluetoothScale.cpp` | BLE — the ESP32 **does** have a BT+BLE radio | **Dead code** (never constructed). Technically possible; see below |
+| F13 | Scale — HX711 ×1 or ×2 | `src/hardware/scales/HX711Scale.cpp` | GPIO 32/25/33 | **KEPT (R3-17)** — unreachable in C++, see 09 §23 |
+| F14 | Scale — Acaia BLE | `src/hardware/scales/BluetoothScale.cpp` | BLE — the ESP32 **does** have a BT+BLE radio | **KEPT (R3-18)** — unreachable in C++, see 09 §23 |
 | F15 | OLED 128×64 SSD1306/SH1106 over I2C | `src/display/DisplayManager.cpp`, `src/ui/OledDriver.cpp` | I2C 0x3C/0x3D | **High (U8g2 fonts have no Rust equivalent)** |
 | F16 | 6 display templates, **10 bitmap fonts** (6 `profont`, 4 `fub`) | `include/clevercoffee/display/templates/*.h`, `DisplayLayoutUtils.h` | OLED | **High** |
 | F17 | Display localization | `include/clevercoffee/display/languages.h` | OLED | Low |
@@ -197,7 +197,14 @@ live, varying room-temperature readings. A TSIC-306/ZACwire sensor would not res
   here. Either the sensor is swapped, or R1-03 is re-scoped to R3-06 (DS18B20). **This needs a
   human decision — see §10.**
 
-### F13/F14 are dead code — do not migrate
+### F13/F14 are unreachable in C++ — but they are being ported (R3-17, R3-18)
+
+**Superseded 2026-09-29.** This section previously said "do not migrate", on the grounds
+that the code was dead. The human who owns the hardware confirmed the deadness is a bug on
+their side, so both scales are ported and made to actually work. The findings below are
+still accurate and are the reason the task is sized as it is. Full defect analysis in
+[09 §23](./09-cpp-findings.md).
+
 
 Neither `HX711Scale` nor `BluetoothScale` is ever constructed.
 `HardwareContext::setScale()` and `SensorCoordinator::setScaleSensor()` have zero call
@@ -380,7 +387,7 @@ Tracked as task R4-09.
 | `lebuni/ZACwire` | 2.0.0 | `ZACwire(pin, 306)`, `begin()`, `getTemp(maxChangeRate)` | **none — hand-write** from the IST app note | **High risk** |
 | `milesburton/DallasTemperature` | 4.0.6 | `getAddress`, `setResolution`, `setWaitForConversion`, `requestTemperaturesByAddress`, `getTempC`, fault sentinels | port the C directly, or `onecable` 0.1.x | Medium |
 | `paulstoffregen/OneWire` | 2.3.8 | bit-bang primitives | as above | Medium |
-| `olkal/HX711_ADC` | 1.2.12 | `begin`, `startMultiple`, `getData`, `tare`, `setCalFactor`, timeout flags | `hx711` 0.7.0, or port | Drop (dead code) |
+| `olkal/HX711_ADC` | 1.2.12 | `begin`, `startMultiple`, `getData`, `tare`, `setCalFactor`, timeout flags | `hx711` 0.7.0, on a dedicated task | **Port (R3-17)** |
 | `olikraus/U8g2` | 2.36.18 | 21 methods, 10 `profont`/`fub` bitmap fonts, ~18 bitmaps | `ssd1306` 0.10.0 + `embedded-graphics` 0.8, fonts ported to `ImageRaw` | **High risk** |
 | `knolleary/PubSubClient` | 2.8.0 | connect/subscribe/publish/chunked publish, 1024 B buffer | `esp_idf_svc::mqtt::EspMqttClient` | Low |
 | `bblanchon/ArduinoJson` | 7.4.3 | v7 `JsonDocument`, `measureJsonPretty`, nested path helpers | `serde` + `serde_json` 1.0.151 (`alloc`) | Low |
@@ -388,7 +395,7 @@ Tracked as task R4-09.
 | `ESP32Async/ESPAsyncWebServer` | 3.12.1 | 20+ APIs incl. `AsyncJsonResponse`, `AsyncEventSource`, CORS/auth middleware, `serveStatic` | `esp_idf_svc::http::server::EspHttpServer` | Medium |
 | `tzapu/WiFiManager` | 2.0.17 | captive portal, `WiFiManagerParameter`, `setConfigPortalTimeout(60)` | `esp-wifi-provisioning` 0.1, or hand-built softAP | Medium |
 | `h2zero/NimBLE-Arduino` | 2.5.1 | (transitive, scale only) | `esp_idf_svc::ble` (NimBLE) 0.53 | Drop |
-| `AcaiaArduinoBLE` | v4.0.1 | proprietary BLE scale | none | Drop |
+| `AcaiaArduinoBLE` | v4.0.1 | proprietary BLE scale | none (NimBLE, R3-18) | **Port (R3-18)** |
 | `Arduino-PID-Library` (vendored `lib/`) | — | `PID_v1` compute, AUTOMATIC/DIRECT | port ~150 lines, no `setpoint` pointer aliasing | Low |
 | `esp_wifi` (Arduino) | — | STA, hostname | `esp_idf_svc::wifi::Wifi::new_async` | Low |
 | `Preferences` (Arduino) | — | NVS read/write/clear | `esp_idf_svc::nvs::EspDefaultNvsPartition` | Low |

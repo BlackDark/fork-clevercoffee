@@ -811,3 +811,87 @@ from bytes the sensor never sent would flow into the brew pressure control.
 The I²C bus runs at **400 kHz**, where Arduino's `Wire.begin()` defaults to
 100 kHz. 400 kHz is the ABP2's maximum and comfortable for the SSD1306 on the
 same bus, so it is strictly less bus time for a shared peripheral.
+
+### Implemented at R3-17 (HX711)
+
+The driver is built and started. The differences that are choices rather than
+transcriptions:
+
+* **The spin loops are gone entirely.** `HX711Scale.cpp:44` and `:51` are
+  `while (!startMultiple(...))` — unbounded, and with a `static` deadline
+  (`HX711_ADC.cpp:135`) that a second call inherits already-expired. There is no
+  timeout loop here at all: a read is a query (`cc_domain::sensor::hx711::
+  read_raw`) and presence is `SignalWatchdog`, a type that owns its deadline.
+* **Presence is armed at driver start, not at the first conversion.** The C++
+  arms by accident (`lastDoutLowTime = millis()` before the first `update()`);
+  a port that armed on the first *reading* would never fault an absent scale,
+  which is the C++'s defect reproduced in new code. Caught on hardware — see
+  the test `a_cell_that_never_converts_is_faulted_from_the_moment_the_driver_
+  starts`.
+* **A fault advances the cell alternation.** The shared SCK has already clocked
+  whichever cell was selected whatever DOUT said, so leaving the alternation
+  where it was would make a dual cell read on alternate clock pulses against a
+  half-rate pipeline. The C++ has the same alternation and does not have this
+  problem only because it never runs.
+* **`isConnected` is a query, not a flag only a successful read can clear.** In
+  the C++ the flag is set inside `update()` and read by `HX711Scale::isConnected`
+  (`HX711Scale.cpp:196-210`), so a scale that is never read is never declared
+  faulty.
+* **`dataOutOfRange` is read.** The C++ sets it (`HX711_ADC.cpp:371-374`) and
+  never looks at it again, anywhere.
+* **The tare survives a reboot.** The C++ holds it in a `long` member
+  (`HX711_ADC.h:66`) and loses it on every reset. It is persisted under the NVS
+  key `cc.scale.tare` — a separate key, not a configuration field, because a
+  tare is not a parameter and has no range, default or UI.
+* **The calibration factor is persisted into the configuration blob**, so
+  `hardware.sensors.scale.calibration` / `calibration2` mean what they say
+  across a reboot rather than being re-typed.
+* **`hardware.sensors.scale.type` selects one or two cells.** The C++ honours
+  the same enum in `HX711Scale`'s two constructors and never constructs either;
+  a `Bluetooth` type is refused by name, because reporting 0 g for a scale that
+  is not an HX711 is the "accepted and silently does nothing" shape again.
+* **The MQTT `weight` topic is registered when the scale is enabled.**
+  `cc_config::discovery` advertises `currReadingWeight` /
+  `currBrewWeight` whenever `scale.enabled`; the registry did not publish the
+  topic, so Home Assistant showed a weight that never updated. The two sides
+  live in different crates and nothing made them agree until
+  `the_weight_topic_appears_exactly_when_discovery_advertises_it` did.
+
+Still absent, and named in the boot log rather than papered over: the **MQTT
+inbound** command path. `Client::subscribe` subscribes and nothing acts on the
+messages — that is R3-16's `assignParameter`, for all 96 parameters and not for
+the scale alone, and building a scale-only path beside it would be a second way
+to do the same thing. The web commands are *not* in that state: they reach the
+sampling task.
+
+### Still open: the Acaia BLE scale (R3-18)
+
+---
+
+## 11. R3-17 / R3-18: scale support exists at all 🔴 new
+
+`config` already carries `hardware.sensors.scale.*` (enabled, type, calibration,
+calibration2, samples, known_weight) and `cc-display` already has the scale templates, so
+**the Rust config and UI surface looked like parity already.** It is not: the C++ can never
+read a weight, so the equivalent of every one of those settings is inert there.
+
+**The C++ defect, in one line:** nothing calls `HardwareContext::setScale()`, so
+`scale_` is always `nullptr`, and `src/main.cpp:145-150` only logs
+`"Scale sensor support via SensorCoordinator"` under a comment saying the work is
+pending. Full analysis, including the MQTT and web tare/calibration commands that accept
+input and silently do nothing, is in [09 §23](./09-cpp-findings.md).
+
+**What this means for the parity harness.** A scenario that exercises the scale has **no
+C++ baseline to diff against** — the C++ produces no weight in any state. R3-17 and R3-18
+are therefore *new functionality*, not divergence, and the diff classifier must not treat a
+Rust weight against a C++ empty as a regression. That is a case the classifier has to
+know about explicitly; a generic "C++ returned nothing" rule would silently swallow real
+regressions elsewhere.
+
+**Decided 2026-09-29 by the human who owns the hardware**, explicitly against the
+recommendation this file's sibling sections previously carried: the deadness is a bug on
+their side, not a decision to drop the feature. Both scales are ported and made to work.
+
+**The C++ spin loops are not copied.** `HX711Scale.cpp:44` and `:51` spin unbounded
+(01 §5). Rust gives them real timeouts; that is a deliberate difference, not an
+accident.

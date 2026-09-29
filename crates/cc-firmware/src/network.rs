@@ -298,7 +298,7 @@ pub struct Reading {
 /// The radio's four fields are **not** set here. See [`publish_radio`]: they
 /// belong to whoever holds the radio, and the control task does not.
 #[must_use]
-pub fn telemetry_from(reading: Reading, uptime_ms: u32) -> Telemetry {
+pub fn telemetry_from(reading: Reading, uptime_ms: u32, weight_g: Option<f64>) -> Telemetry {
     Telemetry {
         machine_state: reading.state,
         temperature_c: reading.temperature_c,
@@ -307,6 +307,11 @@ pub fn telemetry_from(reading: Reading, uptime_ms: u32) -> Telemetry {
         uptime_ms,
         mqtt_configured: reading.mqtt_configured,
         mqtt_connected: reading.mqtt_connected,
+        // `None` publishes as `"weight":null`, which is what the C++'s
+        // "no reading" is (`WebServerManager.cpp:356-372` omits the key when no
+        // scale is enabled) and what `an_absent_reading_is_null_and_never_a_
+        // fabricated_zero` pins.
+        weight_g,
         ..Telemetry::default()
     }
 }

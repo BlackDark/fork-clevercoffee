@@ -82,6 +82,7 @@ pub mod nvs;
 pub mod onewire;
 pub mod provisioning;
 pub mod restart;
+pub mod scale;
 pub mod sensors;
 pub mod task;
 pub mod telnet;
@@ -96,6 +97,7 @@ pub use heater::{HeaterDuty, HeaterOutput, LedcPwm, TimerIsrPwm, CARRIER_HZ, RES
 pub use nvs::EspNvsBlob;
 pub use onewire::GpioOneWire;
 pub use restart::{drain_console, restart_now};
+pub use scale::{GpioHx711, Sampler, SamplerCommand, SamplerEvent};
 pub use sensors::{Abp2I2c, Abp2Pressure, GpioIn};
 pub use task::CommandQueue;
 pub use time::now_ms;

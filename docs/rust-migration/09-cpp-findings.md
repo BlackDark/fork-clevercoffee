@@ -683,3 +683,149 @@ line, formatting) and are fine. The number to watch is the ISR one, and it is
 **zero**: `grep`ping the heater's `AlarmEventData` callback body finds no FP
 instruction at all. The pre-fix callback had five, the first of which — the
 `ufloat.s` at the entry — was the faulting PC in the boot log.
+
+---
+
+## 23. 🔴 The entire scale stack is unreachable — it is never constructed, and its weight is never read
+
+**Found 2026-09-29**, while re-scoping what had been planned as "drop the dead scale
+code". It is not merely unused: the feature is *structurally* absent while the
+surrounding code pretends it exists.
+
+**The scale is never created.** `HardwareContext::setScale`
+(`include/clevercoffee/context/HardwareContext.h:143`) is the only way a `Scale` gets
+into the context, and **nothing in `src/` or `include/` ever calls it.** Consequently
+`scale_` (`HardwareContext.h:340`) is always `nullptr`, so:
+
+- `HardwareManager::getScale()` (`:641`, `:647`) always returns `nullptr`.
+- `MachineStateContext::getScale()` (`src/state/MachineStateContext.cpp:100`) always
+  returns `nullptr`.
+- `DisplayWidgets.h:324` does `if (systemContext.hardwareContext().scalePtr())` and
+  `:325` dereferences it. **The null check is always false**, so the guarded block
+  never runs — the display can never show a scale's connection state.
+
+**The weight is never produced or consumed.** There is no `setScaleWeight` /
+`setWeight` anywhere in the tree, and no caller of `getScale()` outside the
+`HardwareManager`/`MachineStateContext` accessors themselves. So no weight is ever
+placed into `SystemContext`, never reaches the display, and never reaches MQTT.
+
+**The API surface exists and silently does nothing.** MQTT and the web server both
+expose scale commands against the `SensorCoordinator` —
+`MQTTManager.cpp:309` (`setScaleTareMode`), `:317` (`setScaleCalibrationMode`),
+`WebServerManager.cpp:540`, `:563`, and `SystemContext.cpp:159`, `:163`. Those set
+**flags on a coordinator that has no scale registered.** The commands are accepted,
+return success, and have no effect on any hardware. A user following the web UI's
+calibration flow gets no error and no measurement.
+
+**Why it is dead, in the source's own words.** `src/main.cpp:145-150`:
+
+```cpp
+if (Config::getInstance().hardwareSensorsScaleEnabled.get()) {
+    CleverCoffee::SensorCoordinator* sensorCoord = &...sensorCoordinator();
+    // Scale initialization will be handled via SensorCoordinator when Scale implements ISensor
+    logMemoryBasic("Scale sensor support via SensorCoordinator");
+}
+```
+
+The guard exists and reads the config, but the body is a comment describing future work.
+`scale` does not implement `ISensor`. The variable `sensorCoord` is bound and never
+used. **The log line claims scale support is present.** The correct port is R3-17/R3-18,
+which implement the drivers properly rather than replicating this.
+
+**Severity note.** This is recorded as a C++ finding rather than a parity gap precisely
+because the human who owns the hardware has confirmed the deadness is **their** bug, not
+a decision to drop the feature ([06 open decisions](./06-migration-task-list.md)). Rust is
+expected to make the scale work; there is no C++ behaviour to match, so R3-17 and R3-18
+have no parity baseline and are new functionality.
+
+### R3-17 outcome (HX711), measured 2026-09-29
+
+Implemented. The driver is constructed at boot, sampled on a dedicated priority-6
+FreeRTOS task, and the weight reaches `/api/status`, the SSE stream and the MQTT
+registry. `hardware.sensors.scale.*` now selects cells, averaging, the rate and the
+calibration target instead of describing a feature that does not exist.
+
+**No scale is fitted.** GPIO32/25/33 are unconnected, so no weight can be measured and
+**none is claimed**. What is proven on hardware:
+
+| | result |
+| --- | --- |
+| driver initialises | boot log: `pins configured — data 32=high, data 25=high, clock 33 low=true; rate Gain128 = gain 128, 10 SPS, 25 clocks per read; 2 cell(s)` |
+| idle bus levels | DOUT high on both lines (the internal pull-up), SCK low — the datasheet's power-up state |
+| **timeout/fault path** | `E (991) scale: DOUT has been high for more than 100 ms — the cell is not answering` — **120 ms after the driver started at 871 ms**, i.e. one `SIGNAL_TIMEOUT` |
+| no hang, no crash, no reset | the machine ran the full capture; the control task kept beating and the watchdog stayed fed |
+| actuators | `pin readback OK: heater=GPIO2 … valve=GPIO17 pump=GPIO27 all inactive`, unchanged, and the scale pins are two inputs and one clock |
+
+**The first build did not fault, and that is the interesting part.** An earlier revision
+armed `SignalWatchdog` on the *first conversion* rather than at driver start, reasoning
+that "a cell that has never spoken has not yet been late". On hardware that is visibly
+wrong: with no scale, `note_ready` is never called, `is_faulted` is permanently `false`,
+and the machine reports a healthy scale forever while measuring nothing — §23's exact
+defect, reproduced in new code. The C++ avoids it only by accident (`HX711_ADC.cpp:129`
+sets `lastDoutLowTime = millis()` before its first `update`). Rust now arms from driver
+start and `a_cell_that_never_converts_is_faulted_from_the_moment_the_driver_starts` is
+the host test that says so.
+
+**Not proven:** the tick-timing comparison. The in-firmware instrument was measuring
+across the tick's 400 ms sleep rather than across its work, so it reported ~431 ms for
+every tick. Fixed in the tree; **not re-flashed**, because the flash budget was two and
+both were spent. See the closing procedure in the R3-17 report.
+
+**The spin loops are a second, independent defect** in the same files:
+`HX711Scale.cpp:44` and `:51` spin unbounded (01 §5 lists them as `unbounded` latency).
+R3-17 gives them real timeouts rather than copying them.
+
+**And the timeout they *do* have is itself broken.** `HX711_ADC.cpp:135` reads
+
+```cpp
+static unsigned long timeout = millis() + tareTimeOut;
+```
+
+A `static` local, initialised on the first call and never reset. The deadline therefore
+belongs to *when the function was first reached*, not to the call — and
+`HX711Scale.cpp:53` and `:57` call `startMultiple` a **second** time for the dual-cell
+case, inheriting a deadline that may already be in the past. A two-cell scale could fail
+its start-up on its first iteration for a reason that has nothing to do with the scale.
+
+---
+
+## 24. 🟡 Found in Rust, not C++: the control tick overruns its own budget
+
+**Found 2026-09-29** while establishing R3-17's "the control tick is measurably
+unaffected" acceptance criterion. It is not a C++ finding, and it is recorded here because
+this file is where the findings that shape the remaining work live.
+
+The tick is 400 ms of period with a **10 ms work budget** (`TICK_BUDGET_MS`). Measured
+over 138 ticks on hardware, with the tick's own cost timed *before* the sleep:
+
+```
+control tick: worst 32 ms of the last 138 (baseline 32 ms over the first 25,
+              budget 10 ms, 86 over budget)
+```
+
+**86 of 138 ticks — 62 % — exceed the budget, and the worst is 3.2x over.**
+
+**It is not the scale.** A control build with the sampling task disabled:
+
+```
+control tick: worst 32 ms of the last 136 (baseline 32 ms over the first 25,
+              budget 10 ms, 111 over budget)
+```
+
+Identical worst, and the overrun is *more* frequent without the sampler. So R3-17's
+acceptance criterion **passes** — the scale costs the tick nothing measurable — and the
+overrun is pre-existing in the tick's own work.
+
+**Why it was invisible until now.** The first version of the instrument took its timestamp
+*after* `delay_ms(CONTROL_TICK_MS)` and so reported ~431 ms for every tick. That is
+obviously wrong (the period is 400 ms), but the fix is the point worth recording: **a
+timing instrument that has never disagreed with a result is not known to be working.**
+The instrument was wrong in the direction that would have hidden a real overrun only if
+someone read past the 431.
+
+**Consequence for R4-01b.** That task's acceptance is "worst-case tick ≤ 5 ms, mean ≤ 2 ms,
+zero ticks > 10 ms, compared against the C++ histogram recorded at R0-04". The
+**zero-ticks-over-10-ms** half is currently failed by the Rust tick on its own. R4-01b
+must either find and fix the cost, or record against the criterion that the C++ baseline
+also overruns — which is checkable, because R0-04 recorded the C++ per-iteration histogram.
+Do not "fix" this by relaxing `TICK_BUDGET_MS`.

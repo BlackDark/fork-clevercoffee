@@ -30,7 +30,7 @@
 //! in `src/*.rs` disagree in either direction. Adding a test and forgetting to
 //! register it is a build failure, not a quietly skipped test.
 
-use crate::{heap, mqtt, provisioning, task, telnet, time, web, wifi};
+use crate::{heap, mqtt, provisioning, scale, task, telnet, time, web, wifi};
 
 /// One registered unit test: the name the console shows, and the function to
 /// call.
@@ -80,6 +80,10 @@ pub const CASES: &[Case] = &[
     Case {
         name: "mqtt::a_pressure_sensor_appears_only_when_it_is_fitted",
         run: mqtt::tests::a_pressure_sensor_appears_only_when_it_is_fitted,
+    },
+    Case {
+        name: "mqtt::the_weight_topic_appears_exactly_when_discovery_advertises_it",
+        run: mqtt::tests::the_weight_topic_appears_exactly_when_discovery_advertises_it,
     },
     Case {
         name: "mqtt::the_plan_slices_partition_the_view",
@@ -156,6 +160,42 @@ pub const CASES: &[Case] = &[
     Case {
         name: "provisioning::a_reader_drops_a_line_that_is_not_utf8",
         run: provisioning::tests::a_reader_drops_a_line_that_is_not_utf8,
+    },
+    Case {
+        name: "scale::the_pins_are_the_cpp_pin_map",
+        run: scale::tests::the_pins_are_the_cpp_pin_map,
+    },
+    Case {
+        name: "scale::the_sampler_stack_fits_the_datasets_it_carries",
+        run: scale::tests::the_sampler_stack_fits_the_datasets_it_carries,
+    },
+    Case {
+        name: "scale::a_fresh_telemetry_block_reports_no_weight",
+        run: scale::tests::a_fresh_telemetry_block_reports_no_weight,
+    },
+    Case {
+        name: "scale::a_weight_round_trips_through_the_shared_milligram_store",
+        run: scale::tests::a_weight_round_trips_through_the_shared_milligram_store,
+    },
+    Case {
+        name: "scale::a_non_finite_weight_is_never_published",
+        run: scale::tests::a_non_finite_weight_is_never_published,
+    },
+    Case {
+        name: "scale::an_unconnected_data_line_reports_not_ready_and_never_clocks",
+        run: scale::tests::an_unconnected_data_line_reports_not_ready_and_never_clocks,
+    },
+    Case {
+        name: "scale::the_signal_watchdog_reports_an_absent_cell_within_its_deadline",
+        run: scale::tests::the_signal_watchdog_reports_an_absent_cell_within_its_deadline,
+    },
+    Case {
+        name: "scale::a_command_queue_drops_rather_than_blocking_when_full",
+        run: scale::tests::a_command_queue_drops_rather_than_blocking_when_full,
+    },
+    Case {
+        name: "scale::the_configured_sample_count_rounds_down_to_a_power_of_two",
+        run: scale::tests::the_configured_sample_count_rounds_down_to_a_power_of_two,
     },
     Case {
         name: "task::a_command_carries_no_pointer",

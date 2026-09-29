@@ -557,6 +557,25 @@ what is not. Three gaps, in the order they should be closed:
 | **R3-15** | OTA: espota equivalent + HTTP upload + URL update, with `safe_hardware_shutdown` (not just `disable_heater`) and watchdog suspend/resume. | R3-12, R3-03 | yes | An OTA started from every state leaves pump and valve off. **This fixes the gap in [01 §6](./01-feature-inventory.md#6-safety-critical-control-paths).** |
 | **R3-16** | Startup sequence per [04 §4](./04-target-architecture.md#4-startup-shutdown-and-fault-handling), including the pin readback assertion and the post-boot heater-command-zero check. | R3-01, R3-02, R3-03, R3-04, R3-05, R3-08, R3-10, R3-12 | yes | Startup is a **host-testable boot state machine with injected failure points**, so every failure path before the display exists is exercised without hardware: relays off, halts, no reboot. The on-device end-to-end run happens at R4-01 (the control task does not exist until then). Do **not** depend on R3-13/R3-14/R3-15 — they start *after* the sequence R3-16 orchestrates. |
 
+| **R3-17** | **HX711 scale driver (KEEP — decided 2026-09-29).** `hx711` 0.7.0 is
+  `embedded-hal 1.0` + `nb` and non-blocking, but 02 §HX711 records it cannot be driven from
+  the control task: the 25/100/128 conversions need sub-µs-stable clock edges. **Run it on
+  its own FreeRTOS task at a high priority**, and hand samples to the machine through a
+  queue — do not reintroduce a blocking read into the tick. Port
+  `HX711Scale.cpp` faithfully: two channels (GPIO 32/25 data, GPIO 33 shared clock),
+  calibration factor, `known_weight`, tare, and the **bounded spin loops at `:44,51` that
+  01 §5 lists as unbounded** — those get real timeouts in Rust rather than a copy.
+  **Construct it at boot.** The C++ never does (09 §23), so there is no behaviour to match
+  and no C++ baseline for this task; it is new, working functionality. | R3-01, R3-16 | yes | With a scale on GPIO 32/25/33 the reported weight is stable and within the device's documented accuracy; tare survives a reboot; the control tick is **unaffected** while sampling (measure both); a disconnected data line reports a fault instead of blocking. |
+| **R3-18** | **Acaia BLE scale driver (KEEP — decided 2026-09-29).** NimBLE via
+  `esp_idf_svc::ble`, which 02 §BLE-scales confirms is available in 0.53.0. `BluetoothScale`
+  and the `updateConnection` reconnect loop are the reference. **Note the earlier open
+  question is closed the other way from what several agents assumed: the original ESP32
+  *does* have a Bluetooth + BLE radio** — this was asserted wrongly more than once during
+  the migration and the assumption was what made "drop it" look safe. NimBLE costs flash
+  and RAM, both of which are tight (§3 of 07); if the image cannot absorb it, that is a
+  gate decision to raise, **not** a licence to drop the feature silently. | R3-12, R3-16 | yes | A BLE scale connects, reports weight, and reconnects after the radio drops; the machine's radio use does not starve the control task; with no scale paired, nothing else regresses. |
+
 ### Gate 3
 
 - **Size gate**: `just size` recorded with per-crate attribution; `just size-check` passes.
@@ -632,7 +651,11 @@ R0-04 ──┴─> R1-01 ─┤                     ├─> R2-08 ─> R2-09 �
 
 | Question | Blocks | Default if unanswered |
 | --- | --- | --- |
-| Drop HX711 / Acaia BLE scale support? | R2-07 | Drop (they are dead code) |
+| ~~Drop HX711 / Acaia BLE scale support?~~ **DECIDED 2026-09-29: KEEP BOTH.** The human
+  is the owner of the hardware and answered that the code being dead is a **bug on their
+  side**, not a reason to discard the feature. Not a divergence to be tolerated either —
+  Rust is expected to do the job *properly*, which the C++ never does. See R3-17/R3-18
+  and [09 §23](./09-cpp-findings.md). | R2-07 | resolved |
 | Reduce app slots to grow the filesystem, or embed the SPA in the binary? | R2-03 | Measure first, then rebalance; embed the SPA |
 | Keep SH1106 support or drop it? | R2-10 | Drop it and document; `ssd1306` does not support SH1106 and `sh1106` 0.5.0 is stuck on `embedded-hal 0.2` |
 | SSE or WebSocket for the UI's live channel? | R3-14 | SSE via `EspHttpConnection::write` / `raw_connection()` (both ship in esp-idf-svc 0.53); WebSocket only if both fail |

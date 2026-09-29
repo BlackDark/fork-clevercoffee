@@ -200,6 +200,13 @@ fn hold_actuators_inactive() -> Result<Actuators, Box<dyn Error>> {
     let pump = drive_inactive(peripherals.pins.gpio27, "pump")?;
     let heater = drive_inactive(peripherals.pins.gpio2, "heater")?;
 
+    // Lend the scale's pins to the one case that needs real GPIOs. This process
+    // took the peripherals, so a case cannot take them again — see
+    // `cc_hal_esp32::scale::lend_test_pins`. Lending them here rather than
+    // having the case construct them is what keeps a single owner of the chip's
+    // peripherals.
+    cc_hal_esp32::scale::lend_test_pins(peripherals.pins.gpio32, peripherals.pins.gpio33);
+
     for (name, is_inactive) in [
         ("water valve", valve.is_low()),
         ("pump", pump.is_low()),

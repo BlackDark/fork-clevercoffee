@@ -263,6 +263,22 @@ impl Registry {
         if config.hardware.sensors.pressure.enabled {
             registry.add_sensor("pressure");
         }
+        // 🔴 The weight, conditional on the scale being fitted.
+        //
+        // `cc_config::discovery` publishes `currReadingWeight` and
+        // `currBrewWeight` sensors whenever `hardware.sensors.scale.enabled`
+        // (`discovery.rs`, on the C++'s `MQTTManager.cpp:902-908`). Registering
+        // the topic here is what makes those advertised entities actually
+        // receive a value — without it Home Assistant shows a weight that stays
+        // `unknown` forever, which is the "advertised but inert" shape 09 §23
+        // describes, on a different axis.
+        //
+        // Not retained, like every other polled sensor: a weight is a live
+        // reading, and a retained one would leave a stale weight sitting in the
+        // broker after the machine had gone.
+        if config.hardware.sensors.scale.enabled {
+            registry.add_sensor("weight");
+        }
         // Retained parameters.
         for reading in ["brewSetpoint", "steamSetpoint"] {
             registry.add_parameter(reading);
@@ -814,6 +830,56 @@ pub mod tests {
         config.hardware.sensors.pressure.enabled = true;
         let with = Registry::from_config(&topics, &config);
         assert!(with.sensors.iter().any(|(t, _)| t == "pressure"));
+    }
+
+    /// The weight is published exactly when `cc_config::discovery` advertises
+    /// it.
+    ///
+    /// `discovery::all` emits `currReadingWeight` and `currBrewWeight` sensors
+    /// on the state topic `weight` whenever `hardware.sensors.scale.enabled`
+    /// (`MQTTManager.cpp:902-908`). Those two facts live in **different crates**,
+    /// and nothing made them agree: the discovery side was written when the
+    /// weights had no producer, and the registry side when the scale did not
+    /// exist at all. The result is a Home Assistant entity that is advertised
+    /// and never updates — the "accepted and silently does nothing" shape
+    /// 09 §23 describes, reached from the other direction.
+    ///
+    /// Asserting the agreement is what keeps the two sides from drifting apart
+    /// again, and it is the assertion that would have caught this.
+    #[cfg_attr(test, test)]
+    pub fn the_weight_topic_appears_exactly_when_discovery_advertises_it() {
+        let topics = Topics::new("p/", "h");
+        let mut config = Config::default();
+
+        config.hardware.sensors.scale.enabled = false;
+        let registry_without = Registry::from_config(&topics, &config);
+        let discovery_without = cc_config::discovery::all(&config);
+        config.hardware.sensors.scale.enabled = true;
+        let registry_with = Registry::from_config(&topics, &config);
+        let discovery_with = cc_config::discovery::all(&config);
+
+        let advertises_weight = |payloads: &[cc_config::discovery::Discovery]| {
+            payloads
+                .iter()
+                .any(|d| d.payload.contains("currReadingWeight"))
+        };
+        let publishes_weight =
+            |registry: &Registry| registry.sensors.iter().any(|(topic, _)| topic == "weight");
+
+        assert_eq!(
+            advertises_weight(&discovery_without),
+            publishes_weight(&registry_without),
+            "no scale fitted: discovery and the registry must agree there is no weight"
+        );
+        assert_eq!(
+            advertises_weight(&discovery_with),
+            publishes_weight(&registry_with),
+            "a scale fitted: discovery advertises a weight, so the registry must publish one"
+        );
+        assert!(
+            publishes_weight(&registry_with),
+            "with a scale fitted the weight must be published"
+        );
     }
 
     #[cfg_attr(test, test)]

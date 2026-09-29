@@ -280,11 +280,16 @@ constraint:** `esp_idf_hal::delay::Ets` rounds `delay_ns` **up to 1 µs**. That 
 
 `loadcell` 0.3.0 targets `esp-hal ^0.23.1` — a different ecosystem from `esp-idf-hal`.
 
-**Recommendation: drop scale support entirely.** It is dead code in the current firmware
-(see [01 §3 F13/F14](./01-feature-inventory.md#3-feature--source--hardware-matrix)), the
-the code that drives it is never constructed, and the HX711 needs sub-µs timing that the
-selected HAL cannot express. If scale support is later required, a dedicated FreeRTOS task
-pinned to an isolated core is the only defensible implementation.
+**SUPERSEDED 2026-09-29 — the original recommendation to drop scale support was
+wrong.** It rested on the C++ scale code being dead, which is a real defect in the C++
+firmware ([09 §23](./09-cpp-findings.md)) rather than a decision to drop the feature: the
+human who owns the hardware confirmed the deadness is a bug on their side. Both scales are
+kept, as **R3-17** (HX711) and **R3-18** (Acaia BLE).
+
+The *technical* analysis in this section still holds and constrains the implementation:
+the HX711's timing cannot be driven from the control task, so R3-17 samples on a
+dedicated high-priority FreeRTOS task and hands results over a queue. The
+"dedicated FreeRTOS task" is now a requirement, not a contingency.
 
 ### OLED
 
@@ -368,9 +373,16 @@ server. See [05 §5](./05-tooling-and-workflows.md).
 
 No Rust crate exists. `tatemazer/AcaiaArduinoBLE`, `baettigp/Acaia_Felicita_ArduinoBLE`,
 `Zer0-bit/esp-arduino-ble-scales` are all Arduino C++; `pyacaia` / `acaia-lunar-ble` are
-Python. Combined with the fact that scale support is dead code in this firmware and the
-the original ESP32 *does* have a BR/EDR + BLE radio (01 §3) — so this is **doubly** moot,
-not triply. **Drop.**
+Python. The original ESP32 *does* have a BR/EDR + BLE radio (01 §3), and
+`esp_idf_svc::ble` (NimBLE) is available in 0.53.0.
+
+**CORRECTED 2026-09-29 — this section previously concluded "Drop", and the conclusion was
+doubly wrong.** It called the dead C++ code a second reason to drop, when the deadness is
+a bug to be fixed rather than a decision ([09 §23](./09-cpp-findings.md)). The BLE radio
+argument it listed as reinforcing the drop was in fact the argument *for* keeping it.
+Implemented as **R3-18**. NimBLE's flash and RAM cost is real and both are tight
+(07 §3); if the image cannot absorb it, that is a gate decision to raise explicitly, not
+a licence to drop the feature silently.
 
 ---
 

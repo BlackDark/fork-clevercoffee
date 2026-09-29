@@ -53,6 +53,7 @@
 //! neither driver filters on it.
 
 pub mod ds18b20;
+pub mod hx711;
 pub mod onewire;
 pub mod probe;
 pub mod tsic306;
