@@ -60,6 +60,6 @@ over USB, import.
 Two decisions were taken by the user on 2026-09-29 and are recorded in the
 [decision record](decision-record.md): both temperature sensors are kept rather than only the
 DS18B20, and all four OTA paths are kept and corrected rather than the two HTTP routes being
-deleted. One finding changed the plan in the other direction: the ESP32-C6-DevKitC-1 exposes 16
-GPIO pins and the project needs 17, so the C6 board module needs a decision before task T-13 can
-finish it.
+deleted. One finding changed the plan in the other direction: the ESP32-C6-DevKitC-1 has 14
+usable GPIO pins against the 17 the project needs, so the three indicator LEDs and the second
+HX711 load cell are disabled on that board. That was the user's call on 2026-09-29.

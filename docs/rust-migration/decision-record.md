@@ -220,12 +220,14 @@ region or, on the 8 MB S3 and C6 boards, larger slots.
 
 ## Decision: the C6 pin map does not fit, and needs a user decision
 
-**Found on 2026-09-29 while researching dev board pinouts.** The project needs 17 pins: 3 relays,
-3 LEDs, 4 panel switches, a water-tank input, a 1-Wire data pin, 3 HX711 pins and 2 I2C pins. The
-ESP32-C6-DevKitC-1 exposes **16** GPIOs on its header, six of which are the module's SDIO flash
-bus and two of which are the native USB D- and D+. The ESP32 and ESP32-S3 both expose comfortably
-more than 17.
+**Found on 2026-09-29 while researching dev board pinouts, resolved the same day.** The project
+needs 17 pins: 3 relays, 3 LEDs, 4 panel switches, a water-tank input, a 1-Wire data pin, 3 HX711
+pins and 2 I2C pins. The ESP32-C6-DevKitC-1 exposes 23 GPIOs on its header, of which **14 are
+usable** after removing the module's SDIO flash bus, the native USB pins and the on-board RGB
+LED. The ESP32 and ESP32-S3 both have room.
 
-The options are a different C6 board, an I2C IO expander, or a reduced C6 feature set. Which one
-is a user decision, and it is the first open question of task T-13. Full evidence, including a
-candidate map that does not fit, is in [board-pinouts.md](board-pinouts.md).
+Resolution, by the user on 2026-09-29: **features are disabled on the C6**. The essential 11
+signals plus a single-cell HX711 fit in 14 pins with one spare, so the three indicator LEDs and
+the second load cell are not compiled for the C6 board feature. The alternative, an IO expander,
+was rejected; it would also have left the heater PWM timing over I2B unresolved. Full evidence and
+the map are in [board-pinouts.md](board-pinouts.md#c6-map).

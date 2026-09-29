@@ -46,20 +46,74 @@ references, so they are not counted.
 
 ## 3. The finding that changes the plan
 
-**The ESP32-C6-DevKitC-1 exposes 16 GPIOs on its header. The project needs 17.**
+**The ESP32-C6-DevKitC-1 does not have enough spare pins for the full feature set.**
 
-The C6 board's usable count is worse than 16, because six of those header pins are the module's
-SDIO flash bus (GPIO18, 19, 20, 21, 22, 23) and two more are the native USB D- and D+ (GPIO12,
-GPIO13). The vendor user guide claims flash SPI pins are excluded from the header, but its own
-J3 table lists all six with their SDIO functions, so this needs resolving against the schematic
-before the C6 board is treated as viable.
+Counting from the vendor's own J1 and J3 tables:
 
-The ESP32 and ESP32-S3 both expose comfortably more than 17.
+| Step | Count |
+| --- | --- |
+| GPIOs exposed on the header | **23**: 0-13, 15-23 |
+| less USB D- and D+ (GPIO12, 13) | 21 |
+| less the module's SDIO flash bus (GPIO18, 19, 20, 21, 22, 23) | 15 |
+| less the on-board RGB LED (GPIO8) | **14 usable** |
 
-Consequence: the C6 needs either a different board, a reduced feature set on the C6 specifically,
-or an external IO expander. That is a decision for the user, not a detail to assume away. It is
-recorded as a problem feature in [inventory.md](inventory.md#10-problem-features) and as the
-first open question of task T-13.
+The C6 vendor guide contradicts itself about the flash pins: it states "All available GPIO pins
+(except for the SPI bus for flash) are broken out to the pin headers", yet its own J3 table lists
+all six SDIO pins as exposed. The module carries its flash, so those six are treated as unusable
+pending a schematic check. That assumption is the conservative one, and the conclusion holds
+either way: 17 needed, 14 usable.
+
+The ESP32 and the ESP32-S3 both expose comfortably more than 17.
+
+### What fits on the C6, and what does not
+
+The full signal set is 17 pins. Broken into essential and optional:
+
+| Group | Pins | Essential? |
+| --- | --- | --- |
+| Relays: heater, pump, valve | 3 | yes |
+| Panel switches: power, brew, steam, hot water | 4 | yes |
+| Water tank input | 1 | yes |
+| 1-Wire temperature | 1 | yes |
+| I2C SDA + SCL | 2 | yes |
+| **Essential subtotal** | **11** | |
+| HX711 single-cell: data + clock | 2 | needed for brew-by-weight |
+| HX711 second cell data | 1 | dual-cell only |
+| LEDs: status, brew, steam | 3 | cosmetic |
+
+**14 usable covers the essential 11 plus a single-cell HX711 (2), with one pin spare.** The two
+things that do not fit are the three indicator LEDs and the second HX711 load cell.
+
+### C6 map
+
+Resolved by the user on 2026-09-29: **features are disabled on the C6** rather than adding an
+expander or a different board.
+
+| Signal | GPIO | Note |
+| --- | --- | --- |
+| Heater relay | 10 | plain GPIO |
+| Pump relay | 11 | plain GPIO |
+| Valve relay | 2 | LP_UART_RTSN, ADC1_CH2, FSPICQ; not a strapping pin |
+| Power switch | 0 | XTAL_32K_P; the 32 kHz crystal is not used, so this is free |
+| Brew switch | 1 | XTAL_32K_N; same |
+| Steam switch | 3 | LP_UART_CTSN, ADC1_CH3 |
+| Hot water switch | 15 | strapping, but a switch is passive and the pin is only sampled at reset |
+| Water tank | 4 | MTMS strapping, floating at reset; fine for an input |
+| 1-Wire temperature | 5 | MTDI strapping; 1-Wire idles high, so the sample is correct |
+| HX711 data / clock (single cell) | 6 / 7 | MTCK / MTDO, and the C6's default LP_I2C pins; usable as GPIO |
+| I2C SDA / SCL | 9 / 16 | 9 is a strapping pin that idles high, correct for an open-drain bus. 16 is UART0 TX: given up because C6 provisioning uses native USB, not the bridge |
+| Spare | 17 | UART0 RX, available if a feature needs it |
+
+Every assignment avoids the flash bus, USB, the RGB LED and the strapping pins whose sampled
+level would be wrong.
+
+**Disabled on the C6:** the three indicator LEDs, and the second HX711 load cell, so the C6
+supports a single-cell scale only. Everything else is identical to the ESP32 and the S3, and the
+shared logic does not change: the LED and second-cell code paths are simply not compiled for the
+C6 board feature.
+
+The alternative, adding an IO expander, was rejected by the user. It would also have raised an
+unanswered question about heater PWM at a 10 ms window over I2C.
 
 ## 4. Per-chip pin facts
 
@@ -151,7 +205,7 @@ The three changes are the ones the evidence forces.
 | Valve relay | 17 | 17 | keep |
 | Status LED | 26 | 26 | keep |
 | Brew LED | 19 | 19 | keep |
-| Steam LED | 1 | **21** | GPIO1 is UART0 TX; 21 is the default I2C SDA but I2C moves to 22 and 23 |
+| Steam LED | 1 | **21** | GPIO1 is UART0 TX; 21 is free once I2C moves to 21/15 below |
 | Power switch | 39 | 39 | keep, input-only, external pull required |
 | Brew switch | 34 | 34 | keep |
 | Steam switch | 35 | 35 | keep |
@@ -159,11 +213,12 @@ The three changes are the ones the evidence forces.
 | Water tank | 23 | 23 | keep, internal pull selectable |
 | 1-Wire temp | 16 | 16 | keep |
 | HX711 D1 / D2 / CLK | 32 / 25 / 33 | 32 / 25 / 33 | keep |
-| I2C SDA / SCL | 21 / 22 | **22 / 23** | 23 is taken by the water tank, so SDA moves to 22 and SCL to 15; 15 is a strapping pin but is only sampled at reset and the bus idles high |
+| I2C SDA / SCL | 21 / 22 | **22 / 15** | GPIO21 was the steam LED, which moved to 23; but 23 is the water tank, so SDA takes 21 back and SCL moves to 15. GPIO15 is a strapping pin sampled only at reset, and I2C idles high, so the sample is correct. |
 
-Revised to keep it consistent: water tank stays on 23, so I2C is **SDA 22, SCL 15**. Both are
-header pins, neither is flash, USB or UART0, and the bus idles high so the strapping sample is
-correct.
+Final ESP32 map: heater 4, pump 27, valve 17, status LED 26, brew LED 19, steam LED 21, power
+switch 39, brew switch 34, steam switch 35, hot water switch 36, water tank 23, 1-Wire 16, HX711
+32/25/33, I2C SDA 21 / SCL 15. No pin collides with the flash bus, USB, UART0 or an
+unavailable input.
 
 ### 5.2 ESP32-S3, ESP32-S3-DevKitC-1 v1.1
 
@@ -186,29 +241,8 @@ correct.
 
 ### 5.3 ESP32-C6, ESP32-C6-DevKitC-1 v1.2
 
-**This map does not fit.** 17 pins are needed and 16 are exposed, before removing flash, USB and
-JTAG pins. A candidate map is recorded so the arithmetic is visible, but it is not a proposal.
-
-| Signal | GPIO | Problem |
-| --- | --- | --- |
-| Heater / pump / valve relay | 10, 11, 2 | 2 is also LP_UART_RTSN |
-| LEDs | 3, 21, 22 | 21 and 22 are SDIO flash |
-| Four panel switches | 0, 1, 3, 7 | 0 and 1 carry the 32 kHz crystal functions |
-| Water tank | 6 | also the default I2C SDA and JTAG MTCK |
-| 1-Wire temp | 5 | strapping |
-| HX711 | 13, 2, 3 | 13 is USB D+ |
-| I2C | 6, 7 | collides with the water tank and a switch |
-
-Three ways out, for the user to choose between:
-
-1. **Use a different C6 board** with more exposed GPIO, or a C6 module on a carrier.
-2. **Add an I2C IO expander** (for example a 16-bit expander) and hang the relays, LEDs and
-   switches off it. The I2C bus already exists for the OLED. Cost: one part, a driver, and
-   slower actuation transitions, which for a heater PWM at a 10 ms window is the real question to
-   answer.
-3. **Reduce the C6 feature set**: drop the 3 LEDs and the 3-pin HX711 dual-cell scale, which frees
-   6 pins and makes the map fit. The cost is a C6 that cannot do brew-by-weight with a dual-cell
-   scale and has no indicator LEDs.
+Per [the C6 map above](#c6-map). Three of the seventeen signals do not fit, so the map assigns
+the other fourteen and the LEDs and the second load cell are disabled for this board.
 
 ## 6. USB and the provisioning transport, per board
 

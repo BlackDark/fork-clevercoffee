@@ -49,7 +49,7 @@ rustc 1.98.1 stable (RISC-V).
 | Web API parity | host-testable | host-testable | host-testable | Not written yet. |
 | Config import | host-testable | host-testable | host-testable | Not written yet. |
 | `just wifi` and `just config-import` | unverified | unverified | unverified | No device. |
-| Boot pin map on a real board | documented, not flashed | documented, not flashed | **does not fit the board** | No device, and the C6 pin budget is short. |
+| Boot pin map on a real board | documented, not flashed | documented, not flashed | documented, not flashed, **reduced feature set** | No device. |
 
 ## Per-chip differences that affect the design
 
@@ -58,7 +58,7 @@ rustc 1.98.1 stable (RISC-V).
 | Architecture | Xtensa LX6, needs the Espressif rustc fork | Xtensa LX7, same fork | RISC-V, uses stable rustup |
 | Native USB | none | USB Serial/JTAG | USB Serial/JTAG |
 | GPIO count | 0-39, of which 34-39 are input-only | 0-21 and 26-48 (**no GPIO22-25**), none input-only | 0-30, none input-only, but the dev board exposes only 16 |
-| Pins this project needs | 17, fits | 17, fits | 17 needed, **16 exposed on ESP32-C6-DevKitC-1** |
+| Pins this project needs | 17, fits | 17, fits | 17 needed, **14 usable on ESP32-C6-DevKitC-1** |
 | Dev board | ESP32-DevKitC V4 | ESP32-S3-DevKitC-1 v1.1 | ESP32-C6-DevKitC-1 v1.2 |
 | PSRAM | none on this board | available | available |
 | USB OTG device | no | no | no |
@@ -73,9 +73,10 @@ The GPIO gap matters, and the evidence is in
 2. **The input-only pin constraint is ESP32-only.** The four panel switches sit on GPIO34, 35, 36
    and 39 with no internal pull, so the board must supply external resistors. S3 and C6 have no
    input-only pins, so the same signals can use internal pulls there.
-3. **The C6 dev board does not have enough pins.** 17 are needed; the ESP32-C6-DevKitC-1 exposes
-   16, six of which are the module's SDIO flash bus and two the native USB. This is problem
-   feature P9 and blocks the C6 half of task T-13 on a user decision.
+3. **The C6 dev board does not have enough pins for the full feature set.** 23 GPIOs are exposed,
+   and 14 are usable after removing the flash bus, USB and the RGB LED. The essential 11 signals
+   plus a single-cell HX711 fit, with one spare; the three indicator LEDs and the second load
+   cell do not. Resolved by the user on 2026-09-29: those two features are disabled on the C6.
 
 ## Library-level compatibility
 

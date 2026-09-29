@@ -63,11 +63,11 @@ Plus two host tools, verified by running them:
 | USB Serial/JTAG works as a provisioning channel on S3 and C6 | those boards |
 | The S3 and C6 pin maps | a schematic or a board from the user |
 | The pressure sensor is the assumed ABP2 variant | the part marking, from the user |
-| The C++ firmware's `config.json` is representative of a real export | **still open.** The user said on 2026-09-29 that they had added a real export, but the file on disk is byte-identical to the one committed at the start of that session: md5 `1dd825e2a197847e29f8630fe24e2556`, with `system.wifi.ssid` still the literal string `"xxx"`. A real export is still needed. |
+| The C++ firmware's `config.json` is a real export | **confirmed** by the user on 2026-09-29, with the credentials deliberately masked. It is the T-19 fixture. What it does not give us is a file with a *populated* secret field, so the "a secret value must not appear in the report" test uses a synthetic value instead. |
 | Dropping the Wi-Fi captive portal is acceptable | **confirmed** by the user, 2026-09-29 |
 | Keeping both temperature sensors | **confirmed** by the user, 2026-09-29; the TSIC path stays build-verified until a TSIC-equipped machine exists |
 | Keeping all four OTA paths | **confirmed** by the user, 2026-09-29; space is not a constraint at 1.5 MB slots against a 99 KB image |
-| The ESP32-C6-DevKitC-1 has enough pins | **refuted** by the evidence: 16 exposed against 17 needed. A user decision is required. See [board-pinouts.md](board-pinouts.md#3-the-finding-that-changes-the-plan) |
+| The ESP32-C6-DevKitC-1 has enough pins for the full feature set | **refuted**: 23 exposed, 14 usable, 17 needed. Resolved by disabling the LEDs and the second load cell on the C6. See [board-pinouts.md](board-pinouts.md#3-the-finding-that-changes-the-plan) |
 
 ## Rules for updating these documents
 

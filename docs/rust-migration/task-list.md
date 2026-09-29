@@ -297,12 +297,10 @@ Exit gate: all three targets build; the mock-actuator image boots on the bench d
   is configured. Verified by reading the startup path, and by the mock image on device.
 - **Rollback:** `just flash` reverts; the old C++ firmware is recoverable by flashing it again
   over USB, which is why the migration guide says to export the config first
-- **Open uncertainty:** the ESP32 and S3 pin maps are settled in
-  [board-pinouts.md](board-pinouts.md#5-proposed-pin-maps). **The C6 map does not fit**: the
-  project needs 17 pins and the ESP32-C6-DevKitC-1 exposes 16. This task cannot complete the C6
-  board module until the user picks a different C6 board, an I2C IO expander, or a reduced C6
-  feature set. The ESP32 and S3 modules are unblocked by this. **This is the first blocking
-  question in the plan.**
+- **Open uncertainty:** none blocking. The three pin maps are settled in
+  [board-pinouts.md](board-pinouts.md). The C6 has 14 usable pins against 17 needed, so by the
+  user's decision of 2026-09-29 the three indicator LEDs and the second HX711 load cell are
+  disabled on that board, behind a compile-time capability the shared logic already handles.
 - **Fixes:** D01, D04, D05
 
 ---
@@ -497,7 +495,7 @@ Exit gate: the end-to-end import check passes on device; the migration guide is 
 | TSIC 306 temperature sensor | No Rust equivalent for `ZACwire`. | **Both sensors kept** (user, 2026-09-29). The TSIC driver is task T-09b, build-verified until a TSIC machine exists. |
 | NVS encryption at rest | The config region is a single self-describing blob, so this is addable later without a format change. | Accept as a documented limitation. **Still open, not confirmed by the user.** |
 | Telnet log server RFC 2217 features (P6) | The C++ implementation is not actually RFC 2217. | Ship a plain line server. **Still open, not confirmed by the user.** |
-| ESP32-C6 pin budget (P9) | 17 pins needed, 16 exposed on the ESP32-C6-DevKitC-1. | **Needs a user decision**: a different C6 board, an I2C IO expander, or a reduced C6 feature set. Evidence in [board-pinouts.md](board-pinouts.md). |
+| ESP32-C6 pin budget (P9) | 17 pins needed, 14 usable on the ESP32-C6-DevKitC-1. | **Resolved** (user, 2026-09-29): the three LEDs and the second HX711 cell are disabled on the C6. No expander, no different board. |
 
 ## Hardware-dependent tasks, in one place
 

@@ -318,7 +318,7 @@ engineering estimates in lines of new Rust plus test harness.
 | P6 | Telnet logging | RFC 2217-ish log stream on port 23, low value for the migration | 200-300 | Keep as a plain line server, no RFC 2217 negotiation |
 | P7 | Wi-Fi captive portal | Replaced by USB provisioning; blocks the loop for up to 60 s | 0 | **Dropped** (user, 2026-09-29) |
 | P8 | Wokwi simulation | Requires PlatformIO; the Rust firmware cannot run in Wokwi | 0 | **Dropped** (user, 2026-09-29), in the final phase with the rest of the C++ tree |
-| P9 | ESP32-C6 has too few pins | The project needs 17 pins; the ESP32-C6-DevKitC-1 exposes 16 on the header, six of which are the module's SDIO flash bus and two the native USB. The ESP32 and S3 both expose more than 17. | unknown, depends on the fix | **Needs a user decision** among: a different C6 board, an I2C IO expander, or a reduced C6 feature set. Evidence in [board-pinouts.md](board-pinouts.md#5-proposed-pin-maps) |
+| P9 | ESP32-C6 has too few pins | 17 pins needed; 14 usable on the ESP32-C6-DevKitC-1 after removing the flash bus, USB and the RGB LED | 0, a compile-time feature | **Resolved** (user, 2026-09-29): the three indicator LEDs and the second HX711 load cell are disabled on the C6. The essential 11 signals plus a single-cell scale fit with one pin spare. Map in [board-pinouts.md](board-pinouts.md#c6-map) |
 
 ---
 

@@ -149,8 +149,9 @@ with `cargo test`. Concretely:
 Target selection is a cargo feature: exactly one of `board-esp32`, `board-esp32s3`,
 `board-esp32c6`, and exactly one of `prov-uart`, `prov-usb-cdc`. This is a compile error rather
 than a runtime branch when a combination is wrong. The pin map for each board is in
-[board-pinouts.md](board-pinouts.md), and the C6 map does not currently fit: the project needs 17
-pins and the ESP32-C6-DevKitC-1 exposes 16.
+[board-pinouts.md](board-pinouts.md). The C6 has 14 usable pins against 17 needed, so the three
+indicator LEDs and the second HX711 load cell are disabled on that board by the `board-esp32c6`
+feature.
 
 ---
 
