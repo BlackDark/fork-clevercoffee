@@ -1,0 +1,13 @@
+[package]
+name = "clevercoffee-domain"
+description = "Pure machine logic: states, transitions, PID, sensor fusion, timing."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[dev-dependencies]
+

@@ -160,44 +160,57 @@ feature.
 Dependency direction is strictly downward. No crate depends on a crate to its right.
 
 ```
-clevercoffee-domain      pure logic, no I/O, no_std
-  ^        ^         ^
-  |        |         |
-hal-traits        drivers      (hal-traits defines the traits drivers implement)
-  ^                 ^
-  |                 |
-bsp-esp32  bsp-esp32s3  bsp-esp32c6
-  ^                 ^
-  |                 |
-app  (state machine, PID, scheduling, config import, HTTP, provisioning)
-  ^
-  |
-fw (one binary per board, #[main], panic handler, image metadata)
+clevercoffee-domain   pure logic: states, transitions, PID, sensor fusion, timing
+clevercoffee-hal-traits   the traits every hardware implementation satisfies
+clevercoffee-onewire / ds18b20 / drivers-* / display   device drivers
+clevercoffee-storage / config / http   portable subsystems
+clevercoffee-app      tasks, wiring, routes, provisioning, MQTT
+clevercoffee-bsp-<board>               pin maps and the HAL bindings for one chip
+clevercoffee-fw       the binaries, the panic handler, the compile-time feature guards
 ```
+
+Each layer may depend only on the layers above it. `tools/check-deps.py` encodes this table and
+runs in CI, so a sideways dependency fails the build rather than becoming a cycle nobody
+notices.
 
 | Crate | Contents | Host-testable |
 | --- | --- | --- |
 | `domain` | `State`, `Transition`, `Pid`, `SensorReading`, `BrewPlan`, `BackflushPlan`, `StandbyPlan`, all the timing constants | yes |
-| `hal-traits` | `Actuators`, `TemperatureSensor`, `Display`, `Switch`, `Scale`, `Storage`, `ProvisioningTransport`, `Clock` | yes (compile only) |
+| `hal-traits` | `Actuators`, `TemperatureSensor`, `Display`, `Switch`, `Scale`, `Storage`, `ProvisioningTransport`, `Clock` | yes |
 | `onewire` | bit-bang transport, timing model, ROM search, CRC-8 | yes, against a simulated bus |
-| `ds18b20` | command layer over `onewire` | yes |
-| `ds18b20` selection | both sensors are kept; `hardware.sensors.temperature.type` chooses at boot | yes |
-| `drivers-hx711` | HX711 driver | yes, against a scripted waveform |
-| `drivers-tsic` | TSIC driver | yes |
+| `ds18b20` | command layer over `onewire`. Both temperature sensors are kept; `hardware.sensors.temperature.type` selects at boot, and `drivers-tsic` is the second implementation of the same trait | yes |
+| `drivers-pressure` | ABP2 pressure driver | yes, against a scripted I2C bus |
+| `drivers-scale` | HX711 driver, single and dual cell | yes, against a scripted waveform |
+| `drivers-tsic` | TSIC 306 pulse-train driver | yes |
+| `display` | framebuffer, font metrics, the six templates, dirty-page tracking | yes, against a host framebuffer |
 | `http` | HTTP/1.1 server, routing, SSE, static assets from flash | yes, over an in-memory socket |
 | `storage` | versioned config region, CRC, encode and decode | yes |
 | `config` | the parameter schema, ranges, defaults, the old-format import mapping | yes |
-| `bsp-<board>` | pin maps, peripheral selection, `Actuators` impl, display init, provisioning transport | compile only |
-| `app` | tasks, state machine wiring, HTTP routes, provisioning protocol, MQTT | mostly; HAL behind traits |
-| `fw` | binaries, panic handler, image metadata | no |
+| `app` | tasks, state machine wiring, HTTP routes, provisioning protocol, MQTT | mostly; the HAL sits behind traits |
+| `bsp-<board>` | pin map, peripheral selection, the `Actuators` impl, display init, provisioning transport | compile only, per target |
+| `fw` | the three binaries, the panic handler, the compile-time feature guards | no |
 
-Dependency rules, enforced by review and by a dependency-direction CI check:
+That is sixteen crates: eleven host-testable, three board-specific, one firmware, plus `fw`.
 
-- `domain`, `config`, `storage`, `http`, `onewire`, `ds18b20` and the driver crates depend on
-  **no** other workspace crate except `hal-traits`.
-- `bsp-*` may depend on `hal-traits` and the drivers, never on `app`.
-- `app` may depend on everything except `fw`.
-- No workspace crate other than `fw` enables a chip feature of `esp-hal`.
+Dependency rules, enforced by `tools/check-deps.py` in CI:
+
+- `domain`, `storage`, `config`, `http` and `display` depend on **no** other workspace crate.
+- `hal-traits` depends only on `domain`.
+- `onewire`, `ds18b20` and the driver crates depend only on `hal-traits`.
+- `app` depends on `domain`, `hal-traits`, `config`, `storage` and `http`, and on nothing above
+  itself.
+- `bsp-*` depends on `domain`, `hal-traits` and `app`, and on the HAL. It depends on no other
+  `bsp-*`, because that would tie two chips together.
+- `fw` depends on `app` and the HAL, and on **at most one** `bsp-*`.
+- Only `fw` and the `bsp-*` crates may name a chip, and only `fw` selects a board feature. A build
+  selects exactly one, and `crates/fw/src/checks.rs` turns every wrong combination into a
+  `compile_error!`.
+
+The chip crates are excluded from `cargo clippy --workspace` and `cargo test --workspace`, in the
+justfile and in CI alike. Cargo unifies features across the members of a `--workspace` build, so
+checking all of them together would enable esp32, esp32s3 and esp32c6 at once and fail inside
+`esp-metadata-generated` with a duplicate-macro error. They are checked per target by
+`just check-fw <target>`.
 
 The reason `config` is separate from `domain`: the config schema has 96 parameters and the
 safety limits on them, and it is the crate that the import validation and the API both depend

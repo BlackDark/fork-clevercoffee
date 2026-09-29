@@ -1,0 +1,12 @@
+[toolchain]
+# The Xtensa chips need the Espressif fork of rustc, which `just espup-install` installs as the
+# `esp` toolchain. RISC-V uses stable. `just setup` installs both; this file only pins the
+# components and the targets so a build is reproducible.
+channel = "esp"
+profile = "minimal"
+components = ["rust-src"]
+targets = [
+    "riscv32imac-unknown-none-elf",
+    "xtensa-esp32-none-elf",
+    "xtensa-esp32s3-none-elf",
+]

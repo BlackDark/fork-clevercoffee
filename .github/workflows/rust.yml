@@ -1,0 +1,149 @@
+name: Rust
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: rust-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  # Host tests and the checks that need no toolchain beyond stable. Split from the firmware
+  # builds so a clippy failure does not wait behind a 3 GB download.
+  host:
+    name: host (${{ matrix.job }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        job: [fmt, lint, test, deps, secrets]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Install the pinned host toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt,clippy
+          rustup default stable
+
+      - name: fmt
+        if: matrix.job == 'fmt'
+        run: cargo fmt --all -- --check
+
+      # The bsp crates are excluded here for the same reason they are in the justfile: cargo
+      # unifies features across a `--workspace` build, so checking all members together enables
+      # esp32, esp32s3 and esp32c6 at once and fails inside esp-metadata-generated. The chip
+      # crates are checked per target by the firmware job.
+      - name: lint
+        if: matrix.job == 'lint'
+        run: >-
+          cargo clippy --workspace
+          --exclude clevercoffee-fw
+          --exclude clevercoffee-bsp-esp32
+          --exclude clevercoffee-bsp-esp32s3
+          --exclude clevercoffee-bsp-esp32c6
+          --all-targets -- -D warnings
+
+      - name: test
+        if: matrix.job == 'test'
+        run: >-
+          cargo test --workspace
+          --exclude clevercoffee-fw
+          --exclude clevercoffee-bsp-esp32
+          --exclude clevercoffee-bsp-esp32s3
+          --exclude clevercoffee-bsp-esp32c6
+
+      - name: dependency direction
+        if: matrix.job == 'deps'
+        run: python3 tools/check-deps.py
+
+      - name: no committed secrets
+        if: matrix.job == 'secrets'
+        run: python3 tools/check-secrets.py
+
+  # One job per chip, because the Xtensa toolchain and the RISC-V toolchain differ.
+  firmware:
+    name: build ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: esp32
+            triple: xtensa-esp32-none-elf
+            xtensa: "true"
+          - target: esp32s3
+            triple: xtensa-esp32s3-none-elf
+            xtensa: "true"
+          - target: esp32c6
+            triple: riscv32imac-unknown-none-elf
+            xtensa: "false"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Cache the Rust toolchains
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            ~/.rustup
+            ~/.espup
+            target
+          key: rust-${{ matrix.target }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: rust-${{ matrix.target }}-
+
+      - name: Install the ESP toolchain (Xtensa)
+        if: matrix.xtensa == 'true'
+        run: |
+          curl -sSfL https://github.com/esp-rs/espup/releases/download/v0.17.1/espup-x86_64-unknown-linux-gnu \
+            -o espup && chmod +x espup
+          echo "dbe54e9907b687809dbe1b955731569ed6df2b525362710d676256c5c8cf9ccd  espup" | sha256sum -c -
+          ./espup install --export-file "$GITHUB_ENV/export-esp.sh"
+
+      - name: Source the ESP environment
+        if: matrix.xtensa == 'true'
+        run: echo "ESPUP_EXPORT_FILE=$GITHUB_ENV/export-esp.sh" >> "$GITHUB_ENV" && cat "$GITHUB_ENV/export-esp.sh" >> "$GITHUB_ENV"
+
+      - name: Install the RISC-V target
+        if: matrix.xtensa == 'false'
+        run: rustup toolchain install stable --profile minimal --component rust-src && rustup target add riscv32imac-unknown-none-elf
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.triple }} -p clevercoffee-fw --features ${{ matrix.target }},prov-uart
+
+      # The mock-actuator build must compile for every chip, because it is the mode a bench run
+      # uses and a build that only works on the real board is not safe to test on.
+      - name: Build with mock actuators
+        run: >-
+          cargo build --release --target ${{ matrix.triple }} -p clevercoffee-fw
+          --features ${{ matrix.target }},prov-uart,mock-actuators,mock-actuators
+
+  # The spike crates sit outside the workspace, so nothing else builds them.
+  spikes:
+    name: spikes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Cache the Rust toolchains
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            ~/.rustup
+            ~/.espup
+          key: rust-spikes-${{ hashFiles('rust-toolchain.toml', 'spikes/*/Cargo.lock') }}
+          restore-keys: rust-spikes-
+      - name: Install the ESP toolchain (Xtensa)
+        run: |
+          curl -sSfL https://github.com/esp-rs/espup/releases/download/v0.17.1/espup-x86_64-unknown-linux-gnu \
+            -o espup && chmod +x espup
+          echo "dbe54e9907b687809dbe1b955731569ed6df2b525362710d676256c5c8cf9ccd  espup" | sha256sum -c -
+          ./espup install --export-file "$GITHUB_ENV/export-esp.sh"
+          cat "$GITHUB_ENV/export-esp.sh" >> "$GITHUB_ENV"
+      - name: Build the spikes
+        run: just spike

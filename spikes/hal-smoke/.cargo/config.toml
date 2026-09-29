@@ -1,8 +1,0 @@
-[target.xtensa-esp32-none-elf]
-rustflags = ["-C", "link-arg=-Tlinkall.x"]
-
-[target.xtensa-esp32s3-none-elf]
-rustflags = ["-C", "link-arg=-Tlinkall.x"]
-
-[target.riscv32imac-unknown-none-elf]
-rustflags = ["-C", "link-arg=-Tlinkall.x"]

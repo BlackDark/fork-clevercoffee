@@ -26,11 +26,6 @@ espup-install:
     rustup target add --toolchain stable riscv32imac-unknown-none-elf
     @echo "run 'source .espup-env.sh' or use 'just' recipes, which do it for you"
 
-# Source the espup environment for recipes that invoke cargo directly.
-_esp_env:
-    #!/usr/bin/env bash
-    if [ -f .espup-env.sh ]; then source .espup-env.sh; fi
-
 # --- quality ---------------------------------------------------------------
 
 fmt:
@@ -39,35 +34,53 @@ fmt:
 fmt-check:
     cargo fmt --all -- --check
 
+# Only the pure-logic crates. The bsp crates and the firmware are excluded on purpose: cargo
+# unifies features across the members of a `--workspace` build, so checking all of them together
+# would enable esp32, esp32s3 and esp32c6 at once and fail inside esp-metadata-generated. The
+# chip crates are checked per target by `just check-fw`.
 lint:
-    cargo clippy --workspace --all-targets -- -D warnings
+    cargo clippy $(just --quiet _host_crates) --all-targets -- -D warnings
 
-# Host tests only. The hardware crates are compile-checked by `just check`.
+# Host tests only. Every crate that can run on the host runs here; the rest needs a chip.
 test:
-    cargo test --workspace --exclude fw
+    cargo test $(just --quiet _host_crates)
 
-# Format, lint, host tests and a compile check of every target.
-check: fmt-check lint test
+# Enforces the layering in docs/rust-migration/architecture.md section 2.
+deps:
+    python3 tools/check-deps.py
+
+# Fails if a tracked file holds something that looks like a real credential.
+secrets:
+    python3 tools/check-secrets.py
+
+# Format, lint, host tests, layering and the secret scan.
+check: fmt-check lint test deps secrets
 
 # --- build -----------------------------------------------------------------
 
-# Compile-check the firmware for one target without producing a flashable image.
+# Clippy and compile-check the chip crates for one target.
 check-fw target="esp32":
     #!/usr/bin/env bash
     set -euo pipefail
-    source .espup-env.sh 2>/dev/null || true
+    [ -f .espup-env.sh ] && source .espup-env.sh
+    export CARGO_UNSTABLE_BUILD_STD="core,alloc"
     triple=$(just --quiet _triple "{{target}}")
-    cargo build --release --target "$triple" -p fw --features "{{target}}"
+    prov=$(just --quiet _prov_for "{{target}}")
+    cargo clippy --release --target "$triple" -p clevercoffee-fw \
+        --features "board-{{target}},$prov" -- -D warnings
 
 # Produce the flashable image. Refuses to continue if the connected chip is not the target.
 build target="esp32" port="":
     #!/usr/bin/env bash
     set -euo pipefail
-    source .espup-env.sh 2>/dev/null || true
+    [ -f .espup-env.sh ] && source .espup-env.sh
+    export CARGO_UNSTABLE_BUILD_STD="core,alloc"
     triple=$(just --quiet _triple "{{target}}")
-    cargo build --release --target "$triple" -p fw --features "{{target}}"
+    prov=$(just --quiet _prov_for "{{target}}")
+    bin=$(just --quiet _bin_for "{{target}}")
+    cargo build --release --target "$triple" -p clevercoffee-fw --features "board-{{target}},$prov"
     espflash save-image --chip "{{target}}" \
-        "target/$triple/release/fw" "target/fw-{{target}}.bin"
+        "target/$triple/release/$bin" "target/fw-{{target}}.bin"
     @echo "image: target/fw-{{target}}.bin"
 
 # --- flash and monitor -----------------------------------------------------
@@ -137,6 +150,33 @@ frontend-test:
 
 # --- helpers ---------------------------------------------------------------
 
+# Every crate that builds and tests on the host. The three bsp crates and the firmware are
+# excluded because a `--workspace` build unifies their features and would try to compile three
+# chips at once.
+_host_crates:
+    #!/usr/bin/env bash
+    echo --workspace --exclude clevercoffee-fw --exclude clevercoffee-bsp-esp32 \
+         --exclude clevercoffee-bsp-esp32s3 --exclude clevercoffee-bsp-esp32c6
+
+# The ESP32 has no native USB, so it provisions over UART0. S3 and C6 have native USB.
+_prov_for target:
+    #!/usr/bin/env bash
+    case "{{target}}" in
+        esp32) echo prov-uart ;;
+        esp32s3|esp32c6) echo prov-usb-cdc ;;
+        *) echo "unknown target {{target}}" >&2; exit 2 ;;
+    esac
+
+# The binary name differs per board so cargo can hold all three in one target directory.
+_bin_for target:
+    #!/usr/bin/env bash
+    case "{{target}}" in
+        esp32) echo fw ;;
+        esp32s3) echo fw-s3 ;;
+        esp32c6) echo fw-c6 ;;
+        *) echo "unknown target {{target}}" >&2; exit 2 ;;
+    esac
+
 # Map a target name to its rustup triple.
 _triple target:
     #!/usr/bin/env bash
@@ -172,7 +212,8 @@ _assert-chip target port:
 spike:
     #!/usr/bin/env bash
     set -euo pipefail
-    source .espup-env.sh 2>/dev/null || true
+    [ -f .espup-env.sh ] && source .espup-env.sh
+    export CARGO_UNSTABLE_BUILD_STD="core,alloc"
     for spec in "hal-smoke esp32 xtensa-esp32-none-elf" \
                 "hal-smoke esp32s3 xtensa-esp32s3-none-elf" \
                 "hal-smoke esp32c6 riscv32imac-unknown-none-elf" \
@@ -183,6 +224,6 @@ spike:
                 "usb-smoke esp32c6 riscv32imac-unknown-none-elf"; do
         set -- $spec
         echo "== spikes/$1 for $2 =="
-        (cd "spikes/$1" && cargo build -Zbuild-std=core,alloc --release \
+        (cd "spikes/$1" && cargo build --release \
             --target "$3" --features "$2")
     done

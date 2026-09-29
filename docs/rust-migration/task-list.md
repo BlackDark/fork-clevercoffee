@@ -30,15 +30,20 @@ runs.
 - **Type:** implement
 - **Prereqs:** none
 - **Files:** `Cargo.toml` (workspace), `rust-toolchain.toml`, `.cargo/config.toml`,
-  `crates/*/Cargo.toml`, `crates/*/src/lib.rs`, `.github/workflows/rust.yml`
-- **Steps:** create the workspace with the eleven crates named in
-  [architecture.md](architecture.md#2-crate-layout); add the dependency-direction CI check; add
-  the secrets-grep CI check; add fmt, clippy, host-test and three build jobs with SHA-pinned
-  actions and `permissions: contents: read`.
+  `crates/*/Cargo.toml`, `crates/*/src/lib.rs`, `crates/fw/src/{lib,main,main_s3,main_c6,checks}.rs`,
+  `tools/check-deps.py`, `tools/check-secrets.py`, `.github/workflows/rust.yml`, `justfile`
+- **Steps:** create the workspace with the sixteen crates named in
+  [architecture.md](architecture.md#2-crate-layout); add the compile-time feature guards in
+  `crates/fw/src/checks.rs`; add the dependency-direction and committed-secret checks; add the
+  three CI jobs with SHA-pinned actions and `permissions: contents: read`.
 - **Acceptance:**
   - `just check` passes
-  - `just spike` builds all three targets
-  - `cargo tree -p domain` shows no `esp-hal`
+  - `just check-fw esp32`, `just check-fw esp32s3` and `just check-fw esp32c6` all pass
+  - `just spike` builds all eight spike configurations
+  - `cargo tree -p clevercoffee-domain` shows no dependency at all
+  - the C++ tree is untouched: `git diff --name-only -- src include lib test platformio.ini` is
+    empty
+  - three wrong feature combinations each fail to build, not merely warn
 - **Hardware:** no
 - **Safety:** none
 - **Rollback:** delete the workspace files

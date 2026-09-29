@@ -1,0 +1,23 @@
+[package]
+name = "clevercoffee-bsp-esp32"
+description = "Board support for the ESP32 on the ESP32-DevKitC V4."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+clevercoffee-domain = { workspace = true }
+clevercoffee-hal-traits = { workspace = true }
+clevercoffee-app = { workspace = true }
+esp-hal = { workspace = true, features = ["esp32"] }
+esp-rtos = { workspace = true, features = ["esp32"] }
+esp-alloc = { workspace = true, features = ["esp32"] }
+
+[features]
+default = []
+board-esp32 = []
+prov-uart = []
+prov-usb-cdc = []
+mock-actuators = []

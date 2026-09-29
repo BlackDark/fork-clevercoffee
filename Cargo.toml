@@ -1,0 +1,90 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/domain",
+    "crates/hal-traits",
+    "crates/onewire",
+    "crates/ds18b20",
+    "crates/drivers-pressure",
+    "crates/drivers-scale",
+    "crates/drivers-tsic",
+    "crates/display",
+    "crates/http",
+    "crates/storage",
+    "crates/config",
+    "crates/app",
+    "crates/bsp-esp32",
+    "crates/bsp-esp32s3",
+    "crates/bsp-esp32c6",
+    "crates/fw",
+]
+# The capability spikes pin their own dependency versions and their own toolchain, because they
+# exist to prove a specific combination still builds. Including them would also let their
+# features unify with the firmware's, which is exactly the mistake they are there to detect.
+# The provisioning host tool is a host binary, not firmware.
+exclude = [
+    "spikes/hal-smoke",
+    "spikes/stack-smoke",
+    "spikes/usb-smoke",
+    "spikes/proto-host",
+    "tools/provision",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.95"
+license = "GPL-3.0-or-later"
+publish = false
+
+[workspace.dependencies]
+# Internal crates. The layering is enforced by tools/check-deps.py, so a crate that reaches
+# sideways fails CI rather than turning into a cycle nobody notices.
+clevercoffee-domain = { path = "crates/domain" }
+clevercoffee-hal-traits = { path = "crates/hal-traits" }
+clevercoffee-onewire = { path = "crates/onewire" }
+clevercoffee-ds18b20 = { path = "crates/ds18b20" }
+clevercoffee-storage = { path = "crates/storage" }
+clevercoffee-config = { path = "crates/config" }
+clevercoffee-http = { path = "crates/http" }
+clevercoffee-app = { path = "crates/app" }
+clevercoffee-bsp-esp32 = { path = "crates/bsp-esp32" }
+clevercoffee-bsp-esp32s3 = { path = "crates/bsp-esp32s3" }
+clevercoffee-bsp-esp32c6 = { path = "crates/bsp-esp32c6" }
+
+# Host-side dependencies for the pure-logic crates, which are host-testable.
+serde = { version = "1", default-features = false, features = ["derive", "alloc"] }
+serde_json = { version = "1", default-features = false, features = ["alloc"] }
+crc32fast = { version = "1", default-features = false }
+sha2 = { version = "0.11", default-features = false }
+base64 = { version = "0.22", default-features = false, features = ["alloc"] }
+
+# Hardware crates. Only `fw` and the `bsp-*` crates may name these, so an accidental HAL
+# dependency in a pure-logic crate is a CI failure rather than a surprise on the device.
+esp-hal = { version = "1.2", default-features = false }
+esp-rtos = { version = "0.4", default-features = false, features = ["embassy"] }
+esp-alloc = { version = "0.11", default-features = false }
+esp-backtrace = { version = "0.20", default-features = false, features = ["panic-handler", "println"] }
+esp-bootloader-esp-idf = { version = "0.6", default-features = false }
+# The log transport follows the board, not the operator's port choice: UART on the ESP32, which
+# has no native USB, and USB Serial/JTAG on the S3 and C6. Cargo allows one version of a crate
+# per build, so the choice has to be a feature of this one dependency rather than a second
+# dependency. A consequence, recorded in docs/rust-migration/tooling.md: on an S3 or C6 the logs
+# are on the native USB port even when provisioning is over the UART bridge.
+esp-println = { version = "0.18", default-features = false, features = ["log-04"] }
+embassy-executor = { version = "0.10", default-features = false }
+embassy-time = { version = "0.5", default-features = false }
+embassy-sync = { version = "0.8", default-features = false }
+embassy-futures = { version = "0.3", default-features = false }
+critical-section = { version = "1", default-features = false }
+
+[profile.release]
+opt-level = "s"
+lto = "fat"
+codegen-units = 1
+debug = true
+overflow-checks = true
+
+[profile.test]
+# Tests assert on exact values, so the profile keeps overflow checks on.
+overflow-checks = true

@@ -1,0 +1,17 @@
+[package]
+name = "clevercoffee-ds18b20"
+description = "DS18B20 command layer over the 1-Wire transport."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+clevercoffee-hal-traits = { workspace = true }
+clevercoffee-onewire = { workspace = true }
+
+[dev-dependencies]
+clevercoffee-hal-traits = { workspace = true }
+clevercoffee-onewire = { workspace = true }
+

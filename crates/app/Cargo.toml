@@ -1,0 +1,23 @@
+[package]
+name = "clevercoffee-app"
+description = "Tasks, state machine wiring, API routes, provisioning and MQTT."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+clevercoffee-domain = { workspace = true }
+clevercoffee-hal-traits = { workspace = true }
+clevercoffee-config = { workspace = true }
+clevercoffee-storage = { workspace = true }
+clevercoffee-http = { workspace = true }
+
+[dev-dependencies]
+clevercoffee-domain = { workspace = true }
+clevercoffee-hal-traits = { workspace = true }
+clevercoffee-config = { workspace = true }
+clevercoffee-storage = { workspace = true }
+clevercoffee-http = { workspace = true }
+

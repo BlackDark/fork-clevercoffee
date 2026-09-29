@@ -1,0 +1,96 @@
+[package]
+name = "clevercoffee-fw"
+description = "Firmware binaries, panic handler and image metadata. One per board."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+name = "clevercoffee_fw"
+path = "src/lib.rs"
+
+[dependencies]
+clevercoffee-app = { workspace = true }
+# Optional, because a build can only contain one chip. Feature unification would otherwise
+# compile all three chips' metadata into one binary, which does not link. Each board feature
+# turns exactly one of these on.
+clevercoffee-bsp-esp32 = { workspace = true, optional = true }
+clevercoffee-bsp-esp32s3 = { workspace = true, optional = true }
+clevercoffee-bsp-esp32c6 = { workspace = true, optional = true }
+esp-hal = { workspace = true }
+esp-rtos = { workspace = true, features = ["embassy"] }
+esp-alloc = { workspace = true }
+esp-backtrace = { workspace = true }
+esp-bootloader-esp-idf = { workspace = true }
+esp-println = { workspace = true }
+embassy-executor = { workspace = true }
+embassy-time = { workspace = true }
+
+[[bin]]
+name = "fw"
+path = "src/main.rs"
+required-features = ["board-esp32"]
+
+[[bin]]
+name = "fw-s3"
+path = "src/main_s3.rs"
+required-features = ["board-esp32s3"]
+
+[[bin]]
+name = "fw-c6"
+path = "src/main_c6.rs"
+required-features = ["board-esp32c6"]
+
+[features]
+default = []
+# Exactly one board and one provisioning transport may be enabled. crates/fw/src/checks.rs
+# turns a wrong combination into a compile_error, so it cannot reach a device.
+#
+# The board feature fans out to every chip-aware crate, which is why the HAL dependencies live
+# here rather than in each bsp: the chip is chosen in exactly one place.
+board-esp32 = [
+    "dep:clevercoffee-bsp-esp32",
+    "clevercoffee-bsp-esp32/board-esp32",
+    "esp-hal/esp32",
+    "esp-rtos/esp32",
+    "esp-alloc/esp32",
+    "esp-backtrace/esp32",
+    "esp-bootloader-esp-idf/esp32",
+    "esp-println/uart",
+    "esp-println/esp32",
+]
+board-esp32s3 = [
+    "dep:clevercoffee-bsp-esp32s3",
+    "clevercoffee-bsp-esp32s3/board-esp32s3",
+    "esp-hal/esp32s3",
+    "esp-rtos/esp32s3",
+    "esp-alloc/esp32s3",
+    "esp-backtrace/esp32s3",
+    "esp-bootloader-esp-idf/esp32s3",
+    "esp-println/jtag-serial",
+    "esp-println/esp32s3",
+]
+board-esp32c6 = [
+    "dep:clevercoffee-bsp-esp32c6",
+    "clevercoffee-bsp-esp32c6/board-esp32c6",
+    "esp-hal/esp32c6",
+    "esp-rtos/esp32c6",
+    "esp-alloc/esp32c6",
+    "esp-backtrace/esp32c6",
+    "esp-bootloader-esp-idf/esp32c6",
+    "esp-println/jtag-serial",
+    "esp-println/esp32c6",
+]
+# The transport is a separate choice, because the S3 and C6 boards expose both a native USB
+# port and a UART bridge and the operator picks by plugging into the right one.
+prov-uart = []
+prov-usb-cdc = []
+# Replaces the actuator pins with a recorder, so a bench run cannot energize anything.
+mock-actuators = []
+# Removes the network stack, for a bench run with no radio.
+no-network = []
+
+[dev-dependencies]
+clevercoffee-app = { workspace = true }

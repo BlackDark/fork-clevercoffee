@@ -1,0 +1,15 @@
+[package]
+name = "clevercoffee-display"
+description = "Framebuffer, font metrics and the six display templates."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+clevercoffee-hal-traits = { workspace = true }
+
+[dev-dependencies]
+clevercoffee-hal-traits = { workspace = true }
+

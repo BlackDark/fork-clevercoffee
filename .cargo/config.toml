@@ -1,0 +1,12 @@
+# The Xtensa targets have no prebuilt `rust-std`, so the chip builds compile core and alloc from
+# the pinned `rust-src` component. That is set per recipe through CARGO_UNSTABLE_BUILD_STD
+# rather than here, because a global `build-std` also applies to host builds and then collides
+# with the host's own prebuilt `core`.
+[target.xtensa-esp32-none-elf]
+rustflags = ["-C", "link-arg=-Tlinkall.x"]
+
+[target.xtensa-esp32s3-none-elf]
+rustflags = ["-C", "link-arg=-Tlinkall.x"]
+
+[target.riscv32imac-unknown-none-elf]
+rustflags = ["-C", "link-arg=-Tlinkall.x"]

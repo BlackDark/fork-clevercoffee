@@ -1,0 +1,15 @@
+[package]
+name = "clevercoffee-drivers-tsic"
+description = "TSIC 306 pulse-train temperature driver."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+clevercoffee-hal-traits = { workspace = true }
+
+[dev-dependencies]
+clevercoffee-hal-traits = { workspace = true }
+

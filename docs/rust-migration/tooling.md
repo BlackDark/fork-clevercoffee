@@ -60,10 +60,12 @@ environment. The recipes source the generated `.espup-env.sh`.
 | `just setup` | `mise install` then `just espup-install` |
 | `just espup-install` | idempotent toolchain install |
 | `just fmt` / `just fmt-check` | `cargo fmt` |
-| `just lint` | `cargo clippy` with warnings denied |
-| `just test` | host tests, excluding the firmware binary |
-| `just check` | fmt-check, lint, test |
-| `just check-fw <target>` | compile-check the firmware for one target |
+| `just lint` | `cargo clippy` with warnings denied, over the host-testable crates only |
+| `just deps` | the dependency-direction check, `tools/check-deps.py` |
+| `just secrets` | the committed-secret scan, `tools/check-secrets.py` |
+| `just test` | host tests for the eleven host-testable crates |
+| `just check` | fmt-check, lint, test, deps, secrets |
+| `just check-fw <target>` | clippy the firmware and the board crates for one target |
 | `just build <target>` | build and produce `target/fw-<target>.bin` |
 | `just flash <target> <port>` | erase flash, write bootloader, partitions and image |
 | `just monitor <port>` | attach the log console |
@@ -131,21 +133,40 @@ them.
 
 ## CI
 
-`.github/workflows/rust.yml`, to be added in the first implementation task:
+`.github/workflows/rust.yml`, added in T-01. Three jobs, `permissions: contents: read`
+repository-wide, every third-party action pinned by commit SHA.
 
 | Job | Runs | Gate |
 | --- | --- | --- |
-| `format` | `cargo fmt --all -- --check` | fails on any diff |
-| `lint` | `cargo clippy --workspace --all-targets -- -D warnings` | no blanket allows |
-| `test` | `cargo test --workspace --exclude fw` on the host | all tests pass |
-| `build-esp32` | `cargo build --target xtensa-esp32-none-elf` after `just espup-install` | compiles |
-| `build-esp32s3` | `cargo build --target xtensa-esp32s3-none-elf` | compiles |
-| `build-esp32c6` | `cargo build --target riscv32imac-unknown-none-elf` | compiles |
-| `deps` | a dependency-direction check that no workspace crate except `fw` enables a chip feature | no violations |
-| `secrets` | a grep that no tracked file contains a `.env` key name with a value | no matches |
+| `host (fmt)` | `cargo fmt --all -- --check` | fails on any diff |
+| `host (lint)` | `cargo clippy --workspace` with the four chip crates excluded, `-D warnings` | no blanket allows |
+| `host (test)` | `cargo test --workspace` with the same exclusions | all tests pass |
+| `host (deps)` | `python3 tools/check-deps.py` | the layering table holds |
+| `host (secrets)` | `python3 tools/check-secrets.py` | no committed credential |
+| `firmware` | `cargo clippy` then two builds per chip: normal and `mock-actuators` | all three chips compile |
+| `spikes` | `just spike` | all eight spike configurations still build |
 
-All third-party actions are pinned by commit SHA, every job uses `permissions: contents: read`,
-and the Xtensa and RISC-V toolchains are cached so a build is not repeated from scratch.
+The Xtensa and RISC-V toolchains are cached on `Cargo.lock` plus `rust-toolchain.toml`, and the
+spike job has its own cache keyed on the spike lockfiles, because the spikes pin their own
+dependency versions.
+
+Two details that are not obvious and cost time if they are got wrong:
+
+- **The host jobs must exclude the `bsp-*` crates.** Cargo unifies features across a
+  `--workspace` build, so including all members enables three chips at once and fails inside
+  `esp-metadata-generated`. The justfile and the workflow exclude the same four crates.
+- **`build-std` is set per recipe, not in `.cargo/config.toml`.** A global `build-std` also
+  applies to host builds and then collides with the host's prebuilt `core`. The chip recipes
+  export `CARGO_UNSTABLE_BUILD_STD=core,alloc` instead.
+
+## Known tooling limitations
+
+| Limitation | Consequence |
+| --- | --- |
+| `espflash` and `espup` are pinned to the `x86_64-unknown-linux-gnu` asset | another host architecture needs the matching sha256 added to `.mise.toml` |
+| The log transport follows the board, not the operator's port choice | on an S3 or C6, logs are on the native USB port even when provisioning runs over the UART bridge. Cargo allows one version of a crate per build, so this could not be a second dependency. |
+| `cargo test --workspace` cannot include the chip crates | the three chips are build-verified by CI and by `just check-fw`, not by tests |
+| `esp-rtos` 0.4.0 is pre-1.0, and `esp-radio` is `1.0.0-beta.1` | both may change shape; the spikes exist to catch that |
 
 ## Toolchain commands that actually work
 
