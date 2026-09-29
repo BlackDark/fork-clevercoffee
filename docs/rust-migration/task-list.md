@@ -186,10 +186,11 @@ Exit gate: host tests green, `just check` passes, both phases build for all thre
 - **Steps:** the line protocol client: `PING`, `WIFI SSID`, `WIFI PASS`, `WIFI COMMIT`,
   `CONFIG BEGIN/CHUNK/END`, `FACTORY RESET`, `STATUS`. Reads `.env`, never echoes a secret,
   base64-chunks the config with a CRC-32 prefix.
-- **Acceptance:** `cargo test` in `tools/provision` covers the dotenv parser, the chunking with
-  a payload larger than one chunk, and, against an in-memory fake device, every command and its
-  reply handling. `just status <a port we cannot open>` exits non-zero with a status line and
-  prints no secret.
+- **Acceptance:** 55 tests across `tools/provision`, run by `just check`. The dotenv parser, the
+  chunking with a payload larger than one chunk and its reassembly, and every command and its reply
+  handling against an in-memory fake device. The device-half is compiled out of a shipped build;
+  the binary's own tests carry a twenty-line copy for the same reason. A port that cannot be opened
+  exits non-zero with one status line and no secret.
 - **Hardware:** no
 - **Safety:** an automated check that the binary's source contains no `println!` of a credential
   variable.

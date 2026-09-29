@@ -8,6 +8,10 @@ publish = false
 name = "provision"
 path = "src/main.rs"
 
+[lib]
+name = "provision"
+path = "src/lib.rs"
+
 [dependencies]
 serialport = { version = "4.10", default-features = false }
 base64 = "0.22"

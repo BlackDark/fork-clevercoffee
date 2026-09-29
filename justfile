@@ -53,8 +53,14 @@ deps:
 secrets:
     python3 tools/check-secrets.py
 
-# Format, lint, host tests, layering and the secret scan.
-check: fmt-check lint test deps secrets
+# The provisioning tool is its own workspace, so `cargo test --workspace` does not reach it. Its
+# tests cover the protocol, the dotenv parser and the chunking, and one of them fails the build if
+# a print statement is ever added that mentions a credential.
+provision-test:
+    cargo test --manifest-path tools/provision/Cargo.toml
+
+# Format, lint, host tests, layering, the secret scan and the provisioning tool.
+check: fmt-check lint test provision-test deps secrets
 
 # --- build -----------------------------------------------------------------
 

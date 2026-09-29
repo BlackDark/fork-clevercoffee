@@ -13,8 +13,8 @@ What it looks for:
 - a private key block
 
 Placeholders are the strings that appear in documentation on purpose: `xxx`, `""`, `changeme`,
-`your-`, `<`, `redacted`, `masked`, `example`, `placeholder`, `xxx`, `***`, and anything under
-four characters, which cannot be a real SSID.
+`your-`, `<`, `***`, anything starting with `placeholder` or `example`, and anything under four
+characters, which cannot be a real SSID.
 """
 
 from __future__ import annotations
@@ -23,8 +23,11 @@ import re
 import subprocess
 import sys
 
+# `placeholder` and `example` are allowed with a suffix, so a test fixture can be self-describing
+# ("placeholder-value", "example-network") without becoming a false positive. The word still has
+# to be there: a value that merely looks unusual is exactly what this check is for.
 PLACEHOLDER = re.compile(
-    r"^(xxx+|changeme|change-me|your[-_ ].*|<.*>|\*+|-+|0+|none|null|\"\"|''|\s*)$",
+    r"^(xxx+|placeholder[-\w]*|example[-\w]*|changeme|change-me|your[-_ ].*|<.*>|\*+|-+|0+|none|null|\"\"|''|\s*)$",
     re.IGNORECASE,
 )
 
@@ -40,8 +43,15 @@ KNOWN_DEFAULTS = {
     "CleverCoffee",  # defaults.h: WM_PASS
 }
 
+# The value stops at a backslash as well as at whitespace, because a dotenv assignment inside a
+# Rust string literal is written "WIFI_PASS=placeholder\n" and the two characters `\n` are not
+# whitespace to a regex: without this the "value" swallows the rest of the source line and every
+# fixture becomes a false positive.
+#
+# The value is at least four characters, matching the rule the docstring above already claimed. A
+# shorter value cannot be a real SSID, and a one-character "value" here is a slice of a source line.
 ASSIGNMENT = re.compile(
-    r"\b(WIFI_SSID|WIFI_PASS)\b\s*[=:]\s*[\"']?([^\s\"'#]+)", re.IGNORECASE
+    r"\b(WIFI_SSID|WIFI_PASS)\b\s*[=:]\s*[\"']?([^\s\"'#\\]{4,})", re.IGNORECASE
 )
 JSON_SECRET = re.compile(
     r"\"(?:password|ota_password)\"\s*:\s*\"([^\"]*)\"", re.IGNORECASE
