@@ -181,7 +181,7 @@ impl<'bus> SharedPanel<'bus> {
     pub fn bring_up(bus: &'bus SharedBus) -> Self {
         let present = bus
             .take()
-            .is_some_and(|mut guard| Oled::new(I2cPanel::new(&mut guard, ADDRESS)).is_ok());
+            .is_some_and(|mut guard| I2cPanel::new(&mut guard, ADDRESS).initialise().is_ok());
         if !present {
             warn!(
                 "display: no panel answered at 0x{ADDRESS:02X} — the display is \
@@ -225,12 +225,14 @@ impl<'bus> SharedPanel<'bus> {
             self.failed = self.failed.saturating_add(1);
             return RefreshOutcome::Failed;
         };
-        let Ok(mut dev) = Oled::new(I2cPanel::new(&mut guard, ADDRESS)) else {
-            drop(guard);
-            self.failed = self.failed.saturating_add(1);
-            return RefreshOutcome::Failed;
+        // **Not** `Oled::new`: that re-sends `INIT_SEQUENCE`, whose `0xAE`/`0xAF`
+        // pair switches the panel off and on at the refresh rate, which is the
+        // flash the human reported. The sequence goes out once, from
+        // `bring_up`; every frame after it is the draw window plus the pixels.
+        let result = match Oled::new_initialised(I2cPanel::new(&mut guard, ADDRESS)) {
+            Ok(mut dev) => dev.flush(frame),
+            Err(err) => Err(err),
         };
-        let result = dev.flush(frame);
         // Released before the outcome is reported, so a caller that logs a
         // failure does not hold the ABP2 out for the duration.
         drop(guard);
@@ -258,10 +260,15 @@ impl<'bus> SharedPanel<'bus> {
         }
         self.blank = blank;
         if let Some(mut guard) = self.bus.take() {
-            if let Ok(mut dev) = Oled::new(I2cPanel::new(&mut guard, ADDRESS)) {
-                if dev.set_power_saved(blank).is_err() {
-                    self.failed = self.failed.saturating_add(1);
-                }
+            // `set_power_saved` is the C++'s `setPowerSave`
+            // (`LoopManager.cpp:334-339`): one byte, `0xAE` or `0xAF`. The
+            // controller keeps its RAM, so waking restores the last frame with
+            // no re-flush — which is why the C++ can return early and still come
+            // back to a correct screen.
+            let sent = Oled::new_initialised(I2cPanel::new(&mut guard, ADDRESS))
+                .is_ok_and(|mut dev| dev.set_power_saved(blank).is_ok());
+            if !sent {
+                self.failed = self.failed.saturating_add(1);
             }
             // The guard drops here, returning the bus.
             drop(guard);

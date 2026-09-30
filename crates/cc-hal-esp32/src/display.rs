@@ -242,6 +242,22 @@ impl<'bus, 'd> I2cPanel<'bus, 'd> {
         self.address
     }
 
+    /// Send [`INIT_SEQUENCE`] and switch the panel on. **Once**, at bring-up.
+    ///
+    /// Separate from every later frame write because the sequence switches the
+    /// panel *off* (`0xAE`) before configuring it; sending it per frame is a
+    /// visible flash at the refresh rate. See [`Oled::new_initialised`].
+    ///
+    /// # Errors
+    ///
+    /// Whatever the bus reports. A NAK is the panel saying it is not there.
+    pub fn initialise(&mut self) -> Result<(), Error> {
+        self.transfer(COMMAND_CONTROL_BYTE, INIT_SEQUENCE)?;
+        // The trailing 0xAF, outside the sequence, exactly as U8g2 does it
+        // (`u8g2_InitDisplay`).
+        self.transfer(COMMAND_CONTROL_BYTE, &[0xAF])
+    }
+
     /// Write `bytes` with `control` in front, in chunks of
     /// [`DATA_CHUNK_BYTES`].
     ///
@@ -341,6 +357,40 @@ impl<DI: WriteOnlyDataCommand> Oled<DI> {
         dev.set_display_on(true)?;
         Ok(Self {
             dev,
+            power_saved: false,
+            last_flush_ms: 0,
+            flushed_once: false,
+        })
+    }
+
+    /// Wrap an **already-initialised** transport, without sending
+    /// [`INIT_SEQUENCE`].
+    ///
+    /// # Why this exists
+    ///
+    /// `INIT_SEQUENCE` begins `0xAE` (display off) and [`Oled::new`] appends
+    /// `0xAF` (display on), so building a fresh `Oled` per frame switches the
+    /// panel off and on at the refresh rate. That is a visible flash — reported
+    /// by the human on real hardware — and it also costs ~30 bytes of commands
+    /// per frame on a bus the ABP2 pressure sensor shares.
+    ///
+    /// The correct shape is U8g2's: `u8g2_InitDisplay` runs once from
+    /// `begin()`, and every later `drawTile` sets the draw area and writes
+    /// pixels. So the sequence goes out **once**, from
+    /// [`I2cPanel::initialise`], and every frame after it is [`Oled::flush`].
+    ///
+    /// # Errors
+    ///
+    /// Any I²C failure. A panel that does not answer is not fatal — the C++ logs
+    /// it and carries on (`DisplayManager.cpp:26-28`).
+    pub fn new_initialised(mut interface: DI) -> Result<Self, Error> {
+        // The addressing mode is declared to the wrapper so its cached state
+        // agrees with what the init sequence already put on the panel. Two
+        // bytes, and without them `flush` would set a window the wrapper does not
+        // believe it has set.
+        interface.send_commands(DataFormat::U8(&[0x20, 0x00]))?;
+        Ok(Self {
+            dev: Ssd1306::new(interface, DisplaySize128x64, PANEL_ROTATION),
             power_saved: false,
             last_flush_ms: 0,
             flushed_once: false,
@@ -601,6 +651,99 @@ pub mod tests {
         // address and a stop, on a bus the ABP2 shares.
         assert_eq!(DATA_CHUNK_BYTES, 128);
         assert_eq!(FRAMEBUFFER_LEN.div_ceil(DATA_CHUNK_BYTES), 8);
+    }
+
+    /// A frame must not re-send the init sequence.
+    ///
+    /// This is the flash the human reported on real hardware.
+    /// `INIT_SEQUENCE` begins `0xAE` (display off) and `Oled::new` appends `0xAF`
+    /// (display on), so building a fresh controller per frame switches the panel
+    /// off and on at the refresh rate — 10 times a second, plainly visible on a
+    /// machine standing on a bench. It was never a hardware fault: the shared-bus
+    /// panel rebuilt the controller every frame because holding one across
+    /// frames would mean holding an `Oled` that borrows a `MutexGuard`.
+    ///
+    /// The fix is the shape U8g2 itself has: initialise once at `begin()`, then
+    /// every frame is `set_draw_area` plus `draw`. The assertion is on the
+    /// **bytes**, because "the panel flashed" is a claim about the wire, and a
+    /// test that only checked a return value would have passed either way.
+    #[cfg_attr(test, test)]
+    pub fn a_frame_does_not_re_send_the_init_sequence() {
+        let mut via_new = Recorder::new();
+        Oled::new(StdRecorder(&mut via_new))
+            .expect("the recorder accepts every command")
+            .flush(&ramp_frame())
+            .expect("the recorder accepts every byte");
+        assert!(
+            via_new.contains(INIT_SEQUENCE),
+            "sanity: Oled::new DOES send the init sequence, so this test would \
+             otherwise pass for the wrong reason"
+        );
+
+        let mut per_frame = Recorder::new();
+        Oled::new_initialised(StdRecorder(&mut per_frame))
+            .expect("the recorder accepts every command")
+            .flush(&ramp_frame())
+            .expect("the recorder accepts every byte");
+
+        assert!(
+            !per_frame.contains(INIT_SEQUENCE),
+            "a frame re-sent the power-on init sequence; its 0xAE/0xAF pair is the \
+             visible flash. The sequence belongs in bring_up only."
+        );
+        assert_ne!(
+            per_frame.all().first().copied(),
+            Some(0xAE),
+            "a frame began by switching the panel off"
+        );
+        assert_eq!(
+            per_frame.all().len(),
+            FRAMEBUFFER_LEN,
+            "a frame should put exactly the framebuffer on the wire, not {} bytes",
+            per_frame.all().len()
+        );
+    }
+
+    /// Blanking is one byte, and does not reinitialise the panel.
+    ///
+    /// The same mistake in a different place: blanking through `Oled::new` would
+    /// re-initialise the whole controller in order to switch it off.
+    /// `set_power_saved` sends `0xAE`/`0xAF` alone, which is U8g2's
+    /// `setPowerSave` in both directions.
+    #[cfg_attr(test, test)]
+    pub fn blanking_is_one_byte_and_does_not_reinitialise() {
+        let mut off = Recorder::new();
+        Oled::new_initialised(StdRecorder(&mut off))
+            .expect("the recorder accepts every command")
+            .set_power_saved(true)
+            .expect("the recorder accepts every command");
+        assert_eq!(off.all().last().copied(), Some(0xAE));
+        assert!(!off.contains(INIT_SEQUENCE));
+
+        let mut on = Recorder::new();
+        Oled::new_initialised(StdRecorder(&mut on))
+            .expect("the recorder accepts every command")
+            .set_power_saved(false)
+            .expect("the recorder accepts every command");
+        assert_eq!(on.all().last().copied(), Some(0xAF));
+        assert!(!on.contains(INIT_SEQUENCE));
+    }
+
+    /// A `WriteOnlyDataCommand` that borrows the module's own `Recorder`.
+    ///
+    /// `Oled::new` and `Oled::new_initialised` take the transport **by value**,
+    /// so a test that wants to read the recording afterwards needs an adapter
+    /// that hands over a borrow instead of the recorder itself.
+    struct StdRecorder<'a>(&'a mut Recorder);
+
+    impl WriteOnlyDataCommand for StdRecorder<'_> {
+        fn send_commands(&mut self, cmd: DataFormat<'_>) -> Result<(), Error> {
+            self.0.send_commands(cmd)
+        }
+
+        fn send_data(&mut self, data: DataFormat<'_>) -> Result<(), Error> {
+            self.0.send_data(data)
+        }
     }
 
     #[cfg_attr(test, test)]

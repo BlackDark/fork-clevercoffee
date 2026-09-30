@@ -272,6 +272,14 @@ pub const CASES: &[Case] = &[
         run: scale::tests::an_unconnected_data_line_reports_not_ready_and_never_clocks,
     },
     Case {
+        name: "display::a_frame_does_not_re_send_the_init_sequence",
+        run: display::tests::a_frame_does_not_re_send_the_init_sequence,
+    },
+    Case {
+        name: "display::blanking_is_one_byte_and_does_not_reinitialise",
+        run: display::tests::blanking_is_one_byte_and_does_not_reinitialise,
+    },
+    Case {
         name: "switches::an_absent_float_reports_the_tank_full_rather_than_empty",
         run: switches::tests::an_absent_float_reports_the_tank_full_rather_than_empty,
     },
