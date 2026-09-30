@@ -553,6 +553,32 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
         scl: peripherals.pins.gpio22,
     };
 
+    // 5b-bis. The shared I²C bus.
+    //
+    //     The ABP2 and the SSD1306 are on the same two wires (SCL 22, SDA 21)
+    //     and an ESP32 I²C peripheral has exactly one owner, so the bus is put
+    //     behind a `Mutex` **once**, here, and both users take it for the length
+    //     of one transaction. Neither user may hold it across a frame: a panel
+    //     that held the bus would starve the ABP2, and an ABP2 that held it
+    //     would make the panel flicker. `display_shared::SharedBus` is the type
+    //     that enforces this by only handing out a guard.
+    let shared_i2c = match build_shared_i2c(i2c_pins) {
+        Ok(bus) => {
+            info!(
+                "i2c: I2C0 (SDA GPIO{} SCL GPIO{}) at {} kHz, shared between the \
+                 ABP2 and the panel",
+                cc_hal_esp32::sensors::pins::I2C_SDA,
+                cc_hal_esp32::sensors::pins::I2C_SCL,
+                cc_hal_esp32::sensors::I2C_HZ / 1000,
+            );
+            Some(bus)
+        }
+        Err(err) => {
+            warn!("i2c: the bus did not come up: {err:?} — no pressure, no display");
+            None
+        }
+    };
+
     // 5c. The actuator facade, which becomes the single owner of the pump, the
     //     valve relay and the heater.
     //
@@ -687,7 +713,20 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
     //     R4-01b's first listed win). `cc_domain::abp2::Driver` makes the 10 ms a
     //     deadline instead, so the sample is spread across ticks and nothing
     //     sleeps.
-    let pressure = bring_up_pressure(i2c_pins, &config);
+    // The bus is boxed and **moved into the control task**, which is what makes
+    // `'static` references to it possible: the task is spawned with a `'static`
+    // bundle, and a borrow of a local is not `'static` however long the local
+    // lives in practice.
+    //
+    // Only the *bus* travels. The panel and the pressure sensor are built
+    // **inside** the task, from that bus — putting them in the bundle too would
+    // make it self-referential (a struct holding a reference into itself), which
+    // no amount of `Box`ing resolves.
+    //
+    // A machine whose bus failed to come up still runs: the panel reports itself
+    // absent and the pressure sensor is simply not fitted. Losing a display is
+    // not a reason to stop making coffee.
+    let shared_i2c: Option<Box<cc_hal_esp32::display_shared::SharedBus>> = shared_i2c.map(Box::new);
 
     // 8. The shared HTTP state and the network→control command queue.
     let net = Arc::new(network::Network::new());
@@ -805,7 +844,7 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
         twdt,
         actuators,
         switches,
-        pressure,
+        shared_i2c,
         temp: temp_sensor,
         net: Arc::clone(&net),
         commands: Arc::clone(&commands),
@@ -1175,10 +1214,31 @@ struct I2cPins {
 /// instead: the conversion command is written on one tick and the answer read on
 /// a later one, so the sensor costs two I²C transactions spread over 10 ms of
 /// normal control-loop work and no sleep at all.
-fn bring_up_pressure(
+/// Construct the I²C bus once and wrap it for sharing.
+///
+/// Deliberately separate from [`bring_up_pressure`]: the pressure sensor and
+/// the panel are peers on this bus, and a helper that handed the bus to one of
+/// them would be the bug this restructure exists to remove. The C++ sidesteps
+/// it because Arduino's `Wire` is a singleton everyone reaches for, which is
+/// convenient and is exactly the kind of implicit global this port is trying to
+/// get rid of.
+fn build_shared_i2c(
     pins: I2cPins,
+) -> Result<cc_hal_esp32::display_shared::SharedBus, esp_idf_svc::sys::EspError> {
+    let sda: cc_hal_esp32::sensors::SdaPin = pins.sda.into();
+    let scl: cc_hal_esp32::sensors::SclPin = pins.scl.into();
+    let bus = cc_hal_esp32::Abp2I2c::new(pins.peripheral, sda, scl)?;
+    // `into_driver`: the `Abp2I2c` facade is a thin wrapper whose only job was
+    // to own the bus, and the shared type owns it now.
+    Ok(cc_hal_esp32::display_shared::SharedBus::new(
+        bus.into_inner(),
+    ))
+}
+
+fn bring_up_pressure<'bus>(
+    bus: Option<&'bus cc_hal_esp32::display_shared::SharedBus>,
     config: &cc_config::Config,
-) -> Option<cc_hal_esp32::Abp2Pressure<'static>> {
+) -> Option<cc_hal_esp32::Abp2Pressure<&'bus cc_hal_esp32::display_shared::SharedBus>> {
     if !config.hardware.sensors.pressure.enabled {
         info!(
             "pressure: hardware.sensors.pressure.enabled is false — no ABP2 (the C++ \
@@ -1186,27 +1246,19 @@ fn bring_up_pressure(
         );
         return None;
     }
-    let sda: cc_hal_esp32::sensors::SdaPin = pins.sda.into();
-    let scl: cc_hal_esp32::sensors::SclPin = pins.scl.into();
-    match cc_hal_esp32::Abp2I2c::new(pins.peripheral, sda, scl) {
-        Ok(bus) => {
-            let sensor = cc_hal_esp32::Abp2Pressure::new(bus);
-            info!(
-                "pressure: ABP2 on I2C0 (SDA GPIO{} SCL GPIO{}) at 0x{:02X}, \
-                 non-blocking — the C++'s 10 ms delay is a deadline here, \
-                 cadence {} ms",
-                cc_hal_esp32::sensors::pins::I2C_SDA,
-                cc_hal_esp32::sensors::pins::I2C_SCL,
-                cc_domain::abp2::ADDRESS,
-                cc_domain::abp2::CADENCE.raw(),
-            );
-            Some(sensor)
-        }
-        Err(err) => {
-            warn!("pressure: the I2C bus did not come up: {err:?} — no pressure reading");
-            None
-        }
-    }
+    // The bus is shared with the panel, so the sensor borrows it rather than
+    // owning it: it takes the lock for one transaction and gives it straight
+    // back. `None` here means the bus itself failed to come up in `bring_up`.
+    let bus = bus?;
+    info!(
+        "pressure: ABP2 on the shared I2C0 (SDA GPIO{} SCL GPIO{}) at 0x{:02X}, \
+         non-blocking — the C++'s 10 ms delay is a deadline here, cadence {} ms",
+        cc_hal_esp32::sensors::pins::I2C_SDA,
+        cc_hal_esp32::sensors::pins::I2C_SCL,
+        cc_domain::abp2::ADDRESS,
+        cc_domain::abp2::CADENCE.raw(),
+    );
+    Some(cc_hal_esp32::Abp2Pressure::on_shared_bus(bus))
 }
 
 /// Persist `brew.setpoint` and report the outcome.
@@ -1484,8 +1536,12 @@ struct ControlArgs {
     actuators: cc_hal_esp32::Actuators,
     /// The five operator inputs, debounced.
     switches: cc_hal_esp32::SwitchBank,
-    /// The ABP2, when one is fitted.
-    pressure: Option<cc_hal_esp32::Abp2Pressure<'static>>,
+    /// The I²C bus, owned here and shared by the pressure sensor and the panel.
+    ///
+    /// `Box`, so the two users can hold `&'static` references to it. The bus is
+    /// built in `bring_up` and the users are built *here*, from it, because a
+    /// bundle holding a reference into itself is not constructible.
+    shared_i2c: Option<Box<cc_hal_esp32::display_shared::SharedBus>>,
     /// The temperature probe. **Owned**, not borrowed: the control task polls it
     /// every tick for the rest of the process, and a `&'static mut` would be a
     /// lifetime this call site cannot honestly promise — `bring_up` blocks on
@@ -1576,7 +1632,10 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
         twdt,
         mut actuators,
         mut switches,
-        mut pressure,
+        // The I²C bus, owned by this frame and lent to the two users built
+        // immediately below. Binding it is what keeps it alive for the life of
+        // the task, which is what makes their `&'static` references sound.
+        shared_i2c,
         mut temp,
         net,
         commands,
@@ -1608,6 +1667,24 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
     );
 
     let mut side = cc_hal_esp32::FirmwareSide::new();
+
+    // The two users of the shared I²C bus, built here so their `&'static`
+    // borrows point at the box this frame owns. They are peers: neither holds
+    // the bus across a transaction, so the panel cannot starve the ABP2 and the
+    // ABP2 cannot make the panel flicker.
+    let mut pressure = shared_i2c
+        .as_deref()
+        .and_then(|bus| bring_up_pressure(Some(bus), &config));
+    let mut panel = shared_i2c
+        .as_deref()
+        .map(cc_hal_esp32::display_shared::SharedPanel::bring_up);
+    if let Some(panel) = panel.as_ref() {
+        info!("{}", panel.report());
+    }
+
+    // The display scratch buffer: 1 KB, allocated once for the life of the
+    // task. See `refresh_display` for why it is not a local.
+    let mut display_scratch = Box::new(cc_display::display::Display::new());
 
     // The machine, booted through the reducer. `SystemInitializer::finalizeMachineState`
     // reads the power switch *before* the state machine exists, so the switch
@@ -1943,6 +2020,28 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
         // persisted, because this task is the only holder of the store.
         let weight_g = drain_scale(sampler.as_ref(), &mut store);
 
+        // ---- 8. SHOW ----------------------------------------------------------
+        //
+        // **Last, after the effects have been applied**, so the frame shows the
+        // state the machine is actually in rather than the one it was about to
+        // enter. Drawing before the applier would put a "brewing" screen up one
+        // tick before the pump started and a "standby" screen up one tick after
+        // it stopped, and at 2.5 ticks/second that is visible.
+        //
+        // The panel takes the I²C bus for the length of one frame and gives it
+        // straight back, so the pressure read above and the next one are not
+        // delayed by more than a frame's bus time.
+        if let Some(panel) = panel.as_mut() {
+            refresh_display(
+                panel,
+                &control,
+                &config,
+                &Readings::new(last_reading, pressure_bar, weight_g),
+                now,
+                &mut display_scratch,
+            );
+        }
+
         // A reboot request from the HTTP layer, honoured here and not in the
         // handler. A handler that called `esp_restart` directly could reset the
         // machine from inside a request; this is between ticks, after the
@@ -2060,6 +2159,13 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
         if uptime.wrapping_sub(last_heap_log_ms) >= HEAP_LOG_INTERVAL_MS {
             last_heap_log_ms = uptime;
             network::log_heap_once_a_minute(&net);
+            // The panel's counters, on the same cadence and for the same reason:
+            // a display that has stopped updating is invisible from the outside
+            // except by looking at the machine, and `frames=` not advancing is
+            // the one number that says so without anyone having to notice.
+            if let Some(panel) = panel.as_ref() {
+                info!("{}", panel.report());
+            }
         }
 
         // The heartbeat line, and the PID's own numbers beside them.
@@ -2353,4 +2459,198 @@ fn bring_up_wifi(
         sta.leave_offline();
     }
     Ok(sta)
+}
+
+/// The `cc_display` template for a configured [`DisplayTemplate`].
+///
+/// `DisplayTemplate` is the config enum with the C++'s numeric values
+/// (`Config.h:1144` registers them as an `EnumParamDef`); `TemplateId` is the
+/// display crate's own enum. They are the same six layouts in the same order,
+/// but they are two crates' types and nothing guarantees they stay in step, so
+/// the mapping is written out rather than cast. An out-of-range value falls
+/// back to `Standard`, which is the C++'s default and a layout that always
+/// exists.
+fn template_for(
+    configured: cc_domain::system::DisplayTemplate,
+) -> cc_display::templates::TemplateId {
+    use cc_display::templates::TemplateId;
+    use cc_domain::system::DisplayTemplate;
+    match configured {
+        DisplayTemplate::Standard => TemplateId::Standard,
+        DisplayTemplate::Minimal => TemplateId::Minimal,
+        DisplayTemplate::TemperatureOnly => TemplateId::TemperatureOnly,
+        DisplayTemplate::Scale => TemplateId::Scale,
+        DisplayTemplate::Upright => TemplateId::Upright,
+        DisplayTemplate::Modern => TemplateId::Modern,
+    }
+}
+
+/// The `cc_display` view of the machine's configuration.
+///
+/// `cc_display::model::Config` is deliberately a *separate* type from
+/// `cc_config::Config`: the display crate is a pure renderer with 48 goldens and
+/// a pixel-parity oracle against real U8g2, and it has no business knowing about
+/// Wi-Fi credentials or the NVS blob. The consequence is that this mapping
+/// exists, and it is the seam where a new display-relevant parameter has to be
+/// wired up by hand — which is the point.
+///
+/// **Every field is listed, with no `..Default::default()`.** That is what makes
+/// the seam load-bearing: a field added to the display crate's `Config` is a
+/// compile error here until someone decides what the machine's setting means for
+/// it, rather than a template that silently keeps using the default. The goldens
+/// can afford `..default()` because they are fixtures; this is not a fixture.
+fn display_config(config: &cc_config::Config) -> cc_display::model::Config {
+    use cc_display::model::{BrewMode, Config as DisplayConfig, Language, ScaleType};
+    use cc_domain::system::DisplayTemplate;
+
+    DisplayConfig {
+        brew_switch_enabled: config.hardware.switches.brew.enabled,
+        scale_enabled: config.hardware.sensors.scale.enabled,
+        // The display crate's `ScaleType` is a two-way question (wired load
+        // cell or radio) where the config's is three (one cell, two cells, or
+        // radio). Single and dual are the same *layout* to a template, so they
+        // collapse here; which one it is belongs to the driver, not the screen.
+        scale_type: match config.hardware.sensors.scale.r#type {
+            cc_domain::hardware::ScaleType::Bluetooth => ScaleType::Bluetooth,
+            cc_domain::hardware::ScaleType::Hx711Dual
+            | cc_domain::hardware::ScaleType::Hx711Single => ScaleType::Hx711,
+        },
+        pressure_enabled: config.hardware.sensors.pressure.enabled,
+        oled_enabled: config.hardware.oled.enabled,
+        upright_template: config.display.template == DisplayTemplate::Upright,
+        inverted: config.display.inverted,
+        language: match config.display.language {
+            cc_domain::system::Language::English => Language::English,
+            cc_domain::system::Language::German => Language::German,
+            cc_domain::system::Language::Spanish => Language::Spanish,
+        },
+        heating_logo: u8::from(config.display.heating_logo),
+        pid_off_logo: u8::from(config.display.pid_off_logo),
+        fullscreen_brew_timer: config.display.fullscreen_brew_timer,
+        fullscreen_manual_flush_timer: config.display.fullscreen_manual_flush_timer,
+        fullscreen_hot_water_timer: config.display.fullscreen_hot_water_timer,
+        post_brew_timer_duration_s: config.display.post_brew_timer_duration,
+        blinking_delta: config.display.blinking.delta,
+        backflush_reminder_enabled: config.maintenance.backflush_reminder.enabled,
+        brew_mode: match config.brew.mode {
+            cc_domain::process::BrewMode::Manual => BrewMode::Manual,
+            cc_domain::process::BrewMode::Automatic => BrewMode::Automatic,
+        },
+        brew_by_time_enabled: config.brew.by_time.enabled,
+        brew_by_weight_enabled: config.brew.by_weight.enabled,
+        brew_by_weight_target: config.brew.by_weight.target_weight,
+        mqtt_enabled: config.mqtt.enabled,
+        // `cycles` is an i32 in the config and a u8 on screen. `unwrap_or` rather
+        // than a cast: the C++ stores it as a float param and a machine
+        // configured with a nonsense value should render the default layout
+        // detail, not wrap to 255 cycles.
+        backflush_cycles: u8::try_from(config.backflush.cycles).unwrap_or(5),
+    }
+}
+
+/// Render the current state onto the panel.
+///
+/// # Why the rendering lives here and not in `cc-hal-esp32`
+///
+/// The pixels come from `cc-display`, a pure host library with 48 goldens and a
+/// two-sided pixel-parity oracle against the real U8g2. What it does not have is
+/// any idea what the machine is doing — that is the control task's knowledge,
+/// and this is the seam where the two meet. The alternative, pushing a
+/// `DisplayInput` down through the HAL, would give the transport a vocabulary of
+/// brewing and PID terms it has no business knowing.
+///
+/// The frame is rendered into a stack `Display` and handed over as
+/// `&[u8; 1024]`, so a tick costs one render plus at most one bus transfer, and
+/// the panel decides for itself whether this tick is due.
+/// What the sensors said this tick, in the units a template wants.
+///
+/// A struct rather than three more parameters because the tick already has
+/// eight things to hand to the display and the arity had reached the point where
+/// a reader could no longer tell `Option<f64>` from `Option<bool>` at a call
+/// site. The conversions from the sensors' own types happen **once, here**, so
+/// there is exactly one place where a narrowing or a unit change can happen and
+/// exactly one place to look when a number on the screen is wrong.
+struct Readings {
+    /// Degrees Celsius, or 0.0 before the first plausible conversion.
+    temperature: f64,
+    /// Bar.
+    pressure_bar: f32,
+    /// Grams, or 0.0 with no scale fitted.
+    weight_g: f32,
+}
+
+impl Readings {
+    /// The conversions, done once.
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "DisplayInput carries pressure and weight as f32; an ABP2 sample \
+                  is 16-bit over full scale and a scale reports milligrams, so \
+                  neither narrowing loses a digit the sensor produced"
+    )]
+    fn new(
+        last_reading: Option<(f64, bool)>,
+        pressure_bar: Option<f64>,
+        weight_g: Option<f64>,
+    ) -> Self {
+        Self {
+            temperature: last_reading.map_or(0.0, |(celsius, _)| celsius),
+            pressure_bar: pressure_bar.map_or(0.0, |bar| bar as f32),
+            weight_g: weight_g.map_or(0.0, |grams| grams as f32),
+        }
+    }
+}
+
+fn refresh_display(
+    panel: &mut cc_hal_esp32::display_shared::SharedPanel<'_>,
+    control: &control::Control,
+    config: &cc_config::Config,
+    readings: &Readings,
+    now: Millis,
+    scratch: &mut cc_display::display::Display,
+) {
+    use cc_hal_esp32::display_shared::RefreshOutcome;
+
+    // The framebuffer is 1024 bytes and the control task has an 8 KB stack, so
+    // this **must not be a local**. It is allocated once, in `bring_up`, and
+    // handed in — which is also what ADR-0002 wants: a large buffer on the heap
+    // shows up in the measured free-heap report, where a stack allocation is
+    // invisible until it overflows. The first version of this function built
+    // the `Display` on the stack and the device reset with "A stack overflow in
+    // task pthread" on the first frame.
+
+    // The two numbers every template leads with come from different owners: the
+    // probe is polled above, the setpoint is config the operator can change
+    // mid-brew, and the PID output is the reducer's own number.
+    let (p, i, d) = control.pid_terms();
+    let input = cc_display::model::DisplayInput {
+        temperature: readings.temperature,
+        setpoint: control.setpoint(),
+        pid_output: f64::from(control.pid_output()),
+        pid_kp: p,
+        pid_ki: i,
+        pid_kd: d,
+        // `DisplayInput` carries these two as `f32` while the sensors produce
+        // `f64`. The narrowing is deliberate and loses nothing: an ABP2 sample
+        // is 16-bit over full scale, and a scale reports milligrams.
+        pressure: readings.pressure_bar,
+        weight: readings.weight_g,
+        state: control.state(),
+        ..cc_display::model::DisplayInput::default()
+    };
+
+    let _rendered = cc_display::templates::render(
+        template_for(config.display.template),
+        scratch,
+        &input,
+        &display_config(config),
+    );
+    // Borrowed, not consumed: `scratch` is reused on the next tick.
+    let outcome = panel.refresh(scratch.framebuffer().as_bytes(), now.raw());
+    if outcome == RefreshOutcome::Failed {
+        // A `debug!` rather than a `warn!`: a machine with no panel attached
+        // would otherwise emit one line every tick and bury everything else. The
+        // failure count is in the periodic report, which is the line an operator
+        // is meant to read.
+        debug!("display: frame not sent ({outcome:?})");
+    }
 }

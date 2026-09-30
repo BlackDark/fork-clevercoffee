@@ -347,7 +347,14 @@ impl Display {
         }
     }
 
-    /// The framebuffer.
+    /// The framebuffer, borrowed.
+    ///
+    /// The counterpart to [`Display::into_framebuffer`], and the one the
+    /// firmware uses: the control task renders every 100 ms for the life of the
+    /// process, so consuming the `Display` would mean building a fresh 1 KB
+    /// `Framebuffer` every frame. Borrowing keeps one scratch buffer, which is
+    /// what ADR-0002 wants anyway — a large buffer allocated once and measured,
+    /// rather than churned where the heap report cannot see it.
     #[must_use]
     pub const fn framebuffer(&self) -> &Framebuffer {
         &self.fb

@@ -1,9 +1,9 @@
 {
-  "label": "post-r3-backtrace-removal",
-  "recorded_utc": "2026-09-29T12:41:01+00:00",
-  "git": "ad0f81e",
+  "label": "r4-01-reducer-and-display",
+  "recorded_utc": "2026-09-29T23:24:28+00:00",
+  "git": "4c4e072",
   "mcu": "esp32",
-  "image_bytes": 1186768,
+  "image_bytes": 1338816,
   "app_slot_bytes": 1835008,
-  "headroom_bytes": 648240
+  "headroom_bytes": 496192
 }

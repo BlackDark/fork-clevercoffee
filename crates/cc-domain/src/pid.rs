@@ -430,6 +430,24 @@ impl Controller {
         true
     }
 
+    /// Whether the controller is in [`Mode::Automatic`].
+    ///
+    /// Exists so a caller that caches the mode can seed the cache from the
+    /// controller rather than from what it *intends* the mode to be. Those are
+    /// not the same thing, and assuming they are is a bug this port shipped:
+    /// the firmware's cache was initialised to "Automatic" while the controller
+    /// was in Manual, so the transition was never detected, `set_mode` was never
+    /// called, and `compute` returned `false` on every tick — a machine in
+    /// `PidNormal` with a live setpoint, a 7 K error and a permanently zero
+    /// heater duty.
+    ///
+    /// Read this at construction and the cache cannot disagree with the thing it
+    /// is caching.
+    #[must_use]
+    pub const fn in_automatic(&self) -> bool {
+        self.in_auto
+    }
+
     /// `SetMode(Mode)` (`PID_v1.cpp:238-244`).
     ///
     /// Entering [`Mode::Automatic`] from [`Mode::Manual`] performs the bumpless
@@ -946,5 +964,74 @@ mod tests {
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod mode_query_tests {
+    use super::{Controller, ControllerDirection, Millis, Mode, ProportionalOn};
+
+    /// A controller with the C++'s production gains (`ProcessController.cpp:296-305`).
+    fn production() -> Controller {
+        let mut pid = Controller::new(
+            Millis::ZERO,
+            62.0,
+            62.0 / 52.0,
+            11.5 * 62.0,
+            ProportionalOn::Error,
+            ControllerDirection::Direct,
+        );
+        assert!(pid.set_output_limits(0.0, 1000.0));
+        assert!(pid.set_sample_time(Millis::new(100)));
+        pid
+    }
+
+    /// A fresh controller is in Manual, and says so.
+    ///
+    /// This is the whole point of [`Controller::in_automatic`]. The firmware
+    /// caches the mode so it only calls `set_mode` on a change, and the bug this
+    /// pins is a cache seeded from *intent* rather than from the controller: the
+    /// cache said Automatic, the controller was Manual, the change was never
+    /// detected, and `compute` returned `false` forever. The machine looked
+    /// healthy — right state, right setpoint, 7 K of error — with a heater that
+    /// never switched on.
+    ///
+    /// A caller that reads `in_automatic()` at construction cannot make that
+    /// mistake, so this asserts the value it reads.
+    #[test]
+    fn a_new_controller_reports_manual_so_a_caller_cannot_seed_the_cache_wrong() {
+        let pid = production();
+        assert!(
+            !pid.in_automatic(),
+            "Controller::new must report Manual, or a caching caller will believe \
+             a mode the controller is not in"
+        );
+    }
+
+    /// The query follows the mode, so a cache seeded from it stays correct.
+    #[test]
+    fn the_mode_query_tracks_set_mode() {
+        let mut pid = production();
+        assert!(!pid.in_automatic());
+
+        pid.set_mode(Mode::Automatic);
+        assert!(pid.in_automatic(), "set_mode(Automatic) did not take");
+
+        pid.set_mode(Mode::Manual);
+        assert!(!pid.in_automatic(), "set_mode(Manual) did not take");
+    }
+
+    /// A controller in Manual never computes — the condition that made the
+    /// original bug invisible, since everything *looked* fine.
+    #[test]
+    fn manual_means_compute_returns_false_however_large_the_error() {
+        let mut pid = production();
+        pid.input = 22.0;
+        pid.setpoint = 30.0;
+        assert!(
+            !pid.compute(Millis::new(1000)),
+            "a Manual controller must not compute; a 8 K error and a zero duty is \
+             the exact symptom of the bug this module documents"
+        );
     }
 }

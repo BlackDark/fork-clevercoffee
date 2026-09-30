@@ -300,14 +300,9 @@ impl SwitchBank {
     }
 
     /// The water tank's reading, for `Sensors::water_tank_full`.
-    ///
-    /// A machine with no float fitted reports **full**, which is the C++'s
-    /// `waterTankFull_ = true` ("Assume full initially",
-    /// `SensorCoordinator.h:260`) and the only safe answer: the alternative is a
-    /// machine whose pump is blocked by a sensor that does not exist.
     #[must_use]
     pub const fn water_tank_full(&self) -> bool {
-        self.tank_fitted && self.previous.water_tank_full
+        tank_reading(self.tank_fitted, self.previous.water_tank_full)
     }
 
     /// The levels as of the last [`Self::poll`], for the boot log and
@@ -353,6 +348,39 @@ impl Levels {
     }
 }
 
+/// What the machine believes about the water tank, given whether a float is
+/// fitted and what it last read.
+///
+/// A machine with no float fitted reports **full**, which is the C++'s
+/// `waterTankFull_ = true` ("Assume full initially",
+/// `SensorCoordinator.h:260`) and the only safe answer: the alternative is a
+/// machine whose pump is blocked by a sensor that does not exist.
+///
+/// ⚠ The fittedness test is an **exclusion, not a conjunction.** This
+/// previously read `fitted && raw`, which returns `false` when no float is
+/// fitted — the exact opposite of what the surrounding documentation, the field
+/// documentation and the boot log all said. On hardware that put the machine
+/// permanently in `WaterTankEmpty`; `should_pid_be_enabled` then cleared the
+/// PID every tick, so **the heater could never come on at all.** It was
+/// findable only because the boot log's own line ("when absent the machine
+/// reports the tank FULL") printed directly above a `tank_full=false`.
+///
+/// The general form of the mistake: never gate a "assume the safe value"
+/// fallback behind the presence of the thing it stands in for. When the sensor
+/// is missing there is nothing to read, so the fallback *is* the answer.
+///
+/// It is a free function rather than a method so a host test can reach it:
+/// [`SwitchBank`] owns five [`GpioIn`]s and cannot be built without pins, and
+/// the bug it guards was a two-line decision that a type check cannot see.
+#[must_use]
+pub const fn tank_reading(fitted: bool, raw: bool) -> bool {
+    if fitted {
+        raw
+    } else {
+        true
+    }
+}
+
 /// The `initial_raw` seed for an operator switch.
 ///
 /// `HardwareManager.cpp:139,150,161,172`:
@@ -366,5 +394,61 @@ pub const fn operator_initial_raw(mode: SwitchMode) -> u8 {
     match mode {
         SwitchMode::NormallyOpen => 0,
         SwitchMode::NormallyClosed => 1,
+    }
+}
+
+/// The on-target unit tests for the switch bank.
+///
+/// The debouncing itself needs real pins and is covered by driving them on
+/// hardware; what is reachable from a host is the *decision* each reading feeds,
+/// and [`tank_reading`] is where a real bug once lived.
+#[cfg(any(test, feature = "device-tests"))]
+pub mod tests {
+    // A panic here is the on-target runner's reporting mechanism, not an
+    // undocumented hazard: `cc-device-tests` is built around "a failed assert
+    // resets the chip". None of this module ships.
+    #![allow(clippy::missing_panics_doc)]
+
+    use super::tank_reading;
+
+    /// A machine with no float fitted reports the tank **full**.
+    ///
+    /// This is the regression test for a bug that shipped to hardware. The
+    /// implementation read `fitted && raw`, so an absent float produced
+    /// `false` — the opposite of the intent stated in the field documentation,
+    /// in the method documentation, and in the boot log. The effect on the
+    /// machine was that it sat in `WaterTankEmpty` forever,
+    /// `should_pid_be_enabled` cleared the PID every tick, and **the heater
+    /// could never turn on at all.**
+    ///
+    /// The default config is the trigger: `hardware.sensors.watertank.enabled`
+    /// is `false` unless an operator changes it, so this is the out-of-the-box
+    /// path, not an edge case.
+    #[cfg_attr(test, test)]
+    pub fn an_absent_float_reports_the_tank_full_rather_than_empty() {
+        for raw in [false, true] {
+            assert!(
+                tank_reading(false, raw),
+                "no float fitted, raw level {raw}: expected FULL, got EMPTY. \
+                 An absent sensor must not block the pump (S4)."
+            );
+        }
+    }
+
+    /// A **fitted** float reports its own reading, either way.
+    ///
+    /// The other half of the same decision: the fallback must not leak into the
+    /// fitted case, or a genuinely empty tank would be invisible and the pump
+    /// would run dry.
+    #[cfg_attr(test, test)]
+    pub fn a_fitted_float_reports_its_own_reading() {
+        assert!(
+            tank_reading(true, true),
+            "a fitted float reading high must report full"
+        );
+        assert!(
+            !tank_reading(true, false),
+            "a fitted float reading low must report empty, or the pump runs dry"
+        );
     }
 }

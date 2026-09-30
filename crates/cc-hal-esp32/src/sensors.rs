@@ -100,6 +100,16 @@ impl<'d> Abp2I2c<'d> {
     pub const fn from_driver(bus: I2cDriver<'d>) -> Self {
         Self { bus }
     }
+
+    /// Give the raw driver back, for a caller that is going to share it.
+    ///
+    /// The counterpart to [`Abp2I2c::new`]: this type exists to give the driver
+    /// a name, and once the bus is going behind a
+    /// [`crate::display_shared::SharedBus`] the name has served its purpose.
+    #[must_use]
+    pub fn into_inner(self) -> I2cDriver<'d> {
+        self.bus
+    }
 }
 
 impl I2cBus for Abp2I2c<'_> {
@@ -124,15 +134,21 @@ impl I2cBus for Abp2I2c<'_> {
 ///
 /// A newtype over [`cc_domain::abp2::Driver`] so the type says which sensor it
 /// is at every call site; the domain driver underneath is the whole decision.
-pub struct Abp2Pressure<'d> {
-    bus: Abp2I2c<'d>,
+///
+/// Generic over the bus because there are now two ways to reach it: an owned
+/// [`Abp2I2c`] for a machine with nothing else on the wires, and a borrow of
+/// the shared bus for a machine that also has a panel. The domain driver is
+/// already generic over [`I2cBus`](cc_domain::abp2::I2cBus), so this costs a
+/// type parameter and nothing else.
+pub struct Abp2Pressure<B = Abp2I2c<'static>> {
+    bus: B,
     driver: abp2::Driver,
 }
 
-impl<'d> Abp2Pressure<'d> {
+impl<B> Abp2Pressure<B> {
     /// Attach a sensor to a bus.
     #[must_use]
-    pub const fn new(bus: Abp2I2c<'d>) -> Self {
+    pub const fn new(bus: B) -> Self {
         Self {
             bus,
             driver: abp2::Driver::new(),
@@ -145,7 +161,10 @@ impl<'d> Abp2Pressure<'d> {
     ///
     /// [`abp2::ReadError`], where the C++ silently produced a sample from stale
     /// bytes.
-    pub fn poll(&mut self, now: Millis) -> Result<abp2::Poll, abp2::ReadError> {
+    pub fn poll(&mut self, now: Millis) -> Result<abp2::Poll, abp2::ReadError>
+    where
+        B: I2cBus,
+    {
         self.driver.poll(&mut self.bus, now)
     }
 
@@ -153,6 +172,22 @@ impl<'d> Abp2Pressure<'d> {
     #[must_use]
     pub const fn last_sample(&self) -> Option<abp2::Sample> {
         self.driver.last_sample()
+    }
+}
+
+impl<'bus> Abp2Pressure<&'bus crate::display_shared::SharedBus> {
+    /// Attach a sensor to the bus it shares with the display panel.
+    ///
+    /// The ABP2 and the SSD1306 are on the same two wires and an ESP32 I²C
+    /// peripheral has one owner, so both take
+    /// [`crate::display_shared::SharedBus`] for the length of one transaction.
+    /// See that type for why neither may hold the bus across a transaction.
+    #[must_use]
+    pub fn on_shared_bus(bus: &'bus crate::display_shared::SharedBus) -> Self {
+        Self {
+            bus,
+            driver: abp2::Driver::new(),
+        }
     }
 }
 

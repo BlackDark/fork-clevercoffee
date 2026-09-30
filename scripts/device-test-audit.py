@@ -48,7 +48,13 @@ CALLABLE_TEST = re.compile(r"^\s*#\[cfg_attr\(test, test\)\]\s*$")
 BARE_TEST = re.compile(r"^\s*#\[test\]\s*$")
 IGNORED = re.compile(r"^\s*#\[ignore")
 TEST_FN = re.compile(r"^\s*pub fn ([A-Za-z0-9_]+)\(")
-REGISTRY_MODULES = re.compile(r"^use crate::\{([^}]*)\};", re.MULTILINE)
+# `DOTALL`, not `MULTILINE`: rustfmt wraps a long `use` across several lines
+# once the list stops fitting in 100 columns, and the module list then contains
+# newlines of its own. Matching only the single-line form made this audit
+# report `imports ``, which has no source file` — a false failure caused purely
+# by formatting, which is the worst kind: it teaches people to ignore the gate
+# that exists to stop tests going unrun.
+REGISTRY_MODULES = re.compile(r"use\s+crate::\{(.*?)\}\s*;", re.DOTALL)
 REGISTRY_ENTRY = re.compile(
     r'name:\s*"([A-Za-z0-9_]+)::([A-Za-z0-9_]+)",\s*\n\s*run:\s*([A-Za-z0-9_]+)::tests::'
     r'([A-Za-z0-9_]+),'
@@ -129,7 +135,12 @@ def main() -> int:
     text = registry_path.read_text()
     registered = {(m.group(1), m.group(2)) for m in REGISTRY_ENTRY.finditer(text)}
     declared_modules = {
-        name.strip() for group in REGISTRY_MODULES.findall(text) for name in group.split(",")
+        name.strip()
+        for group in REGISTRY_MODULES.findall(text)
+        # Split on commas *and* newlines: a rustfmt-wrapped `use` puts one
+        # module per line, with a trailing comma and leading indentation.
+        for name in re.split(r"[,\n]", group)
+        if name.strip()
     }
     present_modules = {p.stem for p in walk_sources(hal)}
 

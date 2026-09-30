@@ -77,6 +77,7 @@ pub mod device_tests;
 
 pub mod actuators;
 pub mod display;
+pub mod display_shared;
 pub mod heap;
 pub mod heater;
 pub mod mqtt;

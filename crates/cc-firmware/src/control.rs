@@ -153,10 +153,28 @@ impl Control {
         pid.set_smoothing_factor(config.pid.ema_factor);
 
         let setpoint = effective_setpoint(config, false);
+        // Read before the move: this is the controller's actual mode, which is
+        // Manual at construction. See the field's comment for why the cache may
+        // not be seeded from intent.
+        let pid_mode_enabled = pid.in_automatic();
         let mut control = Self {
             machine,
             pid,
-            pid_mode_enabled: runtime_pid,
+            // Seeded from the **controller**, not from what we intend the mode to
+            // be. Those are not the same thing.
+            //
+            // `Controller::new` starts in Manual, and a cache seeded with
+            // `runtime_pid` claimed the controller was already Automatic. The
+            // first tick then saw `permitted == pid_mode_enabled`, never called
+            // `set_mode(Automatic)`, and `compute()` returned `false` on every
+            // tick: the machine sat in `PidNormal` with a live setpoint, a 7 K
+            // error and a **permanently zero heater duty**. Found on hardware,
+            // with a correct setpoint, a correct error sign and
+            // `P=0.0 I=0.0 D=0.0`.
+            //
+            // `in_automatic()` is false at construction, so the first tick always
+            // applies the mode whatever the configuration says.
+            pid_mode_enabled,
             tuned_for: None,
             safety: safety_config(config),
             setpoint,

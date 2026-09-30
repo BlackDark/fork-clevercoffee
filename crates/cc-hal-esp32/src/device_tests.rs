@@ -30,7 +30,9 @@
 //! in `src/*.rs` disagree in either direction. Adding a test and forgetting to
 //! register it is a build failure, not a quietly skipped test.
 
-use crate::{actuators, display, heap, mqtt, provisioning, scale, task, telnet, time, web, wifi};
+use crate::{
+    actuators, display, heap, mqtt, provisioning, scale, switches, task, telnet, time, web, wifi,
+};
 
 /// One registered unit test: the name the console shows, and the function to
 /// call.
@@ -268,6 +270,14 @@ pub const CASES: &[Case] = &[
     Case {
         name: "scale::an_unconnected_data_line_reports_not_ready_and_never_clocks",
         run: scale::tests::an_unconnected_data_line_reports_not_ready_and_never_clocks,
+    },
+    Case {
+        name: "switches::an_absent_float_reports_the_tank_full_rather_than_empty",
+        run: switches::tests::an_absent_float_reports_the_tank_full_rather_than_empty,
+    },
+    Case {
+        name: "switches::a_fitted_float_reports_its_own_reading",
+        run: switches::tests::a_fitted_float_reports_its_own_reading,
     },
     Case {
         name: "scale::the_signal_watchdog_reports_an_absent_cell_within_its_deadline",

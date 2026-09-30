@@ -682,3 +682,45 @@ by whatever else is changing. `just size-record` also has to be run from a tree
 whose `target/xtensa-esp32-espidf/release/firmware` is the build you are claiming:
 run against a stale ELF it silently records that ELF's size, which is how a
 1,197,712 B record for this work got written and then had to be taken back out.
+
+---
+
+## 11. R3-09's cost: the display, and why it is 64 KB
+
+Bringing the OLED up (R3-09) plus wiring the reducer into the control loop
+(R4-01) moved the image from 1,216,816 B to **1,338,816 B** (+122,000 B, +10.0 %).
+`just size-check` failed it at exactly the 10 % limit, which is the gate working.
+
+Attributed with `just diag-build` + `nm --size-sort`, the same method as §8:
+
+| bucket | bytes | symbols |
+| --- | ---: | ---: |
+| `cc-display` (fonts + renderer) | **63,831** | 69 |
+| `serde` | 84,264 | 167 |
+| mbedTLS / TLS | 75,333 | 542 |
+| mbedTLS certificates | 6,420 | 33 |
+| backtrace / gimli | 4,765 | 11 |
+| ssd1306 + display-interface | 834 | 1 |
+| all symbols | 1,109,558 | |
+
+Per-section: `.flash.text` 964,968 B, `.flash.rodata` **259,208 B** (up 43,996 B
+from 215,212 B), static RAM **133,168 B** (up 1,480 B).
+
+**The 64 KB is the ten U8G2 fonts, and it is not waste.** 01 §3 F15 rates the
+display *High* difficulty precisely because "U8G2 fonts have no Rust
+equivalent" — the C++ embeds its own font tables in `bitmaps.h`/`font.h` and
+renders from them. The Rust port carries the same tables so the rendering is
+pixel-identical, which is what the two-sided oracle against the real U8g2
+verifies. A smaller font set would be a smaller image and a **layout regression
+the moment a glyph is missing**, so the trade is not available.
+
+**Static RAM barely moved** (+1.5 KB), which is the important number: 94 KB of
+the 133 KB is IRAM belonging to the prebuilt Wi-Fi MAC and is untouchable
+without dropping Wi-Fi. The display's cost is flash, not RAM, and RAM is the
+binding constraint — so the display did not make the real problem worse.
+
+**Nothing was dropped to absorb this.** §3's drop order was not used, and in
+particular the scale was not: see `intentional-diffs.md` §11 and the human's
+explicit decision to keep it.
+
+Re-baselined as `r4-01-reducer-and-display`.
