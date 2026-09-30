@@ -2,9 +2,12 @@
 
 Plan for migrating the CleverCoffee ESP32 firmware from C++/Arduino to Rust.
 
-**Status:** in progress. R0–R3 largely implemented and **R4-01 (the reducer in the
-control task) and R3-09 (the OLED panel) are done and verified on hardware**. See "Where
-the migration actually is" below.
+**Status:** in progress, and the machine now works: the reducer runs on hardware,
+the display lights up, the PID regulates, and all 98 parameters are writable over
+HTTP and survive a reboot. **Not done:** OTA (R3-15), the Acaia BLE scale
+(R3-18), the `/ui` SPA mount, and any hand-pressed switch. See
+["Where the migration actually is"](#where-the-migration-actually-is) before
+planning work — several task IDs read as complete in the task list and are not.
 **Started:** 2026-09-28.
 **C++ baseline verified green:** `pio run -e esp32_usb` succeeds (`firmware.bin`
 1,546,240 B); `pio test -e native_test` → 340/340 pass in 55 s. The C++ is the parity
@@ -107,46 +110,55 @@ is currently attached to this machine.**
 
 ## Where the migration actually is
 
-Recorded 2026-09-29. Read this before planning anything — several task IDs look
-complete from their description and are not.
+Recorded 2026-09-30, after R4-01 and R3-09 landed and were exercised on hardware.
 
-**Done and hardware-verified.** NVS config store, Wi-Fi STA with the
-hostname-before-associate ordering, UART provisioning (a full round trip survives a
-reboot), MQTT, HTTP + SSE (25 routes, 98 parameters, **`POST /api/parameters` writes all
-four parameter kinds and survives a reboot**), the 10 ms heater ISR, DS18B20 and
-TSIC-306 sensors, the HX711 scale (R3-17), 120 on-device unit tests that actually
-**run**, and the host-side domain/config/machine/display/display-parity/safety crates
-(900+ tests).
+### Verified working on the board
 
-**R4-01 is done: the reducer runs on the machine.** `cc-firmware`'s control task owns
-the `cc_machine::Machine` and applies its effects through
-`cc-hal-esp32`'s actuator facade; the machine boots to `PidNormal` and the PID drives
-the heater. R3-09 (the OLED panel) is done too — the display is on the shared I²C bus
-with the ABP2 and refreshes at 125 frames per 60 s with no failures.
+- **The reducer runs on hardware.** `cc_machine::reduce` is wired into the control
+  task (`crates/cc-firmware/src/control.rs`); effects are applied through
+  `cc-hal-esp32/src/actuators.rs` in the same tick. The machine boots to
+  `PidNormal` and the PID drives the heater.
+- **PID, and the specific check the human asked for.** At a **30 °C** target with
+  a ~7 K error the duty settles at **~48 %** — P proportional to error, I ramping
+  to its `i_max`, D decaying. At 95 °C with a 72 K error it correctly goes to
+  **100 %**. Both measured, both reproducible from the web UI.
+- **The display.** `present=true`, `frames=125` per 60 s, `failed=0`. The SSD1306
+  is driven over an I²C bus **shared with the ABP2** behind a `Mutex`; the frame
+  is chunked into 8 bus writes, not 64, so the pressure sensor is not starved.
+- **All 98 parameters are writable and persist across a reboot** —
+  `POST /api/parameters`, ported from `WebServerManager.cpp:813-886`. Verified for
+  bool, int, float and text. This is what closed "parameters can be configured".
+- NVS, Wi-Fi STA, UART provisioning (round trip survives a reboot), MQTT, HTTP + SSE
+  (25 routes), the 10 ms heater ISR, DS18B20 and TSIC-306, the HX711 scale, and
+  **125 device tests that actually run on hardware** via `just test-esp32`.
 
-**The gap that is left in the switches.** All four operator switches are **disabled by
-default** — `hardware.switches.*.enabled` is `false` in the C++ too
-(`Config.h:985,1004,1023,1042`) — so a press does nothing and the boot log says so.
-`POST /api/parameters?hardware.switches.brew.enabled=true` turns one on and it takes
-effect on the next event, but **no switch has been pressed by a human yet**, and GPIO
-34/35/36/39 are input-only with no internal pull, so an enabled switch on an unwired
-pin is a floating input the debouncer will eventually call pressed. See
-`docs/integration-tests.md` §5c.
+### Not done
 
-**Not started.** R3-15 (OTA — a `unavailable_json` stub), R3-18 (Acaia BLE scale),
-R3-05 (the ABP2 pressure driver exists but nothing constructs it), the `/ui` SPA mount,
-and the telnet transport that ADR-0002's heap-shed is supposed to protect.
+- **R3-18**, the Acaia BLE scale (NimBLE; the flash/RAM cost is real and needs a
+  gate decision, not a silent drop — see 07 §3).
+- **R3-15**, OTA: still a `unavailable_json` stub. The safety gap in 01 §6 — an
+  OTA must leave pump and valve off — is therefore still open.
+- **`/ui`** static SPA mount, and the **telnet transport** that ADR-0002's heap
+  shed is meant to protect. The shed logic is unit-tested but has no real client
+  to shed.
+- **Switch presses have never been tested by hand.** The debounce and long-press
+  are pinned by 17 host tests against a synthetic clock, and the four switches
+  are `enabled=false` by default (faithful to the C++). The human has to press one.
+- **R1-08's C++ baseline**, deliberately absent. The harness works and 13
+  scenarios report `BASELINE-MISSING` with exit 2. Capturing it means flashing
+  the C++, which runs its own control loop on a powered, wired machine — the human
+  declined, and nothing fabricated is better than a baseline never measured.
 
-**Deliberately absent.** The C++ **baseline capture** (R1-08). The harness works and 13
-scenarios report `BASELINE-MISSING` with exit 2. Capturing it means flashing the C++,
-which runs its own control loop on a powered, wired machine — the human has declined that,
-and nothing fabricated is better than a baseline that was never measured.
+### The two measurements that will shape the later gates
 
-**Two measurements that will shape the later gates.** Static RAM is **131,688 B — 42 % of
-the ESP32's 320 KB**, roughly double the pre-network figure, so *RAM rather than flash is
-now the binding constraint* and ADR-0002's 30 KB shed margin was tuned against a much
-smaller baseline. And the control tick already overruns its 10 ms budget in ~62 % of
-ticks, independent of any scale ([09 §24](./09-cpp-findings.md)) — R4-01b's "zero ticks
+Static RAM is **133,168 B — 42 % of the ESP32's 320 KB**, roughly double the
+pre-network figure, so *RAM rather than flash is the binding constraint*, and
+ADR-0002's 30 KB shed margin was tuned against a much smaller baseline. 94 KB of
+it is IRAM belonging to the prebuilt Wi-Fi MAC, which is untouchable without
+dropping Wi-Fi.
+
+And the control tick already overruns its 10 ms budget in ~62 % of ticks,
+independent of any scale ([09 §24](./09-cpp-findings.md)) — R4-01b's "zero ticks
 over 10 ms" currently fails, and the fix must not be to relax the budget.
 
 ## How the migration runs
