@@ -2,10 +2,11 @@
 
 Plan for migrating the CleverCoffee ESP32 firmware from C++/Arduino to Rust.
 
-**Status:** in progress, and the machine now works: the reducer runs on hardware,
-the display lights up, the PID regulates, and all 98 parameters are writable over
-HTTP and survive a reboot. **Not done:** OTA (R3-15), the Acaia BLE scale
-(R3-18), the `/ui` SPA mount, and any hand-pressed switch. See
+**Status:** in progress, and the machine works end to end: the reducer runs on
+hardware, the display lights up, the PID regulates, all 98 parameters are writable
+over HTTP and survive a reboot, and the **web UI is on the device**. **Not done:**
+OTA (R3-15), the Acaia BLE scale (R3-18 — measured, does not fit, needs a
+decision), and any hand-pressed switch. See
 ["Where the migration actually is"](#where-the-migration-actually-is) before
 planning work — several task IDs read as complete in the task list and are not.
 **Started:** 2026-09-28.
@@ -125,12 +126,14 @@ Recorded 2026-09-30, after R4-01 and R3-09 landed and were exercised on hardware
 - **The display.** `present=true`, `frames=125` per 60 s, `failed=0`. The SSD1306
   is driven over an I²C bus **shared with the ABP2** behind a `Mutex`; the frame
   is chunked into 8 bus writes, not 64, so the pressure sensor is not starved.
+  The flash the human reported was the panel being re-`INIT_SEQUENCE`'d every
+  frame — its `0xAE`/`0xAF` pair switching the display off and on at 10 Hz.
 - **All 98 parameters are writable and persist across a reboot** —
   `POST /api/parameters`, ported from `WebServerManager.cpp:813-886`. Verified for
   bool, int, float and text. This is what closed "parameters can be configured".
 - NVS, Wi-Fi STA, UART provisioning (round trip survives a reboot), MQTT, HTTP + SSE
   (25 routes), the 10 ms heater ISR, DS18B20 and TSIC-306, the HX711 scale, and
-  **125 device tests that actually run on hardware** via `just test-esp32`.
+  **131 device tests that actually run on hardware** via `just test-esp32`.
 - **The web UI is on the device and it renders.** `GET /ui` serves the React SPA
   from **flash**, not from a mounted filesystem: `crates/cc-hal-esp32/build.rs`
   embeds the gzip build output with `include_bytes!`, which is why a 199,270 B
@@ -139,13 +142,25 @@ Recorded 2026-09-30, after R4-01 and R3-09 landed and were exercised on hardware
   with the MIME types checked (`text/html`, `application/javascript`,
   `text/css`, `image/png`) and every asset served byte-for-byte identical to
   the Vite build. Verified in Chrome on the device: navigation, Machine Status,
-  Machine Functions and Maintenance all render. The size arithmetic and the
-  embed-vs-mount decision are in [07 §13](./07-image-size-budget.md).
+  Machine Functions and Maintenance all render — and a **deep link to a
+  client-side route** (`/ui/config/behavior`) boots the Configuration page with
+  **104 live parameters**, which only works if the SPA fallback serves the shell
+  *and* the MIME types let the JS and CSS actually execute. A `200` on `/ui` is
+  not evidence of any of that. The size arithmetic and the embed-vs-mount
+  decision are in [07 §13](./07-image-size-budget.md).
 
 ### Not done
 
-- **R3-18**, the Acaia BLE scale (NimBLE; the flash/RAM cost is real and needs a
-  gate decision, not a silent drop — see 07 §3).
+- **R3-18, the Acaia BLE scale — measured, and it does not fit.** Enabling
+  NimBLE and changing nothing else costs **+205,312 B flash** (headroom
+  15.0 % → 3.8 %) and **+40,124 B static RAM** (133,168 → 173,292 B, i.e. 54 %
+  of the ESP32's 320 KB). The RAM is the worse half, because ADR-0002 documents a
+  production OOM from heap contention. Nothing was dropped to absorb it: the human
+  said explicitly that both scales are kept, so this is a decision for them, not a
+  default to apply. Two options that cost no feature are written up in
+  [07 §14](./07-image-size-budget.md) — move the 199 KB web UI to the LittleFS
+  partition, and shrink the font set, since **pixel parity is not a requirement**
+  (the human's words: stay readable and in frame).
 - **R3-15**, OTA: still a `unavailable_json` stub. The safety gap in 01 §6 — an
   OTA must leave pump and valve off — is therefore still open.
 - **`/ui` is not done in one respect: the SSE stream.** The SPA itself is served
@@ -170,6 +185,22 @@ Recorded 2026-09-30, after R4-01 and R3-09 landed and were exercised on hardware
   scenarios report `BASELINE-MISSING` with exit 2. Capturing it means flashing
   the C++, which runs its own control loop on a powered, wired machine — the human
   declined, and nothing fabricated is better than a baseline never measured.
+
+### Two things the harness taught us, both the hard way
+
+**A LOST is not a pass.** `test-audit` checks that device tests are *registered*;
+nothing checked that they *ran*. When the display tests' `Recorder` (2 KB, by
+value) overflowed `main`'s **3584-byte** ESP-IDF task stack, the device reset and
+the runner scored seven cases LOST while reporting "125 passed, 0 failed" — a
+green run that had quietly stopped testing anything. Each case now runs on its
+own 8 KB task. **No gate yet fails on an undeclared LOST**; that is a real gap.
+
+**A test that has never run is not a test.** Those seven had been LOST since they
+were written. Once they actually executed, two failed on assertions that had been
+wrong the whole time — including a `last_payload` helper that scanned backwards
+for a control byte and so found one *inside the rendered pixels*, because the test
+ramp contains `0x40` and `0x00`. It now records the offset when the transfer
+happens.
 
 ### The two measurements that will shape the later gates
 
