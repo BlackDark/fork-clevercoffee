@@ -802,3 +802,53 @@ move to `littlefs`, which can hold both forms, and it should come with a
 partition rebalance, not with an app-slot squeeze.
 
 Re-baselined as `f25-web-ui-embedded`.
+
+---
+
+## 14. R3-18's blocker: NimBLE does not fit, and that is a decision not a default
+
+Measured 2026-09-30 by enabling NimBLE and building, changing **nothing else**:
+
+| | before | with NimBLE | delta |
+| --- | ---: | ---: | ---: |
+| image | 1,559,520 B | **1,764,832 B** | **+205,312 B** |
+| flash headroom | +275,488 B (15.0 %) | **+70,176 B (3.8 %)** | −205,312 B |
+| `.iram0.text` | 94,155 B | 126,131 B | +31,976 B |
+| static RAM | 133,168 B | **173,292 B** | **+40,124 B** |
+| `.dram0.data` | 17,584 B | 24,292 B | +6,708 B |
+| `.dram0.bss` | 18,928 B | 21,840 B | +2,912 B |
+
+`just size-check` fails it at +13.17 % against a 10 % limit, which is the gate
+working.
+
+**The RAM is the worse half.** 173,292 B is **54 % of the ESP32's 320 KB**, and
+~95 KB of that is the Wi-Fi MAC's IRAM. The remaining heap is what ADR-0002's
+30 KB heap-shed threshold and the display's frame buffer and the HTTP server's
+JSON responses all compete for — and ADR-0002 documents a **production OOM abort**
+that happened when several API requests overlapped the telnet logger. Cutting
+free heap by 40 KB to add a scale that **no Acaia device is paired to** is the
+wrong side of that trade.
+
+### Why it is not simply "drop something"
+
+07 §3 has a drop order, and §11 (intentional-diffs) records the human's explicit
+instruction that the scales are **kept**. Those two together mean the only
+legitimate ways forward are:
+
+1. **The human decides the trade.** 70 KB of headroom is thin but not negative;
+   173 KB of RAM is survivable *if* the heap report stays comfortable. This is a
+   product judgement about what the machine is for, and it is not mine to take.
+2. **Free flash first.** 199,270 B of the image is the embedded web UI and
+   63.8 KB is U8G2 fonts. The UI could move to LittleFS (which is what the
+   partition is *for*) and would free ~199 KB — enough for NimBLE several times
+   over. That is a real option, not a dodge, and it costs no feature.
+3. **Shrink the fonts.** Pixel parity is **not** a requirement — the human said so
+   explicitly ("if you think some other fonts are better feel free to use them …
+   it is just important that we stay readable and in frame"). A smaller glyph
+   set is 30-40 KB back with no behavioural cost.
+
+### What is NOT claimed here
+
+The NimBLE stack **initialises and builds**. No scan, no pairing, no weight, and
+no Acaia hardware is present, so nothing about the feature is verified. The
+measurement is the deliverable of this section; the driver is not.
