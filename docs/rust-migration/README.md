@@ -2,10 +2,9 @@
 
 Plan for migrating the CleverCoffee ESP32 firmware from C++/Arduino to Rust.
 
-**Status:** in progress. R0–R3 largely implemented; **R4-01 (wiring the reducer into the
-control task) is the critical path** — the `cc-machine` reducer is complete and heavily
-tested on the host but is not yet connected to the hardware. See "Where the migration
-actually is" below.
+**Status:** in progress. R0–R3 largely implemented and **R4-01 (the reducer in the
+control task) and R3-09 (the OLED panel) are done and verified on hardware**. See "Where
+the migration actually is" below.
 **Started:** 2026-09-28.
 **C++ baseline verified green:** `pio run -e esp32_usb` succeeds (`firmware.bin`
 1,546,240 B); `pio test -e native_test` → 340/340 pass in 55 s. The C++ is the parity
@@ -113,23 +112,30 @@ complete from their description and are not.
 
 **Done and hardware-verified.** NVS config store, Wi-Fi STA with the
 hostname-before-associate ordering, UART provisioning (a full round trip survives a
-reboot), MQTT, HTTP + SSE (24 routes, 98 parameters), the 10 ms heater ISR, DS18B20 and
-TSIC-306 sensors, the HX711 scale (R3-17), 89 on-device unit tests that actually **run**,
-and the host-side domain/config/machine/display/display-parity/safety crates (900+ tests).
+reboot), MQTT, HTTP + SSE (25 routes, 98 parameters, **`POST /api/parameters` writes all
+four parameter kinds and survives a reboot**), the 10 ms heater ISR, DS18B20 and
+TSIC-306 sensors, the HX711 scale (R3-17), 120 on-device unit tests that actually
+**run**, and the host-side domain/config/machine/display/display-parity/safety crates
+(900+ tests).
 
-**The critical gap: R4-01.** `cc-machine` is a declared dependency of `cc-firmware` but
-`cc_machine::` appears **nowhere in the firmware source**. The reducer — 420 tests, a
-4140-pair exhaustive transition table, the architectural centrepiece of
-[04 §3.1](./04-target-architecture.md) — has never run on hardware. The control task is a
-hand-rolled heuristic that acknowledges web commands and drops them. **There is no state
-machine, no PID and no brewing on the device yet.** Nothing after R4-01 can be trusted
-until it lands.
+**R4-01 is done: the reducer runs on the machine.** `cc-firmware`'s control task owns
+the `cc_machine::Machine` and applies its effects through
+`cc-hal-esp32`'s actuator facade; the machine boots to `PidNormal` and the PID drives
+the heater. R3-09 (the OLED panel) is done too — the display is on the shared I²C bus
+with the ABP2 and refreshes at 125 frames per 60 s with no failures.
 
-**Not started.** R3-09 (OLED display — no `ssd1306` dependency exists, so the display
-library is a host-only artifact that has never lit a panel), R3-15 (OTA — a
-`unavailable_json` stub), R3-18 (Acaia BLE scale), R3-05 (the ABP2 pressure driver exists
-but nothing constructs it), the `/ui` SPA mount, and the telnet transport that ADR-0002's
-heap-shed is supposed to protect.
+**The gap that is left in the switches.** All four operator switches are **disabled by
+default** — `hardware.switches.*.enabled` is `false` in the C++ too
+(`Config.h:985,1004,1023,1042`) — so a press does nothing and the boot log says so.
+`POST /api/parameters?hardware.switches.brew.enabled=true` turns one on and it takes
+effect on the next event, but **no switch has been pressed by a human yet**, and GPIO
+34/35/36/39 are input-only with no internal pull, so an enabled switch on an unwired
+pin is a floating input the debouncer will eventually call pressed. See
+`docs/integration-tests.md` §5c.
+
+**Not started.** R3-15 (OTA — a `unavailable_json` stub), R3-18 (Acaia BLE scale),
+R3-05 (the ABP2 pressure driver exists but nothing constructs it), the `/ui` SPA mount,
+and the telnet transport that ADR-0002's heap-shed is supposed to protect.
 
 **Deliberately absent.** The C++ **baseline capture** (R1-08). The harness works and 13
 scenarios report `BASELINE-MISSING` with exit 2. Capturing it means flashing the C++,

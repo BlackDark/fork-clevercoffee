@@ -11,7 +11,7 @@
 //! allocate: percent-decoding produces new bytes, and there is no way to hand
 //! back a decoded `&str` that borrows from a body that did not contain it.
 //!
-//! # Why the REST API reads bodies and not query strings
+//! # Why the REST API reads bodies *and* query strings
 //!
 //! The C++ uses `request->hasParam("value", true)` — the `true` meaning
 //! "from the body" (`WebServerManager.cpp:392`) — and `/api/parameters` is
@@ -19,12 +19,21 @@
 //! parameter the C++ accepts arrives in a body, and reproducing it means parsing
 //! a body.
 //!
-//! That is also the only option available. `EspHttpConnection::uri()`
-//! (`esp-idf-svc` `src/http/server.rs:949-955`) returns `httpd_req_t::uri`,
-//! which ESP-IDF has already split from the query string into
-//! `httpd_req_t::query` — and `esp-idf-svc` exposes no accessor for the latter.
-//! Reaching it would need an `esp-idf-sys` FFI call, which this workspace
-//! denies, for a feature the C++ does not have.
+//! `POST /api/parameters` is the exception that is not an exception: its handler
+//! walks `request->params()` (`:823`), which is the **query string and the body
+//! together** — `AsyncWebServerRequest` appends the query args before the POST
+//! fields. `?pid.enabled=1` is therefore a parameter write in the C++, and this
+//! parser serves both encodings because the encoding is identical.
+//!
+//! **A correction, because this file used to say the opposite.** An earlier
+//! revision claimed the query string was unreachable: that `EspHttpConnection::uri()`
+//! (`esp-idf-svc` `src/http/server.rs:949-955`) returns a `uri` that ESP-IDF has
+//! already split from the query. It has not. `httpd_req_t` has no query member
+//! (`esp_http_server.h:373-400`); the query lives *inside* `uri`, and
+//! `esp_http_server` reads it back out with
+//! `r->uri + res->field_data[UF_QUERY].off` (`httpd_parse.c:992`). So the query
+//! string is available with no `esp-idf-sys` FFI call, which is why
+//! `cc_hal_esp32::web::query_of` is a `split_once('?')` and not an FFI binding.
 //!
 //! **The consequence, stated because it is a difference:** `GET
 //! /api/parameters?filter=all` ignores its query string. The C++ ignores it too

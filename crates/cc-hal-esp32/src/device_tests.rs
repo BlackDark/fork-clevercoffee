@@ -296,6 +296,22 @@ pub const CASES: &[Case] = &[
         run: task::tests::a_command_carries_no_pointer,
     },
     Case {
+        name: "task::a_staged_parameter_request_reaches_the_control_task",
+        run: task::tests::a_staged_parameter_request_reaches_the_control_task,
+    },
+    Case {
+        name: "task::staged_requests_are_drained_in_order_and_all_at_once",
+        run: task::tests::staged_requests_are_drained_in_order_and_all_at_once,
+    },
+    Case {
+        name: "task::a_full_parameter_mailbox_refuses_rather_than_dropping",
+        run: task::tests::a_full_parameter_mailbox_refuses_rather_than_dropping,
+    },
+    Case {
+        name: "task::the_parameter_mailbox_prints_its_depth_and_never_its_contents",
+        run: task::tests::the_parameter_mailbox_prints_its_depth_and_never_its_contents,
+    },
+    Case {
         name: "telnet::the_port_and_banner_are_the_csqs",
         run: telnet::tests::the_port_and_banner_are_the_csqs,
     },
@@ -390,6 +406,46 @@ pub const CASES: &[Case] = &[
     Case {
         name: "web::the_route_table_fits_the_servers_handler_budget",
         run: web::tests::the_route_table_fits_the_servers_handler_budget,
+    },
+    Case {
+        name: "web::the_parameter_route_is_registered_for_both_methods",
+        run: web::tests::the_parameter_route_is_registered_for_both_methods,
+    },
+    Case {
+        name: "web::a_query_string_is_reachable_from_the_uri",
+        run: web::tests::a_query_string_is_reachable_from_the_uri,
+    },
+    Case {
+        name: "web::a_parameter_post_of_the_four_kinds_is_accepted",
+        run: web::tests::a_parameter_post_of_the_four_kinds_is_accepted,
+    },
+    Case {
+        name: "web::an_unknown_key_is_a_400_and_names_nothing_in_the_body",
+        run: web::tests::an_unknown_key_is_a_400_and_names_nothing_in_the_body,
+    },
+    Case {
+        name: "web::a_value_out_of_range_is_the_same_400_as_an_unknown_key",
+        run: web::tests::a_value_out_of_range_is_the_same_400_as_an_unknown_key,
+    },
+    Case {
+        name: "web::one_rejected_parameter_does_not_lose_the_accepted_ones",
+        run: web::tests::one_rejected_parameter_does_not_lose_the_accepted_ones,
+    },
+    Case {
+        name: "web::a_request_that_names_no_parameter_is_the_third_response",
+        run: web::tests::a_request_that_names_no_parameter_is_the_third_response,
+    },
+    Case {
+        name: "web::the_updated_response_is_the_cpp_body_verbatim",
+        run: web::tests::the_updated_response_is_the_cpp_body_verbatim,
+    },
+    Case {
+        name: "web::a_query_string_and_a_body_carry_the_same_parameter",
+        run: web::tests::a_query_string_and_a_body_carry_the_same_parameter,
+    },
+    Case {
+        name: "web::a_command_field_is_read_from_the_query_string_as_well_as_the_body",
+        run: web::tests::a_command_field_is_read_from_the_query_string_as_well_as_the_body,
     },
     Case {
         name: "web::the_redirect_and_the_ui_are_routes",

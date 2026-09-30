@@ -757,7 +757,18 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
     //     lives in this frame — and `main` blocks on `control.join()` for the
     //     life of the process, so its `Drop` (which stops the httpd task) never
     //     runs. See `network::start_http`.
-    let _http = network::start_http(&net, &config, &nvs_description, Arc::clone(&commands))?;
+    //
+    //     The parameter mailbox is created here, beside the command queue, because
+    //     it is the same seam: two producers' worth of request, one consumer, and
+    //     the control task drains both at the top of its tick.
+    let parameters = Arc::new(cc_hal_esp32::task::ParameterHandoff::new());
+    let _http = network::start_http(
+        &net,
+        &config,
+        &nvs_description,
+        Arc::clone(&commands),
+        &parameters,
+    )?;
 
     // 11b. The UART provisioning task, **only** when there is no SSID (04 §3.2:
     //     "The provisioning task is only spawned when no valid credentials
@@ -848,6 +859,7 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
         temp: temp_sensor,
         net: Arc::clone(&net),
         commands: Arc::clone(&commands),
+        parameters,
         config: control_config,
         known_weight,
         mqtt_configured,
@@ -1302,6 +1314,32 @@ fn persist_pid_enabled(
     }
 }
 
+/// Persist the whole configuration after `POST /api/parameters`.
+///
+/// The C++ writes **one NVS key per parameter**, inside the setter
+/// (`Config.h:164-172`), so a request with four parameters is four `Preferences`
+/// transactions and a power cut between two of them leaves a configuration where
+/// two values are new and ninety-six are old — for a machine that heats to
+/// 150 °C. This store holds one blob ([`cc_config::store`]), so the whole
+/// request is one write, and either all of it is durable or none of it is.
+///
+/// A failure is an `error!` and not a `400`: the HTTP response has already gone
+/// by the time this runs, and the C++ counts a NVS failure as a parameter
+/// failure (`Config.h:171-172`) only because its write is synchronous with the
+/// request. Reporting it here is the honest equivalent.
+fn persist_config(
+    store: &mut cc_config::blob_store::BlobConfigStore<cc_hal_esp32::nvs::EspNvsBlob>,
+    config: &cc_config::Config,
+) {
+    match store.save(config) {
+        Ok(()) => info!("config: the configuration was persisted"),
+        Err(err) => error!(
+            "config: the parameters were applied but NOT persisted, and a reboot will lose \
+             them: {err}"
+        ),
+    }
+}
+
 /// The three scale pins, taken from `Peripherals` and held until the driver is
 /// built.
 ///
@@ -1553,6 +1591,12 @@ struct ControlArgs {
     net: Arc<network::Network>,
     /// The bounded network→control command queue (04 §3.2).
     commands: Arc<cc_hal_esp32::task::CommandQueue>,
+    /// The parameter-write mailbox, drained at the same point in the tick.
+    ///
+    /// Separate from `commands` because a parameter write is a *list* of pairs
+    /// and a `Command` is `Copy` (04 §3.2, and `esp-idf-hal` 0.47 `task.rs:978`).
+    /// See [`cc_hal_esp32::task::ParameterHandoff`].
+    parameters: Arc<cc_hal_esp32::task::ParameterHandoff>,
     /// The authoritative configuration, as the control task's own copy.
     config: cc_config::Config,
     /// `hardware.sensors.scale.known_weight`, for a calibration request.
@@ -1639,6 +1683,7 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
         mut temp,
         net,
         commands,
+        parameters,
         mut config,
         known_weight,
         mqtt_configured,
@@ -1886,6 +1931,62 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
                     warn!("control: POST /api/factory-reset is not wired into this build (R3-16)");
                 }
             }
+        }
+
+        // ---- 2b. `POST /api/parameters` — the C++'s `handleParameters` POST arm
+        //
+        // (`WebServerManager.cpp:821-878`.) Every parameter is independent and a
+        // rejected one does not undo the accepted ones, which is what
+        // `cc_config::assign::apply` is. The pairs arrive already validated by
+        // the handler, which needed the verdict to answer `200` or `400`
+        // synchronously; re-applying them here is the idempotent second half of
+        // one rule, through the same `cc_config::assign::parse`.
+        //
+        // It is here, and not in the handler, because the store is here: it moved
+        // into this task in step 7 precisely so that one task owns the
+        // configuration, and a `Mutex<ConfigStore>` shared with the httpd task
+        // would put a 2 KB blob write on whichever task the web server happened
+        // to be serving.
+        //
+        // **R3-13's inbound MQTT calls `apply` at this line too**, with no
+        // handoff: the radio moved into this task, so an MQTT message is
+        // delivered here and there is nothing to hand over. One writer, one
+        // place, one store write.
+        for pairs in parameters.take_all() {
+            let applied = cc_config::assign::apply(&mut config, &pairs);
+            for (key, err) in &applied.failed {
+                // The handler already logged each rejection with the request
+                // that caused it. This line is the one that matters if the two
+                // verdicts ever disagree, which is the only way a pair can
+                // arrive here rejected.
+                warn!("config: {key} was not written: {err}");
+            }
+            if applied.updated == 0 {
+                continue;
+            }
+            info!(
+                "config: {} parameter(s) written: {applied:?}",
+                applied.updated
+            );
+            // A write that leaves the machine unable to run safely is persisted,
+            // and the fail-closed rule discards it at the next boot (08 §4.1).
+            // Saying so now is the difference between "my setting vanished" and a
+            // diagnosis; the C++ has no check on this path and loses it silently.
+            if let Err(violation) = cc_safety::validate_config(&control::safety_config(&config)) {
+                error!(
+                    "config: the stored configuration is now UNSAFE ({violation:?}) and the \
+                     next boot will discard it"
+                );
+            }
+            persist_config(&mut store, &config);
+            // `standbyCoordinator().reset(); requestNormalOperation(...)` — the
+            // C++'s last two lines (`:870-872`), on the same "a POST wakes the
+            // machine" rule as `/api/setpoint`.
+            control.feed(
+                &config,
+                Event::Command(cc_machine::Command::NormalOperation),
+                &mut effects,
+            );
         }
 
         // ---- 3. a credential typed on the console ---------------------------

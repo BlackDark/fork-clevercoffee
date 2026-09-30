@@ -43,7 +43,23 @@ def main() -> int:
     seconds = float(args[1]) if len(args) > 1 else 20.0
 
     port = serial.Serial(port_name, BAUD, timeout=0.2)
-    if not no_reset:
+    if no_reset:
+        # ⚠ `--no-reset` cannot do what it says on this wiring, and this is the
+        # most it can do.
+        #
+        # pyserial asserts DTR and RTS when it opens a port, and on the
+        # ESP32-DevKitC that is DTR -> IO0 and RTS -> EN (through an inverting
+        # transistor), so **opening the port resets the chip** — before any flag
+        # is read. Deasserting both lines afterwards at least stops the chip
+        # being *held* in reset for the whole capture, which is what this did
+        # before: the capture returned zero bytes and looked like a dead board.
+        #
+        # What you get is the log of a reset you did not ask for. To watch a
+        # running machine without resetting it, use the telnet log server
+        # (`just logs <host>`, port 23), which is a socket and not a UART.
+        port.dtr = False
+        port.rts = False
+    else:
         pulse_reset(port)
 
     deadline = time.time() + seconds

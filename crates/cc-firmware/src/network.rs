@@ -252,6 +252,7 @@ pub fn start_http(
     config: &Config,
     nvs_description: &str,
     commands: Arc<cc_hal_esp32::task::CommandQueue>,
+    parameters: &Arc<cc_hal_esp32::task::ParameterHandoff>,
 ) -> Result<Web, EspError> {
     let shared = Arc::clone(&network.shared);
     let sse = Arc::clone(&network.sse);
@@ -261,7 +262,7 @@ pub fn start_http(
     let sink: Arc<dyn Fn(Command) + Send + Sync + 'static> = Arc::new(move |command: Command| {
         let _ = commands.try_send(command);
     });
-    let web = Web::start(shared, sse, &config, nvs_description, &sink)?;
+    let web = Web::start(shared, sse, &config, nvs_description, &sink, parameters)?;
     info!(
         "http: {} routes registered; the large-response floor is {} B",
         cc_hal_esp32::web::routes().len(),

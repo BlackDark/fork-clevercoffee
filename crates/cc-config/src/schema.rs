@@ -158,6 +158,39 @@ impl ParamValue<'_> {
             Self::Bool(_) | Self::Text(_) => None,
         }
     }
+
+    /// The value as a `bool`, if that is what it is.
+    ///
+    /// The typed counterparts of [`Self::as_f64`], for a caller that has to put
+    /// the value into a typed field and so cannot afford the widening. They are
+    /// `Option` rather than a defaulting conversion because a `ParamValue` is a
+    /// `SCHEMA` default, and the whole point of asking is to tell two of them
+    /// apart.
+    #[must_use]
+    pub fn as_bool(self) -> Option<bool> {
+        match self {
+            Self::Bool(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    /// The value as an `i32`, if that is what it is.
+    #[must_use]
+    pub fn as_int(self) -> Option<i32> {
+        match self {
+            Self::Int(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    /// The value as an enumeration discriminant, if that is what it is.
+    #[must_use]
+    pub fn as_enum(self) -> Option<i8> {
+        match self {
+            Self::Enum(v) => Some(v),
+            _ => None,
+        }
+    }
 }
 
 /// One registered parameter.

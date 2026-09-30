@@ -568,7 +568,12 @@ fn celsius(degrees: f64) -> Celsius {
 ///
 /// A straight field-for-field copy; `cc_config::SafetyView` is typed in `Celsius`
 /// precisely so that this join is a copy and not a conversion.
-fn safety_config(config: &Config) -> SafetyConfig {
+///
+/// `pub(crate)` rather than private because three call sites need it and the join
+/// is the thing that must not be written twice: `cc_config::Config::safety_view`
+/// names exactly the five fields, and a second spelling of that list is a second
+/// answer to "which parameters can make this machine unsafe".
+pub(crate) fn safety_config(config: &Config) -> SafetyConfig {
     let view = config.safety_view();
     SafetyConfig {
         emergency_temp: view.emergency_temp,

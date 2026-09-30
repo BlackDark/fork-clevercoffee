@@ -56,7 +56,7 @@ use alloc::vec::Vec;
 use serde_json::{Map, Value};
 
 use crate::config::Config;
-use crate::schema::{self, ParamSpec};
+use crate::schema::{self, ParamSpec, ParamValue};
 
 /// The largest configuration document that will be parsed or produced.
 ///
@@ -303,6 +303,24 @@ impl LiveValue<'_> {
             Self::Float(_) => schema::ParamKind::Float,
             Self::Text(_) => schema::ParamKind::Text,
             Self::Enum(_) => schema::ParamKind::Enum,
+        }
+    }
+}
+
+impl<'a> From<LiveValue<'a>> for ParamValue<'a> {
+    /// The same value in the schema's own type.
+    ///
+    /// `ParamSpec::accepts` takes a [`ParamValue`], which is what [`SCHEMA`]
+    /// holds; a caller that has a live value in hand — one just parsed from a
+    /// string, say — needs this to ask the spec whether it is acceptable without
+    /// re-deriving the value.
+    fn from(value: LiveValue<'a>) -> Self {
+        match value {
+            LiveValue::Bool(v) => Self::Bool(v),
+            LiveValue::Int(v) => Self::Int(v),
+            LiveValue::Float(v) => Self::Float(v),
+            LiveValue::Text(v) => Self::Text(v),
+            LiveValue::Enum(v) => Self::Enum(v),
         }
     }
 }
@@ -573,7 +591,7 @@ fn coerce(spec: &ParamSpec, raw: &Value) -> Result<Value, RejectReason> {
     }
 }
 
-fn check_range(spec: &ParamSpec, v: f64) -> Result<(), RejectReason> {
+pub(crate) fn check_range(spec: &ParamSpec, v: f64) -> Result<(), RejectReason> {
     match (spec.min, spec.max) {
         (Some(min), Some(max)) if v < min || v > max => Err(RejectReason::OutOfRange { min, max }),
         (Some(min), None) if v < min => Err(RejectReason::OutOfRange {
@@ -594,7 +612,7 @@ fn check_range(spec: &ParamSpec, v: f64) -> Result<(), RejectReason> {
 /// adding its discriminants here is a compile error rather than a runtime
 /// surprise. The `unreachable!` arms cannot be reached: `SCHEMA` is the input
 /// and it contains no other enum keys.
-fn enum_discriminants_known(key: &str, value: i8) -> bool {
+pub(crate) fn enum_discriminants_known(key: &str, value: i8) -> bool {
     use cc_domain::hardware::{
         OledAddress as A, OledType as T, RelayTriggerType as R, ScaleType as Sc, SwitchMode as M,
         SwitchType as Sw, TemperatureSensorType as Ts,
@@ -666,10 +684,25 @@ fn insert_nested(target: &mut Map<String, Value>, key: &str, value: Value) {
     node.insert(segments[segments.len() - 1].to_string(), value);
 }
 
+/// One rejection reason, as the words an operator reads.
+///
+/// Split out of [`describe_rejection`] because the string parameter path
+/// ([`crate::assign`]) rejects a value for the same reasons and has to say which,
+/// and two spellings of "out of range" is two things to keep in step.
+#[must_use]
+pub fn describe_reason(reason: RejectReason) -> String {
+    use alloc::format;
+    match reason {
+        RejectReason::OutOfRange { min, max } => format!("out of range [{min} .. {max}]"),
+        RejectReason::WrongType => "wrong type".to_string(),
+        RejectReason::UnknownEnumDiscriminant => "no such enum value".to_string(),
+        RejectReason::TooLong => "string too long".to_string(),
+    }
+}
+
 /// A convenience for building an import rejection's API response body.
 #[must_use]
 pub fn describe_rejection(error: &ImportError) -> String {
-    use alloc::format;
     match error {
         ImportError::InvalidValues { rejected } => {
             let mut out = String::new();
@@ -677,17 +710,9 @@ pub fn describe_rejection(error: &ImportError) -> String {
                 if i > 0 {
                     out.push_str("; ");
                 }
-                let reason = match r.reason {
-                    RejectReason::OutOfRange { min, max } => {
-                        format!("out of range [{min} .. {max}]")
-                    }
-                    RejectReason::WrongType => "wrong JSON type".to_string(),
-                    RejectReason::UnknownEnumDiscriminant => "no such enum value".to_string(),
-                    RejectReason::TooLong => "string too long".to_string(),
-                };
                 out.push_str(r.key);
                 out.push_str(": ");
-                out.push_str(&reason);
+                out.push_str(&describe_reason(r.reason));
             }
             out
         }

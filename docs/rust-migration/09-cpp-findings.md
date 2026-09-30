@@ -829,3 +829,94 @@ zero ticks > 10 ms, compared against the C++ histogram recorded at R0-04". The
 must either find and fix the cost, or record against the criterion that the C++ baseline
 also overruns — which is checkable, because R0-04 recorded the C++ per-iteration histogram.
 Do not "fix" this by relaxing `TICK_BUDGET_MS`.
+
+## 25. 🟡 `POST /api/parameters` cannot fail on a scalar, so a mistyped value is saved as zero
+
+**Found 2026-09-30** while porting R3-14's parameter writer. Recorded because the
+response *shape* is reproduced exactly and the *arithmetic* deliberately is not, and a
+later reader who has not read this will "fix" the difference back.
+
+`ParamDef<T>::fromString` (`Config.h:242-262`) converts and returns; it cannot report a
+conversion failure, because the conversions it uses cannot fail:
+
+```cpp
+newValue = value.equalsIgnoreCase("true") || value == "1";  // bool:  EVERYTHING else is false
+newValue = value.toInt();                                    // int:   "12abc" -> 12, "abc" -> 0
+newValue = value.toDouble();                                 // double: likewise, 0.0
+```
+
+The only validation is `isValid` (`:190-200`), which is a range check on the numeric
+kinds and unconditionally `true` for `bool` and `String`. So:
+
+| request | C++ result |
+| --- | --- |
+| `?pid.regular.kp=hello` | writes **0**, answers `200 {"success":true}` if 0 is in range |
+| `?pid.enabled=yes` | writes **false**, answers `200` |
+| `?brew.setpoint=95x` | writes 95 (`toInt`/`toDouble` stop at the junk) |
+| `?standby.time=9999` | `400` — the range check caught it |
+| `?no.such.parameter=1` | `400` — `findConfigParameter` returned `nullptr` |
+
+Three of those five are a **silent wrong write reported as success**, on a parameter
+that steers a PID integrator. `Arduino::String::toInt` has no failure channel, so the
+C++ cannot do better without changing its own signature.
+
+**What this port does.** `cc_config::assign::parse` requires the whole field to be the
+number and rejects `NaN`/`inf` explicitly (`f64::parse` accepts them and every
+comparison against `NaN` is false, so a range check waves `NaN` through), and answers
+`400` — the same status the C++ gives for the two cases it *can* detect. The response
+bodies and status codes are the C++'s, verbatim, for all five rows above except that
+rows 1–3 are `400` here.
+
+**Also not reproduced:** `EnumParamDef::fromString` (`:437-455`) falls back to matching
+the option's **label** (`?brew.mode=Automatic`). `cc_config::ParamSpec` carries no label
+table, so a label is `WrongType` and the integer discriminant is the write. Every
+enumeration is a `u8` discriminant on the wire (`Config.h:212`), which is also what
+`/api/parameters` reports as the current `value`, so a client that reads before it
+writes never needs the label.
+
+## 26. 🟡 A parameter write is one NVS key per parameter, so a power cut leaves a half-changed machine
+
+**Found 2026-09-30**, same task. Not a defect — a design consequence with a safety
+shape worth naming.
+
+`ParamDef<T>::set` (`Config.h:156-180`) saves **inside the setter**, one
+`Preferences::putX` per parameter, and a `POST /api/parameters` with six parameters is
+six transactions (`WebServerManager.cpp:841-844` calls `fromString` per pair). A power
+cut between the second and the third leaves a configuration where two values are new
+and ninety-six are old. For a machine that heats to 150 °C, "some new" is a
+configuration nobody ever chose.
+
+This port's store holds **one blob** (`cc_config::store`), so a request is one write:
+either all of it is durable or none of it is. That is the reason the C++'s
+per-parameter persistence has no counterpart here rather than a thing that was
+simplified away — and it is why `POST /api/parameters` here answers `200` *before* the
+write rather than after it, with a store failure reported in the log
+(`config: the parameters were applied but NOT persisted`) instead of being folded into
+the HTTP status the way `set`'s `false` return is in the C++ (`:171-172`).
+
+## 27. 🟡 `POST /api/pid` and `/api/steam` are toggles that read no parameter at all
+
+**Found 2026-09-30**, while checking whether the Rust firmware's `?on=0` 400 was a
+parity gap. It is a gap in the opposite direction, and the C++'s own documentation
+disagrees with the C++.
+
+`WebServerManager.cpp:462-479` (`/api/pid`) and `:437-459` (`/api/steam`) take **no**
+request field. Both compute `!current` and set it:
+
+```cpp
+const bool newPidState = !Config::getInstance().pidEnabled.get();
+```
+
+So `POST /api/pid?on=0` in the C++ **toggles** and ignores `on=0`; there is no C++
+behaviour for a query string to match. `docs/api/openapi.yaml:55-67` documents a JSON
+body with `enabled: boolean`, which the handler also never reads — so the spec, the
+handler and every client that has ever used it disagree three ways.
+
+**What this port does.** `/api/pid` and `/api/steam` keep the Rust firmware's
+*explicit* value (`?on=0` / `?on=1` / a form body, body first) and now accept the query
+string as well as the body, because `?on=0` is what the integration checklist and the
+UI's own button send. A request with **no** value is still a `400` rather than a
+toggle: a toggle on a retried POST is not idempotent, and `202 Accepted` for a command
+that may be applied twice is a claim the transport cannot make. Both are recorded here
+because the deviation is deliberate and the C++'s own answer is "it depends which
+document you read".

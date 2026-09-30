@@ -88,6 +88,82 @@ Test each with `curl -s http://<hostname>/<endpoint>` and verify non-empty valid
 - [ ] `GET /api/temperatures` — current temperature reading
 - [ ] `GET /api/nvs-debug` — NVS metadata and parameters
 
+### 5a. Writing a parameter (`POST /api/parameters`)
+
+The one endpoint that changes the machine. **Both encodings are accepted and are the
+same request** — `WebServerManager.cpp:823` iterates `request->params()`, which is the
+query string and the body together:
+
+```sh
+curl -s -X POST "http://<host>/api/parameters?pid.regular.kp=2.25"
+curl -s -X POST http://<host>/api/parameters --data "pid.regular.kp=2.25"
+```
+
+All four parameter kinds, one request:
+
+- [ ] `POST /api/parameters` with a **bool**, an **int**, a **float** and a **text**
+      parameter → `200 {"success":true,"message":"Parameters updated and saved"}`
+- [ ] The serial log carries `config: N parameter(s) written: Applied { updated: N, failed: [] }`
+      and `config: the configuration was persisted`
+- [ ] **Reboot, then** `GET /api/parameters` — every one of the four has the new value.
+      This is the persistence check and it is the only one that counts: the `GET`
+      reads the configuration as it was **loaded at boot**, so immediately after a
+      `POST` it still reports the old value. That asymmetry is recorded, not a bug
+      (see `main.rs`, "the control task holds the authoritative value the HTTP
+      server does *not* see").
+
+The four failure modes, which are the C++'s (`:829-878`) and answer with one `400`
+body each:
+
+- [ ] An **unknown key** → `400 {"error":"Some parameter updates failed"}`, nothing written
+- [ ] A value that **does not parse** (`pid.regular.kp=hello`) → `400`. The C++ writes
+      **0** here and answers `200`; see `09-cpp-findings.md` §25
+- [ ] A value **out of range** (`standby.time=1234.5`, bounds 1..120) → `400`
+- [ ] A request naming **no** parameter, or only valueless fields → `200
+      {"success":true,"message":"No parameters updated"}`
+- [ ] **One bad key among good ones** → `400`, and the serial log names the offender
+      (`rejected pid.regular.kp: value rejected: wrong type`) while the good ones are
+      still written. The C++ does not roll back either (`:829-865`)
+- [ ] A request with more than 64 pairs → `400 {"error":"too many parameters in one
+      request"}`. A deliberate bound the C++ does not have (it will iterate ten
+      thousand); a body over 1024 B is truncated at that, and the query string is
+      bounded by `CONFIG_HTTPD_MAX_URI_LEN` (512 B)
+- [ ] `PUT /api/parameters` → `405`. The status is ESP-IDF's own, not a handler of
+      ours, so the body is ESP-IDF's rather than the C++'s `{"error":"Method not
+      allowed"}`
+
+### 5b. The command endpoints take a query string
+
+`POST /api/pid?on=0`, `?on=1` — the spelling every script and the React UI use. The
+C++'s `POST /api/pid` reads **no** field at all and is a pure toggle
+(`WebServerManager.cpp:462-479`); there is no C++ answer for `?on=0` to match, so
+both encodings are accepted and the body wins if both are present.
+
+- [ ] `POST /api/pid?on=1` → `202`, and `/api/status` reports `pidEnabled: true`
+- [ ] `POST /api/pid?on=0` → `202`, `pidEnabled: false`
+- [ ] `POST /api/setpoint?value=95` → `202`; the setpoint changes
+- [ ] `POST /api/steam?on=1` then `?on=0` → `202` both times
+- [ ] `POST /api/pid` with no value at all → `400 {"error":"missing `value`"}`
+
+### 5c. The operator switches
+
+`hardware.switches.*.enabled` defaults to `false` in **both** firmwares
+(`Config.h:985,1004,1023,1042`), so out of the box a switch press does nothing and
+the boot log says so. ⚠ **GPIO 34/35/36/39 are input-only with no internal pull**
+(`switches.rs` has the full argument), so an enabled switch on an unwired pin is a
+*floating* input that the debouncer will eventually call pressed. Wire the switch, or
+leave the flag off.
+
+- [ ] `POST /api/parameters?hardware.switches.brew.enabled=true` → `200`
+- [ ] Reboot. The boot log line changes from
+      `switch brew: GPIO34 … enabled false -- the reducer will IGNORE this switch` to
+      `switch brew: GPIO34 … enabled true`
+- [ ] Press the physical switch. **This step needs a hand** — no automated check can
+      substitute for it. Watch `/api/status` (`brewing`) and the serial log
+- [ ] The same for `steam`, `power` and `hot_water`
+- [ ] Set the flag back to `false` when finished, or a later boot with a floating pin
+      will start a shot on its own
+
 ## 6. Web UI
 
 - [ ] `GET /ui/` — serves SPA (HTTP 200, HTML content)

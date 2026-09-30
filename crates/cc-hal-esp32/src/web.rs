@@ -255,6 +255,14 @@ pub struct Telemetry {
 /// The whole of the network→control surface for now. `Copy`, bounded, and
 /// `hal::task::queue::Queue`-compatible by construction (04 §3.2: *"No
 /// `String`, no `Vec`, no `Box` in a cross-task message"*).
+///
+/// **`POST /api/parameters` is the one command endpoint that is not in here**, and
+/// the reason is that rule: a parameter write is a *list* of pairs, and a `Copy`
+/// enum cannot carry a list. It travels in
+/// [`crate::task::ParameterHandoff`] instead, which is drained at the same point
+/// in the tick. The write itself is not a second path —
+/// [`cc_config::assign::apply`] is the only writer of a parameter, and R3-13's
+/// inbound MQTT calls it directly because MQTT already runs on the control task.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Command {
     /// `POST /api/setpoint?value=<celsius>`.
@@ -801,6 +809,7 @@ pub fn routes() -> Vec<(&'static str, Method)> {
         ("/api/parameter-help", Method::Get),
         ("/api/config", Method::Get),
         ("/api/parameters", Method::Get),
+        ("/api/parameters", Method::Post),
         ("/api/status", Method::Options),
         ("/api/setpoint", Method::Post),
         ("/api/steam", Method::Post),
@@ -853,9 +862,16 @@ impl Web {
     /// if the route table outgrows [`MAX_URI_HANDLERS`], and
     /// `the_route_table_fits_the_servers_handler_budget` is the test that
     /// catches it before a flash.
+    ///
+    /// `parameters` is the mailbox `POST /api/parameters` hands its accepted
+    /// pairs to. It is a parameter and not a field of [`Shared`] because it is
+    /// not telemetry: it is a request, it is drained by the control task rather
+    /// than read by a handler, and [`Shared`] is documented as "the telemetry
+    /// every handler reads". See [`crate::task::ParameterHandoff`] for why the
+    /// pairs do not travel as a [`Command`].
     #[allow(
         clippy::too_many_lines,
-        reason = "this IS a route table. 24 registrations with their handlers, \
+        reason = "this IS a route table. 25 registrations with their handlers, \
                   one after another, is the clearest possible form of it; \
                   splitting it into `register_reads`/`register_commands` would \
                   hide the one property that matters, which is that the whole \
@@ -867,6 +883,7 @@ impl Web {
         config: &Arc<Config>,
         nvs_description: &str,
         send: &Arc<dyn Fn(Command) + Send + Sync + 'static>,
+        parameters: &Arc<crate::task::ParameterHandoff>,
     ) -> Result<Self, EspError> {
         // Every handler is `Send + 'static` (`server.rs:530-538`), so each one
         // captures its own `Arc::clone`. Taking these three by reference and
@@ -874,6 +891,7 @@ impl Web {
         // without an `unsafe fn` (`handler_nonstatic`, `server.rs:568`, which
         // this workspace denies).
         let send = Arc::clone(send);
+        let parameters = Arc::clone(parameters);
         // `EspHttpServer::new` returns `EspIOError` (`server.rs:345`) while every
         // `httpd_*` call returns `EspError`, so the one conversion is here
         // rather than repeated in every handler.
@@ -962,6 +980,63 @@ impl Web {
             server.fn_handler::<EspError, _>("/api/parameters", Method::Get, move |mut req| {
                 let body = parameters_json(&config);
                 respond_large(req.connection(), &shared, &body)
+            })?;
+        }
+        {
+            // `POST /api/parameters` — the C++'s writer
+            // (`WebServerManager.cpp:821-878`), which is the same route as the
+            // `GET` above because the C++ registers it `HTTP_ANY` and branches
+            // on the method (`:815`, `:879`). Two registrations rather than one
+            // `HTTP_ANY` because `esp-idf-svc`'s `Method` has no "any"
+            // (embedded-svc 0.29 `http.rs:17-52`). A third method still gets
+            // the right status: ESP-IDF's own "method not registered for this
+            // URI" handler answers **405**, which is what the C++ sends (`:880`),
+            // though its body is ESP-IDF's "Specified method is invalid for this
+            // resource" rather than the C++'s `{"error":"Method not allowed"}`.
+            let handoff = Arc::clone(&parameters);
+            server.fn_handler::<EspError, _>("/api/parameters", Method::Post, move |mut req| {
+                let body = drain_body_bounded(req.connection(), MAX_PARAMETER_BODY_BYTES);
+                // `request->params()` (`:823`) is the query string *and* the body,
+                // in that order, because `AsyncWebServerRequest` appends the query
+                // args before the POST fields. So `?pid.enabled=1` and
+                // `pid.enabled=1` are the same request, and a request may carry
+                // both.
+                let mut pairs = cc_config::form::parse_form(query_of(req.uri()));
+                pairs.extend(cc_config::form::parse_form(&body));
+                if pairs.len() > MAX_PARAMETER_PAIRS {
+                    return respond(
+                        req.connection(),
+                        400,
+                        &error_body("too many parameters in one request"),
+                    );
+                }
+
+                let verdict = classify_parameters(&pairs);
+                if let ParameterPost::Rejected { reasons, .. } = &verdict {
+                    // The C++ logs one `WARNING` per failure (`:853`, `:857`) and
+                    // then answers a single 400 that names none of them. Naming
+                    // them here is the whole diagnostic value of a rejected
+                    // parameter: without it, `400` on a 20-field form is a
+                    // guessing game.
+                    for reason in reasons {
+                        warn!("http: /api/parameters rejected {reason}");
+                    }
+                }
+                let accepted = verdict.clone().into_pairs();
+                if !accepted.is_empty() && !handoff.stage(accepted) {
+                    // The control task is not keeping up, and the response is
+                    // about to say the parameters were saved. It is the one case
+                    // where this handler's `200` would be a lie, so it is a 503
+                    // and nothing was written.
+                    warn!("http: /api/parameters could not be staged — the control task is behind");
+                    return respond(
+                        req.connection(),
+                        503,
+                        &error_body("the control task is not keeping up, retry"),
+                    );
+                }
+                let (status, payload) = verdict.response();
+                respond(req.connection(), status, payload)
             })?;
         }
 
@@ -1486,12 +1561,24 @@ fn register_command(
 ) -> Result<(), EspError> {
     server
         .fn_handler::<EspError, _>(uri, Method::Post, move |mut req| {
+            // The C++ reads `hasParam("value", true)` — the `true` is "from the
+            // body" (`WebServerManager.cpp:392`) — and 0 is a valid setpoint
+            // (`:393`), so the field's presence is what matters, not its
+            // truthiness.
+            //
+            // The query string is read too, and the **body wins** where both
+            // carry the field. The C++'s `POST /api/pid` reads no field at all —
+            // it is a toggle — so there is no C++ answer for `?on=0` to match,
+            // and every script, the UI's own button and the integration
+            // checklist spell it `?on=0` or `?on=1`. Accepting both is what
+            // `curl -X POST '.../api/pid?on=0'` needs; the body is checked first
+            // because a form post that also carries a stale query string should
+            // do what the form says.
+            let mut fields = cc_config::form::parse_form(query_of(req.uri()));
             let body = drain_body(req.connection());
-            // The C++ uses `hasParam("value", true)` (WebServerManager.cpp:392) —
-            // the `true` is "from the body" — and 0 is a valid setpoint (`:393`),
-            // so the field's presence is what matters, not its truthiness.
-            let Some(value) = first_field(&body, "value").or_else(|| first_field(&body, "on"))
-            else {
+            fields.extend(cc_config::form::parse_form(&body));
+            let value = first_of(&fields, &["value", "on"]);
+            let Some(value) = value else {
                 return respond(req.connection(), 400, &error_body("missing `value`"));
             };
             match parse(&value) {
@@ -1505,21 +1592,188 @@ fn register_command(
         .map(|_| ())
 }
 
+/// The first value any of `names` has, in **name** order rather than field order.
+///
+/// `hasParam(name, true).orElse(hasParam(other, true))` — the C++'s
+/// `hasParam("value", …)` then `hasParam("on", …)` (`:392`), so `value` anywhere
+/// in the request beats `on` anywhere in it. Scanning the fields once and taking
+/// whichever key matched first would flip that for a request carrying both.
+fn first_of(fields: &[cc_config::form::Field], names: &[&str]) -> Option<String> {
+    names.iter().find_map(|name| {
+        fields
+            .iter()
+            .find(|(key, _)| key == name)
+            .map(|(_, value)| value.clone())
+    })
+}
+
+/// The query string of `uri`, or `""`.
+///
+/// `EspHttpConnection::uri()` (`esp-idf-svc` `src/http/server.rs:949-955`)
+/// returns `httpd_req_t::uri`, and that field is the **whole** request target
+/// including the `?…` — `esp_http_server` reads the query back out of it with
+/// `r->uri + res->field_data[UF_QUERY].off` (`httpd_parse.c:992`) rather than
+/// from a member of its own. So the query string needs no `esp-idf-sys` call to
+/// reach, which is what `cc_config::form`'s module documentation used to say the
+/// opposite of; the split is at the first `?` and everything after it.
+fn query_of(uri: &str) -> &str {
+    uri.split_once('?').map_or("", |(_, query)| query)
+}
+
+/// What one `POST /api/parameters` resolved to, before anything is written.
+///
+/// The C++'s `hasErrors` / `hasUpdates` pair (`WebServerManager.cpp:826-827`),
+/// kept as a value so the handler's decision — which of three response bodies to
+/// send, and whether to emit a command at all — is a function that can be tested
+/// without a socket.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ParameterPost {
+    /// At least one parameter was rejected. The C++ answers `400` and does not
+    /// report which, but the pairs that *were* accepted are still written:
+    /// `apply` walks the request in order and only collects the failures.
+    Rejected {
+        /// The pairs that passed. Empty when all failed.
+        accepted: Vec<(String, String)>,
+        /// One line per rejection, for the log.
+        reasons: Vec<String>,
+    },
+    /// Everything was written.
+    Updated {
+        /// Every pair in the request, validated.
+        accepted: Vec<(String, String)>,
+    },
+    /// Nothing in the request named a parameter with a value, so nothing was
+    /// written. The C++'s `"No parameters updated"` (`WebServerManager.cpp:877`).
+    Nothing,
+}
+
+impl ParameterPost {
+    /// The status code and the body, verbatim from the C++.
+    ///
+    /// * rejected → `400 {"error":"Some parameter updates failed"}` (`:868`)
+    /// * updated → `200 {"success":true,"message":"Parameters updated and
+    ///   saved"}` (`:874-875`)
+    /// * nothing → `200 {"success":true,"message":"No parameters updated"}`
+    ///   (`:877`)
+    #[must_use]
+    pub fn response(&self) -> (u16, &'static str) {
+        match self {
+            Self::Rejected { .. } => (400, "{\"error\":\"Some parameter updates failed\"}"),
+            Self::Updated { .. } => (
+                200,
+                "{\"success\":true,\"message\":\"Parameters updated and saved\"}",
+            ),
+            Self::Nothing => (
+                200,
+                "{\"success\":true,\"message\":\"No parameters updated\"}",
+            ),
+        }
+    }
+
+    /// The pairs to hand to the control task, if any.
+    ///
+    /// Non-empty for both outcomes that wrote something: a `400` that rejected
+    /// one of six parameters still applies the other five, and dropping them
+    /// would make the response and the machine disagree.
+    #[must_use]
+    pub fn into_pairs(self) -> Vec<(String, String)> {
+        match self {
+            Self::Rejected { accepted, .. } | Self::Updated { accepted } => accepted,
+            Self::Nothing => Vec::new(),
+        }
+    }
+}
+
+/// The most pairs one `POST /api/parameters` may carry.
+///
+/// The C++ has no bound: it iterates `request->params()` and a client can send
+/// ten thousand. Here the pairs are staged in a heap `Vec` on a 320 KB machine
+/// and each one is a `String` pair, so an unbounded request is a
+/// denial-of-service with one `curl`. [`crate::task::STAGED_PARAMETER_DEPTH`]
+/// requests times this is 256 pairs — eight times the 98 the firmware registers,
+/// so no legitimate request is refused, and the body is bounded at 4 KB by
+/// [`drain_body`] long before the count is reached.
+pub const MAX_PARAMETER_PAIRS: usize = 64;
+
+/// The most bytes one `POST /api/parameters` body may be.
+///
+/// 1024, and the reason it is not the 256 every other body gets is that this
+/// body is a *list*: `hardware.sensors.watertank.keep_heater_on_empty=1` is 51
+/// characters, so 256 fits five of them. A settings form that cannot be submitted
+/// is the reason an operator ends up using `curl` sixteen times, so this is
+/// generous — twenty parameters, or the whole of a small machine's switches — and
+/// still three orders of magnitude below the heap it could otherwise take. The
+/// query string has its own, smaller, bound that this firmware does not set:
+/// `CONFIG_HTTPD_MAX_URI_LEN`, 512 bytes by default
+/// (`esp_http_server.h:377`).
+pub const MAX_PARAMETER_BODY_BYTES: usize = 1024;
+
+/// Decide what a `POST /api/parameters` means, without writing anything.
+///
+/// The C++'s loop over `request->params()` (`WebServerManager.cpp:829-865`),
+/// with the same two rules: a field with no name or no value is **skipped**
+/// rather than rejected (`:830`), and a rejected value does not undo the
+/// accepted ones.
+///
+/// The pairs are validated here because the handler has to answer `200` or `400`
+/// **synchronously**, and the `Config` is the control task's. The control task
+/// then applies the pairs with `cc_config::assign::apply`, which validates them
+/// again — through the same [`cc_config::assign::parse`], so the two verdicts
+/// cannot disagree, and the second is an idempotent re-application rather than a
+/// second rule.
+#[must_use]
+pub fn classify_parameters(pairs: &[cc_config::form::Field]) -> ParameterPost {
+    let mut accepted = Vec::new();
+    let mut reasons = Vec::new();
+    for (key, raw) in pairs {
+        // `:830` — `p->name().length() > 0 && p->value().length() > 0`. A
+        // valueless field is "not mentioned", which is also why a text parameter
+        // cannot be set to the empty string over HTTP.
+        if key.is_empty() || raw.is_empty() {
+            continue;
+        }
+        match cc_config::assign::parse(key, raw) {
+            Ok(_) => accepted.push((key.clone(), raw.clone())),
+            Err(err) => reasons.push(format!("{key}: {err}")),
+        }
+    }
+    if !reasons.is_empty() {
+        ParameterPost::Rejected { accepted, reasons }
+    } else if accepted.is_empty() {
+        ParameterPost::Nothing
+    } else {
+        ParameterPost::Updated { accepted }
+    }
+}
+
 /// Read a request body into a `String`, bounded.
 ///
-/// 256 bytes, the same bound the log stream uses. A `POST /api/setpoint` body
-/// is `value=94.5` — nine characters — and a body that does not fit is a client
-/// bug or an attack, not a large legitimate request. The C++ has no bound at
-/// all (`AsyncWebServerRequest` will buffer whatever it is sent), which on a
-/// 320 KB heap is a denial of service with three words.
+/// [`crate::telnet::LINE_BUFFER_BYTES`] (256), the same bound the log stream
+/// uses. A `POST /api/setpoint` body is `value=94.5` — nine characters — and a
+/// body that does not fit is a client bug or an attack, not a large legitimate
+/// request. The C++ has no bound at all (`AsyncWebServerRequest` will buffer
+/// whatever it is sent), which on a 320 KB heap is a denial of service with three
+/// words.
 fn drain_body(conn: &mut EspHttpConnection<'_>) -> String {
+    drain_body_bounded(conn, crate::telnet::LINE_BUFFER_BYTES)
+}
+
+/// Read a request body into a `String`, bounded by `limit`.
+///
+/// A second bound rather than one, because the two routes that read a body need
+/// different ones: a `POST /api/pid` body is six characters and a
+/// `POST /api/parameters` body is a *list* of them, twenty of which is a
+/// plausible settings form. One bound for both would be either too small for the
+/// second or too generous for the first, and the first is the one a stranger can
+/// reach.
+fn drain_body_bounded(conn: &mut EspHttpConnection<'_>, limit: usize) -> String {
     let mut body = String::new();
     let mut buf = [0u8; 128];
     loop {
         match conn.read(&mut buf) {
             Ok(0) | Err(_) => break,
             Ok(n) => {
-                if body.len() + n > crate::telnet::LINE_BUFFER_BYTES {
+                if body.len() + n > limit {
                     break;
                 }
                 body.push_str(&String::from_utf8_lossy(&buf[..n]));
@@ -1531,9 +1785,10 @@ fn drain_body(conn: &mut EspHttpConnection<'_>) -> String {
 
 /// The first form field named `name` in `body`.
 ///
-/// See [`cc_config::form`] for why the REST API reads bodies rather than query
-/// strings: `EspHttpConnection::uri()` returns the path only, and `esp-idf-svc`
-/// exposes no accessor for `httpd_req_t::query`.
+/// See [`cc_config::form`] for the encoding, and [`query_of`] for why the query
+/// string is read too: an earlier revision of this file claimed
+/// `EspHttpConnection::uri()` returned the path only, which is wrong.
+#[cfg(any(test, feature = "device-tests"))]
 fn first_field(body: &str, name: &str) -> Option<String> {
     cc_config::form::field(body, name)
 }
@@ -1767,6 +2022,175 @@ pub mod tests {
         // with ESP_ERR_HTTPD_HANDLERS_FULL, at boot, which is a bad place to find
         // out.
         assert!(routes().len() <= MAX_URI_HANDLERS);
+    }
+
+    // ==================================================== POST /api/parameters
+
+    #[cfg_attr(test, test)]
+    pub fn the_parameter_route_is_registered_for_both_methods() {
+        // The C++ registers it once as HTTP_ANY and branches on the method
+        // (`WebServerManager.cpp:813-815`); two registrations is the closest
+        // `esp-idf-svc` can get, because its `Method` has no "any"
+        // (embedded-svc 0.29 `http.rs:17-52`).
+        let routes = routes();
+        assert!(routes.contains(&("/api/parameters", Method::Get)));
+        assert!(routes.contains(&("/api/parameters", Method::Post)));
+    }
+
+    #[cfg_attr(test, test)]
+    pub fn a_query_string_is_reachable_from_the_uri() {
+        // `httpd_req_t::uri` is the whole request target, query included —
+        // `esp_http_server` reads the query back out of it at
+        // `r->uri + res->field_data[UF_QUERY].off` (`httpd_parse.c:992`), and
+        // there is no `httpd_req_t::query` member (`esp_http_server.h:373-400`).
+        // An earlier revision of `cc_config::form` claimed otherwise and said the
+        // query string was unreachable without an `esp-idf-sys` call; this is the
+        // test that says so.
+        assert_eq!(query_of("/api/pid?on=0"), "on=0");
+        assert_eq!(query_of("/api/pid"), "");
+        assert_eq!(query_of("/api/parameters?a=1&b=2"), "a=1&b=2");
+        // Only the first `?` splits, so a `?` inside the query stays put.
+        assert_eq!(query_of("/x?a=1?b=2"), "a=1?b=2");
+    }
+
+    #[cfg_attr(test, test)]
+    pub fn a_parameter_post_of_the_four_kinds_is_accepted() {
+        // One of each kind, and the C++'s "all four spellings" for a bool.
+        let verdict = classify_parameters(&[
+            ("pid.enabled".into(), "1".into()),
+            ("mqtt.port".into(), "1884".into()),
+            ("pid.regular.kp".into(), "3.5".into()),
+            ("system.hostname".into(), "kettle".into()),
+        ]);
+        assert_eq!(verdict.clone().into_pairs().len(), 4);
+        assert!(
+            matches!(verdict, ParameterPost::Updated { .. }),
+            "{verdict:?}"
+        );
+        assert_eq!(verdict.response().0, 200);
+    }
+
+    #[cfg_attr(test, test)]
+    pub fn an_unknown_key_is_a_400_and_names_nothing_in_the_body() {
+        // The C++ answers `{"error":"Some parameter updates failed"}` for an
+        // unknown key (`:856-859`, `:868`) and names nothing — the reasons go to
+        // the log, which is what the handler does here too.
+        let verdict = classify_parameters(&[("no.such.parameter".into(), "1".into())]);
+        assert!(matches!(verdict, ParameterPost::Rejected { .. }));
+        assert_eq!(
+            verdict.response(),
+            (400, "{\"error\":\"Some parameter updates failed\"}")
+        );
+        assert!(verdict.into_pairs().is_empty(), "nothing was written");
+    }
+
+    #[cfg_attr(test, test)]
+    pub fn a_value_out_of_range_is_the_same_400_as_an_unknown_key() {
+        // `:867-868` — one `hasErrors` flag covers both, so both are one status
+        // and one body.
+        for raw in ["-1e6", "1e6", "abc", "NaN"] {
+            let verdict = classify_parameters(&[("pid.regular.kp".into(), raw.into())]);
+            assert_eq!(
+                verdict.response().0,
+                400,
+                "pid.regular.kp={raw:?} should be a 400"
+            );
+        }
+    }
+
+    #[cfg_attr(test, test)]
+    pub fn one_rejected_parameter_does_not_lose_the_accepted_ones() {
+        // `WebServerManager.cpp:829-865`: each pair is applied as the loop reaches
+        // it, and `hasErrors` is only a flag. So the good pairs still travel to
+        // the control task and the answer is still a 400.
+        let verdict = classify_parameters(&[
+            ("mqtt.port".into(), "1884".into()),
+            ("pid.regular.kp".into(), "nope".into()),
+            ("pid.enabled".into(), "true".into()),
+        ]);
+        let ParameterPost::Rejected { accepted, reasons } = &verdict else {
+            panic!("expected a rejection, got {verdict:?}");
+        };
+        assert_eq!(accepted.len(), 2);
+        assert_eq!(reasons.len(), 1);
+        assert!(reasons[0].starts_with("pid.regular.kp:"), "{reasons:?}");
+        assert_eq!(verdict.response().0, 400);
+    }
+
+    #[cfg_attr(test, test)]
+    pub fn a_request_that_names_no_parameter_is_the_third_response() {
+        // The C++'s third body, for a request whose fields are all valueless
+        // (`:830` skips them) or which names nothing at all (`:876-878`).
+        for pairs in [
+            vec![],
+            vec![("pid.enabled".into(), String::new())],
+            vec![(String::new(), "1".into())],
+        ] {
+            let verdict = classify_parameters(&pairs);
+            assert_eq!(verdict, ParameterPost::Nothing, "{pairs:?}");
+            assert!(verdict.clone().into_pairs().is_empty());
+            assert_eq!(
+                verdict.response(),
+                (
+                    200,
+                    "{\"success\":true,\"message\":\"No parameters updated\"}"
+                )
+            );
+        }
+    }
+
+    #[cfg_attr(test, test)]
+    pub fn the_updated_response_is_the_cpp_body_verbatim() {
+        // `WebServerManager.cpp:874-875`.
+        assert_eq!(
+            ParameterPost::Updated {
+                accepted: Vec::new()
+            }
+            .response(),
+            (
+                200,
+                "{\"success\":true,\"message\":\"Parameters updated and saved\"}"
+            )
+        );
+    }
+
+    #[cfg_attr(test, test)]
+    pub fn a_query_string_and_a_body_carry_the_same_parameter() {
+        // `request->params()` (`:823`) is the query string and the body together,
+        // and the handler merges them in that order — which is what makes
+        // `curl -X POST '.../api/parameters?pid.enabled=1'` work.
+        let mut fields = cc_config::form::parse_form(query_of("/api/parameters?pid.enabled=1"));
+        fields.extend(cc_config::form::parse_form("pid.regular.kp=2.5"));
+        assert_eq!(fields.len(), 2);
+        assert!(matches!(
+            classify_parameters(&fields),
+            ParameterPost::Updated { .. }
+        ));
+    }
+
+    #[cfg_attr(test, test)]
+    pub fn a_command_field_is_read_from_the_query_string_as_well_as_the_body() {
+        // `POST /api/pid?on=0` answered `400 {"error":"missing value"}` before,
+        // because only the body was read. The C++'s `POST /api/pid` reads no
+        // field at all (`:462-479`, a toggle), so there is no C++ answer for
+        // `?on=0` to match; every script and the integration checklist spell it
+        // that way, so both are accepted and the body wins.
+        let from_query = cc_config::form::parse_form(query_of("/api/pid?on=0"));
+        assert_eq!(first_of(&from_query, &["value", "on"]), Some("0".into()));
+        let from_body = cc_config::form::parse_form("on=1");
+        assert_eq!(first_of(&from_body, &["value", "on"]), Some("1".into()));
+        // `value` beats `on` wherever each is — the C++'s
+        // `hasParam("value", …)` then `hasParam("on", …)`.
+        let both = cc_config::form::parse_form("on=1&value=7");
+        assert_eq!(first_of(&both, &["value", "on"]), Some("7".into()));
+        // Neither is a 400 rather than a default.
+        assert_eq!(
+            first_of(&cc_config::form::parse_form(""), &["value", "on"]),
+            None
+        );
+        // And the single-field helper the C++'s `hasParam` is.
+        assert_eq!(first_field("value=3&value=4", "value"), Some("3".into()));
+        assert_eq!(first_field("a=1", "value"), None);
     }
 
     #[cfg_attr(test, test)]
