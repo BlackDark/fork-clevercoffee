@@ -536,8 +536,20 @@ pub const CASES: &[Case] = &[
         run: web::tests::a_reboot_request_is_one_shot,
     },
     Case {
-        name: "web::the_ui_placeholder_says_why_it_is_empty",
-        run: web::tests::the_ui_placeholder_says_why_it_is_empty,
+        name: "web::the_ui_shell_and_its_assets_are_embedded_and_gzipped",
+        run: web::tests::the_ui_shell_and_its_assets_are_embedded_and_gzipped,
+    },
+    Case {
+        name: "web::a_javascript_bundle_is_served_as_javascript",
+        run: web::tests::a_javascript_bundle_is_served_as_javascript,
+    },
+    Case {
+        name: "web::a_client_side_route_serves_the_shell_but_a_missing_asset_does_not",
+        run: web::tests::a_client_side_route_serves_the_shell_but_a_missing_asset_does_not,
+    },
+    Case {
+        name: "web::wildcard_matching_leaves_the_api_routes_exact",
+        run: web::tests::wildcard_matching_leaves_the_api_routes_exact,
     },
     Case {
         name: "web::an_unavailable_endpoint_names_the_task_that_owns_it",

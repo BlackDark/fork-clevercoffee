@@ -724,3 +724,81 @@ particular the scale was not: see `intentional-diffs.md` §11 and the human's
 explicit decision to keep it.
 
 Re-baselined as `r4-01-reducer-and-display`.
+
+## 13. The web UI is embedded (2026-09-30) — +220,608 B, and 199,270 B of it is the SPA
+
+### 13.1 The open question, and the number that answered it
+
+The 06 task list left F25's transport open: embed the SPA in the binary, or
+serve it from the `littlefs` partition. Nothing had ever built the bundle, so
+the decision had no number behind it. Built with Vite 8.2.2
+(`pnpm --filter @clevercoffee/frontend build`, `VITE_BASE_PATH=/ui/`):
+
+| file | raw | gzip |
+|---|---:|---:|
+| `assets/index-DTmvHJP_.js` | 594.20 KB | **182,878 B** |
+| `assets/index-B4vm-kEh.css` | 59.97 KB | **11,205 B** |
+| `index.html` | 0.46 KB | **303 B** |
+| `logo.png` | 4,884 B | — (already compressed) |
+| **total `dist/`** | **~715 KB** | **199,270 B** |
+
+That table decides it, because the two budgets are different sizes:
+
+| destination | budget | fits the 199 KB gzip bundle? |
+|---|---:|---|
+| app0 slot (was) | 496,192 B free | yes, with 296,922 B to spare |
+| `littlefs` (0x60000) | 393,216 B | yes |
+| app0 slot, **uncompressed** | 496,192 B free | **no** — 715 KB does not fit |
+| `littlefs`, uncompressed | 393,216 B | **no** |
+
+**Chosen: embed, via `include_bytes!` in a `build.rs`.** Three reasons, in
+order of weight:
+
+1. **The identity form does not fit anywhere.** The `littlefs` partition is
+   393,216 B and the raw bundle is ~715 KB. A filesystem could only ever have
+   held the gzipped form, so "grow the filesystem" was not on the table without
+   a partition rebalance that would take bytes from `app0`/`app1` and so make
+   the *code* budget worse. Embedding avoids trading code for assets.
+2. **There is no filesystem to fail.** A mounted-LittleFS `/ui` has a failure
+   mode the C++ genuinely has: a second flash step (`uploadfs`) that can drift
+   from the app image, leaving a firmware whose `/ui` 404s or serves a stale
+   bundle. Embedded, the UI on the device is by construction the bundle in the
+   tree.
+3. **It costs zero RAM.** The bytes are `&'static [u8]` in `.flash.rodata` and
+   the handler streams them through the httpd send buffer. Static RAM is
+   **133,168 B before and after** — the binding constraint on this machine
+   (§12) is untouched by a 199 KB feature.
+
+### 13.2 What the growth actually is
+
+| | before | after |
+|---|---:|---:|
+| image | 1,338,816 B | 1,559,520 B |
+| headroom | 496,192 B (27.05 %) | **275,488 B (15.01 %)** |
+| static RAM | 133,168 B | **133,168 B** |
+
+`+220,704 B` total, of which **199,270 B (90 %) is the bundle itself**. The
+remaining ~21 KB is the handler: the MIME table, `resolve_ui`, `write_ui_file`,
+and the `build.rs` module. So this is a feature paid for with the feature's own
+bytes, not code growth — which is the distinction §4's per-section split exists
+to make, and `.flash.rodata` is where it landed (259,208 → 460,792 B, +201,584 B
+against a +199,270 B bundle).
+
+### 13.3 §3's drop order was not used
+
+Nothing was dropped to absorb this. The bundle is not "waste to be trimmed
+later" — it is the UI the human needs to test anything at all, and it is
+already the minimal form (gzip, hashed, no sourcemaps, no legacy polyfill
+target configured).
+
+### 13.4 The ceiling, and what would replace it
+
+The embedded form has one real limit: **only the gzip variant exists**, so it is
+sent with `Content-Encoding: gzip` unconditionally and a client that cannot
+decode gzip cannot load the UI (`curl` needs `--compressed`; every browser
+advertises gzip). If the bundle ever needs an identity fallback — an old
+`curl`, a raw HTTP client, an MQTT-driven asset fetcher — that is the trigger to
+move to `littlefs`, which can hold both forms, and it should come with a
+partition rebalance, not with an app-slot squeeze.
+
+Re-baselined as `f25-web-ui-embedded`.

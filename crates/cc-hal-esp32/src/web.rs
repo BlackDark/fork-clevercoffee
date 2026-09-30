@@ -96,7 +96,7 @@ use std::sync::Mutex;
 
 use cc_config::schema::{ParamValue, SCHEMA};
 use cc_config::Config;
-use esp_idf_svc::http::server::{Configuration, EspHttpConnection, EspHttpServer};
+use esp_idf_svc::http::server::{Configuration, EspHttpConnection, EspHttpServer, Request};
 use esp_idf_svc::http::Method;
 use esp_idf_svc::sys::EspError;
 use log::{info, warn};
@@ -785,17 +785,194 @@ pub fn unavailable_json(feature: &str, task: &str) -> String {
     format!("{{\"error\":\"{feature} is not available in this build\",\"reason\":\"{task}\"}}")
 }
 
-/// The `/ui` body for a build with no embedded bundle.
+// The built React SPA, embedded by `build.rs`. The table is `&'static` and the
+// bytes live in flash, so serving the UI costs no RAM beyond the httpd send
+// buffer — which is the reason the bundle is embedded rather than mounted: see
+// `build.rs` for the size arithmetic that decided it.
+mod bundle {
+    include!(concat!(env!("OUT_DIR"), "/ui_bundle.rs"));
+}
+
+use bundle::{UiAsset, UI_ASSETS, UI_FILE_COUNT, UI_INDEX, UI_TOTAL_BYTES};
+
+/// The chunk size the embedded-file writer streams at.
 ///
-/// F25 (the React SPA) is a re-embed of `ui/build`, and that bundle is not in
-/// the tree yet. Saying so is the honest response; serving an empty page would
-/// look like a JavaScript error in the browser.
-pub const UI_PLACEHOLDER: &str = concat!(
-    "CleverCoffee control UI\n",
-    "\n",
-    "This build has no embedded web bundle (F25/R3-20). The REST API and the\n",
-    "/events stream are live; see docs/rust-migration/01-feature-inventory.md F25.\n"
-);
+/// The same 512 B [`respond`] uses, and for the same reason: the httpd task's
+/// stack is 8 KB and the send path buffers, so a large chunk is a large
+/// allocation on a machine whose heap is the scarce resource. At 512 B the
+/// 183 KB bundle is 357 `httpd_resp_send_chunk` calls, which is nothing.
+const UI_CHUNK_BYTES: usize = 512;
+
+/// What `GET /ui...` resolved to.
+///
+/// The three cases are distinct because conflating them is what makes a broken
+/// SPA hard to diagnose: serving `index.html` for a missing `.js` produces a
+/// `200`, a correct-looking HTML body, and a browser console full of MIME
+/// errors — which looks like a broken app rather than a missing file.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UiTarget {
+    /// Serve this embedded file.
+    File(&'static UiAsset),
+    /// No such file, but the path has no extension: it is a client-side route,
+    /// so serve the SPA shell and let the router sort it out.
+    SpaRoute,
+    /// No such file, and it names an extension: the caller sends a 404.
+    Missing,
+}
+
+/// Resolve a request URI to an embedded asset.
+///
+/// `/ui` and `/ui/` are the shell. Everything else is looked up under `/ui`, and
+/// an unknown extensionless path falls back to the shell — that is what makes a
+/// deep link like `/ui/config/behavior` survive a page reload.
+///
+/// The lookup is a linear scan over a `&'static` table comparing borrowed
+/// strings, so a request allocates nothing. Path traversal is unrepresentable
+/// rather than filtered: there is no filesystem, and a path is either a key in
+/// the table or it is nothing.
+///
+/// The query string is stripped before the extension test. The C++ tests
+/// `request->url()`, which is the URL *including* the query
+/// (`WebServerManager.cpp:977`, `:1017`), so a C++ SPA route with `?x=1.5` is
+/// treated as an asset request and 404s. That is a latent C++ bug, not parity
+/// worth reproducing.
+#[must_use]
+pub fn resolve_ui(uri: &str) -> UiTarget {
+    let path = uri.split_once('?').map_or(uri, |(path, _)| path);
+    let Some(rest) = path.strip_prefix("/ui") else {
+        return UiTarget::Missing;
+    };
+    // `/ui*` is the registered template, so `/uixyz` reaches this handler too
+    // and must not be treated as a child of `/ui`.
+    if !rest.is_empty() && !rest.starts_with('/') {
+        return UiTarget::Missing;
+    }
+    let rest = rest.trim_start_matches('/');
+    if rest.is_empty() {
+        return UiTarget::File(UI_INDEX);
+    }
+    if let Some(asset) = UI_ASSETS
+        .iter()
+        .find(|asset| asset.path.strip_prefix('/') == Some(rest))
+    {
+        return UiTarget::File(asset);
+    }
+    if rest.contains('.') {
+        UiTarget::Missing
+    } else {
+        UiTarget::SpaRoute
+    }
+}
+
+/// The `Content-Type` for an embedded asset, from its path.
+///
+/// **This function is the difference between a working UI and a blank page.** A
+/// browser refuses to execute a script whose `Content-Type` is not a JavaScript
+/// media type, and it refuses a stylesheet that is not CSS — with a `200` in
+/// the network tab either way. `application/javascript` is used rather than the
+/// newer `text/javascript` because that is what the C++'s `getContentType`
+/// returns (`WebServerManager.cpp`, the `.js` arm) and because it is in every
+/// browser's accept list.
+#[must_use]
+pub fn mime_for(path: &str) -> &'static str {
+    match path.rsplit_once('.').map_or("", |(_, extension)| extension) {
+        "html" | "htm" => "text/html",
+        "js" | "mjs" => "application/javascript",
+        "css" => "text/css",
+        "json" | "map" => "application/json",
+        "webmanifest" => "application/manifest+json",
+        "svg" => "image/svg+xml",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "ico" => "image/x-icon",
+        "webp" => "image/webp",
+        "woff" => "font/woff",
+        "woff2" => "font/woff2",
+        "txt" => "text/plain",
+        // Never `text/plain` for an unknown type: that is the MIME error that
+        // produces a blank page, so an unrecognised asset must not claim to be
+        // text. It is also what makes an unrecognised type a download rather
+        // than something the browser tries to execute.
+        _ => "application/octet-stream",
+    }
+}
+
+/// Write one embedded file, with its MIME type and encoding.
+///
+/// `esp-idf-svc` 0.53.0 cannot send a `Content-Length`: the `httpd_resp_set_len`
+/// call is commented out in `server.rs:1056-1058`, so every response it writes
+/// is chunked. The terminating zero-length chunk below is therefore not
+/// optional — without it the browser waits for a body that never ends. This is
+/// the same reason [`respond`] ends with `conn.write(&[])`.
+///
+/// Compressed assets are sent with `Content-Encoding: gzip` unconditionally
+/// rather than negotiated. Only the gzip form is embedded, so there is no
+/// identity variant to fall back to, and every browser advertises gzip. The
+/// ceiling: a client that cannot decode gzip cannot load the UI, and `curl`
+/// needs `--compressed`.
+fn write_ui_file(
+    conn: &mut EspHttpConnection<'_>,
+    asset: &'static UiAsset,
+) -> Result<(), EspError> {
+    let mime = mime_for(asset.path);
+    // Cache parity with the C++ (`WebServerManager.cpp:907-921`): the shell must
+    // not be cached or a rebuilt UI is unreachable until the entry expires,
+    // while Vite's content-hashed asset names make the rest safe to pin.
+    let cache = if asset.path == UI_INDEX.path {
+        "no-cache, no-store, must-revalidate"
+    } else {
+        "max-age=604800"
+    };
+
+    if asset.gzip {
+        conn.initiate_response(
+            200,
+            Some("OK"),
+            &[
+                ("Content-Type", mime),
+                ("Content-Encoding", "gzip"),
+                ("Cache-Control", cache),
+            ],
+        )?;
+    } else {
+        conn.initiate_response(
+            200,
+            Some("OK"),
+            &[("Content-Type", mime), ("Cache-Control", cache)],
+        )?;
+    }
+
+    for chunk in asset.bytes.chunks(UI_CHUNK_BYTES) {
+        let _ = conn.write(chunk);
+    }
+    let _ = conn.write(&[]);
+    Ok(())
+}
+
+/// `GET /ui` and everything under it.
+///
+/// Registered once, on the template `/ui*`. ESP-IDF's
+/// `httpd_uri_match_wildcard` (`httpd_uri.c:24-70`) treats a trailing `*` as
+/// "prefix", and a template *without* `*` or `?` still requires an exact length
+/// match — so enabling [`Configuration::uri_match_wildcard`] for this one route
+/// leaves all 23 exact `/api/*` handlers exactly as strict as they were.
+fn serve_ui(mut req: Request<&mut EspHttpConnection<'_>>) -> Result<(), EspError> {
+    let target = resolve_ui(req.uri());
+    let conn = req.connection();
+    match target {
+        UiTarget::File(asset) => write_ui_file(conn, asset),
+        UiTarget::SpaRoute => write_ui_file(conn, UI_INDEX),
+        UiTarget::Missing => {
+            // The C++'s "File not found" (`WebServerManager.cpp:994`), and
+            // deliberately not the shell: a missing asset must be visible as a
+            // 404 rather than smuggled in as HTML the browser then fails to
+            // parse as JavaScript.
+            conn.initiate_response(404, Some("Not Found"), &[("Content-Type", "text/plain")])?;
+            conn.write_all(b"File not found")
+        }
+    }
+}
 
 /// The routes this server registers, for the boot log and a route test.
 #[must_use]
@@ -825,7 +1002,7 @@ pub fn routes() -> Vec<(&'static str, Method)> {
         ("/api/restart", Method::Post),
         ("/events", Method::Get),
         ("/", Method::Get),
-        ("/ui", Method::Get),
+        ("/ui*", Method::Get),
     ]
 }
 
@@ -1142,11 +1319,9 @@ impl Web {
             })?;
         }
         {
-            server.fn_handler::<EspError, _>("/ui", Method::Get, |mut req| {
-                let conn = req.connection();
-                conn.initiate_response(200, Some("OK"), &[("Content-Type", "text/plain")])?;
-                conn.write_all(UI_PLACEHOLDER.as_bytes())
-            })?;
+            // One handler for the shell, the assets and the client-side routes.
+            // The `*` is what makes `/ui/brew` reach it at all; see [`serve_ui`].
+            server.fn_handler::<EspError, _>("/ui*", Method::Get, serve_ui)?;
         }
 
         // --- SSE ---------------------------------------------------------
@@ -1215,6 +1390,10 @@ impl Web {
             routes().len(),
             MAX_URI_HANDLERS
         );
+        // The bundle is embedded rather than mounted, so this line is the only
+        // proof at runtime that the UI is in the image at all -- and the two
+        // numbers are the ones to check against a Vite build.
+        info!("http: web UI embedded in flash: {UI_FILE_COUNT} files, {UI_TOTAL_BYTES} B");
         Ok(Self {
             server,
             sse,
@@ -1842,6 +2021,12 @@ pub fn configuration() -> Configuration {
         max_open_sockets: MAX_OPEN_SOCKETS,
         stack_size: 8192,
         keep_alive: Some(esp_idf_svc::http::server::KeepAlive::new()),
+        // Required by the single `/ui*` handler: without it ESP-IDF compares
+        // URIs exactly and no path under `/ui` is ever routed, so the SPA would
+        // 404 on its own assets. It is a server-wide switch, so it was checked
+        // rather than assumed -- see [`serve_ui`] for why the other 23
+        // registrations stay exact.
+        uri_match_wildcard: true,
         ..Default::default()
     }
 }
@@ -2200,7 +2385,11 @@ pub mod tests {
             routes.contains(&("/", Method::Get)),
             "the / -> /ui/ redirect"
         );
-        assert!(routes.contains(&("/ui", Method::Get)));
+        assert!(
+            routes.contains(&("/ui*", Method::Get)),
+            "the UI is one wildcard route: the shell, its assets and its \
+             client-side routes all reach the same handler"
+        );
     }
 
     #[cfg_attr(test, test)]
@@ -2507,10 +2696,87 @@ pub mod tests {
     }
 
     #[cfg_attr(test, test)]
-    pub fn the_ui_placeholder_says_why_it_is_empty() {
-        // An empty page looks like a JavaScript failure. A sentence does not.
-        assert!(UI_PLACEHOLDER.contains("no embedded web bundle"));
-        assert!(UI_PLACEHOLDER.contains("F25"));
+    pub fn the_ui_shell_and_its_assets_are_embedded_and_gzipped() {
+        // The size assertion is the one that matters: the bundle is embedded rather
+        // than mounted, and it only fits because it is compressed. In a `const`
+        // block so a build that outgrows the app partition fails HERE rather
+        // than as an OTA that will not fit on a machine that is already wired
+        // up.
+        const _: () = assert!(
+            UI_TOTAL_BYTES < 400 * 1024,
+            "the embedded web UI no longer fits the app partition"
+        );
+        const _: () = assert!(UI_FILE_COUNT >= 3, "index.html, one JS and one CSS bundle");
+
+        // A JS file served as the wrong type is a blank page behind a 200, so
+        // the embedded assets are checked for the pairing that causes it.
+        for asset in UI_ASSETS {
+            assert!(
+                mime_for(asset.path) != "text/plain",
+                "{} would be served as text/plain",
+                asset.path
+            );
+            assert!(!asset.bytes.is_empty(), "{} is empty", asset.path);
+        }
+        let shell = resolve_ui("/ui");
+        assert_eq!(shell, UiTarget::File(UI_INDEX));
+        assert_eq!(UI_INDEX.path, "/index.html");
+        assert!(UI_INDEX.gzip, "the shell must be gzip-encoded");
+    }
+
+    #[cfg_attr(test, test)]
+    pub fn a_javascript_bundle_is_served_as_javascript() {
+        assert_eq!(
+            mime_for("/assets/index-DTmvHJP_.js"),
+            "application/javascript"
+        );
+        assert_eq!(mime_for("/index.html"), "text/html");
+        assert_eq!(mime_for("/assets/index-B4vm-kEh.css"), "text/css");
+        assert_eq!(mime_for("/logo.png"), "image/png");
+        // An unrecognised extension must never be claimed as text.
+        assert_eq!(mime_for("/thing"), "application/octet-stream");
+    }
+
+    #[cfg_attr(test, test)]
+    pub fn a_client_side_route_serves_the_shell_but_a_missing_asset_does_not() {
+        // A reload on a deep link must boot the app, not 404.
+        assert_eq!(resolve_ui("/ui/config/behavior"), UiTarget::SpaRoute);
+        assert_eq!(resolve_ui("/ui/system"), UiTarget::SpaRoute);
+        // A missing script must be a 404. Serving the shell here is the failure
+        // that produces "200, HTML where JS was expected, blank screen".
+        assert_eq!(resolve_ui("/ui/assets/missing.js"), UiTarget::Missing);
+        // A query string is not part of the extension test.
+        assert_eq!(resolve_ui("/ui/system?x=1.5"), UiTarget::SpaRoute);
+        // `/ui*` also matches `/uixyz`, which is not a child of `/ui`.
+        assert_eq!(resolve_ui("/uixyz"), UiTarget::Missing);
+        // And the real asset is found.
+        let js = UI_ASSETS
+            .iter()
+            .find(|a| mime_for(a.path) == "application/javascript")
+            .map_or_else(|| panic!("no embedded JS"), |a| a.path);
+        assert_eq!(
+            resolve_ui(&alloc::format!("/ui{js}")),
+            UiTarget::File(
+                UI_ASSETS
+                    .iter()
+                    .find(|a| a.path == js)
+                    .unwrap_or(&UI_ASSETS[0])
+            )
+        );
+    }
+
+    #[cfg_attr(test, test)]
+    pub fn wildcard_matching_leaves_the_api_routes_exact() {
+        // `/ui*` only works because the server matches wildcards, and that
+        // switch is global. `httpd_uri_match_wildcard` requires an exact length
+        // match for a template with no `*`/`?` (httpd_uri.c:57-60), so this
+        // asserts the invariant the whole `/api/*` surface depends on.
+        for (uri, _) in routes() {
+            if uri != "/ui*" {
+                assert!(!uri.ends_with('*'), "{uri} would match by prefix");
+            }
+        }
+        assert!(configuration().uri_match_wildcard);
     }
 
     #[cfg_attr(test, test)]

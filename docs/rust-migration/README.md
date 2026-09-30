@@ -131,6 +131,16 @@ Recorded 2026-09-30, after R4-01 and R3-09 landed and were exercised on hardware
 - NVS, Wi-Fi STA, UART provisioning (round trip survives a reboot), MQTT, HTTP + SSE
   (25 routes), the 10 ms heater ISR, DS18B20 and TSIC-306, the HX711 scale, and
   **125 device tests that actually run on hardware** via `just test-esp32`.
+- **The web UI is on the device and it renders.** `GET /ui` serves the React SPA
+  from **flash**, not from a mounted filesystem: `crates/cc-hal-esp32/build.rs`
+  embeds the gzip build output with `include_bytes!`, which is why a 199,270 B
+  bundle costs **0 B of RAM** (static RAM is 133,168 B before and after). One
+  `/ui*` wildcard route serves the shell, the assets and the client-side routes,
+  with the MIME types checked (`text/html`, `application/javascript`,
+  `text/css`, `image/png`) and every asset served byte-for-byte identical to
+  the Vite build. Verified in Chrome on the device: navigation, Machine Status,
+  Machine Functions and Maintenance all render. The size arithmetic and the
+  embed-vs-mount decision are in [07 §13](./07-image-size-budget.md).
 
 ### Not done
 
@@ -138,9 +148,21 @@ Recorded 2026-09-30, after R4-01 and R3-09 landed and were exercised on hardware
   gate decision, not a silent drop — see 07 §3).
 - **R3-15**, OTA: still a `unavailable_json` stub. The safety gap in 01 §6 — an
   OTA must leave pump and valve off — is therefore still open.
-- **`/ui`** static SPA mount, and the **telnet transport** that ADR-0002's heap
-  shed is meant to protect. The shed logic is unit-tested but has no real client
-  to shed.
+- **`/ui` is not done in one respect: the SSE stream.** The SPA itself is served
+  from flash and renders on the device (see "Verified working" above), but
+  `GET /events` answers `200 text/event-stream` and then **ends the response
+  immediately with `Content-Length: 0`**, so the UI shows "Lost connection" and
+  no live temperature. Cause, found 2026-09-30 and not yet fixed: when the
+  `/events` handler returns, `esp-idf-svc`'s `EspHttpConnection::drop` calls
+  `complete()` (`http/server.rs:1159-1166`), which — because `initiate_response`
+  left `response_headers` pending — takes the `httpd_resp_send(len=0)` branch
+  instead of the chunked one, and that *is* `Content-Length: 0`. The detached
+  broadcaster's later `httpd_resp_send_chunk` writes then have nothing to write
+  to. This is the async-detach path, it predates the UI work, and fixing it
+  needs an ESP-IDF-level decision about how to keep `complete()` from firing.
+  Until then the UI's live values come from polling, not the stream.
+- The **telnet transport** that ADR-0002's heap shed is meant to protect. The
+  shed logic is unit-tested but has no real client to shed.
 - **Switch presses have never been tested by hand.** The debounce and long-press
   are pinned by 17 host tests against a synthetic clock, and the four switches
   are `enabled=false` by default (faithful to the C++). The human has to press one.

@@ -1,9 +1,9 @@
 {
-  "label": "r4-01-reducer-and-display",
-  "recorded_utc": "2026-09-29T23:24:28+00:00",
-  "git": "4c4e072",
+  "label": "f25-web-ui-embedded",
+  "recorded_utc": "2026-09-30T10:36:15+00:00",
+  "git": "0815710",
   "mcu": "esp32",
-  "image_bytes": 1338816,
+  "image_bytes": 1559520,
   "app_slot_bytes": 1835008,
-  "headroom_bytes": 496192
+  "headroom_bytes": 275488
 }
