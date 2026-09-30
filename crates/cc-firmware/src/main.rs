@@ -1888,12 +1888,34 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
                 // machine, so the negation happens here, against the machine
                 // this task owns.
                 cc_hal_esp32::web::Command::TogglePid => {
-                    let enabled = !control.machine().pid.mode_enabled;
+                    // Negate the **operator's setting**, not the heater's gate.
+                    //
+                    // The C++ computes `!Config::pidEnabled.get()`
+                    // (`WebServerManager.cpp:466`) — the config value, i.e.
+                    // what the operator asked for. Negating `mode_enabled`
+                    // instead meant the toggle computed its next value from a
+                    // flag that `process_control` rewrites every tick, so a
+                    // second press in a machine sitting in `PID_DISABLED` would
+                    // toggle back to the value it already had and the switch
+                    // could not be turned on from off at all.
+                    let enabled = !control.machine().pid.runtime_enabled;
                     config.pid.enabled = enabled;
                     persist_pid_enabled(&mut store, enabled, &config);
                     control.feed(
                         &config,
                         Event::Command(cc_machine::Command::SetUserPidEnabled(enabled)),
+                        &mut effects,
+                    );
+                    // The C++'s other two lines on this handler
+                    // (`WebServerManager.cpp:469-470`), omitted here:
+                    // `standbyCoordinator().reset()` and
+                    // `requestNormalOperation(...)`. Together they mean "asking
+                    // for the PID also asks for normal operation", so turning
+                    // the PID on **wakes the machine** rather than leaving it in
+                    // standby with a live setting nobody can see the effect of.
+                    control.feed(
+                        &config,
+                        Event::Command(cc_machine::Command::NormalOperation),
                         &mut effects,
                     );
                     info!("config: POST /api/pid toggled pid.enabled -> {enabled}");
@@ -2348,7 +2370,34 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
                 temperature_c: last_reading.map_or(f64::NAN, |(celsius, _)| celsius),
                 setpoint_c: control.setpoint(),
                 heater_power_pct: f64::from(control.pid_output()) / 10.0,
-                pid_enabled: machine.pid.mode_enabled,
+                // `runtime_enabled`, **not** `mode_enabled` — and the difference
+                // is the whole bug the human reported.
+                //
+                // They are two different facts:
+                //
+                //   * `runtime_enabled` — `SystemContext::isProcessPidEnabled()`,
+                //     the **operator's setting**. This is what `POST /api/pid`
+                //     toggles (via `setUserPidEnabled`, which is exactly what
+                //     the C++ calls at `WebServerManager.cpp:468`) and what is
+                //     persisted in `config.pid.enabled`.
+                //   * `mode_enabled` — `ProcessController::isPIDEnabled()`, the
+                //     heater's **derived gate**, recomputed every tick by
+                //     `should_pid_be_enabled` from the machine state, and forced
+                //     to `false` whenever the PID is not *permitted* right now
+                //     (sensor error, empty tank, standby, a brew in progress).
+                //
+                // Reporting the gate made `POST /api/pid` answer
+                // `{"success":true,"pidEnabled":true}` and the very next
+                // `/api/status` report `false`, because in `PID_DISABLED` the gate
+                // is false by definition and `process_control` drives it straight
+                // back. The UI showed a switch that turned itself off.
+                //
+                // `runtime_enabled` is both the faithful answer (the C++'s
+                // `/api/pid` reads `!Config::pidEnabled`, the same operator's
+                // setting) and the only one a switch can be bound to. The gate
+                // is still observable, and it is what `heater_power_pct` and the
+                // state field are for.
+                pid_enabled: machine.pid.runtime_enabled,
                 // The two toggle inputs. `POST /api/steam` and
                 // `POST /api/backflush` are toggles in the C++ and compute
                 // `!current` from live machine state, which is only reachable

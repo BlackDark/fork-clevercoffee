@@ -1030,3 +1030,48 @@ absence is carried by `message` and `reason: "R3-15"` instead.
 The three mutating routes (`/api/ota/firmware`, `/api/ota/filesystem`, `/api/ota/url`)
 answer `501` with `unavailable_json("OTA", "R3-15")`. **501, not 404 and not 200**: the
 route exists and this build declines to implement it, which is what 501 means.
+
+---
+
+## 13. A request to sleep is honoured with the PID disabled 🔴 changed
+
+**Closed 2026-09-30** by the human's decision, after the human found it by using
+the UI: `POST /api/sleep` answered `202 {"accepted":true}`, the command reached the
+machine (`control: command Sleep`), and the state never left `PID_DISABLED`.
+
+The C++ cannot do this. Two defects compose — see
+[09 §25](./09-cpp-findings.md#25-rr-a-request-to-sleep-is-silently-dropped-whenever-the-pid-is-off):
+
+* `PidDisabledState::update` clears `requestStandby_` via `clearAllActionRequests()`
+  (`MachineStateContext.h:626`) **before** `checkTransitions` runs;
+* `PidDisabledState::checkSpecificTransitions` (`PidStates.cpp:135-148`) never
+  consults `isStandbyRequested()` at all — only `PidNormalState` and
+  `EepromErrorState` do.
+
+`pid.enabled` defaults to `false`, so this is the out-of-the-box path: the machine's
+own web interface could not put it to sleep.
+
+### What changed
+
+1. **`Requests::clear_all` spares `standby`.** The drain exists so a stale *action*
+   request cannot fire the moment the PID is re-enabled (S11). `requestStandby_` is
+   not an action — it asks the machine to go somewhere rather than start doing
+   something — and `STANDBY` re-arms nothing on entry, so a surviving flag costs
+   nothing. The other ten flags are cleared exactly as the C++ clears them.
+2. **`PidDisabled` honours the request**, which is what `PidNormalState` one line
+   away already does.
+
+### Verified on hardware, with the PID off throughout
+
+```
+POST /api/sleep -> 202,  isStandby=true,  state 95 (STANDBY)
+POST /api/wake  -> 202,  isStandby=false, state 20 (PID_NORMAL)
+display: present=true blanked=true frames=7 failed=0
+```
+
+The panel blanks as it should — seven frames drawn, then the 100 ms gate correctly
+stops writing to a blanked panel.
+
+Three pins in `parity_findings.rs` (`div13_*`) hold both halves: the request is
+honoured, it is **consumed** on the transition that acted on it, and waking still
+works — so closing this does not make standby a one-way door.

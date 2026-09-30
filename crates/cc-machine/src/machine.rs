@@ -238,8 +238,40 @@ impl Requests {
     /// machine was already in `PID_DISABLED` is thrown away rather than honoured
     /// on the next enable. The C++ accepts that trade
     /// (`PidStates.cpp:118-127`); the reducer reproduces it exactly.
+    ///
+    /// ⚠ **Divergence 2026-09-30, approved: `standby` is NOT cleared.**
+    ///
+    /// The C++ clears `requestStandby_` here too
+    /// (`MachineStateContext.h:626`), and that is what makes 09 §25 unreachable.
+    /// `PidDisabledState::update` runs *before* `checkTransitions`, so it wipes
+    /// the very request the transition is about to look for:
+    ///
+    /// ```text
+    /// POST /api/sleep -> 202, control: command Sleep, requested = false,
+    ///                   state stays PID_DISABLED, forever
+    /// ```
+    ///
+    /// Two defects compose here. `PidDisabledState::checkSpecificTransitions`
+    /// never checks `isStandbyRequested()` either (`PidStates.cpp:135-148`), so
+    /// even if the flag survived, nothing would read it. `PidNormalState` — the
+    /// state one line away — does check it, which is what makes this an oversight
+    /// rather than a design.
+    ///
+    /// **Why `standby` specifically is spared.** The purpose of this drain is
+    /// S11: stale *action* requests must not fire the moment the PID is
+    /// re-enabled, or a brew would start itself. `requestStandby_` is not an
+    /// action request — it is the only flag here that asks the machine to *go
+    /// somewhere* rather than start doing something, and the state it names
+    /// (`STANDBY`) re-arms nothing on entry: `PidDisabledState::onEntry` runs
+    /// before this drain in the very next tick, so the flag is consumed by the
+    /// transition that honours it. Leaving it set costs nothing and is what
+    /// makes the state reachable on request at all.
+    ///
+    /// The other ten flags are cleared exactly as the C++ clears them.
     pub fn clear_all(&mut self) {
+        let standby = self.standby;
         *self = Self::CLEAR;
+        self.standby = standby;
     }
 
     /// `clearStaleStopRequests()` — the four stop flags only, start flags kept
@@ -698,8 +730,21 @@ mod tests {
         assert!(!Machine::cold().backflush.on);
     }
 
+    /// Ten of the eleven flags drain; `standby` survives.
+    ///
+    /// ⚠ Divergence from the C++, approved 2026-09-30. `clearAllActionRequests`
+    /// clears `requestStandby_` too (`MachineStateContext.h:626`), which is one
+    /// half of why 09 §25 is unreachable — the other half is that
+    /// `PidDisabledState::checkSpecificTransitions` never reads the flag either.
+    /// `update` runs before `checkTransitions`, so the drain destroys the request
+    /// before the state machine could act on it.
+    ///
+    /// `standby` is the one flag spared, and deliberately: it is the only one that
+    /// asks the machine to *go somewhere* rather than start doing something, and
+    /// the drain exists so a stale *action* cannot fire the moment the PID is
+    /// re-enabled (S11). See [`Requests::clear_all`].
     #[test]
-    fn clear_all_drains_all_eleven_flags() {
+    fn clear_all_drains_the_action_flags_and_spares_standby() {
         let mut r = Requests {
             brew_start: true,
             brew_stop: true,
@@ -715,8 +760,27 @@ mod tests {
         };
         assert!(r.any());
         r.clear_all();
-        assert_eq!(r, Requests::CLEAR);
-        assert!(!r.any());
+
+        // The ten action requests go, exactly as the C++ clears them.
+        assert!(!r.brew_start);
+        assert!(!r.brew_stop);
+        assert!(!r.steam_start);
+        assert!(!r.steam_stop);
+        assert!(!r.manual_flush_start);
+        assert!(!r.manual_flush_stop);
+        assert!(!r.backflush_enter);
+        assert!(!r.backflush_cycle_start);
+        assert!(!r.backflush_stop);
+        assert!(!r.normal_operation);
+
+        // …and `standby` survives, or `PID_DISABLED` is a state the machine can
+        // only leave on a timer.
+        assert!(
+            r.standby,
+            "divergence: requestStandby_ is spared, or POST /api/sleep is \
+             ignored while the PID is off (09 §25)"
+        );
+        assert!(r.any(), "a set standby request is still a set request");
     }
 
     #[test]

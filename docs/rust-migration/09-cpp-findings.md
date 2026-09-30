@@ -920,3 +920,47 @@ toggle: a toggle on a retried POST is not idempotent, and `202 Accepted` for a c
 that may be applied twice is a claim the transport cannot make. Both are recorded here
 because the deviation is deliberate and the C++'s own answer is "it depends which
 document you read".
+
+---
+
+## 25. 🔴🔴 A request to sleep is silently dropped whenever the PID is off
+
+**Found 2026-09-30**, by the human driving the web UI. `POST /api/sleep` returned
+`202 {"accepted":true}`, the log showed `control: command Sleep` — so the request
+reached the machine — and the state never left `PID_DISABLED`. Ever.
+
+**Two C++ defects compose into one unreachable feature:**
+
+**1. `PidDisabledState::update` destroys the request before it can be read.**
+`PidStates.cpp:122-133` runs *before* `checkTransitions` (`StateMachine.cpp:84`)
+and calls `clearAllActionRequests()`, which clears `requestStandby_` along with the
+ten action flags (`MachineStateContext.h:615-627`, line 626).
+
+**2. `PidDisabledState::checkSpecificTransitions` never looks at it anyway.**
+`PidStates.cpp:135-148` checks `isPidRuntimeEnabled()` and the standby **timer**,
+and nothing else. Across all of `src/`, only two states consult
+`isStandbyRequested()`: `PidNormalState` (`PidStates.cpp:85`) and
+`EepromErrorState` (`ErrorStates.cpp:78`).
+
+Either defect alone would be survivable — fix the drain, or add the check. Together
+they mean `PID_DISABLED` can only be left on a **timeout**.
+
+**Why it is a defect and not a design.** `pid.enabled` defaults to `false`, so this
+is the out-of-the-box configuration and the machine's own web interface cannot put
+it to sleep. `PidNormalState` — the sibling state, one line away — does honour the
+request, which is the strongest available evidence that the omission is an oversight.
+And `requestStandby_` is not an *action* request: it asks the machine to go
+somewhere rather than start doing something, so it is outside the purpose of the
+drain, whose whole point is that a stale action must not fire the moment the PID is
+re-enabled (S11).
+
+**Closed 2026-09-30** at the human's decision. Two changes, both in `cc-machine`:
+`Requests::clear_all` spares `standby`, and `PidDisabled`'s transition check
+honours it. See `intentional-diffs.md` §13 and the `div13_*` pins in
+`crates/cc-machine/tests/parity_findings.rs`.
+
+**Verified on hardware**, with the PID off throughout: `POST /api/sleep` →
+`isStandby=true`, state 95; `POST /api/wake` → `isStandby=false`, state 20
+(`PidNormal`). The panel blanks as it should — `display: blanked=true frames=7`,
+seven frames drawn and then the 100 ms gate correctly stops writing to a blanked
+panel.

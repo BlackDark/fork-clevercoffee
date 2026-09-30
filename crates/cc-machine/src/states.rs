@@ -646,10 +646,34 @@ pub fn check_specific(
             None
         }
 
-        // `PidDisabledState::checkSpecificTransitions` (`PidStates.cpp:135-147`).
+        // `PidDisabledState::checkSpecificTransitions` (`PidStates.cpp:135-147`),
+        // **plus one deliberate divergence**.
         MachineState::PidDisabled => {
             if machine.is_pid_runtime_enabled() {
                 return Some(MachineState::PidNormal);
+            }
+            // ⚠ NOT in the C++ — `isStandbyRequested()` is checked by exactly two
+            // states there (`PidNormalState`, `PidStates.cpp:85`, and
+            // `EepromErrorState`, `ErrorStates.cpp:78`). `PidDisabledState`
+            // checks only the standby **timer**, so in the C++ a request to sleep
+            // is silently ignored whenever the PID happens to be off.
+            //
+            // Measured on hardware: `POST /api/sleep` returned `202
+            // {"accepted":true}`, the command reached the control task
+            // (`control: command Sleep`), and the machine sat in `PID_DISABLED`
+            // indefinitely. The UI offers a sleep button unconditionally, so a
+            // machine configured with the PID off — the out-of-the-box state,
+            // since `pid.enabled` defaults to `false` — cannot be put to sleep
+            // by its own web interface at all.
+            //
+            // That is a defect, not a design: a state whose only additional exit
+            // is a *timeout* is a state that cannot be left on request, and the
+            // requested exit already exists in the sibling state one line away.
+            // Approved by the human 2026-09-30. See `intentional-diffs.md` §13 and
+            // `09-cpp-findings.md` §25.
+            if machine.requests.standby {
+                machine.requests.standby = false;
+                return Some(MachineState::Standby);
             }
             // "Check standby timeout (mirrors original kPidDisabled behavior)".
             initialize_standby_if_needed(machine, ctx);

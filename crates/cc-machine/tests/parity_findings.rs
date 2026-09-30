@@ -827,3 +827,84 @@ fn all_events() -> Vec<Event> {
     }
     events
 }
+
+/// **09 §25, closed:** a request to sleep is honoured with the PID disabled.
+///
+/// `isStandbyRequested()` is checked by exactly two states in the C++
+/// (`PidNormalState`, `PidStates.cpp:85`, and `EepromErrorState`,
+/// `ErrorStates.cpp:78`). `PidDisabledState::checkSpecificTransitions`
+/// (`PidStates.cpp:135-148`) checks only the standby **timer**, so in the C++ a
+/// request to sleep is silently dropped whenever the PID happens to be off.
+///
+/// Found on hardware by the human driving the web UI: `POST /api/sleep`
+/// answered `202 {"accepted":true}`, `control: command Sleep` appeared in the
+/// log — so the request reached the machine — and the state never left
+/// `PID_DISABLED`. Since `pid.enabled` defaults to `false`, that is the
+/// out-of-the-box configuration, and the machine could not be put to sleep
+/// through its own web interface at all.
+///
+/// Closed 2026-09-30 by the human's decision: `PidDisabled` honours the request,
+/// which is what its sibling state one line away already does.
+#[test]
+fn div13_a_sleep_request_is_honoured_with_the_pid_disabled() {
+    let mut h = Harness::in_state(MachineState::PidDisabled);
+    // `in_state` sets the *state*; the runtime flag is separate, and leaving it
+    // true would let `PidDisabled`'s first arm hand straight back to
+    // `PidNormal` before the standby check is ever reached.
+    h.machine.pid.runtime_enabled = false;
+    assert_eq!(h.state(), MachineState::PidDisabled, "the precondition");
+    assert!(!h.machine.pid.runtime_enabled, "the PID is off");
+
+    // The command sets the request; the **next tick** is where the state
+    // machine checks it — which is the C++'s arrangement too (a request is
+    // polled by `checkSpecificTransitions`, never acted on where it is set).
+    h.send(Event::Command(Command::Standby));
+    h.tick();
+
+    assert_eq!(
+        h.state(),
+        MachineState::Standby,
+        "divergence: a sleep request must be honoured with the PID off — \
+         the C++ drops it here (09 §25)"
+    );
+}
+
+/// The request is **consumed**, so a later tick does not re-enter standby.
+///
+/// `MachineStateContext::setStandbyRequested(false)` — every C++ handler that
+/// reads a request also clears it, and that is what stops a stale flag from
+/// driving the machine somewhere it was never asked to go.
+#[test]
+fn div13_the_sleep_request_is_consumed_and_not_repeated() {
+    let mut h = Harness::in_state(MachineState::PidDisabled);
+    h.machine.pid.runtime_enabled = false;
+    h.send(Event::Command(Command::Standby));
+    h.tick();
+    assert_eq!(h.state(), MachineState::Standby);
+    assert!(
+        !h.requested(Request::Standby),
+        "the request must be cleared on the transition that consumed it, or a \\
+         later tick re-enters standby with nothing having asked it to"
+    );
+}
+
+/// Waking from standby still works, and does not need the PID.
+///
+/// The other half: closing §25 must not make standby a one-way door.
+#[test]
+fn div13_waking_from_standby_still_works_with_the_pid_disabled() {
+    let mut h = Harness::in_state(MachineState::PidDisabled);
+    h.machine.pid.runtime_enabled = false;
+    h.send(Event::Command(Command::Standby));
+    h.tick();
+    assert_eq!(h.state(), MachineState::Standby);
+
+    h.send(Event::Command(Command::NormalOperation));
+    h.tick();
+
+    assert_ne!(
+        h.state(),
+        MachineState::Standby,
+        "divergence: a wake request must be honoured from standby (09 §25)"
+    );
+}
