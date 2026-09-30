@@ -412,6 +412,50 @@ pub const CASES: &[Case] = &[
         run: web::tests::every_csqs_api_route_is_registered,
     },
     Case {
+        name: "web::every_route_the_frontend_calls_is_registered",
+        run: web::tests::every_route_the_frontend_calls_is_registered,
+    },
+    Case {
+        name: "web::a_flag_reads_the_csqs_spellings_and_treats_anything_else_as_off",
+        run: web::tests::a_flag_reads_the_csqs_spellings_and_treats_anything_else_as_off,
+    },
+    Case {
+        name: "web::an_explicit_toggle_command_carries_the_value_it_was_given",
+        run: web::tests::an_explicit_toggle_command_carries_the_value_it_was_given,
+    },
+    Case {
+        name: "web::a_toggle_route_inverts_the_published_value",
+        run: web::tests::a_toggle_route_inverts_the_published_value,
+    },
+    Case {
+        name: "web::the_ota_status_document_satisfies_the_uis_schema",
+        run: web::tests::the_ota_status_document_satisfies_the_uis_schema,
+    },
+    Case {
+        name: "web::the_ota_status_document_is_not_an_update_error",
+        run: web::tests::the_ota_status_document_is_not_an_update_error,
+    },
+    Case {
+        name: "web::an_unavailable_ota_route_says_which_build_and_which_task",
+        run: web::tests::an_unavailable_ota_route_says_which_build_and_which_task,
+    },
+    Case {
+        name: "web::a_write_that_needs_a_reboot_is_named_rather_than_claimed_applied",
+        run: web::tests::a_write_that_needs_a_reboot_is_named_rather_than_claimed_applied,
+    },
+    Case {
+        name: "web::an_ordinary_parameter_is_not_reported_as_needing_a_reboot",
+        run: web::tests::an_ordinary_parameter_is_not_reported_as_needing_a_reboot,
+    },
+    Case {
+        name: "web::a_rejected_write_still_names_the_reboot_keys_it_did_accept",
+        run: web::tests::a_rejected_write_still_names_the_reboot_keys_it_did_accept,
+    },
+    Case {
+        name: "web::a_write_that_changed_nothing_needs_no_reboot",
+        run: web::tests::a_write_that_changed_nothing_needs_no_reboot,
+    },
+    Case {
         name: "web::the_route_table_fits_the_servers_handler_budget",
         run: web::tests::the_route_table_fits_the_servers_handler_budget,
     },

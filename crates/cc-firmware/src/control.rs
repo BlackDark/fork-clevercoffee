@@ -535,7 +535,7 @@ fn initial_state(config: &Config, power_switch_pressed: Option<bool>) -> (Machin
 /// the same way ("offset added to the user-visible setpoint", `Config.h:808`), so
 /// that is the one used. `brew.temp_offset` defaults to `0.0`
 /// (`defaults.h:19`), so on a default machine the two are indistinguishable.
-fn effective_setpoint(config: &Config, steam_mode: bool) -> f64 {
+pub(crate) fn effective_setpoint(config: &Config, steam_mode: bool) -> f64 {
     if steam_mode {
         config.steam.setpoint
     } else {

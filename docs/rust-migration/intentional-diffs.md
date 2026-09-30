@@ -927,3 +927,106 @@ anything, including `silvia`, from the web UI.
 `mqtt.password`'s default is also `"silvia"` (`defaults.h:54`). That is a **credential**,
 not a name, and it is deliberately **not** renamed — it is a placeholder in both
 firmwares and changing it in one would break a config the other reads.
+
+---
+
+## 13. The four operator switches default to `enabled: true`, not `false` 🔴 changed
+
+**Decided 2026-09-30 by the human**, who owns the machine, after pressing the switches
+and finding that nothing happened.
+
+The C++ defaults all four to `false` (`Config.h:985,1004,1023,1042`), and this port was
+faithful to that. Faithful is why the buttons did nothing: `SwitchBank::poll` emits an
+edge for every switch it reads, and `cc_machine` drops `ButtonPressed` for a switch whose
+`hardware.switches.<name>.enabled` is `false` — so the human's presses were read off the
+pins, debounced, and discarded. The boot log said so explicitly
+(`switches.rs:214`: "the reducer will IGNORE this switch"), which is the log line that
+identified it.
+
+Four fields changed, in `cc-config` only:
+
+| Parameter | C++ default | This firmware |
+| --- | --- | --- |
+| `hardware.switches.brew.enabled` | `false` | `true` |
+| `hardware.switches.steam.enabled` | `false` | `true` |
+| `hardware.switches.power.enabled` | `false` | `true` |
+| `hardware.switches.hot_water.enabled` | `false` | `true` |
+
+Two places had to move together, because a schema default that disagreed with the
+struct default would render "default: false, value: true" in the config editor — a lie of
+exactly the kind this file exists to prevent: `Config::default()` in
+`crates/cc-config/src/config.rs`, and `ParamValue::Bool(..)` in
+`crates/cc-config/src/schema.rs`.
+
+### The risk, stated rather than assumed
+
+**GPIO 34, 35, 36 and 39 are input-only and have no internal pull-up or pull-down.** The
+pad is a bare input. The C++ asks for `GPIOPin::IN_HARDWARE`
+(`src/hardware/HardwareManager.cpp:140,151,162,173`), which is `pinMode(pin, INPUT)`
+(`GPIOPin.cpp:47-51`) — floating, with the board's external pull doing the work. This
+firmware keeps that: `switches::OPERATOR_PULL` is `Pull::Floating`, **not**
+`GpioIn::pull_for`'s `Pull::Down`, because ESP-IDF accepts a `Pull::Down` on GPIO34
+without complaint while doing nothing at all.
+
+So the default is now `true` on pins whose resting level depends on wiring this repository
+cannot see, and that is a real hazard:
+
+* A **floating** input wanders. `poll` is edge-detecting over the debounced level, and the
+  debouncer settles after 20 ms, so a pin with no external pull will eventually present a
+  settled *apparent* edge. On the brew switch that edge is `ButtonPressed`, and a
+  `ButtonPressed` with the machine in `PidNormal` **starts a brew**.
+* Whether that can happen depends entirely on whether the board has external pull-ups on
+  those four pins. **That was not determinable from this repository** — there is no
+  schematic in the tree, and the machine was not available for measurement during this
+  change. The C++ does not have the problem because it leaves the switches disabled, so
+  it never looks at the level.
+
+The mitigation in place is the one the C++ also relies on: an edge must survive the 20 ms
+debounce (`cc_domain::switch`), so a transient is not enough — a genuinely floating input
+does settle, though. `Poll` reports each switch's settled level after the first settling
+interval, so the resting state is visible in the boot log; **`brew` settling high in that
+log is the signature of a missing pull and is the thing to look at first.**
+
+**If a switch reads as permanently pressed, set its `enabled` back to `false` from the web
+UI** — that is the same escape hatch the C++ has, and it does not need a reflash.
+
+The change is made **because the human asked and they own the hardware**, not because the
+floating-input risk was resolved. It is not resolved.
+
+---
+
+## 14. `/api/ota/status` sends `status` as a string, not an integer 🔴 changed
+
+OTA itself is deferred to R3-15 and nothing here implements it. What is registered is the
+**route**, because the UI has an OTA tab and a `404` is indistinguishable from a firmware
+that lost the feature.
+
+The C++ serialises `doc["status"] = state.getUpdateStatus()` (`ota.cpp:738`), and
+`Status` is an unscoped `enum`, so ArduinoJSON writes it as an **integer**.
+
+The UI parses it as a **string**:
+
+```ts
+// ui/packages/frontend/src/lib/schemas.ts:59-72
+export const OtaStatusSchema = z.object({
+  status: z.enum(["idle", "downloading", "uploading", "processing", "complete", "error"]),
+  …
+});
+```
+
+`z.enum` rejects a number, so the C++'s integer would fail this firmware's validation and
+`pollOtaStatus` would return `null` — the OTA page could not render at all
+(`OTAUpdateSection.tsx:56-62`). This firmware therefore sends `"idle"` as a string.
+
+The full C++ key set is present at idle values (`updating`, `updateInProgress`, `type`,
+`uploadedSize`, `totalSize`, `filesystemPartition`, `ota.cpp:735-742`) so a client written
+against the C++'s shape gets zeros rather than `undefined`.
+
+**`error` is deliberately absent.** The C++ emits it only when an update has actually
+failed (`ota.cpp:744-751`); "OTA was never built" is not a failed update, and reporting it
+as one would make the UI raise a failure toast on a machine that simply has no OTA. The
+absence is carried by `message` and `reason: "R3-15"` instead.
+
+The three mutating routes (`/api/ota/firmware`, `/api/ota/filesystem`, `/api/ota/url`)
+answer `501` with `unavailable_json("OTA", "R3-15")`. **501, not 404 and not 200**: the
+route exists and this build declines to implement it, which is what 501 means.

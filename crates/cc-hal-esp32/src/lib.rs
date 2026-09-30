@@ -108,6 +108,6 @@ pub use sensors::{Abp2I2c, Abp2Pressure, GpioIn};
 pub use switches::{Levels, SwitchBank};
 pub use task::CommandQueue;
 pub use time::now_ms;
-pub use web::{Shared, Telemetry, Web};
+pub use web::{parameters_json, Shared, Telemetry, Web};
 pub use wifi::Sta;
 pub use zacwire::ZacwireCapture;

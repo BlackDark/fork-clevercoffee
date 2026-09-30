@@ -25,7 +25,7 @@ blocked.
 | **Device tests** | **89 passing on real hardware** via `just test-esp32`. This gate did not exist until R1-08's follow-up and its absence had already let three device bugs ship. |
 | Device image | **1,216,816 B** of an 1,835,008 B slot (33.7 % headroom). 382,528 B at R1; the growth is attributed in 07 §8–§10. |
 | **Static RAM** | **131,688 B — 42 % of the ESP32's 320 KB**, roughly double the pre-network figure. **RAM, not flash, is now the binding constraint**, and ADR-0002's 30 KB shed margin was tuned against a much smaller baseline. |
-| Connected device | `/dev/cu.usbserial-204140` — `esp32` rev v3.0, 4 MB, dual core, WiFi+BT, MAC `ec:62:60:76:b5:3c`. **WCH CH340**, not CP2102N. Link unreliable above ~460800. |
+| Connected device | `/dev/cu.usbserial-224140` — `esp32` rev v3.0, 4 MB, dual core, WiFi+BT, MAC `ec:62:60:76:b5:3c`. **WCH CH340**, not CP2102N. Link unreliable above ~460800. |
 | Heater output | **10 ms GPTimer ISR**, not LEDC (LEDC cannot do a 1 Hz carrier on this chip — 09 §17). **Never energised** except in a deliberate, logged panic-probe. |
 | Known regression | The control tick overruns its 10 ms budget in ~62 % of ticks, **independent of any scale** (09 §24). R4-01b's "zero ticks over 10 ms" currently fails. Do not fix it by relaxing the budget. |
 
@@ -55,7 +55,7 @@ headroom.** A Rust esp-idf image with `std` will not fit. R0-02 and R2-03 addres
 
 | Blocker | Blocks | Needs |
 | --- | --- | --- |
-| ~~No ESP32 device attached.~~ **Resolved 2026-09-28**: `/dev/cu.usbserial-204140` is present and is an `esp32` rev v3.0, 4 MB, dual core. | — | — |
+| ~~No ESP32 device attached.~~ **Resolved 2026-09-28**: `/dev/cu.usbserial-224140` is present and is an `esp32` rev v3.0, 4 MB, dual core. | — | — |
 | **Flaky outbound TLS on this host** (same URL succeeds and fails minutes later) | Every provisioning step: `espup install`, `cargo fetch`, the ESP-IDF clone, `idf_tools.py` | Retries. Do not record a single failure as "no network". |
 | `mise` tools declared but not installed | `pio run --target format`, frontend build | `mise install` |
 | ~~Whether `cargo bloat` works on macOS arm64~~ **No** (0.12.1, no symtab) | — | Fallback in use: `xtensa-esp32-elf-size -A` + the final link map |
@@ -534,3 +534,110 @@ exists in the code.
 
 See [02 §8](../../docs/rust-migration/02-research-compatibility-matrix.md#8-summary-of-unverified-assumptions).
 All ten (U1-U10) are still open. U3 (TSIC-306) is the one that can invalidate ADR-0004.
+
+---
+
+## HTTP contract pass (2026-09-30) — five UI-reported defects, all fixed and measured
+
+The human drove the embedded React UI and reported five real defects. All are fixed,
+flashed and measured on `ec:62:60:76:b5:3c`. **Note the serial port moved:**
+`/dev/cu.usbserial-204140` (every older note) is gone; it is now
+**`/dev/cu.usbserial-224140`**. Run `just identify` and do not trust the notes.
+
+**1. `POST /api/pid|steam|backflush` 400 on a bare POST.** The C++ reads no field on
+these three and computes `!current` (`WebServerManager.cpp:444,466,490`); the handler
+here demanded `value`/`on`, which the UI never sends (`useMachineToggles.ts:22,31,40`).
+New `register_toggle` + a `Toggle` struct. The negation happens **in the control task**
+(`Command::TogglePid/Steam/Backflush`), because the C++ reads *live* machine state and
+this web layer cannot without racing a snapshot. `?on=0`, `?on=1` and body `value=0`
+still work.
+
+**2. `POST /api/parameters` reported success without changing the machine.** `apply`
+wrote `Config` and NVS, but the reducer **caches** `Machine::pid.mode_enabled` and
+`Control::setpoint`, and nothing pushed the new value across — so `pid.enabled=1`
+persisted and did nothing until a reboot. The control task now diffs before/after and
+feeds `SetUserPidEnabled` / `set_setpoint`. Writes that genuinely **cannot** be live
+(`hardware.switches.*`, the two sensor-fit flags — all read once by `SwitchBank::new`)
+now answer `200` **with** `"requiresReboot":true` and the offending keys named, instead
+of claiming success.
+
+**3. `GET /api/config/download` 404.** Ported from `WebServerManager.cpp:706-723`,
+including `Content-Disposition: attachment; filename="config.json"` — without it a
+browser renders the JSON instead of saving it, which is why it is a separate route.
+
+**4. The whole `/api/ota/*` group 404.** All four routes registered.
+`/api/ota/status` returns the C++'s **real** status shape at idle values (the UI's
+`OtaStatusSchema` *requires* `status`/`progress`/`updateInProgress`, so omitting them
+left the page blank); `status` is sent as the **string** `"idle"` rather than the C++'s
+integer, which `z.enum` rejects — intentional-diff §14. The three mutating routes answer
+`501` + `unavailable_json("OTA","R3-15")`. **No OTA is implemented**, by design.
+
+**5. `/events` sent two responses — the highest-value fix.** Every route goes through
+`EspHttpServer::fn_handler`, which wraps the closure in `to_native_handler`
+(`esp-idf-svc` `src/http/server.rs:660-685`) and calls **`complete()` after the handler
+returns**. `complete()` (`:1158-1170`) sees `response_headers.is_some()` (set by
+`initiate_response`) and takes the `httpd_resp_send(.., 0)` branch — writing a complete
+`Content-Length: 0` 200 that **ends the response before any frame exists**. The detached
+request then wrote the real chunked response as a **second** response on the same socket.
+The broadcaster-task design was right and is unchanged; the **wrapping** was the bug.
+`/events` is now registered with a **raw `httpd_uri_t`** (`web_async::register_raw_sse`),
+so nothing calls `complete()`. Measured after: **one** `HTTP/1.1 200`,
+`Transfer-Encoding: chunked`, **no `Content-Length`**, 13,408 B over 201 s.
+
+### 🔴 A stack overflow found while testing standby — and the lesson is the old one
+
+`SharedPanel::set_blank` existed, was unit-tested against a recorder, and was **called
+from nowhere**. Wiring it into the standby path (the C++'s `LoopManager.cpp:330-334`)
+crashed the device on the first transition to standby:
+
+```
+***ERROR*** A stack overflow in task pthread has been detected.
+rst:0xc (SW_CPU_RESET)
+```
+
+`pthread` is the **control** task — a Rust `std::thread` name does not reach FreeRTOS, so
+the panic handler reports the default. The cause: `set_blank` built
+`Oled::new_initialised(..)` purely to send **one byte** (`0xAE`/`0xAF`), and `Oled`
+embeds the 1 KB page buffer plus the `Ssd1306` wrapper, on an **8 KB** stack.
+
+Fixed by adding `I2cPanel::send_command(byte)` and sending the byte directly.
+`Oled::set_power_saved` is unchanged and still what the unit tests exercise.
+
+**This is notes' finding 3 repeating itself, verbatim.** A green test for a function
+nobody calls is not coverage. *Any* new call on the control task needs its frame size
+measured from `.debug_frame` on an **unstripped** build (`just diag-build`) — the
+release ELF has no frame info at all, because `strip = "symbols"`.
+
+### Standby / display — tested, and it works
+
+`PID_NORMAL → STANDBY → PID_NORMAL`, with the panel blanking and restoring:
+
+```
+blanked=false frames=0     → PID_NORMAL
+blanked=true  frames=13    → STANDBY   (frames FROZEN: 0xAE sent, nothing written after)
+blanked=false frames=125   → PID_NORMAL (0xAF, frames resume)
+```
+
+Note `POST /api/sleep` from `PID_DISABLED` is a **no-op** (state 95 is unreachable from
+state 90) — the C++'s `requestStandby` behaves the same way, and it is not a defect, but
+it surprised the test and will surprise an operator.
+
+### Buttons enabled — default `true`, and the risk is stated not resolved
+
+All four operator switches default to `true` on request (intentional-diff §13). **The
+stored NVS blob still carries the old `false` values**, so on this machine they had to be
+set once over HTTP before the new default took effect — `default=true` in
+`/api/parameters` is the code change; `value` is the device's blob. Worth remembering
+that a default change does not reach a device that has already persisted a config.
+
+`Pull::Floating` is kept deliberately: GPIO34/35/36/39 have no internal pull and
+ESP-IDF accepts a `Pull::Down` there while silently doing nothing. **Measured on this
+board:** with all four enabled the machine sat 35 s in `PID_DISABLED` and started no
+brew, so the pins settle LOW here. That is an observation about this board's wiring, not
+a resolution of the risk — `intentional-diffs.md` §13 has the full argument.
+
+### Safety during this work
+
+Pump and valve were **never** energised. 186 samples across the standby/wake cycle all
+read `refused pump=0 water=0 steam=0 heater=0  pins pump=false valve=false`. The heater
+ran only as the ordinary PID output against the configured 95 °C setpoint.

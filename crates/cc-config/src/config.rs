@@ -640,7 +640,13 @@ pub struct HardwareSwitches {
 pub struct HardwareSwitchesBrew {
     /// `hardware.switches.brew.enabled` - Enable Brew Switch
     ///
-    /// Enable physical brew switch
+    /// Enable physical brew switch.
+    ///
+    /// **Defaults to `true`, diverging from the C++'s `false`**
+    /// (`Config.h:985`). The human owns this machine, asked for the four
+    /// operator switches to work, and they were all disabled. Recorded in
+    /// `intentional-diffs.md`; the floating-input risk of an enabled switch on
+    /// an unwired input-only pin is recorded there too.
     pub enabled: bool,
     /// `hardware.switches.brew.type` - Brew Switch Type
     ///
@@ -657,7 +663,7 @@ pub struct HardwareSwitchesBrew {
 impl Default for HardwareSwitchesBrew {
     fn default() -> Self {
         Self {
-            enabled: false,
+            enabled: true,
             r#type: SwitchType::Toggle,
             mode: SwitchMode::NormallyOpen,
         }
@@ -687,7 +693,7 @@ pub struct HardwareSwitchesSteam {
 impl Default for HardwareSwitchesSteam {
     fn default() -> Self {
         Self {
-            enabled: false,
+            enabled: true,
             r#type: SwitchType::Toggle,
             mode: SwitchMode::NormallyOpen,
         }
@@ -717,7 +723,7 @@ pub struct HardwareSwitchesPower {
 impl Default for HardwareSwitchesPower {
     fn default() -> Self {
         Self {
-            enabled: false,
+            enabled: true,
             r#type: SwitchType::Toggle,
             mode: SwitchMode::NormallyOpen,
         }
@@ -747,7 +753,7 @@ pub struct HardwareSwitchesHotWater {
 impl Default for HardwareSwitchesHotWater {
     fn default() -> Self {
         Self {
-            enabled: false,
+            enabled: true,
             r#type: SwitchType::Toggle,
             mode: SwitchMode::NormallyOpen,
         }

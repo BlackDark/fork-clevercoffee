@@ -780,7 +780,9 @@ pub const SCHEMA: &[ParamSpec] = &[
     ParamSpec::new(
         "hardware.switches.brew.enabled",
         ParamKind::Bool,
-        ParamValue::Bool(false),
+        // `true`, not the C++'s `false` (`Config.h:985`) — see
+        // `HardwareSwitchesBrew::enabled` and intentional-diffs.md.
+        ParamValue::Bool(true),
         None,
         None,
     ),
@@ -801,7 +803,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ParamSpec::new(
         "hardware.switches.steam.enabled",
         ParamKind::Bool,
-        ParamValue::Bool(false),
+        ParamValue::Bool(true),
         None,
         None,
     ),
@@ -822,7 +824,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ParamSpec::new(
         "hardware.switches.power.enabled",
         ParamKind::Bool,
-        ParamValue::Bool(false),
+        ParamValue::Bool(true),
         None,
         None,
     ),
@@ -843,7 +845,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ParamSpec::new(
         "hardware.switches.hot_water.enabled",
         ParamKind::Bool,
-        ParamValue::Bool(false),
+        ParamValue::Bool(true),
         None,
         None,
     ),

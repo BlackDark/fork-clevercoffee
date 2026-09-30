@@ -142,27 +142,95 @@ both encodings are accepted and the body wins if both are present.
 - [ ] `POST /api/pid?on=1` → `202`, and `/api/status` reports `pidEnabled: true`
 - [ ] `POST /api/pid?on=0` → `202`, `pidEnabled: false`
 - [ ] `POST /api/setpoint?value=95` → `202`; the setpoint changes
-- [ ] `POST /api/steam?on=1` then `?on=0` → `202` both times
-- [ ] `POST /api/pid` with no value at all → `400 {"error":"missing `value`"}`
+- [ ] `POST /api/steam` with **no field at all** → `200`, and it **toggles** (the C++'s
+      semantics, `WebServerManager.cpp:444`). Repeat and confirm `steamMode` alternates.
+      `/api/status` must follow.
+- [ ] `POST /api/pid` with no field at all → `200 {"success":true,"pidEnabled":<flipped>}`.
+      ⚠ **Not** `400` — that was the bug: the handler used to demand a `value` field the
+      C++ never reads and the UI never sends.
+- [ ] `POST /api/backflush` with no field → `200`, toggles backflush mode
+- [ ] The explicit forms still work: `POST /api/pid?on=0` → `{"pidEnabled":false}`,
+      `?on=1` → `{"pidEnabled":true}`, and body `value=0` likewise
+- [ ] `POST /api/parameters` with `pid.enabled=0` → `200`, and `/api/status` `pidEnabled`
+      becomes `false` **without a reboot**. A `200` that does not change the running
+      machine is the Bug-2 failure; check `/api/status`, not just the status code.
+- [ ] `POST /api/parameters` with a boot-only parameter (e.g.
+      `hardware.switches.brew.enabled=1`) → `200` **with** `"requiresReboot":true` and the
+      offending key named. A plain `{"success":true}` for that key is the old lie.
 
 ### 5c. The operator switches
 
-`hardware.switches.*.enabled` defaults to `false` in **both** firmwares
-(`Config.h:985,1004,1023,1042`), so out of the box a switch press does nothing and
-the boot log says so. ⚠ **GPIO 34/35/36/39 are input-only with no internal pull**
-(`switches.rs` has the full argument), so an enabled switch on an unwired pin is a
-*floating* input that the debouncer will eventually call pressed. Wire the switch, or
-leave the flag off.
+⚠ **`hardware.switches.*.enabled` now defaults to `true` in the Rust firmware and `false`
+in the C++** (`Config.h:985,1004,1023,1042`). Changed on request 2026-09-30; the reasoning
+and the risk are in `intentional-diffs.md` §13. The short version: the human pressed the
+switches and nothing happened, because a disabled switch's edges are read and discarded.
 
-- [ ] `POST /api/parameters?hardware.switches.brew.enabled=true` → `200`
-- [ ] Reboot. The boot log line changes from
-      `switch brew: GPIO34 … enabled false -- the reducer will IGNORE this switch` to
-      `switch brew: GPIO34 … enabled true`
-- [ ] Press the physical switch. **This step needs a hand** — no automated check can
+⚠ **GPIO 34/35/36/39 are input-only with no internal pull** (`switches.rs` has the full
+argument), so an enabled switch on an unwired pin is a *floating* input the debouncer will
+eventually settle as **pressed** — and a settled brew-switch press starts a brew. The pull
+is `Pull::Floating` on purpose (`OPERATOR_PULL`); do not "fix" it to `Pull::Down`, which
+ESP-IDF accepts on GPIO34 and silently ignores.
+
+- [ ] Boot log lists all four switches as `enabled true` (no "reducer will IGNORE" suffix)
+- [ ] **First: confirm each switch's settled resting level in the boot log.** A switch that
+      settles **high** with nothing touching it is a missing external pull — fix the
+      wiring or set its flag back to `false` before going further. This is the one check
+      that can prevent a brew starting on its own.
+- [ ] Press the physical brew switch. **This step needs a hand** — no automated check can
       substitute for it. Watch `/api/status` (`brewing`) and the serial log
 - [ ] The same for `steam`, `power` and `hot_water`
-- [ ] Set the flag back to `false` when finished, or a later boot with a floating pin
-      will start a shot on its own
+- [ ] To disable one without reflashing:
+      `POST /api/parameters hardware.switches.brew.enabled=0`, then reboot
+
+## 5d. The event stream (`GET /events`)
+
+⚠ **This is the check that catches the two-responses bug**, which is invisible to `curl`
+and obvious to a browser. It must be done at the socket level.
+
+- [ ] Exactly **one** `HTTP/1.1 200` on the connection. Two is the bug: an empty
+      `Content-Length: 0` response followed by the real chunked one.
+- [ ] `Transfer-Encoding: chunked` is present and **`Content-Length` is absent**
+- [ ] Bytes keep arriving for **minutes** (a 200 s capture is enough) — the connection must
+      not close and must not go quiet
+- [ ] The first frame is `event: hello` / `data: {"connected":true}`
+      (`WebServerManager.cpp:308-317`)
+- [ ] A browser opens the UI and the console shows **no** "cannot connect" / "connection
+      lost while the page was loading"
+- [ ] With one `/events` client open, `GET /api/parameters?filter=all` still answers in
+      well under a second. The httpd is one task; a handler that does not return is a
+      server that does not serve.
+
+Raw capture (no extra dependency):
+
+```sh
+python3 - <<'PY'
+import socket, time, re
+s = socket.create_connection(("<host>", 80), timeout=10)
+s.sendall(b"GET /events HTTP/1.1\r\nHost: h\r\nAccept: text/event-stream\r\n\r\n")
+s.settimeout(30); buf = b""; end = time.time() + 30
+while time.time() < end:
+    try: c = s.recv(4096)
+    except socket.timeout: break
+    if not c: print("SERVER CLOSED"); break
+    buf += c
+print("status lines:", len(re.findall(rb"HTTP/1\.1 \d{3}", buf)))
+print("Content-Length present:", b"Content-Length" in buf)
+print("chunked present:", b"Transfer-Encoding: chunked" in buf)
+print("bytes:", len(buf))
+PY
+```
+
+## 5e. OTA (deferred — the routes must still answer)
+
+OTA is **not implemented** (R3-15). These check that the UI's OTA tab gets an honest
+answer instead of a `404`, which would look like a lost feature.
+
+- [ ] `GET /api/ota/status` → `200`, with `status`, `progress` and `updateInProgress`
+      present (`OtaStatusSchema` requires all three), and `message`/`reason` naming R3-15
+- [ ] `GET /api/ota/status` carries **no** `error` key — "never built" is not "failed"
+- [ ] `POST /api/ota/firmware` → `501` + `{"error":"OTA is not available in this build"}`
+- [ ] The same for `/api/ota/filesystem` and `/api/ota/url`
+- [ ] The OTA page renders in the browser without a console error
 
 ## 6. Web UI
 

@@ -1751,6 +1751,24 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
         .power
         .enabled
         .then_some(switches.levels().power);
+    // The resting level of every input, printed once.
+    //
+    // The four operator switches are **floating inputs** — GPIO34/35/36/39 have
+    // no internal pull, and the C++ asks ESP-IDF for `IN_HARDWARE`
+    // (`pinmapping.h` and `IOSwitch.cpp`). On a board where a switch is not
+    // wired, a floating pin wanders and the debouncer will eventually report a
+    // press. The switches are now **enabled by default** at the human's
+    // request, so this line is the thing that answers "is my board about to
+    // start a brew by itself?" — and it must say the level, not just that the
+    // switch exists.
+    let levels = switches.levels();
+    info!(
+        "switch resting levels after settling: power={} brew={} steam={} \
+         hot_water={} water_tank={} -- a floating input reading high here with no \
+         switch wired will eventually read as a press",
+        levels.power, levels.brew, levels.steam, levels.hot_water, levels.water_tank_full,
+    );
+
     let (mut control, boot_effects) = control::Control::boot(&config, boot_now, power_pressed);
     {
         // The boot effects are applied by the same path as every other tick's,
@@ -1766,6 +1784,8 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
     let mut last_sse_ms: u32 = 0;
     let mut last_heap_log_ms: u32 = 0;
     let mut wifi_last_ms: u32 = 0;
+    // When the live parameter snapshot was last published to the HTTP layer.
+    let mut last_publish_ms: u32 = 0;
     let mut last_pid_log_ms: u32 = 0;
 
     // 🔴 The tick-timing measurement, which is R3-17's "the control tick is
@@ -1861,6 +1881,59 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
                         &mut effects,
                     );
                 }
+                // The C++'s `POST /api/pid` with no field:
+                // `!Config::getInstance().pidEnabled.get()`
+                // (`WebServerManager.cpp:466`). The web task sends no value
+                // because it cannot know the current one without racing the
+                // machine, so the negation happens here, against the machine
+                // this task owns.
+                cc_hal_esp32::web::Command::TogglePid => {
+                    let enabled = !control.machine().pid.mode_enabled;
+                    config.pid.enabled = enabled;
+                    persist_pid_enabled(&mut store, enabled, &config);
+                    control.feed(
+                        &config,
+                        Event::Command(cc_machine::Command::SetUserPidEnabled(enabled)),
+                        &mut effects,
+                    );
+                    info!("config: POST /api/pid toggled pid.enabled -> {enabled}");
+                }
+                // `!isSteamModeActive()` (`WebServerManager.cpp:444`), plus the
+                // C++'s `standbyCoordinator().reset()` and
+                // `requestNormalOperation(...)` on the same handler.
+                cc_hal_esp32::web::Command::ToggleSteam => {
+                    let on = !control.machine().steam_mode;
+                    let request = if on {
+                        cc_machine::Command::SteamStart
+                    } else {
+                        cc_machine::Command::SteamStop
+                    };
+                    control.feed(&config, Event::Command(request), &mut effects);
+                    control.feed(
+                        &config,
+                        Event::Command(cc_machine::Command::NormalOperation),
+                        &mut effects,
+                    );
+                    info!("config: POST /api/steam toggled steam mode -> {on}");
+                }
+                // `!systemContext_->backflushMode()`
+                // (`WebServerManager.cpp:490`), with the same wake-the-machine
+                // pair the steam handler does.
+                cc_hal_esp32::web::Command::ToggleBackflush => {
+                    let on = !control.machine().backflush.on;
+                    let request = if on {
+                        cc_machine::Command::BackflushEnter
+                    } else {
+                        cc_machine::Command::BackflushStop
+                    };
+                    control.feed(&config, Event::Command(request), &mut effects);
+                    control.feed(
+                        &config,
+                        Event::Command(cc_machine::Command::NormalOperation),
+                        &mut effects,
+                    );
+                    info!("config: POST /api/backflush toggled backflush mode -> {on}");
+                }
                 // `POST /api/steam?on=0|1` **toggles** steam mode in the C++
                 // (`WebServerManager.cpp:445-446`); the web layer here sends the
                 // intended value, so it is mapped to the two requests the reducer
@@ -1953,6 +2026,11 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
         // delivered here and there is nothing to hand over. One writer, one
         // place, one store write.
         for pairs in parameters.take_all() {
+            // What the two cached runtime values were *before* the write, so the
+            // push-into-the-machine below can tell whether they actually moved.
+            // Read before `apply`, not after.
+            let pid_enabled_before = config.pid.enabled;
+            let brew_setpoint_before = config.brew.setpoint;
             let applied = cc_config::assign::apply(&mut config, &pairs);
             for (key, err) in &applied.failed {
                 // The handler already logged each rejection with the request
@@ -1979,6 +2057,47 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
                 );
             }
             persist_config(&mut store, &config);
+            // **The running machine must change too**, not just NVS.
+            //
+            // This is the defect behind "the UI said success and the PID stayed
+            // off". `apply` writes the `Config` value and the value reaches NVS,
+            // so it survives a reboot — but several parameters are *also* cached
+            // in `cc_machine::Machine`, and nothing copies the new value across.
+            // The C++ has no such split because `Config` is a singleton the
+            // state machine reads directly on every tick; here the reducer owns
+            // its own copy, so a write has to be pushed into it explicitly.
+            //
+            // `pid.enabled` is the case the human hit: `Machine::pid.mode_enabled`
+            // is the flag `should_pid_be_enabled` consults, and it is only ever
+            // set by `SetUserPidEnabled` — which until now only
+            // `POST /api/pid?on=…` sent. So `POST /api/parameters pid.enabled=1`
+            // persisted the preference and did nothing to the machine until a
+            // reboot, and the handler answered `200 {"success":true}` throughout.
+            if config.pid.enabled != pid_enabled_before {
+                control.feed(
+                    &config,
+                    Event::Command(cc_machine::Command::SetUserPidEnabled(config.pid.enabled)),
+                    &mut effects,
+                );
+                info!(
+                    "config: pid.enabled={} pushed into the running machine (was {pid_enabled_before})",
+                    config.pid.enabled
+                );
+            }
+            // The setpoint is cached the same way (`Control::set_setpoint`), and
+            // `brew.setpoint` is what `effective_setpoint` reads on every tick —
+            // so a write to it has to be pushed too, or the display and the PID
+            // keep targeting the old temperature.
+            if (config.brew.setpoint - brew_setpoint_before).abs() > f64::EPSILON {
+                control.set_setpoint(control::effective_setpoint(
+                    &config,
+                    control.machine().steam_mode,
+                ));
+                info!(
+                    "config: brew.setpoint={} pushed into the running machine (was {brew_setpoint_before})",
+                    config.brew.setpoint
+                );
+            }
             // `standbyCoordinator().reset(); requestNormalOperation(...)` — the
             // C++'s last two lines (`:870-872`), on the same "a POST wakes the
             // machine" rule as `/api/setpoint`.
@@ -2116,6 +2235,18 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
         effects.append(&mut tick_effects);
         cc_machine::apply(&mut actuators, &mut side, control.machine(), &effects);
 
+        // Publish the values this task is actually running with, so
+        // `GET /api/parameters` does not answer from the boot snapshot.
+        //
+        // Once per heartbeat, not once per tick: this copies 98 values onto the
+        // heap, and at 2.5 ticks a second that is 245 copies a second for a
+        // number an operator looks at once a second. The heartbeat is the same
+        // 1 s cadence `/api/status` publishes on.
+        if now_ms().wrapping_sub(last_publish_ms) >= HEARTBEAT_MS {
+            last_publish_ms = now_ms();
+            parameters.publish_live(cc_hal_esp32::parameters_json(&config));
+        }
+
         // The scale's events, drained every tick, and the weight. See
         // `drain_scale`: the event drain is the only place a tare can be
         // persisted, because this task is the only holder of the store.
@@ -2133,14 +2264,36 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
         // straight back, so the pressure read above and the next one are not
         // delayed by more than a frame's bus time.
         if let Some(panel) = panel.as_mut() {
-            refresh_display(
-                panel,
-                &control,
-                &config,
-                &Readings::new(last_reading, pressure_bar, weight_g),
-                now,
-                &mut display_scratch,
-            );
+            // **The panel blanks in standby**, before the frame is drawn.
+            //
+            // The C++ checks `standbyCoordinator().shouldTurnOffDisplay()` first
+            // and `return`s without updating (`LoopManager.cpp:330-334`), so a
+            // blanked panel is never written to again until it wakes.
+            //
+            // Until this line existed, `SharedPanel::set_blank` was defined and
+            // **never called from anywhere** — the `0xAE` path was unit-tested
+            // and unreachable, which is the same failure shape as the notes'
+            // finding 3 (a fix that only existed in a test that never ran). The
+            // machine went to standby with the panel still lit.
+            //
+            // The rule here is "in standby" rather than the C++'s
+            // standby-plus-display-off-countdown, because the countdown
+            // (`standbyModeRemainingTimeDisplayOffMillis_`) is deliberately not
+            // ported — see `cc_machine::timing::DISPLAY_OFF_NOT_PORTED`. Blanking
+            // on entering standby is the C++'s behaviour minus the delay, and is
+            // stated rather than approximated silently.
+            let standby = control.state() == cc_domain::state::MachineState::Standby;
+            panel.set_blank(standby);
+            if !standby {
+                refresh_display(
+                    panel,
+                    &control,
+                    &config,
+                    &Readings::new(last_reading, pressure_bar, weight_g),
+                    now,
+                    &mut display_scratch,
+                );
+            }
         }
 
         // A reboot request from the HTTP layer, honoured here and not in the
@@ -2196,6 +2349,14 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
                 setpoint_c: control.setpoint(),
                 heater_power_pct: f64::from(control.pid_output()) / 10.0,
                 pid_enabled: machine.pid.mode_enabled,
+                // The two toggle inputs. `POST /api/steam` and
+                // `POST /api/backflush` are toggles in the C++ and compute
+                // `!current` from live machine state, which is only reachable
+                // from this task — so the httpd task gets the current value
+                // through the telemetry snapshot rather than by reaching into
+                // the machine.
+                steam_mode: machine.steam_mode,
+                backflush_mode: machine.backflush.on,
                 brewing: state.is_brew_state()
                     && state != cc_domain::state::MachineState::BrewFinished,
                 standby: state == cc_domain::state::MachineState::Standby,

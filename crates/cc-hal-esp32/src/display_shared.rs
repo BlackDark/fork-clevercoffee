@@ -36,7 +36,7 @@ use log::warn;
 use esp_idf_hal::i2c::I2cDriver;
 use esp_idf_svc::sys::{EspError, ESP_FAIL};
 
-use crate::display::{self, I2cPanel, Oled, FRAMEBUFFER_LEN};
+use crate::display::{self, I2cPanel, Oled, DISPLAY_OFF, DISPLAY_ON, FRAMEBUFFER_LEN};
 
 /// The I²C address the panel answers at.
 ///
@@ -260,13 +260,25 @@ impl<'bus> SharedPanel<'bus> {
         }
         self.blank = blank;
         if let Some(mut guard) = self.bus.take() {
-            // `set_power_saved` is the C++'s `setPowerSave`
-            // (`LoopManager.cpp:334-339`): one byte, `0xAE` or `0xAF`. The
-            // controller keeps its RAM, so waking restores the last frame with
-            // no re-flush — which is why the C++ can return early and still come
-            // back to a correct screen.
-            let sent = Oled::new_initialised(I2cPanel::new(&mut guard, ADDRESS))
-                .is_ok_and(|mut dev| dev.set_power_saved(blank).is_ok());
+            // One byte: `0xAE` to blank, `0xAF` to wake. The controller keeps its
+            // RAM across both, so waking restores the last frame with no
+            // re-flush — which is why the C++ can return early and still come
+            // back to a correct screen (`LoopManager.cpp:330-334`).
+            //
+            // **Not** `Oled::new_initialised(..).set_power_saved(..)`. That is the
+            // obvious spelling and it is a **stack overflow**: `Oled` embeds the
+            // 1 KB page buffer plus the `Ssd1306` wrapper, and the caller here is
+            // the control task with its 8 KB stack. Wiring this call into the
+            // standby path reset the device with
+            // `***ERROR*** A stack overflow in task pthread` on the first
+            // transition to standby — the same crash signature the `Display`
+            // scratch buffer already had a comment about, reached a second way.
+            // The unit tests exercised `set_blank` against a recorder and never
+            // built it on the real stack, which is the whole lesson of
+            // `notes.md` finding 3 repeating itself.
+            let sent = I2cPanel::new(&mut guard, ADDRESS)
+                .send_command(if blank { DISPLAY_OFF } else { DISPLAY_ON })
+                .is_ok();
             if !sent {
                 self.failed = self.failed.saturating_add(1);
             }

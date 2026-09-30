@@ -141,6 +141,18 @@ pub const DATA_CONTROL_BYTE: u8 = 0x40;
 /// commands".
 pub const COMMAND_CONTROL_BYTE: u8 = 0x00;
 
+/// `0xAE` — the SSD1306 "display OFF" command, and U8g2's `setPowerSave(1)`.
+pub const DISPLAY_OFF: u8 = 0xAE;
+
+/// `0xAF` — the SSD1306 "display ON" command, and U8g2's `setPowerSave(0)`.
+///
+/// Named because blanking the panel is exactly these two bytes and nothing else,
+/// and because the controller keeps its RAM across them — which is why the C++
+/// can blank the panel and come back to the same screen with no re-flush
+/// (`LoopManager.cpp:330-334` returns without updating, and the next frame after
+/// waking draws again).
+pub const DISPLAY_ON: u8 = 0xAF;
+
 /// Payload bytes per I²C write on the data path.
 ///
 /// 128 is U8g2's page size, so a frame is eight writes — the shape the C++
@@ -256,6 +268,27 @@ impl<'bus, 'd> I2cPanel<'bus, 'd> {
         // The trailing 0xAF, outside the sequence, exactly as U8g2 does it
         // (`u8g2_InitDisplay`).
         self.transfer(COMMAND_CONTROL_BYTE, &[0xAF])
+    }
+
+    /// Send **one** command byte.
+    ///
+    /// This exists because blanking the panel needs `0xAE`/`0xAF` and nothing
+    /// else, and the obvious way to send them — build an [`Oled`] and call
+    /// [`Oled::set_power_saved`] — puts a 1 KB page buffer plus the `Ssd1306`
+    /// wrapper on the caller's stack. [`crate::task::ControlStackBytes`]'s
+    /// control task has 8 KB, and doing that on it **overflowed it**: the device
+    /// reset with `***ERROR*** A stack overflow in task pthread` the first time
+    /// the machine entered standby. `Oled::set_power_saved` remains correct and
+    /// is still what the unit tests exercise; this is the path production uses,
+    /// and it costs one stack array.
+    ///
+    /// [`crate::task::ControlStackBytes`]: crate::task::CONTROL_STACK_BYTES
+    ///
+    /// # Errors
+    ///
+    /// Whatever the bus reports. A NAK means the panel is not there.
+    pub fn send_command(&mut self, byte: u8) -> Result<(), Error> {
+        self.transfer(COMMAND_CONTROL_BYTE, &[byte])
     }
 
     /// Write `bytes` with `control` in front, in chunks of

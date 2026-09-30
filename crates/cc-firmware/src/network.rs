@@ -311,6 +311,17 @@ pub struct Reading {
     pub heater_power_pct: f64,
     /// `context.isPidRuntimeEnabled()`.
     pub pid_enabled: bool,
+    /// `MachineStateContext::steamON_` (`MachineStateContext.h:785`).
+    ///
+    /// Published because `POST /api/steam` with no field is a **toggle** in the
+    /// C++ (`!isSteamModeActive()`, `WebServerManager.cpp:444`) and the httpd
+    /// task needs the current value to compute the target.
+    pub steam_mode: bool,
+    /// `systemContext_->backflushMode()` — whether backflush *mode* is armed.
+    ///
+    /// Published for `POST /api/backflush`'s toggle
+    /// (`WebServerManager.cpp:490`), on the same reasoning as [`Self::steam_mode`].
+    pub backflush_mode: bool,
     /// `isBrewState(state) && state != BREW_FINISHED`
     /// (`BrewHandler::isBrewActive`).
     pub brewing: bool,
@@ -343,6 +354,8 @@ pub fn telemetry_from(reading: Reading, uptime_ms: u32, weight_g: Option<f64>) -
         setpoint_c: reading.setpoint_c,
         heater_power_pct: reading.heater_power_pct,
         pid_enabled: reading.pid_enabled,
+        steam_mode: reading.steam_mode,
+        backflush_mode: reading.backflush_mode,
         brewing: reading.brewing,
         standby: reading.standby,
         standby_remaining_ms: reading.standby_remaining_ms,

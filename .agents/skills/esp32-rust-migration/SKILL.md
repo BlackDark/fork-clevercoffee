@@ -36,7 +36,7 @@ what has been done, and what is blocked. **Update it when you finish a task.**
 | --- | --- |
 | Board | ESP32-DevKitC V4, **ESP32-WROOM-32E** = the original ESP32 (Xtensa LX6, rev v3.0) |
 | MAC | `ec:62:60:76:b5:3c` |
-| Serial port | `/dev/cu.usbserial-204140` (WCH **CH340**, not CP2102N) |
+| Serial port | `/dev/cu.usbserial-224140` (WCH **CH340**, not CP2102N). **⚠ This changed on 2026-09-30** — it was `-204140` until then, and the device re-enumerates when it is unplugged, so the port is **not** stable across sessions. `just identify` is the only authority; if it disagrees with this table, the table is wrong. |
 | Flash | 4 MB, DIO @ 40 MHz, no PSRAM |
 | **`system.hostname`** | **`test-cc-rust`** |
 | Link speed | 115200. **Unreliable above ~460800** — use `just mon`, not a raw high-rate reader. |

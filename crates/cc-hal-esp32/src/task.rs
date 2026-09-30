@@ -173,13 +173,63 @@ pub type ParameterRequest = Vec<(String, String)>;
 /// nothing. A poisoned mailbox returns empty to the control task and refuses to
 /// the producer, so neither side can act on half a request.
 #[derive(Clone, Default)]
-pub struct ParameterHandoff(alloc::sync::Arc<Mutex<VecDeque<ParameterRequest>>>);
+pub struct ParameterHandoff {
+    /// Requests staged for the control task.
+    queue: alloc::sync::Arc<Mutex<VecDeque<ParameterRequest>>>,
+    /// The values the control task last published, for `GET /api/parameters`.
+    ///
+    /// See [`ParameterHandoff::publish_live`] for why the GET cannot use the
+    /// boot-time `Config` snapshot.
+    live: alloc::sync::Arc<Mutex<Option<alloc::string::String>>>,
+}
 
 impl ParameterHandoff {
     /// A mailbox with nothing staged.
     #[must_use]
     pub fn new() -> Self {
-        Self(alloc::sync::Arc::new(Mutex::new(VecDeque::new())))
+        Self {
+            queue: alloc::sync::Arc::new(Mutex::new(VecDeque::new())),
+            live: alloc::sync::Arc::new(Mutex::new(None)),
+        }
+    }
+
+    /// The queue half, for the `take_all` drain and `len`.
+    fn queue(&self) -> &Mutex<VecDeque<ParameterRequest>> {
+        &self.queue
+    }
+
+    /// The **current** values, for `GET /api/parameters`.
+    ///
+    /// # Why this exists
+    ///
+    /// The GET used to render from the `Config` captured when the HTTP server
+    /// was built — the boot snapshot. So a write via `POST /api/parameters` took
+    /// effect in the running machine immediately (the control task applies it)
+    /// and in NVS, and the very next read still reported the **old** number. The
+    /// human's report was "I enabled pid, the UI said successful, but the PID is
+    /// still disabled" — and the UI was not lying, it was reading a stale
+    /// snapshot.
+    ///
+    /// So the control task publishes the **rendered body** it would have
+    /// served, and the GET sends that. One `String` per heartbeat rather than
+    /// 98 copied values, and no lifetime to get wrong: `LiveValue::Text` borrows
+    /// from the `Config`, so a value list could not have crossed this boundary
+    /// without either leaking every field once a second or inventing a second
+    /// owned enum to hold the same five variants.
+    ///
+    /// A read that finds nothing published yet returns `None` rather than an
+    /// empty list, so the caller can answer from the boot snapshot instead of
+    /// pretending a machine has no parameters.
+    pub fn publish_live(&self, body: alloc::string::String) {
+        if let Ok(mut slot) = self.live.lock() {
+            *slot = Some(body);
+        }
+    }
+
+    /// The last published body, if the control task has published one.
+    #[must_use]
+    pub fn live(&self) -> Option<alloc::string::String> {
+        self.live.lock().ok().and_then(|slot| slot.clone())
     }
 
     /// Stage a request for the control task.
@@ -188,7 +238,7 @@ impl ParameterHandoff {
     /// nothing is staged and the caller owes the client an error.
     #[must_use]
     pub fn stage(&self, request: ParameterRequest) -> bool {
-        let Ok(mut slot) = self.0.lock() else {
+        let Ok(mut slot) = self.queue().lock() else {
             return false;
         };
         if slot.len() >= STAGED_PARAMETER_DEPTH {
@@ -205,7 +255,7 @@ impl ParameterHandoff {
     /// than the one after would make the last one wait 400 ms for nothing.
     #[must_use]
     pub fn take_all(&self) -> Vec<ParameterRequest> {
-        let Ok(mut slot) = self.0.lock() else {
+        let Ok(mut slot) = self.queue().lock() else {
             return Vec::new();
         };
         slot.drain(..).collect()
@@ -214,7 +264,7 @@ impl ParameterHandoff {
     /// How many requests are waiting.
     #[must_use]
     pub fn len(&self) -> usize {
-        self.0.lock().map_or(0, |slot| slot.len())
+        self.queue().lock().map_or(0, |slot| slot.len())
     }
 
     /// Whether nothing is waiting.

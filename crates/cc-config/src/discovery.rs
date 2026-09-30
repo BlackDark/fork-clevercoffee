@@ -707,27 +707,34 @@ mod tests {
                 .contains(&m.topic.rsplit('/').nth(2).unwrap_or(""))
             })
             .count();
-        // 16, exactly MQTTManager.cpp:848-871. The water-tank binary sensor is
-        // conditional (`:914`) and `hardware.sensors.watertank.enabled` defaults
-        // to false, so the default configuration publishes none of the
-        // conditional entities.
-        assert_eq!(unconditional, 16);
+        // 25, and **not** the C++'s 16 (`MQTTManager.cpp:848-871`). The nine
+        // extra entities are the switch-conditional ones, which the C++ omits
+        // because all four `hardware.switches.*.enabled` flags default to
+        // `false` (`Config.h:985,1004,1023,1042`) and this firmware defaults
+        // them to `true` — the divergence recorded in intentional-diffs.md. The
+        // water-tank binary sensor is still conditional (`:914`) and
+        // `hardware.sensors.watertank.enabled` is still `false`, so that entity
+        // is still absent.
+        assert_eq!(unconditional, 25);
         assert!(
             !config.hardware.sensors.watertank.enabled,
-            "this test's count depends on the water tank being off by default"
+            "this test's count depends on the water tank still being off by default"
         );
     }
 
     #[test]
     fn the_conditional_entities_appear_when_their_flag_is_set() {
         let mut config = Config::default();
+        // The brew switch now defaults to enabled, so `brewPidDelay` is
+        // published out of the box. The assertion that matters is the
+        // direction of the relationship, so it is checked by *turning it off*.
+        assert!(all(&config)
+            .iter()
+            .any(|m| m.topic.contains("/number/") && m.topic.contains("brewPidDelay")));
+        config.hardware.switches.brew.enabled = false;
         assert!(!all(&config)
             .iter()
             .any(|m| m.topic.contains("/number/") && m.topic.contains("brewPidDelay")));
-        config.hardware.switches.brew.enabled = true;
-        assert!(all(&config)
-            .iter()
-            .any(|m| m.topic.contains("brewPidDelay")));
     }
 
     #[test]

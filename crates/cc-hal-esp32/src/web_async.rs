@@ -89,10 +89,19 @@
 
 use core::ffi::c_char;
 
+use esp_idf_svc::sys::EspError;
 use esp_idf_sys::{
     httpd_req_async_handler_begin, httpd_req_async_handler_complete, httpd_req_t,
-    httpd_resp_send_chunk, ESP_OK,
+    httpd_resp_send_chunk, httpd_resp_send_custom_err, httpd_resp_send_err, httpd_resp_set_hdr,
+    httpd_resp_set_status, httpd_resp_set_type, ESP_FAIL, ESP_OK,
 };
+
+/// `httpd_err_code_t_HTTPD_500_INTERNAL_SERVER_ERROR`, named locally.
+///
+/// The generated binding spells it with its full enum prefix, which is
+/// unreadable at four call sites.
+const HTTPD_500: esp_idf_sys::httpd_err_code_t =
+    esp_idf_sys::httpd_err_code_t_HTTPD_500_INTERNAL_SERVER_ERROR;
 
 /// A request detached from the httpd task, ours to write until completed.
 ///
@@ -170,6 +179,23 @@ impl AsyncReq {
             httpd_req_async_handler_complete(self.raw);
         }
     }
+
+    /// Surrender ownership of the raw pointer without completing it.
+    ///
+    /// For the one path where the request must be released by a caller that is
+    /// *not* going to stream on it — `Sse::attach` refusing a client for want of
+    /// a slot (`register_raw_sse`'s error arm). Streaming on it after this would
+    /// be a use-after-free; completing it twice would be a double free. The
+    /// caller takes both responsibilities.
+    pub(crate) fn into_raw(self) -> *mut httpd_req_t {
+        // `ManuallyDrop` rather than `mem::forget`: `AsyncReq` has no `Drop`
+        // impl, so forgetting it is a no-op that clippy flags as
+        // `forget_non_drop`. `ManuallyDrop::new` says the intent directly — take
+        // the pointer out, and do not let the wrapper's scope run anything — and
+        // it keeps working if a `Drop` impl is ever added.
+        let this = core::mem::ManuallyDrop::new(self);
+        this.raw
+    }
 }
 
 /// Detach the request a handler is currently serving, after its response
@@ -222,4 +248,183 @@ pub(crate) unsafe fn begin_detached(raw: *mut httpd_req_t) -> Option<AsyncReq> {
 #[allow(dead_code, reason = "the documented fallback; see the doc comment")]
 pub(crate) fn sockfd(raw: *mut httpd_req_t) -> i32 {
     unsafe { esp_idf_sys::httpd_req_to_sockfd(raw) }
+}
+
+/// Register a handler that is **not** wrapped by `esp-idf-svc`'s
+/// `to_native_handler`, for the one route that must not have anything written
+/// after its handler returns.
+///
+/// # Why this exists — the double-response bug
+///
+/// Every route in this firmware is registered with `EspHttpServer::fn_handler`,
+/// which wraps the closure in `to_native_handler`
+/// (`esp-idf-svc` `src/http/server.rs:660-685`):
+///
+/// ```text
+/// let result = connection.invoke(&handler);
+/// match result {
+///     Ok(()) => { connection.complete()?; }   // <-- ALWAYS
+///     ...
+/// }
+/// ```
+///
+/// and `complete()` (`:1158-1170`) is:
+///
+/// ```text
+/// if self.response_headers.is_some() {
+///     httpd_resp_send(req, buf, 0)        // a COMPLETE response
+/// } else {
+///     httpd_resp_send_chunk(req, buf, 0)  // the chunked TERMINATOR
+/// }
+/// ```
+///
+/// For `/events` both arms are wrong:
+///
+/// * `initiate_response` sets `response_headers = Some(..)`
+///   (`server.rs:1078`), so the **first** arm runs: `httpd_resp_send(.., 0)`
+///   writes a complete `HTTP/1.1 200` with `Content-Length: 0`. The response is
+///   *over* at that point, on the wire, before a single SSE frame exists.
+/// * The detached request the handler handed to the broadcaster then writes a
+///   **second** `HTTP/1.1 200 ... Transfer-Encoding: chunked` header block and
+///   the frames — on the same socket, after a response that already ended.
+///
+/// That is exactly the two-concatenated-responses capture, and it is why Firefox
+/// says "cannot connect" and Chrome says "connection lost while the page was
+/// loading": both see a complete, empty response and then garbage where a
+/// second response should not be.
+///
+/// The broadcaster-task design is **not** the problem and stays: the handler
+/// must return, or the single-task httpd stops serving every other route. The
+/// *wrapping* is the problem.
+///
+/// # The fix
+///
+/// Register the route with a raw `httpd_uri_t` whose handler is this module's
+/// own `extern "C"` function, which does the work and returns without calling
+/// anything from `EspHttpConnection`. `EspHttpServer` exposes its
+/// `httpd_handle_t` through `RawHandle`, so `httpd_register_uri_handler` can be
+/// called directly.
+///
+/// The handler then does, in order: set status/type/headers on the raw request,
+/// `begin_detached`, hand the detached request to the broadcaster, return
+/// `ESP_OK`. Nothing writes to the *original* request afterwards, so the first
+/// response is the chunked one the broadcaster writes — and only one response is
+/// ever sent.
+///
+/// `ESP_OK` is returned rather than an error on purpose: ESP-IDF treats a
+/// non-`ESP_OK` return from a URI handler as a send failure and would try to
+/// write an error response of its own (`httpd_uri.c`, after the handler
+/// returns), which is the second response all over again.
+///
+/// # Safety of the `user_ctx`
+///
+/// `user_ctx` is the `Arc<Sse>` the handler needs, as a raw pointer. It is
+/// created by [`crate::web::Web::start`] with `Arc::into_raw` and is **never**
+/// freed: the server owns it for the life of the process, and ESP-IDF's own
+/// async example leaks the same way (its `httpd_async_req_t` carries a
+/// `malloc`'d request with no matching free on the success path). A double-free
+/// or use-after-free here would be a crash on every SSE connect, which is why
+/// the leak is stated rather than hidden.
+pub(crate) fn register_raw_sse(
+    server_handle: esp_idf_sys::httpd_handle_t,
+    sse: alloc::sync::Arc<crate::web::Sse>,
+) -> Result<(), EspError> {
+    let uri = c"/events";
+    // `Arc::into_raw` — the handler receives this back as `*mut c_void` and
+    // reborrows it. It is deliberately never reclaimed; see the docs above.
+    let user_ctx = alloc::sync::Arc::into_raw(sse)
+        .cast::<core::ffi::c_void>()
+        .cast_mut();
+    let conf = esp_idf_sys::httpd_uri_t {
+        uri: uri.as_ptr(),
+        // `HTTP_GET`. `esp-idf-sys` exposes the method as a plain `u32` field
+        // (`bindings.rs`, `httpd_uri_t::method`), and ESP-IDF's own `HTTP_GET`
+        // is 1 (`include/esp_http_server.h`, `enum httpd_method`).
+        // `Method::Get as u32` is the same number and keeps the two in step if
+        // the enum ever moves.
+        method: esp_idf_svc::http::server::Method::Get as u32,
+        handler: Some(sse_handler),
+        user_ctx,
+    };
+    // SAFETY: `conf.uri` points at a `c"/events"` literal, which is `'static` and
+    // outlives the registration, and `conf.handler` is `sse_handler`, which has
+    // the `extern "C" fn(*mut httpd_req_t) -> esp_err_t` signature the field
+    // declares. `&conf` coerces to the `*const httpd_uri_t` the C API takes;
+    // that coercion is the API's shape and has no `&raw` alternative.
+    #[allow(
+        clippy::borrow_as_ptr,
+        reason = "`httpd_register_uri_handler` takes `*const httpd_uri_t`; \
+                  `&conf` is the only way to spell it"
+    )]
+    let rc = unsafe { esp_idf_sys::httpd_register_uri_handler(server_handle, &conf) };
+    match EspError::from(rc) {
+        None => Ok(()),
+        Some(err) => Err(err),
+    }
+}
+
+/// The raw `extern "C"` handler ESP-IDF calls for `/events`.
+///
+/// Runs on the httpd task. It must return promptly — everything long-lived
+/// happens on the broadcaster task — and it must not let anything else write to
+/// `req` after it returns. See [`register_raw_sse`] for why.
+extern "C" fn sse_handler(req: *mut httpd_req_t) -> esp_idf_sys::esp_err_t {
+    // SAFETY: `req` is the live request ESP-IDF is dispatching, on the httpd
+    // task, which is the only task that may touch it until
+    // `httpd_req_async_handler_begin` copies it out.
+    unsafe {
+        if req.is_null() {
+            return ESP_FAIL;
+        }
+        // SAFETY: `user_ctx` is the `Arc<Sse>` pointer stored at registration
+        // (see `register_raw_sse`), alive for the life of the process, and
+        // `Arc::as_ref` reconstitutes the reference without consuming it. The
+        // httpd task is the only reader, and it does not outlive the server.
+        let sse: &crate::web::Sse = &*(*req).user_ctx.cast::<crate::web::Sse>();
+
+        // The response headers. These go on the **original** request, which is
+        // what `begin_detached` then copies into the detached one — so the order
+        // is load-bearing (see the module docs).
+        if httpd_resp_set_status(req, c"200 OK".as_ptr()) != ESP_OK
+            || httpd_resp_set_type(req, c"text/event-stream".as_ptr()) != ESP_OK
+            || httpd_resp_set_hdr(req, c"Cache-Control".as_ptr(), c"no-cache".as_ptr()) != ESP_OK
+            || httpd_resp_set_hdr(req, c"Connection".as_ptr(), c"keep-alive".as_ptr()) != ESP_OK
+        {
+            return httpd_resp_send_err(req, HTTPD_500, c"header".as_ptr());
+        }
+
+        // SAFETY: `req` is live and its headers are set, which is
+        // `begin_detached`'s contract.
+        let Some(async_req) = begin_detached(req) else {
+            return httpd_resp_send_err(req, HTTPD_500, c"sse unavailable".as_ptr());
+        };
+
+        // The broadcaster writes from here; this handler returns and nothing
+        // else touches `req`.
+        match sse.attach(async_req) {
+            Ok(()) => ESP_OK,
+            // Too many clients. `attach` handed the request back rather than
+            // taking it, so it must be released here or the session stays marked
+            // busy forever (`httpd_req_async_handler_begin` set `for_async_req`)
+            // and the server eventually stops accepting connections.
+            Err(refused) => {
+                // Freshly detached, owned here, not handed to the
+                // broadcaster, and released exactly once.
+                httpd_req_async_handler_complete(refused.into_raw());
+                // **Not** `httpd_resp_send_err`: ESP-IDF v5.5.5's
+                // `httpd_err_code_t` has no 503 member (`bindings.rs`: 500, 501,
+                // 505, 400, 401, 403, 404, 405, 408, 411, 413, 414, 431 and
+                // `ERR_CODE_MAX`), so the only way to send a 503 is
+                // `httpd_resp_send_custom_err` with the status line spelled out.
+                // The C++ answers 503 for this case through ESPAsyncWebServer,
+                // and 503 (not 429, not 500) is what `SSE_MAX_CLIENTS` being
+                // full means.
+                httpd_resp_send_custom_err(
+                    req,
+                    c"503 Service Unavailable".as_ptr(),
+                    c"too many event-stream clients".as_ptr(),
+                )
+            }
+        }
+    }
 }

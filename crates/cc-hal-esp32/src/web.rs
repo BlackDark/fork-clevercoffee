@@ -208,6 +208,17 @@ pub struct Telemetry {
     pub heater_power_pct: f64,
     /// Whether the PID is running.
     pub pid_enabled: bool,
+    /// `MachineStateContext::steamON_` (`MachineStateContext.h:785`).
+    ///
+    /// Published because `/api/steam`'s toggle needs it: the C++'s handler reads
+    /// `isSteamModeActive()` to compute `!current`, and this is the only copy of
+    /// that fact the httpd task can reach.
+    pub steam_mode: bool,
+    /// `systemContext_->backflushMode()` — whether backflush *mode* is armed.
+    ///
+    /// Published for `/api/backflush`'s toggle, on the same reasoning as
+    /// [`Self::steam_mode`].
+    pub backflush_mode: bool,
     /// Whether a brew is running.
     pub brewing: bool,
     /// Whether the machine is in standby.
@@ -267,13 +278,42 @@ pub struct Telemetry {
 pub enum Command {
     /// `POST /api/setpoint?value=<celsius>`.
     SetSetpoint(i32),
-    /// `POST /api/steam?on=0|1`.
+    /// `POST /api/steam?on=0|1` — the **explicit** form.
     SetSteam(bool),
-    /// `POST /api/pid?on=0|1`.
+    /// `POST /api/steam` with no field — the C++'s toggle.
+    ///
+    /// The C++'s `/api/steam` reads no parameter at all; it computes
+    /// `!isSteamModeActive()` from the **live** `MachineStateContext`
+    /// (`WebServerManager.cpp:444-445`). So the decision needs the machine
+    /// state, which only the control task has, and the web layer cannot make it
+    /// without racing a snapshot that may be a tick stale. This variant carries
+    /// no value and the control task resolves it against the machine it owns —
+    /// which is the faithful translation, and the reason the toggle is a
+    /// separate variant rather than a flag on [`Self::SetSteam`].
+    ToggleSteam,
+    /// `POST /api/pid?on=0|1` — the explicit form.
     SetPid(bool),
-    /// `POST /api/backflush?on=0|1`.
+    /// `POST /api/pid` with no field — the C++'s toggle.
+    ///
+    /// `!Config::getInstance().pidEnabled.get()` (`WebServerManager.cpp:466`),
+    /// which the control task both holds and writes. See [`Self::ToggleSteam`]
+    /// for why the resolution happens there.
+    TogglePid,
+    /// `POST /api/backflush?on=0|1` — the explicit form.
     SetBackflush(bool),
-    /// `POST /api/backflush`.
+    /// `POST /api/backflush` with no field — the C++'s toggle.
+    ///
+    /// `!systemContext_->backflushMode()` (`WebServerManager.cpp:490`). See
+    /// [`Self::ToggleSteam`].
+    ToggleBackflush,
+    /// `POST /api/backflush?value=start` — begin a backflush cycle.
+    ///
+    /// **Not a C++ route.** The C++'s `/api/backflush` only toggles backflush
+    /// *mode* (`WebServerManager.cpp:490`); starting a cycle is a switch press
+    /// or an MQTT command. This verb exists because the previous
+    /// `register_command` accepted `start` and something may already send it,
+    /// and removing a reachable command would be a regression. The bare POST
+    /// does **not** mean this — it means toggle, as in the C++.
     StartBackflush,
     /// `POST /api/sleep`.
     Sleep,
@@ -537,24 +577,35 @@ impl Sse {
         format!(": {}\n\n", now_ms())
     }
 
-    /// Add a client, or refuse it because the stream is full.
-    fn attach(&self, req: crate::web_async::AsyncReq) -> bool {
+    /// Add a client, or hand the request back because the stream is full.
+    ///
+    /// `Result<(), AsyncReq>` rather than `bool` because the request **must** be
+    /// completed on every path: `httpd_req_async_handler_begin` has already set
+    /// `sd->for_async_req` (`httpd_txrx.c:700`), and a request left incomplete
+    /// keeps the socket out of the httpd task's `select()` for ever
+    /// (`esp_http_server.h:864-866`). Returning it lets the caller release it;
+    /// returning `false` and dropping it would leak the socket — which is
+    /// exactly how a second refused client would cost the whole API.
+    pub(crate) fn attach(
+        &self,
+        req: crate::web_async::AsyncReq,
+    ) -> Result<(), crate::web_async::AsyncReq> {
         let now = now_ms();
         // A poisoned lock means some other client write panicked. Refusing is
         // the only safe answer: the list's length is the bound that keeps the
         // httpd task's socket budget intact.
         let Ok(mut clients) = self.clients.lock() else {
-            return false;
+            return Err(req);
         };
         if clients.len() >= SSE_MAX_CLIENTS {
-            return false;
+            return Err(req);
         }
         clients.push(SseClient {
             req,
             await_hello: true,
             last_write_ms: now,
         });
-        true
+        Ok(())
     }
 }
 
@@ -613,6 +664,95 @@ fn respond_large(
     }
     shared.large_responses.fetch_add(1, Ordering::Relaxed);
     respond(conn, 200, json)
+}
+
+/// [`respond_large`], plus the `Content-Disposition` that makes the browser save
+/// the file instead of rendering it.
+///
+/// `WebServerManager.cpp:717`. `respond_large` is reused rather than
+/// reimplemented so the ADR-0002 heap floor and the 32 KB ceiling apply to this
+/// route too — the download serialises the same document `/api/config` does, so
+/// it is the same size and has the same failure modes.
+fn respond_download(
+    conn: &mut EspHttpConnection<'_>,
+    shared: &Shared,
+    json: &str,
+) -> Result<(), EspError> {
+    if json.len() > MAX_JSON_BYTES {
+        shared.large_refused.fetch_add(1, Ordering::Relaxed);
+        return respond(
+            conn,
+            503,
+            "{\"error\":\"response too large\",\"limit\":32768}",
+        );
+    }
+    if free_heap() < HEAP_FLOOR_BYTES {
+        shared.large_refused.fetch_add(1, Ordering::Relaxed);
+        warn!(
+            "http: refusing a {} B config download with {} B of heap free (floor {HEAP_FLOOR_BYTES} B)",
+            json.len(),
+            free_heap()
+        );
+        return respond(
+            conn,
+            503,
+            "{\"error\":\"insufficient memory\",\"retry\":true}",
+        );
+    }
+    shared.large_responses.fetch_add(1, Ordering::Relaxed);
+    conn.initiate_response(
+        200,
+        Some("OK"),
+        &[
+            ("Content-Type", "application/json"),
+            (
+                "Content-Disposition",
+                "attachment; filename=\"config.json\"",
+            ),
+        ],
+    )?;
+    for chunk in json.as_bytes().chunks(UI_CHUNK_BYTES) {
+        let _ = conn.write(chunk);
+    }
+    let _ = conn.write(&[]);
+    Ok(())
+}
+
+/// `GET /api/ota/status` — the C++'s `handleStatus` (`ota.cpp:726-756`), with
+/// every field present and the update permanently idle.
+///
+/// The UI parses this with `OtaStatusSchema` (`schemas.ts:59-72`), which
+/// **requires** `status`, `progress` and `updateInProgress`; omitting them makes
+/// `pollOtaStatus` return `null` and the OTA page cannot render at all
+/// (`OTAUpdateSection.tsx:56-62`). So the shape is the C++'s, and the honest
+/// content is: nothing is updating, nothing ever will from this build, and here
+/// is the task that owns it.
+///
+/// `updating`, `updateInProgress`, `type`, `uploadedSize`, `totalSize` and
+/// `filesystemPartition` are the C++'s remaining keys (`ota.cpp:735-742`) and
+/// are reported at their idle values so a client reading the C++'s full shape
+/// gets zeros rather than `undefined`.
+///
+/// `error` is deliberately **absent**: the C++ only sets it when an update has
+/// failed (`ota.cpp:744-751`), and "OTA was never built" is not an update error.
+/// `message` carries that instead.
+#[must_use]
+pub fn ota_status_json() -> String {
+    // `Status::Idle` as the enum's integer discriminant, the way the C++
+    // serialises it (`doc["status"] = state.getUpdateStatus()`, an enum written
+    // through ArduinoJson's integer encoding, `ota.cpp:738`).
+    //
+    // The UI reads `status` as a *string* — `z.enum([...])` in
+    // `OtaStatusSchema` — so the integer would fail validation and the page
+    // would go blank. The string is what the UI actually parses, so that is what
+    // this sends; the divergence from the C++'s wire type is recorded in
+    // intentional-diffs.
+    String::from(
+        "{\"success\":true,\"updating\":false,\"updateInProgress\":false,\"progress\":0,\
+\"status\":\"idle\",\"type\":\"none\",\"uploadedSize\":0,\"totalSize\":0,\
+\"filesystemPartition\":\"spiffs\",\
+\"message\":\"OTA is not available in this build\",\"reason\":\"R3-15\"}",
+    )
 }
 
 /// The C++'s error body, verbatim. `ApiResponses::errorResponse`.
@@ -985,6 +1125,7 @@ pub fn routes() -> Vec<(&'static str, Method)> {
         ("/api/nvs-debug", Method::Get),
         ("/api/parameter-help", Method::Get),
         ("/api/config", Method::Get),
+        ("/api/config/download", Method::Get),
         ("/api/parameters", Method::Get),
         ("/api/parameters", Method::Post),
         ("/api/status", Method::Options),
@@ -1000,6 +1141,13 @@ pub fn routes() -> Vec<(&'static str, Method)> {
         ("/api/wifi-reset", Method::Post),
         ("/api/factory-reset", Method::Post),
         ("/api/restart", Method::Post),
+        // R3-15 defers OTA. `/api/ota/status` answers a real status document
+        // saying so; the three mutating routes answer `unavailable_json`. A
+        // 404 here would be indistinguishable from a lost feature.
+        ("/api/ota/status", Method::Get),
+        ("/api/ota/firmware", Method::Post),
+        ("/api/ota/filesystem", Method::Post),
+        ("/api/ota/url", Method::Post),
         ("/events", Method::Get),
         ("/", Method::Get),
         ("/ui*", Method::Get),
@@ -1154,10 +1302,56 @@ impl Web {
         {
             let config = Arc::clone(config);
             let shared = Arc::clone(&shared);
+            // The **published** body, not the boot snapshot.
+            //
+            // `config` is the `Config` as it was when the server was built, so
+            // rendering from it answers a question about the past: a
+            // `POST /api/parameters` write lands in the control task's own
+            // `Config` and in NVS, and this GET would still report the old
+            // number. The human saw exactly that -- "the UI says success, the PID
+            // is still disabled" -- and the UI was faithfully reporting a stale
+            // answer.
+            //
+            // The control task publishes the body it would have served once a
+            // heartbeat (`main.rs`), so the read reflects the running machine.
+            // Before the first publish it falls back to the boot snapshot, which
+            // is the right answer for the first second after boot.
+            let parameters = Arc::clone(&parameters);
             server.fn_handler::<EspError, _>("/api/parameters", Method::Get, move |mut req| {
-                let body = parameters_json(&config);
+                let body = parameters
+                    .live()
+                    .unwrap_or_else(|| parameters_json(&config));
                 respond_large(req.connection(), &shared, &body)
             })?;
+        }
+        {
+            // `GET /api/config/download` — the C++'s
+            // `AsyncURIMatcher::exact("/api/config/download")`
+            // (`WebServerManager.cpp:706-723`). The body is the same
+            // `exportToJsonObject` document `/api/config` serves; what makes it a
+            // download is the `Content-Disposition` header, which is the whole
+            // point of the separate route.
+            let config = Arc::clone(config);
+            let shared = Arc::clone(&shared);
+            server.fn_handler::<EspError, _>(
+                "/api/config/download",
+                Method::Get,
+                move |mut req| {
+                    let Ok(json) = cc_config::json_export(&config) else {
+                        // The C++'s `response->overflowed()` arm (`:711-715`).
+                        return respond(
+                            req.connection(),
+                            500,
+                            &error_body("Failed to generate config"),
+                        );
+                    };
+                    // `Content-Disposition: attachment; filename="config.json"`
+                    // — `WebServerManager.cpp:717`, verbatim. Without it a
+                    // browser renders the JSON instead of saving it, which is
+                    // the whole reason this route exists separately.
+                    respond_download(req.connection(), &shared, &json)
+                },
+            )?;
         }
         {
             // `POST /api/parameters` — the C++'s writer
@@ -1213,6 +1407,22 @@ impl Web {
                     );
                 }
                 let (status, payload) = verdict.response();
+                // A `200 {"success":true}` on a write that cannot affect the
+                // running machine is the lie the human reported. Naming the
+                // keys that need a reboot turns it into an answer.
+                let reboot = verdict.reboot_required();
+                if !reboot.is_empty() {
+                    let keys = reboot
+                        .iter()
+                        .map(|k| format!("\"{k}\""))
+                        .collect::<Vec<_>>()
+                        .join(",");
+                    let body = format!(
+                        "{{\"success\":true,\"message\":\"Parameters updated and saved\",\
+\"requiresReboot\":true,\"requiresRebootKeys\":[{keys}],\"reason\":\"read once at startup\"}}"
+                    );
+                    return respond(req.connection(), status, &body);
+                }
                 respond(req.connection(), status, payload)
             })?;
         }
@@ -1239,35 +1449,43 @@ impl Web {
                 .filter(|v| (0.0..=150.0).contains(v))
                 .map(|v| Command::SetSetpoint(v as i32))
         })?;
-        register_command(
+        // The C++'s three toggle routes (`WebServerManager.cpp:437-509`). All
+        // three read no field in the C++; all three are what the UI's buttons
+        // call with a bare POST.
+        register_toggle(
             &mut server,
-            "/api/steam",
+            &shared,
             Arc::clone(&send),
-            |value| match value {
-                "1" | "true" | "on" => Some(Command::SetSteam(true)),
-                "0" | "false" | "off" => Some(Command::SetSteam(false)),
-                _ => None,
+            &Toggle {
+                uri: "/api/steam",
+                key: "steamMode",
+                toggled: Command::ToggleSteam,
+                explicit: Command::SetSteam,
+                current: |t| t.steam_mode,
             },
         )?;
-        register_command(
+        register_toggle(
             &mut server,
-            "/api/pid",
+            &shared,
             Arc::clone(&send),
-            |value| match value {
-                "1" | "true" | "on" => Some(Command::SetPid(true)),
-                "0" | "false" | "off" => Some(Command::SetPid(false)),
-                _ => None,
+            &Toggle {
+                uri: "/api/pid",
+                key: "pidEnabled",
+                toggled: Command::TogglePid,
+                explicit: Command::SetPid,
+                current: |t| t.pid_enabled,
             },
         )?;
-        register_command(
+        register_toggle(
             &mut server,
-            "/api/backflush",
+            &shared,
             Arc::clone(&send),
-            |value| match value {
-                "1" | "true" | "on" => Some(Command::SetBackflush(true)),
-                "0" | "false" | "off" => Some(Command::SetBackflush(false)),
-                "start" => Some(Command::StartBackflush),
-                _ => None,
+            &Toggle {
+                uri: "/api/backflush",
+                key: "backflushOn",
+                toggled: Command::ToggleBackflush,
+                explicit: Command::SetBackflush,
+                current: |t| t.backflush_mode,
             },
         )?;
         register_flag(&mut server, "/api/sleep", Arc::clone(&send), Command::Sleep)?;
@@ -1309,6 +1527,36 @@ impl Web {
             Command::Restart,
         )?;
 
+        // --- OTA (R3-15, deferred) -----------------------------------------
+        //
+        // `src/ota.cpp:847-866` registers four routes. OTA is explicitly
+        // deferred ("we can implement OTA later"), so none of them updates
+        // anything — but all four are registered, because the UI has a tab that
+        // calls them and a **404 is indistinguishable from a lost feature**.
+        //
+        // `/api/ota/status` answers the C++'s real status shape; the three
+        // mutating routes answer `unavailable_json("OTA", "R3-15")`, which says
+        // plainly that this build has no OTA and names the task that owns it.
+        // Nothing here is a stub pretending to work: no route claims success it
+        // did not achieve.
+        {
+            server.fn_handler::<EspError, _>("/api/ota/status", Method::Get, |mut req| {
+                respond(req.connection(), 200, &ota_status_json())
+            })?;
+        }
+        for uri in ["/api/ota/firmware", "/api/ota/filesystem", "/api/ota/url"] {
+            // `sendUploadResult(request, "No firmware file provided")` is the
+            // C++'s *missing-file* arm; the honest answer for a build with no
+            // OTA at all is the unavailability one, and `400` is the status the
+            // UI's error path already handles (`OTAUpdateSection.tsx:191-207`
+            // shows `result.message` for any non-success).
+            server
+                .fn_handler::<EspError, _>(uri, Method::Post, |mut req| {
+                    respond(req.connection(), 501, &unavailable_json("OTA", "R3-15"))
+                })
+                .map(|_| ())?;
+        }
+
         // --- static ------------------------------------------------------
         {
             server.fn_handler::<EspError, _>("/", Method::Get, |mut req| {
@@ -1325,60 +1573,24 @@ impl Web {
         }
 
         // --- SSE ---------------------------------------------------------
-        // The handler must return: ESP-IDF's httpd is one task, so a handler
-        // that does not return is a server that does not serve. It sets the
-        // response headers, detaches the request, registers it, and leaves.
-        // `spawn_broadcaster` below owns the writing.
-        #[allow(
-            unsafe_code,
-            reason = "the `/events` handler must detach its request and return, \
-                      or the single-task httpd stops serving every other route; \
-                      see `crate::web_async` for the full argument"
-        )]
-        {
-            let sse = Arc::clone(&sse);
-            server.fn_handler::<EspError, _>("/events", Method::Get, move |mut req| {
-                let conn = req.connection();
-                conn.initiate_response(
-                    200,
-                    Some("OK"),
-                    &[
-                        ("Content-Type", "text/event-stream"),
-                        ("Cache-Control", "no-cache"),
-                        ("Connection", "keep-alive"),
-                    ],
-                )?;
-                sse.connected.fetch_add(1, Ordering::SeqCst);
-                // `initiate_response` has already set the status, type and
-                // headers on the request, and `httpd_req_async_handler_begin`
-                // copies exactly those into the detached request. Doing it in
-                // this order is what makes the browser see
-                // `Content-Type: text/event-stream` on the response.
-                let Some(async_req) = (unsafe {
-                    // SAFETY: `conn` is the live connection of the handler
-                    // running right now, and `initiate_response` above was the
-                    // last thing to touch it — which is what makes the header
-                    // copy inside `begin` correct. `web_async`'s module docs
-                    // carry the full argument.
-                    crate::web_async::begin_detached(esp_idf_svc::handle::RawHandle::handle(conn))
-                }) else {
-                    warn!("sse: could not detach the request");
-                    sse.rejected.fetch_add(1, Ordering::Relaxed);
-                    return respond(conn, 503, &error_body("sse unavailable"));
-                };
-                if sse.attach(async_req) {
-                    // The C++'s `onConnect` sends a `hello` event
-                    // (WebServerManager.cpp:308-317). A browser's `EventSource`
-                    // dispatches nothing until it sees a frame, so without this
-                    // the connection looks dead to the UI for its first
-                    // interval. The broadcaster writes it on its first pass.
-                    Ok(())
-                } else {
-                    sse.rejected.fetch_add(1, Ordering::Relaxed);
-                    respond(conn, 503, &error_body("too many event-stream clients"))
-                }
-            })?;
-        }
+        // Registered as a **raw** handler, not through `fn_handler`. That is the
+        // whole of the double-response fix: `fn_handler` wraps every closure in
+        // `to_native_handler`, which calls `complete()` after the handler
+        // returns, and `complete()` writes a complete response
+        // (`httpd_resp_send(.., 0)` with `Content-Length: 0`) that ends the
+        // response before the broadcaster has sent a frame — then the detached
+        // request's chunked response follows as a second response on the same
+        // socket. See `crate::web_async::register_raw_sse` for the full
+        // argument and the wire capture.
+        //
+        // The handler still returns immediately, which is the other half of the
+        // requirement: ESP-IDF's httpd is one task, so a handler that does not
+        // return is a server that does not serve. `spawn_broadcaster` below
+        // owns the writing.
+        crate::web_async::register_raw_sse(
+            esp_idf_svc::handle::RawHandle::handle(&server),
+            Arc::clone(&sse),
+        )?;
 
         // The broadcaster is the only writer of `/events`, and it is not the
         // httpd task. Started after the routes so a client cannot connect to a
@@ -1731,6 +1943,125 @@ fn register_flag(
         .map(|_| ())
 }
 
+/// Register a `POST` handler for a route that is a **toggle** in the C++.
+///
+/// The C++'s `/api/pid`, `/api/steam` and `/api/backflush` read no field. They
+/// compute `!current` from live machine state and answer with the new value
+/// (`WebServerManager.cpp:444-475`, `:490-491`). A bare `POST` is what the React
+/// UI sends (`useMachineToggles.ts:22,31,40` — no body, no query), so a bare
+/// `POST` has to work, and it has to *toggle*.
+///
+/// The explicit forms still work, because the human uses them and the
+/// integration checklist spells them `?on=0` / `?on=1`: `value`/`on` in the query
+/// or the body wins, and is passed through as [`Command::SetPid`] and its
+/// siblings. Only the **absent** field selects the toggle.
+///
+/// `on_toggle` is the command to emit when no field was given. It carries no
+/// value, so the control task resolves `!current` against the machine it owns —
+/// the same machine the C++'s handler reads. Doing it here instead would mean
+/// toggling a possibly-stale snapshot, and two rapid clicks could both compute
+/// the same target.
+///
+/// # What it answers
+///
+/// The C++'s `ApiResponses::boolResponse(key, value)` — `{"success": true,
+/// "<key>": <bool>}` (`ApiResponses.cpp:10-19`) — where `key` is the route's own
+/// name: `pidEnabled`, `steamMode`, `backflushOn`. The C++ answers `200` in all
+/// three cases, and this keeps that.
+///
+/// A route that answers `202 {"accepted":true}` instead would break the UI: it
+/// reads `response.ok` (which `202` satisfies) but the human's own tooling and
+/// the C++ contract both expect the resulting value in the body.
+/// One C++ toggle route: its URI, the key its response reports, and the three
+/// functions that turn a request into a command.
+///
+/// A struct rather than eight positional arguments because the three function
+/// pointers are meaningless without the URI and the key: pairing
+/// `Command::TogglePid` with `/api/steam`'s `current` is a mistake a reader
+/// cannot see and a compiler cannot catch, and naming them together makes the
+/// pairing the thing being written down.
+#[derive(Clone, Copy)]
+struct Toggle {
+    /// The route, `/api/…`.
+    uri: &'static str,
+    /// The C++'s `ApiResponses::boolResponse` key (`ApiResponses.h:12`).
+    key: &'static str,
+    /// The command a bare `POST` emits. Carries no value: see
+    /// [`Command::ToggleSteam`].
+    toggled: Command,
+    /// Wraps an explicit `value`/`on` field into the absolute command.
+    explicit: fn(bool) -> Command,
+    /// Reads the current value out of the telemetry snapshot, for the response.
+    current: fn(&Telemetry) -> bool,
+}
+
+/// Register one [`Toggle`] route.
+fn register_toggle(
+    server: &mut EspHttpServer<'static>,
+    shared: &Arc<Shared>,
+    send: Arc<dyn Fn(Command) + Send + Sync + 'static>,
+    toggle: &Toggle,
+) -> Result<(), EspError> {
+    let Toggle {
+        uri,
+        key,
+        toggled: on_toggle,
+        explicit,
+        current,
+    } = *toggle;
+    let shared = Arc::clone(shared);
+    server
+        .fn_handler::<EspError, _>(uri, Method::Post, move |mut req| {
+            let mut fields = cc_config::form::parse_form(query_of(req.uri()));
+            let body = drain_body(req.connection());
+            fields.extend(cc_config::form::parse_form(&body));
+            // `first_of` scans in *name* order, so `value` anywhere beats `on`
+            // anywhere — the C++'s `hasParam("value", …).orElse(hasParam("on",
+            // …))` order (`WebServerManager.cpp:392`).
+            let (chosen, value) = match first_of(&fields, &["value", "on"]) {
+                // `start` is the one non-boolean field, and only on
+                // `/api/backflush`; see [`Command::StartBackflush`].
+                Some(field) if uri == "/api/backflush" && field == "start" => {
+                    (Command::StartBackflush, None)
+                }
+                Some(field) => (explicit(parse_flag(&field)), None),
+                // No field at all: the C++'s toggle.
+                None => (on_toggle, Some(!current(&shared.snapshot()))),
+            };
+            send(chosen);
+            // For the explicit form the value is exactly what was asked for. For
+            // a bare toggle it is `!` the last telemetry the control task
+            // published, which is the best this task can know: the machine is
+            // the control task's, and the C++ reads it directly only because its
+            // web server *is* the same task. A client that needs the settled
+            // value reads `/api/status`, which the control task publishes.
+            let value = value.unwrap_or_else(|| explicit_value(&chosen));
+            let body = format!("{{\"success\":true,\"{key}\":{value}}}");
+            respond(req.connection(), 200, &body)
+        })
+        .map(|_| ())
+}
+
+/// The value an explicit `SetPid`/`SetSteam`/`SetBackflush` carries.
+fn explicit_value(command: &Command) -> bool {
+    match command {
+        Command::SetPid(on) | Command::SetSteam(on) | Command::SetBackflush(on) => *on,
+        _ => true,
+    }
+}
+
+/// A boolean field, C++-style: what `AsyncWebServerRequest::getParam(...)->value()`
+/// means when it is compared against `1`.
+///
+/// The C++ compares the **string** `"1"` (`if (value == "1")` throughout
+/// `WebServerManager.cpp`), so `"true"` and `"on"` are not C++ spellings. They
+/// are accepted anyway because this firmware already documented them
+/// (`register_command`'s comment above) and scripts use them; accepting a
+/// superset cannot break a C++-shaped caller.
+fn parse_flag(value: &str) -> bool {
+    matches!(value, "1" | "true" | "on" | "yes")
+}
+
 /// Register a `POST` handler that parses one field into a command.
 fn register_command(
     server: &mut EspHttpServer<'static>,
@@ -1849,6 +2180,34 @@ impl ParameterPost {
         }
     }
 
+    /// The accepted pairs that will not affect the running machine until a
+    /// reboot.
+    ///
+    /// Most parameters are read from `Config` on every tick, so a write takes
+    /// effect immediately — the control task pushes the ones the reducer caches
+    /// (`pid.enabled`, `brew.setpoint`) into `cc_machine::Machine` explicitly.
+    /// A few are read **once**, at bring-up: which switches exist
+    /// (`hardware.switches.*.enabled` → `SwitchBank::new`), whether a scale is
+    /// fitted, whether the tank float is fitted. Those cannot change under a
+    /// running machine, and the only honest thing is to say so.
+    ///
+    /// The C++ does not say it, because in the C++ a switch's enable flag is read
+    /// by `SystemInitializer` at boot too — the same limitation, reported as
+    /// silence. This firmware names the keys, which is the difference between
+    /// "my setting vanished" and a diagnosis.
+    #[must_use]
+    pub fn reboot_required(&self) -> Vec<&str> {
+        let pairs = match self {
+            Self::Rejected { accepted, .. } | Self::Updated { accepted } => accepted,
+            Self::Nothing => return Vec::new(),
+        };
+        pairs
+            .iter()
+            .map(|(key, _)| key.as_str())
+            .filter(|key| needs_reboot(key))
+            .collect()
+    }
+
     /// The pairs to hand to the control task, if any.
     ///
     /// Non-empty for both outcomes that wrote something: a `400` that rejected
@@ -1861,6 +2220,26 @@ impl ParameterPost {
             Self::Nothing => Vec::new(),
         }
     }
+}
+
+/// Whether a parameter is read once at bring-up, so a write needs a reboot.
+///
+/// The rule is "does `SwitchBank::new` / the sensor bring-up read it", not a
+/// guess: `hardware.switches.*.enabled` decides whether `poll` emits an edge at
+/// all (`switches.rs:220-241` prints "the reducer will IGNORE this switch"), and
+/// the switch bank is constructed once in `bring_up` and never rebuilt. The two
+/// sensor flags are the same shape — `hardware.sensors.watertank.enabled` becomes
+/// `SwitchBank::tank_fitted` (`switches.rs:196`) and
+/// `hardware.sensors.scale.enabled` decides whether a sampler exists at all
+/// (`main.rs:1362`).
+///
+/// Everything else is read from `Config` per tick or per event, so a write is
+/// live. That includes `pid.enabled`, which the control task pushes into the
+/// machine explicitly — see the `POST /api/parameters` drain in `main.rs`.
+fn needs_reboot(key: &str) -> bool {
+    key.starts_with("hardware.switches.")
+        || key.starts_with("hardware.sensors.watertank.enabled")
+        || key == "hardware.sensors.scale.enabled"
 }
 
 /// The most pairs one `POST /api/parameters` may carry.
@@ -2169,7 +2548,15 @@ pub mod tests {
 
     #[cfg_attr(test, test)]
     pub fn every_csqs_api_route_is_registered() {
-        // 20 /api/* from WebServerManager.cpp:327-812, plus /, /ui and /events.
+        // 20 /api/* from WebServerManager.cpp:327-812, plus `/api/config/download`
+        // (`:706`), the four OTA routes (`ota.cpp:847-866`), and `/`, `/ui` and
+        // `/events`.
+        //
+        // This list is the parity contract with `ui/packages/frontend/src/lib/
+        // routes.ts`, the frontend's own `API_ROUTES` table. A route the UI can
+        // call and this server does not register is a 404 in the browser and a
+        // blank page in the UI, so the omission is the bug this test exists to
+        // prevent.
         let routes = routes();
         for expected in [
             "/api/status",
@@ -2179,6 +2566,7 @@ pub mod tests {
             "/api/nvs-debug",
             "/api/parameter-help",
             "/api/config",
+            "/api/config/download",
             "/api/parameters",
             "/api/setpoint",
             "/api/steam",
@@ -2192,12 +2580,239 @@ pub mod tests {
             "/api/wifi-reset",
             "/api/factory-reset",
             "/api/restart",
+            "/api/ota/status",
+            "/api/ota/firmware",
+            "/api/ota/filesystem",
+            "/api/ota/url",
         ] {
             assert!(
                 routes.iter().any(|(path, _)| *path == expected),
                 "{expected} is missing"
             );
         }
+    }
+
+    /// The frontend's `API_ROUTES` table, verbatim from
+    /// `ui/packages/frontend/src/lib/routes.ts`.
+    ///
+    /// Transcribed here rather than parsed at build time so that adding a route
+    /// to one side and forgetting the other is a **test failure** and not a 404
+    /// somebody finds by clicking. `getApiRoute` prefixes `/api`, so each entry
+    /// is compared with that prefix applied.
+    #[cfg_attr(test, test)]
+    pub fn every_route_the_frontend_calls_is_registered() {
+        const FRONTEND: &[&str] = &[
+            "/api/steam",
+            "/api/pid",
+            "/api/backflush",
+            "/api/setpoint",
+            "/api/wake",
+            "/api/sleep",
+            "/api/config",
+            "/api/config/download",
+            "/api/parameters",
+            "/api/parameter-help",
+            "/api/status",
+            "/api/health",
+            "/api/temperatures",
+            "/api/history",
+            "/api/scale/tare",
+            "/api/scale/calibration",
+            "/api/ota/status",
+            "/api/ota/firmware",
+            "/api/ota/filesystem",
+            "/api/ota/url",
+            "/api/restart",
+            "/api/factory-reset",
+            "/api/wifi-reset",
+            "/api/nvs-debug",
+            "/api/maintenance/reset-backflush-counter",
+        ];
+        let routes = routes();
+        for path in FRONTEND {
+            assert!(
+                routes.iter().any(|(registered, _)| registered == path),
+                "the UI calls {path} but no handler is registered for it"
+            );
+        }
+    }
+
+    // ==================================================== the toggle routes
+
+    #[cfg_attr(test, test)]
+    pub fn a_flag_reads_the_csqs_spellings_and_treats_anything_else_as_off() {
+        // The C++ compares the string "1" (`if (value == "1")`), so "1" is the
+        // spelling that must work. The extras are this firmware's documented
+        // superset.
+        assert!(parse_flag("1"));
+        assert!(parse_flag("true"));
+        assert!(parse_flag("on"));
+        assert!(!parse_flag("0"));
+        assert!(!parse_flag("false"));
+        assert!(!parse_flag("off"));
+        assert!(!parse_flag("banana"));
+    }
+
+    #[cfg_attr(test, test)]
+    pub fn an_explicit_toggle_command_carries_the_value_it_was_given() {
+        // The explicit forms must survive the move from `register_command` to
+        // `register_toggle`: `?on=0` and body `value=1` are how the human and
+        // the integration checklist spell them.
+        assert!(!explicit_value(&Command::SetPid(false)));
+        assert!(explicit_value(&Command::SetPid(true)));
+        assert!(!explicit_value(&Command::SetSteam(false)));
+        assert!(!explicit_value(&Command::SetBackflush(false)));
+    }
+
+    #[cfg_attr(test, test)]
+    pub fn a_toggle_route_inverts_the_published_value() {
+        // The bare-POST path: no field, so the target is `!current`. These are
+        // the three `current` functions the route table actually registers, so a
+        // change that points a route at the wrong telemetry field fails here.
+        fn pid(t: &Telemetry) -> bool {
+            t.pid_enabled
+        }
+        fn steam(t: &Telemetry) -> bool {
+            t.steam_mode
+        }
+        fn backflush(t: &Telemetry) -> bool {
+            t.backflush_mode
+        }
+
+        let off = Telemetry::default();
+        let on = Telemetry {
+            pid_enabled: true,
+            steam_mode: true,
+            backflush_mode: true,
+            ..Telemetry::default()
+        };
+        // Each field is read from its own field, so turning one on must not make
+        // another's toggle think it is already on.
+        assert!(!pid(&off) && pid(&on));
+        assert!(!steam(&off) && steam(&on));
+        assert!(!backflush(&off) && backflush(&on));
+
+        let only_steam = Telemetry {
+            steam_mode: true,
+            ..Telemetry::default()
+        };
+        assert!(!pid(&only_steam), "the PID toggle must not read steam_mode");
+        assert!(
+            !backflush(&only_steam),
+            "the backflush toggle must not read steam_mode"
+        );
+    }
+
+    // ==================================================== OTA (R3-15, deferred)
+
+    #[cfg_attr(test, test)]
+    pub fn the_ota_status_document_satisfies_the_uis_schema() {
+        // `OtaStatusSchema` (`ui/.../lib/schemas.ts:59-72`) **requires** status,
+        // progress and updateInProgress. If any is missing, `pollOtaStatus`
+        // returns null and the OTA page cannot render at all — so this is the
+        // test that keeps the page working on a build with no OTA.
+        let json = ota_status_json();
+        let parsed: serde_json::Value = serde_json::from_str(&json).expect("valid JSON");
+        assert_eq!(parsed["status"], "idle");
+        assert_eq!(parsed["progress"], 0);
+        assert_eq!(parsed["updateInProgress"], false);
+        assert_eq!(parsed["updating"], false);
+        // "not available" must be visible, not merely implied by an idle status.
+        assert_eq!(parsed["reason"], "R3-15");
+        let message = parsed["message"].as_str().unwrap_or_default();
+        assert!(
+            message.contains("not available"),
+            "the message must say OTA is absent: {message}"
+        );
+    }
+
+    #[cfg_attr(test, test)]
+    pub fn the_ota_status_document_is_not_an_update_error() {
+        // The C++ only emits `error` when an update actually failed
+        // (`ota.cpp:744-751`). "OTA was never built" is not a failed update, and
+        // reporting it as one would make the UI show a failure toast on a
+        // machine that has simply never had OTA.
+        let json = ota_status_json();
+        let parsed: serde_json::Value = serde_json::from_str(&json).expect("valid JSON");
+        assert!(parsed.get("error").is_none(), "{json}");
+    }
+
+    #[cfg_attr(test, test)]
+    pub fn an_unavailable_ota_route_says_which_build_and_which_task() {
+        let json = unavailable_json("OTA", "R3-15");
+        let parsed: serde_json::Value = serde_json::from_str(&json).expect("valid JSON");
+        assert!(parsed["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("not available"));
+        assert_eq!(parsed["reason"], "R3-15");
+    }
+
+    // ============================================ POST /api/parameters honesty
+
+    #[cfg_attr(test, test)]
+    pub fn a_write_that_needs_a_reboot_is_named_rather_than_claimed_applied() {
+        // The lie the human reported: "success" for a write that cannot change
+        // the running machine. `hardware.switches.brew.enabled` is read once by
+        // `SwitchBank::new`, so it is in this list.
+        let verdict =
+            classify_parameters(&[("hardware.switches.brew.enabled".into(), "true".into())]);
+        assert_eq!(
+            verdict.reboot_required(),
+            vec!["hardware.switches.brew.enabled"]
+        );
+        // And it is still a 200 with the C++'s message — the write *was*
+        // accepted and persisted; only the runtime effect is deferred.
+        assert_eq!(verdict.response().0, 200);
+    }
+
+    #[cfg_attr(test, test)]
+    pub fn an_ordinary_parameter_is_not_reported_as_needing_a_reboot() {
+        // `pid.enabled` is pushed into the running machine by the control task,
+        // so it must NOT appear in this list — otherwise every ordinary write
+        // would be reported as deferred and the warning would be worthless.
+        let verdict = classify_parameters(&[("pid.enabled".into(), "1".into())]);
+        assert!(
+            verdict.reboot_required().is_empty(),
+            "{:?}",
+            verdict.reboot_required()
+        );
+        assert!(!needs_reboot("pid.enabled"));
+        assert!(!needs_reboot("brew.setpoint"));
+        assert!(!needs_reboot("pid.regular.kp"));
+    }
+
+    #[cfg_attr(test, test)]
+    pub fn a_rejected_write_still_names_the_reboot_keys_it_did_accept() {
+        // A 400 that applied five of six parameters is still a write, and the
+        // reboot keys among the five are still deferred.
+        let verdict = classify_parameters(&[
+            ("pid.enabled".into(), "1".into()),
+            ("hardware.switches.steam.enabled".into(), "true".into()),
+            ("pid.regular.kp".into(), "not-a-number".into()),
+        ]);
+        assert_eq!(verdict.response().0, 400);
+        assert_eq!(
+            verdict.reboot_required(),
+            vec!["hardware.switches.steam.enabled"]
+        );
+    }
+
+    #[cfg_attr(test, test)]
+    pub fn a_write_that_changed_nothing_needs_no_reboot() {
+        // `ParameterPost::Nothing` is the C++'s "No parameters updated"
+        // (`WebServerManager.cpp:877`), which is reached when the request names
+        // no parameter *with a value* — the `:830` skip, not a rejection. An
+        // unparseable value is `Rejected`, not `Nothing`, so it is the empty
+        // field that gets here.
+        let verdict = classify_parameters(&[("pid.regular.kp".into(), String::new())]);
+        assert!(matches!(verdict, ParameterPost::Nothing));
+        assert!(verdict.reboot_required().is_empty());
+
+        // And the distinction is real: a bad *value* is a 400, not a no-op.
+        let rejected = classify_parameters(&[("pid.regular.kp".into(), "banana".into())]);
+        assert!(matches!(rejected, ParameterPost::Rejected { .. }));
+        assert_eq!(rejected.response().0, 400);
     }
 
     #[cfg_attr(test, test)]
