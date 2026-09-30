@@ -53,3 +53,4 @@ workspace = true
 # `esp_idf_comp_joltwallet__littlefs_enabled` (04 §6).
 [[package.metadata.esp-idf-sys.extra_components]]
 remote_component = { name = "joltwallet/littlefs", version = "^1.22" }
+

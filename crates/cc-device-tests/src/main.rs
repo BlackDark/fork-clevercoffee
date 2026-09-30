@@ -252,6 +252,14 @@ where
 /// is the case that died, so the next boot starts after it. Storing on success
 /// instead would leave the stored index pointing at the *last case that
 /// finished*, and the failing one would be re-run forever.
+/// The stack each test case runs on.
+///
+/// 8 KB, matching the firmware's control task (`CONTROL_STACK_BYTES`) and
+/// comfortably more than the largest thing a case builds: the display
+/// `Recorder` is 2 KB. A case that needs more than this is a case that should be
+/// saying so rather than overflowing.
+const CASE_STACK_BYTES: usize = 8 * 1024;
+
 fn run_case(checkpoint: Option<&Checkpoint>, index: usize, case: &Case) {
     CURRENT.store(index, Ordering::Relaxed);
     *CURRENT_NAME.lock().expect("the name lock is not poisoned") = case.name;
@@ -261,7 +269,33 @@ fn run_case(checkpoint: Option<&Checkpoint>, index: usize, case: &Case) {
 
     let started = cc_hal_esp32::time::now_ms();
     line(&["run".to_owned(), format!("n={index}"), case.name.to_owned()]);
-    (case.run)();
+    // On a task with a real stack, not on `main`'s.
+    //
+    // `main` here is an ESP-IDF *task* whose stack is 3584 bytes
+    // (`CONFIG_ESP_MAIN_TASK_STACK_SIZE`), and that is the whole bug this
+    // comment exists to stop someone re-introducing. The display tests build a
+    // `Recorder`, which is `[u8; 2048]` **by value**; two of them is over the
+    // main task's entire stack. The device overflowed, reset, and the runner
+    // reported seven display cases as **LOST** — not failed — alongside
+    // "125 passed, 0 failed". A green run that has quietly stopped testing
+    // anything is worse than a red one.
+    //
+    // The firmware already knows the right shape: its control task gets 8 KB
+    // (`CONTROL_STACK_BYTES`) for exactly this reason. The runner should never
+    // have been borrowing `main`'s.
+    std::thread::Builder::new()
+        .name(format!("case-{index}"))
+        .stack_size(CASE_STACK_BYTES)
+        // `case.run` is a plain `fn()` with no captures, so it coerces to a
+        // `'static` fn pointer and the spawn closure does not borrow `case`.
+        .spawn(case.run)
+        .expect("a case task must spawn")
+        // A panicking case has already printed its own result line via the
+        // panic hook, so the join is a synchronisation point and not a
+        // reporter. `Err` here means the case aborted, which the host sees as a
+        // missing result line and calls LOST.
+        .join()
+        .ok();
     let elapsed = cc_hal_esp32::time::now_ms().wrapping_sub(started);
 
     line(&[

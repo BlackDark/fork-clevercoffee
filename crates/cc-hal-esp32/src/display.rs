@@ -530,6 +530,8 @@ pub mod tests {
         bytes: [u8; 2 * FRAMEBUFFER_LEN],
         len: usize,
         data_transfers: usize,
+        /// Where the most recent data transfer began in `bytes`.
+        last_data_start: usize,
     }
 
     impl Recorder {
@@ -538,6 +540,7 @@ pub mod tests {
                 bytes: [0; 2 * FRAMEBUFFER_LEN],
                 len: 0,
                 data_transfers: 0,
+                last_data_start: 0,
             }
         }
 
@@ -552,15 +555,21 @@ pub mod tests {
 
         /// The payload of the most recent transfer, i.e. the recorded bytes
         /// after the last control byte.
+        /// The bytes of the most recent data transfer.
+        ///
+        /// Recorded as an **offset**, not found by scanning for a control byte.
+        /// The previous version scanned backwards for `0x40` or `0x00` and
+        /// stopped at the first one it found — which, in a rendered frame, is
+        /// very often a *pixel*: the test ramp is `i % 251`, so `0x40` and
+        /// `0x00` both occur inside the frame data. The result was a short slice
+        /// and two tests that had never run (the host scored them LOST behind a
+        /// stack overflow) failing on their first real execution.
+        ///
+        /// A transfer boundary is a fact about the *order* things were sent, so
+        /// it is recorded when it happens rather than recovered by guessing from
+        /// a byte value afterwards.
         fn last_payload(&self) -> &[u8] {
-            let mut start = 0;
-            for i in (0..self.len).rev() {
-                if matches!(self.bytes[i], DATA_CONTROL_BYTE | COMMAND_CONTROL_BYTE) {
-                    start = i + 1;
-                    break;
-                }
-            }
-            &self.bytes[start..self.len]
+            &self.bytes[self.last_data_start..self.len]
         }
 
         /// Whether `needle` occurs anywhere. A sliding window rather than a
@@ -594,6 +603,8 @@ pub mod tests {
             match data {
                 DataFormat::U8(slice) => {
                     self.data_transfers += 1;
+                    // After the control byte, so the slice starts at the pixels.
+                    self.last_data_start = self.len + 1;
                     self.push(&[DATA_CONTROL_BYTE]);
                     self.push(slice);
                     Ok(())
@@ -696,11 +707,17 @@ pub mod tests {
             Some(0xAE),
             "a frame began by switching the panel off"
         );
+        // The frame is on the wire, byte for byte -- plus the data control byte
+        // the recorder prepends, which is part of the transfer and not part of
+        // the pixels. The byte-for-byte ordering claim itself belongs to
+        // `a_flush_puts_the_whole_frame_on_the_wire_in_page_order`; what matters
+        // here is that a frame happened at all, and that no init came with it.
+        let payload = per_frame.last_payload();
         assert_eq!(
-            per_frame.all().len(),
+            payload.len(),
             FRAMEBUFFER_LEN,
-            "a frame should put exactly the framebuffer on the wire, not {} bytes",
-            per_frame.all().len()
+            "a frame should put the whole framebuffer on the wire, not {} bytes",
+            payload.len()
         );
     }
 
@@ -806,10 +823,13 @@ pub mod tests {
     #[cfg_attr(test, test)]
     /// A flush writes all 1024 bytes, in page order, and not a byte more.
     pub fn a_flush_puts_the_whole_frame_on_the_wire_in_page_order() {
-        let mut oled = Oled::new(Recorder::new()).expect("a recorder accepts every command");
+        // Borrowed, not moved: `Recorder` is 2 KB, and passing it by value means
+        // moving 2 KB through `Ssd1306` and `Oled` on a task with an 8 KB stack.
+        let mut recorder = Recorder::new();
+        let mut oled =
+            Oled::new(StdRecorder(&mut recorder)).expect("a recorder accepts every command");
         let frame = ramp_frame();
         oled.flush(&frame).expect("a recorder accepts every byte");
-        let recorder = oled.into_interface();
 
         // The window: columns 0..127 over pages 0..7, which is
         // `0x21 0x00 0x7F` + `0x22 0x00 0x07`.
@@ -820,16 +840,21 @@ pub mod tests {
         // is the claim that `cc-display`'s page-major LSB-on-top layout is the
         // controller's own layout, so no transposition stands between the
         // host-proven rendering and the glass.
+        //
         let payload = recorder.last_payload();
         assert_eq!(payload.len(), FRAMEBUFFER_LEN);
-        assert_eq!(payload, frame);
+        assert_eq!(payload, &frame[..]);
     }
 
     #[cfg_attr(test, test)]
     /// Power save blanks the panel and waking restores the last frame, rather
     /// than leaving a blank panel until the next tick.
     pub fn power_save_blanks_the_panel_and_waking_restores_the_frame() {
-        let mut oled = Oled::new(Recorder::new()).expect("a recorder accepts every command");
+        // Borrowed, not moved -- see the note in
+        // `a_flush_puts_the_whole_frame_on_the_wire_in_page_order`.
+        let mut recorder = Recorder::new();
+        let mut oled =
+            Oled::new(StdRecorder(&mut recorder)).expect("a recorder accepts every command");
         let frame = ramp_frame();
         oled.flush(&frame).expect("a recorder accepts every byte");
 
@@ -846,7 +871,6 @@ pub mod tests {
         assert!(!oled.power_saved());
         assert!(oled.should_flush());
 
-        let recorder = oled.into_interface();
         // 0xAE then 0xAF: `setPowerSave` in both directions, which is all
         // `MachineStateContext::setDisplayPowerSave` ever did.
         assert!(recorder.contains(&[0xAE]));
