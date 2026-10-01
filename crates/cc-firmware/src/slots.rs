@@ -58,6 +58,7 @@
 
 use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex;
 
 use cc_display::model::DisplayInput;
 
@@ -92,24 +93,32 @@ pub struct FrameRequest {
     pub config: cc_display::model::Config,
 }
 
+/// How many times a frame read retries before falling back to the last clean one.
+///
+/// Four. The writer's critical section is one ~200-byte store, so it is over in
+/// nanoseconds; four attempts is generous, and the fallback exists to bound the
+/// display task rather than to be reached.
+const FRAME_READ_ATTEMPTS: usize = 4;
+
 /// The frame hand-off, and the control task's wake channel.
 pub struct FrameSlot {
-    /// Which half of [`Self::frames`] is current.
-    index: AtomicUsize,
-    /// The two frame buffers. Written only by the control task, into the half
-    /// the index does not name; read only by the display task, from the half it
-    /// does. See the `Sync` impl.
-    frames: UnsafeCell<[FrameRequest; 2]>,
-    /// Whether a frame has been published at all.
-    published: AtomicUsize,
+    /// The seqlock counter: even and consistent, odd and being written.
+    seq: AtomicUsize,
+    /// The frame itself. One writer (the control task), one reader (the display
+    /// task), with [`Self::seq`] making a torn read **detectable** rather than
+    /// acceptable. See [`Self::publish`] for why the original two-buffer version
+    /// was a race rather than a buffer.
+    frame: UnsafeCell<FrameRequest>,
+    /// The last frame that read back cleanly, so a stalled writer degrades to a
+    /// stale screen rather than a blank one.
+    last_good: Mutex<Option<FrameRequest>>,
 }
 
-// SAFETY: the module's whole design. `frames[i]` is written only by the control
-// task while `index` names `1 - i`, and read only by the display task while it
-// names `i` — disjoint by construction, and `FrameRequest` is `Copy`, so a
-// buffer is never half-written in a way a reader could observe. Nothing here is
-// reachable from an interrupt. The compiler cannot see the disjointness, which
-// is the only reason the `unsafe` is here.
+// SAFETY: the module's design. `frame` has exactly one writer (the control task)
+// and one reader (the display task), and [`Self::seq`] turns a torn read into a
+// discarded one rather than an acted-on one. The compiler cannot see that
+// agreement, which is the only reason the `unsafe` is here. Nothing here is
+// reachable from an interrupt.
 unsafe impl Sync for FrameSlot {}
 // SAFETY: `&FrameSlot` exposes no interior mutability without the atomics
 // above, and `&mut FrameSlot` is exclusive by Rust's own rules.
@@ -126,59 +135,67 @@ impl FrameSlot {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            index: AtomicUsize::new(0),
-            frames: UnsafeCell::new([FrameRequest::default(); 2]),
-            published: AtomicUsize::new(0),
+            seq: AtomicUsize::new(0),
+            frame: UnsafeCell::new(FrameRequest::default()),
+            last_good: Mutex::new(None),
         }
     }
 
     /// Publish a frame. Called by the control task, and only it.
+    ///
+    /// **A seqlock, not a double buffer.** The first version of this was two
+    /// buffers and an index, on the argument that they are "disjoint by
+    /// construction". That argument is wrong: disjointness holds only while the
+    /// producer has not wrapped onto the slot the consumer is reading — and this
+    /// producer publishes every **10 ms** while the consumer reads every
+    /// **100 ms**, so the producer laps the consumer nine times per frame *by
+    /// design*. The two cadences divide exactly, which also puts the display
+    /// task's wake on a control-task tick boundary, maximising the chance of
+    /// being preempted mid-copy. That is a data race with no synchronisation
+    /// object at all, and on Xtensa a torn read is a garbage value rather than a
+    /// stale one.
+    ///
+    /// So the writer stamps the sequence **odd** before the payload and **even**
+    /// after, and the reader copies and re-reads it, retrying if it moved. The
+    /// reader may still *see* a torn copy; it can never accept one.
     pub fn publish(&self, request: FrameRequest) {
-        let current = self.index.load(Ordering::Relaxed);
-        // SAFETY: the control task is the only writer, and it writes the half the
-        // index does not name — the one the display task is not reading.
+        self.seq.fetch_add(1, Ordering::Release);
+        // SAFETY: the control task is the only writer. A reader may be copying
+        // at this instant, which yields a torn copy — and that is precisely
+        // what the sequence check in `frame` rejects. A mutex here would be the
+        // `FreeRTOS` hazard in `09-cpp-findings.md` §28.
         unsafe {
-            (*self.frames.get())[1 - current] = request;
+            *self.frame.get() = request;
         }
-        // `Release`: the buffer is complete before it is published.
-        self.index.store(1 - current, Ordering::Release);
-        self.published.store(1, Ordering::Release);
+        self.seq.fetch_add(1, Ordering::Release);
     }
 
     /// The current frame, or `None` before the control task has published one.
     ///
-    /// Called by the display task, and only it. `None` is the honest answer at
-    /// boot: the panel then shows the boot screen rather than a frame of zeroes
-    /// that looks like a machine at 0 °C.
+    /// Called by the display task, and only it.
     #[must_use]
     pub fn frame(&self) -> Option<FrameRequest> {
-        if self.published.load(Ordering::Acquire) == 0 {
-            return None;
+        for _ in 0..FRAME_READ_ATTEMPTS {
+            let before = self.seq.load(Ordering::Acquire);
+            if before == 0 {
+                return None;
+            }
+            if before % 2 != 0 {
+                continue;
+            }
+            // SAFETY: reading a `FrameRequest` a writer may be updating right
+            // now. A torn result is discarded by the sequence check below,
+            // which is what makes reading-without-a-lock sound.
+            let copy = unsafe { *self.frame.get() };
+            if self.seq.load(Ordering::Acquire) == before {
+                if let Ok(mut slot) = self.last_good.lock() {
+                    *slot = Some(copy);
+                }
+                return Some(copy);
+            }
         }
-        let index = self.index.load(Ordering::Acquire);
-        // SAFETY: the display task is the only reader, and the `Acquire` above
-        // pairs with the control task's `Release`, so this buffer is complete and
-        // the control task has moved on to the other one.
-        Some(unsafe { *(*self.frames.get()).get(index)? })
+        // The writer is not making progress. The last clean frame beats none: a
+        // stale screen is better than a blank panel.
+        self.last_good.lock().ok().and_then(|slot| *slot)
     }
 }
-impl core::fmt::Debug for FrameSlot {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        // A frame is 200 bytes of numbers and the handle is a pointer; neither
-        // belongs in a log line.
-        f.debug_struct("FrameSlot")
-            .field("published", &self.frame().is_some())
-            .finish()
-    }
-}
-
-// The invariants of this module are **not** host-unit-tested, and the reason is
-// structural rather than an omission: `cc-firmware` is a *binary* crate, so its
-// `#[test]` functions cannot be reached by the on-target runner either — the
-// `test-audit` lint is right to reject a bare `#[test]` here, and there is no
-// registration site for a bin crate.
-//
-// The behaviour that matters is the machine's, and it is verified on hardware:
-// the display task's boot screen, its Wi-Fi screen, and then a live frame drawn
-// from a frame the control task published, all visible in the serial log and on
-// the panel.

@@ -63,6 +63,7 @@ fn all_events() -> Vec<Event> {
     events.push(Event::PidOutput(500.0));
     events.push(Event::Safety(cc_safety::Outcome {
         state: cc_safety::SafetyState {
+            last_sample_seq: None,
             latched: true,
             high_reading_count: cc_safety::DEBOUNCE_COUNT,
         },

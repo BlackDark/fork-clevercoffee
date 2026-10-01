@@ -207,6 +207,10 @@ pub struct Runner {
     /// A scenario that says "the probe read 160 °C now" must not have the
     /// reading swallowed by the 400 ms cadence, so the stimulus forces a sample.
     sensor_stimulus_at: Option<u32>,
+    /// How many temperature readings the scenario has produced, so the safety
+    /// monitor's debounce counts samples rather than ticks. See
+    /// `cc_safety::Telemetry::sample_seq`.
+    sample_seq: u32,
     /// A cadence sample is due this iteration (the 400 ms timer fired).
     sensors_due: bool,
     /// When the last sample was taken, for the cadence gate.
@@ -296,6 +300,7 @@ impl Runner {
             recorder: Recorder::default(),
             next_stimulus: 0,
             sensor_stimulus_at: None,
+            sample_seq: 0,
             sensors_due: true,
             last_sample_at: None,
             ota_until: None,
@@ -410,6 +415,15 @@ impl Runner {
         if sampled {
             self.sensor_stimulus_at = None;
             self.last_sample_at = Some(at);
+            // **A sampled tick is a reading**, and S1's debounce counts readings
+            // (`cc_safety::Telemetry::sample_seq`). It advances here — before
+            // anything borrows `self` — so the safety monitor sees the same
+            // "one count per probe reading" discipline the firmware now uses.
+            // Before that field existed the debounce counted invocations, which
+            // made the real 100 Hz loop trip 40x faster than the C++.
+            let seq = self.sample_seq.wrapping_add(1);
+            self.sample_seq = seq;
+            self.sensors.sample_seq = seq;
         }
 
         if self.ota_active {
@@ -449,11 +463,17 @@ impl Runner {
             temperature_sensor: view.temperature_sensor,
         };
         let outcome = if sampled {
-            let telemetry = cc_safety::Telemetry::new(
-                self.sensors.temperature,
-                self.sensors.water_tank_full,
-                self.machine.state,
-            );
+            // The sample sequence rides along, so S1's debounce counts readings
+            // here exactly as it does in the firmware. See
+            // `cc_safety::Telemetry::sample_seq`.
+            let telemetry = cc_safety::Telemetry {
+                sample_seq: self.sensors.sample_seq,
+                ..cc_safety::Telemetry::new(
+                    self.sensors.temperature,
+                    self.sensors.water_tank_full,
+                    self.machine.state,
+                )
+            };
             let out = cc_safety::reduce(&self.safety, &telemetry, &safety_cfg, Millis::new(at));
             self.safety = out.state;
             Some(out)
@@ -487,6 +507,14 @@ impl Runner {
         if sampled {
             // `Event::SensorUpdated` is `LoopManager` step 2, before the state
             // machine, so the guards react to this sample in this tick.
+            //
+            // The sequence advances **only on a sampled tick**, because that is
+            // exactly what a real reading is: the probe produced one. S1's
+            // debounce counts samples (`cc_safety::Telemetry::sample_seq`), and
+            // before that field existed it counted invocations — which made the
+            // over-temperature trip 40x faster than the C++ on the real 100 Hz
+            // loop. Here the runner already models the 400 ms cadence, so this
+            // is the same discipline the firmware now uses.
             let sensors = self.sensors;
             let (m, fx) = cc_machine::reduce(&machine, &ctx, Event::SensorUpdated(sensors));
             machine = m;
@@ -602,6 +630,7 @@ impl Runner {
                     has_temperature_error: *has_temperature_error,
                     has_scale_error: *has_scale_error,
                     brew_weight: *brew_weight,
+                    sample_seq: self.sample_seq,
                 };
                 // Force a sample on this iteration. The probe produced a
                 // reading; the 400 ms cadence must not defer it.

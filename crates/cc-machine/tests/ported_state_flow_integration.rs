@@ -61,6 +61,7 @@ use common::{automatic_brew_with_preinfusion, context_for, Harness};
 fn emergency_latched() -> Event {
     Event::Safety(cc_safety::Outcome {
         state: SafetyState {
+            last_sample_seq: None,
             latched: true,
             high_reading_count: cc_safety::DEBOUNCE_COUNT,
         },

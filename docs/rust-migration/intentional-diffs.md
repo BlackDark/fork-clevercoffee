@@ -1156,3 +1156,46 @@ drew the *landscape* strings. The C++ carries `langstring_error_tsensor_ur[5]`
 for the portrait screen (`languages.h:35,69-73`) and the port had dropped it, so
 a **64 logical pixel**-wide panel received 111 px of ink and 91 px of it was
 dropped. Restored for all three languages.
+
+
+## 16. S1's over-temperature debounce counts probe *samples*, not control ticks 🔴 changed
+
+**What changed.** `cc_safety::Telemetry` gained a `sample_seq`, and `reduce`
+advances the debounce **only when it changes**. `Sensors` carries the same
+counter, and the firmware fills it from the DS18B20 driver's own conversion count.
+
+**Why.** The C++ increments `emergencyTempReadingCount_` once per
+`updateTemperature()` (`EmergencyStopManager.cpp:41-49`), which the coordinator
+calls on a **400 ms** sensor cadence (`Timing.h:42`), so `DEBOUNCE_COUNT = 3` is
+about **1.2 s** of sustained overheat — and `cc-safety`'s own doc comment says so
+("roughly 1.2 s", `lib.rs:71-72`).
+
+This port calls `reduce` **once per 10 ms control tick** with whatever the last
+conversion produced, so without the counter the *same* reading was counted about
+forty times and the debounce tripped in **30 ms**. A probe spike — a 1-Wire CRC
+retry, a flash write, someone touching the probe on a boiler at 155 °C — would
+latch an emergency stop in the middle of a brew that the C++ rides out. That is
+the most user-visible divergence in the safety path, and it was invisible to every
+test: each test called `reduce` once per reading, which is the *correct* calling
+convention and therefore hid it.
+
+The parity runner already modelled the 400 ms cadence (`sampled`), so it needed
+no new modelling — only the same sequence threaded through, which is why its three
+`overtemp_trip` scenarios still trip on the third reading and not the second.
+
+**Cost.** One `u32` in `Telemetry` and in `Sensors`, one comparison in `reduce`, and
+the test suite's calling convention updated to model successive readings.
+
+**What pins it.** Two new cases in `cc-safety`'s suite: one sample delivered forty
+times stays at one count and does not latch, and three *distinct* samples do; plus
+one for the trap in the other direction — after `clear()`, a sample that is still
+over threshold must count again, so a recovery is not swallowed.
+
+## 17. The reboot request now shuts the hardware down before the 500 ms pause 🔴 changed
+
+`POST /api/restart` did `delay_ms(500)` **inside the control task** and then
+reset. For those 500 ms the loop was not running: no heartbeat, no watchdog feed,
+no interlock — while the heater ISR kept chopping at the last commanded duty. The
+power-switch reboot branch, a few lines below, already did the right thing and
+said why; this one did not. It now applies `Effect::SafeHardwareShutdown` through
+`apply_one` before the pause, exactly as its sibling does.

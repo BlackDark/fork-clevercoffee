@@ -174,6 +174,28 @@ pub struct Telemetry {
     pub water_tank_full: bool,
     /// The machine's current state, which S5's whitelist is a function of.
     pub state: MachineState,
+    /// A counter that changes **once per temperature sample**, not once per pass.
+    ///
+    /// # Why this field exists
+    ///
+    /// S1's debounce counts **samples**: the C++ increments
+    /// `emergencyTempReadingCount_` once per `updateTemperature()`, which the
+    /// coordinator calls on its 400 ms sensor cadence, so `DEBOUNCE_COUNT = 3` is
+    /// about **1.2 s** of sustained overheat. This port calls [`reduce`] once
+    /// per **control tick** — every 10 ms — with whatever the last conversion
+    /// produced, so without a sequence number the *same* reading is counted
+    /// about forty times and the debounce trips in **30 ms**.
+    ///
+    /// A probe spike (a 1-Wire CRC retry, a flash write, someone moving the
+    /// probe on a boiler at 155 °C) would then latch an emergency stop the C++
+    /// rides out mid-brew. That is the most user-visible divergence in the safety
+    /// path, and it is invisible in a test that feeds one reading per call.
+    ///
+    /// So the caller sets this to the driver's own sample counter and
+    /// [`reduce`] advances the debounce **only when it changes**. The latching
+    /// check and the hysteresis are unaffected: they are properties of the
+    /// reading, not of how often we look.
+    pub sample_seq: u32,
 }
 
 impl Telemetry {
@@ -184,6 +206,7 @@ impl Telemetry {
             temperature,
             water_tank_full,
             state,
+            sample_seq: 0,
         }
     }
 }
@@ -196,11 +219,15 @@ pub struct SafetyState {
     /// Consecutive above-threshold readings so far. Mirrors
     /// `emergencyTempReadingCount_`.
     pub high_reading_count: u8,
+    /// The `sample_seq` the counter was last advanced on, so a repeat of the
+    /// same sample does not advance it.
+    pub last_sample_seq: Option<u32>,
 }
 
 impl SafetyState {
     /// The clear, unlatched state.
     pub const CLEAR: Self = Self {
+        last_sample_seq: None,
         latched: false,
         high_reading_count: 0,
     };
@@ -239,6 +266,10 @@ impl SafetyState {
     pub fn clear(&mut self) {
         self.latched = false;
         self.high_reading_count = 0;
+        // And forget which sample the counter was on, or the next pass would
+        // see an unchanged `sample_seq` and refuse to re-count the sample that
+        // is still over threshold.
+        self.last_sample_seq = None;
     }
 
     /// Forget everything. Mirrors `reset()` (`EmergencyStopManager.cpp:107-110`).
@@ -348,7 +379,7 @@ impl Verdict {
     /// Everything refused because the emergency latch is set. This is the
     /// emergency-shutdown actuator state of `HardwareManager::disableAllHardware`
     /// (`HardwareManager.cpp:528-542`), expressed as a permission set.
-    const ALL_REFUSED: Self = Self {
+    pub const ALL_REFUSED: Self = Self {
         may_heat: false,
         may_pump: false,
         may_open_water: false,
@@ -590,7 +621,11 @@ pub fn reduce(
 
     // ---- S1 step 2: debounced over-temperature. ----------------------------
     if state.is_over_threshold(temperature, cfg.emergency_temp) {
-        state.high_reading_count = state.high_reading_count.saturating_add(1);
+        // **Only on a new sample.** See `Telemetry::sample_seq`.
+        if state.last_sample_seq != Some(telemetry.sample_seq) {
+            state.high_reading_count = state.high_reading_count.saturating_add(1);
+            state.last_sample_seq = Some(telemetry.sample_seq);
+        }
         if state.high_reading_count >= DEBOUNCE_COUNT {
             state.trigger();
             return Outcome {

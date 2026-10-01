@@ -33,8 +33,27 @@ fn cfg_with(emergency_temp: f32, hysteresis: f32) -> SafetyConfig {
     }
 }
 
+/// A **global** sample counter, so every `telemetry()` below is a new reading.
+///
+/// `reduce` counts *samples*, not invocations — see
+/// `Telemetry::sample_seq` — so a test that models successive readings has to say
+/// they are successive. This counter is the simplest way to say that without
+/// threading a sequence through every call site.
+static SAMPLE_SEQ: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
 fn telemetry(temp: f32) -> Telemetry {
-    Telemetry::new(Celsius::new(temp), true, MachineState::PidNormal)
+    let seq = SAMPLE_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    Telemetry {
+        sample_seq: seq,
+        ..Telemetry::new(Celsius::new(temp), true, MachineState::PidNormal)
+    }
+}
+
+/// The same reading delivered twice: the caller re-checked without a new
+/// conversion, which is exactly what the control task does at 100 Hz against a
+/// 2.5 Hz probe.
+fn repeat_same_sample(telemetry: &Telemetry) -> Telemetry {
+    *telemetry
 }
 
 fn reduce_temp(state: SafetyState, temp: f32, config: &SafetyConfig) -> Outcome {
@@ -285,6 +304,7 @@ fn s1_the_boundary_of_the_valid_range_does_not_trip() {
 fn latched_with_band_temperature() -> (SafetyState, Telemetry) {
     let config = cfg();
     let latched = SafetyState {
+        last_sample_seq: None,
         latched: true,
         high_reading_count: DEBOUNCE_COUNT,
     };
@@ -369,6 +389,7 @@ fn s2_triggering_twice_changes_nothing() {
 #[test]
 fn s2_clearing_resets_the_counter_too() {
     let mut state = SafetyState {
+        last_sample_seq: None,
         latched: true,
         high_reading_count: 3,
     };
@@ -390,6 +411,7 @@ fn s2_clearing_when_not_latched_changes_nothing() {
 #[test]
 fn s2_reset_forgets_everything() {
     let mut state = SafetyState {
+        last_sample_seq: None,
         latched: true,
         high_reading_count: 2,
     };
@@ -455,6 +477,7 @@ fn s3_emergency_clears_automatically_once_normalised() {
 fn s3_a_latched_machine_stays_latched_while_still_hot() {
     let config = cfg_with(145.0, 10.0);
     let state = SafetyState {
+        last_sample_seq: None,
         latched: true,
         high_reading_count: 3,
     };
@@ -1080,6 +1103,7 @@ fn reduce_is_a_pure_function_of_its_inputs() {
     let config = cfg();
     let telemetry_in = telemetry(60.0);
     let state = SafetyState {
+        last_sample_seq: None,
         latched: false,
         high_reading_count: 2,
     };
@@ -1152,4 +1176,64 @@ fn the_recovery_sequence_walks_the_whole_lifecycle() {
     assert!(!out.state.latched, "60 C is safe to restart");
     assert!(out.verdict.may_heat);
     assert_eq!(out.state, SafetyState::CLEAR);
+}
+
+#[test]
+fn the_same_sample_delivered_repeatedly_does_not_advance_the_debounce() {
+    // **The defect this field exists for.** The control task runs at 100 ms/10 ms
+    // and calls `reduce` on every tick with whatever the last conversion produced.
+    // The C++ increments the debounce once per *reading*, on a 400 ms cadence,
+    // so `DEBOUNCE_COUNT = 3` is about 1.2 s of sustained overheat. Counting
+    // invocations instead made the trip time 30 ms — a single probe spike latched
+    // an emergency stop in the middle of a brew.
+    let config = cfg_with(145.0, 10.0);
+    let hot = telemetry(146.0);
+
+    // One reading, looked at forty times, as a 100 Hz loop over a 2.5 Hz probe
+    // would deliver it.
+    let mut out = Outcome {
+        state: SafetyState::CLEAR,
+        verdict: Verdict::ALL_REFUSED,
+    };
+    for _ in 0..40 {
+        out = reduce(&out.state, &repeat_same_sample(&hot), &config, Millis::ZERO);
+    }
+    assert_eq!(
+        out.state.high_reading_count, 1,
+        "one sample seen forty times is still one sample"
+    );
+    assert!(
+        !out.verdict.latched,
+        "a single over-threshold reading must not latch an emergency stop"
+    );
+
+    // Three *distinct* samples do latch, which is the C++'s behaviour.
+    let mut out = Outcome {
+        state: SafetyState::CLEAR,
+        verdict: Verdict::ALL_REFUSED,
+    };
+    for _ in 0..3 {
+        out = reduce(&out.state, &telemetry(146.0), &config, Millis::ZERO);
+    }
+    assert_eq!(out.state.high_reading_count, 3);
+    assert!(
+        out.verdict.latched,
+        "three distinct over-threshold samples latch, as the C++ does"
+    );
+}
+
+#[test]
+fn clearing_the_latch_re_counts_the_sample_that_is_still_over_threshold() {
+    // The trap in the other direction: if `clear` forgets which sample the
+    // counter was on, the re-trigger that follows would be swallowed.
+    let config = cfg_with(145.0, 10.0);
+    let hot = telemetry(146.0);
+    let out = reduce(&SafetyState::CLEAR, &hot, &config, Millis::ZERO);
+    let mut state = out.state;
+    state.clear();
+    let again = reduce(&state, &repeat_same_sample(&hot), &config, Millis::ZERO);
+    assert_eq!(
+        again.state.high_reading_count, 1,
+        "after a clear, the sample still over threshold counts again"
+    );
 }

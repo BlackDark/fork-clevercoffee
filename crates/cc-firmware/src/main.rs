@@ -1135,6 +1135,7 @@ fn bring_up_ds18b20(
         bus,
         driver,
         last_reading: None,
+        samples: 0,
     })
 }
 
@@ -1206,6 +1207,7 @@ fn bring_up_tsic306(
     Ok(TemperatureSensor::Tsic {
         driver: Tsic306::new(capture),
         last_reading: None,
+        samples: 0,
     })
 }
 
@@ -1231,6 +1233,9 @@ enum TemperatureSensor {
         /// The most recent reading, so the control task can publish it without a
         /// match on which driver is fitted.
         last_reading: LastReading,
+        /// Conversions completed. The safety monitor's clock — see
+        /// [`TemperatureSensor::sample_seq`].
+        samples: u32,
     },
     /// A `ZACwire` edge capture, which is also the driver's `EdgeSource`, so there
     /// is one owner of the pin, one owner of the ring, and nothing shared.
@@ -1238,6 +1243,8 @@ enum TemperatureSensor {
         driver: Tsic306<ZacwireCapture<'static>>,
         /// The most recent reading. See [`TemperatureSensor::Dallas`].
         last_reading: LastReading,
+        /// Decodable frames. See [`TemperatureSensor::sample_seq`].
+        samples: u32,
     },
 }
 
@@ -1267,6 +1274,19 @@ enum DallasFaultTag {
 }
 
 impl TemperatureSensor {
+    /// How many conversions have completed since boot.
+    ///
+    /// **This is the safety monitor's clock.** S1's debounce counts *samples*,
+    /// not invocations (`cc_safety::Telemetry::sample_seq`), and the loop calls
+    /// the monitor ten times a second against a probe that converts at 2.5 Hz.
+    /// Without this counter the same reading is counted forty times and the
+    /// over-temperature debounce trips in 30 ms instead of the C++'s 1.2 s.
+    pub fn sample_seq(&self) -> u32 {
+        match self {
+            Self::Dallas { samples, .. } | Self::Tsic { samples, .. } => *samples,
+        }
+    }
+
     /// The most recent reading, and whether it was plausible.
     ///
     /// `None` before the first conversion completes, which is why
@@ -1291,12 +1311,14 @@ impl TemperatureSensor {
                 bus,
                 driver,
                 last_reading,
+                samples,
             } => {
                 match driver.poll(bus, now) {
                     Ok(ds18b20_domain::Poll::Reading(Ok(celsius))) => {
                         // A good reading re-arms the log, so a fault that comes
                         // back after a recovery is announced again.
                         *sensor_fault_logged = None;
+                        *samples = samples.saturating_add(1);
                         *last_reading =
                             Some((f64::from(celsius), ds18b20_domain::is_plausible(celsius)));
                         info!(
@@ -1342,11 +1364,13 @@ impl TemperatureSensor {
             Self::Tsic {
                 driver,
                 last_reading,
+                samples,
             } => {
                 let mut buffer = tsic306_domain::ring::EdgeBuffer::new();
                 let outcome = driver.poll(&mut buffer);
                 match outcome {
                     tsic306_domain::Outcome::Reading(celsius) => {
+                        *samples = samples.saturating_add(1);
                         // A `ZACwire` frame that decodes is a reading, and a
                         // decoded frame is by construction plausible (the decoder
                         // range-checks), so the flag is unconditionally true here.
@@ -2497,6 +2521,9 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
             // A machine with no scale has no scale error, so this is `false`.
             has_scale_error: sampler.as_ref().is_some_and(|s| s.telemetry().faulted()),
             brew_weight: 0.0,
+            // The probe's own conversion counter, so S1's debounce counts
+            // readings rather than ticks. See `Sensors::sample_seq`.
+            sample_seq: temp.sample_seq(),
         };
 
         let mut tick_effects = control.tick(&config, sensors, &edges, now);
@@ -2601,6 +2628,19 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
         // watchdog has been fed.
         if net.shared.take_reboot_request() {
             info!("control: reboot requested — restarting");
+            // **Shut the hardware down first.** The power-switch branch below
+            // does exactly this and says why; this one did not, so during the
+            // 500 ms pause below the loop was not running: no heartbeat, no
+            // watchdog feed, no interlock — while the heater ISR kept chopping at
+            // the last commanded duty. Half a second of full-power heating with
+            // the safety paths switched off is not a reboot, it is a hazard.
+            let machine = *control.machine();
+            cc_machine::apply_one(
+                &mut actuators,
+                &mut side,
+                &machine,
+                cc_machine::Effect::SafeHardwareShutdown,
+            );
             // A 500 ms pause so the HTTP response has left the socket and the
             // `202 Accepted` has reached the operator's browser, rather than the
             // connection being cut mid-write. The C++ does the same

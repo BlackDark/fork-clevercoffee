@@ -294,6 +294,7 @@ mod tests {
         // in EMERGENCY_STOP. The self-transition is discarded downstream.
         let m = Machine {
             safety: cc_safety::SafetyState {
+                last_sample_seq: None,
                 latched: true,
                 high_reading_count: 3,
             },

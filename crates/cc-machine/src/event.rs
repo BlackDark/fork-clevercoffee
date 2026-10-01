@@ -33,6 +33,17 @@ pub struct Sensors {
     pub has_scale_error: bool,
     /// `SensorCoordinator::getBrewWeight()`, grams.
     pub brew_weight: f32,
+    /// How many temperature samples this carries — the probe's own conversion
+    /// counter, so a consumer can tell a **new reading** from the same reading
+    /// looked at again.
+    ///
+    /// It exists for S1's debounce. `cc_safety::reduce` is called once per
+    /// control tick (10 ms) but the probe converts at 2.5 Hz, so without this the
+    /// over-temperature debounce counted one reading forty times and latched on a
+    /// spike. The counter is threaded through `Sensors` rather than taken from the
+    /// shell separately so that it cannot get out of step with the reading it
+    /// describes.
+    pub sample_seq: u32,
 }
 
 impl Sensors {
@@ -40,6 +51,7 @@ impl Sensors {
     #[must_use]
     pub const fn healthy() -> Self {
         Self {
+            sample_seq: 0,
             temperature: Celsius::new(25.0),
             water_tank_full: true,
             has_temperature_error: false,

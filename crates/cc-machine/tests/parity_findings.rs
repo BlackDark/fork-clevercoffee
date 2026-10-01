@@ -228,11 +228,23 @@ fn div3_the_water_valve_is_tank_gated() {
 #[test]
 fn s4_the_emergency_debounce_keeps_the_heater_on() {
     let cfg = cc_safety::SafetyConfig::default();
-    let telemetry = cc_safety::Telemetry::new(Celsius::new(151.0), true, MachineState::PidNormal);
+    // Each iteration is a **distinct sample**, which is what the C++'s debounce
+    // counts and what `Telemetry::sample_seq` exists to express. A test that
+    // re-used one telemetry value would now model one reading seen repeatedly —
+    // the defect fixed on 2026-10-01, where the control task's 100 Hz calls
+    // against a 2.5 Hz probe latched an emergency stop in 30 ms.
+    let mut seq = 0_u32;
+    let mut telemetry = || {
+        seq += 1;
+        cc_safety::Telemetry {
+            sample_seq: seq,
+            ..cc_safety::Telemetry::new(Celsius::new(151.0), true, MachineState::PidNormal)
+        }
+    };
 
     let mut safety = cc_safety::SafetyState::CLEAR;
     for reading in 1..cc_safety::DEBOUNCE_COUNT {
-        let outcome = cc_safety::reduce(&safety, &telemetry, &cfg, Millis::new(0));
+        let outcome = cc_safety::reduce(&safety, &telemetry(), &cfg, Millis::new(0));
         assert!(
             !outcome.verdict.latched,
             "preserved: reading {reading} of {} does not latch — see 09 §4",
@@ -246,7 +258,7 @@ fn s4_the_emergency_debounce_keeps_the_heater_on() {
         safety = outcome.state;
     }
 
-    let outcome = cc_safety::reduce(&safety, &telemetry, &cfg, Millis::new(0));
+    let outcome = cc_safety::reduce(&safety, &telemetry(), &cfg, Millis::new(0));
     assert!(outcome.verdict.latched, "the third reading latches");
     assert!(!outcome.verdict.may_heat);
 

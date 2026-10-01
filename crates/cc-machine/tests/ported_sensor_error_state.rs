@@ -205,6 +205,7 @@ fn emergency_wins_over_the_sensor_error_guard() {
     let _ = h.send(cc_machine::Event::SensorUpdated(probe_faulted()));
     let latched = cc_machine::Event::Safety(cc_safety::Outcome {
         state: cc_safety::SafetyState {
+            last_sample_seq: None,
             latched: true,
             high_reading_count: cc_safety::DEBOUNCE_COUNT,
         },

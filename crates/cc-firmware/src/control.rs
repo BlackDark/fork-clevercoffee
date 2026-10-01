@@ -333,11 +333,23 @@ impl Control {
         // `Telemetry::state` field's reason for existing: S5's whitelist is a
         // function of the state, so the state is an input to the decision and not
         // part of the latch.
-        let telemetry = Telemetry::new(
-            sensors.temperature,
-            sensors.water_tank_full,
-            self.machine.state,
-        );
+        //
+        // **`sample_seq` is the probe's own conversion counter**, not a tick
+        // counter. S1's debounce is a count of *readings* — the C++ increments it
+        // once per `updateTemperature()` on a 400 ms cadence, so three readings is
+        // about 1.2 s. This tick runs ten times a second against that same
+        // probe, so without the sequence number one reading is counted forty
+        // times and the debounce trips in 30 ms: a probe spike latches an
+        // emergency stop in the middle of a brew, which the C++ rides out.
+        // See `cc_safety::Telemetry::sample_seq`.
+        let telemetry = Telemetry {
+            sample_seq: sensors.sample_seq,
+            ..Telemetry::new(
+                sensors.temperature,
+                sensors.water_tank_full,
+                self.machine.state,
+            )
+        };
         let outcome = cc_safety::reduce(&self.machine.safety, &telemetry, &self.safety, now);
         if let Some(reason) = outcome.verdict.reason {
             debug!("control: safety verdict refuses: {reason:?}");

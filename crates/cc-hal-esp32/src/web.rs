@@ -939,46 +939,57 @@ pub fn temperatures_json(t: &Telemetry) -> String {
 /// a better answer than a failure.
 #[must_use]
 pub fn history_json(shared: &Shared) -> String {
-    use core::fmt::Write as _;
-    // **Formatted under the lock, never copied out of it.** The first version of
-    // this took a `&History` and had the handler clone the ring first — and the
-    // ring is 600 points, 7.2 KB. Returning it by value means a 7.2 KB return
-    // slot on the **httpd task's 8 KB stack**, plus the `clone()` temporary
-    // behind it, and the device reset with a `LoadProhibited` on the first
-    // `GET /api/history`. It is the same lesson as the 1 KB `Display`
-    // framebuffer (`cc_firmware::display_task`) and the same fix: the big thing
-    // lives on the heap, and the only large allocation here is the response
-    // itself.
-    let Ok(ring) = shared.history.lock() else {
-        return String::from("{\"currentTemps\":[],\"targetTemps\":[],\"heaterPowers\":[]}");
+    // **Copied out under the lock, formatted after it.**
+    //
+    // Holding the guard across the formatting is the mistake this replaces: the
+    // control task appends a sample on the same mutex, so ~1800 `write!` calls
+    // and a heap growing to ~12 KB stall the control loop for the duration — a
+    // missed 10 ms period and a late heartbeat, caused by a chart. The copy goes
+    // to the **heap**, because 600 points is 7.2 KB and the httpd task has 8 KB
+    // of stack — the same lesson as the 1 KB display framebuffer, and the same
+    // fix.
+    //
+    // The ring's own `len()` is read under the lock too. Inferring the length
+    // from the copied points would truncate at the first zero — and a boiler
+    // genuinely at 0 °C is a value this machine reports.
+    let (points, len) = match shared.history.lock() {
+        Ok(guard) => {
+            let len = guard.len();
+            let mut copy = alloc::boxed::Box::new([cc_domain::history::Point::default(); 600]);
+            for (i, point) in copy.iter_mut().enumerate().take(len) {
+                if let Some(p) = guard.get(i) {
+                    *point = p;
+                }
+            }
+            (copy, len)
+        }
+        Err(_) => {
+            return String::from("{\"currentTemps\":[],\"targetTemps\":[],\"heaterPowers\":[]}");
+        }
     };
-    let mut out = String::with_capacity(64 + ring.len() * 18);
+    let _ = points;
+
+    let mut out = String::with_capacity(64 + len * 18);
     out.push_str("{\"currentTemps\":[");
-    for i in 0..ring.len() {
+    for i in 0..len {
         if i > 0 {
             out.push(',');
         }
-        if let Some(point) = ring.get(i) {
-            let _ = write!(out, "{:.2}", point.current_temp);
-        }
+        let _ = write!(out, "{:.2}", points[i].current_temp);
     }
     out.push_str("],\"targetTemps\":[");
-    for i in 0..ring.len() {
+    for i in 0..len {
         if i > 0 {
             out.push(',');
         }
-        if let Some(point) = ring.get(i) {
-            let _ = write!(out, "{:.2}", point.target_temp);
-        }
+        let _ = write!(out, "{:.2}", points[i].target_temp);
     }
     out.push_str("],\"heaterPowers\":[");
-    for i in 0..ring.len() {
+    for i in 0..len {
         if i > 0 {
             out.push(',');
         }
-        if let Some(point) = ring.get(i) {
-            let _ = write!(out, "{:.2}", point.heater_power);
-        }
+        let _ = write!(out, "{:.2}", points[i].heater_power);
     }
     out.push_str("]}");
     out
