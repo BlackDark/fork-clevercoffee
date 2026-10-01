@@ -1241,6 +1241,11 @@ pub struct SafetyView {
     pub steam_setpoint: Celsius,
     /// `hardware.relays.heater.trigger_type`.
     pub heater_relay_trigger: RelayTriggerType,
+    /// `hardware.relays.pump.trigger_type`. See
+    /// [`SafetyView::heater_relay_trigger`].
+    pub pump_relay_trigger: RelayTriggerType,
+    /// `hardware.relays.valve.trigger_type`.
+    pub valve_relay_trigger: RelayTriggerType,
     /// `hardware.sensors.temperature.type`.
     ///
     /// Carried for completeness rather than for validation: both sensor types
@@ -1279,6 +1284,8 @@ impl Config {
             emergency_hysteresis: Celsius::new(self.safety.emergency_hysteresis as f32),
             steam_setpoint: Celsius::new(self.steam.setpoint as f32),
             heater_relay_trigger: self.hardware.relays.heater.trigger_type,
+            pump_relay_trigger: self.hardware.relays.pump.trigger_type,
+            valve_relay_trigger: self.hardware.relays.valve.trigger_type,
             temperature_sensor: self.hardware.sensors.temperature.r#type,
         }
     }

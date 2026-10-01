@@ -100,6 +100,12 @@ pub struct SafetyConfig {
     /// [`validate_config`]. See [`RelayTriggerType`]: a low-trigger heater relay
     /// cannot be made safe in firmware.
     pub heater_relay_trigger: RelayTriggerType,
+    /// `hardware.relays.pump.trigger_type` — needed only by
+    /// [`validate_config`], for the same reason: a low-trigger pump relay runs
+    /// water from power-on.
+    pub pump_relay_trigger: RelayTriggerType,
+    /// `hardware.relays.valve.trigger_type` — likewise.
+    pub valve_relay_trigger: RelayTriggerType,
     /// `hardware.sensors.temperature.type`.
     ///
     /// **Not used by [`validate_config`] any more**, and that is a deliberate
@@ -134,6 +140,8 @@ impl Default for SafetyConfig {
             emergency_hysteresis: Celsius::new(5.0),
             steam_setpoint: Celsius::new(120.0),
             heater_relay_trigger: RelayTriggerType::HighTrigger,
+            pump_relay_trigger: RelayTriggerType::HighTrigger,
+            valve_relay_trigger: RelayTriggerType::HighTrigger,
             // `TSIC_306`, matching `Config.h:1085-1092`:
             //
             //   EnumParamDef<Hardware::TemperatureSensorType> hardwareSensorsTemperatureType{
@@ -724,7 +732,19 @@ pub enum ConfigViolation {
     /// control of the pin before its first instruction. The heater would be
     /// energised on every boot. This is a wiring property, not a code path, so
     /// no amount of firmware can make it safe.
+    /// A `LOW_TRIGGER` heater relay. See [`Self::PumpRelayLowTrigger`] for why
+    /// the same hazard applies to the other two.
     HeaterRelayLowTrigger,
+    /// A `LOW_TRIGGER` pump relay: the pump runs at every boot, before any
+    /// firmware exists to stop it.
+    ///
+    /// The C++ honours this setting (`Relay.cpp:13-27`), and so does this port —
+    /// `actuators::Polarity` exists for it — but a configuration carrying one is
+    /// refused at boot rather than obeyed, because the pin floats before
+    /// firmware runs and "honoured" would mean "energised from power-on".
+    PumpRelayLowTrigger,
+    /// A `LOW_TRIGGER` valve relay: water at every boot.
+    ValveRelayLowTrigger,
     /// A temperature sensor type this firmware has no driver for.
     ///
     /// **`TSIC_306` / `ZACwire` only.** The protocol is proprietary, no Rust
@@ -786,8 +806,21 @@ pub fn validate_config(cfg: &SafetyConfig) -> Result<(), ConfigViolation> {
         });
     }
 
+    // **Every relay, not just the heater.** The recovered oracle refused
+    // `LOW_TRIGGER` for the heater because such a relay energises whenever its
+    // pin floats, which is *before* any firmware runs — so a low-trigger pump or
+    // valve relay runs water at boot, with no firmware in the loop to stop it.
+    // Nothing about that hazard is heater-specific, and the C++ wires all three
+    // trigger types into `Relay::on()` (`HardwareManager.cpp:73,80,87`), so a
+    // stored configuration can carry any of them.
     if cfg.heater_relay_trigger == RelayTriggerType::LowTrigger {
         return Err(ConfigViolation::HeaterRelayLowTrigger);
+    }
+    if cfg.pump_relay_trigger == RelayTriggerType::LowTrigger {
+        return Err(ConfigViolation::PumpRelayLowTrigger);
+    }
+    if cfg.valve_relay_trigger == RelayTriggerType::LowTrigger {
+        return Err(ConfigViolation::ValveRelayLowTrigger);
     }
 
     // `cfg.temperature_sensor` is deliberately not checked. Both types have a

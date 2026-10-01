@@ -782,3 +782,47 @@ fn param_value_kinds_round_trip_through_the_spec() {
     assert!((ParamValue::Float(95.0).as_f64().unwrap_or_default() - 95.0).abs() < 1e-12);
     assert!(ParamValue::Text("x").as_f64().is_none());
 }
+
+// ============================================== the safety view carries everything
+
+/// `safety_view` is the whole hand-off to `cc_safety`, so a field it drops is a
+/// safety check that cannot fire.
+///
+/// The relay trigger types are the load-bearing case: `cc_safety::validate_config`
+/// refuses `LOW_TRIGGER` for every relay, and it can only do that if the view
+/// carries the values. When this port widened that refusal from the heater alone
+/// to all three relays, a reviewer's finding was that the *boot* path's
+/// `SafetyConfig` hard-coded two of them — so the view was fine and the copy
+/// downstream of it was not. This test pins the view half.
+#[test]
+fn the_safety_view_carries_every_relay_trigger_type() {
+    use cc_domain::hardware::RelayTriggerType;
+
+    for (set, expected) in [
+        (
+            RelayTriggerType::HighTrigger,
+            (
+                RelayTriggerType::HighTrigger,
+                RelayTriggerType::HighTrigger,
+                RelayTriggerType::HighTrigger,
+            ),
+        ),
+        (
+            RelayTriggerType::LowTrigger,
+            (
+                RelayTriggerType::LowTrigger,
+                RelayTriggerType::LowTrigger,
+                RelayTriggerType::LowTrigger,
+            ),
+        ),
+    ] {
+        let mut config = Config::default();
+        config.hardware.relays.heater.trigger_type = set;
+        config.hardware.relays.pump.trigger_type = set;
+        config.hardware.relays.valve.trigger_type = set;
+        let view = config.safety_view();
+        assert_eq!(view.heater_relay_trigger, expected.0);
+        assert_eq!(view.pump_relay_trigger, expected.1);
+        assert_eq!(view.valve_relay_trigger, expected.2);
+    }
+}

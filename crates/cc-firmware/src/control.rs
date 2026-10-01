@@ -600,6 +600,12 @@ fn celsius(degrees: f64) -> Celsius {
 /// is the thing that must not be written twice: `cc_config::Config::safety_view`
 /// names exactly the five fields, and a second spelling of that list is a second
 /// answer to "which parameters can make this machine unsafe".
+/// The single place a [`SafetyConfig`] is built from a [`Config`].
+///
+/// One owner, deliberately: the boot path (`network::bring_up_config`) and this
+/// module's tick both need it, and two field-by-field copies drifted once —
+/// see the call site's note. If a field is added to `SafetyConfig`, this is the
+/// only function that has to learn about it.
 pub(crate) fn safety_config(config: &Config) -> SafetyConfig {
     let view = config.safety_view();
     SafetyConfig {
@@ -607,6 +613,8 @@ pub(crate) fn safety_config(config: &Config) -> SafetyConfig {
         emergency_hysteresis: view.emergency_hysteresis,
         steam_setpoint: view.steam_setpoint,
         heater_relay_trigger: view.heater_relay_trigger,
+        pump_relay_trigger: view.pump_relay_trigger,
+        valve_relay_trigger: view.valve_relay_trigger,
         temperature_sensor: view.temperature_sensor,
     }
 }

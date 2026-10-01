@@ -1237,3 +1237,55 @@ fn clearing_the_latch_re_counts_the_sample_that_is_still_over_threshold() {
         "after a clear, the sample still over threshold counts again"
     );
 }
+
+// ============================================================ relay trigger type
+
+/// The hazard is **not** heater-specific, and the port's refusal was.
+///
+/// `Relay::on()` branches on `triggerType` (`src/hardware/Relay.cpp:13-27`) and
+/// `HardwareManager` wires all three parameters into it
+/// (`HardwareManager.cpp:73,80,87`), so a stored configuration can carry a
+/// low-trigger **pump** or **valve**. Such a relay energises while its pin
+/// floats — before any firmware runs — so water would flow at every boot with
+/// nothing in the loop to stop it. That is the same argument the recovered
+/// oracle used for the heater, and it applies just as much to these two.
+#[test]
+fn a_low_trigger_relay_is_refused_for_every_relay() {
+    for (what, cfg) in [
+        (
+            "heater",
+            SafetyConfig {
+                heater_relay_trigger: RelayTriggerType::LowTrigger,
+                ..SafetyConfig::default()
+            },
+        ),
+        (
+            "pump",
+            SafetyConfig {
+                pump_relay_trigger: RelayTriggerType::LowTrigger,
+                ..SafetyConfig::default()
+            },
+        ),
+        (
+            "valve",
+            SafetyConfig {
+                valve_relay_trigger: RelayTriggerType::LowTrigger,
+                ..SafetyConfig::default()
+            },
+        ),
+    ] {
+        assert!(
+            validate_config(&cfg).is_err(),
+            "{what}: a LOW_TRIGGER relay energises while its pin floats, which is \\
+             before any firmware runs — it must be refused for all three, not only \\
+             the heater"
+        );
+    }
+}
+
+#[test]
+fn high_trigger_relays_are_accepted_for_every_relay() {
+    // The refusals above must not become a blanket refusal: the default
+    // configuration has to boot.
+    assert!(validate_config(&SafetyConfig::default()).is_ok());
+}

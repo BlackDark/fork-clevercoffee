@@ -118,19 +118,15 @@ pub fn bring_up_config() -> Result<Booted, EspError> {
 
     // The fail-closed rule. `cc_safety::load_or_default` is the whole of the
     // decision and is fully tested in `cc-safety`; this is the call.
-    let safety = stored.as_ref().map(|config| {
-        let view = config.safety_view();
-        // A straight field-for-field copy: `cc_config::SafetyView` is typed in
-        // `Celsius` precisely so that this join is a copy and not a conversion
-        // (see `SafetyView::emergency_temp`).
-        cc_safety::SafetyConfig {
-            emergency_temp: view.emergency_temp,
-            emergency_hysteresis: view.emergency_hysteresis,
-            steam_setpoint: view.steam_setpoint,
-            heater_relay_trigger: view.heater_relay_trigger,
-            temperature_sensor: view.temperature_sensor,
-        }
-    });
+    // **One construction, one owner.** This used to build `SafetyConfig` field by
+    // field, separately from `control::safety_config`, and a reviewer's finding
+    // was that the two drifted: this copy hard-coded the two relay trigger types
+    // to `HighTrigger`, so `validate_config` never saw a stored low-trigger pump
+    // or valve, the fail-closed rule did not discard the configuration — and
+    // `main.rs` then applied that very polarity to the pins, energising the pump
+    // at boot. Two constructions of a safety input is one too many.
+    let safety = stored.as_ref().map(crate::control::safety_config);
+
     let loaded = cc_safety::load_or_default(safety.as_ref());
 
     let had_stored_config = stored.is_some();
@@ -154,15 +150,38 @@ pub fn bring_up_config() -> Result<Booted, EspError> {
             // only one of its four variants that can be produced from a `Config`
             // the firmware itself wrote, so the name is enough to act on; the
             // full variant detail is in `/api/nvs-debug` once that reports it.
+            //
+            // **But the network credential survives.** This was found the hard
+            // way: refusing a stored configuration discarded the whole blob, the
+            // machine came up on the compiled-in defaults, and the defaults carry
+            // no SSID — so the radio never associated and the **only** way to fix
+            // the parameter that caused the refusal was a serial console. The
+            // refusal is about a relay's polarity, not about connectivity, and
+            // discarding the connectivity along with it turns a configuration
+            // mistake into an unreachable machine.
+            //
+            // So the credential is carried over, and **not** written back: the
+            // blob on disk stays exactly as it was, so `/api/nvs-debug` and the
+            // next boot still see the configuration that was refused. The
+            // operator reaches the UI, fixes the parameter, and the blob becomes
+            // valid again.
+            let credential = config.system.wifi.clone();
             warn!(
                 "config: (configuration is unsafe to run: {violation:?}) -> discarding \
                  all of it and running defaults. The blob is left on disk so \
                  /api/nvs-debug and the next boot can still see it."
             );
-            config = Config::default();
-            if let Err(err) = store.save(&config) {
-                warn!("config: could not overwrite the discarded configuration: {err}");
+            let mut defaults = Config::default();
+            let ssid = credential.ssid.trim();
+            if !ssid.is_empty() {
+                info!(
+                    "config: keeping the stored Wi-Fi credential ({ssid}) so the \
+                     machine stays reachable and the unsafe setting can be fixed \
+                     over HTTP"
+                );
+                defaults.system.wifi = credential;
             }
+            config = defaults;
         }
     }
 

@@ -90,18 +90,112 @@ use log::{info, warn};
 
 use crate::heater::{HeaterOutput, TimerIsrPwm};
 
-/// The level that energises a `HIGH_TRIGGER` relay.
+/// Which pin level means "energised" for one relay.
 ///
-/// `hardware.relays.*.trigger_type` defaults to `HIGH_TRIGGER` and the oracle's
-/// boot log says "active high" (08 §3), so `Low` is the inactive level and
-/// `High` the active one. This is the same constant the bring-up sequence
-/// asserts its pin readback against, and it is *not* configurable: a
-/// `LOW_TRIGGER` heater relay energises whenever the pin floats, which is before
-/// any firmware runs, and `cc_safety::validate_config` refuses that
-/// configuration outright.
-const ACTIVE: Level = Level::High;
-/// The level that de-energises a `HIGH_TRIGGER` relay. See [`ACTIVE`].
-const INACTIVE: Level = Level::Low;
+/// `Relay::on()`/`Relay::off()` (`src/hardware/Relay.cpp:13-27`) branch on
+/// `triggerType`, and `HardwareManager` wires all three of
+/// `hardware.relays.*.trigger_type` into it (`HardwareManager.cpp:73,80,87`).
+/// This type is that branch, per relay: the port used to carry two module-level
+/// constants instead, so `hardware.relays.pump.trigger_type` was **read by
+/// nothing** anywhere in the workspace and a `LOW_TRIGGER` pump or valve relay
+/// was driven inverted — `enable_pump` de-energised — reachable over plain
+/// `POST /api/parameters`.
+///
+/// A note on why honouring it is not the same as permitting it: a low-trigger
+/// relay **energises whenever its pin floats**, which is before any firmware
+/// runs. That hazard is not specific to the heater, so
+/// `cc_safety::validate_config` refuses `LOW_TRIGGER` for every relay, and this
+/// type exists so the setting is not a lie when a configuration does carry one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Polarity {
+    /// The level that energises the relay.
+    pub active: Level,
+    /// The level that de-energises it.
+    pub inactive: Level,
+}
+
+impl Polarity {
+    /// A relay energised by a high level — `HIGH_TRIGGER`, the default in both
+    /// firmwares (`Config.h:960-963`).
+    #[must_use]
+    pub const fn high_trigger() -> Self {
+        Self {
+            active: Level::High,
+            inactive: Level::Low,
+        }
+    }
+
+    /// A relay energised by a low level.
+    #[must_use]
+    pub const fn low_trigger() -> Self {
+        Self {
+            active: Level::Low,
+            inactive: Level::High,
+        }
+    }
+
+    /// The polarity for a configured trigger type.
+    #[must_use]
+    pub const fn for_trigger(trigger: cc_domain::hardware::RelayTriggerType) -> Self {
+        match trigger {
+            cc_domain::hardware::RelayTriggerType::LowTrigger => Self::low_trigger(),
+            cc_domain::hardware::RelayTriggerType::HighTrigger => Self::high_trigger(),
+        }
+    }
+}
+
+/// The polarity of a `HIGH_TRIGGER` relay: active high.
+///
+/// Kept as a name because the bring-up sequence asserts its pin readback against
+/// it, and because it is the default everywhere. The relays themselves carry
+/// their own [`Polarity`]; this is the value a caller uses when it has no
+/// configuration to hand.
+pub const HIGH_TRIGGER: Polarity = Polarity::high_trigger();
+
+/// The three relays' polarities, from the configuration.
+///
+/// One argument rather than three so a caller cannot wire two relays and forget
+/// the third, and so `Actuators::new` stays a single obvious construction.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RelayPolarities {
+    /// `hardware.relays.pump.trigger_type`.
+    pub pump: Polarity,
+    /// `hardware.relays.valve.trigger_type`.
+    pub valve: Polarity,
+    /// `hardware.relays.heater.trigger_type`.
+    ///
+    /// Carried so the caller can report it, but **not applied to the pin**: the
+    /// heater's write is inside the 10 ms ISR closure in
+    /// [`crate::heater::TimerIsrPwm`], and `cc_safety::validate_config` refuses
+    /// `LOW_TRIGGER` for the heater, so a polarity here could never change a
+    /// behaviour. Threading a field into an ISR to honour a value that cannot
+    /// reach it is complexity with no reachable effect; the refusal is the real
+    /// mechanism and it lives in `validate_config`.
+    pub heater: Polarity,
+}
+
+impl RelayPolarities {
+    /// Every relay `HIGH_TRIGGER` — the default in both firmwares, and the only
+    /// configuration `cc_safety::validate_config` accepts for any of them.
+    #[must_use]
+    pub const fn all_high_trigger() -> Self {
+        Self {
+            pump: Polarity::high_trigger(),
+            valve: Polarity::high_trigger(),
+            heater: Polarity::high_trigger(),
+        }
+    }
+
+    /// Read the three from a configuration.
+    #[must_use]
+    pub const fn from_config(relays: &cc_config::config::HardwareRelays) -> Self {
+        Self {
+            pump: Polarity::for_trigger(relays.pump.trigger_type),
+            valve: Polarity::for_trigger(relays.valve.trigger_type),
+            heater: Polarity::for_trigger(relays.heater.trigger_type),
+        }
+    }
+}
 
 /// The heater transport, as this module names it.
 type Heater = HeaterOutput<TimerIsrPwm>;
@@ -269,6 +363,10 @@ pub struct Actuators {
     valve: PinDriver<'static, InputOutput>,
     /// The heater, behind its deadman gate.
     heater: Heater,
+    /// Which level energises the pump relay. `Relay::on()`'s branch.
+    pump_polarity: Polarity,
+    /// Which level energises the shared steam/water relay.
+    valve_polarity: Polarity,
     /// Which valve(s) the shared relay is open for.
     valve_state: ValveState,
     /// The interlock state every energise method consults.
@@ -314,11 +412,14 @@ impl Actuators {
         pump: PinDriver<'static, InputOutput>,
         valve: PinDriver<'static, InputOutput>,
         heater: Heater,
+        polarity: RelayPolarities,
     ) -> Self {
         Self {
             pump,
             valve,
             heater,
+            pump_polarity: polarity.pump,
+            valve_polarity: polarity.valve,
             valve_state: ValveState::Closed,
             interlock: Interlock::healthy(),
             now: Millis::ZERO,
@@ -328,6 +429,26 @@ impl Actuators {
                 steam_valve: 0,
                 heater: 0,
             },
+        }
+    }
+
+    /// Apply the configured relay polarities.
+    ///
+    /// Called once at boot, after the configuration is loaded and **before** the
+    /// control task exists — so no actuator write can race it. See the call
+    /// site's comment for why the polarity is not known at construction.
+    pub const fn set_relay_polarities(&mut self, polarity: RelayPolarities) {
+        self.pump_polarity = polarity.pump;
+        self.valve_polarity = polarity.valve;
+    }
+
+    /// The polarities in force.
+    #[must_use]
+    pub const fn relay_polarity(&self) -> RelayPolarities {
+        RelayPolarities {
+            pump: self.pump_polarity,
+            valve: self.valve_polarity,
+            heater: Polarity::high_trigger(),
         }
     }
 
@@ -432,7 +553,14 @@ impl Actuators {
     /// ([`crate::heater::TimerIsrPwm::is_high`]).
     #[must_use]
     pub fn pins_read_active(&self) -> (bool, bool) {
-        (self.pump.is_high(), self.valve.is_high())
+        // **Polarity-aware.** It read `is_high()` as "energised", which is only
+        // true for a high-trigger relay: on a low-trigger board the log would
+        // report the inverse of reality, and `enable_pump`'s comment cites this
+        // as the check.
+        (
+            self.pump.is_high() == (self.pump_polarity.active == Level::High),
+            self.valve.is_high() == (self.valve_polarity.active == Level::High),
+        )
     }
 
     /// Drive the valve relay from [`Self::valve_state`].
@@ -449,9 +577,9 @@ impl Actuators {
     /// disagrees with the pin in a way nothing can see.
     fn update_valve_relay(&mut self) {
         let level = if self.valve_state.relay_should_be_on() {
-            ACTIVE
+            self.valve_polarity.active
         } else {
-            INACTIVE
+            self.valve_polarity.inactive
         };
         if let Err(err) = self.valve.set_level(level) {
             warn!(
@@ -477,13 +605,13 @@ impl ActuatorsTrait for Actuators {
         // on `heaterEnabled_`); the facade keeps no such flag for the pump
         // because the write itself is the state and the pin readback in
         // `pins_read_active` is the check.
-        if let Err(err) = self.pump.set_level(ACTIVE) {
+        if let Err(err) = self.pump.set_level(self.pump_polarity.active) {
             warn!("actuators: the pump relay (GPIO27) could not be driven: {err:?}");
         }
     }
 
     fn disable_pump(&mut self) {
-        if let Err(err) = self.pump.set_level(INACTIVE) {
+        if let Err(err) = self.pump.set_level(self.pump_polarity.inactive) {
             warn!("actuators: the pump relay (GPIO27) could not be de-energised: {err:?}");
         }
     }
@@ -603,8 +731,8 @@ impl ActuatorsTrait for Actuators {
         // the facade believing the machine is not latched.
         self.interlock.latched = true;
         self.valve_state = ValveState::Closed;
-        self.pump.set_level(INACTIVE).ok();
-        self.valve.set_level(INACTIVE).ok();
+        self.pump.set_level(self.pump_polarity.inactive).ok();
+        self.valve.set_level(self.valve_polarity.inactive).ok();
         self.force_heater_duty(0.0);
         info!("actuators: EMERGENCY SHUTDOWN — relays off and the latch is set");
     }
@@ -615,8 +743,8 @@ impl ActuatorsTrait for Actuators {
         // the whole difference between the two methods and the reason they are
         // two.
         self.valve_state = ValveState::Closed;
-        self.pump.set_level(INACTIVE).ok();
-        self.valve.set_level(INACTIVE).ok();
+        self.pump.set_level(self.pump_polarity.inactive).ok();
+        self.valve.set_level(self.valve_polarity.inactive).ok();
         self.force_heater_duty(0.0);
         info!("actuators: safe hardware shutdown — relays off, latch untouched");
     }
@@ -730,10 +858,59 @@ const fn if_enabled(enabled: bool) -> &'static str {
 #[cfg(any(test, feature = "device-tests"))]
 #[cfg_attr(feature = "device-tests", doc(hidden))]
 pub mod tests {
+    // Justification: these cases test this module's private decisions, which is
+    // why they live beside them; see `crate::task::tests` for the same note.
     #![allow(clippy::wildcard_imports)]
-    // Justification: these cases are testing this module's private decisions,
-    // which is the reason they live beside them; see the same note in
-    // `crate::task::tests`.
+
+    use super::{Polarity, RelayPolarities};
+    use cc_domain::hardware::RelayTriggerType;
+
+    #[cfg_attr(test, test)]
+    pub fn high_trigger_energises_high() {
+        assert_eq!(
+            Polarity::high_trigger().active,
+            esp_idf_hal::gpio::Level::High
+        );
+        assert_eq!(
+            Polarity::high_trigger().inactive,
+            esp_idf_hal::gpio::Level::Low
+        );
+    }
+
+    #[cfg_attr(test, test)]
+    pub fn low_trigger_energises_low() {
+        // `Relay::on()`/`off()` (`src/hardware/Relay.cpp:13-27`): the branch is
+        // on the trigger type, and getting it backwards is what made this setting
+        // dangerous when it was ignored.
+        assert_eq!(
+            Polarity::low_trigger().active,
+            esp_idf_hal::gpio::Level::Low
+        );
+        assert_eq!(
+            Polarity::low_trigger().inactive,
+            esp_idf_hal::gpio::Level::High
+        );
+    }
+
+    #[cfg_attr(test, test)]
+    pub fn the_polarity_follows_the_configured_trigger() {
+        assert_eq!(
+            Polarity::for_trigger(RelayTriggerType::HighTrigger),
+            Polarity::high_trigger()
+        );
+        assert_eq!(
+            Polarity::for_trigger(RelayTriggerType::LowTrigger),
+            Polarity::low_trigger()
+        );
+    }
+
+    #[cfg_attr(test, test)]
+    pub fn the_default_bundle_is_high_trigger_throughout() {
+        let all = RelayPolarities::all_high_trigger();
+        for polarity in [all.pump, all.valve, all.heater] {
+            assert_eq!(polarity, Polarity::high_trigger());
+        }
+    }
 
     use super::*;
 

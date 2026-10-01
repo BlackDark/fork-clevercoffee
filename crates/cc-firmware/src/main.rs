@@ -90,6 +90,18 @@ use log::{debug, error, info, warn};
 type EspError = esp_idf_svc::sys::EspError;
 
 /// The level that means "actuator de-energised" for a `HIGH_TRIGGER` relay.
+/// The level that de-energises a `HIGH_TRIGGER` relay — the level the bring-up
+/// sequence drives each actuator pin to before anything reads it back.
+///
+/// **Why it is a constant and not the configuration:** a `LOW_TRIGGER` relay
+/// energises whenever its pin *floats*, which is before this firmware runs, so
+/// driving such a pin low to "de-energise" it would in fact **energise** it.
+/// `cc_safety::validate_config` refuses `LOW_TRIGGER` for every relay for
+/// exactly that reason, which means a stored configuration carrying one is
+/// discarded at boot and the defaults — high-trigger — are what run here. The
+/// relay *drivers* do honour the configured polarity
+/// (`actuators::Polarity`); this is the one place where honouring it would be
+/// the unsafe choice, and it is the reason the two differ.
 const INACTIVE: Level = Level::Low;
 
 /// The deadman gate's beat period, and therefore the upper bound on how long the
@@ -632,7 +644,18 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
     //
     //     The `test_only` inhibit is set here and **never changed afterwards**.
     //     See [`TEST_ONLY_INHIBIT`] for what is held off and why.
-    let mut actuators = cc_hal_esp32::Actuators::new(pump, water_valve, heater);
+    // The relay polarities are **not known yet** — the configuration is loaded
+    // further down, and reading it before that is what made the setting a lie in
+    // the first place. The facade is built with the default, which is what
+    // `validate_config` accepts for every relay, and
+    // `set_relay_polarities` applies the configured values once the configuration
+    // is in hand and before the control task exists.
+    let mut actuators = cc_hal_esp32::Actuators::new(
+        pump,
+        water_valve,
+        heater,
+        cc_hal_esp32::actuators::RelayPolarities::all_high_trigger(),
+    );
     actuators.set_inhibit(TEST_ONLY_INHIBIT);
     info!(
         "actuators: pump=GPIO27 valve=GPIO17 heater=GPIO2 owned by the control task; \
@@ -681,6 +704,30 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
          different key space and is ignored by design (R3-08, decided 2026-09-28)"
     );
     info!("nvs: the boot decision was `{origin:?}`");
+
+    // **The relay polarities, now that the configuration exists.** `Relay::on()`'s
+    // branch, which the C++ wires from all three `trigger_type` parameters
+    // (`HardwareManager.cpp:73,80,87`); the port carried two module-level
+    // constants instead, so `hardware.relays.pump.trigger_type` was read by
+    // nothing and a `LOW_TRIGGER` pump or valve relay was driven **inverted** —
+    // `enable_pump` de-energised — reachable over plain
+    // `POST /api/parameters`.
+    //
+    // In practice this reads high-trigger for every relay, because
+    // `cc_safety::validate_config` refuses `LOW_TRIGGER` for all of them: such a
+    // relay energises while its pin floats, which is before this firmware runs.
+    // Applying the configured value is what makes the parameter honest rather
+    // than silently ignored, and it is what would carry the day if that refusal
+    // were ever relaxed.
+    actuators.set_relay_polarities(cc_hal_esp32::actuators::RelayPolarities::from_config(
+        &config.hardware.relays,
+    ));
+    info!(
+        "actuators: relay polarity from hardware.relays.*.trigger_type — pump \
+         active={:?} valve active={:?}",
+        actuators.relay_polarity().pump.active,
+        actuators.relay_polarity().valve.active
+    );
 
     // 7a. The temperature probe, **after the configuration and before anything
     // that reads it**.

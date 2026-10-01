@@ -320,6 +320,22 @@ pub const CASES: &[Case] = &[
         run: task::tests::the_parameter_mailbox_prints_its_depth_and_never_its_contents,
     },
     Case {
+        name: "actuators::high_trigger_energises_high",
+        run: actuators::tests::high_trigger_energises_high,
+    },
+    Case {
+        name: "actuators::low_trigger_energises_low",
+        run: actuators::tests::low_trigger_energises_low,
+    },
+    Case {
+        name: "actuators::the_polarity_follows_the_configured_trigger",
+        run: actuators::tests::the_polarity_follows_the_configured_trigger,
+    },
+    Case {
+        name: "actuators::the_default_bundle_is_high_trigger_throughout",
+        run: actuators::tests::the_default_bundle_is_high_trigger_throughout,
+    },
+    Case {
         name: "telnet::the_port_and_banner_are_the_csqs",
         run: telnet::tests::the_port_and_banner_are_the_csqs,
     },

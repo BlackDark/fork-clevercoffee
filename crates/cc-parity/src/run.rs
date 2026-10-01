@@ -456,6 +456,11 @@ impl Runner {
         // becomes a one-liner and the test below is what notices the change.)
         let view = self.config.safety_view();
         let safety_cfg = cc_safety::SafetyConfig {
+            // From the view, like the firmware's boot path: a literal here
+            // would make the harness unable to reproduce a firmware that
+            // *rejects* a low-trigger relay.
+            pump_relay_trigger: view.pump_relay_trigger,
+            valve_relay_trigger: view.valve_relay_trigger,
             emergency_temp: view.emergency_temp,
             emergency_hysteresis: view.emergency_hysteresis,
             steam_setpoint: view.steam_setpoint,
@@ -1414,6 +1419,11 @@ assert:
         config.steam.setpoint = 128.0;
         let view = config.safety_view();
         let built = cc_safety::SafetyConfig {
+            // From the view, like the firmware's boot path: a literal here
+            // would make the harness unable to reproduce a firmware that
+            // *rejects* a low-trigger relay.
+            pump_relay_trigger: view.pump_relay_trigger,
+            valve_relay_trigger: view.valve_relay_trigger,
             emergency_temp: view.emergency_temp,
             emergency_hysteresis: view.emergency_hysteresis,
             steam_setpoint: view.steam_setpoint,
