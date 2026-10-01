@@ -3256,6 +3256,17 @@ fn bring_up_wifi(
     // client identifier is fixed before the first association. See
     // `cc_hal_esp32::wifi`'s module documentation.
     let mut sta = cc_hal_esp32::Sta::new(modem, &config.system.hostname, sys_loop)?;
+    // **Lengths only, never the values.** A machine that will not associate is
+    // almost always holding a credential that is not the one it thinks it has, and
+    // "the stored SSID is 12 bytes" settles a class of problem that reading
+    // `/api/parameters` cannot reach when the machine is offline. `password` is a
+    // `Secret` and is exposed only for its length here.
+    info!(
+        "wifi: stored credential — ssid {} bytes, password {} bytes ({} bytes trimmed)",
+        config.system.wifi.ssid.len(),
+        config.system.wifi.password.expose().len(),
+        config.system.wifi.ssid.trim().len(),
+    );
     sta.connect(
         &config.system.wifi.ssid,
         config.system.wifi.password.expose(),

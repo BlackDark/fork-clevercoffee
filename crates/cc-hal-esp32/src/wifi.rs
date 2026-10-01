@@ -50,7 +50,9 @@ use esp_idf_svc::eventloop::EspSystemEventLoop;
 use esp_idf_svc::ipv4;
 use esp_idf_svc::netif::{EspNetif, NetifConfiguration, NetifStack};
 use esp_idf_svc::sys::{EspError, ESP_ERR_INVALID_ARG};
-use esp_idf_svc::wifi::{ClientConfiguration, Configuration, EspWifi, WifiDriver};
+use esp_idf_svc::wifi::{
+    AuthMethod, ClientConfiguration, Configuration, EspWifi, PmfConfiguration, WifiDriver,
+};
 use log::{info, warn};
 
 use crate::time::now_ms;
@@ -272,10 +274,38 @@ impl Sta {
     /// longer than 64 — the widths of `wifi_sta_config_t::ssid` and
     /// `::password`. Rejected here rather than truncated, because a truncated
     /// SSID associates with the *wrong network*.
+    /// The auth mode and PMF the station offers.
+    ///
+    /// **Both defaults were wrong on this machine.** `ClientConfiguration`'s
+    /// `auth_method` defaults to [`AuthMethod::WPA2Personal`] and its `pmf_cfg`
+    /// to [`PmfConfiguration::NotCapable`], because that is what a
+    /// *compile-time* default should be. Taken with `..Default::default()` — which
+    /// is what this call used to do — the station announced **WPA2 only, no
+    /// PMF**, and an AP that offers WPA3 would not associate: no `wifi:state:`
+    /// transitions at all, a 10 s timeout, five retries, offline.
+    ///
+    /// The C++ does not have this problem: `WiFi.begin(ssid, password)`
+    /// (`WiFiStaConnect.h:26-28`) leaves `wifi_authmode` at zero, which ESP-IDF
+    /// reads as "accept whatever the AP offers".
+    ///
+    /// So the station says [`AuthMethod::WPA2WPA3Personal`] and advertises PMF
+    /// as **capable and required** — which is what WPA3 needs, and which a WPA2
+    /// AP tolerates, because PMF is negotiated rather than demanded by the peer.
+    fn station_security() -> (AuthMethod, PmfConfiguration) {
+        (
+            AuthMethod::WPA2WPA3Personal,
+            PmfConfiguration::Capable { required: true },
+        )
+    }
+
+    /// Start an association with `ssid` and `password`.
     pub fn connect(&mut self, ssid: &str, password: &str) -> Result<(), EspError> {
+        let (auth_method, pmf_cfg) = Self::station_security();
         let conf = Configuration::Client(ClientConfiguration {
             ssid: bounded(ssid)?,
             password: bounded(password)?,
+            auth_method,
+            pmf_cfg,
             ..Default::default()
         });
         self.wifi.set_configuration(&conf)?;
