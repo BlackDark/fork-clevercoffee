@@ -148,32 +148,47 @@ const CONTROL_PERIOD_MS: u32 = 10;
 /// `DisplayInput` 100 times a second for a frame the panel drops.
 const FRAME_PUBLISH_MS: u32 = display_task::REFRESH_MS;
 
-/// Which temperature probe this build expects on GPIO16.
+/// The probe physically fitted to the board this firmware was built for.
 ///
-/// # The configuration default is `TSIC_306`; this is not that
+/// **Documentation, not behaviour.** It is what the ROM address, the
+/// `initial_raw` seed and the bring-up log line below are written for, and it is
+/// the value a machine with a `DS18B20` wants in
+/// `hardware.sensors.temperature.type`.
 ///
-/// `hardware.sensors.temperature.type` defaults to `TSIC_306` — the C++'s value
-/// at `Config.h:1085-1092`, restored in `cc-config` and `cc-safety` when the
-/// `TSIC-306` driver landed (R3-07). **The probe physically fitted to the attached
-/// machine is a `DS18B20`** (family `0x28`, ROM `286937aacd78af41`, measured
-/// 2026-09-28), and the C++ itself has the same mismatch: its default is a
-/// `TSIC-306` and the machine ships with a `DS18B20`, which is why
-/// `TempSensorDallas` and `TempSensorTSIC` both take `PIN_TEMPSENSOR` and the
-/// firmware picks between them.
+/// The driver that actually runs is [`PROBE_FROM_CONFIG`] — the *configured*
+/// value, exactly as the C++ chooses it (`SystemInitializer.cpp` builds a
+/// `TempSensorDallas` or a `TempSensorTSIC` from
+/// `Config::hardwareSensorsTemperatureType`). It used to be this `const`, on the
+/// argument that the board is what it is and a configuration default should not
+/// override a measured fact. The human's answer to that was the right one:
 ///
-/// So the driver is selected from the **board**, not from the configuration, and
-/// the configuration's value is logged alongside it. That is the honest
-/// arrangement: the C++'s default is preserved where the C++ keeps it, and the
-/// board's actual probe is not overridden by it. The failure mode is visible
-/// either way — a machine configured for a sensor that is not fitted reports
-/// `not connected` and names the sensor it asked for, which is the thing the C++
-/// got wrong when it silently read the other bus.
+/// > I switched the sensor in config but it still shows temperature — that
+/// > should not work
 ///
-/// The TSIC branch is **compiled and type-checked on every build** and is
-/// dead-code-eliminated when this is `DallasDs18b20`, so the `ZACwire` driver's
-/// flash cost is unmeasured until a `TSIC-306` board is selected. That is stated
-/// rather than glossed: `just size` measures the `DS18B20` image.
-const PROBE: TemperatureSensorType = TemperatureSensorType::DallasDs18b20;
+/// A setting that changes nothing is not a default, it is a lie, and a silent
+/// one: a board wired for a `DS18B20` that reads one while the operator has
+/// selected a `TSIC-306` is exactly the "silently read the other bus" failure the
+/// comment below claimed to be avoiding. With the configuration honoured, the
+/// mismatch is visible instead: the selected driver gets no answer, and no answer
+/// is what sends the machine to `SENSOR_ERROR` with a zero duty.
+///
+/// Measured: ROM `286937aacd78af41`, family `0x28`, 2026-09-28.
+const BOARD_PROBE: TemperatureSensorType = TemperatureSensorType::DallasDs18b20;
+
+/// Read the probe type out of the configuration, naming the C++ it mirrors.
+///
+/// `hardware.sensors.temperature.type` (`Config.h:1085-1092`), which defaults to
+/// `TSIC_306` in both firmwares — a default that does not match the machine that
+/// ships with a `DS18B20`. That is the C++'s own mismatch and it is preserved;
+/// what is **not** preserved is the C++'s tolerance of it being wrong in
+/// silence, because the C++ picks the driver from the same value.
+fn probe_from_config(config: &cc_config::Config) -> TemperatureSensorType {
+    // Not a `match`: the enum has two variants and the point of the function is
+    // to be a *narrowing* of the configuration's value to the two the driver
+    // layer implements. A future third variant has to break this line rather
+    // than fall through, which is the whole reason the two are named here.
+    config.hardware.sensors.temperature.r#type
+}
 
 /// Whether the `LEDC` heater output is brought up at boot.
 ///
@@ -468,12 +483,6 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
     // is dropped with it. The comment is the record; the type is 4 bytes.
     let _ = peripherals.ledc;
 
-    // The temperature probe. GPIO16 is `PIN_TEMPSENSOR` (`pinmapping.h:27`) and
-    // whichever driver [`PROBE`] names is built on it. This is a **read**: the
-    // 1-Wire bus is open-drain and the ZACwire line is an input, so nothing on
-    // this pin is ever energised.
-    let temp_sensor = bring_up_temperature_sensor(peripherals.pins.gpio16)?;
-
     // 2. The two plain actuator pins to `inactive`, in `main`, before any task
     //    exists, so there is no window in which a task could observe them
     //    un-driven.
@@ -672,6 +681,23 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
          different key space and is ignored by design (R3-08, decided 2026-09-28)"
     );
     info!("nvs: the boot decision was `{origin:?}`");
+
+    // 7a. The temperature probe, **after the configuration and before anything
+    // that reads it**.
+    //
+    //     It used to be step 5, before the configuration existed, because the
+    //     driver was chosen by a compile-time `const` rather than by
+    //     `hardware.sensors.temperature.type`. Now the setting decides — as it
+    //     does in the C++ — so the probe cannot be built before the value that
+    //     selects it is known. The ordering that matters for safety is
+    //     untouched: the actuators were driven inactive and the heater read back
+    //     above, before this line.
+    //
+    //     GPIO16 is `PIN_TEMPSENSOR` (`pinmapping.h:27`) and whichever driver is
+    //     selected is built on it. This is a **read**: the 1-Wire bus is
+    //     open-drain and the ZACwire line is an input, so nothing on this pin is
+    //     ever energised.
+    let temp_sensor = bring_up_temperature_sensor(peripherals.pins.gpio16, &config)?;
 
     // 7b. The scale, **constructed at boot** — the one thing the C++ never does.
     //
@@ -1018,18 +1044,33 @@ where
 /// `TempSensorDallas` reports a failed read and `TempSensor::error_` is what
 /// escalates it — so this matches it.
 ///
-/// Both arms are compiled and type-checked; the one [`PROBE`] does not name is
-/// dead-code-eliminated by the optimiser, because the comparison is on a `const`.
+/// Both arms are compiled and type-checked, and now both are **linked**: the
+/// selection is a runtime value, so the arm the operator does not choose is dead
+/// weight rather than dead code. That is the honest cost of honouring the
+/// setting, and it is what `just size` now reports.
 fn bring_up_temperature_sensor(
     pin: esp_idf_hal::gpio::Gpio16<'static>,
+    config: &cc_config::Config,
 ) -> Result<TemperatureSensor, EspError> {
-    info!(
-        "temperature: driver = {PROBE:?} — the probe fitted to this board. \
-         `hardware.sensors.temperature.type` is a separate setting whose default \
-         is TSIC_306 (Config.h:1085-1092); see the note on PROBE for why the \
-         board, not that default, decides which driver runs."
-    );
-    match PROBE {
+    let probe = probe_from_config(config);
+    // The board and the configuration are two different facts and the log says
+    // so, because on this machine they disagree by default: the board has a
+    // `DS18B20` and the parameter's default is `TSIC_306`.
+    if probe == BOARD_PROBE {
+        info!(
+            "temperature: driver = {probe:?}, which is the probe fitted to this \
+             board (hardware.sensors.temperature.type agrees)"
+        );
+    } else {
+        warn!(
+            "temperature: driver = {probe:?} because \
+             hardware.sensors.temperature.type says so, but the probe measured \
+             on this board is {BOARD_PROBE:?} (ROM 286937aacd78af41). If nothing \
+             reads, that is why: a {probe:?} on a 1-Wire bus has nothing to talk \
+             to, and the machine will report a sensor error rather than guess."
+        );
+    }
+    match probe {
         TemperatureSensorType::DallasDs18b20 => bring_up_ds18b20(pin),
         TemperatureSensorType::Tsic306 => bring_up_tsic306(pin),
     }
@@ -1189,6 +1230,23 @@ enum TemperatureSensor {
 /// not on a NaN.
 type LastReading = Option<(f64, bool)>;
 
+/// Which sensor fault was last written to the log.
+///
+/// A three-variant tag rather than the driver's own `Ds18b20Fault` because the
+/// no-presence and bus-error arms report a different type (`OneWireError`), and
+/// the point of the value is only "have I already said this".
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DallasFaultTag {
+    /// A read that came back with a named fault.
+    Read,
+    /// No device answered the reset.
+    NoPresence,
+    /// The bus itself failed.
+    Bus,
+    /// The `ZACwire` capture produced no decodable frame.
+    Tsic,
+}
+
 impl TemperatureSensor {
     /// The most recent reading, and whether it was plausible.
     ///
@@ -1208,7 +1266,7 @@ impl TemperatureSensor {
     /// Both arms are non-blocking by construction — the `DS18B20` waits on a
     /// deadline the loop's own sleep covers, and the `TSIC-306` samples for a
     /// bounded window and returns — so this never stalls the control loop.
-    fn poll(&mut self, now: Millis) {
+    fn poll(&mut self, now: Millis, sensor_fault_logged: &mut Option<DallasFaultTag>) {
         match self {
             Self::Dallas {
                 bus,
@@ -1217,6 +1275,9 @@ impl TemperatureSensor {
             } => {
                 match driver.poll(bus, now) {
                     Ok(ds18b20_domain::Poll::Reading(Ok(celsius))) => {
+                        // A good reading re-arms the log, so a fault that comes
+                        // back after a recovery is announced again.
+                        *sensor_fault_logged = None;
                         *last_reading =
                             Some((f64::from(celsius), ds18b20_domain::is_plausible(celsius)));
                         info!(
@@ -1230,14 +1291,32 @@ impl TemperatureSensor {
                         // driver's. See `div6_*`: the C++ can only report
                         // "not connected" for all six, and this port names the
                         // fault.
-                        warn!("temperature: read failed: {fault}");
+                        //
+                        // **Once per streak, not once per read.** At the loop's
+                        // rate a misconfigured probe fails on every read, and 50
+                        // lines a second on a 115200-baud console is both a wall
+                        // of noise and real time spent in `println`. The
+                        // fault itself is unchanged; only the log is gated.
+                        if *sensor_fault_logged != Some(DallasFaultTag::Read) {
+                            *sensor_fault_logged = Some(DallasFaultTag::Read);
+                            warn!("temperature: read failed: {fault} (logged once per fault)");
+                        }
                     }
                     Ok(ds18b20_domain::Poll::Started | ds18b20_domain::Poll::Waiting) => {}
+                    // The same gate as the read failure above: a bus that is
+                    // broken stays broken, and one line per read hides the one
+                    // line that matters.
                     Err(OneWireError::NoPresence) => {
-                        warn!("temperature: 1-Wire device stopped responding");
+                        if *sensor_fault_logged != Some(DallasFaultTag::NoPresence) {
+                            *sensor_fault_logged = Some(DallasFaultTag::NoPresence);
+                            warn!("temperature: 1-Wire device stopped responding (logged once)");
+                        }
                     }
-                    Err(OneWireError::Bus(err)) => {
-                        error!("temperature: 1-Wire bus error {err}");
+                    Err(OneWireError::Bus(_)) => {
+                        if *sensor_fault_logged != Some(DallasFaultTag::Bus) {
+                            *sensor_fault_logged = Some(DallasFaultTag::Bus);
+                            error!("temperature: 1-Wire bus error (logged once)");
+                        }
                     }
                 }
             }
@@ -1253,11 +1332,22 @@ impl TemperatureSensor {
                         // decoded frame is by construction plausible (the decoder
                         // range-checks), so the flag is unconditionally true here.
                         *last_reading = Some((f64::from(celsius), true));
-                        info!("temperature: {celsius:.2} C (ZACwire)");
+                        *sensor_fault_logged = None;
                     }
                     other => {
+                        // Same gate as the `DS18B20` arm, and for the same
+                        // reason: a `TSIC-306` that is not fitted fails on every
+                        // read, and one line per read on a 115200-baud console is
+                        // a wall of text that buries the line that says why.
                         if let Some(fault) = other.probe_fault() {
-                            warn!("temperature: {fault} (ZACwire)");
+                            if *sensor_fault_logged != Some(DallasFaultTag::Tsic) {
+                                *sensor_fault_logged = Some(DallasFaultTag::Tsic);
+                                warn!(
+                                    "temperature: {fault} (ZACwire, logged once) — \
+                                     is hardware.sensors.temperature.type right \
+                                     for this board?"
+                                );
+                            }
                         }
                     }
                 }
@@ -1892,6 +1982,21 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
 
     // When the last frame was handed to the display task.
     let mut last_frame_ms: u32 = 0;
+    // The frame's inputs, **carried between frames**.
+    //
+    // This is not a convenience. `DisplayInput::brew_timer` is the brew-timer
+    // FSM's state — `Idle -> Running -> PostBrew -> Idle` — and the transition
+    // out of `PostBrew` is a deadline against `post_brew_timer_duration_s`, so a
+    // value rebuilt from defaults every 100 ms can never leave `Idle` and the
+    // brew timer can never be shown. ADR-0001 §4 says exactly this: the C++
+    // advances the state as a side effect of `shouldDisplayBrewTimer` inside
+    // `UICoordinator`, and `DisplayInput::brew_timer` is how the port carries it
+    // between frames. The display crate was written for it; nothing ever called
+    // `step_brew_timer`, and a brew showed no timer at all.
+    let mut display_input = cc_display::model::DisplayInput::default();
+    // The last sensor fault logged, so a probe that is simply not there says so
+    // once instead of fifty times a second.
+    let mut sensor_fault_logged: Option<DallasFaultTag> = None;
 
     // 🔴 The tick-timing measurement, which is R3-17's "the control tick is
     // unaffected" acceptance criterion and R4-01b's instrument.
@@ -2293,7 +2398,7 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
         // The probe stays on **this** task on purpose — see [`sensor_task`] for
         // the measurement that says a second task cannot own it on this
         // toolchain.
-        temp.poll(now);
+        temp.poll(now, &mut sensor_fault_logged);
         let last_reading = temp.last_reading();
         let pressure_bar = pressure.as_mut().and_then(|sensor| match sensor.poll(now) {
             Ok(cc_domain::abp2::Poll::Sample(sample)) => Some(f64::from(sample.pressure.raw())),
@@ -2408,44 +2513,41 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
         if tick_began_ms.wrapping_sub(last_frame_ms) >= FRAME_PUBLISH_MS {
             last_frame_ms = tick_began_ms;
             let (p, i, d) = control.pid_terms();
+            let machine = *control.machine();
+            // The display's view of the configuration, refreshed every frame:
+            // fifteen of its flags change at runtime through
+            // `POST /api/parameters`, and a copy taken at boot would show the
+            // machine the screen it had when it booted.
+            let display_view = display_config(&config);
+            // The fields that change. Everything else in `display_input` is kept,
+            // and the kept part is what carries the brew-timer FSM.
+            display_input.temperature = last_reading.map_or(0.0, |(celsius, _)| celsius);
+            display_input.setpoint = control.setpoint();
+            display_input.pid_output = f64::from(control.pid_output());
+            display_input.pid_kp = p;
+            display_input.pid_ki = i;
+            display_input.pid_kd = d;
+            display_input.state = control.state();
+            // The brew row's two numbers, `processCurrentBrewTime()` and
+            // `processTotalTargetBrewTime()` — `BrewProgress` is exactly those.
+            display_input.brew_time_ms = machine.brew.elapsed_ms;
+            display_input.target_brew_time_ms = machine.brew.target_ms;
+            // `BrewHandler::isBrewActive()` — the C++'s own definition, which
+            // `shouldDisplayBrewTimer` uses to leave `Idle`. `BrewFinished` is
+            // excluded because the FSM has already moved on to `PostBrew` by
+            // then, and it is the state in which the post-brew timer runs.
+            display_input.brew_active = machine.state.is_brew_state()
+                && machine.state != cc_domain::state::MachineState::BrewFinished;
+            // The post-brew deadline is configuration, and configuration can
+            // change under a running machine, so the view is refreshed here
+            // rather than captured at boot.
+            // The FSM step. One call per published frame, which is what the C++
+            // gets from one `printScreen()` per loop.
+            let _ = cc_display::templates::step_brew_timer(&mut display_input, &display_view);
             frame.publish(slots::FrameRequest {
-                input: cc_display::model::DisplayInput {
-                    temperature: last_reading.map_or(0.0, |(celsius, _)| celsius),
-                    setpoint: control.setpoint(),
-                    pid_output: f64::from(control.pid_output()),
-                    pid_kp: p,
-                    pid_ki: i,
-                    pid_kd: d,
-                    // `DisplayInput` carries these two as `f32` while the
-                    // sensors produce `f64`. The narrowing is deliberate and
-                    // loses nothing: an ABP2 sample is 16-bit over full scale,
-                    // and a scale reports milligrams.
-                    #[allow(
-                        clippy::cast_possible_truncation,
-                        reason = "an ABP2 sample is 16-bit over full scale and a \
-                                  scale reports milligrams, so neither narrowing \
-                                  loses a digit the sensor produced"
-                    )]
-                    pressure: pressure_bar.unwrap_or(0.0) as f32,
-                    #[allow(
-                        clippy::cast_possible_truncation,
-                        reason = "the scale reports milligrams; see above"
-                    )]
-                    weight: weight_g.unwrap_or(0.0) as f32,
-                    state: control.state(),
-                    ..cc_display::model::DisplayInput::default()
-                },
-                // `standbyCoordinator().shouldTurnOffDisplay()`
-                // (`StandbyCoordinator.h:135-140`): the standby countdown *and*
-                // the display countdown have both run out, so the panel goes
-                // dark. The second half used to be missing — the countdown was
-                // declared in `cc-machine` and never ported — so the firmware
-                // blanked the panel the instant the machine entered standby
-                // instead of ten minutes later. The human's report was exactly
-                // that: "standby should show the screen for a while, and only
-                // then turn the display off".
-                blank: control.machine().standby.should_turn_off_display(),
-                config: display_config(&config),
+                input: display_input,
+                blank: machine.standby.should_turn_off_display(),
+                config: display_view,
             });
         }
 

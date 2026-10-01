@@ -189,6 +189,28 @@ re-verified on the board:
   are heap now; the on-target suite is back to 145 passing, 0 failing, 1 pre-existing
   LOST.
 
+### Fixed on 2026-10-01, second pass — two more of the human's reports
+
+- **"`hardware.sensors.temperature.type` does nothing."** It did nothing: the
+  driver was chosen by a compile-time `const`, so selecting a `TSIC-306` on a
+  board with a `DS18B20` carried on reading the 1-Wire probe. The configuration
+  now chooses the driver, as it does in the C++, and the mismatch is *visible*:
+  with `TSIC_306` selected the reading is `null`, the machine goes to
+  `SENSOR_ERROR` with a zero duty, and the log says so once. The parameter is
+  also in the reboot-required set, because the driver is constructed once at boot
+  — without that, saving it answered `success` and nothing happened until a
+  reboot.
+- **A brew showed no timer.** The frame's `brew_timer` — the
+  `Idle -> Running -> PostBrew` FSM that ADR-0001 §4 puts in `DisplayInput` — was
+  **never stepped**, and `brew_time_ms` was never filled, so no template could
+  ever show a timer. The control task now carries the `DisplayInput` between
+  frames, feeds it `BrewProgress` and `BrewHandler::isBrewActive()`, and steps the
+  FSM once per published frame. Each transition is logged, so a brew is provable
+  from the console.
+- The sensor's failure log was one line per read, which at the loop's rate is 50
+  lines a second on a 115200-baud console. It is now one line per fault, re-armed
+  by a good reading.
+
 ### Not done
 
 - **R3-18, the Acaia BLE scale — measured, and it does not fit.** Enabling

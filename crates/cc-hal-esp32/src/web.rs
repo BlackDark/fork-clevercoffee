@@ -2343,6 +2343,15 @@ fn needs_reboot(key: &str) -> bool {
     key.starts_with("hardware.switches.")
         || key.starts_with("hardware.sensors.watertank.enabled")
         || key == "hardware.sensors.scale.enabled"
+        // **The probe type decides which driver is constructed**, so it is read
+        // once at boot like every other `hardware.*` setting. It was missing
+        // from this list, which is how a saved `TSIC_306` on a `DS18B20` board
+        // looked applied while the machine carried on reading the other bus —
+        // the operator changes it, the API says `success`, and nothing happens
+        // until a reboot. The C++ has the same property (it builds
+        // `TempSensorDallas` or `TempSensorTSIC` in `SystemInitializer`) and its
+        // UI has to say so by hand; here the answer is the list.
+        || key == "hardware.sensors.temperature.type"
 }
 
 /// The most pairs one `POST /api/parameters` may carry.

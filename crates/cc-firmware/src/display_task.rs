@@ -75,6 +75,9 @@ pub struct DisplayTask {
     frame: Arc<FrameSlot>,
     /// The telemetry snapshot, for the Wi-Fi address on the boot screen.
     shared: Arc<cc_hal_esp32::web::Shared>,
+    /// The brew-timer state of the last frame drawn, so a transition can be
+    /// announced rather than the state merely repeated.
+    last_brew_timer: cc_display::model::BrewTimerState,
 }
 
 impl DisplayTask {
@@ -92,6 +95,7 @@ impl DisplayTask {
             template,
             frame,
             shared,
+            last_brew_timer: cc_display::model::BrewTimerState::Idle,
         }
     }
 
@@ -157,6 +161,21 @@ impl DisplayTask {
             // is boot: the panel then keeps whatever the boot screens drew,
             // rather than being shown a frame of zeroes.
             if let Some(request) = self.frame.frame() {
+                // The brew timer is the one thing on this screen that is not
+                // visible in any log line, and it is a state machine the control
+                // task advances. Announcing each transition makes it provable
+                // from the console: a brew logs `Idle -> Running` when the pump
+                // starts and `Running -> PostBrew` when it stops, with the timer
+                // value at both.
+                if request.input.brew_timer != self.last_brew_timer {
+                    info!(
+                        "display: brew timer {:?} -> {:?} at {:.1} s",
+                        self.last_brew_timer,
+                        request.input.brew_timer,
+                        request.input.brew_time_ms / 1000.0
+                    );
+                    self.last_brew_timer = request.input.brew_timer;
+                }
                 if let Some(panel) = self.panel.as_mut() {
                     panel.set_blank(request.blank);
                     if !request.blank {
