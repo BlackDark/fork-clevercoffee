@@ -337,6 +337,21 @@ pub enum Command {
 pub struct Shared {
     /// The latest telemetry, republished by the control task.
     pub telemetry: Mutex<Telemetry>,
+    /// The temperature history, appended by the control task.
+    ///
+    /// The C++'s `static TemperatureHistory tempHistory` is a file-static in
+    /// the web server, written from `sendTempEvent` (`WebServerManager.cpp:1134`).
+    /// Here the producer is the control task, so the ring is shared state and
+    /// lives here — next to the telemetry, which the same task publishes for the
+    /// same reason.
+    ///
+    /// **Boxed, and that is not a style choice.** The ring is 600 points, 7.2 KB;
+    /// a `Shared` built *by value* — which two on-target tests do — put that on
+    /// an 8 KB task stack and the device rebooted mid-suite, which the runner
+    /// reports as LOST rather than as a failure. It is the same lesson as the
+    /// 1 KB `Display` framebuffer and the 7.2 KB `history_json` return value:
+    /// anything this size is heap or it is a crash.
+    pub history: Mutex<alloc::boxed::Box<cc_domain::history::History>>,
     /// Set when a handler has asked for a reboot; the firmware acts on it.
     pub reboot_requested: AtomicBool,
     /// The number of `/api/parameters?filter=all` responses served, for the
@@ -352,12 +367,31 @@ impl Shared {
     pub fn new() -> Self {
         Self {
             telemetry: Mutex::new(Telemetry::default()),
+            history: Mutex::new(alloc::boxed::Box::new(cc_domain::history::History::new())),
             reboot_requested: AtomicBool::new(false),
             large_responses: AtomicU32::new(0),
             large_refused: AtomicU32::new(0),
         }
     }
 
+    /// Append one sample to the history ring, ignoring a poisoned lock.
+    ///
+    /// Called by the control task at the C++'s `sendTempEvent` cadence. A
+    /// poisoned lock means some other thread panicked while holding it, and the
+    /// only honest response to "the chart is a diagnostic" is to lose a point
+    /// rather than refuse to regulate a boiler.
+    pub fn push_history(&self, current_temp: f32, target_temp: f32, heater_power: f32) {
+        if let Ok(mut ring) = self.history.lock() {
+            ring.push(current_temp, target_temp, heater_power);
+        }
+    }
+
+    /// A snapshot of the history ring, oldest first.
+    ///
+    /// A copy rather than a lock held across the serialisation: the copy is a
+    /// 7 KB `memcpy` on the httpd task, and holding the lock while writing
+    /// 12 KB to a socket would stall the control task's next sample. The C++
+    /// has the same shape of problem and solves it by never sharing the ring
     /// Replace the telemetry snapshot.
     ///
     /// **A whole-slot replace, not a merge.** There are two publishers — the
@@ -843,6 +877,71 @@ pub fn temperatures_json(t: &Telemetry) -> String {
     )
 }
 
+/// `GET /api/history` — `WebServerManager.cpp:631-645` and
+/// `TemperatureHistory::generateJson` (`:134-153`).
+///
+/// Three parallel arrays, oldest point first, each value rounded to two
+/// decimals by `round2` (`helperUtils.h:32`). The C++ builds this with
+/// `ArduinoJson` into an `AsyncJsonResponse`; here it is one `String` handed to
+/// [`respond_large`], which streams it in 512-byte chunks and refuses it below
+/// the ADR-0002 heap floor — the same two protections, arrived at from a
+/// different library.
+///
+/// **The spacing is part of the contract.** The ring keeps every third sample,
+/// and the UI reconstructs the x axis as `now - 3 * i` seconds
+/// (`CleverCoffeeContext.tsx:240-243`). A ring that kept every sample would
+/// draw 30 minutes of data across a 10-minute axis.
+///
+/// An empty ring answers three empty arrays, not an error: a machine that has
+/// been up for four seconds has no history, and the chart's own loading state is
+/// a better answer than a failure.
+#[must_use]
+pub fn history_json(shared: &Shared) -> String {
+    use core::fmt::Write as _;
+    // **Formatted under the lock, never copied out of it.** The first version of
+    // this took a `&History` and had the handler clone the ring first — and the
+    // ring is 600 points, 7.2 KB. Returning it by value means a 7.2 KB return
+    // slot on the **httpd task's 8 KB stack**, plus the `clone()` temporary
+    // behind it, and the device reset with a `LoadProhibited` on the first
+    // `GET /api/history`. It is the same lesson as the 1 KB `Display`
+    // framebuffer (`cc_firmware::display_task`) and the same fix: the big thing
+    // lives on the heap, and the only large allocation here is the response
+    // itself.
+    let Ok(ring) = shared.history.lock() else {
+        return String::from("{\"currentTemps\":[],\"targetTemps\":[],\"heaterPowers\":[]}");
+    };
+    let mut out = String::with_capacity(64 + ring.len() * 18);
+    out.push_str("{\"currentTemps\":[");
+    for i in 0..ring.len() {
+        if i > 0 {
+            out.push(',');
+        }
+        if let Some(point) = ring.get(i) {
+            let _ = write!(out, "{:.2}", point.current_temp);
+        }
+    }
+    out.push_str("],\"targetTemps\":[");
+    for i in 0..ring.len() {
+        if i > 0 {
+            out.push(',');
+        }
+        if let Some(point) = ring.get(i) {
+            let _ = write!(out, "{:.2}", point.target_temp);
+        }
+    }
+    out.push_str("],\"heaterPowers\":[");
+    for i in 0..ring.len() {
+        if i > 0 {
+            out.push(',');
+        }
+        if let Some(point) = ring.get(i) {
+            let _ = write!(out, "{:.2}", point.heater_power);
+        }
+    }
+    out.push_str("]}");
+    out
+}
+
 /// The `weight` SSE event's payload. `getWeightJsonString`, `:1193-1210`.
 #[must_use]
 pub fn weight_json(t: &Telemetry) -> String {
@@ -1249,12 +1348,15 @@ impl Web {
             )?;
         }
         {
-            server.fn_handler::<EspError, _>("/api/history", Method::Get, |mut req| {
-                respond(
-                    req.connection(),
-                    200,
-                    &unavailable_json("Temperature history", "R3-09 (the timeseries ring)"),
-                )
+            let shared = Arc::clone(&shared);
+            server.fn_handler::<EspError, _>("/api/history", Method::Get, move |mut req| {
+                // The C++'s `AsyncJsonResponse` (`:634-640`) with the same
+                // refusal below the heap floor, which `respond_large` applies to
+                // every response over `MAX_JSON_BYTES` — and 600 points is about
+                // 12 KB of JSON, so this route is the second-largest the server
+                // serves after `/api/parameters?filter=all`.
+                let body = history_json(&shared);
+                respond_large(req.connection(), &shared, &body)
             })?;
         }
         {
@@ -1394,16 +1496,17 @@ impl Web {
                     }
                 }
                 let accepted = verdict.clone().into_pairs();
-                if !accepted.is_empty() && !handoff.stage(accepted) {
-                    // The control task is not keeping up, and the response is
-                    // about to say the parameters were saved. It is the one case
-                    // where this handler's `200` would be a lie, so it is a 503
-                    // and nothing was written.
-                    warn!("http: /api/parameters could not be staged — the control task is behind");
+                if !accepted.is_empty() && !handoff.stage_and_wait(accepted) {
+                    // Either the mailbox was full, or the control task had not
+                    // applied the request within the ack timeout. The response
+                    // is about to say the parameters were saved, so this is the
+                    // one case where this handler's `200` would be a lie: it is
+                    // a 503 and the UI keeps the value it typed.
+                    warn!("http: /api/parameters was not applied by the control task in time");
                     return respond(
                         req.connection(),
                         503,
-                        &error_body("the control task is not keeping up, retry"),
+                        &error_body("the control task did not apply the parameters, retry"),
                     );
                 }
                 let (status, payload) = verdict.response();

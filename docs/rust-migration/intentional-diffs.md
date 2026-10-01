@@ -1075,3 +1075,35 @@ stops writing to a blanked panel.
 Three pins in `parity_findings.rs` (`div13_*`) hold both halves: the request is
 honoured, it is **consumed** on the transition that acted on it, and waking still
 works — so closing this does not make standby a one-way door.
+
+## 14. The status bar's uptime and `°C` column are laid out from the frame edge, not from a fixed x 🔴 changed
+
+**What changed.** Two numbers on the Standard (and Minimal, and Scale) template.
+
+| | C++ | Rust | why |
+| --- | --- | --- | --- |
+| uptime | `drawStr(84, 0, "%02luh %02lum")` | drawn right-aligned to `128 − 1` | the format's width is a *minimum* |
+| `°C` unit | `setCursor(currentValueX + 31, …)` | `currentValueX + 30` | `84 + 31 + 12` = 127, the last column |
+
+**Why.** Both were reported by the human as "the old screen does not fit text":
+the header time lost its trailing `m`, and the degree `C` was not on the panel.
+Both are real and both are measurable:
+
+* `"%02luh %02lum"` is a *minimum* width, not a fixed one. Past 100 hours the
+  hours field grows a digit, and this machine is routinely up for weeks: at
+  `x = 84` a 377-hour uptime is 47 px wide and ends at **131**, so the `m` is cut
+  in half by the frame. Measured on the rendered framebuffer, not inferred.
+* The `°C` unit is 12 px at `profont11` from `84 + 31 = 115`, so it ends at 127 —
+  the last column. One pixel of glyph-width drift and it is off the panel.
+
+**Cost.** Two pixel columns of difference from the C++ on the two busiest rows of
+the default template. Pixel parity is explicitly not a requirement (07 §14), and
+AGENTS.md's OLED rules — everything fits fully within 128×64, numeric fields in a
+reserved fixed width — win over matching a layout that clips.
+
+**What pins it.** `widgets::tests::a_long_uptime_is_right_aligned_rather_than_clipped`
+(six uptimes from 0 h to 9,999 h) and
+`widgets::tests::the_unit_column_ends_inside_the_frame_for_a_three_digit_value`
+(the widest reading a boiler can report). The regenerated goldens
+(`minimal.ppm`, `standard*.ppm`, `scale*.ppm`, `screen_heating.ppm`, the Modern
+set) differ **only** by these two columns; every other pixel is where it was.

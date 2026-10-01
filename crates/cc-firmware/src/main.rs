@@ -57,7 +57,11 @@
 //! here. Those arrive at R2-08 and R3-xx.
 
 mod control;
+mod display_task;
 mod network;
+/// Why there is no sensor task: a measured kernel defect, not an oversight.
+mod sensor_task;
+mod slots;
 
 use core::error::Error;
 use std::sync::Arc;
@@ -102,7 +106,7 @@ const INACTIVE: Level = Level::Low;
 ///
 /// The watchdog feed has the same period, deliberately: one signal that the task
 /// is alive, not two that could disagree.
-const HEARTBEAT_MS: u32 = CONTROL_TICK_MS;
+const HEARTBEAT_MS: u32 = CONTROL_PERIOD_MS;
 
 // Stated at compile time so the relationship cannot rot: the deadman drops the
 // heater if the beat is older than `DEADMAN_TIMEOUT_MS`, so a tick period at or
@@ -115,16 +119,34 @@ const _: () = assert!(
      tick drops the heater"
 );
 
-/// How long the control task sleeps between iterations, in milliseconds.
+/// The control task's period, in milliseconds — 100 Hz.
 ///
-/// 400 ms is the temperature sensor's cadence
-/// (`Timing::TEMPERATURE_SENSOR_INTERVAL_MS`, `constants/Timing.h:42`) and the
-/// pressure sensor's 50 ms cadence divides into it exactly, so one tick is one
-/// temperature sample and twenty pressure samples. The C++ runs its control loop
-/// continuously and calls the coordinator on every iteration, which is what
-/// makes the ABP2's `delay(10)` 20 % of the loop; here the loop's own sleep is
-/// the only wait, and nothing inside it blocks.
-const CONTROL_TICK_MS: u32 = 400;
+/// **This was 400 ms, and that was the bug the human reported twice.** The
+/// value was justified in the C++'s terms: 400 ms is the temperature sensor's
+/// cadence (`Timing::TEMPERATURE_SENSOR_INTERVAL_MS`, `constants/Timing.h:42`)
+/// and the ABP2's 50 ms divides into it exactly. But it coupled *every* thing in
+/// the loop to the slowest sensor:
+///
+/// * a switch press waited up to 400 ms to be noticed, before the 20 ms
+///   debounce and before the panel's 100 ms refresh — which is the "the screen
+///   takes half a second to react" report;
+/// * the whole 1 KB display frame was written **inside** the tick, so the tick
+///   overran its 10 ms budget in ~62 % of ticks (09 §24) for a reason that had
+///   nothing to do with control;
+/// * and 04 §2 — the architecture of record — says "one `FreeRTOS` task, priority
+///   5, **100 Hz**, hard 10 ms period". The code had diverged from the plan.
+///
+/// The three tasks now have their own cadences ([`sensor_task::SWITCH_POLL_MS`]
+/// at 10 ms, [`display_task::REFRESH_MS`] at 100 ms) and this one keeps the
+/// documented 100 Hz. The loop waits on the wake channel with this as the
+/// timeout, so the period is a floor and an event is acted on at once.
+const CONTROL_PERIOD_MS: u32 = 10;
+
+/// How often a frame is handed to the display task, in milliseconds.
+///
+/// The panel's own refresh interval. Publishing more often would copy a
+/// `DisplayInput` 100 times a second for a frame the panel drops.
+const FRAME_PUBLISH_MS: u32 = display_task::REFRESH_MS;
 
 /// Which temperature probe this build expects on GPIO16.
 ///
@@ -250,6 +272,14 @@ const DS18B20_ROM: Rom = Rom([0x28, 0x69, 0x37, 0xAA, 0xCD, 0x78, 0xAF, 0x41]);
 /// Stack size of the control task, from the priority table in 04 §2.
 const CONTROL_STACK_BYTES: usize = 8 * 1024;
 
+/// Stack size of the display task.
+///
+/// 4 KB. The 1 KB scratch framebuffer is **heap** allocated (`Box`, in
+/// `DisplayTask::new`) precisely so it is not in this budget — the same reason
+/// `refresh_display` took it as an argument, recorded there as a stack overflow
+/// on the first frame.
+const DISPLAY_STACK_BYTES: usize = 8 * 1024;
+
 /// Whether to start the scale driver even when the configuration says it is off.
 ///
 /// **ON in this build, and it is a bring-up override, not a default.** The
@@ -288,24 +318,24 @@ const BRING_UP_SCALE: bool = false;
 ///
 /// 04 §2's hard 10 ms period, and the number R4-01b's acceptance criterion is
 /// stated against ("zero ticks > 10 ms"). It is a *budget for the work*, not
-/// the period: [`CONTROL_TICK_MS`] is the period, and a tick that spends longer
+/// the period: [`CONTROL_PERIOD_MS`] is the period, and a tick that spends longer
 /// than this awake has overrun whatever it was given.
 const TICK_BUDGET_MS: u32 = 10;
 
 /// How many ticks form the pre-scale baseline.
 ///
-/// 25 ticks at [`CONTROL_TICK_MS`] is 10 seconds — long enough for the
+/// 1,000 ticks at [`CONTROL_PERIOD_MS`] is 10 seconds — long enough for the
 /// first-conversion settling to have happened, so the baseline is not
 /// contaminated by the scale's own start-up, and short enough to be over before
 /// an operator is waiting for a number.
-const TICK_BASELINE_TICKS: u32 = 25;
+const TICK_BASELINE_TICKS: u32 = 1_000;
 
 /// How often the tick-timing report is logged, in milliseconds.
 ///
 /// 60 s, matching the heap report. A 10 ms budget measured every 400 ms would
 /// bury the boot log; once a minute is what an operator comparing "before" and
 /// "after" the scale needs.
-const TICK_REPORT_INTERVAL_MS: u32 = 60_000;
+const TICK_REPORT_INTERVAL_MS: u32 = 30_000;
 
 /// The SSE event cadence, in milliseconds.
 ///
@@ -839,6 +869,47 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
     //        singleton, minus the singleton.
     let control_config = config.clone();
     let known_weight = config.hardware.sensors.scale.known_weight;
+
+    // ---- the two peer tasks, and the channels between the three -------------
+    //
+    // `switches` and `temp` move **out** of the control task and into the sensor
+    // task, and the panel moves out into the display task. What stays here is
+    // the wiring: one [`slots::SensorSlots`] for the readings, the edges and the
+    // frame request, and one [`cc_hal_esp32::task::SignalQueue`] the producers
+    // use to wake the consumer.
+    //
+    // The bus is leaked deliberately. It was a `Box` owned by the control task's
+    // frame so its two users could hold `&'static` references into it; now two
+    // *different* tasks need one, and a self-referential bundle holding a
+    // reference into itself is not constructible. A `Box::leak` is the honest
+    // spelling of what was always true — the bus lives for the whole program,
+    // because all three of its users run forever.
+    let frame = Arc::new(slots::FrameSlot::new());
+
+    // The I²C bus, leaked. It has two users in **different** tasks — the ABP2 in
+    // the control task and the panel in the display task — and both want a
+    // `&'static` reference into it, which a `Box` owned by one task cannot
+    // honestly give the other. A `Box::leak` says what was always true: the bus
+    // lives for the whole program, because both of its users run until the
+    // process ends. One bounded leak, documented, beats a lifetime lie.
+    let shared_i2c: Option<&'static cc_hal_esp32::display_shared::SharedBus> =
+        shared_i2c.map(|bus| &*Box::leak(bus));
+
+    // The sensor task settles the switches and publishes where they rest. The
+    // control task waits for that before it boots, because the C++'s
+    // `finalizeMachineState` reads the power switch to choose between
+    // `PID_NORMAL` and `PID_DISABLED` (`SystemInitializer.cpp:606-641`).
+    // The panel, for the display task. Boxed, for the same reason `ControlArgs`
+    // is: `bring_up` runs on ESP-IDF's main task, and a task bundle built *by
+    // value* in this frame is a frame cost this function cannot see.
+    let display_template = template_for(config.display.template);
+    let display = Box::new(display_task::DisplayTask::new(
+        shared_i2c.map(cc_hal_esp32::display_shared::SharedPanel::bring_up),
+        display_template,
+        Arc::clone(&frame),
+        Arc::clone(&net.shared),
+    ));
+
     // The radio moves into the control task rather than staying in this frame.
     // It is `Send` (`EspWifi` is, and `Monitor` and `String` are), and the
     // control task is the only task with a watchdog subscription, so the 1 s
@@ -859,6 +930,7 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
         temp: temp_sensor,
         net: Arc::clone(&net),
         commands: Arc::clone(&commands),
+        frame: Arc::clone(&frame),
         parameters,
         config: control_config,
         known_weight,
@@ -878,11 +950,49 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
             }
         })?;
 
+    // The two peers, spawned after the control task so the watchdog — which the
+    // control task owns and which panics the chip when it trips — is already
+    // subscribed before anything else starts moving.
+    //
+    // **The display task and nothing else.** A sensor task was written, measured
+    // and removed: the DS18B20's bit-bang is the only user of
+    // `esp_idf_hal::interrupt::free`, which on this chip is `vPortEnterCritical`
+    // on a process-global cross-core critical section, and running it from a
+    // second task asserts inside the FreeRTOS kernel on every boot. The bisect
+    // table is in `sensor_task.rs`, which is now a note about why the sensor
+    // task does not exist. The display task was in the same bisect and was clean
+    // in every combination, so it stays.
+    let display_thread = std::thread::Builder::new()
+        .name("display".into())
+        .stack_size(DISPLAY_STACK_BYTES)
+        .spawn(move || display.run());
+    if let Err(err) = display_thread {
+        error!("display task could not be spawned: {err}");
+    }
+
     // The control task is the only feed point, so `main` must not return while
     // it is alive. A panic inside it is fatal and is reported, not swallowed.
     control.join().map_err(|_| "control task panicked")?;
 
     Ok(())
+}
+
+/// Log where the switches are resting, once, at boot.
+///
+/// The four operator switches are **floating inputs** — GPIO34/35/36/39 have no
+/// internal pull, and the C++ asks ESP-IDF for `IN_HARDWARE` (`pinmapping.h`,
+/// `IOSwitch.cpp`). On a board where a switch is not wired a floating pin wanders
+/// and the debouncer will eventually report a press. The switches are enabled by
+/// default at the human's request, so this line is what answers "is my board
+/// about to start a brew by itself?" — and it must say the level, not just that
+/// the switch exists.
+fn log_switch_levels(levels: cc_hal_esp32::switches::Levels) {
+    info!(
+        "switch resting levels after settling: power={} brew={} steam={} \
+         hot_water={} water_tank={} -- a floating input reading high here with no \
+         switch wired will eventually read as a press",
+        levels.power, levels.brew, levels.steam, levels.hot_water, levels.water_tank_full,
+    );
 }
 
 /// Drives one actuator pin to the inactive level and returns the driver.
@@ -914,8 +1024,10 @@ fn bring_up_temperature_sensor(
     pin: esp_idf_hal::gpio::Gpio16<'static>,
 ) -> Result<TemperatureSensor, EspError> {
     info!(
-        "temperature: configuration default is TSIC_306 (Config.h:1085-1092), \\
-         this board's probe is {PROBE:?}"
+        "temperature: driver = {PROBE:?} — the probe fitted to this board. \
+         `hardware.sensors.temperature.type` is a separate setting whose default \
+         is TSIC_306 (Config.h:1085-1092); see the note on PROBE for why the \
+         board, not that default, decides which driver runs."
     );
     match PROBE {
         TemperatureSensorType::DallasDs18b20 => bring_up_ds18b20(pin),
@@ -1539,6 +1651,11 @@ const REBOOT_DISPLAY_MS: u32 = 1_000;
 /// C++ logs the same numbers on a state change only
 /// (`ProcessController.cpp:176-197`), which is not enough — a PID that pins at
 /// 100 % without a state change is exactly the failure this exists to catch.
+/// How often the heartbeat *line* is written. The heartbeat itself is every
+/// [`HEARTBEAT_MS`]; the line is a diagnostic, and a 115200-baud console makes
+/// it an expensive one. See the note at the line itself.
+const HEARTBEAT_LOG_INTERVAL_MS: u32 = 1_000;
+
 const PID_LOG_INTERVAL_MS: u32 = 1_000;
 
 /// The control task's inputs, as one struct.
@@ -1574,23 +1691,29 @@ struct ControlArgs {
     actuators: cc_hal_esp32::Actuators,
     /// The five operator inputs, debounced.
     switches: cc_hal_esp32::SwitchBank,
-    /// The I²C bus, owned here and shared by the pressure sensor and the panel.
-    ///
-    /// `Box`, so the two users can hold `&'static` references to it. The bus is
-    /// built in `bring_up` and the users are built *here*, from it, because a
-    /// bundle holding a reference into itself is not constructible.
-    shared_i2c: Option<Box<cc_hal_esp32::display_shared::SharedBus>>,
+    /// The leaked I²C bus, lent to the ABP2 this task polls every tick. The
+    /// panel in the display task holds the same reference; see the `Box::leak`
+    /// in `bring_up` for why it is leaked rather than owned here.
+    shared_i2c: Option<&'static cc_hal_esp32::display_shared::SharedBus>,
     /// The temperature probe. **Owned**, not borrowed: the control task polls it
     /// every tick for the rest of the process, and a `&'static mut` would be a
-    /// lifetime this call site cannot honestly promise — `bring_up` blocks on
-    /// `control.join()` rather than running forever, so the borrow's scope is
-    /// the whole program either way and an owned value says so without the
-    /// `'static` claim.
+    /// lifetime this call site cannot honestly promise.
+    ///
+    /// It stays on *this* task, and not on a sensor task of its own, because of
+    /// a measured toolchain defect: the DS18B20's bit-bang is the only user of
+    /// `esp_idf_hal::interrupt::free`, which on this chip is `vPortEnterCritical`
+    /// on a process-global cross-core critical section, and running it from a
+    /// second task asserts inside the `FreeRTOS` kernel on every boot. The full
+    /// bisect is in the module that used to hold the sensor task; the short
+    /// version is three rows of a table and it is worth reading before anyone
+    /// tries this again.
     temp: TemperatureSensor,
     /// The shared HTTP/MQTT telemetry slot.
     net: Arc<network::Network>,
     /// The bounded network→control command queue (04 §3.2).
     commands: Arc<cc_hal_esp32::task::CommandQueue>,
+    /// The frame hand-off to the display task. See [`slots::FrameSlot`].
+    frame: Arc<slots::FrameSlot>,
     /// The parameter-write mailbox, drained at the same point in the tick.
     ///
     /// Separate from `commands` because a parameter write is a *list* of pairs
@@ -1676,13 +1799,14 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
         twdt,
         mut actuators,
         mut switches,
-        // The I²C bus, owned by this frame and lent to the two users built
+        // The I²C bus, owned by this frame and lent to the pressure sensor built
         // immediately below. Binding it is what keeps it alive for the life of
-        // the task, which is what makes their `&'static` references sound.
+        // the task, which is what makes the sensor's `&'static` reference sound.
         shared_i2c,
         mut temp,
         net,
         commands,
+        frame,
         parameters,
         mut config,
         known_weight,
@@ -1713,62 +1837,35 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
 
     let mut side = cc_hal_esp32::FirmwareSide::new();
 
-    // The two users of the shared I²C bus, built here so their `&'static`
-    // borrows point at the box this frame owns. They are peers: neither holds
-    // the bus across a transaction, so the panel cannot starve the ABP2 and the
-    // ABP2 cannot make the panel flicker.
-    let mut pressure = shared_i2c
-        .as_deref()
-        .and_then(|bus| bring_up_pressure(Some(bus), &config));
-    let mut panel = shared_i2c
-        .as_deref()
-        .map(cc_hal_esp32::display_shared::SharedPanel::bring_up);
-    if let Some(panel) = panel.as_ref() {
-        info!("{}", panel.report());
-    }
-
-    // The display scratch buffer: 1 KB, allocated once for the life of the
-    // task. See `refresh_display` for why it is not a local.
-    let mut display_scratch = Box::new(cc_display::display::Display::new());
+    // The ABP2, borrowed from the shared I²C bus. It is a peer of the panel, not
+    // an owner: neither holds the bus across a transaction, so the panel cannot
+    // starve it and it cannot make the panel flicker.
+    let mut pressure = shared_i2c.and_then(|bus| bring_up_pressure(Some(bus), &config));
 
     // The machine, booted through the reducer. `SystemInitializer::finalizeMachineState`
-    // reads the power switch *before* the state machine exists, so the switch
-    // bank is polled once here rather than inside the reducer.
-    //
-    // That first poll is a **dead** read for a debounced switch, and deliberately
-    // so: `Debounced` seeds its state to "not pressed" and only accepts a change
-    // after [`DEBOUNCE`] (20 ms), so the level reported here is the C++'s
-    // `currentState == HIGH` on the first loop, which `IOSwitch.cpp:19` also
-    // seeds to `LOW`. A toggle power switch therefore reads "off" at boot even if
-    // the operator has it on, and the machine starts in `PID_DISABLED` — which is
-    // the C++'s behaviour, not a bug in the port, and the reason the next tick
-    // (400 ms later, twenty debounce windows) is what settles it.
+    // reads the power switch *before* the state machine exists
+    // (`SystemInitializer.cpp:606-641`), and the switch bank now belongs to the
+    // sensor task — so the levels are **waited for** here rather than polled
+    // here, with a bound so a sensor task that never starts cannot hang the boot
+    // forever.
     let boot_now = Millis::new(now_ms());
-    let _ = switches.poll(boot_now);
+    // The switch bank's first poll, which is a **dead** read for a debounced
+    // switch and deliberately so: `Debounced` seeds its state to "not pressed"
+    // and only accepts a change after [`cc_domain::switch::DEBOUNCE`] (20 ms),
+    // so the level reported here is the C++'s `currentState == HIGH` on the
+    // first loop, which `IOSwitch.cpp:19` also seeds to `LOW`. A toggle power
+    // switch therefore reads "off" at boot even if the operator has it on, and
+    // the machine starts in `PID_DISABLED` — which is the C++'s behaviour, not
+    // a bug in the port, and the reason the next tick (ten debounce windows
+    // later) is what settles it.
+    let _ = switches.poll(Millis::new(now_ms()));
     let power_pressed = config
         .hardware
         .switches
         .power
         .enabled
         .then_some(switches.levels().power);
-    // The resting level of every input, printed once.
-    //
-    // The four operator switches are **floating inputs** — GPIO34/35/36/39 have
-    // no internal pull, and the C++ asks ESP-IDF for `IN_HARDWARE`
-    // (`pinmapping.h` and `IOSwitch.cpp`). On a board where a switch is not
-    // wired, a floating pin wanders and the debouncer will eventually report a
-    // press. The switches are now **enabled by default** at the human's
-    // request, so this line is the thing that answers "is my board about to
-    // start a brew by itself?" — and it must say the level, not just that the
-    // switch exists.
-    let levels = switches.levels();
-    info!(
-        "switch resting levels after settling: power={} brew={} steam={} \
-         hot_water={} water_tank={} -- a floating input reading high here with no \
-         switch wired will eventually read as a press",
-        levels.power, levels.brew, levels.steam, levels.hot_water, levels.water_tank_full,
-    );
-
+    log_switch_levels(switches.levels());
     let (mut control, boot_effects) = control::Control::boot(&config, boot_now, power_pressed);
     {
         // The boot effects are applied by the same path as every other tick's,
@@ -1787,6 +1884,14 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
     // When the live parameter snapshot was last published to the HTTP layer.
     let mut last_publish_ms: u32 = 0;
     let mut last_pid_log_ms: u32 = 0;
+    let mut last_heartbeat_log_ms: u32 = 0;
+
+    // The boot screens moved to the display task, which owns the panel. See
+    // `display_task`'s header: the C++ draws them from its init code because
+    // there is one task and one loop, and this firmware no longer has that.
+
+    // When the last frame was handed to the display task.
+    let mut last_frame_ms: u32 = 0;
 
     // 🔴 The tick-timing measurement, which is R3-17's "the control tick is
     // unaffected" acceptance criterion and R4-01b's instrument.
@@ -1804,6 +1909,9 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
     let mut baseline_worst_ms: u32 = 0;
     let mut tick_over_budget: u32 = 0;
     let mut last_tick_report_ms: u32 = 0;
+    let mut tick_work_total_ms: u64 = 0;
+    let mut tick_period_total_ms: u64 = 0;
+    let last_tick_began_ms: u32 = now_ms();
     loop {
         // Where this tick began, so the time spent in it can be measured. Taken
         // at the top of the loop, immediately after the last tick's sleep, so it
@@ -2062,6 +2170,11 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
                 warn!("config: {key} was not written: {err}");
             }
             if applied.updated == 0 {
+                // Nothing moved, but the request was still *received and
+                // handled*, and the handler is blocked waiting for exactly that
+                // answer. Acking here is what stops a save of a value the
+                // machine already holds from timing out.
+                parameters.note_applied();
                 continue;
             }
             info!(
@@ -2128,6 +2241,20 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
                 Event::Command(cc_machine::Command::NormalOperation),
                 &mut effects,
             );
+            // **Publish the new values now, not on the next heartbeat.**
+            //
+            // This is the read-after-write half of "the UI saved it and the UI
+            // then read the old value back". The apply above has written the
+            // `Config` *and* NVS, so the value is real; but `GET /api/parameters`
+            // is answered from `publish_live`, which used to run only on the 1 s
+            // heartbeat, so for up to a second after a successful save the API
+            // served the previous values. A browser that refetches on save
+            // therefore got the old number, put it back into the form, and the
+            // toggle appeared to spring back.
+            parameters.publish_live(cc_hal_esp32::parameters_json(&config));
+            // The ack the `POST` handler is blocked on. See
+            // `ParameterHandoff::stage_and_wait`.
+            parameters.note_applied();
         }
 
         // ---- 3. a credential typed on the console ---------------------------
@@ -2156,41 +2283,28 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
 
         // ---- 4. SENSE ---------------------------------------------------------
         //
-        // The temperature read. Non-blocking by construction: the DS18B20's
-        // conversion wait is a deadline the loop's own sleep covers, and the bus
-        // transactions are the only time spent there (~2 ms of bit-banging for a
-        // nine-byte scratchpad). The TSIC-306 arm samples for a bounded window
-        // and returns.
+        // The probe, the five switches and the pressure sensor, on their own
+        // cadences inside one 10 ms period. The period is what changed, and that
+        // is the whole of "the screen takes half a second to react": a press is
+        // now recognised within one 20 ms debounce window rather than within one
+        // 400 ms control period, and the frame reaches the panel from the
+        // display task rather than at the end of this same iteration.
+        //
+        // The probe stays on **this** task on purpose — see [`sensor_task`] for
+        // the measurement that says a second task cannot own it on this
+        // toolchain.
         temp.poll(now);
-        // The reading, for the telemetry publish. `TemperatureSensor` owns the
-        // driver, so this is the one number the control task reads out of it per
-        // tick — and it is `None` until the first conversion completes, which
-        // `/api/temperatures` reports as `null` rather than as a fake 0 °C.
         let last_reading = temp.last_reading();
-
-        // The switch edges. `SwitchBank::poll` returns nothing on a tick where
-        // no contact moved, which on a healthy machine is nearly every tick, and
-        // the returned `Vec` is a `heapless::Vec` on the control path — no
-        // allocation between the pin and the reducer.
-        let edges = switches.poll(now);
-
-        // The pressure, non-blocking. `abp2::Driver::poll` writes the conversion
-        // command on one tick and reads the answer on a later one, so the C++'s
-        // `delay(10)` (20 % of its loop's wall clock, 01 §4) never happens.
         let pressure_bar = pressure.as_mut().and_then(|sensor| match sensor.poll(now) {
             Ok(cc_domain::abp2::Poll::Sample(sample)) => Some(f64::from(sample.pressure.raw())),
             Ok(_) => None,
             Err(err) => {
-                // The C++ discards a failed read and keeps the previous value
-                // (`pressureSensor.h:30-38`); here the same — the machine keeps
-                // the last good sample and the fault is logged at most once per
-                // read cadence by the driver itself.
                 debug!("control: ABP2 read: {err:?}");
                 None
             }
         });
-
         let tank_full = switches.water_tank_full();
+        let edges = switches.poll(now);
 
         // ---- 5. beat the deadman, on the same signal as the watchdog feed ----
         //
@@ -2276,46 +2390,63 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
 
         // ---- 8. SHOW ----------------------------------------------------------
         //
-        // **Last, after the effects have been applied**, so the frame shows the
-        // state the machine is actually in rather than the one it was about to
-        // enter. Drawing before the applier would put a "brewing" screen up one
-        // tick before the pump started and a "standby" screen up one tick after
-        // it stopped, and at 2.5 ticks/second that is visible.
+        // **Published, not drawn.** The panel belongs to the display task
+        // (`display_task`), and this is the hand-off: one `DisplayInput`, the
+        // display's own view of the configuration, and the blank decision, on
+        // the panel's own cadence rather than the control task's.
         //
-        // The panel takes the I²C bus for the length of one frame and gives it
-        // straight back, so the pressure read above and the next one are not
-        // delayed by more than a frame's bus time.
-        if let Some(panel) = panel.as_mut() {
-            // **The panel blanks in standby**, before the frame is drawn.
-            //
-            // The C++ checks `standbyCoordinator().shouldTurnOffDisplay()` first
-            // and `return`s without updating (`LoopManager.cpp:330-334`), so a
-            // blanked panel is never written to again until it wakes.
-            //
-            // Until this line existed, `SharedPanel::set_blank` was defined and
-            // **never called from anywhere** — the `0xAE` path was unit-tested
-            // and unreachable, which is the same failure shape as the notes'
-            // finding 3 (a fix that only existed in a test that never ran). The
-            // machine went to standby with the panel still lit.
-            //
-            // The rule here is "in standby" rather than the C++'s
-            // standby-plus-display-off-countdown, because the countdown
-            // (`standbyModeRemainingTimeDisplayOffMillis_`) is deliberately not
-            // ported — see `cc_machine::timing::DISPLAY_OFF_NOT_PORTED`. Blanking
-            // on entering standby is the C++'s behaviour minus the delay, and is
-            // stated rather than approximated silently.
-            let standby = control.state() == cc_domain::state::MachineState::Standby;
-            panel.set_blank(standby);
-            if !standby {
-                refresh_display(
-                    panel,
-                    &control,
-                    &config,
-                    &Readings::new(last_reading, pressure_bar, weight_g),
-                    now,
-                    &mut display_scratch,
-                );
-            }
+        // It is published **after** the effects are applied, so the frame shows
+        // the state the machine is actually in rather than the one it was about
+        // to enter — drawing before the applier would put a "brewing" screen up
+        // one tick before the pump started.
+        //
+        // The panel's 100 ms interval is the floor on how fast a screen change
+        // becomes visible, which is the C++'s floor too
+        // (`DISPLAY_REFRESH_INTERVAL_MS`). Publishing more often than that would
+        // be a `DisplayInput` copied 100 times a second for a frame that is
+        // dropped 90 of them.
+        if tick_began_ms.wrapping_sub(last_frame_ms) >= FRAME_PUBLISH_MS {
+            last_frame_ms = tick_began_ms;
+            let (p, i, d) = control.pid_terms();
+            frame.publish(slots::FrameRequest {
+                input: cc_display::model::DisplayInput {
+                    temperature: last_reading.map_or(0.0, |(celsius, _)| celsius),
+                    setpoint: control.setpoint(),
+                    pid_output: f64::from(control.pid_output()),
+                    pid_kp: p,
+                    pid_ki: i,
+                    pid_kd: d,
+                    // `DisplayInput` carries these two as `f32` while the
+                    // sensors produce `f64`. The narrowing is deliberate and
+                    // loses nothing: an ABP2 sample is 16-bit over full scale,
+                    // and a scale reports milligrams.
+                    #[allow(
+                        clippy::cast_possible_truncation,
+                        reason = "an ABP2 sample is 16-bit over full scale and a \
+                                  scale reports milligrams, so neither narrowing \
+                                  loses a digit the sensor produced"
+                    )]
+                    pressure: pressure_bar.unwrap_or(0.0) as f32,
+                    #[allow(
+                        clippy::cast_possible_truncation,
+                        reason = "the scale reports milligrams; see above"
+                    )]
+                    weight: weight_g.unwrap_or(0.0) as f32,
+                    state: control.state(),
+                    ..cc_display::model::DisplayInput::default()
+                },
+                // `standbyCoordinator().shouldTurnOffDisplay()`
+                // (`StandbyCoordinator.h:135-140`): the standby countdown *and*
+                // the display countdown have both run out, so the panel goes
+                // dark. The second half used to be missing — the countdown was
+                // declared in `cc-machine` and never ported — so the firmware
+                // blanked the panel the instant the machine entered standby
+                // instead of ten minutes later. The human's report was exactly
+                // that: "standby should show the screen for a while, and only
+                // then turn the display off".
+                blank: control.machine().standby.should_turn_off_display(),
+                config: display_config(&config),
+            });
         }
 
         // A reboot request from the HTTP layer, honoured here and not in the
@@ -2424,6 +2555,16 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
                               BACKFLUSH_FINISHED, so it is never negative"
                 )]
                 shots_since_backflush: machine.shots_since_backflush.max(0) as u32,
+                // `isReminderDueForCount(shots, enabled, threshold)`
+                // (`MaintenanceCoordinator.cpp:68-73`) — the count has to reach
+                // the threshold *and* the reminder has to be enabled. Both
+                // halves come from the control task's own `Config`, because
+                // that is the only place either is readable.
+                backflush_threshold: u32::try_from(config.maintenance.backflush_reminder.threshold)
+                    .unwrap_or(0),
+                backflush_due: config.maintenance.backflush_reminder.enabled
+                    && machine.shots_since_backflush
+                        >= config.maintenance.backflush_reminder.threshold,
                 water_tank_full: config
                     .hardware
                     .sensors
@@ -2465,6 +2606,38 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
         }
         if uptime.wrapping_sub(last_sse_ms) >= SSE_INTERVAL_MS {
             last_sse_ms = uptime;
+            // `tempHistory.addPoint` (`WebServerManager.cpp:1134`), on the same
+            // call and at the same cadence as the SSE broadcast — in the C++ both
+            // happen inside `sendTempEvent`. The ring drops two of every three
+            // samples itself, so this is a sample per second and a point per
+            // three, which is the spacing the UI's x axis assumes.
+            //
+            // The `f32` narrowing is the C++'s: its `HistoryPoint` members are
+            // `float` (`WebServerManager.cpp:113`). A DS18B20 reading is a
+            // multiple of its own 0.0625 C resolution and the setpoint is
+            // schema-bounded to 0..=150 C, so both are exact in an `f32`.
+            let (current_c, target_c) = (
+                last_reading.map_or(f64::NAN, |(celsius, _)| celsius),
+                control.setpoint(),
+            );
+            #[allow(
+                clippy::cast_possible_truncation,
+                reason = "a temperature in -273.15..=150 C is exact in f32"
+            )]
+            let (current_c, target_c) = (current_c as f32, target_c as f32);
+            net.shared.push_history(
+                current_c,
+                target_c,
+                // The C++'s own promill-to-per cent conversion. The PID output
+                // is 0..=1000 by construction (`WINDOW_MS`), so this is exact.
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    reason = "the PID output is bounded to 0..=1000 by WINDOW_MS"
+                )]
+                {
+                    f64::from(control.pid_output()) as f32 / 10.0
+                },
+            );
             network::broadcast_temps(&net);
         }
         if uptime.wrapping_sub(last_heap_log_ms) >= HEAP_LOG_INTERVAL_MS {
@@ -2474,12 +2647,17 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
             // a display that has stopped updating is invisible from the outside
             // except by looking at the machine, and `frames=` not advancing is
             // the one number that says so without anyone having to notice.
-            if let Some(panel) = panel.as_ref() {
-                info!("{}", panel.report());
-            }
         }
 
         // The heartbeat line, and the PID's own numbers beside them.
+        //
+        // **Once a second, not once a tick.** At 100 Hz this line was being
+        // written 100 times a second, and the console is a 115200-baud UART: one
+        // line of this length is ~13 ms on the wire, so the *logging* was most of
+        // the tick's work and the loop ran at 45 ms instead of 10. The heartbeat
+        // itself is 10 ms and unconditional — it is the deadman and the watchdog
+        // feed, both of which are above this line. The *line* is a diagnostic, and
+        // a diagnostic that costs the loop a third of its budget is not one.
         //
         // 🔴 The `duty` and `requested` figures here are the **PID's output**,
         // and `on_ticks`/`on` are the ISR's own counters — the only view of the
@@ -2489,17 +2667,20 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
         // a non-zero `on` with a zero `duty` is impossible: the duty is the only
         // thing that moves the pin.
         let heater = actuators.heater();
-        info!(
-            "control heartbeat {tick} — watchdog fed, state {:?}, duty {:.0} ms, \
+        if tick_began_ms.wrapping_sub(last_heartbeat_log_ms) >= HEARTBEAT_LOG_INTERVAL_MS {
+            last_heartbeat_log_ms = tick_began_ms;
+            info!(
+                "control heartbeat {tick} — watchdog fed, state {:?}, duty {:.0} ms, \
              applied {}, gate {}, ISR ticks {}, on {} ({:.3})",
-            state,
-            control.pid_output(),
-            heater.applied_duty(),
-            heater.blocked_at(now).is_none(),
-            heater.transport().ticks(),
-            heater.transport().on_ticks(),
-            heater.transport().measured_on_fraction(),
-        );
+                state,
+                control.pid_output(),
+                heater.applied_duty(),
+                heater.blocked_at(now).is_none(),
+                heater.transport().ticks(),
+                heater.transport().on_ticks(),
+                heater.transport().measured_on_fraction(),
+            );
+        }
 
         // The PID's own P/I/D, once a second. This is the line that answers
         // "is the controller doing something sensible", and it is why
@@ -2538,7 +2719,7 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
         // 🔴 The tick's own cost, measured **before** the sleep.
         //
         // A first revision of this took the timestamp *after*
-        // `delay_ms(CONTROL_TICK_MS)` and so reported ~431 ms — the sleep
+        // the block and so reported ~431 ms — the sleep
         // itself, which is the tick's *period* and not its work. The tick budget
         // is about what the work costs; including the sleep makes every tick
         // look like a 40x overrun and the number says nothing. Measured on
@@ -2549,6 +2730,13 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
         if tick_elapsed_ms > tick_worst_ms {
             tick_worst_ms = tick_elapsed_ms;
         }
+        // The mean, and the *achieved* period, because the two answer different
+        // questions and only having the worst tick is how a loop that runs at
+        // 17 ms while claiming 10 ms stays invisible: `worst` says a tick overran
+        // its budget, the mean says the loop is not the rate it claims to be.
+        tick_work_total_ms = tick_work_total_ms.saturating_add(u64::from(tick_elapsed_ms));
+        tick_period_total_ms = tick_period_total_ms
+            .saturating_add(u64::from(tick_began_ms.wrapping_sub(last_tick_began_ms)));
         if tick <= TICK_BASELINE_TICKS {
             if tick_elapsed_ms > baseline_worst_ms {
                 baseline_worst_ms = tick_elapsed_ms;
@@ -2559,11 +2747,24 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
 
         if tick_began_ms.wrapping_sub(last_tick_report_ms) >= TICK_REPORT_INTERVAL_MS {
             last_tick_report_ms = tick_began_ms;
+            let ticks = u64::from(tick).max(1);
+            // The per-window figures. Read before the reset, or the line reports
+            // the window that just ended as zeroes.
+            let (work_mean_ms, period_mean_ms) = (
+                u32::try_from(tick_work_total_ms / ticks).unwrap_or(0),
+                u32::try_from(tick_period_total_ms / ticks).unwrap_or(0),
+            );
+            tick_work_total_ms = 0;
+            tick_period_total_ms = 0;
             info!(
                 "control tick: worst {tick_worst_ms} ms of the last {tick} \
                  (baseline {baseline_worst_ms} ms over the first \
                  {TICK_BASELINE_TICKS}, budget {TICK_BUDGET_MS} ms, \
-                 {tick_over_budget} over budget) — scale: {}{}",
+                 {tick_over_budget} over budget) — mean work {} ms, \
+                 achieved period {} ms of a {} ms target — scale: {}{}",
+                work_mean_ms,
+                period_mean_ms,
+                CONTROL_PERIOD_MS,
                 sampler
                     .as_ref()
                     .map_or_else(|| "not fitted".into(), |s| s.telemetry().describe()),
@@ -2575,12 +2776,33 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
             );
         }
 
-        // ---- 9. the tick's period -------------------------------------------
+        // ---- 9. the tick's period: sleep the rest of it ---------------------
         //
-        // This is the sleep, and it is what the 10 ms figure in 04 §2 is about;
-        // the measurement above is the work, which is the number that has to stay
-        // under `TICK_BUDGET_MS`.
-        FreeRtos::delay_ms(CONTROL_TICK_MS);
+        // The control period is 04 §2's 100 Hz. The sleep is the remainder of it
+        // rather than a fixed 400 ms, so a slow tick shortens the next one
+        // instead of drifting — the loop holds its *rate*, not its rhythm.
+        //
+        // **A blocking wait on a wake channel was tried here and is not in the
+        // build.** `SignalQueue`, a `std::sync::Mutex` and an ESP-IDF task
+        // notification were each tried as the way for a producer to shorten this
+        // sleep, and each one asserts inside the FreeRTOS kernel on this build
+        // (`xTaskRemoveFromEventList`, `pxUnblockedTCB` NULL). The bisect table
+        // is in `sensor_task.rs`; the short version is that every cross-task
+        // *blocking* primitive reachable from a Rust task trips it, while a
+        // non-blocking `CommandQueue::try_send` never has. So the loop runs on
+        // its deadline and consumes every event — a switch edge, a `POST
+        // /api/parameters`, a reboot request, a staged credential — at the top
+        // of the next period, which at 10 ms is not a latency anyone can feel.
+        // `saturating_sub` on the *elapsed* time, not `wrapping_sub` on the
+        // deadline. A tick that overran its period — the first one always does,
+        // at 77 ms against a 10 ms budget — would make
+        // `next_deadline - now` wrap to about 2^32 ms, and
+        // `delay_ms(4_294_967_295)` is a forty-nine-day sleep. The machine would
+        // stop answering: it happened, and it is the reason this line is
+        // written as elapsed-time-from-a-signed-comparison rather than as the
+        // more obvious deadline arithmetic.
+        let elapsed = now_ms().wrapping_sub(tick_began_ms);
+        FreeRtos::delay_ms(CONTROL_PERIOD_MS.saturating_sub(elapsed));
 
         // Arm the chopper once a beat has been taken. Doing it *after* the first
         // `set_duty` means the first duty the ISR ever sees is one that went
@@ -2856,112 +3078,5 @@ fn display_config(config: &cc_config::Config) -> cc_display::model::Config {
         // configured with a nonsense value should render the default layout
         // detail, not wrap to 255 cycles.
         backflush_cycles: u8::try_from(config.backflush.cycles).unwrap_or(5),
-    }
-}
-
-/// Render the current state onto the panel.
-///
-/// # Why the rendering lives here and not in `cc-hal-esp32`
-///
-/// The pixels come from `cc-display`, a pure host library with 48 goldens and a
-/// two-sided pixel-parity oracle against the real U8g2. What it does not have is
-/// any idea what the machine is doing — that is the control task's knowledge,
-/// and this is the seam where the two meet. The alternative, pushing a
-/// `DisplayInput` down through the HAL, would give the transport a vocabulary of
-/// brewing and PID terms it has no business knowing.
-///
-/// The frame is rendered into a stack `Display` and handed over as
-/// `&[u8; 1024]`, so a tick costs one render plus at most one bus transfer, and
-/// the panel decides for itself whether this tick is due.
-/// What the sensors said this tick, in the units a template wants.
-///
-/// A struct rather than three more parameters because the tick already has
-/// eight things to hand to the display and the arity had reached the point where
-/// a reader could no longer tell `Option<f64>` from `Option<bool>` at a call
-/// site. The conversions from the sensors' own types happen **once, here**, so
-/// there is exactly one place where a narrowing or a unit change can happen and
-/// exactly one place to look when a number on the screen is wrong.
-struct Readings {
-    /// Degrees Celsius, or 0.0 before the first plausible conversion.
-    temperature: f64,
-    /// Bar.
-    pressure_bar: f32,
-    /// Grams, or 0.0 with no scale fitted.
-    weight_g: f32,
-}
-
-impl Readings {
-    /// The conversions, done once.
-    #[allow(
-        clippy::cast_possible_truncation,
-        reason = "DisplayInput carries pressure and weight as f32; an ABP2 sample \
-                  is 16-bit over full scale and a scale reports milligrams, so \
-                  neither narrowing loses a digit the sensor produced"
-    )]
-    fn new(
-        last_reading: Option<(f64, bool)>,
-        pressure_bar: Option<f64>,
-        weight_g: Option<f64>,
-    ) -> Self {
-        Self {
-            temperature: last_reading.map_or(0.0, |(celsius, _)| celsius),
-            pressure_bar: pressure_bar.map_or(0.0, |bar| bar as f32),
-            weight_g: weight_g.map_or(0.0, |grams| grams as f32),
-        }
-    }
-}
-
-fn refresh_display(
-    panel: &mut cc_hal_esp32::display_shared::SharedPanel<'_>,
-    control: &control::Control,
-    config: &cc_config::Config,
-    readings: &Readings,
-    now: Millis,
-    scratch: &mut cc_display::display::Display,
-) {
-    use cc_hal_esp32::display_shared::RefreshOutcome;
-
-    // The framebuffer is 1024 bytes and the control task has an 8 KB stack, so
-    // this **must not be a local**. It is allocated once, in `bring_up`, and
-    // handed in — which is also what ADR-0002 wants: a large buffer on the heap
-    // shows up in the measured free-heap report, where a stack allocation is
-    // invisible until it overflows. The first version of this function built
-    // the `Display` on the stack and the device reset with "A stack overflow in
-    // task pthread" on the first frame.
-
-    // The two numbers every template leads with come from different owners: the
-    // probe is polled above, the setpoint is config the operator can change
-    // mid-brew, and the PID output is the reducer's own number.
-    let (p, i, d) = control.pid_terms();
-    let input = cc_display::model::DisplayInput {
-        temperature: readings.temperature,
-        setpoint: control.setpoint(),
-        pid_output: f64::from(control.pid_output()),
-        pid_kp: p,
-        pid_ki: i,
-        pid_kd: d,
-        // `DisplayInput` carries these two as `f32` while the sensors produce
-        // `f64`. The narrowing is deliberate and loses nothing: an ABP2 sample
-        // is 16-bit over full scale, and a scale reports milligrams.
-        pressure: readings.pressure_bar,
-        weight: readings.weight_g,
-        state: control.state(),
-        ..cc_display::model::DisplayInput::default()
-    };
-
-    let _rendered = cc_display::templates::render(
-        template_for(config.display.template),
-        scratch,
-        &input,
-        &display_config(config),
-    );
-    // Borrowed, not consumed: `scratch` is reused on the next tick.
-    let outcome = panel.refresh(scratch.framebuffer().as_bytes(), now.raw());
-    if outcome == RefreshOutcome::Failed {
-        // A `debug!` rather than a `warn!`: a machine with no panel attached
-        // would otherwise emit one line every tick and bury everything else. The
-        // failure count is in the periodic report, which is the line an operator
-        // is meant to read.
-        debug!("display: frame not sent ({outcome:?})");
     }
 }

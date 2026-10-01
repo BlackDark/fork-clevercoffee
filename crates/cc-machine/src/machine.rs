@@ -451,10 +451,7 @@ impl Default for Backflush {
     }
 }
 
-/// Three fields in C++ plus a fourth that only affects the display
-/// (`standbyModeRemainingTimeDisplayOffMillis_`); the display-off countdown is
-/// not a state-machine concern and is not ported — see
-/// [`DISPLAY_OFF_NOT_PORTED`].
+/// The standby countdown, ported from `StandbyCoordinator`.
 ///
 /// # One intentional difference
 ///
@@ -465,15 +462,15 @@ impl Default for Backflush {
 /// makes "started" unambiguous and fixes that. This is the one place the port
 /// does *not* preserve a C++ artefact, and it can only make standby work
 /// *earlier*, never later, so it is not a safety regression.
-pub const DISPLAY_OFF_NOT_PORTED: bool = true;
-
-/// The standby countdown, ported from `StandbyCoordinator`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct StandbyTimer {
     /// `standbyModeStartTimeMillis_ != 0`.
     pub started_at: Option<Millis>,
     /// `standbyModeRemainingTimeMillis_`.
     pub remaining_ms: u32,
+    /// `standbyModeRemainingTimeDisplayOffMillis_` — how much longer the panel
+    /// stays lit after the machine has entered standby.
+    pub display_off_remaining_ms: u32,
     /// `lastStandbyTimeMillis_` — the once-a-second update gate.
     pub last_update: Option<Millis>,
 }
@@ -494,14 +491,32 @@ impl StandbyTimer {
             return;
         }
         self.remaining_ms = timeout_ms;
+        // `standbyModeRemainingTimeDisplayOffMillis_ = getDisplayOffTimeoutMillis()`
+        // (`StandbyCoordinator.h:91`) — the same reset arms the display
+        // countdown, and it is armed from the *same* start time, so the two
+        // deadlines are `standby.time` and `standby.time + 10 minutes`.
+        self.display_off_remaining_ms = crate::timing::STANDBY_DISPLAY_OFF_MS;
         self.started_at = Some(now);
         self.last_update = Some(now);
     }
 
     /// `standbyCoordinator().setRemainingTimeMillis(0)`
     /// (`PowerHandler::powerOff`, `PowerHandler.h:172`) — "standby now".
+    ///
+    /// The C++ sets only `standbyModeRemainingTimeMillis_`. The display
+    /// countdown is left alone, so a power-button sleep blanks the panel ten
+    /// minutes later rather than immediately — reproduced, because a person who
+    /// asks the machine to sleep expects the screen to go out.
     pub const fn expire_now(&mut self) {
         self.remaining_ms = 0;
+    }
+
+    /// `shouldTurnOffDisplay()` (`StandbyCoordinator.h:135-140`): the standby
+    /// countdown has run out **and** the display countdown has, **and** the
+    /// timer was started.
+    #[must_use]
+    pub const fn should_turn_off_display(&self) -> bool {
+        self.remaining_ms == 0 && self.display_off_remaining_ms == 0 && self.started_at.is_some()
     }
 
     /// `shouldEnterStandby()` (`StandbyCoordinator.h:115-122`): enabled **and**
@@ -632,6 +647,7 @@ impl Machine {
             standby: StandbyTimer {
                 started_at: None,
                 remaining_ms: 0,
+                display_off_remaining_ms: 0,
                 last_update: None,
             },
             error_since: None,
@@ -892,12 +908,37 @@ mod tests {
         let mut t = StandbyTimer {
             started_at: Some(Millis::new(1)),
             remaining_ms: 0,
+            display_off_remaining_ms: 0,
             last_update: Some(Millis::new(1)),
         };
         t.reset(Millis::new(9_000), 60_000);
         assert_eq!(t.remaining_ms, 60_000);
         assert_eq!(t.started_at, Some(Millis::new(9_000)));
         assert!(!t.should_enter(true));
+    }
+
+    #[test]
+    fn resetting_also_rearms_the_display_countdown() {
+        // `StandbyCoordinator.h:91` arms both countdowns from the same reset,
+        // which is what makes the panel survive standby for ten minutes.
+        let mut t = StandbyTimer::default();
+        t.reset(Millis::new(0), 60_000);
+        assert_eq!(
+            t.display_off_remaining_ms,
+            crate::timing::STANDBY_DISPLAY_OFF_MS
+        );
+    }
+
+    #[test]
+    fn the_panel_only_goes_dark_once_both_countdowns_have_expired() {
+        let mut t = StandbyTimer::default();
+        t.reset(Millis::new(0), 60_000);
+        t.expire_now();
+        // Standby has begun, but the display countdown has not.
+        assert!(t.should_enter(true));
+        assert!(!t.should_turn_off_display());
+        t.display_off_remaining_ms = 0;
+        assert!(t.should_turn_off_display());
     }
 
     #[test]

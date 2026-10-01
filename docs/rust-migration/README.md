@@ -149,6 +149,46 @@ Recorded 2026-09-30, after R4-01 and R3-09 landed and were exercised on hardware
   not evidence of any of that. The size arithmetic and the embed-vs-mount
   decision are in [07 §13](./07-image-size-budget.md).
 
+### Fixed on hardware 2026-10-01
+
+Nine defects the human reported, all reproduced first and then fixed, all
+re-verified on the board:
+
+- **The control loop ran at 2.5 Hz, not the 100 Hz this document specifies.**
+  `CONTROL_TICK_MS` was 400 ms and the display frame was written *inside* that
+  tick, which is why a switch press took half a second to show up and why the
+  tick overran its 10 ms budget in ~62 % of ticks. The control task now runs at
+  **100 Hz** and the panel has **its own task** at its own 100 ms interval, which
+  is the one task boundary 04 §2 gained. A sensor task was tried as well and
+  **removed**: the DS18B20's bit-bang asserts inside the `FreeRTOS` kernel when
+  it runs on a second task (09 §28, with the bisect).
+- **`GET /api/history` was a stub.** It now answers a 600-point ring, one point
+  every three seconds, oldest first — the C++'s `TemperatureHistory` exactly,
+  including the skip interval the UI's x-axis assumes.
+- **`POST /api/parameters` answered before the value was live**, so saving a
+  parameter and refetching returned the old one and the toggle sprang back. The
+  control task now publishes the values *immediately* after applying them, and
+  the handler waits — bounded — for that acknowledgement instead of hoping.
+- **The backflush reminder read `0/0`.** The threshold and the enabled flag were
+  never published into `/api/status`; both are now, and the reminder's due
+  computation is the C++'s.
+- **There was no startup screen.** `displayLogo` is ported: the version, then the
+  Wi-Fi address.
+- **The panel blanked the instant standby began.** The ten-minute display-off
+  countdown existed in `cc-machine` as a *declared but never ported* field; it is
+  ported now, and the panel keeps showing the standby screen until it expires.
+- **The header time lost its `m` and the degree `C` was off the panel** past a
+  100-hour uptime — a fixed `x` and a minimum-width format. Both are laid out
+  from the frame edge now ([intentional-diffs §14](./intentional-diffs.md)).
+- **The log said `TSIC_306` next to a DS18B20.** It was never aliased — the
+  driver is selected by a `const` that says `DallasDs18b20` — but the line read
+  like the configuration had been ignored, and the configured value is `1`. The
+  log now names the driver in use and says where the other setting lives.
+- **The first `GET /api/history` and two on-target tests crashed the device**,
+  because a 7.2 KB ring and a 7.2 KB return value were on 8 KB task stacks. Both
+  are heap now; the on-target suite is back to 145 passing, 0 failing, 1 pre-existing
+  LOST.
+
 ### Not done
 
 - **R3-18, the Acaia BLE scale — measured, and it does not fit.** Enabling
@@ -178,9 +218,18 @@ Recorded 2026-09-30, after R4-01 and R3-09 landed and were exercised on hardware
   Until then the UI's live values come from polling, not the stream.
 - The **telnet transport** that ADR-0002's heap shed is meant to protect. The
   shed logic is unit-tested but has no real client to shed.
-- **Switch presses have never been tested by hand.** The debounce and long-press
-  are pinned by 17 host tests against a synthetic clock, and the four switches
-  are `enabled=false` by default (faithful to the C++). The human has to press one.
+- **Switch presses have still never been tested by hand.** The debounce and
+  long-press are pinned by 17 host tests against a synthetic clock, and the
+  switches are `enabled=true` by default at the human's request. Everything around
+  a press is now fast — 10 ms loop, 20 ms debounce, 100 ms panel — but the press
+  itself is still the human's to make.
+- **The boot state after a reboot is still `PID_DISABLED` on this board**, and
+  that is *not* a bug: `hardware.switches.power.type` is `Toggle`, and a toggle
+  that reads off at boot starts the machine in `PID_DISABLED` in the C++ too
+  (`SystemInitializer.cpp:606-641`, which the port matches line for line). The
+  config's `pid.enabled` is honoured when no power switch is configured. The
+  confusion is that the human expected the config to win; on a machine whose
+  power toggle is off, the switch wins, and always has.
 - **R1-08's C++ baseline**, deliberately absent. The harness works and 13
   scenarios report `BASELINE-MISSING` with exit 2. Capturing it means flashing
   the C++, which runs its own control loop on a powered, wired machine — the human

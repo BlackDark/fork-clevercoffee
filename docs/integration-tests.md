@@ -316,3 +316,100 @@ If the full checklist is too heavy for a minor change, at least verify:
 3. `/api/health` responds 200
 4. `/api/parameters?filter=all` returns full JSON
 5. No crash when loading UI with telnet connected
+
+
+## Added 2026-10-01 — from the nine defects fixed on the board
+
+Each of these is a check that would have caught one of the reported defects, and
+each is a check that can be run without a hand on the machine. Run them in this
+order after any change to the control loop, the display task or the HTTP layer.
+
+### Control loop
+
+1. **The loop is at 100 Hz, not slower.** Read the periodic tick line:
+
+   ```
+   control tick: worst N ms of the last M (baseline B ms ..., budget 10 ms, K over budget)
+   ```
+
+   `K` must be 0 once the first second has passed, and `N` must be under 10 ms.
+   A `N` in the tens of milliseconds means something slow is back inside the tick
+   — the display frame is the usual culprit, and it belongs in the display task.
+
+2. **A 400 ms period is itself a failure.** If a change reintroduces a period
+   longer than 10 ms, the machine is back to reacting in half a second, which is
+   what the human reported.
+
+3. **The loop does not sleep longer than it is told.** A regression here is
+   invisible in the log and catastrophic in the field: the machine stops
+   answering HTTP while the panel keeps working. `curl -m 5 .../api/status` twice,
+   ten seconds apart, and compare `uptime` — it must advance.
+
+### Display
+
+4. **The startup screen appears, twice.** In the serial log, within the first
+   second: `display: boot screen — <version>` and then, once the radio has an
+   address, `display: wifi screen — <ip>`. An address of `0.0.0.0` is a *failed*
+   check, not a pass: it means the screen was drawn before DHCP finished.
+
+5. **The standby screen survives.** `POST /api/sleep`, then read the panel's
+   periodic report:
+
+   ```
+   display: present=true blanked=false frames=N failed=0
+   ```
+
+   `blanked=true` within ten minutes of entering standby is a **failure** — the
+   display-off countdown is ten minutes (`StandbyCoordinator.h:14`) and the panel
+   must still be drawing the standby screen until then. `frames` must keep
+   advancing.
+
+6. **The right edge is inside the frame.** The header's uptime and the `°C` unit
+   are the two fields that used to clip. The goldens
+   (`just snapshot-display`, then *read the diff*) pin them, and
+   `widgets::tests::a_long_uptime_is_right_aligned_rather_than_clipped` is the
+   host-side check for the case the goldens do not cover: an uptime past 100
+   hours, which is what this machine reaches in four days.
+
+### HTTP
+
+7. **`GET /api/history` answers 200 with three arrays of equal length**, oldest
+   point first, and one point per three seconds. An empty ring answers three
+   empty arrays; a 501 or a timeout is a failure. A **timeout or a device reset**
+   here means a large value is on a task stack — see finding 8.
+
+8. **No response-sized value lives on a task stack.** The ring is 7.2 KB, the
+   framebuffer is 1 KB, and the httpd task has 8 KB. Three separate device resets
+   came from this during 2026-10-01 (a 7.2 KB ring inside a by-value `Shared`, a
+   7.2 KB return value from `history_json`, and a 1 KB `Display` on the display
+   task). If a new field is a fixed-size array, it is a `Box`.
+
+9. **`POST /api/parameters` reads back what it wrote.** Save a value and read it
+   back *in the same breath*, with no sleep:
+
+   ```
+   curl -X POST '.../api/parameters?brew.setpoint=91.0'
+   curl '.../api/parameters' | jq '.[]|select(.name=="brew.setpoint")'
+   ```
+
+   The second command must show 91. The old failure was a 1-second window in
+   which the API served the pre-write values, and the UI put them back into the
+   form. A `503` from the POST means the control task did not apply the request
+   within the ack timeout — that is the handler being honest, and the UI should
+   keep the typed value.
+
+10. **`/api/status` reports a real backflush threshold.**
+    `backflushReminderThreshold` must be the configured value (50 by default), not
+    `0`. A `0` means the value is not being published, which is a bug, not a
+    setting.
+
+### The kernel defect, so nobody re-derives it
+
+11. **Do not move the DS18B20 onto another task.** If a sensor task is ever
+    reintroduced, flash it and read the log: `assert failed:
+    xTaskRemoveFromEventList` or a `LoadProhibited` in the lwIP `tcpip_thread`
+    means the bit-bang is on a second task and the kernel is being corrupted. The
+    bisect is in 09 §28 and in `crates/cc-firmware/src/sensor_task.rs`. The same
+    applies to every cross-task *blocking* hand-off: a `Queue` with a blocking
+    receive, a `std::sync::Mutex`, and an ESP-IDF task notification were each
+    measured to assert. Non-blocking `CommandQueue::try_send` does not.

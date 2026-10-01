@@ -45,7 +45,6 @@ use alloc::vec::Vec;
 use std::sync::Mutex;
 
 use esp_idf_hal::task::queue::Queue;
-use esp_idf_svc::sys::EspError;
 
 use crate::web::Command;
 
@@ -125,21 +124,6 @@ impl Default for CommandQueue {
     }
 }
 
-/// Build a queue or fail.
-///
-/// # Errors
-///
-/// `ESP_ERR_NO_MEM` if `FreeRTOS` could not allocate the queue. It is a separate
-/// function so `CommandQueue::new` can stay `const` and the failure is reported
-/// at boot rather than at the first request.
-///
-/// `Queue::new` is infallible in `esp-idf-hal` 0.47 (`task.rs:981`), so this
-/// never fails today; it exists so that when it does, the call site is already
-/// written.
-pub fn command_queue() -> Result<CommandQueue, EspError> {
-    Ok(CommandQueue::new())
-}
-
 /// How many parameter-write requests may be waiting for the control task.
 ///
 /// Four, and it is not a tuning knob: the control task drains the whole mailbox
@@ -148,6 +132,19 @@ pub fn command_queue() -> Result<CommandQueue, EspError> {
 /// exists so a client looping on `POST /api/parameters` cannot grow the heap; it
 /// is reached by four browser tabs, not by a person.
 pub const STAGED_PARAMETER_DEPTH: usize = 4;
+
+/// How long `POST /api/parameters` waits for the control task to apply what it
+/// staged, in milliseconds.
+///
+/// Four control periods (400 ms each at the time of writing), which is long
+/// enough that a loaded control task still answers and short enough that a
+/// stalled one fails visibly rather than hanging a browser. The C++ has no
+/// timeout here because its handler *is* the writer; see
+/// [`ParameterHandoff::stage_and_wait`].
+pub const PARAMETER_ACK_TIMEOUT_MS: u32 = 1_600;
+
+/// The poll interval inside that wait.
+pub const PARAMETER_ACK_POLL_MS: u32 = 5;
 
 /// One `POST /api/parameters`, already validated by the handler.
 ///
@@ -181,6 +178,10 @@ pub struct ParameterHandoff {
     /// See [`ParameterHandoff::publish_live`] for why the GET cannot use the
     /// boot-time `Config` snapshot.
     live: alloc::sync::Arc<Mutex<Option<alloc::string::String>>>,
+    /// How many staged requests the control task has drained and applied.
+    ///
+    /// The read-after-write ack. See [`ParameterHandoff::stage_and_wait`].
+    applied: alloc::sync::Arc<core::sync::atomic::AtomicU32>,
 }
 
 impl ParameterHandoff {
@@ -190,6 +191,7 @@ impl ParameterHandoff {
         Self {
             queue: alloc::sync::Arc::new(Mutex::new(VecDeque::new())),
             live: alloc::sync::Arc::new(Mutex::new(None)),
+            applied: alloc::sync::Arc::new(core::sync::atomic::AtomicU32::new(0)),
         }
     }
 
@@ -245,6 +247,70 @@ impl ParameterHandoff {
             return false;
         }
         slot.push_back(request);
+        true
+    }
+
+    /// How many requests the control task has applied.
+    ///
+    /// Incremented once per drained request, whatever the request contained: the
+    /// handler's verdict already decided which pairs were acceptable, so the
+    /// control task's only job on the ack path is to say "I have had your
+    /// message".
+    pub fn note_applied(&self) {
+        self.applied
+            .fetch_add(1, core::sync::atomic::Ordering::Release);
+    }
+
+    /// The current applied count, for the waiter's termination condition.
+    #[must_use]
+    pub fn applied(&self) -> u32 {
+        self.applied.load(core::sync::atomic::Ordering::Acquire)
+    }
+
+    /// Stage a request and wait, bounded, for the control task to apply it.
+    ///
+    /// Returns `false` if the request could not be staged, or if the control
+    /// task had not applied it within [`PARAMETER_ACK_TIMEOUT_MS`].
+    ///
+    /// # Why the handler waits at all
+    ///
+    /// The human's report: *save a parameter, the UI immediately refetches, and
+    /// the old value comes back — so the toggle flips back*. Three latencies
+    /// stack up between `POST /api/parameters` and the next `GET`:
+    ///
+    /// 1. the request is staged and the control task has not run yet — up to one
+    ///    control period;
+    /// 2. the control task applies it and writes NVS, which is a flash write;
+    /// 3. the GET is answered from `publish_live`, which until now only ran on
+    ///    the 1 s heartbeat — so even a value applied in step 2 was not visible
+    ///    to a reader for up to a second afterwards.
+    ///
+    /// Step 3 is fixed by publishing immediately after the apply. Steps 1 and 2
+    /// are inherent to keeping the configuration in one task, and the C++ does
+    /// not have them: `Config::getInstance()` is a singleton, so the C++'s
+    /// handler mutates the live configuration in place
+    /// (`WebServerManager.cpp:821-878`) and the very next read sees it.
+    ///
+    /// A bounded wait is how this port buys the C++'s guarantee without giving
+    /// the httpd task a handle on the store or the machine. It is bounded
+    /// because the alternative — answering `200` and hoping — is the lie the
+    /// human reported, and an unbounded wait would be a hung web server.
+    #[must_use]
+    pub fn stage_and_wait(&self, request: ParameterRequest) -> bool {
+        use core::sync::atomic::Ordering;
+        let before = self.applied.load(Ordering::Acquire);
+        if !self.stage(request) {
+            return false;
+        }
+        let deadline = crate::time::now_ms().wrapping_add(PARAMETER_ACK_TIMEOUT_MS);
+        // 5 ms is well under the control period, so the wait ends within one
+        // poll of the apply rather than quantised to the next one.
+        while self.applied.load(Ordering::Acquire) == before {
+            if crate::time::now_ms().wrapping_sub(deadline) < PARAMETER_ACK_POLL_MS {
+                return false;
+            }
+            esp_idf_hal::delay::FreeRtos::delay_ms(PARAMETER_ACK_POLL_MS);
+        }
         true
     }
 

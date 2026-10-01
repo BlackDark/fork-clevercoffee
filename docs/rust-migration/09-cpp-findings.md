@@ -964,3 +964,67 @@ honours it. See `intentional-diffs.md` §13 and the `div13_*` pins in
 (`PidNormal`). The panel blanks as it should — `display: blanked=true frames=7`,
 seven frames drawn and then the 100 ms gate correctly stops writing to a blanked
 panel.
+
+## 28. 🔴🔴 A second task may not own the DS18B20: `interrupt::free` is a global cross-core critical section
+
+**Found** 2026-10-01, on hardware, while porting the control loop to the 100 Hz
+cadence 04 §2 specifies.
+
+**The claim.** The 1-Wire bit-bang must stay on the same task that owns the rest
+of the control loop. Moving it to a task of its own — which is what a
+cadence-decoupled sensor task is — asserts inside the FreeRTOS kernel on every
+boot.
+
+**The evidence.** One variable at a time, flashed and read off the serial log:
+
+| sensor task | display task | crashes per boot |
+| --- | --- | --- |
+| not started | not started | **0** |
+| started, DS18B20 poll disabled | not started | **0** |
+| started, DS18B20 poll enabled (100 Hz, 50 Hz, 400 Hz) | not started | 3–4 |
+| not started | started | **0** |
+| started | started | 3–4 |
+
+Every crash is one of two, both from the first sensor publish:
+
+```
+assert failed: xTaskRemoveFromEventList tasks.c:3894 (pxUnblockedTCB)
+Guru Meditation Error: Core  1 panic'ed (LoadProhibited). Exception was unhandled.
+```
+
+The second one lands in `sys_arch_mbox_fetch` inside the **lwIP tcpip thread** —
+a task with nothing to do with this firmware, corrupted from outside. The
+frequency does not matter, which rules out a timing or CPU-budget explanation and
+leaves the *presence of a second task touching the probe* as the variable.
+
+**The mechanism, as far as the evidence goes.** The DS18B20 is the only thing in
+the firmware that calls `esp_idf_hal::interrupt::free`, and on the original ESP32
+that is `vPortEnterCritical` on a **process-global** `IsrCriticalSection`
+(`esp-idf-hal-0.47.0/src/interrupt.rs`: `pub(crate) static CS`). esp-idf-hal's own
+comment on it says what happens when a second task reaches it from the other core:
+
+> the second core will then spinlock (busy-wait) in `IsrCriticalSection::enter`,
+> until the first CPU releases the critical section
+
+1-Wire enters and leaves that critical section 80-odd times per scratchpad read,
+for 3–65 µs each (`cc_domain::onewire::timing`, and the C++'s own numbers). On
+one task that is unremarkable — it is precisely what the C++ does with
+`noInterrupts()`. On a second task it is a spinlock the `FreeRTOS` port also
+expects to be able to reschedule through, and this build asserts.
+
+**What was done about it.** The sensor task was removed and the probe left on the
+control task, where it has run without incident. The **display** task was in the
+same bisect and was clean in every combination, so it stayed: that is the half of
+the split that fixes the reported latency. A queue-based wake, a `std::sync::Mutex`
+hand-off and an ESP-IDF task notification were each tried as the way for a
+producer to shorten the control loop's sleep, and **each one asserts the same
+way**; the loop therefore runs on its 10 ms deadline and consumes every event at
+the top of the next period. The evidence is kept in
+`crates/cc-firmware/src/sensor_task.rs`, which is now a note about why the sensor
+task does not exist.
+
+**Open.** Whether this is a defect in `esp-idf-hal`, in ESP-IDF v5.5.5's
+non-SMP `FreeRTOS` port, or in the way the two interact is **not established**
+here, and the firmware should not be changed on a guess. The C++ firmware is
+unaffected: Arduino-ESP32 runs one loop task and never enters that critical
+section from a second one.

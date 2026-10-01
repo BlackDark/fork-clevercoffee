@@ -21,6 +21,7 @@ pub mod abp2;
 pub mod error;
 pub mod hardware;
 pub mod heater;
+pub mod history;
 pub mod mqtt;
 pub mod pid;
 pub mod process;

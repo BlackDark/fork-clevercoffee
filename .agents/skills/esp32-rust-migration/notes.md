@@ -14,7 +14,7 @@ blocked.
 
 | Field | Value |
 | --- | --- |
-| Current phase | **Phase 3 done, entering Phase 4 (R4).** R0, R1, R2 and most of R3 implemented. |
+| Current phase | **Phase 4 (R4), with the control loop restructured on 2026-10-01.** R0, R1, R2 and most of R3 implemented. |
 | **Critical path** | **R4-01 — the reducer is NOT wired to the hardware.** `cc_machine::` appears nowhere in `cc-firmware/src`; the control task is a heuristic that drops web commands. **No state machine, no PID, no brewing on the device yet.** |
 | **Device hostname** | **`test-cc-rust`** (`cc_config::schema::DEFAULT_HOSTNAME`). The C++ default is `silvia` and the C++ is unchanged — the name is what distinguishes the two firmwares on one network. `mqtt.password`'s default is *also* `silvia`; that is a credential, leave it. See [intentional-diffs §12](../../../docs/rust-migration/intentional-diffs.md). |
 | Plan reviewed | 2026-09-28 by two adversarial subagents; 24 hard factual errors and 5 blocking tooling defects found and **fixed**. See 06 and 07. |
@@ -22,12 +22,12 @@ blocked.
 | C++ baseline | `pio run -e esp32_usb` **succeeds**; `firmware.bin` = 1,546,240 B; `pio test -e native_test` = **340/340 pass**. **The C++ is never modified or flashed** — the human has declined the C++ baseline capture for exactly that reason. |
 | Rust workspace | 10 crates. Builds, links, boots, runs on hardware. |
 | Host tests | **900+** passing. |
-| **Device tests** | **89 passing on real hardware** via `just test-esp32`. This gate did not exist until R1-08's follow-up and its absence had already let three device bugs ship. |
-| Device image | **1,216,816 B** of an 1,835,008 B slot (33.7 % headroom). 382,528 B at R1; the growth is attributed in 07 §8–§10. |
+| **Device tests** | **145 passing, 0 failing, 1 pre-existing LOST** on real hardware via `just test-esp32` (measured 2026-10-01 against a 142/0/1 baseline on `f39858e`). This gate did not exist until R1-08's follow-up and its absence had already let three device bugs ship. |
+| Device image | **1,580,224 B** of an 1,835,008 B slot (13.9 % headroom), measured 2026-10-01. Growth vs the `f25-web-ui-embedded` baseline: **+1.33 %**, inside the 10 % limit. |
 | **Static RAM** | **131,688 B — 42 % of the ESP32's 320 KB**, roughly double the pre-network figure. **RAM, not flash, is now the binding constraint**, and ADR-0002's 30 KB shed margin was tuned against a much smaller baseline. |
 | Connected device | `/dev/cu.usbserial-224140` — `esp32` rev v3.0, 4 MB, dual core, WiFi+BT, MAC `ec:62:60:76:b5:3c`. **WCH CH340**, not CP2102N. Link unreliable above ~460800. |
 | Heater output | **10 ms GPTimer ISR**, not LEDC (LEDC cannot do a 1 Hz carrier on this chip — 09 §17). **Never energised** except in a deliberate, logged panic-probe. |
-| Known regression | The control tick overruns its 10 ms budget in ~62 % of ticks, **independent of any scale** (09 §24). R4-01b's "zero ticks over 10 ms" currently fails. Do not fix it by relaxing the budget. |
+| Known regression | **Resolved 2026-10-01.** The control tick overran its 10 ms budget in ~62 % of ticks because a 1 KB display frame was written inside it (09 §24). The panel is now on its own task at 100 ms and the loop is at 100 Hz; the periodic `control tick:` line reports the worst tick and the over-budget count, and it is the check to watch. |
 
 ---
 
@@ -641,3 +641,77 @@ a resolution of the risk — `intentional-diffs.md` §13 has the full argument.
 Pump and valve were **never** energised. 186 samples across the standby/wake cycle all
 read `refused pump=0 water=0 steam=0 heater=0  pins pump=false valve=false`. The heater
 ran only as the ordinary PID output against the configured 95 °C setpoint.
+
+
+---
+
+## The kernel defect: a second task may not own the DS18B20 (2026-10-01)
+
+**Do not try this again without reading 09 §28 first.**
+
+The control loop was 400 ms and the display frame was inside it, so the tick
+overran its budget in ~62 % of runs and a switch press took half a second to
+show. The fix is the one 04 §2 already specifies: 100 Hz, and the display on a
+task of its own. That works.
+
+The **sensor** task does not. Bisected on hardware, one variable at a time:
+
+| sensor task | display task | crashes per boot |
+| --- | --- | --- |
+| not started | not started | **0** |
+| started, DS18B20 poll disabled | not started | **0** |
+| started, DS18B20 poll enabled (any cadence) | not started | 3–4 |
+| not started | started | **0** |
+
+The DS18B20 is the only user of `esp_idf_hal::interrupt::free`, which on the
+original ESP32 is `vPortEnterCritical` on a **process-global** cross-core
+critical section. On one task that is what the C++ does with `noInterrupts()`; on
+a second task this build asserts inside the kernel
+(`xTaskRemoveFromEventList`, and a `LoadProhibited` in the lwIP `tcpip_thread`
+that has nothing to do with the firmware).
+
+**The same applies to every cross-task blocking hand-off.** A `Queue` with a
+blocking receive, a `std::sync::Mutex`, and an ESP-IDF task notification were each
+tried as the way to shorten the control loop's sleep, and each asserts the same
+way. `CommandQueue::try_send` does not, because it never blocks. So:
+
+* the frame hand-off to the display task is a **lock-free double buffer**
+  (`cc_firmware::slots`), not a mutex;
+* the control loop runs on its **10 ms deadline** and consumes every event at the
+  top of the next period.
+
+At 10 ms that is not a latency anyone can feel, and it is the honest description
+of what the firmware does.
+
+## Things this session got wrong, and what caught them
+
+The notes already record that "a fix that only existed in a test that never ran"
+is a real failure mode here. Three more, all from the same day:
+
+1. **A stack overflow looks like a kernel bug.** A 7.2 KB `History` inside a
+   by-value `Shared`, and a 7.2 KB return value from `history_json`, both reset
+   the device — the second one as a `LoadProhibited` in the middle of an HTTP
+   request. The first showed up only as the on-target runner reporting two tests
+   **LOST**. Anything fixed-size and large is a `Box`.
+2. **The first version of a tick-timing fix made the machine disappear.**
+   `next_deadline.wrapping_sub(now)` after a tick that overran its period is a
+   49-day sleep, not a short one. The device stopped answering HTTP while the panel
+   kept working. Elapsed-time arithmetic, not deadline arithmetic.
+3. **A 10 ms control period on a 100 Hz tick kernel is one tick.** A "10 ms"
+   timeout written as ten ticks is 100 ms. `cc_hal_esp32::wake` reads
+   `configTICK_RATE_HZ` from the generated bindings for exactly this reason — and
+   its own on-target test then caught the first version of the conversion, which
+   added one tick per remainder instead of dividing.
+
+## Still not verified
+
+* **No hand on a switch.** The loop is fast and the debounce is pinned, but the
+  press itself has still never been made by a person. "Wakes from standby" and
+  "the steam button reacts immediately" are therefore *unverified on hardware* —
+  what is verified is that the code path is the C++'s and that the latency budget
+  above it is 10 ms + 20 ms + 100 ms instead of 400 ms + 20 ms + 100 ms.
+* **A reboot into `PID_DISABLED` is correct, not a bug.** `hardware.switches.power.type`
+  is `Toggle` and a toggle that reads off at boot starts disabled — in the C++ too
+  (`SystemInitializer.cpp:606-641`). `pid.enabled` wins only when no power switch
+  is configured. If the human wants the config to win, the fix is a config
+  default, not a code change, and it is their call.

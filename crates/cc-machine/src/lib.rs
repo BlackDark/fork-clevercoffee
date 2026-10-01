@@ -363,17 +363,36 @@ fn standby_update(m: &mut Machine, ctx: &Context<'_>, now: Millis) {
     }
     m.standby.last_update = Some(now);
 
-    if m.standby.remaining_ms == 0 {
-        // The display-off countdown has its own branch in the C++
-        // (`StandbyCoordinator.h:56-72`) and is not a state-machine concern —
-        // see `machine::DISPLAY_OFF_NOT_PORTED`.
+    if m.standby.remaining_ms != 0 {
+        let timeout = ctx.standby_timeout_ms();
+        if timeout > elapsed.raw() {
+            m.standby.remaining_ms = timeout - elapsed.raw();
+        } else {
+            m.standby.remaining_ms = 0;
+        }
         return;
     }
-    let timeout = ctx.standby_timeout_ms();
-    if timeout > elapsed.raw() {
-        m.standby.remaining_ms = timeout - elapsed.raw();
+
+    // The display-off countdown (`StandbyCoordinator.h:56-72`). It runs only
+    // once the standby countdown itself has expired, and it counts from the
+    // *same* `standbyModeStartTimeMillis_` against a longer deadline
+    // (`standbyTimeout + displayOffTimeout`), which is why the machine sits in
+    // standby with the standby screen lit for another ten minutes before the
+    // panel is blanked.
+    //
+    // The human's report was "standby should show the screen for a while and
+    // only then turn the display off", and the firmware blanked the panel the
+    // instant it entered standby — the behaviour of the un-ported branch above.
+    if m.standby.display_off_remaining_ms == 0 {
+        return;
+    }
+    let deadline = ctx
+        .standby_timeout_ms()
+        .saturating_add(timing::STANDBY_DISPLAY_OFF_MS);
+    if deadline > elapsed.raw() {
+        m.standby.display_off_remaining_ms = deadline - elapsed.raw();
     } else {
-        m.standby.remaining_ms = 0;
+        m.standby.display_off_remaining_ms = 0;
     }
 }
 

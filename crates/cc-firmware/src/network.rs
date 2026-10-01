@@ -37,7 +37,7 @@
 //!
 //! | Task | Owns | Cadence |
 //! | --- | --- | --- |
-//! | control | the heater, the watchdog, the temperature probe, and the telemetry publish | [`CONTROL_TICK_MS`] (400 ms) |
+//! | control | the heater, the watchdog, the temperature probe, and the telemetry publish | [`crate::main::CONTROL_PERIOD_MS`] (10 ms) |
 //! | network | the radio, the monitor, MQTT | [`cc_hal_esp32::wifi::MONITOR_PERIOD_MS`] (1 s) |
 //! | provisioning | the UART reader and the staged credential | 50 ms while armed, otherwise off |
 //! | httpd | the REST API and the SSE stream | ESP-IDF's own task |
@@ -331,6 +331,17 @@ pub struct Reading {
     pub standby_remaining_ms: u32,
     /// `MaintenanceCoordinator::shotsSinceBackflush()`.
     pub shots_since_backflush: u32,
+    /// `maintenance.backflush_reminder.threshold`.
+    ///
+    /// `WebServerManager.cpp:362`. It was never published, so `/api/status`
+    /// answered `backflushReminderThreshold: 0` — a threshold of zero makes the
+    /// reminder look due forever *and* reads as "the machine does not know its
+    /// own limit", which is what the human reported as a 0/0 pair.
+    pub backflush_threshold: u32,
+    /// `MaintenanceCoordinator::isReminderDue()` —
+    /// `isReminderDueForCount(shots, enabled, threshold)`
+    /// (`MaintenanceCoordinator.cpp:68-73`).
+    pub backflush_due: bool,
     /// `SensorCoordinator::isWaterTankFull()`, or `None` when no float is fitted.
     pub water_tank_full: Option<bool>,
     /// The ABP2's reading in bar, or `None` when no pressure sensor is fitted or
@@ -360,6 +371,8 @@ pub fn telemetry_from(reading: Reading, uptime_ms: u32, weight_g: Option<f64>) -
         standby: reading.standby,
         standby_remaining_ms: reading.standby_remaining_ms,
         shots_since_backflush: reading.shots_since_backflush,
+        backflush_threshold: reading.backflush_threshold,
+        backflush_due: reading.backflush_due,
         // `None` publishes as `"waterTankFull":null`, which is what the C++'s
         // "no float switch fitted" is: the key is only emitted when
         // `hardwareSensorsWatertankEnabled` (`WebServerManager.cpp:356-372`).
@@ -397,7 +410,7 @@ pub fn telemetry_from(reading: Reading, uptime_ms: u32, weight_g: Option<f64>) -
 /// Note the ownership consequence, because it is the part that bites later: the
 /// snapshot is a single slot and both publishers write it, so the two must not
 /// race. They do not today — the control task writes once per
-/// [`CONTROL_TICK_MS`] and the radio once per second, and each write is a single
+/// [`crate::main::CONTROL_PERIOD_MS`] and the radio once per second, and each write is a single
 /// `Mutex` critical section over the whole slot, so the worst case is one
 /// publisher's fields being one tick stale, never torn.
 pub fn publish_radio(shared: &Shared, sta: Option<&Sta>) {
@@ -655,7 +668,7 @@ pub fn run_provisioning(serial: cc_hal_esp32::provisioning::Serial<'_>, handoff:
 /// **This does not reset the machine, and that is the fix, not an omission.** An
 /// earlier revision staged the credential and then called `esp_restart()`
 /// immediately, which is a race the operator loses every time: the control task
-/// wakes every [`CONTROL_TICK_MS`], so a reset issued microseconds after
+/// wakes every [`crate::main::CONTROL_PERIOD_MS`], so a reset issued microseconds after
 /// `Handoff::stage` resets the machine *before* it has read the slot, and the
 /// credential is silently lost with a success reply already on the console. The
 /// reboot belongs to the control task, which owns the store and knows whether

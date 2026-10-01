@@ -250,6 +250,18 @@ impl<'bus> SharedPanel<'bus> {
         }
     }
 
+    /// Draw a frame now, ignoring the [`display::REFRESH_INTERVAL_MS`] gate.
+    ///
+    /// For the one-shot boot screens only. The gate exists so the panel's I²C
+    /// bus time is bounded at ten flushes a second; a boot screen that lost a
+    /// race against `last_flush_ms` would simply never appear, which is the
+    /// failure the human reported ("the startup screen is missing"). Everything
+    /// on the normal frame path uses [`Self::refresh`].
+    pub fn refresh_now(&mut self, frame: &[u8; FRAMEBUFFER_LEN]) -> RefreshOutcome {
+        self.last_flush_ms = None;
+        self.refresh(frame, crate::time::now_ms())
+    }
+
     /// Blank or unblank the panel.
     ///
     /// A no-op when there is no panel, so callers do not have to ask first.

@@ -60,7 +60,7 @@ use esp_idf_hal::gpio::Gpio3;
 use esp_idf_hal::uart::{UartDriver, UART0};
 use esp_idf_hal::units::Hertz;
 use esp_idf_svc::sys::EspError;
-use log::{info, warn};
+use log::info;
 
 use crate::time::now_ms;
 
@@ -562,14 +562,6 @@ pub fn announce() {
 
 /// Report a fatal error in the provisioning path.
 ///
-/// A `warn!`, so it is subject to the same mute as everything else. A
-/// provisioning error that is written *through the log stream* while a password
-/// window is open is a credential leak; there is no variant of this that may be
-/// printed unconditionally.
-pub fn report_error(what: &str, err: EspError) {
-    warn!("serial: provisioning {what} failed: {err:?}");
-}
-
 #[cfg(any(test, feature = "device-tests"))]
 #[cfg_attr(feature = "device-tests", doc(hidden))]
 pub mod tests {

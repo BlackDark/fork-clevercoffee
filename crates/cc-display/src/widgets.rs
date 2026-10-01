@@ -148,8 +148,18 @@ pub fn display_temperature_info(
 
     d.set_cursor(coords.current_value_x, coords.current_temp_y);
     d.print(format_fixed(input.temperature, 1).as_str());
-
-    d.set_cursor(coords.current_value_x + 31, coords.current_temp_y);
+    // The unit column. The C++ puts it at `currentValueX + 31`
+    // (`DisplayTemplateBase.h:118`) — a *fixed* offset, not a right edge, and on
+    // the Standard template `currentValueX` is 84, so `"°C"` lands at 115..127:
+    // the last column of the panel. Any widening of the value, or a hair of
+    // glyph-width drift, puts the `C` off the edge — the "the degree C is
+    // missing" half of the human's report. Measured rather than assumed: 12 px
+    // of `profont11` ending at 123 leaves a margin and still clears a 29 px
+    // three-digit value ending at 113.
+    d.set_cursor(
+        coords.current_value_x + UNIT_COLUMN_OFFSET,
+        coords.current_temp_y,
+    );
     d.print_char('\u{b0}');
     d.print("C");
 
@@ -159,10 +169,23 @@ pub fn display_temperature_info(
     d.set_cursor(coords.set_value_x, coords.set_temp_y);
     d.print(format_fixed(input.setpoint, 1).as_str());
 
-    d.set_cursor(coords.set_value_x + 31, coords.set_temp_y);
+    d.set_cursor(coords.set_value_x + UNIT_COLUMN_OFFSET, coords.set_temp_y);
     d.print_char('\u{b0}');
     d.print("C");
 }
+
+/// Where the `°C` unit sits relative to the value column.
+///
+/// The C++'s literal `31` (`DisplayTemplateBase.h:118,122`), reduced by one so
+/// the unit ends inside the frame on the Standard template: `84 + 30` plus the
+/// 12 px of `"°C"` is 126, one pixel clear of the 128 px panel. One pixel is all
+/// that is available — the widest value a boiler reports, `"100.0"`, is 29 px
+/// wide and so already reaches column 113 — so the fix is the smallest one that
+/// puts the `C` on the panel. See [`display_temperature_info`].
+///
+/// The Scale template's value column is 50, so there the unit simply moves left
+/// with everything else.
+pub const UNIT_COLUMN_OFFSET: i32 = 30;
 
 /// Where a template puts the temperature block.
 ///
@@ -475,7 +498,7 @@ pub fn display_bluetooth_status(d: &mut Display, input: &DisplayInput, x: i32, y
 ///
 /// `snprintf(buf, format, hours, minutes, seconds)` with the format
 /// `"%02luh %02lum"`, drawn at `(x, y)` in `profont11`.
-pub fn display_uptime(d: &mut Display, uptime_s: u32, x: i32, y: i32) {
+pub fn display_uptime(d: &mut Display, uptime_s: u32, y: i32) {
     d.set_font(font::profont11());
     let hours = uptime_s / 3600;
     let minutes = uptime_s % 3600 / 60;
@@ -493,8 +516,28 @@ pub fn display_uptime(d: &mut Display, uptime_s: u32, x: i32, y: i32) {
         text.push(c).ok();
     }
     text.push('m').ok();
-    d.draw_str(x, y, text.as_str());
+    // **Right-aligned to the frame, not drawn at `x`.** A deliberate divergence
+    // from the C++, which passes a fixed `x = 84` (`DisplayWidgets.h:374`) and
+    // lets the string run off the panel.
+    //
+    // `"%02luh %02lum"` is a *minimum* width, not a fixed one: past 100 hours
+    // the hours field grows a digit, and this machine is routinely up for
+    // fifteen days. At `x = 84` a 377-hour uptime is 47 px wide and ends at
+    // 131 — the `m` is cut in half by the right edge, which is what the human
+    // reported ("the time in the header, the m is missing"). The C++ has the
+    // same defect; the fix costs one `str_width` and cannot make a shorter
+    // string worse.
+    let right = DISPLAY_WIDTH - RIGHT_MARGIN - d.str_width(text.as_str());
+    d.draw_str(right.clamp(0, DISPLAY_WIDTH - 1), y, text.as_str());
 }
+
+/// The gap between the rightmost glyph and the frame edge, in pixels.
+///
+/// AGENTS.md's "everything must fit fully within 128x64" is satisfied by ink
+/// that *touches* the last column only in the sense that the last column is
+/// still visible; one pixel of margin is what makes "in frame" checkable, and
+/// it is the same margin [`UNIT_COLUMN_OFFSET`] leaves on the `°C` column.
+pub const RIGHT_MARGIN: i32 = 1;
 
 /// `displayMaintenanceStatusBar` (`DisplayWidgets.h:358`).
 ///
@@ -546,7 +589,7 @@ pub fn display_statusbar(
     }
 
     if !display_maintenance_status_bar(d, config, input, if upright { 54 } else { 78 }, 0) {
-        display_uptime(d, input.now_ms / 1000, if upright { 54 } else { 84 }, 0);
+        display_uptime(d, input.now_ms / 1000, 0);
     }
 }
 
@@ -734,6 +777,8 @@ pub fn display_scale_failed(d: &mut Display, upright: bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::display::DISPLAY_HEIGHT;
+    use crate::lang;
     use crate::model::Language;
 
     fn mk() -> Display {
@@ -741,6 +786,66 @@ mod tests {
         d.set_font(font::profont11());
         d.set_font_pos_top();
         d
+    }
+
+    /// The rightmost inked column of a frame, or `-1` for an empty one.
+    fn rightmost_ink(d: &Display) -> i32 {
+        let fb = d.framebuffer();
+        (0..DISPLAY_WIDTH)
+            .rev()
+            .find(|x| (0..DISPLAY_HEIGHT).any(|y| fb.pixel(*x, y)))
+            .map_or(-1, i32::from)
+    }
+
+    #[test]
+    fn a_long_uptime_is_right_aligned_rather_than_clipped() {
+        // The human's "the time in the header, the m is missing". `"%02luh
+        // %02lum"` grows a digit past 100 hours and this machine is up for
+        // weeks; drawn at the C++'s fixed `x = 84` a 377-hour uptime ends at
+        // 131 and the unit is cut in half by the frame.
+        for hours in [0_u32, 3, 99, 100, 377, 9_999] {
+            let mut d = mk();
+            display_uptime(&mut d, hours * 3600 + 25 * 60, 0);
+            let right = rightmost_ink(&d);
+            assert!(
+                right <= DISPLAY_WIDTH - 1 - RIGHT_MARGIN,
+                "{hours} h inks to column {right}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_unit_column_ends_inside_the_frame_for_a_three_digit_value() {
+        // The other half of the same report: `"°C"` at `value + 31` on the
+        // Standard template ends on the panel's last column. Checked with the
+        // widest value a boiler can report, because a narrower one hides it.
+        let coords = TemperatureCoords {
+            current_temp_x: 34,
+            current_temp_y: 16,
+            current_value_x: 84,
+            set_temp_x: 34,
+            set_temp_y: 26,
+            set_value_x: 84,
+        };
+        let mut d = Display::new();
+        d.prepare_display(crate::display::Rotation::R0);
+        let input = crate::model::DisplayInput {
+            temperature: 103.5,
+            setpoint: 95.0,
+            ..crate::model::DisplayInput::default()
+        };
+        display_temperature_info(
+            &mut d,
+            &input,
+            lang::for_language(Language::English),
+            &coords,
+            false,
+        );
+        let right = rightmost_ink(&d);
+        assert!(
+            right <= DISPLAY_WIDTH - 1 - RIGHT_MARGIN,
+            "the unit column inks to column {right}"
+        );
     }
 
     #[test]
@@ -783,17 +888,22 @@ mod tests {
     }
 
     #[test]
-    fn the_degree_sign_column_offset_is_31_pixels() {
-        // `DisplayTemplateBase.h:148` hard-codes `currentValueX + 31` for the
-        // degree sign. That only works because "%.1f" is 4 characters and a
-        // digit is 5-6 px in profont11.
+    fn the_degree_sign_column_does_not_collide_with_a_four_character_value() {
+        // `DisplayTemplateBase.h:118` hard-codes `currentValueX + 31` for the
+        // degree sign, which only works because `"%.1f"` is four characters and
+        // a digit is 5-6 px in profont11. The offset is now
+        // `UNIT_COLUMN_OFFSET`, one pixel less, so the unit ends inside the
+        // frame; what still has to hold is that value and unit do not touch.
         let f = font::profont11();
         let four_digits = f.str_width("100.0");
         assert!(
-            four_digits <= 31,
+            four_digits <= UNIT_COLUMN_OFFSET,
             "the value must not reach the degree sign: {four_digits} px"
         );
-        assert!(31 - four_digits <= 12, "and must not leave a visible gap");
+        assert!(
+            UNIT_COLUMN_OFFSET - four_digits <= 12,
+            "and must not leave a visible gap"
+        );
     }
 
     /// A display with the whole panel lit, so a `setDrawColor(0)` box shows up

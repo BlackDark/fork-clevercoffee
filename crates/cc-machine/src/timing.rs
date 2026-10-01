@@ -16,6 +16,7 @@
 //! | [`POWER_LONG_PRESS_REBOOT_MS`] | `PowerHandler.h:144` (the literal `1000`) |
 //! | [`POWER_REBOOT_DISPLAY_MS`] | `PowerHandler.h:183,189` (the two `delay(1000)` calls) |
 //! | [`STANDBY_UPDATE_GRANULARITY_MS`] | `StandbyCoordinator.h:39` (the literal `1000`) |
+//! | [`STANDBY_DISPLAY_OFF_MS`] | `StandbyCoordinator.h:14` (`10 * 60 * 1000`) |
 //! | [`BREW_PUMP_TIMEOUT_MS`] | `BrewHandler.h:32` (`pumpTimer_(300000)`) |
 //! | [`HOT_WATER_PUMP_TIMEOUT_MS`] | `HotWaterHandler.h:28` (`pumpTimer_(60000)`) |
 
@@ -59,6 +60,20 @@ pub const POWER_REBOOT_DISPLAY_MS: u32 = 1_000;
 /// granularity. Preserved: a port that recomputed every tick would enter
 /// standby up to a second earlier.
 pub const STANDBY_UPDATE_GRANULARITY_MS: u32 = 1_000;
+
+/// How long the panel stays lit after the machine enters standby.
+///
+/// `StandbyCoordinator::getDisplayOffTimeoutMillis()`
+/// (`StandbyCoordinator.h:13-15`) — `10 * 60 * 1000`, ten minutes, and a
+/// literal in the C++ rather than a configuration parameter. The countdown runs
+/// from the same start time as the standby countdown, so the panel goes dark
+/// `standby.time` + 10 minutes after the last activity, not 10 minutes after
+/// entering standby.
+///
+/// Ported at the same time as `StandbyTimer::display_off_remaining_ms`, which
+/// had been declared and left un-ported; the symptom was a panel that blanked
+/// the moment standby was entered.
+pub const STANDBY_DISPLAY_OFF_MS: u32 = 10 * 60 * 1_000;
 
 /// The brew handler's maximum brew time. `BrewHandler`'s constructor:
 /// `pumpTimer_(300000) // 5 minute max brew time safety`
@@ -127,6 +142,7 @@ mod tests {
         assert_eq!(POWER_LONG_PRESS_REBOOT_MS, 1_000);
         assert_eq!(POWER_REBOOT_DISPLAY_MS, 1_000);
         assert_eq!(STANDBY_UPDATE_GRANULARITY_MS, 1_000);
+        assert_eq!(STANDBY_DISPLAY_OFF_MS, 600_000);
         assert_eq!(BREW_PUMP_TIMEOUT_MS, 300_000);
         assert_eq!(HOT_WATER_PUMP_TIMEOUT_MS, 60_000);
     }
