@@ -38,12 +38,14 @@ Status uses the same grades as [FINDINGS.md](FINDINGS.md).
 | `coordinators/{Standby,Maintenance}Coordinator.cpp` | `cc-machine/src/maintenance.rs` | ⚠️ ported, not exercised on board | 5 |
 | `maintenance/BackflushReminderLogic.cpp`, `backflush/*` | `cc-machine/src/backflush.rs` | ✅ parity scenarios | 5 |
 | `utils/*` (`ApiResponses`, `Resilience`, `helperUtils`, `memoryUtils`, `ModernTimer`) | `cc-domain/src/{error,resilience,units}.rs` | ✅ as needed | 5 |
+| *Lost firmware's supervisor* (not in the C++) | `cc-domain/src/heater.rs`, `cc-hal-esp32/src/heater.rs` | ✅ deadman, 500 ms interlock | 5 |
+| *Not in the C++*: refuse to heat on an unvalidated boiler | `cc-firmware/src/main.rs` boot window | ⚠️ deliberate, but missing from the ledger | 5 |
 | `types/GlobalTypes.h`, `constants/*` | `cc-domain/src/units.rs`, `units` | ✅ | 5 |
 
 ## Next steps, by risk
 
 1. **Meter the heater relay polarity.** Boiler disconnected, meter on the coil. An undriven GPIO during reset energises 2 kW. Nothing downstream is parallelisable past this. Open — see [ARCHITECTURE.md](ARCHITECTURE.md).
-2. **Explain the 12 ms applier span.** Split `apply` / `drain_scale` / the reboot checks and read the same line. Do not relax the budget to make the criterion pass.
+2. **Explain the 12 ms act span.** The loop runs at ~65 Hz and misses its deadline every tick. Split `apply` / `drain_scale` / the reboot checks and read the same line. Do not relax the budget to make the criterion pass.
 3. **Make a gate fail on a LOST device test.** One is pre-existing and nobody has looked at it.
 4. **Capture a C++ parity baseline.** 13 scenarios report `BASELINE-MISSING` and exit 2. Nothing was fabricated, which is correct; the capture method is unsolved.
 5. **Decide on OTA.** It is the first item in the pre-agreed drop order, and `espota` over USB is the primary update path.
@@ -51,3 +53,4 @@ Status uses the same grades as [FINDINGS.md](FINDINGS.md).
 7. **Bring up the ZACwire path or drop it.** It is written and unreachable on the fitted DS18B20 wiring.
 8. **Add a gate for text overflow and the 1 px message overlap.** Needs a product decision on typography; `profont10` for the message screens is the cheapest fix and touches six screens.
 9. **Import a real C++ export fixture.** The repository's own `config.json` hides the `format_version` and `safety.*` bugs. Take the fixture from the old firmware.
+10. **Reconcile the boot-window divergence.** The C++'s first PID compute sees 0 °C against a 95 °C setpoint. The port refuses to heat on an unvalidated boiler. The code calls this a deliberate divergence and points at `intentional-diffs.md` #12 — but #12 is the hostname, so the divergence is undeclared in the ledger.

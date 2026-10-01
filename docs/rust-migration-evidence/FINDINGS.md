@@ -37,6 +37,7 @@ Grade = how the fact was earned. Read the grade, not the prose.
 | Telnet log server | ✅ | rewrite | 16 × 304 B ring |
 | UART0 provisioning | ✅ | rewrite | `7f51583` — needed a 16 KB stack |
 | Task watchdog (TWDT) | ✅ | rewrite | control task is the only subscriber |
+| Heater deadman interlock | ✅ | rewrite | `cc-domain/src/heater.rs` — 500 ms interlock, 1000 ms deadman. **Not in the C++ at all** |
 | GPIO relays, switches, LEDs | ✅ | rewrite | `cc-hal-esp32/src/actuators.rs` |
 | I²C (OLED), SPI (HX711, pressure) | ✅ | rewrite | `sensors.rs`, `scale.rs` |
 | MQTT client | ⚠️ | rewrite | client built; on-device publish not re-verified after the `plan()` panic fix (`4f213473`) |
@@ -67,7 +68,10 @@ Grade = how the fact was earned. Read the grade, not the prose.
 | Non-Latin-1 glyph | Display task aborted | Unbounded glyph walk from an HTTP-sourced string | `tests/text_safety.rs` | ✅ `495676ec` |
 | Scale watchdog | Healthy scale, measuring nothing | Armed on first conversion; `note_ready` never fires | Arm at driver start | ✅ |
 | Frame hand-off race | Producer at 100 Hz wrapped the reader's slot | Two buffers, no synchronisation | Seqlock | ✅ `2b60de8` |
-| Tick overrun | ~62 % of ticks over budget, worst 32 ms | ❓ unknown. The scale is ruled out by measurement | — | ❓ open |
+| Divergence ledger is incomplete | A deliberate divergence is absent from it | The code points at `intentional-diffs.md` #12, which is the hostname | Declare it or drop the behaviour | ❌ open |
+| The ledger is append-only | §13, §14 and §15 each appear **twice** | Corrections appended rather than rewritten in place | Read by heading, not by number | ⚠️ |
+| Tick runs at ~65 Hz, not 100 Hz | Deadline missed on every tick | ❓ 12 ms mean inside the **act** span alone. Not the 1-Wire, not the reducer, not the display | — | ❓ open, not a safety regression |
+| Early tick figures, superseded | 62 % of ticks over budget, worst 32 ms | The 1 KB display frame was drawn **inside** the tick | Panel moved to its own task, 100 ms (`158f61b5`) | ✅ resolved |
 
 ## ESP32 pitfalls checklist
 
@@ -83,6 +87,13 @@ Grade = how the fact was earned. Read the grade, not the prose.
 - [ ] Fitted probe is a **DS18B20**, not the TSIC-306 the config defaults to.
 - [ ] The DS18B20 powers on reporting 85 °C, and at reduced resolution the low bits are stale.
 - [ ] Relay coils must not draw from the dev board's 3.3 V rail. Needs ≥500 mA.
+
+## Two timing traps in the tick instrumentation
+
+Both are recorded in `rewrite:docs/rust-migration/09-cpp-findings.md` §24 and §31, and both cost an afternoon each.
+
+- **Accumulate section deltas at the end of the tick** and the spans come out nested, not disjoint. Every section then reports the same number.
+- **Read the totals after zeroing them** and every section prints zero while the tick is 12 ms. That points at the clock, not the code.
 
 ## Size and timing
 
@@ -110,13 +121,13 @@ RAM is the binding constraint. Flash had the margin.
 |---|---|
 | The control tick's 12 ms applier span | Nothing in that span obviously blocks. Next step: split `apply` / `drain_scale` / reboot checks |
 | Contactor minimum on/off time | Needs a scope and a dummy load. Unmeasured on any branch |
-| Whether the C++ overruns its own tick | The per-iteration histogram is recorded but not compared |
 | Heater relay polarity on the installed machine | A meter, boiler disconnected, settles it |
 | Display slots that overflow | Five strings exceed their slot; a product decision on typography |
 | The 1 px message-screen overlap | Six lines at 11 px is 66 px into a 64 px panel |
 | A LOST device test | No gate fails on it. Pre-existing, nobody has looked |
 | C6 and S3 behaviour | `space2`'s board crates have never seen a compiler |
 | Multi-drop 1-Wire enumeration | Acceptable only because a real machine has one sensor |
+| Whether the C++ also runs at ~65 Hz | The per-iteration histogram is recorded at R0-04 but never compared |
 
 ## Verification lessons
 

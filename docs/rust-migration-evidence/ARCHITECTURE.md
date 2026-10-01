@@ -7,6 +7,7 @@ Read time: 4 minutes. Purpose: state the target architecture for the Rust firmwa
 1. Keep `esp-idf-svc` + `std` on the original ESP32 (Xtensa LX6). It is the only stack built and run on a board.
 2. Keep the four-layer split: portable logic, HAL, tasks, firmware. Never let a portable crate name `esp_idf_*`.
 3. Drive the heater from a 10 ms timer ISR. Never from LEDC, never from hardware PWM.
+4. Put a deadman in front of the heater. A stopped supervisor drops it in 1.5 s, not 5 s.
 
 ## Layers
 
@@ -43,6 +44,13 @@ Rules that hold the split in place:
 
 Stacks are sized from `--dwarf=frames`, not guessed. `app_main` is 3584 B and needs ~11 KB for bring-up, so bring-up runs on its own 16 KB thread.
 
+The heater gate has two properties, both from the recovered oracle and **neither in the C++**:
+
+- The duty is held at zero until the supervisor's first heartbeat.
+- A supervisor that stops beating de-energises the heater in 1.5 s — one 500 ms interlock period plus the 1000 ms deadman — instead of waiting for the 5 s watchdog.
+
+No method writes a non-zero duty without passing the gate, so a new caller cannot bypass it.
+
 ## Decision table
 
 | Choice | Why | Evidence | Rejected alternative |
@@ -63,13 +71,15 @@ Stacks are sized from `--dwarf=frames`, not guessed. `app_main` is 3584 B and ne
 - `docs/rust-migration/intentional-diffs.md` and its runner that fails on an undeclared divergence.
 - `just size`, `just size-check`, and the committed `size-baseline.json` at every gate.
 - The telemetry seqlock. A contended mutex taken twice per tick was the first concurrency fix (`2b60de8`).
+- The `Actuators` / `SideChannels` split. `Actuators` has no default methods, so a new actuator is a compile error in every implementation.
+- The grep test in `tests/ported_state_flow_integration.rs` that keeps `cc_machine::apply` the only exit to hardware.
 
 ## Open questions
 
 - **Heater relay polarity** — ❓ undetermined. A meter on the relay coil, boiler disconnected, settles it. Gates the whole application layer.
 - **Target scope** — original ESP32 only, or also S3 and C6? The C6 pin budget does not fit (`space2`). The S3-DevKitC-1 v1.0 and v1.1 differ in LED pin.
 - **BLE scale** — ⚠️ measured, not built. NimBLE costs +205 312 B flash and +40 124 B static RAM (`2013bda9`). A product call, not a size optimisation.
-- **The 12 ms applier span** — ❓ unexplained. 15 of a 15 ms tick budget; split `apply` / `drain_scale` / reboot checks next.
+- **The 12 ms applier span** — ❓ unexplained. 12 ms mean inside the **act** span of a 15 ms tick; sense, decide and show are all 0 ms. Not a safety regression: the deadman beats on every pass. Split `apply` / `drain_scale` / the reboot checks next.
 - **HTTP OTA** — ❌ not implemented. Routes answer `501` (`web.rs:1810`).
 
 See [FINDINGS.md](FINDINGS.md) for what works and what does not.
