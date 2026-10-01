@@ -367,6 +367,37 @@ reflash port:
     espflash erase-flash --port {{port}}
     @just flash {{port}}
 
+# ------------------------------------------------------- Wi-Fi provisioning
+
+# Put the Wi-Fi credential on the device, from `.env`, over the UART console.
+#
+#     just wifi-provision /dev/cu.usbserial-XXXX
+#
+# `.env` holds `WIFI_SSID` and `WIFI_PASS`. It is **gitignored** (`.gitignore:21`)
+# and **never printed**: the values go in as a line on the wire and come back out
+# of `scripts/wifi_provision.py` filtered, so neither a shell history nor this
+# terminal ever sees a credential.
+#
+# **This is the correct location by construction.** The credential is not written
+# to NVS by hand: the script types `wifi set <ssid>`, the password and
+# `wifi apply` at `cc_hal_esp32::provisioning`, which parses them, hands a
+# `Pending` to the control task, and persists it with `ConfigStore` — the same
+# path the web UI uses. Crafting the NVS blob would couple this recipe to the
+# blob's schema version and its JSON shape.
+#
+# The machine arms this console when it has **no** SSID, which is a fresh flash
+# or a configuration that was refused at boot. With a credential already stored
+# the recipe says so and changes nothing.
+wifi-provision port:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    py=""
+    for c in .embuild/espressif/python_env/*/bin/python python3; do
+        [ -x "$c" ] && "$c" -c 'import serial' 2>/dev/null && { py="$c"; break; }
+    done
+    [ -n "$py" ] || { echo "no python with pyserial found" >&2; exit 1; }
+    exec "$py" scripts/wifi_provision.py {{port}}
+
 # -------------------------------------------------------------------- monitor
 
 # Open the serial monitor. Needs a TTY for espflash's key handler; over a
