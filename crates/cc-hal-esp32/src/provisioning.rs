@@ -638,11 +638,21 @@ pub mod tests {
                 .is_some_and(|r| r.contains("password accepted")),
             "{replies:?}"
         );
-        let pending = session.take_pending().expect("a pending credential");
+        // `pending()`, not `take_pending()`: this test is also asserting what
+        // `wifi apply` does, and `take_pending()` is the handover to the
+        // caller that consumes the staged credential. Taking it here would
+        // leave `wifi apply` with nothing to set -- and the answer it then
+        // gives, `Action::None` plus "nothing to apply", is correct: the
+        // caller had already taken the credential away. The real caller takes
+        // the action *first* and the credential after it
+        // (`cc_firmware::network::run_provisioning`).
+        let pending = session.pending().expect("a staged credential");
         assert_eq!(pending.ssid.expose(), "mynet");
         assert_eq!(pending.password.expose(), "hunter2");
         session.feed_line("wifi apply", &mut replies);
         assert_eq!(session.take_action(), Action::Set);
+        // And the credential is still there for the caller that acted on it.
+        assert!(session.take_pending().is_some());
     }
 
     #[cfg_attr(test, test)]
