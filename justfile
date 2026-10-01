@@ -232,6 +232,15 @@ gate:
     @just build-esp32
     @just size-check
 
+# Every screen on every template, as one PNG contact sheet. Host only, no
+# hardware: `just screens` then open the file. This is the check a golden image
+# cannot be -- it shows what a person would see, which is how the clipped `°C`,
+# the cut-off uptime `m` and the missing brew timer were found.
+screens:
+    cargo run -p cc-display --features scenarios --target {{host_target}} \
+        --example screens -- /tmp/cc-screens.png
+    @echo "wrote /tmp/cc-screens.png -- open it"
+
 # Regenerate OLED golden images (host).
 #
 # `--features scenarios` is required: `cc-display` is `no_std` with no `alloc`, and

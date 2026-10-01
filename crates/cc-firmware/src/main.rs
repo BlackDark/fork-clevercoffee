@@ -2016,7 +2016,12 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
     let mut last_tick_report_ms: u32 = 0;
     let mut tick_work_total_ms: u64 = 0;
     let mut tick_period_total_ms: u64 = 0;
-    let last_tick_began_ms: u32 = now_ms();
+    // Ticks since the last report. The means are over **this** window: dividing
+    // a window's totals by the cumulative tick count understates them by the
+    // number of reports that have gone before, which is how "mean work 8 ms" was
+    // printed by a loop whose mean was 3 ms.
+    let mut ticks_in_window: u32 = 0;
+    let mut last_tick_began_ms: u32 = now_ms();
     loop {
         // Where this tick began, so the time spent in it can be measured. Taken
         // at the top of the loop, immediately after the last tick's sleep, so it
@@ -2528,6 +2533,18 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
             display_input.pid_ki = i;
             display_input.pid_kd = d;
             display_input.state = control.state();
+            // The wall clock, for the post-brew deadline.
+            //
+            // `step_brew_timer` compares `now_ms` against the moment the brew ended
+            // to decide when the post-brew screen goes away
+            // (`DisplayBrewTimerState.h`, the C++'s `millis() -
+            // ui.getBrewTimerEndTime()`). Without this field the comparison is
+            // `0 - 0`, which never exceeds the duration, and **the post-brew screen
+            // never goes back** — the third "the display does not return" bug of the
+            // day, and the third one with the same cause: a field `DisplayInput`
+            // expects that the firmware never filled in.
+            display_input.now_ms = tick_began_ms;
+            display_input.state = control.state();
             // The brew row's two numbers, `processCurrentBrewTime()` and
             // `processTotalTargetBrewTime()` — `BrewProgress` is exactly those.
             display_input.brew_time_ms = machine.brew.elapsed_ms;
@@ -2837,8 +2854,15 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
         // 17 ms while claiming 10 ms stays invisible: `worst` says a tick overran
         // its budget, the mean says the loop is not the rate it claims to be.
         tick_work_total_ms = tick_work_total_ms.saturating_add(u64::from(tick_elapsed_ms));
+        ticks_in_window = ticks_in_window.saturating_add(1);
         tick_period_total_ms = tick_period_total_ms
             .saturating_add(u64::from(tick_began_ms.wrapping_sub(last_tick_began_ms)));
+        // The cursor for the next tick's period. Without this line every tick
+        // measured the time since *boot* rather than since the previous tick, and
+        // the reported mean period was the sum divided by the tick count — which
+        // is why an instrument that had been printing 41 seconds as a "13 ms"
+        // mean looked plausible for several builds.
+        last_tick_began_ms = tick_began_ms;
         if tick <= TICK_BASELINE_TICKS {
             if tick_elapsed_ms > baseline_worst_ms {
                 baseline_worst_ms = tick_elapsed_ms;
@@ -2849,7 +2873,7 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
 
         if tick_began_ms.wrapping_sub(last_tick_report_ms) >= TICK_REPORT_INTERVAL_MS {
             last_tick_report_ms = tick_began_ms;
-            let ticks = u64::from(tick).max(1);
+            let ticks = u64::from(ticks_in_window.max(1));
             // The per-window figures. Read before the reset, or the line reports
             // the window that just ended as zeroes.
             let (work_mean_ms, period_mean_ms) = (
@@ -2858,6 +2882,7 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
             );
             tick_work_total_ms = 0;
             tick_period_total_ms = 0;
+            ticks_in_window = 0;
             info!(
                 "control tick: worst {tick_worst_ms} ms of the last {tick} \
                  (baseline {baseline_worst_ms} ms over the first \

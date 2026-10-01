@@ -200,8 +200,6 @@ pub struct DisplayInput {
     pub now_ms: u32,
     /// When the brew ended, for the post-brew FSM.
     pub brew_end_ms: u32,
-    /// Whether the hot-water pump is running.
-    pub pump_running: bool,
     /// The offline-splash countdown, 0 = off.
     pub display_offline: u8,
 
@@ -242,7 +240,6 @@ impl Default for DisplayInput {
             brew_active: false,
             now_ms: 0,
             brew_end_ms: 0,
-            pump_running: false,
             display_offline: 0,
             ota: OtaInput::default(),
         }

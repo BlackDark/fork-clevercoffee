@@ -39,7 +39,6 @@ pub fn standard(d: &mut Display, input: &DisplayInput, config: &Config) {
     widgets::display_pid_info(d, input, &standard_pid_coords(), "|");
 
     widgets::display_progress_bar(d, truncate_to_i32(input.pid_output / 10.0), 30, 60, 98);
-    widgets::display_maintenance_footer(d, config, input, l);
 }
 
 /// `MinimalTemplate::renderNormalDisplay`.

@@ -593,24 +593,6 @@ pub fn display_statusbar(
     }
 }
 
-/// `displayMaintenanceFooter` (`DisplayWidgets.h:370`).
-///
-/// Three lines of wrapped reminder text at the very bottom, in `profont10` at
-/// y=62. Only the first line is drawn by the C++.
-pub fn display_maintenance_footer(
-    d: &mut Display,
-    config: &Config,
-    input: &DisplayInput,
-    l: &Lang,
-) {
-    if !config.backflush_reminder_enabled || !input.backflush_reminder_due {
-        return;
-    }
-    d.set_font(font::profont10());
-    d.set_cursor(0, 62);
-    d.print(l.backflush_reminder[0]);
-}
-
 /// `displayMessage` (`DisplayWidgets.h:391`).
 ///
 /// Six lines at a fixed ten-pixel pitch, the C++'s "message screen" primitive.

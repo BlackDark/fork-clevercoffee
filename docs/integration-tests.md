@@ -413,3 +413,31 @@ order after any change to the control loop, the display task or the HTTP layer.
     applies to every cross-task *blocking* hand-off: a `Queue` with a blocking
     receive, a `std::sync::Mutex`, and an ESP-IDF task notification were each
     measured to assert. Non-blocking `CommandQueue::try_send` does not.
+
+
+### The host-side screen verifier (added 2026-10-01)
+
+Before flashing anything, two checks that need no hardware:
+
+13. **`just test` runs `crates/cc-display/tests/screen_matrix.rs`**, which renders
+    every template against ~40 extreme inputs and asserts: nothing inks outside
+    128x64; every system screen is reachable from some input; and **every
+    `DisplayInput` field changes what is drawn** — a caller cannot leave a field
+    at its default forever without the picture proving it. That last one is what
+    catches "the firmware never sets this field", which is how the missing brew
+    timer, the missing `brew_active` and the missing `now_ms` all survived.
+14. **`just screens`** writes `/tmp/cc-screens.png`: every template against every
+    case, labelled, in one sheet. **Read it.** It is the only check that catches
+    a screen which renders but is *wrong* — the clipped `°C`, the cut-off uptime
+    `m` and the missing brew timer all passed every assertion and were found by
+    looking.
+
+Known-and-accepted, from reading the sheet (2026-10-01, inherited from the C++):
+
+* The sensor-error and EEPROM-error message screens use a 10 px line pitch with
+  `profont11`, so adjacent lines overlap by one pixel. `displayMessage` has six
+  lines at a ten-pixel pitch, and six lines at eleven pixels is 66 — taller than
+  the panel — so the pitch cannot simply grow. Fixing it means dropping those
+  screens to `profont10`, which changes the typography of six screens.
+* The OTA error message and the offline splash can run past the right edge
+  depending on the string. Worth a decision before anyone relies on them.

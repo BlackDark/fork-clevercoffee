@@ -1028,3 +1028,50 @@ non-SMP `FreeRTOS` port, or in the way the two interact is **not established**
 here, and the firmware should not be changed on a guess. The C++ firmware is
 unaffected: Arduino-ESP32 runs one loop task and never enters that critical
 section from a second one.
+
+
+## 29. 🔴 The 10 ms control period is unreachable at `CONFIG_FREERTOS_HZ=100`, and raising it changes nothing
+
+**Found** 2026-10-01, while moving the loop from 400 ms to 10 ms (R4-01b).
+
+**The measurement.** Two builds, same source, one line of sdkconfig apart:
+
+| | `CONFIG_FREERTOS_HZ` | mean tick work | achieved period |
+| --- | --- | --- | --- |
+| before | 100 | 16 ms | 16 ms |
+| after | 1000 | 15 ms | 13 ms |
+
+The work is the same and the period barely moves, so **the tick rate was never
+the limiter** and paying ten times as many timer interrupts a second buys
+nothing. The change was reverted; the file that held it was deleted.
+
+**Two things that were wrong before the measurement, and are now right in the
+instrument** (both were printing plausible nonsense for several builds):
+
+* The mean was a window's total divided by the **cumulative** tick count, so it
+  was understated by the number of reports before it. It read "8 ms" on a loop
+  whose mean was 16 ms.
+* The period was measured from *boot*, because the per-tick cursor was never
+  updated — so it printed the sum of every tick's uptime delta, divided by the
+  tick count, which is why "41 seconds" appeared as a mean period.
+
+**Where the 16 ms is.** Not localised. One bisect says the temperature poll is
+about half of it (8 ms with the DS18B20 poll disabled, 15-16 ms with it), which
+does not square with a scratchpad read happening 2.4 times a second, so the
+accounting is not understood and is **not** guessed at in the source. The
+instrument now prints mean work and achieved period beside the worst tick,
+because "worst" alone is how a loop running at half its claimed rate stays
+invisible.
+
+**What is left for the human.** Two decisions, neither of which is a code
+change:
+
+1. `CONFIG_FREERTOS_HZ` stays at 100 — IDF 5.5.5's own Kconfig default
+   (`components/freertos/Kconfig:37`; note it is **not** 1000, which is the
+   widely-quoted figure and was the wrong assumption when this was first
+   investigated). If the tick work is ever brought under a millisecond, 1000 Hz
+   becomes worth reconsidering, and the trade is then legible from the numbers.
+2. Profiling the tick properly — `esp_timer_get_time` around each section is
+   what was tried and it cost more than it measured, because the instrumentation
+   is itself per-tick. The next honest step is a GPIO pin toggle captured by a
+   logic analyser or by the idle task's accounting, not more `now_ms()` calls.
