@@ -297,7 +297,31 @@ const HEATER_LEDC_DEFECT: &str =
 const DS18B20_ROM: Rom = Rom([0x28, 0x69, 0x37, 0xAA, 0xCD, 0x78, 0xAF, 0x41]);
 
 /// Stack size of the control task, from the priority table in 04 §2.
-const CONTROL_STACK_BYTES: usize = 8 * 1024;
+///
+/// **16 KB, and the measured reason is in `network::apply_staged`.** This was 8 KB, and the 8 KB was
+/// one `wifi apply` away from fatal: the credential the console stages is
+/// written by `store.load()` + `store.save()` **on this task**, inside the
+/// tick, and that pair — a ~2 KB JSON document parsed and re-serialised, with a
+/// whole `Config` live on the stack three frames deep — needs about 8.5 KB of
+/// stack of its own.
+///
+/// Measured on the device with `uxTaskGetStackHighWaterMark` at the top of the
+/// tick that takes the staged credential:
+///
+/// * at 8 KB: **68 bytes** of the stack had never been used, and the task died
+///   inside `store.save()` — a stack overflow, which on this chip reboots the
+///   chip with `rst:0xc (SW_CPU_RESET)` and prints nothing at all, because the
+///   panic handler has no stack left to run on. That is why this read as "the
+///   watchdog tripped": the `task_wdt` lines in the same log are the unrelated
+///   IDLE1 trip described in `network::run_provisioning`, and the credential
+///   was lost with no message.
+/// * at 32 KB: 23 408 bytes free at the same point, i.e. the deepest frame
+///   this task ever reaches is ~8.6 KB.
+///
+/// 16 KB is the smallest power of two above the measured need, it is what
+/// [`BRING_UP_STACK_BYTES`] already gives the boot task for the same load and
+/// save, and it leaves ~7 KB of margin for a configuration that grows.
+const CONTROL_STACK_BYTES: usize = 16 * 1024;
 
 /// Stack size of the display task.
 ///

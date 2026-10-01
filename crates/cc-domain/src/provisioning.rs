@@ -14,14 +14,27 @@
 //!   `wifi status`, `wifi apply`.
 //! ```
 //!
-//! # Why the password is on its own line
+//! # Two ways to give the password
 //!
-//! Because `argv` is world-readable. On a host, `wifi set mynet hunter2` puts
-//! the password in `ps` output for any user on the machine and in the shell
-//! history file forever. On the device, UART0 *is* the log stream, so anything
-//! typed there is likewise visible to whatever is reading the console. A
-//! password on a following line is a thing a human types without it appearing
-//! in a process listing, and it is what the oracle did.
+//! 1. `wifi set <ssid>`, then the password **as an argument**: `wifi pass <password>`.
+//!    There is no window, no deadline arithmetic, and nothing that depends on
+//!    the console task's loop rate. **This is what `scripts/wifi_provision.py`
+//!    uses**, because a window that has to stay open across a USB serial
+//!    session is a window a watchdog can close.
+//! 2. `wifi set <ssid>`, then the password **on the next line**, positionally,
+//!    inside a 30 s window ([`PASSWORD_WINDOW_MS`]). This is the oracle's form
+//!    and it stays, because an operator typing by hand must not be broken by a
+//!    change made to suit a script.
+//!
+//! Form 1 exists because of the other half of the reason the positional form was
+//! chosen in the first place: because `argv` is world-readable. On a host,
+//! `wifi set mynet hunter2` puts the password in `ps` output for any user on the
+//! machine and in the shell history file forever. On the device, UART0 *is* the
+//! log stream, so anything typed there is likewise visible to whatever is
+//! reading the console. A password on a following line is a thing a human types
+//! without it appearing in a process listing, and it is what the oracle did.
+//! Neither form changes that: `wifi pass` is still typed on the wire, not
+//! passed in `argv`, and the device still never echoes or logs it.
 //!
 //! # What this type is and is not
 //!
@@ -81,6 +94,13 @@
 //!    or a pasted `script` captures — and because an unparseable password
 //!    (`wifi`-prefixed, over-long, non-UTF-8) then simply *fails to be a
 //!    credential* instead of corrupting the parser.
+//!    **The one exception is [`PASS_PREFIX`].** A line beginning with the exact
+//!    10 bytes `wifi pass ` is a command even while the parser is armed, because
+//!    that is what makes form 1 above windowless. A passphrase that literally
+//!    begins with `wifi pass ` typed positionally is therefore taken as the
+//!    command, not as the password — a deliberate trade for a passphrase that
+//!    is pathological, made in exchange for a protocol a script cannot be
+//!    defeated by timing.
 //! 4. **An over-long line is discarded whole, and the parser resynchronises.**
 //!    Lines longer than [`MAX_LINE_BYTES`] cannot be commands (no command is
 //!    that long) and are not passwords (a WPA passphrase is at most 63 ASCII
@@ -97,13 +117,16 @@
 
 /// The longest line the parser will consider, in bytes.
 ///
-/// A command line is `wifi ` (5) + `set ` (4) + an SSID. An SSID is at most
-/// 32 octets per IEEE 802.11 (`wifi_sta_config_t::ssid` is `[u8; 32]`), so
-/// 41 bytes is the longest possible command. A WPA passphrase is at most 63
-/// ASCII characters, and an *open* network's password is empty. 72 therefore
-/// covers both maxima with margin, and anything longer is a paste, a binary
-/// blob, or noise.
-pub const MAX_LINE_BYTES: usize = 72;
+/// The longest possible command is now `wifi pass ` (10) + a 63-character WPA
+/// passphrase = 73 bytes. 80 covers that and the `wifi set ` + 32-octet SSID
+/// form (41) with margin, and anything longer is a paste, a binary blob, or
+/// noise.
+///
+/// It was 72 before `wifi pass` existed, which is *one byte* short of the
+/// longest legal passphrase on the `wifi pass` form: raising it is not a
+/// nicety, a 63-character passphrase typed as `wifi pass <pw>` is a legal
+/// command and was rejected as "line too long" at 72.
+pub const MAX_LINE_BYTES: usize = 80;
 
 /// The longest SSID the parser accepts, in bytes.
 ///
@@ -114,6 +137,15 @@ pub const MAX_SSID_BYTES: usize = 32;
 
 /// The prefix every command line must begin with, byte for byte.
 pub const COMMAND_PREFIX: &str = "wifi ";
+
+/// The prefix that carries the password as an argument, byte for byte.
+///
+/// `wifi pass ` — 10 bytes. Deliberately a *different* prefix from
+/// [`COMMAND_PREFIX`]'s commands rather than a subcommand the positional arm
+/// can be confused with: it is the one line that is a command **while the
+/// parser is armed**, so an operator can send the whole credential without the
+/// window being open at all.
+pub const PASS_PREFIX: &str = "wifi pass ";
 
 /// How long a `wifi set` line arms the parser for its password, in milliseconds.
 ///
@@ -335,7 +367,12 @@ impl Parser {
             return Reply::Rejected("line too long");
         }
 
-        if self.armed_len != 0 {
+        // `wifi pass ` and the bare keyword `wifi pass` are both commands even
+        // while armed, so the argument form is windowless and a half-typed
+        // keyword gets the same "needs the password on the same line" answer as
+        // `wifi set` does rather than being eaten as the password.
+        let pass_command = bytes == b"wifi pass" || bytes.starts_with(PASS_PREFIX.as_bytes());
+        if self.armed_len != 0 && !pass_command {
             // Rule 3: this line is the password, positionally. It is taken
             // whatever it looks like, because the caller has already muted the
             // log stream and there is nothing else it could be. An empty line
@@ -375,6 +412,37 @@ impl Parser {
             return Reply::Ignored;
         };
 
+        if rest == "pass" {
+            // Same reasoning as the `set` arm below: a typed-but-empty keyword
+            // is a typo with an obvious fix, so it is reported rather than
+            // answered with "unknown wifi subcommand".
+            return Reply::Rejected("`wifi pass` needs the password on the same line");
+        }
+        if let Some(password) = rest.strip_prefix("pass ") {
+            if self.armed_len == 0 {
+                // The SSID is not in this line, so there is nothing to attach
+                // the password to. Naming the fix is the whole of the reply.
+                return Reply::Rejected("`wifi pass` needs an SSID first — `wifi set <ssid>`");
+            }
+            let len = password.len();
+            let ssid_len = usize::from(self.armed_len);
+            self.line[..len].copy_from_slice(password.as_bytes());
+            // Bounded by `MAX_LINE_BYTES` by the check at the top of `feed`.
+            #[allow(
+                clippy::cast_possible_truncation,
+                reason = "len <= MAX_LINE_BYTES, checked earlier in this function"
+            )]
+            {
+                self.line_len = len as u8;
+            }
+            let password = core::str::from_utf8(&self.line[..len]);
+            let ssid = core::str::from_utf8(&self.armed[..ssid_len]);
+            self.armed_len = 0;
+            return match (password, ssid) {
+                (Ok(password), Ok(ssid)) => Reply::Accepted(Accepted::Password { password, ssid }),
+                (Err(_), _) | (_, Err(_)) => Reply::Rejected("password is not valid UTF-8"),
+            };
+        }
         if rest == "clear" {
             return Reply::Accepted(Accepted::Clear);
         }
@@ -488,6 +556,75 @@ mod tests {
         assert!(!parser.awaiting_password());
         assert_eq!(parser.feed("wifi apply"), Reply::Accepted(Accepted::Apply));
         assert_eq!(parser.feed("wifi clear"), Reply::Accepted(Accepted::Clear));
+    }
+
+    #[test]
+    fn the_password_may_be_taken_as_an_argument_with_no_window_at_all() {
+        // The form `scripts/wifi_provision.py` uses, and the reason this parser
+        // grew a `pass` subcommand: with the password on the same line as the
+        // command there is no window, so nothing depends on the next line
+        // arriving inside 30 s, on the console task's poll rate, or on the log
+        // being quiet. The next-line form below is unchanged.
+        let mut parser = Parser::new();
+        assert_eq!(ssid_of(parser.feed("wifi set mynet")), Some("armed"));
+        assert_eq!(
+            password_of(parser.feed("wifi pass hunter2")),
+            Some(String::from("hunter2"))
+        );
+        assert!(!parser.awaiting_password());
+        assert_eq!(parser.feed("wifi apply"), Reply::Accepted(Accepted::Apply));
+    }
+
+    #[test]
+    fn the_argument_form_reports_the_armed_ssid_and_an_empty_password_is_open() {
+        let mut parser = Parser::new();
+        let _ = parser.feed("wifi set opennet");
+        let Reply::Accepted(Accepted::Password { password, ssid }) = parser.feed("wifi pass ")
+        else {
+            panic!("expected a password");
+        };
+        assert_eq!(ssid, "opennet");
+        assert_eq!(password, "");
+    }
+
+    #[test]
+    fn the_argument_form_survives_a_full_length_passphrase() {
+        // `wifi pass ` is 10 bytes and a WPA passphrase is 63, so the longest
+        // legal command on this form is 73 -- which is why `MAX_LINE_BYTES` is
+        // 80 and not the 72 it used to be. At 72 this exact line was rejected
+        // as "line too long".
+        let mut parser = Parser::new();
+        let _ = parser.feed("wifi set mynet");
+        let pass = "p".repeat(63);
+        let line = format!("wifi pass {pass}");
+        assert!(line.len() <= MAX_LINE_BYTES, "{} bytes", line.len());
+        assert_eq!(password_of(parser.feed(&line)), Some(pass));
+    }
+
+    #[test]
+    fn a_pass_command_with_nothing_after_it_is_reported() {
+        let mut parser = Parser::new();
+        let _ = parser.feed("wifi set mynet");
+        assert_eq!(
+            parser.feed("wifi pass"),
+            Reply::Rejected("`wifi pass` needs the password on the same line")
+        );
+        // And it did not disarm: the next line is still the password.
+        assert!(parser.awaiting_password());
+        assert_eq!(
+            password_of(parser.feed("hunter2")),
+            Some(String::from("hunter2"))
+        );
+    }
+
+    #[test]
+    fn a_pass_command_with_no_ssid_armed_is_refused() {
+        let mut parser = Parser::new();
+        assert_eq!(
+            parser.feed("wifi pass hunter2"),
+            Reply::Rejected("`wifi pass` needs an SSID first — `wifi set <ssid>`")
+        );
+        assert!(!parser.awaiting_password());
     }
 
     #[test]
@@ -805,8 +942,10 @@ mod tests {
     fn a_password_is_never_mistaken_for_a_command_while_armed() {
         // A passphrase that happens to start with `wifi ` is a password, not a
         // command, because the arming state takes precedence over the prefix
-        // rule. Getting this backwards would make a valid passphrase silently
-        // disarm the parser and leave the operator with no way in.
+        // rule — with the one documented exception, `wifi pass `, which is the
+        // argument form and is a command by construction. Getting this backwards
+        // would make a valid passphrase silently disarm the parser and leave
+        // the operator with no way in.
         let mut parser = Parser::new();
         let _ = parser.feed("wifi set mynet");
         assert_eq!(

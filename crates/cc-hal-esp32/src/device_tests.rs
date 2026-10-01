@@ -196,6 +196,14 @@ pub const CASES: &[Case] = &[
         run: provisioning::tests::every_reply_is_prefixed_so_a_script_can_match_it,
     },
     Case {
+        name: "provisioning::the_argument_form_stages_the_credential_with_no_next_line",
+        run: provisioning::tests::the_argument_form_stages_the_credential_with_no_next_line,
+    },
+    Case {
+        name: "provisioning::the_next_line_form_still_works",
+        run: provisioning::tests::the_next_line_form_still_works,
+    },
+    Case {
         name: "provisioning::the_password_window_opens_and_closes",
         run: provisioning::tests::the_password_window_opens_and_closes,
     },

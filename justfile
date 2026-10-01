@@ -379,11 +379,16 @@ reflash port:
 # terminal ever sees a credential.
 #
 # **This is the correct location by construction.** The credential is not written
-# to NVS by hand: the script types `wifi set <ssid>`, the password and
+# to NVS by hand: the script types `wifi set <ssid>`, `wifi pass <password>` and
 # `wifi apply` at `cc_hal_esp32::provisioning`, which parses them, hands a
 # `Pending` to the control task, and persists it with `ConfigStore` — the same
 # path the web UI uses. Crafting the NVS blob would couple this recipe to the
 # blob's schema version and its JSON shape.
+#
+# The password is an *argument* (`wifi pass <value>`) and not the line after
+# `wifi set`, so no 30 s password window is open across this script's serial
+# session. The device still accepts the next-line form for an operator typing
+# by hand.
 #
 # The machine arms this console when it has **no** SSID, which is a fresh flash
 # or a configuration that was refused at boot. With a credential already stored

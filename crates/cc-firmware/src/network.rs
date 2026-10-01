@@ -586,6 +586,35 @@ impl core::fmt::Debug for Handoff {
 /// A `Corrupt` load is *not* treated specially: the stored blob will not decode,
 /// so the defaults are written with the new credential on top, which is the same
 /// thing the boot path already does.
+///
+/// # 🔴 This is the deepest stack the control task ever reaches, and it is why
+/// [`CONTROL_STACK_BYTES`](crate::CONTROL_STACK_BYTES) is 16 KB
+///
+/// The load and the save are both a whole ~2 KB JSON document, and between them
+/// a whole `Config` is live on the stack: three frames of `Config` deep, inside
+/// serde, inside this call. Measured on the device with
+/// `uxTaskGetStackHighWaterMark` at the top of the tick that reaches here:
+///
+/// | `CONTROL_STACK_BYTES` | min free stack at `handoff.take()` | outcome |
+/// |---|---|---|
+/// | 8 KB | **68 B** | dies inside `store.save()` |
+/// | 32 KB | 23 408 B | stores the credential and reboots |
+///
+/// The 8 KB case is the bug this section exists for, and it presented as
+/// something else entirely. A stack overflow on this chip calls `abort()`, which
+/// reboots it as `rst:0xc (SW_CPU_RESET)` **and prints nothing** — the panic
+/// handler has no stack to run on. So the log a person reads after a `wifi apply`
+/// shows a clean run, then a reset, and — because the task watchdog's five-second
+/// trip on `IDLE1` is a steady background condition on this board, unrelated to
+/// provisioning — a `task_wdt` line a few seconds earlier. It reads as "the
+/// watchdog ate the credential". It did not: the watchdog never fired for this
+/// task, and the credential was lost to the reboot.
+///
+/// The timings from the same run, for the record: `store.load()` 15 ms,
+/// `store.save()` **66 ms**, `apply_staged` 85 ms in total. That is nine times
+/// the 10 ms control period, so the loop stalls while the blob is written; it is
+/// bounded and well inside the 5 s watchdog timeout, and it is the same store
+/// write the web UI's `POST /api/parameters` already performs on this task.
 pub fn apply_staged(
     store: &mut BlobConfigStore<EspNvsBlob>,
     staged: Staged,

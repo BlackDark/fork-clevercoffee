@@ -14,10 +14,11 @@
 //!
 //! # 🔴 Rule 5 — the password window, and what actually enforces it
 //!
-//! `wifi set <ssid>` arms the parser; the **next line is the password,
-//! positionally**. The parser has no way to tell that line from anything else,
-//! so whatever else can put bytes on the machine's UART0 receive path is a
-//! credential-capture hazard.
+//! `wifi set <ssid>` arms the parser, and the password can then arrive **either
+//! as an argument — `wifi pass <password>` — or as the next line, positionally**.
+//! The argument form has no window at all, so the whole of rule 5 is about the
+//! positional form, which exists because an operator typing by hand must keep
+//! working.
 //!
 //! **`cc_domain::provisioning::PASSWORD_WINDOW_MS` (30 s) bounds the exposure,
 //! and on this board nothing else needs to.** The log stream is written by
@@ -426,7 +427,10 @@ impl Session {
             Reply::Accepted(Accepted::Password { password, ssid }) => {
                 // Both come back from the parser, because it has just disarmed
                 // and there is no later point at which the SSID could be asked
-                // for.
+                // for. Either line form arrives here: `wifi pass <password>`,
+                // or the password positionally in the window `wifi set` opened.
+                // The window is closed either way, so a script that used the
+                // argument form never had one open in the first place.
                 self.pending = Some(Pending {
                     ssid: Secret::new(String::from(ssid)),
                     password: Secret::new(String::from(password)),
@@ -441,7 +445,8 @@ impl Session {
             Reply::Accepted(Accepted::SetSsid) => {
                 self.open_window();
                 replies.push(format!(
-                    "{REPLY_PREFIX}ok ssid accepted, send the password on the next line"
+                    "{REPLY_PREFIX}ok ssid accepted — now `wifi pass <password>`, or the \
+                     password on the next line"
                 ));
             }
             Reply::Accepted(Accepted::Clear) => {
@@ -466,10 +471,12 @@ impl Session {
                     // nothing, so there is no action to set, and an operator who
                     // typed `wifi apply` on an unprovisioned machine would get
                     // silence and conclude the machine had hung.
+                    // `wifi pass` needs an armed SSID, which the parser
+                    // enforces; this arm is the "what now?" that follows.
                     self.action = Action::None;
                     replies.push(format!(
-                        "{REPLY_PREFIX}err nothing to apply — `wifi set <ssid>` then the \
-                         password, or `wifi clear`, then `wifi apply`"
+                        "{REPLY_PREFIX}err nothing to apply — `wifi set <ssid>` then \
+                         `wifi pass <password>`, or `wifi clear`, then `wifi apply`"
                     ));
                 }
             }
@@ -555,8 +562,9 @@ pub fn line(text: &str) -> String {
 /// during a password window, so it cannot corrupt one.
 pub fn announce() {
     info!(
-        "serial: WiFi commands available. `wifi set <ssid>` then the password on \
-         the next line, `wifi clear`, `wifi status`, `wifi apply`."
+        "serial: WiFi commands available. `wifi set <ssid>` then \
+         `wifi pass <password>` (or the password on the next line), \
+         `wifi clear`, `wifi status`, `wifi apply`."
     );
 }
 
@@ -611,6 +619,42 @@ pub mod tests {
         for reply in run(&["wifi status", "wifi set", "wifi nonsense"]) {
             assert!(reply.starts_with(REPLY_PREFIX), "{reply}");
         }
+    }
+
+    #[cfg_attr(test, test)]
+    pub fn the_argument_form_stages_the_credential_with_no_next_line() {
+        // The form the provisioning script uses. There is no window: the two
+        // commands are adjacent, so nothing depends on the next line arriving
+        // inside 30 s or on the console task's poll rate.
+        let (mut session, mut replies) = session();
+        session.feed_line("wifi set mynet", &mut replies);
+        assert!(session.awaiting_password());
+        session.feed_line("wifi pass hunter2", &mut replies);
+        assert!(!session.awaiting_password());
+        assert!(!log_muted(), "the log must come back after the password");
+        assert!(
+            replies
+                .last()
+                .is_some_and(|r| r.contains("password accepted")),
+            "{replies:?}"
+        );
+        let pending = session.take_pending().expect("a pending credential");
+        assert_eq!(pending.ssid.expose(), "mynet");
+        assert_eq!(pending.password.expose(), "hunter2");
+        session.feed_line("wifi apply", &mut replies);
+        assert_eq!(session.take_action(), Action::Set);
+    }
+
+    #[cfg_attr(test, test)]
+    pub fn the_next_line_form_still_works() {
+        // The hand-typed form is not replaced by the argument form, only
+        // complemented: an operator typing by hand must not be broken by a
+        // change made to suit a script.
+        let (mut session, mut replies) = session();
+        session.feed_line("wifi set mynet", &mut replies);
+        session.feed_line("hunter2", &mut replies);
+        let pending = session.take_pending().expect("a pending credential");
+        assert_eq!(pending.password.expose(), "hunter2");
     }
 
     #[cfg_attr(test, test)]

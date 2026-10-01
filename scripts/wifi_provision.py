@@ -4,11 +4,17 @@
     python3 scripts/wifi_provision.py /dev/cu.usbserial-XXXX
 
 **This writes NVS through the firmware's own code path.** It does not craft the
-blob: it types `wifi set <ssid>`, the password, and `wifi apply` at
+blob: it types `wifi set <ssid>`, `wifi pass <password>` and `wifi apply` at
 `cc_hal_esp32::provisioning`, which parses them, hands a `Pending` to the control
 task, and persists it with `ConfigStore` — the same path the web UI uses. Writing
 the NVS blob directly would couple this script to the blob's schema version and
 its JSON shape.
+
+**The password goes on the same line as a command** — `wifi pass <value>` — rather
+than on the line after `wifi set`. That form arms no window and computes no
+deadline, so nothing here depends on the next line arriving inside 30 s or on the
+console task's poll rate. The next-line form still works on the device for an
+operator typing by hand; this script just does not use it.
 
 **The credential is never printed.** Not by this script, not by the device's
 replies: everything the device says is filtered through both values before it
@@ -138,12 +144,17 @@ def main() -> None:
     if "ssid accepted" not in answered:
         die(f"no reply to `wifi set` — the console said: {answered or 'nothing'}")
 
-    send(password, settle=1.0)
+    # **The password is an argument, not the next line.** `wifi pass <value>` is
+    # a command in its own right, so there is no 30 s window between `wifi set`
+    # and the credential: no deadline to miss, and nothing that depends on the
+    # console task's loop rate. (The device also still accepts the password on
+    # the next line, for an operator typing by hand.)
+    send(f"wifi pass {password}", settle=1.0)
     answered = replies(collect(1.5))
     if answered.startswith(f"{REPLY} err"):
         die(f"the device rejected the password: {answered}")
     if "password accepted" not in answered:
-        die(f"no reply to the password — the console said: {answered or 'nothing'}")
+        die(f"no reply to `wifi pass` — the console said: {answered or 'nothing'}")
 
     # **`wifi apply` deliberately answers nothing.** With a pending credential it
     # closes the window and sets an action (`provisioning.rs`,
