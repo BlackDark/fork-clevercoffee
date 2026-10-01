@@ -1075,3 +1075,67 @@ change:
    what was tried and it cost more than it measured, because the instrumentation
    is itself per-tick. The next honest step is a GPIO pin toggle captured by a
    logic analyser or by the idle task's accounting, not more `now_ms()` calls.
+
+## 30. 🔴🔴 Three faults in one: the station refused a WPA2 network, the stored SSID was wrong, and a wrong SSID was unfixable over USB
+
+**Found** 2026-10-01, recovering a machine that had gone unreachable. All three
+had to be fixed before it associated, and **none of them was visible from the
+firmware's own summary** — every log said "the configured network is unavailable"
+and stopped there.
+
+### The one to read first: `wifi_auth_mode_t` is a sequence, not a bitmask
+
+```
+W wifi:authmode threshold failure, ignore!, (recvd, thresh) : (3, 7)
+```
+
+`3` is `WIFI_AUTH_WPA2_PSK`; `7` is what the station was configured for. ESP-IDF
+compares the AP's mode to the station's **for equality** — it does **not** accept a
+superset, so a station configured for `WPA2 | WPA3` **cannot join a WPA2-only
+network**. The name says "or"; the driver says "and not".
+
+This is worth writing down because the intuitive fix is the wrong one. Widening
+the mask from `WPA2Personal` (the `embedded-svc` default, and what this port
+inherited through `..Default::default()`) to `WPA2WPA3Personal` changed nothing
+and cost a cycle. The fix for a WPA2 AP is to name **WPA2**.
+
+PMF is advertised and **not** demanded — `PmfConfiguration::Capable { required:
+false }`. `required: true` is the other classic way to refuse a WPA2-only AP.
+
+The C++ is immune to all of this by doing nothing: `WiFi.begin(ssid, password)`
+(`WiFiStaConnect.h:26-28`) never sets `wifi_authmode`, so it stays 0 — "accept
+whatever the AP offers". **If you change one thing here, change it back to that
+posture** rather than enumerating modes.
+
+### The diagnostic line that found the second fault
+
+```rust
+info!("wifi: stored credential — ssid {ssid:?} ({} bytes), password {} bytes", …);
+```
+
+The SSID is printed because it is in every boot log anyway and the C++ prints it
+per connection attempt. The **password is only ever measured**. Without this line
+the symptom — a machine that scans, finds nothing, and times out — is
+indistinguishable from a dead radio. With it, `ssid "testnet" (7 bytes)` next to
+a `.env` holding a 10-byte SSID is the whole story.
+
+### A wrong network was unfixable over the cable
+
+04 §3.2: "The provisioning task is only spawned when no valid credentials exist,
+and it exits after success." Correct as written, and **unusable as a recovery
+path**: with a credential stored the UART console never armed, so the only way to
+change the network was `POST /api/wifi-reset`, which requires a machine that is
+already online — the one thing that is not true when the network is wrong.
+
+The console now **always** starts. It still exits after success (it is not a
+permanent task), and `wifi set` + `wifi apply` replaces what is stored.
+`scripts/wifi_provision.py` no longer treats a stored credential as a reason to
+stop.
+
+### How to tell these apart next time
+
+| in the log | it is |
+| --- | --- |
+| `authmode threshold failure, ignore!, (recvd, thresh)` | a **mode** mismatch — read both numbers; `recvd` is the AP, `thresh` is us |
+| no `wifi:state:` transitions at all | the **SSID is not on the air** — check the stored SSID's bytes |
+| `wifi:state: init -> auth` then a `reason=` disconnect | a **password** problem |

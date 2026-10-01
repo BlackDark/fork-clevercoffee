@@ -715,3 +715,20 @@ is a real failure mode here. Three more, all from the same day:
   (`SystemInitializer.cpp:606-641`). `pid.enabled` wins only when no power switch
   is configured. If the human wants the config to win, the fix is a config
   default, not a code change, and it is their call.
+
+
+## Wi-Fi recovery, 2026-10-01
+
+The machine went unreachable and took **three** faults, none visible in the
+firmware's own summary. Full write-up in `09-cpp-findings.md` §30 and the check
+list in `docs/integration-tests.md`.
+
+* `wifi_auth_mode_t` is a **sequence, not a bitmask** and the driver compares it
+  for **equality**. `WPA2WPA3Personal` cannot join a WPA2-only AP. This port had
+  the `embedded-svc` default `WPA2Personal` via `..Default::default()`, and the
+  fix is to name **WPA2**, not to widen the mask. The C++ is immune because
+  `WiFi.begin()` leaves `wifi_authmode` at 0.
+* The UART console now **always** starts. 04 §3.2's "only when no valid
+  credentials exist" made a wrong network unfixable over USB.
+* A length-only boot log (`stored credential — ssid "..." (N bytes), password M
+  bytes`) is what found a stored SSID that did not exist on the network. Keep it.

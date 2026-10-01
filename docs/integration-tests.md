@@ -520,3 +520,57 @@ The automated half is `just test`, which runs
 * `text_safety.rs` — a hostile string corpus (emoji, CJK, NUL, 400 characters)
   across twelve fonts: no panic, and a missing glyph measures zero and draws
   zero.
+
+
+### Wi-Fi: four checks, in the order to run them (2026-10-01)
+
+The machine went unreachable and took three faults to bring back. These four
+checks exist so that the next one costs ten minutes instead of an afternoon.
+
+1. **What does it think it is connecting to?**
+
+   ```
+   /tmp/venv/bin/python tools/serial_log.py 25 --reset | grep 'stored credential'
+   firmware: wifi: stored credential — ssid "Cappuxinno" (10 bytes), password 14 bytes
+   ```
+
+   Compare against `.env` **byte for byte**, not by eye. A 7-byte SSID next to a
+   10-byte one is a machine looking for a network that is not there — and it
+   produces *no* `wifi:state:` transitions at all, which reads exactly like a
+   dead radio.
+
+2. **Is it the encryption?**
+
+   ```
+   /tmp/venv/bin/python tools/serial_log.py 30 --reset | grep authmode
+   wifi:authmode threshold failure, ignore!, (recvd, thresh) : (3, 7)
+   ```
+
+   ESP-IDF's `wifi_auth_mode_t` is a **sequence, not a bitmask**, and the check
+   is equality. `recvd` is the AP, `thresh` is what we asked for. Naming a mode
+   the AP does not use **prevents** association — `WPA2WPA3Personal` will not join
+   a WPA2-only AP. For this machine: `WPA2Personal`, and PMF
+   `Capable { required: false }`.
+
+3. **Can the network be changed over USB at all?**
+
+   ```
+   just wifi-provision /dev/cu.usbserial-XXXX
+   ```
+
+   It must not refuse with "a credential is already stored". If it does, the
+   recovery path is closed and a wrong network is unfixable without HTTP — which is
+   the state this firmware was in until 2026-10-01.
+
+4. **After any of the above, prove the machine is actually back:**
+
+   ```
+   ping -c 2 -W 3000 test-cc-rust.lan
+   curl -s -m 8 http://test-cc-rust.lan/api/temperatures
+   ```
+
+   Associating is not recovering: the stored configuration can still hold a probe
+   type this board does not have, and the temperature will be `null` with the
+   machine otherwise perfectly healthy. That is a *separate* fault and the log
+   names it (`driver = Tsic306 ... but the probe measured on this board is
+   DallasDs18b20`).
