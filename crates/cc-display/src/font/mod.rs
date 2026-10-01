@@ -359,13 +359,32 @@ impl Font {
                     return Some(self.read_glyph_header(font + 2));
                 }
                 font += usize::from(len);
+                // Bounded for the same reason as the Unicode walk: a glyph length
+                // of zero would loop for ever, and a malformed tail would run off
+                // the end. The terminator makes both unreachable in a well-formed
+                // font; the guard is what makes them survivable in a damaged one.
+                if font + 2 > self.data.len() {
+                    break;
+                }
             }
         } else {
             font += usize::from(info.start_pos_unicode);
             let mut table = font;
             // The Unicode index table is a list of (offset, max_encoding)
             // pairs; walk it to the first entry that can cover `encoding`.
-            loop {
+            //
+            // **Bounded, because the table is not self-terminating.** U8g2's own
+            // search stops because the font is well-formed; here the font is a
+            // fixed 2251-byte blob and an `encoding` beyond its coverage never
+            // satisfies `entry_max >= encoding`, so the walk runs off the end and
+            // the display task **panics** — on `panic = "abort"` that is a device
+            // reset, and the trigger is reachable from the network:
+            // `OtaInput::error_message` is whatever the HTTP response said, so
+            // one emoji or CJK character in a server error string takes the
+            // panel down. Reproduced on the host before this guard:
+            // `cargo run -p cc-display --example probe -- missing` panicked with
+            // "index out of bounds: the len is 2251 but the index is 2500".
+            while table + 4 <= self.data.len() {
                 let step = get_word(self.data, table);
                 let entry_max = get_word(self.data, table + 2);
                 table += 4;
@@ -375,9 +394,11 @@ impl Font {
                 font += usize::from(step);
             }
 
-            loop {
+            // And the glyph walk below is bounded the same way, for the same
+            // reason: a `step` of zero would otherwise loop for ever.
+            while font + 3 <= self.data.len() {
                 let e = get_word(self.data, font);
-                if e == 0 {
+                if e == 0 || e == 0xffff {
                     break;
                 }
                 if e == encoding {

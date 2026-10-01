@@ -78,11 +78,60 @@ fn input() -> DisplayInput {
         wifi_signal: 4,
         mqtt_connected: true,
         backflush_cycle_count: 3,
-        brew_timer: BrewTimerState::Running,
-        brew_active: true,
+        // **Idle, not Running, and this is load-bearing.** With the brew timer
+        // running *and* `fullscreen_brew_timer` set, the fullscreen stage beats
+        // every system screen (ADR-0001's order), so 25 of the 28 cases rendered
+        // the same cup-and-timer frame on Standard, Scale and Upright — and the
+        // fit test below was checking the brew timer 25 times and the Normal
+        // layout once. The first version of this matrix had that bug and the
+        // contact sheet is what made it visible.
+        brew_timer: BrewTimerState::Idle,
+        brew_active: false,
         now_ms: 987_654,
         ..DisplayInput::default()
     }
+}
+
+/// The configurations a case is rendered under.
+///
+/// Three, because one cannot see the branches the other two hide: everything on,
+/// everything off, and the two rotation-bearing ones. The rotation flags are set
+/// for the template's own sake — see the note in [`extremes`].
+/// A configuration with every feature **off**, so the ungated branches are taken
+/// too.
+///
+/// The mirror of [`config`]. A matrix that only ever runs with everything on
+/// cannot see a branch that only runs with something off — and three flags
+/// (`oled_enabled`, the two fullscreen timers) turn out to be read by no renderer
+/// at all, which is a finding this pair makes possible and the missing symmetry
+/// is why it was missed.
+fn config_off() -> Config {
+    Config {
+        language: Language::English,
+        ..Config::default()
+    }
+}
+
+fn configs_for(template: TemplateId) -> Vec<(&'static str, Config)> {
+    let mut out = vec![("all features", config()), ("no features", config_off())];
+    match template {
+        TemplateId::Upright => {
+            let mut upright = config();
+            upright.upright_template = true;
+            out.push(("upright rotation", upright));
+            let mut inverted = config();
+            inverted.inverted = true;
+            out.push(("inverted", inverted));
+        }
+        _ => out.push((
+            "inverted",
+            Config {
+                inverted: true,
+                ..config()
+            },
+        )),
+    }
+    out
 }
 
 /// A configuration with every feature **on**, so the feature-gated branches
@@ -121,9 +170,6 @@ fn ink_bounds(d: &Display) -> Option<(i32, i32)> {
     (max_x >= 0).then_some((max_x, max_y))
 }
 
-/// How far outside the frame a pixel may not be. Zero.
-const MARGIN: i32 = 0;
-
 // A text row keeping a pixel of margin is a *separate* question from ink leaving
 // the frame, and it is answered per screen rather than globally: the PID
 // progress bar is full-bleed at rows 60..63 by design, so a global margin rule
@@ -142,6 +188,13 @@ const MARGIN: i32 = 0;
 )]
 fn extremes() -> Vec<(&'static str, DisplayInput)> {
     let mut cases: Vec<(&'static str, DisplayInput)> = Vec::new();
+    // The rotation comes from the **config**, not from the template id
+    // (`Config::rotation()` = `inverted * 2 + upright_template`), so rendering
+    // `TemplateId::Upright` with a default config draws the whole portrait
+    // layout through an R0 window and clips every one of its rows away. The
+    // firmware gets this right (`display_config` sets `upright_template` from
+    // `display.template`); the checker has to mirror it or the Upright column of
+    // the sheet is 25 copies of a clipped landscape screen.
     let base = input();
 
     let mut push = |name: &'static str, input: DisplayInput| cases.push((name, input));
@@ -178,8 +231,26 @@ fn extremes() -> Vec<(&'static str, DisplayInput)> {
     push(
         "a long brew",
         DisplayInput {
+            // **A real brew, not just a big number.** The brew row is only drawn
+            // while `should_display_brew_timer` is true, so a case that changes
+            // only `brew_time_ms` renders exactly the frame the baseline does.
+            // `no_two_cases_render_the_same_frame` caught that, which is the
+            // only reason it exists.
+            brew_timer: BrewTimerState::Running,
+            brew_active: true,
             brew_time_ms: 3_600_000.0,
             target_brew_time_ms: 7_200_000.0,
+            ..base
+        },
+    );
+    push(
+        "the post-brew screen after a long shot",
+        DisplayInput {
+            brew_timer: BrewTimerState::PostBrew,
+            brew_active: false,
+            // A *different* number of seconds from the running case above, or
+            // the two render the same digits and the duplicate detector says so.
+            brew_time_ms: 3_590_000.0,
             ..base
         },
     );
@@ -324,9 +395,21 @@ fn extremes() -> Vec<(&'static str, DisplayInput)> {
         },
     );
     push(
-        "hot water running",
+        "hot water pouring",
+        // `should_display_hot_water_timer` is `pump_on_time_ms > 0` **and** the
+        // state is `PID_NORMAL` or `STEAM_RUNNING` — so a backflush state with a
+        // pump time does not reach it, which is what the first version of this
+        // case got wrong and `every_stage_a_policy_permits_is_reached` caught.
         DisplayInput {
-            state: cc_domain::state::MachineState::BackflushFlushing,
+            state: cc_domain::state::MachineState::PidNormal,
+            pump_on_time_ms: 9_000.0,
+            ..base
+        },
+    );
+    push(
+        "hot water pouring while steaming",
+        DisplayInput {
+            state: cc_domain::state::MachineState::SteamRunning,
             pump_on_time_ms: 9_000.0,
             ..base
         },
@@ -376,30 +459,121 @@ fn extremes() -> Vec<(&'static str, DisplayInput)> {
 
 #[test]
 fn every_screen_fits_the_frame_on_every_template() {
-    let config = config();
     let mut checked = 0_usize;
     for template in TEMPLATES {
         for (name, input) in extremes() {
-            let mut d = Display::new();
-            templates::render(template, &mut d, &input, &config);
-            if let Some((max_x, max_y)) = ink_bounds(&d) {
-                assert!(
-                    max_x <= DISPLAY_WIDTH - 1 - MARGIN && max_y <= DISPLAY_HEIGHT - 1 - MARGIN,
-                    "{template:?} / {name}: ink reaches ({max_x}, {max_y}), which is \
-                     outside the frame with a {MARGIN} px margin"
-                );
-                checked += 1;
+            for (config_name, config) in configs_for(template) {
+                let mut d = Display::new();
+                templates::render(template, &mut d, &input, &config);
+                if let Some((max_x, max_y)) = ink_bounds(&d) {
+                    assert!(
+                        max_x < DISPLAY_WIDTH && max_y < DISPLAY_HEIGHT,
+                        "{template:?} / {name} / {config_name}: ink reaches \
+                         ({max_x}, {max_y}), which is outside the frame"
+                    );
+                    checked += 1;
+                }
             }
         }
     }
     // A matrix that silently renders nothing everywhere would pass the loop
     // above. This is the floor: most cases must actually draw something.
     assert!(
-        checked > TEMPLATES.len() * 20,
-        "only {checked} of {} cases drew anything — the matrix is not exercising \
-         the renderer",
-        TEMPLATES.len() * extremes().len()
+        checked > 200,
+        "only {checked} cases drew anything — the matrix is not exercising the \
+         renderer hard enough to mean anything"
     );
+}
+
+/// Two cases in **different** stages may never render the same pixels.
+///
+/// This is the check that would have caught the masking the first version of
+/// this matrix had. With the baseline mid-brew and the fullscreen timer on, 25
+/// of 28 cases rendered one identical frame on Standard, Scale and Upright — so
+/// the fit test above was measuring the brew timer 25 times and the Normal
+/// layout once, and the sheet looked like a rendering bug rather than a test
+/// bug.
+///
+/// It is deliberately about *stage*, not about pixels alone: two cases in the
+/// same stage may legitimately render the same frame when they differ only in a
+/// field that template does not draw (the Standard template has no weight row,
+/// so "baseline" and "a heavy scale" coincide there and differ on Scale). But
+/// two cases the matrix believes are on **different screens** producing
+/// byte-identical pixels means one of them is not drawing what its stage says,
+/// and that is always a defect.
+#[test]
+fn different_stages_never_render_the_same_pixels() {
+    for template in TEMPLATES {
+        let (_, config) = configs_for(template)
+            .into_iter()
+            .find(|(name, _)| *name == "all features")
+            .expect("the all-features config is always in the table");
+        // (case name, stage, pixels)
+        let mut seen: Vec<(&str, Stage, Vec<u8>)> = Vec::new();
+        for (name, input) in extremes() {
+            let mut d = Display::new();
+            let stage = templates::render(template, &mut d, &input, &config).stage;
+            let pixels = d.framebuffer().as_bytes().to_vec();
+            if let Some((other_name, other_stage, _)) = seen
+                .iter()
+                .find(|(_, st, px)| *st != stage && *px == pixels)
+            {
+                panic!(
+                    "{template:?}: {name:?} is on {stage:?} and {other_name:?} is \
+                     on {other_stage:?}, and both draw the same frame — one of the \
+                     two is not drawing the screen it claims"
+                );
+            }
+            seen.push((name, stage, pixels));
+        }
+    }
+}
+
+/// Every stage a template's policy permits must be reached by some case.
+///
+/// The other half of the anti-masking check, and the one that says *why*: a
+/// stage the matrix never reaches is a screen nobody has looked at, which is how
+/// the sensor-error and EEPROM-error screens go years unexamined.
+#[test]
+fn every_stage_a_policy_permits_is_reached() {
+    for template in TEMPLATES {
+        let (_, config) = configs_for(template)
+            .into_iter()
+            .find(|(name, _)| *name == "all features")
+            .expect("the all-features config is always in the table");
+        let policy = template.policy();
+        let mut stages: Vec<String> = Vec::new();
+        for (_name, input) in extremes() {
+            let mut d = Display::new();
+            let stage = templates::render(template, &mut d, &input, &config).stage;
+            let label = format!("{stage:?}");
+            if !stages.contains(&label) {
+                stages.push(label);
+            }
+        }
+
+        // The stages this template is *allowed* to produce.
+        let mut permitted: Vec<String> = vec!["Normal".into(), "Offline".into()];
+        if config.fullscreen_brew_timer && policy.shared_fullscreen_brew_timer {
+            permitted.push("FullscreenBrew".into());
+        }
+        if policy.shared_fullscreen_manual_flush_timer {
+            permitted.push("FullscreenManualFlush".into());
+        }
+        if policy.shared_fullscreen_hot_water_timer {
+            permitted.push("FullscreenHotWater".into());
+        }
+        // The system screens are gated on `config.pid_off_logo` and the state,
+        // not on a policy flag, so any policy can produce them.
+        permitted.push("SystemScreen".into());
+        for wanted in permitted {
+            assert!(
+                stages.iter().any(|s| s.starts_with(&wanted)),
+                "{template:?}: no case reaches {wanted}, and the policy permits it. \
+                 The matrix reached {stages:?}"
+            );
+        }
+    }
 }
 
 #[test]

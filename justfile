@@ -212,6 +212,20 @@ test-esp32 port: test-audit
     done
     [ -n "$py" ] || { echo "no python with pyserial found" >&2; exit 1; }
     "$py" scripts/device-tests.py {{port}}
+    # Put the firmware back.
+    #
+    # `cc-device-tests` is flashed over the top of the running firmware, so after
+    # this recipe the board is running the **test runner**: 142 cases, then a
+    # blank panel and no Wi-Fi until something is flashed. That is not an
+    # inconvenience — it is a machine that looks broken, and the first time this
+    # ran nobody (including the person who wrote the recipe) worked out that the
+    # board was fine and simply had the wrong image on it.
+    echo ""
+    echo "device-tests finished; restoring the firmware on {{port}}"
+    {{env_prefix}} cargo espflash flash --release --package cc-firmware \
+        --bin {{bin_esp32}} --target {{tgt_esp32}} --port {{port}} \
+        --chip {{mcu_esp32}} --partition-table rust/partitions_4M.csv
+    echo "firmware restored — the panel and the API are back"
 
 # Build the on-target test image without flashing. Same opt-level, same
 # panic=abort, same overflow-checks as the release profile, so what is measured

@@ -63,16 +63,61 @@ fn main() {
         TemplateId::Modern,
     ];
 
-    let rows = (templates.len() * cases.len()).div_ceil(COLUMNS);
+    // The two boot screens, which `templates::render` cannot produce: they are
+    // `boot::draw`, called by the firmware's display task before the first frame
+    // exists. They are the tiles the human reported as "the startup screen is
+    // missing", so the sheet has to be able to show them.
+    let boot_cases: Vec<(&str, &str, TemplateId)> = vec![
+        ("boot: version", "0.1.0", TemplateId::Standard),
+        ("boot: wifi address", "192.168.71.23", TemplateId::Standard),
+        ("boot: version (upright)", "0.1.0", TemplateId::Upright),
+        ("boot: no wifi", "Check settings", TemplateId::Standard),
+    ];
+    let total = templates.len() * cases.len() + boot_cases.len();
+    let rows = total.div_ceil(COLUMNS);
     let sheet_w = COLUMNS * (TILE_W + GAP) + GAP;
     let sheet_h = rows * (TILE_H + CAPTION_H + GAP) + GAP;
     let mut sheet = Sheet::new(sheet_w, sheet_h);
 
     let mut index = 0_usize;
+
+    for (name, line2, template) in &boot_cases {
+        let (line1, _) = match *name {
+            "boot: wifi address" => cc_display::boot::text::wifi_connected(line2),
+            "boot: no wifi" => cc_display::boot::text::no_wifi(),
+            _ => cc_display::boot::text::version(line2),
+        };
+        let col = index % COLUMNS;
+        let row = index / COLUMNS;
+        render_boot(
+            &mut sheet,
+            GAP + col * (TILE_W + GAP),
+            GAP + row * (TILE_H + CAPTION_H + GAP),
+            line1,
+            line2,
+            *template,
+            index + 1,
+        );
+        println!("{index:3}  {template:<16?} {name}");
+        index += 1;
+    }
     for &template in &templates {
         for (name, input, config) in &cases {
             let mut d = Display::new();
-            let stage = cc_display::templates::render(template, &mut d, input, config).stage;
+            // Rotation comes from the **config**, not the template id, so the
+            // Upright column has to be told it is upright or every portrait
+            // coordinate is clipped away through an R0 window. The firmware does
+            // this (`display_config` sets `upright_template` from
+            // `display.template`); without it the sheet's Upright column was 25
+            // copies of a clipped landscape screen.
+            let config = if template == TemplateId::Upright && !input_is_upright(config) {
+                let mut upright = *config;
+                upright.upright_template = true;
+                upright
+            } else {
+                *config
+            };
+            let stage = cc_display::templates::render(template, &mut d, input, &config).stage;
             let col = index % COLUMNS;
             let row = index / COLUMNS;
             let x = GAP + col * (TILE_W + GAP);
@@ -92,6 +137,26 @@ fn main() {
 
     sheet.write_png(&out).expect("can write the PNG");
     println!("\n{index} screens written to {out} ({sheet_w}x{sheet_h})");
+}
+
+/// One boot-screen tile. `boot::draw` is not reachable through
+/// `templates::render`, so the sheet draws these itself.
+fn render_boot(
+    sheet: &mut Sheet,
+    x: usize,
+    y: usize,
+    line1: &str,
+    line2: &str,
+    template: TemplateId,
+    tally: usize,
+) {
+    let mut d = Display::new();
+    if template == TemplateId::Upright {
+        d.set_display_rotation(cc_display::display::Rotation::R1);
+    }
+    cc_display::boot::draw(&mut d, line1, line2, template);
+    sheet.blit(d.framebuffer(), x, y);
+    sheet.tally(x, y + TILE_H + 1, tally);
 }
 
 /// The cases, in the order they are printed.
@@ -326,6 +391,11 @@ fn cases() -> Vec<(&'static str, DisplayInput, Config)> {
 }
 
 /// The plausible mid-brew machine the tests use, kept in step deliberately.
+/// Whether a config already asks for the portrait rotation.
+fn input_is_upright(config: &Config) -> bool {
+    config.upright_template || config.inverted
+}
+
 fn input() -> DisplayInput {
     DisplayInput {
         temperature: 92.5,
@@ -346,8 +416,12 @@ fn input() -> DisplayInput {
         wifi_signal: 4,
         mqtt_connected: true,
         backflush_cycle_count: 3,
-        brew_timer: BrewTimerState::Running,
-        brew_active: true,
+        // Idle, not Running: with the brew timer running *and*
+        // `fullscreen_brew_timer` set, the fullscreen stage beats every system
+        // screen, so 25 of 28 tiles rendered the same cup-and-timer frame and
+        // the sheet looked like a rendering bug rather than a masking one.
+        brew_timer: BrewTimerState::Idle,
+        brew_active: false,
         now_ms: 3 * 3_600_000 + 42 * 60_000,
         ..DisplayInput::default()
     }

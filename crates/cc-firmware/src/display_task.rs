@@ -138,9 +138,20 @@ impl DisplayTask {
                 shown_version = true;
             }
 
-            // The address screen, the moment the radio has published one.
+            // The address screen, the moment the radio has a **real** address.
+            //
+            // Not "the moment it has an `Option`": the snapshot publishes an IP
+            // as soon as the station is associated, which is *before* DHCP has
+            // answered, and that IP is `0.0.0.0`. The screen was therefore drawn
+            // with `0.0.0.0` on it — which is the one thing the screen exists to
+            // prevent, and the failure `docs/integration-tests.md` calls out as a
+            // failed check. Wait for an address that is not unspecified.
             if !shown_address {
-                if let Some(ip) = self.shared.snapshot().ip {
+                // `Telemetry::ip` is the **formatted** address, so "unspecified"
+                // is the literal `0.0.0.0` — and the snapshot publishes one as
+                // soon as the station associates, which is before DHCP answers.
+                let address = self.shared.snapshot().ip.filter(|ip| ip != "0.0.0.0");
+                if let Some(ip) = address {
                     let ip = ip.clone();
                     let (line1, line2) = cc_display::boot::text::wifi_connected(&ip);
                     info!("display: wifi screen — {ip}");
