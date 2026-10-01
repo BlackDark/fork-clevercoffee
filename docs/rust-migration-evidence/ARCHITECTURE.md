@@ -39,7 +39,7 @@ Rules that hold the split in place:
 | Allocator | ESP-IDF heap (tlsf). No Rust global allocator | `rewrite:crates/cc-hal-esp32/src/heap.rs` |
 | Logging | `log` routed to UART0 by esp-idf-svc | `rewrite:Cargo.toml` |
 | Error handling | `Result` everywhere. `panic = "abort"`; no unwinding on Xtensa | `rewrite:Cargo.toml` |
-| Flashing | `espflash` for esp-hal images; the esp-idf path uses `cargo`/`ldproxy` | `design:docs/rust-migration/05-…` |
+| Flashing | `espflash` for esp-hal images; the esp-idf path uses `cargo`/`ldproxy` | `design:docs/adr/0004-…`, `rewrite:docs/rust-migration/05-tooling-and-workflows.md` |
 
 Stacks are sized from `--dwarf=frames`, not guessed. `app_main` is 3584 B and needs ~11 KB for bring-up, so bring-up runs on its own 16 KB thread.
 
@@ -50,17 +50,17 @@ Stacks are sized from `--dwarf=frames`, not guessed. `app_main` is 3584 B and ne
 | `esp-idf-svc` + `std` | HTTP, NVS, OTA, filesystem and TCP/IP already exist and run on the board | `rewrite` 111 device tests pass | `esp-hal` + `embassy` — 99 728 B image, but 600–900 lines of owned glue per subsystem and no compiled board crate (`space2`) |
 | FreeRTOS tasks | Proven on device; `esp-idf-hal` is not ISR-safe for `embassy-executor` | `design:docs/adr/0004-…`, `rewrite` | `embassy-executor` — its critical section is a recursive mutex, not ISR-safe |
 | 10 ms GPTimer ISR for the heater | Only mechanism that survives the 300 ms interrupt watchdog | `rewrite` commits `42be3578`, `51fa96ca` | LEDC at 1 Hz — panicked on every boot. 100 Hz software carrier — wrong by 100× |
-| Fixed `1,835,008 B` app slots | Known-good table from the recovered firmware | `rewrite:docs/rust-migration/07-image-size-budget.md` | C++ `partitions_4M.csv` — 1,703,936 B will not hold a Rust image |
-| Web UI embedded in the binary | Removes the filesystem-upload step | `rewrite:07-image-size-budget.md` §2 | LittleFS — costs flash the image needs |
+| Fixed `1,835,008 B` app slots | Known-good table from the recovered firmware | `rewrite:rust/partitions_4M.csv`, `rewrite:docs/rust-migration/07-image-size-budget.md` | C++ `partitions_4M.csv` — 1,703,936 B will not hold a Rust image |
+| Web UI embedded in the binary | Removes the filesystem-upload step | `rewrite:docs/rust-migration/07-image-size-budget.md` §2 | LittleFS — costs flash the image needs |
 | Own framebuffer, not `embedded-graphics` | 42 722 B as RLE vs 177 723 B as `ImageRaw` | `rewrite` link map | `embedded-graphics` `ImageRaw` — 135 KB more on a size-constrained target |
-| Bug-for-bug parity rejected | The C++ has blocking safety defects | `rewrite:intentional-diffs.md`, `space2:parity-report.md` | Faithful port — carries 5 broken safety paths |
+| Bug-for-bug parity rejected | The C++ has blocking safety defects | `rewrite:docs/rust-migration/intentional-diffs.md`, `space2:docs/rust-migration/parity-report.md` | Faithful port — carries 5 broken safety paths |
 
 ## What to copy from `rewrite/rust`
 
 - The workspace split and the CI grep that keeps portable crates ESP-free.
 - The on-target test runner (`crates/cc-device-tests`) plus `just test-audit`. `cargo test` cannot run on this target.
 - The host-only parity crate (`cc-parity`) with no GPIO in its tree, so actuator scenarios are structurally safe.
-- `intentional-diffs.md` and its runner that fails on an undeclared divergence.
+- `docs/rust-migration/intentional-diffs.md` and its runner that fails on an undeclared divergence.
 - `just size`, `just size-check`, and the committed `size-baseline.json` at every gate.
 - The telemetry seqlock. A contended mutex taken twice per tick was the first concurrency fix (`2b60de8`).
 

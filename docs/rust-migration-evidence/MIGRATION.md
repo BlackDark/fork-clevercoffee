@@ -22,8 +22,8 @@ Status uses the same grades as [FINDINGS.md](FINDINGS.md).
 | `hardware/tempsensors/TempSensorTSIC.cpp` | `cc-domain/src/sensor/tsic306/` | ❓ simulation only | 7 |
 | `hardware/scales/HX711Scale.cpp` | `cc-domain/src/sensor/hx711.rs` + `cc-hal-esp32/src/scale.rs` | ✅ on board | 2 |
 | `hardware/scales/BluetoothScale.cpp` | — | ❌ not built, `2013bda9` | 8 |
-| `hardware/pressureSensor.cpp` | `cc-domain/src/abp2.rs` + HAL SPI | ⚠️ ported; C++ read defect fixed | 2 |
-| `hardware/IOSwitch.cpp`, `hardware/LED.cpp` | `cc-domain/src/switch.rs` + `cc-hal-esp32/src/switches.rs` | ✅ | 2 |
+| `hardware/pressureSensor.h` (ABP2 over SPI) | `cc-domain/src/abp2.rs` + HAL SPI | ⚠️ ported; C++ read defect fixed | 2 |
+| `hardware/IOSwitch.cpp`, `hardware/StandardLED.cpp` | `cc-domain/src/switch.rs` + `cc-hal-esp32/src/switches.rs` | ✅ | 2 |
 | `hardware/HardwareManager.cpp`, `Relay.cpp`, `isr.cpp` | `cc-hal-esp32/src/{actuators,heater}.rs` | ✅ 10 ms ISR | 2 |
 | `ui/OledDriver.cpp`, `display/*` | `cc-display` + `cc-hal-esp32/src/display.rs` | ✅ pixel parity | 3 |
 | `Config.cpp`, `ConfigJson.cpp`, `defaults.h` | `cc-config` (schema, blob store, JSON) | ✅ 98 parameters | 3 |
