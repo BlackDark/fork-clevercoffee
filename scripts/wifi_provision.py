@@ -131,10 +131,14 @@ def main() -> None:
             "Use `just mon <port>` to look, or POST /api/wifi-reset to forget one."
         )
     if "ssid_set=true" in status:
-        die(
-            "the machine already has a credential stored — nothing to do.\n"
-            "Use `just mon <port>` to see its status, or POST /api/wifi-reset to "
-            "forget it."
+        # Not a refusal any more: the console arms whether or not a credential is
+        # stored, precisely so a **wrong** network can be replaced over the cable.
+        # That used to be impossible — the console only armed when unprovisioned,
+        # and the only way to change a stored credential was `POST
+        # /api/wifi-reset`, which needs a machine that is already online.
+        print(
+            "wifi: a credential is already stored; this will replace it.",
+            file=sys.stderr,
         )
 
     send(f"wifi set {ssid}", settle=1.0)

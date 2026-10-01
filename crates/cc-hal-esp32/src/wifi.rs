@@ -292,9 +292,25 @@ impl Sta {
     /// as **capable and required** — which is what WPA3 needs, and which a WPA2
     /// AP tolerates, because PMF is negotiated rather than demanded by the peer.
     fn station_security() -> (AuthMethod, PmfConfiguration) {
+        // **`WPA2Personal`, and the log is why.**
+        //
+        // ESP-IDF's `wifi_auth_mode_t` is a *sequence*, not a bitmask, and the
+        // driver compares the AP's mode to ours for **equality** — it does not
+        // accept a superset. The station said it would take WPA2/WPA3 and the
+        // access point advertises WPA2-PSK, and the driver said so itself:
+        //
+        //     wifi:authmode threshold failure, ignore!, (recvd, thresh) : (3, 7)
+        //
+        // `3` is `WIFI_AUTH_WPA2_PSK`; `7` is what we asked for. A station
+        // configured for "WPA2 or WPA3" therefore **cannot join a WPA2-only
+        // network**, which is the opposite of what the name suggests — the fix
+        // for a WPA2 machine is to name WPA2, not to widen it.
+        //
+        // PMF is advertised but not demanded. `required: true` is how a station
+        // stops itself joining a WPA2-only AP that has no PMF.
         (
-            AuthMethod::WPA2WPA3Personal,
-            PmfConfiguration::Capable { required: true },
+            AuthMethod::WPA2Personal,
+            PmfConfiguration::Capable { required: false },
         )
     }
 

@@ -897,26 +897,36 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
         &parameters,
     )?;
 
-    // 11b. The UART provisioning task, **only** when there is no SSID (04 §3.2:
-    //     "The provisioning task is only spawned when no valid credentials
-    //     exist, and it exits after success. It is never a permanent task").
-    //     `Config::is_wifi_provisioned` is that same predicate, so the rule is one
-    //     named function rather than two spellings of "the SSID is empty".
+    // 11b. The UART provisioning task. 04 §3.2 says "only spawned when no valid
+    //     credentials exist, and it exits after success" — and that rule is what
+    //     made a **wrong** network unfixable over the cable: with a credential
+    //     stored the console never armed, and the only way to change it was
+    //     `POST /api/wifi-reset`, which needs a machine that is already online.
+    //     That is the wrong shape for a recovery path. Found on the bench: the
+    //     machine was configured for a network that did not exist, and could not
+    //     be pointed at one that did.
+    //
+    //     So it always starts, it still **exits after success** (it is not a
+    //     permanent task), and `wifi set` + `wifi apply` replaces whatever is
+    //     stored. The task costs one UART poll loop and it is the only way out
+    //     of "the network you want is not the network you are on".
     //
     //     The handoff is shared with the control task, which is what does the
     //     writing: the store moved into that task in step 7, and a credential
     //     cannot be stored by a task that does not hold the store.
     let handoff = network::Handoff::new();
     if config.is_wifi_provisioned() {
-        info!("wifi: a credential is stored — the provisioning task is not started");
-    } else {
-        start_provisioning(
-            peripherals.uart0,
-            peripherals.pins.gpio1,
-            peripherals.pins.gpio3,
-            handoff.clone(),
+        info!(
+            "wifi: a credential is stored — the provisioning console is still \
+             available, and `wifi set` + `wifi apply` will replace it"
         );
     }
+    start_provisioning(
+        peripherals.uart0,
+        peripherals.pins.gpio1,
+        peripherals.pins.gpio3,
+        handoff.clone(),
+    );
 
     // 11. MQTT, only when a broker is configured. `cc_config::Mqtt::default` has
     //     `enabled = false` and an empty broker, so an unprovisioned machine
@@ -3261,11 +3271,15 @@ fn bring_up_wifi(
     // "the stored SSID is 12 bytes" settles a class of problem that reading
     // `/api/parameters` cannot reach when the machine is offline. `password` is a
     // `Secret` and is exposed only for its length here.
+    // The SSID is not a secret — the C++ prints it on every connection attempt
+    // too, and it is already in every boot log today — so it is printed to say
+    // *which* network is configured, which is the thing a length cannot tell you.
+    // The password is never printed at all, only its length.
     info!(
-        "wifi: stored credential — ssid {} bytes, password {} bytes ({} bytes trimmed)",
+        "wifi: stored credential — ssid {:?} ({} bytes), password {} bytes",
+        config.system.wifi.ssid,
         config.system.wifi.ssid.len(),
         config.system.wifi.password.expose().len(),
-        config.system.wifi.ssid.trim().len(),
     );
     sta.connect(
         &config.system.wifi.ssid,
