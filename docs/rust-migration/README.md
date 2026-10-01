@@ -2,6 +2,10 @@
 
 Plan for migrating the CleverCoffee ESP32 firmware from C++/Arduino to Rust.
 
+**Start here:** [`31-findings-2026-10-01.md`](./31-findings-2026-10-01.md) is the
+index of the most recent session's findings; `docs/integration-tests.md` has a
+runnable check for each.
+
 **Status:** in progress, and the machine works end to end: the reducer runs on
 hardware, the display lights up, the PID regulates, all 98 parameters are writable
 over HTTP and survive a reboot, and the **web UI is on the device**. **Not done:**
@@ -210,6 +214,12 @@ re-verified on the board:
 - The sensor's failure log was one line per read, which at the loop's rate is 50
   lines a second on a 115200-baud console. It is now one line per fault, re-armed
   by a good reading.
+
+### Everything from 2026-10-01, indexed
+
+**[`31-findings-2026-10-01.md`](./31-findings-2026-10-01.md)** is the single
+index for this session: every finding, where the detail lives, and what is still
+open. Read it first when picking the work up.
 
 ### Fixed on 2026-10-01, third pass — the language, and three flags that did nothing
 

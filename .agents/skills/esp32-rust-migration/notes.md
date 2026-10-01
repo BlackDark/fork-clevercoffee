@@ -732,3 +732,22 @@ list in `docs/integration-tests.md`.
   credentials exist" made a wrong network unfixable over USB.
 * A length-only boot log (`stored credential — ssid "..." (N bytes), password M
   bytes`) is what found a stored SSID that did not exist on the network. Keep it.
+
+
+## Where everything from 2026-10-01 is written down
+
+`docs/rust-migration/31-findings-2026-10-01.md` — the index. Every finding from
+the day, with where the detail lives and what is still open.
+
+The four documents it points into:
+
+| document | what it holds |
+| --- | --- |
+| `09-cpp-findings.md` §28–§31 | the `FreeRTOS` blocking hazard, the tick-rate measurement, the Wi-Fi recovery, the 15 ms in the applier span |
+| `intentional-diffs.md` §14–§17 | the layout divergences from the C++ (uptime, `°C`, Scale rows) and the two behaviour changes (S1 counting samples, the reboot shutdown) |
+| `docs/integration-tests.md` | a runnable check per finding — Wi-Fi, the tick, the screen fit, the language columns |
+| `notes.md` (this file) | the Wi-Fi recovery summary an agent needs before touching Wi-Fi again |
+
+**Open, with the next step named, in §7 of the index.** The first is the control
+tick: ~65 Hz rather than 100 Hz, with the **applier span** measured at 12 ms of
+the 15 ms and nothing in it obviously blocking.
