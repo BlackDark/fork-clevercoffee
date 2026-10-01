@@ -146,46 +146,116 @@ pub fn display_temperature_info(
         l.current_temp
     });
 
-    d.set_cursor(coords.current_value_x, coords.current_temp_y);
-    d.print(format_fixed(input.temperature, 1).as_str());
-    // The unit column. The C++ puts it at `currentValueX + 31`
-    // (`DisplayTemplateBase.h:118`) — a *fixed* offset, not a right edge, and on
-    // the Standard template `currentValueX` is 84, so `"°C"` lands at 115..127:
-    // the last column of the panel. Any widening of the value, or a hair of
-    // glyph-width drift, puts the `C` off the edge — the "the degree C is
-    // missing" half of the human's report. Measured rather than assumed: 12 px
-    // of `profont11` ending at 123 leaves a margin and still clears a 29 px
-    // three-digit value ending at 113.
-    d.set_cursor(
-        coords.current_value_x + UNIT_COLUMN_OFFSET,
+    // The value and its `°C` unit, laid out so neither can leave the frame.
+    //
+    // **Measured in ink, not in advance.** `"°C"` advances 12 px in
+    // `profont11` but *inks* 17 (`Font::ink_box` returns `x 0..16`): the advance
+    // excludes the trailing side bearing, so a layout computed from `str_width`
+    // puts the last three columns of the `C` outside the panel. The first fix for
+    // this used `str_width` and reduced the unit's offset from 31 to 30, which
+    // moved it two pixels and left it still clipped — the measurement was the
+    // wrong quantity.
+    //
+    // So: the unit is placed to **end one pixel inside the frame**, and the
+    // value is right-aligned to two pixels before it. Where the original column
+    // has room for both (the Scale template, whose value column is 50 rather than
+    // 84) the original placement is kept untouched, so that layout does not move
+    // at all.
+    let (value_right, unit_x) = value_and_unit_columns(coords.current_value_x);
+    draw_right_aligned(
+        d,
+        value_right,
         coords.current_temp_y,
+        format_fixed(input.temperature, 1).as_str(),
     );
+    d.set_cursor(unit_x, coords.current_temp_y);
     d.print_char('\u{b0}');
     d.print("C");
 
     d.set_cursor(coords.set_temp_x, coords.set_temp_y);
     d.print(if upright { l.set_temp_ur } else { l.set_temp });
 
-    d.set_cursor(coords.set_value_x, coords.set_temp_y);
-    d.print(format_fixed(input.setpoint, 1).as_str());
-
-    d.set_cursor(coords.set_value_x + UNIT_COLUMN_OFFSET, coords.set_temp_y);
+    let (set_right, set_unit_x) = value_and_unit_columns(coords.set_value_x);
+    draw_right_aligned(
+        d,
+        set_right,
+        coords.set_temp_y,
+        format_fixed(input.setpoint, 1).as_str(),
+    );
+    d.set_cursor(set_unit_x, coords.set_temp_y);
     d.print_char('\u{b0}');
     d.print("C");
 }
 
-/// Where the `°C` unit sits relative to the value column.
+/// Where a temperature value and its `°C` unit go: the value's right ink column
+/// and the unit's left x.
 ///
-/// The C++'s literal `31` (`DisplayTemplateBase.h:118,122`), reduced by one so
-/// the unit ends inside the frame on the Standard template: `84 + 30` plus the
-/// 12 px of `"°C"` is 126, one pixel clear of the 128 px panel. One pixel is all
-/// that is available — the widest value a boiler reports, `"100.0"`, is 29 px
-/// wide and so already reaches column 113 — so the fix is the smallest one that
-/// puts the `C` on the panel. See [`display_temperature_info`].
+/// **Everything here is measured in ink, not in advance.** `"\u{b0}C"` advances
+/// 12 px in `profont11` and inks **17** (`Font::ink_box` reports `x 0..16`),
+/// because the advance excludes the trailing side bearing. A layout computed
+/// from `str_width` therefore leaves the last three columns of the `C` outside
+/// the panel — which is what happened here, twice, before the measurement was
+/// corrected. This is the same distinction the whole text-fit check turns on: a
+/// clipped glyph is still *inside* the frame, so no bounds test sees it.
 ///
-/// The Scale template's value column is 50, so there the unit simply moves left
-/// with everything else.
-pub const UNIT_COLUMN_OFFSET: i32 = 30;
+/// The unit keeps [`UNIT_COLUMN_OFFSET`] from the value column wherever that
+/// fits on the panel, so the **Scale** template (value column 50) does not move
+/// at all; where it does not fit, the unit is pulled back to end one pixel
+/// inside the frame and the value is right-aligned two pixels before it.
+#[must_use]
+pub fn value_and_unit_columns(value_x: i32) -> (i32, i32) {
+    let unit_ink = unit_ink_width();
+    let unit_x = if value_x + UNIT_COLUMN_OFFSET + unit_ink < DISPLAY_WIDTH {
+        value_x + UNIT_COLUMN_OFFSET
+    } else {
+        DISPLAY_WIDTH - 1 - unit_ink
+    };
+    (unit_x - 2, unit_x)
+}
+
+/// The `°C` unit's inked width in `profont11`, which is **not** its advance.
+#[must_use]
+pub fn unit_ink_width() -> i32 {
+    font::profont11().ink_box("\u{b0}C").2 + 1
+}
+
+/// The inverted field's box for a row whose origin is `x`: `(left, width)`.
+///
+/// The width is what is left to the frame's right edge. See
+/// [`draw_inverted_field`] for why a constant is wrong here.
+#[must_use]
+pub const fn inverted_field_box(x: i32) -> (i32, i32) {
+    let left = x + VALUE_COLUMN_OFFSET;
+    (left, DISPLAY_WIDTH - left)
+}
+
+/// Draw `text` so its **ink** ends at `right`.
+///
+/// The value column is a fixed-width field per AGENTS.md, so the number is
+/// right-aligned inside it rather than starting at a fixed x: `"92.5"` and
+/// `"100.0"` are 23 and 29 px of ink, and a fixed x would push the three-digit
+/// reading into the unit.
+fn draw_right_aligned(d: &mut Display, right: i32, y: i32, text: &str) {
+    let (x0, _, x1, _) = font::profont11().ink_box(text);
+    let width = if x1 >= x0 { x1 - x0 + 1 } else { 0 };
+    d.set_cursor(right - width + 1, y);
+    d.print(text);
+}
+
+/// Where the `°C` unit sits relative to the value column, **when there is
+/// room**.
+///
+/// The C++'s literal `31` (`DisplayTemplateBase.h:118,122`). It is a *starting*
+/// offset and not a guarantee: on the Scale template (value column 50) the unit
+/// lands at 81 and there is nothing to fix, while on the Standard and Minimal
+/// templates (value column 84) it would land at 115 and ink to 131 — three
+/// columns past the panel.
+///
+/// So [`display_temperature_info`] uses this offset where the unit's **ink**
+/// fits and otherwise pulls the unit back to end one pixel inside the frame and
+/// right-aligns the value against it. The Scale template therefore does not move
+/// at all, and the Standard one gets a `°C` that is actually on the panel.
+pub const UNIT_COLUMN_OFFSET: i32 = 31;
 
 /// Where a template puts the temperature block.
 ///
@@ -368,20 +438,28 @@ pub fn display_brew_weight(
 /// The inverted field behind [`display_brew_time`] and [`display_brew_weight`].
 ///
 /// `DisplayWidgets.h:209-216`: `setDrawColor(0)`, `drawBox`, `setDrawColor(1)`.
-/// The box is `100 x 10` for the Upright template and `78 x 10` offset by
+/// The box is `100 x 10` for the Upright template and offset by
 /// [`VALUE_COLUMN_OFFSET`] for the rest.
+///
+/// **The width is what is left to the frame's edge, not a constant.** The C++
+/// uses `kValueColumnWidth = 78` (`DisplayWidgets.h:171`), and 78 is exactly
+/// right for the **Scale** template — whose row origin is `x = 0`, so the box
+/// runs 50..127 and closes on the last column. The Standard and Minimal
+/// templates pass `x = 34`, so the same 78 px runs **84..161**: 33 px of it is
+/// off-panel, the right border is never drawn, and the field looks like it runs
+/// off the edge of the screen. That is the "the values don't fit" report.
+///
+/// One constant cannot be right for two row origins, so it is computed:
+/// `DISPLAY_WIDTH - (x + VALUE_COLUMN_OFFSET)`, which is 78 on Scale — byte for
+/// byte the C++ — and 44 on Standard and Minimal, where it closes on the frame.
 fn draw_inverted_field(d: &mut Display, x: i32, y: i32, upright: bool) {
     d.set_font(font::profont11());
     d.set_draw_color(0);
     if upright {
         d.draw_box(x, y + 1, UPRIGHT_BOX_WIDTH, BOX_HEIGHT);
     } else {
-        d.draw_box(
-            x + VALUE_COLUMN_OFFSET,
-            y + 1,
-            VALUE_COLUMN_WIDTH,
-            BOX_HEIGHT,
-        );
+        let (left, width) = inverted_field_box(x);
+        d.draw_box(left, y + 1, width.max(0), BOX_HEIGHT);
     }
     d.set_draw_color(1);
 }

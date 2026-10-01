@@ -29,11 +29,9 @@
 use cc_display::display::{Display, DISPLAY_HEIGHT, DISPLAY_WIDTH};
 use cc_display::font;
 use cc_display::lang::{self, Lang};
-use cc_display::model::{Config, DisplayInput, Language, ScaleType};
+use cc_display::model::{Config, DisplayInput, Language};
 use cc_display::templates::TemplateId;
-use cc_display::widgets::{
-    TemperatureCoords, UNIT_COLUMN_OFFSET, VALUE_COLUMN_OFFSET, VALUE_COLUMN_WIDTH,
-};
+use cc_display::widgets::{TemperatureCoords, VALUE_COLUMN_OFFSET};
 
 /// The templates, all six.
 const TEMPLATES: [TemplateId; 6] = [
@@ -394,37 +392,69 @@ fn the_portrait_panel_is_64_wide_and_the_portrait_lines_fit_it() {
     }
 }
 
-/// **The `°C` unit clears the widest value**, in any language.
+/// **The `°C` unit clears the widest value and stays on the panel.**
 ///
-/// The unit sits at `value + UNIT_COLUMN_OFFSET` and the widest reading a
-/// boiler can report is `"100.0"`. This is the arithmetic behind the
-/// right-aligned uptime and the narrowed unit column, written as a check so
-/// neither can regress.
+/// This is the arithmetic behind the layout, asserted rather than re-derived,
+/// because the arithmetic is what was wrong twice: the unit was placed from
+/// `str_width` (12 px) when it inks 17, so the `C` ran three columns off the
+/// panel — and a clipped glyph is still *inside* the frame, so no bounds test
+/// could see it.
 #[test]
-fn the_unit_clears_the_widest_value_in_every_language() {
+fn the_unit_is_inside_the_frame_and_clear_of_the_widest_value() {
     let widest = font::profont11().str_width("100.0");
-    let unit = font::profont11().str_width("\u{b0}C");
     for template in TEMPLATES {
         let coords = temp_coords(template);
         for (name, value_x) in [
             ("current", coords.current_value_x),
             ("setpoint", coords.set_value_x),
         ] {
-            let unit_x = value_x + UNIT_COLUMN_OFFSET;
+            let (value_right, unit_x) = cc_display::widgets::value_and_unit_columns(value_x);
+            let unit_ink = cc_display::widgets::unit_ink_width();
             assert!(
-                unit_x >= widest + value_x,
-                "{template:?}: the {name} value is {widest} px and the unit starts at \
-                 +{UNIT_COLUMN_OFFSET} px, so the unit lands on the digits"
+                unit_x + unit_ink <= DISPLAY_WIDTH,
+                "{template:?} / {name}: the unit inks {unit_ink} px from {unit_x}, so it \
+                 ends at {} and the panel's last column is {}",
+                unit_x + unit_ink - 1,
+                DISPLAY_WIDTH - 1
             );
             assert!(
-                unit_x + unit <= DISPLAY_WIDTH,
-                "{template:?}: the {name} unit ends at {} and the panel is \
-                 {DISPLAY_WIDTH}",
-                unit_x + unit
+                value_right < unit_x,
+                "{template:?} / {name}: the widest value ({widest} px) right-aligned to \
+                 {value_right} and the unit starts at {unit_x}, so they touch"
+            );
+            assert!(
+                value_right - widest + 1 >= 0,
+                "{template:?} / {name}: the value column at {value_x} cannot hold \
+                 {widest} px of ink"
             );
         }
     }
-    let _ = (VALUE_COLUMN_WIDTH, ScaleType::Hx711);
+}
+
+/// **The inverted field closes on the frame's edge**, on every template.
+///
+/// The C++ uses one constant, `kValueColumnWidth = 78`, which is exact for the
+/// Scale template (row origin `x = 0`, so the box runs 50..127) and 33 px too
+/// wide for Standard and Minimal (origin `x = 34`, so the box ran 84..**161**
+/// and its right border was never drawn). That is the "the values don't fit"
+/// report.
+#[test]
+fn the_inverted_field_ends_on_the_last_column() {
+    for (name, origin) in [("standard", 34), ("minimal", 34), ("scale", 0)] {
+        let (left, width) = cc_display::widgets::inverted_field_box(origin);
+        assert!(
+            left + width <= DISPLAY_WIDTH,
+            "the {name} field runs {left}..{} and the panel is {DISPLAY_WIDTH}",
+            left + width - 1
+        );
+        assert_eq!(
+            left + width - 1,
+            DISPLAY_WIDTH - 1,
+            "the {name} field should close on the last column"
+        );
+    }
+    // The Scale template's box must be unchanged: 78 px, the C++'s constant.
+    assert_eq!(cc_display::widgets::inverted_field_box(0).1, 78);
 }
 
 /// Every character in every translation has a glyph in every font it is drawn

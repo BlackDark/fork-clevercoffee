@@ -1107,3 +1107,52 @@ reserved fixed width — win over matching a layout that clips.
 (the widest reading a boiler can report). The regenerated goldens
 (`minimal.ppm`, `standard*.ppm`, `scale*.ppm`, `screen_heating.ppm`, the Modern
 set) differ **only** by these two columns; every other pixel is where it was.
+
+
+## 15. The inverted value field closes on the frame, and the `°C` unit is placed by its ink 🔴 changed
+
+**What changed.** Two numbers on the Standard and Minimal templates.
+
+| | C++ | Rust | why |
+| --- | --- | --- | --- |
+| the brew/weight inverted box | `drawBox(x + 50, y+1, 78, 10)` | `drawBox(x + 50, y+1, 128 - (x + 50), 10)` | 78 is exact for **Scale** (row origin 0 → 50..127) and 33 px too wide for **Standard/Minimal** (origin 34 → 84..**161**) |
+| the `°C` unit | `setCursor(valueX + 31, y)` | `valueX + 31` where it fits, otherwise right-aligned to end at column 126 | `"°C"` **advances 12 px and inks 17** |
+
+**The report was "during brew the values under temp/set/brew do not fit properly".** Two distinct defects, both measured rather than eyeballed:
+
+1. **The inverted field ran off the panel.** One constant cannot serve two row
+   origins: `kValueColumnWidth = 78` (`DisplayWidgets.h:171`) was sized for the
+   Scale template, and on Standard and Minimal the box starts at 84 and ran to
+   161. Its right border was never drawn, so the field looked like it fell off the
+   edge of the screen — with a brew or a weight in it, which is exactly when the
+   field is there. The width is now what is left to the frame, which is 78 on
+   Scale (byte for byte the C++) and 44 on Standard and Minimal.
+2. **The `°C` was three columns off the panel.** It advances 12 px but inks 17 —
+   the advance excludes the trailing side bearing — so a layout computed from
+   `str_width` puts the last three columns of the `C` outside a 128 px frame.
+   **This is the second time this number was computed from `str_width` here**,
+   and both times it was wrong: the first fix reduced the offset from 31 to 30,
+   moved it two pixels and left it clipped. `Font::ink_box` is the quantity that
+   matters, and it is now what both the code and the test use.
+
+The value is **right-aligned** to two pixels before the unit, which is what
+AGENTS.md asks for (a fixed-width field, digits that do not shift): `"92.5"` is
+23 px of ink and `"100.0"` is 29, so a fixed x would push a three-digit reading
+into the unit on a boiler that is genuinely at 100 °C.
+
+**Cost.** The Standard and Minimal value columns shift left by up to four pixels
+and the unit moves from 115 to 110; the Scale template moves one pixel. Twelve
+goldens changed, all of them confined to the two value rows — verified by the
+diff bounds, which are exactly the value columns.
+
+**What pins it.** `tests/languages.rs`:
+`the_unit_is_inside_the_frame_and_clear_of_the_widest_value` (asserts the unit's
+ink ends inside the frame and the widest reading does not touch it, per template)
+and `the_inverted_field_ends_on_the_last_column` (asserts the field closes on
+column 127, and that Scale is still exactly the C++'s 78 px).
+
+**Also fixed, and it was a real port defect:** the portrait sensor-error screen
+drew the *landscape* strings. The C++ carries `langstring_error_tsensor_ur[5]`
+for the portrait screen (`languages.h:35,69-73`) and the port had dropped it, so
+a **64 logical pixel**-wide panel received 111 px of ink and 91 px of it was
+dropped. Restored for all three languages.
