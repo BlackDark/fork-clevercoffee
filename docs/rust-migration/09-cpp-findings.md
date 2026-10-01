@@ -1139,3 +1139,49 @@ stop.
 | `authmode threshold failure, ignore!, (recvd, thresh)` | a **mode** mismatch — read both numbers; `recvd` is the AP, `thresh` is us |
 | no `wifi:state:` transitions at all | the **SSID is not on the air** — check the stored SSID's bytes |
 | `wifi:state: init -> auth` then a `reason=` disconnect | a **password** problem |
+
+## 31. 🟡 The control tick's 15 ms is in the applier span, not in the sensors and not in the reducer
+
+**Measured** 2026-10-01, with the section timing instrumented into the tick and
+then removed again. The loop now reports mean work and achieved period, because
+"worst tick" alone is how a loop running at half its claimed rate stays
+invisible.
+
+Per-section means over a 30 s window (1688 ticks), `ms` per tick:
+
+| section | ms |
+| --- | --- |
+| commands + parameters + staged credential | 0 |
+| **sense** (temperature, switches, pressure) | **0** |
+| **decide** (`control.tick`: reducer, PID, safety) | **0** |
+| **act** (`cc_machine::apply` → actuators, scale drain, reboot checks) | **12** |
+| show (frame publish) | 0 |
+| notify (telemetry, SSE, radio) | 1 |
+
+**So:** not the 1-Wire bit-bang, not the reducer, not the display. It is the span
+between "`control.tick` returned" and "step 8 begins" — `cc_machine::apply`,
+`drain_scale`, the 1 Hz parameter publish, and the two reboot checks.
+
+**Why I stopped there.** Nothing in that span obviously blocks: `apply` is a
+match over effects writing atomics, `drain_scale` is a no-op with no scale fitted,
+and the publish and reboot checks are once-per-second or a single atomic swap.
+A 12 ms mean inside arithmetic that should take microseconds is exactly the
+shape of something waiting, and the next honest step is to split *that* span —
+apply alone, then the scale drain, then the reboot checks — rather than to guess.
+
+**Two measurement traps hit on the way, both recorded because they waste an
+afternoon if you repeat them:**
+
+* Accumulating every section's delta **at the end of the tick** makes the spans
+  *nested*, not disjoint. Every section then reported the same number, and
+  `decide` and `act` both showed the same 12 ms — which is how I first read the
+  time as being in both.
+* Reading the totals **after** zeroing them prints zeroes for every section while
+  the tick is 15 ms, which points at the clock instead of at the code.
+
+**What this does and does not change.** Nothing is claimed as fixed: the loop runs
+at ~65 Hz rather than 100 Hz, the deadline is missed on every tick, and the
+machine is one `CONFIGURED_FREERTOS_HZ` change away from hitting it. Nothing here
+is a *safety* regression — the deadman is fed on every pass whatever the pass
+costs, and the heater's 10 ms chopper is an ISR. It is a responsiveness
+finding, and the open question is what in the applier span costs 12 ms.

@@ -574,3 +574,21 @@ checks exist so that the next one costs ten minutes instead of an afternoon.
    machine otherwise perfectly healthy. That is a *separate* fault and the log
    names it (`driver = Tsic306 ... but the probe measured on this board is
    DallasDs18b20`).
+
+
+### The control tick is not at 100 Hz, and we now know where the time is
+
+```
+control tick: worst N ms of the last M (… budget 10 ms, K over budget) —
+  mean work 15 ms, achieved period 15 ms of a 10 ms target
+```
+
+The loop runs at **~65 Hz**, not 100 Hz, and the time is in the **applier span**
+— `cc_machine::apply`, the scale drain and the reboot checks — at ~12 ms per tick.
+Not the sensors (0 ms), not the reducer (0 ms), not the display (0 ms). Full
+measurement and the two traps that produced wrong numbers on the way are in
+`09-cpp-findings.md` §31.
+
+To narrow it further, split the applier span into `apply` / `drain_scale` / the
+reboot checks and read the same line. Do **not** attribute it without a
+measurement: "the applier is slow" is not a finding, "the applier is 12 ms" is.

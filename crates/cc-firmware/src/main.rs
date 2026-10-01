@@ -3048,7 +3048,8 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
                  (baseline {baseline_worst_ms} ms over the first \
                  {TICK_BASELINE_TICKS}, budget {TICK_BUDGET_MS} ms, \
                  {tick_over_budget} over budget) — mean work {} ms, \
-                 achieved period {} ms of a {} ms target — scale: {}{}",
+                 achieved period {} ms of a {} ms target \
+                 — scale: {}{}",
                 work_mean_ms,
                 period_mean_ms,
                 CONTROL_PERIOD_MS,
