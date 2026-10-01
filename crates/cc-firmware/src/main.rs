@@ -2059,8 +2059,14 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
         // commands are the two that are not reducer events, and they are the two
         // that are genuinely not about the machine's state.
         let mut effects: Vec<cc_machine::Effect> = Vec::new();
+        let mut commands_applied: u32 = 0;
         while let Some(command) = commands.recv() {
             info!("control: command {command:?}");
+            // Counted, not acked, here: the ack is only honest once the
+            // telemetry the caller will read has been published **after** this
+            // command was folded in, which happens further down the tick. See
+            // the `note_applied()` calls after the publish.
+            commands_applied += 1;
             match command {
                 cc_hal_esp32::web::Command::Restart => net.shared.set_reboot_requested(),
                 // The scale commands are the first ones that are **not** inert.
@@ -2536,7 +2542,9 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
         // dropped 90 of them.
         if tick_began_ms.wrapping_sub(last_frame_ms) >= FRAME_PUBLISH_MS {
             last_frame_ms = tick_began_ms;
-            let (p, i, d) = control.pid_terms();
+            // The **gains**, not the last P/I/D terms — see `Control::pid_gains`
+            // for why, and for the `4444|81|0` this replaces.
+            let (p, i, d) = control.pid_gains();
             let machine = *control.machine();
             // The display's view of the configuration, refreshed every frame:
             // fifteen of its flags change at runtime through
@@ -2716,6 +2724,18 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
             uptime,
             weight_g,
         ));
+
+        // **Acknowledge the commands drained this tick, now that the telemetry
+        // the caller reads is published.**
+        //
+        // The order is the whole point. A `POST /api/pid` is blocked in
+        // `Shared::wait_applied`, and when it wakes it re-reads the snapshot to
+        // answer "what is the PID now". Acknowledging before the publish would
+        // wake it against the *previous* tick's snapshot, which is how the
+        // first version answered `true` for a toggle that turned the PID off.
+        for _ in 0..commands_applied {
+            net.shared.note_applied();
+        }
 
         // The radio's readings, published **after** the telemetry above and on
         // every tick rather than only on a radio poll. The order is load-bearing:

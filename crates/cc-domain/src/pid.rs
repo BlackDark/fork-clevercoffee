@@ -328,6 +328,24 @@ impl Controller {
         f64::from(elapsed.raw()) / 1000.0
     }
 
+    /// The three gains as the operator entered them — `PID_v1`'s `GetKp`,
+    /// `GetKi` and `GetKd` (`PID_v1.h:279-292`).
+    ///
+    /// **Needed by the display, and the reason is a defect it caught.** The
+    /// screen's PID row shows `Kp | Kp/Ki | Kd/Kp`
+    /// (`DisplayTemplateBase.h:165`), and the firmware was feeding it the
+    /// controller's *last P, I and D terms* instead — the integral accumulator
+    /// among them, which grows without bound. The row read `4444|81|0 - 100%`:
+    /// three numbers that mean nothing to an operator, the first wide enough to
+    /// push the rest into the output column.
+    ///
+    /// The gains as entered, not `kp_eff`/`ki_eff`/`kd_eff`: the C++'s `GetKp`
+    /// returns the entered value, and that is what the row is labelled with.
+    #[must_use]
+    pub fn gains(&self) -> (f64, f64, f64) {
+        (self.kp, self.ki, self.kd)
+    }
+
     /// `SetTunings(Kp, Ki, Kd, POn)` (`PID_v1.cpp:145-169`).
     ///
     /// Returns `false` and changes nothing if any gain is negative

@@ -227,6 +227,21 @@ impl Control {
         )
     }
 
+    /// The **active gains**, `(kp, ki, kd)`, as the operator entered them.
+    ///
+    /// This is what the display's PID row is labelled with
+    /// (`DisplayTemplateBase.h:165` prints `pidKp()`, `pidKp()/pidKi()` and
+    /// `pidKd()/pidKp()`), and it is deliberately *not*
+    /// [`Self::pid_terms`]: those are the controller's last P, I and D
+    /// contributions, the I among them being an accumulator that grows without
+    /// bound. Feeding the row the terms produced `4444|81|0 - 100%` — the
+    /// report was "the numbers overlap and I do not know what they stand for",
+    /// which is the correct reaction to a PID row showing an integral.
+    #[must_use]
+    pub fn pid_gains(&self) -> (f64, f64, f64) {
+        self.pid.gains()
+    }
+
     /// The active setpoint, °C.
     #[must_use]
     pub const fn setpoint(&self) -> f64 {

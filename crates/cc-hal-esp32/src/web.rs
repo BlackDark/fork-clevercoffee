@@ -102,6 +102,7 @@ use esp_idf_svc::sys::EspError;
 use log::{info, warn};
 
 use crate::heap::{free_heap, min_free_heap, HEAP_SHED_BYTES};
+use crate::task::{COMMAND_ACK_POLL_MS, COMMAND_ACK_TIMEOUT_MS};
 use crate::time::now_ms;
 
 /// The C++'s HTTP port. `WebServerManager` is constructed with 80.
@@ -352,6 +353,14 @@ pub struct Shared {
     /// 1 KB `Display` framebuffer and the 7.2 KB `history_json` return value:
     /// anything this size is heap or it is a crash.
     pub history: Mutex<alloc::boxed::Box<cc_domain::history::History>>,
+    /// How many control commands the control task has applied.
+    ///
+    /// The ack every command caller waits on. A command is a **request**: the
+    /// handler hands it to the queue and returns, so anything it then says about
+    /// the machine describes the machine as it was. The control task increments
+    /// this once per command it drains, so `applied() == before` means "mine is
+    /// still queued".
+    applied: AtomicU32,
     /// Set when a handler has asked for a reboot; the firmware acts on it.
     pub reboot_requested: AtomicBool,
     /// The number of `/api/parameters?filter=all` responses served, for the
@@ -368,6 +377,7 @@ impl Shared {
         Self {
             telemetry: Mutex::new(Telemetry::default()),
             history: Mutex::new(alloc::boxed::Box::new(cc_domain::history::History::new())),
+            applied: AtomicU32::new(0),
             reboot_requested: AtomicBool::new(false),
             large_responses: AtomicU32::new(0),
             large_refused: AtomicU32::new(0),
@@ -428,6 +438,38 @@ impl Shared {
     #[must_use]
     pub fn large_refused(&self) -> u32 {
         self.large_refused.load(Ordering::Relaxed)
+    }
+
+    /// Note that the control task has applied one more command.
+    ///
+    /// Called by the control task, once per command drained.
+    pub fn note_applied(&self) {
+        self.applied.fetch_add(1, Ordering::Release);
+    }
+
+    /// How many commands the control task has applied.
+    #[must_use]
+    pub fn applied(&self) -> u32 {
+        self.applied.load(Ordering::Acquire)
+    }
+
+    /// Block until [`Self::applied`] passes `before`, or
+    /// [`COMMAND_ACK_TIMEOUT_MS`] elapses. Returns whether it advanced.
+    ///
+    /// The C++ has no equivalent: its web handler *is* the control task, so a
+    /// `POST /api/pid` mutates the machine before it answers. Since the split
+    /// that put the panel and the control loop in different tasks, a handler can
+    /// only ask — so it asks, and waits a bounded time. Bounded because a
+    /// stalled control task must fail visibly rather than hang a browser.
+    pub fn wait_applied(&self, before: u32) -> bool {
+        let deadline = now_ms().wrapping_add(COMMAND_ACK_TIMEOUT_MS);
+        while self.applied() == before {
+            if now_ms().wrapping_sub(deadline) < COMMAND_ACK_POLL_MS {
+                return false;
+            }
+            crate::task::delay_ms(COMMAND_ACK_POLL_MS);
+        }
+        true
     }
 
     /// Ask for a reboot at the next opportunity.
@@ -2131,14 +2173,32 @@ fn register_toggle(
                 // No field at all: the C++'s toggle.
                 None => (on_toggle, Some(!current(&shared.snapshot()))),
             };
+            // **The value is read after the command has been applied.**
+            //
+            // It used to be computed *before* sending: `!current(&snapshot)` for a
+            // bare toggle, from the last telemetry the control task published. So
+            // the answer described the machine as it was, and a client that
+            // trusted it wrote the old value into its own state. The report was
+            // "I press the toggle, the device switches, and the switch stays
+            // active until I refresh" — the device was right and the answer was
+            // a lie.
+            //
+            // The wait is bounded (400 ms) and the fallback is the requested
+            // value rather than a panic: a stalled control task must not hang a
+            // browser, and `refetchParameters` is the client's other route to
+            // truth.
+            let before = shared.applied();
             send(chosen);
-            // For the explicit form the value is exactly what was asked for. For
-            // a bare toggle it is `!` the last telemetry the control task
-            // published, which is the best this task can know: the machine is
-            // the control task's, and the C++ reads it directly only because its
-            // web server *is* the same task. A client that needs the settled
-            // value reads `/api/status`, which the control task publishes.
-            let value = value.unwrap_or_else(|| explicit_value(&chosen));
+            let settled = shared.wait_applied(before);
+            let value = if settled {
+                current(&shared.snapshot())
+            } else {
+                warn!(
+                    "http: {uri} answered from the requested value — the control \
+                     task has not applied the command after {COMMAND_ACK_TIMEOUT_MS} ms"
+                );
+                value.unwrap_or_else(|| explicit_value(&chosen))
+            };
             let body = format!("{{\"success\":true,\"{key}\":{value}}}");
             respond(req.connection(), 200, &body)
         })

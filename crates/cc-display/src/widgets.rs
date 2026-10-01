@@ -290,10 +290,6 @@ pub fn display_pid_info(
     coords: &PidCoords,
     separator: &str,
 ) {
-    d.set_cursor(coords.pid_x, coords.pid_y);
-    d.print(format_fixed(input.pid_kp, 0).as_str());
-    d.print(separator);
-
     // `pidKi() != 0 ? pidKp() / pidKi() : "0"` -- an integer-ratio display that
     // has to avoid dividing by zero, which is why the guard exists in the C++.
     // `pidKi() != 0` in the C++: a double compared for exact zero, and any
@@ -304,13 +300,34 @@ pub fn display_pid_info(
     // branch, and the divided result is what the row displays. So the exact
     // comparison is kept, named, and asserted below.
     let divide = input.pid_ki != 0.0;
-    if divide {
-        d.print(format_fixed(input.pid_kp / input.pid_ki, 0).as_str());
+    let ratio = if divide {
+        format_fixed(input.pid_kp / input.pid_ki, 0)
     } else {
-        d.print("0");
-    }
-    d.print(separator);
-    d.print(format_fixed(input.pid_kd / input.pid_kp, 0).as_str());
+        format_fixed(0.0, 0)
+    };
+    // **Unconditional**, as the C++ is: `DisplayTemplateBase.h:172` divides
+    // `pidKd()` by `pidKp()` with no guard, and `pidKp()` is non-zero on any
+    // machine whose PID runs at all (a proportional gain of 0 is not a
+    // configuration, it is a broken one, and the C++ shows the consequence).
+    let third = format_fixed(input.pid_kd / input.pid_kp, 0);
+
+    // **Right-aligned to just before the output column**, so a wide ratio grows
+    // leftwards instead of into it.
+    //
+    // The three numbers are unbounded — they are `Kp`, `Kp/Ki` and `Kd/Kp`
+    // rendered as integers — and the C++ draws them left to right from
+    // `pid_x = 38` with the output at `output_x = 96`. With ordinary gains the
+    // row is 40 px and clears comfortably, but `Kp/Ki` is a division by
+    // whatever the operator typed for Ki: at `ki = 0.005` it is 10000, the row
+    // is 59 px wide, and it lands exactly on the output column. Right-aligning
+    // makes the overlap unreachable for any ratio that fits at all.
+    let mut row = crate::fmt::Formatted::new();
+    row.push_str(format_fixed(input.pid_kp, 0).as_str());
+    row.push_str(separator);
+    row.push_str(ratio.as_str());
+    row.push_str(separator);
+    row.push_str(third.as_str());
+    draw_right_aligned(d, coords.output_x - 2, coords.pid_y, row.as_str());
 
     d.set_cursor(coords.output_x, coords.output_y);
     // Below 99 the output is shown as a percentage with one decimal; at or
@@ -319,9 +336,9 @@ pub fn display_pid_info(
     if input.pid_output < 99.0 {
         d.print(format_fixed(input.pid_output / 10.0, 1).as_str());
     } else {
-        d.print(format_int(truncate_to_i32(input.pid_output / 10.0)).as_str());
+        d.print(format_fixed(input.pid_output / 10.0, 0).as_str());
     }
-    d.print("%");
+    d.print(" %");
 }
 
 /// Where a template puts the PID row.

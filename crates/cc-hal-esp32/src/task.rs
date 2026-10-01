@@ -124,6 +124,22 @@ impl Default for CommandQueue {
     }
 }
 
+/// How long a command's caller waits for the control task to apply it.
+///
+/// Forty control periods at 10 ms, so the wait survives a control task that is
+/// busy and a command queue with several entries ahead of it.
+pub const COMMAND_ACK_TIMEOUT_MS: u32 = 400;
+
+/// How often a waiting caller re-checks. Five milliseconds is half a control
+/// period, so the ack is noticed within one tick of happening.
+pub const COMMAND_ACK_POLL_MS: u32 = 5;
+
+/// Sleep, for the ack wait. Named so [`crate::web::Shared::wait_applied`] does
+/// not reach for the HAL directly.
+pub fn delay_ms(ms: u32) {
+    esp_idf_hal::delay::FreeRtos::delay_ms(ms);
+}
+
 /// How many parameter-write requests may be waiting for the control task.
 ///
 /// Four, and it is not a tuning knob: the control task drains the whole mailbox
