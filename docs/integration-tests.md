@@ -441,3 +441,33 @@ Known-and-accepted, from reading the sheet (2026-10-01, inherited from the C++):
   screens to `profont10`, which changes the typography of six screens.
 * The OTA error message and the offline splash can run past the right edge
   depending on the string. Worth a decision before anyone relies on them.
+
+
+### Measured layout overruns (2026-10-01, third pass — all C++ behaviour unless noted)
+
+Every number is `Font::str_width` in the font the screen uses, and every one is
+pinned by `crates/cc-display/tests/languages.rs` so a *new* overrun fails the
+build.
+
+| where | line | width | panel | note |
+| --- | --- | --- | --- | --- |
+| EepromError, all languages | `EEPROM Error, please set Values` | 185 | 128 | 57 px cut |
+| SensorError, German only | `Temp.-Sensor ueberpruefen!` | 153 | 128 | 25 px cut; EN/ES are 111 and fit |
+| SensorError, **portrait** | `ueberpruefen!` | 75 | **64** | the baseline's German translation |
+| OTA title | `Update failed` in `fub17` | 150 | 128 | centred at `x = -11`, so **both** edges clip at once |
+| Scale, English | `Pressure: ` | 60 | 50 | runs into the value column |
+| Scale, Spanish | `Pressure: ` | 54 | 50 | |
+| Scale, German | `Weight: `, `Flush: ` | 54 | 50 | |
+
+The Scale value column is 50 px (`kValueColumnOffset`, `DisplayWidgets.h:170`),
+which is also where the **brew row and the setpoint row collide** — see §"the
+Scale row map" below. Both are the same layout defect wearing two hats, and
+neither is visible on the Standard template this machine is configured for.
+
+**The general check.** The firmware has `Font::ink_box` (the real inked extent,
+not the advance) and `Display::clip_window()` (rotation-aware, 64x128 in
+portrait) and neither was used for fitting anywhere. The test now uses
+`str_width` against the rotation-aware width, which is the same class of check
+one layer up, and it deliberately does **not** add a runtime "refuse to draw"
+primitive: that would change four screens that currently match the C++, in
+exchange for hiding a defect the baseline also has.

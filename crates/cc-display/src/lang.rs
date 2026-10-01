@@ -75,6 +75,20 @@ pub struct Lang {
     //    five, so the whole array is carried here.
     /// `langstring_error_tsensor[0..5]`
     pub error_tsensor: [&'static str; 5],
+    /// `langstring_error_tsensor_ur[5]` — the **portrait** sensor-error lines.
+    ///
+    /// The C++ carries two arrays and the portrait screen uses the second one
+    /// (`languages.h:35,69-73,110-114,155-159`); the landscape screen uses the
+    /// first. The port had only `error_tsensor` and fed *it* to both, so the
+    /// portrait screen drew the landscape sentence "Error, Temp: 92.5 / Check
+    /// Temp. sensor!" into a panel that is **64 logical pixels wide** — 111 px
+    /// of ink into 64, so 91 px of it was dropped and the operator saw a
+    /// fragment.
+    ///
+    /// The `lang.rs` header comment claimed the landscape array was carried
+    /// "because the portrait one shows all five lines". That was true of
+    /// `error_tsensor` and irrelevant: the portrait screen never read it.
+    pub error_tsensor_ur: [&'static str; 5],
 }
 
 const ENGLISH: Lang = Lang {
@@ -104,6 +118,7 @@ const ENGLISH: Lang = Lang {
         "backflush cycle",
     ],
     error_tsensor: ["Error, Temp: ", "Check Temp. sensor!", "", "", ""],
+    error_tsensor_ur: ["Error", "Temp: ", "check", "temp.", "sensor!"],
 };
 
 const GERMAN: Lang = Lang {
@@ -129,6 +144,10 @@ const GERMAN: Lang = Lang {
     backflush_finish: "um zu beenden...",
     backflush_reminder: ["Rueckspuelen", "Reiniger-", "Rueckspuelung"],
     error_tsensor: ["Fehler, Temp: ", "Temp.-Sensor ueberpruefen!", "", "", ""],
+    // `languages.h:155-159`. The last word is 75 px into a 64 px portrait panel,
+    // which is a defect in the **baseline's German translation** and not
+    // something the port can fix without inventing a different string.
+    error_tsensor_ur: ["Fehler", "Temp: ", "Temp.", "Sensor", "ueberpruefen!"],
 };
 
 const SPANISH: Lang = Lang {
@@ -154,6 +173,7 @@ const SPANISH: Lang = Lang {
     backflush_finish: "para terminar...",
     backflush_reminder: ["Recomendado", "Hacer backflush", "con detergente"],
     error_tsensor: ["Error, Temp: ", "Comprueba sensor T!", "", "", ""],
+    error_tsensor_ur: ["Error", "Temp: ", "Comprueba", "sensor", "T!"],
 };
 
 /// The strings for `language`.

@@ -211,6 +211,48 @@ re-verified on the board:
   lines a second on a 115200-baud console. It is now one line per fault, re-armed
   by a good reading.
 
+### Fixed on 2026-10-01, third pass — the language, and three flags that did nothing
+
+- **The UI's language labels were swapped.** `display.language` shipped in
+  `parameter-metadata.ts` as `0 = Deutsch, 1 = English` against the firmware's
+  `English = 0, German = 1`, so choosing English in the UI wrote German and the
+  panel came up German — reported as "I set the language to English and the OLED
+  shows German". Fixed, and `cc-config`'s
+  `the_ui_enum_labels_match_the_firmware_discriminants` now parses that table at
+  compile time and pins all **seventeen** enum parameters against the firmware's
+  discriminants, so a swapped pair, a renamed variant or a dropped option fails
+  the build.
+- **The fullscreen manual-flush and hot-water timers ignored their flags.** The
+  C++ gates every fullscreen mode on `policy && config && state`
+  (`DisplayTemplateBase.h:65-68`); the port had `policy && state`. Since the
+  config side defaults to **false** in both firmwares, a stock machine showed two
+  fullscreen screens the C++ never shows, and the hot-water one fires on
+  ordinary hot-water and steam use. Both now take a `Config`, exactly as the brew
+  timer always did.
+- **Five `Config::default()` values disagreed with the C++'s `ParamDef`
+  defaults** — all three fullscreen timers, `pid_off_logo` and
+  `post_brew_timer_duration_s`. The type's doc comment claims they are the C++'s.
+  This is what let the first two hide: `screen_matrix.rs`'s "everything off"
+  config inherited them, so the checker meant to find the bug had the bug inside
+  it. Twelve goldens changed as a result — and they were **wrong before**:
+  `standard.ppm`, `scale.ppm` and `upright.ppm` were pictures of the fullscreen
+  brew timer, so those three templates' normal layouts had never been
+  golden-tested at all.
+- **`hardware.oled.enabled` did nothing.** Now it gates the panel at bring-up —
+  not the bus, because the ABP2 shares it — and "off" means the SSD1306 is never
+  opened, which is what the C++ does by never setting the display pointer.
+  Blank-on-stdby (`set_blank`, `0xAE`) is a different mechanism and is left
+  alone.
+- **The portrait sensor-error screen drew the landscape sentence.** The C++
+  carries `langstring_error_tsensor_ur[5]` for the portrait screen
+  (`languages.h:35,69-73`); the port had dropped it and fed the landscape strings
+  to both, so a **64 logical pixel**-wide panel received 111 px of ink. Restored
+  for all three languages.
+- A false comment claimed the C++'s EEPROM screen "does not compile in C++ -- so
+  this screen has never been reached". It does compile, the screen is reachable,
+  and the port is faithful to it. Corrected, because a wrong note in a parity
+  baseline is how correct code gets deleted later.
+
 ### Not done
 
 - **R3-18, the Acaia BLE scale — measured, and it does not fit.** Enabling

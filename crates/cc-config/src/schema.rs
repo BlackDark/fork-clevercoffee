@@ -1012,7 +1012,176 @@ pub fn default_tree() -> serde_json::Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::format;
+    use alloc::string::{String, ToString};
+    use alloc::vec;
+    use alloc::vec::Vec;
     use cc_domain::hardware::RelayTriggerType;
+
+    /// The UI's own copy of the enum table, read at compile time.
+    ///
+    /// `ui/packages/frontend/src/lib/parameter-metadata.ts` is a **hand-written
+    /// list** of `{ value, label }` pairs for every enum parameter. It drifted
+    /// once: `display.language` shipped as `0 = Deutsch, 1 = English` against the
+    /// firmware's `English = 0, German = 1`, so choosing English in the UI wrote
+    /// German and the panel came up in German. Nothing caught it because the two
+    /// lists are in different languages in different directories with no shared
+    /// source of truth.
+    ///
+    /// So this parses that file and asserts, per enum parameter, that the
+    /// firmware's discriminants and the UI's labels still describe the same
+    /// thing in the same order. A swapped pair, a renamed variant or a dropped
+    /// option fails the build.
+    const UI_METADATA: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../ui/packages/frontend/src/lib/parameter-metadata.ts"
+    ));
+
+    /// The `{ value: N, label: "X" }` pairs the UI declares for one parameter.
+    fn ui_options(source: &str, key: &str) -> Vec<(i64, String)> {
+        // The table's entries are objects; find the one naming `key`, then read
+        // its `options` array. A hand-rolled scan rather than a parser: the file
+        // is TypeScript, and a dependency to read it would be worse than twenty
+        // lines that fail loudly if the shape changes.
+        let anchor = format!("name: \"{key}\"");
+        let start = source
+            .find(&anchor)
+            .unwrap_or_else(|| panic!("{key} is not in the UI's enum table at all"));
+        let options_at = source[start..]
+            .find("options: [")
+            .unwrap_or_else(|| panic!("{key} has an entry but no options array"))
+            + start;
+        let end = options_at
+            + source[options_at..]
+                .find(']')
+                .expect("an options array that closes");
+        source[options_at..end]
+            .split('{')
+            .skip(1)
+            .filter_map(|entry| {
+                let value = entry
+                    .split("value: ")
+                    .nth(1)?
+                    .split(&[',', ' '][..])
+                    .next()?;
+                let label = entry.split("label: \"").nth(1)?.split('"').next()?;
+                Some((value.trim().parse().ok()?, label.to_string()))
+            })
+            .collect()
+    }
+
+    /// Every enum parameter the firmware declares, with the labels the UI shows.
+    ///
+    /// Built by hand from the schema rather than parsed out of it, because the
+    /// thing being checked is exactly the mapping between the schema and the UI
+    /// — parsing both sides the same way would hide a mistake in the parser.
+    fn enum_parameters() -> Vec<(&'static str, Vec<&'static str>)> {
+        vec![
+            ("display.language", vec!["English", "Deutsch", "Español"]),
+            (
+                "display.template",
+                vec![
+                    "Standard",
+                    "Minimal",
+                    "Temp only",
+                    "Scale",
+                    "Upright",
+                    "Modern",
+                ],
+            ),
+            ("brew.mode", vec!["Manual", "Automatic"]),
+            ("hardware.switches.brew.type", vec!["Momentary", "Toggle"]),
+            (
+                "hardware.switches.brew.mode",
+                vec!["Normally Open", "Normally Closed"],
+            ),
+            ("hardware.switches.steam.type", vec!["Momentary", "Toggle"]),
+            (
+                "hardware.switches.steam.mode",
+                vec!["Normally Open", "Normally Closed"],
+            ),
+            ("hardware.switches.power.type", vec!["Momentary", "Toggle"]),
+            (
+                "hardware.switches.power.mode",
+                vec!["Normally Open", "Normally Closed"],
+            ),
+            (
+                "hardware.switches.hot_water.type",
+                vec!["Momentary", "Toggle"],
+            ),
+            (
+                "hardware.switches.hot_water.mode",
+                vec!["Normally Open", "Normally Closed"],
+            ),
+            (
+                "hardware.sensors.temperature.type",
+                vec!["TSIC306", "Dallas DS18B20"],
+            ),
+            (
+                "hardware.sensors.watertank.mode",
+                vec!["Normally Open", "Normally Closed"],
+            ),
+            (
+                "hardware.sensors.scale.type",
+                vec!["2 load cells", "1 load cell", "Bluetooth"],
+            ),
+            ("hardware.oled.type", vec!["SH1106", "SSD1306"]),
+            (
+                "hardware.relays.heater.trigger_type",
+                vec!["Low Trigger", "High Trigger"],
+            ),
+            (
+                "hardware.relays.valve.trigger_type",
+                vec!["Low Trigger", "High Trigger"],
+            ),
+            (
+                "hardware.relays.pump.trigger_type",
+                vec!["Low Trigger", "High Trigger"],
+            ),
+        ]
+    }
+
+    #[test]
+    fn the_ui_enum_labels_match_the_firmware_discriminants() {
+        for (key, expected) in enum_parameters() {
+            let options = ui_options(UI_METADATA, key);
+            assert_eq!(
+                options.len(),
+                expected.len(),
+                "{key}: the firmware has {} enum values and the UI offers {} options",
+                expected.len(),
+                options.len()
+            );
+            for (index, (value, label)) in options.iter().enumerate() {
+                assert_eq!(
+                    *value,
+                    i64::try_from(index).unwrap_or(i64::MAX),
+                    "{key}: the UI's option {index} has value {value}; the firmware's \
+                     discriminants are consecutive from 0, so a gap means one of the \
+                     two sides has a variant the other does not"
+                );
+                assert_eq!(
+                    label, &expected[index],
+                    "{key}: the UI calls value {value} {:?} and the firmware calls it \
+                     {:?}. This is the bug that made the panel come up German when the \
+                     UI said English.",
+                    label, expected[index]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn every_enum_parameter_the_ui_lists_is_one_the_firmware_has() {
+        // The other direction: a parameter the UI offers options for that the
+        // schema does not declare is a control that writes a key nothing reads.
+        for (key, _) in enum_parameters() {
+            assert!(
+                SCHEMA.iter().any(|spec| spec.key == key),
+                "{key} has a UI enum table but no schema entry"
+            );
+        }
+    }
 
     #[test]
     fn the_schema_has_ninety_eight_entries() {

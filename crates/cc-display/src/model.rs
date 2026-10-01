@@ -322,11 +322,28 @@ impl Default for Config {
             inverted: false,
             language: Language::English,
             heating_logo: 1,
-            pid_off_logo: 0,
-            fullscreen_brew_timer: true,
-            fullscreen_manual_flush_timer: true,
-            fullscreen_hot_water_timer: true,
-            post_brew_timer_duration_s: 10.0,
+            // `true` — `displayPidOffLogo` (`Config.h:1231`). These five were
+            // wrong, and the type's doc comment claims they are the C++'s
+            // `ParamDef` defaults:
+            //
+            // | field | was | C++ |
+            // | --- | --- | --- |
+            // | `pid_off_logo` | 0 | `true` (`Config.h:1231`) |
+            // | `fullscreen_brew_timer` | true | `false` (`Config.h:1193`) |
+            // | `fullscreen_manual_flush_timer` | true | `false` (`Config.h:1200`) |
+            // | `fullscreen_hot_water_timer` | true | `false` (`Config.h:1207`) |
+            // | `post_brew_timer_duration_s` | 10.0 | `3.0` (`defaults.h:50`) |
+            //
+            // It matters because this `Default` is what every **host test**
+            // renders, and `screen_matrix.rs`'s "no features" config inherits it:
+            // an "everything off" case was coming up with all three fullscreen
+            // timers on, which is how a default-on parity bug hid inside the
+            // checker that was supposed to find it.
+            pid_off_logo: 1,
+            fullscreen_brew_timer: false,
+            fullscreen_manual_flush_timer: false,
+            fullscreen_hot_water_timer: false,
+            post_brew_timer_duration_s: 3.0,
             blinking_delta: 0.3,
             backflush_reminder_enabled: true,
             brew_mode: BrewMode::Manual,

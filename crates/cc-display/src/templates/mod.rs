@@ -288,7 +288,8 @@ pub fn render(
         }
     }
     if policy.shared_fullscreen_manual_flush_timer {
-        if let Some(stage) = crate::fullscreen::draw_manual_flush_timer(d, input, template) {
+        if let Some(stage) = crate::fullscreen::draw_manual_flush_timer(d, input, config, template)
+        {
             return Rendered {
                 display: d.clone(),
                 stage,
@@ -296,7 +297,7 @@ pub fn render(
         }
     }
     if policy.shared_fullscreen_hot_water_timer {
-        if let Some(stage) = crate::fullscreen::draw_hot_water_timer(d, input, template) {
+        if let Some(stage) = crate::fullscreen::draw_hot_water_timer(d, input, config, template) {
             return Rendered {
                 display: d.clone(),
                 stage,

@@ -108,6 +108,20 @@ fn input() -> DisplayInput {
 fn config_off() -> Config {
     Config {
         language: Language::English,
+        // Spelled out because `Config::default()` used to have these **on** —
+        // the C++ defaults are `false` — so this function's "everything off" was
+        // everything on for exactly the three flags a parity bug was hiding
+        // behind.
+        fullscreen_brew_timer: false,
+        fullscreen_manual_flush_timer: false,
+        fullscreen_hot_water_timer: false,
+        heating_logo: 0,
+        pid_off_logo: 0,
+        scale_enabled: false,
+        pressure_enabled: false,
+        brew_switch_enabled: false,
+        mqtt_enabled: false,
+        backflush_reminder_enabled: false,
         ..Config::default()
     }
 }
@@ -855,4 +869,143 @@ fn every_display_input_field_changes_what_is_drawn() {
          know: {inert:?}. Either the field is dead, or the matrix is missing the \
          screen that shows it."
     );
+}
+
+/// The two configs really are on and off.
+///
+/// Cheap, and it is a one-line diagnosis of how a default-on parity bug hid
+/// inside the checker that was supposed to find it: the "everything off" config
+/// was everything **on** for the three fullscreen flags, because
+/// `Config::default()` had them wrong.
+#[test]
+fn the_two_configs_really_are_on_and_off() {
+    let on = config();
+    let off = config_off();
+    // `heating_logo` and `pid_off_logo` are `u8` in `Config` (the C++ stores 0/1)
+    // and are compared as `!= 0` here, so the table below is all `bool`.
+    for (name, on_value, off_value) in [
+        (
+            "fullscreen_brew_timer",
+            on.fullscreen_brew_timer,
+            off.fullscreen_brew_timer,
+        ),
+        (
+            "fullscreen_manual_flush_timer",
+            on.fullscreen_manual_flush_timer,
+            off.fullscreen_manual_flush_timer,
+        ),
+        (
+            "fullscreen_hot_water_timer",
+            on.fullscreen_hot_water_timer,
+            off.fullscreen_hot_water_timer,
+        ),
+        ("heating_logo", on.heating_logo != 0, off.heating_logo != 0),
+        ("pid_off_logo", on.pid_off_logo != 0, off.pid_off_logo != 0),
+        ("scale_enabled", on.scale_enabled, off.scale_enabled),
+        (
+            "pressure_enabled",
+            on.pressure_enabled,
+            off.pressure_enabled,
+        ),
+        (
+            "brew_switch_enabled",
+            on.brew_switch_enabled,
+            off.brew_switch_enabled,
+        ),
+        ("mqtt_enabled", on.mqtt_enabled, off.mqtt_enabled),
+        (
+            "backflush_reminder_enabled",
+            on.backflush_reminder_enabled,
+            off.backflush_reminder_enabled,
+        ),
+    ] {
+        assert!(
+            on_value && !off_value,
+            "{name}: the all-on config has {on_value} and the all-off config has \
+             {off_value}, so one of the two is not what it says it is"
+        );
+    }
+}
+
+/// **Every rendering flag must change some frame.** A flag that changes no pixel
+/// anywhere is dead by definition.
+///
+/// Three of them were, while the C++ baseline gates on them: the C++ conditions
+/// every fullscreen mode on `policy && config && state`
+/// (`DisplayTemplateBase.h:65-68`), and the port had `policy && state`. Since
+/// the config side defaults to **false** in both firmwares, a stock machine
+/// showed a fullscreen manual-flush and hot-water timer the C++ never shows —
+/// and the hot-water one fires on ordinary hot-water and steam use.
+///
+/// A flag may legitimately be inert, but then it has to be listed below with its
+/// reason, so the list cannot grow silently.
+#[test]
+fn every_rendering_flag_changes_some_frame() {
+    /// A rendering flag and how to set it.
+    type Flag = (&'static str, fn(&mut Config, bool));
+
+    // (field name, setter)
+    let flags: Vec<Flag> = vec![
+        ("fullscreen_brew_timer", |c, v| c.fullscreen_brew_timer = v),
+        ("fullscreen_manual_flush_timer", |c, v| {
+            c.fullscreen_manual_flush_timer = v;
+        }),
+        ("fullscreen_hot_water_timer", |c, v| {
+            c.fullscreen_hot_water_timer = v;
+        }),
+        ("heating_logo", |c, v| c.heating_logo = u8::from(v)),
+        ("pid_off_logo", |c, v| c.pid_off_logo = u8::from(v)),
+        ("scale_enabled", |c, v| c.scale_enabled = v),
+        ("pressure_enabled", |c, v| c.pressure_enabled = v),
+        ("brew_switch_enabled", |c, v| c.brew_switch_enabled = v),
+        ("mqtt_enabled", |c, v| c.mqtt_enabled = v),
+        ("backflush_reminder_enabled", |c, v| {
+            c.backflush_reminder_enabled = v;
+        }),
+    ];
+    // Fields with a documented reason for drawing nothing.
+    let inert: &[(&str, &str)] = &[(
+        "oled_enabled",
+        "not a rendering flag: 'off' means the firmware never opens the panel at \
+         all, which is a bring-up decision in cc-firmware, not something a \
+         renderer can express",
+    )];
+
+    for (name, set) in flags {
+        let mut changed_somewhere = false;
+        // Both configs, because they expose different rows: with the fullscreen
+        // timers on, the Normal layout's brew row is never reached on Standard,
+        // Scale or Upright, so sweeping only the all-on config makes a flag that
+        // gates *that* row look dead. Which is what the first version of this
+        // test reported for `brew_switch_enabled`.
+        'outer: for base in [config(), config_off()] {
+            for template in TEMPLATES {
+                for (_case, input) in extremes() {
+                    let mut frames = [None, None];
+                    for (index, value) in [false, true].into_iter().enumerate() {
+                        let mut cfg = base;
+                        set(&mut cfg, value);
+                        let mut d = Display::new();
+                        let _ = templates::render(template, &mut d, &input, &cfg);
+                        frames[index] = Some(d.framebuffer().as_bytes().to_vec());
+                    }
+                    // **The whole frame**, not the ink bounds: a row appearing in
+                    // the middle of a screen can leave the bounds untouched, and
+                    // the bounds are what the first version compared — which is
+                    // why `brew_switch_enabled` came back "dead" when it is not.
+                    if frames[0] != frames[1] {
+                        changed_somewhere = true;
+                        break 'outer;
+                    }
+                }
+            }
+        }
+        assert!(
+            changed_somewhere,
+            "{name} changes no pixel anywhere: no frame differs with it on and off. \
+             Either the renderer should read it, or it belongs in the inert list \
+             with a reason (which is currently {:?}).",
+            inert.iter().map(|(n, _)| *n).collect::<Vec<_>>()
+        );
+    }
 }

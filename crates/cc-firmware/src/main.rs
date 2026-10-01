@@ -929,8 +929,27 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
     // is: `bring_up` runs on ESP-IDF's main task, and a task bundle built *by
     // value* in this frame is a frame cost this function cannot see.
     let display_template = template_for(config.display.template);
+    // `hardware.oled.enabled` — the flag exists in the schema and in the C++
+    // (`Config.h:940-941`) and was read by nothing at all, so there was no way
+    // to turn the panel off. The C++ gates the **display**, never the bus:
+    // `SystemInitializer.cpp:338` only wires the display into the hardware
+    // context when the flag is set, so every renderer early-outs on a null
+    // display pointer. Here that means not calling `bring_up` at all, which is
+    // also the cheaper reading on a shared bus — no `INIT_SEQUENCE`, no address
+    // probe, no traffic.
+    //
+    // **Not** `set_blank(true)`: blanking is the *standby* mechanism
+    // (`machine.standby.should_turn_off_display()`), it keeps the controller
+    // alive so waking is free, and it does not stop the boot screens being
+    // drawn. "Off" has to mean the panel is never touched.
+    let panel = if config.hardware.oled.enabled {
+        shared_i2c.map(cc_hal_esp32::display_shared::SharedPanel::bring_up)
+    } else {
+        info!("display: hardware.oled.enabled is false — the panel is not brought up");
+        None
+    };
     let display = Box::new(display_task::DisplayTask::new(
-        shared_i2c.map(cc_hal_esp32::display_shared::SharedPanel::bring_up),
+        panel,
         display_template,
         Arc::clone(&frame),
         Arc::clone(&net.shared),

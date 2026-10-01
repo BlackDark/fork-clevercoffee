@@ -87,8 +87,17 @@ pub fn draw_brew_timer(
 pub fn draw_manual_flush_timer(
     d: &mut Display,
     input: &DisplayInput,
+    config: &Config,
     template: TemplateId,
 ) -> Option<Stage> {
+    // `Config::displayFullscreenManualFlushTimer`
+    // (`DisplayFullscreenModes.h:82-84`). The C++ gates this screen on
+    // **policy AND config AND state**; the port had policy and state, so a
+    // machine with the flag off — which is the shipped default — still got the
+    // fullscreen timer. The brew timer above has always had this check.
+    if !config.fullscreen_manual_flush_timer {
+        return None;
+    }
     if !is_manual_flush_state(input.state) {
         return None;
     }
@@ -111,8 +120,15 @@ pub fn draw_manual_flush_timer(
 pub fn draw_hot_water_timer(
     d: &mut Display,
     input: &DisplayInput,
+    config: &Config,
     template: TemplateId,
 ) -> Option<Stage> {
+    // `Config::displayFullscreenHotWaterTimer` (`DisplayFullscreenModes.h:107-109`).
+    // Same missing second gate as the manual flush above, and this one fires on
+    // ordinary hot-water and steam use rather than on an edge case.
+    if !config.fullscreen_hot_water_timer {
+        return None;
+    }
     if !crate::helpers::should_display_hot_water_timer(input) {
         return None;
     }
