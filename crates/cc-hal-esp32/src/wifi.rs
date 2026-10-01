@@ -299,6 +299,13 @@ impl Sta {
     }
 
     /// Start an association with `ssid` and `password`.
+    ///
+    /// # Errors
+    ///
+    /// `ESP_ERR_INVALID_ARG` for an SSID longer than 32 bytes or a password
+    /// longer than 64 — the widths of `wifi_sta_config_t::ssid` and `::password`.
+    /// Rejected rather than truncated, because a truncated SSID associates with
+    /// the *wrong network*, or with none.
     pub fn connect(&mut self, ssid: &str, password: &str) -> Result<(), EspError> {
         let (auth_method, pmf_cfg) = Self::station_security();
         let conf = Configuration::Client(ClientConfiguration {
