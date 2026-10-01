@@ -429,13 +429,14 @@ pub fn telemetry_from(reading: Reading, uptime_ms: u32, weight_g: Option<f64>) -
 /// Note the ownership consequence, because it is the part that bites later: the
 /// snapshot is a single slot and both publishers write it, so the two must not
 /// race. They do not today — the control task writes once per
-/// [`crate::main::CONTROL_PERIOD_MS`] and the radio once per second, and each write is a single
-/// `Mutex` critical section over the whole slot, so the worst case is one
+/// [`crate::main::CONTROL_PERIOD_MS`] and the radio once per second, and each
+/// write is one [`Cell`] sequence over the whole slot, so the worst case is one
 /// publisher's fields being one tick stale, never torn.
 pub fn publish_radio(shared: &Shared, sta: Option<&Sta>) {
-    let Ok(mut slot) = shared.telemetry.lock() else {
-        return;
-    };
+    // Read-modify-write, so this cannot be a bare `set`. Both publishers are on
+    // the control task and are sequential, which is what makes the
+    // read-copy-write here sound: no other task ever writes this slot.
+    let mut slot = shared.snapshot();
     if let Some(sta) = sta {
         slot.signal = sta.signal().as_bars();
         slot.wifi_associated = sta.is_associated();
@@ -449,6 +450,7 @@ pub fn publish_radio(shared: &Shared, sta: Option<&Sta>) {
         slot.wifi_offline = false;
         slot.ip = None;
     }
+    shared.publish(slot);
 }
 
 /// Publish the SSE `new_temps` event, if an HTTP server is running.

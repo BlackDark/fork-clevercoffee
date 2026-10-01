@@ -84,14 +84,24 @@
 //! than a plausible-looking zero. A handler that returns `0 g` for a scale the
 //! firmware cannot read is a lie that costs a support call.
 
+// The `unsafe` in this module is the lock-free `Cell` below: one writer,
+// sequence-checked readers. The reasoning is on the type and at every access; the
+// workspace lint is `unsafe_code = "deny"`, so it is allowed here for the same
+// reason `crate::web_async` is.
+#![allow(
+    unsafe_code,
+    reason = "the lock-free telemetry Cell: one writer, sequence-checked readers"
+)]
+
 use alloc::collections::VecDeque;
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
+use core::cell::UnsafeCell;
 use core::fmt::Write as _;
-use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::sync::Mutex;
 
 use cc_config::schema::{ParamValue, SCHEMA};
@@ -334,10 +344,106 @@ pub enum Command {
     Restart,
 }
 
+/// A single-writer value that many tasks may read, **with no lock**.
+///
+/// This exists because `Shared::telemetry` was a `std::sync::Mutex` — a
+/// `pthread` mutex, so a `FreeRTOS` one — taken **twice per 10 ms control tick**
+/// and read by the httpd and display tasks. On this build every cross-task
+/// blocking primitive asserts the kernel (`09-cpp-findings.md` §28), so the
+/// design was contradicting its own stated rule.
+///
+/// The writer stamps the sequence **odd** before the payload and **even** after;
+/// a reader reads, re-reads the sequence, and retries if it moved. A reader may
+/// observe a torn value; it can never *accept* one.
+///
+/// **One writer, always.** For `telemetry` that is the control task: `publish`
+/// and `publish_radio` are both called from it, sequentially, which is what makes
+/// the read-modify-write in `publish_radio` sound.
+pub struct Cell<T: Clone> {
+    seq: AtomicUsize,
+    value: UnsafeCell<T>,
+}
+
+// SAFETY: `value` has exactly one writer — the control task, which calls both
+// `Shared::publish` and `network::publish_radio` — and any number of readers.
+// The sequence check makes a torn read detectable rather than acceptable, which
+// is what lets `Sync` hold. The compiler cannot see that agreement, which is the
+// only reason this is `unsafe`. Nothing here is reachable from an interrupt.
+unsafe impl<T: Clone + Send> Sync for Cell<T> {}
+// SAFETY: as above; `set` takes `&self`, so the one-writer rule is a discipline
+// rather than a type-level fact, and it is stated here where it is enforced.
+unsafe impl<T: Clone + Send> Send for Cell<T> {}
+
+impl<T: Clone + Default> Default for Cell<T> {
+    /// An empty cell, readable as the default until it is written.
+    fn default() -> Self {
+        Self {
+            seq: AtomicUsize::new(0),
+            value: UnsafeCell::new(T::default()),
+        }
+    }
+}
+
+impl<T: Clone + Default> Cell<T> {
+    /// An empty cell, readable as the default until it is written.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Replace the value. The **one** writer only.
+    pub fn set(&self, value: T) {
+        self.seq.fetch_add(1, Ordering::Release);
+        // SAFETY: the only writer is the control task, and this is its own
+        // private field. A concurrent reader clones a value that may be half
+        // replaced, and rejects it on the sequence check below — which is the
+        // whole contract.
+        unsafe {
+            *self.value.get() = value;
+        }
+        self.seq.fetch_add(1, Ordering::Release);
+    }
+
+    /// The current value, or `None` when a write is in flight and does not settle
+    /// within [`Self::READ_ATTEMPTS`].
+    ///
+    /// `None` means "not readable right now", not "absent". Every caller has a
+    /// sensible fallback — `/api/status` already reports "no reading yet" — and a
+    /// stale number would be worse than a retry.
+    #[must_use]
+    pub fn get(&self) -> Option<T> {
+        for _ in 0..Self::READ_ATTEMPTS {
+            let before = self.seq.load(Ordering::Acquire);
+            if before == 0 {
+                return Some(T::default());
+            }
+            if before % 2 != 0 {
+                continue;
+            }
+            // SAFETY: a read while the single writer may be replacing the value.
+            // A torn clone is discarded by the sequence check below, which is
+            // what makes reading-without-a-lock sound. `Telemetry` carries the IP
+            // as a `String`, so a read is a small clone, on the reader's side.
+            let copy = unsafe { (*self.value.get()).clone() };
+            if self.seq.load(Ordering::Acquire) == before {
+                return Some(copy);
+            }
+        }
+        None
+    }
+
+    /// Attempts before `get` reports "not readable".
+    ///
+    /// Four. The writer's critical section is a few dozen bytes, so it is over in
+    /// nanoseconds; four attempts is generous, and the bound is what stops a
+    /// stalled writer from spinning the httpd task.
+    const READ_ATTEMPTS: usize = 4;
+}
+
 /// The shared state the HTTP handlers close over.
 pub struct Shared {
     /// The latest telemetry, republished by the control task.
-    pub telemetry: Mutex<Telemetry>,
+    pub telemetry: Cell<Telemetry>,
     /// The temperature history, appended by the control task.
     ///
     /// The C++'s `static TemperatureHistory tempHistory` is a file-static in
@@ -375,7 +481,7 @@ impl Shared {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            telemetry: Mutex::new(Telemetry::default()),
+            telemetry: Cell::new(),
             history: Mutex::new(alloc::boxed::Box::new(cc_domain::history::History::new())),
             applied: AtomicU32::new(0),
             reboot_requested: AtomicBool::new(false),
@@ -411,17 +517,18 @@ impl Shared {
     /// control task publishes first and the radio second in the same tick; see
     /// `publish_radio` for why the order matters.
     pub fn publish(&self, telemetry: Telemetry) {
-        if let Ok(mut slot) = self.telemetry.lock() {
-            *slot = telemetry;
-        }
+        self.telemetry.set(telemetry);
     }
 
     /// A copy of the current snapshot.
     #[must_use]
     pub fn snapshot(&self) -> Telemetry {
-        self.telemetry
-            .lock()
-            .map_or_else(|_| Telemetry::default(), |t| t.clone())
+        // Falls back to the default rather than blocking. A reader that could not
+        // get a consistent snapshot in four attempts gets zeroes for one poll,
+        // which `/api/status` already reports as "no reading yet" — and blocking
+        // here would put a `pthread` mutex on the httpd task's hottest path,
+        // which is the hazard `Cell` exists to remove.
+        self.telemetry.get().unwrap_or_default()
     }
 
     /// How many large responses have been served.
@@ -3414,12 +3521,13 @@ pub mod tests {
         // four fields and `/api/status` would go back to `wifiAssociated: false`
         // — which is the bug this ordering exists to prevent.
         let shared = Shared::new();
-        // The radio publishes first.
-        if let Ok(mut slot) = shared.telemetry.lock() {
-            slot.wifi_associated = true;
-            slot.signal = 4;
-            slot.ip = Some(alloc::string::String::from("10.0.0.7"));
-        }
+        // The radio publishes first — a read-modify-write, exactly as
+        // `network::publish_radio` does it.
+        let mut radio = shared.snapshot();
+        radio.wifi_associated = true;
+        radio.signal = 4;
+        radio.ip = Some(alloc::string::String::from("10.0.0.7"));
+        shared.publish(radio);
         // …and the control task's publish is the one that must not run second.
         let before = shared.snapshot();
         shared.publish(telemetry_with_radio_untouched(&before));
