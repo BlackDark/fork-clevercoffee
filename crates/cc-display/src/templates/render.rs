@@ -80,8 +80,8 @@ pub fn temperature_only(d: &mut Display, input: &DisplayInput, _config: &Config)
 ///
 /// Standard plus two conditional rows. Note the different y values from the
 /// Standard template: the temperature block at y=16, the brew at y=26, the
-/// weight at y=36, the pressure at y=46 — a ten-pixel pitch — against Standard's
-/// 16/36/47.
+/// weight and the pressure — a nine-pixel pitch, see [`SCALE_ROW_TEMP`] —
+/// against Standard's 16/36/47.
 pub fn scale(d: &mut Display, input: &DisplayInput, config: &Config) {
     let l = crate::lang::for_language(config.language);
     d.clear_buffer();
@@ -90,7 +90,7 @@ pub fn scale(d: &mut Display, input: &DisplayInput, config: &Config) {
     widgets::display_temperature_info(d, input, l, &scale_temp_coords(), false);
 
     if config.brew_switch_enabled {
-        draw_brew_info(d, input, config, l, false, 0, 26);
+        draw_brew_info(d, input, config, l, false, 0, SCALE_ROW_BREW);
     }
 
     if config.scale_enabled {
@@ -108,19 +108,28 @@ pub fn scale(d: &mut Display, input: &DisplayInput, config: &Config) {
                 d,
                 l,
                 0,
-                36,
+                SCALE_ROW_WEIGHT,
                 input.brew_weight,
                 target,
                 input.scale_fault,
                 false,
             );
         } else {
-            widgets::display_brew_weight(d, l, 0, 36, input.weight, -1.0, input.scale_fault, false);
+            widgets::display_brew_weight(
+                d,
+                l,
+                0,
+                SCALE_ROW_WEIGHT,
+                input.weight,
+                -1.0,
+                input.scale_fault,
+                false,
+            );
         }
     }
 
     if config.pressure_enabled {
-        widgets::display_pressure(d, input, l, 0, 46);
+        widgets::display_pressure(d, input, l, 0, SCALE_ROW_PRESSURE);
     }
 
     widgets::display_progress_bar(d, truncate_to_i32(input.pid_output / 10.0), 0, 60, 128);
@@ -819,13 +828,36 @@ fn standard_pid_coords() -> PidCoords {
 fn scale_temp_coords() -> TemperatureCoords {
     TemperatureCoords {
         current_temp_x: 0,
-        current_temp_y: 16,
+        current_temp_y: SCALE_ROW_TEMP,
         current_value_x: 50,
         set_temp_x: 0,
-        set_temp_y: 26,
+        set_temp_y: SCALE_ROW_SET,
         set_value_x: 50,
     }
 }
+
+// The Scale template's five content rows.
+//
+// **Re-pitched from 16/26/26/36/46.** The C++ puts the setpoint row and the brew
+// row both at `y = 26` (`ScaleTemplate.h:24,59-61`), and the brew row's inverted
+// field is `78 x 10` at `(x + 50, y + 1)` (`DisplayWidgets.h:170-171`) — so it
+// erases the setpoint's label, value and `°C`. The collision is not hidden by a
+// flag: `display.fullscreen_brew_timer` defaults to **false** in both firmwares, so
+// on a Scale-template machine the setpoint simply disappears for the whole
+// duration of a brew.
+//
+// A ten-pixel pitch cannot hold five rows above the progress bar at y=60: the last
+// row's ink would end at 58-61 and touch it. A **nine**-pixel pitch fits, and the
+// rows start at 13 so the last ends at 58, two clear of the bar.
+//
+// The cost is real and is the point of recording it: the C++'s row positions
+// move, so `scale*.ppm` changes and the screen looks different. What does *not*
+// change is that nothing is clipped and nothing is erased.
+const SCALE_ROW_TEMP: i32 = 13;
+const SCALE_ROW_SET: i32 = 22;
+const SCALE_ROW_BREW: i32 = 31;
+const SCALE_ROW_WEIGHT: i32 = 40;
+const SCALE_ROW_PRESSURE: i32 = 49;
 
 /// `UprightTemplate::getTemperatureCoords`. The value column is `base_x + 50`
 /// against `base_x = 1`, i.e. 51.

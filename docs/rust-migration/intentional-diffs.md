@@ -1199,3 +1199,47 @@ no interlock — while the heater ISR kept chopping at the last commanded duty. 
 power-switch reboot branch, a few lines below, already did the right thing and
 said why; this one did not. It now applies `Effect::SafeHardwareShutdown` through
 `apply_one` before the pause, exactly as its sibling does.
+
+
+## 15. The Scale template's five rows are re-pitched; the setpoint no longer disappears during a brew 🔴 changed
+
+**What changed.** The Scale template's content rows move from the C++'s
+`16 / 26 / 26 / 36 / 46` to **`13 / 22 / 31 / 40 / 49`**.
+
+**Why.** The C++ puts the **setpoint row and the brew row both at `y = 26`**
+(`ScaleTemplate.h:24` and `:59-61`), and the brew row's inverted field is
+`78 x 10` at `(x + 50, y + 1)` (`DisplayWidgets.h:170-171`). The brew field
+therefore erases the setpoint's **label**, its **value** and its **`°C`** — the
+whole row. Measured on the rendered framebuffer before the change: of the
+setpoint's pixels, two fragments survived.
+
+This is **not** hidden behind the fullscreen timer. `display.fullscreen_brew_timer`
+defaults to **false** in both firmwares, so the Normal layout is what a real
+Scale-template machine shows during a brew, and the collision is what an operator
+sees. It is inherited verbatim from the C++, which has the same coordinates, the
+same box and the same draw order.
+
+**Why nine pixels and why from 13.** A ten-pixel pitch cannot hold five rows above
+the progress bar at `y = 60`: the last row's ink ends at 58–61 and touches it. A
+**nine**-pixel pitch fits, and starting at 13 puts the last row's ink at 50–58,
+two clear of the bar. The adjacent inverted fields overlap by exactly one row —
+the lower border of the upper box — and the later one is drawn after, top to
+bottom, which is what the C++ already relies on.
+
+**Verified both ways**, by rendering the same input before and after:
+
+| | rows | the setpoint during a brew |
+| --- | --- | --- |
+| before | 17–24 Temp, 25–26 fragments | **gone** |
+| after | 15–21 Temp, **24–30 Set**, 33–39 Brew, 42–48 Weight | **present, with its value and `°C`** |
+
+**Cost.** The C++'s row positions move, so `scale.ppm`, `scale_fault.ppm` and
+`scale_offline.ppm` change and the screen looks different from the baseline
+firmware. What does not change is that nothing is clipped and nothing is erased.
+Pixel parity on this template is deliberately given up; read parity is kept.
+
+The rejected alternatives, for the record: **dropping the inverted field on Scale**
+does not work — the brew *label* at `x 0..36` still overwrites `Set:` at
+`x 0..24`; and **shrinking the field** is geometrically impossible, because both
+rows use the same value column at `x = 50`, so any box wide enough for the brew
+value covers the setpoint's too.
