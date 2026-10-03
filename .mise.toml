@@ -62,6 +62,21 @@ min_version = "2024.1.0"
   "cargo:cargo-espflash" = "4.6.0"
   "cargo:espflash" = "4.6.0"
 
+  # `cargo-binstall` installs crates from their GitHub RELEASE ASSETS instead of
+  # compiling them from source. It is here for one job: `espup`.
+  #
+  #   `cargo install espup`   139 s  (compiles espup + ~180 dependencies, every
+  #                                run -- the measured #1 cost in the device job)
+  #   `cargo-binstall espup`    0.4 s (downloads the 12 MB prebuilt)
+  #
+  # The `aqua:` backend is what makes that possible: mise fetches
+  # cargo-binstall ITSELF as a prebuilt (1.4 s), where the `cargo:` backend would
+  # compile it. `espup` is not in mise's registry, so mise cannot fetch it
+  # directly -- but espup's own Cargo.toml carries
+  # `[package.metadata.binstall]`, and binstall reads that to find the release
+  # asset. So: mise owns binstall, binstall owns espup, one owner each.
+  "aqua:cargo-bins/cargo-binstall" = "1.25.0"
+
   # Wraps the Xtensa `ld` for the ESP-IDF link. See .cargo/config.toml.
   "cargo:ldproxy" = "0.3.5"
 
@@ -84,6 +99,22 @@ min_version = "2024.1.0"
   x86_64_toolchain_version = "1.97.0.0"
 
   espup_version = "0.17.1"
+
+  # sha256 of the espup BINARY `cargo-binstall` installs on linux-x86_64, for
+  # `espup_version` above.
+  #
+  # This is not ceremony. `cargo install` verifies the crates.io tarball against
+  # a checksum the registry index pins, and then BUILDS the binary. binstall
+  # downloads a prebuilt from a GitHub release and espup publishes no checksum
+  # file for it, so without this the trust model quietly weakens. Pinning the
+  # binary's own digest restores it -- a wrong or tampered download fails here
+  # rather than quietly becoming the tool that installs your toolchain.
+  #
+  # `scripts/setup-esp-toolchain.sh` verifies ONLY on linux-x86_64, which is the
+  # only platform this repository's CI builds on. Elsewhere it prints that the
+  # check was skipped and continues; a developer on a Mac is not silently
+  # protected, and is told so.
+  espup_sha256_linux_x86_64 = "dbe54e9907b687809dbe1b955731569ed6df2b525362710d676256c5c8cf9ccd"
 
   # The toolchain the HOST gate compiles with: `cargo fmt`, clippy, rustdoc and
   # the portable crates' tests.

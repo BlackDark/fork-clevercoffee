@@ -54,7 +54,24 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        env_name: [esp32_usb, esp32_ota]
+        # ONE env, not two.
+        #
+        # `env_name: [esp32_usb, esp32_ota]` was two FULL PlatformIO builds of
+        # the same firmware -- 175 s and 142 s measured -- and they produce the
+        # same bytes. `platformio.ini:60-71`: both `extends = esp32_v1_base`, and
+        # the only differences are
+        #
+        #     monitor_port / upload_protocol / upload_port / upload_flags
+        #
+        # none of which affect codegen. Both jobs report
+        # `Flash: 90.3% (used 1539333 bytes from 1703936 bytes)` -- identical --
+        # and `release.yml` only ever builds `esp32_usb` (lines 114, 120, 129).
+        # So the `esp32_ota` artifact was a second copy of a file nothing reads.
+        #
+        # `env:esp32_ota` is KEPT in `platformio.ini` on purpose: it is how a
+        # developer flashes over the air locally (`pio run -e esp32_ota`). What
+        # was removed is only the duplicate CI build.
+        env_name: [esp32_usb]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 

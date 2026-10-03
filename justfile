@@ -367,7 +367,31 @@ env-file:
 #
 # `--frozen-lockfile` so a contributor cannot silently resolve a different
 # dependency set than CI does.
+# STAMPED, so the three device recipes that depend on it (lint-esp32,
+# build-esp32, size-check) do not each pay for pnpm + vite. Measured on the green
+# run: pnpm install 3.27 s + vite build 1.42 s in the first, and 0.41 + 1.23 in
+# the second -- about 6 s for work already done.
+#
+# The stamp is keyed on the things the build actually reads, so a change to any
+# of them re-runs the build:
+#   * `ui/pnpm-lock.yaml`   -- the resolved dependency set
+#   * every file under `ui/packages/frontend/src` and its config -- the bundle
+#   * the gzipped `dist` marker itself -- the frontend's `postbuild` gzips every
+#     asset and then rimrafs the plain ones, so `dist/index.html.gz` is the one
+#     path that is always present. (Stamping `dist/index.html` silently never
+#     matched anything, which is how this was found: the recipe was not
+#     skipping.)
+# `--frozen-lockfile` still holds: the stamp skips the WORK, it does not relax
+# the lock.
 ui:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    stamp=ui/packages/frontend/dist/index.html.gz
+    if [ -f "$stamp" ] && [ -z "$(find ui/pnpm-lock.yaml ui/packages/frontend/src \
+        ui/packages/frontend/*.ts ui/packages/frontend/*.json -newer "$stamp" 2>/dev/null)" ]; then
+      echo "ui: bundle is up to date ($stamp)"
+      exit 0
+    fi
     pnpm --dir ui install --frozen-lockfile
     pnpm --dir ui --filter @clevercoffee/frontend build
 
