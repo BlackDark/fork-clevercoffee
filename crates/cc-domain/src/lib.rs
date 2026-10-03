@@ -22,6 +22,7 @@ pub mod error;
 pub mod hardware;
 pub mod heater;
 pub mod history;
+pub mod http_auth;
 pub mod mqtt;
 pub mod pid;
 pub mod process;

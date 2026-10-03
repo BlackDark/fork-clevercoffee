@@ -11,7 +11,10 @@ mod support;
 use cc_config::config::SafetyView;
 use cc_config::json::{ImportError, RejectReason};
 use cc_config::schema::{self, ParamValue};
-use cc_config::{json_export, json_import, Config, ConfigStore, Secret, StoreError};
+use cc_config::{
+    document_pairs, json_export, json_import, Config, ConfigStore, Secret, StoreError,
+    MAX_CONFIG_BYTES,
+};
 use cc_domain::hardware::{RelayTriggerType, TemperatureSensorType};
 use cc_domain::units::Celsius;
 
@@ -825,4 +828,220 @@ fn the_safety_view_carries_every_relay_trigger_type() {
         assert_eq!(view.pump_relay_trigger, expected.1);
         assert_eq!(view.valve_relay_trigger, expected.2);
     }
+}
+
+// ==================================================== POST /api/config/upload
+
+/// The pairs a document carries, as `(key, value)` for comparison.
+///
+/// `Field` is `(String, String)` and the tests want to write literals, so the
+/// comparison goes through a `Vec<(&str, &str)>`.
+fn pairs(document: &str) -> Vec<(&str, &str)> {
+    document_pairs(document)
+        .expect("import")
+        .into_iter()
+        .map(|(k, v)| (leak(k), leak(v)))
+        .collect()
+}
+
+fn leak(text: String) -> &'static str {
+    Box::leak(text.into_boxed_str())
+}
+
+#[test]
+fn an_upload_yields_the_pairs_the_document_carries() {
+    assert_eq!(
+        pairs(r#"{"brew":{"setpoint":95.5},"pid":{"enabled":true}}"#),
+        vec![("pid.enabled", "1"), ("brew.setpoint", "95.5")]
+    );
+}
+
+#[test]
+fn an_upload_carries_only_the_keys_it_mentions() {
+    // **The whole reason this function exists and `json_import` is not used
+    // here.** `Config::importFromJsonObject` (`Config.cpp:328-331`) `continue`s
+    // past a parameter the document does not mention, so an upload of a partial
+    // document leaves the rest of the machine's configuration alone. A reader
+    // that returned a whole `Config` — with `#[serde(default)]` filling the
+    // gaps — would reset the other eighty-six keys to their compiled-in
+    // defaults, and an operator who uploaded one changed setpoint would silently
+    // lose their PID gains.
+    let document = r#"{"brew":{"setpoint":95.5}}"#;
+    let got = pairs(document);
+    assert_eq!(got.len(), 1);
+    assert!(
+        schema::SCHEMA.len() > 80,
+        "the schema is the point of the test"
+    );
+}
+
+#[test]
+fn an_every_pair_from_an_upload_is_accepted_by_the_one_writer() {
+    // The property that makes handing these to `assign::apply` safe: a value
+    // that survives `json::coerce` must render into a string that
+    // `assign::parse` — the *only* validation on the way into a `Config` —
+    // also accepts. If these two ever disagree, an upload is refused by the
+    // control task after the handler has already answered 200.
+    let document = r#"{
+        "pid": { "enabled": true, "ema_factor": 0.05, "regular": { "kp": 62.0, "i_max": 1.0 } },
+        "brew": {
+            "setpoint": 94.5, "mode": 1,
+            "by_time": { "enabled": false, "target_time": 30.0 }
+        },
+        "backflush": { "cycles": 5, "fill_time": 3.0 },
+        "system": { "hostname": "test-cc-rust", "log_level": 2 }
+    }"#;
+    for (key, value) in document_pairs(document).expect("import") {
+        assert!(
+            cc_config::assign::parse(&key, &value).is_ok(),
+            "{key}={value:?} was accepted by the document reader and refused by the writer"
+        );
+    }
+}
+
+#[test]
+fn every_kind_renders_into_a_string_the_writer_accepts() {
+    // One document per parameter kind, so a kind whose rendering is wrong (a
+    // float that renders with an exponent the writer's `parse` rejects, say)
+    // fails here rather than on a machine.
+    let mut config = Config::default();
+    config.pid.enabled = true;
+    config.pid.ema_factor = 0.125;
+    config.backflush.cycles = 7;
+    config.brew.setpoint = 93.75;
+    config.system.hostname = "kitchen".into();
+    config.brew.mode = cc_domain::process::BrewMode::Automatic;
+    let document = json_export(&config).expect("export");
+
+    for (key, value) in document_pairs(&document).expect("import") {
+        assert!(
+            cc_config::assign::parse(&key, &value).is_ok(),
+            "{key}={value:?} did not survive the round trip"
+        );
+    }
+    assert_eq!(pairs(&document).len(), schema::SCHEMA.len());
+}
+
+#[test]
+fn a_float_keeps_its_exact_value_through_the_pair() {
+    // `f64::Display` is the shortest representation that parses back to the
+    // same bits, and `assign::parse` uses `f64::parse`. Between them a PID gain
+    // of 0.1 must arrive as 0.1 and not as 0.10000000000000001.
+    let got = pairs(r#"{"pid":{"ema_factor":0.1}}"#);
+    assert_eq!(got, vec![("pid.ema_factor", "0.1")]);
+    let parsed = cc_config::assign::parse("pid.ema_factor", "0.1").expect("parse");
+    match parsed {
+        cc_config::json::LiveValue::Float(value) => {
+            // `to_bits`, not `==`: the property under test is that the rendered
+            // string parses back to the *same* `f64`, which is a statement about
+            // the bit pattern and not about numeric equality.
+            assert_eq!(
+                value.to_bits(),
+                0.1f64.to_bits(),
+                "0.1 must survive the render and re-parse bit-identically"
+            );
+        }
+        other => panic!("expected a float, got {other:?}"),
+    }
+}
+
+#[test]
+fn an_oversized_document_is_refused_rather_than_truncated() {
+    // The failure this guards: a body over the cap read to exactly the cap and
+    // then parsed. A truncated JSON object does not parse, so the answer would
+    // be a confusing 400 — but a document that happens to be valid up to the cut
+    // would apply *half a configuration* to a machine that may be brewing.
+    let oversized = format!(
+        r#"{{"system":{{"hostname":"{}"}}}}"#,
+        "x".repeat(MAX_CONFIG_BYTES)
+    );
+    assert!(matches!(
+        document_pairs(&oversized),
+        Err(ImportError::TooLarge { .. })
+    ));
+}
+
+#[test]
+fn an_upload_rejects_a_non_object_root_the_way_the_cpp_does() {
+    // WebServerManager.cpp:730-734 -> 400 "JSON body must be a top-level
+    // object".
+    for text in ["[1,2,3]", "42", "\"hello\"", "null"] {
+        assert_eq!(
+            document_pairs(text),
+            Err(ImportError::NotAnObject),
+            "{text:?}"
+        );
+    }
+}
+
+#[test]
+fn an_upload_rejects_flat_dotted_keys_by_name() {
+    // WebServerManager.cpp:737-745. The same rule as `json_import`, because it
+    // is the same prologue (`parse_document`).
+    match document_pairs(r#"{"brew.setpoint": 95.0}"#) {
+        Err(ImportError::FlatDottedKeys { key }) => assert_eq!(key, "brew.setpoint"),
+        other => panic!("expected a flat-key rejection, got {other:?}"),
+    }
+}
+
+#[test]
+fn an_upload_with_no_known_key_is_refused() {
+    // `Config::importFromJsonObject` returns `updatedCount > 0`
+    // (`Config.cpp:344`); a document that names nothing this firmware knows
+    // imported nothing.
+    assert_eq!(
+        document_pairs(r#"{"nothing":{"like":{"this":1}}}"#),
+        Err(ImportError::NoKnownParameters)
+    );
+}
+
+#[test]
+fn an_upload_with_one_bad_value_returns_nothing_at_all() {
+    // The property that makes the route safe to answer 200 on: `scan` collects
+    // every rejection before returning, so a document with nine good keys and
+    // one impossible one produces **no pairs**, not nine. A caller cannot
+    // half-apply.
+    let result = document_pairs(
+        r#"{"brew":{"setpoint":95.0},"safety":{"emergency_temp":900.0},"pid":{"enabled":true}}"#,
+    );
+    match result {
+        Err(ImportError::InvalidValues { rejected }) => {
+            assert_eq!(rejected.len(), 1);
+            assert_eq!(rejected[0].key, "safety.emergency_temp");
+        }
+        other => panic!("expected one rejection and no pairs, got {other:?}"),
+    }
+}
+
+#[test]
+fn an_empty_upload_is_refused() {
+    assert_eq!(document_pairs(""), Err(ImportError::Empty));
+}
+
+#[test]
+fn an_unparseable_upload_is_refused() {
+    assert!(matches!(
+        document_pairs("{"),
+        Err(ImportError::Syntax { .. })
+    ));
+}
+
+#[test]
+fn an_unknown_key_in_an_upload_is_ignored_as_in_the_cpp() {
+    // Forward compatibility, and `Config.cpp:328-331`'s behaviour: a document
+    // exported by a newer firmware must still import into this one.
+    let got = pairs(r#"{"future":{"setting":1},"brew":{"setpoint":95.0}}"#);
+    assert_eq!(got, vec![("brew.setpoint", "95.0")]);
+}
+
+#[test]
+fn a_credential_in_an_upload_is_carried_as_a_pair_and_nothing_else() {
+    // The upload path carries credentials in a heap `Vec<(String, String)>`,
+    // which is the one place a password could reach a log line. `Field` has no
+    // `Debug` impl in this crate's public API surface and `Applied`'s only
+    // formats key names, so a `format!("{pairs:?}")` cannot print one — this
+    // asserts the value is carried correctly *and* that the pair list is what
+    // the writer is handed.
+    let got = pairs(r#"{"system":{"auth":{"password":"hunter2"}}}"#);
+    assert_eq!(got, vec![("system.auth.password", "hunter2")]);
 }

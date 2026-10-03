@@ -424,6 +424,54 @@ pub const CASES: &[Case] = &[
         run: time::tests::the_microsecond_clock_is_finer_than_the_millisecond_one,
     },
     Case {
+        name: "web::steam_mode_is_the_latched_steam_flag_and_not_the_brew_state",
+        run: web::tests::steam_mode_is_the_latched_steam_flag_and_not_the_brew_state,
+    },
+    Case {
+        name: "web::the_status_steam_mode_agrees_with_the_steam_toggle_response",
+        run: web::tests::the_status_steam_mode_agrees_with_the_steam_toggle_response,
+    },
+    Case {
+        name: "web::auth_is_inert_when_it_is_switched_off",
+        run: web::tests::auth_is_inert_when_it_is_switched_off,
+    },
+    Case {
+        name: "web::auth_admits_the_right_credentials_and_refuses_everything_else",
+        run: web::tests::auth_admits_the_right_credentials_and_refuses_everything_else,
+    },
+    Case {
+        name: "web::auth_with_empty_credentials_serves_the_api_open_exactly_as_the_cpp_does",
+        run: web::tests::auth_with_empty_credentials_serves_the_api_open_exactly_as_the_cpp_does,
+    },
+    Case {
+        name: "web::the_challenge_is_the_cpp_realm",
+        run: web::tests::the_challenge_is_the_cpp_realm,
+    },
+    Case {
+        name: "web::enabling_auth_is_reported_as_needing_a_reboot",
+        run: web::tests::enabling_auth_is_reported_as_needing_a_reboot,
+    },
+    Case {
+        name: "web::the_auth_debug_never_prints_the_configuration",
+        run: web::tests::the_auth_debug_never_prints_the_configuration,
+    },
+    Case {
+        name: "web::the_config_upload_route_is_registered",
+        run: web::tests::the_config_upload_route_is_registered,
+    },
+    Case {
+        name: "web::the_upload_response_is_the_cpp_shape",
+        run: web::tests::the_upload_response_is_the_cpp_shape,
+    },
+    Case {
+        name: "web::the_upload_body_is_bounded_and_the_cap_is_the_cpps",
+        run: web::tests::the_upload_body_is_bounded_and_the_cap_is_the_cpps,
+    },
+    Case {
+        name: "web::the_advertised_options_handler_is_a_wildcard_over_the_api",
+        run: web::tests::the_advertised_options_handler_is_a_wildcard_over_the_api,
+    },
+    Case {
         name: "web::the_status_payload_has_the_csqs_keys",
         run: web::tests::the_status_payload_has_the_csqs_keys,
     },

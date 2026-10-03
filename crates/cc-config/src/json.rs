@@ -203,6 +203,33 @@ pub enum ExportError {
 ///
 /// See [`ImportError`]. Every rejection is total: on error nothing is applied.
 pub fn json_import(text: &str) -> Result<Config, ImportError> {
+    let root = parse_document(text)?;
+
+    let values = scan(&root)?;
+
+    // Deserialise the *patch* rather than the user's document. `#[serde(default)]`
+    // on every level fills in everything the patch does not mention, and
+    // building from the patch — instead of merging it into the document — means
+    // an unrecognised key, or a leaf where a group belongs, cannot survive into
+    // the `Config`. It also normalises the JSON types: `"setpoint": 95` and
+    // `"setpoint": 95.0` both become the same `f64`.
+    let mut patch = Map::new();
+    for (spec, value) in values {
+        insert_nested(&mut patch, spec.key, value);
+    }
+    serde_json::from_value(Value::Object(patch)).map_err(|e| ImportError::Syntax {
+        detail: e.to_string(),
+    })
+}
+
+/// The document prologue every import shares: size, syntax, root shape.
+///
+/// Split out of [`json_import`] so that [`document_pairs`] — the
+/// `POST /api/config/upload` reader — cannot drift from it. A rule that lives in
+/// one of the two and not the other is a rule an upload and a store-seed
+/// disagree about, and the disagreement is invisible until a document is
+/// accepted by one and refused by the other.
+fn parse_document(text: &str) -> Result<Map<String, Value>, ImportError> {
     if text.is_empty() {
         return Err(ImportError::Empty);
     }
@@ -221,24 +248,28 @@ pub fn json_import(text: &str) -> Result<Config, ImportError> {
     if let Some(key) = root.keys().find(|k| k.contains('.')) {
         return Err(ImportError::FlatDottedKeys { key: key.clone() });
     }
+    Ok(root)
+}
 
-    // Walk the schema and pull each key out of the nested object. Doing it this
-    // way round means a key that is absent and a key that is present-but-wrong
-    // are distinguishable, and it means the schema is the single source of
-    // truth for what "known" means.
+/// Every schema key the document mentions, with its coerced value.
+///
+/// The shared body of [`json_import`] and [`document_pairs`]: walk the schema,
+/// pull each key out of the nested object, and coerce it. Doing it this way
+/// round means a key that is absent and a key that is present-but-wrong are
+/// distinguishable, and it means the schema is the single source of truth for
+/// what "known" means.
+fn scan(root: &Map<String, Value>) -> Result<Vec<(&'static ParamSpec, Value)>, ImportError> {
     let mut rejected: Vec<RejectedValue> = Vec::new();
     let mut known = 0usize;
-    let mut patch = Map::new();
+    let mut accepted: Vec<(&'static ParamSpec, Value)> = Vec::new();
 
     for spec in schema::SCHEMA {
-        let Some(raw) = lookup(&root, spec.key) else {
+        let Some(raw) = lookup(root, spec.key) else {
             continue;
         };
         known += 1;
         match coerce(spec, raw) {
-            Ok(value) => {
-                insert_nested(&mut patch, spec.key, value);
-            }
+            Ok(value) => accepted.push((spec, value)),
             Err(reason) => rejected.push(RejectedValue {
                 key: spec.key,
                 reason,
@@ -252,16 +283,66 @@ pub fn json_import(text: &str) -> Result<Config, ImportError> {
     if known == 0 {
         return Err(ImportError::NoKnownParameters);
     }
+    Ok(accepted)
+}
 
-    // Deserialise the *patch* rather than the user's document. `#[serde(default)]`
-    // on every level fills in everything the patch does not mention, and
-    // building from the patch — instead of merging it into the document — means
-    // an unrecognised key, or a leaf where a group belongs, cannot survive into
-    // the `Config`. It also normalises the JSON types: `"setpoint": 95` and
-    // `"setpoint": 95.0` both become the same `f64`.
-    serde_json::from_value(Value::Object(patch)).map_err(|e| ImportError::Syntax {
-        detail: e.to_string(),
-    })
+/// The dotted `(key, value)` pairs a nested configuration document carries.
+///
+/// **This is the reader for `POST /api/config/upload`.** The C++'s route
+/// (`WebServerManager.cpp:727-762`) hands the body to
+/// `Config::importFromJsonObject` (`Config.cpp:323-345`), which walks the
+/// parameters, applies the ones the document mentions, and reports success if
+/// *one* of them imported. It is deliberately **not** `json_import`, which
+/// deserialises a whole `Config` with defaults filled in — that is the right
+/// shape for seeding a fresh store from `/config.json` and the wrong shape for
+/// an upload, where a document that mentions twelve keys must leave the other
+/// eighty-six exactly as they are.
+///
+/// Returning *pairs* rather than a `Config` is what keeps the writer single.
+/// The handler hands these to the control task, which applies them with
+/// [`crate::assign::apply`] — the same function `POST /api/parameters` uses and
+/// the only writer of a parameter in the workspace. A second applier here would
+/// be a second set of type rules, and the two would drift.
+///
+/// The pairs are rendered into the string form [`crate::assign::parse`] accepts,
+/// so the value that is validated here is validated *again* by the same
+/// [`crate::assign::parse`] on the way in — the idempotent second half of one
+/// rule, which is how `POST /api/parameters` already works. A float renders
+/// through Rust's shortest-round-trip `Display`, so a value this reader accepts
+/// arrives at the writer unchanged, bit for bit.
+///
+/// # Errors
+///
+/// See [`ImportError`]. Every rejection is total: on error no pair is returned,
+/// so there is nothing for a caller to half-apply.
+pub fn document_pairs(text: &str) -> Result<Vec<crate::form::Field>, ImportError> {
+    let root = parse_document(text)?;
+    Ok(scan(&root)?
+        .into_iter()
+        .map(|(spec, value)| {
+            let rendered = match value {
+                Value::Bool(flag) => {
+                    if flag {
+                        "1".to_string()
+                    } else {
+                        "0".to_string()
+                    }
+                }
+                // `coerce` has already narrowed these: an `Int` is an `i32`, an
+                // `Enum` an `i8`, and both are whole numbers, so neither can
+                // render with a fractional part. A `Float` can, and Rust's `f64`
+                // `Display` is the shortest representation that parses back to
+                // the same bits.
+                Value::Number(number) => number.to_string(),
+                Value::String(text) => text,
+                // `coerce` returns a `Value` built from the parameter's own
+                // kind, so nothing else is reachable. Returning the JSON form is
+                // the honest answer if that ever changes rather than a panic.
+                other => other.to_string(),
+            };
+            (spec.key.to_string(), rendered)
+        })
+        .collect())
 }
 
 /// The live value of one parameter, borrowed from a [`Config`].

@@ -16,7 +16,10 @@ repository.workspace = true
 # cc-firmware` does not name it, so the release image is unchanged. Enabling it
 # makes the test modules `pub`, which is a link-time-only difference the
 # optimiser removes anyway, but the point is that it is never on.
-device-tests = []
+# Enabling this turns on `cc-domain/device-tests` for `http_auth::tests_support::encode`, which the
+# authentication tests below use to build an `Authorization` header. Still inert for a release
+# build, which never names this feature.
+device-tests = ["cc-domain/device-tests"]
 
 [dependencies]
 cc-domain.workspace = true
