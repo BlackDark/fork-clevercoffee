@@ -120,6 +120,29 @@ const INACTIVE: Level = Level::Low;
 /// is alive, not two that could disagree.
 const HEARTBEAT_MS: u32 = CONTROL_PERIOD_MS;
 
+/// How often the *published parameter snapshot* is rebuilt, in milliseconds.
+///
+/// A SEPARATE constant, and it has to be one.
+///
+/// The `parameters_json()` publish used to be gated on [`HEARTBEAT_MS`], which
+/// is the control tick period -- 10 ms. The comment above that gate still
+/// explained the intent as "at 2.5 ticks a second that is 245 copies a second",
+/// which was true when the tick was 400 ms; commit 158f61b5 collapsed the tick
+/// onto the heartbeat and the gate with it. The effect, measured on the host
+/// against the real `SCHEMA`: **420 heap allocations and 20.5 KB per call, at
+/// 100 calls a second** -- about 42,000 allocations/s and 2 MB/s of allocator
+/// churn driven by the control task, next to the heater deadman. REVIEW.md H-7.
+///
+/// It could not simply be `HEARTBEAT_MS = 1000`:
+/// `const _: () = assert!(HEARTBEAT_MS * 2 <= DEADMAN_TIMEOUT_MS)` above would
+/// become `2000 <= 1000` and stop the firmware compiling, because
+/// `HEARTBEAT_MS` also *is* the deadman beat. Two different cadences, two
+/// constants, each named for what it paces.
+///
+/// 1 s is the cadence the C++'s `/api/status` and the UI poll on, and the age of
+/// a parameter snapshot older than that is not observable by anyone.
+const PARAMETERS_PUBLISH_MS: u32 = 1_000;
+
 // Stated at compile time so the relationship cannot rot: the deadman drops the
 // heater if the beat is older than `DEADMAN_TIMEOUT_MS`, so a tick period at or
 // above it would mean a single late tick drops the heater. One interlock period
@@ -2163,7 +2186,11 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
         // cannot reach past the tick into control state. The reboot and the scale
         // commands are the two that are not reducer events, and they are the two
         // that are genuinely not about the machine's state.
-        let mut effects: Vec<cc_machine::Effect> = Vec::new();
+        // `cc_machine::Effects`, not `Vec`: this is filled by the command
+        // queue, appended to by `Control::tick`, and applied — four to five times
+        // per 10 ms tick. A `Vec` here was a heap allocation per tick in the same
+        // loop that runs the heater deadman (REVIEW.md H-8).
+        let mut effects = cc_machine::Effects::new();
         let mut commands_applied: u32 = 0;
         while let Some(command) = commands.recv() {
             info!("control: command {command:?}");
@@ -2607,21 +2634,24 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
             sample_seq: temp.sample_seq(),
         };
 
-        let mut tick_effects = control.tick(&config, sensors, &edges, now);
+        let tick_effects = control.tick(&config, sensors, &edges, now);
         // The queue's effects were already folded above; `Control::tick` starts
-        // its own vector, so the two are concatenated in the C++'s order —
+        // its own list, so the two are concatenated in the C++'s order —
         // commands first (step 3 of the loop), then the tick's own.
-        effects.append(&mut tick_effects);
+        effects.extend(&tick_effects);
         cc_machine::apply(&mut actuators, &mut side, control.machine(), &effects);
 
         // Publish the values this task is actually running with, so
         // `GET /api/parameters` does not answer from the boot snapshot.
         //
-        // Once per heartbeat, not once per tick: this copies 98 values onto the
-        // heap, and at 2.5 ticks a second that is 245 copies a second for a
-        // number an operator looks at once a second. The heartbeat is the same
-        // 1 s cadence `/api/status` publishes on.
-        if now_ms().wrapping_sub(last_publish_ms) >= HEARTBEAT_MS {
+        // Once per second, NOT once per tick. This copies all 98 schema values
+        // onto the heap -- measured at 420 allocations and 20.5 KB per call --
+        // so gating it on the 10 ms control tick drove ~2 MB/s of allocator
+        // churn out of the control task for a number an operator looks at once a
+        // second. The gate was `HEARTBEAT_MS`, and the comment above it still
+        // argued from "2.5 ticks a second"; the tick is now 10 ms. See
+        // `PARAMETERS_PUBLISH_MS`.
+        if now_ms().wrapping_sub(last_publish_ms) >= PARAMETERS_PUBLISH_MS {
             last_publish_ms = now_ms();
             parameters.publish_live(cc_hal_esp32::parameters_json(&config));
         }

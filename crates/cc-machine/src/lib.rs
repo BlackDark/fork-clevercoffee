@@ -59,7 +59,7 @@
 //!
 //! # Purity, and how it is enforced
 //!
-//! [`reduce`] takes `&Machine` and returns `(Machine, Vec<Effect>)`. There is no
+//! [`reduce`] takes `&Machine` and returns `(Machine, Effects)`. There is no
 //! interior mutability anywhere in [`Machine`], no `static mut`, and no
 //! `unwrap`/`expect` outside tests. `tests/purity.rs` clones the input,
 //! reduces, and asserts the input is byte-identical afterwards.
@@ -69,8 +69,6 @@
 #![deny(missing_docs)]
 
 extern crate alloc;
-
-use alloc::vec::Vec;
 
 use cc_domain::state::MachineState;
 use cc_domain::units::Millis;
@@ -96,7 +94,7 @@ pub use backflush::{
 pub use cc_safety::steam_flow_allowed;
 pub use cc_safety::water_flow_allowed;
 pub use context::Context;
-pub use effect::{Effect, PumpWatchdog};
+pub use effect::{Effect, Effects, PumpWatchdog, MAX_EFFECTS_PER_EVENT};
 pub use event::{Command, Event, Sensors, SwitchId};
 pub use guards::{should_pid_be_enabled, Guard};
 pub use machine::{
@@ -125,17 +123,22 @@ pub use maintenance::{is_reminder_due, qualifies_as_counted_shot};
 /// * No `Vec` in the input. [`Event`] and [`Command`] are `Copy` and
 ///   fixed-size so they can cross a task boundary through
 ///   `hal::task::queue::Queue<Command, 32>` (04 §3.2).
+///
+/// The returned [`Effects`] is a fixed-capacity `heapless::Vec`, not an
+/// `alloc::vec::Vec`: this function runs four to five times per 10 ms control
+/// tick, and one heap allocation per call was 400 allocations a second in the
+/// loop that also runs the heater deadman. See [`effect::Effects`].
 #[must_use]
-pub fn reduce(machine: &Machine, ctx: &Context<'_>, ev: Event) -> (Machine, Vec<Effect>) {
+pub fn reduce(machine: &Machine, ctx: &Context<'_>, ev: Event) -> (Machine, Effects) {
     // `StateMachine::update()` returns immediately when it has not been
     // initialised (`StateMachine.cpp:72-75`). Reproduced rather than dropped:
     // an uninitialised machine must not act on a stale emergency request.
     if !machine.initialized {
-        return (*machine, Vec::new());
+        return (*machine, Effects::new());
     }
 
     let mut m = *machine;
-    let mut fx: Vec<Effect> = Vec::new();
+    let mut fx = Effects::new();
 
     // ---- 1. the event itself ----------------------------------------------
     match ev {
@@ -176,7 +179,7 @@ pub fn reduce(machine: &Machine, ctx: &Context<'_>, ev: Event) -> (Machine, Vec<
     }
 
     // ---- 2. the handler layer (C++ step 3 / step 4-tail) -------------------
-    fx.extend(handlers::apply_input(&mut m, ctx, ev));
+    fx.extend(&handlers::apply_input(&mut m, ctx, ev));
 
     // ---- 3. the control pass (C++ steps 3-5), once per loop ----------------
     if let Event::Tick { now } = ev {
@@ -191,7 +194,7 @@ pub fn reduce(machine: &Machine, ctx: &Context<'_>, ev: Event) -> (Machine, Vec<
 /// In the C++ this is `LoopManager` steps 3 through 5, in that order:
 /// `updateSwitchesAndStandby` (`LoopManager.cpp:561-569`),
 /// `updateStateMachine` (`:571-621`) and `updateProcessControl` (`:288-321`).
-fn tick(m: &mut Machine, ctx: &Context<'_>, now: Millis, fx: &mut Vec<Effect>) {
+fn tick(m: &mut Machine, ctx: &Context<'_>, now: Millis, fx: &mut Effects) {
     // ---- the switch handlers' per-loop work (LoopManager step 3) -----------
     //
     // `PowerHandler::recordSystemInitialization` is the only per-loop work any
@@ -204,7 +207,7 @@ fn tick(m: &mut Machine, ctx: &Context<'_>, now: Millis, fx: &mut Vec<Effect>) {
     standby_update(m, ctx, now);
 
     // ---- currentState_->update(context) (StateMachine.cpp:81) -------------
-    fx.extend(states::update(m.state, m, ctx));
+    fx.extend(&states::update(m.state, m, ctx));
 
     // ---- currentState_->checkTransitions(context) (StateMachine.cpp:84) ---
     // At most one transition. `checkTransitions` runs the global guards first
@@ -218,7 +221,7 @@ fn tick(m: &mut Machine, ctx: &Context<'_>, now: Millis, fx: &mut Vec<Effect>) {
     // The order of these two lines is the whole design: a state that asserts
     // "valve open" and the S5 fail-safe that asserts "valve closed" are both
     // applied in the same tick, and the *whitelist* is what decides.
-    fx.extend(handlers::pump_timeouts(m));
+    fx.extend(&handlers::pump_timeouts(m));
 
     // ---- valveSafetyShutdownCheck() (BrewHandler.h:105-122) ----------------
     //
@@ -250,7 +253,7 @@ fn tick(m: &mut Machine, ctx: &Context<'_>, now: Millis, fx: &mut Vec<Effect>) {
     }
 
     // ---- PowerHandler::checkForLongPressReboot (PowerHandler.h:142-147) ----
-    fx.extend(handlers::long_press_reboot(m));
+    fx.extend(&handlers::long_press_reboot(m));
 
     // ---- updateProcessControl (LoopManager step 5) -------------------------
     process_control(m, ctx, fx);
@@ -302,7 +305,7 @@ fn next_state(machine: &mut Machine, ctx: &Context<'_>) -> Option<MachineState> 
 /// The self-transition check is **not** repeated here: [`next_state`] has
 /// already applied it, so a guard that names the current state produces no
 /// effects at all.
-fn transition(m: &mut Machine, ctx: &Context<'_>, target: MachineState, fx: &mut Vec<Effect>) {
+fn transition(m: &mut Machine, ctx: &Context<'_>, target: MachineState, fx: &mut Effects) {
     // `createStateInstance(newStateId)` (`StateMachine.cpp:118`). The C++ logs
     // FATAL and restarts the device for an unknown id
     // (`StateFactory.cpp:65-69`); `MachineState` is an enum, so the id is known
@@ -323,7 +326,7 @@ fn transition(m: &mut Machine, ctx: &Context<'_>, target: MachineState, fx: &mut
     }
 
     fx.push(Effect::ExitState(old));
-    fx.extend(states::on_exit(old, m, ctx));
+    fx.extend(&states::on_exit(old, m, ctx));
 
     m.state = target;
     // Stamped **before** `onEntry`, so a state's entry code sees its own
@@ -331,7 +334,7 @@ fn transition(m: &mut Machine, ctx: &Context<'_>, target: MachineState, fx: &mut
     m.entry_at = m.now;
 
     fx.push(Effect::EnterState(target));
-    fx.extend(states::on_entry(target, m, ctx));
+    fx.extend(&states::on_entry(target, m, ctx));
 }
 
 /// `standbyCoordinator().update()` (`StandbyCoordinator.h:31-74`).
@@ -411,7 +414,7 @@ fn standby_update(m: &mut Machine, ctx: &Context<'_>, now: Millis) {
 /// asks "may the heater be energised?". They overlap and neither contains the
 /// other: `WATER_TANK_EMPTY` is excluded from the guard (so the machine can
 /// recover) but blocks the heater unless `keep_heater_on_empty`.
-fn process_control(m: &mut Machine, ctx: &Context<'_>, fx: &mut Vec<Effect>) {
+fn process_control(m: &mut Machine, ctx: &Context<'_>, fx: &mut Effects) {
     // `updatePIDState` (`ProcessController.cpp:151-172`).
     let permitted =
         guards::should_pid_be_enabled(m.state, ctx.keep_heater_on_empty(), m.pid.brew_disabled);
@@ -454,7 +457,7 @@ fn process_control(m: &mut Machine, ctx: &Context<'_>, fx: &mut Vec<Effect>) {
 /// that is aborted within one iteration therefore never disables the PID at
 /// all — which is the point of `reEnablePIDAfterBrewAbort` existing, and why
 /// the abort path is not merely the inverse.
-fn handle_brew_pid_delay(m: &mut Machine, ctx: &Context<'_>, fx: &mut Vec<Effect>) {
+fn handle_brew_pid_delay(m: &mut Machine, ctx: &Context<'_>, fx: &mut Effects) {
     let delay_ms = ctx.brew_pid_delay_ms();
     let in_brew = m.state.is_brew_state();
 
@@ -497,7 +500,7 @@ fn handle_brew_pid_delay(m: &mut Machine, ctx: &Context<'_>, fx: &mut Vec<Effect
 /// never asks the heater to be on when it must not be, even for the microseconds
 /// between the two C++ statements. That is the "fail safe, not fail fast"
 /// direction, and it is recorded here rather than left to be discovered.
-fn apply_pid_output(m: &mut Machine, ctx: &Context<'_>, output: f32, fx: &mut Vec<Effect>) {
+fn apply_pid_output(m: &mut Machine, ctx: &Context<'_>, output: f32, fx: &mut Effects) {
     m.pid.output = output;
     let permitted =
         guards::should_pid_be_enabled(m.state, ctx.keep_heater_on_empty(), m.pid.brew_disabled)
@@ -528,7 +531,7 @@ pub fn new() -> Machine {
 /// and lands in `PID_NORMAL` or `PID_DISABLED` — one loop after boot, exactly as
 /// the C++ does.
 #[must_use]
-pub fn boot(now: Millis, ctx: &Context<'_>) -> (Machine, Vec<Effect>) {
+pub fn boot(now: Millis, ctx: &Context<'_>) -> (Machine, Effects) {
     boot_in(MachineState::Init, ctx.pid_config_enabled(), now, ctx)
 }
 
@@ -562,7 +565,7 @@ pub fn boot_in(
     pid_runtime_enabled: bool,
     now: Millis,
     ctx: &Context<'_>,
-) -> (Machine, Vec<Effect>) {
+) -> (Machine, Effects) {
     let mut m = Machine::cold();
     m.state = initial;
     m.now = now;

@@ -4,6 +4,11 @@
 # Driven by the root justfile (`just size`, `just size-check`, `just size-record`).
 # Every phase gate must run `just size` and paste the output into the gate record.
 
+# esp32 is the ONLY built target. `justfile` has `build-esp32s3`/`build-esp32c6`
+# recipes, and `record` takes an `mcu` argument — but `tgt` and `elf` were
+# constants, so `just size-record esp32s3 x` silently measured the **esp32**
+# image and only said "esp32s3" in an error message. The argument is now checked
+# against what actually exists rather than trusted. REVIEW.md M-12.
 mcu := "esp32"
 
 # The single binary is named `firmware` (04 §6), so the artifact is
@@ -11,12 +16,23 @@ mcu := "esp32"
 tgt := "xtensa-esp32-espidf"
 elf := "target/" + tgt + "/release/firmware"
 
+# Fail loudly rather than measure the wrong chip.
+_require_esp32 mcu:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ "{{mcu}}" != "esp32" ]; then
+      echo "only esp32 is built; '{{mcu}}' would be measured as esp32."
+      echo "Build the other target first (justfile: build-{{mcu}}) and give"
+      echo "size.just a per-target triple, or drop the argument."
+      exit 1
+    fi
+
 part_table := "rust/partitions_4M.csv"
 baseline := "docs/rust-migration/size-baseline.json"
 records := "docs/rust-migration/size-records.jsonl"
 
 # Report image size, per-section breakdown and headroom.
-size:
+size: (_require_esp32 "esp32")
     #!/usr/bin/env bash
     set -euo pipefail
     export LC_ALL=C
@@ -81,7 +97,7 @@ size:
 
 # CI gate: the image must fit the slot, and must not have grown >10 % without a
 # recorded justification (07 §4/§5).
-check:
+check: (_require_esp32 "esp32")
     #!/usr/bin/env bash
     set -euo pipefail
     export LC_ALL=C
@@ -112,7 +128,7 @@ check:
     exit $fail
 
 # Record a phase-gate datapoint (07 §4). `just size-record esp32 gate-1`
-record mcu="esp32" label="":
+record mcu="esp32" label="": (_require_esp32 mcu)
     #!/usr/bin/env bash
     set -euo pipefail
     export LC_ALL=C

@@ -36,10 +36,8 @@
 
 use cc_domain::state::MachineState;
 
-use alloc::vec::Vec;
-
 use crate::context::Context;
-use crate::effect::Effect;
+use crate::effect::{Effect, Effects};
 use crate::machine::Machine;
 use crate::timing;
 
@@ -127,8 +125,8 @@ fn check_backflush_mode_disabled(machine: &mut Machine, ctx: &Context<'_>) -> Op
 // must not silently change another. Merging them would make the C++
 // provenance unreviewable and the ADR-0003 table untestable per row.
 #[must_use]
-pub fn on_entry(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -> Vec<Effect> {
-    let mut fx = Vec::new();
+pub fn on_entry(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -> Effects {
+    let mut fx = Effects::new();
     match state {
         // `InitState::onEntryImpl` (`InitState.cpp:12-14`) logs only.
         MachineState::Init => {}
@@ -291,8 +289,8 @@ pub fn on_entry(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -
 // must not silently change another. Merging them would make the C++
 // provenance unreviewable and the ADR-0003 table untestable per row.
 #[must_use]
-pub fn on_exit(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -> Vec<Effect> {
-    let mut fx = Vec::new();
+pub fn on_exit(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -> Effects {
+    let mut fx = Effects::new();
     match state {
         // No `onExitImpl` (`InitState.h:16-21`).
         MachineState::Init => {}
@@ -433,8 +431,8 @@ pub fn on_exit(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) ->
 // must not silently change another. Merging them would make the C++
 // provenance unreviewable and the ADR-0003 table untestable per row.
 #[must_use]
-pub fn update(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -> Vec<Effect> {
-    let mut fx = Vec::new();
+pub fn update(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -> Effects {
+    let mut fx = Effects::new();
     match state {
         // `InitState::update` (`InitState.cpp:16-22`): a debug log.
         MachineState::Init => {}

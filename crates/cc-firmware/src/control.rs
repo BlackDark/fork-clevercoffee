@@ -130,7 +130,7 @@ impl Control {
         config: &Config,
         now: Millis,
         power_switch_pressed: Option<bool>,
-    ) -> (Self, Vec<cc_machine::Effect>) {
+    ) -> (Self, cc_machine::Effects) {
         let (initial, runtime_pid) = initial_state(config, power_switch_pressed);
         let ctx = Context::new(config, celsius(config.effective_brew_setpoint()));
         let (machine, effects) = cc_machine::boot_in(initial, runtime_pid, now, &ctx);
@@ -314,8 +314,8 @@ impl Control {
         sensors: Sensors,
         edges: &[Event],
         now: Millis,
-    ) -> Vec<cc_machine::Effect> {
-        let mut effects = Vec::new();
+    ) -> cc_machine::Effects {
+        let mut effects = cc_machine::Effects::new();
 
         // ---- 1. SENSE -> DECIDE: the sample -------------------------------
         self.feed(config, Event::SensorUpdated(sensors), &mut effects);
@@ -417,11 +417,11 @@ impl Control {
     /// Public because the command queue is drained between ticks and each command
     /// is an event: 04 §3.2 requires a `POST /api/...` to become a `Command`
     /// delivered on a bounded queue, never a direct call into control state.
-    pub fn feed(&mut self, config: &Config, event: Event, effects: &mut Vec<cc_machine::Effect>) {
+    pub fn feed(&mut self, config: &Config, event: Event, effects: &mut cc_machine::Effects) {
         let ctx = Context::new(config, celsius(self.setpoint));
         let (machine, produced) = reduce(&self.machine, &ctx, event);
         self.machine = machine;
-        effects.extend(produced);
+        effects.extend(&produced);
     }
 
     /// Apply the tunings for the current state, if the state changed.

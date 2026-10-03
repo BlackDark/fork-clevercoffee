@@ -40,7 +40,7 @@ use cc_config::Config;
 use cc_domain::pid::{Controller, ControllerDirection, Mode as PidMode, ProportionalOn};
 use cc_domain::state::MachineState;
 use cc_domain::units::{Celsius, Millis};
-use cc_machine::{Actuators, Command, Effect, Event, Sensors, SideChannels, SwitchId};
+use cc_machine::{Actuators, Command, Effect, Effects, Event, Sensors, SideChannels, SwitchId};
 use serde_json::Value;
 
 use crate::observe::{Actuators as ObservedActuators, Observation};
@@ -507,7 +507,7 @@ impl Runner {
         // ---- 4. fold in, front to back, then the tick ---------------------
         let ctx = self.ctx();
         let mut machine = self.machine;
-        let mut effects: Vec<Effect> = Vec::new();
+        let mut effects = Effects::new();
 
         if sampled {
             // `Event::SensorUpdated` is `LoopManager` step 2, before the state
@@ -523,13 +523,13 @@ impl Runner {
             let sensors = self.sensors;
             let (m, fx) = cc_machine::reduce(&machine, &ctx, Event::SensorUpdated(sensors));
             machine = m;
-            effects.extend(fx);
+            effects.extend(&fx);
         }
 
         if let Some(outcome) = outcome {
             let (m, fx) = cc_machine::reduce(&machine, &ctx, Event::Safety(outcome));
             machine = m;
-            effects.extend(fx);
+            effects.extend(&fx);
         }
 
         if computed {
@@ -539,7 +539,7 @@ impl Runner {
             let out = self.pid.output as f32;
             let (m, fx) = cc_machine::reduce(&machine, &ctx, Event::PidOutput(out));
             machine = m;
-            effects.extend(fx);
+            effects.extend(&fx);
         }
 
         let (m, fx) = cc_machine::reduce(
@@ -550,7 +550,7 @@ impl Runner {
             },
         );
         machine = m;
-        effects.extend(fx);
+        effects.extend(&fx);
 
         self.machine = machine;
         self.apply(&effects, at);
@@ -599,7 +599,7 @@ impl Runner {
     fn deliver(&mut self, s: &Stimulus, at: u32) {
         let ctx = self.ctx();
         let mut machine = self.machine;
-        let mut effects: Vec<Effect> = Vec::new();
+        let mut effects = Effects::new();
 
         match &s.kind {
             StimulusKind::Rest | StimulusKind::Wait { .. } => {}
@@ -619,7 +619,7 @@ impl Runner {
                 };
                 let (m, fx) = cc_machine::reduce(&machine, &ctx, ev);
                 machine = m;
-                effects.extend(fx);
+                effects.extend(&fx);
             }
 
             StimulusKind::Sensor {
@@ -660,7 +660,7 @@ impl Runner {
                 let cmd = parse_command(command).unwrap_or(Command::BrewStop);
                 let (m, fx) = cc_machine::reduce(&machine, &ctx, Event::Command(cmd));
                 machine = m;
-                effects.extend(fx);
+                effects.extend(&fx);
             }
 
             StimulusKind::Ota { action, path } => match action {

@@ -24,6 +24,17 @@
 //! effects that both write the same relay in the same tick resolve differently
 //! depending on order, so the applier applies the vector front to back and the
 //! tests assert on exact sequences, not sets.
+//!
+//! # The list does not allocate — see [`Effects`]
+//!
+//! `Effect` is `Copy` and small; the *list* of them is what the control loop
+//! churned through. One allocation per [`reduce`](crate::reduce), four to five
+//! `reduce` calls per 10 ms tick, plus two more in the shell. See
+//! [`MAX_EFFECTS_PER_EVENT`] for the measurement and [`Effects::dropped`] for
+//! what happens if the ceiling is ever reached.
+
+use core::fmt;
+use core::ops::Deref;
 
 use cc_domain::state::MachineState;
 
@@ -281,6 +292,208 @@ impl Effect {
             Self::RequestReboot => "RequestReboot",
             Self::PumpTimeoutFired { .. } => "PumpTimeoutFired",
         }
+    }
+}
+
+/// How many effects one [`reduce`](crate::reduce) call may produce.
+///
+/// # Where 16 comes from, and why it is a ceiling and not a hope
+///
+/// Measured against the real code over the whole `state x event` table plus 200
+/// consecutive ticks per pair (`tests/exhaustive_state_event.rs`): the longest
+/// list any single `reduce` produces is **4** — `DisablePump`, `CloseWaterValve`,
+/// The worst effect list the exhaustive table has ever produced.
+///
+/// **12**, at `pid_off/BrewRunning x SensorUpdated`. That is not the 3-4 a
+/// casual measurement suggests: sampling only `PID_NORMAL` -- the state the
+/// control loop actually sits in for most of a brew -- gives `[DisablePump,
+/// CloseWaterValve, CloseSteamValve]`, three effects. The worst case is
+/// `PID_DISABLED`-flavoured `BREW_RUNNING`, whose exit re-asserts every
+/// actuator and close every valve, all in one tick as the state changes.
+///
+/// Recorded as a `const` so the number is a fact about the machine rather than
+/// a claim in a comment, and so the headroom assertion in
+/// `tests/exhaustive_state_event.rs::ceiling_is_never_reached` has something to
+/// compare against.
+pub const WORST_EFFECTS_OBSERVED: usize = 12;
+
+/// Capacity of one effect list.
+///
+/// **32**, i.e. two and a half times [`WORST_EFFECTS_OBSERVED`].
+///
+/// It is a `const` and not a `heapless::Vec` sized to the measurement on
+/// purpose. A ceiling of exactly 12 would be exactly the observed worst case, so
+/// any future state that emitted one more effect in one tick would drop one — and
+/// the one it dropped could be [`Effect::CloseWaterValve`], which is the S5
+/// fail-safe and the single most safety-relevant effect in the list.
+///
+/// 32 is still 512 bytes of stack in the control task's frame, with **no heap
+/// involvement**, against a ~4 s budget of heap traffic that this removes
+/// entirely (four `alloc::vec::Vec`s per 10 ms tick, measured at 4.00
+/// allocations and ~192 B). The headroom turns "a change we did not predict"
+/// from a silent hardware regression into a counted drop that
+/// [`Effects::dropped`] reports and the exhaustive test asserts against.
+///
+/// # What is actually guaranteed
+///
+/// Nothing at the type level. 32 is a bound the code *currently* respects, and
+/// `tests/exhaustive_state_event.rs::ceiling_is_never_reached` is the test that
+/// keeps it honest: it drives all 4,140 state/event pairs plus 64 ticks after
+/// each, asserts `dropped() == 0`, and asserts the worst case still has at
+/// least 2x headroom. If a future change exceeds the ceiling, that test fails
+/// rather than the firmware quietly losing an effect in the field.
+pub const MAX_EFFECTS_PER_EVENT: usize = 32;
+
+/// The effects produced by one [`reduce`](crate::reduce).
+///
+/// # Why this is not `alloc::vec::Vec`
+///
+/// Because it was, and it cost four heap allocations per 10 ms control tick.
+///
+/// The control task calls [`reduce`](crate::reduce) four to five times per tick
+/// (sensor, safety, switch edges, PID output, tick), and each call built a fresh
+/// `Vec`. Measured on the host against the real code, in a `Control::tick`-shaped
+/// harness: **4.00 allocations and ~192 bytes per tick**, i.e. roughly 400
+/// allocations per second, driven by the same loop that runs the heater deadman
+/// — on a device with about 320 KB of RAM. `Control::tick` allocated a second
+/// list and `cc-firmware`'s `main.rs` a third.
+///
+/// The C++ allocated nothing here. `LoopManager::update`
+/// (`src/core/LoopManager.cpp:90-253`) wrote relays inline into member state,
+/// so the effect list only ever existed as the C++ call stack.
+///
+/// `heapless::Vec` with a `const` capacity is the same shape with the storage in
+/// the value: no allocator call, no fragmentation, and the capacity is a
+/// compile-time constant. `heapless` with `default-features = false` is
+/// core-only — the `alloc` feature the workspace entry enables adds `Vec`/`String`
+/// conversions this crate does not use, and it is already in the device graph via
+/// `cc-hal-esp32`, so naming it here adds no second copy.
+///
+/// # Overflow is counted, not ignored
+///
+/// [`heapless::Vec::push`] returns the effect back when the list is full, and
+/// this crate has no `panic!`/`unwrap` in non-test code (asserted by
+/// `tests/exhaustive_state_event.rs::no_unreachable_outside_tests`) and forbids
+/// `unsafe` outright (`#![forbid(unsafe_code)]`), so `push_unchecked` is not
+/// available either. That leaves three honest choices and this is the third:
+///
+/// 1. `push_unchecked` behind a comment — needs `unsafe`, refused by the crate.
+/// 2. `debug_assert!` — fails every test, passes release. A dropped
+///    `Effect::CloseWaterValve` in the field, which is the regression this whole
+///    change exists to avoid.
+/// 3. **Count it** — [`dropped`](Self::dropped) is part of the value, so a lost
+///    effect is observable by the caller and by the tests, in every build, with
+///    no panic and no `unsafe`.
+///
+/// The applier applies `self[..]` either way, so an overflow is *not* a silent
+/// hardware change; it is a visible count. `ceiling_is_never_reached` asserts
+/// the count is zero.
+/// `PartialEq` and not `Eq`: several variants carry an `f32` or an `f64`
+/// ([`Effect::SetHeaterDuty`], [`Effect::RecordBrew`]), so two lists can compare
+/// equal in the IEEE sense and a `NaN` duty makes them unequal. That matches
+/// the `Vec<Effect>` this replaced, which had exactly the same property.
+#[derive(Clone, PartialEq)]
+pub struct Effects {
+    list: heapless::Vec<Effect, MAX_EFFECTS_PER_EVENT>,
+    dropped: u16,
+}
+
+impl Effects {
+    /// An empty list, with nothing dropped.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            list: heapless::Vec::new(),
+            dropped: 0,
+        }
+    }
+
+    /// Append one effect, counting it if the list is already full.
+    ///
+    /// Infallible from the caller's point of view, and total: it always leaves
+    /// the list in a valid state. See the type documentation for why overflow is
+    /// counted rather than panicking.
+    pub fn push(&mut self, effect: Effect) {
+        if self.list.push(effect).is_err() {
+            self.dropped = self.dropped.saturating_add(1);
+        }
+    }
+
+    /// Append every effect of `other`, in order.
+    ///
+    /// Same overflow rule as [`push`](Self::push), applied element by element so
+    /// that a partially-full list keeps the prefix rather than being replaced.
+    pub fn extend(&mut self, other: &Effects) {
+        for effect in &other.list {
+            self.push(*effect);
+        }
+    }
+
+    /// How many effects have been lost to a full list.
+    ///
+    /// Always `0` today; see [`MAX_EFFECTS_PER_EVENT`]. The point of exposing it
+    /// is that "can this ever happen?" is then a test assertion
+    /// (`tests/exhaustive_state_event.rs::ceiling_is_never_reached`) rather
+    /// than an assumption.
+    #[must_use]
+    pub const fn dropped(&self) -> u16 {
+        self.dropped
+    }
+
+    /// The effects, front to back. This is what [`applier::apply`](crate::applier::apply) consumes.
+    #[must_use]
+    pub fn as_slice(&self) -> &[Effect] {
+        &self.list
+    }
+}
+
+impl Default for Effects {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Deref for Effects {
+    type Target = [Effect];
+
+    fn deref(&self) -> &Self::Target {
+        &self.list
+    }
+}
+
+impl fmt::Debug for Effects {
+    /// Formats as the bare list, not as a struct.
+    ///
+    /// The `Vec<Effect>` this replaced printed `[DisablePump, CloseWaterValve]`,
+    /// and every test failure message in this crate and the parity harness quotes
+    /// that form. `[.., dropped: 2]` would be more informative when something has
+    /// gone wrong and unreadable when it has not; the count has its own accessor
+    /// and its own assertion, so the common case wins.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.list.fmt(f)
+    }
+}
+
+impl FromIterator<Effect> for Effects {
+    /// Saturating: a `from_iter` that drops the tail is exactly the overflow rule
+    /// of [`push`](Self::push), so a caller cannot get different behaviour here.
+    fn from_iter<I: IntoIterator<Item = Effect>>(iter: I) -> Self {
+        let mut effects = Self::new();
+        for effect in iter {
+            effects.push(effect);
+        }
+        effects
+    }
+}
+
+impl IntoIterator for Effects {
+    type Item = Effect;
+    // The third parameter is heapless's `LenT`, which `heapless::Vec` defaults to
+    // `usize` but `IntoIter` does not default.
+    type IntoIter = heapless::vec::IntoIter<Effect, MAX_EFFECTS_PER_EVENT, usize>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.list.into_iter()
     }
 }
 

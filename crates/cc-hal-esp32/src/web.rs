@@ -2807,7 +2807,7 @@ pub mod tests {
     #[cfg_attr(test, test)]
     pub fn the_status_payload_is_valid_json() {
         let t = Telemetry {
-            ip: Some("192.168.1.42".into()),
+            ip: heapless::String::<15>::try_from("192.168.1.42").ok(),
             water_tank_full: Some(true),
             ..Telemetry::default()
         };
@@ -3558,7 +3558,7 @@ pub mod tests {
         let mut radio = shared.snapshot();
         radio.wifi_associated = true;
         radio.signal = 4;
-        radio.ip = Some(alloc::string::String::from("10.0.0.7"));
+        radio.ip = heapless::String::<15>::try_from("10.0.0.7").ok();
         shared.publish(radio);
         // …and the control task's publish is the one that must not run second.
         let before = shared.snapshot();
@@ -3613,7 +3613,7 @@ pub mod tests {
         let t = Telemetry {
             wifi_associated: true,
             signal: 4,
-            ip: Some(alloc::string::String::from("10.0.0.7")),
+            ip: heapless::String::<15>::try_from("10.0.0.7").ok(),
             ..Telemetry::default()
         };
         let json = status_json(&t);

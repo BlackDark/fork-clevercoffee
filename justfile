@@ -532,13 +532,42 @@ parity-test:
 # ------------------------------------------------------------------ benchmark
 
 # Host micro-benchmarks (reducer, layout).
+#
+# These measure **heap allocations**, not nanoseconds, and that is deliberate.
+# The device has ~320 KB of RAM; what a control tick or a display frame costs in
+# allocator pressure matters far more than how many host cycles it took. The
+# pre-fix control tick allocated 4.00 times per 10 ms tick (REVIEW.md H-8) and
+# `cc-display` has always been allocation-free because it is `no_std` with no
+# `alloc` in the device build. Both facts are now measured rather than assumed.
+#
+# Both targets carry the same measurement as a `#[test]`, so `just test` fails
+# if either count ever moves off zero. The bench exists so the number is a thing
+# a human watches over time.
 bench:
-    cargo bench --bench reducers -p cc-machine --target {{host_target}}
+    cargo bench --bench allocations -p cc-machine --target {{host_target}}
     cargo bench --bench layout -p cc-display --target {{host_target}}
 
-# Control-loop timing on the device. Placeholder until R2-09b.
-size-bench mcu="esp32":
-    ./scripts/parity/loop-timer.sh {{mcu}}
+# Control-loop timing, on the device if one is attached, on the host otherwise.
+#
+# It used to be `./scripts/parity/loop-timer.sh {{mcu}}`, and **that script does
+# not exist** — `scripts/parity/` contains only `run.sh`. So the recipe failed
+# with "No such file or directory" every time anyone tried the one thing that
+# would answer "does the control tick fit its budget?" REVIEW.md M-12.
+#
+# On the device the answer does not come from here. The control task already
+# measures itself, in the firmware, every `TICK_REPORT_INTERVAL_MS` and logs
+# `control tick: worst … budget 10 ms` — that is the number that counts, because
+# it is the one taken on the chip with the sensor, display and network tasks
+# running. This recipe is the host approximation, and it says so.
+#
+# With a port, capture the device's own report over a minute of idle and a brew:
+#     just mon-headless <port> 60 | grep 'control tick'
+size-bench:
+    cargo bench --bench allocations -p cc-machine --target {{host_target}}
+    @echo
+    @echo "host approximation only. The device number the firmware itself logs is"
+    @echo "'control tick: worst ... budget 10 ms' — capture it with:"
+    @echo "    just mon-headless <port> 60 | grep 'control tick'"
 
 # ------------------------------------------------------------------- hygiene
 
