@@ -1,42 +1,101 @@
 min_version = "2024.1.0"
 
+# ---------------------------------------------------------------------------
+# CleverCoffee tool manifest.
+#
+# OWNERSHIP RULE (deliberate, and the reason `rust` is NOT in [tools]):
+#
+#   mise owns every tool that is a plain versioned binary -- node, pnpm, python,
+#   clang-format, just, and the cargo-installed *host* utilities.
+#
+#   rustup + espup own the COMPILER. mise does not, for three reasons:
+#
+#     1. The device compiler is Espressif's `esp` *nightly fork*. mise's rust
+#        backend cannot express it -- there is no versioned channel name to pin.
+#     2. `rust-toolchain.toml` is the file rustup itself reads, so it is also the
+#        pin that rust-analyzer, every IDE, and CI will resolve. One file, one
+#        source of truth.
+#     3. mise's rust backend installs no compiler here anyway. It symlinks
+#        `mise/installs/rust/stable -> ~/.cargo/bin` -- that is, it hands you
+#        back rustup and lets `rust-toolchain.toml` decide. A `rust = "stable"`
+#        line in [tools] therefore advertised "stable" while the file next to it
+#        said "esp", which is the wrong mental model for the single thing most
+#        likely to break a size-budgeted device build.
+#        (Verified: `mise ls` printed `rust stable (symlink)` and
+#         `ls -la ~/.local/share/mise/installs/rust/` showed a symlink to
+#         `~/.cargo/bin`.)
+#
+#   `[tasks.setup-esp]` bootstraps rustup/espup from scratch; `just setup` calls it.
+#
+# NOTE: `justfile` appends ~/.cargo/bin to PATH, so rustup and cargo are
+# reachable from every recipe even though mise installs no Rust.
+# ---------------------------------------------------------------------------
+
 [tools]
-  # --- existing C++ / frontend tooling (unchanged) ---
+  # --- C++ parity oracle + web UI ---
   node = "24"
-  pnpm = "latest"
+  pnpm = "11.25.0"
   python = "3.14.7"
   clang-format = "23.1.1"
 
-  # --- Rust / migration tooling (05 §2) ---
-  just = "latest"
-  # Host-side cargo tools only. The DEVICE toolchain is `esp`
-  # (rust-toolchain.toml), which mise cannot install — see `[tasks.xensa-toolchain]`.
-  rust = "stable"
-  "cargo:espflash" = "4.6.0"
+  # --- Rust host tooling ---
+  just = "1.58.0"
+
+  # ONE package. `cargo-espflash` provides `cargo espflash ...`, which is the
+  # only spelling any recipe in this repo uses. The separate crates.io package
+  # `espflash` is the same tool from a second crate (~20 MB for nothing); the
+  # justfile used both spellings until REVIEW.md M-13 fixed it.
   "cargo:cargo-espflash" = "4.6.0"
-  "cargo:espup" = "latest"
-  # On crates.io (0.3.5). Do NOT curl the esp-rs/embuild GitHub release: its
-  # latest is v0.3.2 (2022) and its assets are named by Rust triple, so the URL
-  # 404s (05 §2 correction).
+
+  # Wraps the Xtensa `ld` for the ESP-IDF link. See .cargo/config.toml.
   "cargo:ldproxy" = "0.3.5"
 
 [settings]
   experimental = true
-  jobs = 4
 
-[tasks.xensa-toolchain]
-description = "Install/refresh the esp-rs Xtensa toolchain — the one step mise cannot own"
-run = [
-  # NOTE: each array element is its OWN shell, so these must stay separate
-  # commands and must not rely on variables set by a previous element.
-  "cargo install --locked espup --force || true",
-  # VERIFIED 2026-09-28 on this host: `espup install` without --toolchain-version
-  # dies in its first step, querying
-  # https://api.github.com/repos/esp-rs/rust-build/releases/latest
-  # ("error sending request ... operation timed out"). The tag has to be passed
-  # explicitly, and --skip-version-parse is what makes that possible
-  # (it is rejected without it). Latest is currently 1.97.0.0; re-check the
-  # release list before bumping.
-  "espup install --targets esp32,esp32s2,esp32s3 --toolchain-version 1.97.0.0 --skip-version-parse",
-  "just env-file",
-]
+# ---------------------------------------------------------------------------
+# Pins mise cannot express as a tool, hoisted out of a task body so they are
+# greppable and reviewable in one place. `[vars]` (not top-level keys, which
+# mise folds into `[settings]` and then warns about) and referenced from the
+# task as `${name}`.
+# ---------------------------------------------------------------------------
+
+[vars]
+  # The Rust release Espressif's `esp` toolchain is cut from. rustup's `esp`
+  # channel is FLOATING, so this is the only version pin in the repo for the
+  # device compiler. `rust-toolchain.toml` says `channel = "esp"` and cannot
+  # carry a number, so the two must be bumped together -- `just doctor` asserts
+  # that the file exists and is on the esp channel, and prints both side by side.
+  x86_64_toolchain_version = "1.97.0.0"
+
+  espup_version = "0.17.1"
+
+  # ONLY the production target. esp32s2/esp32s3/esp32c6 are R4-07/R4-08 work
+  # that has not been flashed or exercised; their Xtensa GCC costs ~1 GB each
+  # for nothing.
+  x86_64_targets = "esp32"
+
+# Install/refresh the esp-rs Xtensa toolchain -- the one step mise cannot own.
+#
+# NOTE: each array element runs in its OWN shell, so these stay separate commands
+# and must not rely on variables set by a previous element. The
+# ${espup_version} / ${x86_64_toolchain_version} forms substitute from the keys
+# above, so no version is written twice.
+[tasks.setup-esp]
+  description = "Install the esp-rs Xtensa toolchain pinned by x86_64_toolchain_version"
+  run = [
+    # WHY `cargo install` and not `cargo:espup` in [tools]: espup must exist
+    # before `mise install` can affect the compiler at all, and mixing a
+    # mise-managed espup with `cargo install --force` gives two owners of one
+    # binary -- whichever happens to be first on PATH wins, silently. The
+    # previous version also had `|| true` here, which swallowed a failed install
+    # and let the task die later at "espup: command not found".
+    "cargo install --locked espup --version ${espup_version} --force",
+    # `--toolchain-version` is mandatory and `--skip-version-parse` is what makes
+    # it legal. VERIFIED 2026-09-28 on the original author's host: without them,
+    # `espup install` dies in its first step querying
+    #   https://api.github.com/repos/esp-rs/rust-build/releases/latest
+    # ("error sending request ... operation timed out").
+    "espup install --targets ${x86_64_targets} --toolchain-version ${x86_64_toolchain_version} --skip-version-parse",
+    "just env-file",
+  ]

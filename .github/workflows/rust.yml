@@ -1,0 +1,230 @@
+name: Rust firmware
+
+# ===========================================================================
+# THE RUST FIRMWARE.
+#
+# Before this file existed, `.github/workflows/` contained zero references to
+# `cargo` or `just`: main.yml and release.yml ran PlatformIO, format.yml ran
+# clang-format, frontend.yml ran pnpm. So 68,530 lines of new firmware and
+# 13,563 lines of Rust tests were merged with **no automated verification at
+# all**, and `just gate` was invoked by nothing. CI was green purely because the
+# untouched C++ tree still compiled. REVIEW.md H-1.
+#
+# `main.yml` still builds and tests the C++ — it is the parity oracle, and it
+# is what `release.yml` publishes. The two are not alternatives; both gates
+# have to be green.
+#
+# The device build needs the Espressif `esp` toolchain (a nightly fork, via
+# espup) and a compiled ESP-IDF. `just setup` handles both; the Xtensa jobs below
+# are the ones that would otherwise be silently unverified, and they are exactly
+# the ones that cannot be skipped "because it needs a board" — only
+# `just test-esp32` needs a board.
+# ===========================================================================
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - ".cargo/**"
+      - ".mise.toml"
+      - "justfile"
+      - "just/**"
+      - "scripts/**"
+      - "ui/**"
+      - ".github/workflows/rust.yml"
+      - "components_esp32.lock"
+      - "rust/**"
+  pull_request:
+    paths:
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - ".cargo/**"
+      - ".mise.toml"
+      - "justfile"
+      - "just/**"
+      - "scripts/**"
+      - "ui/**"
+      - ".github/workflows/rust.yml"
+      - "components_esp32.lock"
+      - "rust/**"
+
+concurrency:
+  group: rust-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Single source of truth, asserted by `just doctor` against
+  # `components_esp32.lock`. If these two drift, a "works on CI" build happens.
+  ESP_IDF_VERSION: "v5.5.5"
+  RUSTFLAGS: "--cfg espidf_time64"
+  ESP_IDF_SYS_ROOT_CRATE: "cc-firmware"
+  # Every recipe passes `--target {{host_target}}` explicitly, so this is only a
+  # safety net for a bare `cargo` invocation inside a recipe.
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ---------------------------------------------------------------- host gates
+  #
+  # No hardware, no ESP-IDF, no device toolchain. This is the job that has to be
+  # green for a change to be mergeable, and it is fast.
+  host:
+    name: format, lint, doc, test (host)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+        with:
+          # The Espressif `esp` toolchain is NOT needed here, and installing it
+          # costs minutes per job. `rust-toolchain.toml` is the compiler pin;
+          # mise deliberately does not own the compiler (see its header).
+          install: true
+          experimental: true
+
+      - name: Show the resolved toolchain
+        run: |
+          rustup show active-toolchain
+          just --evaluate host_target
+
+      - name: Verify the device build knobs are consistent
+        run: just doctor
+
+      - name: cargo fmt
+        run: just fmt-check
+
+      - name: clippy (host, pedantic, -D warnings)
+        run: just lint
+
+      - name: rustdoc, warnings as errors
+        run: just doc
+
+      - name: Host tests
+        run: just test
+
+      - name: Parity harness tests
+        run: just parity-test
+
+      - name: The device-test registry audit
+        # Fails if any device-crate `#[test]` exists that the on-target runner
+        # cannot execute. This is the guard against "147 tests that never ran",
+        # and it needs no hardware and no cargo.
+        run: just test-audit
+
+      - name: The web UI lints, typechecks, tests and builds
+        working-directory: ui
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm lint
+          pnpm tsc
+          pnpm test:run
+          pnpm --filter @clevercoffee/frontend build
+
+  # ------------------------------------------------------------- device gates
+  #
+  # The Xtensa build. `just setup` installs the Espressif toolchain via espup and
+  # ESP-IDF via embuild; that is slow but it is the only way the firmware this
+  # branch exists to produce is ever compiled before a merge.
+  device:
+    name: clippy + firmware build + size budget (xtensa-esp32)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+        with:
+          install: true
+          experimental: true
+
+      # Free space. The ESP-IDF clone embuild drives is several GB, and the
+      # default ubuntu runner has ~14 GB free. This job fails on disk otherwise,
+      # which looks nothing like a code failure.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          df -h /
+
+      - name: Install the Espressif Xtensa toolchain and ESP-IDF
+        # `just setup` = mise install -> `mise run setup-esp` (espup) -> `just ui`
+        # -> `just doctor`. This is the one step mise cannot do itself: the `esp`
+        # channel is an Espressif nightly fork with no versioned channel name, so
+        # the concrete version is pinned in `.mise.toml` as
+        # `x86_64_toolchain_version` and asserted by `just doctor`.
+        run: |
+          mise trust
+          mise install
+          mise run setup-esp
+          just doctor
+
+      - name: clippy (device, pedantic, -D warnings)
+        run: just lint-esp32
+
+      - name: Build the firmware
+        run: just build-esp32
+
+      - name: Image size is within budget
+        run: just size-check
+
+      - name: Record the image size as an artefact
+        # So a size regression is a visible diff in the PR, not something a human
+        # has to go and look for.
+        run: |
+          just size-record esp32 ci
+          cat docs/rust-migration/size-records.jsonl | tail -1
+
+  # ---------------------------------------------------------------- invariants
+  #
+  # Cheap greps that encode rules this workspace depends on and that a compiler
+  # cannot check across crate boundaries.
+  invariants:
+    name: workspace invariants
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: The portable crates must not name esp-idf
+        # cc-domain, cc-safety, cc-config, cc-machine and cc-display are `#![no_std]`
+        # and host-testable. An `esp_idf_*` import in any of them breaks every
+        # host test and rust-analyzer build, and it is invisible until it does.
+        run: |
+          if rg -n 'esp_idf_(hal|svc|sys)' \
+               crates/cc-domain/src crates/cc-safety/src crates/cc-config/src \
+               crates/cc-machine/src crates/cc-display/src; then
+            echo "::error::a portable crate names esp_idf_* -- it stops being host-testable"
+            exit 1
+          fi
+          echo "ok: no esp_idf_* in the portable crates"
+
+      - name: no blanket lint suppression
+        # `#![allow(clippy::all)]` or a bare `-A warnings` hides a whole class of
+        # defect, including the clippy this workflow exists to run.
+        run: |
+          if rg -n '#!\[allow\((clippy::)?(all|warnings)' crates/; then
+            echo "::error::a blanket lint suppression crept in"
+            exit 1
+          fi
+          echo "ok: no blanket lint suppression"
+
+      - name: "Every `unsafe` site carries a written reason"
+        # `unsafe_code = "deny"` workspace-wide. Every escape hatch must say why,
+        # which is what makes the remaining `unsafe` reviewable.
+        run: |
+          python3 scripts/unsafe-audit.py .
+
+      - name: Third-party licence notices are present
+        # U8g2 is BSD-2-Clause and its font streams are redistributed verbatim in
+        # crates/cc-display/src/font/data.rs. Clause 3 of the licence requires
+        # the notice to travel with the redistribution.
+        run: |
+          grep -q 'THIRD-PARTY NOTICE' crates/cc-display/src/font/data.rs
+          test -f docs/THIRD_PARTY_LICENSES.md
+          echo "ok: U8g2 notice present in data.rs and in docs/THIRD_PARTY_LICENSES.md"

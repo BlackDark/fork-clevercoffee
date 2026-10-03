@@ -4,6 +4,11 @@ repos:
     hooks:
       - id: check-merge-conflict
       - id: check-yaml
+        # `.clang-format` IS yaml, but it opens with `%YAML 1.2` / `%clang-format`
+        # directives, which makes it a multi-document stream that check-yaml
+        # rejects with "expected a single document in the stream". Excluding it
+        # is the difference between a hook people run and a hook people disable.
+        exclude: ^\.clang-format$
       - id: end-of-file-fixer
       - id: fix-byte-order-marker
       - id: mixed-line-ending
@@ -13,7 +18,25 @@ repos:
       - id: trailing-whitespace
         args: [--markdown-linebreak-ext=md]
 
-  - repo: https://github.com/pre-commit/mirrors-clang-format
-    rev: v17.0.6
-    hooks:
-      - id: clang-format
+  # NO clang-format hook here, deliberately.
+  #
+  # There were two, disagreeing: pre-commit pinned v17.0.6 while `.mise.toml`
+  # pinned 23.1.1, and CI ran a third copy from espressif32
+  # (`pio run -e esp32_usb --target check-format`). Bumping the hook to 23.1.1
+  # to "fix" the mismatch was tried and reverted: it reformatted 105 files of
+  # the C++ parity oracle, which must never change. REVIEW.md M-13 / L-* .
+  #
+  # `just fmt-cpp` (PlatformIO's bundled clang-format) is the single entry point
+  # for C++ formatting, and format.yml is its gate.
+
+  # NO `cargo fmt` hook here, deliberately.
+  #
+  # It was tried and it always failed: a `language: system` hook runs with
+  # pre-commit's own PATH, which does not contain the project's cargo, so every
+  # commit on a Rust file reported "Executable `cargo` not found". A hook that
+  # cannot run is worse than no hook -- it teaches people to pass `--no-verify`.
+  #
+  # `just fmt-check` is the single gate, and `.github/workflows/rust.yml` runs
+  # it as the very first step of the host job. `cargo fmt` itself is four
+  # characters; the enforcement point is CI, where it cannot be skipped by
+  # forgetting a flag.

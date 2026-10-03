@@ -38,6 +38,14 @@ jobs:
         run: pip install -r .github/requirements-ci.txt
 
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+        with:
+          # This job runs ONE command: `pio run -e esp32_usb --target
+          # check-format`. Installing the toolchain (node, pnpm, python,
+          # clang-format, and three cargo-installed Rust tools) to do that
+          # is minutes of CI for nothing. The Rust toolchain is never
+          # needed here, and the C++ formatter comes from espressif32.
+          install: false
+
 
       - name: Check clang-format
         run: pio run -e esp32_usb --target check-format
