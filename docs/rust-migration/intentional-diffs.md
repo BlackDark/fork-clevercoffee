@@ -348,7 +348,7 @@ oracle to agree with the port.**
 | --- | --- |
 | **Superseded** | 2026-09-28, by [#9](#9-the-heater-is-chopped-by-a-10-ms-gptimer-isr-not-by-ledc-🔴-changed) |
 | **Why** | R1-07's 1 Hz LEDC carrier **panics the original ESP32 at boot** — `ledc_ll_set_duty_start` spins inside `portENTER_CRITICAL` for up to one carrier period with interrupts masked, against a 300 ms interrupt watchdog. The spin is unique to this chip: every other `ledc_ll.h` in the tree has it removed. |
-| **What survives** | The **argument** for a low carrier, and the divider arithmetic (`esp_driver_ledc`'s `div_param` formula, the 17/18/19/20-bit table). Both are kept in `cc_hal_esp32::heater`'s module docs and both are what a different target would use. `LedcPwm` is retained, unbrought-up, behind the same `HeaterDuty` seam. |
+| **What survives** | The **argument** for a low carrier, and the divider arithmetic (`esp_driver_ledc`'s `div_param` formula, the 17/18/19/20-bit table). Both are kept in `cc_hal_esp32::heater`'s module docs and both are what a different target would use. The `LedcPwm` transport they belonged to has since been **deleted** — see #9's "What is kept and what is dead". |
 | **Hardware** | The 1 Hz carrier was measured panicking on 2026-09-28. The 10 ms ISR replacement has **not** yet been confirmed running — see #9's "Not yet verified". |
 
 The text below is left as the record of what R1-07 decided and why, because the
@@ -694,8 +694,8 @@ spin is inside `portENTER_CRITICAL(&ledc_spinlock)`
 (`components/esp_driver_ledc/src/ledc.c:1603-1606`), with interrupts masked. At
 1 Hz that is up to **one second**; the original ESP32's interrupt watchdog is
 **300 ms** (`components/esp_system/int_wdt.c`). Every duty write trips it —
-**including the duty-0 write in `LedcPwm::new`**, so the firmware panicked on
-every boot before the control task ran.
+**including the duty-0 write an `LEDC` transport's constructor makes**, so the
+firmware panicked on every boot before the control task ran.
 
 Every other `ledc_ll.h` in this tree (`esp32c2`, `esp32c3`, `esp32c5`, and the
 s3/h2/p4 equivalents) has the loop removed, so this is a property of *this* chip
@@ -724,11 +724,27 @@ watchdog.
 
 ### What is kept and what is dead
 
-`LedcPwm` stays in `cc-hal-esp32` **unbrought-up**, behind the same `HeaterDuty`
-seam, with the 1 Hz argument and the divider table intact — for a target whose
-chip has no spin. `cc-firmware` has **no LEDC construction site at all** and a
-`const _: () = assert!(!BRING_UP_HEATER_LEDC, ...)`, so no future edit can reach
-a duty write by accident.
+**Dead: the `LedcPwm` transport, and the `HeaterDuty` seam it justified.** The
+transport was ~190 lines with **zero construction sites**, self-documented as
+*"not brought up, and not bringable on this chip"*. It existed so that
+`HeaterOutput<HeaterDuty>` would have two impls and the word "swappable" would
+be true. Both are deleted. `HeaterOutput` is now a concrete struct holding a
+`TimerIsrPwm`, and its `set_duty` no longer returns a `Result` — the only
+fallible call in the chain was `LedcPwm::apply`'s `ledc_set_duty_and_update`.
+
+**Kept: everything that is a fact about the hardware or about the C++.** The 1 Hz
+argument, the `div_param` arithmetic and the 17/18/19/20-bit table are in
+`cc_hal_esp32::heater`'s module docs; `CARRIER_HZ` and `RESOLUTION` are still
+there and are still `const`-asserted against `cc_domain::heater`'s
+host-tested `CARRIER_HZ` / `CHOSEN_RESOLUTION_BITS` / `CHOSEN_MAX_DUTY`, so the
+numbers cannot drift away from the tests. A target whose chip has no spin re-adds
+a transport from those, and the three things that cost the deleted one — own the
+timer driver, duty 0 is the safe state, clamp before the register — are listed in
+that module's docs rather than left to be rediscovered.
+
+`cc-firmware` has **no LEDC construction site at all** and there is no LEDC
+transport type to construct, so no future edit can reach a duty write by
+accident.
 
 ### ⚠ Not yet verified
 
@@ -850,21 +866,148 @@ transcriptions:
   the same enum in `HX711Scale`'s two constructors and never constructs either;
   a `Bluetooth` type is refused by name, because reporting 0 g for a scale that
   is not an HX711 is the "accepted and silently does nothing" shape again.
-* **The MQTT `weight` topic is registered when the scale is enabled.**
-  `cc_config::discovery` advertises `currReadingWeight` /
-  `currBrewWeight` whenever `scale.enabled`; the registry did not publish the
-  topic, so Home Assistant showed a weight that never updated. The two sides
-  live in different crates and nothing made them agree until
-  `the_weight_topic_appears_exactly_when_discovery_advertises_it` did.
-
-Still absent, and named in the boot log rather than papered over: the **MQTT
-inbound** command path. `Client::subscribe` subscribes and nothing acts on the
-messages — that is R3-16's `assignParameter`, for all 96 parameters and not for
-the scale alone, and building a scale-only path beside it would be a second way
-to do the same thing. The web commands are *not* in that state: they reach the
-sampling task.
+* **The MQTT weight topics are the ones `cc_config::discovery` advertises.**
+  `MQTTManager.cpp:903-904` registers `currReadingWeight` and `currBrewWeight`;
+  the registry used to publish a topic called `weight`, which matches neither,
+  so the Home Assistant weight entity was advertised and never updated. The two
+  sides live in different crates and nothing made them agree until
+  `the_weight_topics_are_exactly_the_ones_discovery_advertises` did.
+* **The MQTT registry is `SystemInitializer.cpp:687-800`.** See section 18 —
+  three parameters and three "sensors" became 32 parameters and 13 sensors, and
+  two invented topics went the other way.
 
 ### Still open: the Acaia BLE scale (R3-18)
+
+---
+
+## 18. MQTT actually runs 🔴 changed
+
+| | |
+| --- | --- |
+| **C++** | `src/network/MQTTManager.cpp`, driven from `LoopManager::updateNetwork` (`LoopManager.cpp:485-508`) |
+| **Rust** | `cc_hal_esp32::mqtt::{Client, Feed}`, built and driven by the **control task** (`cc-firmware/src/mqtt_link.rs`) |
+| **Pinned by** | `mqtt::the_registry_is_the_csqs_registration`, `mqtt::an_inbound_reading_resolves_only_if_it_is_registered`, `mqtt::the_interval_follows_the_machine_state`, `mqtt::an_inbound_topic_is_parsed_exactly_as_the_csqs_matcher_does` |
+
+### What the C++ does
+
+`setup` (`:54-92`) builds the topics and refuses to continue when
+`mqtt.broker` is empty. `checkConnection` (`:96-193`) and `loop` (`:194-196`)
+are called from the main loop, and `writeSysParamsToMQTT` (`:366-570`) runs a
+three-phase pass — retained parameters, non-retained sensors, retained binary
+sensors — under a **10 ms budget** (`MQTTManager.h:259`), resuming from
+`mqttVarsIt_` / `publishPhase_` on the next call, and skipping any topic whose
+value has not changed (`mqttLastSent_`, `:512`). The interval is 500 ms while a
+brew state other than `BREW_FINISHED` is active, 10 s in `STANDBY`, else 5 s
+(`:384-387`). `sendHASSIODiscoveryMsg` (`:828-926`) republishes the whole Home
+Assistant entity set every 300 s. `messageCallback` / `assignParameter`
+(`:237-336`) act on `<base><param>/set`, with four special targets
+(`STEAM_MODE`, `BACKFLUSH_ON`, `TARE_ON`, `CALIBRATION_ON`) that are machine
+state rather than configuration.
+
+### What the Rust does — and why
+
+**The client lives in the control task.** It used to be constructed in
+`bring_up` and read two lines later, which meant `EspMqttClient`'s `Drop` —
+`esp_mqtt_client_destroy` (`esp-idf-svc` `src/mqtt/client.rs:742-747`) — ran at
+the end of the `match` arm, microseconds after `esp_mqtt_client_start`. Nothing
+anywhere called `publish`, `publish_online`, `discovery_due`,
+`due_for_reconnect` or `subscribe`: a fully implemented client that never did
+anything, and `/api/status`'s `mqttConnected` structurally always `false`. The
+control task is the main loop — it owns the clock, the configuration, the
+store, the machine and the only watchdog subscription — which is exactly where
+`LoopManager::updateNetwork` puts the C++'s.
+
+**The pass is the C++'s phase machine**, cursor and budget included
+(`Feed::service`). The registry is `SystemInitializer.cpp:687-800` in full: 32
+parameters and 13 sensors where three parameters and three "sensors" were
+registered before, plus the value-change dedupe and the three intervals, none of
+which existed. `discovery_due()` publishes `cc_config::discovery::all` and
+`mark_discovery_sent()` re-arms the timer, so the 17–29 entities in that
+module are no longer inert.
+
+**The events are handled where they are delivered.** `EspMqttClient::new_cb`
+installs the callback, so `Connected` / `Disconnected` / `Received` are noted on
+the `esp-mqtt` task and what crosses back is two atomics and a bounded queue.
+`EspMqttClient::new` was the alternative and its `EspMqttConnection::next()`
+**blocks** on a condvar until the producer has something
+(`src/private/zerocopy.rs:29-40`), with no non-blocking poll and no
+`is_connected` accessor — a rendezvous on a 10 ms control tick, on the same
+signal as the heater deadman. There is no synchronous accessor to use instead.
+
+**Inbound commands work, and so does everything outbound.** `mqtt set <param>
+<value>` resolves the topic through the registry's topic-to-key map and goes
+through `cc_config::assign::apply`, exactly as `POST /api/parameters` does, then
+pushes into the running machine through the shared `push_into_machine`. The four
+specials are handled before the configuration lookup, as `assignParameter`
+does. The web commands were *not* in the "subscribed and ignored" state before
+this change, and neither was the outbound path — **this file previously said
+only the inbound path was absent, which was wrong in the direction that
+mattered**: the client was being destroyed before its first publish.
+
+### The divergences inside it
+
+* **The availability publish is retained; the C++'s is not.**
+  `MQTTManager.cpp:400` calls `publish("status", "online")` against a
+  `bool retain = false` default (`MQTTManager.h:291`) and survives only because
+  it repeats every five seconds. A retained `online` costs one write per pass,
+  is what the retained `offline` last will on the same topic already implies,
+  and removes the window in which a broker restart leaves every entity
+  unavailable.
+* **The Home Assistant discovery set is published under the same 10 ms budget**,
+  a few documents per control tick, where the C++'s 300 s timer callback builds
+  and publishes all of them in one go. That callback runs from the main loop, so
+  it is a stall measured in hundreds of milliseconds in the task that also runs
+  the heater deadman.
+* **`TARE_ON` and `CALIBRATION_ON` are latches that clear.** The C++'s
+  `scaleTareMode_` / `scaleCalibrationMode_` (`SensorCoordinator.h:203-233`) are
+  written by `setScaleTareMode` and read by `isScaleTareMode`; `git grep
+  scaleTareMode_ main -- src` finds **no clear anywhere**, so a `TARE_ON` command
+  latches to `1` for the life of the boot and the Home Assistant switch can
+  never be turned off. Here the latch is cleared when the sampler answers
+  (`SamplerEvent::Tared` / `Calibrated` / `Refused`).
+* **An inbound parameter write is persisted.** `assignParameter`'s tail
+  (`MQTTManager.cpp:325-336`) calls `fromString`, which writes the configuration
+  singleton's field and nothing else, so a setpoint set from Home Assistant is
+  gone after the next reboot. The store is this task's, so the write goes
+  through it.
+* **`currBrewWeight` publishes `0`.** The C++'s is
+  `cachedWeight_ - preBrewWeight_` while `brewWeightTrackingActive_`
+  (`SensorCoordinator.cpp:85-92`); this firmware has no brew-weight tracker and
+  `Sensors::brew_weight` is written as a literal `0.0`. The topic is still
+  registered, because the alternative — not registering it — is the
+  "advertised and never updates" shape again, on a different axis.
+* **`usePonM` is still the C++'s inconsistency.** `SystemInitializer.cpp:695`
+  registers `pidUsePonM` while `MQTTManager.cpp:869` advertises the entity as
+  `usePonM`, so the Home Assistant switch moves a topic the registry does not
+  know and it lands in the "not found in mapping" arm. Reproduced; the fix
+  belongs where the advertisement is built.
+* **`steamON = 0` does not leave steam mode**, because
+  `setSteamFirstActivated(false)` plus `setNormalOperationRequested(true)` does
+  not leave it in the C++ either (`MQTTManager.cpp:296-302`). Reproduced rather
+  than tidied into a real stop.
+* **The "MQTT is off while brewing" guard is gone.** It was a `BREWING` flag
+  that made every publish a no-op during a brew, justified as
+  "`MQTTManager.cpp:113-115` is a hard stop on *every* MQTT call". Line 113 is
+  inside `checkConnection` and is the *reconnect* guard;
+  `writeSysParamsToMQTT` has no brew guard at all and selects a **500 ms**
+  interval instead (`:384-387`). The flag was never set by any caller, so the
+  behaviour was already parity and only the comment was wrong. `interval_for`
+  now reproduces the three intervals.
+* **Two invented topics are gone.** The registry published `brewing` and
+  `tankEmpty`, which are neither in the C++ nor advertised by
+  `cc_config::discovery` — no Home Assistant entity ever subscribed to them.
+
+### Not covered, and said so
+
+The zero-allocation claim is a property of `Feed`'s signature (reused buffers,
+a map of fixed-size values keyed by the leaked registry, and a value producer
+that writes into a `&mut Payload`), and it is **argued, not measured**:
+`crates/cc-machine/tests/tick_allocations.rs` measures the reducer, not this
+path. The firmware's own tick report (`control tick: worst … budget 10 ms`) is
+the instrument that would show a regression. **A broker session has never been
+exercised**: no broker, no hardware and no flashing were available, so every
+claim about what the broker sees is derived from the C++ and from
+`esp-idf-svc`'s source rather than measured.
 
 ---
 
@@ -1243,3 +1386,211 @@ does not work — the brew *label* at `x 0..36` still overwrites `Set:` at
 `x 0..24`; and **shrinking the field** is geometrically impossible, because both
 rows use the same value column at `x = 50`, so any box wide enough for the brew
 value covers the setpoint's too.
+
+---
+
+## 19. `/api/config/upload` exists, and takes `application/json` 🔴 new
+
+**What the C++ does.** `WebServerManager.cpp:725-762` registers
+`AsyncURIMatcher::exact("/api/config/upload")` for `HTTP_POST` with an
+`AsyncCallbackJsonWebHandler` and `setMaxContentLength(MAX_CONFIG_UPLOAD_SIZE)`,
+`MAX_CONFIG_UPLOAD_SIZE = 16384` (`:48`). The line above its own registration
+says what the body is: *"Config upload: application/json body
+(AsyncCallbackJsonWebHandler buffers full body before parse)"*.
+
+**What the Rust does.** The same route, the same body encoding, the same 16 KB
+transport cap, and the C++'s response document verbatim —
+`{"success":…,"message":…,"restart":…}` with `Connection: close`
+(`sendConfigUploadResponse`, `:50-62`).
+
+**Why this entry exists at all**, given it is parity: the route was *absent*, and
+`ui/packages/frontend/src/pages/SystemPage.tsx:182` has a live "Upload
+configuration" button that POSTs to it. An operator who clicked it got a 404.
+
+**A correction to the task brief, recorded because it is load-bearing.** The
+brief specifies "multipart/form-data body with a JSON part". The oracle does not
+use multipart, and neither does the button: `SystemPage.tsx:178-183` reads the
+selected file with `selectedFile.text()` and posts it with
+`Content-Type: application/json` and no boundary. A multipart reader here would
+have answered the live button with `400` — fixing the 404 by replacing it with a
+different failure. The oracle and the UI agree, so the oracle won.
+
+**Three deliberate differences.**
+
+1. **The document is read into pairs, not deserialised into a `Config`.**
+   `Config::importFromJsonObject` (`Config.cpp:323-345`) walks the parameters and
+   applies the ones the document mentions; the C++'s `importFromJson` fills the
+   gaps with defaults, which is right for seeding a fresh store from
+   `/config.json` and wrong for an upload, where a document that mentions twelve
+   keys must leave the other eighty-six alone. So `cc_config::json::document_pairs`
+   returns the `(key, value)` pairs and the control task writes them with
+   `cc_config::assign::apply` — **the same writer `POST /api/parameters` uses**.
+   A second applier would be a second set of type rules, and the two would drift.
+2. **An over-long body is refused, not truncated.** `drain_body_bounded` caps at
+   the limit and stops, which is right for a form body and wrong here: a document
+   cut short is a document whose keys are individually valid and collectively a
+   different machine. Truncating would apply *half a configuration* — a new PID
+   gain with the old emergency cut-off — to a machine that may be mid-shot. So
+   `drain_body_checked` returns `None` the moment the body exceeds the cap, the
+   route answers `413`, and nothing is parsed. The C++'s `Connection: close` on
+   every response of this route (`:60`) is **not** reproduced: ESP-IDF already
+   purges a body a handler left unread (`httpd_req_delete`,
+   `httpd_parse.c:841-855`), so the tail cannot be parsed as the next request on
+   a kept-alive socket.
+3. **An invalid value rejects the whole document.** Already this crate's
+   documented position for `json_import` (`cc-config/src/lib.rs`, difference 3),
+   and it is *more* important here: the C++ logs a warning per bad parameter and
+   reports success if one imported, so an operator uploading a configuration with
+   an out-of-range `safety.emergency_temp` gets `200` and runs on the old value.
+   The C++'s own error message (`:750`) already claims to reject "invalid values".
+
+**What pins it.** `cc-config/tests/config_schema.rs`, section *POST
+/api/config/upload* — fourteen cases including
+`an_upload_carries_only_the_keys_it_mentions` (the difference that matters),
+`an_upload_with_one_bad_value_returns_nothing_at_all` (nothing to half-apply),
+`an_every_pair_from_an_upload_is_accepted_by_the_one_writer` (the two validators
+cannot disagree) and `an_oversized_document_is_refused_rather_than_truncated`.
+On the wire: `cc-hal-esp32::web::tests::the_config_upload_route_is_registered`,
+`::the_upload_response_is_the_cpp_shape`,
+`::the_upload_body_is_bounded_and_the_cap_is_the_cpps`.
+
+## 20. HTTP Basic authentication is implemented, and is boot-time 🔴 new
+
+**What the C++ does.** `WebServerManager::setupMiddleware`
+(`WebServerManager.cpp:272-296`) installs `AsyncCorsMiddleware` and, when
+`Config::systemAuthEnabled` is set, an `AsyncAuthenticationMiddleware` with realm
+`"CleverCoffee"` (`:286`).
+
+**What the Rust does.** The same control, on every route, plus `OPTIONS`.
+
+**Why this entry exists at all.** `system.auth.enabled/username/password` were
+registered in `cc-config`'s schema, writable through `POST /api/parameters`,
+readable through `GET /api/parameters` — **and did nothing**. A key an operator
+can set that silently does nothing is worse than an absent key: it looks like a
+security control. `REVIEW.md` H-6 calls this the repo's own named anti-pattern.
+
+**The alternative, and why it was rejected.** Deleting the three keys was the
+brief's other option and is defensible. It was not taken because it is a *worse*
+security outcome for the operator this firmware replaces: an operator who had
+`system.auth.enabled` set on the C++ machine, flashed this firmware, and deleted
+the keys would have gone from "protected" to "wide open" with nothing in the
+migration telling them. Implementing restores the control the C++ has.
+
+**Four properties of the C++ that are reproduced rather than improved**, because
+each is the C++'s behaviour and each is a decision an operator needs to know
+about:
+
+1. **Boot-time.** The C++'s middleware is installed once, from
+   `WebServerManager::initialize`, so enabling `system.auth.enabled` protects
+   nothing until the next reboot. Same here — and unlike the C++, this port
+   *says so*: `needs_reboot` lists `system.auth.*`, so a write answers with
+   `requiresRebootKeys: ["system.auth.enabled"]`. An operator who sets it, sees
+   `200`, and is still serving an open API is the exact lie this repository calls
+   out, and this is the answer to it.
+2. **Empty credentials mean no authentication at all.** `:290-294` logs
+   *"Web authentication enabled but credentials not set"* and serves the API
+   open. Reproduced, with the same warning. Failing closed instead would mean
+   that enabling auth and then not finishing locks an operator out of a machine
+   whose only other console is a UART.
+3. **`/events` is protected.** `EventSource` cannot *set* an `Authorization`
+   header, but HTTP Basic credentials are cached per origin and realm once a
+   browser answers a challenge, and it replays them on subsequent same-origin
+   requests including this one — so the stream works after the operator has
+   logged in through the UI. The C++'s middleware covers `/events` too, so this is
+   the same posture, not a new one.
+4. **The static UI is protected**, so the login prompt appears on a top-level
+   navigation where a browser can actually show it. No UI change is needed: once
+   the browser has the credential cached it sends it on every same-origin
+   `fetch`.
+
+**Two things this is not.** It is **not TLS**: Basic auth base64-encodes and does
+not encrypt, the C++ has no HTTPS listener either, and a credential crosses this
+LAN in the clear. And it has **no retry limiting and no lockout**, which the C++
+also lacks — an attacker on the LAN gets unlimited guesses.
+
+**What pins it.** `cc-domain/src/http_auth.rs` — 23 host tests over the
+credential check, including
+`a_username_that_is_a_prefix_of_the_real_one_is_refused`,
+`a_password_containing_a_colon_survives` (RFC 7617 §2 splits at the *first*
+colon), `malformed_base64_is_refused` and
+`base64_agrees_with_a_full_alphabet_round_trip`. That module is in `cc-domain`
+and not `cc-hal-esp32` **because `cc-hal-esp32` cannot be tested without a
+device**: a hand-rolled base64 decoder and credential compare is the one piece
+of this work where "untested" means "ships a machine that opens or locks itself",
+and it is `no_std`, allocation-free and covered by `just test` on the host. The
+wiring is pinned by `cc-hal-esp32::web::tests::auth_*` (device-only).
+
+## 21. `/api/status` reports `steamMode`, and keeps `brewing` as an addition 🔴 changed
+
+**What the C++ does.** `doc["steamMode"] = systemContext_->steamMode()`
+(`WebServerManager.cpp:359`).
+
+**What that actually is.** `SystemContext::steamMode()` (`SystemContext.cpp:395`)
+delegates to `MachineStateContext::isSteamModeActive()`
+(`MachineStateContext.h:395`), which returns `steamON_` (`:785`). That flag is
+**latched**: set `true` in `SteamRunningState::onEntryImpl`
+(`SteamStates.cpp:16`), cleared in `SteamRunningState::onExitImpl` (`:21`), and
+cleared again in `StandbyState::onEntryImpl` (`SystemStates.cpp:17`). It means
+"steam mode is engaged", and it is not derived from the current state at read
+time.
+
+**What the Rust does.** `cc-machine`'s `Machine::steam_mode` is set at exactly
+those three points (`states.rs:218`, `:263`, `:365`), so `Telemetry::steam_mode`
+**is** the C++'s `steamMode()`. `/api/status` now emits it under the C++'s name.
+
+**What was wrong.** The route emitted `"brewing": t.brewing`, where `brewing` is
+`state.is_brew_state() && state != BrewFinished` (`main.rs:2983`) — a derived
+brew-state flag with no C++ counterpart, published **under the C++'s steam-mode
+name**. A client asking "is steam mode on?" got an answer about brewing. That was
+an *undeclared* divergence and a wrong value, not merely a renamed field.
+
+**Why both keys, rather than a rename.** `brewing` is real information the C++
+never had, nothing consumed it (`rg` finds no reader of `/api/status` in the UI —
+the UI reads `steamMode` from the `/api/steam` **toggle response**,
+`machine-toggle-result.ts:9`, which is untouched), and dropping a published field
+buys nothing. So `steamMode` carries the C++'s value and `brewing` stays as an
+**addition**. The UI's toggle and a status poll now agree, which is the property
+that matters: a switch that sets steam mode and a poll that then contradicts it
+is the same class of bug this file already records once, for a toggle reading its
+value before the command was applied.
+
+**What pins it.**
+`cc-hal-esp32::web::tests::steam_mode_is_the_latched_steam_flag_and_not_the_brew_state`
+and `::the_status_steam_mode_agrees_with_the_steam_toggle_response` (device-only).
+
+## 22. CORS preflight is answered; the C++'s per-response `Access-Control-Allow-Origin: *` is not 🔴 changed
+
+**What the C++ does.** `AsyncCorsMiddleware` with `setOrigin("*")`,
+`setMethods("GET,POST,PUT,DELETE,OPTIONS")` and
+`setHeaders("Content-Type,Authorization,X-Requested-With")`
+(`WebServerManager.cpp:272-277`), applied to **every** response by middleware.
+
+**What the Rust does.** `OPTIONS /api*` answers `204` with those three headers.
+The per-response header is **not** ported.
+
+**Why.** Two reasons, and the second is the one that matters.
+
+1. The advertisement was a phantom: `routes()` listed
+   `("/api/status", Method::Options)` and **no `fn_handler` anywhere** registered
+   it, so a preflight 404'd while the boot log claimed the route existed. That is
+   now a real handler on a real wildcard. ESP-IDF matches URI and method
+   independently (`httpd_uri.c:97-122` — a URI match with the wrong method sets 405
+   and the search *continues*), so one `/api*` entry answers every API preflight
+   without touching any `GET`/`POST` routing.
+2. A wildcard origin on an endpoint that can reboot a boiler, change its
+   emergency cut-off or erase its configuration is a widening with **no
+   consumer**: the SPA is served same-origin from `/ui` and needs nothing. Adding
+   `Access-Control-Allow-Origin: *` to authenticated responses would also be
+   incoherent next to `WWW-Authenticate` — a browser will not attach a cached
+   Basic credential to a wildcard-origin response — so the honest CORS surface
+   here is "this server answers preflight and does not opt into cross-origin
+   reads".
+
+`OPTIONS` is registered **outside** the authentication gate, deliberately and
+visibly: a preflight is by definition the one request a browser sends without
+credentials, so challenging one makes every cross-origin request fail
+permanently and confusingly.
+
+**What pins it.** `cc-hal-esp32::web::tests::the_advertised_options_handler_is_a_wildcard_over_the_api`
+(device-only), which fails if the advertised `Options` entry is anything other
+than the one real wildcard.

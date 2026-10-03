@@ -1,13 +1,13 @@
 //! Port of `include/clevercoffee/display/DisplayLayoutUtils.h`.
 //!
-//! These four helpers are what the AGENTS.md OLED rules are *implemented* in.
+//! These helpers are what the AGENTS.md OLED rules are *implemented* in.
 //! Every one of them encodes a rule that is otherwise easy to state and easy to
 //! violate:
 //!
-//! * [`draw_str_right_in_box`] and [`draw_str_centered_in_box`] implement
-//!   **stable numeric fields** (rule 3): a value is drawn inside a box whose
-//!   pixel width was reserved from a *widest-case probe string*, so a digit
-//!   count change moves the field's far edge, not its near edge.
+//! * [`draw_str_right_in_box`] implements **stable numeric fields** (rule 3): a
+//!   value is drawn inside a box whose pixel width was reserved from a
+//!   *widest-case probe string*, so a digit count change moves the field's far
+//!   edge, not its near edge.
 //! * [`draw_str_centered_on_screen`] is the naive centring, kept separate so
 //!   that using it where a fixed-width box belongs is a visible choice.
 //! * [`layout_bar_label_cluster`] implements **paired-control midline
@@ -78,12 +78,6 @@ impl FixedBox {
         self.x + self.width
     }
 
-    /// The x a centred value starts at for a value exactly `text_w` wide.
-    #[must_use]
-    pub const fn centre_for(&self, text_w: i32) -> i32 {
-        self.x + (self.width - text_w) / 2
-    }
-
     /// Draw `text` right-aligned inside the box.
     pub fn draw_right(&self, d: &mut Display, text: &str) {
         d.draw_str(self.right_edge() - d.str_width(text), self.y, text);
@@ -103,16 +97,6 @@ impl FixedBox {
 /// of shifting the whole field right.
 pub fn draw_str_right_in_box(d: &mut Display, box_x: i32, box_w: i32, y: i32, text: &str) {
     d.draw_str(box_x + box_w - d.str_width(text), y, text);
-}
-
-/// `drawStrCenteredInBox` (`DisplayLayoutUtils.h:15`).
-///
-/// Draws `text` centred within `[box_x, box_x + box_w)`. Note this *does* move
-/// when the text changes width — which is exactly why it must not be used for a
-/// counting field. It is for fixed-content labels inside a reserved column.
-pub fn draw_str_centered_in_box(d: &mut Display, box_x: i32, box_w: i32, y: i32, text: &str) {
-    let x = box_x + (box_w - d.str_width(text)) / 2;
-    d.draw_str(x, y, text);
 }
 
 /// `drawStrCenteredOnScreen` (`DisplayLayoutUtils.h:19`).
@@ -145,7 +129,7 @@ impl BarLabelCluster {
     ///
     /// Doubled to keep the division exact for odd heights: a 4 px bar has its
     /// centre at `y + 1.5`, and the label's at `y + font_h / 2.0`, and those
-    /// are not comparable as integers. [`assert_shared_midline`] is the
+    /// are not comparable as integers. `assert_shared_midline` is the
     /// assertion; this is the number it compares.
     #[must_use]
     pub const fn bar_midline2(&self, bar_h: i32) -> i32 {

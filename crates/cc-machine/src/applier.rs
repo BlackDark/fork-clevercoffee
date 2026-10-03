@@ -13,16 +13,35 @@
 //! true if this module is the sole exit. `tests/ported_state_flow_integration.rs`
 //! greps the crate for the actuator call sites to keep it that way honest.
 //!
-//! # Two traits, deliberately
+//! # Three traits, and why
 //!
 //! * [`Actuators`] is safety-critical. **No method has a default body**, so a new
 //!   actuator method is a compile error in every implementation rather than a
 //!   silently-skipped call.
-//! * [`SideChannels`] is everything else — logs, the display, the brew timer the
-//!   outside world reads, the maintenance store, MQTT, the reboot. These have
-//!   default no-op bodies because a host test has no display and no MQTT broker,
-//!   and forcing every test double to implement twelve cosmetic methods would
-//!   push people to implement the wrong trait.
+//! * [`MachineChannels`] is the machine's own bookkeeping: everything whose
+//!   loss is a *defect* rather than a missing log line — the shot counter, the
+//!   reboot. **No method has a default body either**, and that is the point of
+//!   the split. It used to be one fourteen-method trait with nine silent `{}`
+//!   bodies, and `on_record_brew` was one of them: the reducer emitted the
+//!   effect (`states.rs`, `BrewFinished`), `FirmwareSide` did not override it,
+//!   and so `/api/status` reported `shotsSinceBackflush: 0` and
+//!   `backflushReminderDue: false` for the life of the firmware with no compiler
+//!   error, no failing test and no log line. A default body on a method whose
+//!   absence changes what the machine *does* is a lie the type system tells on
+//!   every call site, and the only defence against it is that there is no such
+//!   method.
+//! * [`Diagnostics`] is observability — the state-transition log, the flag
+//!   mirrors, the watchdog line. It is reached through one optional accessor so
+//!   that "this side channel has no diagnostics" is a single `None` instead of
+//!   nine empty bodies, and it does keep default bodies: a gap in a log is
+//!   visible in the log's absence, which is the property that was missing from
+//!   [`MachineChannels`] and is present here.
+//!
+//! The dividing line is therefore not "important" versus "unimportant". It is
+//! **whether the reducer has already applied the change to
+//! [`Machine`][`crate::machine::Machine`]**. If it has, the channel is told about
+//! it and dropping the call loses a line of telemetry. If it has not, dropping
+//! the call loses the change — and that is [`MachineChannels`].
 
 use cc_domain::state::MachineState;
 
@@ -81,46 +100,114 @@ pub trait Actuators {
     fn safe_hardware_shutdown(&mut self);
 }
 
-/// Everything that is not a pin: logs, the display, the brew timer, the
-/// maintenance store, MQTT, the reboot.
+/// The machine's own bookkeeping: the effects whose loss is a defect.
 ///
-/// All methods default to a no-op. A real implementation overrides what it owns;
-/// a test double overrides what it asserts on.
-pub trait SideChannels {
-    /// The state was left. The C++'s `logStateExit` plus the state-name log.
-    fn on_exit_state(&mut self, _state: MachineState) {}
-    /// The state was entered. The C++'s `logStateEntry`.
-    fn on_enter_state(&mut self, _state: MachineState) {}
-    /// The runtime PID flag changed.
-    fn on_pid_runtime(&mut self, _enabled: bool) {}
-    /// Steam mode changed.
-    fn on_steam_mode(&mut self, _enabled: bool) {}
-    /// A brew finished and may count as a shot.
-    fn on_record_brew(&mut self, _elapsed_ms: f64, _weight: f32, _scale_enabled: bool) {}
-    /// The shot-since-backflush counter was reset.
-    fn on_reset_shots_since_backflush(&mut self) {}
-    /// Every action request was drained (S11).
-    fn on_clear_action_requests(&mut self) {}
-    /// The stale stop requests were drained.
-    fn on_clear_stale_stop_requests(&mut self) {}
-    /// The standby countdown was re-armed.
-    fn on_reset_standby_timer(&mut self) {}
-    /// The MQTT reconnect counter was reset.
-    fn on_reset_mqtt_reconnect_count(&mut self) {}
-    /// The display must leave power-save.
-    fn on_wake_display(&mut self) {}
+/// **Every method is mandatory.** That is the entire contract, and it is why
+/// this trait exists separately from [`Diagnostics`]: an implementation that
+/// forgets to handle one of these does not compile. See the module documentation
+/// for the bug that motivated the split.
+pub trait MachineChannels {
+    /// A brew finished, and the reducer has already decided whether it counts.
+    ///
+    /// `MaintenanceCoordinator::recordBrewIfQualified`
+    /// (`MaintenanceCoordinator.cpp:30-49`). `counted` is the reducer's answer —
+    /// `Machine::shots_since_backflush` has already been incremented if it is
+    /// `true` — and `shots_since_backflush` is that counter. An implementation
+    /// must **persist `shots_since_backflush` when `counted`**, and must not
+    /// re-derive the decision: `cc_machine::maintenance::qualifies_as_counted_shot`
+    /// is the C++'s rule and the reducer is where the C++ evaluates it
+    /// (`BrewStates.cpp:306-312`).
+    fn on_record_brew(&mut self, counted: bool, shots_since_backflush: i32);
+
+    /// The shot counter was cleared, and `shots_since_backflush` is its new
+    /// value.
+    ///
+    /// `MaintenanceCoordinator::resetSinceBackflush()`
+    /// (`MaintenanceCoordinator.cpp:52-64`). This is the same write as
+    /// [`Self::on_record_brew`], and it is a separate effect because the C++ is:
+    /// `BackflushFinishedState::onEntryImpl` (`BackflushStates.cpp:144`) calls a
+    /// different method than `BrewFinishedState::onEntryImpl` does. It is also
+    /// the path the C++'s `POST /api/maintenance/reset-backflush-counter` takes
+    /// (`WebServerManager.cpp:528-537`).
+    fn on_reset_shots_since_backflush(&mut self, shots_since_backflush: i32);
+
     /// A reboot was requested.
     ///
     /// The device implementation shows `POWER_REBOOT_DISPLAY_MS` of
     /// "REBOOTING", performs a safe shutdown, waits again, and restarts
     /// (`PowerHandler.h:177-192`). It is the only place in the firmware allowed
     /// to sleep.
-    fn on_request_reboot(&mut self) {}
-    /// A free-form log line for the transition reason.
+    fn on_request_reboot(&mut self);
+
+    /// The optional observability sink, or `None`.
+    ///
+    /// This is the one method here with a default body, and it has one because
+    /// it is the opt-in rather than an obligation: an implementation that has
+    /// nothing to say returns `None` and implements nothing else, and an
+    /// implementation that does say something returns `Some(self)` and owns
+    /// every [`Diagnostics`] method. What it must not do is return `None` while
+    /// claiming, by implementing [`MachineChannels`], that the machine's
+    /// behaviour is handled.
+    fn diagnostics(&mut self) -> Option<&mut dyn Diagnostics> {
+        None
+    }
+}
+
+/// Everything that is a notification rather than a change: the state-transition
+/// log, the flag mirrors the reducer has already applied, and the free-form log
+/// line.
+///
+/// Reached through [`MachineChannels::diagnostics`], and deliberately allowed to
+/// have default bodies — see the module documentation. Everything the reducer
+/// has **not** already written into [`Machine`] belongs on
+/// [`MachineChannels`] instead.
+pub trait Diagnostics {
+    /// The state was left. The C++'s `logStateExit` plus the state-name log.
+    fn on_exit_state(&mut self, _state: MachineState) {}
+    /// The state was entered. The C++'s `logStateEntry`.
+    fn on_enter_state(&mut self, _state: MachineState) {}
+    /// The runtime PID flag changed.
+    ///
+    /// A mirror, not a change: `Machine::pid::runtime_enabled` is already
+    /// written by the time this runs (`handlers.rs`, `Command::SetUserPidEnabled`
+    /// — `SystemUtils.h:34-40`).
+    fn on_pid_runtime(&mut self, _enabled: bool) {}
+    /// Steam mode changed. A mirror of [`Machine::steam_mode`], likewise.
+    fn on_steam_mode(&mut self, _enabled: bool) {}
+    /// Every action request was drained (S11). A mirror of
+    /// [`Machine::requests`](crate::machine::Machine::requests), which the
+    /// reducer has already cleared (`MachineStateContext.h:615-627`).
+    fn on_clear_action_requests(&mut self) {}
+    /// The stale stop requests were drained. A mirror, likewise.
+    fn on_clear_stale_stop_requests(&mut self) {}
+    /// The standby countdown was re-armed. A mirror of
+    /// [`Machine::standby`](crate::machine::Machine::standby), which
+    /// `set_request` has already reset (`MachineStateContext.cpp:217-267`).
+    fn on_reset_standby_timer(&mut self) {}
+    /// The MQTT reconnect counter was reset.
+    ///
+    /// `networkCoordinator().resetMqttConnectionAttempts()`
+    /// (`MachineStateContext.cpp:327-329`). **Not implemented by the device
+    /// side channel**: the port's MQTT client is built in `cc-hal-esp32::mqtt`
+    /// and is not reachable from the applier, so this is a recorded gap rather
+    /// than a silent one — `FirmwareSide::diagnostics` returns `Some`, and this
+    /// body is empty, so it is a line in one file rather than a line in none.
+    fn on_reset_mqtt_reconnect_count(&mut self) {}
+    /// The display must leave power-save.
+    ///
+    /// `exitStandbyMode()`'s `display->setPowerSave(0)`
+    /// (`MachineStateContext.cpp:411-417`). **Not implemented by the device
+    /// side channel**, and it does not need to be: the panel is blanked from
+    /// [`Machine::standby`]'s `should_turn_off_display()` at frame-publish time
+    /// (`cc-firmware/src/main.rs`), and both of the C++'s wake paths out of
+    /// standby request normal operation, which re-arms that timer
+    /// (`handlers.rs`, `set_request` — `MachineStateContext.cpp:254-260`). So
+    /// the panel comes back on the next published frame whether or not anyone
+    /// handles this call.
+    fn on_wake_display(&mut self) {}
+    /// A free-form log line for the transition reason, and for a watchdog that
+    /// fired.
     fn on_log(&mut self, _message: &str) {}
-    /// The state machine's own snapshot, for the once-per-10-seconds log
-    /// (`StateMachine.cpp:90-98`).
-    fn on_snapshot(&mut self, _machine: &Machine) {}
 }
 
 /// Apply one event's worth of effects, in order.
@@ -136,7 +223,7 @@ pub trait SideChannels {
 /// would hide the refusal.
 pub fn apply(
     actuators: &mut dyn Actuators,
-    side: &mut dyn SideChannels,
+    side: &mut dyn MachineChannels,
     machine: &Machine,
     effects: &[Effect],
 ) {
@@ -152,7 +239,7 @@ pub fn apply(
 /// build a `Vec`.
 pub fn apply_one(
     actuators: &mut dyn Actuators,
-    side: &mut dyn SideChannels,
+    side: &mut dyn MachineChannels,
     machine: &Machine,
     effect: Effect,
 ) {
@@ -170,39 +257,65 @@ pub fn apply_one(
         Effect::EmergencyShutdown => actuators.emergency_shutdown(),
         Effect::SafeHardwareShutdown => actuators.safe_hardware_shutdown(),
 
-        // ---- bookkeeping ----------------------------------------------------
-        Effect::ExitState(state) => side.on_exit_state(state),
-        Effect::EnterState(state) => side.on_enter_state(state),
-        Effect::SetPidRuntime { enabled } => side.on_pid_runtime(enabled),
-        Effect::SetSteamMode { enabled } => side.on_steam_mode(enabled),
-        Effect::RecordBrew {
-            elapsed_ms,
-            weight,
-            scale_enabled,
-        } => side.on_record_brew(elapsed_ms, weight, scale_enabled),
-        Effect::ResetShotsSinceBackflush => side.on_reset_shots_since_backflush(),
-        Effect::ClearActionRequests => side.on_clear_action_requests(),
-        Effect::ClearStaleStopRequests => side.on_clear_stale_stop_requests(),
-        Effect::ResetStandbyTimer => side.on_reset_standby_timer(),
-        Effect::ResetMqttReconnectCount => side.on_reset_mqtt_reconnect_count(),
-        Effect::WakeDisplay => side.on_wake_display(),
+        // ---- the counter the machine keeps but cannot write down itself -----
+        //
+        // These two carry `machine`'s value rather than being asked to compute
+        // it. The reducer owns `shots_since_backflush` and has already applied
+        // the C++'s qualification rule; what the side channel has to do is
+        // remember it, and that is the write the C++ does inside the same call
+        // (`MaintenanceCoordinator.cpp:44,59`).
+        Effect::RecordBrew { counted } => {
+            side.on_record_brew(counted, machine.shots_since_backflush);
+        }
+        Effect::ResetShotsSinceBackflush => {
+            side.on_reset_shots_since_backflush(machine.shots_since_backflush);
+        }
         Effect::RequestReboot => side.on_request_reboot(),
 
         // ---- observability ---------------------------------------------------
+        //
+        // Every arm below reports something the reducer has **already** written
+        // into `Machine`, or a line of text. That is the line between this
+        // group and the three above, and it is why a `None` diagnostics sink
+        // loses a log and never a change. `if let` rather than an `else` arm on
+        // the optional trait, because there is no obligation here to satisfy.
+        Effect::ExitState(state) => observe(side, |d| d.on_exit_state(state)),
+        Effect::EnterState(state) => observe(side, |d| d.on_enter_state(state)),
+        Effect::SetPidRuntime { enabled } => observe(side, |d| d.on_pid_runtime(enabled)),
+        Effect::SetSteamMode { enabled } => observe(side, |d| d.on_steam_mode(enabled)),
+        Effect::ClearActionRequests => observe(side, |d| d.on_clear_action_requests()),
+        Effect::ClearStaleStopRequests => observe(side, |d| d.on_clear_stale_stop_requests()),
+        Effect::ResetStandbyTimer => observe(side, |d| d.on_reset_standby_timer()),
+        Effect::ResetMqttReconnectCount => observe(side, |d| d.on_reset_mqtt_reconnect_count()),
+        Effect::WakeDisplay => observe(side, |d| d.on_wake_display()),
+
         // `BrewHandler::checkPumpTimeout`'s `logError("Pump timeout - stopping
         // for safety")` and the hot-water equivalent. In the C++ these lines are
         // unreachable (09 §11); here they are the only way a field operator can
         // learn that a watchdog fired, which is the point of the effect. The
         // action that follows is a separate effect, in the C++'s order.
-        Effect::PumpTimeoutFired { watchdog } => side.on_log(watchdog.message()),
+        Effect::PumpTimeoutFired { watchdog } => observe(side, |d| d.on_log(watchdog.message())),
     }
+}
 
-    let _ = machine;
+/// Hand a diagnostics sink to `f`, if this side channel has one.
+///
+/// A function rather than eleven `if let`s so that "there is no sink" is decided
+/// in exactly one place and cannot be got wrong per-effect, and rather than a
+/// shared no-op object because a `&mut` to a `static` is a question this crate
+/// has no reason to ask (`#![forbid(unsafe_code)]`, and aliasing a zero-sized
+/// value is only harmless by accident).
+fn observe(side: &mut dyn MachineChannels, f: impl FnOnce(&mut dyn Diagnostics)) {
+    if let Some(diagnostics) = side.diagnostics() {
+        f(diagnostics);
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::effect::PumpWatchdog;
+    use alloc::string::String;
     use alloc::vec::Vec;
 
     /// A recorder, so the exhaustive table can assert on the effect stream
@@ -251,7 +364,7 @@ mod tests {
     #[test]
     fn effects_are_applied_in_order_without_coalescing() {
         let mut act = Recorder::default();
-        let mut side = SideChannelsNone;
+        let mut side = Bookkeeping::default();
         let machine = Machine::cold();
         apply(
             &mut act,
@@ -274,7 +387,7 @@ mod tests {
         // Collapsing would be an optimisation and would be wrong: the C++ calls
         // both, and the second call is what actually leaves the relay off.
         let mut act = Recorder::default();
-        let mut side = SideChannelsNone;
+        let mut side = Bookkeeping::default();
         let machine = Machine::cold();
         apply(
             &mut act,
@@ -286,16 +399,145 @@ mod tests {
     }
 
     #[test]
-    fn a_side_channel_default_implementation_is_a_no_op() {
-        let mut side = SideChannelsNone;
-        side.on_wake_display();
-        side.on_request_reboot();
-        side.on_log("x");
+    fn a_recorded_brew_reaches_the_mandatory_channel_with_the_counter() {
+        // The regression test for the defect that made the trait split
+        // necessary. `machine` is what the applier is handed, so the channel is
+        // told the value the reducer produced rather than being asked to derive
+        // it — and a side channel that implements only the three mandatory
+        // methods receives it, with no diagnostics sink in sight.
+        let mut act = Recorder::default();
+        let mut side = Bookkeeping::default();
+        let mut machine = Machine::cold();
+        machine.shots_since_backflush = 51;
+        apply(
+            &mut act,
+            &mut side,
+            &machine,
+            &[Effect::RecordBrew { counted: true }],
+        );
+        assert_eq!(side.calls, ["record_brew:51"]);
     }
 
-    /// A side-channel sink that implements nothing, to prove the defaults are
-    /// genuinely optional.
-    struct SideChannelsNone;
+    #[test]
+    fn an_uncounted_brew_is_still_offered_so_the_channel_can_say_why() {
+        let mut act = Recorder::default();
+        let mut side = Bookkeeping::default();
+        let mut machine = Machine::cold();
+        machine.shots_since_backflush = 51;
+        apply(
+            &mut act,
+            &mut side,
+            &machine,
+            &[Effect::RecordBrew { counted: false }],
+        );
+        assert_eq!(side.calls, ["record_brew:51:no"]);
+    }
 
-    impl SideChannels for SideChannelsNone {}
+    #[test]
+    fn a_reset_reaches_the_mandatory_channel_with_the_new_value() {
+        let mut act = Recorder::default();
+        let mut side = Bookkeeping::default();
+        let mut machine = Machine::cold();
+        machine.shots_since_backflush = 0;
+        apply(
+            &mut act,
+            &mut side,
+            &machine,
+            &[Effect::ResetShotsSinceBackflush],
+        );
+        assert_eq!(side.calls, ["reset:0"]);
+    }
+
+    #[test]
+    fn every_observability_effect_is_a_no_op_without_a_diagnostics_sink() {
+        // The other half of the split's argument: dropping a `Diagnostics` call
+        // loses a log line and nothing else, which is why it may have a default
+        // body where [`MachineChannels`] may not. Each of these effects has
+        // already been applied to `machine` by the reducer.
+        let mut act = Recorder::default();
+        let mut side = Bookkeeping::default();
+        let machine = Machine::cold();
+        apply(
+            &mut act,
+            &mut side,
+            &machine,
+            &[
+                Effect::ExitState(MachineState::Init),
+                Effect::EnterState(MachineState::Init),
+                Effect::SetPidRuntime { enabled: true },
+                Effect::SetSteamMode { enabled: true },
+                Effect::ClearActionRequests,
+                Effect::ClearStaleStopRequests,
+                Effect::ResetStandbyTimer,
+                Effect::ResetMqttReconnectCount,
+                Effect::WakeDisplay,
+                Effect::PumpTimeoutFired {
+                    watchdog: PumpWatchdog::Brew,
+                },
+            ],
+        );
+        assert!(side.calls.is_empty(), "{:?}", side.calls);
+        assert!(act.calls.is_empty(), "{:?}", act.calls);
+    }
+
+    #[test]
+    fn an_opted_in_diagnostics_sink_sees_the_same_effects() {
+        let mut act = Recorder::default();
+        let mut side = Bookkeeping::loud();
+        let machine = Machine::cold();
+        apply(
+            &mut act,
+            &mut side,
+            &machine,
+            &[Effect::EnterState(MachineState::BrewRunning)],
+        );
+        assert_eq!(side.diagnostics_seen, 1);
+    }
+
+    /// The mandatory half only — no diagnostics sink, which is what a host
+    /// double wants and what the firmware had before this was fixed.
+    #[derive(Default)]
+    struct Bookkeeping {
+        calls: Vec<String>,
+        diagnostics_seen: u32,
+        loud: bool,
+    }
+
+    impl Bookkeeping {
+        /// The same double, opted **in** to diagnostics.
+        fn loud() -> Self {
+            Self {
+                loud: true,
+                ..Self::default()
+            }
+        }
+    }
+
+    impl MachineChannels for Bookkeeping {
+        fn on_record_brew(&mut self, counted: bool, shots_since_backflush: i32) {
+            let suffix = if counted { "" } else { ":no" };
+            self.calls.push(alloc::format!(
+                "record_brew:{shots_since_backflush}{suffix}"
+            ));
+        }
+
+        fn on_reset_shots_since_backflush(&mut self, shots_since_backflush: i32) {
+            self.calls
+                .push(alloc::format!("reset:{shots_since_backflush}"));
+        }
+
+        fn on_request_reboot(&mut self) {
+            self.calls.push(alloc::string::String::from("reboot"));
+        }
+
+        fn diagnostics(&mut self) -> Option<&mut dyn Diagnostics> {
+            self.loud.then_some(self as &mut dyn Diagnostics)
+        }
+    }
+
+    impl Diagnostics for Bookkeeping {
+        fn on_enter_state(&mut self, _state: MachineState) {
+            self.diagnostics_seen = self.diagnostics_seen.saturating_add(1);
+        }
+    }
 }

@@ -47,6 +47,7 @@
 //! only thing that may open the heater gate (04 §3.4). Nothing in this module
 //! touches an actuator.
 
+use core::fmt::Write as _;
 use std::sync::{Arc, Mutex};
 
 use cc_config::blob_store::BlobConfigStore;
@@ -428,10 +429,17 @@ pub fn telemetry_from(reading: Reading, uptime_ms: u32, weight_g: Option<f64>) -
 ///
 /// Note the ownership consequence, because it is the part that bites later: the
 /// snapshot is a single slot and both publishers write it, so the two must not
-/// race. They do not today — the control task writes once per
-/// [`crate::main::CONTROL_PERIOD_MS`] and the radio once per second, and each
-/// write is one [`Cell`] sequence over the whole slot, so the worst case is one
-/// publisher's fields being one tick stale, never torn.
+/// race. They do not — both `publish` and `publish_radio` are called from the
+/// control task, sequentially, and each is one [`Snapshot`] write over the whole
+/// slot.
+///
+/// **This function must stay on a slow cadence.** It does four `esp-idf` FFI
+/// round-trips and, on the old `String` field, one heap allocation. It used to
+/// be called from every 10 ms control tick, which was both a performance defect
+/// and the write side of a use-after-free (REVIEW.md CR-1): the reassignment
+/// `free()`d the previous IP buffer that the httpd task could be reading. The
+/// caller now gates it on the same 1 s [`crate::main::WIFI_POLL_MS`] the radio
+/// poll uses, which is the only cadence any of these values can change at.
 pub fn publish_radio(shared: &Shared, sta: Option<&Sta>) {
     // Read-modify-write, so this cannot be a bare `set`. Both publishers are on
     // the control task and are sequential, which is what makes the
@@ -441,7 +449,20 @@ pub fn publish_radio(shared: &Shared, sta: Option<&Sta>) {
         slot.signal = sta.signal().as_bars();
         slot.wifi_associated = sta.is_associated();
         slot.wifi_offline = sta.is_offline();
-        slot.ip = sta.ip().map(|ip| format!("{ip}"));
+        // `heapless::String<15>` is exactly the longest a dotted-quad IPv4
+        // address can be, so this never fails and never allocates. A longer
+        // value would be `None`, which is the honest answer for "no address"
+        // anyway — but `Sta::ip()` returns `Ipv4Addr`, so it cannot happen.
+        // Formatted **straight into** the fixed-size buffer: `heapless` 0.9 has
+        // no `TryFrom<String>` (and taking one would allocate), so this is
+        // `core::fmt::Write` into the destination. `Ipv4Addr`'s `Display` is
+        // dotted-quad, at most 15 characters, so it cannot overflow -- but if it
+        // ever did, the buffer would hold a partial address, which is worse than
+        // none, so the result is checked rather than assumed.
+        slot.ip = sta.ip().and_then(|ip| {
+            let mut text = heapless::String::<15>::new();
+            write!(text, "{ip}").ok().map(|()| text)
+        });
     } else {
         // No radio at all. Reporting "not associated, no address" is the truth,
         // and is what a machine that never provisioned a network should say.

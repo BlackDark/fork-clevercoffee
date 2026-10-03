@@ -182,7 +182,7 @@ fn the_valve_safety_check_closes_through_the_applier() {
     // [`cc_machine::Effect::CloseWaterValve`]. There is no relay to poke. What
     // this test pins is that the effect is produced at all, and that the applier
     // maps it to the facade method rather than to a pin.
-    use cc_machine::{Actuators, Effect, SideChannels};
+    use cc_machine::{Actuators, Effect, MachineChannels};
 
     #[derive(Debug, Default)]
     struct Recorder {
@@ -224,7 +224,11 @@ fn the_valve_safety_check_closes_through_the_applier() {
         }
     }
     struct NoSide;
-    impl SideChannels for NoSide {}
+    impl MachineChannels for NoSide {
+        fn on_record_brew(&mut self, _counted: bool, _shots_since_backflush: i32) {}
+        fn on_reset_shots_since_backflush(&mut self, _shots_since_backflush: i32) {}
+        fn on_request_reboot(&mut self) {}
+    }
 
     let mut h = Harness::in_state(MachineState::PidNormal);
     let fx = h.tick();

@@ -44,7 +44,7 @@
 //!
 //! **A passing test of this module is not evidence that a TSIC-306 works.** The
 //! waveform it is tested against is synthesised by
-//! [`simulator`](super::simulator) from the spec's own timings. That proves the
+//! `simulator` from the spec's own timings. That proves the
 //! arithmetic, the ordering, the rejection of damaged frames, and the
 //! DS → °C conversion. It proves nothing about a real sensor: real clock
 //! tolerance, real 31.25 µs and 93.75 µs pulses that a 1 µs clock rounds, real

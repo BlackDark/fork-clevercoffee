@@ -182,16 +182,6 @@ impl Rate {
     }
 }
 
-/// Why a read produced no sample.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum NotReady {
-    /// DOUT is still high: no conversion has completed since the last read.
-    ///
-    /// **Not a fault.** This is the ordinary "nothing new yet" answer and it is
-    /// what a healthy cell returns most of the time at 10 SPS.
-    DataNotReady,
-}
-
 /// Why a read failed outright.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Fault {

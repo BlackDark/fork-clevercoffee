@@ -25,7 +25,6 @@
     "temp_offset": 0
   },
   "display": {
-    "blescale_brew_timer": false,
     "blinking": {
       "delta": 0.3
     },

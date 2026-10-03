@@ -36,10 +36,8 @@
 
 use cc_domain::state::MachineState;
 
-use alloc::vec::Vec;
-
 use crate::context::Context;
-use crate::effect::Effect;
+use crate::effect::{Effect, Effects};
 use crate::machine::Machine;
 use crate::timing;
 
@@ -127,8 +125,8 @@ fn check_backflush_mode_disabled(machine: &mut Machine, ctx: &Context<'_>) -> Op
 // must not silently change another. Merging them would make the C++
 // provenance unreviewable and the ADR-0003 table untestable per row.
 #[must_use]
-pub fn on_entry(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -> Vec<Effect> {
-    let mut fx = Vec::new();
+pub fn on_entry(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -> Effects {
+    let mut fx = Effects::new();
     match state {
         // `InitState::onEntryImpl` (`InitState.cpp:12-14`) logs only.
         MachineState::Init => {}
@@ -187,11 +185,26 @@ pub fn on_entry(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -
 
         // `BrewFinishedState::onEntryImpl` (`BrewStates.cpp:306-312`).
         MachineState::BrewFinished => {
-            fx.push(Effect::RecordBrew {
-                elapsed_ms: machine.brew.elapsed_ms,
-                weight: machine.brew_weight(),
-                scale_enabled: ctx.config.hardware.sensors.scale.enabled,
-            });
+            // The C++ makes one call here —
+            // `maintenanceCoordinator().recordBrewIfQualified(processCurrentBrewTime(), getCurrentBrewWeight(), hardwareSensorsScaleEnabled.get())`
+            // — and that call applies the rule, increments the counter and
+            // writes NVS. The rule and the increment happen here, at the same
+            // point and with the same three arguments; only the write is the
+            // shell's, because only the shell has the store.
+            //
+            // Doing the decision here rather than in the applier is the fix for
+            // the counter never moving: it is evaluated where the value it
+            // changes lives, so there is nothing to wire up and nothing to
+            // forget. The effect below carries the answer.
+            let scale_enabled = ctx.config.hardware.sensors.scale.enabled;
+            let (elapsed_ms, weight) = (machine.brew.elapsed_ms, machine.brew_weight());
+            let counted = crate::maintenance::record_brew_if_qualified(
+                &mut machine.shots_since_backflush,
+                elapsed_ms,
+                weight,
+                scale_enabled,
+            );
+            fx.push(Effect::RecordBrew { counted });
         }
 
         // `ManualFlushRunningState::onEntryImpl` (`SystemStates.cpp:58-63`).
@@ -291,8 +304,8 @@ pub fn on_entry(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -
 // must not silently change another. Merging them would make the C++
 // provenance unreviewable and the ADR-0003 table untestable per row.
 #[must_use]
-pub fn on_exit(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -> Vec<Effect> {
-    let mut fx = Vec::new();
+pub fn on_exit(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -> Effects {
+    let mut fx = Effects::new();
     match state {
         // No `onExitImpl` (`InitState.h:16-21`).
         MachineState::Init => {}
@@ -433,8 +446,8 @@ pub fn on_exit(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) ->
 // must not silently change another. Merging them would make the C++
 // provenance unreviewable and the ADR-0003 table untestable per row.
 #[must_use]
-pub fn update(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -> Vec<Effect> {
-    let mut fx = Vec::new();
+pub fn update(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -> Effects {
+    let mut fx = Effects::new();
     match state {
         // `InitState::update` (`InitState.cpp:16-22`): a debug log.
         MachineState::Init => {}

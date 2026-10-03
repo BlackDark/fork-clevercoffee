@@ -17,7 +17,7 @@
 //! `cc-hal-esp32` by bit-banging.
 //!
 //! The alternative — `esp_idf_hal::onewire` — was rejected after reading the
-//! installed source. See [`bus`].
+//! installed source. See [`OneWireBus`].
 //!
 //! # Bit order
 //!
@@ -429,7 +429,7 @@ pub fn read_scratchpad<B: OneWireBus>(
 ///
 /// Mirrors `DallasTemperature::writeScratchPad` + `saveScratchPad`
 /// (`DallasTemperature.cpp:221-262`). Used only by
-/// [`ScratchPad::set_resolution`], i.e. once at boot.
+/// [`ScratchPad::with_resolution`], i.e. once at boot.
 ///
 /// **The 20 ms wait is the device's, not ours.** The C++ blocks 20 ms here
 /// ("NV Write Cycle Time is typically 2ms, max 10ms / Waiting 20ms to allow
@@ -563,7 +563,7 @@ impl ScratchPad {
     /// A copy of this scratchpad with the resolution changed.
     ///
     /// `DallasTemperature::setResolution` (`DallasTemperature.cpp:331-357`)
-    /// only touches [`SP_CONFIGURATION`] and leaves everything else — including
+    /// only touches `SP_CONFIGURATION` and leaves everything else — including
     /// the CRC, which it then recomputes on the way out. This returns the
     /// bytes; [`Self::with_valid_crc`] stamps the CRC.
     #[must_use]
@@ -824,6 +824,16 @@ impl core::fmt::Display for Ds18b20Fault {
 }
 
 #[cfg(test)]
+// `clippy::assert_is_empty` is new in clippy 1.99, the channel the CI host gate
+// runs on (`CC_RUST_TOOLCHAIN=stable`). The emptiness assertions in this module
+// are on COLLECTIONS, so the suggested `assert_eq!(x, "")` does not typecheck,
+// and `assert_eq!(x.len(), 0)` would print a count instead of the contents.
+// Everywhere else in this crate a `String` emptiness assertion is written
+// `assert_ne!(x, "")` and is still linted.
+#[allow(
+    clippy::assert_is_empty,
+    reason = "the assertions are on collections, so assert_eq!(x, \"\") does not typecheck"
+)]
 #[allow(
     clippy::float_cmp,
     reason = "the tests compare the -127 and -25x Celsius sentinels, which is the \

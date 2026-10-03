@@ -128,11 +128,19 @@ impl Harness {
     }
 
     /// Reduce one event.
+    ///
+    /// The reducer's own return type is [`cc_machine::Effects`], a
+    /// fixed-capacity `heapless::Vec`, and the conversion to `Vec` happens here
+    /// on purpose. Tests are not the hot path — they are allowed to use the
+    /// allocator — and the helpers below need a list that is *not* bounded by
+    /// `MAX_EFFECTS_PER_EVENT`: [`Harness::send_all`] concatenates the effects
+    /// of several events, and [`transition_window`] slices one. Widening the
+    /// firmware's ceiling to serve a test fixture is the wrong direction.
     pub fn send(&mut self, ev: Event) -> Vec<Effect> {
         let ctx = self.ctx();
         let (next, fx) = reduce(&self.machine, &ctx, ev);
         self.machine = next;
-        fx
+        fx.into_iter().collect()
     }
 
     /// Reduce several events in order and concatenate the effects.
@@ -200,18 +208,24 @@ impl Harness {
     pub fn on_entry(&mut self, state: MachineState) -> Vec<Effect> {
         let ctx = context_for(&self.config);
         states::on_entry(state, &mut self.machine, &ctx)
+            .into_iter()
+            .collect()
     }
 
     /// `state.onExit(context)`.
     pub fn on_exit(&mut self, state: MachineState) -> Vec<Effect> {
         let ctx = context_for(&self.config);
         states::on_exit(state, &mut self.machine, &ctx)
+            .into_iter()
+            .collect()
     }
 
     /// `state.update(context)`.
     pub fn update(&mut self, state: MachineState) -> Vec<Effect> {
         let ctx = context_for(&self.config);
         states::update(state, &mut self.machine, &ctx)
+            .into_iter()
+            .collect()
     }
 
     /// `state.checkSpecificTransitions(context)`.

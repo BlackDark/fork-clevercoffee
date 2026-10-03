@@ -146,6 +146,18 @@ fn decode(component: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    // `clippy::assert_is_empty` is new in clippy 1.99, which is the channel the
+    // CI host gate runs on (`CC_RUST_TOOLCHAIN=stable`). It is silenced here, in
+    // this `#[cfg(test)]` module, and nowhere else: the assertions below are on
+    // COLLECTIONS, so the lint's suggestion (`assert_eq!(x, "")`) does not
+    // typecheck, and `assert_eq!(x.len(), 0)` would print a count instead of
+    // the contents. A `String` emptiness assertion elsewhere in this crate is
+    // still linted -- those are written `assert_ne!(x, "")`.
+    #![allow(
+        clippy::assert_is_empty,
+        reason = "the assertions are on collections, so the suggested \
+                  assert_eq!(x, \"\") does not typecheck"
+    )]
     use super::*;
     use alloc::format;
     use alloc::vec;

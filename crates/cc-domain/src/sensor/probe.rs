@@ -1,48 +1,50 @@
-//! The one interface both temperature drivers expose.
+//! The vocabulary both temperature drivers report in.
 //!
 //! Owner: **R1-03** and **R3-07**.
 //!
-//! # What the trait is for
+//! # What this module is for
 //!
 //! `cc-machine` needs a temperature and a fault, and it must not know whether
 //! the probe on the other end of it is a DS18B20 on 1-Wire or a TSIC-306 on
 //! `ZACwire`. The C++ gets that from `TempSensor` being a base class
-//! (`include/clevercoffee/hardware/tempsensors/TempSensor.h:17`); Rust has no
-//! inheritance, so the same relationship is [`TemperatureProbe`].
+//! (`include/clevercoffee/hardware/tempsensors/TempSensor.h:17`).
 //!
-//! The trait is deliberately **push and non-blocking**: [`poll`](TemperatureProbe::poll)
-//! never sleeps, never waits for a conversion, and returns `None` when there is
-//! nothing new. Both drivers are already non-blocking in the C++ —
+//! **In Rust it is not a trait here.** It was — `TemperatureProbe`, with
+//! `poll` / `has_error` / `bad_readings` / `source` — and it had **zero impls**.
+//! What actually exists, and is host-tested, is the three types below plus two
+//! free functions: [`ds18b20::as_probe`] and
+//! [`tsic306::as_probe`](crate::sensor::tsic306::as_probe). Each driver
+//! keeps its own concrete type — [`ds18b20::Driver`],
+//! [`tsic306::Tsic306`](crate::sensor::tsic306::Tsic306) — and
+//! `as_probe` collapses one of its outcomes onto [`ProbeReading`] / `None`. A
+//! trait with no implementors could only ever have been tested against a mock of
+//! itself; the mapping is a *decision*, and decisions belong in functions where a
+//! test can drive them with the driver's own outcome type.
+//!
+//! Non-blocking is preserved at the type level by the drivers themselves, not by
+//! this boundary. Both were already non-blocking in the C++ —
 //! `TempSensorDallas` calls `setWaitForConversion(false)`
 //! (`TempSensorDallas.cpp:24`) and the TSIC has no read call at all, only a
-//! callback-driven waveform — and a trait that could block would drag that
-//! property back in at the type level.
+//! callback-driven waveform — and `as_probe` takes an already-polled `Poll` /
+//! `Outcome`, so nothing here can sleep or wait.
 //!
-//! # Why `Fault` is one enum and not the union of the two drivers' errors
+//! # Why `ProbeFault` is one enum and not the union of the two drivers' errors
 //!
-//! The device crates do have richer errors: [`onewire::OneWireError`] carries a
+//! The device crates do have richer errors:
+//! [`onewire::OneWireError`](crate::sensor::onewire::OneWireError) carries a
 //! transport error, [`ds18b20::Ds18b20Fault`] distinguishes six sensor faults.
 //! Collapsing them at this boundary would lose the `EspError` a driver got from
 //! a failing peripheral, which is exactly the diagnostic a bring-up needs.
 //!
-//! So the lossless direction is preserved by an associated
-//! [`Error`](TemperatureProbe::Error): each device crate implements the trait on
-//! a thin newtype that *has* the peripheral, and its `Error` is that
-//! peripheral's own error type. The [`ProbeFault`] enum is what a device crate
+//! So the lossless direction is preserved: a transport failure stays the
+//! driver's own error type and never becomes a [`ProbeFault`], because a failing
+//! peripheral is not a sensor reading. [`ProbeFault`] is what a device crate
 //! maps its sensor-level faults onto, and it is the type the *state machine*
 //! sees once it is past the device layer.
-//!
-//! # What the trait deliberately does not have
-//!
-//! No `start`/`read` pair, no async, no `&self`, no callbacks, and no
-//! "configure" step that can be forgotten. A probe that needs calibration
-//! exposes it as a real method, so a caller cannot hold a probe it never
-//! brought up.
 
 use core::fmt;
 
 use crate::sensor::ds18b20;
-use crate::units::Millis;
 
 /// Which bus a reading arrived on.
 ///
@@ -83,8 +85,8 @@ impl fmt::Display for ProbeSource {
 ///
 /// This is the union of what the two C++ drivers can say about a *reading*,
 /// with the two drivers' own sentinel values collapsed onto the outcome rather
-/// than the number. [`TsicReadFailed`](Self::TsicReadFailed) is `ZACwire`'s 222
-/// and [`TsicNotConnected`](Self::TsicNotConnected) is its 221
+/// than the number. [`ReadFailed`](ProbeFault::ReadFailed) is `ZACwire`'s 222
+/// and [`NotConnected`](ProbeFault::NotConnected) is its 221
 /// (`ZACwire.h:30-31`); both are preserved as distinct variants because the C++
 /// logs them differently and, more importantly, 221 means *the probe is gone*
 /// while 222 means *this reading was not trustworthy* — S1's debounce treats a
@@ -94,7 +96,8 @@ pub enum ProbeFault {
     /// Nothing is on the bus.
     ///
     /// The 1-Wire reset produced no presence pulse
-    /// ([`onewire::OneWireError::NoPresence`]), or no `ZACwire` start bit was
+    /// ([`onewire::OneWireError::NoPresence`](crate::sensor::onewire::OneWireError::NoPresence)),
+    /// or no `ZACwire` start bit was
     /// seen for longer than the no-signal timeout — which is what
     /// `ZACwire::connectionCheck` reports as 221.
     NotConnected,
@@ -172,7 +175,7 @@ pub struct ProbeReading {
     /// last good value instead would turn a latched emergency stop into a
     /// machine that keeps heating. The TSIC driver is the exception the C++
     /// itself makes, and it is a driver-level decision, not a trait-level one —
-    /// see [`tsic306`].
+    /// see [`tsic306`](crate::sensor::tsic306).
     pub celsius: f32,
     /// Which bus produced it.
     pub source: ProbeSource,
@@ -202,49 +205,19 @@ impl fmt::Display for ProbeReading {
     }
 }
 
-/// A pull-based, non-blocking temperature probe.
-///
-/// # The contract
-///
-/// * [`poll`] never blocks and never sleeps.
-/// * It returns `Ok(None)` when there is nothing new to report. A driver that
-///   is mid-conversion, or waiting for the next `ZACwire` frame, returns `None`
-///   forever until it is not — it never returns a stale value as a new one.
-/// * A transport failure is an `Err`, not a `ProbeFault`: a failing peripheral
-///   is not a sensor reading.
-/// * [`has_error`](TemperatureProbe::has_error) reproduces
-///   `TempSensor::error_` (`TempSensor.h:56`), which is what drives `SENSOR_ERROR`
-///   in the state machine. It is **not** cleared by a successful
-///   [`has_error`](TemperatureProbe::has_error) query — only by a good reading.
-pub trait TemperatureProbe {
-    /// The transport's own error, propagated rather than flattened.
-    type Error;
-
-    /// Advance the driver by one step and report anything new.
-    ///
-    /// # Errors
-    ///
-    /// Whatever the transport reports. A sensor-level fault is **not** an
-    /// error: it is `Ok(None)` after the driver's bad-reading counter has been
-    /// advanced, so a caller cannot forget to count it.
-    fn poll(&mut self, now: Millis) -> Result<Option<ProbeReading>, Self::Error>;
-
-    /// Whether the C++ would report this probe as faulty.
-    ///
-    /// `TempSensor::error_` (`TempSensor.h:56`): set once the bad-reading count
-    /// reaches [`ds18b20::MAX_BAD_READINGS`], cleared by any good reading.
-    fn has_error(&self) -> bool;
-
-    /// Consecutive rejected readings, saturating nowhere.
-    ///
-    /// Diagnostic, not the decision: the C++'s `bad_readings_++` has no cap
-    /// (`TempSensor.h:48`) and its only use is the `>= max_bad_readings_`
-    /// comparison.
-    fn bad_readings(&self) -> u8;
-
-    /// Which bus this probe speaks, for logs and API responses.
-    fn source(&self) -> ProbeSource;
-}
+// There was a `TemperatureProbe` trait here — `poll`, `has_error`,
+// `bad_readings`, `source` — as the "one interface both drivers expose" that
+// `sensor/mod.rs` describes. **It is deleted.** It had zero impls, zero uses as
+// a bound, and zero `dyn` uses: the drivers' own `Driver` / `Tsic306` types are
+// what `cc-hal-esp32` holds and what the machine is wired to, and the boundary
+// it was supposed to police turned out to be two free functions —
+// [`ds18b20::as_probe`] and [`tsic306::as_probe`] — that map a driver's outcome
+// onto the three types above. Those are where the mapping is tested, and a trait
+// nobody implemented could only ever have been tested against a mock of itself.
+//
+// A trait with no implementors is worse than no trait: `sensor/mod.rs` said
+// `cc-machine` "takes a `&mut dyn TemperatureProbe`", which was false and would
+// have stayed false until someone believed it.
 
 #[cfg(test)]
 mod tests {

@@ -33,13 +33,11 @@
 //! (`BaseHandler.h:159-161`) — in Rust that is "the switch exists", which is the
 //! same as "there is an event", so it needs no representation.
 
-use alloc::vec::Vec;
-
 use cc_domain::hardware::SwitchType;
 use cc_domain::state::MachineState;
 
 use crate::context::Context;
-use crate::effect::{Effect, PumpWatchdog};
+use crate::effect::{Effect, Effects, PumpWatchdog};
 use crate::event::{Event, SwitchId};
 use crate::machine::{Machine, Request};
 
@@ -51,7 +49,7 @@ use crate::machine::{Machine, Request};
 /// handler layer, which in the C++ is `LoopManager` step 3 plus the tail of
 /// step 4 (`LoopManager.cpp:561-569` and `:616-619`).
 #[must_use]
-pub fn apply_input(machine: &mut Machine, ctx: &Context<'_>, ev: Event) -> Vec<Effect> {
+pub fn apply_input(machine: &mut Machine, ctx: &Context<'_>, ev: Event) -> Effects {
     match ev {
         Event::ButtonPressed { switch, .. } | Event::ButtonReleased { switch } => {
             handler(machine, ctx, switch)
@@ -59,7 +57,7 @@ pub fn apply_input(machine: &mut Machine, ctx: &Context<'_>, ev: Event) -> Vec<E
         Event::Command(cmd) => apply_command(machine, ctx, cmd),
         // A command is also how an external caller applies a backflush-mode
         // change, which is a three-way decision rather than a flag.
-        _ => Vec::new(),
+        _ => Effects::new(),
     }
 }
 
@@ -67,7 +65,7 @@ pub fn apply_input(machine: &mut Machine, ctx: &Context<'_>, ev: Event) -> Vec<E
 ///
 /// Dispatches to the four handlers. Each one is the C++'s `processSwitchInput`,
 /// minus the switch-object plumbing.
-fn handler(machine: &mut Machine, ctx: &Context<'_>, switch: SwitchId) -> Vec<Effect> {
+fn handler(machine: &mut Machine, ctx: &Context<'_>, switch: SwitchId) -> Effects {
     match switch {
         SwitchId::Brew => brew_switch(machine, ctx),
         SwitchId::Steam => steam_switch(machine, ctx),
@@ -88,13 +86,13 @@ fn handler(machine: &mut Machine, ctx: &Context<'_>, switch: SwitchId) -> Vec<Ef
 /// `resetStandbyTimerOnUserActivity` forwards to `standbyCoordinator().reset()`,
 /// which itself starts with `if (!standbyEnabled.get()) return;`
 /// (`StandbyCoordinator.h:88`), so a disabled standby produces no effect.
-fn set_request(machine: &mut Machine, ctx: &Context<'_>, request: Request) -> Vec<Effect> {
+fn set_request(machine: &mut Machine, ctx: &Context<'_>, request: Request) -> Effects {
     machine.requests.set(request, true);
     if request.resets_standby_timer() && ctx.config.standby.enabled {
         machine.standby.reset(machine.now, ctx.standby_timeout_ms());
-        return vec_of(Effect::ResetStandbyTimer);
+        return one(Effect::ResetStandbyTimer);
     }
-    Vec::new()
+    Effects::new()
 }
 
 /// `BrewHandler::processSwitchInput` (`BrewHandler.h:165-252`).
@@ -115,9 +113,9 @@ fn set_request(machine: &mut Machine, ctx: &Context<'_>, request: Request) -> Ve
 /// }
 /// ... normal brew paths ...
 /// ```
-fn brew_switch(machine: &mut Machine, ctx: &Context<'_>) -> Vec<Effect> {
+fn brew_switch(machine: &mut Machine, ctx: &Context<'_>) -> Effects {
     if !ctx.brew_switch_enabled() {
-        return Vec::new();
+        return Effects::new();
     }
 
     // `BrewHandler.h:147-150`: permission is denied in WATER_TANK_EMPTY, before
@@ -126,12 +124,12 @@ fn brew_switch(machine: &mut Machine, ctx: &Context<'_>) -> Vec<Effect> {
     // `test_brew_handler`'s `ProcessDeniesPermissionWhenWaterTankEmpty` passes
     // with a *pressed* switch.
     if machine.state == MachineState::WaterTankEmpty {
-        return Vec::new();
+        return Effects::new();
     }
 
     let pressed = machine.switches.brew;
     let switch_type = ctx.brew_switch_type();
-    let mut fx = Vec::new();
+    let mut fx = Effects::new();
 
     // `BrewHandler.h:195-219`: the backflush / manual-flush branch, entered when
     // backflush *mode* is on or the state is a backflush or manual-flush state.
@@ -142,13 +140,13 @@ fn brew_switch(machine: &mut Machine, ctx: &Context<'_>) -> Vec<Effect> {
         if pressed {
             if machine.state == MachineState::BackflushIdle && machine.switches.brew_long_press {
                 // Long press in BACKFLUSH_IDLE = manual flush.
-                fx.extend(set_request(machine, ctx, Request::ManualFlushStart));
+                fx.extend(&set_request(machine, ctx, Request::ManualFlushStart));
             } else if machine.state == MachineState::BackflushIdle
                 || machine.state == MachineState::BackflushFinished
             {
-                fx.extend(set_request(machine, ctx, Request::BackflushCycleStart));
+                fx.extend(&set_request(machine, ctx, Request::BackflushCycleStart));
             } else if machine.state.is_backflush_state() {
-                fx.extend(set_request(machine, ctx, Request::BackflushStop));
+                fx.extend(&set_request(machine, ctx, Request::BackflushStop));
             }
         } else {
             // Switch released — stop manual flush or the backflush cycle.
@@ -159,7 +157,7 @@ fn brew_switch(machine: &mut Machine, ctx: &Context<'_>) -> Vec<Effect> {
                 && machine.state != MachineState::BackflushIdle
                 && machine.state != MachineState::BackflushFinished
             {
-                fx.extend(set_request(machine, ctx, Request::BackflushStop));
+                fx.extend(&set_request(machine, ctx, Request::BackflushStop));
             }
         }
         return fx;
@@ -171,14 +169,14 @@ fn brew_switch(machine: &mut Machine, ctx: &Context<'_>) -> Vec<Effect> {
             // "Momentary: press = start brew (if not already brewing)"; a second
             // press while brewing means stop.
             if !machine.state.is_brew_state() || machine.state == MachineState::BrewFinished {
-                fx.extend(set_request(machine, ctx, Request::BrewStart));
+                fx.extend(&set_request(machine, ctx, Request::BrewStart));
             } else {
                 machine.requests.brew_stop = true;
             }
         } else if !machine.state.is_brew_state() || machine.state == MachineState::BrewFinished {
             // "Toggle: activated = start brew (if not already brewing)". A
             // toggle set on during a brew requests nothing at all.
-            fx.extend(set_request(machine, ctx, Request::BrewStart));
+            fx.extend(&set_request(machine, ctx, Request::BrewStart));
         }
     } else if switch_type == SwitchType::Toggle
         && machine.state.is_brew_state()
@@ -203,21 +201,21 @@ fn brew_switch(machine: &mut Machine, ctx: &Context<'_>) -> Vec<Effect> {
 /// Note the consequence, which is worth stating because it looks like a bug:
 /// waking a sleeping machine with the steam switch already on does **not** steam.
 /// The operator has to toggle it off and on again. Preserved.
-fn steam_switch(machine: &mut Machine, ctx: &Context<'_>) -> Vec<Effect> {
+fn steam_switch(machine: &mut Machine, ctx: &Context<'_>) -> Effects {
     if !ctx.steam_switch_enabled() {
-        return Vec::new();
+        return Effects::new();
     }
 
     let pressed = machine.switches.steam;
     let switch_type = ctx.steam_switch_type();
-    let mut fx = Vec::new();
+    let mut fx = Effects::new();
 
     if pressed {
         if switch_type == SwitchType::Momentary {
             if machine.state == MachineState::SteamRunning {
                 machine.requests.steam_stop = true;
             } else {
-                fx.extend(set_request(machine, ctx, Request::SteamStart));
+                fx.extend(&set_request(machine, ctx, Request::SteamStart));
             }
         } else if machine.state == MachineState::Standby {
             // `SteamHandler.h:137-141`. The edge test: a press while in standby
@@ -227,9 +225,9 @@ fn steam_switch(machine: &mut Machine, ctx: &Context<'_>) -> Vec<Effect> {
             // exactly "this event is a press" — which is what
             // `apply_input` routes here. See the note in `apply_input`'s caller
             // for why this is still not exactly the C++'s condition.
-            fx.extend(set_request(machine, ctx, Request::SteamStart));
+            fx.extend(&set_request(machine, ctx, Request::SteamStart));
         } else if machine.state != MachineState::SteamRunning {
-            fx.extend(set_request(machine, ctx, Request::SteamStart));
+            fx.extend(&set_request(machine, ctx, Request::SteamStart));
         }
     } else if switch_type == SwitchType::Toggle && machine.state == MachineState::SteamRunning {
         machine.requests.steam_stop = true;
@@ -242,9 +240,9 @@ fn steam_switch(machine: &mut Machine, ctx: &Context<'_>) -> Vec<Effect> {
 ///
 /// Two shapes, chosen by `hardware.switches.power.type`
 /// (`PowerHandler.h:65-69`).
-fn power_switch(machine: &mut Machine, ctx: &Context<'_>) -> Vec<Effect> {
+fn power_switch(machine: &mut Machine, ctx: &Context<'_>) -> Effects {
     if !ctx.power_switch_enabled() {
-        return Vec::new();
+        return Effects::new();
     }
 
     match ctx.power_switch_type() {
@@ -275,7 +273,7 @@ pub fn record_power_handler_initialisation(machine: &mut Machine, ctx: &Context<
 /// The C++ has to track `lastPowerSwitchPressed_` to notice; the reducer is
 /// handed only edges, which makes the `ToggleSwitchNoChangeWhenSameState` case
 /// inexpressible rather than merely unlikely.
-fn toggle_power(machine: &mut Machine, ctx: &Context<'_>) -> Vec<Effect> {
+fn toggle_power(machine: &mut Machine, ctx: &Context<'_>) -> Effects {
     if machine.switches.power {
         power_on(machine, ctx)
     } else {
@@ -301,17 +299,17 @@ fn toggle_power(machine: &mut Machine, ctx: &Context<'_>) -> Vec<Effect> {
 /// itself is not gated, so a momentary press during the first five seconds after
 /// boot still switches the machine off. Preserved: "the machine ignores the
 /// power switch for five seconds after boot" would be a support call.
-fn momentary_power(machine: &mut Machine, ctx: &Context<'_>) -> Vec<Effect> {
+fn momentary_power(machine: &mut Machine, ctx: &Context<'_>) -> Effects {
     let settled = power_settle_elapsed(machine);
-    let mut fx = Vec::new();
+    let mut fx = Effects::new();
     if machine.switches.power {
         if settled {
             machine.power_press_started_at = Some(machine.now);
         }
         if machine.state == MachineState::Standby {
-            fx.extend(power_on(machine, ctx));
+            fx.extend(&power_on(machine, ctx));
         } else {
-            fx.extend(power_off(machine));
+            fx.extend(&power_off(machine));
         }
     } else {
         // `PowerHandler::handlePowerButtonRelease` (`PowerHandler.h:135-140`).
@@ -341,7 +339,7 @@ fn power_settle_elapsed(machine: &Machine) -> bool {
 /// ```
 ///
 /// Four conditions, all required. `trackingLongPress_` is the C++'s name for
-/// "a press was tracked", which is [`power_press_started_at`].
+/// "a press was tracked", which is `Machine::power_press_started_at`.
 ///
 /// # Where this runs
 ///
@@ -350,7 +348,7 @@ fn power_settle_elapsed(machine: &Machine) -> bool {
 /// duration condition is true the edge is long gone. That is the whole reason
 /// this is a tick-time check and not a switch-time one.
 #[must_use]
-pub fn long_press_reboot(machine: &Machine) -> Vec<Effect> {
+pub fn long_press_reboot(machine: &Machine) -> Effects {
     let pressed = machine.switches.power;
     let settled = power_settle_elapsed(machine);
     let held_long_enough = match machine.power_press_started_at {
@@ -360,9 +358,9 @@ pub fn long_press_reboot(machine: &Machine) -> Vec<Effect> {
         }
     };
     if pressed && settled && held_long_enough && machine.switches.power_long_press {
-        vec_of(Effect::RequestReboot)
+        one(Effect::RequestReboot)
     } else {
-        Vec::new()
+        Effects::new()
     }
 }
 
@@ -386,9 +384,9 @@ pub fn long_press_reboot(machine: &Machine) -> Vec<Effect> {
 /// `BREW_RUNNING`, or any other state. A user who toggles the power switch while
 /// brewing gets no response whatsoever, and the machine keeps brewing. That is
 /// the C++'s behaviour (`PowerHandler.h:152-154`) and it is preserved.
-fn power_on(machine: &mut Machine, ctx: &Context<'_>) -> Vec<Effect> {
+fn power_on(machine: &mut Machine, ctx: &Context<'_>) -> Effects {
     if machine.state != MachineState::Standby && machine.state != MachineState::PidDisabled {
-        return Vec::new();
+        return Effects::new();
     }
     let mut fx = set_request(machine, ctx, Request::NormalOperation);
     // `setUserPidEnabled(..., true)` (`SystemUtils.h:34-40`): persists
@@ -419,13 +417,13 @@ fn power_on(machine: &mut Machine, ctx: &Context<'_>) -> Vec<Effect> {
 /// so `shouldEnterStandby` is true on the very next pass regardless of the
 /// configured timeout — which is the point: the power switch is immediate and
 /// `standby.time` is not.
-fn power_off(machine: &mut Machine) -> Vec<Effect> {
+fn power_off(machine: &mut Machine) -> Effects {
     if machine.state == MachineState::Standby {
-        return Vec::new();
+        return Effects::new();
     }
     machine.requests.standby = true;
     machine.standby.expire_now();
-    vec_of(Effect::SafeHardwareShutdown)
+    one(Effect::SafeHardwareShutdown)
 }
 
 /// `HotWaterHandler::processImpl` (`HotWaterHandler.h:73-76`).
@@ -443,12 +441,12 @@ fn power_off(machine: &mut Machine) -> Vec<Effect> {
 /// false (`MachineStateContext.cpp:419-429`). So pressing the water switch while
 /// in standby resets the standby countdown and does nothing else: no pump, no
 /// wake. Preserved; reported.
-fn hot_water_switch(machine: &mut Machine, ctx: &Context<'_>) -> Vec<Effect> {
+fn hot_water_switch(machine: &mut Machine, ctx: &Context<'_>) -> Effects {
     if !ctx.hot_water_switch_enabled() {
-        return Vec::new();
+        return Effects::new();
     }
     if machine.state == MachineState::WaterTankEmpty {
-        return Vec::new();
+        return Effects::new();
     }
     machine.hot_water_activity = true;
     // `setHotWaterActivity(true)` → `resetStandbyTimerOnUserActivity()`
@@ -456,9 +454,9 @@ fn hot_water_switch(machine: &mut Machine, ctx: &Context<'_>) -> Vec<Effect> {
     // disabled (`StandbyCoordinator.h:88`).
     if ctx.config.standby.enabled {
         machine.standby.reset(machine.now, ctx.standby_timeout_ms());
-        return vec_of(Effect::ResetStandbyTimer);
+        return one(Effect::ResetStandbyTimer);
     }
-    Vec::new()
+    Effects::new()
 }
 
 /// The four switch-handler pump watchdogs, run on every loop.
@@ -529,8 +527,8 @@ fn hot_water_switch(machine: &mut Machine, ctx: &Context<'_>) -> Vec<Effect> {
 /// `BREW_RUNNING::onExitImpl`'s valve close ordering relative to the safety
 /// check.
 #[must_use]
-pub fn pump_timeouts(machine: &mut Machine) -> Vec<Effect> {
-    let mut fx = Vec::new();
+pub fn pump_timeouts(machine: &mut Machine) -> Effects {
+    let mut fx = Effects::new();
 
     arm_pump_watchdogs(machine);
 
@@ -634,21 +632,21 @@ fn apply_command(
     machine: &mut Machine,
     ctx: &Context<'_>,
     command: crate::event::Command,
-) -> Vec<Effect> {
+) -> Effects {
     use crate::event::Command as C;
-    let mut fx = Vec::new();
+    let mut fx = Effects::new();
     match command {
-        C::BrewStart => fx.extend(set_request(machine, ctx, Request::BrewStart)),
+        C::BrewStart => fx.extend(&set_request(machine, ctx, Request::BrewStart)),
         C::BrewStop => machine.requests.set(Request::BrewStop, true),
-        C::SteamStart => fx.extend(set_request(machine, ctx, Request::SteamStart)),
+        C::SteamStart => fx.extend(&set_request(machine, ctx, Request::SteamStart)),
         C::SteamStop => machine.requests.set(Request::SteamStop, true),
         C::ManualFlushStart => machine.requests.set(Request::ManualFlushStart, true),
         C::ManualFlushStop => machine.requests.set(Request::ManualFlushStop, true),
-        C::BackflushEnter => fx.extend(apply_backflush_mode(machine, ctx, true)),
+        C::BackflushEnter => fx.extend(&apply_backflush_mode(machine, ctx, true)),
         C::BackflushCycleStart => {
-            fx.extend(set_request(machine, ctx, Request::BackflushCycleStart));
+            fx.extend(&set_request(machine, ctx, Request::BackflushCycleStart));
         }
-        C::BackflushStop => fx.extend(set_request(machine, ctx, Request::BackflushStop)),
+        C::BackflushStop => fx.extend(&set_request(machine, ctx, Request::BackflushStop)),
         C::Standby => {
             // The web/MQTT standby path. `setStandbyRequested` does **not**
             // reset the standby timer (`MachineStateContext.h:587`).
@@ -684,7 +682,7 @@ fn apply_command(
 /// The mode toggle is the one external request that is a *decision* rather than
 /// a flag, so it goes through [`crate::backflush::apply_backflush_mode`] and then
 /// applies the outcome.
-fn apply_backflush_mode(machine: &mut Machine, ctx: &Context<'_>, active: bool) -> Vec<Effect> {
+fn apply_backflush_mode(machine: &mut Machine, ctx: &Context<'_>, active: bool) -> Effects {
     let outcome = crate::backflush::apply_backflush_mode(
         machine.backflush.on,
         machine.backflush.cycle,
@@ -703,14 +701,14 @@ fn apply_backflush_mode(machine: &mut Machine, ctx: &Context<'_>, active: bool) 
         // (`MachineStateContext.cpp:217-222`).
         return set_request(machine, ctx, Request::BackflushEnter);
     }
-    Vec::new()
+    Effects::new()
 }
 
-/// A one-element [`Vec`]. A named helper rather than a `vec!` at each of the
-/// dozen call sites, so "this handler produced exactly one effect" reads the
-/// same everywhere.
-fn vec_of(effect: Effect) -> Vec<Effect> {
-    alloc::vec![effect]
+/// A one-element [`Effects`]. A named helper rather than a `from_iter` at each
+/// of the dozen call sites, so "this handler produced exactly one effect" reads
+/// the same everywhere.
+fn one(effect: Effect) -> Effects {
+    core::iter::once(effect).collect()
 }
 
 #[cfg(test)]

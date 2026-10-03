@@ -24,7 +24,7 @@
 //!
 //! # Consequence for `layout_bar_label_cluster`
 //!
-//! [`k_font_height_profont10`] is what must be passed as the label height, *not*
+//! `k_font_height_profont10` is what must be passed as the label height, *not*
 //! U8g2's reference box (5 for `profont10`). Passing 5 puts the label half a
 //! pixel off the bar's midline. `Layout::bar_label_height_is_the_reserved_row`
 //! exists to make that decision explicit rather than accidental.

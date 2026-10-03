@@ -18,7 +18,7 @@
 //! | [`onewire`] | 1-Wire: CRC8, bit order, command set, scratchpad decode, slot timings | none — [`onewire::OneWireBus`] is the seam |
 //! | [`ds18b20`] | the DS18B20's non-blocking pipeline and its accept/reject decision | none |
 //! | [`tsic306`] | `ZACwire`: strobe acquisition, frame assembly, parity, DS→°C, the C++'s safety filters | none — [`tsic306::EdgeSource`] is the seam |
-//! | [`probe`] | the one interface both expose | none |
+//! | [`probe`] | the vocabulary both drivers report in (`ProbeReading`, `ProbeFault`, `ProbeSource`) | none |
 //!
 //! Every protocol decision is here and host-tested; `cc-hal-esp32` supplies a
 //! pin and a clock and nothing else. That is the whole reason the protocol
@@ -29,12 +29,18 @@
 //!
 //! # The one interface
 //!
-//! [`TemperatureProbe`] exists so that neither [`ds18b20::Driver`] nor
-//! [`tsic306::Tsic306`] leaks into the state machine. The C++ gets this for
-//! free from `TempSensor` being a base class; Rust has no inheritance, so the
-//! same shape is a trait. `cc-machine` takes a `&mut dyn TemperatureProbe` and
-//! cannot tell which sensor is on the other end, which is the point — a
-//! machine with a DS18B20 and a machine with a TSIC-306 run the same reducer.
+//! There was a `TemperatureProbe` trait here, and this section used to claim
+//! that `cc-machine` takes a `&mut dyn TemperatureProbe`. **It does not, and it
+//! never did**: the trait had zero impls, zero uses as a bound and zero `dyn`
+//! uses, and it is deleted.
+//!
+//! What actually separates the state machine from the probe is the three types
+//! in [`probe`] plus two free functions, [`ds18b20::as_probe`] and
+//! [`tsic306::as_probe`], each of which collapses one of its driver's outcomes
+//! onto [`ProbeReading`] or `None`. Neither driver type
+//! leaks past them, so a machine with a DS18B20 and a machine with a TSIC-306 run
+//! the same reducer — which is the property the trait was for, reached without a
+//! trait nobody implemented.
 //!
 //! # The two safety-relevant differences between the drivers are *not* levelled
 //!
@@ -58,4 +64,4 @@ pub mod onewire;
 pub mod probe;
 pub mod tsic306;
 
-pub use probe::{ProbeFault, ProbeReading, ProbeSource, TemperatureProbe};
+pub use probe::{ProbeFault, ProbeReading, ProbeSource};

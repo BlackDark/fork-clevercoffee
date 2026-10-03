@@ -40,7 +40,7 @@ from pathlib import Path
 # The crates that cannot be tested by `cargo test` on a host target. Each one
 # listed here is a crate whose `#[test]` functions are ONLY executable through
 # the on-target runner.
-DEVICE_CRATES = ("cc-hal-esp32", "cc-provisioning", "cc-firmware", "cc-device-tests")
+DEVICE_CRATES = ("cc-hal-esp32", "cc-firmware", "cc-device-tests")
 
 # A test that carries `#[cfg_attr(test, test)]` instead of a bare `#[test]` is
 # reachable from `device_tests::CASES`. A bare `#[test]` is NOT, and is a bug.

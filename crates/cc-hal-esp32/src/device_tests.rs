@@ -148,6 +148,10 @@ pub const CASES: &[Case] = &[
         run: mqtt::tests::a_prefix_without_a_trailing_slash_reproduces_the_cpp_result,
     },
     Case {
+        name: "mqtt::an_inbound_topic_is_parsed_exactly_as_the_csqs_matcher_does",
+        run: mqtt::tests::an_inbound_topic_is_parsed_exactly_as_the_csqs_matcher_does,
+    },
+    Case {
         name: "mqtt::the_buffer_is_the_csqs_1024",
         run: mqtt::tests::the_buffer_is_the_csqs_1024,
     },
@@ -160,6 +164,22 @@ pub const CASES: &[Case] = &[
         run: mqtt::tests::the_intervals_are_the_csqs,
     },
     Case {
+        name: "mqtt::the_interval_follows_the_machine_state",
+        run: mqtt::tests::the_interval_follows_the_machine_state,
+    },
+    Case {
+        name: "mqtt::the_registry_is_the_csqs_registration",
+        run: mqtt::tests::the_registry_is_the_csqs_registration,
+    },
+    Case {
+        name: "mqtt::an_inbound_reading_resolves_only_if_it_is_registered",
+        run: mqtt::tests::an_inbound_reading_resolves_only_if_it_is_registered,
+    },
+    Case {
+        name: "mqtt::the_four_specials_are_not_configuration_keys",
+        run: mqtt::tests::the_four_specials_are_not_configuration_keys,
+    },
+    Case {
         name: "mqtt::the_registry_puts_each_kind_of_topic_in_the_cpp_phase",
         run: mqtt::tests::the_registry_puts_each_kind_of_topic_in_the_cpp_phase,
     },
@@ -168,16 +188,20 @@ pub const CASES: &[Case] = &[
         run: mqtt::tests::a_pressure_sensor_appears_only_when_it_is_fitted,
     },
     Case {
-        name: "mqtt::the_weight_topic_appears_exactly_when_discovery_advertises_it",
-        run: mqtt::tests::the_weight_topic_appears_exactly_when_discovery_advertises_it,
+        name: "mqtt::the_weight_topics_are_exactly_the_ones_discovery_advertises",
+        run: mqtt::tests::the_weight_topics_are_exactly_the_ones_discovery_advertises,
     },
     Case {
         name: "mqtt::the_plan_slices_partition_the_view",
         run: mqtt::tests::the_plan_slices_partition_the_view,
     },
     Case {
-        name: "mqtt::the_brew_guard_defaults_to_off_and_can_be_set",
-        run: mqtt::tests::the_brew_guard_defaults_to_off_and_can_be_set,
+        name: "mqtt::every_registered_value_fits_the_payload_buffer",
+        run: mqtt::tests::every_registered_value_fits_the_payload_buffer,
+    },
+    Case {
+        name: "mqtt::the_shared_plan_helper_still_sees_the_whole_registry",
+        run: mqtt::tests::the_shared_plan_helper_still_sees_the_whole_registry,
     },
     Case {
         name: "mqtt::a_registry_never_names_a_credential",
@@ -398,6 +422,54 @@ pub const CASES: &[Case] = &[
     Case {
         name: "time::the_microsecond_clock_is_finer_than_the_millisecond_one",
         run: time::tests::the_microsecond_clock_is_finer_than_the_millisecond_one,
+    },
+    Case {
+        name: "web::steam_mode_is_the_latched_steam_flag_and_not_the_brew_state",
+        run: web::tests::steam_mode_is_the_latched_steam_flag_and_not_the_brew_state,
+    },
+    Case {
+        name: "web::the_status_steam_mode_agrees_with_the_steam_toggle_response",
+        run: web::tests::the_status_steam_mode_agrees_with_the_steam_toggle_response,
+    },
+    Case {
+        name: "web::auth_is_inert_when_it_is_switched_off",
+        run: web::tests::auth_is_inert_when_it_is_switched_off,
+    },
+    Case {
+        name: "web::auth_admits_the_right_credentials_and_refuses_everything_else",
+        run: web::tests::auth_admits_the_right_credentials_and_refuses_everything_else,
+    },
+    Case {
+        name: "web::auth_with_empty_credentials_serves_the_api_open_exactly_as_the_cpp_does",
+        run: web::tests::auth_with_empty_credentials_serves_the_api_open_exactly_as_the_cpp_does,
+    },
+    Case {
+        name: "web::the_challenge_is_the_cpp_realm",
+        run: web::tests::the_challenge_is_the_cpp_realm,
+    },
+    Case {
+        name: "web::enabling_auth_is_reported_as_needing_a_reboot",
+        run: web::tests::enabling_auth_is_reported_as_needing_a_reboot,
+    },
+    Case {
+        name: "web::the_auth_debug_never_prints_the_configuration",
+        run: web::tests::the_auth_debug_never_prints_the_configuration,
+    },
+    Case {
+        name: "web::the_config_upload_route_is_registered",
+        run: web::tests::the_config_upload_route_is_registered,
+    },
+    Case {
+        name: "web::the_upload_response_is_the_cpp_shape",
+        run: web::tests::the_upload_response_is_the_cpp_shape,
+    },
+    Case {
+        name: "web::the_upload_body_is_bounded_and_the_cap_is_the_cpps",
+        run: web::tests::the_upload_body_is_bounded_and_the_cap_is_the_cpps,
+    },
+    Case {
+        name: "web::the_advertised_options_handler_is_a_wildcard_over_the_api",
+        run: web::tests::the_advertised_options_handler_is_a_wildcard_over_the_api,
     },
     Case {
         name: "web::the_status_payload_has_the_csqs_keys",

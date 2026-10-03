@@ -35,3 +35,11 @@ scenarios = []
 
 [lints]
 workspace = true
+
+# Frame render: heap traffic and time. `cc-display` is `no_std` with no `alloc`
+# in the device build, so a nonzero allocation count is a link error on the chip,
+# not a slow frame -- which is why this bench counts allocations rather than
+# only timing. See the file's header.
+[[bench]]
+name = "layout"
+harness = false

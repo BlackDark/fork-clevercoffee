@@ -27,9 +27,9 @@
 //! is bit-identical and this is not a behaviour change. For any *other*
 //! multiplier it would not be: `0.1` in `double` is not `0.1`, and the schedule
 //! would depend on the FPU. Since the firmware only ever builds one policy, the
-//! port takes the multiplier as an exact `num / den` pair ([`RetryPolicy::with_multiplier`])
-//! and computes the backoff in `u64` with saturating multiplication, so the
-//! schedule is a property of the code and not of the FPU.
+//! port takes the multiplier as an exact `num / den` pair and computes the
+//! backoff in `u64` with saturating multiplication, so the schedule is a
+//! property of the code and not of the FPU.
 //!
 //! ## 2. The clock is passed in, never read
 //!
@@ -48,14 +48,14 @@
 //!   `half_open_attempts_ == 0`, and nothing ever increments
 //!   `half_open_attempts_`. So a half-open breaker admits **every** attempt
 //!   until one succeeds twice or one fails. Preserved, and pinned by
-//!   [`div_half_open_admits_every_attempt`].
+//!   `div_half_open_admits_every_attempt`.
 //! * `update_state` in `HALF_OPEN` closes the circuit when
 //!   `half_open_timeout` has elapsed **and** no attempt was made, on the
 //!   strength of having not been used. Preserved, and pinned by
-//!   [`div_half_open_closes_on_idleness_not_on_success`].
+//!   `div_half_open_closes_on_idleness_not_on_success`.
 //! * `record_failure` in `CLOSED` resets the failure count to 0 when it opens
 //!   the circuit (`Resilience.h:253-258`). Preserved, and pinned by
-//!   [`div_opening_the_circuit_clears_the_failure_count`].
+//!   `div_opening_the_circuit_clears_the_failure_count`.
 
 use core::fmt;
 
@@ -105,24 +105,6 @@ impl RetryPolicy {
             attempts: 0,
             last_attempt_ms: 0,
         }
-    }
-
-    /// Set the backoff multiplier as an exact `num / den` pair.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `den` is 0, which is a programming error rather than a
-    /// runtime condition: a zero denominator is a constant, so it can only
-    /// come from a literal.
-    #[must_use]
-    pub const fn with_multiplier(mut self, num: u32, den: u32) -> Self {
-        assert!(
-            den != 0,
-            "RetryPolicy multiplier denominator must be non-zero"
-        );
-        self.multiplier_num = num;
-        self.multiplier_den = den;
-        self
     }
 
     /// Whether another attempt is permitted by the attempt count alone.
@@ -268,8 +250,8 @@ impl CircuitBreaker {
     /// Whether an attempt may be made at `now_ms`, advancing the state machine
     /// first.
     ///
-    /// This is the mutating half of [`CircuitBreaker::state`] and is the one to
-    /// call from network code. See its docs for the half-open rule.
+    /// This is the mutating half of the breaker state machine and is the one to
+    /// call from network code. See the module docs for the half-open rule.
     pub fn can_attempt(&mut self, now_ms: u32) -> bool {
         self.update_state(now_ms);
         match self.state {

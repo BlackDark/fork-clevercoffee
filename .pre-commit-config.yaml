@@ -4,6 +4,11 @@ repos:
     hooks:
       - id: check-merge-conflict
       - id: check-yaml
+        # `.clang-format` IS yaml, but it opens with `%YAML 1.2` / `%clang-format`
+        # directives, which makes it a multi-document stream that check-yaml
+        # rejects with "expected a single document in the stream". Excluding it
+        # is the difference between a hook people run and a hook people disable.
+        exclude: ^\.clang-format$
       - id: end-of-file-fixer
       - id: fix-byte-order-marker
       - id: mixed-line-ending
@@ -13,7 +18,61 @@ repos:
       - id: trailing-whitespace
         args: [--markdown-linebreak-ext=md]
 
-  - repo: https://github.com/pre-commit/mirrors-clang-format
-    rev: v17.0.6
+  # C++ formatting, at the version the tree already matches.
+  #
+  # This hook was DELETED over a phantom. Pinning v23.1.1 appeared to reformat
+  # 105 files, and the C++ tree is the firmware's parity oracle. The phantom was a
+  # working-directory mistake: with `.clang-format` out of scope, EVERY version
+  # reformats EVERY file -- including the pinned 22.1.2 inside the Docker image,
+  # and including a run from the repository root. With `.clang-format` in scope,
+  # measured over all 143 files of `src/ include/ lib/`:
+  #
+  #     22.1.x   0 diffs
+  #     23.1.x   0 diffs, and the full formatted output is BYTE-IDENTICAL to
+  #              22.1.x (diff of 28,632 formatted lines is 0 lines)
+  #     21.1.8   2 files change: core/LoopManager.h, display/templates/ModernTemplate.h
+  #
+  # So `language: system` plus the mise binary is safe, and it agrees with
+  # `.mise.toml` (23.1.2), with CI's pin (22.1.2 -- byte-identical) and with the
+  # Docker path `scripts/run_clangformat.py` prefers (`clang-tools:22`). Four
+  # paths, one answer, and now formatting feedback lands at commit time instead of
+  # only in CI.
+  #
+  # `files:` is load-bearing and is not decoration: it is what keeps
+  # `.clang-format` itself inside the invocation. Losing it is what produced the
+  # phantom in the first place.
+  # C++ formatting, THROUGH THE SAME SCRIPT CI RUNS.
+  #
+  # It used to call `clang-format` directly, which meant it used whatever
+  # clang-format the developer happened to have -- and it runs `-i`, so on a
+  # machine with an older one it would REWRITE THE PARITY ORACLE in a commit
+  # about something else. Measured: 21.1.8 changes two of its files.
+  #
+  # `scripts/run_clangformat.py --apply` now asserts the version against
+  # `.mise.toml`'s `[vars] clang_format_version` and refuses to run on a
+  # mismatch, so "four paths, one answer" is enforced rather than assumed.
+  #
+  # Going through the script also removes the file-list duplication that made a
+  # green CI run mean nothing: with `types_or` alone, identify tags `.ino` as C++
+  # and the hook reformatted 4 vendored `lib/Arduino-PID-Library/examples/*.ino`
+  # files that CI's list excludes. One list, in one place.
+  - repo: local
     hooks:
       - id: clang-format
+        name: clang-format (C++ parity oracle)
+        entry: python3 scripts/run_clangformat.py --apply
+        language: system
+        files: '^(src|include|lib)/.*\.(c|cc|cpp|cxx|h|hh|hpp|hxx)$'
+
+
+  # NO `cargo fmt` hook here, deliberately.
+  #
+  # It was tried and it always failed: a `language: system` hook runs with
+  # pre-commit's own PATH, which does not contain the project's cargo, so every
+  # commit on a Rust file reported "Executable `cargo` not found". A hook that
+  # cannot run is worse than no hook -- it teaches people to pass `--no-verify`.
+  #
+  # `just fmt-check` is the single gate, and `.github/workflows/rust.yml` runs
+  # it as the very first step of the host job. `cargo fmt` itself is four
+  # characters; the enforcement point is CI, where it cannot be skipped by
+  # forgetting a flag.

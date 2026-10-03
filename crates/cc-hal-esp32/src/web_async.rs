@@ -91,9 +91,10 @@ use core::ffi::c_char;
 
 use esp_idf_svc::sys::EspError;
 use esp_idf_sys::{
-    httpd_req_async_handler_begin, httpd_req_async_handler_complete, httpd_req_t,
-    httpd_resp_send_chunk, httpd_resp_send_custom_err, httpd_resp_send_err, httpd_resp_set_hdr,
-    httpd_resp_set_status, httpd_resp_set_type, ESP_FAIL, ESP_OK,
+    httpd_req_async_handler_begin, httpd_req_async_handler_complete, httpd_req_get_hdr_value_len,
+    httpd_req_get_hdr_value_str, httpd_req_t, httpd_resp_send, httpd_resp_send_chunk,
+    httpd_resp_send_custom_err, httpd_resp_send_err, httpd_resp_set_hdr, httpd_resp_set_status,
+    httpd_resp_set_type, ESP_FAIL, ESP_OK,
 };
 
 /// `httpd_err_code_t_HTTPD_500_INTERNAL_SERVER_ERROR`, named locally.
@@ -327,12 +328,12 @@ pub(crate) fn sockfd(raw: *mut httpd_req_t) -> i32 {
 /// the leak is stated rather than hidden.
 pub(crate) fn register_raw_sse(
     server_handle: esp_idf_sys::httpd_handle_t,
-    sse: alloc::sync::Arc<crate::web::Sse>,
+    route: alloc::sync::Arc<crate::web::SseRoute>,
 ) -> Result<(), EspError> {
     let uri = c"/events";
     // `Arc::into_raw` — the handler receives this back as `*mut c_void` and
     // reborrows it. It is deliberately never reclaimed; see the docs above.
-    let user_ctx = alloc::sync::Arc::into_raw(sse)
+    let user_ctx = alloc::sync::Arc::into_raw(route)
         .cast::<core::ffi::c_void>()
         .cast_mut();
     let conf = esp_idf_sys::httpd_uri_t {
@@ -363,6 +364,66 @@ pub(crate) fn register_raw_sse(
     }
 }
 
+/// Read a request header into a `&str` borrowed from the scratch buffer.
+///
+/// `None` when the header is absent, and `None` — not an empty string — when it
+/// is **longer than the buffer**. A truncated credential must never be compared
+/// against a configured one: `Authorization: Basic <the first 128 bytes of the
+/// right password>…` would be a prefix that `constant_time_eq` rejects only by
+/// accident of what follows.
+fn authorization_header(req: *mut httpd_req_t, scratch: &mut [u8]) -> Option<&str> {
+    // SAFETY: `req` is the live request on the httpd task, which is the only
+    // context ESP-IDF documents for these two calls.
+    let len = unsafe { httpd_req_get_hdr_value_len(req, c"Authorization".as_ptr()) };
+    if len == 0 || len + 1 > scratch.len() {
+        return None;
+    }
+    // SAFETY: the buffer is `len + 1` bytes, which is what
+    // `httpd_req_get_hdr_value_str` writes plus its NUL.
+    let rc = unsafe {
+        httpd_req_get_hdr_value_str(
+            req,
+            c"Authorization".as_ptr(),
+            scratch.as_mut_ptr().cast(),
+            scratch.len(),
+        )
+    };
+    if rc != ESP_OK {
+        return None;
+    }
+    core::str::from_utf8(scratch.get(..len)?).ok()
+}
+
+/// Answer `status` with `challenge`, as a complete response.
+///
+/// `ESP_FAIL` is returned rather than `ESP_OK` on the failure arms, which is the
+/// same shape as `sse_handler`'s other early exits: ESP-IDF's URI handler
+/// contract treats `ESP_OK` as "this request has been answered".
+fn refuse(
+    req: *mut httpd_req_t,
+    status: &core::ffi::CStr,
+    challenge: &str,
+) -> esp_idf_sys::esp_err_t {
+    const BODY: &[u8] = b"{\"error\":\"authentication required\"}";
+    // SAFETY: `req` is the live request on the httpd task, and every pointer
+    // below is either a `'static` literal or the stack buffer that outlives the
+    // `httpd_resp_send` call.
+    unsafe {
+        if httpd_resp_set_status(req, status.as_ptr()) != ESP_OK
+            || httpd_resp_set_type(req, c"application/json".as_ptr()) != ESP_OK
+            || httpd_resp_set_hdr(req, c"WWW-Authenticate".as_ptr(), challenge.as_ptr().cast())
+                != ESP_OK
+        {
+            return ESP_FAIL;
+        }
+        httpd_resp_send(
+            req,
+            BODY.as_ptr().cast(),
+            isize::try_from(BODY.len()).unwrap_or(0),
+        )
+    }
+}
+
 /// The raw `extern "C"` handler ESP-IDF calls for `/events`.
 ///
 /// Runs on the httpd task. It must return promptly — everything long-lived
@@ -376,11 +437,38 @@ extern "C" fn sse_handler(req: *mut httpd_req_t) -> esp_idf_sys::esp_err_t {
         if req.is_null() {
             return ESP_FAIL;
         }
-        // SAFETY: `user_ctx` is the `Arc<Sse>` pointer stored at registration
-        // (see `register_raw_sse`), alive for the life of the process, and
-        // `Arc::as_ref` reconstitutes the reference without consuming it. The
-        // httpd task is the only reader, and it does not outlive the server.
-        let sse: &crate::web::Sse = &*(*req).user_ctx.cast::<crate::web::Sse>();
+        // SAFETY: `user_ctx` is the `Arc<SseRoute>` pointer stored at
+        // registration (see `register_raw_sse`), alive for the life of the
+        // process, and `Arc::as_ref` reconstitutes the reference without
+        // consuming it. The httpd task is the only reader, and it does not
+        // outlive the server.
+        let route: &crate::web::SseRoute = &*(*req).user_ctx.cast::<crate::web::SseRoute>();
+
+        // **Authentication, before anything else.**
+        //
+        // `/events` is protected like every other route — see
+        // `cc_hal_esp32::web::register`. A browser's `EventSource` cannot *set*
+        // an `Authorization` header, but HTTP Basic credentials are cached per
+        // origin and realm once a browser has answered a challenge, and it
+        // replays them on every subsequent same-origin request including this
+        // one; so the stream works in practice after the operator has logged in
+        // through the UI. The C++ has exactly the same property, because its
+        // middleware covers `/events` too.
+        // The header is copied into a scratch buffer because ESP-IDF's accessor
+        // writes into a caller-supplied one, and the bytes are only valid while
+        // it is alive — so it lives no longer than the comparison.
+        let mut scratch = [0u8; 192];
+        let admitted = {
+            let header = authorization_header(req, &mut scratch);
+            route.auth.admits(header)
+        };
+        if !admitted {
+            return refuse(
+                req,
+                c"401 Unauthorized",
+                cc_domain::http_auth::WWW_AUTHENTICATE,
+            );
+        }
 
         // The response headers. These go on the **original** request, which is
         // what `begin_detached` then copies into the detached one — so the order
@@ -401,7 +489,7 @@ extern "C" fn sse_handler(req: *mut httpd_req_t) -> esp_idf_sys::esp_err_t {
 
         // The broadcaster writes from here; this handler returns and nothing
         // else touches `req`.
-        match sse.attach(async_req) {
+        match route.sse.attach(async_req) {
             Ok(()) => ESP_OK,
             // Too many clients. `attach` handed the request back rather than
             // taking it, so it must be released here or the session stays marked

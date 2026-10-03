@@ -11,7 +11,8 @@
 //!
 //! That last point is the one that matters for a reducer. There is no instance
 //! to be fresh, so "a new `errorStartTime_` on every entry" has to be modelled
-//! explicitly. [`Machine::entry_error_since`] does that, and
+//! explicitly. [`Machine::error_since`](crate::machine::Machine::error_since)
+//! does that, and
 //! `states::on_entry` is the only thing that writes it.
 //!
 //! # Immutability
@@ -587,20 +588,37 @@ pub struct Machine {
     /// never be read.
     pub error_since: Option<Millis>,
     /// `MaintenanceCoordinator::shotsSinceBackflush_`.
+    ///
+    /// **The reducer is the only writer**, and that is a decision rather than an
+    /// accident. The C++ reaches the counter from two directions —
+    /// `recordBrewIfQualified` on entry to `BREW_FINISHED`
+    /// (`BrewStates.cpp:306-312`) and `resetSinceBackflush` on entry to
+    /// `BACKFLUSH_FINISHED` (`BackflushStates.cpp:142-146`) — and both of those
+    /// are state *entries*, which is where this crate's `states::on_entry` runs.
+    /// So the qualification rule is applied here, at the point the C++ applies
+    /// it, and [`Effect::RecordBrew`](crate::effect::Effect::RecordBrew) carries
+    /// the answer rather than the inputs.
+    ///
+    /// The alternative — an applier that owns the rule — is what this port did
+    /// first, and the rule was never applied by anyone: the counter stayed at 0
+    /// and `/api/status` reported `shotsSinceBackflush: 0` for the life of the
+    /// firmware. A rule that has to be *wired up* can be forgotten; one that runs
+    /// where its value lives cannot.
     pub shots_since_backflush: i32,
     /// `setHotWaterActivity` — "a hot-water switch edge happened". Resets the
     /// standby timer (`MachineStateContext.cpp:262-267`).
     pub hot_water_activity: bool,
     /// `PowerHandler::systemInitializedTime_` — when the power handler first
     /// ran, and from which presses are ignored for
-    /// [`timing::POWER_SWITCH_SETTLE_MS`] (`PowerHandler.h:117`).
+    /// [`timing::POWER_SWITCH_SETTLE_MS`](crate::timing::POWER_SWITCH_SETTLE_MS)
+    /// (`PowerHandler.h:117`).
     pub boot_at: Option<Millis>,
     /// `PowerHandler::longPressStartTime_`, and the `trackingLongPress_` flag it
     /// is armed by. `None` means "not tracking", which is both `isRunning_` and
     /// `trackingLongPress_ == false` in the C++.
     pub power_press_started_at: Option<Millis>,
     /// `BrewHandler::brewStartTime_`. Recorded but **never compared** — see
-    /// [`timing::PUMP_TIMEOUTS_NEVER_ARM`].
+    /// [`timing::PUMP_TIMEOUTS_NEVER_ARM`](crate::timing::PUMP_TIMEOUTS_NEVER_ARM).
     pub brew_pump_started_at: Option<Millis>,
     /// `HotWaterHandler::pumpTimer_.startTime_`. Same: recorded, never used.
     pub hot_water_pump_started_at: Option<Millis>,
@@ -613,7 +631,8 @@ impl Machine {
     /// (`StateMachine.cpp:21-24`) — `currentState_` is `nullptr` and
     /// `update()` would refuse to run. The reducer has no null state, so it
     /// uses `INIT` plus the [`initialized`](Self::initialized) flag and makes
-    /// every event a no-op until [`boot`](Self::boot).
+    /// every event a no-op until
+    /// [`boot`](crate::boot).
     #[must_use]
     pub const fn cold() -> Self {
         Self {
@@ -658,12 +677,6 @@ impl Machine {
             brew_pump_started_at: None,
             hot_water_pump_started_at: None,
         }
-    }
-
-    /// The machine's current state. Named so the reducer reads like the C++.
-    #[must_use]
-    pub const fn state_id(&self) -> MachineState {
-        self.state
     }
 
     /// `context.getStateElapsedTimeMs()` (`MachineStateContext.cpp:447-450`).

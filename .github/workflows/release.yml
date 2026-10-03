@@ -1,5 +1,28 @@
 name: Release
 
+# ---------------------------------------------------------------------------
+# THIS WORKFLOW BUILDS THE **C++** FIRMWARE. IT IS NOT THE RUST FIRMWARE.
+#
+# Every step below is PlatformIO (`pio run`, `pio run --target buildfs`). The
+# Rust workspace in `crates/` is built by `rust.yml`, which does not publish
+# anything.
+#
+# WHY THE BRANCH GUARD: `on.push.tags` alone means a `v*` tag pushed from ANY
+# branch fires this workflow. Before the guard below, tagging the Rust port
+# branch `v2.0.0` would have built the untouched C++ tree (which still
+# compiles — `git diff --stat main -- src include lib` is empty), staged its
+# `firmware.bin` plus a `littlefs.bin` intended for offset 0x350000, and
+# published all four under the CleverCoffee name. `rust/partitions_4M.csv`
+# puts `littlefs` at 0x390000 and has no region at 0x350000, so the release
+# notes would have told every user to flash an image at an address their
+# Rust-partitioned flash does not have. `fail_on_unmatched_files` does not
+# help: the C++ build produces all four files, so the upload succeeds.
+#
+# The C++ image remains the published artifact while it is the production
+# firmware. When the Rust image becomes the product, this workflow is
+# replaced, not merely unlocked.
+# ---------------------------------------------------------------------------
+
 on:
   push:
     tags:
@@ -13,7 +36,40 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # The guard. A `v*` tag carries no branch name, so `on.push.tags` alone
+  # cannot tell a release cut from `main` from one cut from any other branch.
+  # This proves the tagged commit is actually reachable from `origin/main`
+  # before anything is built or published. It is cheap, and it is the only
+  # thing standing between a mistagged branch and a published C++ image.
+  guard:
+    runs-on: ubuntu-latest
+    outputs:
+      allowed: ${{ steps.check.outputs.allowed }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Full history: the ancestry check needs the main-line commits.
+          fetch-depth: 0
+
+      - id: check
+        run: |
+          git fetch --no-tags origin main
+          if git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "tag $GITHUB_REF_NAME is on main -- allowed"
+            echo "allowed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::tag $GITHUB_REF_NAME is NOT reachable from origin/main."
+            echo "This workflow builds the C++ firmware with PlatformIO."
+            echo "Tagging a non-main branch would publish the C++ image under"
+            echo "the CleverCoffee name, with release notes pointing"
+            echo "littlefs.bin at 0x350000 -- an address that does not exist in"
+            echo "rust/partitions_4M.csv."
+            echo "allowed=false" >> "$GITHUB_OUTPUT"
+          fi
+
   release:
+    needs: guard
+    if: needs.guard.outputs.allowed == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7

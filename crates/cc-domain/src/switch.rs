@@ -136,7 +136,7 @@ impl Debounced {
     /// arms the debounce: if the first raw reading differs from it, the debounce
     /// timer starts then and the state does not change until 20 ms later.
     ///
-    /// It does **not** seed [`Self::state`], which starts `LOW` — pressed is
+    /// It does **not** seed the switch state, which starts `LOW` — pressed is
     /// never assumed.
     #[must_use]
     pub const fn new(switch_type: SwitchType, mode: SwitchMode, initial_raw: u8) -> Self {

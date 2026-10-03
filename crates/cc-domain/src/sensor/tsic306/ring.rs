@@ -38,8 +38,8 @@
 //!
 //! # 🔴 One `AtomicU32` per slot, not an `AtomicU64`, and why that is forced
 //!
-//! An edge is a 32-bit timestamp and a level, so a slot could be a
-//! [`AtomicU64`] — 768 bytes for the ring, one 64-bit store per edge, and no
+//! An edge is a 32-bit timestamp and a level, so a slot could be an
+//! `AtomicU64` — 768 bytes for the ring, one 64-bit store per edge, and no
 //! possibility of a torn read. **The original ESP32 does not have
 //! `core::sync::atomic::AtomicU64`** (Xtensa is 32-bit and the type is not
 //! offered), so this uses [`AtomicU32`] with the level in bit 31 and the
@@ -65,12 +65,11 @@
 //! **Overflow discards the in-flight frame; it never wraps.**
 //!
 //! When the producer finds the ring full it does **not** overwrite a slot the
-//! consumer has not read. It increments [`Self::dropped`] and sets the sticky
-//! [`Self::Overrun`] flag, and the frame that was in progress is lost. The
+//! consumer has not read. It increments the dropped-edge count and sets the sticky
+//! overrun flag, and the frame that was in progress is lost. The
 //! consumer sees the flag, resets its index to the producer's — which drops the
 //! partial frame — clears the flag, and reports
-//! [`FrameError::RingOverrun`](super::FrameError::RingOverrun) for that
-//! transmission.
+//! `FrameError::RingOverrun` for that transmission.
 //!
 //! The alternative — overwriting the oldest edge — was rejected because the
 //! result would be a *plausible* temperature assembled from a waveform that never
@@ -109,29 +108,13 @@ pub struct Edge {
     /// Microseconds, not nanoseconds, because that is the clock's resolution
     /// and a nanosecond field would imply a precision that does not exist. The
     /// app note asks for 7.8 µs and this is 1 µs; see
-    /// [`protocol::STROBE_SAMPLE_RATE_HZ`].
+    /// [`protocol::STROBE_SAMPLE_RATE_HZ`](super::protocol::STROBE_SAMPLE_RATE_HZ).
     ///
     /// 31 bits is 35.8 minutes, and a wrap is a loss of at most one frame and
     /// never a wrong reading — see the module docs.
     pub at_us: u32,
     /// The level **after** the transition: `true` is the line's idle high.
     pub high: bool,
-}
-
-impl Edge {
-    /// The nominal low-pulse width this edge's transition closes, in
-    /// microseconds, or `None` if `self` is not a rising edge.
-    ///
-    /// Only used by the simulator's assertions and by the tolerance
-    /// documentation; the decoder computes widths itself from consecutive edges.
-    #[must_use]
-    pub fn low_width_from(&self, falling: &Self) -> Option<u32> {
-        if self.high && !falling.high {
-            Some(self.at_us.saturating_sub(falling.at_us))
-        } else {
-            None
-        }
-    }
 }
 
 /// A fixed-capacity SPSC ring of [`Edge`]s, safe to share between an ISR and a
@@ -224,7 +207,7 @@ impl<const N: usize> EdgeRing<N> {
     ///
     /// The consumer calls this after [`Self::pop`] has returned `None` on a
     /// flagged ring, which is how a lost frame becomes a
-    /// [`FrameError::RingOverrun`](super::FrameError::RingOverrun) rather than a
+    /// `FrameError::RingOverrun` rather than a
     /// silent "no data".
     pub fn take_overrun(&self) -> bool {
         self.overrun.swap(0, Ordering::AcqRel) != 0

@@ -323,7 +323,7 @@ pub fn on_fraction(pid_output: Duty) -> f64 {
 /// two counts goes to the higher one. The alternative — truncation — biases
 /// every duty *down* by half a count, which on a heater is a systematic
 /// under-power rather than a symmetric error. The error is bounded by half a
-/// count, so with the resolution chosen in [`cc-hal-esp32::heater`] it is far
+/// count, so with the resolution chosen in `cc-hal-esp32::heater` it is far
 /// inside R1-07's 1 % acceptance bound.
 ///
 /// The result is clamped to `0 ..= max_duty`. That clamp is not decorative:
@@ -1077,11 +1077,12 @@ mod tests {
 /// Convert a duty fraction at a given `max_duty` back to the C++'s millisecond
 /// scale.
 ///
-/// The inverse of [`duty_counts`], and it exists because the two transports
-/// disagree about what a duty *is*: [`duty_counts`] turns the C++'s
-/// millisecond duty into a register count for [`cc_hal_esp32::heater::LedcPwm`],
-/// and this turns a register count back into milliseconds for
-/// [`cc_hal_esp32::heater::TimerIsrPwm`], which chops in the C++'s own units.
+/// The inverse of [`duty_counts`], and it exists because the two sides disagree
+/// about what a duty *is*: [`duty_counts`] turns the C++'s millisecond duty into
+/// a count at a carrier's resolution — which is what a register-driven carrier
+/// such as `LEDC` would want — and this turns such a count back into
+/// milliseconds for `cc_hal_esp32::heater::TimerIsrPwm`, which chops in the
+/// C++'s own units.
 ///
 /// The result is rounded to the **nearest** 10 ms step. The register resolution
 /// ([`CHOSEN_MAX_DUTY`], 131 072) is not a multiple of the 100 steps in a window,
@@ -1156,14 +1157,16 @@ pub const ISR_INTERVAL_US: u32 = 10_000;
 /// (`components/esp_driver_ledc/src/ledc.c:1603-1606`) with interrupts masked.
 /// At a 1 Hz carrier that is up to one second, and the original ESP32's interrupt
 /// watchdog is 300 ms — so **every** duty write panics, including the duty-0
-/// write in `LedcPwm::new`.
+/// write an `LEDC` transport's constructor makes.
 ///
 /// Any carrier slow enough to be mechanically kind is therefore slow enough to
 /// trip the watchdog, and the two requirements are in direct conflict. The ISR
 /// has neither problem: 100 interrupts a second on a 240 MHz Xtensa is
 /// negligible, and its "LEDC costs zero CPU" advantage evaporates on this chip
-/// anyway. [`cc_hal_esp32::heater`] keeps `LedcPwm` behind the same
-/// [`HeaterDuty`] seam for a future chip whose `ledc_ll.h` has no spin.
+/// anyway. There is no `LEDC` transport in `cc_hal_esp32::heater` to fall back
+/// on: the spin is unique to this chip, so the one that could use `LEDC` does
+/// not exist yet, and the carrier arithmetic a `LEDC` transport would need is in
+/// that module's docs.
 ///
 /// The cost is 100 relay operations per second instead of 2, which is what the
 /// C++ has always done and what the contactor has always survived. That is the
@@ -1908,10 +1911,10 @@ mod atomic_chopper_tests {
     #[test]
     fn setting_a_duty_over_the_transport_restarts_the_window() {
         // The property the ISR depends on: a new duty is picked up whole, not
-        // half-way through a window. This is the sequence `HeaterDuty::apply` and
-        // the ISR produce between them, and it is what makes the gate meaningful
-        // — a deadman that trips at counter 500 of a window must stop the heater
-        // for the rest of *that* window, not the next one.
+        // half-way through a window. This is the sequence the transport's
+        // `apply` and the ISR produce between them, and it is what makes the gate
+        // meaningful — a deadman that trips at counter 500 of a window must stop
+        // the heater for the rest of *that* window, not the next one.
         let chopper = AtomicChopper::new();
         chopper.set_duty(Duty::new(1000.0));
         chopper.arm();

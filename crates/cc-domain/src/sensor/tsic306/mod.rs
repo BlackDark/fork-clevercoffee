@@ -9,7 +9,7 @@
 //! There is no TSIC-306, no `ZACwire` waveform, and no second temperature probe.
 //!
 //! Everything in this module is therefore **host-tested against a synthesised
-//! waveform** ([`simulator`], built from the app note's own timings), and that
+//! waveform** (`simulator`, built from the app note's own timings), and that
 //! proves the arithmetic, the frame ordering, the parity and the rejection of
 //! damaged frames. It proves **nothing** about a real sensor: its clock
 //! tolerance, its 31.25 µs pulses through a pull-up and a cable, its behaviour
@@ -193,7 +193,7 @@ impl core::fmt::Display for Outcome {
 ///
 /// The seam that makes the whole protocol testable. The device crate implements
 /// it over a GPIO interrupt and an [`EdgeRing`]; the tests implement it over a
-/// synthesised [`Waveform`].
+/// synthesised `Waveform`.
 ///
 /// # Why the trait hands over a *buffer of edges* and not a decoded bit
 ///
@@ -218,7 +218,7 @@ pub trait EdgeSource {
     /// that [`Tsic306::poll`] does not have to know which it is talking to:
     ///
     /// * the **poller** implementation samples the line for a bounded window and
-    ///   then drains — see [`cc_hal_esp32::zacwire`];
+    ///   then drains — see `cc_hal_esp32::zacwire`;
     /// * an **interrupt-driven** implementation does nothing here, because the ISR
     ///   has already pushed the edges, and the drain is all that is left.
     ///
@@ -572,8 +572,8 @@ impl<S: EdgeSource> Tsic306<S> {
     }
 }
 
-/// Collapse an [`Outcome`] into the [`TemperatureProbe`](super::probe::TemperatureProbe)
-/// vocabulary.
+/// Collapse an [`Outcome`] into the shared
+/// [`super::probe::ProbeReading`] vocabulary.
 ///
 /// A free function rather than an associated one: it does not touch the driver,
 /// and putting it on `Tsic306<S>` would make every call site name a type
@@ -590,24 +590,34 @@ pub fn as_probe(outcome: Outcome) -> Option<ProbeReading> {
 }
 
 #[cfg(test)]
+// `clippy::assert_is_empty` is new in clippy 1.99, the channel the CI host gate
+// runs on (`CC_RUST_TOOLCHAIN=stable`). The emptiness assertions in this module
+// are on COLLECTIONS, so the suggested `assert_eq!(x, "")` does not typecheck,
+// and `assert_eq!(x.len(), 0)` would print a count instead of the contents.
+// Everywhere else in this crate a `String` emptiness assertion is written
+// `assert_ne!(x, "")` and is still linted.
+#[allow(
+    clippy::assert_is_empty,
+    reason = "the assertions are on collections, so assert_eq!(x, \"\") does not typecheck"
+)]
 #[allow(
     clippy::float_cmp,
     reason = "the tests compare f32 temperatures that the code under test computes \
-              by the same expression, or that are exactly representable 11-bit grid \
-              points; an approximate comparison would hide what is being pinned"
+              from the wire, at exact sentinels, and an approximate comparison would hide \
+              what is being pinned"
 )]
-#[allow(
-    clippy::assertions_on_constants,
-    reason = "these tests assert protocol and transport constants against the \
-              datasheet/app note numbers on purpose: that is the claim, and the \
-              compiler is right that a run-time comparison of two constants is \
-              not a test"
-)]
+// A synthesised waveform is indexed by a `usize` loop counter and the counter
+// is handed to the ring, which takes microseconds as `u32`. The values are 0 and
+// 1 in this test, so the truncation cannot occur; on a 64-bit host it is the lint
+// being conservative about a 32-bit target.
 #[allow(
     clippy::cast_possible_truncation,
+    reason = "a test waveform index of 0 or 1 microseconds, which is what a u32 \
+              microsecond count can hold exactly"
+)]
+#[allow(
     clippy::cast_precision_loss,
-    clippy::cast_sign_loss,
-    reason = "test-side narrowing of values the protocol bounds to 0..=2047"
+    reason = "index % 3 is 0, 1 or 2, every one of which is exact in f32"
 )]
 mod tests {
     use super::*;
@@ -1185,16 +1195,25 @@ mod tests {
     fn the_no_signal_timeout_is_longer_than_the_cpps_and_says_why() {
         // The C++'s is 100 ms (`ZACwire.h:29`) against a 10 Hz sensor, i.e. one
         // transmission period with zero margin. This port uses 2.5 periods.
-        assert_eq!(protocol::UPDATE_PERIOD_US, 100_000);
-        assert_eq!(protocol::NO_SIGNAL_TIMEOUT_US, 250_000);
-        assert!(protocol::NO_SIGNAL_TIMEOUT_US > protocol::UPDATE_PERIOD_US);
+        // These are invariants between two CONSTANTS, so they are asserted at
+        // COMPILE time (`const { assert!(..) }`, clippy 1.99's
+        // `assertions_on_constants`): a change to either constant that breaks
+        // the relationship now fails the BUILD rather than one test run, and
+        // they cost nothing at runtime.
+        //
+        // `assert!` rather than `assert_eq!`, because on this channel
+        // `assert_eq!` in a const is still not available (its panic path is not
+        // const), and an `assert!` with no message is. The message each one
+        // loses is the sentence in the comment beside it.
+        const { assert!(protocol::UPDATE_PERIOD_US == 100_000) };
+        const { assert!(protocol::NO_SIGNAL_TIMEOUT_US == 250_000) };
         // So one missed frame is tolerated, and a genuinely dead probe is
-        // reported inside one control cadence plus the ten-read debounce.
-        assert!(protocol::NO_SIGNAL_TIMEOUT_US >= 2 * protocol::UPDATE_PERIOD_US);
-        assert!(
-            protocol::NO_SIGNAL_TIMEOUT_US < 2 * protocol::UPDATE_PERIOD_US + 100_000,
-            "and it must not stretch to three periods or a dead probe is slow to report"
-        );
+        // reported inside one control cadence plus the ten-read debounce -- and
+        // it must not stretch to three periods, or a dead probe is slow to
+        // report.
+        const { assert!(protocol::NO_SIGNAL_TIMEOUT_US > protocol::UPDATE_PERIOD_US) };
+        const { assert!(protocol::NO_SIGNAL_TIMEOUT_US >= 2 * protocol::UPDATE_PERIOD_US) };
+        const { assert!(protocol::NO_SIGNAL_TIMEOUT_US < 2 * protocol::UPDATE_PERIOD_US + 100_000) };
     }
 
     #[test]

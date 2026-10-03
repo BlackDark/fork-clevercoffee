@@ -103,7 +103,7 @@ pio test --verbose
    ```cpp
    // Good: Testable
    SensorCoordinator coord(&mockSensor, nullptr, nullptr);
-   
+
    // Avoid: Hard to test
    Config::getInstance().pidEnabled.get();
    ```

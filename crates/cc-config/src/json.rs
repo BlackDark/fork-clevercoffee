@@ -203,6 +203,33 @@ pub enum ExportError {
 ///
 /// See [`ImportError`]. Every rejection is total: on error nothing is applied.
 pub fn json_import(text: &str) -> Result<Config, ImportError> {
+    let root = parse_document(text)?;
+
+    let values = scan(&root)?;
+
+    // Deserialise the *patch* rather than the user's document. `#[serde(default)]`
+    // on every level fills in everything the patch does not mention, and
+    // building from the patch — instead of merging it into the document — means
+    // an unrecognised key, or a leaf where a group belongs, cannot survive into
+    // the `Config`. It also normalises the JSON types: `"setpoint": 95` and
+    // `"setpoint": 95.0` both become the same `f64`.
+    let mut patch = Map::new();
+    for (spec, value) in values {
+        insert_nested(&mut patch, spec.key, value);
+    }
+    serde_json::from_value(Value::Object(patch)).map_err(|e| ImportError::Syntax {
+        detail: e.to_string(),
+    })
+}
+
+/// The document prologue every import shares: size, syntax, root shape.
+///
+/// Split out of [`json_import`] so that [`document_pairs`] — the
+/// `POST /api/config/upload` reader — cannot drift from it. A rule that lives in
+/// one of the two and not the other is a rule an upload and a store-seed
+/// disagree about, and the disagreement is invisible until a document is
+/// accepted by one and refused by the other.
+fn parse_document(text: &str) -> Result<Map<String, Value>, ImportError> {
     if text.is_empty() {
         return Err(ImportError::Empty);
     }
@@ -221,24 +248,28 @@ pub fn json_import(text: &str) -> Result<Config, ImportError> {
     if let Some(key) = root.keys().find(|k| k.contains('.')) {
         return Err(ImportError::FlatDottedKeys { key: key.clone() });
     }
+    Ok(root)
+}
 
-    // Walk the schema and pull each key out of the nested object. Doing it this
-    // way round means a key that is absent and a key that is present-but-wrong
-    // are distinguishable, and it means the schema is the single source of
-    // truth for what "known" means.
+/// Every schema key the document mentions, with its coerced value.
+///
+/// The shared body of [`json_import`] and [`document_pairs`]: walk the schema,
+/// pull each key out of the nested object, and coerce it. Doing it this way
+/// round means a key that is absent and a key that is present-but-wrong are
+/// distinguishable, and it means the schema is the single source of truth for
+/// what "known" means.
+fn scan(root: &Map<String, Value>) -> Result<Vec<(&'static ParamSpec, Value)>, ImportError> {
     let mut rejected: Vec<RejectedValue> = Vec::new();
     let mut known = 0usize;
-    let mut patch = Map::new();
+    let mut accepted: Vec<(&'static ParamSpec, Value)> = Vec::new();
 
     for spec in schema::SCHEMA {
-        let Some(raw) = lookup(&root, spec.key) else {
+        let Some(raw) = lookup(root, spec.key) else {
             continue;
         };
         known += 1;
         match coerce(spec, raw) {
-            Ok(value) => {
-                insert_nested(&mut patch, spec.key, value);
-            }
+            Ok(value) => accepted.push((spec, value)),
             Err(reason) => rejected.push(RejectedValue {
                 key: spec.key,
                 reason,
@@ -252,16 +283,66 @@ pub fn json_import(text: &str) -> Result<Config, ImportError> {
     if known == 0 {
         return Err(ImportError::NoKnownParameters);
     }
+    Ok(accepted)
+}
 
-    // Deserialise the *patch* rather than the user's document. `#[serde(default)]`
-    // on every level fills in everything the patch does not mention, and
-    // building from the patch — instead of merging it into the document — means
-    // an unrecognised key, or a leaf where a group belongs, cannot survive into
-    // the `Config`. It also normalises the JSON types: `"setpoint": 95` and
-    // `"setpoint": 95.0` both become the same `f64`.
-    serde_json::from_value(Value::Object(patch)).map_err(|e| ImportError::Syntax {
-        detail: e.to_string(),
-    })
+/// The dotted `(key, value)` pairs a nested configuration document carries.
+///
+/// **This is the reader for `POST /api/config/upload`.** The C++'s route
+/// (`WebServerManager.cpp:727-762`) hands the body to
+/// `Config::importFromJsonObject` (`Config.cpp:323-345`), which walks the
+/// parameters, applies the ones the document mentions, and reports success if
+/// *one* of them imported. It is deliberately **not** `json_import`, which
+/// deserialises a whole `Config` with defaults filled in — that is the right
+/// shape for seeding a fresh store from `/config.json` and the wrong shape for
+/// an upload, where a document that mentions twelve keys must leave the other
+/// eighty-six exactly as they are.
+///
+/// Returning *pairs* rather than a `Config` is what keeps the writer single.
+/// The handler hands these to the control task, which applies them with
+/// [`crate::assign::apply`] — the same function `POST /api/parameters` uses and
+/// the only writer of a parameter in the workspace. A second applier here would
+/// be a second set of type rules, and the two would drift.
+///
+/// The pairs are rendered into the string form [`crate::assign::parse`] accepts,
+/// so the value that is validated here is validated *again* by the same
+/// [`crate::assign::parse`] on the way in — the idempotent second half of one
+/// rule, which is how `POST /api/parameters` already works. A float renders
+/// through Rust's shortest-round-trip `Display`, so a value this reader accepts
+/// arrives at the writer unchanged, bit for bit.
+///
+/// # Errors
+///
+/// See [`ImportError`]. Every rejection is total: on error no pair is returned,
+/// so there is nothing for a caller to half-apply.
+pub fn document_pairs(text: &str) -> Result<Vec<crate::form::Field>, ImportError> {
+    let root = parse_document(text)?;
+    Ok(scan(&root)?
+        .into_iter()
+        .map(|(spec, value)| {
+            let rendered = match value {
+                Value::Bool(flag) => {
+                    if flag {
+                        "1".to_string()
+                    } else {
+                        "0".to_string()
+                    }
+                }
+                // `coerce` has already narrowed these: an `Int` is an `i32`, an
+                // `Enum` an `i8`, and both are whole numbers, so neither can
+                // render with a fractional part. A `Float` can, and Rust's `f64`
+                // `Display` is the shortest representation that parses back to
+                // the same bits.
+                Value::Number(number) => number.to_string(),
+                Value::String(text) => text,
+                // `coerce` returns a `Value` built from the parameter's own
+                // kind, so nothing else is reachable. Returning the JSON form is
+                // the honest answer if that ever changes rather than a panic.
+                other => other.to_string(),
+            };
+            (spec.key.to_string(), rendered)
+        })
+        .collect())
 }
 
 /// The live value of one parameter, borrowed from a [`Config`].
@@ -310,7 +391,8 @@ impl LiveValue<'_> {
 impl<'a> From<LiveValue<'a>> for ParamValue<'a> {
     /// The same value in the schema's own type.
     ///
-    /// `ParamSpec::accepts` takes a [`ParamValue`], which is what [`SCHEMA`]
+    /// `ParamSpec::accepts` takes a [`ParamValue`], which is what
+    /// [`SCHEMA`](crate::schema::SCHEMA)
     /// holds; a caller that has a live value in hand — one just parsed from a
     /// string, say — needs this to ask the spec whether it is acceptable without
     /// re-deriving the value.
@@ -327,188 +409,42 @@ impl<'a> From<LiveValue<'a>> for ParamValue<'a> {
 
 /// Read one schema key's current value out of a [`Config`].
 ///
-/// `None` for a key the schema registers but `Config` does not carry, which
-/// would be a bug in one of the two tables rather than a runtime condition —
-/// [`values_for`](values_for) reports it as a test rather than at runtime.
+/// What the C++'s `toJson` puts in `value` (`Config.h:226-238`): the
+/// *current* value of the parameter, not its compiled-in default. The two are
+/// the same on a freshly-booted machine and different after anything has been
+/// stored, which is the whole reason the field exists.
+///
+/// The read half of the C++'s `ConfigParamDef` lives on the [`ParamSpec`]
+/// itself (`schema::ParamSpec::get`), so this is a lookup rather than a
+/// 98-arm match — the same collapse `assign::set` got, and for the same
+/// reason. `None` for a key the schema does not register, which is what
+/// `findConfigParameter` returning `nullptr` means (`Config.h:1550`).
 #[must_use]
-#[allow(
-    clippy::too_many_lines,
-    reason = "this IS the key table: one arm per registered parameter, and the \
-              C++ spells the same thing as a 98-entry vector of parameter \
-              definitions (`Config::getAllConfigParams`, `Config.cpp:438-560`). \
-              A 98-arm match is that table in Rust form; splitting it would hide \
-              the property the function exists to provide, which is that every \
-              key in `SCHEMA` is accounted for, and \
-              `every_schema_key_has_a_live_value` is what checks it"
-)]
 pub fn live_value<'a>(config: &'a Config, key: &str) -> Option<LiveValue<'a>> {
-    use crate::IntEnum;
-    Some(match key {
-        "pid.enabled" => LiveValue::Bool(config.pid.enabled),
-        "pid.use_ponm" => LiveValue::Bool(config.pid.use_ponm),
-        "pid.ema_factor" => LiveValue::Float(config.pid.ema_factor),
-        "pid.regular.kp" => LiveValue::Float(config.pid.regular.kp),
-        "pid.regular.tn" => LiveValue::Float(config.pid.regular.tn),
-        "pid.regular.tv" => LiveValue::Float(config.pid.regular.tv),
-        "pid.regular.i_max" => LiveValue::Float(config.pid.regular.i_max),
-        "pid.steam.kp" => LiveValue::Float(config.pid.steam.kp),
-        "brew.setpoint" => LiveValue::Float(config.brew.setpoint),
-        "brew.temp_offset" => LiveValue::Float(config.brew.temp_offset),
-        "steam.setpoint" => LiveValue::Float(config.steam.setpoint),
-        "pid.bd.enabled" => LiveValue::Bool(config.pid.bd.enabled),
-        "brew.pid_delay" => LiveValue::Float(config.brew.pid_delay),
-        "pid.bd.kp" => LiveValue::Float(config.pid.bd.kp),
-        "pid.bd.tn" => LiveValue::Float(config.pid.bd.tn),
-        "pid.bd.tv" => LiveValue::Float(config.pid.bd.tv),
-        "brew.mode" => LiveValue::Enum(config.brew.mode.to_raw()),
-        "brew.by_time.enabled" => LiveValue::Bool(config.brew.by_time.enabled),
-        "brew.by_time.target_time" => LiveValue::Float(config.brew.by_time.target_time),
-        "brew.by_weight.enabled" => LiveValue::Bool(config.brew.by_weight.enabled),
-        "brew.by_weight.target_weight" => LiveValue::Float(config.brew.by_weight.target_weight),
-        "brew.by_weight.auto_tare" => LiveValue::Bool(config.brew.by_weight.auto_tare),
-        "brew.pre_infusion.enabled" => LiveValue::Bool(config.brew.pre_infusion.enabled),
-        "brew.pre_infusion.time" => LiveValue::Float(config.brew.pre_infusion.time),
-        "brew.pre_infusion.pause" => LiveValue::Float(config.brew.pre_infusion.pause),
-        "display.fullscreen_brew_timer" => LiveValue::Bool(config.display.fullscreen_brew_timer),
-        "display.fullscreen_manual_flush_timer" => {
-            LiveValue::Bool(config.display.fullscreen_manual_flush_timer)
-        }
-        "display.fullscreen_hot_water_timer" => {
-            LiveValue::Bool(config.display.fullscreen_hot_water_timer)
-        }
-        "display.post_brew_timer_duration" => {
-            LiveValue::Float(config.display.post_brew_timer_duration)
-        }
-        "display.heating_logo" => LiveValue::Bool(config.display.heating_logo),
-        "display.pid_off_logo" => LiveValue::Bool(config.display.pid_off_logo),
-        "hardware.leds.status.enabled" => LiveValue::Bool(config.hardware.leds.status.enabled),
-        "hardware.leds.status.inverted" => LiveValue::Bool(config.hardware.leds.status.inverted),
-        "hardware.leds.brew.enabled" => LiveValue::Bool(config.hardware.leds.brew.enabled),
-        "hardware.leds.brew.inverted" => LiveValue::Bool(config.hardware.leds.brew.inverted),
-        "hardware.leds.steam.enabled" => LiveValue::Bool(config.hardware.leds.steam.enabled),
-        "hardware.leds.steam.inverted" => LiveValue::Bool(config.hardware.leds.steam.inverted),
-        "display.template" => LiveValue::Enum(config.display.template.to_raw()),
-        "display.inverted" => LiveValue::Bool(config.display.inverted),
-        "display.language" => LiveValue::Enum(config.display.language.to_raw()),
-        "display.blinking.delta" => LiveValue::Float(config.display.blinking.delta),
-        "backflush.cycles" => LiveValue::Int(config.backflush.cycles),
-        "backflush.fill_time" => LiveValue::Float(config.backflush.fill_time),
-        "backflush.flush_time" => LiveValue::Float(config.backflush.flush_time),
-        "maintenance.backflush_reminder.enabled" => {
-            LiveValue::Bool(config.maintenance.backflush_reminder.enabled)
-        }
-        "maintenance.backflush_reminder.threshold" => {
-            LiveValue::Int(config.maintenance.backflush_reminder.threshold)
-        }
-        "standby.enabled" => LiveValue::Bool(config.standby.enabled),
-        "standby.time" => LiveValue::Float(config.standby.time),
-        "mqtt.enabled" => LiveValue::Bool(config.mqtt.enabled),
-        "mqtt.broker" => LiveValue::Text(config.mqtt.broker.as_str()),
-        "mqtt.port" => LiveValue::Int(config.mqtt.port),
-        "mqtt.username" => LiveValue::Text(config.mqtt.username.as_str()),
-        "mqtt.password" => LiveValue::Text(config.mqtt.password.expose()),
-        "mqtt.topic" => LiveValue::Text(config.mqtt.topic.as_str()),
-        "mqtt.hassio.enabled" => LiveValue::Bool(config.mqtt.hassio.enabled),
-        "mqtt.hassio.prefix" => LiveValue::Text(config.mqtt.hassio.prefix.as_str()),
-        "system.hostname" => LiveValue::Text(config.system.hostname.as_str()),
-        "system.ota_password" => LiveValue::Text(config.system.ota_password.expose()),
-        "system.offline_mode" => LiveValue::Bool(config.system.offline_mode),
-        "system.log_level" => LiveValue::Enum(config.system.log_level.to_raw()),
-        "system.auth.enabled" => LiveValue::Bool(config.system.auth.enabled),
-        "system.auth.username" => LiveValue::Text(config.system.auth.username.as_str()),
-        "system.auth.password" => LiveValue::Text(config.system.auth.password.expose()),
-        "system.timing_debug.enabled" => LiveValue::Bool(config.system.timing_debug.enabled),
-        "system.showdisplay.enabled" => LiveValue::Bool(config.system.showdisplay.enabled),
-        "system.wifi.ssid" => LiveValue::Text(config.system.wifi.ssid.as_str()),
-        "system.wifi.password" => LiveValue::Text(config.system.wifi.password.expose()),
-        "hardware.oled.enabled" => LiveValue::Bool(config.hardware.oled.enabled),
-        "hardware.oled.type" => LiveValue::Enum(config.hardware.oled.r#type.to_raw()),
-        "hardware.oled.address" => LiveValue::Enum(config.hardware.oled.address.to_raw()),
-        "hardware.relays.heater.trigger_type" => {
-            LiveValue::Enum(config.hardware.relays.heater.trigger_type.to_raw())
-        }
-        "hardware.relays.valve.trigger_type" => {
-            LiveValue::Enum(config.hardware.relays.valve.trigger_type.to_raw())
-        }
-        "hardware.relays.pump.trigger_type" => {
-            LiveValue::Enum(config.hardware.relays.pump.trigger_type.to_raw())
-        }
-        "hardware.switches.brew.enabled" => LiveValue::Bool(config.hardware.switches.brew.enabled),
-        "hardware.switches.brew.type" => {
-            LiveValue::Enum(config.hardware.switches.brew.r#type.to_raw())
-        }
-        "hardware.switches.brew.mode" => {
-            LiveValue::Enum(config.hardware.switches.brew.mode.to_raw())
-        }
-        "hardware.switches.steam.enabled" => {
-            LiveValue::Bool(config.hardware.switches.steam.enabled)
-        }
-        "hardware.switches.steam.type" => {
-            LiveValue::Enum(config.hardware.switches.steam.r#type.to_raw())
-        }
-        "hardware.switches.steam.mode" => {
-            LiveValue::Enum(config.hardware.switches.steam.mode.to_raw())
-        }
-        "hardware.switches.power.enabled" => {
-            LiveValue::Bool(config.hardware.switches.power.enabled)
-        }
-        "hardware.switches.power.type" => {
-            LiveValue::Enum(config.hardware.switches.power.r#type.to_raw())
-        }
-        "hardware.switches.power.mode" => {
-            LiveValue::Enum(config.hardware.switches.power.mode.to_raw())
-        }
-        "hardware.switches.hot_water.enabled" => {
-            LiveValue::Bool(config.hardware.switches.hot_water.enabled)
-        }
-        "hardware.switches.hot_water.type" => {
-            LiveValue::Enum(config.hardware.switches.hot_water.r#type.to_raw())
-        }
-        "hardware.switches.hot_water.mode" => {
-            LiveValue::Enum(config.hardware.switches.hot_water.mode.to_raw())
-        }
-        "hardware.sensors.temperature.type" => {
-            LiveValue::Enum(config.hardware.sensors.temperature.r#type.to_raw())
-        }
-        "hardware.sensors.pressure.enabled" => {
-            LiveValue::Bool(config.hardware.sensors.pressure.enabled)
-        }
-        "hardware.sensors.watertank.enabled" => {
-            LiveValue::Bool(config.hardware.sensors.watertank.enabled)
-        }
-        "hardware.sensors.watertank.mode" => {
-            LiveValue::Enum(config.hardware.sensors.watertank.mode.to_raw())
-        }
-        "hardware.sensors.watertank.keep_heater_on_empty" => {
-            LiveValue::Bool(config.hardware.sensors.watertank.keep_heater_on_empty)
-        }
-        "hardware.sensors.scale.enabled" => LiveValue::Bool(config.hardware.sensors.scale.enabled),
-        "hardware.sensors.scale.samples" => LiveValue::Int(config.hardware.sensors.scale.samples),
-        "hardware.sensors.scale.type" => {
-            LiveValue::Enum(config.hardware.sensors.scale.r#type.to_raw())
-        }
-        "hardware.sensors.scale.calibration" => {
-            LiveValue::Float(config.hardware.sensors.scale.calibration)
-        }
-        "hardware.sensors.scale.calibration2" => {
-            LiveValue::Float(config.hardware.sensors.scale.calibration2)
-        }
-        "hardware.sensors.scale.known_weight" => {
-            LiveValue::Float(config.hardware.sensors.scale.known_weight)
-        }
-        "safety.emergency_temp" => LiveValue::Float(config.safety.emergency_temp),
-        "safety.emergency_hysteresis" => LiveValue::Float(config.safety.emergency_hysteresis),
-        _ => return None,
-    })
+    schema::SCHEMA
+        .iter()
+        .find(|spec| spec.key == key)
+        .map(|spec| (spec.get)(config))
 }
 
 /// Every schema key's current value, in schema order.
 ///
-/// The list `/api/parameters` needs. The `Option` is kept rather than filtered
-/// away: a `None` means `SCHEMA` registers a key [`live_value`] does not know,
-/// which is a bug in one of the two tables and not a runtime condition, so it
-/// has to be visible to a caller rather than silently shortening the list. The
-/// test `every_schema_key_has_a_live_value` is what asserts it is empty.
+/// The list `/api/parameters` needs, and **the order `/api/parameters` emits
+/// is this function's, not `live_value`'s**: this iterates
+/// [`schema::SCHEMA`], so the output is SCHEMA order — the C++'s
+/// `getAllConfigParams` order (`Config.cpp:438-563`) for the first 96 — even
+/// though `live_value` is free to answer in any order it likes. That was
+/// already true before the accessors moved onto [`ParamSpec`]
+/// (`cc-hal-esp32`'s `parameters_json` pairs `SCHEMA.iter().enumerate()`
+/// against `values[index]`), so the collapse did not move a single byte of
+/// the response.
+///
+/// The `Option` is kept rather than filtered away, even though it is now
+/// structurally impossible to be `None`: every spec carries its own getter, so
+/// there is no second table left to disagree with. It is kept because
+/// `parameters_json` indexes this vector positionally against `SCHEMA` and a
+/// short vector would silently mis-pair every entry after the gap, and because
+/// dropping it would change `cc-hal-esp32` and the JSON for no gain.
 ///
 /// Returning a `Vec` rather than an iterator keeps the borrow of `config` in
 /// one place, so a caller cannot hold it across the JSON it is building.
@@ -516,7 +452,7 @@ pub fn live_value<'a>(config: &'a Config, key: &str) -> Option<LiveValue<'a>> {
 pub fn values_for(config: &Config) -> Vec<Option<LiveValue<'_>>> {
     schema::SCHEMA
         .iter()
-        .map(|spec| live_value(config, spec.key))
+        .map(|spec| Some((spec.get)(config)))
         .collect()
 }
 
@@ -686,9 +622,10 @@ fn insert_nested(target: &mut Map<String, Value>, key: &str, value: Value) {
 
 /// One rejection reason, as the words an operator reads.
 ///
-/// Split out of [`describe_rejection`] because the string parameter path
-/// ([`crate::assign`]) rejects a value for the same reasons and has to say which,
-/// and two spellings of "out of range" is two things to keep in step.
+/// The one spelling of each reason. `crate::assign` rejects a value for the same
+/// reasons and has to say which, and two spellings of "out of range" is two
+/// things to keep in step. (`describe_rejection`, the wrapper that joined these
+/// with the offending key, had no callers and was deleted.)
 #[must_use]
 pub fn describe_reason(reason: RejectReason) -> String {
     use alloc::format;
@@ -697,26 +634,6 @@ pub fn describe_reason(reason: RejectReason) -> String {
         RejectReason::WrongType => "wrong type".to_string(),
         RejectReason::UnknownEnumDiscriminant => "no such enum value".to_string(),
         RejectReason::TooLong => "string too long".to_string(),
-    }
-}
-
-/// A convenience for building an import rejection's API response body.
-#[must_use]
-pub fn describe_rejection(error: &ImportError) -> String {
-    match error {
-        ImportError::InvalidValues { rejected } => {
-            let mut out = String::new();
-            for (i, r) in rejected.iter().enumerate() {
-                if i > 0 {
-                    out.push_str("; ");
-                }
-                out.push_str(r.key);
-                out.push_str(": ");
-                out.push_str(&describe_reason(r.reason));
-            }
-            out
-        }
-        other => other.to_string(),
     }
 }
 
@@ -730,9 +647,14 @@ mod tests {
     #[test]
     fn every_schema_key_has_a_live_value() {
         // The pairing that keeps `/api/parameters`' `value` honest: `SCHEMA`
-        // says a key exists, `live_value` says where it lives. A key in one and
-        // not the other is a bug in one of the two tables, and it would show up
-        // in the HTTP response as a parameter with no `value` at all.
+        // says a key exists and carries the getter that says where it lives.
+        //
+        // **This is now nearly tautological**, and that is the point. Before the
+        // accessors moved onto `ParamSpec`, a key could be in `SCHEMA` and
+        // missing from a 98-arm `match` in this module, and the failure would
+        // surface as a parameter with no `value` at all. It is kept because it
+        // costs nothing, it still checks the `Vec` and `SCHEMA` stay the same
+        // length, and `values_for` still returns `Option`.
         let config = Config::default();
         let missing: Vec<&str> = schema::SCHEMA
             .iter()

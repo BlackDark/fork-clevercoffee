@@ -293,7 +293,7 @@ impl Controller {
     /// At the shipped 1000 ms window, and for any step that lands exactly on
     /// it, this is `1.0` and the C++'s is `1.0`, so the term is bit-identical.
     /// That is measured, not asserted: see
-    /// [`crate::pid_parity::scenario_a_production_pon_e_matches_the_cpp_library`]
+    /// `crate::pid_parity::scenario_a_production_pon_e_matches_the_cpp_library`
     /// and its three siblings, which compare `to_bits()` on every step of all
     /// four oracle scenarios — maximum |delta| **0.0**.
     ///
@@ -302,7 +302,7 @@ impl Controller {
     /// the real interval was, the port divides by the real one. That is the
     /// point of the fix, it is bounded by the scheduling jitter, and it is
     /// quantified by
-    /// [`crate::pid_parity::scenario_e_a_late_step_uses_the_real_interval`].
+    /// `crate::pid_parity::scenario_e_a_late_step_uses_the_real_interval`.
     #[must_use]
     pub fn derivative_seconds(&self) -> f64 {
         f64::from(self.sample_time.raw()) / 1000.0
@@ -384,12 +384,6 @@ impl Controller {
             self.integrator = 0.0;
         }
         true
-    }
-
-    /// `SetTunings(Kp, Ki, Kd)` (`PID_v1.cpp:174-176`): keep the current
-    /// proportional mode.
-    pub fn set_tunings_keeping_mode(&mut self, kp: f64, ki: f64, kd: f64) -> bool {
-        self.set_tunings(kp, ki, kd, self.proportional_on)
     }
 
     /// `SetSampleTime(NewSampleTime)` (`PID_v1.cpp:181-188`).
@@ -604,27 +598,6 @@ impl Controller {
         self.kd
     }
 
-    /// The proportional gain actually used for arithmetic, after the
-    /// sample-time scaling and any direction negation.
-    #[must_use]
-    pub const fn effective_kp(&self) -> f64 {
-        self.kp_eff
-    }
-
-    /// The integral gain actually used for arithmetic. See
-    /// [`Self::effective_kp`].
-    #[must_use]
-    pub const fn effective_ki(&self) -> f64 {
-        self.ki_eff
-    }
-
-    /// The derivative gain actually used for arithmetic. See
-    /// [`Self::effective_kp`].
-    #[must_use]
-    pub const fn effective_kd(&self) -> f64 {
-        self.kd_eff
-    }
-
     /// `GetMode()`.
     #[must_use]
     pub const fn mode(&self) -> Mode {
@@ -639,12 +612,6 @@ impl Controller {
     #[must_use]
     pub const fn direction(&self) -> ControllerDirection {
         self.direction
-    }
-
-    /// `GetPonE()`.
-    #[must_use]
-    pub const fn proportional_on_error(&self) -> bool {
-        self.p_on_e
     }
 
     /// `GetDeltaInput()` — the `dInput` used in the last compute.

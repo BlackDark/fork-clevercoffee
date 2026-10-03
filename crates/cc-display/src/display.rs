@@ -19,7 +19,8 @@
 //! [`Rotation`] selects. Under `R1`/`R3` that space is 64 wide and 128 tall,
 //! and the mapping onto the physical 128x64 page buffer is U8g2's
 //! `u8g2_draw_l90_r1`..`r3` (`u8g2_setup.c:349-441`), reproduced in
-//! [`Display::hv_line`]. The UPRIGHT template is drawn in that rotated space
+//! [`Display::draw_hv_line`](Display::draw_hv_line). The UPRIGHT template is
+//! drawn in that rotated space
 //! and the *coordinates in the templates are the rotated ones*, matching the
 //! C++ — `UprightTemplate::displayHeatBar` really does draw at y=124, which is
 //! off the top of a 64-row screen and only sensible under `R1`/`R3`.
@@ -40,8 +41,6 @@ pub const DISPLAY_HEIGHT: i32 = 64;
 pub const BUFFER_LEN: usize = (DISPLAY_WIDTH as usize) * (DISPLAY_HEIGHT as usize / 8);
 
 /// `STATUS_BAR_Y_POS`, `defaults.h:226-227`.
-pub const STATUS_BAR_HEIGHT: i32 = 12;
-/// `STATUS_BAR_Y_POS`, `defaults.h:226-227`.
 pub const STATUS_BAR_Y_POS: i32 = 12;
 
 /// The display rotation, and with it the logical coordinate space.
@@ -52,10 +51,10 @@ pub const STATUS_BAR_Y_POS: i32 = 12;
 ///
 /// | rotation | set when | logical space |
 /// |----------|----------|---------------|
-/// | [`R0`] | neither | 128 x 64 |
-/// | [`R1`] | UPRIGHT template | 64 x 128 |
-/// | [`R2`] | `displayInverted` | 128 x 64 |
-/// | [`R3`] | both | 64 x 128 |
+/// | [`R0`](Rotation::R0) | neither | 128 x 64 |
+/// | [`R1`](Rotation::R1) | UPRIGHT template | 64 x 128 |
+/// | [`R2`](Rotation::R2) | `displayInverted` | 128 x 64 |
+/// | [`R3`](Rotation::R3) | both | 64 x 128 |
 ///
 /// R1/R3 swap width and height because U8g2's `u8g2_update_dimension_r1`
 /// overwrites `width` with `pixel_height` (`u8g2_setup.c:245`). R2 is a 180
@@ -325,8 +324,7 @@ impl Display {
     /// uses `ascent_para = 7` where `Text` uses `ascent_A = 6`. Since
     /// `setFontPosTop` offsets every glyph by `ref_ascent + 1`
     /// (`u8g2_font_calc_vref_top`), picking the wrong default shifts every line
-    /// of text down by a pixel and makes `row_height` a different number -- and
-    /// nothing else notices, because the layout code reads `row_height` and so
+    /// of text down by a pixel, and nothing else notices because every row
     /// shifts with it. `tests/parity.rs` catches it.
     #[must_use]
     pub fn new() -> Self {
@@ -358,11 +356,6 @@ impl Display {
     #[must_use]
     pub const fn framebuffer(&self) -> &Framebuffer {
         &self.fb
-    }
-
-    /// The framebuffer, mutably.
-    pub const fn framebuffer_mut(&mut self) -> &mut Framebuffer {
-        &mut self.fb
     }
 
     /// Consume the display and take its framebuffer.
@@ -1191,12 +1184,6 @@ impl Display {
         self.font.map_or(0, |f| f.str_width(text))
     }
 
-    /// `getUTF8Width` for the current font.
-    #[must_use]
-    pub fn utf8_width(&self, text: &str) -> i32 {
-        self.font.map_or(0, |f| f.str_width_utf8(text))
-    }
-
     /// `getMaxCharHeight` for the current font.
     #[must_use]
     pub fn max_char_height(&self) -> i32 {
@@ -1208,23 +1195,6 @@ impl Display {
     pub fn font_ascent(&self) -> i32 {
         self.font
             .map_or(0, |f| i32::from(f.ref_height(self.height_mode).0))
-    }
-
-    /// `getFontDescent` for the current font.
-    #[must_use]
-    pub fn font_descent(&self) -> i32 {
-        self.font
-            .map_or(0, |f| i32::from(f.ref_height(self.height_mode).1))
-    }
-
-    /// The row height of the current font under the current height mode.
-    ///
-    /// This is `ref_ascent + ref_descent`, U8g2's reference box. It is *not*
-    /// the ink height — see [`Font::ink_box`] and
-    /// [`crate::templates::modern`] for what the templates actually use.
-    #[must_use]
-    pub fn row_height(&self) -> i32 {
-        self.font.map_or(0, |f| f.ref_box_height(self.height_mode))
     }
 
     /// `u8g2_font_calc_vref_top` — the y offset `setFontPosTop` adds.
@@ -1254,15 +1224,11 @@ impl Display {
     /// firmware draws is ASCII plus that one byte, so the two walks agree on
     /// all real input.
     ///
-    /// [`Display::draw_utf8`] is the same walk; it exists to mirror the C++'s
-    /// separate entry point.
+    /// `Display::draw_utf8` was the same walk, mirroring the C++'s separate
+    /// `drawUTF8` entry point. It had no callers and was deleted;
+    /// [`Display::draw_str`] is the one string entry point.
     pub fn draw_str(&mut self, x: i32, y: i32, text: &str) -> i32 {
         self.draw_string(x, y, text)
-    }
-
-    /// `drawUTF8`. Returns the advance.
-    pub fn draw_utf8(&mut self, x: i32, y: i32, text: &str) -> i32 {
-        self.draw_string_utf8(x, y, text)
     }
 
     /// `u8g2_draw_string`, one code point at a time.

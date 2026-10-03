@@ -48,12 +48,18 @@
 //! literal in `defaults.h`. Values arriving from JSON borrow for the duration of
 //! the validation, hence the lifetime parameter.
 
+use alloc::borrow::ToOwned;
+
 use cc_domain::hardware::{
     OledAddress, OledType, RelayTriggerType, ScaleType, SwitchMode, SwitchType,
     TemperatureSensorType,
 };
 use cc_domain::process::BrewMode;
 use cc_domain::system::{DisplayTemplate, Language, LogLevel};
+
+use crate::config::Config;
+use crate::json::LiveValue;
+use crate::IntEnum;
 
 /// The longest dotted key in the schema, and the bound the C++ uses for a
 /// single path segment.
@@ -193,8 +199,35 @@ impl ParamValue<'_> {
     }
 }
 
-/// One registered parameter.
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// One registered parameter: what it is, and how to read and write it.
+///
+/// **This is the whole parameter table.** Before, the parameter set was
+/// described three times over — here, as a `set` dispatch in
+/// [`crate::assign`], and as a `match` in [`crate::json::live_value`] — and
+/// adding a parameter meant three edits in three files, with a missed one
+/// showing up only as a parameter that validates but does not read, or reads
+/// but does not write. The C++ has one table, not three:
+/// `Config::getAllConfigParams` (`git show main:src/Config.cpp:438-563`)
+/// returns 96 `ConfigParamDef*`, and each carries its key, default, min, max
+/// **and** the `toJson`/`fromString` virtual pair. `get` and `set` are those
+/// two virtuals, as function pointers.
+///
+/// So a key that exists in [`SCHEMA`] and is not readable is no longer
+/// expressible: the accessor and the declaration are one entry, written once.
+/// `every_schema_key_has_a_live_value` and
+/// `every_schema_default_matches_the_config_default` still exist and still
+/// run, but they are now nearly tautological — that is the point of them, not
+/// a reason to delete them.
+///
+/// **No `PartialEq`.** The derive was on this struct while the accessors were
+/// a separate table, and it compared the data fields, which was meaningful.
+/// Carrying two `fn` pointers makes the derived equality compare function
+/// addresses, which is not a stable property of a program (`rustc`'s
+/// `unpredictable_function_pointer_comparisons` warns about exactly this), and
+/// nothing in the crate compared two specs anyway — the properties that matter
+/// are [`ParamSpec::key`] and [`ParamSpec::default`], and those are read
+/// directly.
+#[derive(Clone, Copy, Debug)]
 pub struct ParamSpec {
     /// The dotted C++ key, e.g. `"pid.regular.kp"`.
     pub key: &'static str,
@@ -206,10 +239,38 @@ pub struct ParamSpec {
     pub min: Option<f64>,
     /// Inclusive upper bound, for the kinds that have one.
     pub max: Option<f64>,
+    /// Read this key's current value out of a [`Config`].
+    ///
+    /// The read half of the C++'s `toJson` (`Config.h:215-238`), which writes
+    /// `obj["value"] = currentValue_` — the *stored* value, not the default.
+    ///
+    /// Higher-ranked in the config's lifetime rather than a bare
+    /// `fn(&Config)`: the four credential parameters hand back a `&str`
+    /// borrowed from a `Secret<String>` inside the config, and a getter that
+    /// could not tie that borrow to its argument would have to copy the
+    /// plaintext onto the heap. It is expressible as a field because a
+    /// `for<'a> fn(&'a Config) -> LiveValue<'a>` is a higher-ranked function
+    /// pointer, which is const-constructible like any other.
+    pub get: for<'a> fn(&'a Config) -> LiveValue<'a>,
+    /// Write a value into this parameter's field. `false` = not applicable.
+    ///
+    /// The write half of the C++'s `fromString` (`Config.h:242-262`) without
+    /// the parsing and without the NVS write, which moved to
+    /// [`crate::ConfigStore`]. `false` covers a value of the wrong
+    /// [`ParamKind`] and — for an enumeration — a discriminant that names no
+    /// variant, which is the analogue of `EnumParamDef::isValid`
+    /// (`Config.h:379-388`). The bounds live in [`ParamSpec::accepts`] and are
+    /// checked before a value gets this far, by [`crate::assign::parse`].
+    pub set: fn(&mut Config, &LiveValue<'_>) -> bool,
 }
 
 impl ParamSpec {
     /// Build a spec. Used by the [`SCHEMA`] table.
+    ///
+    /// `accessors` is the `(get, set)` pair the private `accessors!` macro
+    /// produces, passed as
+    /// a tuple so that one macro invocation describes both halves of a
+    /// parameter and the compiler can check that they agree on the type.
     #[must_use]
     pub const fn new(
         key: &'static str,
@@ -217,6 +278,7 @@ impl ParamSpec {
         default: ParamValue<'static>,
         min: Option<f64>,
         max: Option<f64>,
+        accessors: Accessors,
     ) -> Self {
         Self {
             key,
@@ -224,6 +286,8 @@ impl ParamSpec {
             default,
             min,
             max,
+            get: accessors.get,
+            set: accessors.set,
         }
     }
 
@@ -260,6 +324,215 @@ impl ParamSpec {
     }
 }
 
+/// The read and write halves of one parameter, as handed to
+/// [`ParamSpec::new`] by the private `accessors!` macro.
+///
+/// `Copy` because it is two function pointers and nothing else; it is built in
+/// a `const` initialiser and immediately destructured into
+/// [`ParamSpec::get`] and [`ParamSpec::set`].
+#[derive(Clone, Copy, Debug)]
+pub struct Accessors {
+    /// The getter. See [`ParamSpec::get`].
+    pub get: for<'a> fn(&'a Config) -> LiveValue<'a>,
+    /// The setter. See [`ParamSpec::set`].
+    pub set: fn(&mut Config, &LiveValue<'_>) -> bool,
+}
+
+/// Does the dotted `key` name the same `Config` field as the `path`?
+///
+/// `stringify!` renders a raw identifier with its `r#` — the key
+/// [`SCHEMA`] registers is `hardware.oled.type` and
+/// `stringify!(hardware.oled.r#type)` is `hardware.oled.r#type`. Comparing
+/// them needs to step over the `r#`, which is what this does; the alternative,
+/// writing the key a second time as a string literal to match against, makes
+/// the table two facts per entry, and a table of two facts per entry is a
+/// table that can disagree with itself.
+///
+/// `const`, so the `accessors!` macro can assert the pairing at compile
+/// time. This is
+/// what replaced `assign::eq_key`, which made the same comparison at runtime
+/// on every write of every parameter.
+const fn key_is_path(key: &str, path: &str) -> bool {
+    let (k, p) = (key.as_bytes(), path.as_bytes());
+    let (mut i, mut j) = (0, 0);
+    while i < k.len() && j < p.len() {
+        // `r#` at the head of a segment is Rust's escape, not part of the key.
+        if p[j] == b'r' && j + 1 < p.len() && p[j + 1] == b'#' && (j == 0 || p[j - 1] == b'.') {
+            j += 2;
+            continue;
+        }
+        if k[i] != p[j] {
+            return false;
+        }
+        i += 1;
+        j += 1;
+    }
+    i == k.len() && j == p.len()
+}
+
+/// The accessor pair for one parameter: a getter and a setter over one
+/// `Config` field path.
+///
+/// Private: it exists to be written once per [`SCHEMA`] entry and consumed by
+/// [`ParamSpec::new`], which is the only way to build a spec.
+///
+/// Six arms, one per way a `Config` field differs from a plain scalar, and
+/// each is the only place that difference is written down:
+///
+/// * `bool` / `int` / `float` — a `Copy` field. Read and write directly.
+/// * `text` — an `alloc::string::String`. Read borrows (`as_str`), write owns.
+/// * `secret` — a [`crate::Secret`]<`String`>. Read borrows the plaintext out
+///   of `expose()`; write goes through `set`, which is the only way to get at
+///   the inner `String`. **This arm is why `get` is higher-ranked**: the
+///   returned `&str` points into the `Secret` inside the `Config`.
+/// * `enum` — a `cc-domain` enum. Read is `to_raw`, write is `from_raw`, and
+///   the `from_raw` failure is what makes `set` return `false` for a
+///   discriminant no variant has.
+///
+/// The `key` argument is only used by the `const` assertion below; it is not
+/// stored, because [`ParamSpec::new`] already has it and a table of two facts
+/// per entry is a table that can disagree with itself.
+/// Assert that `$key` names `$field`, then yield `$value`.
+///
+/// The compile-time half of `accessors!`. A key that disagrees with the field
+/// it is registered against is the failure mode the three separate tables made
+/// invisible — it would type-check, and the parameter would read and write the
+/// wrong `Config` field — so it is worth five lines here rather than 98
+/// runtime comparisons per parameter write (`assign::eq_key`, which this
+/// replaced).
+macro_rules! checked {
+    ($key:literal, $($field:tt).+, $value:expr) => {{
+        const _: () = assert!(
+            key_is_path($key, stringify!($($field).+)),
+            "the key does not name the field it is registered against"
+        );
+        $value
+    }};
+}
+
+/// The accessor pair for one parameter: a getter and a setter over one
+/// `Config` field path.
+///
+/// Private: it exists to be written once per [`SCHEMA`] entry and consumed by
+/// [`ParamSpec::new`], which is the only way to build a spec.
+///
+/// Six arms, one per way a `Config` field differs from a plain scalar, and
+/// each is the only place that difference is written down:
+///
+/// * `bool` / `int` / `float` — a `Copy` field. Read and write directly.
+/// * `text` — an `alloc::string::String`. Read borrows (`as_str`), write owns.
+/// * `secret` — a [`crate::Secret`]<`String`>. Read borrows the plaintext out
+///   of `expose()`; write goes through `set`, which is the only way to get at
+///   the inner `String`. **This arm is why `get` is higher-ranked**: the
+///   returned `&str` points into the `Secret` inside the `Config`.
+/// * `enum` — a `cc-domain` enum. Read is `to_raw`, write is `from_raw`, and
+///   the `from_raw` failure is what makes `set` return `false` for a
+///   discriminant no variant has.
+///
+/// The `key` argument is only used by the `const` assertion; it is not stored,
+/// because [`ParamSpec::new`] already has it and a table of two facts per entry
+/// is a table that can disagree with itself.
+macro_rules! accessors {
+    (bool, $key:literal, $($field:tt).+) => {
+        checked!(
+            $key,
+            $($field).+,
+            Accessors {
+                get: |config: &Config| LiveValue::Bool(config.$($field).+),
+                set: |config: &mut Config, value: &LiveValue<'_>| match value {
+                    LiveValue::Bool(v) => {
+                        config.$($field).+ = *v;
+                        true
+                    }
+                    _ => false,
+                },
+            }
+        )
+    };
+    (int, $key:literal, $($field:tt).+) => {
+        checked!(
+            $key,
+            $($field).+,
+            Accessors {
+                get: |config: &Config| LiveValue::Int(config.$($field).+),
+                set: |config: &mut Config, value: &LiveValue<'_>| match value {
+                    LiveValue::Int(v) => {
+                        config.$($field).+ = *v;
+                        true
+                    }
+                    _ => false,
+                },
+            }
+        )
+    };
+    (float, $key:literal, $($field:tt).+) => {
+        checked!(
+            $key,
+            $($field).+,
+            Accessors {
+                get: |config: &Config| LiveValue::Float(config.$($field).+),
+                set: |config: &mut Config, value: &LiveValue<'_>| match value {
+                    LiveValue::Float(v) => {
+                        config.$($field).+ = *v;
+                        true
+                    }
+                    _ => false,
+                },
+            }
+        )
+    };
+    (text, $key:literal, $($field:tt).+) => {
+        checked!(
+            $key,
+            $($field).+,
+            Accessors {
+                get: |config: &Config| LiveValue::Text(config.$($field).+.as_str()),
+                set: |config: &mut Config, value: &LiveValue<'_>| match value {
+                    LiveValue::Text(v) => {
+                        config.$($field).+ = (*v).to_owned();
+                        true
+                    }
+                    _ => false,
+                },
+            }
+        )
+    };
+    (secret, $key:literal, $($field:tt).+) => {
+        checked!(
+            $key,
+            $($field).+,
+            Accessors {
+                get: |config: &Config| LiveValue::Text(config.$($field).+.expose()),
+                set: |config: &mut Config, value: &LiveValue<'_>| match value {
+                    LiveValue::Text(v) => {
+                        config.$($field).+.set((*v).to_owned());
+                        true
+                    }
+                    _ => false,
+                },
+            }
+        )
+    };
+    (enum, $key:literal, $enum:ty, $($field:tt).+) => {
+        checked!(
+            $key,
+            $($field).+,
+            Accessors {
+                get: |config: &Config| LiveValue::Enum(config.$($field).+.to_raw()),
+                set: |config: &mut Config, value: &LiveValue<'_>| match value {
+                    LiveValue::Enum(v) => match <$enum>::from_raw(*v) {
+                        Some(v) => {
+                            config.$($field).+ = v;
+                            true
+                        }
+                        None => false,
+                    },
+                    _ => false,
+                },
+            }
+        )
+    };
+}
 /// Every parameter the firmware persists, in the C++ registration order.
 ///
 /// The order is the C++ order (`getAllConfigParams`) with the two `safety.*`
@@ -272,6 +545,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Bool(false),
         None,
         None,
+        accessors!(bool, "pid.enabled", pid.enabled),
     ),
     ParamSpec::new(
         "pid.use_ponm",
@@ -279,6 +553,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Bool(false),
         None,
         None,
+        accessors!(bool, "pid.use_ponm", pid.use_ponm),
     ),
     ParamSpec::new(
         "pid.ema_factor",
@@ -286,6 +561,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Float(0.6),
         Some(0.0),
         Some(1.0),
+        accessors!(float, "pid.ema_factor", pid.ema_factor),
     ),
     ParamSpec::new(
         "pid.regular.kp",
@@ -293,6 +569,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Float(62.0),
         Some(0.0),
         Some(200.0),
+        accessors!(float, "pid.regular.kp", pid.regular.kp),
     ),
     ParamSpec::new(
         "pid.regular.tn",
@@ -300,6 +577,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Float(52.0),
         Some(0.0),
         Some(200.0),
+        accessors!(float, "pid.regular.tn", pid.regular.tn),
     ),
     ParamSpec::new(
         "pid.regular.tv",
@@ -307,6 +585,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Float(11.5),
         Some(0.0),
         Some(200.0),
+        accessors!(float, "pid.regular.tv", pid.regular.tv),
     ),
     ParamSpec::new(
         "pid.regular.i_max",
@@ -314,6 +593,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Float(55.0),
         Some(0.0),
         Some(100.0),
+        accessors!(float, "pid.regular.i_max", pid.regular.i_max),
     ),
     ParamSpec::new(
         "pid.steam.kp",
@@ -321,6 +601,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Float(150.0),
         Some(0.0),
         Some(500.0),
+        accessors!(float, "pid.steam.kp", pid.steam.kp),
     ),
     ParamSpec::new(
         "brew.setpoint",
@@ -328,6 +609,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Float(95.0),
         Some(20.0),
         Some(110.0),
+        accessors!(float, "brew.setpoint", brew.setpoint),
     ),
     ParamSpec::new(
         "brew.temp_offset",
@@ -335,6 +617,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Float(0.0),
         Some(0.0),
         Some(20.0),
+        accessors!(float, "brew.temp_offset", brew.temp_offset),
     ),
     ParamSpec::new(
         "steam.setpoint",
@@ -342,6 +625,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Float(120.0),
         Some(100.0),
         Some(140.0),
+        accessors!(float, "steam.setpoint", steam.setpoint),
     ),
     ParamSpec::new(
         "pid.bd.enabled",
@@ -349,6 +633,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Bool(false),
         None,
         None,
+        accessors!(bool, "pid.bd.enabled", pid.bd.enabled),
     ),
     ParamSpec::new(
         "brew.pid_delay",
@@ -356,6 +641,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Float(10.0),
         Some(0.0),
         Some(60.0),
+        accessors!(float, "brew.pid_delay", brew.pid_delay),
     ),
     ParamSpec::new(
         "pid.bd.kp",
@@ -363,6 +649,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Float(50.0),
         Some(0.0),
         Some(200.0),
+        accessors!(float, "pid.bd.kp", pid.bd.kp),
     ),
     ParamSpec::new(
         "pid.bd.tn",
@@ -370,6 +657,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Float(0.0),
         Some(0.0),
         Some(200.0),
+        accessors!(float, "pid.bd.tn", pid.bd.tn),
     ),
     ParamSpec::new(
         "pid.bd.tv",
@@ -377,6 +665,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Float(20.0),
         Some(0.0),
         Some(200.0),
+        accessors!(float, "pid.bd.tv", pid.bd.tv),
     ),
     ParamSpec::new(
         "brew.mode",
@@ -384,6 +673,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Enum(BrewMode::Manual as i8),
         None,
         None,
+        accessors!(enum, "brew.mode", BrewMode, brew.mode),
     ),
     ParamSpec::new(
         "brew.by_time.enabled",
@@ -391,6 +681,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Bool(false),
         None,
         None,
+        accessors!(bool, "brew.by_time.enabled", brew.by_time.enabled),
     ),
     ParamSpec::new(
         "brew.by_time.target_time",
@@ -398,6 +689,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Float(25.0),
         Some(1.0),
         Some(120.0),
+        accessors!(float, "brew.by_time.target_time", brew.by_time.target_time),
     ),
     ParamSpec::new(
         "brew.by_weight.enabled",
@@ -405,6 +697,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Bool(false),
         None,
         None,
+        accessors!(bool, "brew.by_weight.enabled", brew.by_weight.enabled),
     ),
     ParamSpec::new(
         "brew.by_weight.target_weight",
@@ -412,6 +705,11 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Float(36.0),
         Some(0.0),
         Some(500.0),
+        accessors!(
+            float,
+            "brew.by_weight.target_weight",
+            brew.by_weight.target_weight
+        ),
     ),
     ParamSpec::new(
         "brew.by_weight.auto_tare",
@@ -419,6 +717,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Bool(false),
         None,
         None,
+        accessors!(bool, "brew.by_weight.auto_tare", brew.by_weight.auto_tare),
     ),
     ParamSpec::new(
         "brew.pre_infusion.enabled",
@@ -426,6 +725,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Bool(false),
         None,
         None,
+        accessors!(bool, "brew.pre_infusion.enabled", brew.pre_infusion.enabled),
     ),
     ParamSpec::new(
         "brew.pre_infusion.time",
@@ -433,6 +733,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Float(2.0),
         Some(0.0),
         Some(60.0),
+        accessors!(float, "brew.pre_infusion.time", brew.pre_infusion.time),
     ),
     ParamSpec::new(
         "brew.pre_infusion.pause",
@@ -440,6 +741,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Float(5.0),
         Some(0.0),
         Some(60.0),
+        accessors!(float, "brew.pre_infusion.pause", brew.pre_infusion.pause),
     ),
     ParamSpec::new(
         "display.fullscreen_brew_timer",
@@ -447,6 +749,11 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Bool(false),
         None,
         None,
+        accessors!(
+            bool,
+            "display.fullscreen_brew_timer",
+            display.fullscreen_brew_timer
+        ),
     ),
     ParamSpec::new(
         "display.fullscreen_manual_flush_timer",
@@ -454,6 +761,11 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Bool(false),
         None,
         None,
+        accessors!(
+            bool,
+            "display.fullscreen_manual_flush_timer",
+            display.fullscreen_manual_flush_timer
+        ),
     ),
     ParamSpec::new(
         "display.fullscreen_hot_water_timer",
@@ -461,6 +773,11 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Bool(false),
         None,
         None,
+        accessors!(
+            bool,
+            "display.fullscreen_hot_water_timer",
+            display.fullscreen_hot_water_timer
+        ),
     ),
     ParamSpec::new(
         "display.post_brew_timer_duration",
@@ -468,6 +785,11 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Float(3.0),
         Some(0.0),
         Some(60.0),
+        accessors!(
+            float,
+            "display.post_brew_timer_duration",
+            display.post_brew_timer_duration
+        ),
     ),
     ParamSpec::new(
         "display.heating_logo",
@@ -475,6 +797,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Bool(true),
         None,
         None,
+        accessors!(bool, "display.heating_logo", display.heating_logo),
     ),
     ParamSpec::new(
         "display.pid_off_logo",
@@ -482,6 +805,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Bool(true),
         None,
         None,
+        accessors!(bool, "display.pid_off_logo", display.pid_off_logo),
     ),
     ParamSpec::new(
         "hardware.leds.status.enabled",
@@ -489,6 +813,11 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Bool(false),
         None,
         None,
+        accessors!(
+            bool,
+            "hardware.leds.status.enabled",
+            hardware.leds.status.enabled
+        ),
     ),
     ParamSpec::new(
         "hardware.leds.status.inverted",
@@ -496,6 +825,11 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Bool(false),
         None,
         None,
+        accessors!(
+            bool,
+            "hardware.leds.status.inverted",
+            hardware.leds.status.inverted
+        ),
     ),
     ParamSpec::new(
         "hardware.leds.brew.enabled",
@@ -503,6 +837,11 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Bool(false),
         None,
         None,
+        accessors!(
+            bool,
+            "hardware.leds.brew.enabled",
+            hardware.leds.brew.enabled
+        ),
     ),
     ParamSpec::new(
         "hardware.leds.brew.inverted",
@@ -510,6 +849,11 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Bool(false),
         None,
         None,
+        accessors!(
+            bool,
+            "hardware.leds.brew.inverted",
+            hardware.leds.brew.inverted
+        ),
     ),
     ParamSpec::new(
         "hardware.leds.steam.enabled",
@@ -517,6 +861,11 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Bool(false),
         None,
         None,
+        accessors!(
+            bool,
+            "hardware.leds.steam.enabled",
+            hardware.leds.steam.enabled
+        ),
     ),
     ParamSpec::new(
         "hardware.leds.steam.inverted",
@@ -524,6 +873,11 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Bool(false),
         None,
         None,
+        accessors!(
+            bool,
+            "hardware.leds.steam.inverted",
+            hardware.leds.steam.inverted
+        ),
     ),
     ParamSpec::new(
         "display.template",
@@ -531,6 +885,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Enum(DisplayTemplate::Standard as i8),
         None,
         None,
+        accessors!(enum, "display.template", DisplayTemplate, display.template),
     ),
     ParamSpec::new(
         "display.inverted",
@@ -538,6 +893,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Bool(false),
         None,
         None,
+        accessors!(bool, "display.inverted", display.inverted),
     ),
     ParamSpec::new(
         "display.language",
@@ -545,6 +901,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Enum(Language::English as i8),
         None,
         None,
+        accessors!(enum, "display.language", Language, display.language),
     ),
     ParamSpec::new(
         "display.blinking.delta",
@@ -552,6 +909,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Float(0.3),
         Some(0.2),
         Some(10.0),
+        accessors!(float, "display.blinking.delta", display.blinking.delta),
     ),
     ParamSpec::new(
         "backflush.cycles",
@@ -559,6 +917,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Int(5),
         Some(2.0),
         Some(20.0),
+        accessors!(int, "backflush.cycles", backflush.cycles),
     ),
     ParamSpec::new(
         "backflush.fill_time",
@@ -566,6 +925,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Float(5.0),
         Some(3.0),
         Some(10.0),
+        accessors!(float, "backflush.fill_time", backflush.fill_time),
     ),
     ParamSpec::new(
         "backflush.flush_time",
@@ -573,6 +933,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Float(10.0),
         Some(5.0),
         Some(20.0),
+        accessors!(float, "backflush.flush_time", backflush.flush_time),
     ),
     ParamSpec::new(
         "maintenance.backflush_reminder.enabled",
@@ -580,6 +941,11 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Bool(true),
         None,
         None,
+        accessors!(
+            bool,
+            "maintenance.backflush_reminder.enabled",
+            maintenance.backflush_reminder.enabled
+        ),
     ),
     ParamSpec::new(
         "maintenance.backflush_reminder.threshold",
@@ -587,6 +953,11 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Int(50),
         Some(1.0),
         Some(500.0),
+        accessors!(
+            int,
+            "maintenance.backflush_reminder.threshold",
+            maintenance.backflush_reminder.threshold
+        ),
     ),
     ParamSpec::new(
         "standby.enabled",
@@ -594,6 +965,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Bool(false),
         None,
         None,
+        accessors!(bool, "standby.enabled", standby.enabled),
     ),
     ParamSpec::new(
         "standby.time",
@@ -601,6 +973,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Float(35.0),
         Some(1.0),
         Some(120.0),
+        accessors!(float, "standby.time", standby.time),
     ),
     ParamSpec::new(
         "mqtt.enabled",
@@ -608,6 +981,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Bool(false),
         None,
         None,
+        accessors!(bool, "mqtt.enabled", mqtt.enabled),
     ),
     ParamSpec::new(
         "mqtt.broker",
@@ -615,6 +989,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Text(""),
         None,
         None,
+        accessors!(text, "mqtt.broker", mqtt.broker),
     ),
     ParamSpec::new(
         "mqtt.port",
@@ -622,6 +997,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Int(1883),
         Some(1.0),
         Some(65535.0),
+        accessors!(int, "mqtt.port", mqtt.port),
     ),
     ParamSpec::new(
         "mqtt.username",
@@ -629,6 +1005,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Text("rancilio"),
         None,
         None,
+        accessors!(text, "mqtt.username", mqtt.username),
     ),
     ParamSpec::new(
         "mqtt.password",
@@ -636,6 +1013,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Text("silvia"),
         None,
         None,
+        accessors!(secret, "mqtt.password", mqtt.password),
     ),
     ParamSpec::new(
         "mqtt.topic",
@@ -643,6 +1021,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Text("custom/kitchen/"),
         None,
         None,
+        accessors!(text, "mqtt.topic", mqtt.topic),
     ),
     ParamSpec::new(
         "mqtt.hassio.enabled",
@@ -650,6 +1029,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Bool(false),
         None,
         None,
+        accessors!(bool, "mqtt.hassio.enabled", mqtt.hassio.enabled),
     ),
     ParamSpec::new(
         "mqtt.hassio.prefix",
@@ -657,6 +1037,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Text("homeassistant"),
         None,
         None,
+        accessors!(text, "mqtt.hassio.prefix", mqtt.hassio.prefix),
     ),
     ParamSpec::new(
         "system.hostname",
@@ -664,6 +1045,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Text(DEFAULT_HOSTNAME),
         None,
         None,
+        accessors!(text, "system.hostname", system.hostname),
     ),
     ParamSpec::new(
         "system.ota_password",
@@ -671,6 +1053,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Text("otapass"),
         None,
         None,
+        accessors!(secret, "system.ota_password", system.ota_password),
     ),
     ParamSpec::new(
         "system.offline_mode",
@@ -678,6 +1061,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Bool(false),
         None,
         None,
+        accessors!(bool, "system.offline_mode", system.offline_mode),
     ),
     ParamSpec::new(
         "system.log_level",
@@ -685,6 +1069,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Enum(LogLevel::Info as i8),
         None,
         None,
+        accessors!(enum, "system.log_level", LogLevel, system.log_level),
     ),
     ParamSpec::new(
         "system.auth.enabled",
@@ -692,6 +1077,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Bool(false),
         None,
         None,
+        accessors!(bool, "system.auth.enabled", system.auth.enabled),
     ),
     ParamSpec::new(
         "system.auth.username",
@@ -699,6 +1085,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Text("admin"),
         None,
         None,
+        accessors!(text, "system.auth.username", system.auth.username),
     ),
     ParamSpec::new(
         "system.auth.password",
@@ -706,6 +1093,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Text("admin"),
         None,
         None,
+        accessors!(secret, "system.auth.password", system.auth.password),
     ),
     ParamSpec::new(
         "system.timing_debug.enabled",
@@ -713,6 +1101,11 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Bool(false),
         None,
         None,
+        accessors!(
+            bool,
+            "system.timing_debug.enabled",
+            system.timing_debug.enabled
+        ),
     ),
     ParamSpec::new(
         "system.showdisplay.enabled",
@@ -720,6 +1113,11 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Bool(true),
         None,
         None,
+        accessors!(
+            bool,
+            "system.showdisplay.enabled",
+            system.showdisplay.enabled
+        ),
     ),
     ParamSpec::new(
         "system.wifi.ssid",
@@ -727,6 +1125,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Text(""),
         None,
         None,
+        accessors!(text, "system.wifi.ssid", system.wifi.ssid),
     ),
     ParamSpec::new(
         "system.wifi.password",
@@ -734,6 +1133,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Text(""),
         None,
         None,
+        accessors!(secret, "system.wifi.password", system.wifi.password),
     ),
     ParamSpec::new(
         "hardware.oled.enabled",
@@ -741,6 +1141,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Bool(true),
         None,
         None,
+        accessors!(bool, "hardware.oled.enabled", hardware.oled.enabled),
     ),
     ParamSpec::new(
         "hardware.oled.type",
@@ -748,6 +1149,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Enum(OledType::Ssd1306 as i8),
         None,
         None,
+        accessors!(enum, "hardware.oled.type", OledType, hardware.oled.r#type),
     ),
     ParamSpec::new(
         "hardware.oled.address",
@@ -755,6 +1157,12 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Enum(OledAddress::Addr3c as i8),
         None,
         None,
+        accessors!(
+            enum,
+            "hardware.oled.address",
+            OledAddress,
+            hardware.oled.address
+        ),
     ),
     ParamSpec::new(
         "hardware.relays.heater.trigger_type",
@@ -762,6 +1170,12 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Enum(RelayTriggerType::HighTrigger as i8),
         None,
         None,
+        accessors!(
+            enum,
+            "hardware.relays.heater.trigger_type",
+            RelayTriggerType,
+            hardware.relays.heater.trigger_type
+        ),
     ),
     ParamSpec::new(
         "hardware.relays.valve.trigger_type",
@@ -769,6 +1183,12 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Enum(RelayTriggerType::HighTrigger as i8),
         None,
         None,
+        accessors!(
+            enum,
+            "hardware.relays.valve.trigger_type",
+            RelayTriggerType,
+            hardware.relays.valve.trigger_type
+        ),
     ),
     ParamSpec::new(
         "hardware.relays.pump.trigger_type",
@@ -776,6 +1196,12 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Enum(RelayTriggerType::HighTrigger as i8),
         None,
         None,
+        accessors!(
+            enum,
+            "hardware.relays.pump.trigger_type",
+            RelayTriggerType,
+            hardware.relays.pump.trigger_type
+        ),
     ),
     ParamSpec::new(
         "hardware.switches.brew.enabled",
@@ -785,6 +1211,11 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Bool(true),
         None,
         None,
+        accessors!(
+            bool,
+            "hardware.switches.brew.enabled",
+            hardware.switches.brew.enabled
+        ),
     ),
     ParamSpec::new(
         "hardware.switches.brew.type",
@@ -792,6 +1223,12 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Enum(SwitchType::Toggle as i8),
         None,
         None,
+        accessors!(
+            enum,
+            "hardware.switches.brew.type",
+            SwitchType,
+            hardware.switches.brew.r#type
+        ),
     ),
     ParamSpec::new(
         "hardware.switches.brew.mode",
@@ -799,6 +1236,12 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Enum(SwitchMode::NormallyOpen as i8),
         None,
         None,
+        accessors!(
+            enum,
+            "hardware.switches.brew.mode",
+            SwitchMode,
+            hardware.switches.brew.mode
+        ),
     ),
     ParamSpec::new(
         "hardware.switches.steam.enabled",
@@ -806,6 +1249,11 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Bool(true),
         None,
         None,
+        accessors!(
+            bool,
+            "hardware.switches.steam.enabled",
+            hardware.switches.steam.enabled
+        ),
     ),
     ParamSpec::new(
         "hardware.switches.steam.type",
@@ -813,6 +1261,12 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Enum(SwitchType::Toggle as i8),
         None,
         None,
+        accessors!(
+            enum,
+            "hardware.switches.steam.type",
+            SwitchType,
+            hardware.switches.steam.r#type
+        ),
     ),
     ParamSpec::new(
         "hardware.switches.steam.mode",
@@ -820,6 +1274,12 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Enum(SwitchMode::NormallyOpen as i8),
         None,
         None,
+        accessors!(
+            enum,
+            "hardware.switches.steam.mode",
+            SwitchMode,
+            hardware.switches.steam.mode
+        ),
     ),
     ParamSpec::new(
         "hardware.switches.power.enabled",
@@ -827,6 +1287,11 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Bool(true),
         None,
         None,
+        accessors!(
+            bool,
+            "hardware.switches.power.enabled",
+            hardware.switches.power.enabled
+        ),
     ),
     ParamSpec::new(
         "hardware.switches.power.type",
@@ -834,6 +1299,12 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Enum(SwitchType::Toggle as i8),
         None,
         None,
+        accessors!(
+            enum,
+            "hardware.switches.power.type",
+            SwitchType,
+            hardware.switches.power.r#type
+        ),
     ),
     ParamSpec::new(
         "hardware.switches.power.mode",
@@ -841,6 +1312,12 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Enum(SwitchMode::NormallyOpen as i8),
         None,
         None,
+        accessors!(
+            enum,
+            "hardware.switches.power.mode",
+            SwitchMode,
+            hardware.switches.power.mode
+        ),
     ),
     ParamSpec::new(
         "hardware.switches.hot_water.enabled",
@@ -848,6 +1325,11 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Bool(true),
         None,
         None,
+        accessors!(
+            bool,
+            "hardware.switches.hot_water.enabled",
+            hardware.switches.hot_water.enabled
+        ),
     ),
     ParamSpec::new(
         "hardware.switches.hot_water.type",
@@ -855,6 +1337,12 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Enum(SwitchType::Toggle as i8),
         None,
         None,
+        accessors!(
+            enum,
+            "hardware.switches.hot_water.type",
+            SwitchType,
+            hardware.switches.hot_water.r#type
+        ),
     ),
     ParamSpec::new(
         "hardware.switches.hot_water.mode",
@@ -862,6 +1350,12 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Enum(SwitchMode::NormallyOpen as i8),
         None,
         None,
+        accessors!(
+            enum,
+            "hardware.switches.hot_water.mode",
+            SwitchMode,
+            hardware.switches.hot_water.mode
+        ),
     ),
     ParamSpec::new(
         "hardware.sensors.temperature.type",
@@ -874,6 +1368,12 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Enum(TemperatureSensorType::Tsic306 as i8),
         None,
         None,
+        accessors!(
+            enum,
+            "hardware.sensors.temperature.type",
+            TemperatureSensorType,
+            hardware.sensors.temperature.r#type
+        ),
     ),
     ParamSpec::new(
         "hardware.sensors.pressure.enabled",
@@ -881,6 +1381,11 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Bool(false),
         None,
         None,
+        accessors!(
+            bool,
+            "hardware.sensors.pressure.enabled",
+            hardware.sensors.pressure.enabled
+        ),
     ),
     ParamSpec::new(
         "hardware.sensors.watertank.enabled",
@@ -888,6 +1393,11 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Bool(false),
         None,
         None,
+        accessors!(
+            bool,
+            "hardware.sensors.watertank.enabled",
+            hardware.sensors.watertank.enabled
+        ),
     ),
     ParamSpec::new(
         "hardware.sensors.watertank.mode",
@@ -895,6 +1405,12 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Enum(SwitchMode::NormallyClosed as i8),
         None,
         None,
+        accessors!(
+            enum,
+            "hardware.sensors.watertank.mode",
+            SwitchMode,
+            hardware.sensors.watertank.mode
+        ),
     ),
     ParamSpec::new(
         "hardware.sensors.watertank.keep_heater_on_empty",
@@ -902,6 +1418,11 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Bool(false),
         None,
         None,
+        accessors!(
+            bool,
+            "hardware.sensors.watertank.keep_heater_on_empty",
+            hardware.sensors.watertank.keep_heater_on_empty
+        ),
     ),
     ParamSpec::new(
         "hardware.sensors.scale.enabled",
@@ -909,6 +1430,11 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Bool(false),
         None,
         None,
+        accessors!(
+            bool,
+            "hardware.sensors.scale.enabled",
+            hardware.sensors.scale.enabled
+        ),
     ),
     ParamSpec::new(
         "hardware.sensors.scale.samples",
@@ -916,6 +1442,11 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Int(2),
         Some(1.0),
         Some(20.0),
+        accessors!(
+            int,
+            "hardware.sensors.scale.samples",
+            hardware.sensors.scale.samples
+        ),
     ),
     ParamSpec::new(
         "hardware.sensors.scale.type",
@@ -923,6 +1454,12 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Enum(ScaleType::Hx711Dual as i8),
         None,
         None,
+        accessors!(
+            enum,
+            "hardware.sensors.scale.type",
+            ScaleType,
+            hardware.sensors.scale.r#type
+        ),
     ),
     ParamSpec::new(
         "hardware.sensors.scale.calibration",
@@ -930,6 +1467,11 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Float(1.0),
         Some(-999_999.0),
         Some(999_999.0),
+        accessors!(
+            float,
+            "hardware.sensors.scale.calibration",
+            hardware.sensors.scale.calibration
+        ),
     ),
     ParamSpec::new(
         "hardware.sensors.scale.calibration2",
@@ -937,6 +1479,11 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Float(1.0),
         Some(-999_999.0),
         Some(999_999.0),
+        accessors!(
+            float,
+            "hardware.sensors.scale.calibration2",
+            hardware.sensors.scale.calibration2
+        ),
     ),
     ParamSpec::new(
         "hardware.sensors.scale.known_weight",
@@ -944,6 +1491,11 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Float(267.0),
         Some(1.0),
         Some(2000.0),
+        accessors!(
+            float,
+            "hardware.sensors.scale.known_weight",
+            hardware.sensors.scale.known_weight
+        ),
     ),
     // ---- the two parameters the C++ defines but never registers ----------
     // `Config.h:813` and `Config.h:822`; read by `EmergencyStopManager.cpp:18-19`
@@ -954,6 +1506,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Float(150.0),
         Some(120.0),
         Some(180.0),
+        accessors!(float, "safety.emergency_temp", safety.emergency_temp),
     ),
     ParamSpec::new(
         "safety.emergency_hysteresis",
@@ -961,6 +1514,11 @@ pub const SCHEMA: &[ParamSpec] = &[
         ParamValue::Float(5.0),
         Some(1.0),
         Some(15.0),
+        accessors!(
+            float,
+            "safety.emergency_hysteresis",
+            safety.emergency_hysteresis
+        ),
     ),
 ];
 
@@ -1305,5 +1863,40 @@ mod tests {
     fn leaf_splits_on_the_last_dot() {
         let spec = find("pid.regular.i_max").expect("registered");
         assert_eq!(spec.leaf(), "i_max");
+    }
+
+    /// Every getter reads the field its own `default` was taken from.
+    ///
+    /// **This is the test that was missing, and the reason the collapse needed
+    /// one.** Two facts about a parameter were checked and a third was not:
+    ///
+    /// * `every_schema_default_matches_the_config_default` compares
+    ///   `Config::default()` against the **spec's** `default`, so it is
+    ///   satisfied by two wrong values that agree with each other.
+    /// * `every_schema_key_has_a_live_value` checks a key resolves to *some*
+    ///   value.
+    /// * Nothing checked that `ParamSpec::get` reads the field the spec is
+    ///   *about*.
+    ///
+    /// So a getter pointed at a neighbouring field — `pid.regular.kp`'s reading
+    /// `pid.regular.tn` — passed every test in the crate and put the wrong
+    /// number in `/api/parameters`.
+    ///
+    /// Cheap, and not redundant: it walks the *accessor* rather than the table,
+    /// so it is the one place the two halves of the collapsed table are held to
+    /// each other. It does not subsume
+    /// `every_schema_key_round_trips_through_set_and_live_value`, which proves
+    /// the getter tracks a *write* rather than the initial value.
+    #[test]
+    fn every_getter_reads_the_field_its_own_default_names() {
+        let config = Config::default();
+        for spec in SCHEMA {
+            assert_eq!(
+                ParamValue::from((spec.get)(&config)),
+                spec.default,
+                "{}: the getter does not read the field the default was taken from",
+                spec.key
+            );
+        }
     }
 }

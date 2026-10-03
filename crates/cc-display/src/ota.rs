@@ -105,7 +105,7 @@ pub const fn kind_label(kind: OtaKind) -> &'static str {
     }
 }
 
-/// `truncateToWidth` — cut `message` until it fits in [`MAX_WIDTH`].
+/// `truncateToWidth` — cut `message` until it fits in `MAX_WIDTH`.
 ///
 /// See the module docs for the three behaviours that are easy to lose. Returns
 /// a [`FixedText`], a fixed-capacity copy, because there is no `alloc` here and
@@ -140,7 +140,7 @@ pub fn truncate_to_width(d: &Display, message: &str) -> FixedText {
 
 /// A fixed-capacity string for [`truncate_to_width`]'s result.
 ///
-/// 96 bytes: [`MAX_WIDTH`] is 124 px and the widest `profont10` glyph is 6 px, so
+/// 96 bytes: `MAX_WIDTH` is 124 px and the widest `profont10` glyph is 6 px, so
 /// no message that *fits* can be longer than 21 characters. 96 is generous, and
 /// a `push` past it truncates rather than panicking, so a hostile input cannot
 /// abort the display task.

@@ -4,9 +4,19 @@ on:
   push:
     branches:
       - main
+  # BARE, with no `branches:` filter.
+  #
+  # This used to say `branches: [main]`, and PR #96 targets `rewrite/rust`,
+  # so the C++ firmware build, the C++ native tests and the clang-format
+  # check never ran on it -- while rust.yml's own header claimed they did.
+  # Enumerating branches is the bug: a new long-lived branch needs a second
+  # edit here, and forgetting it re-opens the hole silently. A bare filter
+  # is correct by construction and needs no maintenance.
+  #
+  # The cost is C++ CI on PRs that do not touch C++. That is bounded and it
+  # runs in parallel with everything else, so it does not reach anyone's
+  # wall clock.
   pull_request:
-    branches:
-      - main
 
 concurrency:
   group: build-${{ github.ref }}
@@ -18,11 +28,18 @@ permissions:
 jobs:
   version:
     runs-on: ubuntu-latest
+    # Three trivial shell steps.
+    timeout-minutes: 5
     outputs:
       clevercoffee_version: ${{ steps.version.outputs.clevercoffee_version }}
       artifact_slug: ${{ steps.version.outputs.artifact_slug }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # zizmor: the checkout token is written to .git/config and is then
+          # readable by anything that runs in this job. Nothing here pushes,
+          # tags or creates releases, so it does not need to persist.
+          persist-credentials: false
 
       - name: Inject slug env
         uses: rlespinasse/github-slug-action@0e3299190dac9a700da92a90de4556116ea965ed # v5
@@ -44,15 +61,43 @@ jobs:
           echo "clevercoffee_version=${VERSION}" >> "${GITHUB_OUTPUT}"
           echo "artifact_slug=${ARTIFACT_SLUG}" >> "${GITHUB_OUTPUT}"
 
+  # THE C++ FIRMWARE -- the parity oracle, not the product yet.
+  # `rust.yml` is the job that builds `crates/cc-firmware`. Both run on every
+  # PR: the C++ build is the gate that the parity oracle still compiles, and it
+  # is what `release.yml` publishes.
   firmware:
     needs: version
     runs-on: ubuntu-latest
+    # PlatformIO builds the C++ firmware twice-over in CI history at ~175 s each; 45 min is ~15x that.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        env_name: [esp32_usb, esp32_ota]
+        # ONE env, not two.
+        #
+        # `env_name: [esp32_usb, esp32_ota]` was two FULL PlatformIO builds of
+        # the same firmware -- 175 s and 142 s measured -- and they produce the
+        # same bytes. `platformio.ini:60-71`: both `extends = esp32_v1_base`, and
+        # the only differences are
+        #
+        #     monitor_port / upload_protocol / upload_port / upload_flags
+        #
+        # none of which affect codegen. Both jobs report
+        # `Flash: 90.3% (used 1539333 bytes from 1703936 bytes)` -- identical --
+        # and `release.yml` only ever builds `esp32_usb` (lines 114, 120, 129).
+        # So the `esp32_ota` artifact was a second copy of a file nothing reads.
+        #
+        # `env:esp32_ota` is KEPT in `platformio.ini` on purpose: it is how a
+        # developer flashes over the air locally (`pio run -e esp32_ota`). What
+        # was removed is only the duplicate CI build.
+        env_name: [esp32_usb]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # zizmor: the checkout token is written to .git/config and is then
+          # readable by anything that runs in this job. Nothing here pushes,
+          # tags or creates releases, so it does not need to persist.
+          persist-credentials: false
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
@@ -62,12 +107,34 @@ jobs:
 
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
+          # `~/.platformio/.cache` is the DOWNLOAD cache -- tarballs and
+          # unpack metadata. It is NOT the installed toolchain. Measured on job
+          # 110625529677: this was a CACHE HIT and the build still emitted 458
+          # `Compiling` lines and spent 52.5 s (23:06:19.23 -> 23:07:11.75)
+          # re-unpacking espressif32, the Xtensa toolchain, the Arduino
+          # framework and 14 libraries -- because `platforms/` and `packages/`,
+          # where PlatformIO actually installs them, were not cached at all.
+          #
+          # `.pio/buildcache` is also close to useless here, and the reason is in
+          # this file: `PLATFORMIO_BUILD_FLAGS: '-D VERSION="dev-<slug>-<sha>"'`
+          # is a GLOBAL build flag, so every one of those 458 translation units
+          # gets a different command line on every commit and a
+          # content-addressed cache can never hit. The flag exists to stamp a
+          # version string into the firmware; it costs a full rebuild each time
+          # it changes. `.pio/build` is cached too, so an unchanged tree is a
+          # no-op instead.
           path: |
+            ~/.platformio/platforms
+            ~/.platformio/packages
             ~/.platformio/.cache
+            .pio/build
             .pio/buildcache
-          key: ${{ runner.os }}-pio-${{ hashFiles('platformio.ini', 'platformio_extra.ini') }}
+          # `runner.image` because a PlatformIO toolchain is extracted for the
+          # image's libc, and `ubuntu-latest` moves. Without it a key can outlive
+          # the toolchain underneath it.
+          key: pio-v2-${{ runner.os }}-${{ runner.image }}-${{ hashFiles('platformio.ini', 'platformio_extra.ini') }}
           restore-keys: |
-            ${{ runner.os }}-pio-
+            pio-v2-${{ runner.os }}-${{ runner.image }}-
 
       - name: Install PlatformIO
         run: pip install -r .github/requirements-ci.txt
@@ -89,10 +156,18 @@ jobs:
           retention-days: 3
           if-no-files-found: warn
 
+  # The C++ native test suite (`pio test -e native_test`).
   native-tests:
     runs-on: ubuntu-latest
+    # `pio test -e native_test` measured at 128-145 s.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # zizmor: the checkout token is written to .git/config and is then
+          # readable by anything that runs in this job. Nothing here pushes,
+          # tags or creates releases, so it does not need to persist.
+          persist-credentials: false
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
@@ -105,10 +180,15 @@ jobs:
           path: |
             ~/.platformio/.cache
             .pio/build
-          key: ${{ runner.os }}-pio-native-${{ hashFiles('platformio.ini', 'platformio_extra.ini') }}
+          key: pio-v2-native-${{ runner.os }}-${{ runner.image }}-${{ hashFiles('platformio.ini', 'platformio_extra.ini') }}
           restore-keys: |
-            ${{ runner.os }}-pio-native-
-            ${{ runner.os }}-pio-
+            pio-v2-native-${{ runner.os }}-${{ runner.image }}-
+          # NOTE: there is deliberately no fallback into the firmware jobs' cache.
+          # They cache `platforms/` and `packages/` -- roughly 400 MB of an
+          # installed toolchain -- and this job builds for the HOST, so it needs
+          # none of it. A shared restore-keys would make every native-test run
+          # download a cache it will never read, from the repository's shared
+          # 10 GB budget.
 
       - name: Install PlatformIO
         run: pip install -r .github/requirements-ci.txt

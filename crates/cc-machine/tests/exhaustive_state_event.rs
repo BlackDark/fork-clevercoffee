@@ -17,6 +17,11 @@
 //!    no `panic!` and no `unwrap` outside `#[cfg(test)]`; [`no_unreachable_outside_tests`]
 //!    asserts that by source inspection, because "total" is only meaningful if
 //!    it is total by construction.
+//! 4. **An effect list that overflows.** [`Effects`] is a fixed-capacity
+//!    `heapless::Vec`, and a full list drops rather than grows.
+//!    [`ceiling_is_never_reached`] drives every pair below and asserts nothing
+//!    was dropped — this file is the only place that can prove
+//!    [`MAX_EFFECTS_PER_EVENT`] is a real bound rather than a hopeful one.
 //!
 //! # What a "named outcome" is
 //!
@@ -30,7 +35,10 @@ mod common;
 
 use cc_domain::state::MachineState;
 use cc_domain::units::{Celsius, Millis};
-use cc_machine::{guards, reduce, Effect, Event, Machine, Request, Sensors, SwitchId};
+use cc_machine::{
+    guards, reduce, Effect, Effects, Event, Machine, Request, Sensors, SwitchId,
+    MAX_EFFECTS_PER_EVENT,
+};
 use common::{context_for, Harness};
 
 /// The named outcome of one `(state, event)` pair.
@@ -426,7 +434,7 @@ fn classify_on(
     machine: &Machine,
     ev: Event,
     state: MachineState,
-) -> (Outcome, Machine, Vec<Effect>) {
+) -> (Outcome, Machine, cc_machine::Effects) {
     let config = common::automatic_brew_with_preinfusion();
     let ctx = context_for(&config);
     let machine = *machine;
@@ -790,6 +798,113 @@ fn no_unreachable_outside_tests() {
         "the reducer must be panic-free; found: {offenders:?}"
     );
 }
+
+// ---------------------------------------------------------------------------
+
+/// # The effect list never fills up
+///
+/// [`Effects`] replaced a `Vec<Effect>` to keep the allocator out of the 10 ms
+/// control tick, and a `heapless::Vec` cannot grow: a `push` into a full list is
+/// **dropped and counted** rather than reallocated (see
+/// [`cc_machine::Effects::dropped`] and `MAX_EFFECTS_PER_EVENT`). A dropped
+/// effect is not a cosmetic defect — the S5 fail-safe emits
+/// [`Effect::CloseWaterValve`] on almost every tick, so a full list is a valve
+/// left open.
+///
+/// This is the test that keeps the ceiling honest. It drives the same 4 140
+/// `(state, event)` pairs as [`every_state_by_event_pair_reaches_a_named_outcome`],
+/// and then drives each one for 64 further ticks, and asserts that nothing was
+/// ever dropped and that the observed maximum has headroom. If a future change
+/// made a single `reduce` emit 17 effects, this fails — rather than the firmware
+/// quietly losing one in the field.
+///
+/// # Why the maximum is reported, not just asserted
+///
+/// A ceiling that is exactly the observed maximum is a ceiling one edit away
+/// from being wrong. Asserting `max <= MAX_EFFECTS_PER_EVENT` alone would pass
+/// with `max == MAX_EFFECTS_PER_EVENT`, and then the *next* effect would be
+/// dropped. Reporting the number is what makes the headroom reviewable, and the
+/// second assertion pins it so a regression that eats the margin is caught.
+#[test]
+fn ceiling_is_never_reached() {
+    let events = all_events();
+    let mut max = 0_usize;
+    let mut max_at = String::new();
+    let mut pairs = 0_usize;
+
+    let mut record = |fx: &Effects, label: &str| {
+        pairs += 1;
+        assert_eq!(
+            fx.dropped(),
+            0,
+            "{label}: the effect list overflowed MAX_EFFECTS_PER_EVENT \
+             ({} of {} kept); an effect was DROPPED",
+            fx.len(),
+            MAX_EFFECTS_PER_EVENT
+        );
+        if fx.len() > max {
+            max = fx.len();
+            max_at = label.to_string();
+        }
+    };
+
+    for (flavour, build) in flavours() {
+        for state in cc_domain::state::ALL {
+            for ev in &events {
+                let config = common::automatic_brew_with_preinfusion();
+                let ctx = context_for(&config);
+                let mut machine = build(state);
+                let label = format!("{flavour}/{state:?} x {ev:?}");
+
+                let (next, fx) = reduce(&machine, &ctx, *ev);
+                record(&fx, &label);
+                machine = next;
+
+                // And the ticks after it: a state that re-asserts hardware every
+                // loop can emit a long list on the tick even when the transition
+                // itself was quiet.
+                for tick in 0..64_u32 {
+                    let ctx = context_for(&config);
+                    let (next, fx) = reduce(
+                        &machine,
+                        &ctx,
+                        Event::Tick {
+                            now: Millis::new(tick.wrapping_mul(1_000)),
+                        },
+                    );
+                    record(&fx, &format!("{label} tick {tick}"));
+                    machine = next;
+                }
+            }
+        }
+    }
+
+    assert_eq!(pairs, 4_140 * 65, "every pair and every tick after it");
+    assert!(
+        max * 2 <= MAX_EFFECTS_PER_EVENT,
+        "the longest effect list was {max} of {MAX_EFFECTS_PER_EVENT} at \
+         {max_at}; the ceiling no longer has the 2x headroom \
+         MAX_EFFECTS_PER_EVENT documents. Either raise the ceiling, or -- \
+         better -- understand why a state now emits that many effects."
+    );
+    // And pin the number itself, so a *silent* growth in the worst case shows up
+    // as a diff in this test rather than as a margin that quietly disappears.
+    let recorded = cc_machine::effect::WORST_EFFECTS_OBSERVED;
+    assert_eq!(
+        max, recorded,
+        "the worst effect list changed: it was {recorded}, it is now {max} \
+         (at {max_at}). Update WORST_EFFECTS_OBSERVED deliberately, having \
+         read which state started emitting the extra effects -- a dropped \
+         CloseWaterValve is the S5 fail-safe."
+    );
+    assert!(
+        max >= 2,
+        "the longest effect list was only {max}; the table has stopped \
+         exercising the multi-effect paths and proves nothing about the ceiling"
+    );
+}
+
+// ---------------------------------------------------------------------------
 
 /// The 18 × 46 count is itself pinned, so a new event or state cannot be added
 /// without the table growing and the expectation being revisited.

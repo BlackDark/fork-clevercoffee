@@ -24,14 +24,12 @@
 //! (`DisplayTemplateBase.h:135-150`). Both depend on `langstring_current_temp`
 //! being 42 px wide in `profont11` — a value pinned by a test in
 //! [`crate::lang`]. Change the label and those coordinates go wrong silently;
-//! [`check_column_offsets`] exists to make that loud.
+//! `check_column_offsets` exists to make that loud.
 
 use crate::display::{Display, DISPLAY_WIDTH, STATUS_BAR_Y_POS};
 use crate::fmt::{format_fixed, format_int, format_padded2, truncate_to_i32};
 use crate::font;
-use crate::helpers::{
-    is_blink_phase_on, is_manual_flush_state, should_display_hot_water_timer, status_led_tolerance,
-};
+use crate::helpers::{is_manual_flush_state, should_display_hot_water_timer};
 use crate::model::{BrewMode, Config, DisplayInput, ScaleType};
 use crate::{bitmaps_data as bm, lang::Lang};
 
@@ -222,7 +220,7 @@ pub fn unit_ink_width() -> i32 {
 /// The inverted field's box for a row whose origin is `x`: `(left, width)`.
 ///
 /// The width is what is left to the frame's right edge. See
-/// [`draw_inverted_field`] for why a constant is wrong here.
+/// `draw_inverted_field` for why a constant is wrong here.
 #[must_use]
 pub const fn inverted_field_box(x: i32) -> (i32, i32) {
     let left = x + VALUE_COLUMN_OFFSET;
@@ -709,17 +707,6 @@ pub fn display_message(d: &mut Display, lines: [&str; 6]) {
     d.print(lines[5]);
 }
 
-/// `setDisplayFont` (`DisplayWidgets.h:479`).
-///
-/// `profont10` for the Upright template, `profont11` for the rest.
-pub fn set_display_font(d: &mut Display, upright: bool) {
-    d.set_font(if upright {
-        font::profont10()
-    } else {
-        font::profont11()
-    });
-}
-
 /// `displayBrewInfo` (`DisplayTemplateBase.h:196`) — decide what the brew row shows.
 ///
 /// Split out from the drawing so the *choice* is testable without a framebuffer:
@@ -779,18 +766,6 @@ pub fn brew_row(config: &Config, input: &DisplayInput) -> BrewRow {
     BrewRow::None
 }
 
-/// The label a [`BrewRow`] gets, per template.
-#[must_use]
-pub fn brew_row_label(row: &BrewRow, l: &Lang, upright: bool) -> &'static str {
-    let _ = upright;
-    match row {
-        BrewRow::ManualFlush { .. } => l.manual_flush,
-        BrewRow::HotWater { .. } => l.hot_water,
-        BrewRow::Brew { .. } => l.brew,
-        BrewRow::None => "",
-    }
-}
-
 /// The Scale template's pressure row (`ScaleTemplate.h:47`).
 ///
 /// `setFont`, `setCursor`, then three `print`s: the localized label, the value
@@ -814,41 +789,6 @@ pub fn display_pressure_ur(d: &mut Display, input: &DisplayInput, l: &Lang, x: i
     d.print(l.pressure_ur);
     d.print(format_fixed(f64::from(input.pressure), 1).as_str());
     d.print(" bar");
-}
-
-/// The status-LED tolerance for a state, re-exported for the templates that
-/// show a "near setpoint" indicator.
-#[must_use]
-pub fn near_setpoint_for_led(input: &DisplayInput, config: &Config) -> bool {
-    crate::helpers::is_near_setpoint_for_led(
-        input.temperature,
-        input.setpoint,
-        status_led_tolerance(input.state, config),
-    )
-}
-
-/// The blink phase, re-exported so a template does not have to import two
-/// modules for one call.
-#[must_use]
-pub fn blink_phase(input: &DisplayInput) -> bool {
-    is_blink_phase_on(input)
-}
-
-/// `displayScaleFailed` (`DisplayWidgets.h:41`).
-///
-/// Two completely different screens: four lines in the Upright template's
-/// portrait space, two on a landscape panel.
-pub fn display_scale_failed(d: &mut Display, upright: bool) {
-    d.clear_buffer();
-    if upright {
-        d.draw_str(0, 32, "Failed!");
-        d.draw_str(0, 42, "Scale");
-        d.draw_str(0, 52, "not");
-        d.draw_str(0, 62, "working...");
-    } else {
-        d.draw_str(0, 32, "failed!");
-        d.draw_str(0, 42, "Scale not working...");
-    }
 }
 
 #[cfg(test)]

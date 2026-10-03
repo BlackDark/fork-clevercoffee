@@ -403,6 +403,96 @@ order after any change to the control loop, the display task or the HTTP layer.
     `0`. A `0` means the value is not being published, which is a bug, not a
     setting.
 
+12. **`POST /api/config/upload` round-trips a downloaded configuration.** The UI
+    button at `SystemPage.tsx:182` is the operator's path; before this route
+    existed it was a live `404`.
+
+    ```
+    curl -s '.../api/config/download' -o /tmp/config.json
+    curl -s -X POST '.../api/config/upload' -H 'Content-Type: application/json' \
+      --data-binary @/tmp/config.json | jq
+    curl '.../api/parameters?filter=all' | jq '.[]|select(.name=="brew.setpoint")'
+    ```
+
+    Expect `{"success":true,"message":"Configuration validated and applied
+    successfully.","restart":true}` and the setpoint unchanged. **The body is
+    `application/json`, not multipart** — sending it as `multipart/form-data`
+    must give `400 "JSON body must be a top-level object"`, and that is correct
+    behaviour, not a bug.
+
+13. **The upload is refused, not truncated, when it is too large.**
+
+    ```
+    python3 -c "print('{"system":{"hostname":"' + 'x'*20000 + '"}}}')" \
+      > /tmp/big.json
+    curl -s -o /dev/null -w '%{http_code}\n' -X POST '.../api/config/upload' \
+      -H 'Content-Type: application/json' --data-binary @/tmp/big.json
+    ```
+
+    Must be **413**, and the configuration must be untouched. The failure this
+    guards is a body read to exactly the cap and then applied: half a
+    configuration — a new PID gain with the old emergency cut-off — on a machine
+    that may be brewing.
+
+14. **An upload is all-or-nothing.** One out-of-range value anywhere rejects the
+    whole document and changes nothing:
+
+    ```
+    curl -s -X POST '.../api/config/upload' -H 'Content-Type: application/json' \
+      -d '{"brew":{"setpoint":95.0},"safety":{"emergency_temp":900.0}}' | jq
+    curl '.../api/parameters?filter=all' | jq '.[]|select(.name=="brew.setpoint")'
+    ```
+
+    `400`, and `brew.setpoint` must still be what it was. A `200` here means a
+    partial apply.
+
+15. **`system.auth.*` is not inert — and it fails OPEN on empty credentials.**
+    With `system.auth.enabled` unset the API is open, which is the default. Set
+    it and reboot:
+
+    ```
+    curl -X POST '.../api/parameters?system.auth.enabled=1' | jq .requiresRebootKeys
+    curl -i '.../api/status' | head -1                       # 401
+    curl -i -u admin:admin '.../api/status' | head -1         # 200
+    curl -i -u admin:wrong '.../api/status' | head -1         # 401
+    ```
+
+    Three things to check, all of which were wrong before this work: the POST
+    must report `requiresRebootKeys: ["system.auth.enabled"]`, because the
+    credential check is decided at boot exactly as the C++'s `setupMiddleware`
+    decides it; the `401` must carry `WWW-Authenticate: Basic realm="CleverCoffee"`;
+    and **no** `Authorization` header may appear in the telnet log. Now clear the
+    username or the password and reboot again: the API is **open**, with a boot
+    warning. That is the C++'s behaviour (`WebServerManager.cpp:290-294`) and it
+    is deliberate — see `intentional-diffs.md` #20.
+
+16. **The UI logs in without a code change.** With auth on, open `http://<device>/ui/`
+    in a browser: it must raise the native credential prompt, and after that the
+    live `/events` stream and every `fetch` must work **without** a reload. If
+    the temperature display freezes while the rest of the page works, the browser
+    is not replaying the cached credential on the `EventSource` — capture the
+    `GET /events` response code in devtools to tell a `401` from a stream that
+    simply stopped.
+
+17. **`/api/status` reports `steamMode`, and it is the steam flag.** While the
+    steam state is entered and left, `steamMode` must follow it and `brewing`
+    must stay `false`:
+
+    ```
+    curl -s '.../api/status' | jq '{steamMode, brewing}'
+    ```
+
+    Before this work the route emitted a *brew-state* value under the name
+    `steamMode`; the two are different facts (`intentional-diffs.md` #21).
+
+18. **A CORS preflight answers.** `OPTIONS` on any `/api` route must be `204`
+    with `Access-Control-Allow-Origin` — and must **not** be challenged, because a
+    browser sends a preflight with no credentials:
+
+    ```
+    curl -i -X OPTIONS '.../api/status' | head -8
+    ```
+
 ### The kernel defect, so nobody re-derives it
 
 11. **Do not move the DS18B20 onto another task.** If a sensor task is ever

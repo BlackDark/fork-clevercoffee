@@ -90,7 +90,10 @@
 // reason `crate::web_async` is.
 #![allow(
     unsafe_code,
-    reason = "the lock-free telemetry Cell: one writer, sequence-checked readers"
+    reason = "`Snapshot`: one writer, and every read and write happens inside \
+              `interrupt::free`, which is mutual exclusion on this single-core \
+              target. The justification is on the impl itself and is checkable \
+              there rather than resting on a promise about retry loops."
 )]
 
 use alloc::collections::VecDeque;
@@ -99,13 +102,14 @@ use alloc::string::{String, ToString};
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
-use core::cell::UnsafeCell;
 use core::fmt::Write as _;
-use core::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Mutex;
 
 use cc_config::schema::{ParamValue, SCHEMA};
 use cc_config::Config;
+use cc_domain::http_auth::{self, MAX_CREDENTIAL_BYTES, WWW_AUTHENTICATE};
+use esp_idf_hal::interrupt;
 use esp_idf_svc::http::server::{Configuration, EspHttpConnection, EspHttpServer, Request};
 use esp_idf_svc::http::Method;
 use esp_idf_svc::sys::EspError;
@@ -181,13 +185,18 @@ const SSE_MAILBOX_DEPTH: usize = 4;
 
 /// The server's URI-handler budget.
 ///
-/// `HttpServerConfiguration::max_uri_handlers` defaults to 32 (`server.rs:132`).
-/// 20 `/api/*` + `/` + `/ui` + `/events` is 23, and the headroom is for the OTA
-/// routes R3-15 will add. `max_open_sockets` is raised from 4 to 5 for the same
-/// reason: a browser opens the SPA, an SSE stream and several API requests at
-/// once, and the C++'s 4 was on `ESPAsyncWebServer`, which has a different
-/// accounting.
-pub const MAX_URI_HANDLERS: usize = 32;
+/// `HttpServerConfiguration::max_uri_handlers` defaults to 32 (`server.rs:132`)
+/// and the C++ registers 24. Raised here to 40 because the Rust table now
+/// carries every route the C++ has plus `POST /api/config/upload` and the
+/// `OPTIONS` preflight, and because `ESP_ERR_HTTPD_HANDLERS_FULL` fires **at
+/// boot** — which is the worst possible moment to discover a route was added.
+/// The headroom is against ESP-IDF's own static allocation of
+/// `max_uri_handlers * sizeof(httpd_uri_t)` (`httpd_main.c:533`), so it costs
+/// `8 * 8` bytes, not per-request memory.
+/// `max_open_sockets` is raised from 4 to 5 for the same reason: a browser
+/// opens the SPA, an SSE stream and several API requests at once, and the C++'s
+/// 4 was on `ESPAsyncWebServer`, which has a different accounting.
+pub const MAX_URI_HANDLERS: usize = 40;
 /// See [`MAX_URI_HANDLERS`].
 pub const MAX_OPEN_SOCKETS: usize = 5;
 
@@ -231,6 +240,11 @@ pub struct Telemetry {
     /// [`Self::steam_mode`].
     pub backflush_mode: bool,
     /// Whether a brew is running.
+    ///
+    /// **Not** the C++'s `steamMode` and not what this used to be published as.
+    /// See [`status_json`]: `steam_mode` is that flag, this is a derived
+    /// `is_brew_state()`, and the C++ publishes neither this one nor any field
+    /// of this shape.
     pub brewing: bool,
     /// Whether the machine is in standby.
     pub standby: bool,
@@ -256,14 +270,18 @@ pub struct Telemetry {
     pub signal: u8,
     /// Whether the radio is associated.
     pub wifi_associated: bool,
-    /// The IPv4 address as a string, or `None`.
+    /// The IPv4 address as text, or `None`.
     ///
-    /// A `String` and not a `heapless::String<15>`, which is what makes
-    /// `Telemetry` non-`Copy`. It is built once per control tick *in the control
-    /// task* and read by the httpd task, so the allocation is the control
-    /// task's and never the httpd task's -- and the httpd task is the one
-    /// ADR-0002 is about.
-    pub ip: Option<String>,
+    /// A `heapless::String<15>` -- the longest an IPv4 address in dotted-quad
+    /// form can be (`255.255.255.255`) -- and **not** a `String`.
+    ///
+    /// This is not a style preference, and it is the field that decides whether
+    /// [`Snapshot`] is safe. It used to be a `String`, which meant the snapshot
+    /// payload owned heap memory; combined with the non-atomic seqlock access
+    /// that made a reader's `clone()` a use-after-free (see [`Snapshot`]'s docs).
+    /// Fixed-size means the reader's copy is a memcpy of at most 16 bytes with
+    /// no allocation, no `free`, and no allocator traffic on the httpd task.
+    pub ip: Option<heapless::String<15>>,
     /// Whether MQTT is configured at all.
     pub mqtt_configured: bool,
     /// Whether MQTT has a session.
@@ -344,106 +362,139 @@ pub enum Command {
     Restart,
 }
 
-/// A single-writer value that many tasks may read, **with no lock**.
+/// A single-writer value that many tasks may read, **with no lock and no
+/// `unsafe` in the access path**.
 ///
-/// This exists because `Shared::telemetry` was a `std::sync::Mutex` — a
-/// `pthread` mutex, so a `FreeRTOS` one — taken **twice per 10 ms control tick**
-/// and read by the httpd and display tasks. On this build every cross-task
-/// blocking primitive asserts the kernel (`09-cpp-findings.md` §28), so the
-/// design was contradicting its own stated rule.
+/// # Why this exists
 ///
-/// The writer stamps the sequence **odd** before the payload and **even** after;
-/// a reader reads, re-reads the sequence, and retries if it moved. A reader may
-/// observe a torn value; it can never *accept* one.
+/// `Shared::telemetry` was a `std::sync::Mutex` — a `pthread` mutex, so a
+/// `FreeRTOS` one — taken **twice per 10 ms control tick** and read by the httpd
+/// and display tasks. On this build every cross-task *blocking* primitive
+/// asserts the kernel (`09-cpp-findings.md` §28), so the design was
+/// contradicting its own stated rule.
 ///
-/// **One writer, always.** For `telemetry` that is the control task: `publish`
-/// and `publish_radio` are both called from it, sequentially, which is what makes
-/// the read-modify-write in `publish_radio` sound.
-pub struct Cell<T: Clone> {
-    seq: AtomicUsize,
-    value: UnsafeCell<T>,
+/// # 🔴 Why this is NOT a seqlock
+///
+/// The obvious lock-free answer is a seqlock: stamp a sequence odd, write,
+/// stamp it even, and have readers retry. That is what this used to be, and it
+/// was **unsound**, not merely racy.
+///
+/// A seqlock gives you *atomicity of observation*, not of access. The reader
+/// still dereferences a non-atomic location while the writer may be
+/// overwriting it; the sequence check afterwards only decides whether to
+/// *keep* the value it already read. Under Rust's memory model that
+/// concurrent non-atomic read/write is undefined behaviour whether or not the
+/// result is discarded — and with a heap-owning payload it is not academic:
+///
+/// * [`Telemetry::ip`] was a `String`, reassigned every 10 ms tick by
+///   `network::publish_radio` (`network.rs:449`). Each reassignment
+///   **allocates and then drops the previous `String`**, i.e. `free()`s the
+///   buffer the httpd task may be `memcpy`-ing from inside its `clone()`. A
+///   torn read yields a `{ptr, len, cap}` triple from two different
+///   generations — a live use-after-free at 100 Hz, reachable from any HTTP
+///   request, on the task that also serves the UI.
+///
+/// Making the payload `Copy` would have downgraded that to "garbage numbers",
+/// which is better and still UB.
+///
+/// # What replaces it
+///
+/// **Mutual exclusion by interrupt masking**, which is what `FreeRTOS` itself
+/// provides for exactly this shape of problem. Every read and every write goes
+/// through [`esp_idf_hal::interrupt::free`], which is
+/// `portENTER_CRITICAL`/`portEXIT_CRITICAL`:
+///
+/// * It is not a *blocking* primitive. Nothing is enqueued on a semaphore's
+///   event list, so the `xTaskRemoveFromEventList` assert is unreachable.
+/// * The section is one struct copy — a few dozen bytes — so it is over in
+///   about a microsecond, against a 10 ms control period.
+/// * A control loop therefore never *waits* on a reader. It waits at most for
+///   the interrupt latency of a memcpy.
+///
+/// The result is that the data race is gone **by construction** rather than by
+/// detection, and the only `unsafe` left in the whole type is the one
+/// `Sync`/`Send` impl below — whose justification is now checkable at the call
+/// site instead of resting on a promise about retry loops.
+///
+/// Note the contrast with [`crate::task`]'s `std::sync::Mutex` over the
+/// history ring and the parameter blob: those are the *blocking* primitives,
+/// they are off the control loop's critical path, and they are untouched.
+pub struct Snapshot<T> {
+    // `core::cell::Cell`, deliberately: it is `!Sync`, which is what makes the
+    // hand-written `Sync` below an honest statement of the invariant rather
+    // than a consequence of the field type.
+    value: core::cell::Cell<T>,
 }
 
-// SAFETY: `value` has exactly one writer — the control task, which calls both
-// `Shared::publish` and `network::publish_radio` — and any number of readers.
-// The sequence check makes a torn read detectable rather than acceptable, which
-// is what lets `Sync` hold. The compiler cannot see that agreement, which is the
-// only reason this is `unsafe`. Nothing here is reachable from an interrupt.
-unsafe impl<T: Clone + Send> Sync for Cell<T> {}
-// SAFETY: as above; `set` takes `&self`, so the one-writer rule is a discipline
-// rather than a type-level fact, and it is stated here where it is enforced.
-unsafe impl<T: Clone + Send> Send for Cell<T> {}
+// SAFETY: the *only* ways to reach `value` are `set` and `get`, and both run
+// their whole read-modify-write inside `interrupt::free`, i.e. inside
+// `portENTER_CRITICAL`/`portEXIT_CRITICAL`. On this single-core target that is
+// mutual exclusion between the control task, the httpd task and the display
+// task, and it also excludes the ISR, so no access can overlap any other.
+//
+// The two rules that make that argument hold, both enforced by construction
+// rather than by discipline:
+//
+// 1. `value` is private to this module and the only `unsafe` code in this crate
+//    cannot name it — `Cell::as_ptr` would hand out a raw pointer, and nothing
+//    calls it. Grep for `as_ptr` to confirm; if that grep ever finds a hit,
+//    this `Sync` is void.
+//
+// 2. `set` and `get` do not call out to anything that can block. `get` clones
+//    `T`; with `T = Telemetry` that is a fixed-size copy, because `ip` is a
+//    `heapless::String<15>` and not a `String`. `T: Send` bounds the transfer.
+//
+// `T: Send` is the right bound rather than `T: Sync`: the value is moved between
+// tasks, and a reader only ever *copies* it inside the critical section.
+unsafe impl<T: Send> Sync for Snapshot<T> {}
+// SAFETY: `Snapshot<T>` is just a `core::cell::Cell<T>` with no thread-affine
+// state, and its `Sync` impl (above) already establishes that concurrent access
+// is mutually excluded. Moving one between tasks moves a value, nothing else.
+unsafe impl<T: Send> Send for Snapshot<T> {}
 
-impl<T: Clone + Default> Default for Cell<T> {
-    /// An empty cell, readable as the default until it is written.
-    fn default() -> Self {
-        Self {
-            seq: AtomicUsize::new(0),
-            value: UnsafeCell::new(T::default()),
-        }
-    }
-}
-
-impl<T: Clone + Default> Cell<T> {
-    /// An empty cell, readable as the default until it is written.
+impl<T: Clone + Default> Snapshot<T> {
+    /// An empty snapshot, readable as `T::default()` until it is written.
     #[must_use]
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            value: core::cell::Cell::new(T::default()),
+        }
     }
 
-    /// Replace the value. The **one** writer only.
+    /// Replace the value. **One writer** — the control task.
     pub fn set(&self, value: T) {
-        self.seq.fetch_add(1, Ordering::Release);
-        // SAFETY: the only writer is the control task, and this is its own
-        // private field. A concurrent reader clones a value that may be half
-        // replaced, and rejects it on the sequence check below — which is the
-        // whole contract.
-        unsafe {
-            *self.value.get() = value;
-        }
-        self.seq.fetch_add(1, Ordering::Release);
+        // `Cell::set` takes `&self`, so "one writer" is a discipline rather
+        // than a type-level fact. It is honoured: `Shared::publish` and
+        // `network::publish_radio` are both called from the control task, and
+        // nothing else calls `set`. The mutual exclusion that makes a second
+        // writer *safe* rather than merely racy is the critical section below.
+        interrupt::free(|| self.value.set(value));
     }
 
-    /// The current value, or `None` when a write is in flight and does not settle
-    /// within [`Self::READ_ATTEMPTS`].
+    /// The current value.
     ///
-    /// `None` means "not readable right now", not "absent". Every caller has a
-    /// sensible fallback — `/api/status` already reports "no reading yet" — and a
-    /// stale number would be worse than a retry.
+    /// This is infallible where the seqlock's `get` returned `Option<T>`: there
+    /// is no "write in flight" state to fail to observe, because a reader
+    // either gets the critical section before the writer or after it.
+    /// Every caller therefore loses its `unwrap_or_default()`.
     #[must_use]
-    pub fn get(&self) -> Option<T> {
-        for _ in 0..Self::READ_ATTEMPTS {
-            let before = self.seq.load(Ordering::Acquire);
-            if before == 0 {
-                return Some(T::default());
-            }
-            if before % 2 != 0 {
-                continue;
-            }
-            // SAFETY: a read while the single writer may be replacing the value.
-            // A torn clone is discarded by the sequence check below, which is
-            // what makes reading-without-a-lock sound. `Telemetry` carries the IP
-            // as a `String`, so a read is a small clone, on the reader's side.
-            let copy = unsafe { (*self.value.get()).clone() };
-            if self.seq.load(Ordering::Acquire) == before {
-                return Some(copy);
-            }
-        }
-        None
+    pub fn get(&self) -> T {
+        interrupt::free(|| self.value.take())
     }
+}
 
-    /// Attempts before `get` reports "not readable".
-    ///
-    /// Four. The writer's critical section is a few dozen bytes, so it is over in
-    /// nanoseconds; four attempts is generous, and the bound is what stops a
-    /// stalled writer from spinning the httpd task.
-    const READ_ATTEMPTS: usize = 4;
+impl<T: Clone + Default> Default for Snapshot<T> {
+    /// An empty snapshot -- the same value [`Snapshot::new`] produces, and what
+    /// a `#[derive(Default)]` on a containing struct would reach for.
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// The shared state the HTTP handlers close over.
 pub struct Shared {
     /// The latest telemetry, republished by the control task.
-    pub telemetry: Cell<Telemetry>,
+    pub telemetry: Snapshot<Telemetry>,
     /// The temperature history, appended by the control task.
     ///
     /// The C++'s `static TemperatureHistory tempHistory` is a file-static in
@@ -481,7 +532,7 @@ impl Shared {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            telemetry: Cell::new(),
+            telemetry: Snapshot::new(),
             history: Mutex::new(alloc::boxed::Box::new(cc_domain::history::History::new())),
             applied: AtomicU32::new(0),
             reboot_requested: AtomicBool::new(false),
@@ -528,7 +579,7 @@ impl Shared {
         // which `/api/status` already reports as "no reading yet" — and blocking
         // here would put a `pthread` mutex on the httpd task's hottest path,
         // which is the hazard `Cell` exists to remove.
-        self.telemetry.get().unwrap_or_default()
+        self.telemetry.get()
     }
 
     /// How many large responses have been served.
@@ -813,6 +864,213 @@ fn respond(conn: &mut EspHttpConnection<'_>, status: u16, json: &str) -> Result<
     Ok(())
 }
 
+/// The `401` a request that failed [`Auth`] gets.
+///
+/// `WWW-Authenticate: Basic realm="CleverCoffee"` is the header that makes a
+/// browser show its credential prompt, and it is the C++'s realm verbatim
+/// (`WebServerManager.cpp:286`, via `AsyncAuthenticationMiddleware`).
+///
+/// The body is the C++'s shape rather than [`error_body`]'s, because a browser
+/// shows the challenge and *not* the body: this text is what an operator
+/// reading a `curl` transcript sees, and "authentication required" is a better
+/// answer to that than `{"error":"Unauthorized"}`.
+fn unauthorized(conn: &mut EspHttpConnection<'_>) -> Result<(), EspError> {
+    conn.initiate_response(
+        401,
+        Some("Unauthorized"),
+        &[
+            ("Content-Type", "application/json"),
+            // The header that makes a browser raise its credential prompt, and
+            // the C++'s realm verbatim (`WebServerManager.cpp:286`). A different
+            // realm is a different protection space, and a browser holding
+            // credentials for one will not send them for another.
+            ("WWW-Authenticate", WWW_AUTHENTICATE),
+        ],
+    )?;
+    // The same chunked idiom as [`respond`], which is what `fn_handler`'s
+    // wrapper expects of every response on this server.
+    let _ = conn.write_all(b"{\"error\":\"authentication required\"}");
+    let _ = conn.write(&[]);
+    Ok(())
+}
+
+/// The HTTP Basic credential check for every route on this server.
+///
+/// # Why this holds the `Arc<Config>` and not a copy of the credential
+///
+/// `Web::start` is handed the boot-time `Arc<Config>` and the server outlives
+/// the call, so the password is read through [`Secret::expose`] per request and
+/// **no second copy of it exists in the process**. Cloning it into an owned
+/// field would have been one line and one more plaintext credential lying in
+/// the heap.
+///
+/// # What `enforced` means, and why it is decided once
+///
+/// The C++ installs the middleware in `setupMiddleware`
+/// (`WebServerManager.cpp:272-296`), which runs from `WebServerManager::initialize`
+/// — once, at boot. So `system.auth.enabled` protects nothing until the next
+/// reboot in the C++ too, and the same is true here. `needs_reboot` reports it
+/// in the `POST /api/parameters` answer so the operator is told rather than
+/// guessing, which the C++ cannot do.
+///
+/// The C++'s other half is reproduced exactly: **empty credentials mean no
+/// authentication at all**, not a locked door. `WebServerManager.cpp:290-294`
+/// logs "Web authentication enabled but credentials not set" and serves the API
+/// open. Failing closed instead would mean that enabling auth and then not
+/// finishing locks an operator out of a machine whose only other console is a
+/// UART. The warning is reproduced too, and is deliberately loud.
+#[derive(Clone)]
+pub struct Auth {
+    config: Arc<Config>,
+    enforced: bool,
+}
+
+impl core::fmt::Debug for Auth {
+    /// Never the configuration.
+    ///
+    /// A derived `Debug` would print every parameter including the four
+    /// credentials; `Secret` redacts its own field but the *rest* of the config
+    /// is not what a log line about authentication wants.
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Auth")
+            .field("enforced", &self.enforced)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Auth {
+    /// Decide, once, whether this server challenges — as the C++'s
+    /// `setupMiddleware` does.
+    #[must_use]
+    pub fn from_config(config: &Arc<Config>) -> Self {
+        let wanted = config.system.auth.enabled;
+        let has_credentials = !config.system.auth.username.is_empty()
+            && !config.system.auth.password.expose().is_empty();
+        if wanted && !has_credentials {
+            // The C++'s exact condition, and its exact consequence.
+            warn!(
+                "http: web authentication is enabled but no credentials are set; \
+                 serving the API unauthenticated, exactly as the C++ does"
+            );
+        }
+        Self {
+            config: Arc::clone(config),
+            enforced: wanted && has_credentials,
+        }
+    }
+
+    /// Whether requests are challenged at all.
+    #[must_use]
+    pub fn is_enforced(&self) -> bool {
+        self.enforced
+    }
+
+    /// Whether this request may proceed.
+    ///
+    /// `header` is the request's `Authorization` header, or `None`. **It is
+    /// never logged and never formatted**, on any path: a rejected request is
+    /// counted and answered, nothing more.
+    #[must_use]
+    pub fn admits(&self, header: Option<&str>) -> bool {
+        if !self.enforced {
+            return true;
+        }
+        let mut scratch = [0u8; MAX_CREDENTIAL_BYTES];
+        http_auth::authorized(
+            header,
+            &self.config.system.auth.username,
+            self.config.system.auth.password.expose(),
+            &mut scratch,
+        )
+    }
+}
+
+/// Register `handler` on `uri`, behind [`Auth`].
+///
+/// **Every data route on this server goes through here, and that is the point.**
+/// The alternative — a credential check at the top of each of two dozen
+/// closures — is a control whose strength is the number of places nobody
+/// forgets, and a forgotten one is an unauthenticated `/api/restart`. Funnelling
+/// registration through one function makes "this route is not protected" a thing
+/// a reader can see at the call site rather than deduce.
+///
+/// The two deliberate exceptions are both visible where they are made:
+/// [`register_preflight`] for `OPTIONS`, and `crate::web_async::register_raw_sse`
+/// for `/events`, which is an `extern "C"` handler ESP-IDF dispatches itself.
+fn register<F>(
+    server: &mut EspHttpServer<'static>,
+    auth: &Arc<Auth>,
+    uri: &str,
+    method: Method,
+    handler: F,
+) -> Result<(), EspError>
+where
+    F: for<'r> Fn(Request<&mut EspHttpConnection<'r>>) -> Result<(), EspError> + Send + 'static,
+{
+    let auth = Arc::clone(auth);
+    server
+        .fn_handler::<EspError, _>(uri, method, move |mut req| {
+            // `req.header` borrows, so the verdict is taken before
+            // `req.connection` asks for `&mut`. Nothing derived from the
+            // header outlives this statement.
+            let admitted = auth.admits(req.header("Authorization"));
+            if !admitted {
+                return unauthorized(req.connection());
+            }
+            handler(req)
+        })
+        .map(|_| ())
+}
+
+/// Register the CORS preflight answer, and **not** behind [`Auth`].
+///
+/// The C++ adds `AsyncCorsMiddleware` with `setOrigin("*")`,
+/// `setMethods("GET,POST,PUT,DELETE,OPTIONS")` and
+/// `setHeaders("Content-Type,Authorization,X-Requested-With")`
+/// (`WebServerManager.cpp:272-277`). A preflight is the one request a browser
+/// sends **without** credentials — that is what makes it a preflight — so
+/// challenging one makes every cross-origin request fail, permanently and
+/// confusingly. It is registered through `fn_handler` and not [`register`]
+/// deliberately, and this is the one place in the file where that is true.
+///
+/// `/api*` rather than one URI per route: ESP-IDF matches URI and method
+/// independently (`httpd_uri.c:97-122` — a URI match with the wrong method sets
+/// 405 and the search *continues*), so a single wildcard answers every API
+/// preflight while leaving every `GET`/`POST` to its own exact handler. This is
+/// also what `routes()` advertises, which is the point: the entry used to be
+/// `("/api/status", Method::Options)` with no handler behind it at all.
+///
+/// **The C++'s per-response `Access-Control-Allow-Origin: *` is not ported**, and
+/// the omission is deliberate: the SPA is served same-origin from `/ui` and
+/// needs nothing, and a wildcard origin on an endpoint that can reboot a boiler
+/// or change its safety cut-offs is a widening with no consumer. Recorded in
+/// `docs/rust-migration/intentional-diffs.md`.
+fn register_preflight(server: &mut EspHttpServer<'static>) -> Result<(), EspError> {
+    server
+        .fn_handler::<EspError, _>("/api*", Method::Options, |mut req| {
+            let conn = req.connection();
+            conn.initiate_response(
+                204,
+                Some("No Content"),
+                &[
+                    ("Access-Control-Allow-Origin", "*"),
+                    (
+                        "Access-Control-Allow-Methods",
+                        "GET,POST,PUT,DELETE,OPTIONS",
+                    ),
+                    (
+                        "Access-Control-Allow-Headers",
+                        "Content-Type,Authorization,X-Requested-With",
+                    ),
+                    ("Content-Length", "0"),
+                ],
+            )?;
+            let _ = conn.write(&[]);
+            Ok(())
+        })
+        .map(|_| ())
+}
+
 /// Write a large JSON response, or refuse.
 ///
 /// The [`MAX_JSON_BYTES`] / [`HEAP_FLOOR_BYTES`] guard, which is ADR-0002's
@@ -944,11 +1202,64 @@ pub fn error_body(message: &str) -> String {
     format!("{{\"error\":\"{message}\"}}")
 }
 
+/// `POST /api/config/upload` — the C++'s answer, verbatim.
+///
+/// `sendConfigUploadResponse` (`WebServerManager.cpp:50-62`) writes
+/// `{"success":…,"message":…,"restart":…}`.
+///
+/// `restart` is `success`, i.e. **the device does not reboot itself**. The C++
+/// sets the flag and returns; the operator's browser sees it and calls
+/// `POST /api/restart` two seconds later
+/// (`ui/packages/frontend/src/pages/SystemPage.tsx:220,251`). Rebooting from
+/// inside the handler would tear the socket down under the response the client
+/// is still reading.
+///
+/// The C++ adds `Connection: close` (`:60`). It is **not** reproduced, and the
+/// reason is that the hazard it guards against is already handled one layer
+/// down: ESP-IDF's `httpd_req_delete` "finish[es] off reading any
+/// pending/leftover data", draining and discarding whatever body a handler left
+/// unread (`httpd_parse.c:841-855`). So the oversized upload — the one path that
+/// deliberately stops reading — cannot have its tail parsed as the next request
+/// on the socket. Setting the header through `httpd_resp_set_hdr` would only
+/// append a second `Connection` header to a response ESP-IDF manages itself.
+#[must_use]
+pub fn upload_response(success: bool, message: &str) -> String {
+    format!("{{\"success\":{success},\"message\":\"{message}\",\"restart\":{success}}}")
+}
+
 /// `/api/status` — the C++'s `WebServerManager.cpp:327-372`.
 ///
 /// Field for field. The C++ adds `weight`/`brewWeight` only when the scale is
 /// enabled; here they are `null` when there is no reading, which is a smaller
 /// change than gating them and a smaller one than reporting a fabricated 0 g.
+///
+/// # `steamMode` is the latched flag, and `brewing` is a different fact
+///
+/// The C++ writes `doc["steamMode"] = systemContext_->steamMode()`
+/// (`WebServerManager.cpp:359`), which is `SystemContext::steamMode()` →
+/// `MachineStateContext::isSteamModeActive()` → `steamON_`
+/// (`MachineStateContext.h:395`, `:785`). That flag is **latched**: it is set
+/// `true` in `SteamRunningState::onEntryImpl` (`SteamStates.cpp:16`), cleared in
+/// `SteamRunningState::onExitImpl` (`:21`) and cleared again in
+/// `StandbyState::onEntryImpl` (`SystemStates.cpp:17`). It means "steam mode is
+/// engaged", and it survives for as long as the machine is in the steam state
+/// and not a moment longer.
+///
+/// [`Telemetry::steam_mode`] is that flag: `Machine::steam_mode` is set at
+/// exactly those three points in `cc-machine/src/states.rs:218`, `:263` and
+/// `:365`. So this route emits it under the C++'s name, which is the parity
+/// answer — the UI's `/api/steam` toggle answers `steamMode` from the same fact
+/// (`machine-toggle-result.ts:9`, `useMachineToggles.ts:41`), and a status poll
+/// that disagreed with the toggle that set it would be a worse bug than the one
+/// this replaces.
+///
+/// `brewing` is **kept, and is not the same value**. It is
+/// `state.is_brew_state() && state != BrewFinished` (`main.rs:2983`) — derived
+/// from the current state rather than latched, and the C++ publishes no such
+/// field at all. It was previously emitted *under the name* `steamMode`, which
+/// made a brew-state flag answer to a steam-mode name; nothing consumed it
+/// (`rg` finds no reader of `/api/status` in the UI at all), so both are emitted
+/// now and the addition is recorded in `docs/rust-migration/intentional-diffs.md`.
 #[must_use]
 pub fn status_json(t: &Telemetry) -> String {
     // `write!` into the `String` rather than `push_str(&format!(..))`: this runs
@@ -961,7 +1272,7 @@ pub fn status_json(t: &Telemetry) -> String {
         out,
         "{{\"temperature\":{:.2},\"setpoint\":{:.2},\"heaterPower\":{:.2},\
          \"machineState\":{},\"isStandby\":{},\"standbyTime\":{},\
-         \"pidEnabled\":{},\"brewing\":{},\"uptime\":{},\
+         \"pidEnabled\":{},\"steamMode\":{},\"brewing\":{},\"uptime\":{},\
          \"shotsSinceBackflush\":{},\"backflushReminderThreshold\":{},\
          \"backflushReminderDue\":{}",
         t.temperature_c,
@@ -971,6 +1282,7 @@ pub fn status_json(t: &Telemetry) -> String {
         t.standby,
         t.standby_remaining_ms,
         t.pid_enabled,
+        t.steam_mode,
         t.brewing,
         t.uptime_ms,
         t.shots_since_backflush,
@@ -1385,9 +1697,13 @@ pub fn routes() -> Vec<(&'static str, Method)> {
         ("/api/parameter-help", Method::Get),
         ("/api/config", Method::Get),
         ("/api/config/download", Method::Get),
+        ("/api/config/upload", Method::Post),
         ("/api/parameters", Method::Get),
         ("/api/parameters", Method::Post),
-        ("/api/status", Method::Options),
+        // A real preflight handler, on a wildcard. It used to be advertised as
+        // `("/api/status", Method::Options)` with nothing registered behind it,
+        // so a preflight 404'd; see `register_preflight`.
+        ("/api*", Method::Options),
         ("/api/setpoint", Method::Post),
         ("/api/steam", Method::Post),
         ("/api/pid", Method::Post),
@@ -1411,6 +1727,19 @@ pub fn routes() -> Vec<(&'static str, Method)> {
         ("/", Method::Get),
         ("/ui*", Method::Get),
     ]
+}
+
+/// What `/events` needs, behind the `user_ctx` pointer ESP-IDF hands back.
+///
+/// `register_raw_sse` can only pass **one** pointer, and the route now needs two
+/// things: the stream itself and the credential check. They travel together in
+/// one `Arc` rather than in a second global, so the check cannot be wired for
+/// one route and forgotten for the other.
+pub(crate) struct SseRoute {
+    /// The broadcast state the handler attaches the detached request to.
+    pub sse: Arc<Sse>,
+    /// The same [`Auth`] every `fn_handler` route goes through.
+    pub auth: Arc<Auth>,
 }
 
 /// A running HTTP server.
@@ -1476,6 +1805,12 @@ impl Web {
         // this workspace denies).
         let send = Arc::clone(send);
         let parameters = Arc::clone(parameters);
+        // Decided once, here, exactly as the C++'s `setupMiddleware` decides it
+        // once in `WebServerManager::initialize`. See [`Auth`].
+        let auth = Arc::new(Auth::from_config(config));
+        if auth.is_enforced() {
+            info!("http: web authentication enabled (HTTP Basic, realm CleverCoffee)");
+        }
         // `EspHttpServer::new` returns `EspIOError` (`server.rs:345`) while every
         // `httpd_*` call returns `EspError`, so the one conversion is here
         // rather than repeated in every handler.
@@ -1484,21 +1819,35 @@ impl Web {
         // --- reads -------------------------------------------------------
         {
             let shared = Arc::clone(&shared);
-            server.fn_handler::<EspError, _>("/api/status", Method::Get, move |mut req| {
-                let body = status_json(&shared.snapshot());
-                respond(req.connection(), 200, &body)
-            })?;
+            register(
+                &mut server,
+                &auth,
+                "/api/status",
+                Method::Get,
+                move |mut req| {
+                    let body = status_json(&shared.snapshot());
+                    respond(req.connection(), 200, &body)
+                },
+            )?;
         }
         {
             let shared = Arc::clone(&shared);
-            server.fn_handler::<EspError, _>("/api/health", Method::Get, move |mut req| {
-                let body = health_json(&shared.snapshot());
-                respond(req.connection(), 200, &body)
-            })?;
+            register(
+                &mut server,
+                &auth,
+                "/api/health",
+                Method::Get,
+                move |mut req| {
+                    let body = health_json(&shared.snapshot());
+                    respond(req.connection(), 200, &body)
+                },
+            )?;
         }
         {
             let shared = Arc::clone(&shared);
-            server.fn_handler::<EspError, _>(
+            register(
+                &mut server,
+                &auth,
                 "/api/temperatures",
                 Method::Get,
                 move |mut req| {
@@ -1509,57 +1858,81 @@ impl Web {
         }
         {
             let shared = Arc::clone(&shared);
-            server.fn_handler::<EspError, _>("/api/history", Method::Get, move |mut req| {
-                // The C++'s `AsyncJsonResponse` (`:634-640`) with the same
-                // refusal below the heap floor, which `respond_large` applies to
-                // every response over `MAX_JSON_BYTES` — and 600 points is about
-                // 12 KB of JSON, so this route is the second-largest the server
-                // serves after `/api/parameters?filter=all`.
-                let body = history_json(&shared);
-                respond_large(req.connection(), &shared, &body)
-            })?;
+            register(
+                &mut server,
+                &auth,
+                "/api/history",
+                Method::Get,
+                move |mut req| {
+                    // The C++'s `AsyncJsonResponse` (`:634-640`) with the same
+                    // refusal below the heap floor, which `respond_large` applies to
+                    // every response over `MAX_JSON_BYTES` — and 600 points is about
+                    // 12 KB of JSON, so this route is the second-largest the server
+                    // serves after `/api/parameters?filter=all`.
+                    let body = history_json(&shared);
+                    respond_large(req.connection(), &shared, &body)
+                },
+            )?;
         }
         {
             let described = String::from(nvs_description);
-            server.fn_handler::<EspError, _>("/api/nvs-debug", Method::Get, move |mut req| {
-                // The store itself stays with the control task, which is the
-                // only writer; a handler gets the description string it needs and
-                // nothing that could write. `ConfigStore::describe` takes
-                // `&self` and this is its whole result — namespace, key, schema
-                // version and byte count — so nothing is lost and a `Send +
-                // 'static` handler needs no shared NVS handle at all.
-                let body = nvs_debug_json(&described, cc_config::SCHEMA.len());
-                respond(req.connection(), 200, &body)
-            })?;
+            register(
+                &mut server,
+                &auth,
+                "/api/nvs-debug",
+                Method::Get,
+                move |mut req| {
+                    // The store itself stays with the control task, which is the
+                    // only writer; a handler gets the description string it needs and
+                    // nothing that could write. `ConfigStore::describe` takes
+                    // `&self` and this is its whole result — namespace, key, schema
+                    // version and byte count — so nothing is lost and a `Send +
+                    // 'static` handler needs no shared NVS handle at all.
+                    let body = nvs_debug_json(&described, cc_config::SCHEMA.len());
+                    respond(req.connection(), 200, &body)
+                },
+            )?;
         }
         {
-            server.fn_handler::<EspError, _>("/api/parameter-help", Method::Get, |mut req| {
-                respond(
-                    req.connection(),
-                    200,
-                    &unavailable_json("Per-parameter help", "R3-16 (the schema UI)"),
-                )
-            })?;
+            register(
+                &mut server,
+                &auth,
+                "/api/parameter-help",
+                Method::Get,
+                |mut req| {
+                    respond(
+                        req.connection(),
+                        200,
+                        &unavailable_json("Per-parameter help", "R3-16 (the schema UI)"),
+                    )
+                },
+            )?;
         }
         {
             let config = Arc::clone(config);
             let shared = Arc::clone(&shared);
-            server.fn_handler::<EspError, _>("/api/config", Method::Get, move |mut req| {
-                // ADR-0002 decision 2: serialise ONCE. The C++ built a
-                // `JsonDocument`, copied it to a `String`, and the web server
-                // copied it again — three ~19 KB allocations, which is the abort
-                // the ADR exists to prevent. `json_export` returns a single
-                // `String` and `respond_large` streams it out in chunks.
-                let Ok(json) = cc_config::json_export(&config) else {
-                    return respond(
-                        req.connection(),
-                        500,
-                        &error_body("Failed to generate config"),
-                    );
-                };
-                let body = json;
-                respond_large(req.connection(), &shared, &body)
-            })?;
+            register(
+                &mut server,
+                &auth,
+                "/api/config",
+                Method::Get,
+                move |mut req| {
+                    // ADR-0002 decision 2: serialise ONCE. The C++ built a
+                    // `JsonDocument`, copied it to a `String`, and the web server
+                    // copied it again — three ~19 KB allocations, which is the abort
+                    // the ADR exists to prevent. `json_export` returns a single
+                    // `String` and `respond_large` streams it out in chunks.
+                    let Ok(json) = cc_config::json_export(&config) else {
+                        return respond(
+                            req.connection(),
+                            500,
+                            &error_body("Failed to generate config"),
+                        );
+                    };
+                    let body = json;
+                    respond_large(req.connection(), &shared, &body)
+                },
+            )?;
         }
         {
             let config = Arc::clone(config);
@@ -1579,12 +1952,31 @@ impl Web {
             // Before the first publish it falls back to the boot snapshot, which
             // is the right answer for the first second after boot.
             let parameters = Arc::clone(&parameters);
-            server.fn_handler::<EspError, _>("/api/parameters", Method::Get, move |mut req| {
-                let body = parameters
-                    .live()
-                    .unwrap_or_else(|| parameters_json(&config));
-                respond_large(req.connection(), &shared, &body)
-            })?;
+            register(
+                &mut server,
+                &auth,
+                "/api/parameters",
+                Method::Get,
+                move |mut req| {
+                    // `live()` hands back an `Arc` clone (a refcount bump),
+                    // not a copy of ~8.8 KB. The fallback is built ONLY when
+                    // nothing has been published yet, so the httpd task's own
+                    // stack never holds two copies of the body -- and the guard
+                    // is dropped before `respond_large` reads it.
+                    let published = parameters.live();
+                    let generated = published.is_none().then(|| parameters_json(&config));
+                    let body: &str = match (&published, &generated) {
+                        (Some(shared_body), _) => shared_body.as_str(),
+                        (None, Some(body)) => body.as_str(),
+                        // Unreachable: `generated` is `Some` exactly when
+                        // `published` is `None`. Written out anyway so that if
+                        // that ever stops being true it is a compile error rather
+                        // than a 200-bytes-of-nothing response.
+                        (None, None) => unreachable!("generated is Some when published is None"),
+                    };
+                    respond_large(req.connection(), &shared, body)
+                },
+            )?;
         }
         {
             // `GET /api/config/download` — the C++'s
@@ -1595,7 +1987,9 @@ impl Web {
             // point of the separate route.
             let config = Arc::clone(config);
             let shared = Arc::clone(&shared);
-            server.fn_handler::<EspError, _>(
+            register(
+                &mut server,
+                &auth,
                 "/api/config/download",
                 Method::Get,
                 move |mut req| {
@@ -1627,96 +2021,260 @@ impl Web {
             // though its body is ESP-IDF's "Specified method is invalid for this
             // resource" rather than the C++'s `{"error":"Method not allowed"}`.
             let handoff = Arc::clone(&parameters);
-            server.fn_handler::<EspError, _>("/api/parameters", Method::Post, move |mut req| {
-                let body = drain_body_bounded(req.connection(), MAX_PARAMETER_BODY_BYTES);
-                // `request->params()` (`:823`) is the query string *and* the body,
-                // in that order, because `AsyncWebServerRequest` appends the query
-                // args before the POST fields. So `?pid.enabled=1` and
-                // `pid.enabled=1` are the same request, and a request may carry
-                // both.
-                let mut pairs = cc_config::form::parse_form(query_of(req.uri()));
-                pairs.extend(cc_config::form::parse_form(&body));
-                if pairs.len() > MAX_PARAMETER_PAIRS {
-                    return respond(
-                        req.connection(),
-                        400,
-                        &error_body("too many parameters in one request"),
-                    );
-                }
-
-                let verdict = classify_parameters(&pairs);
-                if let ParameterPost::Rejected { reasons, .. } = &verdict {
-                    // The C++ logs one `WARNING` per failure (`:853`, `:857`) and
-                    // then answers a single 400 that names none of them. Naming
-                    // them here is the whole diagnostic value of a rejected
-                    // parameter: without it, `400` on a 20-field form is a
-                    // guessing game.
-                    for reason in reasons {
-                        warn!("http: /api/parameters rejected {reason}");
+            register(
+                &mut server,
+                &auth,
+                "/api/parameters",
+                Method::Post,
+                move |mut req| {
+                    let body = drain_body_bounded(req.connection(), MAX_PARAMETER_BODY_BYTES);
+                    // `request->params()` (`:823`) is the query string *and* the body,
+                    // in that order, because `AsyncWebServerRequest` appends the query
+                    // args before the POST fields. So `?pid.enabled=1` and
+                    // `pid.enabled=1` are the same request, and a request may carry
+                    // both.
+                    let mut pairs = cc_config::form::parse_form(query_of(req.uri()));
+                    pairs.extend(cc_config::form::parse_form(&body));
+                    if pairs.len() > MAX_PARAMETER_PAIRS {
+                        return respond(
+                            req.connection(),
+                            400,
+                            &error_body("too many parameters in one request"),
+                        );
                     }
-                }
-                let accepted = verdict.clone().into_pairs();
-                if !accepted.is_empty() && !handoff.stage_and_wait(accepted) {
-                    // Either the mailbox was full, or the control task had not
-                    // applied the request within the ack timeout. The response
-                    // is about to say the parameters were saved, so this is the
-                    // one case where this handler's `200` would be a lie: it is
-                    // a 503 and the UI keeps the value it typed.
-                    warn!("http: /api/parameters was not applied by the control task in time");
-                    return respond(
-                        req.connection(),
-                        503,
-                        &error_body("the control task did not apply the parameters, retry"),
-                    );
-                }
-                let (status, payload) = verdict.response();
-                // A `200 {"success":true}` on a write that cannot affect the
-                // running machine is the lie the human reported. Naming the
-                // keys that need a reboot turns it into an answer.
-                let reboot = verdict.reboot_required();
-                if !reboot.is_empty() {
-                    let keys = reboot
-                        .iter()
-                        .map(|k| format!("\"{k}\""))
-                        .collect::<Vec<_>>()
-                        .join(",");
-                    let body = format!(
-                        "{{\"success\":true,\"message\":\"Parameters updated and saved\",\
+
+                    let verdict = classify_parameters(&pairs);
+                    if let ParameterPost::Rejected { reasons, .. } = &verdict {
+                        // The C++ logs one `WARNING` per failure (`:853`, `:857`) and
+                        // then answers a single 400 that names none of them. Naming
+                        // them here is the whole diagnostic value of a rejected
+                        // parameter: without it, `400` on a 20-field form is a
+                        // guessing game.
+                        for reason in reasons {
+                            warn!("http: /api/parameters rejected {reason}");
+                        }
+                    }
+                    let accepted = verdict.clone().into_pairs();
+                    if !accepted.is_empty() && !handoff.stage_and_wait(accepted) {
+                        // Either the mailbox was full, or the control task had not
+                        // applied the request within the ack timeout. The response
+                        // is about to say the parameters were saved, so this is the
+                        // one case where this handler's `200` would be a lie: it is
+                        // a 503 and the UI keeps the value it typed.
+                        warn!("http: /api/parameters was not applied by the control task in time");
+                        return respond(
+                            req.connection(),
+                            503,
+                            &error_body("the control task did not apply the parameters, retry"),
+                        );
+                    }
+                    let (status, payload) = verdict.response();
+                    // A `200 {"success":true}` on a write that cannot affect the
+                    // running machine is the lie the human reported. Naming the
+                    // keys that need a reboot turns it into an answer.
+                    let reboot = verdict.reboot_required();
+                    if !reboot.is_empty() {
+                        let keys = reboot
+                            .iter()
+                            .map(|k| format!("\"{k}\""))
+                            .collect::<Vec<_>>()
+                            .join(",");
+                        let body = format!(
+                            "{{\"success\":true,\"message\":\"Parameters updated and saved\",\
 \"requiresReboot\":true,\"requiresRebootKeys\":[{keys}],\"reason\":\"read once at startup\"}}"
-                    );
-                    return respond(req.connection(), status, &body);
-                }
-                respond(req.connection(), status, payload)
-            })?;
+                        );
+                        return respond(req.connection(), status, &body);
+                    }
+                    respond(req.connection(), status, payload)
+                },
+            )?;
+        }
+        {
+            // `POST /api/config/upload` — the C++'s
+            // `AsyncURIMatcher::exact("/api/config/upload")` with an
+            // `AsyncCallbackJsonWebHandler` (`WebServerManager.cpp:725-762`).
+            //
+            // **The body is `application/json`, not multipart.** The C++ says so
+            // in a comment on the line above its own registration (`:725` — "Config
+            // upload: application/json body (AsyncCallbackJsonWebHandler buffers
+            // full body before parse)"), and `ui/packages/frontend/src/pages/SystemPage.tsx:180-183`
+            // posts the selected file's text with `Content-Type:
+            // application/json` and no boundary. A multipart reader here would
+            // answer the live "Upload configuration" button with 400.
+            //
+            // The four outcomes, and which is which:
+            //
+            // * **over the transport cap** → `413`, and nothing is parsed. See
+            //   [`drain_body_checked`] for why this cannot truncate.
+            // * **not a top-level object** → `400`, the C++'s message verbatim
+            //   (`:732`).
+            // * **rejected by the reader** → `400`, and the offending keys are
+            //   named in the log rather than the body, because the body is what
+            //   the UI shows and "invalid values" is what the C++ shows
+            //   (`:750`).
+            // * **applied** → `200` and `restart: true`, which tells the browser
+            //   to call `POST /api/restart` (the C++ does not reboot itself
+            //   either — `:760` sets a flag and returns).
+            let handoff = Arc::clone(&parameters);
+            register(
+                &mut server,
+                &auth,
+                "/api/config/upload",
+                Method::Post,
+                move |mut req| {
+                    let Some(body) = drain_body_checked(req.connection(), MAX_CONFIG_UPLOAD_BYTES)
+                    else {
+                        // The C++'s `setMaxContentLength(16384)` (`:762`) makes
+                        // `ESPAsyncWebServer` answer 413 for an over-long body.
+                        // Nothing is parsed, so nothing can be half-applied; and
+                        // the tail left unread is purged by ESP-IDF itself
+                        // (`httpd_req_delete`, `httpd_parse.c:841-855`).
+                        return respond(
+                            req.connection(),
+                            413,
+                            &upload_response(
+                                false,
+                                "Configuration is too large; the limit is 16384 bytes",
+                            ),
+                        );
+                    };
+
+                    // `cc_config::json::document_pairs` is the whole validation:
+                    // size, syntax, top-level object, flat dotted keys, one known
+                    // key, every value in range — and it is **total**, so a
+                    // document with nine good keys and one impossible one
+                    // produces no pairs at all rather than nine.
+                    let pairs = match cc_config::document_pairs(&body) {
+                        Ok(pairs) => pairs,
+                        Err(rejection) => {
+                            // `WebServerManager.cpp:737-752` names two of these
+                            // exactly; the rest share the C++'s third message,
+                            // which is what its own `importFromJson` answers
+                            // `false` for (`Config.cpp:348-374`).
+                            if let cc_config::ImportError::InvalidValues { rejected } = &rejection {
+                                for value in rejected {
+                                    warn!(
+                                        "http: /api/config/upload rejected {}: {}",
+                                        value.key,
+                                        cc_config::json::describe_reason(value.reason)
+                                    );
+                                }
+                            }
+                            let message = match &rejection {
+                                cc_config::ImportError::NotAnObject => {
+                                    "JSON body must be a top-level object"
+                                }
+                                cc_config::ImportError::FlatDottedKeys { .. } => {
+                                    "Flat dotted-key JSON is not supported. Use nested objects (see Download Config)."
+                                }
+                                _ => "Configuration validation failed. Use a file from Download Config.",
+                            };
+                            return respond(
+                                req.connection(),
+                                400,
+                                &upload_response(false, message),
+                            );
+                        }
+                    };
+
+                    // Belt and braces, and the reason this route can promise it
+                    // never half-applies.
+                    //
+                    // `document_pairs` renders each value into the string form
+                    // `cc_config::assign::parse` accepts, so every pair is
+                    // already good by the only rule that matters — and that is a
+                    // *property*, pinned by `cc-config`'s
+                    // `an_every_pair_from_an_upload_is_accepted_by_the_one_writer`,
+                    // not a promise. If a future parameter kind ever breaks the
+                    // rendering, `classify_parameters` turns a silent partial
+                    // apply into a visible `400` here, and refuses the **whole**
+                    // document rather than staging the part that happened to
+                    // parse — which is the property `/api/parameters` cannot
+                    // offer, because that route deliberately applies what it can.
+                    let verdict = classify_parameters(&pairs);
+                    if let ParameterPost::Rejected { reasons, .. } = &verdict {
+                        for reason in reasons {
+                            warn!("http: /api/config/upload rejected {reason}");
+                        }
+                        return respond(
+                            req.connection(),
+                            400,
+                            &upload_response(
+                                false,
+                                "Configuration validation failed. Use a file from Download Config.",
+                            ),
+                        );
+                    }
+
+                    // `document_pairs` answers `NoKnownParameters` when the
+                    // document names nothing this firmware knows, so `pairs` is
+                    // non-empty on every path that reaches here — there is no
+                    // "nothing to do" case to skip the control task for, as
+                    // there is on `/api/parameters`.
+                    if !handoff.stage_and_wait(pairs) {
+                        // The same 503 `POST /api/parameters` answers
+                        // (`:1873-1882`): the response is about to say the
+                        // configuration was saved, so it must not say it unless
+                        // the control task applied it.
+                        warn!(
+                            "http: /api/config/upload was not applied by the control task in time"
+                        );
+                        return respond(
+                            req.connection(),
+                            503,
+                            &upload_response(
+                                false,
+                                "the control task did not apply the configuration, retry",
+                            ),
+                        );
+                    }
+                    info!("http: /api/config/upload validated and applied");
+                    respond(
+                        req.connection(),
+                        200,
+                        &upload_response(true, "Configuration validated and applied successfully."),
+                    )
+                },
+            )?;
         }
 
+        // --- CORS preflight ------------------------------------------------
+        register_preflight(&mut server)?;
+
         // --- commands ----------------------------------------------------
-        register_command(&mut server, "/api/setpoint", Arc::clone(&send), |value| {
-            // WebServerManager.cpp:393-395: 0..=150 is accepted, and 0 is
-            // a *value*, not an absence. Parsed as an integer because the
-            // C++ reads a `double` and a fractional setpoint is a bug in
-            // the caller, not a request to round.
-            // Truncating a fractional setpoint is deliberate and is the
-            // C++'s: `request->getParam("value", true)->value().toDouble()`
-            // into an `int` field (WebServerManager.cpp:393-395). The
-            // schema's own range is integral, so a fractional value is a
-            // caller bug and rounding it is more useful than a 400.
-            #[allow(
-                clippy::cast_possible_truncation,
-                reason = "v is in 0.0..=150.0, which fits an i32 with room to \
+        register_command(
+            &mut server,
+            &auth,
+            "/api/setpoint",
+            Arc::clone(&send),
+            |value| {
+                // WebServerManager.cpp:393-395: 0..=150 is accepted, and 0 is
+                // a *value*, not an absence. Parsed as an integer because the
+                // C++ reads a `double` and a fractional setpoint is a bug in
+                // the caller, not a request to round.
+                // Truncating a fractional setpoint is deliberate and is the
+                // C++'s: `request->getParam("value", true)->value().toDouble()`
+                // into an `int` field (WebServerManager.cpp:393-395). The
+                // schema's own range is integral, so a fractional value is a
+                // caller bug and rounding it is more useful than a 400.
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    reason = "v is in 0.0..=150.0, which fits an i32 with room to \
                               spare; the C++ truncates the same way"
-            )]
-            value
-                .parse::<f64>()
-                .ok()
-                .filter(|v| (0.0..=150.0).contains(v))
-                .map(|v| Command::SetSetpoint(v as i32))
-        })?;
+                )]
+                value
+                    .parse::<f64>()
+                    .ok()
+                    .filter(|v| (0.0..=150.0).contains(v))
+                    .map(|v| Command::SetSetpoint(v as i32))
+            },
+        )?;
         // The C++'s three toggle routes (`WebServerManager.cpp:437-509`). All
         // three read no field in the C++; all three are what the UI's buttons
         // call with a bare POST.
         register_toggle(
             &mut server,
+            &auth,
             &shared,
             Arc::clone(&send),
             &Toggle {
@@ -1729,6 +2287,7 @@ impl Web {
         )?;
         register_toggle(
             &mut server,
+            &auth,
             &shared,
             Arc::clone(&send),
             &Toggle {
@@ -1741,6 +2300,7 @@ impl Web {
         )?;
         register_toggle(
             &mut server,
+            &auth,
             &shared,
             Arc::clone(&send),
             &Toggle {
@@ -1751,40 +2311,58 @@ impl Web {
                 current: |t| t.backflush_mode,
             },
         )?;
-        register_flag(&mut server, "/api/sleep", Arc::clone(&send), Command::Sleep)?;
-        register_flag(&mut server, "/api/wake", Arc::clone(&send), Command::Wake)?;
         register_flag(
             &mut server,
+            &auth,
+            "/api/sleep",
+            Arc::clone(&send),
+            Command::Sleep,
+        )?;
+        register_flag(
+            &mut server,
+            &auth,
+            "/api/wake",
+            Arc::clone(&send),
+            Command::Wake,
+        )?;
+        register_flag(
+            &mut server,
+            &auth,
             "/api/scale/tare",
             Arc::clone(&send),
             Command::Tare,
         )?;
         register_flag(
             &mut server,
+            &auth,
             "/api/scale/calibration",
             Arc::clone(&send),
             Command::Calibrate,
         )?;
         register_flag(
             &mut server,
+            &auth,
             "/api/maintenance/reset-backflush-counter",
             Arc::clone(&send),
             Command::ResetBackflushCounter,
         )?;
         register_flag(
             &mut server,
+            &auth,
             "/api/wifi-reset",
             Arc::clone(&send),
             Command::WifiReset,
         )?;
         register_flag(
             &mut server,
+            &auth,
             "/api/factory-reset",
             Arc::clone(&send),
             Command::FactoryReset,
         )?;
         register_flag(
             &mut server,
+            &auth,
             "/api/restart",
             Arc::clone(&send),
             Command::Restart,
@@ -1803,9 +2381,13 @@ impl Web {
         // Nothing here is a stub pretending to work: no route claims success it
         // did not achieve.
         {
-            server.fn_handler::<EspError, _>("/api/ota/status", Method::Get, |mut req| {
-                respond(req.connection(), 200, &ota_status_json())
-            })?;
+            register(
+                &mut server,
+                &auth,
+                "/api/ota/status",
+                Method::Get,
+                |mut req| respond(req.connection(), 200, &ota_status_json()),
+            )?;
         }
         for uri in ["/api/ota/firmware", "/api/ota/filesystem", "/api/ota/url"] {
             // `sendUploadResult(request, "No firmware file provided")` is the
@@ -1813,16 +2395,14 @@ impl Web {
             // OTA at all is the unavailability one, and `400` is the status the
             // UI's error path already handles (`OTAUpdateSection.tsx:191-207`
             // shows `result.message` for any non-success).
-            server
-                .fn_handler::<EspError, _>(uri, Method::Post, |mut req| {
-                    respond(req.connection(), 501, &unavailable_json("OTA", "R3-15"))
-                })
-                .map(|_| ())?;
+            register(&mut server, &auth, uri, Method::Post, |mut req| {
+                respond(req.connection(), 501, &unavailable_json("OTA", "R3-15"))
+            })?;
         }
 
         // --- static ------------------------------------------------------
         {
-            server.fn_handler::<EspError, _>("/", Method::Get, |mut req| {
+            register(&mut server, &auth, "/", Method::Get, |mut req| {
                 // WebServerManager.cpp:974: `request->redirect("/ui/")`.
                 let conn = req.connection();
                 conn.initiate_response(302, Some("Found"), &[("Location", "/ui/")])?;
@@ -1832,7 +2412,7 @@ impl Web {
         {
             // One handler for the shell, the assets and the client-side routes.
             // The `*` is what makes `/ui/brew` reach it at all; see [`serve_ui`].
-            server.fn_handler::<EspError, _>("/ui*", Method::Get, serve_ui)?;
+            register(&mut server, &auth, "/ui*", Method::Get, serve_ui)?;
         }
 
         // --- SSE ---------------------------------------------------------
@@ -1852,7 +2432,10 @@ impl Web {
         // owns the writing.
         crate::web_async::register_raw_sse(
             esp_idf_svc::handle::RawHandle::handle(&server),
-            Arc::clone(&sse),
+            Arc::new(SseRoute {
+                sse: Arc::clone(&sse),
+                auth: Arc::clone(&auth),
+            }),
         )?;
 
         // The broadcaster is the only writer of `/events`, and it is not the
@@ -2193,17 +2776,16 @@ fn broadcaster(sse: &Sse) {
 /// `POST /api/factory-reset` would be a lie — the machine is about to reboot.
 fn register_flag(
     server: &mut EspHttpServer<'static>,
+    auth: &Arc<Auth>,
     uri: &'static str,
     send: Arc<dyn Fn(Command) + Send + Sync + 'static>,
     command: Command,
 ) -> Result<(), EspError> {
-    server
-        .fn_handler::<EspError, _>(uri, Method::Post, move |mut req| {
-            let _ = drain_body(req.connection());
-            send(command);
-            respond(req.connection(), 202, "{\"accepted\":true}")
-        })
-        .map(|_| ())
+    register(server, auth, uri, Method::Post, move |mut req| {
+        let _ = drain_body(req.connection());
+        send(command);
+        respond(req.connection(), 202, "{\"accepted\":true}")
+    })
 }
 
 /// Register a `POST` handler for a route that is a **toggle** in the C++.
@@ -2261,6 +2843,7 @@ struct Toggle {
 /// Register one [`Toggle`] route.
 fn register_toggle(
     server: &mut EspHttpServer<'static>,
+    auth: &Arc<Auth>,
     shared: &Arc<Shared>,
     send: Arc<dyn Fn(Command) + Send + Sync + 'static>,
     toggle: &Toggle,
@@ -2273,54 +2856,52 @@ fn register_toggle(
         current,
     } = *toggle;
     let shared = Arc::clone(shared);
-    server
-        .fn_handler::<EspError, _>(uri, Method::Post, move |mut req| {
-            let mut fields = cc_config::form::parse_form(query_of(req.uri()));
-            let body = drain_body(req.connection());
-            fields.extend(cc_config::form::parse_form(&body));
-            // `first_of` scans in *name* order, so `value` anywhere beats `on`
-            // anywhere — the C++'s `hasParam("value", …).orElse(hasParam("on",
-            // …))` order (`WebServerManager.cpp:392`).
-            let (chosen, value) = match first_of(&fields, &["value", "on"]) {
-                // `start` is the one non-boolean field, and only on
-                // `/api/backflush`; see [`Command::StartBackflush`].
-                Some(field) if uri == "/api/backflush" && field == "start" => {
-                    (Command::StartBackflush, None)
-                }
-                Some(field) => (explicit(parse_flag(&field)), None),
-                // No field at all: the C++'s toggle.
-                None => (on_toggle, Some(!current(&shared.snapshot()))),
-            };
-            // **The value is read after the command has been applied.**
-            //
-            // It used to be computed *before* sending: `!current(&snapshot)` for a
-            // bare toggle, from the last telemetry the control task published. So
-            // the answer described the machine as it was, and a client that
-            // trusted it wrote the old value into its own state. The report was
-            // "I press the toggle, the device switches, and the switch stays
-            // active until I refresh" — the device was right and the answer was
-            // a lie.
-            //
-            // The wait is bounded (400 ms) and the fallback is the requested
-            // value rather than a panic: a stalled control task must not hang a
-            // browser, and `refetchParameters` is the client's other route to
-            // truth.
-            let before = shared.applied();
-            send(chosen);
-            let settled = shared.wait_applied(before);
-            let value = if settled {
-                current(&shared.snapshot())
-            } else {
-                warn!(
-                    "http: {uri} answered from the requested value — the control \
+    register(server, auth, uri, Method::Post, move |mut req| {
+        let mut fields = cc_config::form::parse_form(query_of(req.uri()));
+        let body = drain_body(req.connection());
+        fields.extend(cc_config::form::parse_form(&body));
+        // `first_of` scans in *name* order, so `value` anywhere beats `on`
+        // anywhere — the C++'s `hasParam("value", …).orElse(hasParam("on",
+        // …))` order (`WebServerManager.cpp:392`).
+        let (chosen, value) = match first_of(&fields, &["value", "on"]) {
+            // `start` is the one non-boolean field, and only on
+            // `/api/backflush`; see [`Command::StartBackflush`].
+            Some(field) if uri == "/api/backflush" && field == "start" => {
+                (Command::StartBackflush, None)
+            }
+            Some(field) => (explicit(parse_flag(&field)), None),
+            // No field at all: the C++'s toggle.
+            None => (on_toggle, Some(!current(&shared.snapshot()))),
+        };
+        // **The value is read after the command has been applied.**
+        //
+        // It used to be computed *before* sending: `!current(&snapshot)` for a
+        // bare toggle, from the last telemetry the control task published. So
+        // the answer described the machine as it was, and a client that
+        // trusted it wrote the old value into its own state. The report was
+        // "I press the toggle, the device switches, and the switch stays
+        // active until I refresh" — the device was right and the answer was
+        // a lie.
+        //
+        // The wait is bounded (400 ms) and the fallback is the requested
+        // value rather than a panic: a stalled control task must not hang a
+        // browser, and `refetchParameters` is the client's other route to
+        // truth.
+        let before = shared.applied();
+        send(chosen);
+        let settled = shared.wait_applied(before);
+        let value = if settled {
+            current(&shared.snapshot())
+        } else {
+            warn!(
+                "http: {uri} answered from the requested value — the control \
                      task has not applied the command after {COMMAND_ACK_TIMEOUT_MS} ms"
-                );
-                value.unwrap_or_else(|| explicit_value(&chosen))
-            };
-            let body = format!("{{\"success\":true,\"{key}\":{value}}}");
-            respond(req.connection(), 200, &body)
-        })
-        .map(|_| ())
+            );
+            value.unwrap_or_else(|| explicit_value(&chosen))
+        };
+        let body = format!("{{\"success\":true,\"{key}\":{value}}}");
+        respond(req.connection(), 200, &body)
+    })
 }
 
 /// The value an explicit `SetPid`/`SetSteam`/`SetBackflush` carries.
@@ -2346,41 +2927,40 @@ fn parse_flag(value: &str) -> bool {
 /// Register a `POST` handler that parses one field into a command.
 fn register_command(
     server: &mut EspHttpServer<'static>,
+    auth: &Arc<Auth>,
     uri: &'static str,
     send: Arc<dyn Fn(Command) + Send + Sync + 'static>,
     parse: fn(&str) -> Option<Command>,
 ) -> Result<(), EspError> {
-    server
-        .fn_handler::<EspError, _>(uri, Method::Post, move |mut req| {
-            // The C++ reads `hasParam("value", true)` — the `true` is "from the
-            // body" (`WebServerManager.cpp:392`) — and 0 is a valid setpoint
-            // (`:393`), so the field's presence is what matters, not its
-            // truthiness.
-            //
-            // The query string is read too, and the **body wins** where both
-            // carry the field. The C++'s `POST /api/pid` reads no field at all —
-            // it is a toggle — so there is no C++ answer for `?on=0` to match,
-            // and every script, the UI's own button and the integration
-            // checklist spell it `?on=0` or `?on=1`. Accepting both is what
-            // `curl -X POST '.../api/pid?on=0'` needs; the body is checked first
-            // because a form post that also carries a stale query string should
-            // do what the form says.
-            let mut fields = cc_config::form::parse_form(query_of(req.uri()));
-            let body = drain_body(req.connection());
-            fields.extend(cc_config::form::parse_form(&body));
-            let value = first_of(&fields, &["value", "on"]);
-            let Some(value) = value else {
-                return respond(req.connection(), 400, &error_body("missing `value`"));
-            };
-            match parse(&value) {
-                Some(command) => {
-                    send(command);
-                    respond(req.connection(), 202, "{\"accepted\":true}")
-                }
-                None => respond(req.connection(), 400, &error_body("value out of range")),
+    register(server, auth, uri, Method::Post, move |mut req| {
+        // The C++ reads `hasParam("value", true)` — the `true` is "from the
+        // body" (`WebServerManager.cpp:392`) — and 0 is a valid setpoint
+        // (`:393`), so the field's presence is what matters, not its
+        // truthiness.
+        //
+        // The query string is read too, and the **body wins** where both
+        // carry the field. The C++'s `POST /api/pid` reads no field at all —
+        // it is a toggle — so there is no C++ answer for `?on=0` to match,
+        // and every script, the UI's own button and the integration
+        // checklist spell it `?on=0` or `?on=1`. Accepting both is what
+        // `curl -X POST '.../api/pid?on=0'` needs; the body is checked first
+        // because a form post that also carries a stale query string should
+        // do what the form says.
+        let mut fields = cc_config::form::parse_form(query_of(req.uri()));
+        let body = drain_body(req.connection());
+        fields.extend(cc_config::form::parse_form(&body));
+        let value = first_of(&fields, &["value", "on"]);
+        let Some(value) = value else {
+            return respond(req.connection(), 400, &error_body("missing `value`"));
+        };
+        match parse(&value) {
+            Some(command) => {
+                send(command);
+                respond(req.connection(), 202, "{\"accepted\":true}")
             }
-        })
-        .map(|_| ())
+            None => respond(req.connection(), 400, &error_body("value out of range")),
+        }
+    })
 }
 
 /// The first value any of `names` has, in **name** order rather than field order.
@@ -2514,6 +3094,16 @@ impl ParameterPost {
 /// `hardware.sensors.scale.enabled` decides whether a sampler exists at all
 /// (`main.rs:1362`).
 ///
+/// `system.auth.*` is the same kind of thing for a different reason, and it is
+/// the one the C++ cannot report: the C++ installs its authentication
+/// middleware in `setupMiddleware`, which runs once from
+/// `WebServerManager::initialize` (`WebServerManager.cpp:272-296`), so
+/// enabling `system.auth.enabled` protects **nothing** until the machine
+/// restarts — an operator who sets it, sees `200`, and is still serving an open
+/// API. `Auth::from_config` reproduces the C++'s boot-time decision, so this
+/// list has to say so, and `requiresRebootKeys` in the `POST /api/parameters`
+/// answer is where it says it.
+///
 /// Everything else is read from `Config` per tick or per event, so a write is
 /// live. That includes `pid.enabled`, which the control task pushes into the
 /// machine explicitly — see the `POST /api/parameters` drain in `main.rs`.
@@ -2521,6 +3111,7 @@ fn needs_reboot(key: &str) -> bool {
     key.starts_with("hardware.switches.")
         || key.starts_with("hardware.sensors.watertank.enabled")
         || key == "hardware.sensors.scale.enabled"
+        || key.starts_with("system.auth.")
         // **The probe type decides which driver is constructed**, so it is read
         // once at boot like every other `hardware.*` setting. It was missing
         // from this list, which is how a saved `TSIC_306` on a `DS18B20` board
@@ -2555,6 +3146,18 @@ pub const MAX_PARAMETER_PAIRS: usize = 64;
 /// `CONFIG_HTTPD_MAX_URI_LEN`, 512 bytes by default
 /// (`esp_http_server.h:377`).
 pub const MAX_PARAMETER_BODY_BYTES: usize = 1024;
+
+/// The most bytes one `POST /api/config/upload` body may be.
+///
+/// 16 KB — `MAX_CONFIG_UPLOAD_SIZE` at `WebServerManager.cpp:48`, which the
+/// C++ passes to `jsonHandler.setMaxContentLength` (`:762`). That is the
+/// **transport** limit; the *policy* limit is `cc_config::MAX_CONFIG_BYTES`
+/// (8 KB), which is what a document over it is refused with. Two limits on
+/// purpose: the C++'s is the largest request it will accept off the wire, and
+/// the Rust one is the largest configuration the store can hold, so a body
+/// between the two gets the clearer of the two answers rather than being cut
+/// off.
+pub const MAX_CONFIG_UPLOAD_BYTES: usize = 16 * 1024;
 
 /// Decide what a `POST /api/parameters` means, without writing anything.
 ///
@@ -2615,20 +3218,38 @@ fn drain_body(conn: &mut EspHttpConnection<'_>) -> String {
 /// second or too generous for the first, and the first is the one a stranger can
 /// reach.
 fn drain_body_bounded(conn: &mut EspHttpConnection<'_>, limit: usize) -> String {
+    drain_body_checked(conn, limit).unwrap_or_default()
+}
+
+/// Read a request body, **reporting** whether it did not fit.
+///
+/// [`drain_body_bounded`] truncates silently, which is the right answer for a
+/// form body — a truncated `a=1&b=2` is a request that sets fewer parameters,
+/// and `POST /api/parameters` re-validates every pair it acts on, so nothing
+/// wrong reaches the machine.
+///
+/// It is the **wrong** answer for `POST /api/config/upload`, and the difference
+/// is the whole reason this exists. An upload is a *document*: it is applied
+/// key by key, and a document cut short mid-way is a document whose keys are
+/// individually valid and collectively a different machine. Truncating at the
+/// cap and handing the remainder to the reader would apply **half a
+/// configuration** — a new PID gain with the old emergency cutoff — to a machine
+/// that may be mid-shot. So this returns `None` the moment the body exceeds
+/// `limit`, and the caller refuses without parsing.
+fn drain_body_checked(conn: &mut EspHttpConnection<'_>, limit: usize) -> Option<String> {
     let mut body = String::new();
     let mut buf = [0u8; 128];
     loop {
         match conn.read(&mut buf) {
-            Ok(0) | Err(_) => break,
+            Ok(0) | Err(_) => return Some(body),
             Ok(n) => {
                 if body.len() + n > limit {
-                    break;
+                    return None;
                 }
                 body.push_str(&String::from_utf8_lossy(&buf[..n]));
             }
         }
     }
-    body
 }
 
 /// The first form field named `name` in `body`.
@@ -2736,6 +3357,8 @@ pub mod tests {
             "\"isStandby\"",
             "\"standbyTime\"",
             "\"pidEnabled\"",
+            "\"steamMode\"",
+            "\"brewing\"",
             "\"uptime\"",
             "\"shotsSinceBackflush\"",
             "\"backflushReminderThreshold\"",
@@ -2775,7 +3398,7 @@ pub mod tests {
     #[cfg_attr(test, test)]
     pub fn the_status_payload_is_valid_json() {
         let t = Telemetry {
-            ip: Some("192.168.1.42".into()),
+            ip: heapless::String::<15>::try_from("192.168.1.42").ok(),
             water_tank_full: Some(true),
             ..Telemetry::default()
         };
@@ -3107,11 +3730,221 @@ pub mod tests {
 
     #[cfg_attr(test, test)]
     pub fn the_route_table_fits_the_servers_handler_budget() {
-        // esp-idf-svc's default is 32 (server.rs:132) and the C++ registers 24.
         // If this ever grows past MAX_URI_HANDLERS the server will fail to start
         // with ESP_ERR_HTTPD_HANDLERS_FULL, at boot, which is a bad place to find
         // out.
         assert!(routes().len() <= MAX_URI_HANDLERS);
+    }
+
+    // ============================================== /api/status's steamMode
+
+    #[cfg_attr(test, test)]
+    pub fn steam_mode_is_the_latched_steam_flag_and_not_the_brew_state() {
+        // The defect this pins. The C++'s `steamMode` is
+        // `MachineStateContext::steamON_` -- set in
+        // `SteamRunningState::onEntryImpl` (`SteamStates.cpp:16`), cleared in its
+        // `onExitImpl` (`:21`) and in `StandbyState::onEntryImpl`
+        // (`SystemStates.cpp:17`). This port emitted `"brewing"`
+        // -- `state.is_brew_state()`, a *derived* value with no C++ counterpart --
+        // under the C++'s name, so a poll answered a steam-mode question with a
+        // brew-state answer.
+        let steaming = status_json(&Telemetry {
+            steam_mode: true,
+            brewing: false,
+            ..Telemetry::default()
+        });
+        assert!(steaming.contains("\"steamMode\":true"), "{steaming}");
+        assert!(steaming.contains("\"brewing\":false"), "{steaming}");
+
+        let brewing_not_steaming = status_json(&Telemetry {
+            steam_mode: false,
+            brewing: true,
+            ..Telemetry::default()
+        });
+        assert!(
+            brewing_not_steaming.contains("\"steamMode\":false"),
+            "{brewing_not_steaming}"
+        );
+        assert!(
+            brewing_not_steaming.contains("\"brewing\":true"),
+            "{brewing_not_steaming}"
+        );
+    }
+
+    #[cfg_attr(test, test)]
+    pub fn the_status_steam_mode_agrees_with_the_steam_toggle_response() {
+        // `POST /api/steam` answers `{"success":true,"steamMode":<bool>}` from
+        // `Telemetry::steam_mode` (`WebServerManager.cpp:444-475`), and the UI
+        // reads that field (`machine-toggle-result.ts:9`). If `/api/status`
+        // reported a different fact under the same name, a poll would contradict
+        // the toggle that set it -- which is the class of bug this file already
+        // records once, for the toggle reading its value before the command was
+        // applied.
+        let t = Telemetry {
+            steam_mode: true,
+            brewing: true,
+            ..Telemetry::default()
+        };
+        let json = status_json(&t);
+        let from_toggle = format!("{{\"success\":true,\"steamMode\":{}}}", t.steam_mode);
+        assert!(json.contains(&from_toggle), "{json} vs {from_toggle}");
+    }
+
+    // ============================================== HTTP Basic authentication
+
+    /// A `Config` with the given `system.auth.*`, for the auth cases.
+    fn auth_config(enabled: bool, username: &str, password: &str) -> Arc<Config> {
+        let mut config = Config::default();
+        config.system.auth.enabled = enabled;
+        config.system.auth.username = username.to_string();
+        config.system.auth.password = cc_domain::secret::Secret::new(password.to_string());
+        Arc::new(config)
+    }
+
+    /// base64, so a test states a credential rather than a blob.
+    fn basic(user: &str, pass: &str) -> String {
+        format!(
+            "Basic {}",
+            cc_domain::http_auth::tests_support::encode(format!("{user}:{pass}").as_bytes())
+        )
+    }
+
+    #[cfg_attr(test, test)]
+    pub fn auth_is_inert_when_it_is_switched_off() {
+        // The default. `system.auth.enabled` is `false`
+        // (`cc-config/src/schema.rs:690-694`), so an operator who has never
+        // touched it sees exactly the firmware they had before this existed.
+        let auth = Auth::from_config(&auth_config(false, "admin", "admin"));
+        assert!(!auth.is_enforced());
+        assert!(auth.admits(None), "no header at all must pass");
+        assert!(auth.admits(Some("Basic Zm9vOmJhcg==")), "a wrong one too");
+    }
+
+    #[cfg_attr(test, test)]
+    pub fn auth_admits_the_right_credentials_and_refuses_everything_else() {
+        let auth = Auth::from_config(&auth_config(true, "barista", "espresso"));
+        assert!(auth.is_enforced());
+        assert!(auth.admits(Some(&basic("barista", "espresso"))));
+        assert!(!auth.admits(None), "no header");
+        assert!(
+            !auth.admits(Some(&basic("barista", "wrong"))),
+            "wrong password"
+        );
+        assert!(
+            !auth.admits(Some(&basic("wrong", "espresso"))),
+            "wrong username"
+        );
+        assert!(!auth.admits(Some("Basic not-base64!")), "malformed");
+        assert!(!auth.admits(Some("Bearer whatever")), "wrong scheme");
+    }
+
+    #[cfg_attr(test, test)]
+    pub fn auth_with_empty_credentials_serves_the_api_open_exactly_as_the_cpp_does() {
+        // `WebServerManager.cpp:283-294`: the middleware is installed only when
+        // the username AND the password are non-empty, and the else arm is a
+        // `LOG(WARNING)` -- not a locked door. Reproduced deliberately; the
+        // alternative locks an operator out of a machine whose only other
+        // console is a UART. See `docs/rust-migration/intentional-diffs.md`.
+        for (username, password) in [("", "espresso"), ("barista", ""), ("", "")] {
+            let auth = Auth::from_config(&auth_config(true, username, password));
+            assert!(
+                !auth.is_enforced(),
+                "{username:?}/{password:?} must not challenge"
+            );
+            assert!(auth.admits(None));
+        }
+    }
+
+    #[cfg_attr(test, test)]
+    pub fn the_challenge_is_the_cpp_realm() {
+        // `authMiddleware_->setRealm("CleverCoffee")` (`WebServerManager.cpp:286`).
+        // A different realm is a different challenge, and a browser that has
+        // cached credentials for one will not send them for the other.
+        assert_eq!(WWW_AUTHENTICATE, "Basic realm=\"CleverCoffee\"");
+    }
+
+    #[cfg_attr(test, test)]
+    pub fn enabling_auth_is_reported_as_needing_a_reboot() {
+        // The C++ installs its middleware once, in `setupMiddleware`, from
+        // `WebServerManager::initialize`. Enabling `system.auth.enabled` therefore
+        // protects nothing until the next boot -- and an operator who sets it,
+        // sees `200`, and is still serving an open API is exactly the lie this
+        // repository calls out. `requiresRebootKeys` is where it is said.
+        let verdict = classify_parameters(&[("system.auth.enabled".into(), "1".into())]);
+        assert_eq!(
+            verdict.reboot_required(),
+            vec!["system.auth.enabled"],
+            "enabling authentication must be reported as needing a reboot"
+        );
+        // ... and a reboot is not claimed for a parameter that takes effect live.
+        let live = classify_parameters(&[("brew.setpoint".into(), "95".into())]);
+        assert!(live.reboot_required().is_empty());
+    }
+
+    #[cfg_attr(test, test)]
+    pub fn the_auth_debug_never_prints_the_configuration() {
+        // A derived `Debug` on a struct holding the whole `Config` would print
+        // every parameter including the four credentials.
+        let auth = Auth::from_config(&auth_config(true, "barista", "espresso"));
+        let rendered = format!("{auth:?}");
+        assert!(!rendered.contains("espresso"), "{rendered}");
+        assert!(!rendered.contains("barista"), "{rendered}");
+    }
+
+    // ================================================ POST /api/config/upload
+
+    #[cfg_attr(test, test)]
+    pub fn the_config_upload_route_is_registered() {
+        // `ui/packages/frontend/src/pages/SystemPage.tsx:182` posts here. It was
+        // a live button with no route behind it, so every operator who clicked
+        // "Upload configuration" got a 404.
+        assert!(
+            routes().contains(&("/api/config/upload", Method::Post)),
+            "the upload route must be in the table"
+        );
+    }
+
+    #[cfg_attr(test, test)]
+    pub fn the_upload_response_is_the_cpp_shape() {
+        // `sendConfigUploadResponse` (`WebServerManager.cpp:50-62`): three keys,
+        // and `restart` mirrors `success` because the C++ does not reboot
+        // itself -- it sets a flag and the browser calls `/api/restart`.
+        assert_eq!(
+            upload_response(true, "Configuration validated and applied successfully."),
+            "{\"success\":true,\"message\":\"Configuration validated and applied successfully.\",\"restart\":true}"
+        );
+        assert_eq!(
+            upload_response(false, "JSON body must be a top-level object"),
+            "{\"success\":false,\"message\":\"JSON body must be a top-level object\",\"restart\":false}"
+        );
+    }
+
+    #[cfg_attr(test, test)]
+    pub fn the_upload_body_is_bounded_and_the_cap_is_the_cpps() {
+        // `MAX_CONFIG_UPLOAD_SIZE = 16384` (`WebServerManager.cpp:48`), passed to
+        // `setMaxContentLength` at `:762`.
+        assert_eq!(MAX_CONFIG_UPLOAD_BYTES, 16 * 1024);
+        // The policy limit underneath it is `cc_config`'s own 8 KB; the two are
+        // different questions ("how much will I read off the wire" and "how big a
+        // configuration may be") and a body between them gets the clearer answer.
+        const {
+            assert!(MAX_CONFIG_UPLOAD_BYTES > cc_config::MAX_CONFIG_BYTES);
+        }
+    }
+
+    // ============================================================== CORS
+
+    #[cfg_attr(test, test)]
+    pub fn the_advertised_options_handler_is_a_wildcard_over_the_api() {
+        // It used to be advertised as `("/api/status", Method::Options)` with no
+        // `fn_handler` behind it anywhere, so a preflight 404'd while the boot
+        // log claimed the route existed. See `register_preflight`.
+        let options: Vec<&str> = routes()
+            .iter()
+            .filter(|(_, method)| *method == Method::Options)
+            .map(|(uri, _)| *uri)
+            .collect();
+        assert_eq!(options, vec!["/api*"], "one real preflight route");
     }
 
     // ==================================================== POST /api/parameters
@@ -3526,7 +4359,7 @@ pub mod tests {
         let mut radio = shared.snapshot();
         radio.wifi_associated = true;
         radio.signal = 4;
-        radio.ip = Some(alloc::string::String::from("10.0.0.7"));
+        radio.ip = heapless::String::<15>::try_from("10.0.0.7").ok();
         shared.publish(radio);
         // …and the control task's publish is the one that must not run second.
         let before = shared.snapshot();
@@ -3581,7 +4414,7 @@ pub mod tests {
         let t = Telemetry {
             wifi_associated: true,
             signal: 4,
-            ip: Some(alloc::string::String::from("10.0.0.7")),
+            ip: heapless::String::<15>::try_from("10.0.0.7").ok(),
             ..Telemetry::default()
         };
         let json = status_json(&t);

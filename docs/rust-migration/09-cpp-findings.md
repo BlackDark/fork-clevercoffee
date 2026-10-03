@@ -434,8 +434,8 @@ boiler contactor. The spin is therefore **up to one second** with interrupts
 disabled. The original ESP32's interrupt watchdog is **300 ms**
 (`components/esp_system/int_wdt.c`). Every duty write trips it.
 
-It is not a high-duty problem. `LedcPwm::new` writes duty **0**, and
-`duty_start` self-clears at the next period whatever the duty is, so the very
+It is not a high-duty problem. The `LEDC` transport's constructor wrote duty **0**,
+and `duty_start` self-clears at the next period whatever the duty is, so the very
 first write panics.
 
 ### What it means for the plan
@@ -461,11 +461,13 @@ first write panics.
 
 ### What this task did
 
-`BRING_UP_HEATER_LEDC` in `cc-firmware/src/main.rs` is **`false`**, and GPIO2 is
-driven as a **plain inactive output** alongside the pump and the valve. That is
-strictly safer than a PWM carrier nobody has scoped, and it is what lets the rest
-of the bring-up — the temperature probe, in particular — run. `LedcPwm` is
-untouched in `cc-hal-esp32`; it is only not brought up.
+GPIO2 is driven as a **plain inactive output** alongside the pump and the valve,
+and the heater is chopped by the 10 ms `GPTimer` ISR. That is strictly safer than
+a PWM carrier nobody has scoped, and it is what lets the rest of the bring-up —
+the temperature probe, in particular — run. (`BRING_UP_HEATER_LEDC`, the `const`
+that recorded the choice, went with the transport it guarded: there is no `LEDC`
+transport left in `cc-hal-esp32` for it to switch on. `HEATER_LEDC_DEFECT` is the
+record now.)
 
 **This is a stop-the-line finding for R1-07 and needs a human decision before
 any heater work continues.**
@@ -510,9 +512,12 @@ requirements are in direct conflict:
 | 100 Hz | ~200 (100× the C++) | works |
 
 **Decision: use the 10 ms GPTimer ISR**, which is what the C++ and the lost firmware both
-use, and is proven on this hardware. The `HeaterDuty` trait seam is kept so LEDC remains
-available for a future chip that supports it. `LedcPwm` is not brought up
-(`BRING_UP_HEATER_LEDC = false`); GPIO2 is held as a plain inactive output.
+use, and is proven on this hardware. The `LEDC` transport this finding retired — `LedcPwm`, and
+the one-method `HeaterDuty` seam it was the second impl of — has since been **deleted**: it had
+zero construction sites, and the spin is unique to the chip this firmware runs on. The carrier
+arithmetic an `LEDC` transport would need survives in `cc_hal_esp32::heater`'s module docs and in
+`intentional-diffs.md` §9, and a chip without the spin gets a transport written for it rather
+than one that has sat unbrought-up through two code reviews.
 
 The 100 Hz/ISR CPU cost is ~100 IRQs/s on a 240 MHz Xtensa — negligible. The "LEDC costs
 zero CPU" argument in 04 §5 does not survive contact on this chip.

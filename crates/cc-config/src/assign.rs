@@ -30,6 +30,11 @@
 //! every pair). Nothing else in the workspace may write a parameter: a second
 //! writer is a second set of type rules, and the two drift.
 //!
+//! The *field* half of that — which `Config` field a key names — used to be a
+//! third statement of the parameter set, here in a 74-line `put!` dispatch.
+//! It now lives with the declaration, on [`crate::schema::ParamSpec`], so this
+//! module holds only the string half. See [`set`].
+//!
 //! # Two deliberate differences from the C++
 //!
 //! **1. A value that does not parse is a rejection, not a zero.** The C++'s
@@ -53,8 +58,8 @@
 //! `EnumParamDef::fromString` (`:437-455`) falls back to matching the option's
 //! **label** ("High", "Momentary"). [`ParamSpec`] carries no label table — the
 //! React editor renders enums from `type: 5` and an integer, and
-//! [`json::enum_discriminants_known`](crate::json::enum_discriminants_known)
-//! validates against the Rust enum — so `"brew.mode=Momentary"` is
+//! `json::enum_discriminants_known` validates against the Rust enum — so
+//! `"brew.mode=Momentary"` is
 //! `UnknownEnumDiscriminant` here and `?brew.mode=1` is the write. Every
 //! enumeration this firmware has is a `u8`-wide discriminant, so the integer
 //! form is also what `/api/parameters` reports as the current `value`.
@@ -71,7 +76,6 @@
 //! therefore a property of the request, not of one parameter, and it is
 //! reported as such by the caller.
 
-use alloc::borrow::ToOwned;
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -190,227 +194,35 @@ pub fn parse<'a>(key: &str, raw: &'a str) -> Result<LiveValue<'a>, AssignError> 
 
 /// Write one already-validated value into a [`Config`].
 ///
-/// The write half of [`crate::json::live_value`], and the table is the same 98
-/// keys in the same grouping. `false` means the key is not in the table or the
-/// value is not of the field's type; after [`parse`] has accepted a value, only
-/// the first is reachable, and
-/// `every_schema_key_round_trips_through_set_and_live_value` is what holds the
-/// two tables to the same 98 keys.
+/// The write half of [`crate::json::live_value`], and it is now the *same*
+/// half: the pair of accessors that read a key out of a [`Config`] is stored
+/// on the same [`ParamSpec`] that declares the key, so a key that
+/// [`SCHEMA`](crate::schema::SCHEMA) registers is readable by construction and
+/// this function is a lookup. `false` means the key is not in the table or the
+/// value is not of the field's type; after [`parse`] has accepted a value,
+/// only the first is reachable.
 ///
-/// # Note on the four macros
+/// # Note on what replaced the four macros
 ///
-/// They exist so each entry of the table is one line — `"pid.enabled" =>
-/// pid.enabled` — which is what makes a key that exists in [`SCHEMA`] and not
-/// here visible as a missing line rather than as a missing block. Each expands
-/// to a comparison and an early `return`, so a key is found by scanning the
-/// five groups; at 98 keys of ~20 bytes that is a few microseconds, on a path
-/// that runs once per parameter write.
-#[allow(
-    clippy::too_many_lines,
-    reason = "this IS the key table: one line per registered parameter, and the \
-              C++ spells the same thing as a 98-entry vector of parameter \
-              definitions (`Config::getAllConfigParams`, `Config.cpp:438-560`). \
-              A 98-arm match is that table in Rust form; splitting it would hide \
-              the property the function exists to provide, which is that every \
-              key in `SCHEMA` is accounted for"
-)]
+/// This used to be a 74-line `put!`/`put_secret!`/`put_enum!` dispatch whose
+/// rationale was that each entry of the table is one line — `"pid.enabled" =>
+/// pid.enabled` — so a key that exists in
+/// [`SCHEMA`](crate::schema::SCHEMA) and not here would show up as a missing
+/// line rather than a missing block. That rationale is obsolete: the
+/// accessors *are* the schema entry now, so a key cannot be in one table and
+/// not the other. What the macros bought that a lookup does not is gone with
+/// them; what they cost — a second statement of the key-to-field mapping, and a
+/// key that silently validated but did not write — is gone too.
+///
+/// The lookup is a linear scan of 98 keys, which is a few microseconds on a
+/// path that runs once per parameter write. The C++'s `findConfigParameter`
+/// (`Config.h:1550`) is also a linear scan (`git show main:src/Config.cpp:427-436`).
+#[must_use]
 pub fn set(config: &mut Config, key: &str, value: &LiveValue<'_>) -> bool {
-    use cc_domain::hardware::{
-        OledAddress as A, OledType as T, RelayTriggerType as R, ScaleType as Sc, SwitchMode as M,
-        SwitchType as Sw, TemperatureSensorType as Ts,
-    };
-    use cc_domain::process::BrewMode as B;
-    use cc_domain::system::{DisplayTemplate as D, Language as L, LogLevel as G};
-
-    macro_rules! put {
-        ($extract:ident, $value:ident, $config:ident, $($field:ident).+) => {{
-            if eq_key(key, stringify!($($field).+)) {
-                return match $extract($value) {
-                    Some(v) => {
-                        $config.$($field).+ = v;
-                        true
-                    }
-                    None => false,
-                };
-            }
-        }};
+    match schema::find(key) {
+        Some(spec) => (spec.set)(config, value),
+        None => false,
     }
-    macro_rules! put_secret {
-        ($value:ident, $config:ident, $($field:ident).+) => {{
-            if eq_key(key, stringify!($($field).+)) {
-                return match as_text($value) {
-                    Some(v) => {
-                        $config.$($field).+.set(v.to_owned());
-                        true
-                    }
-                    None => false,
-                };
-            }
-        }};
-    }
-    macro_rules! put_enum {
-        ($variant:ty, $value:ident, $config:ident, $($field:ident).+) => {{
-            if eq_key(key, stringify!($($field).+)) {
-                return match as_enum($value).and_then(<$variant>::from_raw) {
-                    Some(v) => {
-                        $config.$($field).+ = v;
-                        true
-                    }
-                    None => false,
-                };
-            }
-        }};
-    }
-
-    // --- bool (36) ----------------------------------------------------------
-    put!(as_bool, value, config, pid.enabled);
-    put!(as_bool, value, config, pid.use_ponm);
-    put!(as_bool, value, config, pid.bd.enabled);
-    put!(as_bool, value, config, brew.by_time.enabled);
-    put!(as_bool, value, config, brew.by_weight.enabled);
-    put!(as_bool, value, config, brew.by_weight.auto_tare);
-    put!(as_bool, value, config, brew.pre_infusion.enabled);
-    put!(as_bool, value, config, display.fullscreen_brew_timer);
-    put!(
-        as_bool,
-        value,
-        config,
-        display.fullscreen_manual_flush_timer
-    );
-    put!(as_bool, value, config, display.fullscreen_hot_water_timer);
-    put!(as_bool, value, config, display.heating_logo);
-    put!(as_bool, value, config, display.pid_off_logo);
-    put!(as_bool, value, config, display.inverted);
-    put!(as_bool, value, config, hardware.oled.enabled);
-    put!(as_bool, value, config, hardware.leds.status.enabled);
-    put!(as_bool, value, config, hardware.leds.status.inverted);
-    put!(as_bool, value, config, hardware.leds.brew.enabled);
-    put!(as_bool, value, config, hardware.leds.brew.inverted);
-    put!(as_bool, value, config, hardware.leds.steam.enabled);
-    put!(as_bool, value, config, hardware.leds.steam.inverted);
-    put!(as_bool, value, config, hardware.switches.brew.enabled);
-    put!(as_bool, value, config, hardware.switches.steam.enabled);
-    put!(as_bool, value, config, hardware.switches.power.enabled);
-    put!(as_bool, value, config, hardware.switches.hot_water.enabled);
-    put!(as_bool, value, config, hardware.sensors.pressure.enabled);
-    put!(as_bool, value, config, hardware.sensors.watertank.enabled);
-    put!(
-        as_bool,
-        value,
-        config,
-        hardware.sensors.watertank.keep_heater_on_empty
-    );
-    put!(as_bool, value, config, hardware.sensors.scale.enabled);
-    put!(
-        as_bool,
-        value,
-        config,
-        maintenance.backflush_reminder.enabled
-    );
-    put!(as_bool, value, config, standby.enabled);
-    put!(as_bool, value, config, mqtt.enabled);
-    put!(as_bool, value, config, mqtt.hassio.enabled);
-    put!(as_bool, value, config, system.offline_mode);
-    put!(as_bool, value, config, system.auth.enabled);
-    put!(as_bool, value, config, system.timing_debug.enabled);
-    put!(as_bool, value, config, system.showdisplay.enabled);
-
-    // --- int (4) -----------------------------------------------------------
-    put!(as_int, value, config, backflush.cycles);
-    put!(
-        as_int,
-        value,
-        config,
-        maintenance.backflush_reminder.threshold
-    );
-    put!(as_int, value, config, mqtt.port);
-    put!(as_int, value, config, hardware.sensors.scale.samples);
-
-    // --- float (27) --------------------------------------------------------
-    put!(as_float, value, config, pid.ema_factor);
-    put!(as_float, value, config, pid.regular.kp);
-    put!(as_float, value, config, pid.regular.tn);
-    put!(as_float, value, config, pid.regular.tv);
-    put!(as_float, value, config, pid.regular.i_max);
-    put!(as_float, value, config, pid.steam.kp);
-    put!(as_float, value, config, pid.bd.kp);
-    put!(as_float, value, config, pid.bd.tn);
-    put!(as_float, value, config, pid.bd.tv);
-    put!(as_float, value, config, brew.setpoint);
-    put!(as_float, value, config, brew.temp_offset);
-    put!(as_float, value, config, brew.pid_delay);
-    put!(as_float, value, config, brew.by_time.target_time);
-    put!(as_float, value, config, brew.by_weight.target_weight);
-    put!(as_float, value, config, brew.pre_infusion.time);
-    put!(as_float, value, config, brew.pre_infusion.pause);
-    put!(as_float, value, config, steam.setpoint);
-    put!(as_float, value, config, display.post_brew_timer_duration);
-    put!(as_float, value, config, display.blinking.delta);
-    put!(as_float, value, config, backflush.fill_time);
-    put!(as_float, value, config, backflush.flush_time);
-    put!(as_float, value, config, standby.time);
-    put!(as_float, value, config, hardware.sensors.scale.calibration);
-    put!(as_float, value, config, hardware.sensors.scale.calibration2);
-    put!(as_float, value, config, hardware.sensors.scale.known_weight);
-    put!(as_float, value, config, safety.emergency_temp);
-    put!(as_float, value, config, safety.emergency_hysteresis);
-
-    // --- text (11) ---------------------------------------------------------
-    put!(as_text_owned, value, config, mqtt.broker);
-    put!(as_text_owned, value, config, mqtt.username);
-    put!(as_text_owned, value, config, mqtt.topic);
-    put!(as_text_owned, value, config, mqtt.hassio.prefix);
-    put!(as_text_owned, value, config, system.hostname);
-    put!(as_text_owned, value, config, system.auth.username);
-    put!(as_text_owned, value, config, system.wifi.ssid);
-    put_secret!(value, config, mqtt.password);
-    put_secret!(value, config, system.ota_password);
-    put_secret!(value, config, system.auth.password);
-    put_secret!(value, config, system.wifi.password);
-
-    // --- enum (20) ---------------------------------------------------------
-    put_enum!(B, value, config, brew.mode);
-    put_enum!(D, value, config, display.template);
-    put_enum!(L, value, config, display.language);
-    put_enum!(G, value, config, system.log_level);
-    put_enum!(T, value, config, hardware.oled.r#type);
-    put_enum!(A, value, config, hardware.oled.address);
-    put_enum!(R, value, config, hardware.relays.heater.trigger_type);
-    put_enum!(R, value, config, hardware.relays.valve.trigger_type);
-    put_enum!(R, value, config, hardware.relays.pump.trigger_type);
-    put_enum!(Sw, value, config, hardware.switches.brew.r#type);
-    put_enum!(M, value, config, hardware.switches.brew.mode);
-    put_enum!(Sw, value, config, hardware.switches.steam.r#type);
-    put_enum!(M, value, config, hardware.switches.steam.mode);
-    put_enum!(Sw, value, config, hardware.switches.power.r#type);
-    put_enum!(M, value, config, hardware.switches.power.mode);
-    put_enum!(Sw, value, config, hardware.switches.hot_water.r#type);
-    put_enum!(M, value, config, hardware.switches.hot_water.mode);
-    put_enum!(Ts, value, config, hardware.sensors.temperature.r#type);
-    put_enum!(M, value, config, hardware.sensors.watertank.mode);
-    put_enum!(Sc, value, config, hardware.sensors.scale.r#type);
-
-    false
-}
-
-/// Whether the dotted `key` is the field path `mangled` names.
-///
-/// `stringify!` renders a raw identifier with its `r#` — the key
-/// [`SCHEMA`](crate::schema::SCHEMA) registers is `hardware.oled.type` and
-/// `stringify!(hardware.oled.r#type)` is `hardware.oled.r#type`. Writing the key
-/// a second time as a string literal to compare against would make the table two
-/// facts per entry, and a table of two facts per entry is a table that can
-/// disagree with itself; comparing with this instead keeps one.
-fn eq_key(key: &str, mangled: &str) -> bool {
-    let mut rest = key;
-    for segment in mangled.split('.') {
-        let segment = segment.strip_prefix("r#").unwrap_or(segment);
-        let Some(tail) = rest.strip_prefix(segment) else {
-            return false;
-        };
-        rest = tail.strip_prefix('.').unwrap_or(tail);
-    }
-    rest.is_empty()
 }
 
 /// What one [`apply`] call did.
@@ -472,51 +284,6 @@ pub fn apply(config: &mut Config, pairs: &[crate::form::Field]) -> Applied {
     out
 }
 
-/// The `bool` a [`LiveValue`] carries, if that is what it is.
-fn as_bool(value: &LiveValue<'_>) -> Option<bool> {
-    match value {
-        LiveValue::Bool(v) => Some(*v),
-        _ => None,
-    }
-}
-
-/// The `i32` a [`LiveValue`] carries, if that is what it is.
-fn as_int(value: &LiveValue<'_>) -> Option<i32> {
-    match value {
-        LiveValue::Int(v) => Some(*v),
-        _ => None,
-    }
-}
-
-/// The `f64` a [`LiveValue`] carries, if that is what it is.
-fn as_float(value: &LiveValue<'_>) -> Option<f64> {
-    match value {
-        LiveValue::Float(v) => Some(*v),
-        _ => None,
-    }
-}
-
-/// The `&str` a [`LiveValue`] carries, if that is what it is.
-fn as_text<'a>(value: &LiveValue<'a>) -> Option<&'a str> {
-    match value {
-        LiveValue::Text(v) => Some(v),
-        _ => None,
-    }
-}
-
-/// The `&str` a [`LiveValue`] carries, owned — for a `String` field.
-fn as_text_owned(value: &LiveValue<'_>) -> Option<String> {
-    as_text(value).map(ToOwned::to_owned)
-}
-
-/// The discriminant a [`LiveValue`] carries, if that is what it is.
-fn as_enum(value: &LiveValue<'_>) -> Option<i8> {
-    match value {
-        LiveValue::Enum(v) => Some(*v),
-        _ => None,
-    }
-}
-
 /// Whether `spec` would accept a value parsed from `raw`.
 ///
 /// [`parse`] without the write, for a caller that needs the verdict before it
@@ -532,6 +299,7 @@ mod tests {
     use super::*;
     use crate::json::live_value;
     use crate::schema::{ParamValue, SCHEMA};
+    use alloc::borrow::ToOwned;
     use alloc::format;
     use alloc::string::ToString;
 
@@ -832,20 +600,6 @@ mod tests {
             AssignError::Rejected(RejectReason::OutOfRange { min: 0.0, max: 1.0 })
         )
         .contains("out of range [0 .. 1]"));
-    }
-
-    /// The `r#` in a `stringify!`d field path is not part of the key, and a key
-    /// that is a prefix of a field path is not a match.
-    #[test]
-    fn eq_key_sees_through_a_raw_identifier() {
-        assert!(eq_key("pid.enabled", "pid.enabled"));
-        assert!(eq_key("hardware.oled.type", "hardware.oled.r#type"));
-        assert!(!eq_key("hardware.oled.r#type", "hardware.oled.type"));
-        // A prefix in either direction, and a shared first segment.
-        assert!(!eq_key("pid", "pid.enabled"));
-        assert!(!eq_key("pid.enable", "pid.enabled"));
-        assert!(!eq_key("pidx.enabled", "pid.enabled"));
-        assert!(!eq_key("", "pid.enabled"));
     }
 
     /// A value of the right shape but the wrong kind cannot be written into the

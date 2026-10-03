@@ -195,3 +195,67 @@ pub fn load_tare(nvs: &EspNvsBlob) -> Result<Option<TareRecord>, StoreError> {
 pub fn save_tare(nvs: &mut EspNvsBlob, record: TareRecord) -> Result<(), StoreError> {
     nvs.set(TARE_KEY, &encode_tare(record))
 }
+
+/// The NVS key the backflush shot counter lives under.
+///
+/// `cc.maint.shots` — 13 characters, inside the same 15-character NVS limit as
+/// [`TARE_KEY`], in the same `cc` namespace and under the same `cc.` prefix.
+///
+/// **Not the C++'s location, deliberately.** The C++ keeps this in its own
+/// `Preferences` namespace, `maintenance`, under the key `shots_since_bf`
+/// (`defaults.h:48-49`), because the C++ writes every one of its 98 parameters
+/// as a separate key and the counter is a 99th. This firmware writes one
+/// configuration blob and puts the handful of values that are *not*
+/// configuration beside it — the tare is the first, this is the second. One
+/// namespace, one owner, one place to look. The C++'s namespace is not ours and
+/// is not read; see `cc_config::blob_store`'s module documentation on why a
+/// C++-written partition must be invisible.
+pub const SHOTS_SINCE_BACKFLUSH_KEY: &str = "cc.maint.shots";
+
+/// Read the stored shot count, or `None` if there is not a readable one.
+///
+/// `MaintenanceCoordinator::begin` (`MaintenanceCoordinator.cpp:17-27`) is the
+/// C++'s equivalent, and its `getInt(..., 0)` default is the same `None`: a
+/// device whose partition was erased, or that is running this firmware for the
+/// first time, starts at zero.
+///
+/// # Errors
+///
+/// [`StoreError::Unavailable`] if the key could not be read. A counter that
+/// cannot be restored is not a fault — the reminder starts counting from
+/// wherever it is, which is a lost count, not a broken machine — so the caller
+/// substitutes 0 and says so.
+pub fn load_shots_since_backflush(nvs: &EspNvsBlob) -> Result<Option<i32>, StoreError> {
+    let Some(bytes) = nvs.get(SHOTS_SINCE_BACKFLUSH_KEY)? else {
+        return Ok(None);
+    };
+    let Some(shots) = cc_machine::maintenance::decode_shot_count(&bytes) else {
+        // Same shape as an unreadable tare: not an error, just not ours.
+        log::warn!("nvs: the stored shot count is not readable — starting from 0");
+        return Ok(None);
+    };
+    Ok(Some(shots))
+}
+
+/// Write the shot count.
+///
+/// `MaintenanceCoordinator::persistShotsSinceBackflush`
+/// (`MaintenanceCoordinator.cpp:76-88`), down to the `> 0` success test the
+/// `Preferences` call made and the four-byte width of the value.
+///
+/// # Errors
+///
+/// [`StoreError::WriteFailed`] or [`StoreError::Unavailable`]. **A failed write
+/// leaves the previous count in place**, which is the same property
+/// [`cc_config::BlobConfigStore::save`] relies on, and it is why the in-memory
+/// count is not reverted to match: the C++ reverts (`MaintenanceCoordinator.cpp:43-47`)
+/// so that memory and storage agree, but here the two agree *eventually* anyway —
+/// the next counted brew writes the then-current value, which includes this one
+/// — so reverting would throw away a real shot to buy a temporary agreement.
+/// The failure is logged as an `error!` at the call site instead.
+pub fn save_shots_since_backflush(nvs: &mut EspNvsBlob, shots: i32) -> Result<(), StoreError> {
+    nvs.set(
+        SHOTS_SINCE_BACKFLUSH_KEY,
+        &cc_machine::maintenance::encode_shot_count(shots),
+    )
+}
