@@ -999,6 +999,18 @@ impl Diagnostics for FirmwareSide {
     fn on_steam_mode(&mut self, enabled: bool) {
         info!("machine: steam mode {}", if_enabled(enabled));
     }
+
+    /// The pump-watchdog trip. `timing.rs` documents `Effect::PumpTimeoutFired`
+    /// as the thing that makes a trip "visible in the log", and
+    /// `intentional-diffs.md` §1 rests on it ("a field log answers 'did this
+    /// ever trip?'") — but `Diagnostics::on_log` had no implementation anywhere in
+    /// the workspace, so the default empty body ran and the trip disabled the
+    /// pump silently. The same defect class as the `on_record_beat` silent `{}`
+    /// that `applier.rs:29-47` records, on the half of the split where a default
+    /// body is permitted.
+    fn on_log(&mut self, message: &str) {
+        warn!("machine: {message}");
+    }
 }
 
 /// `enabled` / `disabled`, so a log line is not two call sites of `if`.
