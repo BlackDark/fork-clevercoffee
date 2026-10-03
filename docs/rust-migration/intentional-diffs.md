@@ -1727,3 +1727,77 @@ three ways out (`by_time`, `MANUAL_BREW`, `by_weight` off), the ordering against
 the relay rules, `check_storable`, and the load-time discard.
 `cc-parity::run::tests::the_safety_view_mapping_is_the_one_the_driver_uses`
 carries the four new fields so a rename in `cc-config` cannot silently drop them.
+
+## 25. `pid.regular.i_max = 0` disables integral action 🔴 changed
+
+**What the C++ does.** `ProcessController::setPIDTunings`
+(`ProcessController.cpp:203-218`) computes `Ki = Kp / Tn` — with no reference to
+`aggIMax_` — and then calls `setPidIntegratorLimits(0, aggIMax_)` (`:211`), which
+forwards to `PID_v1::SetIntegratorLimits(0, iMax)`. That method **refuses** a
+window whose `min >= max` and returns without touching anything
+(`PID_v1.cpp:220-231`). So `pid.regular.i_max = 0` — a value both firmwares
+accept, `PID_I_MAX_REGULAR_MIN` is `0.0` (`defaults.h:71`) — left the controller
+on `PID_v1`'s own `-100 ..= +100` limits (`PID_v1.cpp:35`), while the operator
+had asked for no integral action. The C++ discards the rejection silently.
+
+**What the Rust does.** `Config::pid_tunings` reads an `i_max` of 0 as
+`Ki = 0`, which is this codebase's existing expression of "no integral action":
+it is what a `Tn` of 0 already produced, and `Controller::set_tunings` pins the
+accumulator to zero for it (`PID_v1.cpp:167-169`). Both firmware call sites skip
+the now-meaningless `SetIntegratorLimits` rather than make the call and discard
+its `bool`.
+
+**Why not raise the schema's lower bound instead.** It cannot be raised. Home
+Assistant's `aggIMax` number entity publishes this bound — the C++ at
+`MQTTManager.cpp:869` (`PID_I_MAX_REGULAR_MIN`), the port through
+`cc_config::discovery::bounds` — so a floor above zero would diverge from the C++
+*and* from this firmware's own verified MQTT discovery surface. A silent `Ki` of
+1.19 with a configured ceiling of zero is the worse answer in a machine whose
+boiler is the thing being regulated.
+
+**What pins it.**
+`cc-config/tests/config_schema.rs::an_integrator_ceiling_of_zero_is_no_integral_action_not_the_library_default`,
+next to `a_zero_tn_gives_a_zero_ki_rather_than_a_division_by_zero`, which is the
+rule this one joins.
+
+## 26. The water valve's interlock consults S5's whitelist too 🔴 added
+
+**What the C++ does.** `HardwareManager::openWaterValve`
+(`HardwareManager.cpp:404-419`) checks only `emergencyMode_`, exactly as
+`openSteamValve` does — and S5's whitelist lives somewhere else entirely, in
+`BrewHandler::valveSafetyShutdownCheck` (`BrewHandler.h:105-122`), which runs
+every loop and closes the valve unless the state is on the list. The C++ is
+therefore correct **only** because that function runs after the state machine
+and the closing effect lands after the opening one.
+
+**What the Rust does.** `cc_hal_esp32::Interlock::may_open_water` now consults
+`cc_safety::water_flow_allowed`, so the actuator facade refuses an
+`OpenWaterValve` in a non-whitelisted state exactly as
+`may_open_steam` already refused an `OpenSteamValve` in a non-steam state
+(§2). The tick's trailing `CloseWaterValve` is unchanged, so the observable
+behaviour is identical; what changes is that the second line of defence exists
+rather than being an argument about effect ordering.
+
+**Why it matters here specifically.** Steam and water share one relay
+(`ValveState.h:8-11`, GPIO17), and the MQTT inbound-command path applies its own
+effects *after* the tick's whitelist tail. That path is safe today only because
+no `Command` emits `OpenWaterValve` — a fact about one function
+(`handlers::apply_command`) that nothing enforces and that a future command
+would break silently.
+
+**And the one thing this exposed.** The facade caches the machine state for the
+interlocks, and the shell told it *before* the tick — so the cache held the
+state the tick was leaving, not the one it entered. A state-gated
+`may_open_water` would therefore have refused the `OpenWaterValve` that
+`BrewPreinfusionState::onEntryImpl` emits on the very tick the machine enters
+`BREW_PREINFUSION`, opening the valve one tick late and logging a refusal at
+every brew start. `Actuators::set_state` now runs after `Control::tick` and
+before the `apply` it belongs to, which is what the MQTT path at
+`main.rs` already had to do for the same reason.
+
+**What pins it.**
+`cc-hal-esp32::actuators::tests::the_water_valve_is_whitelist_gated_to_the_water_flow_states`
+(device-only, registered in `CASES`), which asserts
+`may_open_water() == cc_safety::water_flow_allowed(state)` for every state and
+mirrors the existing steam test. `a_healthy_interlock_permits_the_pump_the_valves_and_the_heater`
+was corrected with it: `PID_NORMAL` is not a water state either.

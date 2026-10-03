@@ -1362,12 +1362,32 @@ impl Config {
     ///
     /// Returned in the order the C++ constructor takes them
     /// (`SystemInitializer.cpp:297-304`): `(Kp, Ki, Kd)`.
+    ///
+    /// # An `i_max` of 0 also gives `Ki = 0`, and that rule is ours
+    ///
+    /// The C++ derives `Ki` from `Tn` alone and then hands `(0, i_max)` to
+    /// `SetIntegratorLimits`, which **refuses** a window whose `min >= max`
+    /// (`PID_v1.cpp:220-231`). So `pid.regular.i_max = 0` — legal in both
+    /// firmwares, `PID_I_MAX_REGULAR_MIN` is `0.0` (`defaults.h:71`) — left the
+    /// controller on `PID_v1`'s own `-100 ..= +100` (`PID_v1.cpp:35`) while
+    /// reporting a configured ceiling of zero: an operator asking for no
+    /// integral action got an integrator free to wind to either end.
+    ///
+    /// The schema cannot rule the value out, because Home Assistant's number
+    /// entity for `aggIMax` publishes this bound
+    /// (`MQTTManager.cpp:869`, through [`crate::discovery::bounds`]) and a floor
+    /// above zero would diverge from the C++ **and** from this firmware's own
+    /// MQTT surface. `Ki = 0` is instead the honest translation, and it is the
+    /// one this codebase already uses for "no integral action": it is what a
+    /// `Tn` of 0 gives, and `Controller::set_tunings` pins the accumulator to
+    /// zero for it (`PID_v1.cpp:167-169`), so the integral term cannot
+    /// contribute at all.
     #[must_use]
     pub fn pid_tunings(&self) -> (f64, f64, f64) {
         let kp = self.pid.regular.kp;
         // ProcessController.cpp:383-387 guards the division explicitly rather
         // than relying on IEEE infinity, so a Tn of 0 gives Ki = 0.
-        let ki = if self.pid.regular.tn == 0.0 {
+        let ki = if self.pid.regular.tn == 0.0 || self.pid.regular.i_max == 0.0 {
             0.0
         } else {
             kp / self.pid.regular.tn

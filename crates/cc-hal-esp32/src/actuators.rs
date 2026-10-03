@@ -51,7 +51,7 @@
 //! `openWaterValve` — see 09 §3 and `intentional-diffs.md` #3. A brew state
 //! entered with an empty tank opened the water valve against a dry reservoir.
 //!
-//! ## 3. The steam valve's whitelist
+//! ## 3. The two valve whitelists
 //!
 //! [`Actuators::open_steam_valve`] applies
 //! [`cc_safety::steam_flow_allowed`] even though the reducer never emits the
@@ -59,6 +59,23 @@
 //! (`include/clevercoffee/hardware/ValveState.h:8-11`, GPIO17), so an ungated
 //! steam valve is an ungated *water* valve. The C++ has no whitelist here at
 //! all; see `intentional-diffs.md` #2.
+//!
+//! [`Actuators::open_water_valve`] applies
+//! [`cc_safety::water_flow_allowed`] for the same reason. S5's whitelist is the
+//! C++'s own — `BrewHandler::valveSafetyShutdownCheck`
+//! (`BrewHandler.h:105-122`), transcribed into `cc_safety` — so this is not a
+//! new rule but the C++'s, enforced one place earlier as well. The two
+//! `may_open_*` methods are deliberately symmetric: both consult a whitelist,
+//! so the facade is a second line of defence on its own rather than only when
+//! the effect list happens to end in a close.
+//!
+//! **Which means the cached state has to be the one the effects were produced
+//! from.** The shell calls [`Actuators::set_state`] after the tick and before
+//! the `apply` (`cc-firmware/src/main.rs`), and again before the MQTT path's
+//! own `apply`; telling it before the tick leaves the cache holding the state
+//! that tick left, and an `OpenWaterValve` emitted *because of* the transition
+//! into `BREW_PREINFUSION` would then be judged against `PID_NORMAL` and
+//! refused.
 //!
 //! # The valve is one pin and four commands
 //!
@@ -281,14 +298,32 @@ impl Interlock {
         !self.latched && self.water_tank_full && !self.inhibit.pump
     }
 
-    /// S2 + S4: may the water valve be energised?
+    /// S2 + S4 + S5: may the water valve be energised?
     ///
     /// The tank condition is **not** in the C++ here (09 §3). It is here, and
     /// the cost is zero: S5's whitelist is consulted in the same breath and
     /// closes the valve in every state that is not brewing anyway.
+    ///
+    /// S5 is here too, which is the symmetry with [`Self::may_open_steam`] and
+    /// is the reason this is **belt-and-braces** rather than the only
+    /// enforcement point. It used to be the only point that was missing:
+    /// `cc_machine::tick` appends `Effect::CloseWaterValve` whenever the state
+    /// is not whitelisted (`cc-machine/src/lib.rs:237`) and the applier runs
+    /// the list in order, so the trailing close won — but that is an ordering
+    /// argument, and the MQTT effect path (`main.rs`) applies its own inbound
+    /// commands **after** the tick's tail. The argument holds only because no
+    /// `Command` emits `OpenWaterValve` (`handlers::apply_command` pushes
+    /// `SetPidRuntime`, `RequestReboot` and `ResetStandbyTimer` and nothing
+    /// else), which is a fact about one function that nothing enforces.
+    /// `may_open_steam` already consults its whitelist for exactly this reason
+    /// (09 §2), and steam and water share one relay, so the asymmetry bought
+    /// nothing.
     #[must_use]
     pub const fn may_open_water(self) -> bool {
-        !self.latched && self.water_tank_full && !self.inhibit.valve
+        !self.latched
+            && self.water_tank_full
+            && cc_safety::water_flow_allowed(self.state)
+            && !self.inhibit.valve
     }
 
     /// S2 + S5': may the steam valve be energised?
@@ -1117,12 +1152,28 @@ pub mod tests {
     }
 
     #[cfg_attr(test, test)]
+    pub fn the_water_valve_is_whitelist_gated_to_the_water_flow_states() {
+        // S5, and the mirror of the steam test above. This used to be enforced
+        // only by the tick's trailing `CloseWaterValve`; see
+        // `Interlock::may_open_water` for why that is one enforcement point too
+        // few. The whitelist is the C++'s, from `BrewHandler.h:105-122`.
+        for state in cc_domain::state::ALL {
+            let probe = Interlock { state, ..RUNNING };
+            assert_eq!(
+                probe.may_open_water(),
+                cc_safety::water_flow_allowed(state),
+                "state {state:?}"
+            );
+        }
+    }
+
+    #[cfg_attr(test, test)]
     pub fn a_healthy_interlock_permits_the_pump_the_valves_and_the_heater() {
-        // The steam whitelist is the exception even here: `PID_NORMAL` is not a
-        // steam state, so the steam valve stays shut.
+        // Both whitelists are the exception even here: `PID_NORMAL` is neither a
+        // water state nor a steam state, so both valves stay shut.
         assert!(RUNNING.may_pump());
-        assert!(RUNNING.may_open_water());
         assert!(RUNNING.may_heat());
+        assert!(!RUNNING.may_open_water());
         assert!(!RUNNING.may_open_steam());
     }
 

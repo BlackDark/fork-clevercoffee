@@ -90,10 +90,24 @@ pub const BUFFER_BYTES: usize = 1024;
 
 /// The publish budget per iteration, in milliseconds.
 ///
-/// `MQTTManager.h:259` `timeBudget_ = 10`, checked after each publish at
-/// `MQTTManager.cpp:501, 517, 546`. 10 ms is 2.5 % of the 400 ms temperature
-/// sensor interval.
-pub const TIME_BUDGET_MS: u32 = 10;
+/// **Re-derived against this firmware's control period, not the C++'s.** The
+/// C++ sets `timeBudget_ = 10` (`MQTTManager.h:259`), checked after each publish
+/// at `MQTTManager.cpp:501, 517, 546`, and justifies it against a 400 ms
+/// temperature-sensor interval. R4-01 moved the loop to 100 Hz, so that
+/// justification is stale and the ratio is not: [`Feed::service`] is called from
+/// **every** tick, and the control period is **10 ms**
+/// (`cc-firmware/src/main.rs:189`, `CONTROL_PERIOD_MS`). A budget equal to the
+/// whole period bounds nothing — it permits one publish attempt to occupy a
+/// tick entirely, and the control task's own work (the SENSE reading, the PID,
+/// the applier, the display hand-off) is what gets squeezed instead.
+///
+/// At 2 ms, a full pass of the ~46 registered topics still finishes well inside
+/// the slowest interval that matters ([`INTERVAL_BREW_MS`], 500 ms) even when
+/// every publish misses the budget and one topic is published per tick, so the
+/// budget costs throughput nothing; it only costs a broker that has stopped
+/// draining its outbox. 20 % of the period leaves the rest of the tick to the
+/// machine.
+pub const TIME_BUDGET_MS: u32 = 2;
 
 /// The interval between full telemetry passes, in milliseconds.
 ///
@@ -1670,10 +1684,13 @@ pub mod tests {
     }
 
     #[cfg_attr(test, test)]
-    pub fn the_budget_is_the_csqs_ten_milliseconds() {
-        // MQTTManager.h:259, and 2.5% of the 400 ms sensor interval.
-        assert_eq!(TIME_BUDGET_MS, 10);
-        const { assert!(TIME_BUDGET_MS * 40 <= 400) };
+    pub fn the_budget_is_a_fraction_of_the_control_period() {
+        // The C++'s 10 ms was 2.5 % of a 400 ms loop. This firmware's loop is
+        // 10 ms (`cc-firmware/src/main.rs:189`), so the budget is re-derived
+        // against that: a quarter of the period would still be most of a tick's
+        // worth of publishing, and the whole of it would bound nothing.
+        assert_eq!(TIME_BUDGET_MS, 2);
+        const { assert!(TIME_BUDGET_MS * 5 <= 10) };
     }
 
     #[cfg_attr(test, test)]

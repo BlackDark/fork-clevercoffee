@@ -68,6 +68,10 @@ pub const CASES: &[Case] = &[
         run: actuators::tests::an_inhibit_holds_its_own_actuator_and_nothing_else,
     },
     Case {
+        name: "actuators::the_water_valve_is_whitelist_gated_to_the_water_flow_states",
+        run: actuators::tests::the_water_valve_is_whitelist_gated_to_the_water_flow_states,
+    },
+    Case {
         name: "actuators::a_healthy_interlock_permits_the_pump_the_valves_and_the_heater",
         run: actuators::tests::a_healthy_interlock_permits_the_pump_the_valves_and_the_heater,
     },
@@ -156,8 +160,8 @@ pub const CASES: &[Case] = &[
         run: mqtt::tests::the_buffer_is_the_csqs_1024,
     },
     Case {
-        name: "mqtt::the_budget_is_the_csqs_ten_milliseconds",
-        run: mqtt::tests::the_budget_is_the_csqs_ten_milliseconds,
+        name: "mqtt::the_budget_is_a_fraction_of_the_control_period",
+        run: mqtt::tests::the_budget_is_a_fraction_of_the_control_period,
     },
     Case {
         name: "mqtt::the_intervals_are_the_csqs",

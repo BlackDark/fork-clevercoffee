@@ -167,7 +167,15 @@ impl Control {
         );
         let _ = pid.set_sample_time(Millis::new(WINDOW_MS));
         let _ = pid.set_output_limits(0.0, f64::from(WINDOW_MS));
-        let _ = pid.set_integrator_limits(0.0, config.pid.regular.i_max);
+        // `SetIntegratorLimits(0, aggIMax_)` (`SystemInitializer.cpp:553`),
+        // guarded on a non-zero `i_max` because `PID_v1` refuses a window whose
+        // `min >= max` (`PID_v1.cpp:220-231`). The guard is not a workaround:
+        // `Config::pid_tunings` reads `i_max == 0` as `Ki = 0`, which pins the
+        // integrator to zero (`PID_v1.cpp:167-169`), so there is no window left
+        // to set and the `bool` cannot be false for any value that reaches it.
+        if config.pid.regular.i_max > 0.0 {
+            let _ = pid.set_integrator_limits(0.0, config.pid.regular.i_max);
+        }
         pid.set_smoothing_factor(config.pid.ema_factor);
 
         let setpoint = effective_setpoint(config, false);
@@ -512,9 +520,15 @@ impl Control {
             warn!("control: regular PID tuning rejected (kp={kp} ki={ki} kd={kd})");
             return;
         }
-        let _ = self
-            .pid
-            .set_integrator_limits(0.0, config.pid.regular.i_max);
+        // `setPidIntegratorLimits(0, aggIMax_)` (`ProcessController.cpp:211`).
+        // See the boot path's comment: `i_max == 0` is "no integral action" and
+        // is already `Ki == 0`, so the call is skipped rather than made and its
+        // rejection discarded.
+        if config.pid.regular.i_max > 0.0 {
+            let _ = self
+                .pid
+                .set_integrator_limits(0.0, config.pid.regular.i_max);
+        }
         info!(
             "control: PID tunings p={kp:.3} i={ki:.3} d={kd:.3} ({} mode)",
             if config.pid.use_ponm {

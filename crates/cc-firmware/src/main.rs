@@ -2850,10 +2850,11 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
 
         // The facade is told the clock and the two facts the interlocks are a
         // function of, **before** the effects are applied, so a duty the reducer
-        // emits in this very tick is judged against this tick's state.
+        // emits in this very tick is judged against this tick's state. The
+        // machine **state** is not one of them: it is told after the tick, beside
+        // the `apply` it belongs to — see there.
         actuators.set_now(now);
         actuators.set_water_tank_full(tank_full);
-        actuators.set_state(control.state());
         actuators.set_latched(control.safety_state().latched);
 
         // ---- 6 + 7. DECIDE, then ACT ------------------------------------------
@@ -2952,6 +2953,15 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
         // its own list, so the two are concatenated in the C++'s order —
         // commands first (step 3 of the loop), then the tick's own.
         effects.extend(&tick_effects);
+        // **And the facade is told the machine state first.** `may_open_water`
+        // and `may_open_steam` are whitelists over it, so an effect the reducer
+        // emitted *because of* this tick's transition has to be judged against
+        // the state that transition produced. Told before the tick, the cache
+        // still holds the state this tick left — so entering `BREW_PREINFUSION`
+        // (whose `onEntryImpl` opens the water valve, `BrewStates.cpp:67-79`)
+        // would be judged against `PID_NORMAL` and refused for one tick. The
+        // MQTT path below already had to do this for the same reason.
+        actuators.set_state(control.state());
         cc_machine::apply(&mut actuators, &mut side, control.machine(), &effects);
 
         // ---- 7b. write down the shot counter, if it moved ---------------------
@@ -3317,11 +3327,11 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
         //
         // **After** the actuator work and the deadman above it, for the reason
         // the whole budget exists: this is the only step in the tick that talks
-        // to anything outside the chip, and it is bounded by
-        // `TIME_BUDGET_MS` (10 ms of a 10 ms period, which is the C++'s own
-        // ratio -- `MQTTManager.h:259` against `LoopManager.cpp:505`). A machine
-        // with 46 registered topics and a slow broker takes two or three ticks
-        // to finish a pass and never overruns one.
+        // to anything outside the chip, and it is bounded by `TIME_BUDGET_MS` --
+        // 2 ms of this loop's 10 ms period. A machine with 46 registered topics
+        // and a slow broker takes a few ticks to finish a pass and never
+        // overruns one. See `mqtt::TIME_BUDGET_MS` for why the C++'s 10 ms was
+        // not carried over.
         if let Some(link) = mqtt.as_mut() {
             let mut mqtt_effects = cc_machine::Effects::new();
             let live = mqtt_link::Live {

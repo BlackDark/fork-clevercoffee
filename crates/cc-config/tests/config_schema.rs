@@ -196,6 +196,30 @@ fn a_zero_tn_gives_a_zero_ki_rather_than_a_division_by_zero() {
 }
 
 #[test]
+fn an_integrator_ceiling_of_zero_is_no_integral_action_not_the_library_default() {
+    // `pid.regular.i_max` is bounded `0 ..= 100` by `SCHEMA`, because the C++
+    // bounds it that way (`defaults.h:71`, `PID_I_MAX_REGULAR_MIN`). The
+    // firmware's only use of it is `SetIntegratorLimits(0, i_max)`
+    // (`ProcessController.cpp:211`), and `PID_v1` **refuses** a window whose
+    // `min >= max` (`PID_v1.cpp:220-231`) — so `i_max == 0` was rejected and
+    // the controller kept `PID_v1`'s own `-100 ..= +100`
+    // (`Controller::DEFAULT_INTEGRATOR_MIN/MAX`). An operator asking for no
+    // integral action got an integrator free to wind to +/-100 of duty, and
+    // both call sites discarded the returned `bool`.
+    //
+    // `Ki == 0` is how this codebase already says "no integral action": it is
+    // what a `Tn` of 0 gives, and `Controller::set_tunings` pins the
+    // integrator to zero for it (`PID_v1.cpp:167-169`).
+    let mut c = Config::default();
+    c.pid.regular.i_max = 0.0;
+    let (_, ki, _) = c.pid_tunings();
+    assert!(
+        ki.abs() < 1e-12,
+        "an integrator ceiling of 0 must mean Ki = 0, not Ki = {ki}"
+    );
+}
+
+#[test]
 fn the_effective_brew_setpoint_includes_the_offset() {
     let mut c = Config::default();
     assert!((c.effective_brew_setpoint() - 95.0).abs() < 1e-12);
