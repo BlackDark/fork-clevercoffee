@@ -52,6 +52,8 @@ or flashes the firmware run on **`esp`**, the `rust-toolchain.toml` pin. Use
 
 The manual checklist is [docs/integration-tests.md](docs/integration-tests.md).
 
+What CI runs and what it costs: [docs/ci.md](docs/ci.md).
+
 ### Building the C++ firmware (the parity oracle)
 
 ```sh

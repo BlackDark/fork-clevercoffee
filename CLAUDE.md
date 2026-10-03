@@ -98,6 +98,9 @@ need `just setup` to have run. `just doctor` checks the device toolchain;
 `just gate` adds the device clippy, the Xtensa release build and the image-size
 budget — run it when the change can affect the firmware image.
 
+What the CI pipeline is, what each job costs, and why the toolchain pins and
+cache keys are shaped the way they are: **[docs/ci.md](docs/ci.md)**.
+
 Notes that cost an afternoon if you do not know them:
 
 - The **web UI must be built before the firmware will link**:
