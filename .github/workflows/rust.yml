@@ -98,13 +98,32 @@ jobs:
   host:
     name: format, lint, doc, test (host)
     runs-on: ubuntu-latest
-    # STABLE, deliberately, and not for speed -- see the header.
+    # A PINNED toolchain, installed by the step below. Not `stable`.
     #
-    # `CC_RUST_TOOLCHAIN` is the switch the justfile exposes; `RUSTUP_TOOLCHAIN`
-    # is set too so a bare `cargo` in this job resolves the same way a bare
-    # `just` does. The justfile's own default stays `esp`.
+    # `stable` looked sufficient and is not: a GitHub runner ships whatever
+    # `stable` was when its image was built, and in PR #96 that was old enough
+    # that `clippy::assert_is_empty` (added in clippy 1.99) was unknown to it --
+    # which broke the clippy step, and would equally let a brand-new lint through
+    # one week and fail the next. A lint gate whose lint SET depends on the
+    # runner image's build date is not a gate.
+    #
+    # The version comes from `.mise.toml`'s `[vars]` (`host_toolchain`), read by
+    # the step below and exported as `CC_RUST_TOOLCHAIN` -- the switch the
+    # justfile turns into `RUSTUP_TOOLCHAIN` for every recipe. The justfile's own
+    # default stays `esp`, so no device recipe is affected.
+    #
+    # `RUSTUP_TOOLCHAIN: stable` at JOB level, and it is for exactly ONE step:
+    # the `mise-action` below. mise installs its `cargo:` backend tools (espflash,
+    # cargo-espflash, ldproxy) by exec'ing a bare `cargo install`, and a bare cargo
+    # resolves through `rust-toolchain.toml` -- which says `esp`, a channel this
+    # job never installs. Without it the job died in step 3, before reaching
+    # anything of its own.
+    #
+    # Only `CC_RUST_TOOLCHAIN` is written to `$GITHUB_ENV`: every step after the
+    # install goes through `just`, so one variable is enough, and not writing
+    # `RUSTUP_TOOLCHAIN` avoids a collision between the job-level value mise needs
+    # and the pinned one the gate needs.
     env:
-      CC_RUST_TOOLCHAIN: stable
       RUSTUP_TOOLCHAIN: stable
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -116,6 +135,11 @@ jobs:
           # mise deliberately does not own the compiler (see its header).
           install: true
           experimental: true
+
+      - name: Install the pinned host toolchain
+        run: |
+          set -euxo pipefail
+          echo "CC_RUST_TOOLCHAIN=$(./scripts/install-host-toolchain.sh)" >> "$GITHUB_ENV"
 
       - name: Show the resolved toolchain
         run: |
@@ -170,6 +194,28 @@ jobs:
   device:
     name: clippy + firmware build + size budget (xtensa-esp32)
     runs-on: ubuntu-latest
+    # STABLE for the whole job, and the justfile turns it back into `esp` for
+    # every recipe.
+    #
+    # `jdx/mise-action` runs `mise install` itself, and mise installs its
+    # `cargo:` backend tools (espflash, cargo-espflash, ldproxy) by exec'ing a
+    # bare `cargo install`. A bare cargo resolves through `rust-toolchain.toml`,
+    # which says `channel = "esp"` -- the channel this job has not installed yet.
+    # So on a cold cache every one of them died:
+    #
+    #   mise cargo:ldproxy@0.3.5 error: custom toolchain 'esp' specified in
+    #     override file '.../rust-toolchain.toml' is not installed
+    #
+    # It passed on earlier runs only because `Restoring mise cache` covered those
+    # three tools, so mise never had to build them. Changing the tool set changed
+    # the cache key, and the latent failure surfaced. A cache is not a design.
+    #
+    # Safe for the recipes that follow: a just `export` beats an environment
+    # variable (verified), so `RUSTUP_TOOLCHAIN := env_var_or_default(
+    # "CC_RUST_TOOLCHAIN", "esp")` inside the justfile makes every recipe use `esp`
+    # regardless of what is ambient here.
+    env:
+      RUSTUP_TOOLCHAIN: stable
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -199,14 +245,75 @@ jobs:
         # concrete version is pinned in `.mise.toml` as
         # `x86_64_toolchain_version`; the `esp` rustup channel is FLOATING, so
         # that pin is the only version pin there is, and `just doctor` checks it.
-        env:
-          CC_RUST_TOOLCHAIN: stable
+        # NO step-level `env:` here, deliberately.
+        #
+        # `CC_RUST_TOOLCHAIN` is the justfile's switch and nothing else: it picks
+        # what the justfile puts in `RUSTUP_TOOLCHAIN` for a RECIPE. rustup never
+        # reads it, so a bare `cargo` in a raw `run:` block still resolves through
+        # `rust-toolchain.toml` and dies with "custom toolchain 'esp' ... is not
+        # installed" -- which is exactly what PR #96's device job did on its
+        # `cargo install espup` line.
+        #
+        # The bootstrap therefore names the toolchain on the command line, with
+        # `+stable`, which overrides the override file AND the environment and
+        # cannot be got wrong by an env block in the wrong place.
         run: |
+          set -euxo pipefail
           mise trust
           mise install
-          mise run setup-esp
-          unset CC_RUST_TOOLCHAIN
+          # `scripts/setup-esp-toolchain.sh`, NOT `mise run setup-esp` and NOT an
+          # inline `cargo install espup`. All three spellings were tried here and
+          # two of them failed; the script's header says why, and it matters
+          # because the causes are not obvious:
+          #
+          #  * `rust-toolchain.toml` says `channel = "esp"`, which is what this
+          #    step installs -- so a bare `cargo install espup` dies
+          #    "custom toolchain 'esp' ... is not installed".
+          #  * `CC_RUST_TOOLCHAIN` (the justfile's switch) is invisible to rustup,
+          #    so setting it as a step env is a no-op that looks correct.
+          #  * mise does NOT substitute `[vars]` in a task's `run` array, so
+          #    `mise run setup-esp` handed espup the literal string
+          #    "${x86_64_toolchain_version}".
+          #
+          # The script reads the pins from `.mise.toml` and asserts them non-empty.
+          ./scripts/setup-esp-toolchain.sh
+          just env-file
           just doctor
+
+      - name: Install the pinned host toolchain
+        # Not for building -- this job builds with `esp`. It is here so that the
+        # lint-name probe below can check BOTH channels in one place, which is
+        # the whole point of that check: `unknown_lints = "allow"` in Cargo.toml
+        # is only safe while something verifies that every lint we name is a lint
+        # that EXISTS on at least one supported channel.
+        #
+        # It cannot live in `invariants` (no toolchain there, and the Espressif
+        # fork is not on static.rust-lang.org) and it cannot live in `host` (that
+        # job does not have esp). So both channels meet here, in the one job
+        # that installs esp.
+        run: |
+          set -euxo pipefail
+          ./scripts/install-host-toolchain.sh
+
+      - name: Every lint named in an allow/expect is a real lint
+        # It lives HERE and not in the `invariants` job because it needs BOTH
+        # channels. `Cargo.toml` sets `unknown_lints = "allow"`, so a suppression
+        # naming a lint a channel predates is a harmless no-op rather than a build
+        # failure -- and the cost of that allowance is that a typo would go
+        # unnoticed. This closes it: every lint named in an allow/expect must
+        # exist on AT LEAST ONE of the channels the repo supports, and the report
+        # names the ones that exist on only one. A typo exists on neither and
+        # fails here.
+        #
+        # It cannot be in `invariants`, which installs no toolchain at all: the
+        # Espressif `esp` fork is NOT distributed from `static.rust-lang.org`, only
+        # `espup` can install it. This job has just run `espup`.
+        # The PINNED host toolchain, not `stable`: the runner's `stable` is
+        # whatever its image shipped, and "does every lint we name exist on the
+        # supported channels" must not change with the image.
+        env:
+          CC_LINT_CHANNELS: 1.99.0:esp
+        run: python3 scripts/lint-names.py .
 
       - name: clippy (device, pedantic, -D warnings)
         run: just lint-esp32
@@ -231,46 +338,15 @@ jobs:
   invariants:
     name: workspace invariants
     runs-on: ubuntu-latest
+    # Same reason as the device job: mise-action runs `mise install`, and a bare
+    # `cargo install` from one of its `cargo:` backends would resolve through
+    # `rust-toolchain.toml` and demand the `esp` channel. These checks need no
+    # toolchain at all, but the job must still get past step 1.
+    env:
+      RUSTUP_TOOLCHAIN: stable
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - name: Install the Espressif toolchain (for the lint-name probe)
-        # `scripts/lint-names.py` checks every lint this workspace names against
-        # BOTH channels it supports, because `unknown_lints = "allow"` in
-        # Cargo.toml is only safe while something catches a name that exists on
-        # NEITHER. The probe is only as good as the channels it can reach, so a
-        # missing channel is a hard error in the script rather than a skip.
-        env:
-          CC_RUST_TOOLCHAIN: stable
-        run: |
-          # The SAME pin `mise run setup-esp` uses, read from the one place it is
-          # written. `rustup toolchain install esp` would take the FLOATING
-          # channel, which is a different toolchain from the one the device job
-          # lints against -- and a lint-name check against the wrong esp build
-          # proves nothing.
-          version=$(sed -n 's/^x86_64_toolchain_version = "\(.*\)"/\1/p' .mise.toml)
-          echo "esp toolchain version: ${version}"
-          rustup toolchain install "esp-${version}" --profile minimal --component clippy,rustfmt
-          rustup toolchain link esp "esp-${version}"
-          rustup toolchain list
-
-      - name: Every lint named in an allow/expect is a real lint
-        # `Cargo.toml` sets `unknown_lints = "allow"`, because this repository runs
-        # clippy on two generations at once (the runner's `stable` and the
-        # Espressif `esp` 1.97 fork) and every recipe passes `-D warnings`, which
-        # promotes `unknown_lints` to an error. Without the allowance, one
-        # suppression naming a lint the older channel predates takes the whole
-        # build down -- which is what broke PR #96.
-        #
-        # The cost of allowing it is that a typo in a suppression would go
-        # unnoticed. This closes that hole: every lint named in an allow/expect
-        # must exist on AT LEAST ONE channel, and the report names the ones that
-        # exist on only one. A typo exists on neither and fails here.
-        #
-        # Both toolchains must be installed, which this job already guarantees.
-        env:
-          CC_LINT_CHANNELS: stable:esp
-        run: python3 scripts/lint-names.py .
 
       - name: The portable crates must not name esp-idf in CODE
         # cc-domain, cc-safety, cc-config, cc-machine and cc-display are

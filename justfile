@@ -203,6 +203,28 @@ doctor-host:
     fi
     echo "compiler owner: rust-toolchain.toml; mise does not declare rust"
 
+    # The trap that has cost the most CI runs, stated as a check so it cannot
+    # come back unnoticed: a bare `cargo` -- which is what mise execs to install
+    # its `cargo:` backend tools -- resolves through `rust-toolchain.toml` and so
+    # demands the `esp` channel. On a machine that has not run `just setup` yet,
+    # `mise install` fails three times over with "custom toolchain 'esp' ...
+    # is not installed".
+    #
+    # This only prints advice, because `just doctor` itself runs AFTER the
+    # toolchain exists and `just doctor-host` has to work on a host-only machine
+    # where `esp` is legitimately absent -- demanding it here would make the host
+    # gate unsatisfiable. The real enforcement is `RUSTUP_TOOLCHAIN=stable` on the
+    # mise-running job, which is why that is at job level rather than on one step.
+    if ! rustup run esp rustc --version >/dev/null 2>&1; then
+      echo ""
+      echo "NOTE: the esp toolchain is not installed."
+      echo "  Any bare 'cargo' here -- including the one mise execs for its"
+      echo "  cargo: backend tools -- resolves through rust-toolchain.toml and"
+      echo "  will fail. Run 'mise install' with RUSTUP_TOOLCHAIN=stable, or"
+      echo "  'just setup'. (CI sets RUSTUP_TOOLCHAIN=stable at job level for"
+      echo "  exactly this reason.)"
+    fi
+
     just --version
     mise --version
     echo "host checks ok -- run 'just setup' for the device toolchain, or 'just doctor' to check it"
@@ -217,8 +239,56 @@ doctor:
     # is the one .mise.toml pins for espup. Assert the two agree, or a toolchain
     # bump silently moves under the size budget.
     grep -q 'channel = "esp"' rust-toolchain.toml
-    grep -q "x86_64_toolchain_version" .mise.toml
-    echo "esp toolchain pin: $(sed -n 's/^x86_64_toolchain_version = "\(.*\)"/\1/p' .mise.toml)"
+    # `[[:space:]]*`, not `^`: these keys live in `.mise.toml`'s `[vars]` table, so
+    # they are indented by two spaces. A `^`-anchored pattern silently matched
+    # NOTHING and this printed an EMPTY pin -- for several commits, and through
+    # one CI run, because it only ever PRINTED the value. Asserting the pin
+    # non-empty is the fix; the tolerant pattern is why it now works at all.
+    esp_pin=$(sed -n 's/^[[:space:]]*x86_64_toolchain_version = "\(.*\)"/\1/p' .mise.toml)
+    espup_pin=$(sed -n 's/^[[:space:]]*espup_version = "\(.*\)"/\1/p' .mise.toml)
+    host_pin=$(sed -n 's/^[[:space:]]*host_toolchain = "\(.*\)"/\1/p' .mise.toml)
+    if [ -z "$esp_pin" ]; then
+      echo ".mise.toml has no readable x86_64_toolchain_version pin."
+      echo "It lives in [vars], so it is indented -- if that table moved again,"
+      echo "fix this pattern rather than the pin."
+      exit 1
+    fi
+    if [ -z "$espup_pin" ]; then
+      echo ".mise.toml has no readable espup_version pin"
+      exit 1
+    fi
+    if [ -z "$host_pin" ]; then
+      echo ".mise.toml has no readable host_toolchain pin"
+      exit 1
+    fi
+    echo "esp toolchain pin: $esp_pin   espup pin: $espup_pin   host pin: $host_pin"
+    # The host pin must not be OLDER than the device pin.
+    #
+    # `unknown_lints = "allow"` exists because the two channels have different
+    # lint SETS -- a lint the newer one has, the older has never heard of, and
+    # naming it in a suppression would otherwise be a build failure. That is a
+    # manageable gap. The reverse ordering is not: if the host channel is OLDER,
+    # then a lint that fires on it cannot be suppressed at all, so a gate built
+    # there would be weaker than the one the device job runs.
+    #
+    # `cut -d. -f2` for the MINOR: `${pin%%.*}` would strip from the FIRST dot
+    # and yield "1" for every 1.x, comparing equal for ever -- which is how the
+    # first version of this check silently passed with the pins three years of
+    # releases apart.
+    esp_minor="$(echo "$esp_pin" | cut -d. -f2)"
+    host_minor="$(echo "$host_pin" | cut -d. -f2)"
+    # For the message: `-f1,2` keeps the major, so it reads "1.97" and not "97".
+    esp_series="$(echo "$esp_pin" | cut -d. -f1,2)"
+    host_series="$(echo "$host_pin" | cut -d. -f1,2)"
+    if [ "${host_minor:-0}" -lt "${esp_minor:-0}" ]; then
+      echo "toolchain pins are ordered wrong: esp ${esp_pin} vs host ${host_pin}"
+      echo "  (rustc ${esp_series}.x is the device channel, ${host_series}.x the host one)"
+      echo "The host channel must not be OLDER than the device channel: a lint"
+      echo "that fires on the older one cannot be suppressed by name at all, so"
+      echo "the host gate would be strictly weaker than the device gate."
+      exit 1
+    fi
+    echo "channels: device rustc ${esp_series}.x, host rustc ${host_series}.x (lint gap absorbed by unknown_lints = \"allow\")"
     rustup run esp rustc --version
 
     # The device recipes default to `esp`; a caller who overrode it wants the
@@ -248,9 +318,14 @@ setup:
     # machine where rustup lives somewhere unusual this is the one place that
     # says so, instead of a bare "No such file or directory" from inside mise.
     command -v cargo >/dev/null || { echo "cargo is not on PATH; install Rust with rustup first: https://rustup.rs"; exit 1; }
-    CC_RUST_TOOLCHAIN=stable mise trust
-    CC_RUST_TOOLCHAIN=stable mise install
-    CC_RUST_TOOLCHAIN=stable mise run setup-esp
+    mise trust
+    # RUSTUP_TOOLCHAIN, NOT CC_RUST_TOOLCHAIN. mise execs a bare `cargo install`
+    # for its `cargo:` backend tools, and a bare cargo resolves through
+    # rust-toolchain.toml -- which says `esp`, a channel that does not exist yet
+    # on a fresh machine. CC_RUST_TOOLCHAIN is the justfile's own switch and
+    # rustup never sees it, so using it here is a no-op that fails confusingly.
+    RUSTUP_TOOLCHAIN=stable mise install
+    mise run setup-esp
     @just ui
     @just doctor
 

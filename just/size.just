@@ -9,6 +9,14 @@
 # constants, so `just size-record esp32s3 x` silently measured the **esp32**
 # image and only said "esp32s3" in an error message. The argument is now checked
 # against what actually exists rather than trusted. REVIEW.md M-12.
+# One error semantic, and it must be stated HERE: this file has no `set shell`
+# of its own, so just defaults to `sh -c`. On a Debian/Ubuntu runner /bin/sh is
+# DASH, and `set -o pipefail` is a bashism -- so a recipe that relied on its own
+# `#!/usr/bin/env bash` first line worked until it was converted to `[script]`
+# (which puts the shebang on line 3, where it is only a comment), and then died
+# with "set: Illegal option -o pipefail" on the runner and nowhere else.
+set shell := ["bash", "-euo", "pipefail", "-c"]
+
 mcu := "esp32"
 
 # The single binary is named `firmware` (04 §6), so the artifact is
@@ -17,9 +25,8 @@ tgt := "xtensa-esp32-espidf"
 elf := "target/" + tgt + "/release/firmware"
 
 # Fail loudly rather than measure the wrong chip.
+[script]
 _require_esp32 mcu:
-    #!/usr/bin/env bash
-    set -euo pipefail
     if [ "{{mcu}}" != "esp32" ]; then
       echo "only esp32 is built; '{{mcu}}' would be measured as esp32."
       echo "Build the other target first (justfile: build-{{mcu}}) and give"
@@ -43,9 +50,8 @@ baseline := "docs/rust-migration/size-baseline.json"
 records := "docs/rust-migration/size-records.jsonl"
 
 # Report image size, per-section breakdown and headroom.
+[script]
 size: (_require_esp32 "esp32")
-    #!/usr/bin/env bash
-    set -euo pipefail
     export LC_ALL=C
     elf="{{elf}}"
     if [ ! -f "$elf" ]; then echo "no image at $elf — run: just build-esp32"; exit 1; fi
@@ -110,8 +116,6 @@ size: (_require_esp32 "esp32")
 # recorded justification (07 §4/§5).
 [script]
 check: (_require_esp32 "esp32")
-    #!/usr/bin/env bash
-    set -euo pipefail
     export LC_ALL=C
     elf="{{elf}}"
     [ -f "$elf" ] || { echo "no image at $elf"; exit 1; }
@@ -140,9 +144,8 @@ check: (_require_esp32 "esp32")
     exit $fail
 
 # Record a phase-gate datapoint (07 §4). `just size-record esp32 gate-1`
+[script]
 record mcu="esp32" label="": (_require_esp32 mcu)
-    #!/usr/bin/env bash
-    set -euo pipefail
     export LC_ALL=C
     elf="{{elf}}"
     [ -f "$elf" ] || { echo "no image at $elf — run: just build-{{mcu}}"; exit 1; }

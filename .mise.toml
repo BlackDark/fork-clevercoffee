@@ -85,6 +85,23 @@ min_version = "2024.1.0"
 
   espup_version = "0.17.1"
 
+  # The toolchain the HOST gate compiles with: `cargo fmt`, clippy, rustdoc and
+  # the portable crates' tests.
+  #
+  # PINNED, and it has to be. `stable` looked sufficient and is not: a GitHub
+  # runner ships whatever `stable` was when its image was built, which in
+  # PR #96 was old enough that `clippy::assert_is_empty` (clippy 1.99) was
+  # unknown to it. A lint gate whose lint SET depends on the runner image's
+  # build date is not a gate -- and neither is any check that asks "does every
+  # lint we name exist on the supported channels", because the answer changes
+  # with the image.
+  #
+  # It is the same version `rust-toolchain.toml`'s `esp` channel currently
+  # resolves to, so the two channels are one minor version apart and the
+  # difference in their lint sets is exactly the one `unknown_lints = "allow"`
+  # exists to absorb. Pin it, and `just doctor` asserts the two agree.
+  host_toolchain = "1.99.0"
+
   # ONLY the production target. esp32s2/esp32s3/esp32c6 are R4-07/R4-08 work
   # that has not been flashed or exercised; their Xtensa GCC costs ~1 GB each
   # for nothing.
@@ -99,18 +116,21 @@ min_version = "2024.1.0"
 [tasks.setup-esp]
   description = "Install the esp-rs Xtensa toolchain pinned by x86_64_toolchain_version"
   run = [
-    # WHY `cargo install` and not `cargo:espup` in [tools]: espup must exist
-    # before `mise install` can affect the compiler at all, and mixing a
-    # mise-managed espup with `cargo install --force` gives two owners of one
-    # binary -- whichever happens to be first on PATH wins, silently. The
-    # previous version also had `|| true` here, which swallowed a failed install
-    # and let the task die later at "espup: command not found".
-    "cargo install --locked espup --version ${espup_version} --force",
-    # `--toolchain-version` is mandatory and `--skip-version-parse` is what makes
-    # it legal. VERIFIED 2026-09-28 on the original author's host: without them,
-    # `espup install` dies in its first step querying
-    #   https://api.github.com/repos/esp-rs/rust-build/releases/latest
-    # ("error sending request ... operation timed out").
-    "espup install --targets ${x86_64_targets} --toolchain-version ${x86_64_toolchain_version} --skip-version-parse",
+    # A script, and ONE script, because every inline spelling of this has failed
+    # at least once and the reason is always the same shape: `esp` is the
+    # toolchain this installs, so it cannot be the one that installs it.
+    # `scripts/setup-esp-toolchain.sh` documents all four traps where it fixes
+    # them -- the chicken-and-egg with `rust-toolchain.toml`, the fact that the
+    # justfile's `CC_RUST_TOOLCHAIN` is invisible to rustup, mise stripping
+    # `~/.cargo/bin` from a task's PATH, and mise not substituting `[vars]` in a
+    # task's `run` array (so `${x86_64_toolchain_version}` reached espup
+    # literally). It reads the pins from this file itself, which is the single
+    # place they are written.
+    #
+    # WHY espup is `cargo install`ed rather than declared as `cargo:espup` in
+    # [tools]: espup must exist before `mise install` can affect the compiler at
+    # all, and mixing a mise-managed espup with `cargo install --force` gives two
+    # owners of one binary -- whichever is first on PATH wins, silently.
+    "./scripts/setup-esp-toolchain.sh",
     "just env-file",
   ]
