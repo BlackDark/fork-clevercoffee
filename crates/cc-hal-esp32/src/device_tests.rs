@@ -656,6 +656,10 @@ pub const CASES: &[Case] = &[
         run: web::tests::the_shared_telemetry_round_trips,
     },
     Case {
+        name: "web::a_read_does_not_consume_the_snapshot",
+        run: web::tests::a_read_does_not_consume_the_snapshot,
+    },
+    Case {
         name: "web::the_parameters_body_carries_a_value_for_every_parameter",
         run: web::tests::the_parameters_body_carries_a_value_for_every_parameter,
     },

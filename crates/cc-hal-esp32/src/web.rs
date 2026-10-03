@@ -475,11 +475,31 @@ impl<T: Clone + Default> Snapshot<T> {
     ///
     /// This is infallible where the seqlock's `get` returned `Option<T>`: there
     /// is no "write in flight" state to fail to observe, because a reader
-    // either gets the critical section before the writer or after it.
+    /// either gets the critical section before the writer or after it.
     /// Every caller therefore loses its `unwrap_or_default()`.
+    ///
+    /// **A read, not a consume.** This was `Cell::take`, which is
+    /// move-and-reset: it leaves `T::default()` behind, so every read destroyed
+    /// the value it returned. Two `/api/status` polls inside one 10 ms control
+    /// period is ordinary UI behaviour, and the second one reported
+    /// `machineState: 0`, 0.00 °C and `pidEnabled: false` for a live machine.
+    /// [`network::publish_radio`]'s read half was the one that hurt most: its
+    /// read-modify-write republished a machine-field-less snapshot for up to a
+    /// second.
+    ///
+    /// `Telemetry` is `Clone` but not `Copy` -- it carries a
+    /// [`heapless::String<15>`] in [`Telemetry::ip`] -- so the copy is a clone,
+    /// not a `memcpy`, and that is why `take` was reached for in the first
+    /// place. Taking the value out and putting it back inside the **same**
+    /// critical section is what makes this a read: the writer still cannot
+    /// observe a moved-from slot, because it cannot get the section either.
     #[must_use]
     pub fn get(&self) -> T {
-        interrupt::free(|| self.value.take())
+        interrupt::free(|| {
+            let value = self.value.take();
+            self.value.set(value.clone());
+            value
+        })
     }
 }
 
@@ -4364,6 +4384,27 @@ pub mod tests {
         };
         shared.publish(t.clone());
         assert_eq!(shared.snapshot(), t);
+    }
+
+    #[cfg_attr(test, test)]
+    pub fn a_read_does_not_consume_the_snapshot() {
+        // `Snapshot::get` was `Cell::take`, so reading it left `T::default()`
+        // behind and the *second* read of a live value returned zeroes. Reading
+        // twice and requiring the two to be equal is the only assertion that
+        // fails on a destructive read -- one that only checks "the read returns
+        // what was set" passes either way.
+        let shared = Shared::new();
+        let published = Telemetry {
+            machine_state: 33,
+            temperature_c: 88.0,
+            pid_enabled: true,
+            ..Telemetry::default()
+        };
+        shared.publish(published.clone());
+        let first = shared.snapshot();
+        let second = shared.snapshot();
+        assert_eq!(first, second, "the first read consumed the snapshot");
+        assert_eq!(second, published, "the second read saw an emptied slot");
     }
 
     #[cfg_attr(test, test)]

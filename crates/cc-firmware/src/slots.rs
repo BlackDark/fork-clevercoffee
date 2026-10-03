@@ -207,11 +207,20 @@ impl FrameSlot {
     /// The current frame, or `None` before the control task has published one.
     ///
     /// Called by the display task, and only it.
+    ///
+    /// **A peek, not a consume.** `FrameRequest` is `Copy`, so this is
+    /// `Cell::get` -- a copy that leaves the slot holding what it held. It was
+    /// `Cell::take`, which is move-and-reset, so it left `FrameRequest::default()`
+    /// behind: the control task publishes every 10 ms and the display reads
+    /// every 100 ms, so a second read landing before the next publish rendered
+    /// a blank frame over a live screen. The `published` field's doc promises
+    /// the flag is "never cleared by a reader", and with `take` the payload was
+    /// cleared by every reader anyway.
     #[must_use]
     pub fn frame(&self) -> Option<FrameRequest> {
         if !self.published.load(core::sync::atomic::Ordering::Acquire) {
             return None;
         }
-        Some(interrupt::free(|| self.frame.take()))
+        Some(interrupt::free(|| self.frame.get()))
     }
 }
