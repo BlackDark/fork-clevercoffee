@@ -148,6 +148,10 @@ pub const CASES: &[Case] = &[
         run: mqtt::tests::a_prefix_without_a_trailing_slash_reproduces_the_cpp_result,
     },
     Case {
+        name: "mqtt::an_inbound_topic_is_parsed_exactly_as_the_csqs_matcher_does",
+        run: mqtt::tests::an_inbound_topic_is_parsed_exactly_as_the_csqs_matcher_does,
+    },
+    Case {
         name: "mqtt::the_buffer_is_the_csqs_1024",
         run: mqtt::tests::the_buffer_is_the_csqs_1024,
     },
@@ -160,6 +164,22 @@ pub const CASES: &[Case] = &[
         run: mqtt::tests::the_intervals_are_the_csqs,
     },
     Case {
+        name: "mqtt::the_interval_follows_the_machine_state",
+        run: mqtt::tests::the_interval_follows_the_machine_state,
+    },
+    Case {
+        name: "mqtt::the_registry_is_the_csqs_registration",
+        run: mqtt::tests::the_registry_is_the_csqs_registration,
+    },
+    Case {
+        name: "mqtt::an_inbound_reading_resolves_only_if_it_is_registered",
+        run: mqtt::tests::an_inbound_reading_resolves_only_if_it_is_registered,
+    },
+    Case {
+        name: "mqtt::the_four_specials_are_not_configuration_keys",
+        run: mqtt::tests::the_four_specials_are_not_configuration_keys,
+    },
+    Case {
         name: "mqtt::the_registry_puts_each_kind_of_topic_in_the_cpp_phase",
         run: mqtt::tests::the_registry_puts_each_kind_of_topic_in_the_cpp_phase,
     },
@@ -168,16 +188,20 @@ pub const CASES: &[Case] = &[
         run: mqtt::tests::a_pressure_sensor_appears_only_when_it_is_fitted,
     },
     Case {
-        name: "mqtt::the_weight_topic_appears_exactly_when_discovery_advertises_it",
-        run: mqtt::tests::the_weight_topic_appears_exactly_when_discovery_advertises_it,
+        name: "mqtt::the_weight_topics_are_exactly_the_ones_discovery_advertises",
+        run: mqtt::tests::the_weight_topics_are_exactly_the_ones_discovery_advertises,
     },
     Case {
         name: "mqtt::the_plan_slices_partition_the_view",
         run: mqtt::tests::the_plan_slices_partition_the_view,
     },
     Case {
-        name: "mqtt::the_brew_guard_defaults_to_off_and_can_be_set",
-        run: mqtt::tests::the_brew_guard_defaults_to_off_and_can_be_set,
+        name: "mqtt::every_registered_value_fits_the_payload_buffer",
+        run: mqtt::tests::every_registered_value_fits_the_payload_buffer,
+    },
+    Case {
+        name: "mqtt::the_shared_plan_helper_still_sees_the_whole_registry",
+        run: mqtt::tests::the_shared_plan_helper_still_sees_the_whole_registry,
     },
     Case {
         name: "mqtt::a_registry_never_names_a_credential",

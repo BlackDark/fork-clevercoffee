@@ -58,6 +58,7 @@
 
 mod control;
 mod display_task;
+mod mqtt_link;
 mod network;
 /// Why there is no sensor task: a measured kernel defect, not an oversight.
 mod sensor_task;
@@ -955,30 +956,33 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
         handoff.clone(),
     );
 
-    // 11. MQTT, only when a broker is configured. `cc_config::Mqtt::default` has
-    //     `enabled = false` and an empty broker, so an unprovisioned machine
-    //     does not spend 4 KB of task stack and 2 KB of buffers on a client with
-    //     nowhere to connect — the C++'s `MQTTManager.cpp:79-83` does the same.
+    // 11. Whether MQTT is configured, and nothing else. The **client** is built
+    //     inside the control task, not here.
+    //
+    //     It used to be built here and read two lines later, which meant the
+    //     `EspMqttClient` was dropped at the end of this `match` arm — and
+    //     `impl Drop for EspMqttClient` calls `esp_mqtt_client_destroy`
+    //     (`esp-idf-svc` `src/mqtt/client.rs:742-747`). The client was therefore
+    //     destroyed microseconds after `esp_mqtt_client_start`, and nothing in
+    //     the firmware ever called `publish`, `publish_online`,
+    //     `discovery_due`, `due_for_reconnect` or `subscribe`: a fully
+    //     implemented client that never did anything.
+    //
+    //     It lives in the control task because that is where the C++'s is:
+    //     `LoopManager::updateNetwork` (`LoopManager.cpp:485-508`) drives
+    //     `checkConnection` and `writeSysParamsToMQTT` from the main loop, and
+    //     this task is the main loop — it owns the clock, the configuration, the
+    //     store, the machine, and the only watchdog subscription, so a publish
+    //     that stalls is visible. See `mqtt_link`.
+    //
+    //     `mqtt.enabled` is false and `mqtt.broker` is empty by default, so an
+    //     unprovisioned machine still spends nothing here: no 4 KB of task stack
+    //     and no two 1 KB buffers for a client with nowhere to connect, which is
+    //     the C++'s `MQTTManager.cpp:79-83` too.
     let mqtt_configured = cc_hal_esp32::mqtt::is_configured(&config);
-    let mqtt_connected = if mqtt_configured {
-        match cc_hal_esp32::mqtt::Client::new(&config) {
-            Ok(client) => {
-                info!("mqtt: {}", client.describe());
-                // `Client::new` returns before the TCP connect completes -- it
-                // is asynchronous on the client's own task -- so this is `false`
-                // on a first boot and is not evidence of a fault. The
-                // `ever_connected` flag is what a later check would read.
-                client.ever_connected()
-            }
-            Err(err) => {
-                warn!("mqtt: the client did not start: {err:?}");
-                false
-            }
-        }
-    } else {
+    if !mqtt_configured {
         info!("mqtt: not configured (mqtt.enabled is false or mqtt.broker is empty)");
-        false
-    };
+    }
 
     // 5 + 6. The control task owns the watchdog subscription, the heartbeat, and
     //        the heater's deadman. It is also the *only* thing that can open the
@@ -1088,7 +1092,6 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
         config: control_config,
         known_weight,
         mqtt_configured,
-        mqtt_connected,
         store,
         sampler,
         handoff: handoff.clone(),
@@ -1626,6 +1629,65 @@ fn bring_up_pressure<'bus>(
     Some(cc_hal_esp32::Abp2Pressure::on_shared_bus(bus))
 }
 
+/// Push a written configuration into the **running** machine.
+///
+/// # Why this is a function and not four lines in the handler
+///
+/// Because there are now two writers into the same task — `POST
+/// /api/parameters` and an inbound `mqtt set` (`MQTTManager::assignParameter`,
+/// `MQTTManager.cpp:325-336`) — and the defect it fixes was **two spellings of
+/// the same step drifting apart**. The C++ has no such split because `Config` is
+/// a singleton the state machine reads directly on every tick; here the reducer
+/// owns its own copy, so a write has to be pushed into it explicitly.
+///
+/// # What it is
+///
+/// `apply` writes the `Config` value and the value reaches NVS, so it survives a
+/// reboot — but two parameters are *also* cached in `cc_machine::Machine`, and
+/// nothing else copies them across:
+///
+/// * `pid.enabled` is the case a human hit: `Machine::pid.mode_enabled` is the
+///   flag `should_pid_be_enabled` consults, and it is only ever set by
+///   `SetUserPidEnabled` — which until now only `POST /api/pid?on=…` sent. So
+///   `POST /api/parameters pid.enabled=1` persisted the preference and did
+///   nothing to the machine until a reboot, and the handler answered
+///   `200 {"success":true}` throughout.
+/// * `brew.setpoint` is cached by `Control::set_setpoint`, and `brew.setpoint` is
+///   what `effective_setpoint` reads on every tick — so a write to it has to be
+///   pushed too, or the display and the PID keep targeting the old temperature.
+///
+/// `before` is `(pid.enabled, brew.setpoint)` **read before** the apply, which is
+/// the only way to tell whether either actually moved.
+fn push_into_machine(
+    control: &mut control::Control,
+    config: &cc_config::Config,
+    before: (bool, f64),
+    effects: &mut cc_machine::Effects,
+) {
+    let (pid_enabled_before, brew_setpoint_before) = before;
+    if config.pid.enabled != pid_enabled_before {
+        control.feed(
+            config,
+            Event::Command(cc_machine::Command::SetUserPidEnabled(config.pid.enabled)),
+            effects,
+        );
+        info!(
+            "config: pid.enabled={} pushed into the running machine (was {pid_enabled_before})",
+            config.pid.enabled
+        );
+    }
+    if (config.brew.setpoint - brew_setpoint_before).abs() > f64::EPSILON {
+        control.set_setpoint(control::effective_setpoint(
+            config,
+            control.machine().steam_mode,
+        ));
+        info!(
+            "config: brew.setpoint={} pushed into the running machine (was {brew_setpoint_before})",
+            config.brew.setpoint
+        );
+    }
+}
+
 /// Persist `brew.setpoint` and report the outcome.
 ///
 /// `WebServerManager.cpp:400` persists it inside the same handler that sets it,
@@ -1966,9 +2028,12 @@ struct ControlArgs {
     /// `hardware.sensors.scale.known_weight`, for a calibration request.
     known_weight: f64,
     /// Whether a broker is configured at all.
+    ///
+    /// A `bool` and not the client: `/api/status` reports `mqttConfigured` from
+    /// `bring_up`'s copy of the configuration, which the control task's copy may
+    /// later change, and the session state is read from the client the control
+    /// task owns.
     mqtt_configured: bool,
-    /// Whether MQTT has a session.
-    mqtt_connected: bool,
     /// The configuration store. **Moved**, not borrowed: `ConfigStore::load` and
     /// `save` both take `&mut self` and one owner beats a lock.
     store: cc_config::blob_store::BlobConfigStore<cc_hal_esp32::nvs::EspNvsBlob>,
@@ -2052,7 +2117,6 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
         mut config,
         known_weight,
         mqtt_configured,
-        mqtt_connected,
         mut store,
         sampler,
         handoff,
@@ -2148,6 +2212,30 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
 
     let mut tick: u32 = 0;
     let mut last_sse_ms: u32 = 0;
+    // The MQTT link, **built here** rather than in `bring_up` and moved in.
+    //
+    // `EspMqttClient` is `Send` (`esp-idf-svc` `src/mqtt/client.rs:786`) and
+    // everything else in `mqtt_link::Link` is too, so it could be moved through
+    // `ControlArgs` — but it does not have to be, and not moving it is better:
+    // this task already holds the authoritative `Config`, the store and the
+    // machine, and the client is what turns them into MQTT traffic.
+    //
+    // A failure is not fatal, exactly as it is in the C++ with `mqttEnabled_`
+    // false: the machine runs without MQTT and `/api/status` says so.
+    let mut mqtt = if mqtt_configured {
+        match mqtt_link::Link::new(&config) {
+            Ok(link) => Some(link),
+            Err(err) => {
+                warn!("mqtt: the client did not start: {err:?} — the machine runs without it");
+                None
+            }
+        }
+    } else {
+        None
+    };
+    // `TARE_ON` / `CALIBRATION_ON`: the C++'s `scaleTareMode_` /
+    // `scaleCalibrationMode_` latches. See `mqtt_link::ScaleModes`.
+    let mut scale_modes = mqtt_link::ScaleModes::default();
     let mut last_heap_log_ms: u32 = 0;
     let mut wifi_last_ms: u32 = 0;
     // When the live parameter snapshot was last published to the HTTP layer.
@@ -2500,47 +2588,12 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
                 );
             }
             persist_config(&mut store, &config);
-            // **The running machine must change too**, not just NVS.
-            //
-            // This is the defect behind "the UI said success and the PID stayed
-            // off". `apply` writes the `Config` value and the value reaches NVS,
-            // so it survives a reboot — but several parameters are *also* cached
-            // in `cc_machine::Machine`, and nothing copies the new value across.
-            // The C++ has no such split because `Config` is a singleton the
-            // state machine reads directly on every tick; here the reducer owns
-            // its own copy, so a write has to be pushed into it explicitly.
-            //
-            // `pid.enabled` is the case the human hit: `Machine::pid.mode_enabled`
-            // is the flag `should_pid_be_enabled` consults, and it is only ever
-            // set by `SetUserPidEnabled` — which until now only
-            // `POST /api/pid?on=…` sent. So `POST /api/parameters pid.enabled=1`
-            // persisted the preference and did nothing to the machine until a
-            // reboot, and the handler answered `200 {"success":true}` throughout.
-            if config.pid.enabled != pid_enabled_before {
-                control.feed(
-                    &config,
-                    Event::Command(cc_machine::Command::SetUserPidEnabled(config.pid.enabled)),
-                    &mut effects,
-                );
-                info!(
-                    "config: pid.enabled={} pushed into the running machine (was {pid_enabled_before})",
-                    config.pid.enabled
-                );
-            }
-            // The setpoint is cached the same way (`Control::set_setpoint`), and
-            // `brew.setpoint` is what `effective_setpoint` reads on every tick —
-            // so a write to it has to be pushed too, or the display and the PID
-            // keep targeting the old temperature.
-            if (config.brew.setpoint - brew_setpoint_before).abs() > f64::EPSILON {
-                control.set_setpoint(control::effective_setpoint(
-                    &config,
-                    control.machine().steam_mode,
-                ));
-                info!(
-                    "config: brew.setpoint={} pushed into the running machine (was {brew_setpoint_before})",
-                    config.brew.setpoint
-                );
-            }
+            push_into_machine(
+                &mut control,
+                &config,
+                (pid_enabled_before, brew_setpoint_before),
+                &mut effects,
+            );
             // `standbyCoordinator().reset(); requestNormalOperation(...)` — the
             // C++'s last two lines (`:870-872`), on the same "a POST wakes the
             // machine" rule as `/api/setpoint`.
@@ -2726,7 +2779,7 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
         // The scale's events, drained every tick, and the weight. See
         // `drain_scale`: the event drain is the only place a tare can be
         // persisted, because this task is the only holder of the store.
-        let weight_g = drain_scale(sampler.as_ref(), &mut store);
+        let weight_g = drain_scale(sampler.as_ref(), &mut store, &mut scale_modes);
 
         // ---- 7c. the backflush reminder, decided once -------------------------
         //
@@ -2966,7 +3019,11 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
                     .then_some(tank_full),
                 pressure_bar,
                 mqtt_configured,
-                mqtt_connected,
+                // **Read live, this tick.** It was read once, immediately after
+                // the client was constructed — which is structurally always
+                // `false`, because `esp_mqtt_client_start` connects on the
+                // client's own task and no tick had run yet.
+                mqtt_connected: mqtt.as_ref().is_some_and(mqtt_link::Link::connected),
             },
             uptime,
             weight_g,
@@ -3021,6 +3078,91 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
                     // offline mode.
                     warn!("wifi: offline mode — unreachable off-LAN");
                 }
+            }
+        }
+
+        // ---- 8b. MQTT: the network tier's second half -------------------------
+        //
+        // Beside the radio, because that is where it is in the C++:
+        // `LoopManager::updateNetwork` (`LoopManager.cpp:485-508`) does the Wi-Fi
+        // maintenance and then `checkConnection` + `loop` +
+        // `writeSysParamsToMQTT`, all from the one loop.
+        //
+        // **After** the telemetry publish above, deliberately: `/api/status`
+        // should report the session as it was when the tick began, and a
+        // `writeSysParamsToMQTT` that pushed a parameter would otherwise make
+        // `mqttConnected` and the state it just described disagree by one tick.
+        //
+        // **After** the actuator work and the deadman above it, for the reason
+        // the whole budget exists: this is the only step in the tick that talks
+        // to anything outside the chip, and it is bounded by
+        // `TIME_BUDGET_MS` (10 ms of a 10 ms period, which is the C++'s own
+        // ratio -- `MQTTManager.h:259` against `LoopManager.cpp:505`). A machine
+        // with 46 registered topics and a slow broker takes two or three ticks
+        // to finish a pass and never overruns one.
+        if let Some(link) = mqtt.as_mut() {
+            let mut mqtt_effects = cc_machine::Effects::new();
+            let live = mqtt_link::Live {
+                temperature_c: last_reading.map_or(f64::NAN, |(celsius, _)| celsius),
+                heater_power_pct: f64::from(control.pid_output()) / 10.0,
+                standby_remaining_ms: machine.standby.remaining_ms,
+                // The ABP2's **last decoded sample**, not this tick's poll
+                // result. `sensorCoordinator().getFilteredPressure()`
+                // (`MQTTManager.cpp:788`) is the coordinator's *cached*
+                // reading, so the C++ publishes the last sample too -- and the
+                // driver's own cadence is 50 ms (`abp2::CADENCE`), so a poll
+                // result is `NotReady` on nineteen ticks out of twenty and the
+                // topic would have been published for one tick in a hundred.
+                pressure_bar: pressure
+                    .as_ref()
+                    .and_then(cc_hal_esp32::Abp2Pressure::last_sample)
+                    .map(|sample| f64::from(sample.pressure.raw())),
+                weight_g,
+                brew_weight_g: 0.0,
+                water_tank_full: tank_full,
+                backflush_reminder_due: backflush_due,
+                pid_gains: control.pid_gains(),
+            };
+            let report = link.service(
+                &mut config,
+                &mut control,
+                &mut store,
+                &mut mqtt_effects,
+                &mut scale_modes,
+                sampler.as_ref(),
+                &live,
+                uptime,
+            );
+            if report.cut_short || report.unresolved > 0 {
+                // Logged only when something is worth saying. A tick that
+                // publishes thirty topics and says so, a hundred times a
+                // second, is a log that costs the loop its budget.
+                debug!(
+                    "mqtt: published {}, {} unresolved topic(s), cut short: {}",
+                    report.published, report.unresolved, report.cut_short
+                );
+            }
+            // The inbound commands' effects. A **fresh** list, not the tick's:
+            // the tick's own effects were applied ten steps ago and applying them
+            // a second time would drive the actuators from a stale event list.
+            // An inbound `steamON` has to reach the applier in the tick that
+            // produced it, or the steam valve is ten milliseconds behind a
+            // Home Assistant switch.
+            if !mqtt_effects.is_empty() {
+                // The machine **after** the inbound commands, not the copy taken
+                // for the telemetry publish above: an inbound `steamON` has
+                // already moved it, and an effect list read against the state
+                // before its own command is how a valve ends up open for a state
+                // that has already left.
+                let after = *control.machine();
+                // **And the facade is told the new state first.** `Actuators`
+                // caches the machine state for the interlocks -- `may_open_steam`
+                // is a whitelist over it -- and the tick set that cache before
+                // `control.tick`. An inbound `steamON` moves the machine into
+                // `SteamRunning`, and without this the steam valve would be
+                // refused by the very interlock it was just asked to satisfy.
+                actuators.set_state(after.state);
+                cc_machine::apply(&mut actuators, &mut side, &after, &mqtt_effects);
             }
         }
         if uptime.wrapping_sub(last_sse_ms) >= SSE_INTERVAL_MS {
@@ -3300,6 +3442,7 @@ fn start_provisioning(
 fn drain_scale(
     sampler: Option<&cc_hal_esp32::Sampler>,
     store: &mut cc_config::blob_store::BlobConfigStore<cc_hal_esp32::nvs::EspNvsBlob>,
+    scale_modes: &mut mqtt_link::ScaleModes,
 ) -> Option<f64> {
     // A missing scale is a `None` weight, not an error: there is nothing here
     // to fail at, and returning early is the whole of the "not fitted" case.
@@ -3308,6 +3451,10 @@ fn drain_scale(
     while let Some(event) = sampler.next_event() {
         match event {
             cc_hal_esp32::SamplerEvent::Tared { record } => {
+                // The C++'s `scaleTareMode_` never clears, so `TARE_ON` reports
+                // `1` from the first command for ever; the latch here is cleared
+                // when the sampler answers. See `mqtt_link::ScaleModes`.
+                scale_modes.answered("tare");
                 // 🔴 The acceptance criterion: a tare survives a reboot. The
                 // C++ holds the tare in a `long` member (`HX711_ADC.h:66`) and
                 // loses it on every reset, so a power cut means re-taring by
@@ -3326,6 +3473,7 @@ fn drain_scale(
                 }
             }
             cc_hal_esp32::SamplerEvent::Calibrated { factor_1, factor_2 } => {
+                scale_modes.answered("calibrate");
                 // The factor is a **configuration parameter**
                 // (`hardware.sensors.scale.calibration` and `calibration2`),
                 // not a tare, so it goes into the blob rather than beside it.
@@ -3361,6 +3509,7 @@ fn drain_scale(
                 }
             }
             cc_hal_esp32::SamplerEvent::Refused { what } => {
+                scale_modes.answered(what);
                 warn!("scale: the sampler refused a {what} request");
             }
         }

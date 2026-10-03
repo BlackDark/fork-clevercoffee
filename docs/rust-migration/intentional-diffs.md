@@ -850,21 +850,148 @@ transcriptions:
   the same enum in `HX711Scale`'s two constructors and never constructs either;
   a `Bluetooth` type is refused by name, because reporting 0 g for a scale that
   is not an HX711 is the "accepted and silently does nothing" shape again.
-* **The MQTT `weight` topic is registered when the scale is enabled.**
-  `cc_config::discovery` advertises `currReadingWeight` /
-  `currBrewWeight` whenever `scale.enabled`; the registry did not publish the
-  topic, so Home Assistant showed a weight that never updated. The two sides
-  live in different crates and nothing made them agree until
-  `the_weight_topic_appears_exactly_when_discovery_advertises_it` did.
-
-Still absent, and named in the boot log rather than papered over: the **MQTT
-inbound** command path. `Client::subscribe` subscribes and nothing acts on the
-messages — that is R3-16's `assignParameter`, for all 96 parameters and not for
-the scale alone, and building a scale-only path beside it would be a second way
-to do the same thing. The web commands are *not* in that state: they reach the
-sampling task.
+* **The MQTT weight topics are the ones `cc_config::discovery` advertises.**
+  `MQTTManager.cpp:903-904` registers `currReadingWeight` and `currBrewWeight`;
+  the registry used to publish a topic called `weight`, which matches neither,
+  so the Home Assistant weight entity was advertised and never updated. The two
+  sides live in different crates and nothing made them agree until
+  `the_weight_topics_are_exactly_the_ones_discovery_advertises` did.
+* **The MQTT registry is `SystemInitializer.cpp:687-800`.** See section 18 —
+  three parameters and three "sensors" became 32 parameters and 13 sensors, and
+  two invented topics went the other way.
 
 ### Still open: the Acaia BLE scale (R3-18)
+
+---
+
+## 18. MQTT actually runs 🔴 changed
+
+| | |
+| --- | --- |
+| **C++** | `src/network/MQTTManager.cpp`, driven from `LoopManager::updateNetwork` (`LoopManager.cpp:485-508`) |
+| **Rust** | `cc_hal_esp32::mqtt::{Client, Feed}`, built and driven by the **control task** (`cc-firmware/src/mqtt_link.rs`) |
+| **Pinned by** | `mqtt::the_registry_is_the_csqs_registration`, `mqtt::an_inbound_reading_resolves_only_if_it_is_registered`, `mqtt::the_interval_follows_the_machine_state`, `mqtt::an_inbound_topic_is_parsed_exactly_as_the_csqs_matcher_does` |
+
+### What the C++ does
+
+`setup` (`:54-92`) builds the topics and refuses to continue when
+`mqtt.broker` is empty. `checkConnection` (`:96-193`) and `loop` (`:194-196`)
+are called from the main loop, and `writeSysParamsToMQTT` (`:366-570`) runs a
+three-phase pass — retained parameters, non-retained sensors, retained binary
+sensors — under a **10 ms budget** (`MQTTManager.h:259`), resuming from
+`mqttVarsIt_` / `publishPhase_` on the next call, and skipping any topic whose
+value has not changed (`mqttLastSent_`, `:512`). The interval is 500 ms while a
+brew state other than `BREW_FINISHED` is active, 10 s in `STANDBY`, else 5 s
+(`:384-387`). `sendHASSIODiscoveryMsg` (`:828-926`) republishes the whole Home
+Assistant entity set every 300 s. `messageCallback` / `assignParameter`
+(`:237-336`) act on `<base><param>/set`, with four special targets
+(`STEAM_MODE`, `BACKFLUSH_ON`, `TARE_ON`, `CALIBRATION_ON`) that are machine
+state rather than configuration.
+
+### What the Rust does — and why
+
+**The client lives in the control task.** It used to be constructed in
+`bring_up` and read two lines later, which meant `EspMqttClient`'s `Drop` —
+`esp_mqtt_client_destroy` (`esp-idf-svc` `src/mqtt/client.rs:742-747`) — ran at
+the end of the `match` arm, microseconds after `esp_mqtt_client_start`. Nothing
+anywhere called `publish`, `publish_online`, `discovery_due`,
+`due_for_reconnect` or `subscribe`: a fully implemented client that never did
+anything, and `/api/status`'s `mqttConnected` structurally always `false`. The
+control task is the main loop — it owns the clock, the configuration, the
+store, the machine and the only watchdog subscription — which is exactly where
+`LoopManager::updateNetwork` puts the C++'s.
+
+**The pass is the C++'s phase machine**, cursor and budget included
+(`Feed::service`). The registry is `SystemInitializer.cpp:687-800` in full: 32
+parameters and 13 sensors where three parameters and three "sensors" were
+registered before, plus the value-change dedupe and the three intervals, none of
+which existed. `discovery_due()` publishes `cc_config::discovery::all` and
+`mark_discovery_sent()` re-arms the timer, so the 17–29 entities in that
+module are no longer inert.
+
+**The events are handled where they are delivered.** `EspMqttClient::new_cb`
+installs the callback, so `Connected` / `Disconnected` / `Received` are noted on
+the `esp-mqtt` task and what crosses back is two atomics and a bounded queue.
+`EspMqttClient::new` was the alternative and its `EspMqttConnection::next()`
+**blocks** on a condvar until the producer has something
+(`src/private/zerocopy.rs:29-40`), with no non-blocking poll and no
+`is_connected` accessor — a rendezvous on a 10 ms control tick, on the same
+signal as the heater deadman. There is no synchronous accessor to use instead.
+
+**Inbound commands work, and so does everything outbound.** `mqtt set <param>
+<value>` resolves the topic through the registry's topic-to-key map and goes
+through `cc_config::assign::apply`, exactly as `POST /api/parameters` does, then
+pushes into the running machine through the shared `push_into_machine`. The four
+specials are handled before the configuration lookup, as `assignParameter`
+does. The web commands were *not* in the "subscribed and ignored" state before
+this change, and neither was the outbound path — **this file previously said
+only the inbound path was absent, which was wrong in the direction that
+mattered**: the client was being destroyed before its first publish.
+
+### The divergences inside it
+
+* **The availability publish is retained; the C++'s is not.**
+  `MQTTManager.cpp:400` calls `publish("status", "online")` against a
+  `bool retain = false` default (`MQTTManager.h:291`) and survives only because
+  it repeats every five seconds. A retained `online` costs one write per pass,
+  is what the retained `offline` last will on the same topic already implies,
+  and removes the window in which a broker restart leaves every entity
+  unavailable.
+* **The Home Assistant discovery set is published under the same 10 ms budget**,
+  a few documents per control tick, where the C++'s 300 s timer callback builds
+  and publishes all of them in one go. That callback runs from the main loop, so
+  it is a stall measured in hundreds of milliseconds in the task that also runs
+  the heater deadman.
+* **`TARE_ON` and `CALIBRATION_ON` are latches that clear.** The C++'s
+  `scaleTareMode_` / `scaleCalibrationMode_` (`SensorCoordinator.h:203-233`) are
+  written by `setScaleTareMode` and read by `isScaleTareMode`; `git grep
+  scaleTareMode_ main -- src` finds **no clear anywhere**, so a `TARE_ON` command
+  latches to `1` for the life of the boot and the Home Assistant switch can
+  never be turned off. Here the latch is cleared when the sampler answers
+  (`SamplerEvent::Tared` / `Calibrated` / `Refused`).
+* **An inbound parameter write is persisted.** `assignParameter`'s tail
+  (`MQTTManager.cpp:325-336`) calls `fromString`, which writes the configuration
+  singleton's field and nothing else, so a setpoint set from Home Assistant is
+  gone after the next reboot. The store is this task's, so the write goes
+  through it.
+* **`currBrewWeight` publishes `0`.** The C++'s is
+  `cachedWeight_ - preBrewWeight_` while `brewWeightTrackingActive_`
+  (`SensorCoordinator.cpp:85-92`); this firmware has no brew-weight tracker and
+  `Sensors::brew_weight` is written as a literal `0.0`. The topic is still
+  registered, because the alternative — not registering it — is the
+  "advertised and never updates" shape again, on a different axis.
+* **`usePonM` is still the C++'s inconsistency.** `SystemInitializer.cpp:695`
+  registers `pidUsePonM` while `MQTTManager.cpp:869` advertises the entity as
+  `usePonM`, so the Home Assistant switch moves a topic the registry does not
+  know and it lands in the "not found in mapping" arm. Reproduced; the fix
+  belongs where the advertisement is built.
+* **`steamON = 0` does not leave steam mode**, because
+  `setSteamFirstActivated(false)` plus `setNormalOperationRequested(true)` does
+  not leave it in the C++ either (`MQTTManager.cpp:296-302`). Reproduced rather
+  than tidied into a real stop.
+* **The "MQTT is off while brewing" guard is gone.** It was a `BREWING` flag
+  that made every publish a no-op during a brew, justified as
+  "`MQTTManager.cpp:113-115` is a hard stop on *every* MQTT call". Line 113 is
+  inside `checkConnection` and is the *reconnect* guard;
+  `writeSysParamsToMQTT` has no brew guard at all and selects a **500 ms**
+  interval instead (`:384-387`). The flag was never set by any caller, so the
+  behaviour was already parity and only the comment was wrong. `interval_for`
+  now reproduces the three intervals.
+* **Two invented topics are gone.** The registry published `brewing` and
+  `tankEmpty`, which are neither in the C++ nor advertised by
+  `cc_config::discovery` — no Home Assistant entity ever subscribed to them.
+
+### Not covered, and said so
+
+The zero-allocation claim is a property of `Feed`'s signature (reused buffers,
+a map of fixed-size values keyed by the leaked registry, and a value producer
+that writes into a `&mut Payload`), and it is **argued, not measured**:
+`crates/cc-machine/tests/tick_allocations.rs` measures the reducer, not this
+path. The firmware's own tick report (`control tick: worst … budget 10 ms`) is
+the instrument that would show a regression. **A broker session has never been
+exercised**: no broker, no hardware and no flashing were available, so every
+claim about what the broker sees is derived from the C++ and from
+`esp-idf-svc`'s source rather than measured.
 
 ---
 
