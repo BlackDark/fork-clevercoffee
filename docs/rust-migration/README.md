@@ -4,11 +4,23 @@ Plan for migrating the CleverCoffee ESP32 firmware from C++/Arduino to Rust.
 
 **Status:** in progress, and the machine works end to end: the reducer runs on
 hardware, the display lights up, the PID regulates, all 98 parameters are writable
-over HTTP and survive a reboot, and the **web UI is on the device**. **Not done:**
-OTA (R3-15), the Acaia BLE scale (R3-18 — measured, does not fit, needs a
-decision), and any hand-pressed switch. See
+over HTTP and survive a reboot, the **web UI is on the device**, MQTT publishes
+and accepts commands, and the backflush reminder counts shots and survives a
+reboot. **Not done:** OTA (R3-15 — the three mutating endpoints answer `501`),
+and the Acaia BLE scale (R3-18 — measured, does not fit, needs a decision). See
 ["Where the migration actually is"](#where-the-migration-actually-is) before
 planning work — several task IDs read as complete in the task list and are not.
+
+> **Correction, 2026-10-02.** This line used to also say *"and any hand-pressed
+> switch"*. That was stale: `cc-machine`'s `momentary_power` already implements
+> the power switch's long-press reboot (`handlers.rs:357`, gated on
+> `POWER_LONG_PRESS_REBOOT_MS` and `machine.switches.power_long_press`), and
+> `cc-hal-esp32::switches` reads `POWER_SWITCH`. Only the OTA and BLE-scale gaps
+> above remain, plus three features that were never in scope:
+> `system.ota_password` (a schema key with no implementation, because OTA is not
+> built), `display.blescale_brew_timer` (a phantom that predates the port and has
+> been removed from the shipped example config), and HTTP Basic auth's C++
+> wildcard-origin header (the port does not send it, deliberately).
 **Started:** 2026-09-28.
 **C++ baseline verified green:** `pio run -e esp32_usb` succeeds (`firmware.bin`
 1,546,240 B); `pio test -e native_test` → 340/340 pass in 55 s. The C++ is the parity

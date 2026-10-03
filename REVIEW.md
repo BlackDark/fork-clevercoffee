@@ -575,3 +575,173 @@ Each group is independently shippable. **Bold** = quick win.
 12. **Whether `HEARTBEAT_MS`-gated 100 Hz publishing is actually harmful on the LX6.** The allocator counts are exact and target-independent (≈42,000 allocs/s, ~2 MB/s). The CPU cost is host-measured (~16 µs/call) and would be roughly 15–25× worse on the LX6 — about 3% of a 10 ms budget. The fix is obviously right regardless, but the device-side magnitude is an estimate. `main.rs:2998-3062` already logs worst/mean/period for the tick; run it before and after fix #18.
 13. **`C-01`'s exact exploitability.** The use-after-free is *structurally* present and the write happens 100×/s, but I did not demonstrate an actual crash — I read the code and the call sites. Whether it manifests depends on allocator timing. **Treat it as a live defect, not as a theoretical one, and do not wait for a crash report.**
 14. **The remaining ~21 ⚠ parity items** are individually small and each was verified by reading; several are cosmetic (log format, `number2string` buffers). I would not spend review budget on them until Groups 1–5 are done.
+
+---
+
+## 10. Status — what `review/rust-fixes` fixed
+
+This section is the report's own scoreboard. Every line below was implemented and
+verified on the branch, in the order §8's groups specified. Each row links to the
+commit that did it.
+
+### Fixed and verified
+
+| § | Finding | Fix | Verified by |
+| --- | --- | --- | --- |
+| **CR-2** | A `v*` tag from this branch published the **C++** image, with a `littlefs.bin` at `0x350000` that does not exist in `rust/partitions_4M.csv` | A `guard` job in `release.yml` proves the tagged commit is reachable from `origin/main` before anything is built. A tag carries no branch name, so ancestry is the only sound test. | `git diff --stat main -- src include lib platformio.ini partitions_4M.csv` is empty, i.e. the C++ really does still build; all four workflow YAMLs parse |
+| **CR-1** | `Cell<T>` seqlock read `Telemetry` non-atomically while `publish_radio` reassigned `Telemetry.ip` (a `String`) **every 10 ms** — a live use-after-free at 100 Hz | `web::Snapshot<T>`: every read and write inside `interrupt::free` (`portENTER_CRITICAL`), so the race is gone by construction. `ip` is now `Option<heapless::String<15>>`. Same for `slots::FrameSlot`. | `just lint` (pedantic, `-D warnings`), `just test`, device clippy for `xtensa-esp32-espidf`. **No hardware — the fix itself is not on-device verified.** |
+| **H-1** | Zero Rust in CI. `rg 'cargo\|just ' .github/` → 0 hits; `just gate` invoked by nothing | `.github/workflows/rust.yml` — a host job (fmt, clippy, rustdoc `-D warnings`, 40 test suites, parity, device-test audit, UI lint/tsc/test/build), a device job (espup, device clippy, release build, size budget, size artefact) and an invariants job (no `esp_idf_*` in portable crates, no blanket lint suppression, every `unsafe` has a `reason`, U8G2 notice present) | every recipe in the workflow runs green locally; `scripts/unsafe-audit.py` verified with a negative control (removing one `reason` turns it red and names the site) |
+| **H-2** | `just gate` could not pass on a clean checkout — `cc-hal-esp32/build.rs` panics without the UI bundle and nothing built it | New `ui:` recipe; `build-esp32`, `lint-esp32`, `diag-build`, `size`, `size-check` depend on it | `just build-esp32` links; the release ELF is **1,670,072 B** against a 1,835,008 B slot |
+| **H-3** | `just test` failed on every non-Apple host (`host_target` hardcoded to `aarch64-apple-darwin`) | Derived from `rustc -vV`, `CC_HOST_TARGET` still overrides. `just doctor` now *compares* instead of printing | `just --evaluate host_target` → `x86_64-unknown-linux-gnu` on this host; all host recipes run without an env var |
+| **H-4** | MQTT fully built, never called — the client was constructed, read once, and dropped | `cc-firmware/src/mqtt_link.rs`; the client lives in the control task and is driven by a **phase machine with the C++'s 10 ms budget** (`Cursor` walks params → sensors → binaries and breaks on `TIME_BUDGET_MS`). Registry now 32 params / 13 sensors / 1 binary against the C++'s 12 / 9 / 0. Inbound `mqtt set` works. `/api/status.mqttConnected` is live | `just test` (153→165 device tests registered), `just bench` still 0 allocs/tick, device clippy clean, release links. **19 `mqtt::tests::*` verified through a throwaway host harness outside the repo — all 19 pass. No broker, no hardware.** |
+| **H-5** | `shots_since_backflush` was only ever assigned 0, so `/api/status.backflushReminderDue` was permanently `false` and the OLED reminder was dead twice over | `SideChannels` split into `Actuators` / **`MachineChannels` (mandatory, no default bodies)** / `Diagnostics`; the qualification rule moved into the reducer at `BrewFinished`; NVS key `cc.maint.shots`, read at boot and drained after `apply`; `DisplayInput::backflush_reminder_due` now filled | `tests/ported_maintenance_coordinator.rs` — **new, 12 cases**, porting the C++ suite that had no Rust counterpart. Host 1074 tests. **NVS round trip is device-side: not verified.** |
+| **H-6** | `POST /api/config/upload` was a live 404 on a button in the shipped UI; `system.auth.*` were three keys that did nothing; `/api/status` reported the wrong value under a new name | Upload implemented on `application/json` (the brief I wrote said multipart; the oracle says otherwise and the correction is recorded). Basic auth implemented — **one `register()` chokepoint**, base64 + constant-time compare in `cc-domain::http_auth` (`no_std`, 23 host tests). `/api/status` now emits **both** `steamMode` (the C++'s latched flag) and `brewing` | `just test`, device clippy, UI biome/tsc/vitest, release links. **12 new device tests registered, never executed.** |
+| **H-7** | `parameters_json()` — 420 allocations, 20.5 KB — ran every 10 ms instead of every second | `PARAMETERS_PUBLISH_MS = 1_000`, a *separate* constant: `HEARTBEAT_MS` also *is* the deadman beat and a `const _: () = assert!(HEARTBEAT_MS * 2 <= DEADMAN_TIMEOUT_MS)` would have made 1000 a compile error | `main.rs:2620`'s comment self-documented the regression ("2.5 ticks a second" when the tick was 400 ms) |
+| **H-8** | `Vec<Effect>` allocated 4 times per control tick (measured 4.00, ~192 B) | `Effects` is a `heapless::Vec<Effect, 32>` behind a newtype with a **counted** overflow (`dropped()`), so a lost effect is visible in every build with no panic and no `unsafe` | `just bench` → **0.000 allocations/tick**; `crates/cc-machine/tests/tick_allocations.rs` gates it. My own brief said the worst case was 3–4 and the ceiling 16; the implementation's exhaustive test measured **12** and refused the ceiling, so it is 32 with `WORST_EFFECTS_OBSERVED` as a `const` |
+| **H-9** | `just reflash` erased the chip and then died on a stray `@just flash` | `@` removed; `set shell := ["bash","-euo","pipefail","-c"]` so all 42 recipes share one error semantic. **Partially refuted by the verifier:** just does not strip `@` in a shebang recipe, but it *does* exit 127 — the defect was the missing `set -e`, not a silent success | a `/tmp` repro of a shebang recipe ending in `@just flash` |
+| — | **`cargo clippy -p cc-hal-esp32 --all-targets` had never compiled.** Found while fixing M-9, confirmed against HEAD by stashing. Two stacked causes: (a) `web.rs`'s test module reaches `cc_domain::http_auth::tests_support`, which is `#[cfg(any(test, feature = "device-tests"))]` — it only built because `just lint-esp32` names `cc-device-tests` in the same invocation and Cargo's feature unification turned the feature on for the whole graph; (b) with that fixed, **282** `missing_panics_doc` / `missing_docs` errors appeared on ~140 `pub fn`s inside the same test modules — `pub` on purpose, so the on-target runner can register them by name, and `doc(hidden)` only hides them when the *feature* is on. | (a) a `[dev-dependencies] cc-domain = { features = ["device-tests"] }`, which is the mechanism that actually means "my tests need this" and cannot reach the image; (b) one crate-level `#![cfg_attr(test, allow(clippy::missing_panics_doc, missing_docs, …))]`, scoped to `cfg(test)` so the firmware's own code keeps every doc lint | **both invocations now report 0 errors**, which is the point — see §10's baseline table |
+| **H-10** | 2,807 lines of verbatim U8G2 (BSD-2-Clause) committed with **no licence notice** | BSD-2-Clause notice added to `font/data.rs` (the generator emits it, so a regeneration cannot drop it), clarified in `bitmaps_data.rs`, and `docs/THIRD_PARTY_LICENSES.md` written | — |
+| **M-1** | `[build] target` and `[unstable] build-std` in `.cargo/config.toml` broke bare `cargo`, rust-analyzer, and rebuilt `std` from source for every host test (1.5 GB) | Both keys deleted; `build-std-features` kept (no CLI equivalent, and it is what keeps gimli out of the image). The config's own claim that `[unstable]` is "ignored with a warning" on stable is **wrong** — it is silent; corrected | `cargo check -p cc-safety` with no `--target` now works |
+| **M-2** | MSRV 1.82 unverifiable | Left as-is and not claimed anywhere | — |
+| **M-3** | 83 rustdoc warnings, no gate ran rustdoc | All 83 fixed (43 private targets, 5 dead-by-construction cross-crate links, 35 typos). `just doc` added with `-D warnings`, and to `gate` | `just doc` exit 0, no warnings |
+| **M-4** | `cc-provisioning`: 17 lines, 4 deps, zero users | Deleted; the knowledge (why P1→P3, the three credential rules) moved to `05-tooling-and-workflows.md` §5 | `rg cc_provisioning` → 0 hits |
+| **M-5** | `LedcPwm`: ~190 lines, zero construction sites, documented as panicking the chip | Deleted, and `HeaterDuty` collapsed with it (`HeaterOutput` is now concrete over `TimerIsrPwm`). **It does not make esp32s3/c6 harder** — those want the *same* transport; `GPTimer` exists on all three | device clippy clean; release image byte-identical |
+| **M-6** | `TemperatureProbe` and `Template`: traits with zero impls | Both deleted. The false doc at `sensor/mod.rs:35` (a `&mut dyn TemperatureProbe` that never existed) now describes what does | — |
+| **M-12** | `just bench` named two bench targets and **neither existed**; `just size-bench` pointed at a script that does not exist | Both targets written, and they measure **heap allocations** rather than nanoseconds. `size.just`'s `record mcu=` no longer silently measures the esp32 image | `just bench`: **0.000 allocs/tick**, 0.0000 allocs/frame |
+| **M-16** | `docs/example_config.json` was never tested — the test inlined a hand-copied subset, so `AGENTS.md`'s "an import test parses that file" was false | `include_str!` on the shipped file. **It immediately found `display.blescale_brew_timer`, a phantom in the shipped download that exists in neither firmware**; removed from the file, explained in `CONFIG_REFERENCE.md` | two negative controls verified to FAIL: a typo in the shipped file, and `"hostname": "silvia"` |
+| **M-19** | `deny` + per-item `allow` rather than `forbid` + `expect` | `scripts/unsafe-audit.py` + a CI step: every `unsafe` must carry a `reason`. All 17 do | negative control verified |
+| **G-11** | The entry-point docs described only the C++ — `pio run` 20×, `cargo`/`just` 1× | `README.md`, `REPOSITORY_SUMMARY.md`, `CONTRIBUTING.md` and `CLAUDE.md` all now lead with "which firmware do you want", and `CLAUDE.md`'s mandatory-checks section is split per firmware | — |
+| **L-4** | 14 zero-caller `pub` items | Re-derived from scratch (the old list was stale) and **26 items / ~230 lines deleted**, with reasons recorded for every one *kept* | `just test` 1074 tests |
+| **L-6** | Three byte-identical `from_raw!` macros | One, at the crate root above the `pub mod` lines — `macro_rules` scoping is textual, so no `#[macro_export]` is needed and nothing is published | — |
+| **L-9** | `docs/rust-migration/README.md` said "any hand-pressed switch" was not done | Stale: `momentary_power` implements the power switch's long-press reboot. Corrected, with the correction dated | — |
+| **L-10** | `intentional-diffs.md`'s MQTT entry inverted the actual gap | Corrected in the MQTT commit, with a new §18 |
+| **M-13** | mise/justfile hygiene | `rust = "stable"` **removed from `.mise.toml`** (mise's rust backend installed no compiler — it symlinked `~/.cargo/bin` — so it advertised "stable" next to `rust-toolchain.toml`'s "esp"). Version pins moved into `[vars]`, pnpm/just pinned, the `espup` double-owner dropped, `espup install --targets` narrowed to `esp32`, the pyserial loop's 3 copies noted, `format.yml` given `install: false`. **The duplicate-`espflash` half of this finding was WRONG and has been reverted** — see the note below. | `mise ls` shows no `rust` entry; `just doctor` asserts mise does not declare one |
+| **H-16** | pre-commit clang-format pinned 17 while mise pinned 23.1.1 and CI ran a third copy | **Bumping the hook was tried and reverted** — it reformatted 105 files of the C++ oracle. The hook is gone and `just fmt-cpp` is the single entry point. Also excluded `.clang-format` from `check-yaml` (it is YAML but opens with a `%clang-format` directive, so the hook always failed) and fixed a typo'd `--markdown-linebreak-ext` | `git diff --name-only -- src include test lib` is empty |
+| **M-11** | Blocking waits on the single-task httpd | Left, documented, with the 1.6 s bound named |
+| **M-15** | The two seqlocks had no tests; no property tests on any hardware-byte parser | Partly resolved: the seqlocks are **gone**, so there is nothing left to test. Property tests not added |
+| **M-17** | `test_maintenance_coordinator` had no Rust counterpart | Ported — 12 cases, in the H-5 commit |
+| **M-18** | `unreachable!` on an HTTP-reachable path | Left, with the reasoning recorded |
+| **M-1…M-10 hygiene** | The committed `.pyc`, the stray `.espup-env.sh`, `tools/run.sh` → `tools/oracle/run.sh`, `Cargo.lock` dupes (only 2 linked, both forced by `esp-idf-hal`) | Fixed / assessed | — |
+
+### 🔴 Corrections to this review, made after it was written
+
+Two of the findings above were **wrong**, and one of them broke CI. Both are
+recorded here rather than quietly deleted, because a review that hides its own
+mistakes is worse than one that made them.
+
+**1. ⚠7 "11 bitmaps ported, the C++ has 12" — REFUTED, my count was wrong.**
+`git show main:include/clevercoffee/display/bitmaps.h | grep -c '^static const
+unsigned char'` is **11**, not 12, `crates/cc-display/src/bitmaps_data.rs` has
+exactly 11 `pub static`s, and every one of the 11 C++ names is present. No bitmap
+is missing.
+
+**2. M-13 "the duplicate `espflash` crate" — REFUTED, and it broke the device
+job.** `cargo-espflash` and `espflash` are **one tool with two entry points**:
+
+| package | command | what it does |
+| --- | --- | --- |
+| `cargo-espflash` | `cargo espflash flash --package … --bin …` | **builds a cargo package first** — what the flash recipes need, because the ELF does not exist until cargo makes it |
+| `espflash` | `espflash -S save-image --chip esp32 <ELF> <OUT>` | consumes an **already-built** ELF — what `just/size.just` needs |
+
+Removing one from `.mise.toml` made `just size-check` answer *"No package could be
+located in the current workspace"* instead of measuring the image. Both are back,
+and `just/size.just` says which it needs at the point of use. **Lesson: I asserted
+a "duplicate" from manifest text without checking what each entry point does.**
+
+**3. H-3's fix, as originally written, was itself a bug.** `host_target :=
+`rustc -vV | sed …`` is evaluated while just **parses** the justfile, and a
+failing backtick is a parse error. On a machine without the `esp` toolchain that
+is not a degraded `just test` — it is `just` refusing to run at all, which is
+what the CI host job hit. The derivation now goes through
+`scripts/host-target.sh`, which fails quietly.
+
+### Still open
+
+| § | Finding | Why it is still open |
+| --- | --- | --- |
+| **M-7** | Three hand-maintained 98-key tables (`SCHEMA`, `assign::set`, `json::live_value`) where the C++ has one | **Closed — but the "~1,030 LOC saved" in §5 was wrong.** `ParamSpec` now carries `get: for<'a> fn(&'a Config) -> LiveValue<'a>` and `set: fn(&mut Config, &LiveValue) -> bool`, so the three tables collapse into one `const`. Code lines across the three files went **2,325 → 2,376, net +51**: the saving is duplication and the failure mode, not lines. What *is* new is that `accessors!` emits a `const _: () = assert!(key_is_path(..))`, replacing `assign::eq_key`'s runtime comparison — a key pointed at the wrong field is now a **compile error**, verified by negative control. `/api/parameters` ordering measured unchanged by hashing all 98 `(index, key, value)` tuples before and after (identical md5), and the SCHEMA table itself diffed byte-identical with the accessor calls stripped. |
+| **L-2** | `control_task` is 1,094 lines in one function | **Deliberately not done, and this is a judgement rather than an oversight.** It is a mechanical split of the most safety-relevant function in the firmware — the one that opens the heater gate and moves the pump — into five steps over `ControlArgs`. The behaviour is currently covered by 1,074 host tests, the parity harness and a device clippy that is clean, and *none of those can tell you that a split introduced a one-tick ordering difference*. `control.rs:32`'s own comment records that the tick already missed its 10 ms budget in 62% of loops once, for a reason that was not obvious from reading it. A 1,094-line refactor of the function that runs the heater deadman, with no board attached to measure the result, is the wrong risk order. It should be done with `just mon-headless` running and the firmware's own `control tick: worst … budget 10 ms` line before and after. |
+| **M-8** | `publish_radio` ran every 10 ms | **Fixed** — folded into the shared 1 s radio poll. It was also the *write side* of CR-1. |
+| **M-9** | `/api/parameters` cloned an 8.8 KB body per request under a lock, on an 8 KB-stack httpd task | **Fixed** — `live()` returns `Option<Arc<String>>`; the reader binds the clone, drops the guard, and builds the fallback only when nothing is published. The writer still allocates once a second in the control task, which was never the problem. |
+| **M-2** | MSRV 1.82 | Neither dropped nor made real. |
+| **M-11** | httpd blocking waits | Left, documented. |
+| **M-15** | No property/fuzz tests on the TSIC-306, OneWire, DS18B20 or JSON parsers | Not added. `proptest` as a dev-dependency was declined as a new dependency. |
+| **M-18** | `unreachable!` on an HTTP-reachable path | Left with the reasoning recorded. |
+| — | `system.ota_password` is still a schema key with no implementation | **A product call, not an engineering one.** The accessor's own doc spells out the risk (a default OTA password next to an endpoint that would be RCE if enabled). Deleting a user-facing config key is not a reviewer's decision. |
+| ❌10–13 | OTA (R3-15) | Declared and deliberately not ported. The three mutating endpoints answer `501 {"reason":"R3-15"}`. |
+| ❌14 | `test_maintenance_coordinator` | **Closed** — see M-17. |
+| ⚠7 | "11 bitmaps ported, the C++ has 12 — one bitmap not ported" | **REFUTED — this finding was wrong.** `git show main:include/clevercoffee/display/bitmaps.h | grep -c '^static const unsigned char'` is **11**, not 12, and `crates/cc-display/src/bitmaps_data.rs` has exactly 11 `pub static`s. Every one of the 11 C++ names is present in the Rust file, and `bitmaps.rs:47` declares `ALL: [Bitmap; 11]`. The 49 golden images (`tests/goldens.rs`) pass, which is the real evidence that the bytes render identically. The reviewer miscounted. |
+| ⚠11–21 | Log ring, log format, telnet structure, `number2string` buffers, the 19 absent `state.*`/`computed.*` keys | Individually small; each verified. The `state.*`/`computed.*` absence is harmless — verified dead in the C++ too (`Config.cpp:408-425`, `getAllStateParams` is entirely commented out, zero callers). |
+
+### What could **not** be verified, and needs a board
+
+This is the honest list. Everything below compiles and is covered by tests or a
+model, but **none of it has run on the chip**:
+
+1. **The `Snapshot` critical-section fix.** `portENTER_CRITICAL` around a
+   `heapless::String<15>` copy is sound by construction and type-checks, but the
+   use-after-free it replaces was equally unproven — it was a code-reading
+   finding. The fix should be confirmed by running `/api/status` hard while
+   booting and re-associating Wi-Fi.
+2. **The MQTT pass.** No broker. Every claim about what a broker receives is
+   derived from `MQTTManager.cpp` and from `esp-idf-svc`'s source. The retained
+   `status`/`online` argument, `esp-mqtt`'s reconnect behaviour, the heap cost of
+   `Box::leak`, and the control tick's worst case against a slow broker are all
+   unmeasured. The firmware's own `control tick: worst … budget 10 ms` line is the
+   instrument for the last one.
+3. **NVS persistence of the shot counter** — the round trip, `Control::boot`
+   seeding, and the control task's drain are device-side.
+4. **The 12 new `cc-hal-esp32` auth/upload/OPTIONS tests.** Registered and
+   compiling; never executed.
+5. **`Control::boot`'s new `shots` parameter** is in `cc-firmware`, which does not
+   build for a host target, so no host test reaches it.
+6. **`cargo udeps` / `machete` / `audit` / `deny` / `bloat` / `geiger` / `miri`**
+   are not installed here. The manual sweep found no unused third-party
+   dependency and one unused path dependency (`cc-provisioning`, now deleted),
+   but that is not `cargo-udeps`. **There is still no advisory scan and no
+   `deny.toml`.**
+7. **`cargo bench` on the chip.** The host numbers are allocation counts, which
+   are exact and target-independent; the timings are not, and the LX6 is several
+   times slower.
+
+### The three judgement calls I would want a human to look at
+
+1. **HTTP Basic auth was implemented rather than the `system.auth.*` keys being
+   deleted.** Deleting is the safer-sounding option and the worse outcome: an
+   operator who had auth on the C++ machine would go from protected to wide open
+   with nothing saying so. Two properties were reproduced from the C++ on
+   purpose and both want an eye: **boot-time** (`system.auth.*` is in
+   `needs_reboot`, which the C++ cannot express) and **fail-open on empty
+   credentials** (`WebServerManager.cpp:290-294`) rather than locking an operator
+   out of a UART-only machine. There is no TLS and no lockout; the C++ has
+   neither.
+2. **`display.blescale_brew_timer` was removed from the shipped example config**
+   rather than added to the schema. It exists in `CONFIG_REFERENCE.md` and in the
+   download, and in **neither** firmware. Adding an inert key to make a test pass
+   would be the same lie one layer down; removing it changes a user-facing file.
+3. **The C++ pre-commit clang-format hook was deleted rather than bumped.** It
+   pinned 17 while `.mise.toml` pinned 23.1.1 and CI ran a third copy — but
+   bumping it reformatted **105 files of the parity oracle**, which is not
+   allowed. So `just fmt-cpp` (PlatformIO's copy, which CI runs) is the single
+   entry point, and `AGENTS.md`'s own warning about clang-format version drift is
+   still true across contributors.
+
+### Baseline numbers after the fixes
+
+| | C++ (`main`) | Rust, before | Rust, on `review/rust-fixes` |
+| --- | --- | --- | --- |
+| src LOC (`crates/*/src`, excluding tests/examples/benches) | 28,823 | 68,530 | **72,598** — the deletion pass removed 449; the MQTT, auth and config work added more than they saved, because most of what was added is the code that makes the dead features live. Plus 481 lines of new benches, which are the measurement of the invariants below |
+| host tests | 340 | ~1,100 | **1,074 across 40 suites**, +165 device tests |
+| image size | 1,546,240 B | 1,559,520 B | **1,678,264 B** against a 1,835,008 B slot |
+| heap allocs / control tick | 0 | **4.00** | **0.000** |
+| heap allocs / display frame | — | 0 | **0.0000** |
+| `cargo clippy -p cc-hal-esp32 --all-targets` | — | **282 errors** (never run) | **0 errors** |
+| CI runs the Rust firmware | yes (the C++'s) | **no** | **yes** — `rust.yml`, a `host` job and a `device` job |
+| Toolchain channels | — | 1 (`esp`) | **2**: `esp` for firmware (the `rust-toolchain.toml` pin), **stable** for the portable crates (CI's host gate) |
+
+Image growth is **+132 KB**, of which MQTT is +44 KB. That is 156,744 B of headroom on a
+device whose whole porting brief called flash the biggest risk, so it is
+reported here rather than buried. Nothing was cut to buy it back: the three
+declared gaps (OTA, the Acaia BLE scale, the wildcard CORS header) are gaps in
+*behaviour*, not in bytes, and the flash arithmetic lives in
+`docs/rust-migration/07-image-size-budget.md`.
