@@ -2247,27 +2247,7 @@ impl Web {
             &auth,
             "/api/setpoint",
             Arc::clone(&send),
-            |value| {
-                // WebServerManager.cpp:393-395: 0..=150 is accepted, and 0 is
-                // a *value*, not an absence. Parsed as an integer because the
-                // C++ reads a `double` and a fractional setpoint is a bug in
-                // the caller, not a request to round.
-                // Truncating a fractional setpoint is deliberate and is the
-                // C++'s: `request->getParam("value", true)->value().toDouble()`
-                // into an `int` field (WebServerManager.cpp:393-395). The
-                // schema's own range is integral, so a fractional value is a
-                // caller bug and rounding it is more useful than a 400.
-                #[allow(
-                    clippy::cast_possible_truncation,
-                    reason = "v is in 0.0..=150.0, which fits an i32 with room to \
-                              spare; the C++ truncates the same way"
-                )]
-                value
-                    .parse::<f64>()
-                    .ok()
-                    .filter(|v| (0.0..=150.0).contains(v))
-                    .map(|v| Command::SetSetpoint(v as i32))
-            },
+            parse_setpoint,
         )?;
         // The C++'s three toggle routes (`WebServerManager.cpp:437-509`). All
         // three read no field in the C++; all three are what the UI's buttons
@@ -2924,6 +2904,81 @@ fn parse_flag(value: &str) -> bool {
     matches!(value, "1" | "true" | "on" | "yes")
 }
 
+/// The `POST /api/setpoint` field, parsed through the **schema's** bound.
+///
+/// # Why this is not `0.0..=150.0`
+///
+/// That was the C++ handler's own filter (`WebServerManager.cpp:393-395`) and
+/// this port reproduced it verbatim — which is how `brew.setpoint = 150` could
+/// be written and persisted. The C++ does not have the resulting bug only
+/// because the *next* line, `Config::brewSetpoint.set(newSetpoint)`
+/// (`WebServerManager.cpp:400`), range-checks 20..=110 (`Config.h:795-802`,
+/// `defaults.h:81-82`) and returns false. This port has no such second line on
+/// this route: it persisted through `persist_setpoint`
+/// (`cc-firmware/src/main.rs`), which wrote whatever it was handed. So the
+/// bound that actually protects the value is the schema's, and the only way to
+/// be sure of using it is to ask for it — [`cc_config::assign::parse`] is that
+/// ask, and it cannot drift from `ParamSpec` the way a repeated literal does.
+///
+/// A 150 °C setpoint is not a cosmetic defect: `safety.emergency_temp` defaults
+/// to 150 and S1's test is *strictly greater*
+/// (`cc_safety::SafetyState::is_over_threshold`), so it drives the boiler to
+/// the emergency threshold and holds it there with a debounce that can never
+/// trip. `cc_safety::validate_config` now refuses that pair on every write
+/// path; this is the half that makes the HTTP contract honest about it.
+///
+/// # Reject, do not clamp
+///
+/// The two candidates were a `400` and a silent clamp to 110. Clamping was
+/// rejected because the caller would be told `202 {"accepted":true}` for a
+/// request it did not make: a UI slider stuck at 110 looks like a stuck UI,
+/// not a refused write, and the operator has no way to learn the machine is not
+/// holding what they asked for. `400` is also what the C++ already answers for
+/// a value it will not take (`:404-406`), what `POST /api/parameters` answers
+/// for the same key through the same [`cc_config::assign::parse`]
+/// (`WebServerManager.cpp:843-859` → this port's `400`), and what
+/// `register_command` already sends when this returns `None`.
+///
+/// # What this costs, deliberately
+///
+/// The C++ accepts `0.0..=150.0` here and applies `0..20` to the **running**
+/// machine — `setProcessSetpoint` (`:398`) runs before the range-checked
+/// `set` — while persisting nothing. So `?value=5` is a `202` on the C++ and a
+/// `400` here, and `?value=150` is a `200` on the C++ that leaves a 150 °C
+/// process setpoint in RAM. Narrowing the accepted range is a divergence from
+/// the C++ and is recorded in
+/// [`intentional-diffs.md`](../../docs/rust-migration/intentional-diffs.md).
+/// What is *not* given up: a fractional setpoint still truncates rather than
+/// being refused, because `setProcessSetpoint` takes a `double` in the C++ and
+/// a truncated integer is not a safety question.
+///
+/// # Why an `i32`
+///
+/// `Command` is `Copy` and holds no `String` (04 §3.2), and a whole-degree
+/// setpoint is what the schema's range is quoted in. 20..=110 fits with room
+/// to spare.
+fn parse_setpoint(value: &str) -> Option<Command> {
+    match cc_config::assign::parse("brew.setpoint", value) {
+        Ok(cc_config::json::LiveValue::Float(celsius)) =>
+        {
+            #[allow(
+                clippy::cast_possible_truncation,
+                reason = "cc_config::assign::parse has already range-checked this \
+                          against the schema's 20.0..=110.0, which is three \
+                          orders of magnitude inside an i32; the C++ truncates \
+                          the same way into its process setpoint"
+            )]
+            Some(Command::SetSetpoint(celsius as i32))
+        }
+        // Every other outcome — a non-number, `NaN`, `inf`, or a value outside
+        // the schema's range — is a `None`, and `register_command` answers
+        // `400`. `Ok` on a non-`Float` is unreachable (the key is registered as
+        // a float) and is refused rather than unwrapped, so a future schema
+        // retyping cannot turn into a panic on the httpd task.
+        _ => None,
+    }
+}
+
 /// Register a `POST` handler that parses one field into a command.
 fn register_command(
     server: &mut EspHttpServer<'static>,
@@ -3546,6 +3601,51 @@ pub mod tests {
             assert!(
                 routes.iter().any(|(registered, _)| registered == path),
                 "the UI calls {path} but no handler is registered for it"
+            );
+        }
+    }
+
+    // ==================================================== the setpoint route
+
+    #[cfg_attr(test, test)]
+    pub fn the_setpoint_route_takes_what_the_schema_will_store() {
+        // The bound is `cc_config::assign::parse`'s, not a repeated literal, so
+        // this cannot drift from `brew.setpoint`'s `ParamSpec` range. The pairs
+        // are the schema's two edges (`Config.h:795-802`, `defaults.h:81-82`)
+        // and the value the integration checklist posts, spelled both ways.
+        for (field, expected) in [
+            ("20", 20),
+            ("20.0", 20),
+            ("95", 95),
+            ("95.0", 95),
+            ("110", 110),
+            ("110.0", 110),
+        ] {
+            assert_eq!(
+                parse_setpoint(field),
+                Some(Command::SetSetpoint(expected)),
+                "{field} is inside the schema's range and must be accepted"
+            );
+        }
+    }
+
+    #[cfg_attr(test, test)]
+    pub fn the_setpoint_route_refuses_a_value_that_would_defeat_the_interlock() {
+        // The defect this route carried: `?value=150` passed the C++'s
+        // permissive `0.0..=150.0` filter and was persisted, which parks the
+        // boiler on `safety.emergency_temp` (default 150) where S1's *strictly
+        // greater* test can never trip. A `None` here is a `400` from
+        // `register_command`, not a silently clamped write. The rest are the
+        // values that stop being numbers at all — `NaN` and `inf` included,
+        // which every comparison lets through.
+        for field in [
+            "150", "150.0", "200", "-1", "0", "110.5", "1e400", "NaN", "hot",
+        ] {
+            assert_eq!(
+                parse_setpoint(field),
+                None,
+                "{field} must be refused: outside the schema's 20.0..=110.0, or not \
+                 a finite number"
             );
         }
     }

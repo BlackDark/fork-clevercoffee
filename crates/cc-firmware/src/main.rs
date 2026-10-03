@@ -1752,6 +1752,15 @@ fn push_into_machine(
 /// store, and the store is the only durable thing — so the write is what makes
 /// the change survive a reboot, and a failure to write is an `error!` rather than
 /// a silent divergence.
+///
+/// **This function does not range-check.** The bound is enforced twice on the
+/// way in, not here: `web::parse_setpoint` parses the field through
+/// `cc_config::assign::parse` (so it is the schema's `20.0..=110.0` and cannot
+/// drift from `ParamSpec`), and the caller checks the cross-parameter rule with
+/// `cc_safety::validate_config` before reaching this point. A third copy of the
+/// range here would be a third thing to keep in step, and this is the function
+/// that made the defect durable — a value that should never have arrived was
+/// written to the one slot the machine reads at every boot.
 fn persist_setpoint(
     store: &mut cc_config::blob_store::BlobConfigStore<cc_hal_esp32::nvs::EspNvsBlob>,
     celsius: f64,
@@ -2404,10 +2413,30 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
                 // **persist** `brewSetpoint`. All three happen here — the first
                 // two as reducer events, the third as a store write, because the
                 // store is this task's.
+                //
+                // The value arrives already inside the schema's `brew.setpoint`
+                // range: the handler parses it with `cc_config::assign::parse`
+                // (`web::parse_setpoint`) rather than the C++'s permissive
+                // `0.0..=150.0`, which is what let a 150 °C setpoint be written
+                // and reloaded on every boot here. The `validate_config` call
+                // below is the second half of the same rule — the cross-
+                // parameter one, `emergency_temp` against the setpoint plus
+                // hysteresis — and it is here for the same reason it is on the
+                // `/api/parameters` and MQTT paths below: a write that leaves
+                // the machine unable to run safely is *reported*, and the
+                // fail-closed rule discards it at the next boot (08 §4.1).
                 cc_hal_esp32::web::Command::SetSetpoint(celsius) => {
                     let celsius = f64::from(celsius);
                     config.brew.setpoint = celsius;
                     control.set_setpoint(celsius);
+                    if let Err(violation) =
+                        cc_safety::validate_config(&control::safety_config(&config))
+                    {
+                        error!(
+                            "config: brew.setpoint = {celsius} leaves the configuration \\
+                             UNSAFE ({violation:?}); the next boot will discard it"
+                        );
+                    }
                     persist_setpoint(&mut store, celsius, &config);
                     // `requestNormalOperation(systemContext_)` — the C++'s third
                     // line, and the reason a setpoint change also wakes the

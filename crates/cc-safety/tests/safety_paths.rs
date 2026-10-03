@@ -840,6 +840,165 @@ fn config_the_highest_legal_steam_setpoint_still_validates_with_the_default_thre
     assert_eq!(validate_config(&cfg), Ok(()));
 }
 
+// ================================ the brew setpoint pair (finding 1.2, P1)
+
+// The steam rule above has a twin here, and its absence was a can-damage
+// defect: `POST /api/setpoint` filtered to `0..=150` and persisted the result
+// without going through `cc_config::assign::parse`, so a 150 C setpoint could
+// be written and reloaded on every boot. `safety.emergency_temp` defaults to
+// 150 and S1's test is *strictly greater* (`SafetyState::is_over_threshold`),
+// so that setpoint drove the boiler to the emergency threshold and held it
+// there with a debounce that could never count a breach.
+
+#[test]
+fn config_emergency_temp_must_exceed_the_brew_setpoint_plus_hysteresis() {
+    let cfg = SafetyConfig {
+        emergency_temp: Celsius::new(130.0),
+        // `STEAM_SETPOINT_MIN` (defaults.h:83), so the steam pair is clear at
+        // 100 + 10 and the verdict is unambiguously about the brew one.
+        steam_setpoint: Celsius::new(100.0),
+        effective_brew_setpoint: Celsius::new(120.0),
+        emergency_hysteresis: Celsius::new(10.0),
+        ..SafetyConfig::default()
+    };
+    assert_eq!(
+        validate_config(&cfg),
+        Err(ConfigViolation::EmergencyTempTooLowForBrew {
+            emergency_temp: Celsius::new(130.0),
+            brew_setpoint: Celsius::new(120.0),
+            emergency_hysteresis: Celsius::new(10.0),
+        })
+    );
+}
+
+#[test]
+fn config_a_brew_setpoint_equal_to_the_emergency_threshold_is_a_violation() {
+    // The exact boundary, and it is the dangerous one: S1 counts a reading
+    // *strictly above* `emergency_temp`, so a setpoint sitting exactly on the
+    // threshold is driven to and held, and the debounce can never trip. A `>=`
+    // here would let the one value that defeats the interlock through.
+    let cfg = SafetyConfig {
+        emergency_temp: Celsius::new(150.0),
+        effective_brew_setpoint: Celsius::new(145.0),
+        emergency_hysteresis: Celsius::new(5.0),
+        ..SafetyConfig::default()
+    };
+    assert_eq!(
+        validate_config(&cfg),
+        Err(ConfigViolation::EmergencyTempTooLowForBrew {
+            emergency_temp: Celsius::new(150.0),
+            brew_setpoint: Celsius::new(145.0),
+            emergency_hysteresis: Celsius::new(5.0),
+        }),
+        "a setpoint AT the threshold is held there forever by a strictly-greater test"
+    );
+}
+
+#[test]
+fn config_one_degree_of_brew_headroom_is_enough() {
+    let cfg = SafetyConfig {
+        emergency_temp: Celsius::new(130.1),
+        steam_setpoint: Celsius::new(100.0),
+        effective_brew_setpoint: Celsius::new(120.0),
+        emergency_hysteresis: Celsius::new(10.0),
+        ..SafetyConfig::default()
+    };
+    assert_eq!(validate_config(&cfg), Ok(()));
+}
+
+#[test]
+fn config_the_worst_legal_brew_setpoint_validates_with_the_default_threshold() {
+    // The shipped defaults have to survive their own validator, and the reason
+    // they are 40 C apart is the same arithmetic as above: `BREW_SETPOINT_MAX`
+    // is 110 (`defaults.h:82`), `brew.temp_offset` adds at most 20
+    // (`defaults.h:84-85`), and `emergency_temp` defaults to 150.
+    for (setpoint, offset) in [(95.0, 0.0), (110.0, 0.0), (110.0, 20.0)] {
+        let cfg = SafetyConfig {
+            effective_brew_setpoint: Celsius::new(setpoint + offset),
+            ..SafetyConfig::default()
+        };
+        assert_eq!(
+            validate_config(&cfg),
+            Ok(()),
+            "{setpoint} + {offset} must validate against the default threshold"
+        );
+    }
+}
+
+#[test]
+fn config_a_lowered_emergency_threshold_cannot_be_bought_with_a_brew_setpoint() {
+    // The two parameters overlap in range (`emergency_temp` 120..=180,
+    // `brew.setpoint` 20..=110, `brew.temp_offset` 0..=20), so a *legal* pair
+    // can defeat S1 without any value being out of bounds. This is the same
+    // shape as `config_emergency_temp_must_exceed_steam_setpoint_plus_hysteresis`,
+    // and the C++ has neither rule: it validates each parameter in isolation.
+    let cfg = SafetyConfig {
+        emergency_temp: Celsius::new(120.0),
+        emergency_hysteresis: Celsius::new(1.0),
+        steam_setpoint: Celsius::new(100.0),
+        effective_brew_setpoint: Celsius::new(119.0),
+        ..SafetyConfig::default()
+    };
+    assert!(matches!(
+        validate_config(&cfg),
+        Err(ConfigViolation::EmergencyTempTooLowForBrew { .. })
+    ));
+}
+
+#[test]
+fn config_the_steam_rule_is_still_reported_before_the_brew_rule() {
+    // Both pairs wrong: the diagnostic is stable and the ordering of the checks
+    // is pinned rather than implied, so adding the brew rule did not silently
+    // move the steam one.
+    let cfg = SafetyConfig {
+        emergency_temp: Celsius::new(100.0),
+        steam_setpoint: Celsius::new(120.0),
+        effective_brew_setpoint: Celsius::new(120.0),
+        heater_relay_trigger: RelayTriggerType::LowTrigger,
+        ..SafetyConfig::default()
+    };
+    assert!(matches!(
+        validate_config(&cfg),
+        Err(ConfigViolation::EmergencyTempTooLowForSteam { .. })
+    ));
+}
+
+#[test]
+fn config_a_brew_setpoint_that_defeats_the_interlock_is_not_storable() {
+    // `check_storable` is the mirror of `load_or_default` and the boundary every
+    // write path is expected to consult, so the refusal has to be here too and
+    // not only in the load path.
+    let cfg = SafetyConfig {
+        emergency_temp: Celsius::new(150.0),
+        effective_brew_setpoint: Celsius::new(145.0),
+        emergency_hysteresis: Celsius::new(5.0),
+        ..SafetyConfig::default()
+    };
+    assert!(matches!(
+        check_storable(&cfg),
+        Err(ConfigViolation::EmergencyTempTooLowForBrew { .. })
+    ));
+}
+
+#[test]
+fn load_discards_a_stored_config_whose_brew_setpoint_defeats_the_interlock() {
+    // The end-to-end consequence. A machine with this blob on disk runs the
+    // compiled-in defaults instead, which is the fail-closed rule from 08 §4.1
+    // and the reason a persisted 150 C setpoint cannot survive a reboot.
+    let stored = SafetyConfig {
+        emergency_temp: Celsius::new(150.0),
+        effective_brew_setpoint: Celsius::new(145.0),
+        emergency_hysteresis: Celsius::new(5.0),
+        ..SafetyConfig::default()
+    };
+    let loaded = load_or_default(Some(&stored));
+    assert_eq!(loaded.config, SafetyConfig::default());
+    assert!(matches!(
+        loaded.origin,
+        ConfigOrigin::DiscardedUnsafe(ConfigViolation::EmergencyTempTooLowForBrew { .. })
+    ));
+}
+
 #[test]
 fn config_a_low_trigger_heater_relay_is_refused() {
     let cfg = SafetyConfig {

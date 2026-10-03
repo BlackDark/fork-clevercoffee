@@ -466,6 +466,7 @@ impl Runner {
             emergency_temp: view.emergency_temp,
             emergency_hysteresis: view.emergency_hysteresis,
             steam_setpoint: view.steam_setpoint,
+            effective_brew_setpoint: view.effective_brew_setpoint,
             heater_relay_trigger: view.heater_relay_trigger,
             temperature_sensor: view.temperature_sensor,
         };
@@ -1433,6 +1434,8 @@ assert:
         config.safety.emergency_temp = 137.0;
         config.safety.emergency_hysteresis = 7.0;
         config.steam.setpoint = 128.0;
+        config.brew.setpoint = 104.0;
+        config.brew.temp_offset = 3.0;
         let view = config.safety_view();
         let built = cc_safety::SafetyConfig {
             // From the view, like the firmware's boot path: a literal here
@@ -1443,12 +1446,18 @@ assert:
             emergency_temp: view.emergency_temp,
             emergency_hysteresis: view.emergency_hysteresis,
             steam_setpoint: view.steam_setpoint,
+            effective_brew_setpoint: view.effective_brew_setpoint,
             heater_relay_trigger: view.heater_relay_trigger,
             temperature_sensor: view.temperature_sensor,
         };
         assert_eq!(built.emergency_temp, Celsius::new(137.0));
         assert_eq!(built.emergency_hysteresis, Celsius::new(7.0));
         assert_eq!(built.steam_setpoint, Celsius::new(128.0));
+        // The **effective** setpoint, offset included: this is the number the
+        // PID is told to hold, and therefore the one `validate_config`
+        // compares against the emergency threshold. A harness that carried the
+        // raw `104.0` would not notice a configuration the firmware refuses.
+        assert_eq!(built.effective_brew_setpoint, Celsius::new(107.0));
         assert_eq!(
             built.heater_relay_trigger,
             config.hardware.relays.heater.trigger_type

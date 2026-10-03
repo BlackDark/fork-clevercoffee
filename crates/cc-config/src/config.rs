@@ -1239,6 +1239,16 @@ pub struct SafetyView {
     /// `steam.setpoint`, as a [`Celsius`]. See [`SafetyView::emergency_temp`]
     /// for why.
     pub steam_setpoint: Celsius,
+    /// `brew.setpoint + brew.temp_offset`, as a [`Celsius`] — the temperature
+    /// the PID is actually told to hold in brew mode, which is what
+    /// `cc_safety::validate_config` needs to compare against the emergency
+    /// threshold.
+    ///
+    /// The offset is included deliberately. `cc_safety` asks "is the threshold
+    /// above the temperature the boiler is driven to?", and the offset is part
+    /// of that number (`Config::effective_brew_setpoint`); carrying the raw
+    /// `brew.setpoint` would leave a 0..=20 degree gap the validator cannot see.
+    pub effective_brew_setpoint: Celsius,
     /// `hardware.relays.heater.trigger_type`.
     pub heater_relay_trigger: RelayTriggerType,
     /// `hardware.relays.pump.trigger_type`. See
@@ -1267,22 +1277,24 @@ impl Config {
     #[must_use]
     #[allow(
         clippy::cast_possible_truncation,
-        reason = "the three narrowing casts are the point of this method, and \
+        reason = "the four narrowing casts are the point of this method, and \
                   this is the one place they happen. The `Config` fields are \
                   `f64` because the C++ uses `double` for every non-integer \
                   parameter (`Config.h`); `cc_safety::SafetyConfig` is \
                   `Celsius`-typed, which is `f32`. Over the schema's ranges \
                   (emergency_temp 120..180, emergency_hysteresis 1..15, \
-                  steam_setpoint 100..140) the loss is under 1e-5 C, which is \
-                  four orders of magnitude below the probe's 0.0625 C \
-                  resolution. Doing it here rather than in the caller is what \
-                  keeps the loss in one place and out of `cc-firmware`."
+                  steam_setpoint 100..140, effective_brew_setpoint 20..130) the \
+                  loss is under 1e-5 C, which is four orders of magnitude \
+                  below the probe's 0.0625 C resolution. Doing it here rather \
+                  than in the caller is what keeps the loss in one place and \
+                  out of `cc-firmware`."
     )]
     pub fn safety_view(&self) -> SafetyView {
         SafetyView {
             emergency_temp: Celsius::new(self.safety.emergency_temp as f32),
             emergency_hysteresis: Celsius::new(self.safety.emergency_hysteresis as f32),
             steam_setpoint: Celsius::new(self.steam.setpoint as f32),
+            effective_brew_setpoint: Celsius::new(self.effective_brew_setpoint() as f32),
             heater_relay_trigger: self.hardware.relays.heater.trigger_type,
             pump_relay_trigger: self.hardware.relays.pump.trigger_type,
             valve_relay_trigger: self.hardware.relays.valve.trigger_type,

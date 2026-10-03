@@ -296,9 +296,10 @@ impl Control {
     ///
     /// # Panics
     ///
-    /// Never. The value is a `f64` the C++ range-checks to `0..=150`
-    /// (`WebServerManager.cpp:394`); this one is not re-checked because the only
-    /// caller is the HTTP handler, which already did.
+    /// Never. The value is a `f64` the handler has already range-checked
+    /// through `cc_config::assign::parse` against the schema's `brew.setpoint`
+    /// bounds (`web::parse_setpoint`); this one does not re-check, because the
+    /// only caller is the HTTP handler and there is one bound, not two.
     pub fn set_setpoint(&mut self, celsius: f64) {
         self.setpoint = celsius;
     }
@@ -637,6 +638,7 @@ pub(crate) fn safety_config(config: &Config) -> SafetyConfig {
         emergency_temp: view.emergency_temp,
         emergency_hysteresis: view.emergency_hysteresis,
         steam_setpoint: view.steam_setpoint,
+        effective_brew_setpoint: view.effective_brew_setpoint,
         heater_relay_trigger: view.heater_relay_trigger,
         pump_relay_trigger: view.pump_relay_trigger,
         valve_relay_trigger: view.valve_relay_trigger,

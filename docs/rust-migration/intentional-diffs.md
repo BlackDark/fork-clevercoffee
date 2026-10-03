@@ -1594,3 +1594,56 @@ permanently and confusingly.
 **What pins it.** `cc-hal-esp32::web::tests::the_advertised_options_handler_is_a_wildcard_over_the_api`
 (device-only), which fails if the advertised `Options` entry is anything other
 than the one real wildcard.
+
+## 23. `POST /api/setpoint` takes the schema's bound, and the brew pair is cross-checked 🔴 changed
+
+**What the C++ does.** `WebServerManager.cpp:391-402` filters the field to
+`0.0..=150.0`, applies `setProcessSetpoint` to the **running** machine, and then
+calls `Config::brewSetpoint.set(newSetpoint)`, which range-checks
+`20..=110` (`Config.h:795-802`) and returns `false`. So the C++ rejects the
+persisted value, answers `400`, and — because `setProcessSetpoint` already ran —
+leaves the rejected value as the live process setpoint for that boot.
+
+**What the Rust does.** Two changes.
+
+1. The handler parses the field through `cc_config::assign::parse("brew.setpoint", …)`
+   (`cc-hal-esp32::web::parse_setpoint`), so the accepted range is the schema's
+   `20.0..=110.0` and cannot drift from `ParamSpec` the way a repeated literal does.
+   Out-of-range values are refused with `400`, matching what the C++ already
+   answers for a value it will not take and what `/api/parameters` answers for the
+   same key.
+2. `cc_safety::validate_config` now also requires `safety.emergency_temp` to exceed
+   `brew.setpoint + brew.temp_offset + safety.emergency_hysteresis`, not just the
+   steam pair it already checked. This is the *effective* setpoint the PID is
+   actually told to hold, which is why the offset is carried in `SafetyConfig`.
+
+**Why.** The port had no second range-check on this route. `persist_setpoint`
+wrote whatever it was handed to the one store slot the machine reads at every
+boot, so `?value=150` was accepted, persisted, and reloaded — and 150 °C defeats
+the interlock, because `safety.emergency_temp` defaults to 150 and S1's
+over-temperature test is **strictly greater**. The machine was driven *to* the
+emergency threshold and held there with a debounce that could never count a
+breach. That is the same shape as the steam rule already in this ledger (09 §8),
+extended to the setpoint that is actually used.
+
+The rule lives in `validate_config` rather than at the write path so that **every**
+writer is covered — HTTP, MQTT and `/api/parameters` — rather than only the one
+where the bug was found. It is the fail-closed rule of
+[08 §4.1](./08-recovered-oracle.md): a configuration that cannot run safely is
+discarded at load, and `SafetyConfig` reaches the validator through the same
+`safety_view` the boot path already uses.
+
+**What it costs, deliberately.** `?value=5` is a `202` on the C++ and a `400`
+here, and `?value=150` is a `200` on the C++ that leaves a 150 °C process setpoint
+in RAM. Narrowing the accepted range is a divergence. A silent clamp was rejected
+instead: the caller would be told `accepted: true` for a request it did not make,
+so a UI slider stuck at 110 looks like a stuck UI rather than a refused write. A
+fractional setpoint still truncates rather than being refused, because
+`setProcessSetpoint` takes a `double` in the C++ and truncation is not a safety
+question.
+
+**What pins it.** `cc-safety::tests::safety_paths.rs::config_*` (nine host tests,
+covering the boundary, the ordering against the steam rule, and the load-time
+discard), plus
+`cc-hal-esp32::web::tests::the_setpoint_route_{takes_what_the_schema_will_store,refuses_a_value_that_would_defeat_the_interlock}`
+(device-only, registered in `CASES`).

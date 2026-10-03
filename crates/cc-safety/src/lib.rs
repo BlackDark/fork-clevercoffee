@@ -96,6 +96,17 @@ pub struct SafetyConfig {
     /// the emergency threshold must clear the steam setpoint or the machine
     /// would stop itself during normal steaming.
     pub steam_setpoint: Celsius,
+    /// The temperature the PID is actually told to hold in brew mode —
+    /// `brew.setpoint + brew.temp_offset`, not the raw `brew.setpoint`.
+    ///
+    /// Needed only by [`validate_config`], for the same reason
+    /// [`Self::steam_setpoint`] is, and the offset is in here for the same
+    /// reason it is in `cc_config::Config::effective_brew_setpoint`: the
+    /// threshold has to clear the temperature the boiler is *driven to*, and
+    /// the offset is part of that number. `brew.temp_offset` is bounded 0..=20
+    /// (`defaults.h:84-85`), which is enough to push a legal `brew.setpoint`
+    /// past a legal `safety.emergency_temp`.
+    pub effective_brew_setpoint: Celsius,
     /// `hardware.relays.heater.trigger_type` — needed only by
     /// [`validate_config`]. See [`RelayTriggerType`]: a low-trigger heater relay
     /// cannot be made safe in firmware.
@@ -139,6 +150,7 @@ impl Default for SafetyConfig {
             emergency_temp: Celsius::new(150.0),
             emergency_hysteresis: Celsius::new(5.0),
             steam_setpoint: Celsius::new(120.0),
+            effective_brew_setpoint: Celsius::new(95.0),
             heater_relay_trigger: RelayTriggerType::HighTrigger,
             pump_relay_trigger: RelayTriggerType::HighTrigger,
             valve_relay_trigger: RelayTriggerType::HighTrigger,
@@ -724,6 +736,35 @@ pub enum ConfigViolation {
         /// The configured hysteresis.
         emergency_hysteresis: Celsius,
     },
+    /// `safety.emergency_temp` is not above the brew setpoint (plus the offset
+    /// the PID adds to it) plus `safety.emergency_hysteresis`.
+    ///
+    /// The steam pair has the same shape and the same asymmetry that makes this
+    /// one the worse of the two: S1's test is **strictly greater**
+    /// ([`SafetyState::is_over_threshold`]), so a setpoint sitting *at* the
+    /// emergency threshold means the boiler is driven there and held, and the
+    /// three-reading debounce can never count a breach.
+    ///
+    /// `safety.emergency_temp` defaults to 150 (`Config.h:813-829`) and
+    /// `brew.setpoint` is bounded 20..=110 by the schema
+    /// (`Config.h:795-802`, `defaults.h:81-82`), so the schema bounds alone
+    /// keep the defaults 40 °C apart — which is why the C++ is not exposed to
+    /// this through `/api/parameters`. It *was* exposed here, because
+    /// `POST /api/setpoint` filtered to `0..=150` instead of the schema's range
+    /// and wrote the result straight to the store without passing
+    /// `cc_config::assign::parse` (`WebServerManager.cpp:391-402` reads
+    /// `0..=150` and then range-checks nothing; `Config.h:795` is what would
+    /// have, and it was bypassed). The check lives here so that **every** write
+    /// path is covered, not just the one that was found.
+    EmergencyTempTooLowForBrew {
+        /// The configured emergency threshold.
+        emergency_temp: Celsius,
+        /// The temperature the PID is told to hold in brew mode, offset
+        /// included.
+        brew_setpoint: Celsius,
+        /// The configured hysteresis.
+        emergency_hysteresis: Celsius,
+    },
     /// The heater relay is configured `LOW_TRIGGER`.
     ///
     /// An ESP32 GPIO is high-impedance before `pinMode()` runs and while the
@@ -796,12 +837,34 @@ pub enum ConfigViolation {
 /// *legal* pair that is unsafe in combination: `emergency_temp` in 120-180 and
 /// `steam_setpoint` in 100-140 overlap across 120-140, and
 /// `emergency_hysteresis` adds up to 15 more degrees on top.
+///
+/// The brew pair is checked for the same reason and with the same asymmetry.
+/// S1's over-temperature test is **strictly greater**
+/// ([`SafetyState::is_over_threshold`]), so the failure mode of a brew setpoint
+/// at or above the threshold is not a machine that trips — it is a machine the
+/// PID drives *to* the threshold and holds there, with a debounce that can
+/// never count a breach. That is why the check belongs here rather than at the
+/// write path: `POST /api/setpoint` once filtered to `0..=150` and persisted the
+/// result without going through `cc_config::assign::parse`, and a rule enforced
+/// only where the bug was found is a rule waiting for the next writer.
 pub fn validate_config(cfg: &SafetyConfig) -> Result<(), ConfigViolation> {
     let steam_headroom = cfg.steam_setpoint.raw() + cfg.emergency_hysteresis.raw();
     if cfg.emergency_temp.raw() <= steam_headroom {
         return Err(ConfigViolation::EmergencyTempTooLowForSteam {
             emergency_temp: cfg.emergency_temp,
             steam_setpoint: cfg.steam_setpoint,
+            emergency_hysteresis: cfg.emergency_hysteresis,
+        });
+    }
+
+    // The brew pair, immediately after the steam one so the two read as the rule
+    // they are: the threshold must clear *both* setpoints the PID can be told
+    // to hold, plus the hysteresis, by a strictly positive margin.
+    let brew_headroom = cfg.effective_brew_setpoint.raw() + cfg.emergency_hysteresis.raw();
+    if cfg.emergency_temp.raw() <= brew_headroom {
+        return Err(ConfigViolation::EmergencyTempTooLowForBrew {
+            emergency_temp: cfg.emergency_temp,
+            brew_setpoint: cfg.effective_brew_setpoint,
             emergency_hysteresis: cfg.emergency_hysteresis,
         });
     }

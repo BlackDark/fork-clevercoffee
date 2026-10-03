@@ -512,6 +512,14 @@ pub const CASES: &[Case] = &[
         run: web::tests::every_route_the_frontend_calls_is_registered,
     },
     Case {
+        name: "web::the_setpoint_route_takes_what_the_schema_will_store",
+        run: web::tests::the_setpoint_route_takes_what_the_schema_will_store,
+    },
+    Case {
+        name: "web::the_setpoint_route_refuses_a_value_that_would_defeat_the_interlock",
+        run: web::tests::the_setpoint_route_refuses_a_value_that_would_defeat_the_interlock,
+    },
+    Case {
         name: "web::a_flag_reads_the_csqs_spellings_and_treats_anything_else_as_off",
         run: web::tests::a_flag_reads_the_csqs_spellings_and_treats_anything_else_as_off,
     },
