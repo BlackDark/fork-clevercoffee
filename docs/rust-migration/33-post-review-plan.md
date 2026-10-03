@@ -38,16 +38,30 @@ this whole effort with `git diff 2cbeb4d0..HEAD -- src/ include/ lib/ test/ plat
 Three of the four were fixed at a **shared invariant** rather than at the write path, so they cover
 every writer (HTTP, MQTT, `/api/parameters`, NVS) rather than the route where the bug was found.
 
-## Phase 2 — cheap correctness 🔄 in progress
+## Phase 2 — cheap correctness ✅
 
-| # | item | worker |
+| # | item | commit |
 | --- | --- | --- |
-| 2.3 | Task priorities never implemented; lwIP (prio 18) preempts control | P2a |
-| 2.8 | Up to four NVS erase-and-writes inside one 10 ms tick | P2a |
-| 2.4 | Pin map duplicated, neither copy validated | P2a |
-| 2.5 | S5 water-valve whitelist had one enforcement point | P2b |
-| 2.6 | `pid.regular.i_max = 0` silently rejected | P2b |
-| 2.7 | MQTT time budget equals the whole control period | P2b |
+| 2.3 | Task priorities never implemented; lwIP (prio 18) preempts control | `b195edd0` |
+| 2.8 | Up to four NVS erase-and-writes inside one 10 ms tick | `b195edd0` |
+| 2.4 | Pin map duplicated, neither copy validated | `b195edd0` |
+| 2.5 | S5 water-valve whitelist had one enforcement point | `8553c220` |
+| 2.6 | `pid.regular.i_max = 0` silently rejected | `8553c220` |
+| 2.7 | MQTT time budget equals the whole control period | `8553c220` |
+
+Two of these did not go the way the finding anticipated, and both were right:
+
+- **2.4** was solved better than specified. Instead of making `main.rs` derive its pins from a
+  `PinMap`, the tree now has one `cc-hal-esp32/src/pins.rs` plus an `assert_wiring(&peripherals)`
+  checking all 16 constants against the pins `main.rs` actually wired. That is a **runtime**
+  assertion rather than a `const` one, because a `const` assertion cannot inspect a `Peripherals` —
+  so the wiring stays readable where it is and cannot silently disagree.
+- **2.5** exposed **finding 8.2**: the missing interlock check had been *hiding* an ordering bug.
+  `actuators.set_state(control.state())` ran before `Control::tick`, so the facade cached the state
+  the tick was **leaving**. Fixing 2.5 on its own would have made `may_open_water` refuse the
+  `OpenWaterValve` that `BrewPreinfusionState::onEntryImpl` emits on the very tick the machine
+  enters `BREW_PREINFUSION` — a 10 ms delay and a spurious refusal at every brew start. The safety
+  fix was only safe because the ordering bug was found and fixed alongside it.
 
 ## Phase 3 — maintainability 🔜
 
@@ -56,7 +70,13 @@ every writer (HTTP, MQTT, `/api/parameters`, NVS) rather than the route where th
 | 4.3 | Three levels of `dyn` in the safety applier | ✅ **done** — generic + `?Sized`; `.flash.text` −280 B |
 | P2-2 | `Diagnostics` — 11 optional methods, 4 implemented | ✅ **done** — 11 → **5**, not deleted |
 | 4.6 | `ConfigStore` — one impl, never used as a bound | ✅ **done** — trait and `MemStore` deleted; methods are inherent on `BlobConfigStore<B>` |
-| 4.2 | Three blocking mutexes in the 10 ms tick | **highest risk**; unverifiable on hardware |
+| 4.2 | Three blocking mutexes in the 10 ms tick | 🔄 **in progress** — highest risk, unverifiable on hardware |
+| 8.1 | `on_log` unimplemented, so a pump-watchdog trip logged nothing | ✅ `f4a6341b` |
+
+Also in this phase: finding **8.3** — the obvious fix for 2.6 (raise the `i_max` schema floor above 0)
+was **ruled out rather than declined**, because Home Assistant's `aggIMax` entity publishes that
+bound (C++ `MQTTManager.cpp:869` → `discovery::bounds` reads `spec.min`). A floor above 0 would
+diverge from the C++ *and* from this firmware's verified MQTT discovery surface.
 
 **On P2-2.** The trait was **not** deleted, because the collapse leaves five
 genuinely-distinct responsibilities, not fewer than three. What went were the six
