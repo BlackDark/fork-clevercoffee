@@ -24,7 +24,7 @@
 //! (`DisplayTemplateBase.h:135-150`). Both depend on `langstring_current_temp`
 //! being 42 px wide in `profont11` — a value pinned by a test in
 //! [`crate::lang`]. Change the label and those coordinates go wrong silently;
-//! [`check_column_offsets`] exists to make that loud.
+//! `check_column_offsets` exists to make that loud.
 
 use crate::display::{Display, DISPLAY_WIDTH, STATUS_BAR_Y_POS};
 use crate::fmt::{format_fixed, format_int, format_padded2, truncate_to_i32};
@@ -222,7 +222,7 @@ pub fn unit_ink_width() -> i32 {
 /// The inverted field's box for a row whose origin is `x`: `(left, width)`.
 ///
 /// The width is what is left to the frame's right edge. See
-/// [`draw_inverted_field`] for why a constant is wrong here.
+/// `draw_inverted_field` for why a constant is wrong here.
 #[must_use]
 pub const fn inverted_field_box(x: i32) -> (i32, i32) {
     let left = x + VALUE_COLUMN_OFFSET;

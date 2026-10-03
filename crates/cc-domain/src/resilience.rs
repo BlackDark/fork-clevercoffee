@@ -48,14 +48,14 @@
 //!   `half_open_attempts_ == 0`, and nothing ever increments
 //!   `half_open_attempts_`. So a half-open breaker admits **every** attempt
 //!   until one succeeds twice or one fails. Preserved, and pinned by
-//!   [`div_half_open_admits_every_attempt`].
+//!   `div_half_open_admits_every_attempt`.
 //! * `update_state` in `HALF_OPEN` closes the circuit when
 //!   `half_open_timeout` has elapsed **and** no attempt was made, on the
 //!   strength of having not been used. Preserved, and pinned by
-//!   [`div_half_open_closes_on_idleness_not_on_success`].
+//!   `div_half_open_closes_on_idleness_not_on_success`.
 //! * `record_failure` in `CLOSED` resets the failure count to 0 when it opens
 //!   the circuit (`Resilience.h:253-258`). Preserved, and pinned by
-//!   [`div_opening_the_circuit_clears_the_failure_count`].
+//!   `div_opening_the_circuit_clears_the_failure_count`.
 
 use core::fmt;
 
@@ -268,8 +268,8 @@ impl CircuitBreaker {
     /// Whether an attempt may be made at `now_ms`, advancing the state machine
     /// first.
     ///
-    /// This is the mutating half of [`CircuitBreaker::state`] and is the one to
-    /// call from network code. See its docs for the half-open rule.
+    /// This is the mutating half of the breaker state machine and is the one to
+    /// call from network code. See the module docs for the half-open rule.
     pub fn can_attempt(&mut self, now_ms: u32) -> bool {
         self.update_state(now_ms);
         match self.state {

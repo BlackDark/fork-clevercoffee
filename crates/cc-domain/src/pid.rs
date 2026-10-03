@@ -293,7 +293,7 @@ impl Controller {
     /// At the shipped 1000 ms window, and for any step that lands exactly on
     /// it, this is `1.0` and the C++'s is `1.0`, so the term is bit-identical.
     /// That is measured, not asserted: see
-    /// [`crate::pid_parity::scenario_a_production_pon_e_matches_the_cpp_library`]
+    /// `crate::pid_parity::scenario_a_production_pon_e_matches_the_cpp_library`
     /// and its three siblings, which compare `to_bits()` on every step of all
     /// four oracle scenarios — maximum |delta| **0.0**.
     ///
@@ -302,7 +302,7 @@ impl Controller {
     /// the real interval was, the port divides by the real one. That is the
     /// point of the fix, it is bounded by the scheduling jitter, and it is
     /// quantified by
-    /// [`crate::pid_parity::scenario_e_a_late_step_uses_the_real_interval`].
+    /// `crate::pid_parity::scenario_e_a_late_step_uses_the_real_interval`.
     #[must_use]
     pub fn derivative_seconds(&self) -> f64 {
         f64::from(self.sample_time.raw()) / 1000.0

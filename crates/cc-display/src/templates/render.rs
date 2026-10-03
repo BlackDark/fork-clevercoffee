@@ -80,7 +80,7 @@ pub fn temperature_only(d: &mut Display, input: &DisplayInput, _config: &Config)
 ///
 /// Standard plus two conditional rows. Note the different y values from the
 /// Standard template: the temperature block at y=16, the brew at y=26, the
-/// weight and the pressure — a nine-pixel pitch, see [`SCALE_ROW_TEMP`] —
+/// weight and the pressure — a nine-pixel pitch, see `SCALE_ROW_TEMP` —
 /// against Standard's 16/36/47.
 pub fn scale(d: &mut Display, input: &DisplayInput, config: &Config) {
     let l = crate::lang::for_language(config.language);

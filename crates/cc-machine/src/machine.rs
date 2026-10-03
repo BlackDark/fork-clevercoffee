@@ -11,7 +11,8 @@
 //!
 //! That last point is the one that matters for a reducer. There is no instance
 //! to be fresh, so "a new `errorStartTime_` on every entry" has to be modelled
-//! explicitly. [`Machine::entry_error_since`] does that, and
+//! explicitly. [`Machine::error_since`](crate::machine::Machine::error_since)
+//! does that, and
 //! `states::on_entry` is the only thing that writes it.
 //!
 //! # Immutability
@@ -593,14 +594,15 @@ pub struct Machine {
     pub hot_water_activity: bool,
     /// `PowerHandler::systemInitializedTime_` — when the power handler first
     /// ran, and from which presses are ignored for
-    /// [`timing::POWER_SWITCH_SETTLE_MS`] (`PowerHandler.h:117`).
+    /// [`timing::POWER_SWITCH_SETTLE_MS`](crate::timing::POWER_SWITCH_SETTLE_MS)
+    /// (`PowerHandler.h:117`).
     pub boot_at: Option<Millis>,
     /// `PowerHandler::longPressStartTime_`, and the `trackingLongPress_` flag it
     /// is armed by. `None` means "not tracking", which is both `isRunning_` and
     /// `trackingLongPress_ == false` in the C++.
     pub power_press_started_at: Option<Millis>,
     /// `BrewHandler::brewStartTime_`. Recorded but **never compared** — see
-    /// [`timing::PUMP_TIMEOUTS_NEVER_ARM`].
+    /// [`timing::PUMP_TIMEOUTS_NEVER_ARM`](crate::timing::PUMP_TIMEOUTS_NEVER_ARM).
     pub brew_pump_started_at: Option<Millis>,
     /// `HotWaterHandler::pumpTimer_.startTime_`. Same: recorded, never used.
     pub hot_water_pump_started_at: Option<Millis>,
@@ -613,7 +615,8 @@ impl Machine {
     /// (`StateMachine.cpp:21-24`) — `currentState_` is `nullptr` and
     /// `update()` would refuse to run. The reducer has no null state, so it
     /// uses `INIT` plus the [`initialized`](Self::initialized) flag and makes
-    /// every event a no-op until [`boot`](Self::boot).
+    /// every event a no-op until
+    /// [`boot`](crate::boot).
     #[must_use]
     pub const fn cold() -> Self {
         Self {

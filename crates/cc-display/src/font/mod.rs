@@ -24,9 +24,9 @@
 //! | [`FontInfo::read`] | `u8g2_read_font_info`, `u8g2_font.c:157` |
 //! | [`BitReader`] | `u8g2_font_decode_get_unsigned_bits`, `u8g2_font.c:249` |
 //! | [`Font::glyph_header`] | `u8g2_font_get_glyph_data`, `u8g2_font.c:759` |
-//! | [`Glyph::decode`] | `u8g2_font_decode_glyph`, `u8g2_font.c:490` |
+//! | [`Font::decode_into`] | `u8g2_font_decode_glyph`, `u8g2_font.c:490` |
 //! | [`Font::str_width`] | `u8g2_string_width`, `u8g2_font.c:1290` |
-//! | [`Font::bbox_height`] | `u8g2_GetFontBBXHeight` + the ref-height rules, `u8g2_font.c:1189` |
+//! | [`Font::ref_box_height`] | `u8g2_GetFontBBXHeight` + the ref-height rules, `u8g2_font.c:1189` |
 //!
 //! # U8g2's per-glyph `is_transparent` is NOT honoured
 //!
@@ -58,7 +58,7 @@ pub const FONT_INFO_LEN: usize = 23;
 /// The firmware calls `setFontRefHeightExtendedText()` once, in
 /// `OledDriver::prepareDisplay()`, so [`HeightMode::ExtendedText`] is what every
 /// template renders under. The other two are implemented because
-/// `bbox_height` — the number the whole layout is built on — depends on them,
+/// `ref_box_height` — the number the whole layout is built on — depends on them,
 /// and a silent mismatch here would shift every row.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HeightMode {

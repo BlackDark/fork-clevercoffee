@@ -53,8 +53,8 @@
 //! `EnumParamDef::fromString` (`:437-455`) falls back to matching the option's
 //! **label** ("High", "Momentary"). [`ParamSpec`] carries no label table — the
 //! React editor renders enums from `type: 5` and an integer, and
-//! [`json::enum_discriminants_known`](crate::json::enum_discriminants_known)
-//! validates against the Rust enum — so `"brew.mode=Momentary"` is
+//! `json::enum_discriminants_known` validates against the Rust enum — so
+//! `"brew.mode=Momentary"` is
 //! `UnknownEnumDiscriminant` here and `?brew.mode=1` is the write. Every
 //! enumeration this firmware has is a `u8`-wide discriminant, so the integer
 //! form is also what `/api/parameters` reports as the current `value`.
@@ -200,7 +200,8 @@ pub fn parse<'a>(key: &str, raw: &'a str) -> Result<LiveValue<'a>, AssignError> 
 /// # Note on the four macros
 ///
 /// They exist so each entry of the table is one line — `"pid.enabled" =>
-/// pid.enabled` — which is what makes a key that exists in [`SCHEMA`] and not
+/// pid.enabled` — which is what makes a key that exists in
+/// [`SCHEMA`](crate::schema::SCHEMA) and not
 /// here visible as a missing line rather than as a missing block. Each expands
 /// to a comparison and an early `return`, so a key is found by scanning the
 /// five groups; at 98 keys of ~20 bytes that is a few microseconds, on a path

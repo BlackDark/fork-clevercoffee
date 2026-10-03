@@ -20,7 +20,8 @@
 //!
 //! # Why `Fault` is one enum and not the union of the two drivers' errors
 //!
-//! The device crates do have richer errors: [`onewire::OneWireError`] carries a
+//! The device crates do have richer errors:
+//! [`onewire::OneWireError`](crate::sensor::onewire::OneWireError) carries a
 //! transport error, [`ds18b20::Ds18b20Fault`] distinguishes six sensor faults.
 //! Collapsing them at this boundary would lose the `EspError` a driver got from
 //! a failing peripheral, which is exactly the diagnostic a bring-up needs.
@@ -83,8 +84,8 @@ impl fmt::Display for ProbeSource {
 ///
 /// This is the union of what the two C++ drivers can say about a *reading*,
 /// with the two drivers' own sentinel values collapsed onto the outcome rather
-/// than the number. [`TsicReadFailed`](Self::TsicReadFailed) is `ZACwire`'s 222
-/// and [`TsicNotConnected`](Self::TsicNotConnected) is its 221
+/// than the number. [`ReadFailed`](ProbeFault::ReadFailed) is `ZACwire`'s 222
+/// and [`NotConnected`](ProbeFault::NotConnected) is its 221
 /// (`ZACwire.h:30-31`); both are preserved as distinct variants because the C++
 /// logs them differently and, more importantly, 221 means *the probe is gone*
 /// while 222 means *this reading was not trustworthy* — S1's debounce treats a
@@ -94,7 +95,8 @@ pub enum ProbeFault {
     /// Nothing is on the bus.
     ///
     /// The 1-Wire reset produced no presence pulse
-    /// ([`onewire::OneWireError::NoPresence`]), or no `ZACwire` start bit was
+    /// ([`onewire::OneWireError::NoPresence`](crate::sensor::onewire::OneWireError::NoPresence)),
+    /// or no `ZACwire` start bit was
     /// seen for longer than the no-signal timeout — which is what
     /// `ZACwire::connectionCheck` reports as 221.
     NotConnected,
@@ -172,7 +174,7 @@ pub struct ProbeReading {
     /// last good value instead would turn a latched emergency stop into a
     /// machine that keeps heating. The TSIC driver is the exception the C++
     /// itself makes, and it is a driver-level decision, not a trait-level one —
-    /// see [`tsic306`].
+    /// see [`tsic306`](crate::sensor::tsic306).
     pub celsius: f32,
     /// Which bus produced it.
     pub source: ProbeSource,
@@ -206,7 +208,7 @@ impl fmt::Display for ProbeReading {
 ///
 /// # The contract
 ///
-/// * [`poll`] never blocks and never sleeps.
+/// * [`poll`](TemperatureProbe::poll) never blocks and never sleeps.
 /// * It returns `Ok(None)` when there is nothing new to report. A driver that
 ///   is mid-conversion, or waiting for the next `ZACwire` frame, returns `None`
 ///   forever until it is not — it never returns a stale value as a new one.

@@ -6,7 +6,8 @@
 //! touches are ported: the qualification test that `BrewFinishedState::onEntryImpl`
 //! calls (`BrewStates.cpp:310`), the reset that `BackflushFinishedState::onEntryImpl`
 //! calls (`BackflushStates.cpp:144`), and the reminder predicate. The
-//! coordinator's NVS persistence has no analogue here — [`Machine::shots_since_backflush`]
+//! coordinator's NVS persistence has no analogue here —
+//! [`Machine::shots_since_backflush`](crate::machine::Machine::shots_since_backflush)
 //! is the value, and persisting it is the store's job at R3-08.
 
 /// A brew is long enough to count on time alone. `defaults.h:46`:

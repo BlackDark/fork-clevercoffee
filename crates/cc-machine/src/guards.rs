@@ -22,7 +22,8 @@
 //! two `match`es with no wildcard arm — the same mechanism ADR-0004 adopts for
 //! `cc_safety::water_flow_allowed`. Adding a 19th state therefore fails to
 //! compile in four places (this file, `cc_safety::water_flow_allowed`,
-//! [`states::on_entry`], [`states::on_exit`]) instead of silently inheriting
+//! [`states::on_entry`](crate::states::on_entry),
+//! [`states::on_exit`](crate::states::on_exit)) instead of silently inheriting
 //! whichever behaviour the new variant happened to fall into.
 //!
 //! # The order is load-bearing
@@ -56,7 +57,8 @@ pub enum Guard {
     WaterTankEmpty,
     /// `!context.isPidRuntimeEnabled()` → `PID_DISABLED` (`BaseState.h:163-171`).
     PidRuntimeDisabled,
-    /// No global guard fired; [`states::check_specific`] decides.
+    /// No global guard fired; [`states::check_specific`](crate::states::check_specific)
+    /// decides.
     None,
 }
 

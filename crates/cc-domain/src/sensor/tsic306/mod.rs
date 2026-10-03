@@ -9,7 +9,7 @@
 //! There is no TSIC-306, no `ZACwire` waveform, and no second temperature probe.
 //!
 //! Everything in this module is therefore **host-tested against a synthesised
-//! waveform** ([`simulator`], built from the app note's own timings), and that
+//! waveform** (`simulator`, built from the app note's own timings), and that
 //! proves the arithmetic, the frame ordering, the parity and the rejection of
 //! damaged frames. It proves **nothing** about a real sensor: its clock
 //! tolerance, its 31.25 µs pulses through a pull-up and a cable, its behaviour
@@ -193,7 +193,7 @@ impl core::fmt::Display for Outcome {
 ///
 /// The seam that makes the whole protocol testable. The device crate implements
 /// it over a GPIO interrupt and an [`EdgeRing`]; the tests implement it over a
-/// synthesised [`Waveform`].
+/// synthesised `Waveform`.
 ///
 /// # Why the trait hands over a *buffer of edges* and not a decoded bit
 ///
@@ -218,7 +218,7 @@ pub trait EdgeSource {
     /// that [`Tsic306::poll`] does not have to know which it is talking to:
     ///
     /// * the **poller** implementation samples the line for a bounded window and
-    ///   then drains — see [`cc_hal_esp32::zacwire`];
+    ///   then drains — see `cc_hal_esp32::zacwire`;
     /// * an **interrupt-driven** implementation does nothing here, because the ISR
     ///   has already pushed the edges, and the drain is all that is left.
     ///

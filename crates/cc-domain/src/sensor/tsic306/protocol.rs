@@ -12,7 +12,7 @@
 //! own worked example, which the C++ does not implement and which is the only
 //! published ground truth for the frame's *content*.
 //!
-//! The tolerances in [`Tolerances`] are the exception and are flagged as such:
+//! The tolerances in [`tolerances`] are the exception and are flagged as such:
 //! the app note publishes no clock-tolerance figure, so they are this port's
 //! choice, derived in that module's docs.
 //!
@@ -59,7 +59,7 @@ pub const BIT_WINDOW_US: u32 = 125;
 ///
 /// "For standard `TSic` sensors, the value of Tstrobe is known in advance and is
 /// equal to 125/2 = 62.5 µs" — it is half the bit window, because the start bit
-/// is 50 % duty. [`Tolerances::STROBE_MIN_US`] / [`Tolerances::STROBE_MAX_US`]
+/// is 50 % duty. [`tolerances::STROBE_MIN_US`] / [`tolerances::STROBE_MAX_US`]
 /// bound it, and the decoder uses the **measured** value, never this one.
 pub const STROBE_US: u32 = 62;
 
@@ -197,14 +197,14 @@ pub const UPDATE_PERIOD_US: u32 = 100_000;
 ///   the start of a packet, or is it a data bit?* A data bit's low pulse is
 ///   31.25 µs (`0`) or 93.75 µs (`1`) against a 62.5 µs start pulse. Any window
 ///   that contains 62.5 and excludes both 31.25 and 93.75 answers the question
-///   correctly for an *undistorted* pulse. [`Tolerances::STROBE_MIN_US`] = 45 and
-///   [`Tolerances::STROBE_MAX_US`] = 80 do that with 13 µs of clearance on each
+///   correctly for an *undistorted* pulse. [`tolerances::STROBE_MIN_US`] = 45 and
+///   [`tolerances::STROBE_MAX_US`] = 80 do that with 13 µs of clearance on each
 ///   side, and they also admit a sensor running ±28 % off nominal — far more than
 ///   any real TSIC, which is specified to a few per cent.
 /// * **The bit-period window** answers *did an edge go missing, or arrive twice?*
 ///   A missing edge doubles a period (250 µs) and a spurious one halves it
-///   (62 µs); both are far outside [`Tolerances::BIT_PERIOD_MIN_US`] ..
-///   [`Tolerances::BIT_PERIOD_MAX_US`] = 94 .. 156, which is 125 µs ±25 %.
+///   (62 µs); both are far outside [`tolerances::BIT_PERIOD_MIN_US`] ..
+///   [`tolerances::BIT_PERIOD_MAX_US`] = 94 .. 156, which is 125 µs ±25 %.
 /// * **The stop gap** is checked exactly, not with a tolerance: it is
 ///   [`STOP_GAP_WINDOWS`] bit windows, and the only uncertainty is the same
 ///   per-bit clock error, so the window is the bit-period window widened by half
@@ -226,14 +226,14 @@ pub const UPDATE_PERIOD_US: u32 = 100_000;
 ///   the start of a packet, or is it a data bit?* A data bit's low pulse is
 ///   31.25 µs (`0`) or 93.75 µs (`1`) against a 62.5 µs start pulse. Any window
 ///   that contains 62.5 and excludes both 31.25 and 93.75 answers the question
-///   correctly for an *undistorted* pulse. [`Tolerances::STROBE_MIN_US`] = 45 and
-///   [`Tolerances::STROBE_MAX_US`] = 80 do that with 13 µs of clearance on each
+///   correctly for an *undistorted* pulse. [`tolerances::STROBE_MIN_US`] = 45 and
+///   [`tolerances::STROBE_MAX_US`] = 80 do that with 13 µs of clearance on each
 ///   side, and they also admit a sensor running ±28 % off nominal — far more than
 ///   any real TSIC, which is specified to a few per cent.
 /// * **The bit-period window** answers *did an edge go missing, or arrive twice?*
 ///   A missing edge doubles a period (250 µs) and a spurious one halves it
-///   (62 µs); both are far outside [`Tolerances::BIT_PERIOD_MIN_US`] ..
-///   [`Tolerances::BIT_PERIOD_MAX_US`] = 94 .. 156, which is 125 µs ±25 %.
+///   (62 µs); both are far outside [`tolerances::BIT_PERIOD_MIN_US`] ..
+///   [`tolerances::BIT_PERIOD_MAX_US`] = 94 .. 156, which is 125 µs ±25 %.
 /// * **The stop gap** is checked exactly, not with a tolerance: it is
 ///   [`STOP_GAP_WINDOWS`] bit windows, and the only uncertainty is the same
 ///   per-bit clock error, so the window is the bit-period window widened by half

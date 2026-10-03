@@ -284,7 +284,7 @@ impl Driver {
     /// by `TempSensor::updateTemperature`'s `bad_readings_`. So a bus that
     /// reports an error and a bus that reports "no device" are the same event
     /// to the C++, and this matches it: the caller should count the error
-    /// through [`Driver::record_bus_failure`], which is what
+    /// through `Driver::record_bus_failure`, which is what
     /// [`Self::poll`] does before returning.
     pub fn poll<B: OneWireBus>(
         &mut self,

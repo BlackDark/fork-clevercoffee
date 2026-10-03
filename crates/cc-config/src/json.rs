@@ -310,7 +310,8 @@ impl LiveValue<'_> {
 impl<'a> From<LiveValue<'a>> for ParamValue<'a> {
     /// The same value in the schema's own type.
     ///
-    /// `ParamSpec::accepts` takes a [`ParamValue`], which is what [`SCHEMA`]
+    /// `ParamSpec::accepts` takes a [`ParamValue`], which is what
+    /// [`SCHEMA`](crate::schema::SCHEMA)
     /// holds; a caller that has a live value in hand — one just parsed from a
     /// string, say — needs this to ask the spec whether it is acceptable without
     /// re-deriving the value.
@@ -329,7 +330,7 @@ impl<'a> From<LiveValue<'a>> for ParamValue<'a> {
 ///
 /// `None` for a key the schema registers but `Config` does not carry, which
 /// would be a bug in one of the two tables rather than a runtime condition —
-/// [`values_for`](values_for) reports it as a test rather than at runtime.
+/// [`values_for`] reports it as a test rather than at runtime.
 #[must_use]
 #[allow(
     clippy::too_many_lines,

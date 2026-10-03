@@ -8,16 +8,23 @@
 //!
 //! # What is **not** here, and why
 //!
-//! * **Sensor values.** They are [`Event::SensorUpdated`] payloads, not context.
+//! * **Sensor values.** They are
+//!   [`Event::SensorUpdated`](crate::event::Event::SensorUpdated) payloads, not
+//!   context.
 //!   The C++ reads them out of `SensorCoordinator` inside `checkTransitions`,
 //!   which makes the transition decision depend on *when* it was read relative
 //!   to the sensor update. Here they are an explicit event, so every decision
 //!   is a decision about a specific sample.
-//! * **The clock.** The reducer never reads one. [`Event::Tick`] carries the
+//! * **The clock.** The reducer never reads one.
+//!   [`Event::Tick`](crate::event::Event::Tick) carries the
 //!   reading (see `lib.rs`).
-//! * **The current state.** That is [`Machine::state`], not the context — it is
-//!   the thing being reduced, not the context it is reduced in.
-//! * **The safety verdict.** That is [`Event::Safety`], because S1 is
+//! * **The current state.** That is
+//!   [`Machine::state`](crate::machine::Machine::state),
+//!   not the context — it is the thing being reduced, not the context it is
+//!   reduced in.
+//! * **The safety verdict.** That is
+//!   [`Event::Safety`](crate::event::Event::Safety),
+//!   because S1 is
 //!   stateful (a three-reading debounce) and the latch has to be part of the
 //!   machine's memory.
 

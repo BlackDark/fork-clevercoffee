@@ -11,7 +11,7 @@
 //! has no way to reach one — it can only return an `Effect`".
 //!
 //! In this crate nothing is called. [`reduce`](crate::reduce) returns a list,
-//! and [`Applier`](crate::applier::Applier) is the single function that turns a
+//! and `crate::applier::apply` is the single function that turns a
 //! list into actuator calls. A test asserts hardware by inspecting the list, and
 //! needs no mock object, no GPIO, and no `HardwareManager`.
 //!
@@ -134,7 +134,8 @@ pub enum Effect {
     /// `context.clearAllActionRequests()` (`MachineStateContext.h:615-627`).
     ///
     /// S11. The *effect* is emitted so the applier's flag mirror stays in step
-    /// with [`Machine::requests`]; the reducer has already applied it.
+    /// with [`Machine::requests`](crate::machine::Machine::requests); the
+    /// reducer has already applied it.
     ClearActionRequests,
     /// `context.clearStaleStopRequests()` (`MachineStateContext.h:634-639`).
     ///
@@ -191,8 +192,9 @@ pub enum Effect {
 ///
 /// `BrewHandler` owns a `pumpTimer_(300000)` and `HotWaterHandler` a
 /// `pumpTimer_(60000)`; they are separate objects with separate deadlines, so
-/// they are separate variants rather than one flag. See [`timing::BREW_PUMP_TIMEOUT_MS`]
-/// and [`timing::HOT_WATER_PUMP_TIMEOUT_MS`].
+/// they are separate variants rather than one flag. See
+/// [`timing::BREW_PUMP_TIMEOUT_MS`](crate::timing::BREW_PUMP_TIMEOUT_MS)
+/// and [`timing::HOT_WATER_PUMP_TIMEOUT_MS`](crate::timing::HOT_WATER_PUMP_TIMEOUT_MS).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum PumpWatchdog {
     /// `BrewHandler::pumpTimer_` — 300 000 ms.

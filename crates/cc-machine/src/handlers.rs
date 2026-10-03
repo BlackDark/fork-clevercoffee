@@ -341,7 +341,7 @@ fn power_settle_elapsed(machine: &Machine) -> bool {
 /// ```
 ///
 /// Four conditions, all required. `trackingLongPress_` is the C++'s name for
-/// "a press was tracked", which is [`power_press_started_at`].
+/// "a press was tracked", which is `Machine::power_press_started_at`.
 ///
 /// # Where this runs
 ///

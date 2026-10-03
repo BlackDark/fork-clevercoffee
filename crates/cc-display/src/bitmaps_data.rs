@@ -6,7 +6,7 @@
 //! Source of truth: `include/clevercoffee/display/bitmaps.h` of the C++
 //! firmware.
 //!
-//! THIRD-PARTY NOTICE: these arrays are CleverCoffee's own artwork (the C++
+//! THIRD-PARTY NOTICE: these arrays are this project's own artwork (the C++
 //! header they were extracted from is part of this repository, GPL-3.0-or-
 //! later), so they carry no upstream licence obligation. The *font* streams in
 //! `font/data.rs` are different -- those are verbatim U8g2 and carry a

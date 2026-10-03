@@ -19,7 +19,8 @@
 //! [`Rotation`] selects. Under `R1`/`R3` that space is 64 wide and 128 tall,
 //! and the mapping onto the physical 128x64 page buffer is U8g2's
 //! `u8g2_draw_l90_r1`..`r3` (`u8g2_setup.c:349-441`), reproduced in
-//! [`Display::hv_line`]. The UPRIGHT template is drawn in that rotated space
+//! [`Display::draw_hv_line`](Display::draw_hv_line). The UPRIGHT template is
+//! drawn in that rotated space
 //! and the *coordinates in the templates are the rotated ones*, matching the
 //! C++ — `UprightTemplate::displayHeatBar` really does draw at y=124, which is
 //! off the top of a 64-row screen and only sensible under `R1`/`R3`.
@@ -52,10 +53,10 @@ pub const STATUS_BAR_Y_POS: i32 = 12;
 ///
 /// | rotation | set when | logical space |
 /// |----------|----------|---------------|
-/// | [`R0`] | neither | 128 x 64 |
-/// | [`R1`] | UPRIGHT template | 64 x 128 |
-/// | [`R2`] | `displayInverted` | 128 x 64 |
-/// | [`R3`] | both | 64 x 128 |
+/// | [`R0`](Rotation::R0) | neither | 128 x 64 |
+/// | [`R1`](Rotation::R1) | UPRIGHT template | 64 x 128 |
+/// | [`R2`](Rotation::R2) | `displayInverted` | 128 x 64 |
+/// | [`R3`](Rotation::R3) | both | 64 x 128 |
 ///
 /// R1/R3 swap width and height because U8g2's `u8g2_update_dimension_r1`
 /// overwrites `width` with `pixel_height` (`u8g2_setup.c:245`). R2 is a 180
@@ -1220,8 +1221,8 @@ impl Display {
     /// The row height of the current font under the current height mode.
     ///
     /// This is `ref_ascent + ref_descent`, U8g2's reference box. It is *not*
-    /// the ink height — see [`Font::ink_box`] and
-    /// [`crate::templates::modern`] for what the templates actually use.
+    /// the ink height — see [`Font::ink_box`](crate::font::Font::ink_box) and
+    /// [`crate::templates::modern_layout`] for what the templates actually use.
     #[must_use]
     pub fn row_height(&self) -> i32 {
         self.font.map_or(0, |f| f.ref_box_height(self.height_mode))

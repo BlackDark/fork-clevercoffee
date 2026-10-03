@@ -145,7 +145,7 @@ impl BarLabelCluster {
     ///
     /// Doubled to keep the division exact for odd heights: a 4 px bar has its
     /// centre at `y + 1.5`, and the label's at `y + font_h / 2.0`, and those
-    /// are not comparable as integers. [`assert_shared_midline`] is the
+    /// are not comparable as integers. `assert_shared_midline` is the
     /// assertion; this is the number it compares.
     #[must_use]
     pub const fn bar_midline2(&self, bar_h: i32) -> i32 {

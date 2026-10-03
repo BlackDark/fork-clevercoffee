@@ -26,7 +26,7 @@ use crate::bitmaps_data as data;
 
 /// A bitmap, its dimensions, and nothing else.
 ///
-/// Deliberately not a `Bitmap`-with-methods type: [`Display::draw_xbmp`] takes
+/// Deliberately not a `Bitmap`-with-methods type: `Display::draw_xbmp` takes
 /// a byte slice and the dimensions, so a struct that only carries them is
 /// exactly what a call site needs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -11,7 +11,7 @@
 //! The port keeps the *behaviour* and drops the *mechanism*. CRTP exists in C++
 //! to get static dispatch without a vtable on a small MCU; in Rust the same
 //! effect comes from a trait, and "no virtual table" is free. So [`Template`] is
-//! a plain trait and [`render`] is the fixed stage order, with no way for a
+//! a plain trait and [`render()`] is the fixed stage order, with no way for a
 //! template to reorder it — which is the property CRTP was buying.
 //!
 //! [`TemplatePolicy`] is public and `const` because the policy is *data*, and
@@ -231,7 +231,7 @@ pub struct Rendered {
 /// A display template.
 ///
 /// One method, [`Template::render_normal`], mirroring the C++'s
-/// `renderNormalDisplay()`. It is the *last* stage of [`render`] and the only
+/// `renderNormalDisplay()`. It is the *last* stage of [`render()`] and the only
 /// one a template controls.
 pub trait Template {
     /// Which template this is.
@@ -240,7 +240,7 @@ pub trait Template {
     /// Draw the template's own layout.
     ///
     /// Every C++ implementation starts with `clearBuffer()`. Kept here rather
-    /// than in [`render`] because the fullscreen and system screens also clear,
+    /// than in [`render()`] because the fullscreen and system screens also clear,
     /// and clearing in the wrong place is the bug; clearing twice is harmless.
     fn render_normal(&self, d: &mut Display, input: &DisplayInput, config: &Config);
 }
