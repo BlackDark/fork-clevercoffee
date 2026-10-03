@@ -193,7 +193,18 @@ pub struct ParameterHandoff {
     ///
     /// See [`ParameterHandoff::publish_live`] for why the GET cannot use the
     /// boot-time `Config` snapshot.
-    live: alloc::sync::Arc<Mutex<Option<alloc::string::String>>>,
+    /// An [`Arc`], not a `String`.
+    ///
+    /// `GET /api/parameters` used to `live().clone()` the whole ~8.8 KB body on
+    /// **every request**, under the lock, on the httpd task -- whose stack is
+    /// 8 KB, which is the same lesson ADR-0002 records for the 7.2 KB history
+    /// ring. A reader now clones an `Arc` (one refcount bump) and hands the
+    /// `&str` to `respond_large`, which is what the body always was: bytes the
+    /// control task already built.
+    ///
+    /// The writer still allocates, once a second, in the control task. That
+    /// allocation was never the problem; N copies of it per second were.
+    live: alloc::sync::Arc<Mutex<Option<alloc::sync::Arc<alloc::string::String>>>>,
     /// How many staged requests the control task has drained and applied.
     ///
     /// The read-after-write ack. See [`ParameterHandoff::stage_and_wait`].
@@ -240,13 +251,18 @@ impl ParameterHandoff {
     /// pretending a machine has no parameters.
     pub fn publish_live(&self, body: alloc::string::String) {
         if let Ok(mut slot) = self.live.lock() {
-            *slot = Some(body);
+            *slot = Some(alloc::sync::Arc::new(body));
         }
     }
 
     /// The last published body, if the control task has published one.
+    ///
+    /// A cheap `Arc` clone rather than a copy of ~8.8 KB. The caller reads it
+    /// through the guard, so it must **drop the `Arc` before the body is used**
+    /// if it wants to keep the lock short -- see the `GET /api/parameters`
+    /// handler, which binds the clone first and only then takes `&body`.
     #[must_use]
-    pub fn live(&self) -> Option<alloc::string::String> {
+    pub fn live(&self) -> Option<alloc::sync::Arc<alloc::string::String>> {
         self.live.lock().ok().and_then(|slot| slot.clone())
     }
 

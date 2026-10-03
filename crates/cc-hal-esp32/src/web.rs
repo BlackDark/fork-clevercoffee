@@ -1958,10 +1958,23 @@ impl Web {
                 "/api/parameters",
                 Method::Get,
                 move |mut req| {
-                    let body = parameters
-                        .live()
-                        .unwrap_or_else(|| parameters_json(&config));
-                    respond_large(req.connection(), &shared, &body)
+                    // `live()` hands back an `Arc` clone (a refcount bump),
+                    // not a copy of ~8.8 KB. The fallback is built ONLY when
+                    // nothing has been published yet, so the httpd task's own
+                    // stack never holds two copies of the body -- and the guard
+                    // is dropped before `respond_large` reads it.
+                    let published = parameters.live();
+                    let generated = published.is_none().then(|| parameters_json(&config));
+                    let body: &str = match (&published, &generated) {
+                        (Some(shared_body), _) => shared_body.as_str(),
+                        (None, Some(body)) => body.as_str(),
+                        // Unreachable: `generated` is `Some` exactly when
+                        // `published` is `None`. Written out anyway so that if
+                        // that ever stops being true it is a compile error rather
+                        // than a 200-bytes-of-nothing response.
+                        (None, None) => unreachable!("generated is Some when published is None"),
+                    };
+                    respond_large(req.connection(), &shared, body)
                 },
             )?;
         }

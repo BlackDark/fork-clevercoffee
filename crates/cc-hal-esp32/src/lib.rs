@@ -54,7 +54,40 @@
 //! to take explicitly rather than by omission.
 
 #![no_std]
-#![deny(clippy::pedantic)] // workspace lints already do this; restated per crate
+#![deny(clippy::pedantic)]
+// workspace lints already do this; restated per crate
+// The doc lints do not apply to this crate's own TEST bodies.
+//
+// `cc-hal-esp32`'s tests live in `#[cfg(any(test, feature = "device-tests"))]`
+// modules and are `pub fn` (not `#[test]`), because the on-target runner in
+// `cc-device-tests` registers them by name -- that is the whole point of
+// `scripts/device-test-audit.py`. When the crate is compiled with the
+// `device-tests` FEATURE they carry `#[cfg_attr(feature = "device-tests",
+// doc(hidden))]`, and rustdoc's lints skip hidden items, which is why
+// `just lint-esp32` has always been clean.
+//
+// Compiled as `-p cc-hal-esp32 --all-targets` WITHOUT that feature -- which any
+// IDE, a `cargo clippy -p <crate>` invocation, or a future recipe would do -- the
+// modules are reached through `cfg(test)` alone, `doc(hidden)` is not applied,
+// and 282 `clippy::missing_panics_doc` errors appear on functions whose only
+// body is an assertion. That is a real build break hiding behind a coincidence
+// in one recipe, and it is this line that closes it.
+//
+// Scoped to `cfg(test)` on purpose: the firmware's own code keeps every doc lint.
+#![cfg_attr(
+    test,
+    allow(
+        clippy::missing_panics_doc,
+        // `missing_docs` is the workspace's, and it is on these items only
+        // because they are `pub fn` inside a `#[cfg(test)]` module -- which is
+        // what lets the on-target runner register them by name.
+        missing_docs,
+        reason = "the test bodies' assertions ARE the test; a # Panics section \
+                  and a doc comment on 140 assertion wrappers would be noise. \
+                  Both lints are denied workspace-wide for the firmware's own \
+                  code and neither is waived outside cfg(test)"
+    )
+)]
 
 // `Arc`, for the one place the heater ISR and the control task must share a
 // value. `alloc` is already linked (`esp-idf-hal`'s `std` feature pulls it in

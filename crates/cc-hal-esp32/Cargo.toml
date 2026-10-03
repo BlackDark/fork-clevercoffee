@@ -68,5 +68,25 @@ log.workspace = true
 embedded-io.workspace = true
 serde_json.workspace = true
 
+# `cc-domain` again, with the `device-tests` feature, for THIS crate's own test
+# target only.
+#
+# Without it, `cargo clippy -p cc-hal-esp32 --all-targets` -- one crate, no
+# `--features device-tests` -- does not compile: `web.rs`'s test module reaches
+# `cc_domain::http_auth::tests_support::encode`, and that module is
+# `#[cfg(any(test, feature = "device-tests"))]`. It only ever built because
+# `just lint-esp32` happens to name `cc-device-tests` in the same invocation, and
+# `cc-device-tests` depends on `cc-hal-esp32` *with* the feature -- so Cargo's
+# feature unification turned it on for the whole graph. Anything that compiles
+# this crate alone, without the feature, hits it. That is a latent build break
+# hiding behind a coincidence in one recipe.
+#
+# A dev-dependency is the mechanism that actually means "my tests need this": it
+# unifies into this crate's test target and into nothing else, so
+# `cc-hal-esp32`'s library build still sees `cc-domain` WITHOUT `device-tests`
+# and the base64 encoder cannot reach the image.
+[dev-dependencies]
+cc-domain = { workspace = true, features = ["device-tests"] }
+
 [lints]
 workspace = true
