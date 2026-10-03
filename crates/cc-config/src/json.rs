@@ -409,188 +409,42 @@ impl<'a> From<LiveValue<'a>> for ParamValue<'a> {
 
 /// Read one schema key's current value out of a [`Config`].
 ///
-/// `None` for a key the schema registers but `Config` does not carry, which
-/// would be a bug in one of the two tables rather than a runtime condition —
-/// [`values_for`] reports it as a test rather than at runtime.
+/// What the C++'s `toJson` puts in `value` (`Config.h:226-238`): the
+/// *current* value of the parameter, not its compiled-in default. The two are
+/// the same on a freshly-booted machine and different after anything has been
+/// stored, which is the whole reason the field exists.
+///
+/// The read half of the C++'s `ConfigParamDef` lives on the [`ParamSpec`]
+/// itself (`schema::ParamSpec::get`), so this is a lookup rather than a
+/// 98-arm match — the same collapse `assign::set` got, and for the same
+/// reason. `None` for a key the schema does not register, which is what
+/// `findConfigParameter` returning `nullptr` means (`Config.h:1550`).
 #[must_use]
-#[allow(
-    clippy::too_many_lines,
-    reason = "this IS the key table: one arm per registered parameter, and the \
-              C++ spells the same thing as a 98-entry vector of parameter \
-              definitions (`Config::getAllConfigParams`, `Config.cpp:438-560`). \
-              A 98-arm match is that table in Rust form; splitting it would hide \
-              the property the function exists to provide, which is that every \
-              key in `SCHEMA` is accounted for, and \
-              `every_schema_key_has_a_live_value` is what checks it"
-)]
 pub fn live_value<'a>(config: &'a Config, key: &str) -> Option<LiveValue<'a>> {
-    use crate::IntEnum;
-    Some(match key {
-        "pid.enabled" => LiveValue::Bool(config.pid.enabled),
-        "pid.use_ponm" => LiveValue::Bool(config.pid.use_ponm),
-        "pid.ema_factor" => LiveValue::Float(config.pid.ema_factor),
-        "pid.regular.kp" => LiveValue::Float(config.pid.regular.kp),
-        "pid.regular.tn" => LiveValue::Float(config.pid.regular.tn),
-        "pid.regular.tv" => LiveValue::Float(config.pid.regular.tv),
-        "pid.regular.i_max" => LiveValue::Float(config.pid.regular.i_max),
-        "pid.steam.kp" => LiveValue::Float(config.pid.steam.kp),
-        "brew.setpoint" => LiveValue::Float(config.brew.setpoint),
-        "brew.temp_offset" => LiveValue::Float(config.brew.temp_offset),
-        "steam.setpoint" => LiveValue::Float(config.steam.setpoint),
-        "pid.bd.enabled" => LiveValue::Bool(config.pid.bd.enabled),
-        "brew.pid_delay" => LiveValue::Float(config.brew.pid_delay),
-        "pid.bd.kp" => LiveValue::Float(config.pid.bd.kp),
-        "pid.bd.tn" => LiveValue::Float(config.pid.bd.tn),
-        "pid.bd.tv" => LiveValue::Float(config.pid.bd.tv),
-        "brew.mode" => LiveValue::Enum(config.brew.mode.to_raw()),
-        "brew.by_time.enabled" => LiveValue::Bool(config.brew.by_time.enabled),
-        "brew.by_time.target_time" => LiveValue::Float(config.brew.by_time.target_time),
-        "brew.by_weight.enabled" => LiveValue::Bool(config.brew.by_weight.enabled),
-        "brew.by_weight.target_weight" => LiveValue::Float(config.brew.by_weight.target_weight),
-        "brew.by_weight.auto_tare" => LiveValue::Bool(config.brew.by_weight.auto_tare),
-        "brew.pre_infusion.enabled" => LiveValue::Bool(config.brew.pre_infusion.enabled),
-        "brew.pre_infusion.time" => LiveValue::Float(config.brew.pre_infusion.time),
-        "brew.pre_infusion.pause" => LiveValue::Float(config.brew.pre_infusion.pause),
-        "display.fullscreen_brew_timer" => LiveValue::Bool(config.display.fullscreen_brew_timer),
-        "display.fullscreen_manual_flush_timer" => {
-            LiveValue::Bool(config.display.fullscreen_manual_flush_timer)
-        }
-        "display.fullscreen_hot_water_timer" => {
-            LiveValue::Bool(config.display.fullscreen_hot_water_timer)
-        }
-        "display.post_brew_timer_duration" => {
-            LiveValue::Float(config.display.post_brew_timer_duration)
-        }
-        "display.heating_logo" => LiveValue::Bool(config.display.heating_logo),
-        "display.pid_off_logo" => LiveValue::Bool(config.display.pid_off_logo),
-        "hardware.leds.status.enabled" => LiveValue::Bool(config.hardware.leds.status.enabled),
-        "hardware.leds.status.inverted" => LiveValue::Bool(config.hardware.leds.status.inverted),
-        "hardware.leds.brew.enabled" => LiveValue::Bool(config.hardware.leds.brew.enabled),
-        "hardware.leds.brew.inverted" => LiveValue::Bool(config.hardware.leds.brew.inverted),
-        "hardware.leds.steam.enabled" => LiveValue::Bool(config.hardware.leds.steam.enabled),
-        "hardware.leds.steam.inverted" => LiveValue::Bool(config.hardware.leds.steam.inverted),
-        "display.template" => LiveValue::Enum(config.display.template.to_raw()),
-        "display.inverted" => LiveValue::Bool(config.display.inverted),
-        "display.language" => LiveValue::Enum(config.display.language.to_raw()),
-        "display.blinking.delta" => LiveValue::Float(config.display.blinking.delta),
-        "backflush.cycles" => LiveValue::Int(config.backflush.cycles),
-        "backflush.fill_time" => LiveValue::Float(config.backflush.fill_time),
-        "backflush.flush_time" => LiveValue::Float(config.backflush.flush_time),
-        "maintenance.backflush_reminder.enabled" => {
-            LiveValue::Bool(config.maintenance.backflush_reminder.enabled)
-        }
-        "maintenance.backflush_reminder.threshold" => {
-            LiveValue::Int(config.maintenance.backflush_reminder.threshold)
-        }
-        "standby.enabled" => LiveValue::Bool(config.standby.enabled),
-        "standby.time" => LiveValue::Float(config.standby.time),
-        "mqtt.enabled" => LiveValue::Bool(config.mqtt.enabled),
-        "mqtt.broker" => LiveValue::Text(config.mqtt.broker.as_str()),
-        "mqtt.port" => LiveValue::Int(config.mqtt.port),
-        "mqtt.username" => LiveValue::Text(config.mqtt.username.as_str()),
-        "mqtt.password" => LiveValue::Text(config.mqtt.password.expose()),
-        "mqtt.topic" => LiveValue::Text(config.mqtt.topic.as_str()),
-        "mqtt.hassio.enabled" => LiveValue::Bool(config.mqtt.hassio.enabled),
-        "mqtt.hassio.prefix" => LiveValue::Text(config.mqtt.hassio.prefix.as_str()),
-        "system.hostname" => LiveValue::Text(config.system.hostname.as_str()),
-        "system.ota_password" => LiveValue::Text(config.system.ota_password.expose()),
-        "system.offline_mode" => LiveValue::Bool(config.system.offline_mode),
-        "system.log_level" => LiveValue::Enum(config.system.log_level.to_raw()),
-        "system.auth.enabled" => LiveValue::Bool(config.system.auth.enabled),
-        "system.auth.username" => LiveValue::Text(config.system.auth.username.as_str()),
-        "system.auth.password" => LiveValue::Text(config.system.auth.password.expose()),
-        "system.timing_debug.enabled" => LiveValue::Bool(config.system.timing_debug.enabled),
-        "system.showdisplay.enabled" => LiveValue::Bool(config.system.showdisplay.enabled),
-        "system.wifi.ssid" => LiveValue::Text(config.system.wifi.ssid.as_str()),
-        "system.wifi.password" => LiveValue::Text(config.system.wifi.password.expose()),
-        "hardware.oled.enabled" => LiveValue::Bool(config.hardware.oled.enabled),
-        "hardware.oled.type" => LiveValue::Enum(config.hardware.oled.r#type.to_raw()),
-        "hardware.oled.address" => LiveValue::Enum(config.hardware.oled.address.to_raw()),
-        "hardware.relays.heater.trigger_type" => {
-            LiveValue::Enum(config.hardware.relays.heater.trigger_type.to_raw())
-        }
-        "hardware.relays.valve.trigger_type" => {
-            LiveValue::Enum(config.hardware.relays.valve.trigger_type.to_raw())
-        }
-        "hardware.relays.pump.trigger_type" => {
-            LiveValue::Enum(config.hardware.relays.pump.trigger_type.to_raw())
-        }
-        "hardware.switches.brew.enabled" => LiveValue::Bool(config.hardware.switches.brew.enabled),
-        "hardware.switches.brew.type" => {
-            LiveValue::Enum(config.hardware.switches.brew.r#type.to_raw())
-        }
-        "hardware.switches.brew.mode" => {
-            LiveValue::Enum(config.hardware.switches.brew.mode.to_raw())
-        }
-        "hardware.switches.steam.enabled" => {
-            LiveValue::Bool(config.hardware.switches.steam.enabled)
-        }
-        "hardware.switches.steam.type" => {
-            LiveValue::Enum(config.hardware.switches.steam.r#type.to_raw())
-        }
-        "hardware.switches.steam.mode" => {
-            LiveValue::Enum(config.hardware.switches.steam.mode.to_raw())
-        }
-        "hardware.switches.power.enabled" => {
-            LiveValue::Bool(config.hardware.switches.power.enabled)
-        }
-        "hardware.switches.power.type" => {
-            LiveValue::Enum(config.hardware.switches.power.r#type.to_raw())
-        }
-        "hardware.switches.power.mode" => {
-            LiveValue::Enum(config.hardware.switches.power.mode.to_raw())
-        }
-        "hardware.switches.hot_water.enabled" => {
-            LiveValue::Bool(config.hardware.switches.hot_water.enabled)
-        }
-        "hardware.switches.hot_water.type" => {
-            LiveValue::Enum(config.hardware.switches.hot_water.r#type.to_raw())
-        }
-        "hardware.switches.hot_water.mode" => {
-            LiveValue::Enum(config.hardware.switches.hot_water.mode.to_raw())
-        }
-        "hardware.sensors.temperature.type" => {
-            LiveValue::Enum(config.hardware.sensors.temperature.r#type.to_raw())
-        }
-        "hardware.sensors.pressure.enabled" => {
-            LiveValue::Bool(config.hardware.sensors.pressure.enabled)
-        }
-        "hardware.sensors.watertank.enabled" => {
-            LiveValue::Bool(config.hardware.sensors.watertank.enabled)
-        }
-        "hardware.sensors.watertank.mode" => {
-            LiveValue::Enum(config.hardware.sensors.watertank.mode.to_raw())
-        }
-        "hardware.sensors.watertank.keep_heater_on_empty" => {
-            LiveValue::Bool(config.hardware.sensors.watertank.keep_heater_on_empty)
-        }
-        "hardware.sensors.scale.enabled" => LiveValue::Bool(config.hardware.sensors.scale.enabled),
-        "hardware.sensors.scale.samples" => LiveValue::Int(config.hardware.sensors.scale.samples),
-        "hardware.sensors.scale.type" => {
-            LiveValue::Enum(config.hardware.sensors.scale.r#type.to_raw())
-        }
-        "hardware.sensors.scale.calibration" => {
-            LiveValue::Float(config.hardware.sensors.scale.calibration)
-        }
-        "hardware.sensors.scale.calibration2" => {
-            LiveValue::Float(config.hardware.sensors.scale.calibration2)
-        }
-        "hardware.sensors.scale.known_weight" => {
-            LiveValue::Float(config.hardware.sensors.scale.known_weight)
-        }
-        "safety.emergency_temp" => LiveValue::Float(config.safety.emergency_temp),
-        "safety.emergency_hysteresis" => LiveValue::Float(config.safety.emergency_hysteresis),
-        _ => return None,
-    })
+    schema::SCHEMA
+        .iter()
+        .find(|spec| spec.key == key)
+        .map(|spec| (spec.get)(config))
 }
 
 /// Every schema key's current value, in schema order.
 ///
-/// The list `/api/parameters` needs. The `Option` is kept rather than filtered
-/// away: a `None` means `SCHEMA` registers a key [`live_value`] does not know,
-/// which is a bug in one of the two tables and not a runtime condition, so it
-/// has to be visible to a caller rather than silently shortening the list. The
-/// test `every_schema_key_has_a_live_value` is what asserts it is empty.
+/// The list `/api/parameters` needs, and **the order `/api/parameters` emits
+/// is this function's, not `live_value`'s**: this iterates
+/// [`schema::SCHEMA`], so the output is SCHEMA order — the C++'s
+/// `getAllConfigParams` order (`Config.cpp:438-563`) for the first 96 — even
+/// though `live_value` is free to answer in any order it likes. That was
+/// already true before the accessors moved onto [`ParamSpec`]
+/// (`cc-hal-esp32`'s `parameters_json` pairs `SCHEMA.iter().enumerate()`
+/// against `values[index]`), so the collapse did not move a single byte of
+/// the response.
+///
+/// The `Option` is kept rather than filtered away, even though it is now
+/// structurally impossible to be `None`: every spec carries its own getter, so
+/// there is no second table left to disagree with. It is kept because
+/// `parameters_json` indexes this vector positionally against `SCHEMA` and a
+/// short vector would silently mis-pair every entry after the gap, and because
+/// dropping it would change `cc-hal-esp32` and the JSON for no gain.
 ///
 /// Returning a `Vec` rather than an iterator keeps the borrow of `config` in
 /// one place, so a caller cannot hold it across the JSON it is building.
@@ -598,7 +452,7 @@ pub fn live_value<'a>(config: &'a Config, key: &str) -> Option<LiveValue<'a>> {
 pub fn values_for(config: &Config) -> Vec<Option<LiveValue<'_>>> {
     schema::SCHEMA
         .iter()
-        .map(|spec| live_value(config, spec.key))
+        .map(|spec| Some((spec.get)(config)))
         .collect()
 }
 
@@ -793,9 +647,14 @@ mod tests {
     #[test]
     fn every_schema_key_has_a_live_value() {
         // The pairing that keeps `/api/parameters`' `value` honest: `SCHEMA`
-        // says a key exists, `live_value` says where it lives. A key in one and
-        // not the other is a bug in one of the two tables, and it would show up
-        // in the HTTP response as a parameter with no `value` at all.
+        // says a key exists and carries the getter that says where it lives.
+        //
+        // **This is now nearly tautological**, and that is the point. Before the
+        // accessors moved onto `ParamSpec`, a key could be in `SCHEMA` and
+        // missing from a 98-arm `match` in this module, and the failure would
+        // surface as a parameter with no `value` at all. It is kept because it
+        // costs nothing, it still checks the `Vec` and `SCHEMA` stay the same
+        // length, and `values_for` still returns `Option`.
         let config = Config::default();
         let missing: Vec<&str> = schema::SCHEMA
             .iter()
