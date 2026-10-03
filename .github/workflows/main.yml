@@ -44,6 +44,10 @@ jobs:
           echo "clevercoffee_version=${VERSION}" >> "${GITHUB_OUTPUT}"
           echo "artifact_slug=${ARTIFACT_SLUG}" >> "${GITHUB_OUTPUT}"
 
+  # THE C++ FIRMWARE -- the parity oracle, not the product yet.
+  # `rust.yml` is the job that builds `crates/cc-firmware`. Both run on every
+  # PR: the C++ build is the gate that the parity oracle still compiles, and it
+  # is what `release.yml` publishes.
   firmware:
     needs: version
     runs-on: ubuntu-latest
@@ -89,6 +93,7 @@ jobs:
           retention-days: 3
           if-no-files-found: warn
 
+  # The C++ native test suite (`pio test -e native_test`).
   native-tests:
     runs-on: ubuntu-latest
     steps:
