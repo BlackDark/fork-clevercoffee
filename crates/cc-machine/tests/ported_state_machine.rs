@@ -42,8 +42,9 @@ mod common;
 use cc_domain::state::MachineState;
 use cc_domain::units::Millis;
 use cc_machine::Request;
-use cc_machine::{boot_in, reduce, Actuators, Effect, Event, Machine, Sensors, SideChannels};
+use cc_machine::{boot_in, reduce, Actuators, Effect, Event, Machine, MachineChannels, Sensors};
 use common::Harness;
+use std::vec::Vec;
 
 #[test]
 #[ignore = "C++ mock-plumbing case; no Rust equivalent (see the module docs)"]
@@ -239,9 +240,22 @@ impl Actuators for Recorder {
 #[derive(Default)]
 struct Sinks {
     reboots: u32,
+    /// Every `RecordBrew` the applier delivered, as `counted:count`.
+    brews: Vec<String>,
+    /// Every `ResetShotsSinceBackflush`, as the count it carried.
+    resets: Vec<i32>,
 }
 
-impl SideChannels for Sinks {
+impl MachineChannels for Sinks {
+    fn on_record_brew(&mut self, counted: bool, shots_since_backflush: i32) {
+        self.brews
+            .push(format!("{counted}:{shots_since_backflush}"));
+    }
+
+    fn on_reset_shots_since_backflush(&mut self, shots_since_backflush: i32) {
+        self.resets.push(shots_since_backflush);
+    }
+
     fn on_request_reboot(&mut self) {
         self.reboots += 1;
     }

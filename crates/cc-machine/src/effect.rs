@@ -129,15 +129,26 @@ pub enum Effect {
     // truth waiting to disagree with the first.
     /// `maintenanceCoordinator().recordBrewIfQualified(...)` from
     /// `BrewFinishedState::onEntryImpl` (`BrewStates.cpp:310-311`).
+    ///
+    /// **The decision, not the facts.** The C++'s one call applies the
+    /// qualification rule, increments the counter and writes NVS. Here the
+    /// counter is [`Machine::shots_since_backflush`](crate::machine::Machine::shots_since_backflush),
+    /// which only the reducer may write, so
+    /// [`crate::maintenance::record_brew_if_qualified`] has already run by the
+    /// time this effect is emitted and `counted` is its answer. The effect is
+    /// therefore the *durability* half — the number to write down — and nothing
+    /// else.
+    ///
+    /// It carries `counted` rather than the three inputs it was derived from so
+    /// that the shell never re-derives it. This is the whole of the bug this
+    /// shape fixes: with the inputs on the effect, the qualification rule was
+    /// only evaluated by a side channel that had to be *wired* to it, it was
+    /// not, and the counter sat at 0 for the life of the firmware with nothing
+    /// to fail. A rule evaluated once, where the value it changes lives, cannot
+    /// be forgotten that way.
     RecordBrew {
-        /// Total brew time for this shot, milliseconds.
-        elapsed_ms: f64,
-        /// Brew weight, grams. Only meaningful with `scale_enabled`.
-        weight: f32,
-        /// `config.hardware.sensors.scale.enabled`, via
-        /// `config.hardwareSensorsScaleEnabled.get()`
-        /// (`BrewStates.cpp:309`).
-        scale_enabled: bool,
+        /// `qualifiesAsCountedShot(totalBrewTimeMs, brewWeight, scaleEnabled)`.
+        counted: bool,
     },
     /// `maintenanceCoordinator().resetSinceBackflush()` from
     /// `BackflushFinishedState::onEntryImpl` (`BackflushStates.cpp:144`).
@@ -388,10 +399,10 @@ pub const MAX_EFFECTS_PER_EVENT: usize = 32;
 /// The applier applies `self[..]` either way, so an overflow is *not* a silent
 /// hardware change; it is a visible count. `ceiling_is_never_reached` asserts
 /// the count is zero.
-/// `PartialEq` and not `Eq`: several variants carry an `f32` or an `f64`
-/// ([`Effect::SetHeaterDuty`], [`Effect::RecordBrew`]), so two lists can compare
-/// equal in the IEEE sense and a `NaN` duty makes them unequal. That matches
-/// the `Vec<Effect>` this replaced, which had exactly the same property.
+/// `PartialEq` and not `Eq`: [`Effect::SetHeaterDuty`] carries an `f32`, so two
+/// lists can compare equal in the IEEE sense and a `NaN` duty makes them
+/// unequal. That matches the `Vec<Effect>` this replaced, which had exactly the
+/// same property.
 #[derive(Clone, PartialEq)]
 pub struct Effects {
     list: heapless::Vec<Effect, MAX_EFFECTS_PER_EVENT>,
@@ -552,11 +563,7 @@ mod tests {
             Effect::EnterState(MachineState::Init),
             Effect::SetPidRuntime { enabled: false },
             Effect::SetSteamMode { enabled: false },
-            Effect::RecordBrew {
-                elapsed_ms: 0.0,
-                weight: 0.0,
-                scale_enabled: false,
-            },
+            Effect::RecordBrew { counted: false },
             Effect::ResetShotsSinceBackflush,
             Effect::ClearActionRequests,
             Effect::ClearStaleStopRequests,

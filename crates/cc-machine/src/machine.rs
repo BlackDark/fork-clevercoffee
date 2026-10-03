@@ -588,6 +588,22 @@ pub struct Machine {
     /// never be read.
     pub error_since: Option<Millis>,
     /// `MaintenanceCoordinator::shotsSinceBackflush_`.
+    ///
+    /// **The reducer is the only writer**, and that is a decision rather than an
+    /// accident. The C++ reaches the counter from two directions —
+    /// `recordBrewIfQualified` on entry to `BREW_FINISHED`
+    /// (`BrewStates.cpp:306-312`) and `resetSinceBackflush` on entry to
+    /// `BACKFLUSH_FINISHED` (`BackflushStates.cpp:142-146`) — and both of those
+    /// are state *entries*, which is where this crate's `states::on_entry` runs.
+    /// So the qualification rule is applied here, at the point the C++ applies
+    /// it, and [`Effect::RecordBrew`](crate::effect::Effect::RecordBrew) carries
+    /// the answer rather than the inputs.
+    ///
+    /// The alternative — an applier that owns the rule — is what this port did
+    /// first, and the rule was never applied by anyone: the counter stayed at 0
+    /// and `/api/status` reported `shotsSinceBackflush: 0` for the life of the
+    /// firmware. A rule that has to be *wired up* can be forgotten; one that runs
+    /// where its value lives cannot.
     pub shots_since_backflush: i32,
     /// `setHotWaterActivity` — "a hot-water switch edge happened". Resets the
     /// standby timer (`MachineStateContext.cpp:262-267`).

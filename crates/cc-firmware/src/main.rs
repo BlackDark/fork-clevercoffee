@@ -80,6 +80,10 @@ use cc_hal_esp32::time::now_ms;
 use cc_hal_esp32::zacwire::{self, ZacwireCapture};
 use cc_hal_esp32::SwitchBank;
 use cc_machine::Event;
+// `FirmwareSide` implements this; it is imported so the control task can call
+// `on_reset_shots_since_backflush` for the operator's HTTP reset rather than
+// reaching past the applier for a second way to clear the counter.
+use cc_machine::MachineChannels;
 use core::fmt::Write as _;
 use esp_idf_hal::delay::FreeRtos;
 use esp_idf_hal::gpio::{InputOutput, InputPin, Level, OutputPin, PinDriver, Pull};
@@ -2072,7 +2076,34 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
         cc_domain::heater::DEADMAN_TIMEOUT_MS
     );
 
-    let mut side = cc_hal_esp32::FirmwareSide::new();
+    // 🔴 The shot counter, restored before the machine exists.
+    //
+    // `SystemInitializer.cpp:282` calls `maintenanceCoordinator().begin()` as one
+    // of the first things it does, and `begin()` is the NVS read
+    // (`MaintenanceCoordinator.cpp:17-27`). It is read here for the same reason
+    // and handed to `Control::boot`, so the machine is *born* holding the count
+    // rather than being told about it afterwards.
+    //
+    // A read that fails is a `warn!` and a zero, not a fault: a lost count is a
+    // reminder that fires early, and the alternative — refusing to boot over a
+    // maintenance counter — is what `begin()`'s own failure path avoids.
+    let restored_shots = match cc_hal_esp32::nvs::load_shots_since_backflush(store.backend()) {
+        Ok(Some(shots)) => {
+            info!("maintenance: loaded {shots} shots since backflush");
+            shots
+        }
+        Ok(None) => {
+            info!("maintenance: no stored shot count — starting at 0");
+            0
+        }
+        Err(err) => {
+            warn!("maintenance: the stored shot count could not be read ({err}) — starting at 0");
+            0
+        }
+    };
+    // Seeded with the restored value so the first tick does not re-write a count
+    // that is already stored. See `FirmwareSide::with_shots_since_backflush`.
+    let mut side = cc_hal_esp32::FirmwareSide::with_shots_since_backflush(Some(restored_shots));
 
     // The ABP2, borrowed from the shared I²C bus. It is a peer of the panel, not
     // an owner: neither holds the bus across a transaction, so the panel cannot
@@ -2103,7 +2134,8 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
         .enabled
         .then_some(switches.levels().power);
     log_switch_levels(switches.levels());
-    let (mut control, boot_effects) = control::Control::boot(&config, boot_now, power_pressed);
+    let (mut control, boot_effects) =
+        control::Control::boot(&config, boot_now, power_pressed, restored_shots);
     {
         // The boot effects are applied by the same path as every other tick's,
         // and the facade is told the clock first because its methods take none.
@@ -2389,8 +2421,17 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
                 // (`WebServerManager.cpp:528-537`). See
                 // `Control::reset_shots_since_backflush` for why this one write
                 // exists outside the reducer and why it is the only one.
+                //
+                // The second line is the other half of the C++'s one method: the
+                // reducer's `Effect::ResetShotsSinceBackflush` clears the counter
+                // and calls `on_reset_shots_since_backflush`, and this route
+                // clears it and calls **the same method**, so the NVS write is
+                // one code path rather than two that have to be kept in step.
+                // Without it the counter cleared and came straight back on the
+                // next boot, which is the shape of bug this whole area had.
                 cc_hal_esp32::web::Command::ResetBackflushCounter => {
                     control.reset_shots_since_backflush();
+                    side.on_reset_shots_since_backflush(0);
                 }
                 // The three that are still inert, listed so the log line says
                 // *which* rather than "acknowledged and dropped".
@@ -2641,6 +2682,32 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
         effects.extend(&tick_effects);
         cc_machine::apply(&mut actuators, &mut side, control.machine(), &effects);
 
+        // ---- 7b. write down the shot counter, if it moved ---------------------
+        //
+        // `MaintenanceCoordinator::recordBrewIfQualified` and
+        // `resetSinceBackflush` both end in a `Preferences` write
+        // (`MaintenanceCoordinator.cpp:44,59`) and this is where this firmware
+        // does the same, because the applier cannot: the store is this task's,
+        // and `FirmwareSide` only records what it was told (see
+        // `FirmwareSide::shots_to_persist`).
+        //
+        // It is here rather than inside the applier for a second reason: an NVS
+        // commit is an erase-and-write, measured in milliseconds, and the applier
+        // runs in the middle of a 10 ms control period.
+        if let Some(shots) = side.take_shots_to_persist() {
+            match cc_hal_esp32::nvs::save_shots_since_backflush(store.backend_mut(), shots) {
+                Ok(()) => {
+                    side.note_shots_persisted(shots);
+                    info!("maintenance: shots since backflush = {shots} persisted");
+                }
+                Err(err) => error!(
+                    "maintenance: shots since backflush = {shots} was NOT persisted: {err}. \
+                     The count in memory is still correct and the next counted brew will \
+                     write it again, but a reboot before then loses this one."
+                ),
+            }
+        }
+
         // Publish the values this task is actually running with, so
         // `GET /api/parameters` does not answer from the boot snapshot.
         //
@@ -2660,6 +2727,25 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
         // `drain_scale`: the event drain is the only place a tare can be
         // persisted, because this task is the only holder of the store.
         let weight_g = drain_scale(sampler.as_ref(), &mut store);
+
+        // ---- 7c. the backflush reminder, decided once -------------------------
+        //
+        // `/api/status`'s `backflushReminderDue` and the display's reminder
+        // widget are the C++'s one `isReminderDue()` read from two places —
+        // `WebServerManager.cpp:363` and `DisplayWidgets.h:333-334` — and they
+        // have to be the same answer, so the answer is computed here, once, and
+        // the same `bool` goes to both. Two expressions in two places would be
+        // two things to keep in step.
+        //
+        // Before this the predicate was written out inline for the API only, and
+        // `DisplayInput::backflush_reminder_due` was **never assigned by
+        // anything**: a permanently-false field on a permanently-zero counter,
+        // so the widget could not fire however many shots were pulled.
+        let backflush_due = cc_machine::maintenance::is_reminder_due(
+            control.machine().shots_since_backflush,
+            config.maintenance.backflush_reminder.enabled,
+            config.maintenance.backflush_reminder.threshold,
+        );
 
         // ---- 8. SHOW ----------------------------------------------------------
         //
@@ -2720,6 +2806,13 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
             // then, and it is the state in which the post-brew timer runs.
             display_input.brew_active = machine.state.is_brew_state()
                 && machine.state != cc_domain::state::MachineState::BrewFinished;
+            // The reminder, and **the same value** `/api/status` reports this
+            // tick — see step 7c. The widget itself gates on
+            // `config.backflush_reminder_enabled` as well
+            // (`cc-display/src/widgets.rs:648`, the C++'s
+            // `DisplayWidgets.h:333`), which is why passing the count here
+            // rather than the enabled flag keeps the two halves from drifting.
+            display_input.backflush_reminder_due = backflush_due;
             // The post-brew deadline is configuration, and configuration can
             // change under a running machine, so the view is refreshed here
             // rather than captured at boot.
@@ -2859,9 +2952,12 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
                 // that is the only place either is readable.
                 backflush_threshold: u32::try_from(config.maintenance.backflush_reminder.threshold)
                     .unwrap_or(0),
-                backflush_due: config.maintenance.backflush_reminder.enabled
-                    && machine.shots_since_backflush
-                        >= config.maintenance.backflush_reminder.threshold,
+                // Step 7c, computed once and shared with the display. The C++ is
+                // `isReminderDue()` (`MaintenanceCoordinator.cpp:67-72`): the
+                // count has to reach the threshold *and* the reminder has to be
+                // enabled, and both halves come from this task's own `Config`
+                // because that is the only place either is readable.
+                backflush_due,
                 water_tank_full: config
                     .hardware
                     .sensors

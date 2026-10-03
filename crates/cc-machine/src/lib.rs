@@ -86,7 +86,7 @@ pub mod maintenance;
 pub mod states;
 pub mod timing;
 
-pub use applier::{apply, apply_one, Actuators, SideChannels};
+pub use applier::{apply, apply_one, Actuators, Diagnostics, MachineChannels};
 pub use backflush::{
     apply_backflush_mode, resolve_cycle_advance, resolve_mode_change, CycleAdvanceEffect,
     ModeChangeEffect, ModeChangeInput, ModeChangeOutcome,
@@ -100,7 +100,11 @@ pub use guards::{should_pid_be_enabled, Guard};
 pub use machine::{
     Backflush, BrewProgress, Machine, Pid, Request, Requests, StandbyTimer, SwitchLevels,
 };
-pub use maintenance::{is_reminder_due, qualifies_as_counted_shot};
+pub use maintenance::{
+    decode_shot_count, encode_shot_count, is_reminder_due, qualifies_as_counted_shot,
+    record_brew_if_qualified, BACKFLUSH_REMINDER_THRESHOLD, MIN_BREW_TIME_MS, MIN_BREW_WEIGHT_G,
+    SHOT_COUNT_BYTES,
+};
 
 /// The whole control decision, as a pure function.
 ///
@@ -117,7 +121,7 @@ pub use maintenance::{is_reminder_due, qualifies_as_counted_shot};
 ///
 /// * No clock. [`Event::Tick`] carries the reading.
 /// * No sleeping. `PowerHandler`'s two `delay(1000)` calls around the reboot
-///   belong to [`SideChannels::on_request_reboot`], which is the only code in
+///   belong to [`MachineChannels::on_request_reboot`], which is the only code in
 ///   the firmware allowed to block.
 /// * No `ESP.restart()`. [`Effect::RequestReboot`] asks; the applier does.
 /// * No `Vec` in the input. [`Event`] and [`Command`] are `Copy` and

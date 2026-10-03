@@ -40,7 +40,9 @@ use cc_config::Config;
 use cc_domain::pid::{Controller, ControllerDirection, Mode as PidMode, ProportionalOn};
 use cc_domain::state::MachineState;
 use cc_domain::units::{Celsius, Millis};
-use cc_machine::{Actuators, Command, Effect, Effects, Event, Sensors, SideChannels, SwitchId};
+use cc_machine::{
+    Actuators, Command, Diagnostics, Effect, Effects, Event, MachineChannels, Sensors, SwitchId,
+};
 use serde_json::Value;
 
 use crate::observe::{Actuators as ObservedActuators, Observation};
@@ -569,11 +571,25 @@ impl Runner {
         let mut seen: Vec<MachineState> = Vec::new();
         {
             // A tiny shim so the real applier can be used: it needs a
-            // `SideChannels`, and the state list is read off the effects
+            // `MachineChannels`, and the state list is read off the effects
             // rather than the channel so the observation and the application
             // cannot disagree about what happened.
+            //
+            // The three mandatory methods are implemented because
+            // `MachineChannels` has no default bodies — that is the whole point
+            // of the split, and a shim that could forget one of them is exactly
+            // what made the shot counter dead in the firmware. This one cannot:
+            // it does not compile.
             struct Collect<'a>(&'a mut Vec<MachineState>);
-            impl SideChannels for Collect<'_> {
+            impl MachineChannels for Collect<'_> {
+                fn on_record_brew(&mut self, _counted: bool, _shots_since_backflush: i32) {}
+                fn on_reset_shots_since_backflush(&mut self, _shots_since_backflush: i32) {}
+                fn on_request_reboot(&mut self) {}
+                fn diagnostics(&mut self) -> Option<&mut dyn Diagnostics> {
+                    Some(self)
+                }
+            }
+            impl Diagnostics for Collect<'_> {
                 fn on_enter_state(&mut self, state: MachineState) {
                     self.0.push(state);
                 }

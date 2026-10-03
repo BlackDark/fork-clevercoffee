@@ -114,6 +114,15 @@ impl Control {
     /// | toggle, OFF | `PID_DISABLED` | `false` |
     /// | absent | `INIT` | `pid.enabled` |
     ///
+    /// `shots_since_backflush` is an **argument** rather than something restored
+    /// afterwards, because this is where the C++ restores it:
+    /// `SystemInitializer.cpp:282` calls `maintenanceCoordinator().begin()` —
+    /// the NVS read — before the machine exists, so the counter is part of the
+    /// state the machine boots *into*. Passing it in also keeps the "the shell
+    /// may write exactly one `Machine` field" rule on
+    /// [`Self::reset_shots_since_backflush`] honest: the counter arrives as boot
+    /// state rather than as a second setter.
+    ///
     /// The effects are returned rather than applied here, because
     /// [`cc_hal_esp32::Actuators`] does not exist yet at this point in the boot
     /// sequence and the first effects are actuator writes.
@@ -130,10 +139,19 @@ impl Control {
         config: &Config,
         now: Millis,
         power_switch_pressed: Option<bool>,
+        shots_since_backflush: i32,
     ) -> (Self, cc_machine::Effects) {
         let (initial, runtime_pid) = initial_state(config, power_switch_pressed);
         let ctx = Context::new(config, celsius(config.effective_brew_setpoint()));
-        let (machine, effects) = cc_machine::boot_in(initial, runtime_pid, now, &ctx);
+        let (mut machine, effects) = cc_machine::boot_in(initial, runtime_pid, now, &ctx);
+        // `maintenanceCoordinator().begin()` (`MaintenanceCoordinator.cpp:17-27`)
+        // runs before any of the above in the C++ — line 282 of
+        // `SystemInitializer.cpp`, against `:604-641` for the state — so the
+        // value it loads is part of what this machine is born holding. A negative
+        // value cannot come from the stored form (four bytes of a count that
+        // starts at 0), but `0` is applied for it anyway so that nothing
+        // downstream has to reason about a counter below its floor.
+        machine.shots_since_backflush = shots_since_backflush.max(0);
 
         // `SystemInitializer::initializePID` (`SystemInitializer.cpp:536-566`).
         // `set_tunings` first, then `set_sample_time`: the latter rescales the
@@ -257,6 +275,13 @@ impl Control {
     /// (`Effect::ResetShotsSinceBackflush`), so an operator-initiated reset has no
     /// reducer event and this is the one place a shell may write a `Machine`
     /// field directly.
+    ///
+    /// **The caller must also persist it.** This only clears the value; the NVS
+    /// write is `cc_hal_esp32::FirmwareSide::on_reset_shots_since_backflush`,
+    /// which the reducer's `Effect::ResetShotsSinceBackflush` goes through too —
+    /// so a completed backflush and this route end up writing the same key
+    /// through the same code, rather than being two behaviours that have to be
+    /// kept in step.
     ///
     /// It is deliberately the only such method. A second one would be the
     /// beginning of "the shell can reach into the state machine", which is the

@@ -84,9 +84,9 @@
 use cc_domain::heater::HeaterGate;
 use cc_domain::state::MachineState;
 use cc_domain::units::{Duty, Millis};
-use cc_machine::{Actuators as ActuatorsTrait, SideChannels};
+use cc_machine::{Actuators as ActuatorsTrait, Diagnostics, MachineChannels};
 use esp_idf_hal::gpio::{InputOutput, Level, PinDriver};
-use log::{info, warn};
+use log::{debug, info, warn};
 
 use crate::heater::{HeaterOutput, TimerIsrPwm};
 
@@ -776,16 +776,24 @@ impl Actuators {
     }
 }
 
-/// [`SideChannels`] over the firmware's logging and its reboot path.
+/// [`cc_machine::MachineChannels`] and [`cc_machine::Diagnostics`] over the
+/// firmware's logging, its reboot path and the maintenance counter.
 ///
-/// Every method has a default no-op body, and this overrides the four that have
-/// something to say on a device: the two state-transition lines (the C++'s
-/// `logStateEntry` / `logStateExit`, `StateMachine.cpp:126,138`), the
-/// transition-reason line, and the reboot. The rest — the brew record, the
-/// standby-timer reset, the MQTT counter, the display wake — belong to
-/// subsystems that are not in this build yet (the display is a separate task
-/// under R4-xx, MQTT is `cc-hal-esp32::mqtt`) and their defaults are the correct
-/// behaviour until then.
+/// # Two halves, and both are mandatory
+///
+/// [`cc_machine::MachineChannels`] has no default bodies anywhere, so this is
+/// the place where "the shot counter was never wired up" became impossible.
+/// It used to be one fourteen-method trait with a silent `{}` body per method:
+/// `on_record_brew` was one of the nine nobody overrode, `machine.shots_since_backflush`
+/// stayed at 0, and `/api/status` answered `shotsSinceBackflush: 0` and
+/// `backflushReminderDue: false` for the life of the firmware with no compiler
+/// error and no failing test. See `cc_machine::applier`'s module documentation.
+///
+/// [`cc_machine::Diagnostics`] is returned as `Some(self)`, so every
+/// observability effect reaches a real sink. The two it has nothing to do about
+/// — the MQTT reconnect counter and the display wake — say so in their own
+/// documentation there and are empty here on purpose: a missing log line is
+/// visible, which is the property that was missing from the shot counter.
 pub struct FirmwareSide {
     /// Set by [`Self::on_request_reboot`], read by the control task between
     /// ticks.
@@ -796,6 +804,32 @@ pub struct FirmwareSide {
     /// `CloseWaterValve` further down. The C++ has the same shape and the same
     /// hazard (`PowerHandler.h:177-192` restarts from inside `onEntry`).
     reboot_requested: bool,
+    /// The shot count the applier has been told about and the control task has
+    /// not yet written down, taken by [`Self::take_shots_to_persist`].
+    ///
+    /// The **same deferral as the reboot flag, for the same reason**: the NVS
+    /// store is the control task's, and `cc-firmware` uses it inside the tick
+    /// for the configuration, the tare and the credentials. A `&mut` borrow of
+    /// it held for the life of the applier would make every one of those writes
+    /// impossible, so the applier asks and the task answers. It is also what
+    /// keeps the write *outside* the effect list: `on_record_brew` runs in the
+    /// middle of a tick's effects, and an NVS commit is milliseconds of flash
+    /// erase-and-write in the middle of a 10 ms control period.
+    ///
+    /// `None` means "nothing to write", which is the common case: a brew that
+    /// did not qualify, and every effect that is not about the counter.
+    shots_to_persist: Option<i32>,
+    /// The last value [`Self::take_shots_to_persist`] handed out, so an
+    /// unchanged count is not written again.
+    ///
+    /// This is `MaintenanceCoordinator::resetSinceBackflush`'s early return
+    /// (`if (shotsSinceBackflush_ == 0) return;`, `MaintenanceCoordinator.cpp:53-55`)
+    /// generalised: the C++ skips the NVS write when a reset changes nothing,
+    /// and skipping it is the reason a completed backflush is not also a second
+    /// erase-and-commit of an unchanged key. Seeded from the stored value at
+    /// boot by [`Self::with_shots_since_backflush`], because "nothing written
+    /// yet" and "0 is stored" are different answers to the same question.
+    last_persisted_shots: Option<i32>,
 }
 
 impl FirmwareSide {
@@ -804,6 +838,28 @@ impl FirmwareSide {
     pub const fn new() -> Self {
         Self {
             reboot_requested: false,
+            shots_to_persist: None,
+            last_persisted_shots: None,
+        }
+    }
+
+    /// A side channel that starts from a counter read out of NVS.
+    ///
+    /// The stored value seeds [`Self::last_persisted_shots`] so that the first
+    /// tick does not write a count that is already stored, and so that a reset
+    /// of an already-zero counter is recognised as a no-op — which is what
+    /// `MaintenanceCoordinator::resetSinceBackflush` does with its `if
+    /// (shotsSinceBackflush_ == 0) return;`.
+    ///
+    /// `None` means nothing was readable, which is a first boot or a partition
+    /// this firmware cannot interpret. It is **not** a different behaviour:
+    /// [`Self::new`] and this agree that nothing is stored.
+    #[must_use]
+    pub const fn with_shots_since_backflush(stored: Option<i32>) -> Self {
+        Self {
+            reboot_requested: false,
+            shots_to_persist: None,
+            last_persisted_shots: stored,
         }
     }
 
@@ -815,6 +871,31 @@ impl FirmwareSide {
         self.reboot_requested = false;
         asked
     }
+
+    /// The shot count the applier wants written to NVS, and clears the request.
+    ///
+    /// Taken by the control task, which owns the store, and written with
+    /// [`crate::nvs::save_shots_since_backflush`]. `None` means either that
+    /// nothing changed or that the value written last is the value asked for
+    /// again — the second is [`MaintenanceCoordinator::resetSinceBackflush`]'s
+    /// early return, and it is what keeps a completed backflush from
+    /// re-committing a key that already says 0.
+    pub fn take_shots_to_persist(&mut self) -> Option<i32> {
+        let asked = self.shots_to_persist?;
+        if self.last_persisted_shots == Some(asked) {
+            return None;
+        }
+        self.shots_to_persist = None;
+        Some(asked)
+    }
+
+    /// Record that `shots` is what NVS now holds.
+    ///
+    /// Called by the control task after a **successful** write, so that a
+    /// failed one is retried on the next change rather than believed.
+    pub fn note_shots_persisted(&mut self, shots: i32) {
+        self.last_persisted_shots = Some(shots);
+    }
 }
 
 impl Default for FirmwareSide {
@@ -823,7 +904,56 @@ impl Default for FirmwareSide {
     }
 }
 
-impl SideChannels for FirmwareSide {
+impl MachineChannels for FirmwareSide {
+    /// `MaintenanceCoordinator::recordBrewIfQualified`
+    /// (`MaintenanceCoordinator.cpp:30-49`).
+    ///
+    /// The C++ makes one call that qualifies, increments and writes. Here the
+    /// first two are the reducer's — `Machine::shots_since_backflush` has
+    /// already moved if `counted` — so this is the third, and it is a flag
+    /// rather than a write for the reason on [`FirmwareSide::shots_to_persist`].
+    fn on_record_brew(&mut self, counted: bool, shots_since_backflush: i32) {
+        if counted {
+            info!("maintenance: counted brew, shots since backflush = {shots_since_backflush}");
+            self.shots_to_persist = Some(shots_since_backflush);
+        } else {
+            // The C++'s `LOGF(DEBUG, "Maintenance: brew not counted (time=…,
+            // weight=…, scale=…)")` (`MaintenanceCoordinator.cpp:32-38`). The
+            // numbers are not on the effect any more — the reducer has them and
+            // made the decision — so this is the count the decision did not
+            // move, which is the part an operator asking "why is my machine not
+            // counting shots?" wants.
+            debug!(
+                "maintenance: brew not counted — shots since backflush stays \
+                 {shots_since_backflush}"
+            );
+        }
+    }
+
+    /// `MaintenanceCoordinator::resetSinceBackflush`
+    /// (`MaintenanceCoordinator.cpp:52-64`).
+    ///
+    /// The reducer has already cleared the counter
+    /// (`BackflushFinishedState::onEntryImpl`, `BackflushStates.cpp:142-146`),
+    /// so this is the NVS half, and it is the same half
+    /// `WebServerManager.cpp:528-537` reaches through
+    /// `POST /api/maintenance/reset-backflush-counter`.
+    fn on_reset_shots_since_backflush(&mut self, shots_since_backflush: i32) {
+        info!("maintenance: reset shots since backflush to {shots_since_backflush}");
+        self.shots_to_persist = Some(shots_since_backflush);
+    }
+
+    fn on_request_reboot(&mut self) {
+        info!("machine: reboot requested — the control task restarts after this tick");
+        self.reboot_requested = true;
+    }
+
+    fn diagnostics(&mut self) -> Option<&mut dyn Diagnostics> {
+        Some(self)
+    }
+}
+
+impl Diagnostics for FirmwareSide {
     fn on_enter_state(&mut self, state: MachineState) {
         info!("machine: -> {}", state.name());
     }
@@ -838,11 +968,6 @@ impl SideChannels for FirmwareSide {
 
     fn on_steam_mode(&mut self, enabled: bool) {
         info!("machine: steam mode {}", if_enabled(enabled));
-    }
-
-    fn on_request_reboot(&mut self) {
-        info!("machine: reboot requested — the control task restarts after this tick");
-        self.reboot_requested = true;
     }
 }
 

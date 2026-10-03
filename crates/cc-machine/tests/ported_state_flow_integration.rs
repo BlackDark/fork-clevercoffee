@@ -214,13 +214,20 @@ fn completes_brew_cycle_full_flow() {
         0
     );
     // The shot is offered to the maintenance counter (`BrewStates.cpp:310`).
-    let elapsed_at_entry = h.machine.brew.elapsed_ms;
-    let expected = cc_machine::Effect::RecordBrew {
-        elapsed_ms: elapsed_at_entry,
-        weight: h.machine.brew_weight(),
-        scale_enabled: h.config.hardware.sensors.scale.enabled,
-    };
-    assert!(common::has(&win, expected), "{win:?}");
+    //
+    // The effect carries the **decision**, not the three facts it came from: the
+    // reducer applied `qualifiesAsCountedShot` at the point the C++ evaluates it
+    // (`BrewStates.cpp:306-312`) and incremented the counter itself, so what the
+    // shell has to persist is the count. A brew by time is 30 s, so it counts.
+    assert!(
+        common::has(&win, cc_machine::Effect::RecordBrew { counted: true }),
+        "{win:?}"
+    );
+    assert_eq!(
+        h.machine.shots_since_backflush, 1,
+        "the reducer owns the counter; it must have moved before the effect \
+         was applied"
+    );
 
     // --- Step 6: past the 3 s finished timeout → PID_NORMAL ----------------
     let fx = h.elapse(3_100);

@@ -388,7 +388,7 @@ pub enum Command {
 ///
 /// # What replaces it
 ///
-/// **Mutual exclusion by interrupt masking**, which is what FreeRTOS itself
+/// **Mutual exclusion by interrupt masking**, which is what `FreeRTOS` itself
 /// provides for exactly this shape of problem. Every read and every write goes
 /// through [`esp_idf_hal::interrupt::free`], which is
 /// `portENTER_CRITICAL`/`portEXIT_CRITICAL`:
@@ -469,6 +469,14 @@ impl<T: Clone + Default> Snapshot<T> {
     #[must_use]
     pub fn get(&self) -> T {
         interrupt::free(|| self.value.take())
+    }
+}
+
+impl<T: Clone + Default> Default for Snapshot<T> {
+    /// An empty snapshot -- the same value [`Snapshot::new`] produces, and what
+    /// a `#[derive(Default)]` on a containing struct would reach for.
+    fn default() -> Self {
+        Self::new()
     }
 }
 
