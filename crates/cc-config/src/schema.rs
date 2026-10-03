@@ -256,7 +256,7 @@ pub struct ParamSpec {
     ///
     /// The write half of the C++'s `fromString` (`Config.h:242-262`) without
     /// the parsing and without the NVS write, which moved to
-    /// [`crate::ConfigStore`]. `false` covers a value of the wrong
+    /// [`crate::BlobConfigStore::save`]. `false` covers a value of the wrong
     /// [`ParamKind`] and — for an enumeration — a discriminant that names no
     /// variant, which is the analogue of `EnumParamDef::isValid`
     /// (`Config.h:379-388`). The bounds live in [`ParamSpec::accepts`] and are

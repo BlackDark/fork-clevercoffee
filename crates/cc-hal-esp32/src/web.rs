@@ -1904,7 +1904,7 @@ impl Web {
                 move |mut req| {
                     // The store itself stays with the control task, which is the
                     // only writer; a handler gets the description string it needs and
-                    // nothing that could write. `ConfigStore::describe` takes
+                    // nothing that could write. `BlobConfigStore::describe` takes
                     // `&self` and this is its whole result — namespace, key, schema
                     // version and byte count — so nothing is lost and a `Send +
                     // 'static` handler needs no shared NVS handle at all.

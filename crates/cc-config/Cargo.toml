@@ -1,6 +1,6 @@
 [package]
 name = "cc-config"
-description = "Typed configuration schema, ConfigStore trait, and JSON import/export."
+description = "Typed configuration schema, NVS blob store, and JSON import/export."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

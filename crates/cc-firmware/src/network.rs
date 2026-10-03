@@ -51,7 +51,7 @@ use core::fmt::Write as _;
 use std::sync::{Arc, Mutex};
 
 use cc_config::blob_store::BlobConfigStore;
-use cc_config::{Config, ConfigStore, NVS_NAMESPACE};
+use cc_config::{Config, NVS_NAMESPACE};
 use cc_hal_esp32::heap::{free_heap, min_free_heap};
 use cc_hal_esp32::nvs::EspNvsBlob;
 use cc_hal_esp32::provisioning::{self, Action, Session};
@@ -75,7 +75,7 @@ pub struct Booted {
     pub origin: ConfigOrigin,
     /// The store, and the **only** handle on it.
     ///
-    /// `ConfigStore::load`/`save` take `&mut self`, so the store has one owner
+    /// `BlobConfigStore::load`/`save` take `&mut self`, so the store has one owner
     /// or it has a lock. It has an owner: the control task. The HTTP server
     /// reports on NVS through [`Booted::nvs_description`] — a string captured
     /// once the boot writes are done — and every request that would *change* the
@@ -187,7 +187,7 @@ pub fn bring_up_config() -> Result<Booted, EspError> {
     }
 
     // Described *after* every write above, so `/api/nvs-debug` cannot report a
-    // blob that is not there yet. Read once: `ConfigStore::describe` reads the
+    // blob that is not there yet. Read once: `BlobConfigStore::describe` reads the
     // blob to size it, and the answer cannot change until the next write.
     let nvs_description = store_location(&store);
     info!("config: {} ({nvs_description})", origin_text(loaded.origin));
@@ -539,7 +539,7 @@ impl core::fmt::Debug for Staged {
 
 /// The one-slot channel from the provisioning task to the control task.
 ///
-/// The store has exactly one owner — the control task — and `ConfigStore::load`
+/// The store has exactly one owner — the control task — and `BlobConfigStore::load`
 /// and `save` both take `&mut self`. So a credential typed on UART0 cannot be
 /// written where it is typed: it is staged here, and the control task picks it
 /// up at the top of its next tick with the store already in its hand.

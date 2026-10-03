@@ -6,7 +6,7 @@
 **This writes NVS through the firmware's own code path.** It does not craft the
 blob: it types `wifi set <ssid>`, `wifi pass <password>` and `wifi apply` at
 `cc_hal_esp32::provisioning`, which parses them, hands a `Pending` to the control
-task, and persists it with `ConfigStore` — the same path the web UI uses. Writing
+task, and persists it with `BlobConfigStore` — the same path the web UI uses. Writing
 the NVS blob directly would couple this script to the blob's schema version and
 its JSON shape.
 

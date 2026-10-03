@@ -4,9 +4,9 @@
 //!
 //! # Why the store is split in two
 //!
-//! [`ConfigStore`] is three methods over a whole [`Config`]. Everything
-//! interesting about *where* those bytes live is not in it: the namespace name,
-//! the key name, the JSON encoding, the schema version, and the decision that a
+//! Everything interesting about *where* the bytes live is separable from
+//! everything interesting about what they mean: the namespace name, the key
+//! name, the JSON encoding, the schema version, and the decision that a
 //! namespace the C++ also wrote is not ours. None of that needs an ESP32.
 //!
 //! So [`BlobConfigStore`] owns the format and [`BlobBackend`] owns the medium.
@@ -16,6 +16,13 @@
 //! path, is a host unit test. This is the same split
 //! [`cc_domain::heater`](../../cc_domain/heater/index.html) uses: the decision
 //! is portable, the peripheral is not.
+//!
+//! The store's `load`/`save`/`erase_all` are **inherent methods**, not a trait.
+//! Every caller in the workspace names the concrete
+//! `BlobConfigStore<EspNvsBlob>`, nothing is generic over a store, and there is
+//! no `dyn`. The seam that does get used is one level down, [`BlobBackend`] —
+//! and it already provides the substitution a store trait would have. Finding
+//! 4.6 of 32-findings-2026-10-03.
 //!
 //! # One blob, not 98 keys
 //!
@@ -65,7 +72,7 @@ use alloc::vec::Vec;
 use serde_json::from_slice;
 
 use crate::config::Config;
-use crate::store::{ConfigStore, StoreError};
+use crate::store::StoreError;
 
 /// The NVS namespace the Rust firmware owns.
 ///
@@ -112,8 +119,9 @@ pub const MAX_BLOB_BYTES: usize = 8 * 1024;
 /// someone to act on a foreign writer's data.
 ///
 /// The `&self` on `get` and the `&mut self` on `set` are deliberate and match
-/// [`ConfigStore`]: reading a configuration must not need exclusive access, so
-/// a diagnostics task can read it while the web server holds it. ESP-IDF's
+/// [`BlobConfigStore::load`]: reading a configuration must not need exclusive
+/// access, so a diagnostics task can read it while the web server holds it.
+/// ESP-IDF's
 /// `nvs_open` handle is thread-safe for this access pattern
 /// (`nvs_get_blob` takes the partition lock, `esp32-hal`'s and this crate's
 /// callers all treat a handle as shareable).
@@ -155,11 +163,19 @@ pub trait BlobBackend {
     }
 }
 
-/// A [`ConfigStore`] that moves one JSON blob through a [`BlobBackend`].
+/// A configuration store that moves one JSON blob through a [`BlobBackend`].
 #[derive(Debug)]
 pub struct BlobConfigStore<B> {
     backend: B,
 }
+
+/// Bytes of framing in front of the JSON: a little-endian `u32` version.
+///
+/// 4, and a power of two, so the JSON starts on an 8-byte boundary and
+/// `serde_json` gets an aligned slice. It is a separate byte count from
+/// [`SCHEMA_VERSION`] because this one is a compile-time property of the
+/// encoding and the other is a value that changes.
+const ENVELOPE_HEADER_BYTES: usize = 4;
 
 impl<B: BlobBackend> BlobConfigStore<B> {
     /// Wrap a backend.
@@ -183,9 +199,9 @@ impl<B: BlobBackend> BlobConfigStore<B> {
     ///
     /// This is what `/api/nvs-debug` reports on: a blob that exists, how big it
     /// is, and which version wrote it. It is deliberately *not* a way to get a
-    /// `Config` — decoding is [`ConfigStore::load`]'s job, and there is one
-    /// path into a `Config` so that the schema version and the safety check
-    /// cannot be skipped by using the wrong door.
+    /// `Config` — decoding is [`Self::load`]'s job, and there is one path into
+    /// a `Config` so that the schema version and the safety check cannot be
+    /// skipped by using the wrong door.
     ///
     /// # Errors
     ///
@@ -201,18 +217,19 @@ impl<B: BlobBackend> BlobConfigStore<B> {
         let version = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
         Ok(Some((version, bytes.len() - ENVELOPE_HEADER_BYTES)))
     }
-}
 
-/// Bytes of framing in front of the JSON: a little-endian `u32` version.
-///
-/// 4, and a power of two, so the JSON starts on an 8-byte boundary and
-/// `serde_json` gets an aligned slice. It is a separate byte count from
-/// [`SCHEMA_VERSION`] because this one is a compile-time property of the
-/// encoding and the other is a value that changes.
-const ENVELOPE_HEADER_BYTES: usize = 4;
-
-impl<B: BlobBackend> ConfigStore for BlobConfigStore<B> {
-    fn load(&mut self) -> Result<Option<Config>, StoreError> {
+    /// Read the stored configuration.
+    ///
+    /// `Ok(None)` means nothing has been stored yet — first boot, or after a
+    /// factory reset. That is **not** an error: the caller uses
+    /// [`Config::default`].
+    ///
+    /// # Errors
+    ///
+    /// [`StoreError::Unavailable`] if the store cannot be opened, and
+    /// [`StoreError::Corrupt`] if a blob is present but undecodable. Both mean
+    /// "use the defaults", and neither is fatal.
+    pub fn load(&mut self) -> Result<Option<Config>, StoreError> {
         let Some(bytes) = self.backend.get(KEY)? else {
             // `Ok(None)` is not an error: a machine on a fresh partition, or one
             // whose partition was written by the C++ firmware, has nothing here.
@@ -249,7 +266,18 @@ impl<B: BlobBackend> ConfigStore for BlobConfigStore<B> {
         }
     }
 
-    fn save(&mut self, config: &Config) -> Result<(), StoreError> {
+    /// Write the configuration, replacing whatever was there.
+    ///
+    /// Must be atomic from the reader's point of view: a reader either sees the
+    /// previous value or the new one, never a mixture. This is the whole reason
+    /// the store holds one blob rather than 98 keys.
+    ///
+    /// # Errors
+    ///
+    /// [`StoreError::Unavailable`], [`StoreError::ReadOnly`] or
+    /// [`StoreError::WriteFailed`]. A failed save leaves the previous
+    /// configuration in place; it must not clear it.
+    pub fn save(&mut self, config: &Config) -> Result<(), StoreError> {
         let json = serde_json::to_vec(config).map_err(|_| StoreError::WriteFailed)?;
         if json.len() > MAX_BLOB_BYTES {
             // A `Config` cannot reach this — 98 bounded fields serialise to
@@ -270,12 +298,18 @@ impl<B: BlobBackend> ConfigStore for BlobConfigStore<B> {
         self.backend.set(KEY, &bytes)
     }
 
-    fn erase_all(&mut self) -> Result<(), StoreError> {
+    /// Remove everything, returning the store to its never-written state.
+    ///
+    /// Backs `POST /api/factory-reset`. After this, [`Self::load`] returns
+    /// `Ok(None)`.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::save`].
+    pub fn erase_all(&mut self) -> Result<(), StoreError> {
         self.backend.erase_all()
     }
-}
 
-impl<B: BlobBackend> BlobConfigStore<B> {
     /// A one-line description of what is stored, for the boot log and for
     /// `GET /api/nvs-debug`.
     ///

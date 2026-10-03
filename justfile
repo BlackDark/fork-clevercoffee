@@ -672,7 +672,7 @@ reflash port:
 # **This is the correct location by construction.** The credential is not written
 # to NVS by hand: the script types `wifi set <ssid>`, `wifi pass <password>` and
 # `wifi apply` at `cc_hal_esp32::provisioning`, which parses them, hands a
-# `Pending` to the control task, and persists it with `ConfigStore` — the same
+# `Pending` to the control task, and persists it with `BlobConfigStore` — the same
 # path the web UI uses. Crafting the NVS blob would couple this recipe to the
 # blob's schema version and its JSON shape.
 #

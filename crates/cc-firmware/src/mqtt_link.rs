@@ -46,7 +46,7 @@
 //!   from the [`control::Control`] this task already has.
 
 use cc_config::blob_store::BlobConfigStore;
-use cc_config::{Config, ConfigStore};
+use cc_config::Config;
 use cc_hal_esp32::mqtt::{interval_for, Client, Feed, Payload, Registry, Service};
 use cc_hal_esp32::nvs::EspNvsBlob;
 use cc_hal_esp32::Sampler;

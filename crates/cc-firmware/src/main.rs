@@ -67,7 +67,6 @@ mod slots;
 use core::error::Error;
 use std::sync::Arc;
 
-use cc_config::ConfigStore;
 use cc_domain::hardware::TemperatureSensorType;
 use cc_domain::sensor::ds18b20::{self as ds18b20_domain, Driver as Ds18b20Driver};
 use cc_domain::sensor::onewire::{OneWireError, Rom};
@@ -788,7 +787,7 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
     //    needs to see.
     //
     //    Destructured rather than used as a struct: `store` moves into the
-    //    control task (the only writer — `ConfigStore::load`/`save` take
+    //    control task (the only writer — `BlobConfigStore::load`/`save` take
     //    `&mut self`, and one owner beats a lock), `nvs_description` is the one
     //    thing the HTTP server is given about NVS, and `origin` is printed here
     //    and never needed again.
@@ -2154,8 +2153,8 @@ struct ControlArgs {
     /// later change, and the session state is read from the client the control
     /// task owns.
     mqtt_configured: bool,
-    /// The configuration store. **Moved**, not borrowed: `ConfigStore::load` and
-    /// `save` both take `&mut self` and one owner beats a lock.
+    /// The configuration store. **Moved**, not borrowed: `BlobConfigStore::load`
+    /// and `save` both take `&mut self` and one owner beats a lock.
     store: cc_config::blob_store::BlobConfigStore<cc_hal_esp32::nvs::EspNvsBlob>,
     /// The scale's sampling task, owned for the rest of the process.
     sampler: Option<cc_hal_esp32::Sampler>,
@@ -2683,7 +2682,7 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
         //
         // It is here, and not in the handler, because the store is here: it moved
         // into this task in step 7 precisely so that one task owns the
-        // configuration, and a `Mutex<ConfigStore>` shared with the httpd task
+        // configuration, and a `Mutex<BlobConfigStore>` shared with the httpd task
         // would put a 2 KB blob write on whichever task the web server happened
         // to be serving.
         //
@@ -3654,7 +3653,7 @@ fn start_provisioning(
 /// the tick is read as a list of what happens in a period, and inlining sixty
 /// lines of NVS error handling into it hides that. The second is that the
 /// **control task is the only holder of the configuration store** —
-/// `ConfigStore::load` and `save` both take `&mut self`, and one owner beats a
+/// `BlobConfigStore::load` and `save` both take `&mut self`, and one owner beats a
 /// lock — so this is the only place on the machine where a completed tare or a
 /// new calibration factor can be written down. Making that a named function is
 /// what makes it findable.

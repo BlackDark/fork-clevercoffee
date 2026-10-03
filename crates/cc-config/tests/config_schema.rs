@@ -1,12 +1,21 @@
-//! Schema, round-trip, redaction, and store tests for `cc-config` — task R2-06.
+//! # Schema, round-trip and redaction tests for `cc-config` — task R2-06.
 //!
 //! The C++ oracle for this area is `test/test_config` (7 cases) and
 //! `test/test_config_json` (4 cases); the assertions below carry over the
 //! `test_config_json` cases that have a Rust equivalent (`usesFlatDotKeys`,
 //! nested get/set, sibling preservation, missing-path handling) and add the ones
 //! the C++ cannot express because it has no typed configuration value.
-
-mod support;
+//!
+//! # There is no store fake in this file
+//!
+//! There used to be a `MemStore` here (`tests/support/`) implementing the
+//! `ConfigStore` trait, and seven tests driving it. Both are gone. `MemStore`
+//! stored a `Config` in an `Option`, so all seven asserted that the fake worked,
+//! not that the firmware's store does — and six of the seven had a twin in
+//! `src/blob_store.rs` that drives the real [`cc_config::BlobConfigStore`] over
+//! `MemoryBackend`, a fake of the *medium* rather than of the format. Deleting
+//! `ConfigStore` (finding 4.6) removed the fake's reason to exist and this file
+//! dropped with it; the format is tested where it lives.
 
 // `clippy::assert_is_empty` is new in clippy 1.99, the channel `just lint`
 // runs on when `CC_RUST_TOOLCHAIN=stable` (the CI host gate). It is silenced
@@ -21,14 +30,11 @@ use cc_config::config::SafetyView;
 use cc_config::json::{ImportError, RejectReason};
 use cc_config::schema::{self, ParamValue};
 use cc_config::{
-    document_pairs, json_export, json_import, Config, ConfigStore, Secret, StoreError,
-    MAX_CONFIG_BYTES,
+    document_pairs, json_export, json_import, Config, Secret, StoreError, MAX_CONFIG_BYTES,
 };
 use cc_domain::hardware::{RelayTriggerType, TemperatureSensorType};
 use cc_domain::process::BrewMode;
 use cc_domain::units::Celsius;
-
-use support::MemStore;
 
 // ===================================================================== schema —
 
@@ -647,61 +653,11 @@ fn the_default_temperature_sensor_is_the_cpps_tsic_306() {
 
 // ==================================================================== store —
 
-#[test]
-fn an_empty_store_loads_nothing_and_uses_defaults() {
-    let mut store = MemStore::empty();
-    assert_eq!(store.load().expect("load"), None);
-    assert_eq!(Config::default(), Config::default());
-}
-
-#[test]
-fn save_then_load_returns_the_same_configuration() {
-    let mut store = MemStore::empty();
-    let mut original = Config::default();
-    original.safety.emergency_temp = 133.0;
-    original.system.hostname = String::from("test-host");
-
-    store.save(&original).expect("save");
-    assert_eq!(store.saves, 1);
-    assert_eq!(store.load().expect("load"), Some(original));
-}
-
-#[test]
-fn erase_all_returns_the_store_to_never_written() {
-    let mut store = MemStore::with(Config::default());
-    store.erase_all().expect("erase");
-    assert_eq!(store.load().expect("load"), None);
-    assert_eq!(store.peek(), None);
-}
-
-#[test]
-fn reset_to_defaults_overwrites_a_stored_configuration() {
-    let mut store = MemStore::with(Config::default());
-    let mut custom = Config::default();
-    custom.brew.setpoint = 60.0;
-    store.save(&custom).expect("save");
-    store.reset_to_defaults().expect("reset");
-    assert_eq!(store.load().expect("load"), Some(Config::default()));
-}
-
-#[test]
-fn a_corrupt_store_is_reported_not_guessed_at() {
-    let store = MemStore::failing(StoreError::Corrupt);
-    let mut store = store;
-    assert_eq!(store.load(), Err(StoreError::Corrupt));
-}
-
-#[test]
-fn a_write_failure_leaves_the_previous_configuration_in_place() {
-    let mut store = MemStore::with(Config::default());
-    store.fail_with = Some(StoreError::WriteFailed);
-    let mut custom = Config::default();
-    custom.brew.setpoint = 60.0;
-    assert_eq!(store.save(&custom), Err(StoreError::WriteFailed));
-    // The point of a blob store: a failed write cannot leave a half-applied
-    // configuration, because there is no "half" of one blob.
-    assert!(store.peek().is_some());
-}
+// The store itself is tested in `src/blob_store.rs`, against the real
+// `BlobConfigStore` over an in-memory `BlobBackend`. That is the only place a
+// store assertion belongs: a fake that stores a `Config` directly cannot fail
+// the way firmware fails. What is left here is the error type's rendering,
+// because `StoreError` is what the boot log shows an operator.
 
 #[test]
 fn store_errors_render() {
@@ -875,30 +831,6 @@ fn an_open_network_is_a_credential_with_an_empty_password() {
     config.set_wifi_credential(String::from("guest"), String::new());
     assert!(config.is_wifi_provisioned());
     assert_eq!(config.wifi_password(), "");
-}
-
-#[test]
-fn a_stored_credential_survives_a_blob_round_trip() {
-    // The provisioning path is only useful if the write is durable, and the
-    // durability question is the store's, not the setter's — so the test spans
-    // both. `Debug` must not leak the password anywhere along the way.
-    let mut store = MemStore::empty();
-    let mut config = Config::default();
-    config.set_wifi_credential(String::from("kitchen"), String::from("hunter2"));
-    store.save(&config).expect("save");
-
-    let mut reloaded = store.load().expect("load").expect("a blob was written");
-    assert!(reloaded.is_wifi_provisioned());
-    assert_eq!(reloaded.wifi_password(), "hunter2");
-    assert!(
-        !format!("{reloaded:?}").contains("hunter2"),
-        "the Debug of a Config must not carry the Wi-Fi password"
-    );
-
-    reloaded.clear_wifi_credential();
-    store.save(&reloaded).expect("save the cleared credential");
-    let third = store.load().expect("load").expect("a blob was written");
-    assert!(!third.is_wifi_provisioned());
 }
 
 #[test]

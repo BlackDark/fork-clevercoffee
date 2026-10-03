@@ -55,7 +55,7 @@ every writer (HTTP, MQTT, `/api/parameters`, NVS) rather than the route where th
 | --- | --- | --- |
 | 4.3 | Three levels of `dyn` in the safety applier | ✅ **done** — generic + `?Sized`; `.flash.text` −280 B |
 | P2-2 | `Diagnostics` — 11 optional methods, 4 implemented | ✅ **done** — 11 → **5**, not deleted |
-| 4.6 | `ConfigStore` — one impl, never used as a bound | delete |
+| 4.6 | `ConfigStore` — one impl, never used as a bound | ✅ **done** — trait and `MemStore` deleted; methods are inherent on `BlobConfigStore<B>` |
 | 4.2 | Three blocking mutexes in the 10 ms tick | **highest risk**; unverifiable on hardware |
 
 **On P2-2.** The trait was **not** deleted, because the collapse leaves five
@@ -81,6 +81,17 @@ split whose entire justification is that a missing implementation loses a
 *change*, and would re-create exactly the "silent `{}` bodies" shape that
 `on_record_brew` shipped. It would also have made every one of the four test
 doubles implement three no-ops it has no reason to have.
+
+**On 4.6.** The trait went, and so did the test fake that existed to implement
+it. `MemStore` stored a `Config` in an `Option<Config>` rather than bytes, so
+its seven callers in `tests/config_schema.rs` asserted that *the fake* worked;
+six had a twin in `src/blob_store.rs` that drives the real `BlobConfigStore` over
+`MemoryBackend`, which is a fake of the *medium* and therefore exercises the
+*format*. `BlobBackend` was already the seam that gave the substitution, so
+nothing was lost but the indirection. `reset_to_defaults` was a provided method
+whose only caller in the workspace was its own test — `Command::FactoryReset` is
+still an unwired stub (`cc-firmware/src/main.rs:2669`, R3-16), so it had no
+production caller and did not become an inherent method.
 
 ## Phase 4 — `cc-web` extraction 🔜
 

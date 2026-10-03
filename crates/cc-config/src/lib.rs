@@ -14,9 +14,10 @@
 //! because it is not in the list.
 //!
 //! Here configuration is a **value**. [`Config`] is a plain struct of typed
-//! fields, `Config` implements `Serialize`/`Deserialize`, and [`ConfigStore`]
-//! moves whole values. There is no global mutable state, so a test needs no
-//! fixture reset, and a failed write cannot leave a half-updated machine.
+//! fields, `Config` implements `Serialize`/`Deserialize`, and
+//! [`BlobConfigStore`] moves whole values. There is no global mutable state,
+//! so a test needs no fixture reset, and a failed write cannot leave a
+//! half-updated machine.
 //!
 //! # What is deliberately the same
 //!
@@ -92,7 +93,7 @@ pub use json::{
 };
 pub use schema::{ParamKind, ParamSpec, ParamValue, SCHEMA};
 pub use secret::Secret;
-pub use store::{ConfigStore, StoreError};
+pub use store::StoreError;
 
 /// An enumeration that travels over the wire as its integer discriminant.
 ///

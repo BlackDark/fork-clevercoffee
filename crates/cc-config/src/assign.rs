@@ -69,8 +69,9 @@
 //! `set` writes NVS **inside the setter**, once per parameter, and returns
 //! `false` if that write failed — so a NVS failure is reported to the operator
 //! as a parameter failure even though the in-memory value had already changed.
-//! Here [`set`] only touches the struct, and the single [`crate::ConfigStore`]
-//! write happens once for the whole request, in the task that owns the store.
+//! Here [`set`] only touches the struct, and the single
+//! [`crate::BlobConfigStore::save`] write happens once for the whole request,
+//! in the task that owns the store.
 //! One blob, one write, one CRC — which is the reason this port does not have
 //! 98 keys to write one at a time ([`crate::store`]). A store failure is
 //! therefore a property of the request, not of one parameter, and it is

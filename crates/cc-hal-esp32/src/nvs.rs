@@ -37,7 +37,7 @@
 //!   point of view, because NVS is copy-on-write at page granularity and the
 //!   commit is the only thing that publishes the new page. A power cut before
 //!   the commit leaves the previous page intact. This is the property
-//!   `ConfigStore::save` promises and `a_failed_save_leaves_the_previous_
+//!   `BlobConfigStore::save` promises and `a_failed_save_leaves_the_previous_
 //!   configuration_in_place` pins.
 //! * **`get_blob` does not shrink its buffer.** It writes `len` into the `inout`
 //!   length parameter and returns `&buf[..len]`, so the buffer must be at least
@@ -69,7 +69,7 @@ use esp_idf_svc::nvs::{EspDefaultNvs, EspDefaultNvsPartition, EspNvs};
 /// is the whole of the fix, and it has the side benefit of naming what the
 /// firmware actually holds.
 ///
-/// It also means `ConfigStore::erase_all` and the `raw()` diagnostics are
+/// It also means `BlobConfigStore::erase_all` and the `raw()` diagnostics are
 /// reachable without a downcast, and that the store handed to the HTTP server
 /// has one concrete type.
 pub struct EspNvsBlob(EspDefaultNvs);
