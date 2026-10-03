@@ -824,6 +824,16 @@ impl core::fmt::Display for Ds18b20Fault {
 }
 
 #[cfg(test)]
+// `clippy::assert_is_empty` is new in clippy 1.99, the channel the CI host gate
+// runs on (`CC_RUST_TOOLCHAIN=stable`). The emptiness assertions in this module
+// are on COLLECTIONS, so the suggested `assert_eq!(x, "")` does not typecheck,
+// and `assert_eq!(x.len(), 0)` would print a count instead of the contents.
+// Everywhere else in this crate a `String` emptiness assertion is written
+// `assert_ne!(x, "")` and is still linted.
+#[allow(
+    clippy::assert_is_empty,
+    reason = "the assertions are on collections, so assert_eq!(x, \"\") does not typecheck"
+)]
 #[allow(
     clippy::float_cmp,
     reason = "the tests compare the -127 and -25x Celsius sentinels, which is the \

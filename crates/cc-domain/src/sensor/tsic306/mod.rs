@@ -590,24 +590,34 @@ pub fn as_probe(outcome: Outcome) -> Option<ProbeReading> {
 }
 
 #[cfg(test)]
+// `clippy::assert_is_empty` is new in clippy 1.99, the channel the CI host gate
+// runs on (`CC_RUST_TOOLCHAIN=stable`). The emptiness assertions in this module
+// are on COLLECTIONS, so the suggested `assert_eq!(x, "")` does not typecheck,
+// and `assert_eq!(x.len(), 0)` would print a count instead of the contents.
+// Everywhere else in this crate a `String` emptiness assertion is written
+// `assert_ne!(x, "")` and is still linted.
+#[allow(
+    clippy::assert_is_empty,
+    reason = "the assertions are on collections, so assert_eq!(x, \"\") does not typecheck"
+)]
 #[allow(
     clippy::float_cmp,
     reason = "the tests compare f32 temperatures that the code under test computes \
-              by the same expression, or that are exactly representable 11-bit grid \
-              points; an approximate comparison would hide what is being pinned"
+              from the wire, at exact sentinels, and an approximate comparison would hide \
+              what is being pinned"
 )]
-#[allow(
-    clippy::assertions_on_constants,
-    reason = "these tests assert protocol and transport constants against the \
-              datasheet/app note numbers on purpose: that is the claim, and the \
-              compiler is right that a run-time comparison of two constants is \
-              not a test"
-)]
+// A synthesised waveform is indexed by a `usize` loop counter and the counter
+// is handed to the ring, which takes microseconds as `u32`. The values are 0 and
+// 1 in this test, so the truncation cannot occur; on a 64-bit host it is the lint
+// being conservative about a 32-bit target.
 #[allow(
     clippy::cast_possible_truncation,
+    reason = "a test waveform index of 0 or 1 microseconds, which is what a u32 \
+              microsecond count can hold exactly"
+)]
+#[allow(
     clippy::cast_precision_loss,
-    clippy::cast_sign_loss,
-    reason = "test-side narrowing of values the protocol bounds to 0..=2047"
+    reason = "index % 3 is 0, 1 or 2, every one of which is exact in f32"
 )]
 mod tests {
     use super::*;
@@ -1185,16 +1195,25 @@ mod tests {
     fn the_no_signal_timeout_is_longer_than_the_cpps_and_says_why() {
         // The C++'s is 100 ms (`ZACwire.h:29`) against a 10 Hz sensor, i.e. one
         // transmission period with zero margin. This port uses 2.5 periods.
-        assert_eq!(protocol::UPDATE_PERIOD_US, 100_000);
-        assert_eq!(protocol::NO_SIGNAL_TIMEOUT_US, 250_000);
-        assert!(protocol::NO_SIGNAL_TIMEOUT_US > protocol::UPDATE_PERIOD_US);
+        // These are invariants between two CONSTANTS, so they are asserted at
+        // COMPILE time (`const { assert!(..) }`, clippy 1.99's
+        // `assertions_on_constants`): a change to either constant that breaks
+        // the relationship now fails the BUILD rather than one test run, and
+        // they cost nothing at runtime.
+        //
+        // `assert!` rather than `assert_eq!`, because on this channel
+        // `assert_eq!` in a const is still not available (its panic path is not
+        // const), and an `assert!` with no message is. The message each one
+        // loses is the sentence in the comment beside it.
+        const { assert!(protocol::UPDATE_PERIOD_US == 100_000) };
+        const { assert!(protocol::NO_SIGNAL_TIMEOUT_US == 250_000) };
         // So one missed frame is tolerated, and a genuinely dead probe is
-        // reported inside one control cadence plus the ten-read debounce.
-        assert!(protocol::NO_SIGNAL_TIMEOUT_US >= 2 * protocol::UPDATE_PERIOD_US);
-        assert!(
-            protocol::NO_SIGNAL_TIMEOUT_US < 2 * protocol::UPDATE_PERIOD_US + 100_000,
-            "and it must not stretch to three periods or a dead probe is slow to report"
-        );
+        // reported inside one control cadence plus the ten-read debounce -- and
+        // it must not stretch to three periods, or a dead probe is slow to
+        // report.
+        const { assert!(protocol::NO_SIGNAL_TIMEOUT_US > protocol::UPDATE_PERIOD_US) };
+        const { assert!(protocol::NO_SIGNAL_TIMEOUT_US >= 2 * protocol::UPDATE_PERIOD_US) };
+        const { assert!(protocol::NO_SIGNAL_TIMEOUT_US < 2 * protocol::UPDATE_PERIOD_US + 100_000) };
     }
 
     #[test]

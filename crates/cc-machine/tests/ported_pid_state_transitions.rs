@@ -1,3 +1,9 @@
+#![allow(
+    clippy::assert_is_empty,
+    reason = "the assertion below is on a collection, so the suggested \
+              assert_eq!(x, \"\") does not typecheck"
+)]
+
 //! Port of `test/test_pid_state_transitions` — 8 C++ cases, 13 Rust cases
 //! (8 live + 5 `#[ignore]`d mock records) plus 5 the C++ does not have.
 //!

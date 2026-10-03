@@ -123,6 +123,30 @@ embedded-io = "0.7.1"
 [workspace.lints.rust]
 missing_docs = "warn"
 unsafe_code = "deny"
+
+# 🔴 WHY THIS IS `allow`, NOT `deny`
+#
+# `unknown_lints` is warn-by-default, and every lint recipe in this repo runs
+# clippy with `-D warnings`, which promotes it to an error. So a single
+# suppression naming a lint that the toolchain in use has never heard of takes
+# the whole build down:
+#
+#     error: unknown lint: `clippy::assert_is_empty`
+#        = note: `-D unknown-lints` implied by `-D warnings`
+#
+# This repository runs clippy on TWO generations at once by design: `rust.yml`'s
+# host job on whatever `stable` the runner image pinned, and the device job on
+# the Espressif `esp` fork (1.97). A lint added to clippy after an older channel
+# was cut therefore breaks the NEWER channel's build -- which is exactly what
+# happened in PR #96, where `clippy::assert_is_empty` (clippy 1.99) was unknown
+# to the runner's stable.
+#
+# The cost of allowing it is that a typo in a suppression would go unnoticed.
+# `scripts/lint-names.py` closes that hole, and it is a CI step: every lint
+# named in an `allow`/`expect` must exist on AT LEAST ONE supported channel, and
+# the report names the ones that exist on only one. A typo exists on neither and
+# fails the build.
+unknown_lints = "allow"
 # `esp-idf-sys` 0.38 emits ~1300 `esp_idf_*` cfgs from the ESP-IDF kconfig
 # (`cargo:rustc-cfg=...`, `esp-idf-sys/build/common.rs:239`) but cannot emit
 # `rustc-check-cfg` for them, so every use of one is an `unexpected_cfgs`

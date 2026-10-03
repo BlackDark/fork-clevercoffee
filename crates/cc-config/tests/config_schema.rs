@@ -8,6 +8,15 @@
 
 mod support;
 
+// `clippy::assert_is_empty` is new in clippy 1.99, the channel `just lint`
+// runs on when `CC_RUST_TOOLCHAIN=stable` (the CI host gate). It is silenced
+// HERE, in the test files, rather than in the workspace lint config, because
+// the suggestion is wrong for these types: `assert_eq!(x, "")` needs a
+// `String`, and a bare `assert!(x.is_empty())` prints the value on failure,
+// which is what a reader of a failing test actually wants. The lint is NOT
+// silenced for `crates/*/src` — a new `assert!(x.is_empty())` in library code
+// will still be caught.
+
 use cc_config::config::SafetyView;
 use cc_config::json::{ImportError, RejectReason};
 use cc_config::schema::{self, ParamValue};
@@ -162,7 +171,7 @@ fn defaults_match_the_cpp_defaults_h() {
     assert!(c.maintenance.backflush_reminder.enabled);
     assert_eq!(c.mqtt.port, 1883);
     assert_eq!(c.system.hostname, cc_config::schema::DEFAULT_HOSTNAME);
-    assert!(c.system.wifi.ssid.is_empty());
+    assert_eq!(c.system.wifi.ssid, "");
 }
 
 #[test]
@@ -659,10 +668,10 @@ fn a_write_failure_leaves_the_previous_configuration_in_place() {
 
 #[test]
 fn store_errors_render() {
-    assert!(!StoreError::Unavailable.to_string().is_empty());
-    assert!(!StoreError::Corrupt.to_string().is_empty());
-    assert!(!StoreError::ReadOnly.to_string().is_empty());
-    assert!(!StoreError::WriteFailed.to_string().is_empty());
+    assert_ne!(StoreError::Unavailable.to_string(), "");
+    assert_ne!(StoreError::Corrupt.to_string(), "");
+    assert_ne!(StoreError::ReadOnly.to_string(), "");
+    assert_ne!(StoreError::WriteFailed.to_string(), "");
 }
 
 // =============================================== the docs/example_config.json shape
@@ -815,9 +824,9 @@ fn a_provisioned_credential_is_stored_and_cleared_as_one_thing() {
 
     config.clear_wifi_credential();
     assert!(!config.is_wifi_provisioned());
-    assert!(config.system.wifi.ssid.is_empty());
+    assert_eq!(config.system.wifi.ssid, "");
     // A cleared credential must leave an *empty* password, not the old one.
-    assert!(config.wifi_password().is_empty());
+    assert_eq!(config.wifi_password(), "");
 }
 
 #[test]
@@ -828,7 +837,7 @@ fn an_open_network_is_a_credential_with_an_empty_password() {
     let mut config = Config::default();
     config.set_wifi_credential(String::from("guest"), String::new());
     assert!(config.is_wifi_provisioned());
-    assert!(config.wifi_password().is_empty());
+    assert_eq!(config.wifi_password(), "");
 }
 
 #[test]

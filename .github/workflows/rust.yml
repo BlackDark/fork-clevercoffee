@@ -14,11 +14,29 @@ name: Rust firmware
 # is what `release.yml` publishes. The two are not alternatives; both gates
 # have to be green.
 #
-# The device build needs the Espressif `esp` toolchain (a nightly fork, via
-# espup) and a compiled ESP-IDF. `just setup` handles both; the Xtensa jobs below
-# are the ones that would otherwise be silently unverified, and they are exactly
-# the ones that cannot be skipped "because it needs a board" — only
-# `just test-esp32` needs a board.
+# TWO TOOLCHAIN CHANNELS, ON PURPOSE
+# -----------------------------------
+# `rust-toolchain.toml` pins `channel = "esp"` — an Espressif nightly fork that
+# only `espup` installs. The `host` job below therefore runs on **stable**, via
+# `CC_RUST_TOOLCHAIN=stable`, and the `device` job on **esp**.
+#
+# The reason is not speed. It is that a runner with only GitHub's stock Rust
+# cannot run `just` AT ALL: `host_target` is derived from a backtick, just
+# evaluates backticks while PARSING the justfile, and a failing backtick is a
+# parse error — so `rustc -vV` failing to resolve `esp` takes down every recipe
+# in the job with a message that never mentions the toolchain. That is how the
+# first version of this workflow failed.
+#
+# So: the host gate compiles the portable crates (`cc-domain`, `cc-safety`,
+# `cc-config`, `cc-machine`, `cc-display` — all `#![no_std]`, all host-testable)
+# on a stock toolchain, which is also what makes the workspace's
+# `rust-version = "1.82"` claim verifiable instead of decorative. The device gate
+# compiles the firmware on the pinned Xtensa fork.
+#
+# The device build also needs a compiled ESP-IDF (via embuild). `just setup`
+# handles it; the Xtensa jobs below are the ones that would otherwise be silently
+# unverified, and they are exactly the ones that cannot be skipped "because it
+# needs a board" — only `just test-esp32` needs a board.
 # ===========================================================================
 
 on:
@@ -80,6 +98,14 @@ jobs:
   host:
     name: format, lint, doc, test (host)
     runs-on: ubuntu-latest
+    # STABLE, deliberately, and not for speed -- see the header.
+    #
+    # `CC_RUST_TOOLCHAIN` is the switch the justfile exposes; `RUSTUP_TOOLCHAIN`
+    # is set too so a bare `cargo` in this job resolves the same way a bare
+    # `just` does. The justfile's own default stays `esp`.
+    env:
+      CC_RUST_TOOLCHAIN: stable
+      RUSTUP_TOOLCHAIN: stable
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -93,11 +119,18 @@ jobs:
 
       - name: Show the resolved toolchain
         run: |
-          rustup show active-toolchain
-          just --evaluate host_target
+          rustc --version
+          cargo --version
+          echo "host triple: $(just --evaluate host_target)"
 
-      - name: Verify the device build knobs are consistent
-        run: just doctor
+      - name: Host checks (no device toolchain required)
+        # `doctor-host`, not `doctor`: `doctor` asserts the DEVICE toolchain — the
+        # esp channel and a Xtensa GCC — and a host job has no business
+        # downloading one. `doctor-host` checks everything a host-only job can
+        # actually assert: the host triple resolved, the ESP-IDF pin still
+        # matches components_esp32.lock, and mise still does not claim to own
+        # the compiler.
+        run: just doctor-host
 
       - name: cargo fmt
         run: just fmt-check
@@ -125,8 +158,8 @@ jobs:
         run: |
           pnpm install --frozen-lockfile
           pnpm lint
-          pnpm tsc
-          pnpm test:run
+          pnpm --filter @clevercoffee/frontend tsc
+          pnpm --filter @clevercoffee/frontend test:run
           pnpm --filter @clevercoffee/frontend build
 
   # ------------------------------------------------------------- device gates
@@ -154,15 +187,25 @@ jobs:
           df -h /
 
       - name: Install the Espressif Xtensa toolchain and ESP-IDF
-        # `just setup` = mise install -> `mise run setup-esp` (espup) -> `just ui`
-        # -> `just doctor`. This is the one step mise cannot do itself: the `esp`
-        # channel is an Espressif nightly fork with no versioned channel name, so
-        # the concrete version is pinned in `.mise.toml` as
-        # `x86_64_toolchain_version` and asserted by `just doctor`.
+        # `espup` is a NORMAL cargo install, and `rust-toolchain.toml` says
+        # `channel = "esp"` — which does not exist yet, precisely because espup is
+        # what installs it. So the bootstrap has to run on a toolchain that IS
+        # present: without `CC_RUST_TOOLCHAIN=stable` here, the very first
+        # `cargo install` fails with "custom toolchain 'esp' is not installed" and
+        # the device job dies before it starts.
+        #
+        # Every LATER step gets `esp` from `rust-toolchain.toml`, which is what
+        # the justfile's default (`RUSTUP_TOOLCHAIN := esp`) expects. The
+        # concrete version is pinned in `.mise.toml` as
+        # `x86_64_toolchain_version`; the `esp` rustup channel is FLOATING, so
+        # that pin is the only version pin there is, and `just doctor` checks it.
+        env:
+          CC_RUST_TOOLCHAIN: stable
         run: |
           mise trust
           mise install
           mise run setup-esp
+          unset CC_RUST_TOOLCHAIN
           just doctor
 
       - name: clippy (device, pedantic, -D warnings)
@@ -191,18 +234,57 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - name: The portable crates must not name esp-idf
-        # cc-domain, cc-safety, cc-config, cc-machine and cc-display are `#![no_std]`
-        # and host-testable. An `esp_idf_*` import in any of them breaks every
-        # host test and rust-analyzer build, and it is invisible until it does.
+      - name: Install the Espressif toolchain (for the lint-name probe)
+        # `scripts/lint-names.py` checks every lint this workspace names against
+        # BOTH channels it supports, because `unknown_lints = "allow"` in
+        # Cargo.toml is only safe while something catches a name that exists on
+        # NEITHER. The probe is only as good as the channels it can reach, so a
+        # missing channel is a hard error in the script rather than a skip.
+        env:
+          CC_RUST_TOOLCHAIN: stable
         run: |
-          if rg -n 'esp_idf_(hal|svc|sys)' \
-               crates/cc-domain/src crates/cc-safety/src crates/cc-config/src \
-               crates/cc-machine/src crates/cc-display/src; then
-            echo "::error::a portable crate names esp_idf_* -- it stops being host-testable"
-            exit 1
-          fi
-          echo "ok: no esp_idf_* in the portable crates"
+          # The SAME pin `mise run setup-esp` uses, read from the one place it is
+          # written. `rustup toolchain install esp` would take the FLOATING
+          # channel, which is a different toolchain from the one the device job
+          # lints against -- and a lint-name check against the wrong esp build
+          # proves nothing.
+          version=$(sed -n 's/^x86_64_toolchain_version = "\(.*\)"/\1/p' .mise.toml)
+          echo "esp toolchain version: ${version}"
+          rustup toolchain install "esp-${version}" --profile minimal --component clippy,rustfmt
+          rustup toolchain link esp "esp-${version}"
+          rustup toolchain list
+
+      - name: Every lint named in an allow/expect is a real lint
+        # `Cargo.toml` sets `unknown_lints = "allow"`, because this repository runs
+        # clippy on two generations at once (the runner's `stable` and the
+        # Espressif `esp` 1.97 fork) and every recipe passes `-D warnings`, which
+        # promotes `unknown_lints` to an error. Without the allowance, one
+        # suppression naming a lint the older channel predates takes the whole
+        # build down -- which is what broke PR #96.
+        #
+        # The cost of allowing it is that a typo in a suppression would go
+        # unnoticed. This closes that hole: every lint named in an allow/expect
+        # must exist on AT LEAST ONE channel, and the report names the ones that
+        # exist on only one. A typo exists on neither and fails here.
+        #
+        # Both toolchains must be installed, which this job already guarantees.
+        env:
+          CC_LINT_CHANNELS: stable:esp
+        run: python3 scripts/lint-names.py .
+
+      - name: The portable crates must not name esp-idf in CODE
+        # cc-domain, cc-safety, cc-config, cc-machine and cc-display are
+        # `#![no_std]` and host-testable. An `esp_idf_*` import in any of them
+        # breaks every host test and every IDE's background check, and it is
+        # invisible until it does.
+        #
+        # A script, not a grep, because `rg 'esp_idf_(hal|svc|sys)'` fires on
+        # PROSE -- and cc-domain/src/lib.rs line 11 is a doc comment saying
+        # "this crate must never name esp_idf_svc". The first version of this
+        # check failed on its own documentation. Comments and doc-comments are
+        # stripped before the search, so a portable crate can still explain why
+        # it does not use ESP-IDF.
+        run: python3 scripts/portable-purity.py .
 
       - name: no blanket lint suppression
         # `#![allow(clippy::all)]` or a bare `-A warnings` hides a whole class of

@@ -169,7 +169,7 @@ mod tests {
     #[test]
     fn code_strings_match_the_cpp_switch() {
         for code in ErrorCode::ALL {
-            assert!(!code.code_string().is_empty());
+            assert_ne!(code.code_string(), "");
             assert_eq!(code.code_string(), code.code_string().to_uppercase());
         }
         assert_eq!(ErrorCode::EmergencyStop.code_string(), "EMERGENCY_STOP");
@@ -193,8 +193,8 @@ mod tests {
     #[test]
     fn every_code_has_a_message_and_a_suggestion() {
         for code in ErrorCode::ALL {
-            assert!(!code.user_message().is_empty());
-            assert!(!code.recovery_suggestion().is_empty());
+            assert_ne!(code.user_message(), "");
+            assert_ne!(code.recovery_suggestion(), "");
         }
     }
 }

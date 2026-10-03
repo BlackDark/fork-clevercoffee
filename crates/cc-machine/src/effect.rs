@@ -510,6 +510,7 @@ impl IntoIterator for Effects {
 
 #[cfg(test)]
 mod tests {
+
     use alloc::vec::Vec;
 
     use super::*;
@@ -576,7 +577,7 @@ mod tests {
             },
         ];
         for effect in all {
-            assert!(!effect.name().is_empty());
+            assert_ne!(effect.name(), "");
         }
     }
 }

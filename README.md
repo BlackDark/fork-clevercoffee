@@ -25,8 +25,9 @@ when a behaviour looks wrong.
 
 ```sh
 just setup        # mise tools + the Espressif Xtensa toolchain + the web UI
-just check        # fmt, clippy, rustdoc, tests, parity — no hardware needed
-just gate         # the above plus the device clippy, the firmware build, the size budget
+just doctor-host  # host checks only — needs no device toolchain
+just check        # fmt, clippy, rustdoc, tests, parity — on stable, no hardware
+just gate         # the above + device clippy, firmware build, size budget — on esp
 ```
 
 Flashing needs a board, so it is never a default recipe:
@@ -39,8 +40,15 @@ just flash <port>
 The device is an **ESP32-DevKitC V4 / ESP32-WROOM-32E** — the original ESP32,
 Xtensa LX6. There is no S3, C3 or C6 in this project, and `channel = "esp"` in
 `rust-toolchain.toml` is an Espressif **nightly fork** that rustup installs, not
-something mise can provide. `just doctor` says whether the toolchain is
-consistent with what `.mise.toml` pins.
+something mise can provide. `just doctor` checks the device toolchain and
+`just doctor-host` checks only what a host-only machine can assert.
+
+Two toolchains, on purpose: `just check` (fmt, clippy, rustdoc, tests, parity)
+runs on **stable**, because the crates it covers are plain `#![no_std]` Rust that
+touches no Xtensa pin — which is also what makes the workspace's
+`rust-version = "1.82"` claim verifiable. `just gate` and everything that builds
+or flashes the firmware run on **`esp`**, the `rust-toolchain.toml` pin. Use
+`just check` before you push; it needs no device toolchain and no hardware.
 
 The manual checklist is [docs/integration-tests.md](docs/integration-tests.md).
 

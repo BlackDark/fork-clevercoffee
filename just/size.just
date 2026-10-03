@@ -27,6 +27,17 @@ _require_esp32 mcu:
       exit 1
     fi
 
+# `espflash` here is the BARE binary, not `cargo espflash`.
+#
+# `cargo espflash save-image` BUILDS a cargo package first — it takes
+# `--package`/`--bin`/`--target` and goes looking for one. This recipe measures an
+# ELF `just build-esp32` has already produced, so it needs the entry point that
+# takes a file. Handing this line to `cargo espflash` answers "No package could be
+# located in the current workspace" and measures nothing.
+#
+# Both packages are in `.mise.toml` for this reason and because the flash
+# recipes do need the cargo-aware one. REVIEW.md M-13 called them duplicates and
+# removed one; that was wrong, and it broke `just size-check` in CI.
 part_table := "rust/partitions_4M.csv"
 baseline := "docs/rust-migration/size-baseline.json"
 records := "docs/rust-migration/size-records.jsonl"
@@ -97,6 +108,7 @@ size: (_require_esp32 "esp32")
 
 # CI gate: the image must fit the slot, and must not have grown >10 % without a
 # recorded justification (07 §4/§5).
+[script]
 check: (_require_esp32 "esp32")
     #!/usr/bin/env bash
     set -euo pipefail

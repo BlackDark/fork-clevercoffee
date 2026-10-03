@@ -41,11 +41,26 @@ min_version = "2024.1.0"
   # --- Rust host tooling ---
   just = "1.58.0"
 
-  # ONE package. `cargo-espflash` provides `cargo espflash ...`, which is the
-  # only spelling any recipe in this repo uses. The separate crates.io package
-  # `espflash` is the same tool from a second crate (~20 MB for nothing); the
-  # justfile used both spellings until REVIEW.md M-13 fixed it.
+  # BOTH packages, and they are not duplicates.
+  #
+  # REVIEW.md M-13 called these "the same tool from a second crate" and removed
+  # one. That was wrong, and it broke CI. They are one tool with two ENTRY
+  # POINTS for two different workflows:
+  #
+  #   cargo-espflash -> `cargo espflash <cmd> ...` is cargo-aware: `flash` and
+  #     `save-image` BUILD a cargo package first, which is why they take
+  #     `--package`, `--bin`, `--target`. That is what every flashing recipe here
+  #     wants, because the ELF does not exist until cargo has built it.
+  #
+  #   espflash       -> `espflash <cmd> ...` operates on what already exists. It
+  #     is what `just/size.just` wants: `espflash -S save-image --chip esp32
+  #     <ELF> <OUT>` measures an image cargo has ALREADY built. Handing that to
+  #     `cargo espflash save-image` does not measure the image -- it looks for a
+  #     cargo package ("No package could be located in the current workspace").
+  #
+  # So: `cargo espflash` where cargo is involved, bare `espflash` where it is not.
   "cargo:cargo-espflash" = "4.6.0"
+  "cargo:espflash" = "4.6.0"
 
   # Wraps the Xtensa `ld` for the ESP-IDF link. See .cargo/config.toml.
   "cargo:ldproxy" = "0.3.5"

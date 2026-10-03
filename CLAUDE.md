@@ -82,6 +82,19 @@ just check     # fmt, clippy -D warnings (pedantic), rustdoc -D warnings,
                # 1,074 host tests, the parity harness, the device-test audit
 ```
 
+**`just check` deliberately runs on STABLE, not on the Espressif `esp` toolchain.**
+The five portable crates are `#![no_std]` plain Rust; nothing in them touches an
+Xtensa pin. Override the channel with `CC_RUST_TOOLCHAIN=stable` — the justfile's
+default stays `esp`, because a just `export` beats an environment variable, and
+because a device recipe must never silently compile with the wrong compiler.
+Running the host gate on a stock toolchain is also what makes the workspace's
+`rust-version = "1.82"` claim verifiable instead of decorative.
+
+For a change that can affect the firmware image, `just gate` adds the device
+clippy, the Xtensa release build and the size budget — those DO use `esp`, and
+need `just setup` to have run. `just doctor` checks the device toolchain;
+`just doctor-host` checks only what a host-only machine can assert.
+
 `just gate` adds the device clippy, the Xtensa release build and the image-size
 budget — run it when the change can affect the firmware image.
 

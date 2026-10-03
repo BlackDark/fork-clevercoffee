@@ -64,14 +64,34 @@ export PATH := env_var_or_default("PATH", "") + ":" + home_dir() + "/.cargo/bin"
 # Found 2026-09-28 during R1-01.
 export ESP_IDF_SYS_ROOT_CRATE := "cc-firmware"
 
-# Force the esp toolchain on every recipe. `rust-toolchain.toml` pins
-# `channel = "esp"`, but rustup gives an AMBIENT `RUSTUP_TOOLCHAIN` precedence
-# over that file. If a shell (or CI, or an agent's environment) happens to
-# export `RUSTUP_TOOLCHAIN=stable`, every device recipe then fails with
-# "the -Z flag is only accepted on the nightly channel of Cargo" -- and the
-# host recipes would silently run on the wrong compiler instead. Found
-# 2026-09-28. Setting it here makes the recipes immune to ambient state.
-export RUSTUP_TOOLCHAIN := "esp"
+# Which toolchain the recipes compile with.
+#
+# The DEFAULT is `esp`, and it stays the default: `rust-toolchain.toml` pins
+# `channel = "esp"`, and rustup gives an AMBIENT `RUSTUP_TOOLCHAIN` precedence
+# over that file. If a shell (or CI, or an agent's environment) happens to export
+# `RUSTUP_TOOLCHAIN=stable`, every device recipe would fail with "the -Z flag is
+# only accepted on the nightly channel of Cargo" -- and the host recipes would
+# silently run on the wrong compiler instead. Found 2026-09-28. Setting it here
+# makes the recipes immune to ambient state.
+#
+# It is overridable by `CC_RUST_TOOLCHAIN`, because a just `export` ALWAYS beats
+# an environment variable -- which is the point, and also the problem. Verified:
+#
+#     $ RUSTUP_TOOLCHAIN=stable just show
+#     in recipe: RUSTUP_TOOLCHAIN=esp      # the export won
+#
+# So before this was overridable there was no way at all to run the host gate
+# without the Xtensa toolchain, and CI's host job could not run: the runner has
+# stable Rust, does not have `esp`, and `rustc -vV` failed, so `just` refused to
+# even PARSE. The host gate is `cargo fmt`, clippy, rustdoc and the portable
+# tests -- none of which touch an Xtensa pin. Gating them on a multi-hundred-
+# megabyte nightly fork downloads that toolchain on every CI run and on every
+# new contributor's first `just test`, to compile code that does not care.
+#
+# So: device work takes no override and gets `esp`; host work sets
+# `CC_RUST_TOOLCHAIN=stable`. `just doctor-host` reports which one is in effect,
+# and `just doctor` refuses anything but `esp` before a device recipe runs.
+export RUSTUP_TOOLCHAIN := env_var_or_default("CC_RUST_TOOLCHAIN", "esp")
 
 mcu_esp32 := "esp32"
 mcu_esp32s3 := "esp32s3"
@@ -98,7 +118,11 @@ bin_esp32 := "firmware"
 #      `export PATH` above, so this deliberately does NOT depend on the project
 #      toolchain -- `rustc` on PATH is the only assumption, satisfied by rustup,
 #      by mise, or by a system install.
-host_target := env_var_or_default("CC_HOST_TARGET", `rustc -vV | sed -n 's/^host: //p'`)
+# NOTE: a backtick here is a trap -- just evaluates it while PARSING the
+# justfile, and a failing one is a parse error, so a machine without the `esp`
+# toolchain cannot run `just` at all. `scripts/host-target.sh` fails quietly and
+# `just doctor-host` turns an empty result into a diagnostic.
+host_target := env_var_or_default("CC_HOST_TARGET", `./scripts/host-target.sh`)
 
 # The five portable crates. The device crates do not compile for a host
 # target, so `cargo test --workspace` / `cargo clippy --workspace` are wrong.
@@ -117,58 +141,116 @@ env_prefix := "[ -f .rust-esp-env.sh ] && . ./.rust-esp-env.sh || true; "
 # ---------------------------------------------------------------- setup / env
 
 # Show what mise will install and assert the device build knobs are set.
+# The checks that need NOTHING but a Rust toolchain: no Xtensa GCC, no esp
+# channel, no board. This is what a CI runner that has stable Rust can run, and
+# what a contributor should run before they have run `just setup`.
+#
+# It exists as a separate recipe because `doctor` cannot be the CI host gate:
+# `doctor` asserts the DEVICE toolchain, and a host job has no business
+# downloading a multi-hundred-megabyte Xtensa nightly fork to check that
+# `cargo fmt` works.
 [script]
-doctor:
-    # `ESP_IDF_VERSION` is a just `export`, i.e. unconditionally set, so the old
-    # `test -n "$ESP_IDF_VERSION"` was a tautology that could not fail. What is
-    # worth asserting is that it still agrees with the lockfile esp-idf-sys
-    # resolves, because those two drifting apart is how a "works on my machine"
-    # build happens.
-    # just's interpolation has no `#` strip operator, so do it in the shell.
-    idf_version=$(echo '{{ESP_IDF_VERSION}}' | sed 's/^v//')
-    grep -qE "^    version: ${idf_version}$" components_esp32.lock
-    echo "ESP-IDF pinned: {{ESP_IDF_VERSION}} (matches components_esp32.lock)"
-    echo "RUSTFLAGS:      {{RUSTFLAGS}}"
-    # The host triple used to be the original author's laptop, hardcoded, and
-    # `doctor` PRINTED the mismatch instead of failing on it -- which is why
-    # `just test` failed on every non-Apple host for a while (REVIEW.md H-3).
-    # Compare it, and fail.
-    rustc_host=$(rustc -vV | sed -n 's/^host: //p')
-    echo "host target:    {{host_target}} (rustc says ${rustc_host})"
-    if [ "{{host_target}}" != "${rustc_host}" ]; then
-      echo "host_target mismatch: just uses {{host_target}}, rustc reports ${rustc_host}"
-      echo "set CC_HOST_TARGET, or delete the override"
+doctor-host:
+    # The host triple is what every host recipe passes to `cargo --target`, and
+    # it used to be hardcoded to the original author's laptop, with `doctor`
+    # PRINTING a mismatch instead of failing on it -- which is why `just test`
+    # failed on every non-Apple host. `host_target` is now derived by
+    # `scripts/host-target.sh`; this asserts the derivation actually produced
+    # something, because an empty value would otherwise reach `cargo --target `.
+    if [ -z "{{host_target}}" ]; then
+      echo "host_target is empty: scripts/host-target.sh could not determine this"
+      echo "machine's triple from rustc. Set CC_HOST_TARGET=<triple> explicitly."
       exit 1
     fi
-    rustup run esp rustc --version
-    # `channel = "esp"` is a FLOATING rustup channel, so the version that matters
-    # is the one .mise.toml pins for espup. Assert the two agree, or a toolchain
-    # bump silently moves under the size budget.
-    grep -q 'channel = "esp"' rust-toolchain.toml || { echo "rust-toolchain.toml is not on the esp channel"; exit 1; }
-    grep -q "x86_64_toolchain_version" .mise.toml || { echo ".mise.toml has no x86_64_toolchain_version pin"; exit 1; }
-    echo "esp toolchain pin: $(sed -n 's/^x86_64_toolchain_version = "\(.*\)"/\1/p' .mise.toml)"
-    echo "esp channel:       $(rustup run esp rustc --version)"
-    # Assert the OWNERSHIP RULE rather than the installed state: mise must not
-    # declare `rust`. (`mise ls` also lists leftovers from an older manifest, so
-    # the check is against the manifest, not the install dir.)
+    echo "host target:    {{host_target}}"
+
+    # Which channel are we compiling on, and is that the one we meant?
+    echo "toolchain:      $(rustc --version)"
+    echo "  via:          RUSTUP_TOOLCHAIN=${CC_RUST_TOOLCHAIN:-<default: esp>}"
+    case "{{host_target}}" in
+      x86_64-unknown-linux-gnu|arm64-unknown-linux-gnu|aarch64-apple-darwin|x86_64-apple-darwin) ;;
+      *)
+        echo "unexpected host triple '{{host_target}}'."
+        echo "The host recipes pass it to 'cargo --target', so it must be one of"
+        echo "the four triples this project actually builds for. Extend the list"
+        echo "above if you are adding a target."
+        exit 1
+        ;;
+    esac
+
+    # The firmware build knobs. `ESP_IDF_VERSION` is a just `export`, i.e.
+    # unconditionally set, so the old `test -n "$ESP_IDF_VERSION"` was a
+    # tautology that could not fail. What is worth asserting is that it still
+    # agrees with the lockfile esp-idf-sys resolves, because those two drifting
+    # apart is how a "works on my machine" build happens. just's interpolation
+    # has no `#` strip operator, so the strip happens in the shell.
+    idf_version=$(echo '{{ESP_IDF_VERSION}}' | sed 's/^v//')
+    if ! grep -qE "^    version: ${idf_version}$" components_esp32.lock; then
+      echo "justfile ESP_IDF_VERSION={{ESP_IDF_VERSION}} does not match components_esp32.lock"
+      exit 1
+    fi
+    echo "ESP-IDF pinned: {{ESP_IDF_VERSION}} (matches components_esp32.lock)"
+    echo "RUSTFLAGS:      {{RUSTFLAGS}}"
+
+    # The OWNERSHIP RULE, asserted against the manifest rather than the install
+    # directory (`mise ls` also lists leftovers from an older manifest): mise
+    # must not declare `rust`, because it installs no compiler here -- it
+    # symlinks ~/.cargo/bin and hands you back rustup.
     if grep -qE '^  rust = ' .mise.toml; then
       echo "mise declares rust, but rust-toolchain.toml owns the compiler."
       echo "Remove the 'rust = ...' line from .mise.toml (see its header)."
       exit 1
     fi
-    echo "compiler owner:  rust-toolchain.toml (channel=esp); mise does not declare rust"
-    just env-file
+    echo "compiler owner: rust-toolchain.toml; mise does not declare rust"
+
     just --version
+    mise --version
+    echo "host checks ok -- run 'just setup' for the device toolchain, or 'just doctor' to check it"
+
+# Everything `doctor-host` checks, plus the DEVICE toolchain: the esp channel and
+# a Xtensa GCC. The device recipes should not be reachable without this.
+[script]
+doctor:
+    just doctor-host
+
+    # `channel = "esp"` is a FLOATING rustup channel, so the version that matters
+    # is the one .mise.toml pins for espup. Assert the two agree, or a toolchain
+    # bump silently moves under the size budget.
+    grep -q 'channel = "esp"' rust-toolchain.toml
+    grep -q "x86_64_toolchain_version" .mise.toml
+    echo "esp toolchain pin: $(sed -n 's/^x86_64_toolchain_version = "\(.*\)"/\1/p' .mise.toml)"
+    rustup run esp rustc --version
+
+    # The device recipes default to `esp`; a caller who overrode it wants the
+    # host gate, not a firmware build. Say so here rather than failing later
+    # inside cargo with something about -Z flags.
+    if [ "${CC_RUST_TOOLCHAIN:-}" != "" ] && [ "${CC_RUST_TOOLCHAIN}" != "esp" ]; then
+      echo "CC_RUST_TOOLCHAIN=${CC_RUST_TOOLCHAIN}, but a device build needs 'esp'."
+      echo "Unset it (or set it to esp) to build or flash the firmware."
+      exit 1
+    fi
+
+    just env-file
     cargo espflash --version
     command -v ldproxy >/dev/null && echo "ldproxy present"
-    command -v mise >/dev/null && echo "mise present"
 
 # First-time setup, in the right order: host tools, then the device toolchain
 # mise cannot install, then the web UI the firmware embeds.
+#
+# `CC_RUST_TOOLCHAIN=stable` is scoped to the two steps that need it, and both
+# need it for the same reason: `mise`'s `cargo:` backend and `espup` are ordinary
+# `cargo install`s, while `rust-toolchain.toml` already names `esp` — a channel
+# that does not exist until `espup` installs it. Bootstrapping with the thing
+# being bootstrapped is a chicken-and-egg, and it fails as
+# "custom toolchain 'esp' is not installed".
 setup:
-    mise trust
-    mise install
-    mise run setup-esp
+    # mise's cargo backend shells out to `cargo`, so it has to be reachable. On a
+    # machine where rustup lives somewhere unusual this is the one place that
+    # says so, instead of a bare "No such file or directory" from inside mise.
+    command -v cargo >/dev/null || { echo "cargo is not on PATH; install Rust with rustup first: https://rustup.rs"; exit 1; }
+    CC_RUST_TOOLCHAIN=stable mise trust
+    CC_RUST_TOOLCHAIN=stable mise install
+    CC_RUST_TOOLCHAIN=stable mise run setup-esp
     @just ui
     @just doctor
 
@@ -317,6 +399,7 @@ build-tests-esp32: ui
 # in the chain because it needs a board and a port; the guard against "the device
 # tests never run" is `test-audit`, which is in `lint-esp32`, which is here.
 gate:
+    @just doctor-host
     @just fmt-check
     @just lint
     @just lint-esp32
@@ -325,6 +408,23 @@ gate:
     @just parity-test
     @just build-esp32
     @just size-check
+
+# Everything a gate must run, on ONE toolchain.
+#
+# `gate` above is what CI runs (plus the device-test audit `lint-esp32` already
+# depends on). This is the same list minus the device steps, which is what
+# `CC_RUST_TOOLCHAIN=stable just check` selects: the host gate compiling the
+# portable crates on a stock toolchain is a real check, not a consolation
+# prize, and it is what makes the workspace's `rust-version = "1.82"` claim
+# verifiable instead of decorative.
+check:
+    @just doctor-host
+    @just fmt-check
+    @just lint
+    @just doc
+    @just test
+    @just parity-test
+    @just test-audit
 
 # Every screen on every template, as one PNG contact sheet. Host only, no
 # hardware: `just screens` then open the file. This is the check a golden image
@@ -587,13 +687,3 @@ clean:
 # and `just fmt-cpp` is the one thing a contributor needs.
 fmt-cpp:
     pio run -e esp32_usb --target format
-
-# What CI runs. `gate` is the same chain plus the board-dependent on-target
-# tests; `check` is what a contributor can run without a device, and what
-# `rust.yml` runs on every pull request.
-check:
-    @just fmt-check
-    @just lint
-    @just doc
-    @just test
-    @just parity-test
