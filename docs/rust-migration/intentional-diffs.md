@@ -348,7 +348,7 @@ oracle to agree with the port.**
 | --- | --- |
 | **Superseded** | 2026-09-28, by [#9](#9-the-heater-is-chopped-by-a-10-ms-gptimer-isr-not-by-ledc-🔴-changed) |
 | **Why** | R1-07's 1 Hz LEDC carrier **panics the original ESP32 at boot** — `ledc_ll_set_duty_start` spins inside `portENTER_CRITICAL` for up to one carrier period with interrupts masked, against a 300 ms interrupt watchdog. The spin is unique to this chip: every other `ledc_ll.h` in the tree has it removed. |
-| **What survives** | The **argument** for a low carrier, and the divider arithmetic (`esp_driver_ledc`'s `div_param` formula, the 17/18/19/20-bit table). Both are kept in `cc_hal_esp32::heater`'s module docs and both are what a different target would use. `LedcPwm` is retained, unbrought-up, behind the same `HeaterDuty` seam. |
+| **What survives** | The **argument** for a low carrier, and the divider arithmetic (`esp_driver_ledc`'s `div_param` formula, the 17/18/19/20-bit table). Both are kept in `cc_hal_esp32::heater`'s module docs and both are what a different target would use. The `LedcPwm` transport they belonged to has since been **deleted** — see #9's "What is kept and what is dead". |
 | **Hardware** | The 1 Hz carrier was measured panicking on 2026-09-28. The 10 ms ISR replacement has **not** yet been confirmed running — see #9's "Not yet verified". |
 
 The text below is left as the record of what R1-07 decided and why, because the
@@ -694,8 +694,8 @@ spin is inside `portENTER_CRITICAL(&ledc_spinlock)`
 (`components/esp_driver_ledc/src/ledc.c:1603-1606`), with interrupts masked. At
 1 Hz that is up to **one second**; the original ESP32's interrupt watchdog is
 **300 ms** (`components/esp_system/int_wdt.c`). Every duty write trips it —
-**including the duty-0 write in `LedcPwm::new`**, so the firmware panicked on
-every boot before the control task ran.
+**including the duty-0 write an `LEDC` transport's constructor makes**, so the
+firmware panicked on every boot before the control task ran.
 
 Every other `ledc_ll.h` in this tree (`esp32c2`, `esp32c3`, `esp32c5`, and the
 s3/h2/p4 equivalents) has the loop removed, so this is a property of *this* chip
@@ -724,11 +724,27 @@ watchdog.
 
 ### What is kept and what is dead
 
-`LedcPwm` stays in `cc-hal-esp32` **unbrought-up**, behind the same `HeaterDuty`
-seam, with the 1 Hz argument and the divider table intact — for a target whose
-chip has no spin. `cc-firmware` has **no LEDC construction site at all** and a
-`const _: () = assert!(!BRING_UP_HEATER_LEDC, ...)`, so no future edit can reach
-a duty write by accident.
+**Dead: the `LedcPwm` transport, and the `HeaterDuty` seam it justified.** The
+transport was ~190 lines with **zero construction sites**, self-documented as
+*"not brought up, and not bringable on this chip"*. It existed so that
+`HeaterOutput<HeaterDuty>` would have two impls and the word "swappable" would
+be true. Both are deleted. `HeaterOutput` is now a concrete struct holding a
+`TimerIsrPwm`, and its `set_duty` no longer returns a `Result` — the only
+fallible call in the chain was `LedcPwm::apply`'s `ledc_set_duty_and_update`.
+
+**Kept: everything that is a fact about the hardware or about the C++.** The 1 Hz
+argument, the `div_param` arithmetic and the 17/18/19/20-bit table are in
+`cc_hal_esp32::heater`'s module docs; `CARRIER_HZ` and `RESOLUTION` are still
+there and are still `const`-asserted against `cc_domain::heater`'s
+host-tested `CARRIER_HZ` / `CHOSEN_RESOLUTION_BITS` / `CHOSEN_MAX_DUTY`, so the
+numbers cannot drift away from the tests. A target whose chip has no spin re-adds
+a transport from those, and the three things that cost the deleted one — own the
+timer driver, duty 0 is the safe state, clamp before the register — are listed in
+that module's docs rather than left to be rediscovered.
+
+`cc-firmware` has **no LEDC construction site at all** and there is no LEDC
+transport type to construct, so no future edit can reach a duty write by
+accident.
 
 ### ⚠ Not yet verified
 

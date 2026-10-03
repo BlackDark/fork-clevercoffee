@@ -17,6 +17,47 @@
 #![forbid(unsafe_code)] // already denied workspace-wide; restated for clarity
 #![deny(missing_docs)]
 
+/// Add a `from_raw` constructor to an enum whose discriminants are contiguous
+/// `i8` values starting at 0.
+///
+/// The schema in `cc-config` stores enumerations as their integer discriminant
+/// so the JSON matches the C++ byte for byte, and needs to turn one back into
+/// the enum. Doing that with a single macro keeps the mapping next to the
+/// declaration, where a reviewer can check it, and means adding a variant is a
+/// one-line change rather than an edit in two crates.
+///
+/// **Why it lives here and is not `#[macro_export]`ed.** This is one macro, used
+/// by [`hardware`], [`process`] and [`system`]; it used to be a byte-identical
+/// copy of itself in each of those three files, because `macro_rules` has no
+/// crate-private export. It does have one, and it is this line: `macro_rules`
+/// scoping is **textual**, so a definition at the crate root is visible to every
+/// module declared *after* it. `#[macro_export]` would also work and would also
+/// be wrong — it publishes `cc_domain::from_raw` as public API of a `no_std`
+/// domain crate, and `missing_docs` would then demand docs on a macro that is
+/// an implementation detail of three of its own modules.
+///
+/// **It must stay above the `pub mod` lines below.** Moving it into a submodule
+/// and importing it is the other idiom, and it does not work here: `use
+/// crate::…` cannot name a `macro_rules` macro that has not been exported.
+macro_rules! from_raw {
+    ($name:ident, { $($variant:ident => $value:literal),* $(,)? }) => {
+        impl $name {
+            /// Recover the variant from its wire representation.
+            ///
+            /// Returns `None` for a value that is not a declared variant, which
+            /// is what rejects a hand-edited configuration file rather than
+            /// letting it become an impossible state.
+            #[must_use]
+            pub const fn from_raw(raw: i8) -> Option<Self> {
+                match raw {
+                    $($value => Some(Self::$variant),)*
+                    _ => None,
+                }
+            }
+        }
+    };
+}
+
 pub mod abp2;
 pub mod error;
 pub mod hardware;

@@ -88,7 +88,7 @@ use cc_machine::{Actuators as ActuatorsTrait, Diagnostics, MachineChannels};
 use esp_idf_hal::gpio::{InputOutput, Level, PinDriver};
 use log::{debug, info, warn};
 
-use crate::heater::{HeaterOutput, TimerIsrPwm};
+use crate::heater::HeaterOutput;
 
 /// Which pin level means "energised" for one relay.
 ///
@@ -198,7 +198,7 @@ impl RelayPolarities {
 }
 
 /// The heater transport, as this module names it.
-type Heater = HeaterOutput<TimerIsrPwm>;
+type Heater = HeaterOutput;
 
 /// Which valve(s) the shared relay is open for.
 ///
@@ -754,11 +754,7 @@ impl Actuators {
     /// The one place a duty reaches the heater, used by every arm above.
     ///
     /// Taking `&mut self` rather than `&self` is forced by
-    /// [`HeaterOutput::set_duty`], which needs `&mut` for the gate. A pin-write
-    /// failure is **not** corrected: per the module docs on
-    /// [`HeaterOutput::set_duty`], the register still holds the previous duty,
-    /// and a caller that assumed otherwise would conclude the heater is off when
-    /// it is not. So this counts the failure and says so.
+    /// [`HeaterOutput::set_duty`], which needs `&mut` for the gate.
     fn force_heater_duty(&mut self, duty: f32) {
         // The C++'s units are milliseconds in a 1000 ms window (`isr.h:96-118`),
         // which is what `cc_machine::Effect::SetHeaterDuty` carries and what
@@ -766,13 +762,12 @@ impl Actuators {
         // rather than passed on: `duty_counts` would turn it into 0 anyway, but
         // doing it here means the log line and the pin agree.
         let safe = if duty.is_nan() { 0.0 } else { duty };
-        if let Err(err) = self.heater.set_duty(self.now, Duty::new(safe)) {
-            warn!(
-                "actuators: the heater duty could not be written: {err:?} — the pin still \
-                 holds the PREVIOUS duty, which was {}",
-                self.heater.applied_duty()
-            );
-        }
+        // This used to log "the heater duty could not be written … the pin still
+        // holds the PREVIOUS duty" on the transport's error, which was the honest
+        // reading of a peripheral that refused the write. The `GPTimer` ISR
+        // transport writes two atomics and cannot fail, so `set_duty` no longer
+        // returns a `Result` and there is no such failure to report.
+        self.heater.set_duty(self.now, Duty::new(safe));
     }
 }
 

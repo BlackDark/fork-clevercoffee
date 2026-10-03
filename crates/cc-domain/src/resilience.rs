@@ -27,9 +27,9 @@
 //! is bit-identical and this is not a behaviour change. For any *other*
 //! multiplier it would not be: `0.1` in `double` is not `0.1`, and the schedule
 //! would depend on the FPU. Since the firmware only ever builds one policy, the
-//! port takes the multiplier as an exact `num / den` pair ([`RetryPolicy::with_multiplier`])
-//! and computes the backoff in `u64` with saturating multiplication, so the
-//! schedule is a property of the code and not of the FPU.
+//! port takes the multiplier as an exact `num / den` pair and computes the
+//! backoff in `u64` with saturating multiplication, so the schedule is a
+//! property of the code and not of the FPU.
 //!
 //! ## 2. The clock is passed in, never read
 //!
@@ -105,24 +105,6 @@ impl RetryPolicy {
             attempts: 0,
             last_attempt_ms: 0,
         }
-    }
-
-    /// Set the backoff multiplier as an exact `num / den` pair.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `den` is 0, which is a programming error rather than a
-    /// runtime condition: a zero denominator is a constant, so it can only
-    /// come from a literal.
-    #[must_use]
-    pub const fn with_multiplier(mut self, num: u32, den: u32) -> Self {
-        assert!(
-            den != 0,
-            "RetryPolicy multiplier denominator must be non-zero"
-        );
-        self.multiplier_num = num;
-        self.multiplier_den = den;
-        self
     }
 
     /// Whether another attempt is permitted by the attempt count alone.

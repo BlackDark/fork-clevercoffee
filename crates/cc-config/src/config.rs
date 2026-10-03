@@ -1345,28 +1345,6 @@ impl Config {
         (kp, ki, kd)
     }
 
-    /// Whether the water-tank interlock is active at all.
-    ///
-    /// `false` means the machine has no tank sensor fitted, which is the
-    /// default — and therefore the *unsafe* default, because a machine with a
-    /// float switch wired up but switched off in the configuration will happily
-    /// run the pump dry.
-    #[must_use]
-    pub fn water_tank_interlock_enabled(&self) -> bool {
-        self.hardware.sensors.watertank.enabled
-    }
-
-    /// Whether the heater is allowed to keep running when the tank reads empty.
-    ///
-    /// Carries a warning in its own name on purpose: the C++ help text for
-    /// `hardware.sensors.watertank.keep_heater_on_empty` is explicit that only
-    /// the external reservoir is protected by the sensor, not the boiler
-    /// (`Config.h:1116-1122`).
-    #[must_use]
-    pub fn heater_runs_with_empty_tank(&self) -> bool {
-        self.hardware.sensors.watertank.keep_heater_on_empty
-    }
-
     /// The Wi-Fi password, for the network stack.
     ///
     /// One of the few places a credential legitimately leaves [`Secret`]. Grep
@@ -1412,18 +1390,6 @@ impl Config {
     #[must_use]
     pub fn is_wifi_provisioned(&self) -> bool {
         !self.system.wifi.ssid.is_empty()
-    }
-
-    /// The MQTT password, for the MQTT client.
-    #[must_use]
-    pub fn mqtt_password(&self) -> &str {
-        self.mqtt.password.expose()
-    }
-
-    /// The web-interface password, for HTTP basic auth.
-    #[must_use]
-    pub fn web_password(&self) -> &str {
-        self.system.auth.password.expose()
     }
 
     /// The OTA password, for the HTTP OTA endpoint.

@@ -873,9 +873,9 @@ fn config_a_high_trigger_heater_relay_is_accepted() {
 // What is *not* given up is the underlying complaint. The C++ accepted
 // `TSIC_306` and then read the 1-Wire bus anyway, silently substituting one
 // probe for another. That is now prevented by construction rather than by
-// refusing the configuration: `cc_domain::sensor` has a `TemperatureProbe` trait
-// with a real implementation per sensor, the firmware selects the driver from
-// the board, and a probe that does not answer is reported as
+// refusing the configuration: `cc_domain::sensor` gives each sensor type its own
+// `as_probe` into one shared `ProbeReading` vocabulary, the firmware selects the
+// driver from the board, and a probe that does not answer is reported as
 // `ProbeFault::NotConnected` with the configured sensor type in the log line.
 
 #[test]

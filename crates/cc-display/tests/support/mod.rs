@@ -205,19 +205,6 @@ pub fn diff(golden: &Framebuffer, actual: &Framebuffer) -> Diff {
     }
 }
 
-/// Write a golden PPM, creating parent directories.
-///
-/// # Panics
-///
-/// If the directory cannot be created or the file cannot be written. In a test
-/// that is the right failure: a missing golden is a defect, not a skip.
-pub fn write_golden(path: &Path, fb: &Framebuffer) {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).expect("golden directory must be creatable");
-    }
-    std::fs::write(path, to_ppm(fb)).expect("golden image must be writable");
-}
-
 /// Read a golden PPM back into a framebuffer.
 ///
 /// P4 only; there is nothing else in `tests/golden/`.

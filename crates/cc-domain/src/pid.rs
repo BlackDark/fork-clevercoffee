@@ -386,12 +386,6 @@ impl Controller {
         true
     }
 
-    /// `SetTunings(Kp, Ki, Kd)` (`PID_v1.cpp:174-176`): keep the current
-    /// proportional mode.
-    pub fn set_tunings_keeping_mode(&mut self, kp: f64, ki: f64, kd: f64) -> bool {
-        self.set_tunings(kp, ki, kd, self.proportional_on)
-    }
-
     /// `SetSampleTime(NewSampleTime)` (`PID_v1.cpp:181-188`).
     ///
     /// Rescales `ki` and `kd` by the ratio of the new and old periods, exactly
@@ -604,27 +598,6 @@ impl Controller {
         self.kd
     }
 
-    /// The proportional gain actually used for arithmetic, after the
-    /// sample-time scaling and any direction negation.
-    #[must_use]
-    pub const fn effective_kp(&self) -> f64 {
-        self.kp_eff
-    }
-
-    /// The integral gain actually used for arithmetic. See
-    /// [`Self::effective_kp`].
-    #[must_use]
-    pub const fn effective_ki(&self) -> f64 {
-        self.ki_eff
-    }
-
-    /// The derivative gain actually used for arithmetic. See
-    /// [`Self::effective_kp`].
-    #[must_use]
-    pub const fn effective_kd(&self) -> f64 {
-        self.kd_eff
-    }
-
     /// `GetMode()`.
     #[must_use]
     pub const fn mode(&self) -> Mode {
@@ -639,12 +612,6 @@ impl Controller {
     #[must_use]
     pub const fn direction(&self) -> ControllerDirection {
         self.direction
-    }
-
-    /// `GetPonE()`.
-    #[must_use]
-    pub const fn proportional_on_error(&self) -> bool {
-        self.p_on_e
     }
 
     /// `GetDeltaInput()` — the `dInput` used in the last compute.

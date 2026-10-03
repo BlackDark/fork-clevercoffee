@@ -337,8 +337,16 @@ is the direct translation of `isr.h:96-118`, and the RTL-style test in
 > **1 Hz chopper window is kept**, so the PID's control law and every gain in
 > `defaults.h` are unchanged; only the delivery mechanism moves. The window
 > arithmetic, the duty→count mapping and the deadman gate are in
-> `cc_domain::heater` (host-testable); the pin is in `cc-hal-esp32::heater`, behind
-> the `HeaterDuty` seam so the GPTimer fallback stays swappable.
+> `cc_domain::heater` (host-testable); the pin is in `cc-hal-esp32::heater`, as a
+> `HeaterOutput` over a `TimerIsrPwm`.
+>
+> ⚠ **The `HeaterDuty` seam this paragraph originally named does not exist.** The
+> `LEDC` transport it existed for (`LedcPwm`) panicked the original ESP32 at every
+> duty including 0, had zero construction sites, and was deleted; with it went the
+> one-method trait that made the swap look supported. `HeaterOutput` is now
+> concrete. The carrier arithmetic below and `CARRIER_HZ` / `RESOLUTION` survive in
+> `cc_hal_esp32::heater` for a chip without the spin; see
+> [09-cpp-findings.md §17](./09-cpp-findings.md) and `intentional-diffs.md` §9.
 >
 > **The carrier is low, and that is a hardware requirement, not a rounding
 > argument.** The C++ ISR fires 100 times a second, but its predicate
@@ -477,7 +485,8 @@ relative paths in the wrong place.
 │   ├── cc-hal-esp32/               # ── the ONLY crate that imports esp-idf-* ──
 │   │   Board trait + Esp32DevkitC impl (01 §2 pin map)
 │   │   GpioIn (debounce, long-press), GpioOut, Relay, Led
-│   │   HeaterOutput: LedcPwm | TimerIsr   (§5)
+│   │   HeaterOutput over TimerIsrPwm        (§5; LEDC is not usable on
+│   │                                      this chip — see §5's R1-07 decision)
 │   │   I2cBus, Abp2Pressure, OneWireDs18b20, Tsic306, WaterTankSwitch
 │   │   Actuators — the single owner of pump/valve/heater
 │   │   Watchdog (TWDTDriver)
@@ -487,6 +496,7 @@ relative paths in the wrong place.
 │   ├── cc-provisioning/            # ── captive portal, ESP-IDF specific ──
 │   │   SoftAp, DnsIntercept, PortalHttp, CredentialValidation
 │   │   (see 05 §5 for the USB discussion)
+│   │   NOT YET A CRATE — the placeholder was deleted; this box is R4-11.
 │   │
 │   └── cc-firmware/                # ── the device binary ──
 │       main.rs: startup order, spawn tasks, feed watchdog
@@ -537,7 +547,9 @@ Rules, enforced by CI:
 - `cc-domain`, `cc-safety`, `cc-machine`, `cc-display`, `cc-config` must not name
   `esp_idf_svc`, `esp_idf_hal`, or `esp_idf_sys` anywhere. A CI grep enforces this, so a
   hardware dependency cannot leak into portable logic.
-- Only `cc-hal-esp32` and `cc-provisioning` may depend on `esp-idf-svc`.
+- Only `cc-hal-esp32` and, from R4-11, `cc-provisioning` may depend on `esp-idf-svc`.
+  `cc-provisioning` is not a workspace member today (05 §5, "The crate, and why there
+  is not one yet").
 - `cc-firmware` depends on everything; nothing depends on `cc-firmware`.
 
 ### What compiles and tests on the host
@@ -547,7 +559,7 @@ Rules, enforced by CI:
 F17, F27, F30, F32, F33** and safety paths **S1, S2, S3, S5**. That is the majority of the
 behavioural surface, and it is where the existing 340 C++ tests are ported to.
 
-`cc-hal-esp32`, `cc-provisioning`, and `cc-firmware` build only for the ESP targets and
+`cc-hal-esp32` and `cc-firmware` build only for the ESP targets and
 are validated by `cargo clippy --target xtensa-esp32-espidf`.
 
 ### Feature flags and target selection

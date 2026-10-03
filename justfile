@@ -105,7 +105,7 @@ host_target := env_var_or_default("CC_HOST_TARGET", `rustc -vV | sed -n 's/^host
 host_crates := "-p cc-domain -p cc-safety -p cc-machine -p cc-display -p cc-config"
 # `cc-device-tests` is in here because `--all-targets` type-checks it like the
 # other device crates. It is the runner, NOT the firmware; see `test-esp32`.
-dev_crates := "-p cc-hal-esp32 -p cc-provisioning -p cc-firmware -p cc-device-tests"
+dev_crates := "-p cc-hal-esp32 -p cc-firmware -p cc-device-tests"
 
 # The on-target test image. NEVER flashed as the firmware; `just flash` is
 # hard-wired to `{{bin_esp32}}` so there is no recipe that can confuse them.

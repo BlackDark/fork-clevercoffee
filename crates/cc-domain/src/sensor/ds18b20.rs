@@ -240,13 +240,6 @@ impl Driver {
         }
     }
 
-    /// Address the device with `SKIP ROM` instead of `MATCH ROM`.
-    #[must_use]
-    pub const fn with_skip_rom(mut self) -> Self {
-        self.selection = RomSelection::Skip;
-        self
-    }
-
     /// The ROM code this driver addresses.
     #[must_use]
     pub const fn rom(&self) -> Rom {
@@ -447,13 +440,13 @@ impl Driver {
     }
 }
 
-/// Collapse one [`Poll`] into the [`TemperatureProbe`](crate::sensor::probe::TemperatureProbe)
-/// vocabulary, applying the same range check [`Driver::poll`] applies.
+/// Collapse one [`Poll`] into the shared [`ProbeReading`] vocabulary, applying
+/// the same range check [`Driver::poll`] applies.
 ///
 /// The mapping is a decision, so it lives here where it can be tested, rather
-/// than in a device crate's trait impl. `Poll::Started` and `Poll::Waiting` both
-/// become `None`: the trait says "nothing new", and a caller that needs to tell
-/// them apart is reaching past the interface for no benefit.
+/// than in a device crate. `Poll::Started` and `Poll::Waiting` both become
+/// `None`: the shared vocabulary says "nothing new", and a caller that needs to
+/// tell them apart is reaching past it for no benefit.
 #[must_use]
 pub fn as_probe(poll: Poll) -> Option<ProbeReading> {
     match poll {
@@ -462,17 +455,18 @@ pub fn as_probe(poll: Poll) -> Option<ProbeReading> {
             source: ProbeSource::Ds18b20,
         }),
         // `Started`, `Waiting` and a rejected read all mean "nothing new". They
-        // are one arm because on the trait they are the same thing: the driver
-        // has advanced its own bad-reading counter (which is the part S1 acts
-        // on), and the reason is still available from `Driver::last_reading()`
-        // for whoever wants to log it. A rejected read is deliberately **not** an
-        // `Err` on the trait — the bus worked, the sensor did not answer usefully.
+        // are one arm because in the shared vocabulary they are the same thing:
+        // the driver has advanced its own bad-reading counter (which is the part
+        // S1 acts on), and the reason is still available from
+        // `Driver::last_reading()` for whoever wants to log it. A rejected read
+        // is deliberately **not** an error here — the bus worked, the sensor did
+        // not answer usefully.
         Poll::Started | Poll::Waiting | Poll::Reading(Err(_)) => None,
     }
 }
 
-/// The [`ProbeFault`] a [`Ds18b20Fault`] becomes, for the device crate's trait
-/// impl to report alongside the counter.
+/// The [`ProbeFault`] a [`Ds18b20Fault`] becomes, for the device crate to
+/// report alongside the counter.
 #[must_use]
 pub const fn probe_fault(fault: Ds18b20Fault) -> ProbeFault {
     match fault {

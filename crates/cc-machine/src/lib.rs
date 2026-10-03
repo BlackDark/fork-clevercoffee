@@ -72,7 +72,6 @@ extern crate alloc;
 
 use cc_domain::state::MachineState;
 use cc_domain::units::Millis;
-use cc_safety::SafetyState;
 
 pub mod applier;
 pub mod backflush;
@@ -578,11 +577,4 @@ pub fn boot_in(
     m.pid.runtime_enabled = pid_runtime_enabled;
     let fx = states::on_entry(initial, &mut m, ctx);
     (m, fx)
-}
-
-/// The S1-S5 latch state, re-exported so a caller does not have to name
-/// `cc_safety` to construct the default.
-#[must_use]
-pub const fn safety_clear() -> SafetyState {
-    SafetyState::CLEAR
 }

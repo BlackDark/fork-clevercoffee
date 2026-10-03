@@ -117,22 +117,6 @@ pub struct Edge {
     pub high: bool,
 }
 
-impl Edge {
-    /// The nominal low-pulse width this edge's transition closes, in
-    /// microseconds, or `None` if `self` is not a rising edge.
-    ///
-    /// Only used by the simulator's assertions and by the tolerance
-    /// documentation; the decoder computes widths itself from consecutive edges.
-    #[must_use]
-    pub fn low_width_from(&self, falling: &Self) -> Option<u32> {
-        if self.high && !falling.high {
-            Some(self.at_us.saturating_sub(falling.at_us))
-        } else {
-            None
-        }
-    }
-}
-
 /// A fixed-capacity SPSC ring of [`Edge`]s, safe to share between an ISR and a
 /// task.
 ///

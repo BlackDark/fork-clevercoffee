@@ -10,9 +10,10 @@
 //!
 //! The port keeps the *behaviour* and drops the *mechanism*. CRTP exists in C++
 //! to get static dispatch without a vtable on a small MCU; in Rust the same
-//! effect comes from a trait, and "no virtual table" is free. So [`Template`] is
-//! a plain trait and [`render()`] is the fixed stage order, with no way for a
-//! template to reorder it — which is the property CRTP was buying.
+//! effect comes from a `match` on [`TemplateId`] in `render::dispatch`, which
+//! has no vtable for the same reason and needs no trait to say so. So [`render()`]
+//! is the fixed stage order, with no way for a template to reorder it — which is
+//! the property CRTP was buying.
 //!
 //! [`TemplatePolicy`] is public and `const` because the policy is *data*, and
 //! data is what a test can assert on: `Standard`/`Scale`/`Upright` enable all
@@ -228,22 +229,24 @@ pub struct Rendered {
     pub stage: Stage,
 }
 
-/// A display template.
-///
-/// One method, [`Template::render_normal`], mirroring the C++'s
-/// `renderNormalDisplay()`. It is the *last* stage of [`render()`] and the only
-/// one a template controls.
-pub trait Template {
-    /// Which template this is.
-    const ID: TemplateId;
-
-    /// Draw the template's own layout.
-    ///
-    /// Every C++ implementation starts with `clearBuffer()`. Kept here rather
-    /// than in [`render()`] because the fullscreen and system screens also clear,
-    /// and clearing in the wrong place is the bug; clearing twice is harmless.
-    fn render_normal(&self, d: &mut Display, input: &DisplayInput, config: &Config);
-}
+// There was a `Template` trait here — `const ID` plus `render_normal`, one
+// method mirroring the C++'s `renderNormalDisplay()`. **It is deleted.** It had
+// zero impls, and `render::dispatch()` is a `match` on `TemplateId`: the six
+// templates are free functions reached by value, not types.
+//
+// The module docs' own reasoning argued for it — CRTP exists in the C++ to get
+// static dispatch without a vtable, and "in Rust the same effect comes from a
+// trait, and 'no virtual table' is free". That sentence was right about the
+// *dispatch* and wrong about the *shape*: the six templates share no code beyond
+// the fixed stage order in `render()`, they have no associated data, and there is
+// nothing a caller could hold as `&dyn Template` and get behaviour out of. A
+// trait with no implementors is a description of an idea, not an interface, and
+// it made the module look like it had an extension point it did not have.
+//
+// A template is added by adding a `TemplateId` variant and a `match` arm in
+// `render::dispatch` — and the compiler then names every place that is not
+// exhaustive, which is what a `const ID` in a trait would have done anyway, only
+// without an impl to check it against.
 
 /// The fixed stage order, from ADR-0001 §1.
 ///

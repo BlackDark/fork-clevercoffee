@@ -768,9 +768,10 @@ fn insert_nested(target: &mut Map<String, Value>, key: &str, value: Value) {
 
 /// One rejection reason, as the words an operator reads.
 ///
-/// Split out of [`describe_rejection`] because the string parameter path
-/// ([`crate::assign`]) rejects a value for the same reasons and has to say which,
-/// and two spellings of "out of range" is two things to keep in step.
+/// The one spelling of each reason. `crate::assign` rejects a value for the same
+/// reasons and has to say which, and two spellings of "out of range" is two
+/// things to keep in step. (`describe_rejection`, the wrapper that joined these
+/// with the offending key, had no callers and was deleted.)
 #[must_use]
 pub fn describe_reason(reason: RejectReason) -> String {
     use alloc::format;
@@ -779,26 +780,6 @@ pub fn describe_reason(reason: RejectReason) -> String {
         RejectReason::WrongType => "wrong type".to_string(),
         RejectReason::UnknownEnumDiscriminant => "no such enum value".to_string(),
         RejectReason::TooLong => "string too long".to_string(),
-    }
-}
-
-/// A convenience for building an import rejection's API response body.
-#[must_use]
-pub fn describe_rejection(error: &ImportError) -> String {
-    match error {
-        ImportError::InvalidValues { rejected } => {
-            let mut out = String::new();
-            for (i, r) in rejected.iter().enumerate() {
-                if i > 0 {
-                    out.push_str("; ");
-                }
-                out.push_str(r.key);
-                out.push_str(": ");
-                out.push_str(&describe_reason(r.reason));
-            }
-            out
-        }
-        other => other.to_string(),
     }
 }
 

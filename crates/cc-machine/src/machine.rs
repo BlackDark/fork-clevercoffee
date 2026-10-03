@@ -679,12 +679,6 @@ impl Machine {
         }
     }
 
-    /// The machine's current state. Named so the reducer reads like the C++.
-    #[must_use]
-    pub const fn state_id(&self) -> MachineState {
-        self.state
-    }
-
     /// `context.getStateElapsedTimeMs()` (`MachineStateContext.cpp:447-450`).
     #[must_use]
     pub const fn state_elapsed_ms(&self) -> u32 {

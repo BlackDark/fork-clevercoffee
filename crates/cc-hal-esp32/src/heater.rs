@@ -167,8 +167,8 @@
 //!
 //! # 🔴 Unusable on this chip: the 1 Hz carrier trips the interrupt watchdog
 //!
-//! Measured 2026-09-28 on the attached board. **[`LedcPwm`] panics the chip at
-//! boot**, and the cause is ESP-IDF's own HAL, not this file:
+//! Measured 2026-09-28 on the attached board. **An `LEDC` heater output panics
+//! the chip at boot**, and the cause is ESP-IDF's own HAL, not this file:
 //!
 //! ```c
 //! // components/hal/esp32/include/hal/ledc_ll.h:485-489, ESP-IDF v5.5.5
@@ -191,11 +191,48 @@
 //! body reduced to a single register write with no loop. So the tables and the
 //! arithmetic in the rest of this module are still correct and still worth
 //! having — they are what a future non-original-ESP32 target would use — and
-//! [`LedcPwm`] is the transport for that target.
+//! [`CARRIER_HZ`] and [`RESOLUTION`] are still asserted against
+//! `cc_domain`'s host-tested constants on every build of this crate, so the
+//! numbers they were derived from cannot drift.
 //!
 //! It is **resolved**, by not using LEDC here: `cc-firmware` builds
 //! [`TimerIsrPwm`] instead, and the boot log records that it is an ISR. See
 //! [09-cpp-findings.md §17](../../../docs/rust-migration/09-cpp-findings.md).
+//!
+//! ### The `LEDC` transport type was deleted, not parked
+//!
+//! There was a `LedcPwm` struct here with a `new`, an `HeaterDuty` impl and a
+//! `HeaterOutput::new_ledc` constructor, and it had **zero construction sites**:
+//! a documented, type-checked, never-built 190 lines, in a crate where a
+//! type-checked thing is otherwise something the firmware uses. It is gone, and
+//! so is the one-method `HeaterDuty` trait it needed to justify — with one impl
+//! the trait bought a type parameter on [`HeaterOutput`] and nothing else, and
+//! the whole "the decision is swappable" claim rested on a second impl that was
+//! never built on hardware that works.
+//!
+//! **This is not gone, it is just not written.** Anyone bringing up a chip whose
+//! `ledc_ll.h` has no spin starts from the tables above and the two constants,
+//! and re-adds a transport type. Three things that cost the `LedcPwm` that was
+//! deleted, and that a replacement must not rediscover:
+//!
+//! * `LedcDriver::new` takes the timer driver by `Borrow` and does not keep it,
+//!   so passing a temporary is a latent bug: `LedcTimerDriver` has a `Drop` that
+//!   **resets the timer** (`esp-idf-hal-0.47.0/src/ledc.rs`, `impl Drop for
+//!   LedcTimerDriver`), so a temporary stops the carrier the instant the
+//!   constructor returns. The timer driver has to be *owned* for as long as the
+//!   channel that depends on it.
+//! * Duty 0 is a safe state, not an initialisation detail: the channel is
+//!   configured `duty: 0, hpoint: 0` with the idle level at 0 (`ledc.c`'s
+//!   `IDLE_LEVEL`), so a `HIGH_TRIGGER` relay is de-energised from the moment
+//!   configuration returns and stays de-energised, because the register holds 0.
+//! * `LedcDriver::set_duty` clamps to `get_max_duty()` **silently**, so an
+//!   unclamped request is not an error — it is a wrong-but-plausible duty on a
+//!   heater. Clamp before the register.
+//!
+//! And the trap this whole module is about: **the first duty write panics the
+//! chip, at duty 0**, because `duty_start` self-clears at the next period
+//! regardless of the value. `cc_firmware::HEATER_LEDC_DEFECT` carries the same
+//! finding where the boot log prints it.
 //!
 //! # ⚠ The ISR path is booted but has never energised the contactor
 //!
@@ -223,14 +260,12 @@
 //! `docs/rust-migration/intentional-diffs.md` #5.
 
 use alloc::sync::Arc;
-use core::marker::PhantomData;
 use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use cc_domain::heater::{self, AtomicChopper, GateBlock, HeaterGate};
 use cc_domain::units::{Duty, Millis};
-use esp_idf_hal::gpio::{Level, OutputPin, PinDriver};
-use esp_idf_hal::ledc::config::TimerConfig;
-use esp_idf_hal::ledc::{LedcChannel, LedcDriver, LedcTimer, LedcTimerDriver, Resolution};
+use esp_idf_hal::gpio::{Level, PinDriver};
+use esp_idf_hal::ledc::Resolution;
 use esp_idf_hal::timer::config::{AlarmConfig, TimerConfig as GptimerConfig};
 use esp_idf_hal::timer::TimerDriver;
 use esp_idf_hal::units::Hertz;
@@ -271,146 +306,6 @@ const _: () = assert!(
     RESOLUTION.max_duty() == cc_domain::heater::CHOSEN_MAX_DUTY,
     "RESOLUTION and cc_domain::heater::CHOSEN_MAX_DUTY disagree"
 );
-
-/// The one thing `HeaterOutput` needs from whatever drives the pin.
-///
-/// This trait is the seam that makes the decision swappable (04 §5), and it has
-/// now been used for its purpose: [`TimerIsrPwm`] is the default and [`LedcPwm`]
-/// is the retained alternative, with the two differing only in what drives the
-/// pin. Nothing above this line changed when the default changed, which is the
-/// property the seam exists to have.
-///
-/// It is deliberately tiny: one method, one integer. Everything decidable —
-/// the window, the quantisation, the gate — is decided in [`cc_domain::heater`]
-/// and arrives here already reduced to a count.
-pub trait HeaterDuty {
-    /// Drive the pin at `counts` out of `max_duty`.
-    ///
-    /// `counts` is already clamped by the caller; an implementation may clamp
-    /// again, and `esp-idf-hal` does, but it must not be relied on.
-    ///
-    /// # Errors
-    ///
-    /// Whatever the underlying peripheral reports. For [`LedcPwm`] that is
-    /// `ledc_set_duty_and_update`, which fails only if the peripheral is not
-    /// initialised — a state this crate cannot be in after a successful
-    /// [`LedcPwm::new`]. The duty is **not** changed on failure, and the caller
-    /// must treat an error as "the previous value is still on the pin", never as
-    /// "the pin is at zero".
-    fn apply(&mut self, counts: u32, max_duty: u32) -> Result<(), EspError>;
-}
-
-/// LEDC hardware PWM. **Not brought up, and not bringable on this chip.** See the
-/// module docs: `ledc_ll_set_duty_start`'s `while (conf1.duty_start)` spin,
-/// unique to the original ESP32, exceeds the 300 ms interrupt watchdog at any
-/// carrier slow enough to be mechanically kind.
-///
-/// Kept, type-checked and documented, because the spin exists on *this* chip
-/// only: every other `ledc_ll.h` in this tree has it removed, so this is the
-/// transport a different target would want and the tables above are the argument
-/// for it. A `#[allow(dead_code)]`-shaped struct that is never built costs a few
-/// hundred bytes of flash and saves re-deriving the divider arithmetic.
-///
-/// # Why the timer driver is stored
-///
-/// `LedcDriver::new` takes the timer driver by `Borrow` and does not keep it,
-/// so it is tempting to pass a temporary. That is a latent bug: `LedcTimerDriver`
-/// has a `Drop` that **resets the timer** (`esp-idf-hal-0.47.0/src/ledc.rs`,
-/// `impl Drop for LedcTimerDriver`), so a temporary would stop the carrier the
-/// instant the constructor returned. The timer driver is therefore owned here
-/// for as long as the channel that depends on it.
-pub struct LedcPwm<'d, C>
-where
-    C: LedcChannel,
-{
-    driver: LedcDriver<'d>,
-    _timer: LedcTimerDriver<'d, C::SpeedMode>,
-    _channel: PhantomData<C>,
-    max_duty: u32,
-}
-
-impl<'d, C> LedcPwm<'d, C>
-where
-    C: LedcChannel,
-{
-    /// Configure a timer at [`CARRIER_HZ`] / [`RESOLUTION`], attach `pin` to
-    /// `channel`, and leave the output at duty 0.
-    ///
-    /// **Duty 0 is not an initialisation detail, it is the safe state.** The
-    /// channel is configured with `duty: 0, hpoint: 0` and the idle level is
-    /// `0` (`ledc.c`'s `IDLE_LEVEL`), so a `HIGH_TRIGGER` relay is
-    /// de-energised from the moment this returns — and stays de-energised if this
-    /// function is never called again, because the register holds 0.
-    /// The timer and the channel must agree on the speed mode: `LedcDriver::new`
-    /// takes a `LedcTimerDriver<'d, C::SpeedMode>` and there is no conversion
-    /// between a low-speed and a high-speed timer, because on the original ESP32
-    /// they are different peripherals on different clock trees. The bound is
-    /// therefore in the signature rather than checked at run time.
-    ///
-    /// # Errors
-    ///
-    /// Whatever `ledc_timer_config` or `ledc_channel_config` reports. The most
-    /// likely one on this chip is the carrier frequency being unreachable at the
-    /// requested resolution, which would mean [`CARRIER_HZ`] and [`RESOLUTION`]
-    /// have been changed into a pair ESP-IDF's divider arithmetic cannot reach;
-    /// the module docs' table is the thing to re-derive if that happens.
-    ///
-    /// # Panics
-    ///
-    /// If `TimerConfig::frequency` / `::resolution` do not carry the requested
-    /// values through, which would mean a change in `esp-idf-hal`. A panic at
-    /// boot, before the pins are trusted, is the correct outcome: it is better
-    /// than running a heater at a frequency nobody measured.
-    pub fn new<T>(channel: C, timer: T, pin: impl OutputPin + 'd) -> Result<Self, EspError>
-    where
-        C: LedcChannel + 'd,
-        T: LedcTimer<SpeedMode = C::SpeedMode> + 'd,
-    {
-        // `TimerConfig` is what `ledc_timer_config` takes verbatim: the frequency
-        // goes to `freq_hz` and the resolution to `duty_resolution`
-        // (`esp-idf-hal-0.47.0/src/ledc.rs:93-140`). Both are the values the
-        // module docs measured, and both are asserted rather than assumed.
-        let config = TimerConfig::new()
-            .frequency(CARRIER_HZ)
-            .resolution(RESOLUTION);
-        assert_eq!(
-            config.frequency, CARRIER_HZ,
-            "TimerConfig::frequency must carry the carrier frequency through"
-        );
-        assert_eq!(
-            config.resolution, RESOLUTION,
-            "TimerConfig::resolution must carry the resolution through"
-        );
-
-        let timer_driver: LedcTimerDriver<'d, C::SpeedMode> = LedcTimerDriver::new(timer, &config)?;
-        let mut driver = LedcDriver::new(channel, &timer_driver, pin)?;
-        let max_duty = driver.get_max_duty();
-        driver.set_duty(0)?;
-
-        Ok(Self {
-            driver,
-            _timer: timer_driver,
-            _channel: PhantomData,
-            max_duty,
-        })
-    }
-
-    /// The resolution's `max_duty`, i.e. the count that means 100 %.
-    #[must_use]
-    pub const fn max_duty(&self) -> u32 {
-        self.max_duty
-    }
-
-    /// The count currently in the channel's duty register, read back from the
-    /// driver rather than from [`HeaterOutput::applied_duty`].
-    ///
-    /// This is what R1-07's hardware test asserts against a scope: the value the
-    /// hardware believes, not the value the software thinks it wrote.
-    #[must_use]
-    pub fn hardware_duty(&self) -> u32 {
-        self.driver.get_duty()
-    }
-}
 
 // ===========================================================================
 // TimerIsrPwm -- the 10 ms GPTimer chopper, which is what this firmware uses
@@ -620,15 +515,16 @@ impl TimerIsrPwm {
     }
 }
 
-impl HeaterDuty for TimerIsrPwm {
+impl TimerIsrPwm {
     /// Publish the gated duty for the ISR to chop to.
     ///
-    /// The trait's unit is a *count* out of `max_duty`, because that is what
-    /// [`LedcPwm`] needs; this transport works in the C++'s own milliseconds, so
-    /// the count is converted back by [`duty_ms_from_fraction`]. The conversion
-    /// lands on the C++'s own 10 ms grid and is bounded by half a step — see that
-    /// function's docs, and `a_sub_step_duty_delivers_a_whole_tick_through_the_transport_too`
-    /// for what "bounded" means when the caller asks for less than one tick.
+    /// The unit is a *count* out of `max_duty` because that is the unit a
+    /// register-driven carrier would need; this transport works in the C++'s own
+    /// milliseconds, so the count is converted back by [`duty_ms_from_fraction`].
+    /// The conversion lands on the C++'s own 10 ms grid and is bounded by half a
+    /// step — see that function's docs, and
+    /// `a_sub_step_duty_delivers_a_whole_tick_through_the_transport_too` for what
+    /// "bounded" means when the caller asks for less than one tick.
     ///
     /// **The gate has already run.** [`HeaterOutput`](super::HeaterOutput)
     /// resolves the deadman before it calls this, so a count of zero here means
@@ -637,10 +533,14 @@ impl HeaterDuty for TimerIsrPwm {
     /// returns the counter to 0, so a deadman that trips at counter 500 stops the
     /// heater for the remainder of *that* window rather than the next one.
     ///
-    /// # Errors
-    ///
-    /// Never. There is no peripheral to fail: this writes two atomics.
-    fn apply(&mut self, counts: u32, max_duty: u32) -> Result<(), EspError> {
+    /// **Infallible, and that is why [`HeaterOutput::set_duty`] is too.** There is
+    /// no peripheral call here: this writes two atomics and returns. The
+    /// `Result` this used to return came from the `LEDC` transport's
+    /// `ledc_set_duty_and_update`, which *can* fail — the peripheral may not be
+    /// initialised — and which is what `Actuators::force_heater_duty`'s
+    /// "the pin still holds the PREVIOUS duty" warning was written for. A
+    /// transport that can fail brings it back; see the module docs.
+    fn apply(&mut self, counts: u32, max_duty: u32) {
         let counts = counts.min(max_duty);
         let fraction = if max_duty == 0 {
             0.0
@@ -657,28 +557,21 @@ impl HeaterDuty for TimerIsrPwm {
         )]
         let milliseconds = heater::duty_ms_from_fraction(fraction, heater::CHOSEN_MAX_DUTY) as f32;
         self.chopper.set_duty(Duty::new(milliseconds));
-        Ok(())
     }
 }
 
-impl<C> HeaterDuty for LedcPwm<'_, C>
-where
-    C: LedcChannel,
-{
-    fn apply(&mut self, counts: u32, max_duty: u32) -> Result<(), EspError> {
-        // Clamp before the register, not after. `LedcDriver::set_duty` clamps to
-        // `self.get_max_duty()` silently, so an unclamped request is not an
-        // error — it is a wrong-but-plausible duty on a heater.
-        self.driver
-            .set_duty(counts.min(max_duty.min(self.max_duty)))
-    }
-}
-
-/// The heater output: a [`HeaterDuty`] plus the latching gate.
+/// The heater output: a [`TimerIsrPwm`] plus the latching gate.
 ///
 /// This is the *type* 04 §5 asks for — "the decision (LEDC vs `GPTimer`) is
-/// abstracted behind one type so it is swappable". `HeaterOutput<P>` is that
-/// type; the transport is the type parameter.
+/// abstracted behind one type so it is swappable". 04 §5 also names the decision
+/// as a *seam*, i.e. a trait parameter. **That part is not what is here**, and
+/// the reason is worth stating because it is the second half of the same
+/// decision: the seam existed for two impls, and the second one (`LedcPwm`) had
+/// zero construction sites and panicked the chip if it were ever built. A
+/// one-impl trait costs a type parameter on this struct, on `Actuators`' `Heater`
+/// alias and on `cc-firmware`'s local — all naming a transport they do not
+/// choose — and buys no polymorphism, no test double and no vtable. When a
+/// second *working* transport exists, this is where the parameter goes back.
 ///
 /// # The gate is not optional
 ///
@@ -689,8 +582,8 @@ where
 /// ([08 §4](../../docs/rust-migration/08-recovered-oracle.md)): there is no
 /// method that writes a non-zero duty without passing the gate, so a new caller
 /// cannot bypass it.
-pub struct HeaterOutput<P> {
-    transport: P,
+pub struct HeaterOutput {
+    transport: TimerIsrPwm,
     gate: HeaterGate,
     max_duty: u32,
     /// The duty the machine last asked for, before the gate.
@@ -699,29 +592,14 @@ pub struct HeaterOutput<P> {
     applied: u32,
 }
 
-impl<'d, C> HeaterOutput<LedcPwm<'d, C>>
-where
-    C: LedcChannel,
-{
-    /// Wrap an LEDC transport, taking `max_duty` from its timer resolution.
+impl HeaterOutput {
+    /// Wrap the transport, with the resolution's `max_duty` supplied by the
+    /// caller.
     ///
-    /// The gate starts **closed** — `HeaterGate::new` is the only constructor,
-    /// so there is no way to build an armed one by accident.
+    /// The gate starts **closed** — `HeaterGate::new` is the only way to build
+    /// one — so there is no way to build an armed output by accident.
     #[must_use]
-    pub const fn new_ledc(transport: LedcPwm<'d, C>) -> Self {
-        Self {
-            max_duty: transport.max_duty(),
-            transport,
-            gate: HeaterGate::new(),
-            requested: 0,
-            applied: 0,
-        }
-    }
-}
-
-impl<P: HeaterDuty> HeaterOutput<P> {
-    /// Wrap a transport whose resolution the caller knows.
-    pub const fn new(transport: P, max_duty: u32) -> Self {
+    pub const fn new(transport: TimerIsrPwm, max_duty: u32) -> Self {
         Self {
             transport,
             gate: HeaterGate::new(),
@@ -737,7 +615,8 @@ impl<P: HeaterDuty> HeaterOutput<P> {
     }
 
     /// The transport, for the R1-07 hardware test's readback.
-    pub const fn transport(&self) -> &P {
+    #[must_use]
+    pub const fn transport(&self) -> &TimerIsrPwm {
         &self.transport
     }
 
@@ -777,17 +656,21 @@ impl<P: HeaterDuty> HeaterOutput<P> {
     /// the register is at most one interlock period stale, and the worst case is
     /// stale-low, never stale-high.
     ///
-    /// # Errors
+    /// Returns the count the gate actually let through.
     ///
-    /// Whatever the transport reports, in which case **the register still holds
-    /// the previous duty**. A caller must not conclude the heater is off.
-    pub fn set_duty(&mut self, now: Millis, pid_output: Duty) -> Result<u32, EspError> {
+    /// This cannot fail, and it is not returning a `Result` for show. It
+    /// **used** to, because a transport's register write can fail — and
+    /// `Actuators::force_heater_duty` logs "the pin still holds the PREVIOUS
+    /// duty" on that error, which is the honest reading of a peripheral that
+    /// refused the write. The only transport is the `GPTimer` ISR, which writes
+    /// two atomics and cannot fail; see [`TimerIsrPwm::apply`].
+    pub fn set_duty(&mut self, now: Millis, pid_output: Duty) -> u32 {
         let requested = heater::duty_counts(pid_output, self.max_duty);
         self.requested = requested;
         let applied = self.gate.resolve(now, requested, self.max_duty);
         self.applied = applied;
-        self.transport.apply(applied, self.max_duty)?;
-        Ok(applied)
+        self.transport.apply(applied, self.max_duty);
+        applied
     }
 
     /// Drive a raw count, subject to the gate.
@@ -796,15 +679,14 @@ impl<P: HeaterDuty> HeaterOutput<P> {
     /// so a scope can measure the carrier, without going through the PID's
     /// millisecond scale. Still gated — a raw count is not an exemption.
     ///
-    /// # Errors
-    ///
-    /// As [`Self::set_duty`]: the register holds the previous duty.
-    pub fn set_raw_counts(&mut self, now: Millis, counts: u32) -> Result<u32, EspError> {
+    /// Returns the count the gate actually let through. As [`Self::set_duty`],
+    /// this cannot fail.
+    pub fn set_raw_counts(&mut self, now: Millis, counts: u32) -> u32 {
         self.requested = counts.min(self.max_duty);
         let applied = self.gate.resolve(now, self.requested, self.max_duty);
         self.applied = applied;
-        self.transport.apply(applied, self.max_duty)?;
-        Ok(applied)
+        self.transport.apply(applied, self.max_duty);
+        applied
     }
 
     /// The heater's on-time fraction, for the oracle's `on_fraction=` log field

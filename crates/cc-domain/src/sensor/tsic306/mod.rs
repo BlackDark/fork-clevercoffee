@@ -572,8 +572,8 @@ impl<S: EdgeSource> Tsic306<S> {
     }
 }
 
-/// Collapse an [`Outcome`] into the [`TemperatureProbe`](super::probe::TemperatureProbe)
-/// vocabulary.
+/// Collapse an [`Outcome`] into the shared
+/// [`super::probe::ProbeReading`] vocabulary.
 ///
 /// A free function rather than an associated one: it does not touch the driver,
 /// and putting it on `Tsic306<S>` would make every call site name a type

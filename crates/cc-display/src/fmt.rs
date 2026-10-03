@@ -362,12 +362,6 @@ pub mod fixed_str {
             core::str::from_utf8(&self.buf[..self.len]).unwrap_or("")
         }
 
-        /// The contents, for comparison and formatting.
-        #[must_use]
-        pub fn as_str_lossy(&self) -> &str {
-            self.as_str()
-        }
-
         /// The number of characters.
         #[must_use]
         pub const fn len(&self) -> usize {

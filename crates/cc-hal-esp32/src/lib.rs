@@ -99,7 +99,7 @@ pub mod zacwire;
 pub use actuators::{Actuators, FirmwareSide, Inhibit, Interlock, ValveState};
 pub use display::{Oled, PanelOled, FRAMEBUFFER_LEN, REFRESH_INTERVAL_MS};
 pub use heap::{free_heap, min_free_heap, HEAP_SHED_BYTES};
-pub use heater::{HeaterDuty, HeaterOutput, LedcPwm, TimerIsrPwm, CARRIER_HZ, RESOLUTION};
+pub use heater::{HeaterOutput, TimerIsrPwm, CARRIER_HZ, RESOLUTION};
 pub use nvs::EspNvsBlob;
 pub use onewire::GpioOneWire;
 pub use restart::{drain_console, restart_now};

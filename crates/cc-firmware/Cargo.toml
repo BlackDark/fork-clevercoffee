@@ -29,7 +29,6 @@ cc-machine.workspace = true
 cc-display.workspace = true
 cc-safety.workspace = true
 cc-hal-esp32.workspace = true
-cc-provisioning.workspace = true
 esp-idf-hal.workspace = true
 esp-idf-svc.workspace = true
 log.workspace = true

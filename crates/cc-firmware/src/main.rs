@@ -6,8 +6,8 @@
 //! This is the **R1-01 feasibility spike** extended by **R1-07**, not the
 //! firmware. Its jobs are to prove that the toolchain builds, links, boots and
 //! runs on this host for `xtensa-esp32-espidf`, to make the first image-size
-//! measurement (07 §5), and — from R1-07 — to bring up the `LEDC` heater output
-//! and hold it at duty 0.
+//! measurement (07 §5), and — from R1-07 — to bring up the heater output behind a
+//! deadman gate that no code in this binary can open.
 //!
 //! What it does, in order:
 //!
@@ -16,15 +16,15 @@
 //! 2. Configure the pump and water-valve pins — GPIO17 and GPIO27
 //!    (`include/clevercoffee/hardware/pinmapping.h:39-40`) — as outputs and
 //!    drive them **inactive**.
-//! 3. **Attach GPIO2 to an `LEDC` channel at [`CARRIER_HZ`] / [`RESOLUTION`] with
-//!    duty 0.** This replaces the C++'s 10 ms heater ISR (`isr.h:85-118`) with
-//!    hardware PWM. The pin is de-energised from the moment the channel is
-//!    configured and there is no code path here that raises the duty.
+//! 3. **Drive GPIO2 — the heater — inactive and read it back as a pin.** The
+//!    heater is chopped by a 10 ms `GPTimer` ISR ([`cc_hal_esp32::heater::TimerIsrPwm`]),
+//!    which is what the C++ did (`isr.h:85-118`); the ISR is built disarmed, so
+//!    the pin does not move until the deadman gate is beaten.
 //! 4. **Read every actuator pin back and assert it is inactive.** This is the
 //!    startup assertion of 04 §4 / R3-16 in its smallest possible form, done
-//!    before anything else exists so a failure is unambiguous. For the heater the
-//!    readback is the `LEDC` duty register, not the pin: a channel configured at
-//!    duty 0 holds the pin at the idle level by construction.
+//!    before anything else exists so a failure is unambiguous. For the heater this
+//!    happens at the one moment it can be a pin readback at all: the ISR takes the
+//!    pin immediately afterwards.
 //! 5. Move a `TWDTDriver` into a control task and feed it from there, so the
 //!    watchdog subscriber is the control task and nothing else (04 §2, §3.4 —
 //!    the same shape the recovered oracle used, 08 §3).
@@ -230,23 +230,18 @@ fn probe_from_config(config: &cc_config::Config) -> TemperatureSensorType {
     config.hardware.sensors.temperature.r#type
 }
 
-/// Whether the `LEDC` heater output is brought up at boot.
-///
-/// **OFF, permanently, on this chip.** See [`HEATER_LEDC_DEFECT`]. The heater is
-/// driven by a 10 ms `GPTimer` ISR ([`TimerIsrPwm`]), which is what the C++ and the
-/// lost firmware both used.
-const BRING_UP_HEATER_LEDC: bool = false;
-
-// Stated at compile time so the finding cannot be quietly reversed by flipping a
-// `const` and rebuilding: the original ESP32's `ledc_ll_set_duty_start` spins
-// inside `portENTER_CRITICAL` for up to one carrier period, and no carrier that
-// is slow enough for the contactor is fast enough for the 300 ms interrupt
-// watchdog. See [`HEATER_LEDC_DEFECT`] and 09 §17.
-const _: () = assert!(
-    !BRING_UP_HEATER_LEDC,
-    "LEDC at a low carrier trips the ESP32's interrupt watchdog; use the 10 ms \
-     GPTimer ISR (see 09-cpp-findings.md section 17)"
-);
+// The original ESP32's `ledc_ll_set_duty_start` spins inside
+// `portENTER_CRITICAL` for up to one carrier period, and no carrier that is slow
+// enough for the contactor is fast enough for the 300 ms interrupt watchdog. See
+// [`HEATER_LEDC_DEFECT`] and 09 §17.
+//
+// This used to be enforced by a `const BRING_UP_HEATER_LEDC: bool = false` plus
+// a `const _: () = assert!(!BRING_UP_HEATER_LEDC, …)`, so the finding could not
+// be reversed by flipping a `const`. That guard is gone because the thing it
+// guarded is: there is no `LEDC` transport left in `cc-hal-esp32` to bring up,
+// so setting the flag to `true` would now compile and do nothing. The finding
+// itself is in [`HEATER_LEDC_DEFECT`], and the carrier arithmetic it rests on is
+// in `cc_hal_esp32::heater`'s module docs.
 
 /// 🔴 The heater cannot be driven by `LEDC` on this chip at 1 Hz.
 ///
@@ -276,9 +271,9 @@ const _: () = assert!(
 /// (`components/esp_system/int_wdt.c`). Every duty write therefore trips it.
 ///
 /// This is **not** a fault in the sensor work and **not** reachable only at
-/// higher duties: `LedcPwm::new` writes duty 0, and `duty_start` self-clears at
-/// the next period regardless of the duty value, so the very first write
-/// panics.
+/// higher duties: the LEDC transport's constructor wrote duty 0, and
+/// `duty_start` self-clears at the next period regardless of the duty value, so
+/// the very first write panicked.
 ///
 /// Three things follow, and the third is what this firmware does.
 ///
@@ -299,20 +294,25 @@ const _: () = assert!(
 ///    of two, which is what this machine has always done. A chip that panics at
 ///    boot is a worse trade than contactor wear.
 ///
-/// `LedcPwm` stays in `cc-hal-esp32`, unbrought-up, behind the same
-/// [`HeaterDuty`] seam, for a target whose chip does not have the spin. The spin
-/// is unique to the original ESP32: every other `ledc_ll.h` in this tree
-/// (`esp32c2`, `esp32c3`, `esp32c5`, and the s3/h2/p4 equivalents) has the loop
-/// removed.
+/// There **is** no LEDC transport in `cc-hal-esp32` any more. `LedcPwm` existed
+/// behind a one-method `HeaterDuty` seam for a target whose chip does not have
+/// the spin, and it was deleted: zero construction sites, never brought up, and
+/// the spin is unique to the original ESP32 — every other `ledc_ll.h` in this
+/// tree (`esp32c2`, `esp32c3`, `esp32c5`, and the s3/h2/p4 equivalents) has the
+/// loop removed. That is a target that does not exist yet, so the transport is
+/// written when there is one; the carrier arithmetic and the two constants it
+/// would use are in `cc_hal_esp32::heater`'s module docs and are asserted against
+/// `cc_domain`'s host-tested values on every build, so they cannot rot.
 const HEATER_LEDC_DEFECT: &str =
     "R1-07's 1 Hz LEDC carrier spins in ESP-IDF's ledc_ll_set_duty_start for up \
       to one period with interrupts masked, which exceeds the ESP32's 300 ms \
       interrupt watchdog. The spin is unique to this chip -- every other \
       ledc_ll.h in the tree has it removed -- so there is no carrier that is both \
       slow enough for the contactor and fast enough for the watchdog. The heater \
-      is driven by the C++'s own 10 ms GPTimer ISR instead. LedcPwm stays in \
-      cc-hal-esp32 behind the HeaterDuty seam, unbrought-up, for a target whose \
-      chip does not have the spin. See 09-cpp-findings.md section 17.";
+      is driven by the C++'s own 10 ms GPTimer ISR instead. The LEDC transport is \
+      not written: a target whose chip lacks the spin gets one, and the carrier \
+      arithmetic survives in cc-hal-esp32::heater's module docs. See \
+      09-cpp-findings.md section 17.";
 
 /// The `DS18B20`'s ROM code on this machine, in the device's byte order.
 ///
@@ -537,11 +537,10 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
     // belongs to the control task and to nothing else (04 §2: "Watchdog feed —
     // control task only").
     let twdt = peripherals.twdt;
-    // The LEDC peripheral is deliberately left unused. `LedcPwm` — the only
-    // thing in this firmware that would want it — is unbrought-up because of
-    // `HEATER_LEDC_DEFECT`, and *taking* the peripheral is how the previous build
-    // ended up one step away from calling `ledc_set_duty_and_update`. Not taking
-    // it at all means no future edit can reach a duty write by accident.
+    // The LEDC peripheral is deliberately left unused, and *taking* the
+    // peripheral is how a previous build ended up one step away from calling
+    // `ledc_set_duty_and_update`. Not taking it at all means no future edit can
+    // reach a duty write by accident.
     //
     // `Peripherals` is `#[non_exhaustive]` and must be taken whole, so the field
     // is dropped with it. The comment is the record; the type is 4 bytes.
@@ -566,12 +565,10 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
 
     // 4. The heater transport: the C++'s 10 ms GPTimer ISR.
     //
-    //    `BRING_UP_HEATER_LEDC` is `false` and the `const` assert above makes
-    //    that a **compile-time** fact rather than a runtime branch: there is no
-    //    LEDC construction site in this binary, so there is no path on which a
-    //    duty write can reach `ledc_ll_set_duty_start` and its watchdog-eating
-    //    spin. The alternative is not gone — `LedcPwm` is in `cc-hal-esp32`
-    //    behind the same `HeaterDuty` seam — it is just not wired up.
+    //    There is no LEDC construction site in this binary and no LEDC transport
+    //    type in `cc-hal-esp32`, so there is no path on which a duty write can
+    //    reach `ledc_ll_set_duty_start` and its watchdog-eating spin. See
+    //    `HEATER_LEDC_DEFECT` above.
     info!("heater: {HEATER_LEDC_DEFECT}");
     // The pin is already inactive and has been read back. `TimerIsrPwm` takes
     // it, configures a 10 ms GPTimer, subscribes the ISR, and starts the timer —
@@ -587,18 +584,17 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
         transport.chopper().counter_ms(),
     );
     // `max_duty = 1`: the ISR transport works in the C++'s own milliseconds and
-    // `HeaterDuty::apply` converts the count back through
+    // `HeaterOutput::set_duty` converts the count back through
     // `cc_domain::heater::CHOSEN_MAX_DUTY`. A `max_duty` of 1 means the control
     // task's `set_duty` is a pure pass-through of the gate's decision, with no
     // second quantisation.
     //
-    // **The transport choice is the firmware's, and it is stated here** rather
-    // than as an enum in `cc-hal-esp32::actuators`: R1-07 had a `LedcPwm` arm and
-    // a stand-in, and the stand-in is what the build used because the `LEDC` arm
-    // panicked the chip (`HEATER_LEDC_DEFECT` above). `LedcPwm` stays in
-    // `cc-hal-esp32` behind the same `HeaterDuty` seam for a target whose chip
-    // does not have the spin, and this is the one line a different target changes.
-    let heater: HeaterOutput<TimerIsrPwm> = HeaterOutput::new(transport, 1);
+    // **The transport choice is the firmware's, and it is stated here.** R1-07
+    // had an LEDC arm and a stand-in, and the stand-in is what the build used
+    // because the LEDC arm panicked the chip (`HEATER_LEDC_DEFECT` above). A
+    // target whose `ledc_ll.h` has no spin changes this line and re-adds a
+    // transport in `cc-hal-esp32::heater`.
+    let heater = HeaterOutput::new(transport, 1);
 
     // 5. Read the actuator pins back and assert. A failure here means an actuator
     //    is not in the state the machine considers safe, so nothing else may
@@ -1326,9 +1322,9 @@ fn bring_up_tsic306(
 ///
 /// An enum, because the two arms own **different transports** and the pin: the
 /// 1-Wire arm bit-bangs GPIO16 itself, and the `ZACwire` arm's capture owns it as
-/// an interrupt-free sampler. `cc_domain::sensor::probe::TemperatureProbe` is the
-/// interface the state machine will see, and this is the one place that has to
-/// know which is which.
+/// an interrupt-free sampler. `cc_domain::sensor::probe`'s `ProbeReading` is the
+/// vocabulary the state machine sees, and this is the one place that has to know
+/// which is which.
 #[allow(
     clippy::large_enum_variant,
     reason = "the two arms are only ever one of them; a `Box` here would be a \

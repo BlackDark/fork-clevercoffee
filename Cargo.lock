@@ -214,7 +214,6 @@ dependencies = [
  "cc-domain",
  "cc-hal-esp32",
  "cc-machine",
- "cc-provisioning",
  "cc-safety",
  "embuild",
  "esp-idf-hal",
@@ -263,16 +262,6 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml_ng",
-]
-
-[[package]]
-name = "cc-provisioning"
-version = "0.1.0"
-dependencies = [
- "cc-hal-esp32",
- "esp-idf-hal",
- "esp-idf-svc",
- "log",
 ]
 
 [[package]]

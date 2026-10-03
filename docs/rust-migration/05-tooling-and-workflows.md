@@ -208,7 +208,7 @@ fmt-check:                          ## CI gate: formatting
 lint:                               ## Clippy (host crates), warnings are errors
     cargo clippy {{ host_crates }} --all-targets -- -D warnings
 
-dev_crates := "-p cc-hal-esp32 -p cc-provisioning -p cc-firmware"
+dev_crates := "-p cc-hal-esp32 -p cc-firmware"
 
 lint-esp32:                         ## Clippy for the production device target
     MCU=esp32 cargo clippy {{ dev_crates }} --all-targets \
@@ -440,6 +440,29 @@ Rust design must at minimum:
    **only** while the device is in provisioning mode.
 4. Keep NVS plaintext for parity, and record the `nvs_encryption` upgrade as a follow-up
    rather than silently changing storage format during a port.
+
+### The crate, and why there is not one yet
+
+There was a `crates/cc-provisioning` workspace member holding option P1. It was
+**deleted**, not implemented: 17 lines, all of them `//!` docs and `#![no_std]`, with
+zero construction sites, and — because it was a workspace member that `cc-firmware`
+depended on — every device build and every one of the three device clippy passes
+resolved a dependency graph for a crate with no code in it. A placeholder crate is
+worse than no crate: it makes the workspace claim a component that does not exist,
+and the empty `lib.rs` is the only thing anyone finds when they go looking for the
+portal. It comes back at **R4-11** with code.
+
+The design and its rules are this section, and they are the whole reason it was worth
+reading the deleted file before deleting it:
+
+* **`wifi_provisioning`'s "USB Serial" transport is unavailable**, because the original
+  ESP32 has no USB peripheral at all and the cable is a CP2102N UART bridge. Option P3
+  is not an option *on this hardware*; it is a silicon property, not a Rust property.
+* **No credential may be logged at any level, be accepted as a command-line argument,
+  or be accepted over an unauthenticated endpoint.** Those are the three rules above,
+  and they are constraints on the implementation, not aspirations.
+* **The portal only runs while no valid credentials exist**, so it cannot collide with
+  the SPA server for port 80 (04 §3, "Cancellation and backpressure").
 
 ### Provisioning workflow (P1, the baseline)
 

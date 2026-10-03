@@ -412,9 +412,11 @@ the wear-versus-duty-resolution curve.
   There is no dummy load and no scope attached. Acceptance ("duty matching the PID
   output within 1 %") is therefore **unverified on hardware**, and R1-07's
   `HW: yes` is unsatisfied. Left un-run rather than claimed.
-* **The GPTimer fallback is not written.** `HeaterDuty` is the seam; one
-  implementation exists. Writing a second implementation of an interface nobody
-  has switched to is how untested code gets shipped.
+* **The GPTimer fallback is the only transport, and the seam is gone.** The
+  `HeaterDuty` trait and its unbrought-up `LedcPwm` impl were deleted: LEDC
+  panics this chip at every duty, so the second impl could never be built here.
+  `HeaterOutput` is concrete over `TimerIsrPwm`. A chip without the spin gets a
+  transport written for it, not one that has sat unbrought-up.
 
 ## R3 hardware findings (2026-09-29)
 
