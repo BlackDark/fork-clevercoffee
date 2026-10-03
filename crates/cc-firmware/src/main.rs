@@ -1388,6 +1388,29 @@ impl TemperatureSensor {
     /// the monitor ten times a second against a probe that converts at 2.5 Hz.
     /// Without this counter the same reading is counted forty times and the
     /// over-temperature debounce trips in 30 ms instead of the C++'s 1.2 s.
+    ///
+    /// # 🔴 A fault does NOT advance this counter, and must not
+    ///
+    /// When the probe goes silent the counter freezes with the reading, so S1's
+    /// debounce stops advancing on a stale value. That is correct, and it is the
+    /// whole contract of the counter: it says a conversion completed, and a
+    /// failure is not a conversion.
+    ///
+    /// Advancing it on a fault would look like it closes the gap and would
+    /// reopen the bug `intentional-diffs.md` #16 exists to prevent. The loop
+    /// polls at 100 Hz, so ten faults are 100 ms apart: three of them would trip
+    /// the over-temperature debounce in **30 ms** on a number nothing is
+    /// producing — the exact "one stale reading latches an emergency stop" failure
+    /// the counter was introduced to stop, reached by the other door.
+    ///
+    /// **The gap is closed on the other path, and that is the C++'s path.** The
+    /// frozen reading no longer matters because a dead probe is a *sensor error*
+    /// ([`Self::has_error`]), which reaches `SENSOR_ERROR` and de-energises the
+    /// heater through `should_pid_be_enabled` (`guards.rs:183`). Note that the
+    /// C++ reaches *both* conclusions from a dead probe — its stale 155 °C also
+    /// trips S1, because it counts per `updateTemperature()` call rather than per
+    /// reading — so not advancing here is part of divergence #16, and the safety
+    /// it gave up is recovered by the sensor-error guard instead.
     pub fn sample_seq(&self) -> u32 {
         match self {
             Self::Dallas { samples, .. } | Self::Tsic { samples, .. } => *samples,
@@ -1400,10 +1423,47 @@ impl TemperatureSensor {
     /// `/api/temperatures` reports a temperature before it reports a plausible
     /// one: reporting `null` for a probe that has not spoken yet is honest, and
     /// reporting `0.0` is a disconnected probe wearing a plausible value.
+    ///
+    /// **This is deliberately not the fault signal.** A reading that was
+    /// plausible when it arrived stays plausible forever, because nothing here
+    /// invalidates it — the C++ has the same property: `cachedTemperature_` is
+    /// written on success and never cleared (`SensorCoordinator.cpp:58`, field
+    /// at `SensorCoordinator.h:241`).
+    /// [`Self::has_error`] is the fault signal; see its docs for why asking
+    /// this one is not enough.
     #[must_use]
     pub fn last_reading(&self) -> LastReading {
         match self {
             Self::Dallas { last_reading, .. } | Self::Tsic { last_reading, .. } => *last_reading,
+        }
+    }
+
+    /// Whether the driver has latched a fault, whatever the last reading said.
+    ///
+    /// This is the C++'s `TempSensor::hasError()` (`TempSensor.h:80-83`) via
+    /// `isConnected()` (`:158-161`), which `BaseState::checkTransitions` turns
+    /// into `SENSOR_ERROR` (`BaseState.h:145-148`). Both arms' drivers keep the
+    /// flag to the C++'s own rule: set at
+    /// [`MAX_BAD_READINGS`](cc_domain::sensor::ds18b20::MAX_BAD_READINGS)
+    /// consecutive failures and cleared by the next success
+    /// (`TempSensor.h:41-53`).
+    ///
+    /// **Why this cannot be derived from [`Self::last_reading`].** `poll` only
+    /// ever *writes* `last_reading`, never clears it, so a probe that reads
+    /// 95 °C and then goes silent leaves `Some((95.0, true))` behind
+    /// indefinitely — the C++ has the same property
+    /// (`SensorCoordinator::cachedTemperature_`, `SensorCoordinator.h:241`).
+    /// Deriving the fault from the reading's plausibility — which is what the
+    /// sample used to do — therefore reports a dead probe as a healthy one, and
+    /// the machine keeps regulating the PID against a number nothing is
+    /// producing. The C++ never had this window because `error_` is a
+    /// *separate* piece of state from `last_temperature_`, which is exactly the
+    /// split this method restores.
+    #[must_use]
+    pub fn has_error(&self) -> bool {
+        match self {
+            Self::Dallas { driver, .. } => driver.has_error(),
+            Self::Tsic { driver, .. } => driver.has_error(),
         }
     }
 
@@ -2683,10 +2743,11 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
         // ---- 6 + 7. DECIDE, then ACT ------------------------------------------
         //
         // The sample the reducer sees. `has_temperature_error` is the C++'s
-        // `hasTemperatureSensorError()` and is `true` until the first *plausible*
-        // reading, which is what keeps S1 from tripping on the boot-time zero and
-        // is also what sends the machine to `SENSOR_ERROR` rather than pretending
-        // a boiler is at 25 °C.
+        // `hasTemperatureSensorError()`, and it is the OR of **two independent
+        // facts**, because that is what the C++ has: the boot-window fact that
+        // no plausible reading has arrived yet, and the driver's own latched
+        // fault flag.
+        let temperature_faulted = temp.has_error();
         let sensors = cc_machine::Sensors {
             // 🔴 The reading is `Celsius::new(0.0)` until the first conversion
             // completes, and `has_temperature_error` is `true` for exactly that
@@ -2712,7 +2773,27 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
                 Celsius::new(celsius as f32)
             }),
             water_tank_full: tank_full,
-            has_temperature_error: last_reading.is_none_or(|(_, plausible)| !plausible),
+            // 🔴 **The driver's latched flag is the load-bearing term**, and the
+            // plausibility of `last_reading` is only the boot window.
+            //
+            // `last_reading` is a *cache* that `poll` writes but never
+            // invalidates, so a probe that reads 95 °C and then goes silent
+            // leaves `Some((95.0, true))` behind forever. Asking only
+            // `is_none_or(|(_, plausible)| !plausible)` therefore reports a dead
+            // probe as a healthy one — and the consequences are not cosmetic:
+            // the sensor-error guard never fires, so `SENSOR_ERROR` is
+            // unreachable, `sample_seq` freezes with the counter, so S1's
+            // over-temperature debounce cannot advance either, and the PID keeps
+            // regulating against a frozen number with the heater energised.
+            //
+            // `TempSensor::error_` (`TempSensor.h:50-53`) is what the C++ reads
+            // for this, and it is latched independently of the cached value —
+            // that independence is the whole point, and it is what this term
+            // restores. The OR keeps the boot window working: the driver's flag
+            // is `false` until its tenth consecutive failure, so without the
+            // first term the machine would heat a boiler it has never measured.
+            has_temperature_error: temperature_faulted
+                || last_reading.is_none_or(|(_, plausible)| !plausible),
             // The scale is not part of `Sensors::has_sensor_error`'s contract
             // here: `has_scale_error` is a separate field and the C++'s
             // `hasSensorError()` ORs the two (`SensorCoordinator.h:190-192`).

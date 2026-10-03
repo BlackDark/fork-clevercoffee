@@ -313,3 +313,60 @@ fn an_implausible_reading_goes_to_emergency_stop_not_sensor_error() {
     let _ = h.send(cc_machine::Event::Safety(outcome));
     assert_eq!(h.next_state_this_tick(), Some(MachineState::EmergencyStop));
 }
+
+/// 🔴 A **plausible** reading from a **faulted** probe must still stop the heater
+///
+/// This is the safety consequence the firmware's probe-fault wiring exists to
+/// produce, and it was unreachable before it: the driver latched its error at
+/// ten consecutive bad reads, but nothing consulted that flag, so
+/// `has_temperature_error` stayed `false` and this branch was dead on hardware.
+///
+/// The two cases are deliberately different, and conflating them is the whole
+/// defect:
+///
+/// * an **implausible** reading is S1's job — see
+///   [`an_implausible_reading_goes_to_emergency_stop_not_sensor_error`] above;
+/// * a **plausible** reading from a probe that has *latched an error* is
+///   `TempSensor::hasError()`'s job (`TempSensor.h:80-83`), and it goes to
+///   `SENSOR_ERROR`.
+///
+/// The reading here is 95 °C — mid-range, plausible, and exactly what a probe
+/// that read once and then went silent leaves behind. That is the shape of the
+/// failure: the number looks healthy and nothing is producing it.
+#[test]
+fn a_plausible_reading_from_a_faulted_probe_stops_the_heater() {
+    let mut h = Harness::in_state(MachineState::PidNormal);
+    h.machine.pid.runtime_enabled = true;
+    h.machine.pid.mode_enabled = true;
+    h.machine.pid.output = 0.8;
+
+    // The loop's order: the sample arrives, then the tick that judges it.
+    // `BaseState::checkTransitions` is reached from `StateMachine::update()`
+    // (`StateMachine.cpp:84-86`), so the guard fires on the tick and not on
+    // the sample — which is what `cc_machine::Control::tick` does too.
+    let _ = h.send(cc_machine::Event::SensorUpdated(Sensors {
+        temperature: Celsius::new(95.0),
+        has_temperature_error: true,
+        ..Sensors::healthy()
+    }));
+    let fx = h.tick();
+
+    assert_eq!(
+        h.state(),
+        MachineState::SensorError,
+        "a latched probe error is the sensor-error guard, whatever the reading said"
+    );
+    // `should_pid_be_enabled` excludes `SENSOR_ERROR` (`guards.rs:183`), so
+    // `process_control` takes the "Force PID shutdown" branch
+    // (`ProcessController.cpp:151-172`) and the duty is zeroed on the same tick
+    // the guard fires — not on some later one.
+    assert_eq!(
+        h.machine.pid.output.to_bits(),
+        0.0f32.to_bits(),
+        "the heater must be de-energised in the same tick the fault is seen"
+    );
+    assert!(
+        common::has(&fx, cc_machine::Effect::DisableHeater),
+        "{fx:?}"
+    );
+}
