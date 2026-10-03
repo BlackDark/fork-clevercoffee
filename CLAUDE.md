@@ -73,6 +73,42 @@ credential, not a name, and is deliberately left alone.
 
 **Do not commit until all applicable checks pass.** Commits without verification are not acceptable.
 
+**This repository has two firmwares. Run the gate for the one you touched.**
+
+#### If you touched `crates/`, `Cargo.*`, `justfile`, `.cargo/`, `rust-toolchain.toml` or `ui/` — the Rust port
+
+```sh
+just check     # fmt, clippy -D warnings (pedantic), rustdoc -D warnings,
+               # 1,074 host tests, the parity harness, the device-test audit
+```
+
+`just gate` adds the device clippy, the Xtensa release build and the image-size
+budget — run it when the change can affect the firmware image.
+
+Notes that cost an afternoon if you do not know them:
+
+- The **web UI must be built before the firmware will link**:
+  `cc-hal-esp32/build.rs` deliberately panics without `ui/packages/frontend/dist`.
+  `just build-esp32` and `just lint-esp32` depend on the `ui:` recipe for exactly
+  this; a bare `cargo build` will not do it for you.
+- The toolchain is the Espressif **`esp` nightly fork**, pinned by
+  `rust-toolchain.toml`. `mise` deliberately does **not** install Rust — rustup and
+  `espup` own the compiler, and `just setup` bootstraps them. `just doctor` checks
+  the pins agree.
+- `cargo fmt --all` is the formatter for `crates/`. `just fmt-cpp` is the
+  formatter for `src/` and `include/` — the C++ tree is the **parity oracle**, so
+  do not reformat it as a side effect of a Rust change.
+- `.cargo/config.toml` has **no** `[build] target` on purpose: bare `cargo` means
+  the host. Every device recipe passes `--target` itself.
+- Do not add `#[allow]`, `#[expect]` or a `macro_rules!` without reading why the
+  existing ones are there. `just lint` runs `clippy::pedantic` as `deny`.
+- The control tick must not allocate the heap. `crates/cc-machine/tests/tick_allocations.rs`
+  asserts zero allocations per tick and `just bench` reports the number. A display
+  frame must not either — `cc-display` is `no_std` with no `alloc` in the device
+  build, so an allocation there is a link error on the chip.
+
+#### If you touched `src/`, `include/`, `test/`, `lib/` or `platformio.ini` — the C++ oracle
+
 Run from the repository root unless noted otherwise:
 
 1. **Format** (always, before commit):
@@ -86,6 +122,10 @@ Run from the repository root unless noted otherwise:
    - From `ui/`: `pnpm lint` (Biome check + format), `pnpm format` (apply fixes)
 
 If any step fails, fix the issue, re-run all applicable steps, and only then commit. Never assume tests pass without running them.
+
+**The C++ tree is the parity baseline.** It is not being cleaned up. If you change
+its behaviour you have changed the thing the Rust port is measured against, and
+`docs/rust-migration/intentional-diffs.md` is where that decision belongs.
 
 **Common pitfall:** native tests include source `.cpp` files directly (`test_build_src=false`). A new hardware/library include in shared code (for example pulling in BLE headers) can break unrelated native tests — always run `pio test -e native_test` after firmware changes.
 

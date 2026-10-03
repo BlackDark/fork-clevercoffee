@@ -3,6 +3,30 @@
 Thank you for considering contributing to the project. To ensure consistency and maintainability, please follow these style
 guidelines when submitting code changes.
 
+## Before you start: which firmware?
+
+This repository is mid-migration and holds **two** firmwares. Picking the wrong
+one is the most common way to waste an afternoon here.
+
+- **The C++ firmware** (`src/`, `include/`, `test/`) is the one that ships today.
+  It is also the **parity oracle** the Rust port is measured against, so it is
+  retained deliberately. Format with `clang-format` (`just fmt-cpp`), build with
+  `pio run -e esp32_usb`, test with `pio test -e native_test`.
+- **The Rust firmware** (`crates/cc-*`) is the port. Start at
+  [docs/rust-migration/README.md](docs/rust-migration/README.md), and read
+  [intentional-diffs.md](docs/rust-migration/intentional-diffs.md) before
+  changing anything whose behaviour looks wrong -- it is a ledger of places the
+  port deliberately differs, with the reasoning.
+
+```sh
+just setup     # once: mise tools, the Espressif Xtensa toolchain, the web UI
+just check     # fmt, clippy, rustdoc, tests, parity -- needs no hardware
+just gate      # the above plus device clippy, the firmware build, the size budget
+```
+
+`just check` is the gate a pull request has to pass; CI runs it in
+`.github/workflows/rust.yml`.
+
 ## Code Style Guidelines
 
 This repository uses `clang-format` to keep a unified style across all files and to avoid changing indentation and other style
@@ -52,7 +76,7 @@ In the following, the chosen coding standards are briefly summarized. The corres
   ```cpp
   // Example
   int myVariable;
-  
+
   void myFunction() {
       // code
   }
@@ -61,7 +85,7 @@ In the following, the chosen coding standards are briefly summarized. The corres
   ```cpp
   // Example
   int sum = a + b;
-  
+
   if (x == y) {
       // code
   }
@@ -115,7 +139,7 @@ In the following, the chosen coding standards are briefly summarized. The corres
    - For new features or improvements, open the PR against the `develop` branch.  
    - If the bug is in `develop`, target the `develop` branch.
    - If fixing a bug found in `main`, open the PR against `main`.  
-   
+
 ## Code Review Process
 
 All contributions will be reviewed to ensure compliance with the project's guidelines. Be prepared to address any feedback or suggestions for improvement during the review process.

@@ -2,6 +2,55 @@
 
 This is fork from [CleverCoffee](https://github.com/rancilio-pid/clevercoffee) which includes some internal refactorings and new features for testing and ideas.
 
+## Which firmware do you want?
+
+This fork currently carries **two firmwares**, and picking the wrong one wastes
+an afternoon.
+
+| | Rust (this branch's work) | C++ (PlatformIO) |
+| --- | --- | --- |
+| Where | `crates/cc-*`, built by `justfile` | `src/`, `include/`, `test/`, built by `platformio.ini` |
+| Status | the port; not yet released | what `release.yml` publishes today |
+| Build | `just setup` once, then `just build-esp32` | `pio run -e esp32_usb` |
+| Gate | `just check` (no hardware) | `pio test -e native_test` |
+| Docs | [docs/rust-migration/README.md](docs/rust-migration/README.md) | [REPOSITORY_SUMMARY.md](REPOSITORY_SUMMARY.md) |
+
+**The C++ tree is the parity oracle.** It is not being deleted, it is not being
+"cleaned up", and the Rust port's own test suite is measured against it. Every
+deliberate divergence is recorded in
+[intentional-diffs.md](docs/rust-migration/intentional-diffs.md) — start there
+when a behaviour looks wrong.
+
+### Building the Rust firmware
+
+```sh
+just setup        # mise tools + the Espressif Xtensa toolchain + the web UI
+just check        # fmt, clippy, rustdoc, tests, parity — no hardware needed
+just gate         # the above plus the device clippy, the firmware build, the size budget
+```
+
+Flashing needs a board, so it is never a default recipe:
+
+```sh
+just identify <port>     # ALWAYS first — confirm the chip before writing to it
+just flash <port>
+```
+
+The device is an **ESP32-DevKitC V4 / ESP32-WROOM-32E** — the original ESP32,
+Xtensa LX6. There is no S3, C3 or C6 in this project, and `channel = "esp"` in
+`rust-toolchain.toml` is an Espressif **nightly fork** that rustup installs, not
+something mise can provide. `just doctor` says whether the toolchain is
+consistent with what `.mise.toml` pins.
+
+The manual checklist is [docs/integration-tests.md](docs/integration-tests.md).
+
+### Building the C++ firmware (the parity oracle)
+
+```sh
+pio run -e esp32_usb
+pio test -e native_test
+```
+
 `esptool.py --chip esp32 merge_bin -o merged-flash.bin --flash_mode dio --flash_size 4MB 0x1000 bootloader.bin 0x8000 partitions.bin 0x10000 firmware.bin`
 
 ## Changes made

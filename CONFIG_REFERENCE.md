@@ -112,6 +112,24 @@ See `docs/example_config.json` for the full nested file format used by seed, dow
 - **Description**: Show brew timer in fullscreen mode
 
 ### `display.blescale_brew_timer`
+
+> **⚠ DOCUMENTED BUT NOT IMPLEMENTED.** This entry has been in
+> `CONFIG_REFERENCE.md` and in `docs/example_config.json` since before the Rust
+> port, but **neither** firmware has the key: `git grep blescale_brew_timer main`
+> finds only these two files, and the Rust schema has never declared it. It
+> belongs to the Acaia BLE scale (R3-18), which is not built.
+>
+> It has been **removed from `docs/example_config.json`**, because a shipped
+> download that contains a key the firmware silently ignores is exactly the
+> "config key that lies" failure the audit in
+> `crates/cc-config/tests/config_schema.rs` exists to catch. That test now
+> walks every leaf of the shipped file and fails on a key the schema does not
+> declare; it found this one. It was removed here rather than added to the
+> schema, because adding an inert key to make a test pass is the same lie one
+> layer down.
+>
+> If the BLE scale is built (R3-18), this key comes back with it.
+
 - **Type**: Boolean
 - **Default**: `false`
 - **Description**: Enable starting and stopping the brew timer on a connected BLE scale

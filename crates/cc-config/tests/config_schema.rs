@@ -667,11 +667,101 @@ fn store_errors_render() {
 
 // =============================================== the docs/example_config.json shape
 
-/// `docs/example_config.json` must import unchanged. That file is what a user
-/// downloads, and the C++ accepts it, so this port has to as well.
+/// `docs/example_config.json` must import unchanged.
+///
+/// **The shipped file, not a copy of it.** This used to inline a
+/// "representative subset", which meant the claim in its own doc comment -- and
+/// in `AGENTS.md` ("an import test parses that file") -- was false: nothing
+/// detected a key added to or removed from the file a user downloads, and
+/// nothing detected it drifting out of step with the schema. REVIEW.md M-16.
+///
+/// `include_str!` is what makes the test a test rather than a snapshot of a
+/// snapshot: change the shipped file and this fails, which is the entire point.
 #[test]
-fn a_document_in_the_shape_of_the_shipped_example_imports() {
-    // A representative subset of docs/example_config.json, in its exact shape.
+fn the_shipped_example_config_imports_unchanged() {
+    let text = include_str!("../../../docs/example_config.json");
+    let parsed = json_import(text).expect("the shipped example must import");
+
+    // And the two facts that are specific to THIS file rather than to its shape:
+    // the hostname the Rust firmware defaults to (AGENTS.md pins it here), and
+    // that every leaf in the document is a key the schema knows.
+    assert_eq!(
+        parsed.system.hostname,
+        cc_config::schema::DEFAULT_HOSTNAME,
+        "docs/example_config.json and cc_config::schema::DEFAULT_HOSTNAME have \
+         drifted apart; AGENTS.md says they must not"
+    );
+
+    // Every leaf key the document mentions must be a key the schema declares.
+    //
+    // This walks the parsed document with `serde_json` rather than using
+    // `cc_config::json::document_pairs`, because that function returns only the
+    // pairs it RECOGNISES -- so asserting over its output is a tautology. It was
+    // tried, a deliberately misspelled key was added to the shipped file, and the
+    // test stayed green. The walk below is over the raw document, so an unknown
+    // key is a failure: a user importing this file would otherwise have that key
+    // silently ignored.
+    let document: serde_json::Value =
+        serde_json::from_str(text).expect("the shipped example is valid JSON");
+    let known: std::collections::BTreeSet<&str> = cc_config::schema::SCHEMA
+        .iter()
+        .map(|spec| spec.key)
+        .collect();
+
+    let mut mentioned = 0_usize;
+    let mut unknown = Vec::new();
+    walk_keys(&document, "", &mut |key| {
+        mentioned += 1;
+        if !known.contains(key) {
+            unknown.push(key.to_string());
+        }
+    });
+    assert!(
+        unknown.is_empty(),
+        "docs/example_config.json mentions {} key(s) the schema does not \
+         declare, so a user importing it would have them silently ignored: \
+         {unknown:?}",
+        unknown.len()
+    );
+    assert!(
+        mentioned > 80,
+        "the walk only found {mentioned} leaf keys; the shipped file has ~89, so \
+         the walk is broken rather than the file being wrong"
+    );
+}
+
+/// Collect the dotted path of every LEAF in a JSON document.
+///
+/// A leaf is a value that is not an object. Arrays are walked as part of the
+/// path (`hardware.switches.brew` is an object, so it stops there; a list would
+/// append `.N`) because the shipped file has none and an array member would be a
+/// leaf of its parent path, which is the answer a dotted-key reader wants.
+fn walk_keys(value: &serde_json::Value, prefix: &str, out: &mut impl FnMut(&str)) {
+    match value {
+        serde_json::Value::Object(map) => {
+            for (name, child) in map {
+                let path = if prefix.is_empty() {
+                    name.clone()
+                } else {
+                    format!("{prefix}.{name}")
+                };
+                walk_keys(child, &path, out);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for (index, item) in items.iter().enumerate() {
+                walk_keys(item, &format!("{prefix}.{index}"), out);
+            }
+        }
+        _ => out(prefix),
+    }
+}
+
+/// And the shape the C++ accepted, which the shipped file may not exercise: a
+/// nested document written out by hand, so the test above and this one fail for
+/// different reasons.
+#[test]
+fn a_hand_written_nested_document_imports() {
     let text = r#"{
         "backflush": { "cycles": 5, "fill_time": 5, "flush_time": 10 },
         "brew": {
@@ -700,7 +790,7 @@ fn a_document_in_the_shape_of_the_shipped_example_imports() {
         "steam": { "setpoint": 120 },
         "system": { "hostname": "test-cc-rust", "wifi": { "ssid": "test-ssid", "password": "test-pass" } }
     }"#;
-    let parsed = json_import(text).expect("the shipped example must import");
+    let parsed = json_import(text).expect("a nested document must import");
     assert_eq!(parsed.brew.mode, cc_domain::process::BrewMode::Automatic);
     assert!(parsed.brew.pre_infusion.enabled);
     assert!(parsed.display.fullscreen_brew_timer);
