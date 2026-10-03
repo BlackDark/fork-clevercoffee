@@ -1249,6 +1249,35 @@ pub struct SafetyView {
     /// of that number (`Config::effective_brew_setpoint`); carrying the raw
     /// `brew.setpoint` would leave a 0..=20 degree gap the validator cannot see.
     pub effective_brew_setpoint: Celsius,
+    /// `brew.mode`, as a [`BrewMode`] — so the join with `cc_safety` is a copy
+    /// rather than a re-derivation of "is this brew automatic".
+    ///
+    /// Needed only by `cc_safety::validate_config`, and for one reason: an
+    /// automatic brew is supposed to end by itself, so a configuration that
+    /// leaves it with no reachable stop condition is a machine holding a pump
+    /// and an open valve with nothing to end it.
+    pub brew_mode: BrewMode,
+    /// `brew.by_time.enabled`. See [`SafetyView::brew_by_weight_enabled`] for
+    /// why these two travel together.
+    pub brew_by_time_enabled: bool,
+    /// `brew.by_weight.enabled` — the stop condition that needs a scale to mean
+    /// anything, which is why [`SafetyView::scale_fitted`] is here.
+    pub brew_by_weight_enabled: bool,
+    /// `hardware.sensors.scale.enabled` — **the C++'s own definition of a
+    /// fitted scale**, and this port's.
+    ///
+    /// It is the guard on every scale command in the C++
+    /// (`WebServerManager.cpp:540,563`) and the third argument of
+    /// `recordBrewIfQualified` (`BrewStates.cpp:311`), so it is what "this
+    /// machine has a scale" means in the oracle this crate is measured against.
+    ///
+    /// A configuration value rather than a live probe, and that is deliberate:
+    /// `cc_safety::validate_config` is a pure function of configuration, so the
+    /// fact it reasons about has to be readable before any driver has produced
+    /// a sample. What the driver then does — starts, faults, answers — is
+    /// reported as `Sensors::has_scale_error` and as the weight itself, and
+    /// neither reaches `cc_safety`.
+    pub scale_fitted: bool,
     /// `hardware.relays.heater.trigger_type`.
     pub heater_relay_trigger: RelayTriggerType,
     /// `hardware.relays.pump.trigger_type`. See
@@ -1295,6 +1324,10 @@ impl Config {
             emergency_hysteresis: Celsius::new(self.safety.emergency_hysteresis as f32),
             steam_setpoint: Celsius::new(self.steam.setpoint as f32),
             effective_brew_setpoint: Celsius::new(self.effective_brew_setpoint() as f32),
+            brew_mode: self.brew.mode,
+            brew_by_time_enabled: self.brew.by_time.enabled,
+            brew_by_weight_enabled: self.brew.by_weight.enabled,
+            scale_fitted: self.hardware.sensors.scale.enabled,
             heater_relay_trigger: self.hardware.relays.heater.trigger_type,
             pump_relay_trigger: self.hardware.relays.pump.trigger_type,
             valve_relay_trigger: self.hardware.relays.valve.trigger_type,

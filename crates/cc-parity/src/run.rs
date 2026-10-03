@@ -467,6 +467,10 @@ impl Runner {
             emergency_hysteresis: view.emergency_hysteresis,
             steam_setpoint: view.steam_setpoint,
             effective_brew_setpoint: view.effective_brew_setpoint,
+            brew_mode: view.brew_mode,
+            brew_by_time_enabled: view.brew_by_time_enabled,
+            brew_by_weight_enabled: view.brew_by_weight_enabled,
+            scale_fitted: view.scale_fitted,
             heater_relay_trigger: view.heater_relay_trigger,
             temperature_sensor: view.temperature_sensor,
         };
@@ -1436,6 +1440,10 @@ assert:
         config.steam.setpoint = 128.0;
         config.brew.setpoint = 104.0;
         config.brew.temp_offset = 3.0;
+        config.brew.mode = cc_domain::process::BrewMode::Automatic;
+        config.brew.by_time.enabled = true;
+        config.brew.by_weight.enabled = true;
+        config.hardware.sensors.scale.enabled = true;
         let view = config.safety_view();
         let built = cc_safety::SafetyConfig {
             // From the view, like the firmware's boot path: a literal here
@@ -1447,6 +1455,10 @@ assert:
             emergency_hysteresis: view.emergency_hysteresis,
             steam_setpoint: view.steam_setpoint,
             effective_brew_setpoint: view.effective_brew_setpoint,
+            brew_mode: view.brew_mode,
+            brew_by_time_enabled: view.brew_by_time_enabled,
+            brew_by_weight_enabled: view.brew_by_weight_enabled,
+            scale_fitted: view.scale_fitted,
             heater_relay_trigger: view.heater_relay_trigger,
             temperature_sensor: view.temperature_sensor,
         };
@@ -1458,6 +1470,13 @@ assert:
         // compares against the emergency threshold. A harness that carried the
         // raw `104.0` would not notice a configuration the firmware refuses.
         assert_eq!(built.effective_brew_setpoint, Celsius::new(107.0));
+        assert_eq!(built.brew_mode, cc_domain::process::BrewMode::Automatic);
+        assert!(built.brew_by_time_enabled);
+        assert!(built.brew_by_weight_enabled);
+        // The scale flag is what makes the by-weight stop condition reachable,
+        // so a view that dropped it would let the harness assert a firmware
+        // that *refuses* a configuration the real one accepts.
+        assert!(built.scale_fitted);
         assert_eq!(
             built.heater_relay_trigger,
             config.hardware.relays.heater.trigger_type

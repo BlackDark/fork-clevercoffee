@@ -9,6 +9,7 @@
 //! observed one layer earlier.
 
 use cc_domain::hardware::{RelayTriggerType, TemperatureSensorType};
+use cc_domain::process::BrewMode;
 use cc_domain::state::MachineState;
 use cc_domain::units::{Celsius, Millis};
 use cc_safety::{
@@ -1019,6 +1020,154 @@ fn config_a_high_trigger_heater_relay_is_accepted() {
         ..SafetyConfig::default()
     };
     assert_eq!(validate_config(&cfg), Ok(()));
+}
+
+// ================================= the automatic brew's stop condition
+
+// The reported failure, as a test. `brew.mode = Automatic`,
+// `brew.by_weight.enabled = 1`, `brew.by_time.enabled = 0` (the default) and no
+// scale: `BrewRunningState::checkSpecificTransitions` (`BrewStates.cpp:283-299`)
+// then has no arm that can fire, `initTotalTargetBrewTime` (`:53-62`) returns
+// 0.0 so the by-time arm's own `target > 0.0` fails too, and the shot runs until
+// the brew switch or `BREW_PUMP_TIMEOUT_MS` — 300 s of pump and open valve.
+//
+// Every one of those four parameters is individually **legal**: `brew.mode` is
+// an enum with two values, the two `enabled` flags are independent booleans
+// that both default to `false`, and `target_weight` is bounded `0 ..= 500`. So
+// there is no single-parameter range check that can catch this, which is why the
+// rule is a conjunction in `validate_config` and not a bound in the schema.
+
+/// The failing configuration, and nothing else: every other field is the
+/// compiled-in default, so a verdict about it is about the brew stop and about
+/// nothing else.
+fn automatic_by_weight_with_no_scale() -> SafetyConfig {
+    SafetyConfig {
+        brew_mode: BrewMode::Automatic,
+        brew_by_weight_enabled: true,
+        scale_fitted: false,
+        ..SafetyConfig::default()
+    }
+}
+
+#[test]
+fn config_an_automatic_brew_that_can_only_stop_on_a_weight_needs_a_scale() {
+    assert_eq!(
+        validate_config(&automatic_by_weight_with_no_scale()),
+        Err(ConfigViolation::BrewByWeightWithNoScale),
+        "neither arm of BrewRunningState::checkSpecificTransitions can fire, so \
+         the pump and the water valve run for BREW_PUMP_TIMEOUT_MS"
+    );
+}
+
+#[test]
+fn config_the_same_brew_is_accepted_once_a_scale_is_fitted() {
+    // The positive half, and it is the half that says the rule is about the
+    // *machine* rather than about the settings: the identical configuration on
+    // a machine with a load cell is a machine that stops the shot on weight, and
+    // refusing it would be refusing the feature.
+    let cfg = SafetyConfig {
+        scale_fitted: true,
+        ..automatic_by_weight_with_no_scale()
+    };
+    assert_eq!(validate_config(&cfg), Ok(()));
+}
+
+#[test]
+fn config_by_time_is_a_stop_condition_that_needs_no_scale() {
+    // The other arm, and the reason the rule is a conjunction rather than
+    // "by_weight implies a scale". With `by_time` on there is a stop condition
+    // that does not involve a weight at all, so by-weight on a scaleless
+    // machine is harmless — the redundant stop, not the missing one.
+    let cfg = SafetyConfig {
+        brew_by_time_enabled: true,
+        ..automatic_by_weight_with_no_scale()
+    };
+    assert_eq!(validate_config(&cfg), Ok(()));
+}
+
+#[test]
+fn config_a_manual_brew_is_stopped_by_the_switch_not_by_a_scale() {
+    // `MANUAL_BREW` is the shipped default and is the common case. The operator
+    // holds the brew switch and releasing it is `requests.brew_stop`, which is
+    // the first thing `checkSpecificTransitions` looks at (`:268-271`) and is
+    // unaffected by any of these parameters — so no scale is needed and none is
+    // demanded.
+    let cfg = SafetyConfig {
+        brew_mode: BrewMode::Manual,
+        brew_by_weight_enabled: true,
+        scale_fitted: false,
+        ..SafetyConfig::default()
+    };
+    assert_eq!(validate_config(&cfg), Ok(()));
+}
+
+#[test]
+fn config_a_scaleless_machine_with_neither_stop_enabled_is_accepted() {
+    // The degenerate configuration the rule deliberately does **not** refuse:
+    // automatic mode with `by_weight` off as well as `by_time` off. It is not
+    // what this rule is about — it has no weight stop to make unreachable, and
+    // an operator who turns every automatic stop off has said what they want.
+    // Pinned so that widening the rule later is a deliberate act.
+    let cfg = SafetyConfig {
+        brew_mode: BrewMode::Automatic,
+        brew_by_time_enabled: false,
+        brew_by_weight_enabled: false,
+        scale_fitted: false,
+        ..SafetyConfig::default()
+    };
+    assert_eq!(validate_config(&cfg), Ok(()));
+}
+
+#[test]
+fn config_the_brew_stop_rule_is_reported_after_the_relay_rules() {
+    // Both wrong. The relays are checked first because they are the failures
+    // firmware cannot fix at all — a low-trigger relay energises before this
+    // program has a first instruction — and the order is pinned so the
+    // diagnostic stays stable.
+    let cfg = SafetyConfig {
+        pump_relay_trigger: RelayTriggerType::LowTrigger,
+        ..automatic_by_weight_with_no_scale()
+    };
+    assert_eq!(
+        validate_config(&cfg),
+        Err(ConfigViolation::PumpRelayLowTrigger)
+    );
+}
+
+#[test]
+fn config_an_unreachable_brew_stop_is_not_storable() {
+    // `check_storable` is the boundary every write path consults, so the refusal
+    // has to be here too and not only in the load path.
+    assert!(matches!(
+        check_storable(&automatic_by_weight_with_no_scale()),
+        Err(ConfigViolation::BrewByWeightWithNoScale)
+    ));
+}
+
+#[test]
+fn load_discards_a_stored_config_whose_only_brew_stop_is_a_weight_with_no_scale() {
+    // The end-to-end consequence, and the reason putting the rule here rather
+    // than at the three write paths matters: a configuration persisted by an
+    // older firmware — or by a machine that *had* a scale and no longer does —
+    // is refused at load and the compiled-in defaults run instead.
+    let loaded = load_or_default(Some(&automatic_by_weight_with_no_scale()));
+    assert_eq!(loaded.config, SafetyConfig::default());
+    assert!(matches!(
+        loaded.origin,
+        ConfigOrigin::DiscardedUnsafe(ConfigViolation::BrewByWeightWithNoScale)
+    ));
+}
+
+#[test]
+fn config_the_compiled_defaults_are_still_safe_with_the_brew_rule() {
+    // `brew.mode` defaults to `Manual` and both `enabled` flags to `false`, so
+    // the shipped defaults do not trip the new rule — a default configuration
+    // its own validator refuses is a machine that will not run.
+    assert_eq!(validate_config(&SafetyConfig::default()), Ok(()));
+    assert_eq!(
+        check_storable(&SafetyConfig::default()),
+        Ok(&SafetyConfig::default())
+    );
 }
 
 // ==================== the temperature sensor type (R3-07 reversed R1-03)

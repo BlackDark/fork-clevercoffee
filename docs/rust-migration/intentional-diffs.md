@@ -972,10 +972,19 @@ mattered**: the client was being destroyed before its first publish.
   through it.
 * **`currBrewWeight` publishes `0`.** The C++'s is
   `cachedWeight_ - preBrewWeight_` while `brewWeightTrackingActive_`
-  (`SensorCoordinator.cpp:85-92`); this firmware has no brew-weight tracker and
-  `Sensors::brew_weight` is written as a literal `0.0`. The topic is still
-  registered, because the alternative — not registering it — is the
-  "advertised and never updates" shape again, on a different axis.
+  (`SensorCoordinator.cpp:85-92`); this firmware has no brew-weight tracker, so
+  there is no `preBrewWeight_` to subtract and the topic carries a constant.
+  The topic is still registered, because the alternative — not registering it —
+  is the "advertised and never updates" shape again, on a different axis.
+  **This is now only a reporting divergence.** The same field,
+  `Sensors::brew_weight`, is the state machine's own by-weight **stop
+  condition** (`BrewStates.cpp:294-299`) and the weight arm of
+  `recordBrewIfQualified` (`BrewStates.cpp:311`), and it used to be written as
+  the literal `0.0` at `cc-firmware/src/main.rs` — which made both of those
+  unreachable, not merely unreported. That was a P1 defect and it is fixed;
+  see §24. The residual divergence is the *delta*: the C++ subtracts the
+  pre-brew weight and this firmware does not, so the number a Home Assistant
+  card shows is the weight on the tray rather than the weight in the cup.
 * **`usePonM` is still the C++'s inconsistency.** `SystemInitializer.cpp:695`
   registers `pidUsePonM` while `MQTTManager.cpp:869` advertises the entity as
   `usePonM`, so the Home Assistant switch moves a topic the registry does not
@@ -1647,3 +1656,74 @@ covering the boundary, the ordering against the steam rule, and the load-time
 discard), plus
 `cc-hal-esp32::web::tests::the_setpoint_route_{takes_what_the_schema_will_store,refuses_a_value_that_would_defeat_the_interlock}`
 (device-only, registered in `CASES`).
+
+## 24. `brew.by_weight` stops the shot, and is refused where nothing can 🔴 changed
+
+**What the C++ does.** `BrewRunningState::checkSpecificTransitions`
+(`BrewStates.cpp:266-303`) ends an automatic shot on `brew.by_time` (whose
+target comes from `initTotalTargetBrewTime`, `:53-62`, and is **zero** unless
+`brew.by_time.enabled`) or on `brew.by_weight`, which compares
+`getCurrentBrewWeight()` against `brew.by_weight.target_weight`. With `by_time`
+off there is one stop condition and it needs a scale — and the C++ has no scale:
+`HardwareContext::setScale` has no caller anywhere in `src/` or `include/`, so
+`getBrewWeight()` returns 0 for the life of the process (09 §23). The by-weight
+arm is therefore dead in the C++ **unconditionally**, and an operator who turned
+it on got a shot that ran until the brew switch or the 300-second pump watchdog.
+
+**What the Rust does.** Two changes, because there were two defects.
+
+1. **The weight reaches the field that acts on it.** `cc-hal-esp32::Sampler`
+   measures a real weight and `weight_g` was already published to `/api/status`
+   and MQTT from it, but `Sensors::brew_weight` — the same number, read a few
+   lines earlier in the same tick — was written as the literal `0.0`. The
+   reading was published and the state machine was not given it, so the machine
+   measured a shot correctly and refused to stop on it. The by-weight stop
+   condition and the weight arm of `recordBrewIfQualified` (`BrewStates.cpp:311`)
+   were both dead for the same reason, and `has_scale_error` could not cover it
+   either: a machine with no scale has no scale error.
+2. **`cc_safety::validate_config` refuses the combination that has no stop
+   condition at all** — `ConfigViolation::BrewByWeightWithNoScale`: automatic
+   mode, `brew.by_weight.enabled`, `brew.by_time` disabled, no scale. Without
+   this, a scale-equipped machine whose scale later stops answering is back to a
+   300-second shot, and no range check anywhere can catch it: all four
+   parameters are individually legal (`brew.mode` is a two-valued enum, the two
+   `enabled` flags are independent booleans both defaulting to `false`,
+   `target_weight` is bounded `0 ..= 500`), so the rule is a conjunction read
+   across four of them.
+
+**Why the second change is in `validate_config` and not at the write path.** The
+same argument as §23: it has to cover HTTP, MQTT and `/api/parameters` alike,
+and the fail-closed rule of [08 §4.1](./08-recovered-oracle.md) is what makes a
+configuration written by an older firmware — or by a machine that *had* a scale
+— safe on the next boot. `hardware.sensors.scale.enabled` is carried in
+`SafetyConfig::scale_fitted` because it is **the C++'s own definition of a
+fitted scale** (the guard on every scale command, `WebServerManager.cpp:540,563`,
+and the third argument of `recordBrewIfQualified`, `BrewStates.cpp:311`), and
+because a pure validator cannot ask a driver whether it has answered yet.
+
+**Why the weight is read where the temperature is, not where the events are
+drained.** `drain_scale` returned it, and `drain_scale` runs at step 7b —
+*after* `control.tick`. That is the right place for the NVS commit inside it (an
+erase-and-write in milliseconds, which must not sit between the reducer's
+decision and the pins) and the wrong place for a number the reducer is about to
+decide on. A 10 Hz sample is a snapshot, not a message — losing one loses
+nothing — so the weight is now `scale_weight`, read at step 4 beside the
+temperature and the pressure, and only the *events* (a completed tare, a new
+calibration factor, where dropping one loses an operator's action) stay on the
+queue.
+
+**What it costs, deliberately.** A machine with no scale cannot be configured to
+brew by weight alone, and the write is refused with the violation logged rather
+than accepted and then silently ignored — the same choice §23 makes for a
+setpoint that would defeat the interlock. `MANUAL_BREW` is untouched: the
+operator ends the shot with the brew switch, which is a stop condition no
+configuration removes. And an automatic brew with `by_time` on is untouched,
+because that is a stop condition that needs no scale at all.
+
+**What pins it.** `cc-safety::tests::safety_paths.rs` — nine host tests, named
+`config_an_automatic_brew_that_can_only_stop_on_a_weight_needs_a_scale` and
+following, covering the refusal, the same configuration with a scale, each of the
+three ways out (`by_time`, `MANUAL_BREW`, `by_weight` off), the ordering against
+the relay rules, `check_storable`, and the load-time discard.
+`cc-parity::run::tests::the_safety_view_mapping_is_the_one_the_driver_uses`
+carries the four new fields so a rename in `cc-config` cannot silently drop them.

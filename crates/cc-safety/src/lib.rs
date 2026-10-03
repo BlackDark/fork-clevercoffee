@@ -62,6 +62,7 @@
 #![deny(missing_docs)]
 
 use cc_domain::hardware::{RelayTriggerType, TemperatureSensorType};
+use cc_domain::process::BrewMode;
 use cc_domain::state::MachineState;
 use cc_domain::units::{Celsius, Millis};
 
@@ -81,10 +82,16 @@ pub const EMERGENCY_SAFE_TEMP_C: Celsius = Celsius::new(100.0);
 
 /// The configuration inputs the safety reducer needs.
 ///
-/// Deliberately tiny: it holds only the four values that can change whether an
-/// actuator may be energised. Everything else in the 98-parameter schema is
-/// irrelevant to a verdict, and putting it here would make the reducer's inputs
-/// impossible to audit.
+/// Deliberately tiny: it holds only the values that can change whether an
+/// actuator may be energised, and nothing else. Everything else in the
+/// 98-parameter schema is irrelevant to a verdict, and putting it here would
+/// make the reducer's inputs impossible to audit.
+///
+/// The set has grown twice past "four", both times by exactly the fields a new
+/// [`validate_config`] rule needed and nothing else: [`Self::effective_brew_setpoint`]
+/// and the brew-stop trio below. What the struct is *not* allowed to become is a
+/// mirror of `cc_config::Config` — the shape to preserve is "every field is one
+/// somebody had to think about", not "every field is small".
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SafetyConfig {
     /// `safety.emergency_temp` — the over-temperature threshold.
@@ -92,6 +99,34 @@ pub struct SafetyConfig {
     /// `safety.emergency_hysteresis` — how far below the threshold the machine
     /// must fall before the debounce counter resets.
     pub emergency_hysteresis: Celsius,
+    /// `brew.mode` — needed only by [`validate_config`], and for one reason: an
+    /// **automatic** brew is supposed to end by itself, so a configuration that
+    /// leaves it with no reachable stop condition is a machine holding a pump
+    /// and an open valve with nothing to end it. In `MANUAL_BREW` the operator
+    /// ends the shot with the brew switch, which is a stop condition no
+    /// configuration can remove.
+    pub brew_mode: BrewMode,
+    /// `brew.by_time.enabled` — needed only by [`validate_config`], and it is
+    /// half of the question the brew-stop rule asks: is there a stop condition
+    /// that does not need a scale?
+    pub brew_by_time_enabled: bool,
+    /// `brew.by_weight.enabled` — the other half. This is the one that needs a
+    /// scale to mean anything, which is why [`Self::scale_fitted`] is here.
+    pub brew_by_weight_enabled: bool,
+    /// `hardware.sensors.scale.enabled` — whether this machine has a scale.
+    ///
+    /// **The C++'s own definition of a fitted scale**, not this port's: it is
+    /// the guard on every scale command (`WebServerManager.cpp:540,563`) and the
+    /// third argument of `recordBrewIfQualified` (`BrewStates.cpp:311`), which
+    /// is [`crate::validate_config`]'s subject as much as the reducer's is.
+    ///
+    /// It is a configuration value rather than a live probe, which is the point:
+    /// [`validate_config`] must be a pure function of configuration, and the
+    /// value it needs has to be readable before the driver has produced a
+    /// single sample. What the *driver* then does — starts, faults, answers —
+    /// is reported through `Sensors::has_scale_error` and the weight itself,
+    /// and neither reaches this struct.
+    pub scale_fitted: bool,
     /// `steam.setpoint` — needed only by [`validate_config`], and here because
     /// the emergency threshold must clear the steam setpoint or the machine
     /// would stop itself during normal steaming.
@@ -149,6 +184,22 @@ impl Default for SafetyConfig {
         Self {
             emergency_temp: Celsius::new(150.0),
             emergency_hysteresis: Celsius::new(5.0),
+            // `BrewMode::Manual`, `brewByTimeEnabled = false` and
+            // `brewByWeightEnabled = false`: `Config.h:236` and `defaults.h`
+            // give every one of them as false/Manual, so the shipped defaults
+            // carry no brew-stop rule of their own — a default configuration
+            // that its own validator refuses is a machine that will not run.
+            //
+            // `scale_fitted: false` is the C++ default too
+            // (`hardwareSensorsScaleEnabled`, `Config.h`) and is also the honest
+            // answer for the machine this firmware was built for: GPIO32/25/33
+            // are unconnected (09 §23). It is the *conservative* direction here,
+            // because with no scale the by-weight stop cannot fire and the rule
+            // below can only refuse more, never less.
+            brew_mode: BrewMode::Manual,
+            brew_by_time_enabled: false,
+            brew_by_weight_enabled: false,
+            scale_fitted: false,
             steam_setpoint: Celsius::new(120.0),
             effective_brew_setpoint: Celsius::new(95.0),
             heater_relay_trigger: RelayTriggerType::HighTrigger,
@@ -786,6 +837,38 @@ pub enum ConfigViolation {
     PumpRelayLowTrigger,
     /// A `LOW_TRIGGER` valve relay: water at every boot.
     ValveRelayLowTrigger,
+    /// An automatic brew whose only stop condition is a weight, on a machine
+    /// with no scale.
+    ///
+    /// **A pump with an open water valve and nothing to stop it.**
+    /// `BrewRunningState::checkSpecificTransitions` (`BrewStates.cpp:266-303`)
+    /// ends an automatic shot on exactly two things: `brew.by_time`, whose
+    /// target comes from `initTotalTargetBrewTime` (`:53-62`) and is **zero**
+    /// unless `brew.by_time.enabled`, and `brew.by_weight`, which compares
+    /// `getCurrentBrewWeight()` against `brew.by_weight.target_weight`. With
+    /// `by_time` off and no scale to weigh with, neither arm can ever fire and
+    /// the only thing left is the brew switch or `BREW_PUMP_TIMEOUT_MS` — 300
+    /// seconds (`timing::BREW_PUMP_TIMEOUT_MS`) of water.
+    ///
+    /// The configuration is **legal in every field**. `brew.mode` is an enum
+    /// with two values, both offered; `by_time.enabled` and `by_weight.enabled`
+    /// are independent booleans that both default to `false`; `target_weight`
+    /// is bounded `0 ..= 500` (`defaults.h`) and defaults to 36. So no
+    /// single-parameter range check anywhere can catch this — it takes two
+    /// settings read together, which is exactly what this function is for.
+    ///
+    /// **The C++ cannot catch it either, and does not need to be told twice.**
+    /// `BrewStates.cpp:283-299` has the identical arm and the identical hole.
+    /// What differs is that in the C++ the weight is *never produced at all*
+    /// (09 §23: `HardwareContext::setScale` has no caller, so `getBrewWeight()`
+    /// returns 0 forever), so the by-weight arm is dead there unconditionally —
+    /// an operator who enabled it got a 300-second shot, which is the same
+    /// defect with a larger blast radius. Here the driver exists
+    /// (`cc_hal_esp32::Sampler`), so the arm is live and the weight is threaded
+    /// into it; that is precisely what makes the *unreachable* case the one
+    /// worth refusing. Inherited, not introduced — see
+    /// [09 §23](../docs/rust-migration/09-cpp-findings.md).
+    BrewByWeightWithNoScale,
     /// A temperature sensor type this firmware has no driver for.
     ///
     /// **`TSIC_306` / `ZACwire` only.** The protocol is proprietary, no Rust
@@ -847,6 +930,11 @@ pub enum ConfigViolation {
 /// write path: `POST /api/setpoint` once filtered to `0..=150` and persisted the
 /// result without going through `cc_config::assign::parse`, and a rule enforced
 /// only where the bug was found is a rule waiting for the next writer.
+///
+/// The brew-stop rule ([`ConfigViolation::BrewByWeightWithNoScale`]) is here for
+/// the same reason and one more: it is a **four-way** conjunction in which no
+/// term is out of range on its own, so there is no single-parameter range check
+/// anywhere in the firmware that could substitute for it.
 pub fn validate_config(cfg: &SafetyConfig) -> Result<(), ConfigViolation> {
     let steam_headroom = cfg.steam_setpoint.raw() + cfg.emergency_hysteresis.raw();
     if cfg.emergency_temp.raw() <= steam_headroom {
@@ -884,6 +972,33 @@ pub fn validate_config(cfg: &SafetyConfig) -> Result<(), ConfigViolation> {
     }
     if cfg.valve_relay_trigger == RelayTriggerType::LowTrigger {
         return Err(ConfigViolation::ValveRelayLowTrigger);
+    }
+
+    // **An automatic brew has to have somewhere to stop.** Placed after the
+    // relays because, unlike them, this one is about what the machine will *do*
+    // rather than about what cannot be made safe in firmware at all.
+    //
+    // The rule is the conjunction of the two arms of
+    // `BrewRunningState::checkSpecificTransitions` (`BrewStates.cpp:283-299`),
+    // negated: the by-time arm cannot fire because `by_time` is off (and
+    // `initTotalTargetBrewTime`, `:53-62`, returns 0.0 in that case, so
+    // `machine.brew.target_ms` is 0 and the arm's own `target > 0.0` test fails
+    // too), and the by-weight arm cannot fire because there is nothing to weigh.
+    // What is left is `requests.brew_stop` — the switch — and the 300-second
+    // pump watchdog.
+    //
+    // `brew.by_weight.target_weight > 0.0` is deliberately **not** part of this
+    // test. It is part of the arm's, so a target of 0 makes that arm dead too,
+    // but the schema bounds the field at `0 ..= 500` and defaults it to 36, and
+    // "brew by weight, to zero grams" is not a thing an operator configures by
+    // accident in a way the target check would usefully catch. Enabling
+    // by-weight on a machine that cannot weigh is refused either way.
+    if !cfg.scale_fitted
+        && cfg.brew_mode == BrewMode::Automatic
+        && !cfg.brew_by_time_enabled
+        && cfg.brew_by_weight_enabled
+    {
+        return Err(ConfigViolation::BrewByWeightWithNoScale);
     }
 
     // `cfg.temperature_sensor` is deliberately not checked. Both types have a

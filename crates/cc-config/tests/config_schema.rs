@@ -25,6 +25,7 @@ use cc_config::{
     MAX_CONFIG_BYTES,
 };
 use cc_domain::hardware::{RelayTriggerType, TemperatureSensorType};
+use cc_domain::process::BrewMode;
 use cc_domain::units::Celsius;
 
 use support::MemStore;
@@ -561,6 +562,14 @@ fn the_safety_view_names_exactly_the_safety_relevant_values() {
     config.steam.setpoint = 118.0;
     config.hardware.relays.heater.trigger_type = RelayTriggerType::HighTrigger;
     config.hardware.sensors.temperature.r#type = TemperatureSensorType::DallasDs18b20;
+    // The brew-stop trio and the scale flag: `cc_safety::validate_config` reads
+    // all four to decide whether an automatic brew has a stop condition it can
+    // reach, so a view that dropped one would let the firmware accept a
+    // configuration the validator refuses.
+    config.brew.mode = BrewMode::Automatic;
+    config.brew.by_time.enabled = true;
+    config.brew.by_weight.enabled = true;
+    config.hardware.sensors.scale.enabled = true;
     let view: SafetyView = config.safety_view();
     // `SafetyView` is `Celsius`-typed so the join with `cc_safety::SafetyConfig`
     // is a copy rather than a narrowing cast (see `SafetyView::emergency_temp`),
@@ -568,6 +577,10 @@ fn the_safety_view_names_exactly_the_safety_relevant_values() {
     assert_eq!(view.emergency_temp, Celsius::new(165.0));
     assert_eq!(view.emergency_hysteresis, Celsius::new(9.0));
     assert_eq!(view.steam_setpoint, Celsius::new(118.0));
+    assert_eq!(view.brew_mode, BrewMode::Automatic);
+    assert!(view.brew_by_time_enabled);
+    assert!(view.brew_by_weight_enabled);
+    assert!(view.scale_fitted);
     assert_eq!(view.heater_relay_trigger, RelayTriggerType::HighTrigger);
     assert_eq!(
         view.temperature_sensor,

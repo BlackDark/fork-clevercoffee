@@ -2729,12 +2729,12 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
 
         // ---- 4. SENSE ---------------------------------------------------------
         //
-        // The probe, the five switches and the pressure sensor, on their own
-        // cadences inside one 10 ms period. The period is what changed, and that
-        // is the whole of "the screen takes half a second to react": a press is
-        // now recognised within one 20 ms debounce window rather than within one
-        // 400 ms control period, and the frame reaches the panel from the
-        // display task rather than at the end of this same iteration.
+        // The probe, the five switches, the pressure sensor and the load cell, on
+        // their own cadences inside one 10 ms period. The period is what changed,
+        // and that is the whole of "the screen takes half a second to react": a
+        // press is now recognised within one 20 ms debounce window rather than
+        // within one 400 ms control period, and the frame reaches the panel from
+        // the display task rather than at the end of this same iteration.
         //
         // The probe stays on **this** task on purpose — see [`sensor_task`] for
         // the measurement that says a second task cannot own it on this
@@ -2751,6 +2751,20 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
         });
         let tank_full = switches.water_tank_full();
         let edges = switches.poll(now);
+
+        // **The weight, here, with the other readings and not after the tick.**
+        //
+        // This is the number `Sensors::brew_weight` carries, and it used to be
+        // unreachable from there: `drain_scale` returned it at step 7b, which is
+        // below `control.tick`, so the sample the reducer saw could not be built
+        // from it and the field was written as the literal `0.0`. The weight was
+        // already published to `/api/status` and MQTT from the same value, so the
+        // machine was measuring a shot correctly and refusing to stop on it.
+        //
+        // See [`scale_weight`] for the reading-versus-event argument and
+        // [`drain_scale`] for why the *drain* stayed where it was: its NVS
+        // commit must not sit between the reducer's decision and the pins.
+        let weight_g = scale_weight(sampler.as_ref());
 
         // ---- 5. beat the deadman, on the same signal as the watchdog feed ----
         //
@@ -2828,7 +2842,33 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
             // `hasSensorError()` ORs the two (`SensorCoordinator.h:190-192`).
             // A machine with no scale has no scale error, so this is `false`.
             has_scale_error: sampler.as_ref().is_some_and(|s| s.telemetry().faulted()),
-            brew_weight: 0.0,
+            // 🔴 **The real weight, and this line is the whole of the fix.**
+            //
+            // It was the literal `0.0`, which made the by-weight arm of
+            // `BrewRunningState::checkSpecificTransitions` (`BrewStates.cpp:294-299`)
+            // unreachable for any target above 0 g — and with `brew.by_time`
+            // disabled, `initTotalTargetBrewTime` (`:53-62`) returning `0.0` takes
+            // the other arm with it, so the only thing left was the brew switch or
+            // the 300-second pump watchdog. The same zero reached
+            // `recordBrewIfQualified` (`BrewStates.cpp:311`) through
+            // `Machine::brew_weight`, killing the weight arm of shot counting too.
+            //
+            // `None` is `0.0` and not an error: an absent scale reports no weight,
+            // and `brew.by_weight` on a machine with no scale is refused by
+            // `cc_safety::validate_config` (`ConfigViolation::BrewByWeightWithNoScale`)
+            // rather than being left to fail silently here.
+            //
+            // `f64 -> f32` is the C++'s own narrowing: `getCurrentBrewWeight()`
+            // is `static_cast<float>` (`MachineStateContext.cpp:130-133`) and the
+            // field is `float`. A load cell resolves well under 0.1 g.
+            #[allow(
+                clippy::cast_possible_truncation,
+                reason = "the C++ casts `getBrewWeight()` to `float` at \
+                          `MachineStateContext.cpp:130-133` and `Sensors::brew_weight` \
+                          is that `float`; an HX711 at Gain128 resolves 0.19 g, so f32 \
+                          is exact to well below the cell's own resolution"
+            )]
+            brew_weight: weight_g.unwrap_or(0.0) as f32,
             // The probe's own conversion counter, so S1's debounce counts
             // readings rather than ticks. See `Sensors::sample_seq`.
             sample_seq: temp.sample_seq(),
@@ -2882,10 +2922,13 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
             parameters.publish_live(cc_hal_esp32::parameters_json(&config));
         }
 
-        // The scale's events, drained every tick, and the weight. See
-        // `drain_scale`: the event drain is the only place a tare can be
-        // persisted, because this task is the only holder of the store.
-        let weight_g = drain_scale(sampler.as_ref(), &mut store, &mut scale_modes);
+        // The scale's **events**, drained every tick. The weight is not among
+        // them: it was read at step 4, beside the temperature and the pressure,
+        // because it is a reading and this is a message queue. See `drain_scale`
+        // for why the drain stays here — its NVS commit must not sit between the
+        // reducer's decision and the pins — and `scale_weight` for why the weight
+        // could not come from here.
+        drain_scale(sampler.as_ref(), &mut store, &mut scale_modes);
 
         // ---- 7c. the backflush reminder, decided once -------------------------
         //
@@ -3518,8 +3561,7 @@ fn start_provisioning(
     }
 }
 
-/// Drain the sampling task's events, persisting whatever must outlive a reboot,
-/// and return the current weight.
+/// Drain the sampling task's events, persisting whatever must outlive a reboot.
 ///
 /// # Why this is a function and not an inline block in the tick
 ///
@@ -3532,12 +3574,21 @@ fn start_provisioning(
 /// new calibration factor can be written down. Making that a named function is
 /// what makes it findable.
 ///
-/// The weight itself is *not* taken from an event. It is read from the shared
-/// telemetry because a 10 Hz sample is a snapshot, not a message: losing one
-/// loses nothing, and routing it through a queue that the 400 ms tick drains
-/// would just add a copy and a second writer. Events — a completed tare, a new
-/// factor — are the opposite: dropping one loses an operator's action, so they
-/// come over a queue that is drained every tick.
+/// Events — a completed tare, a new factor — are the opposite of a reading:
+/// dropping one loses an operator's action, so they come over a queue that is
+/// drained every tick. **The weight is not one of them** and is not read here
+/// any more; it is [`scale_weight`], a reading, taken at step 4 with the
+/// temperature and the pressure. It used to be returned from this function,
+/// which meant the only consumer of the number — `Sensors::brew_weight` — could
+/// not see it until after `control.tick` had already run, and the field was
+/// written as a literal `0.0` instead. See [`scale_weight`].
+///
+/// # Where this is called from, and why it did not move
+///
+/// It runs at step 7b, *after* the applier, and that is deliberate: the NVS
+/// commit below is an erase-and-write measured in milliseconds, and it must not
+/// sit between the reducer's decision and the pins that carry it out (the same
+/// argument as the shot-counter write immediately above this call).
 ///
 /// # Errors
 ///
@@ -3549,10 +3600,12 @@ fn drain_scale(
     sampler: Option<&cc_hal_esp32::Sampler>,
     store: &mut cc_config::blob_store::BlobConfigStore<cc_hal_esp32::nvs::EspNvsBlob>,
     scale_modes: &mut mqtt_link::ScaleModes,
-) -> Option<f64> {
-    // A missing scale is a `None` weight, not an error: there is nothing here
-    // to fail at, and returning early is the whole of the "not fitted" case.
-    let sampler = sampler?;
+) {
+    // A missing scale is not an error: there is nothing here to fail at, and
+    // returning early is the whole of the "not fitted" case.
+    let Some(sampler) = sampler else {
+        return;
+    };
 
     while let Some(event) = sampler.next_event() {
         match event {
@@ -3620,11 +3673,44 @@ fn drain_scale(
             }
         }
     }
+}
 
-    // `None` when no scale is fitted, when the cell has produced nothing yet, or
-    // when it is not answering. All three publish as `null` rather than as 0 g,
-    // because 0 g is a real weight and a UI showing it shows a full cup.
-    sampler.telemetry().weight_g()
+/// The load cell's current weight in grams, or `None` when there is none.
+///
+/// # Why this is a reading and not an event
+///
+/// A 10 Hz sample is a **snapshot, not a message**: losing one loses nothing,
+/// because the next one carries the same information. Routing it through a queue
+/// the control tick drains would add a copy and a second writer for no gain. So
+/// the weight is read from the shared telemetry at step 4, beside the
+/// temperature and the pressure, and it is the *events* — a completed tare, a
+/// new calibration factor — that go through [`drain_scale`], because dropping
+/// one of those loses an operator's action.
+///
+/// # Why it was not read where the events are drained
+///
+/// It used to be the return value of [`drain_scale`], which runs at step 7b —
+/// **after** `control.tick`. That is the right place for the NVS commit inside
+/// it and the wrong place for a number the reducer is about to decide on, and
+/// the result was that `Sensors::brew_weight` could not be filled from it at
+/// all: `cc-firmware/src/main.rs` wrote the literal `0.0`.
+///
+/// That made the by-weight stop condition in
+/// `BrewRunningState::checkSpecificTransitions` (`BrewStates.cpp:294-299`)
+/// unreachable for every target above 0 g, and with it the weight arm of
+/// `recordBrewIfQualified` (`BrewStates.cpp:311`). The Rust was *worse off than
+/// the C++* here: `cc-hal-esp32::Sampler` measures a real weight and publishes
+/// it to `/api/status` and MQTT, and the one consumer that acts on it was
+/// handed a zero. The C++ has the same hole for a different reason — its scale
+/// is never constructed at all (09 §23), so `getBrewWeight()` is 0 there
+/// unconditionally — which makes this a case where matching the oracle's
+/// *outcome* was the wrong target and its *structure* was right.
+///
+/// `None` when no scale is fitted, when the cell has produced nothing yet, or
+/// when it is not answering. All three publish as `null` rather than as 0 g,
+/// because 0 g is a real weight and a UI showing it shows a full cup.
+fn scale_weight(sampler: Option<&cc_hal_esp32::Sampler>) -> Option<f64> {
+    sampler.and_then(|sampler| sampler.telemetry().weight_g())
 }
 
 /// Reset the chip.
