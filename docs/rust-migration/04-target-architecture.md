@@ -23,6 +23,15 @@ Companion to [03 — Decision record](./03-decision-record.md). Read the invento
    heater output has exactly one owner, so the flag cannot drift.
 4. **Board configuration is data, not `#[cfg]` spaghetti.** One `Board` trait, one impl per
    board, one `PinMap` const. A pin that does not exist on the chip is a compile error.
+
+   🔴 **Amended 2026-10-03 after finding 2.4.** There is no `Board` trait and there is not going
+   to be one: this machine is one board, and a trait with one implementation is a `PinMap` const
+   plus a name. What §1.4 actually needed — and what was missing — is the *validation*, so
+   `cc-hal-esp32::pins` is a flat `const` map (inputs, outputs, bidirectional) plus a
+   `const fn assert_valid()` called by a `const _` item, which is what makes a bad pin a build
+   failure. "One `PinMap` const" is now `one pins module`; the guarantee is unchanged and
+   costs 16 `u8` constants instead of a trait. The same amendment applies to §6's
+   `Board::PINS.assert_valid()`, which is `pins::assert_valid()`.
 5. **Host-testable by construction.** Domain logic depends on traits, never on
    `esp-idf-svc`. `cargo test` on the host must cover the state machine, the emergency
    logic, the config layer, and the layout engine.
@@ -568,10 +577,16 @@ are validated by `cargo clippy --target xtensa-esp32-espidf`.
   `board-esp32s3-devkitc-1`, `board-esp32c6-devkitc-1`.
 - Cargo features select **optional hardware**: `sensors-pressure`, `sensors-watertank`,
   `temp-tsic306`, `temp-ds18b20`, `display-sh1106`, `network`, `mqtt`, `telemetry`.
-- A build-time `const` assertion (`Board::PINS.assert_valid()`) fails compilation on a
+- A build-time `const` assertion (`cc_hal_esp32::pins::assert_valid()`, called by a `const _`
+  item in that module) fails compilation on a
   pin that does not exist on the target chip — the Rust equivalent of
   `pinmapping.h:57-101`'s 21 `static_assert`s, but chip-aware, so porting to S3 or C6
   becomes a compile error to fix rather than a silent miswiring.
+  **Not a `Board::PINS.assert_valid()`** — see the amendment to §1.4: one board is a `const`
+  map, not a trait. The runtime half is `pins::assert_wiring(&peripherals)`, called once in
+  `bring_up`, because `esp-idf-hal` 0.47 reaches a pin's number only through a non-`const fn`
+  (`Pin::pin`) and offers no safe way back (`AnyIOPin::steal` is `unsafe`, which the workspace
+  denies).
 - `cfg(target_arch)` is used **only** for chip-capability facts (input-only pin set, PSRAM
   presence, native USB). Never for business logic.
 

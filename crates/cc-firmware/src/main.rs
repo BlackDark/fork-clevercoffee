@@ -76,10 +76,16 @@ use cc_domain::sensor::tsic306::Tsic306;
 use cc_domain::units::{Celsius, Millis};
 use cc_hal_esp32::heater::{HeaterOutput, TimerIsrPwm};
 use cc_hal_esp32::onewire::GpioOneWire;
-use cc_hal_esp32::sensors::pins;
 use cc_hal_esp32::time::now_ms;
 use cc_hal_esp32::zacwire::{self, ZacwireCapture};
 use cc_hal_esp32::SwitchBank;
+
+// The board's pin map: one copy, in `cc_hal_esp32::pins`, checked for legality
+// at compile time and checked against the wiring below at bring-up. Every
+// `GPIO17` in this file is the field `Peripherals` hands out; every pin number
+// *printed* comes from here, so the log cannot describe a machine that is not
+// the one that booted.
+use cc_hal_esp32::pins;
 use cc_machine::Event;
 // `FirmwareSide` implements this; it is imported so the control task can call
 // `on_reset_shots_since_backflush` for the operator's HTTP reset rather than
@@ -533,6 +539,43 @@ const BRING_UP_STACK_BYTES: usize = 16 * 1024;
 fn bring_up() -> Result<(), Box<dyn Error>> {
     let peripherals = Peripherals::take()?;
 
+    // The pin map against the wiring, before a single pin is configured.
+    //
+    // `cc_hal_esp32::pins` holds the numbers every log line below prints; the
+    // `peripherals.pins.gpioNN` fields are what the machine is actually wired
+    // to. Nothing about `esp-idf-hal` 0.47's typed pin fields lets the second
+    // be derived from the first without `unsafe` — so this checks, once, and
+    // panics with both numbers if they ever disagree. Without it, changing
+    // either side silently makes the boot log describe a machine that is not
+    // the one that booted, which is exactly the failure `04 §1.4` names and
+    // what the C++'s 21 `static_assert`s in `pinmapping.h:79-99` guarded.
+    pins::assert_wiring(&peripherals);
+    // The **complete** map, so this one line answers "what is this board
+    // actually wired as". Every other pin line below is a subset of it, printed
+    // from the same constants.
+    info!(
+        "pins: heater=GPIO{} valve=GPIO{} pump=GPIO{} switch power=GPIO{} \
+         brew=GPIO{} steam=GPIO{} hot_water=GPIO{} tank=GPIO{} \
+         temp=GPIO{} i2c sda=GPIO{} scl=GPIO{} scale data=GPIO{}/GPIO{} \
+         clock=GPIO{} uart tx=GPIO{} rx=GPIO{}",
+        pins::HEATER,
+        pins::WATER_VALVE,
+        pins::PUMP,
+        pins::POWER_SWITCH,
+        pins::BREW_SWITCH,
+        pins::STEAM_SWITCH,
+        pins::WATER_SWITCH,
+        pins::WATER_TANK_SENSOR,
+        pins::TEMP_SENSOR,
+        pins::I2C_SDA,
+        pins::I2C_SCL,
+        pins::SCALE_DATA_1,
+        pins::SCALE_DATA_2,
+        pins::SCALE_CLOCK,
+        pins::UART_TX,
+        pins::UART_RX,
+    );
+
     // The TWDT driver is *moved* into the control task so the subscription
     // belongs to the control task and to nothing else (04 §2: "Watchdog feed —
     // control task only").
@@ -611,8 +654,11 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
         );
     }
     info!(
-        "pin readback OK: heater=GPIO2 ({heater_description}) valve=GPIO17 \
-         pump=GPIO27 all inactive"
+        "pin readback OK: heater=GPIO{} ({heater_description}) valve=GPIO{} \
+         pump=GPIO{} all inactive",
+        pins::HEATER,
+        pins::WATER_VALVE,
+        pins::PUMP,
     );
 
     // 5b. The scale's pins, if one is configured, and nothing else yet.
@@ -666,8 +712,8 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
             info!(
                 "i2c: I2C0 (SDA GPIO{} SCL GPIO{}) at {} kHz, shared between the \
                  ABP2 and the panel",
-                cc_hal_esp32::sensors::pins::I2C_SDA,
-                cc_hal_esp32::sensors::pins::I2C_SCL,
+                pins::I2C_SDA,
+                pins::I2C_SCL,
                 cc_hal_esp32::sensors::I2C_HZ / 1000,
             );
             Some(bus)
@@ -706,9 +752,14 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
     );
     actuators.set_inhibit(TEST_ONLY_INHIBIT);
     info!(
-        "actuators: pump=GPIO27 valve=GPIO17 heater=GPIO2 owned by the control task; \
+        "actuators: pump=GPIO{} valve=GPIO{} heater=GPIO{} owned by the control task; \
          test_only inhibit pump={} valve={} heater={}",
-        TEST_ONLY_INHIBIT.pump, TEST_ONLY_INHIBIT.valve, TEST_ONLY_INHIBIT.heater
+        pins::PUMP,
+        pins::WATER_VALVE,
+        pins::HEATER,
+        TEST_ONLY_INHIBIT.pump,
+        TEST_ONLY_INHIBIT.valve,
+        TEST_ONLY_INHIBIT.heater
     );
 
     // 5d. The five operator inputs: the four switches and the tank float.
@@ -1093,14 +1144,16 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
         handoff: handoff.clone(),
         sta: wifi,
     });
-    let control = std::thread::Builder::new()
-        .name("control".into())
-        .stack_size(CONTROL_STACK_BYTES)
-        .spawn(move || {
+    let control = cc_hal_esp32::task::spawn_with_prio(
+        c"control",
+        CONTROL_STACK_BYTES,
+        cc_hal_esp32::task::CONTROL_PRIO,
+        move || {
             if let Err(err) = control_task(args) {
                 error!("control task failed: {err}");
             }
-        })?;
+        },
+    )?;
 
     // The two peers, spawned after the control task so the watchdog — which the
     // control task owns and which panics the chip when it trips — is already
@@ -1114,10 +1167,12 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
     // table is in `sensor_task.rs`, which is now a note about why the sensor
     // task does not exist. The display task was in the same bisect and was clean
     // in every combination, so it stays.
-    let display_thread = std::thread::Builder::new()
-        .name("display".into())
-        .stack_size(DISPLAY_STACK_BYTES)
-        .spawn(move || display.run());
+    let display_thread = cc_hal_esp32::task::spawn_with_prio(
+        c"display",
+        DISPLAY_STACK_BYTES,
+        cc_hal_esp32::task::DISPLAY_PRIO,
+        move || display.run(),
+    );
     if let Err(err) = display_thread {
         error!("display task could not be spawned: {err}");
     }
@@ -1677,8 +1732,8 @@ fn bring_up_pressure<'bus>(
     info!(
         "pressure: ABP2 on the shared I2C0 (SDA GPIO{} SCL GPIO{}) at 0x{:02X}, \
          non-blocking — the C++'s 10 ms delay is a deadline here, cadence {} ms",
-        cc_hal_esp32::sensors::pins::I2C_SDA,
-        cc_hal_esp32::sensors::pins::I2C_SCL,
+        pins::I2C_SDA,
+        pins::I2C_SCL,
         cc_domain::abp2::ADDRESS,
         cc_domain::abp2::CADENCE.raw(),
     );
@@ -2636,7 +2691,24 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
         // handoff: the radio moved into this task, so an MQTT message is
         // delivered here and there is nothing to hand over. One writer, one
         // place, one store write.
-        for pairs in parameters.take_all() {
+        //
+        // **One request per tick, not all of them.** This used to be
+        // `parameters.take_all()`, and every drained request ran its own
+        // `persist_config` — a ~2 KB JSON serialise plus an NVS erase-and-write —
+        // on this task, inside the 10 ms period, *before* the heater decision
+        // for that period. `STAGED_PARAMETER_DEPTH` is 4, so four browser tabs
+        // saving at once meant four flash transactions in one tick. The mailbox
+        // is bounded at 4 and the ack timeout is 1600 ms, so taking one per
+        // tick bounds the flash work per tick at one transaction and still
+        // answers the last of four within 40 ms. The reasoning, and why
+        // coalescing was the alternative, are on
+        // `ParameterHandoff::take_one`.
+        //
+        // **The request is taken, not drained-then-iterated**, so a `stage`
+        // arriving *after* this line waits for the next tick rather than being
+        // picked up by this one — which is the point: the bound is on the work
+        // this tick does, not on the moment it reads the mailbox.
+        if let Some(pairs) = parameters.take_one() {
             // What the two cached runtime values were *before* the write, so the
             // push-into-the-machine below can tell whether they actually moved.
             // Read before `apply`, not after.
@@ -2656,51 +2728,52 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
                 // answer. Acking here is what stops a save of a value the
                 // machine already holds from timing out.
                 parameters.note_applied();
-                continue;
-            }
-            info!(
-                "config: {} parameter(s) written: {applied:?}",
-                applied.updated
-            );
-            // A write that leaves the machine unable to run safely is persisted,
-            // and the fail-closed rule discards it at the next boot (08 §4.1).
-            // Saying so now is the difference between "my setting vanished" and a
-            // diagnosis; the C++ has no check on this path and loses it silently.
-            if let Err(violation) = cc_safety::validate_config(&control::safety_config(&config)) {
-                error!(
-                    "config: the stored configuration is now UNSAFE ({violation:?}) and the \
-                     next boot will discard it"
+            } else {
+                info!(
+                    "config: {} parameter(s) written: {applied:?}",
+                    applied.updated
                 );
+                // A write that leaves the machine unable to run safely is persisted,
+                // and the fail-closed rule discards it at the next boot (08 §4.1).
+                // Saying so now is the difference between "my setting vanished" and a
+                // diagnosis; the C++ has no check on this path and loses it silently.
+                if let Err(violation) = cc_safety::validate_config(&control::safety_config(&config))
+                {
+                    error!(
+                        "config: the stored configuration is now UNSAFE ({violation:?}) and the \
+                         next boot will discard it"
+                    );
+                }
+                persist_config(&mut store, &config);
+                push_into_machine(
+                    &mut control,
+                    &config,
+                    (pid_enabled_before, brew_setpoint_before),
+                    &mut effects,
+                );
+                // `standbyCoordinator().reset(); requestNormalOperation(...)` — the
+                // C++'s last two lines (`:870-872`), on the same "a POST wakes the
+                // machine" rule as `/api/setpoint`.
+                control.feed(
+                    &config,
+                    Event::Command(cc_machine::Command::NormalOperation),
+                    &mut effects,
+                );
+                // **Publish the new values now, not on the next heartbeat.**
+                //
+                // This is the read-after-write half of "the UI saved it and the UI
+                // then read the old value back". The apply above has written the
+                // `Config` *and* NVS, so the value is real; but `GET /api/parameters`
+                // is answered from `publish_live`, which used to run only on the 1 s
+                // heartbeat, so for up to a second after a successful save the API
+                // served the previous values. A browser that refetches on save
+                // therefore got the old number, put it back into the form, and the
+                // toggle appeared to spring back.
+                parameters.publish_live(cc_hal_esp32::parameters_json(&config));
+                // The ack the `POST` handler is blocked on. See
+                // `ParameterHandoff::stage_and_wait`.
+                parameters.note_applied();
             }
-            persist_config(&mut store, &config);
-            push_into_machine(
-                &mut control,
-                &config,
-                (pid_enabled_before, brew_setpoint_before),
-                &mut effects,
-            );
-            // `standbyCoordinator().reset(); requestNormalOperation(...)` — the
-            // C++'s last two lines (`:870-872`), on the same "a POST wakes the
-            // machine" rule as `/api/setpoint`.
-            control.feed(
-                &config,
-                Event::Command(cc_machine::Command::NormalOperation),
-                &mut effects,
-            );
-            // **Publish the new values now, not on the next heartbeat.**
-            //
-            // This is the read-after-write half of "the UI saved it and the UI
-            // then read the old value back". The apply above has written the
-            // `Config` *and* NVS, so the value is real; but `GET /api/parameters`
-            // is answered from `publish_live`, which used to run only on the 1 s
-            // heartbeat, so for up to a second after a successful save the API
-            // served the previous values. A browser that refetches on save
-            // therefore got the old number, put it back into the form, and the
-            // toggle appeared to spring back.
-            parameters.publish_live(cc_hal_esp32::parameters_json(&config));
-            // The ack the `POST` handler is blocked on. See
-            // `ParameterHandoff::stage_and_wait`.
-            parameters.note_applied();
         }
 
         // ---- 3. a credential typed on the console ---------------------------
@@ -3552,11 +3625,13 @@ fn start_provisioning(
             return;
         }
     };
-    if let Err(err) = std::thread::Builder::new()
-        .name("provision".into())
-        .stack_size(network::PROVISION_THREAD_STACK_BYTES)
-        .spawn(move || network::run_provisioning(serial, handoff))
-    {
+    let spawned = cc_hal_esp32::task::spawn_with_prio(
+        c"provision",
+        network::PROVISION_THREAD_STACK_BYTES,
+        cc_hal_esp32::task::PROVISION_PRIO,
+        move || network::run_provisioning(serial, handoff),
+    );
+    if let Err(err) = spawned {
         warn!("serial: the provisioning task did not start: {err}");
     }
 }

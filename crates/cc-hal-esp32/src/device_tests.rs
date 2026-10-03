@@ -340,8 +340,8 @@ pub const CASES: &[Case] = &[
         run: task::tests::a_staged_parameter_request_reaches_the_control_task,
     },
     Case {
-        name: "task::staged_requests_are_drained_in_order_and_all_at_once",
-        run: task::tests::staged_requests_are_drained_in_order_and_all_at_once,
+        name: "task::only_one_staged_request_is_taken_per_tick",
+        run: task::tests::only_one_staged_request_is_taken_per_tick,
     },
     Case {
         name: "task::a_full_parameter_mailbox_refuses_rather_than_dropping",

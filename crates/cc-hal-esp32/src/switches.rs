@@ -52,7 +52,8 @@ use esp_idf_hal::gpio::Pull;
 use heapless::Vec;
 use log::info;
 
-use crate::sensors::{pins, GpioIn};
+use crate::pins;
+use crate::sensors::GpioIn;
 
 /// How many switch edges one tick can carry: one per operator switch.
 ///

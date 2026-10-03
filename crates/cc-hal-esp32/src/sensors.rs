@@ -49,8 +49,8 @@ pub const I2C_HZ: Hertz = Hertz(400_000);
 /// The SDA pin handed to [`Abp2I2c::new`].
 ///
 /// `AnyIOPin` rather than the concrete `Gpio21`, so the type does not fix the
-/// pin number here: that is [`pins::I2C_SDA`]'s job, and the board layer
-/// (R3-01) is what turns a number into a peripheral.
+/// pin number here: that is [`crate::pins::I2C_SDA`]'s job, and the board layer
+/// is what turns a number into a peripheral.
 pub type SdaPin = esp_idf_hal::gpio::AnyIOPin<'static>;
 /// The SCL pin handed to [`Abp2I2c::new`]. See [`SdaPin`].
 pub type SclPin = esp_idf_hal::gpio::AnyIOPin<'static>;
@@ -283,40 +283,4 @@ impl<'d> GpioIn<'d> {
     pub const fn is_pressed(&self) -> bool {
         self.debounced.is_pressed()
     }
-}
-
-/// The four operator switches and the water-tank float, as the firmware builds
-/// them.
-///
-/// The pin numbers are `pinmapping.h:17-20` and `:28`. Keeping them in one
-/// `const` block is the point of `04 §4`'s compile-time pin assertion: a pin
-/// that does not exist on the chip is a compile error, not a silent miswiring,
-/// which is what the C++'s 21 `static_assert`s in `pinmapping.h:57-101` achieve
-/// and what `Board::PINS.assert_valid()` (R3-01) will do for the whole map.
-pub mod pins {
-    /// `PIN_POWERSWITCH` (`pinmapping.h:17`).
-    pub const POWER_SWITCH: u8 = 39;
-    /// `PIN_BREWSWITCH` (`pinmapping.h:18`).
-    pub const BREW_SWITCH: u8 = 34;
-    /// `PIN_STEAMSWITCH` (`pinmapping.h:19`).
-    pub const STEAM_SWITCH: u8 = 35;
-    /// `PIN_WATERSWITCH` — the hot-water momentary switch (`pinmapping.h:20`).
-    ///
-    /// Not to be confused with the water *tank* float below: one is a button
-    /// the user presses, the other is a float the water moves.
-    pub const WATER_SWITCH: u8 = 36;
-    /// `PIN_WATERTANKSENSOR` — the tank float switch (`pinmapping.h:28`).
-    pub const WATER_TANK_SENSOR: u8 = 23;
-    /// `PIN_TEMPSENSOR` — the DS18B20 1-Wire bus (`pinmapping.h:27`).
-    ///
-    /// **Measured on the board**: the recovered image's boot log reported a
-    /// DS18B20 answering on this line, and the same log named GPIO2/GPIO17/GPIO27
-    /// for heater/valve/pump exactly as `pinmapping.h` does, which is what makes
-    /// the inference solid. See
-    /// [`cc_domain::onewire::FAMILY_DS18B20`].
-    pub const TEMP_SENSOR: u8 = 16;
-    /// `PIN_I2CSDA` (`pinmapping.h:54`).
-    pub const I2C_SDA: u8 = 21;
-    /// `PIN_I2CSCL` (`pinmapping.h:53`).
-    pub const I2C_SCL: u8 = 22;
 }

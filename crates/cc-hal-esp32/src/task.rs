@@ -45,6 +45,7 @@ use alloc::vec::Vec;
 use std::sync::Mutex;
 
 use esp_idf_hal::task::queue::Queue;
+use esp_idf_hal::task::thread::ThreadSpawnConfiguration;
 
 use crate::web::Command;
 
@@ -140,13 +141,140 @@ pub fn delay_ms(ms: u32) {
     esp_idf_hal::delay::FreeRtos::delay_ms(ms);
 }
 
+/// Spawn a task at an explicit `FreeRTOS` priority.
+///
+/// # Why a `std::thread::Builder` alone is not enough
+///
+/// `std::thread::Builder` on this target is `esp_pthread`
+/// (`components/pthread/port/linux/pthread.c`), which reads its priority from
+/// the **process-wide** `esp_pthread` default,
+/// `CONFIG_PTHREAD_TASK_PRIO_DEFAULT`. That default is 5 in this build, and
+/// `04 §2` says control is 5, display is 3 and provisioning is 4 — so the
+/// control task got the right number by coincidence and the other two did not.
+/// Worse, lwIP's own `tcpip` task runs at **18**, so a bare spawn left network
+/// work preempting the control loop, which is the inversion ADR-0002 records
+/// for the C++ firmware and which `04 §2` exists to remove. Naming the
+/// priorities and never applying them is worse than not naming them: the log
+/// claims a relationship nothing establishes.
+///
+/// [`ThreadSpawnConfiguration`] is the only priority API in `esp-idf-hal` 0.47
+/// (`task.rs:353-405`) and it is **global**, so the default is saved, the
+/// task's configuration is installed, the thread is spawned, and the default is
+/// put back. Leaving the task's priority installed would silently raise
+/// everything spawned afterwards — including the httpd task, which
+/// `esp-idf-svc` starts from a `std::thread` of its own.
+///
+/// This is the pattern [`crate::scale::Sampler::start`] already uses
+/// (`scale.rs:640-662`); it is here rather than inlined three times because
+/// three tasks need it.
+///
+/// # Errors
+///
+/// [`std::io::Error`] from the thread spawn, and [`EspError`] if the global
+/// configuration could not be installed or — the case that matters — restored.
+/// A failure to restore leaves every later task at this task's priority, so it
+/// is reported rather than dropped.
+pub fn spawn_with_prio<F, T>(
+    name: &'static core::ffi::CStr,
+    stack_size: usize,
+    priority: u8,
+    body: F,
+) -> std::io::Result<std::thread::JoinHandle<T>>
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    let mut config = ThreadSpawnConfiguration::get().unwrap_or_default();
+    config.stack_size = stack_size;
+    config.priority = priority;
+    // `&'static CStr` rather than `&str`: this is the field's own type, and
+    // converting would mean either an allocation whose `CString` cannot outlive
+    // the `'static` borrow `config.name` needs, or
+    // `CStr::from_bytes_with_nul_unchecked`, which is `unsafe` and this
+    // workspace denies `unsafe_code` (`Cargo.toml:125`). A `c"control"` literal
+    // at the call site is cheaper than either.
+    config.name = Some(name);
+
+    // `set` panics on a priority outside `1..24`. Every caller passes a
+    // compile-time constant, so this cannot fire today; it is left to fire
+    // because a panic at boot is the right outcome for a priority the
+    // scheduler would reject anyway.
+    config.set().map_err(std::io::Error::other)?;
+
+    let spawned = std::thread::Builder::new()
+        .name(name.to_string_lossy().into_owned())
+        .stack_size(stack_size)
+        .spawn(body);
+
+    // Restore the process default whatever happened — including on the error
+    // path, which is the case that matters.
+    if let Some(previous) = ThreadSpawnConfiguration::get() {
+        previous.set().map_err(std::io::Error::other)?;
+    }
+
+    spawned
+}
+
+/// The control task's `FreeRTOS` priority.
+///
+/// 5, from `04 §2`'s table: the control loop is the highest-priority non-ISR
+/// task in the firmware, so a network or display task cannot preempt a
+/// decision about the heater.
+///
+/// **Still below lwIP's `tcpip` task at 18**, which is IDF's own default and
+/// is not this firmware's to change. What this constant fixes is the
+/// *documented* relationship between *this firmware's* tasks; the
+/// control-vs-lwIP ordering is recorded in
+/// [`crate::scale::SAMPLER_PRIO`]'s doc, which is where it is measured.
+pub const CONTROL_PRIO: u8 = 5;
+
+/// The display task's priority, 3 (`04 §2`).
+///
+/// Below [`CONTROL_PRIO`] on purpose: a frame is ten milliseconds of I²C bus
+/// time, and the tick that must not be delayed is the one that decides whether
+/// the heater stays on.
+pub const DISPLAY_PRIO: u8 = 3;
+
+/// The provisioning task's priority, 4 (`04 §2`).
+///
+/// Between display and control: the UART console is interactive, so it should
+/// answer while a frame is going out, but it is still a network-tier task and
+/// must not delay the tick.
+pub const PROVISION_PRIO: u8 = 4;
+
+/// The priorities are a relationship, and a relationship expressed only in a
+/// table is not checked.
+///
+/// A display task at 5 would compile, run, and reintroduce exactly the tick
+/// overrun `04 §2` moved the display out of the control loop to fix. Asserted
+/// at compile time for the reason [`crate::scale::SAMPLER_PRIO`] asserts its
+/// relationship the same way.
+const _: () = {
+    assert!(
+        CONTROL_PRIO > DISPLAY_PRIO,
+        "04 §2: a display frame is 10 ms of I²C bus time and must not preempt \
+         the tick that decides whether the heater stays on"
+    );
+    assert!(
+        CONTROL_PRIO > PROVISION_PRIO,
+        "04 §2: provisioning is a network-tier task and must not preempt the \
+         control loop"
+    );
+    assert!(
+        PROVISION_PRIO > DISPLAY_PRIO,
+        "04 §2: an interactive UART console should answer while a frame is \
+         being written to the panel"
+    );
+};
+
 /// How many parameter-write requests may be waiting for the control task.
 ///
-/// Four, and it is not a tuning knob: the control task drains the whole mailbox
-/// at the top of every tick, so four requests is four ticks' worth of backlog
-/// and the fifth is a client that is posting faster than 100 ms. The bound
-/// exists so a client looping on `POST /api/parameters` cannot grow the heap; it
-/// is reached by four browser tabs, not by a person.
+/// Four, and it is not a tuning knob: the control task takes **one** of them at
+/// the top of every tick, so four requests is four ticks' worth of backlog —
+/// 40 ms, against an ack timeout of [`PARAMETER_ACK_TIMEOUT_MS`] — and the
+/// fifth is a client that is posting faster than the tick drains. The bound
+/// exists so a client looping on `POST /api/parameters` cannot grow the heap;
+/// it is reached by four browser tabs, not by a person.
 pub const STAGED_PARAMETER_DEPTH: usize = 4;
 
 /// How long `POST /api/parameters` waits for the control task to apply what it
@@ -222,7 +350,7 @@ impl ParameterHandoff {
         }
     }
 
-    /// The queue half, for the `take_all` drain and `len`.
+    /// The queue half, for the [`Self::take_one`] drain and `len`.
     fn queue(&self) -> &Mutex<VecDeque<ParameterRequest>> {
         &self.queue
     }
@@ -346,17 +474,46 @@ impl ParameterHandoff {
         true
     }
 
-    /// Take everything staged, oldest first. Called by the control task.
+    /// Take the **oldest** staged request, leaving the rest. Called by the
+    /// control task, once per tick.
     ///
-    /// Draining all of them in one tick is deliberate: four `POST`s that arrived
-    /// together are four independent requests, and answering them in a later tick
-    /// than the one after would make the last one wait 400 ms for nothing.
+    /// # Why one, and not all of them
+    ///
+    /// Draining the whole mailbox meant every drained request ran its own
+    /// `persist_config` — a ~2 KB JSON serialise plus an NVS erase-and-write —
+    /// on the control task, in the 10 ms period, **before** the heater decision
+    /// for that period. At [`STAGED_PARAMETER_DEPTH`] that is four flash
+    /// transactions in one tick.
+    ///
+    /// This is a latency defect and not a hazard, and the distinction matters:
+    /// the fail-safe direction is already correct, because the 1000 ms deadman
+    /// drops the heater where the 5 s task watchdog would have reset the chip.
+    /// So the smallest honest fix is to bound the work per tick rather than to
+    /// restructure the mailbox or move persistence off this task.
+    ///
+    /// # Why one, and not coalesce-the-rest-into-one-`persist_config`
+    ///
+    /// Coalescing is the other option and it needs more machinery for the same
+    /// result: the drained requests have to be merged into one `apply` (with
+    /// four posts setting the same key, "which value wins" becomes a question
+    /// this file would have to answer), and `note_applied` — the read-after-write
+    /// ack four `stage_and_wait` callers are blocked on — has to be called four
+    /// times for one apply. One request per tick keeps the ack 1:1 with the
+    /// request it answers, which is the property [`stage_and_wait`] is built on.
+    ///
+    /// # Why no request starves
+    ///
+    /// The mailbox holds at most [`STAGED_PARAMETER_DEPTH`] requests, one is
+    /// taken per tick, and the control period is 10 ms, so the last of four
+    /// waits at most 40 ms — against an ack timeout of
+    /// [`PARAMETER_ACK_TIMEOUT_MS`] (1600 ms). The mailbox is never near empty
+    /// in practice; it is reached by four browser tabs, not by a person.
     #[must_use]
-    pub fn take_all(&self) -> Vec<ParameterRequest> {
-        let Ok(mut slot) = self.queue().lock() else {
-            return Vec::new();
-        };
-        slot.drain(..).collect()
+    pub fn take_one(&self) -> Option<ParameterRequest> {
+        self.queue()
+            .lock()
+            .ok()
+            .and_then(|mut slot| slot.pop_front())
     }
 
     /// How many requests are waiting.
@@ -413,25 +570,43 @@ pub mod tests {
         assert!(handoff.is_empty());
         assert!(handoff.stage(vec![("pid.enabled".into(), "1".into())]));
         assert_eq!(handoff.len(), 1);
-        let taken = handoff.take_all();
-        assert_eq!(taken.len(), 1);
-        assert_eq!(taken[0][0].0, "pid.enabled");
+        let taken = handoff.take_one();
+        assert_eq!(taken.as_ref().unwrap()[0].0, "pid.enabled");
         assert!(handoff.is_empty(), "taking empties it");
-        assert!(handoff.take_all().is_empty());
+        assert!(handoff.take_one().is_none());
     }
 
+    /// The 2.8 defect, as a test: four posts could land four NVS erase-and-writes
+    /// in one 10 ms tick, on the control task, before its heater decision.
+    ///
+    /// The fix is that the control task takes **one** request per tick and
+    /// leaves the rest, so a tick can only ever pay one `persist_config`.
     #[cfg_attr(test, test)]
-    pub fn staged_requests_are_drained_in_order_and_all_at_once() {
-        // Four posts that arrived together are four independent requests, and
-        // answering the last one a tick later than it needed to would be a
-        // latency the design does not owe anybody.
+    pub fn only_one_staged_request_is_taken_per_tick() {
         let handoff = ParameterHandoff::new();
         for port in ["1883", "1884", "8883", "1885"] {
             assert!(handoff.stage(vec![("mqtt.port".into(), port.into())]));
         }
-        let taken = handoff.take_all();
-        let ports: Vec<&str> = taken.iter().map(|r| r[0].1.as_str()).collect();
-        assert_eq!(ports, ["1883", "1884", "8883", "1885"]);
+
+        // Tick 1..4 take them in order, oldest first — a later post never
+        // overtakes an earlier one, so two posts to the same key are applied in
+        // the order they were made.
+        for expected in ["1883", "1884", "8883", "1885"] {
+            let taken = handoff.take_one().expect("a staged request");
+            assert_eq!(taken[0].1, expected);
+        }
+        assert!(handoff.is_empty(), "four ticks drained a four-deep mailbox");
+
+        // And the ack path is 1:1 with the requests, which is what lets four
+        // `stage_and_wait` callers each be released by their own tick.
+        let handoff = ParameterHandoff::new();
+        assert!(handoff.stage(vec![("pid.enabled".into(), "1".into())]));
+        assert!(handoff.stage(vec![("pid.enabled".into(), "0".into())]));
+        assert_eq!(handoff.applied(), 0);
+        assert!(handoff.take_one().is_some());
+        handoff.note_applied();
+        assert_eq!(handoff.applied(), 1, "one taken, one acked");
+        assert_eq!(handoff.len(), 1, "the second post is still waiting");
     }
 
     #[cfg_attr(test, test)]
@@ -446,10 +621,13 @@ pub mod tests {
         }
         assert!(!handoff.stage(vec![("pid.enabled".into(), "0".into())]));
         assert_eq!(handoff.len(), STAGED_PARAMETER_DEPTH);
-        // And the refusal did not overwrite what was already there.
-        let taken = handoff.take_all();
-        assert_eq!(taken.len(), STAGED_PARAMETER_DEPTH);
-        assert!(taken.iter().all(|r| r[0].1 == "1"));
+        // And the refusal did not overwrite what was already there: four ticks
+        // later all four are still staged, and every one says `1`.
+        for _ in 0..STAGED_PARAMETER_DEPTH {
+            let taken = handoff.take_one().expect("a staged request");
+            assert_eq!(taken[0].1, "1");
+        }
+        assert!(handoff.is_empty());
     }
 
     #[cfg_attr(test, test)]

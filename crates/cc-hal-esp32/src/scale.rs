@@ -68,31 +68,25 @@ use esp_idf_hal::gpio::{Gpio32, Gpio33};
 use esp_idf_hal::gpio::{Input, InputOutput, InputPin, Level, OutputPin, PinDriver, Pull};
 use esp_idf_hal::interrupt;
 use esp_idf_hal::task::queue::Queue as HalQueue;
-use esp_idf_hal::task::thread::ThreadSpawnConfiguration;
 use esp_idf_svc::sys::{EspError, ESP_FAIL};
 use log::{error, info, warn};
 
-/// `PIN_HXDAT` — the first data line.
-pub const PIN_HXDAT: u8 = 32;
-
-/// `PIN_HXDAT2` — the second data line.
-pub const PIN_HXDAT2: u8 = 25;
-
-/// `PIN_HXSCK` — the shared clock line.
-pub const PIN_HXSCK: u8 = 33;
-
-/// The control task's priority.
-///
-/// A `std::thread` on this target at ESP-IDF's pthread default, which is
-/// `CONFIG_PTHREAD_TASK_PRIO_DEFAULT` — 5 in this build's `sdkconfig.h:823`.
-/// It is named here rather than left implicit because the sampler's priority is
-/// *relative* to it, and a relationship expressed in a comment is not checked.
-pub const CONTROL_PRIO: u8 = 5;
+use crate::pins::{SCALE_CLOCK, SCALE_DATA_1, SCALE_DATA_2};
+use crate::task::CONTROL_PRIO;
 
 /// The sampler's `FreeRTOS` priority.
 ///
 /// **Above [`CONTROL_PRIO`]** (04 §2's table) and above `esp-mqtt`'s 4. The
 /// reasoning is in the module docs.
+///
+/// Note what this does **not** claim: `CONTROL_PRIO` is 5, and lwIP's `tcpip`
+/// task runs at 18, so network work still preempts the control tick on this
+/// toolchain. That is an ESP-IDF default this firmware does not own, and it is
+/// recorded here rather than fixed by raising the control task above 18,
+/// because 18 is where IDF puts a stack that must not miss a keepalive window
+/// and 04 §2 names 5 for control. What the constant buys is that the
+/// *documented* ordering of *this firmware's* tasks is now established rather
+/// than assumed, which is what finding 2.3 was about.
 ///
 /// The ceiling is 24 — `ThreadSpawnConfiguration::set` panics outside
 /// `1..24` — and 6 is one above the control task rather than the maximum, so a
@@ -176,9 +170,9 @@ impl core::fmt::Debug for GpioHx711 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
             f,
-            "GpioHx711(data={PIN_HXDAT}, data2={}, clock={PIN_HXSCK}, active={})",
+            "GpioHx711(data={SCALE_DATA_1}, data2={}, clock={SCALE_CLOCK}, active={})",
             if self.data_2.is_some() {
-                PIN_HXDAT2.to_string()
+                SCALE_DATA_2.to_string()
             } else {
                 "none".into()
             },
@@ -588,8 +582,8 @@ impl Sampler {
         bus.power_up()?;
         let (data_1_high, data_2_high, clock_low) = bus.idle_levels();
         info!(
-            "scale: pins configured — data {PIN_HXDAT}={}, data {PIN_HXDAT2}={}, \
-             clock {PIN_HXSCK} low={clock_low}; rate {rate:?} = gain {}, {} SPS, \
+            "scale: pins configured — data {SCALE_DATA_1}={}, data {SCALE_DATA_2}={}, \
+             clock {SCALE_CLOCK} low={clock_low}; rate {rate:?} = gain {}, {} SPS, \
              {} clocks per read; {} cell(s)",
             level(data_1_high),
             level(data_2_high),
@@ -607,7 +601,7 @@ impl Sampler {
             warn!(
                 "scale: idle levels are not the expected DOUT-high / SCK-low — \
                  either a conversion is already pending or something is pulling \
-                 GPIO{PIN_HXDAT} low. Presence is decided by the signal timeout, \
+                 GPIO{SCALE_DATA_1} low. Presence is decided by the signal timeout, \
                  not by this reading."
             );
         }
@@ -624,43 +618,15 @@ impl Sampler {
         let task_events = Arc::clone(&events);
         let task_telemetry = Arc::clone(&telemetry);
 
-        // `std::thread::Builder` on this target is `esp_pthread`
-        // (`components/pthread/port/linux/pthread.c`), which reads its priority
-        // and stack from the **process-wide** `esp_pthread` default.
-        // `ThreadSpawnConfiguration` is the only priority API in
-        // `esp-idf-hal` 0.47 (`task.rs:353-405`) and it is global, so the
-        // default is installed around the spawn and restored after — leaving
-        // the sampler's priority installed would silently raise every task
-        // spawned later, including the httpd task.
-        // `ThreadSpawnConfiguration` is not `Copy` (`esp-idf-hal` 0.47
-        // `task.rs:353`, it derives only `Debug`), so the saved default is read
-        // twice rather than moved: once to derive the sampler's configuration
-        // from, and once to put back. Two reads of a global that only this
-        // thread changes between them is the honest cost of a global-only API.
-        let mut config = ThreadSpawnConfiguration::get().unwrap_or_default();
-        config.stack_size = SAMPLER_STACK_BYTES;
-        config.priority = SAMPLER_PRIO;
-        config.name = Some(c"scale");
-        // `set` panics on a priority outside `1..24`. `SAMPLER_PRIO` is a
-        // compile-time 6 so this cannot fire today; it is left to fire because
-        // a panic at boot is the right outcome for a priority the scheduler
-        // would reject anyway.
-        config.set()?;
-
-        let spawned = std::thread::Builder::new()
-            .name("scale".into())
-            .stack_size(SAMPLER_STACK_BYTES)
-            .spawn(move || {
+        // `std::thread::Builder` on this target reads its priority and stack
+        // from the process-wide `esp_pthread` default, so `spawn_with_prio`
+        // saves the default, installs the sampler's, spawns, and restores —
+        // leaving the sampler's priority installed would silently raise every
+        // task spawned later, including the httpd task.
+        let spawned =
+            crate::task::spawn_with_prio(c"scale", SAMPLER_STACK_BYTES, SAMPLER_PRIO, move || {
                 run_sampler(bus, scale, rate, task_telemetry, task_commands, task_events);
             });
-
-        // Restore the process default whatever happened. A failure to restore
-        // would leave every later task at the sampler's priority, so it is
-        // reported rather than dropped — and it is restored on the error path
-        // too, which is the case that matters.
-        if let Some(previous) = ThreadSpawnConfiguration::get() {
-            previous.set()?;
-        }
 
         spawned.map_err(|err| {
             error!("scale: the sampling task did not start: {err}");
@@ -859,7 +825,7 @@ fn run_sampler(
             if faulted {
                 error!(
                     "scale: DOUT has been high for more than {} ms — the cell is \
-                     not answering. No scale is fitted, or GPIO{PIN_HXDAT} is \
+                     not answering. No scale is fitted, or GPIO{SCALE_DATA_1} is \
                      floating or shorted. The weight is reported as absent, not \
                      guessed, and nothing else is affected.",
                     cc_domain::sensor::hx711::SIGNAL_TIMEOUT.raw(),
@@ -1040,15 +1006,15 @@ pub mod tests {
 
     /// The pin map is the one the C++ uses.
     ///
-    /// `pinmapping.h`'s `PIN_HXDAT` (32), `PIN_HXDAT2` (25) and `PIN_HXSCK`
-    /// (33). If a future edit moves one of these, the scale silently stops
+    /// `pinmapping.h`'s `PIN_HXDAT` (32), `PIN_HXDAT2` (25) and `PIN_HXCLK`
+    /// (33), which [`crate::pins`] is the single copy of. If a future edit moves one of these, the scale silently stops
     /// reading — and nothing else in the firmware would notice, because nothing
     /// else touches these pins.
     #[cfg_attr(test, test)]
     pub fn the_pins_are_the_cpp_pin_map() {
-        assert_eq!(PIN_HXDAT, 32);
-        assert_eq!(PIN_HXDAT2, 25);
-        assert_eq!(PIN_HXSCK, 33);
+        assert_eq!(SCALE_DATA_1, 32);
+        assert_eq!(SCALE_DATA_2, 25);
+        assert_eq!(SCALE_CLOCK, 33);
     }
 
     /// The sampler's stack fits the two datasets it carries.

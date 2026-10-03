@@ -116,6 +116,7 @@ pub mod heater;
 pub mod mqtt;
 pub mod nvs;
 pub mod onewire;
+pub mod pins;
 pub mod provisioning;
 pub mod restart;
 pub mod scale;

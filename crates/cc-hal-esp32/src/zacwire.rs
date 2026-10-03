@@ -6,7 +6,7 @@
 //!
 //! **No TSIC-306 is fitted to the machine this was written on.** The probe is a
 //! DS18B20 (family `0x28`, ROM `286937aacd78af41`, measured), and it shares
-//! GPIO16 with the 1-Wire bus ([`crate::sensors::pins::TEMP_SENSOR`]), so the
+//! GPIO16 with the 1-Wire bus ([`crate::pins::TEMP_SENSOR`]), so the
 //! capture is not even brought up in the firmware build. Every claim below is
 //! either read out of the installed sources or host-tested against a
 //! synthesised waveform. **None of it is evidence that a TSIC-306 works.** See
