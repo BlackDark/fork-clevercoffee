@@ -53,10 +53,34 @@ every writer (HTTP, MQTT, `/api/parameters`, NVS) rather than the route where th
 
 | # | item | note |
 | --- | --- | --- |
-| 4.3 | Three levels of `dyn` in the safety applier | make generic |
-| P2-2 | `Diagnostics` — 11 optional methods, 4 implemented | collapse or delete |
+| 4.3 | Three levels of `dyn` in the safety applier | ✅ **done** — generic + `?Sized`; `.flash.text` −280 B |
+| P2-2 | `Diagnostics` — 11 optional methods, 4 implemented | ✅ **done** — 11 → **5**, not deleted |
 | 4.6 | `ConfigStore` — one impl, never used as a bound | delete |
 | 4.2 | Three blocking mutexes in the 10 ms tick | **highest risk**; unverifiable on hardware |
+
+**On P2-2.** The trait was **not** deleted, because the collapse leaves five
+genuinely-distinct responsibilities, not fewer than three. What went were the six
+methods no implementation anywhere had ever written
+(`on_clear_action_requests`, `on_clear_stale_stop_requests`,
+`on_reset_standby_timer`, `on_reset_mqtt_reconnect_count`, `on_wake_display`, and
+the proposed `on_clear_*`-as-mandatory move). Their five `Effect`s still exist and
+still reach `apply`, where they are now one documented no-op arm instead of five
+default-bodied trait methods that read as "an implementor may do this" and in
+practice never did. What stayed is exactly what an implementation exists for: the
+two state-transition log lines, the two flag mirrors, and `on_log` — which
+**nothing** implements, so it is filed as finding 8.1 rather than deleted, because
+`intentional-diffs.md` §1 is a claim about a log line that the firmware does not
+currently emit.
+
+The proposed reshape ("move the five flag mirrors into `MachineChannels` as
+mandatory methods") was **not** done, and the module docs at `applier.rs:29-47`
+are the reason: they state the dividing line as *whether the reducer has already
+applied the change to `Machine`*, and every flag mirror is by definition already
+applied. Moving them to the mandatory half would put log lines on the side of the
+split whose entire justification is that a missing implementation loses a
+*change*, and would re-create exactly the "silent `{}` bodies" shape that
+`on_record_brew` shipped. It would also have made every one of the four test
+doubles implement three no-ops it has no reason to have.
 
 ## Phase 4 — `cc-web` extraction 🔜
 

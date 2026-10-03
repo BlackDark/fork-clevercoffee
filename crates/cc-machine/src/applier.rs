@@ -33,7 +33,7 @@
 //! * [`Diagnostics`] is observability — the state-transition log, the flag
 //!   mirrors, the watchdog line. It is reached through one optional accessor so
 //!   that "this side channel has no diagnostics" is a single `None` instead of
-//!   nine empty bodies, and it does keep default bodies: a gap in a log is
+//!   a body per method, and it does keep default bodies: a gap in a log is
 //!   visible in the log's absence, which is the property that was missing from
 //!   [`MachineChannels`] and is present here.
 //!
@@ -161,6 +161,13 @@ pub trait MachineChannels {
 /// have default bodies — see the module documentation. Everything the reducer
 /// has **not** already written into [`Machine`] belongs on
 /// [`MachineChannels`] instead.
+///
+/// Five methods, and every one of them earns its place by having an
+/// implementation: `on_enter_state` and `on_exit_state` are the C++'s
+/// `logStateEntry`/`logStateExit`, `on_pid_runtime` and `on_steam_mode` mirror
+/// two flags, and `on_log` is where `Effect::PumpTimeoutFired` reaches the
+/// field log (`intentional-diffs.md` §1 is a claim about a *log line*, so a
+/// method nobody implements would make that divergence document false).
 pub trait Diagnostics {
     /// The state was left. The C++'s `logStateExit` plus the state-name log.
     fn on_exit_state(&mut self, _state: MachineState) {}
@@ -174,37 +181,6 @@ pub trait Diagnostics {
     fn on_pid_runtime(&mut self, _enabled: bool) {}
     /// Steam mode changed. A mirror of [`Machine::steam_mode`], likewise.
     fn on_steam_mode(&mut self, _enabled: bool) {}
-    /// Every action request was drained (S11). A mirror of
-    /// [`Machine::requests`](crate::machine::Machine::requests), which the
-    /// reducer has already cleared (`MachineStateContext.h:615-627`).
-    fn on_clear_action_requests(&mut self) {}
-    /// The stale stop requests were drained. A mirror, likewise.
-    fn on_clear_stale_stop_requests(&mut self) {}
-    /// The standby countdown was re-armed. A mirror of
-    /// [`Machine::standby`](crate::machine::Machine::standby), which
-    /// `set_request` has already reset (`MachineStateContext.cpp:217-267`).
-    fn on_reset_standby_timer(&mut self) {}
-    /// The MQTT reconnect counter was reset.
-    ///
-    /// `networkCoordinator().resetMqttConnectionAttempts()`
-    /// (`MachineStateContext.cpp:327-329`). **Not implemented by the device
-    /// side channel**: the port's MQTT client is built in `cc-hal-esp32::mqtt`
-    /// and is not reachable from the applier, so this is a recorded gap rather
-    /// than a silent one — `FirmwareSide::diagnostics` returns `Some`, and this
-    /// body is empty, so it is a line in one file rather than a line in none.
-    fn on_reset_mqtt_reconnect_count(&mut self) {}
-    /// The display must leave power-save.
-    ///
-    /// `exitStandbyMode()`'s `display->setPowerSave(0)`
-    /// (`MachineStateContext.cpp:411-417`). **Not implemented by the device
-    /// side channel**, and it does not need to be: the panel is blanked from
-    /// [`Machine::standby`]'s `should_turn_off_display()` at frame-publish time
-    /// (`cc-firmware/src/main.rs`), and both of the C++'s wake paths out of
-    /// standby request normal operation, which re-arms that timer
-    /// (`handlers.rs`, `set_request` — `MachineStateContext.cpp:254-260`). So
-    /// the panel comes back on the next published frame whether or not anyone
-    /// handles this call.
-    fn on_wake_display(&mut self) {}
     /// A free-form log line for the transition reason, and for a watchdog that
     /// fired.
     fn on_log(&mut self, _message: &str) {}
@@ -221,9 +197,25 @@ pub trait Diagnostics {
 /// `EmergencyShutdown` followed by `EnablePump` is not a no-op, it is an
 /// energise request that the latch is supposed to refuse, and collapsing it
 /// would hide the refusal.
-pub fn apply(
-    actuators: &mut dyn Actuators,
-    side: &mut dyn MachineChannels,
+///
+/// # Why generic rather than `&mut dyn`
+///
+/// Both bounds are `?Sized`, so a caller holding a trait object still compiles,
+/// but the firmware passes concrete types and so gets **static** dispatch: this
+/// monomorphises once per `(A, M)` pair and every `actuators.…` below inlines
+/// into the match. That is the whole point on the safety path — findings 4.3
+/// measured 4-5 `reduce` calls plus this call over up to
+/// [`MAX_EFFECTS_PER_EVENT`](crate::effect::MAX_EFFECTS_PER_EVENT) effects every
+/// 10 ms tick, so the indirect calls were on the order of a thousand a second,
+/// and `dyn` is precisely what stops
+/// the optimiser seeing that `EnablePump` is one pin write.
+///
+/// The trait seam is untouched, so host-testability is too: a recorder is still
+/// just a type implementing [`Actuators`], and the device build still has one
+/// implementation of each trait.
+pub fn apply<A: Actuators + ?Sized, M: MachineChannels + ?Sized>(
+    actuators: &mut A,
+    side: &mut M,
     machine: &Machine,
     effects: &[Effect],
 ) {
@@ -236,10 +228,10 @@ pub fn apply(
 ///
 /// Split out from [`apply`] so a caller that has one effect to deliver — the
 /// shell's own [`Effect::RequestReboot`] on the way out, say — does not have to
-/// build a `Vec`.
-pub fn apply_one(
-    actuators: &mut dyn Actuators,
-    side: &mut dyn MachineChannels,
+/// build a `Vec`. Generic for the same reason as [`apply`].
+pub fn apply_one<A: Actuators + ?Sized, M: MachineChannels + ?Sized>(
+    actuators: &mut A,
+    side: &mut M,
     machine: &Machine,
     effect: Effect,
 ) {
@@ -283,11 +275,35 @@ pub fn apply_one(
         Effect::EnterState(state) => observe(side, |d| d.on_enter_state(state)),
         Effect::SetPidRuntime { enabled } => observe(side, |d| d.on_pid_runtime(enabled)),
         Effect::SetSteamMode { enabled } => observe(side, |d| d.on_steam_mode(enabled)),
-        Effect::ClearActionRequests => observe(side, |d| d.on_clear_action_requests()),
-        Effect::ClearStaleStopRequests => observe(side, |d| d.on_clear_stale_stop_requests()),
-        Effect::ResetStandbyTimer => observe(side, |d| d.on_reset_standby_timer()),
-        Effect::ResetMqttReconnectCount => observe(side, |d| d.on_reset_mqtt_reconnect_count()),
-        Effect::WakeDisplay => observe(side, |d| d.on_wake_display()),
+
+        // These five report a change the reducer has already written into
+        // `Machine` and that nothing outside `Machine` can want, so they are
+        // delivered to no one. They used to be [`Diagnostics`] obligations with
+        // default bodies, which read as "a side channel may implement this"
+        // and in practice none did — three of them never had an
+        // implementation in this workspace at all. A no-op arm says the same
+        // thing with no trait surface to keep in step:
+        //
+        // * `ClearActionRequests` / `ClearStaleStopRequests` mirror
+        //   [`Machine::requests`](crate::machine::Machine::requests), which the
+        //   reducer drained itself (`MachineStateContext.h:615-639`).
+        // * `ResetStandbyTimer` mirrors [`Machine::standby`], which `set_request`
+        //   has already re-armed (`MachineStateContext.cpp:217-267`).
+        // * `ResetMqttReconnectCount` is
+        //   `networkCoordinator().resetMqttConnectionAttempts()`
+        //   (`MachineStateContext.cpp:327-329`); the port's MQTT client lives in
+        //   `cc-hal-esp32::mqtt` and is not reachable from here.
+        // * `WakeDisplay` is `exitStandbyMode()`'s `display->setPowerSave(0)`
+        //   (`MachineStateContext.cpp:411-417`), and does not need doing: the
+        //   panel is blanked from [`Machine::standby`]'s
+        //   `should_turn_off_display()` at frame-publish time, and both of the
+        //   C++'s wake paths out of standby request normal operation, which
+        //   re-arms that timer (`MachineStateContext.cpp:254-260`).
+        Effect::ClearActionRequests
+        | Effect::ClearStaleStopRequests
+        | Effect::ResetStandbyTimer
+        | Effect::ResetMqttReconnectCount
+        | Effect::WakeDisplay => {}
 
         // `BrewHandler::checkPumpTimeout`'s `logError("Pump timeout - stopping
         // for safety")` and the hot-water equivalent. In the C++ these lines are
@@ -300,12 +316,12 @@ pub fn apply_one(
 
 /// Hand a diagnostics sink to `f`, if this side channel has one.
 ///
-/// A function rather than eleven `if let`s so that "there is no sink" is decided
+/// A function rather than five `if let`s so that "there is no sink" is decided
 /// in exactly one place and cannot be got wrong per-effect, and rather than a
 /// shared no-op object because a `&mut` to a `static` is a question this crate
 /// has no reason to ask (`#![forbid(unsafe_code)]`, and aliasing a zero-sized
 /// value is only harmless by accident).
-fn observe(side: &mut dyn MachineChannels, f: impl FnOnce(&mut dyn Diagnostics)) {
+fn observe<M: MachineChannels + ?Sized>(side: &mut M, f: impl FnOnce(&mut dyn Diagnostics)) {
     if let Some(diagnostics) = side.diagnostics() {
         f(diagnostics);
     }
