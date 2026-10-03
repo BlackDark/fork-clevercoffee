@@ -86,6 +86,16 @@ env:
   ESP_IDF_VERSION: "v5.5.5"
   RUSTFLAGS: "--cfg espidf_time64"
   ESP_IDF_SYS_ROOT_CRATE: "cc-firmware"
+  # Incremental compilation is dead weight in CI: the workspace changes, so almost
+  # every crate is rebuilt anyway, and the incremental bookkeeping is pure cost on
+  # top. It also produced 3.2 GB of `debug/incremental` under the host target
+  # directory -- the single largest thing in a tree this repository already
+  # declines to cache.
+  #
+  # `Swatinem/rust-cache` sets this itself; that cache action is not used here
+  # (see docs/ci.md for why the three caches below are hand-keyed instead), so the
+  # setting is made directly.
+  CARGO_INCREMENTAL: 0
   # Every recipe passes `--target {{host_target}}` explicitly, so this is only a
   # safety net for a bare `cargo` invocation inside a recipe.
   CARGO_TERM_COLOR: always
@@ -98,6 +108,8 @@ jobs:
   host:
     name: format, lint, doc, test (host)
     runs-on: ubuntu-latest
+    # measured 63 s wall; 25 min is ~24x.
+    timeout-minutes: 25
     # A PINNED toolchain, installed by the step below. Not `stable`.
     #
     # `stable` looked sufficient and is not: a GitHub runner ships whatever
@@ -127,6 +139,11 @@ jobs:
       RUSTUP_TOOLCHAIN: stable
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # zizmor: the checkout token is written to .git/config and is then
+          # readable by anything that runs in this job. Nothing here pushes,
+          # tags or creates releases, so it does not need to persist.
+          persist-credentials: false
 
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
         with:
@@ -194,6 +211,8 @@ jobs:
   device:
     name: clippy + firmware build + size budget (xtensa-esp32)
     runs-on: ubuntu-latest
+    # measured 486-533 s wall COLD, including a full ESP-IDF build; 45 min leaves headroom without letting a wedged espup bill for hours.
+    timeout-minutes: 45
     # STABLE for the whole job, and the justfile turns it back into `esp` for
     # every recipe.
     #
@@ -218,6 +237,11 @@ jobs:
       RUSTUP_TOOLCHAIN: stable
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # zizmor: the checkout token is written to .git/config and is then
+          # readable by anything that runs in this job. Nothing here pushes,
+          # tags or creates releases, so it does not need to persist.
+          persist-credentials: false
 
       # ---------------------------------------------------------------- caches
       #
@@ -234,12 +258,30 @@ jobs:
       # reason -- `scripts/setup-esp-toolchain.sh` uses cargo-binstall, 0.4 s --
       # but the rest is here.)
       #
-      # EVERY save is scoped to `push`, so a cache is only ever written from `main`.
-      # GitHub documents that a cache created by a pull-request run "can only be
-      # restored by re-runs of the pull request" and cannot be restored by the base
-      # branch. At the time this was written, 2.95 GB of the repository's 4.09 GB
-      # of cache was PR-scoped and therefore unreachable to anyone.
-      # Restores are unconditional; only the saves are gated.
+      # PR runs save AND restore, deliberately.
+      #
+      # An earlier version of this gated every save on
+      # `github.event_name != 'pull_request'`, on the reading that a cache written
+      # by a PR run is dead weight. That was half right and the wrong half
+      # expensive:
+      #
+      #   * TRUE: a cache written by a PR is scoped to that PR's merge ref and
+      #     cannot be read by another PR or by the base branch.
+      #   * FALSE, and this is what was missed: it CAN be read by later runs of
+      #     the SAME pull request -- which is the developer loop. Push 2..N of a
+      #     branch are exactly the case where a 186 s ESP-IDF rebuild is pure
+      #     waste, and gating the save threw that away.
+      #
+      # A PR that has not diverged from main restores main's cache anyway, since
+      # base-branch caches are visible to pull requests. So this is strictly
+      # better than the gate: warm on the second push of a branch, and still warm
+      # when a branch is brand new.
+      #
+      # The real cost is LRU pressure on the 10 GB repository budget, which is
+      # why the keys are as narrow as they are and why the host `target/` dir
+      # (5.8 GB raw, 3.2 GB of it `debug/incremental`) is deliberately NOT cached.
+      # If eviction ever bites, the order to sacrifice is: this comment first, the
+      # cargo registry second. The ESP-IDF cache is the one worth 186 s.
       #
       # The `.embuild`/`target` key names ESP_IDF_VERSION, ESP_IDF_SYS_ROOT_CRATE,
       # RUSTFLAGS, runner.arch and `.cargo/config.toml` alongside the lockfiles,
@@ -253,8 +295,7 @@ jobs:
       #   * `runner.arch`, because `.embuild` carries a host python_env and
       #     idf_tools cmake/ninja that are not portable.
       - name: Restore the ESP-IDF build and the device target dir
-        if: github.event_name != 'pull_request'
-        uses: actions/cache@5a3ec1eff068c7dc6d9c855e7e58d7a1a4f1e4f # v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             .embuild
@@ -275,8 +316,7 @@ jobs:
       # checkout in the same job.
 
       - name: Restore the esp toolchain
-        if: github.event_name != 'pull_request'
-        uses: actions/cache@5a3ec1eff068c7dc6d9c855e7e58d7a1a4f1e4f # v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           # `espup install` spends 61 s, of which only 2.1 s is the download; the
           # rest is unpacking 1.9 GB. Restored, it is a re-entrant no-op.
@@ -284,8 +324,7 @@ jobs:
           key: rustup-esp-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.mise.toml', 'rust-toolchain.toml') }}
 
       - name: Restore the cargo registry
-        if: github.event_name != 'pull_request'
-        uses: actions/cache@5a3ec1eff068c7dc6d9c855e7e58d7a1a4f1e4f # v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           # Makes the `target/` cache above usable at all: without the registry,
           # the crates a cached build depends on are absent and everything
@@ -429,12 +468,19 @@ jobs:
       - name: Image size is within budget
         run: just size-check
 
-      - name: Record the image size as an artefact
-        # So a size regression is a visible diff in the PR, not something a human
-        # has to go and look for.
-        run: |
-          just size-record esp32 ci
-          cat docs/rust-migration/size-records.jsonl | tail -1
+      - name: Record the image size
+        run: just size-record esp32 ci
+
+      - name: Upload the image size
+        # So a size change is a downloadable artefact in the run summary rather
+        # than something a human has to go and read a log for. `just size-record`
+        # appends to docs/rust-migration/size-records.jsonl; this uploads the
+        # tail of it.
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: image-size
+          path: docs/rust-migration/size-records.jsonl
+          if-no-files-found: error
 
   # ---------------------------------------------------------------- invariants
   #
@@ -443,6 +489,8 @@ jobs:
   invariants:
     name: workspace invariants
     runs-on: ubuntu-latest
+    # Four greps and four small python scripts; measured 12 s.
+    timeout-minutes: 10
     # Same reason as the device job: mise-action runs `mise install`, and a bare
     # `cargo install` from one of its `cargo:` backends would resolve through
     # `rust-toolchain.toml` and demand the `esp` channel. These checks need no
@@ -451,6 +499,11 @@ jobs:
       RUSTUP_TOOLCHAIN: stable
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # zizmor: the checkout token is written to .git/config and is then
+          # readable by anything that runs in this job. Nothing here pushes,
+          # tags or creates releases, so it does not need to persist.
+          persist-credentials: false
 
 
       - name: The portable crates must not name esp-idf in CODE

@@ -174,23 +174,23 @@ done the same.
 > `.clang-format` out of scope, *every* version reformats *every* file. Losing
 > `.clang-format` from the invocation, not a version difference.
 
-## Two things that only CI can catch
+## A thing only CI can catch
 
-Both were found by CI on a commit that was locally green, both in the same
-place, and both are now checked in-repo.
+Found by CI on a commit that was locally green, and now covered in-repo.
 
-* **`scripts/check-action-pins.py`** resolves every `uses: owner/repo@<sha>`
-  through the API. It distinguishes a 40-hex commit sha (looked up), hex of the
-  *wrong length* (**an error**), and a tag or branch (allowed). The
-  wrong-length case exists because a hand-written 43-character "sha" slipped
-  through a checker that required exactly 40 — a checker that is silently
-  permissive about the thing it checks teaches you to trust a green tick.
 * **`scripts/run_clangformat.py` has two entry points**, and the PlatformIO one
-  only runs when `platformio.ini` loads the script as a `pre:` script. Deleting
-  it took `check_format_callback` with it and every C++ firmware build in CI died
-  at its first step — a job that had, until the trigger fix, never run on this
+  only runs when `platformio.ini` loads the script as a `pre:` script. Deleting it
+  took `check_format_callback` with it and every C++ firmware build in CI died at
+  its first step — a job that had, until the trigger fix, never run on this
   branch at all. There is a simulation of the SCons load path in the commit that
   fixed it.
+
+> Action pins are **not** checked in-repo and are not needed: `.github/renovate.json5`
+> owns `actions/*`, `jdx/mise-action`, `pnpm/action-setup` and `softprops/*`, so
+> they are bumped by a bot on a schedule. There was a `scripts/check-action-pins.py`
+> here for one commit; it is gone, and the two invented SHAs it was written after
+> are the reason it is not worth keeping — a hand-written 40-hex string is a
+> thing a bot should never have to compete with.
 
 ## Measured and rejected
 
@@ -203,6 +203,90 @@ place, and both are now checked in-repo.
 | split `just test` into a matrix | it is 11 s for 1,074 tests |
 | pin `ubuntu-latest` → `ubuntu-24.04` everywhere | reproducibility, but GitHub's security updates land on `latest`; `format.yml` is pinned because it now runs a binary rather than a container |
 | delete the `refs/pull/N/merge` caches | worth doing (~5.8 GB is unrecoverable after merge) but it needs a deletion pass with a token, not a workflow edit |
+
+## What a generic Rust CI template gets right, and wrong, here
+
+A stock skeleton for a Rust project was offered as a reference. Most of it does
+not fit this repository, for reasons that are specific rather than fussy — but
+three parts of it were adopted.
+
+### Adopted
+
+**`cargo --locked`.** Cargo will otherwise *update* `Cargo.lock` to satisfy a
+manifest and carry on, so a green CI run can be a run against a dependency set
+nobody reviewed and nobody committed. `Cargo.lock` is committed here precisely so
+it is the input; `--locked` is what makes it actually be the input. Now on all 15
+cargo invocations in the justfile (`cargo fmt` does not resolve the graph and is
+left alone).
+
+Verified by removing one package entry from `Cargo.lock`:
+
+    with --locked    error: cannot update the lock file ... because --locked
+                     was passed to prevent this                        rc 101
+    without --locked cargo re-adds the entry, silently, and carries on   rc 0
+
+**`CARGO_INCREMENTAL: 0`.** Incremental compilation is dead weight in CI: the
+workspace changes, so nearly everything rebuilds anyway, and the bookkeeping is
+pure cost on top. It also accounted for **3.2 GB** of `debug/incremental` in the
+host target directory — the largest single thing in a tree this repository
+already declines to cache.
+
+> **Correction.** This was originally justified with "12 s with, 10 s without" on
+> a locally *warm* `target/`. That measurement does not transfer: the host job
+> never has a warm `target/` — it is deliberately not cached — so there is no
+> incremental state for the setting to save, and CI's host job in fact went 8 s
+> *slower* in the run that adopted it (within the ±30% noise this pipeline
+> shows). The setting is kept for the disk argument and because it is right in
+> principle; the speed claim was not supported.
+>
+> It also does not invalidate the device `target/` cache, which was the worry:
+> `CARGO_INCREMENTAL` *is* a dev-profile fingerprint input (verified in a scratch
+> crate — toggling it forces a `Compiling`), but `actions/checkout` already
+> stamps every source file with checkout time, so the cached workspace artifacts
+> are unconditionally stale either way. The cache's real payload is `.embuild`,
+> which is not a cargo unit.
+
+**A bare `pull_request:` with no `branches:` filter.** This is the note's best
+idea and it is the fix for the missed-gate bug in a more robust form than the one
+I shipped. Enumerating `[main, rewrite/rust]` works until a third long-lived
+branch appears, and forgetting it re-opens the hole silently — which is exactly
+what happened. A bare filter is correct by construction and needs no maintenance.
+The cost is C++ CI on PRs that do not touch C++; that is bounded and it runs in
+parallel, so it never reaches anyone's wall clock.
+
+### Rejected
+
+**`Swatinem/rust-cache`.** A genuinely good idea — cargo does need a registry
+cache, and this would have given it. But it caches `target/` wholesale, and here
+that is 5.8 GB of which 3.2 GB is `debug/incremental`, for a host job that
+finishes in 50 s while the device job takes 283 s. It also has no way to key on
+the things the device caches actually depend on — `env.ESP_IDF_VERSION`,
+`ESP_IDF_SYS_ROOT_CRATE`, `RUSTFLAGS`, `runner.arch` — so its `target/` entry
+would restore a *wrong* ESP-IDF build rather than a stale one, which is worse than
+not restoring. The two settings worth having from it (`CARGO_INCREMENTAL=0` and
+the registry cache) are taken directly.
+
+**`dtolnay/rust-toolchain@stable`.** This repository needs *two* toolchains: a
+pinned stable for the portable crates and the Espressif `esp` fork for the
+firmware. `rust-toolchain.toml` already resolves both, `rustup` reads it, and
+`just doctor` asserts the pins. A third mechanism that installs `stable` on top
+would reintroduce exactly the ambiguity this branch spent a day removing.
+
+**`--all-features`.** It would enable `cc-display/scenarios` and
+`cc-hal-esp32/device-tests` in the *same* clippy pass as the shipped build, so the
+device-tests code would be linted under a different `cfg` from the one it ships
+in. The gate is deliberately narrower than `--all-features`: `--all-targets`
+without it, with `--features cc-display/scenarios` only on `just test`, which is
+the one place that genuinely needs it.
+
+**`actions/checkout@v4` by tag.** The repository's action SHAs are pinned, and
+Renovate owns them — `.github/renovate.json5` extends `config:best-practices`
+and the `renovate/*` branches in this repo show it is running as an app. So there
+is nothing for an in-repo pin checker to add, and the one that was here for a
+commit has been removed.
+
+**`concurrency: group: ${{ github.workflow }}-${{ github.ref }}`.** Already the
+shape here; `cancel-in-progress: true` is already set per workflow.
 
 ## Reproducing the measurements
 

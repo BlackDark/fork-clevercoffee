@@ -127,6 +127,19 @@ host_target := env_var_or_default("CC_HOST_TARGET", `./scripts/host-target.sh`)
 # The five portable crates. The device crates do not compile for a host
 # target, so `cargo test --workspace` / `cargo clippy --workspace` are wrong.
 host_crates := "-p cc-domain -p cc-safety -p cc-machine -p cc-display -p cc-config"
+
+# `--locked` on EVERY cargo invocation that resolves the dependency graph --
+# including `cargo doc` and `cargo test -p cc-parity`, which are not obvious
+# and were both missed the first time round. `cargo doc --no-deps` still resolves
+# and still rewrites a drifted lock without it, and `cc-parity` depends on
+# serde_json/serde_yaml_ng, so neither is a no-dependency case. `cargo fmt` is the
+# only one that does not resolve the graph.
+#
+# Cargo will otherwise UPDATE Cargo.lock to satisfy a manifest and carry on, so a
+# green CI run can be a run against a dependency set nobody reviewed and nobody
+# committed. `Cargo.lock` is committed here precisely so it is the input; `--locked`
+# is what makes it actually be the input. `cargo fmt` does not resolve the graph
+# and is left alone.
 # `cc-device-tests` is in here because `--all-targets` type-checks it like the
 # other device crates. It is the runner, NOT the firmware; see `test-esp32`.
 dev_crates := "-p cc-hal-esp32 -p cc-firmware -p cc-device-tests"
@@ -403,7 +416,7 @@ fmt-check:
 
 # DEVIATION D1: --target {{host_target}} is required, see the header.
 lint:
-    cargo clippy {{host_crates}} --all-targets --target {{host_target}} -- -D warnings
+    cargo clippy --locked {{host_crates}} --all-targets --target {{host_target}} -- -D warnings
 
 # The audit runs FIRST and unconditionally, because `lint-esp32` is the recipe
 # that made 67 device tests look green while nothing ever executed them. It is
@@ -411,17 +424,17 @@ lint:
 # recurring: a new device-crate `#[test]` that nobody registered with the
 # on-target runner is a lint failure, not a test that silently never runs.
 lint-esp32: test-audit ui
-    {{env_prefix}} MCU={{mcu_esp32}} cargo clippy {{dev_crates}} --all-targets \
+    {{env_prefix}} MCU={{mcu_esp32}} cargo clippy --locked {{dev_crates}} --all-targets \
         --target {{tgt_esp32}} -Zbuild-std=std,panic_abort -- -D warnings
 
 # Only after R4-07, and only once that target has been flashed and exercised.
 lint-esp32s3:
-    {{env_prefix}} MCU={{mcu_esp32s3}} cargo clippy {{dev_crates}} --all-targets \
+    {{env_prefix}} MCU={{mcu_esp32s3}} cargo clippy --locked {{dev_crates}} --all-targets \
         --target {{tgt_esp32s3}} -Zbuild-std=std,panic_abort -- -D warnings
 
 # Only after R4-08.
 lint-esp32c6:
-    {{env_prefix}} MCU={{mcu_esp32c6}} cargo clippy {{dev_crates}} --all-targets \
+    {{env_prefix}} MCU={{mcu_esp32c6}} cargo clippy --locked {{dev_crates}} --all-targets \
         --target {{tgt_esp32c6}} -Zbuild-std=std,panic_abort -- -D warnings
 
 # ---------------------------------------------------------------------- tests
@@ -434,10 +447,10 @@ lint-esp32c6:
 # `cc-display/scenarios` rather than plain `scenarios` keeps this working for the
 # whole host crate list.
 test:
-    cargo test {{host_crates}} --features cc-display/scenarios --target {{host_target}}
+    cargo test --locked {{host_crates}} --features cc-display/scenarios --target {{host_target}}
 
 test-domain:
-    cargo test -p cc-domain -p cc-safety --target {{host_target}}
+    cargo test --locked -p cc-domain -p cc-safety --target {{host_target}}
 
 # THE RECURRENCE GUARD. Fails if any device-crate test exists that the on-target
 # runner cannot execute: a bare `#[test]` (the compiler deletes it unless the
@@ -491,7 +504,7 @@ test-esp32 port: test-audit
 # panic=abort, same overflow-checks as the release profile, so what is measured
 # here is what runs on the chip.
 build-tests-esp32: ui
-    {{env_prefix}} MCU={{mcu_esp32}} cargo build --release -p cc-device-tests \
+    {{env_prefix}} MCU={{mcu_esp32}} cargo build --locked --release -p cc-device-tests \
         --bin {{bin_tests}} --target {{tgt_esp32}} -Zbuild-std=std,panic_abort
 
 # Everything a gate must run that does not need hardware. `test-esp32` is NOT
@@ -530,7 +543,7 @@ check:
 # cannot be -- it shows what a person would see, which is how the clipped `°C`,
 # the cut-off uptime `m` and the missing brew timer were found.
 screens:
-    cargo run -p cc-display --features scenarios --target {{host_target}} \
+    cargo run --locked -p cc-display --features scenarios --target {{host_target}} \
         --example screens -- /tmp/cc-screens.png
     @echo "wrote /tmp/cc-screens.png -- open it"
 
@@ -544,27 +557,27 @@ screens:
 # Read the diff before committing a regenerated golden: every pixel is supposed to
 # stay put.
 snapshot-display:
-    cargo test -p cc-display --features scenarios --target {{host_target}} -- --ignored render_goldens
+    cargo test --locked -p cc-display --features scenarios --target {{host_target}} -- --ignored render_goldens
 
 # Display parity against the real U8g2 the firmware links. Needs the U8g2 tree
 # from `pio run -e esp32_usb`, and takes about a minute (it rebuilds the oracle).
 test-display-parity:
-    cargo test -p cc-display --features scenarios --target {{host_target}} --test parity -- --ignored
+    cargo test --locked -p cc-display --features scenarios --target {{host_target}} --test parity -- --ignored
 
 # ---------------------------------------------------------------------- build
 
 # `just` cannot parameterise a recipe dependency, so there are three explicit
 # recipes rather than one parameterised `build` plus aliases.
 build-esp32: ui
-    {{env_prefix}} MCU={{mcu_esp32}} cargo build --release -p cc-firmware --bin {{bin_esp32}} \
+    {{env_prefix}} MCU={{mcu_esp32}} cargo build --locked --release -p cc-firmware --bin {{bin_esp32}} \
         --target {{tgt_esp32}} -Zbuild-std=std,panic_abort
 
 build-esp32s3:
-    {{env_prefix}} MCU={{mcu_esp32s3}} cargo build --release -p cc-firmware --bin {{bin_esp32}} \
+    {{env_prefix}} MCU={{mcu_esp32s3}} cargo build --locked --release -p cc-firmware --bin {{bin_esp32}} \
         --target {{tgt_esp32s3}} -Zbuild-std=std,panic_abort
 
 build-esp32c6:
-    {{env_prefix}} MCU={{mcu_esp32c6}} cargo build --release -p cc-firmware --bin {{bin_esp32}} \
+    {{env_prefix}} MCU={{mcu_esp32c6}} cargo build --locked --release -p cc-firmware --bin {{bin_esp32}} \
         --target {{tgt_esp32c6}} -Zbuild-std=std,panic_abort
 
 # build-esp32s3 / build-esp32c6 are deliberately NOT included: a target that
@@ -580,7 +593,7 @@ build-all:
 # profile is NOT modified -- `just size` and the shipped image depend on it.
 # Never flash this to a machine you care about: DWARF is dead weight in flash.
 diag-build: ui
-    {{env_prefix}} MCU={{mcu_esp32}} cargo build --profile diagnostic -p cc-firmware \
+    {{env_prefix}} MCU={{mcu_esp32}} cargo build --locked --profile diagnostic -p cc-firmware \
         --bin {{bin_esp32}} --target {{tgt_esp32}} -Zbuild-std=std,panic_abort
 
 # Flash the unstripped build. Same partition table and chip as `just flash`.
@@ -726,7 +739,7 @@ parity port host:
 # loads, that every dry_run scenario meets its own assertions, that S1-S11 are all
 # covered, and that a synthetic *undeclared* diff fails the runner.
 parity-test:
-    cargo test -p cc-parity --target {{host_target}}
+    cargo test --locked -p cc-parity --target {{host_target}}
 
 # ------------------------------------------------------------------ benchmark
 
@@ -743,8 +756,8 @@ parity-test:
 # if either count ever moves off zero. The bench exists so the number is a thing
 # a human watches over time.
 bench:
-    cargo bench --bench allocations -p cc-machine --target {{host_target}}
-    cargo bench --bench layout -p cc-display --target {{host_target}}
+    cargo bench --locked --bench allocations -p cc-machine --target {{host_target}}
+    cargo bench --locked --bench layout -p cc-display --target {{host_target}}
 
 # Control-loop timing, on the device if one is attached, on the host otherwise.
 #
@@ -762,7 +775,7 @@ bench:
 # With a port, capture the device's own report over a minute of idle and a brew:
 #     just mon-headless <port> 60 | grep 'control tick'
 size-bench:
-    cargo bench --bench allocations -p cc-machine --target {{host_target}}
+    cargo bench --locked --bench allocations -p cc-machine --target {{host_target}}
     @echo
     @echo "host approximation only. The device number the firmware itself logs is"
     @echo "'control tick: worst ... budget 10 ms' — capture it with:"
@@ -774,7 +787,7 @@ size-bench:
 # "warn"` but nothing ever promoted it, and no recipe or CI step ran rustdoc at
 # all, so the 83 broken intra-doc links accumulated silently (REVIEW.md M-3).
 doc:
-    RUSTDOCFLAGS="-D warnings" cargo doc --no-deps {{host_crates}} --target {{host_target}}
+    RUSTDOCFLAGS="-D warnings" cargo doc --locked --no-deps {{host_crates}} --target {{host_target}}
 
 clean:
     cargo clean
