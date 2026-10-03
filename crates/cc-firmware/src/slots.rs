@@ -30,13 +30,26 @@
 //! takes to finish a frame" is not a 10 ms period, and the safety paths (S1-S5)
 //! run inside it.
 //!
-//! So the hand-off is a **double buffer and an index**: the control task writes
-//! the half the index does not name and publishes the new index with a
-//! `Release`; the display task reads the half the index names with an `Acquire`.
-//! A frame is a snapshot by definition, so a display task that is a few
-//! milliseconds behind the machine is showing a slightly old screen — which is
-//! what a 100 ms display refresh means anyway — and nothing else can be wrong
-//! with it.
+//! So the hand-off is a **critical section**: one ~200-byte copy guarded by
+//! `portENTER_CRITICAL`/`portEXIT_CRITICAL`, which is mutual exclusion between
+//! the two tasks without either of them ever *waiting* on the other.
+//!
+//! Two lock-free designs were tried first and both are wrong, for reasons worth
+//! keeping because they look right:
+//!
+//! * A **double buffer with an index** is only "disjoint by construction" until
+//!   the producer laps the consumer -- which it does nine times per frame here,
+//!   because 10 ms publishing divides 100 ms reading exactly.
+//! * A **seqlock** is lock-free but is not sound in Rust: it gives atomicity of
+//!   *observation*, not of *access*. The reader still reads a non-atomic
+//!   location the writer may be overwriting, and throwing the copy away
+//!   afterwards does not retroactively define the read.
+//!
+//! A critical section is the answer that is actually sound, and its cost is one
+//! ~200-byte copy under interrupt masking: well under a microsecond against a
+//! 10 ms period. A frame is a snapshot by definition, so a display task a few
+//! milliseconds behind the machine is showing a slightly old screen -- which is
+//! what a 100 ms display refresh means anyway.
 //!
 //! # What is deliberately *not* here
 //!
@@ -51,24 +64,15 @@
 
 #![allow(
     unsafe_code,
-    reason = "single-producer/single-consumer frame buffers shared between the \\
-              control and display tasks; each access is documented at the call \\
-              site and the `Sync` claim is spelled out on the impl"
+    reason = "single-producer/single-consumer frame buffer shared between the \
+              control and display tasks; the only `unsafe` left is the Sync \
+              impl, and its justification is on the impl"
 )]
 
-use core::cell::UnsafeCell;
-use core::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Mutex;
+use core::cell::Cell as StdCell;
 
 use cc_display::model::DisplayInput;
-
-// The design, in one line: single producer, single consumer, disjoint buffers,
-// and an `Acquire`/`Release` pair between them. The `unsafe` is the `Sync` impl
-// and the two buffer accesses; the reasoning is at each of them and summarised on
-// the impl. `cc-firmware` denies `unsafe_code` workspace-wide, and this is the
-// third narrowly-scoped exception in the workspace after
-// `cc_hal_esp32::wake` and `cc_hal_esp32::web_async` — the alternative is a
-// `Mutex`, and a mutex in the control loop is the defect this module removes.
+use esp_idf_hal::interrupt;
 
 /// What the display task needs, published by the control task.
 ///
@@ -93,35 +97,44 @@ pub struct FrameRequest {
     pub config: cc_display::model::Config,
 }
 
-/// How many times a frame read retries before falling back to the last clean one.
-///
-/// Four. The writer's critical section is one ~200-byte store, so it is over in
-/// nanoseconds; four attempts is generous, and the fallback exists to bound the
-/// display task rather than to be reached.
-const FRAME_READ_ATTEMPTS: usize = 4;
-
-/// The frame hand-off, and the control task's wake channel.
+/// The frame hand-off.
 pub struct FrameSlot {
-    /// The seqlock counter: even and consistent, odd and being written.
-    seq: AtomicUsize,
     /// The frame itself. One writer (the control task), one reader (the display
-    /// task), with [`Self::seq`] making a torn read **detectable** rather than
-    /// acceptable. See [`Self::publish`] for why the original two-buffer version
-    /// was a race rather than a buffer.
-    frame: UnsafeCell<FrameRequest>,
-    /// The last frame that read back cleanly, so a stalled writer degrades to a
-    /// stale screen rather than a blank one.
-    last_good: Mutex<Option<FrameRequest>>,
+    /// task), and every access inside `interrupt::free` -- see [`Self::publish`].
+    frame: StdCell<FrameRequest>,
+    /// Set once the control task has published a frame, so a display task that
+    /// wakes before the first tick gets `None` rather than a blank default it
+    /// might mistake for a real frame.
+    ///
+    /// The payload is `Copy`, so reading it is a plain copy with no `Drop`; the
+    /// flag is therefore only ever cleared by a reset, never by a reader.
+    published: core::sync::atomic::AtomicBool,
 }
 
-// SAFETY: the module's design. `frame` has exactly one writer (the control task)
-// and one reader (the display task), and [`Self::seq`] turns a torn read into a
-// discarded one rather than an acted-on one. The compiler cannot see that
-// agreement, which is the only reason the `unsafe` is here. Nothing here is
-// reachable from an interrupt.
+// SAFETY: the only ways to reach `frame` are `publish` and `frame`, and both run
+// their whole copy inside `interrupt::free` (`portENTER_CRITICAL` /
+// `portEXIT_CRITICAL`). On this single-core target that is mutual exclusion
+// between the control task and the display task, and it excludes the ISR too, so
+// no access can overlap another.
+//
+// This is a *different* answer from the one this module used to give, and the
+// difference matters. The previous version was a seqlock: an `AtomicUsize`
+// stamped odd before the payload and even after, with readers retrying if it
+// moved. That is **not** sound. A seqlock gives you atomicity of *observation*,
+// not of *access* -- the reader still reads a non-atomic location while the
+// writer may be overwriting it, and discarding the copy afterwards does not
+// retroactively make the read defined. Under Rust's memory model that is a data
+// race, and `FrameRequest` embeds a `cc_display::model::Config` whose fields a
+// reader would act on, so a torn read here is a control decision made from
+// garbage, not a cosmetic glitch.
+//
+// `frame` is module-private, `StdCell::as_ptr` is never called (grep for it: if
+// that grep ever hits, this `Sync` is void), and neither method calls out to
+// anything that can block inside the critical section.
 unsafe impl Sync for FrameSlot {}
-// SAFETY: `&FrameSlot` exposes no interior mutability without the atomics
-// above, and `&mut FrameSlot` is exclusive by Rust's own rules.
+// SAFETY: `&FrameSlot` exposes no interior mutability outside the critical
+// sections documented above, and `&mut FrameSlot` is exclusive by Rust's own
+// rules.
 unsafe impl Send for FrameSlot {}
 
 impl Default for FrameSlot {
@@ -135,39 +148,60 @@ impl FrameSlot {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            seq: AtomicUsize::new(0),
-            frame: UnsafeCell::new(FrameRequest::default()),
-            last_good: Mutex::new(None),
+            frame: StdCell::new(FrameRequest::default()),
+            published: core::sync::atomic::AtomicBool::new(false),
         }
     }
 
     /// Publish a frame. Called by the control task, and only it.
     ///
-    /// **A seqlock, not a double buffer.** The first version of this was two
-    /// buffers and an index, on the argument that they are "disjoint by
-    /// construction". That argument is wrong: disjointness holds only while the
-    /// producer has not wrapped onto the slot the consumer is reading — and this
-    /// producer publishes every **10 ms** while the consumer reads every
-    /// **100 ms**, so the producer laps the consumer nine times per frame *by
-    /// design*. The two cadences divide exactly, which also puts the display
+    /// **Why a critical section, and not the two obvious alternatives.**
+    ///
+    /// *Not a mutex.* A `std::sync::Mutex` on this build is a `pthread` mutex and
+    /// so a `FreeRTOS` one; contending for it is a queue operation, and the
+    /// device asserted in a loop:
+    ///
+    /// ```text
+    /// assert failed: xTaskRemoveFromEventList tasks.c:3894 (pxUnblockedTCB)
+    /// ```
+    ///
+    /// Beyond that kernel bug, there is a reason that is not about kernels and
+    /// is the one that decides the design: **a control loop must not block on a
+    /// lock another task holds.** A 10 ms period that can become "however long
+    /// the display task takes to finish a frame" is not a 10 ms period, and the
+    /// safety paths (S1-S5) run inside it.
+    ///
+    /// *Not a double buffer.* Two buffers and an index are only "disjoint by
+    /// construction" until the producer wraps onto the slot the consumer is
+    /// reading. This producer publishes every **10 ms** and this consumer reads
+    /// every **100 ms**, so the producer laps the consumer nine times per frame
+    /// *by design*. The cadences divide exactly, which also puts the display
     /// task's wake on a control-task tick boundary, maximising the chance of
     /// being preempted mid-copy. That is a data race with no synchronisation
-    /// object at all, and on Xtensa a torn read is a garbage value rather than a
-    /// stale one.
+    /// object at all.
     ///
-    /// So the writer stamps the sequence **odd** before the payload and **even**
-    /// after, and the reader copies and re-reads it, retrying if it moved. The
-    /// reader may still *see* a torn copy; it can never accept one.
+    /// *Not a seqlock.* It is lock-free and it is still a data race; see the
+    /// `Sync` impl above.
+    ///
+    /// `interrupt::free` is `portENTER_CRITICAL`/`portEXIT_CRITICAL`: not a
+    /// blocking primitive (nothing lands on a semaphore event list, so the assert
+    /// above is unreachable), and the section is one ~200-byte store, over in
+    /// well under a microsecond against a 10 ms period. A display task that
+    /// happens to hold the section delays the control tick by that much and not
+    /// by "however long it takes to finish a frame".
+    ///
+    /// The trade is that a reader can no longer be told "not right now" — the
+    /// old seqlock returned `None` when a write did not settle within four
+    /// attempts. It never needed to: a critical section cannot be "not ready",
+    /// and a frame is a snapshot by definition, so a display task a few
+    /// milliseconds behind the machine is showing a slightly old screen, which is
+    /// what a 100 ms refresh means anyway.
     pub fn publish(&self, request: FrameRequest) {
-        self.seq.fetch_add(1, Ordering::Release);
-        // SAFETY: the control task is the only writer. A reader may be copying
-        // at this instant, which yields a torn copy — and that is precisely
-        // what the sequence check in `frame` rejects. A mutex here would be the
-        // `FreeRTOS` hazard in `09-cpp-findings.md` §28.
-        unsafe {
-            *self.frame.get() = request;
-        }
-        self.seq.fetch_add(1, Ordering::Release);
+        interrupt::free(|| {
+            self.frame.set(request);
+            self.published
+                .store(true, core::sync::atomic::Ordering::Release);
+        });
     }
 
     /// The current frame, or `None` before the control task has published one.
@@ -175,27 +209,9 @@ impl FrameSlot {
     /// Called by the display task, and only it.
     #[must_use]
     pub fn frame(&self) -> Option<FrameRequest> {
-        for _ in 0..FRAME_READ_ATTEMPTS {
-            let before = self.seq.load(Ordering::Acquire);
-            if before == 0 {
-                return None;
-            }
-            if before % 2 != 0 {
-                continue;
-            }
-            // SAFETY: reading a `FrameRequest` a writer may be updating right
-            // now. A torn result is discarded by the sequence check below,
-            // which is what makes reading-without-a-lock sound.
-            let copy = unsafe { *self.frame.get() };
-            if self.seq.load(Ordering::Acquire) == before {
-                if let Ok(mut slot) = self.last_good.lock() {
-                    *slot = Some(copy);
-                }
-                return Some(copy);
-            }
+        if !self.published.load(core::sync::atomic::Ordering::Acquire) {
+            return None;
         }
-        // The writer is not making progress. The last clean frame beats none: a
-        // stale screen is better than a blank panel.
-        self.last_good.lock().ok().and_then(|slot| *slot)
+        Some(interrupt::free(|| self.frame.take()))
     }
 }

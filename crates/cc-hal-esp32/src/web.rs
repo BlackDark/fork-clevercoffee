@@ -90,7 +90,10 @@
 // reason `crate::web_async` is.
 #![allow(
     unsafe_code,
-    reason = "the lock-free telemetry Cell: one writer, sequence-checked readers"
+    reason = "`Snapshot`: one writer, and every read and write happens inside \
+              `interrupt::free`, which is mutual exclusion on this single-core \
+              target. The justification is on the impl itself and is checkable \
+              there rather than resting on a promise about retry loops."
 )]
 
 use alloc::collections::VecDeque;
@@ -99,13 +102,13 @@ use alloc::string::{String, ToString};
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
-use core::cell::UnsafeCell;
 use core::fmt::Write as _;
-use core::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Mutex;
 
 use cc_config::schema::{ParamValue, SCHEMA};
 use cc_config::Config;
+use esp_idf_hal::interrupt;
 use esp_idf_svc::http::server::{Configuration, EspHttpConnection, EspHttpServer, Request};
 use esp_idf_svc::http::Method;
 use esp_idf_svc::sys::EspError;
@@ -256,14 +259,18 @@ pub struct Telemetry {
     pub signal: u8,
     /// Whether the radio is associated.
     pub wifi_associated: bool,
-    /// The IPv4 address as a string, or `None`.
+    /// The IPv4 address as text, or `None`.
     ///
-    /// A `String` and not a `heapless::String<15>`, which is what makes
-    /// `Telemetry` non-`Copy`. It is built once per control tick *in the control
-    /// task* and read by the httpd task, so the allocation is the control
-    /// task's and never the httpd task's -- and the httpd task is the one
-    /// ADR-0002 is about.
-    pub ip: Option<String>,
+    /// A `heapless::String<15>` -- the longest an IPv4 address in dotted-quad
+    /// form can be (`255.255.255.255`) -- and **not** a `String`.
+    ///
+    /// This is not a style preference, and it is the field that decides whether
+    /// [`Snapshot`] is safe. It used to be a `String`, which meant the snapshot
+    /// payload owned heap memory; combined with the non-atomic seqlock access
+    /// that made a reader's `clone()` a use-after-free (see [`Snapshot`]'s docs).
+    /// Fixed-size means the reader's copy is a memcpy of at most 16 bytes with
+    /// no allocation, no `free`, and no allocator traffic on the httpd task.
+    pub ip: Option<heapless::String<15>>,
     /// Whether MQTT is configured at all.
     pub mqtt_configured: bool,
     /// Whether MQTT has a session.
@@ -344,106 +351,131 @@ pub enum Command {
     Restart,
 }
 
-/// A single-writer value that many tasks may read, **with no lock**.
+/// A single-writer value that many tasks may read, **with no lock and no
+/// `unsafe` in the access path**.
 ///
-/// This exists because `Shared::telemetry` was a `std::sync::Mutex` — a
-/// `pthread` mutex, so a `FreeRTOS` one — taken **twice per 10 ms control tick**
-/// and read by the httpd and display tasks. On this build every cross-task
-/// blocking primitive asserts the kernel (`09-cpp-findings.md` §28), so the
-/// design was contradicting its own stated rule.
+/// # Why this exists
 ///
-/// The writer stamps the sequence **odd** before the payload and **even** after;
-/// a reader reads, re-reads the sequence, and retries if it moved. A reader may
-/// observe a torn value; it can never *accept* one.
+/// `Shared::telemetry` was a `std::sync::Mutex` — a `pthread` mutex, so a
+/// `FreeRTOS` one — taken **twice per 10 ms control tick** and read by the httpd
+/// and display tasks. On this build every cross-task *blocking* primitive
+/// asserts the kernel (`09-cpp-findings.md` §28), so the design was
+/// contradicting its own stated rule.
 ///
-/// **One writer, always.** For `telemetry` that is the control task: `publish`
-/// and `publish_radio` are both called from it, sequentially, which is what makes
-/// the read-modify-write in `publish_radio` sound.
-pub struct Cell<T: Clone> {
-    seq: AtomicUsize,
-    value: UnsafeCell<T>,
+/// # 🔴 Why this is NOT a seqlock
+///
+/// The obvious lock-free answer is a seqlock: stamp a sequence odd, write,
+/// stamp it even, and have readers retry. That is what this used to be, and it
+/// was **unsound**, not merely racy.
+///
+/// A seqlock gives you *atomicity of observation*, not of access. The reader
+/// still dereferences a non-atomic location while the writer may be
+/// overwriting it; the sequence check afterwards only decides whether to
+/// *keep* the value it already read. Under Rust's memory model that
+/// concurrent non-atomic read/write is undefined behaviour whether or not the
+/// result is discarded — and with a heap-owning payload it is not academic:
+///
+/// * [`Telemetry::ip`] was a `String`, reassigned every 10 ms tick by
+///   `network::publish_radio` (`network.rs:449`). Each reassignment
+///   **allocates and then drops the previous `String`**, i.e. `free()`s the
+///   buffer the httpd task may be `memcpy`-ing from inside its `clone()`. A
+///   torn read yields a `{ptr, len, cap}` triple from two different
+///   generations — a live use-after-free at 100 Hz, reachable from any HTTP
+///   request, on the task that also serves the UI.
+///
+/// Making the payload `Copy` would have downgraded that to "garbage numbers",
+/// which is better and still UB.
+///
+/// # What replaces it
+///
+/// **Mutual exclusion by interrupt masking**, which is what FreeRTOS itself
+/// provides for exactly this shape of problem. Every read and every write goes
+/// through [`esp_idf_hal::interrupt::free`], which is
+/// `portENTER_CRITICAL`/`portEXIT_CRITICAL`:
+///
+/// * It is not a *blocking* primitive. Nothing is enqueued on a semaphore's
+///   event list, so the `xTaskRemoveFromEventList` assert is unreachable.
+/// * The section is one struct copy — a few dozen bytes — so it is over in
+///   about a microsecond, against a 10 ms control period.
+/// * A control loop therefore never *waits* on a reader. It waits at most for
+///   the interrupt latency of a memcpy.
+///
+/// The result is that the data race is gone **by construction** rather than by
+/// detection, and the only `unsafe` left in the whole type is the one
+/// `Sync`/`Send` impl below — whose justification is now checkable at the call
+/// site instead of resting on a promise about retry loops.
+///
+/// Note the contrast with [`crate::task`]'s `std::sync::Mutex` over the
+/// history ring and the parameter blob: those are the *blocking* primitives,
+/// they are off the control loop's critical path, and they are untouched.
+pub struct Snapshot<T> {
+    // `core::cell::Cell`, deliberately: it is `!Sync`, which is what makes the
+    // hand-written `Sync` below an honest statement of the invariant rather
+    // than a consequence of the field type.
+    value: core::cell::Cell<T>,
 }
 
-// SAFETY: `value` has exactly one writer — the control task, which calls both
-// `Shared::publish` and `network::publish_radio` — and any number of readers.
-// The sequence check makes a torn read detectable rather than acceptable, which
-// is what lets `Sync` hold. The compiler cannot see that agreement, which is the
-// only reason this is `unsafe`. Nothing here is reachable from an interrupt.
-unsafe impl<T: Clone + Send> Sync for Cell<T> {}
-// SAFETY: as above; `set` takes `&self`, so the one-writer rule is a discipline
-// rather than a type-level fact, and it is stated here where it is enforced.
-unsafe impl<T: Clone + Send> Send for Cell<T> {}
+// SAFETY: the *only* ways to reach `value` are `set` and `get`, and both run
+// their whole read-modify-write inside `interrupt::free`, i.e. inside
+// `portENTER_CRITICAL`/`portEXIT_CRITICAL`. On this single-core target that is
+// mutual exclusion between the control task, the httpd task and the display
+// task, and it also excludes the ISR, so no access can overlap any other.
+//
+// The two rules that make that argument hold, both enforced by construction
+// rather than by discipline:
+//
+// 1. `value` is private to this module and the only `unsafe` code in this crate
+//    cannot name it — `Cell::as_ptr` would hand out a raw pointer, and nothing
+//    calls it. Grep for `as_ptr` to confirm; if that grep ever finds a hit,
+//    this `Sync` is void.
+//
+// 2. `set` and `get` do not call out to anything that can block. `get` clones
+//    `T`; with `T = Telemetry` that is a fixed-size copy, because `ip` is a
+//    `heapless::String<15>` and not a `String`. `T: Send` bounds the transfer.
+//
+// `T: Send` is the right bound rather than `T: Sync`: the value is moved between
+// tasks, and a reader only ever *copies* it inside the critical section.
+unsafe impl<T: Send> Sync for Snapshot<T> {}
+// SAFETY: `Snapshot<T>` is just a `core::cell::Cell<T>` with no thread-affine
+// state, and its `Sync` impl (above) already establishes that concurrent access
+// is mutually excluded. Moving one between tasks moves a value, nothing else.
+unsafe impl<T: Send> Send for Snapshot<T> {}
 
-impl<T: Clone + Default> Default for Cell<T> {
-    /// An empty cell, readable as the default until it is written.
-    fn default() -> Self {
-        Self {
-            seq: AtomicUsize::new(0),
-            value: UnsafeCell::new(T::default()),
-        }
-    }
-}
-
-impl<T: Clone + Default> Cell<T> {
-    /// An empty cell, readable as the default until it is written.
+impl<T: Clone + Default> Snapshot<T> {
+    /// An empty snapshot, readable as `T::default()` until it is written.
     #[must_use]
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            value: core::cell::Cell::new(T::default()),
+        }
     }
 
-    /// Replace the value. The **one** writer only.
+    /// Replace the value. **One writer** — the control task.
     pub fn set(&self, value: T) {
-        self.seq.fetch_add(1, Ordering::Release);
-        // SAFETY: the only writer is the control task, and this is its own
-        // private field. A concurrent reader clones a value that may be half
-        // replaced, and rejects it on the sequence check below — which is the
-        // whole contract.
-        unsafe {
-            *self.value.get() = value;
-        }
-        self.seq.fetch_add(1, Ordering::Release);
+        // `Cell::set` takes `&self`, so "one writer" is a discipline rather
+        // than a type-level fact. It is honoured: `Shared::publish` and
+        // `network::publish_radio` are both called from the control task, and
+        // nothing else calls `set`. The mutual exclusion that makes a second
+        // writer *safe* rather than merely racy is the critical section below.
+        interrupt::free(|| self.value.set(value));
     }
 
-    /// The current value, or `None` when a write is in flight and does not settle
-    /// within [`Self::READ_ATTEMPTS`].
+    /// The current value.
     ///
-    /// `None` means "not readable right now", not "absent". Every caller has a
-    /// sensible fallback — `/api/status` already reports "no reading yet" — and a
-    /// stale number would be worse than a retry.
+    /// This is infallible where the seqlock's `get` returned `Option<T>`: there
+    /// is no "write in flight" state to fail to observe, because a reader
+    // either gets the critical section before the writer or after it.
+    /// Every caller therefore loses its `unwrap_or_default()`.
     #[must_use]
-    pub fn get(&self) -> Option<T> {
-        for _ in 0..Self::READ_ATTEMPTS {
-            let before = self.seq.load(Ordering::Acquire);
-            if before == 0 {
-                return Some(T::default());
-            }
-            if before % 2 != 0 {
-                continue;
-            }
-            // SAFETY: a read while the single writer may be replacing the value.
-            // A torn clone is discarded by the sequence check below, which is
-            // what makes reading-without-a-lock sound. `Telemetry` carries the IP
-            // as a `String`, so a read is a small clone, on the reader's side.
-            let copy = unsafe { (*self.value.get()).clone() };
-            if self.seq.load(Ordering::Acquire) == before {
-                return Some(copy);
-            }
-        }
-        None
+    pub fn get(&self) -> T {
+        interrupt::free(|| self.value.take())
     }
-
-    /// Attempts before `get` reports "not readable".
-    ///
-    /// Four. The writer's critical section is a few dozen bytes, so it is over in
-    /// nanoseconds; four attempts is generous, and the bound is what stops a
-    /// stalled writer from spinning the httpd task.
-    const READ_ATTEMPTS: usize = 4;
 }
 
 /// The shared state the HTTP handlers close over.
 pub struct Shared {
     /// The latest telemetry, republished by the control task.
-    pub telemetry: Cell<Telemetry>,
+    pub telemetry: Snapshot<Telemetry>,
     /// The temperature history, appended by the control task.
     ///
     /// The C++'s `static TemperatureHistory tempHistory` is a file-static in
@@ -481,7 +513,7 @@ impl Shared {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            telemetry: Cell::new(),
+            telemetry: Snapshot::new(),
             history: Mutex::new(alloc::boxed::Box::new(cc_domain::history::History::new())),
             applied: AtomicU32::new(0),
             reboot_requested: AtomicBool::new(false),
@@ -528,7 +560,7 @@ impl Shared {
         // which `/api/status` already reports as "no reading yet" — and blocking
         // here would put a `pthread` mutex on the httpd task's hottest path,
         // which is the hazard `Cell` exists to remove.
-        self.telemetry.get().unwrap_or_default()
+        self.telemetry.get()
     }
 
     /// How many large responses have been served.

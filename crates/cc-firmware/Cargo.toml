@@ -33,6 +33,10 @@ cc-provisioning.workspace = true
 esp-idf-hal.workspace = true
 esp-idf-svc.workspace = true
 log.workspace = true
+# `Telemetry::ip` is a `heapless::String<15>`, not a `String`: the snapshot the
+# httpd task reads must be a fixed-size copy with no allocator traffic. See
+# `cc_hal_esp32::web::Snapshot`. Already in the device graph via cc-hal-esp32.
+heapless.workspace = true
 
 # `embuild` is a BUILD dependency of the *binary* crate, not just of esp-idf-sys.
 # esp-idf-sys publishes its link args / cfgs as `links` metadata
@@ -53,4 +57,3 @@ workspace = true
 # `esp_idf_comp_joltwallet__littlefs_enabled` (04 §6).
 [[package.metadata.esp-idf-sys.extra_components]]
 remote_component = { name = "joltwallet/littlefs", version = "^1.22" }
-

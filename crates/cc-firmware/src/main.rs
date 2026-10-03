@@ -2858,22 +2858,36 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
             net.shared.note_applied();
         }
 
-        // The radio's readings, published **after** the telemetry above and on
-        // every tick rather than only on a radio poll. The order is load-bearing:
-        // `Shared::publish` replaces the whole slot, so a radio publish before it
-        // would be erased by the very next tick, and `/api/status` would go back
-        // to reporting `wifiAssociated: false` — which is exactly the bug this
-        // replaced. The signal bucket and the DHCP address also change without a
-        // reconnect, and `/api/status` polls far more often than the radio does.
-        network::publish_radio(&net.shared, sta.as_ref());
+        // The radio's readings. Order is load-bearing: `Shared::publish`
+        // replaces the whole slot, so a radio publish BEFORE the telemetry
+        // publish would be erased by it and `/api/status` would go back to
+        // reporting `wifiAssociated: false` -- which is exactly the bug this
+        // replaced. Hence: after.
+        //
+        // Cadence is the same 1 s poll as below, and deliberately NOT every
+        // tick. It used to run at the 10 ms tick rate: four esp-idf FFI
+        // round-trips plus a heap allocation, 100 times a second, for values
+        // that change on DHCP events measured in minutes. It was also the write
+        // side of the use-after-free fixed in `web::Snapshot` -- every
+        // reassignment freed the previous IP buffer while the httpd task could
+        // be reading it. REVIEW.md H-7 / M-8.
+        let radio_due = uptime.wrapping_sub(wifi_last_ms) >= WIFI_POLL_MS;
+        if radio_due {
+            wifi_last_ms = uptime;
+            network::publish_radio(&net.shared, sta.as_ref());
+        }
 
         // The radio's own maintenance, on the C++'s 1 s cadence
         // (`CleverCoffeeWiFiManager::checkAndMaintainConnection`, and
         // `cc_hal_esp32::wifi::MONITOR_PERIOD_MS`). `Sta` is `Send` and the
         // control task is the one place a 1 s poll belongs — it is the task with
         // a heartbeat and a watchdog, so a poll that stalls is visible.
-        if uptime.wrapping_sub(wifi_last_ms) >= WIFI_POLL_MS {
-            wifi_last_ms = uptime;
+        //
+        // Shares the 1 s gate with the publish above, and deliberately does NOT
+        // reset `wifi_last_ms` a second time: the two were one poll originally
+        // and splitting them into two gates would double the FFI traffic for no
+        // extra freshness.
+        if radio_due {
             if let Some(radio) = sta.as_mut() {
                 if radio.poll() {
                     // The C++'s `networkCoordinator_->setOfflineMode`. The

@@ -219,6 +219,7 @@ dependencies = [
  "embuild",
  "esp-idf-hal",
  "esp-idf-svc",
+ "heapless",
  "log",
 ]
 
