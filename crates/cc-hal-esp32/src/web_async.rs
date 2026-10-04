@@ -516,3 +516,111 @@ extern "C" fn sse_handler(req: *mut httpd_req_t) -> esp_idf_sys::esp_err_t {
         }
     }
 }
+
+// ============================================================ the JSON 404
+
+/// Register the JSON `404` for `/api/` paths that matched no route.
+///
+/// Finding 3.8 of
+/// [`32-findings-2026-10-03.md`](../../../docs/rust-migration/32-findings-2026-10-03.md).
+/// The C++ registers `server_->onNotFound(...)`
+/// (`WebServerManager.cpp:235`), whose `handleNotFound` (`:1006-1027`) answers a
+/// JSON `{"error": …}` for any path starting `/api/` and plain text for the rest.
+/// This firmware served ESP-IDF's default plain-text 404 for both, so a client
+/// that parses JSON got a parse error rather than an answer it could read.
+///
+/// # Why one `httpd_register_err_handler` and no router
+///
+/// ESP-IDF's `httpd` has no catch-all URI: a wildcard match is `httpd_uri_match_wildcard`
+/// (`httpd_uri.c:97-122`), which the httpd already uses for `/api*` and `/ui*`,
+/// and a second `/api*` registration would be ambiguous with the preflight one.
+/// The error handler is the mechanism the C++'s `onNotFound` actually corresponds
+/// to, it needs no state and no `user_ctx`, and ESP-IDF calls it only when
+/// nothing matched — which is precisely the `onNotFound` condition. It is
+/// registered for `HTTPD_404_NOT_FOUND` alone; `405` and `400` keep ESP-IDF's
+/// defaults, because the C++'s `onNotFound` is reached for those too but its
+/// bodies are `ESPAsyncWebServer`'s, not its own.
+///
+/// `esp-idf-svc` 0.53.0 does not wrap this — there is no `err_handler` method in
+/// `src/http/server.rs` — so it is a raw `esp-idf-sys` call, in the module that
+/// already holds the raw `unsafe` seam and the reason for it.
+///
+/// The handler takes no `user_ctx`: `Auth` is not consulted here, and that is
+/// deliberate rather than an oversight. **A 404 reveals nothing** — the reachable
+/// set is the ~25 routes in [`crate::web::routes`], all of which are already
+/// behind `Auth`, and a client that cannot authenticate learns from this only that
+/// a path does not exist. The C++ puts its auth middleware in front of
+/// `onNotFound`, so a C++ build answers `401` there; see the note in
+/// [`crate::web::start`] where the deliberate difference is recorded.
+pub(crate) fn register_raw_api_not_found(
+    server_handle: esp_idf_sys::httpd_handle_t,
+) -> Result<(), EspError> {
+    // SAFETY: `not_found_handler` has the `httpd_err_handler_func_t` signature
+    // (`extern "C" fn(*mut httpd_req_t, httpd_err_code_t) -> esp_err_t`,
+    // `bindings.rs:56556-56559`) and `HTTPD_404_NOT_FOUND` is a member of
+    // `httpd_err_code_t` (`:56545`). `server_handle` is the live server's handle
+    // from `RawHandle::handle`, which outlives the registration.
+    let rc = unsafe {
+        esp_idf_sys::httpd_register_err_handler(
+            server_handle,
+            esp_idf_sys::httpd_err_code_t_HTTPD_404_NOT_FOUND,
+            Some(not_found_handler),
+        )
+    };
+    match EspError::from(rc) {
+        None => Ok(()),
+        Some(err) => Err(err),
+    }
+}
+
+/// The raw `extern "C"` `404` ESP-IDF calls when no URI handler matched.
+///
+/// Returns `ESP_OK` — "this request has been answered" — after writing the body
+/// itself. ESP-IDF forces `ESP_FAIL` for a `500` regardless
+/// (`httpd_txrx.c:600-601`), which is the only reason the return value here is
+/// not always `ESP_FAIL`: a returned `ESP_FAIL` on a `404` would close the
+/// socket, and the body this writes has to reach the client first.
+///
+/// A non-`/api/` path is handed straight back to `httpd_resp_send_err`, which is
+/// ESP-IDF's own default `404` — the byte-for-byte answer the Rust port gave
+/// before this existed, and the C++'s `text/plain` "Not found" (`:1023-1024`)
+/// in everything but wording.
+extern "C" fn not_found_handler(
+    req: *mut httpd_req_t,
+    error: esp_idf_sys::httpd_err_code_t,
+) -> esp_idf_sys::esp_err_t {
+    // SAFETY: `req` is non-null (checked by the caller below) and `httpd_req_t::uri`
+    // is a fixed 513-byte NUL-terminated field (`bindings.rs:56468`,
+    // "The URI of this request (1 byte extra for null termination)"), which is
+    // the field `EspHttpConnection::uri` reads (`esp-idf-svc` `server.rs:949-955`).
+    // There is no `httpd_req_get_url_str` in ESP-IDF v5.5.5 — only the
+    // query-string variant — so this reads the field directly, exactly as the
+    // crate that wraps this server does. The query string is included, which is
+    // harmless: the path comes first, so `starts_with("/api/")` is decided by
+    // the path alone.
+    let is_api = !req.is_null() && {
+        // SAFETY: as above — a live request on the httpd task, whose `uri` field
+        // is NUL-terminated.
+        let uri = unsafe { core::ffi::CStr::from_ptr((*req).uri.as_ptr()) };
+        cc_web::help::wants_json_not_found(uri.to_str().unwrap_or(""))
+    };
+
+    // SAFETY: `req` is live on the httpd task and both branches write a complete
+    // response through ESP-IDF's own accessors.
+    unsafe {
+        if !is_api {
+            return httpd_resp_send_err(req, error, c"Not found".as_ptr());
+        }
+        if httpd_resp_set_type(req, c"application/json".as_ptr()) != ESP_OK {
+            return ESP_FAIL;
+        }
+        // `not_found_json()` is a `&'static str`, so the pointer below outlives
+        // the send and cannot dangle.
+        let body = cc_web::help::not_found_json();
+        httpd_resp_send(
+            req,
+            body.as_ptr().cast(),
+            isize::try_from(body.len()).unwrap_or(0),
+        )
+    }
+}

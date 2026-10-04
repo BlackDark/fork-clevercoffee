@@ -231,6 +231,18 @@ impl ParamValue<'_> {
 pub struct ParamSpec {
     /// The dotted C++ key, e.g. `"pid.regular.kp"`.
     pub key: &'static str,
+    /// The operator-facing help text, transcribed verbatim from the C++'s
+    /// `helpText_` constructor argument (`Config.h:69`, `:536`, `:661`).
+    ///
+    /// This is the whole of `GET /api/parameter-help`: the C++ answers with
+    /// `paramDef->getHelpText()` (`WebServerManager.cpp:598-599`) and nothing
+    /// else, so this field *is* that route's body. It was missing here until
+    /// finding 3.4 of
+    /// [`32-findings-2026-10-03.md`](../../../docs/rust-migration/32-findings-2026-10-03.md)
+    /// — `web.rs` answered that route with an error object and HTTP 200 rather
+    /// than admit it had no data. The bytes are the C++'s, so a client reading
+    /// the Rust firmware gets the same string it got from the C++ one.
+    pub help: &'static str,
     /// The value's type.
     pub kind: ParamKind,
     /// The compiled-in default.
@@ -274,6 +286,7 @@ impl ParamSpec {
     #[must_use]
     pub const fn new(
         key: &'static str,
+        help: &'static str,
         kind: ParamKind,
         default: ParamValue<'static>,
         min: Option<f64>,
@@ -282,6 +295,7 @@ impl ParamSpec {
     ) -> Self {
         Self {
             key,
+            help,
             kind,
             default,
             min,
@@ -541,6 +555,7 @@ macro_rules! accessors {
 pub const SCHEMA: &[ParamSpec] = &[
     ParamSpec::new(
         "pid.enabled",
+        "Enables or disables the PID temperature controller",
         ParamKind::Bool,
         ParamValue::Bool(false),
         None,
@@ -549,6 +564,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "pid.use_ponm",
+        "Use PonM mode (Proportional on Measurement)",
         ParamKind::Bool,
         ParamValue::Bool(false),
         None,
@@ -557,6 +573,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "pid.ema_factor",
+        "Smoothing of input for derivative component. Smaller = less smoothing but less delay",
         ParamKind::Float,
         ParamValue::Float(0.6),
         Some(0.0),
@@ -565,6 +582,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "pid.regular.kp",
+        "Proportional gain (in Watts/°C) for the main PID controller",
         ParamKind::Float,
         ParamValue::Float(62.0),
         Some(0.0),
@@ -573,6 +591,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "pid.regular.tn",
+        "Integral time constant (in seconds) for the main PID controller",
         ParamKind::Float,
         ParamValue::Float(52.0),
         Some(0.0),
@@ -581,6 +600,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "pid.regular.tv",
+        "Differential time constant (in seconds) for the main PID controller",
         ParamKind::Float,
         ParamValue::Float(11.5),
         Some(0.0),
@@ -589,6 +609,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "pid.regular.i_max",
+        "Internal integrator limit to prevent windup (in Watts)",
         ParamKind::Float,
         ParamValue::Float(55.0),
         Some(0.0),
@@ -597,6 +618,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "pid.steam.kp",
+        "Proportional gain for the steaming mode",
         ParamKind::Float,
         ParamValue::Float(150.0),
         Some(0.0),
@@ -605,6 +627,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "brew.setpoint",
+        "The temperature that the PID will attempt to reach and hold",
         ParamKind::Float,
         ParamValue::Float(95.0),
         Some(20.0),
@@ -613,6 +636,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "brew.temp_offset",
+        "Optional offset added to the user-visible setpoint to compensate sensor offsets",
         ParamKind::Float,
         ParamValue::Float(0.0),
         Some(0.0),
@@ -621,6 +645,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "steam.setpoint",
+        "The temperature that the PID will use for steam mode",
         ParamKind::Float,
         ParamValue::Float(120.0),
         Some(100.0),
@@ -629,6 +654,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "pid.bd.enabled",
+        "Use separate PID parameters while brew is running",
         ParamKind::Bool,
         ParamValue::Bool(false),
         None,
@@ -637,6 +663,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "brew.pid_delay",
+        "Delay time during which PID will be disabled once brew is detected",
         ParamKind::Float,
         ParamValue::Float(10.0),
         Some(0.0),
@@ -645,6 +672,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "pid.bd.kp",
+        "Proportional gain for PID when brewing has been detected",
         ParamKind::Float,
         ParamValue::Float(50.0),
         Some(0.0),
@@ -653,6 +681,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "pid.bd.tn",
+        "Integral time constant for PID when brewing has been detected",
         ParamKind::Float,
         ParamValue::Float(0.0),
         Some(0.0),
@@ -661,6 +690,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "pid.bd.tv",
+        "Differential time constant for PID when brewing has been detected",
         ParamKind::Float,
         ParamValue::Float(20.0),
         Some(0.0),
@@ -669,6 +699,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "brew.mode",
+        "Brewing mode selection",
         ParamKind::Enum,
         ParamValue::Enum(BrewMode::Manual as i8),
         None,
@@ -677,6 +708,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "brew.by_time.enabled",
+        "Enable brewing by time control",
         ParamKind::Bool,
         ParamValue::Bool(false),
         None,
@@ -685,6 +717,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "brew.by_time.target_time",
+        "Target brew time in seconds",
         ParamKind::Float,
         ParamValue::Float(25.0),
         Some(1.0),
@@ -693,6 +726,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "brew.by_weight.enabled",
+        "Enable brewing by weight control",
         ParamKind::Bool,
         ParamValue::Bool(false),
         None,
@@ -701,6 +735,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "brew.by_weight.target_weight",
+        "Brew is running until this weight has been measured",
         ParamKind::Float,
         ParamValue::Float(36.0),
         Some(0.0),
@@ -713,6 +748,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "brew.by_weight.auto_tare",
+        "Automatically tare scale before brewing",
         ParamKind::Bool,
         ParamValue::Bool(false),
         None,
@@ -721,6 +757,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "brew.pre_infusion.enabled",
+        "Enable pre-infusion phase",
         ParamKind::Bool,
         ParamValue::Bool(false),
         None,
@@ -729,6 +766,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "brew.pre_infusion.time",
+        "Pre-infusion time in seconds",
         ParamKind::Float,
         ParamValue::Float(2.0),
         Some(0.0),
@@ -737,6 +775,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "brew.pre_infusion.pause",
+        "Pre-infusion pause time in seconds",
         ParamKind::Float,
         ParamValue::Float(5.0),
         Some(0.0),
@@ -745,6 +784,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "display.fullscreen_brew_timer",
+        "Enable fullscreen overlay during brew",
         ParamKind::Bool,
         ParamValue::Bool(false),
         None,
@@ -757,6 +797,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "display.fullscreen_manual_flush_timer",
+        "Enable fullscreen overlay during manual flush",
         ParamKind::Bool,
         ParamValue::Bool(false),
         None,
@@ -769,6 +810,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "display.fullscreen_hot_water_timer",
+        "Enable fullscreen overlay during hot water mode",
         ParamKind::Bool,
         ParamValue::Bool(false),
         None,
@@ -781,6 +823,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "display.post_brew_timer_duration",
+        "Post brew timer will be shown for this many seconds after brew finished",
         ParamKind::Float,
         ParamValue::Float(3.0),
         Some(0.0),
@@ -793,6 +836,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "display.heating_logo",
+        "Full screen logo will be shown if temperature is 5°C below setpoint",
         ParamKind::Bool,
         ParamValue::Bool(true),
         None,
@@ -801,6 +845,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "display.pid_off_logo",
+        "Full screen logo will be shown if PID is disabled",
         ParamKind::Bool,
         ParamValue::Bool(true),
         None,
@@ -809,6 +854,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "hardware.leds.status.enabled",
+        "Enable status indicator LED",
         ParamKind::Bool,
         ParamValue::Bool(false),
         None,
@@ -821,6 +867,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "hardware.leds.status.inverted",
+        "Invert the status LED logic (for common anode LEDs)",
         ParamKind::Bool,
         ParamValue::Bool(false),
         None,
@@ -833,6 +880,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "hardware.leds.brew.enabled",
+        "Enable brew indicator LED",
         ParamKind::Bool,
         ParamValue::Bool(false),
         None,
@@ -845,6 +893,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "hardware.leds.brew.inverted",
+        "Invert the brew LED logic",
         ParamKind::Bool,
         ParamValue::Bool(false),
         None,
@@ -857,6 +906,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "hardware.leds.steam.enabled",
+        "Enable steam indicator LED",
         ParamKind::Bool,
         ParamValue::Bool(false),
         None,
@@ -869,6 +919,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "hardware.leds.steam.inverted",
+        "Invert the steam LED logic",
         ParamKind::Bool,
         ParamValue::Bool(false),
         None,
@@ -881,6 +932,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "display.template",
+        "Set the display template, changes require a reboot",
         ParamKind::Enum,
         ParamValue::Enum(DisplayTemplate::Standard as i8),
         None,
@@ -889,6 +941,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "display.inverted",
+        "Set the display rotation, changes require a reboot",
         ParamKind::Bool,
         ParamValue::Bool(false),
         None,
@@ -897,6 +950,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "display.language",
+        "Set the language for the OLED display",
         ParamKind::Enum,
         ParamValue::Enum(Language::English as i8),
         None,
@@ -905,6 +959,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "display.blinking.delta",
+        "Delta from setpoint for status LED and blinking temperature display",
         ParamKind::Float,
         ParamValue::Float(0.3),
         Some(0.2),
@@ -913,6 +968,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "backflush.cycles",
+        "Number of backflush cycles to perform",
         ParamKind::Int,
         ParamValue::Int(5),
         Some(2.0),
@@ -921,6 +977,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "backflush.fill_time",
+        "Time to fill during backflush cycle",
         ParamKind::Float,
         ParamValue::Float(5.0),
         Some(3.0),
@@ -929,6 +986,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "backflush.flush_time",
+        "Time to flush during backflush cycle",
         ParamKind::Float,
         ParamValue::Float(10.0),
         Some(5.0),
@@ -937,6 +995,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "maintenance.backflush_reminder.enabled",
+        "Show a reminder when the shot count since last backflush reaches the threshold",
         ParamKind::Bool,
         ParamValue::Bool(true),
         None,
@@ -949,6 +1008,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "maintenance.backflush_reminder.threshold",
+        "Number of counted brews before a backflush reminder is shown (default ~monthly at 2 shots/day)",
         ParamKind::Int,
         ParamValue::Int(50),
         Some(1.0),
@@ -961,6 +1021,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "standby.enabled",
+        "Turn heater off after standby time has elapsed",
         ParamKind::Bool,
         ParamValue::Bool(false),
         None,
@@ -969,6 +1030,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "standby.time",
+        "Time in minutes until the heater is turned off",
         ParamKind::Float,
         ParamValue::Float(35.0),
         Some(1.0),
@@ -977,6 +1039,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "mqtt.enabled",
+        "Enables MQTT, change requires a restart",
         ParamKind::Bool,
         ParamValue::Bool(false),
         None,
@@ -985,6 +1048,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "mqtt.broker",
+        "IP address or hostname of your MQTT broker",
         ParamKind::Text,
         ParamValue::Text(""),
         None,
@@ -993,6 +1057,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "mqtt.port",
+        "Port number of your MQTT broker",
         ParamKind::Int,
         ParamValue::Int(1883),
         Some(1.0),
@@ -1001,6 +1066,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "mqtt.username",
+        "Username for your MQTT broker",
         ParamKind::Text,
         ParamValue::Text("rancilio"),
         None,
@@ -1009,6 +1075,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "mqtt.password",
+        "Password for your MQTT broker",
         ParamKind::Text,
         ParamValue::Text("silvia"),
         None,
@@ -1017,6 +1084,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "mqtt.topic",
+        "Custom MQTT topic prefix",
         ParamKind::Text,
         ParamValue::Text("custom/kitchen/"),
         None,
@@ -1025,6 +1093,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "mqtt.hassio.enabled",
+        "Enables Home Assistant integration",
         ParamKind::Bool,
         ParamValue::Bool(false),
         None,
@@ -1033,6 +1102,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "mqtt.hassio.prefix",
+        "Custom MQTT topic prefix for Home Assistant",
         ParamKind::Text,
         ParamValue::Text("homeassistant"),
         None,
@@ -1041,6 +1111,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "system.hostname",
+        "Hostname of your machine, changes require a restart",
         ParamKind::Text,
         ParamValue::Text(DEFAULT_HOSTNAME),
         None,
@@ -1049,6 +1120,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "system.ota_password",
+        "Password for over-the-air updates, changes require a restart",
         ParamKind::Text,
         ParamValue::Text("otapass"),
         None,
@@ -1057,6 +1129,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "system.offline_mode",
+        "Run in offline mode without WiFi connection",
         ParamKind::Bool,
         ParamValue::Bool(false),
         None,
@@ -1065,6 +1138,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "system.log_level",
+        "Set the logging level for debug output",
         ParamKind::Enum,
         ParamValue::Enum(LogLevel::Info as i8),
         None,
@@ -1073,6 +1147,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "system.auth.enabled",
+        "Enables authentication for accessing certain parts of the website",
         ParamKind::Bool,
         ParamValue::Bool(false),
         None,
@@ -1081,6 +1156,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "system.auth.username",
+        "Username for accessing the website and authenticating web requests",
         ParamKind::Text,
         ParamValue::Text("admin"),
         None,
@@ -1089,6 +1165,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "system.auth.password",
+        "Password for accessing the website and authenticating web requests",
         ParamKind::Text,
         ParamValue::Text("admin"),
         None,
@@ -1097,6 +1174,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "system.timing_debug.enabled",
+        "Enable or disable the process loop time debugging in console",
         ParamKind::Bool,
         ParamValue::Bool(false),
         None,
@@ -1109,6 +1187,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "system.showdisplay.enabled",
+        "Enable or disable showing sendBuffer loops in debug logs",
         ParamKind::Bool,
         ParamValue::Bool(true),
         None,
@@ -1121,6 +1200,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "system.wifi.ssid",
+        "WiFi SSID to connect to directly (leave empty to use the configuration portal)",
         ParamKind::Text,
         ParamValue::Text(""),
         None,
@@ -1129,6 +1209,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "system.wifi.password",
+        "WiFi password for direct connection (leave empty for open networks)",
         ParamKind::Text,
         ParamValue::Text(""),
         None,
@@ -1137,6 +1218,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "hardware.oled.enabled",
+        "Enable or disable the OLED display",
         ParamKind::Bool,
         ParamValue::Bool(true),
         None,
@@ -1145,6 +1227,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "hardware.oled.type",
+        "Select your OLED display type",
         ParamKind::Enum,
         ParamValue::Enum(OledType::Ssd1306 as i8),
         None,
@@ -1153,6 +1236,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "hardware.oled.address",
+        "I2C address of the OLED display",
         ParamKind::Enum,
         ParamValue::Enum(OledAddress::Addr3c as i8),
         None,
@@ -1166,6 +1250,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "hardware.relays.heater.trigger_type",
+        "Relay trigger type for heater control",
         ParamKind::Enum,
         ParamValue::Enum(RelayTriggerType::HighTrigger as i8),
         None,
@@ -1179,6 +1264,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "hardware.relays.valve.trigger_type",
+        "Relay trigger type for valve control",
         ParamKind::Enum,
         ParamValue::Enum(RelayTriggerType::HighTrigger as i8),
         None,
@@ -1192,6 +1278,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "hardware.relays.pump.trigger_type",
+        "Relay trigger type for pump control",
         ParamKind::Enum,
         ParamValue::Enum(RelayTriggerType::HighTrigger as i8),
         None,
@@ -1205,6 +1292,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "hardware.switches.brew.enabled",
+        "Enable physical brew switch",
         ParamKind::Bool,
         // `true`, not the C++'s `false` (`Config.h:985`) — see
         // `HardwareSwitchesBrew::enabled` and intentional-diffs.md.
@@ -1219,6 +1307,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "hardware.switches.brew.type",
+        "Type of brew switch connected",
         ParamKind::Enum,
         ParamValue::Enum(SwitchType::Toggle as i8),
         None,
@@ -1232,6 +1321,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "hardware.switches.brew.mode",
+        "Electrical configuration of brew switch",
         ParamKind::Enum,
         ParamValue::Enum(SwitchMode::NormallyOpen as i8),
         None,
@@ -1245,6 +1335,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "hardware.switches.steam.enabled",
+        "Enable physical steam switch",
         ParamKind::Bool,
         ParamValue::Bool(true),
         None,
@@ -1257,6 +1348,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "hardware.switches.steam.type",
+        "Type of steam switch connected",
         ParamKind::Enum,
         ParamValue::Enum(SwitchType::Toggle as i8),
         None,
@@ -1270,6 +1362,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "hardware.switches.steam.mode",
+        "Electrical configuration of steam switch",
         ParamKind::Enum,
         ParamValue::Enum(SwitchMode::NormallyOpen as i8),
         None,
@@ -1283,6 +1376,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "hardware.switches.power.enabled",
+        "Enable physical power switch",
         ParamKind::Bool,
         ParamValue::Bool(true),
         None,
@@ -1295,6 +1389,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "hardware.switches.power.type",
+        "Type of power switch connected",
         ParamKind::Enum,
         ParamValue::Enum(SwitchType::Toggle as i8),
         None,
@@ -1308,6 +1403,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "hardware.switches.power.mode",
+        "Electrical configuration of power switch",
         ParamKind::Enum,
         ParamValue::Enum(SwitchMode::NormallyOpen as i8),
         None,
@@ -1321,6 +1417,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "hardware.switches.hot_water.enabled",
+        "Enable physical water switch",
         ParamKind::Bool,
         ParamValue::Bool(true),
         None,
@@ -1333,6 +1430,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "hardware.switches.hot_water.type",
+        "Type of water switch connected",
         ParamKind::Enum,
         ParamValue::Enum(SwitchType::Toggle as i8),
         None,
@@ -1346,6 +1444,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "hardware.switches.hot_water.mode",
+        "Electrical configuration of water switch",
         ParamKind::Enum,
         ParamValue::Enum(SwitchMode::NormallyOpen as i8),
         None,
@@ -1359,6 +1458,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "hardware.sensors.temperature.type",
+        "Type of temperature sensor connected",
         ParamKind::Enum,
         // TSIC_306, the C++'s value at `Config.h:1085-1092`. Both the schema
         // default and the struct default must agree, or `Config::default()` and
@@ -1377,6 +1477,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "hardware.sensors.pressure.enabled",
+        "Enable pressure sensor functionality",
         ParamKind::Bool,
         ParamValue::Bool(false),
         None,
@@ -1389,6 +1490,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "hardware.sensors.watertank.enabled",
+        "Enable water tank level sensor",
         ParamKind::Bool,
         ParamValue::Bool(false),
         None,
@@ -1401,6 +1503,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "hardware.sensors.watertank.mode",
+        "Electrical configuration of water tank sensor",
         ParamKind::Enum,
         ParamValue::Enum(SwitchMode::NormallyClosed as i8),
         None,
@@ -1414,6 +1517,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "hardware.sensors.watertank.keep_heater_on_empty",
+        "Warning: keeps the PID/heater active even when the water tank is reported empty. Only the external reservoir is protected by this sensor, not the boiler.",
         ParamKind::Bool,
         ParamValue::Bool(false),
         None,
@@ -1426,6 +1530,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "hardware.sensors.scale.enabled",
+        "Enable scale functionality",
         ParamKind::Bool,
         ParamValue::Bool(false),
         None,
@@ -1438,6 +1543,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "hardware.sensors.scale.samples",
+        "Number of samples used for calibration",
         ParamKind::Int,
         ParamValue::Int(2),
         Some(1.0),
@@ -1450,6 +1556,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "hardware.sensors.scale.type",
+        "Integrated HX711-based scale with different load cell configurations or Bluetooth Low Energy scales",
         ParamKind::Enum,
         ParamValue::Enum(ScaleType::Hx711Dual as i8),
         None,
@@ -1463,6 +1570,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "hardware.sensors.scale.calibration",
+        "Raw data is divided by this value to convert to readable data",
         ParamKind::Float,
         ParamValue::Float(1.0),
         Some(-999_999.0),
@@ -1475,6 +1583,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "hardware.sensors.scale.calibration2",
+        "Second calibration factor for dual load cell scales",
         ParamKind::Float,
         ParamValue::Float(1.0),
         Some(-999_999.0),
@@ -1487,6 +1596,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "hardware.sensors.scale.known_weight",
+        "Calibration weight for scale (weight of the tray)",
         ParamKind::Float,
         ParamValue::Float(267.0),
         Some(1.0),
@@ -1502,6 +1612,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     // and missing from `Config::getAllConfigParams()`. See the module docs.
     ParamSpec::new(
         "safety.emergency_temp",
+        "Temperature threshold that triggers emergency stop",
         ParamKind::Float,
         ParamValue::Float(150.0),
         Some(120.0),
@@ -1510,6 +1621,7 @@ pub const SCHEMA: &[ParamSpec] = &[
     ),
     ParamSpec::new(
         "safety.emergency_hysteresis",
+        "Temperature drop required to reset emergency counter",
         ParamKind::Float,
         ParamValue::Float(5.0),
         Some(1.0),

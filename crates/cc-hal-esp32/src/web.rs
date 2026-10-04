@@ -130,8 +130,9 @@ use cc_domain::http_auth::WWW_AUTHENTICATE;
 // why `Snapshot` did not move with them.
 use cc_web::{
     classify_parameters, error_body, explicit_value, first_of, health_json, mime_for,
-    nvs_debug_json, ota_status_json, parse_flag, parse_setpoint, query_of, status_json,
-    temperatures_json, unavailable_json, upload_response, weight_json, Auth, ParameterPost,
+    nvs_debug_json, ota_status_json, parameter_help, parse_flag, parse_setpoint, query_of,
+    status_json, temperatures_json, unavailable_json, upload_response, weight_json, Auth,
+    ParameterPost,
 };
 pub use cc_web::{
     parameters_json, Command, Telemetry, MAX_CONFIG_UPLOAD_BYTES, MAX_PARAMETER_BODY_BYTES,
@@ -1410,11 +1411,23 @@ impl Web {
                 "/api/parameter-help",
                 Method::Get,
                 |mut req| {
-                    respond(
-                        req.connection(),
-                        200,
-                        &unavailable_json("Per-parameter help", "R3-16 (the schema UI)"),
-                    )
+                    // The C++'s handler (`WebServerManager.cpp:585-618`) reads
+                    // `?param=` and answers 422 / 404 / 200. This used to answer
+                    // **200 with an error object**, which is finding 3.4: a
+                    // client checking the status saw success and a client parsing
+                    // the body saw a failure, and neither could tell it apart
+                    // from the feature working. The body and the code are one
+                    // value here so they cannot disagree again.
+                    //
+                    // `first_of` over the parsed query rather than a substring
+                    // search, because `param` is percent-decoded by
+                    // `cc_config::form::parse_form` — a dotted key arrives
+                    // intact, which a byte comparison against `/api/parameters`
+                    // would break the first time anything encoded it.
+                    let fields = cc_config::form::parse_form(query_of(req.uri()));
+                    let name = first_of(&fields, &["param"]);
+                    let (status, body) = parameter_help(name.as_deref());
+                    respond(req.connection(), status, &body)
                 },
             )?;
         }
@@ -1927,6 +1940,27 @@ impl Web {
                 auth: Arc::clone(&auth),
             }),
         )?;
+
+        // --- the JSON 404 --------------------------------------------------
+        // One `httpd_register_err_handler` for `HTTPD_404_NOT_FOUND`, which
+        // ESP-IDF calls only when no URI handler matched — the `onNotFound`
+        // condition the C++ registers at `WebServerManager.cpp:235`. A `/api/`
+        // path gets JSON; anything else keeps ESP-IDF's plain text, exactly as
+        // `handleNotFound` (`:1011-1025`) chooses.
+        //
+        // **The one place this firmware's 404 is not behind `Auth`.** The C++
+        // installs its authentication middleware on the server, which covers
+        // `onNotFound` too, so a C++ build answers `401` for an unknown
+        // `/api/` path and this answers `404`. Left as it is deliberately: the
+        // handler carries no `user_ctx` and no `Arc<Auth>`, and the alternative
+        // would be a raw handler reading the `Authorization` header — i.e. a
+        // second credential path, written a second time, guarding a response
+        // that says only "no such route". Every route that exists is behind
+        // `Auth`; the set of routes that do not is not a secret, and this is
+        // recorded rather than silently differing.
+        crate::web_async::register_raw_api_not_found(esp_idf_svc::handle::RawHandle::handle(
+            &server,
+        ))?;
 
         // The broadcaster is the only writer of `/events`, and it is not the
         // httpd task. Started after the routes so a client cannot connect to a
@@ -2540,6 +2574,49 @@ pub mod tests {
     }
 
     // ==================================================== the setpoint route
+
+    /// Every `/api/` route the table advertises is a path the JSON `404`
+    /// claims.
+    ///
+    /// Finding 3.8. The C++'s `handleNotFound` decides JSON-vs-text with
+    /// `path.startsWith("/api/")` (`WebServerManager.cpp:1011`), and this
+    /// firmware registers the JSON `404` on exactly that rule. If a route were
+    /// ever advertised as `/api` — no trailing slash — the 404 would not cover
+    /// it and a client would get plain text from a route the boot log claims
+    /// exists. That is a whole-table property rather than a property of one
+    /// entry, which is why it is asserted over the table and not per route.
+    #[cfg_attr(test, test)]
+    pub fn every_advertised_api_route_is_covered_by_the_json_404() {
+        for (path, _) in routes() {
+            if path.starts_with("/api") {
+                assert!(
+                    cc_web::help::wants_json_not_found(path),
+                    "{path} is advertised but the JSON 404 does not cover it"
+                );
+            }
+        }
+    }
+
+    /// `/api/parameter-help` is registered for `GET` and nothing else.
+    ///
+    /// Finding 3.4. The route existed and was wrong in the worst way — it
+    /// answered `200` with an error object — so the registration was never in
+    /// doubt and no route test could have caught it. What is worth pinning is
+    /// that the C++ registers it `HTTP_GET` only
+    /// (`WebServerManager.cpp:586`), and a `POST` to it would now fall through
+    /// to the JSON `404` rather than being answered.
+    #[cfg_attr(test, test)]
+    pub fn the_parameter_help_route_is_a_get_and_nothing_else() {
+        let entries: Vec<&'static str> = routes()
+            .iter()
+            .filter(|(path, _)| *path == "/api/parameter-help")
+            .map(|(path, _)| *path)
+            .collect();
+        // Exactly one entry — so no second method is advertised for it, which is
+        // what makes the assertion below mean "and nothing else".
+        assert_eq!(entries, vec!["/api/parameter-help"]);
+        assert!(routes().contains(&("/api/parameter-help", Method::Get)));
+    }
 
     // ==================================================== the toggle routes
 

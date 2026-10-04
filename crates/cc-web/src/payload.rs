@@ -309,14 +309,27 @@ pub fn unavailable_json(feature: &str, task: &str) -> String {
 /// `min` and `max`. That is ten.
 ///
 /// This emits `name`, `type`, `value`, `default`, `min`, `max`: six. **The four
-/// missing are `label`, `section`, `order` and `helpText`, and they are missing
-/// because there is no data for them, not because they were overlooked.**
-/// `cc_config::schema::ParamSpec` carries `key`, `kind`, `default`, `min` and
-/// `max`; the C++'s `displayName_`, `section_`, `order_` and `helpText_` are
-/// per-parameter literals in `Config.h` that the Rust schema never recorded, and
-/// inventing them would put text in front of an operator's UI that the C++ does
-/// not have. That is a `cc-config` data gap, recorded here rather than papered
-/// over. The UI's editor works without them — it labels by `name`.
+/// missing are `label`, `section`, `order` and `helpText`.**
+///
+/// `label`, `section` and `order` are missing because there is no data for them.
+/// The C++'s `displayName_`, `section_` and `order_` are per-parameter literals
+/// in `Config.h` that the Rust schema never recorded, and inventing them would
+/// put text in front of an operator's UI that the C++ does not have. That is a
+/// `cc-config` data gap, recorded here rather than papered over. The UI's editor
+/// works without them — it labels by `name`.
+///
+/// `helpText` is a fourth case and it is **not** a data gap any more.
+/// `cc_config::schema::ParamSpec::help` carries all 98 strings, transcribed from
+/// the same `Config.h` constructor argument the C++ reads (finding 3.4 of
+/// [`32-findings-2026-10-03.md`](../../../docs/rust-migration/32-findings-2026-10-03.md)),
+/// and `GET /api/parameter-help` serves them — see [`crate::help`]. This body
+/// still does not carry the field, and that is a **size** decision rather than a
+/// data one: the 98 strings are ~9 KB, this body is built as one `String` in one
+/// allocation, and `ADR-0002` §2 exists because that allocation is already
+/// measured against a ~19 KB figure on a part with 320 KB of RAM. Adding 50% to
+/// a body whose consumer the UI already renders without it is the wrong trade;
+/// a client that wants the text asks `/api/parameter-help` for it, which is what
+/// the C++'s own UI does.
 ///
 /// # The value is the stored one, and what "live" means today
 ///

@@ -444,6 +444,14 @@ pub const CASES: &[Case] = &[
         run: web::tests::every_route_the_frontend_calls_is_registered,
     },
     Case {
+        name: "web::every_advertised_api_route_is_covered_by_the_json_404",
+        run: web::tests::every_advertised_api_route_is_covered_by_the_json_404,
+    },
+    Case {
+        name: "web::the_parameter_help_route_is_a_get_and_nothing_else",
+        run: web::tests::the_parameter_help_route_is_a_get_and_nothing_else,
+    },
+    Case {
         name: "web::the_route_table_fits_the_servers_handler_budget",
         run: web::tests::the_route_table_fits_the_servers_handler_budget,
     },
