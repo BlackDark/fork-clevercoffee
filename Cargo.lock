@@ -215,6 +215,7 @@ dependencies = [
  "cc-hal-esp32",
  "cc-machine",
  "cc-safety",
+ "cc-web",
  "embuild",
  "esp-idf-hal",
  "esp-idf-svc",
@@ -230,6 +231,7 @@ dependencies = [
  "cc-domain",
  "cc-machine",
  "cc-safety",
+ "cc-web",
  "display-interface",
  "embedded-io",
  "esp-idf-hal",
@@ -269,6 +271,17 @@ name = "cc-safety"
 version = "0.1.0"
 dependencies = [
  "cc-domain",
+]
+
+[[package]]
+name = "cc-web"
+version = "0.1.0"
+dependencies = [
+ "cc-config",
+ "cc-domain",
+ "heapless",
+ "log",
+ "serde_json",
 ]
 
 [[package]]

@@ -428,84 +428,12 @@ pub const CASES: &[Case] = &[
         run: time::tests::the_microsecond_clock_is_finer_than_the_millisecond_one,
     },
     Case {
-        name: "web::steam_mode_is_the_latched_steam_flag_and_not_the_brew_state",
-        run: web::tests::steam_mode_is_the_latched_steam_flag_and_not_the_brew_state,
-    },
-    Case {
-        name: "web::the_status_steam_mode_agrees_with_the_steam_toggle_response",
-        run: web::tests::the_status_steam_mode_agrees_with_the_steam_toggle_response,
-    },
-    Case {
-        name: "web::auth_is_inert_when_it_is_switched_off",
-        run: web::tests::auth_is_inert_when_it_is_switched_off,
-    },
-    Case {
-        name: "web::auth_admits_the_right_credentials_and_refuses_everything_else",
-        run: web::tests::auth_admits_the_right_credentials_and_refuses_everything_else,
-    },
-    Case {
-        name: "web::auth_with_empty_credentials_serves_the_api_open_exactly_as_the_cpp_does",
-        run: web::tests::auth_with_empty_credentials_serves_the_api_open_exactly_as_the_cpp_does,
-    },
-    Case {
-        name: "web::the_challenge_is_the_cpp_realm",
-        run: web::tests::the_challenge_is_the_cpp_realm,
-    },
-    Case {
-        name: "web::enabling_auth_is_reported_as_needing_a_reboot",
-        run: web::tests::enabling_auth_is_reported_as_needing_a_reboot,
-    },
-    Case {
-        name: "web::the_auth_debug_never_prints_the_configuration",
-        run: web::tests::the_auth_debug_never_prints_the_configuration,
-    },
-    Case {
         name: "web::the_config_upload_route_is_registered",
         run: web::tests::the_config_upload_route_is_registered,
     },
     Case {
-        name: "web::the_upload_response_is_the_cpp_shape",
-        run: web::tests::the_upload_response_is_the_cpp_shape,
-    },
-    Case {
-        name: "web::the_upload_body_is_bounded_and_the_cap_is_the_cpps",
-        run: web::tests::the_upload_body_is_bounded_and_the_cap_is_the_cpps,
-    },
-    Case {
         name: "web::the_advertised_options_handler_is_a_wildcard_over_the_api",
         run: web::tests::the_advertised_options_handler_is_a_wildcard_over_the_api,
-    },
-    Case {
-        name: "web::the_status_payload_has_the_csqs_keys",
-        run: web::tests::the_status_payload_has_the_csqs_keys,
-    },
-    Case {
-        name: "web::an_absent_reading_is_null_and_never_a_fabricated_zero",
-        run: web::tests::an_absent_reading_is_null_and_never_a_fabricated_zero,
-    },
-    Case {
-        name: "web::a_present_reading_is_formatted_to_two_decimals",
-        run: web::tests::a_present_reading_is_formatted_to_two_decimals,
-    },
-    Case {
-        name: "web::the_status_payload_is_valid_json",
-        run: web::tests::the_status_payload_is_valid_json,
-    },
-    Case {
-        name: "web::the_temperatures_payload_is_the_csqs_three_keys",
-        run: web::tests::the_temperatures_payload_is_the_csqs_three_keys,
-    },
-    Case {
-        name: "web::the_health_payload_distinguishes_alive_from_published",
-        run: web::tests::the_health_payload_distinguishes_alive_from_published,
-    },
-    Case {
-        name: "web::nvs_debug_reports_the_blob_and_the_heap_and_no_parameters",
-        run: web::tests::nvs_debug_reports_the_blob_and_the_heap_and_no_parameters,
-    },
-    Case {
-        name: "web::an_empty_blob_describes_as_zeroes_rather_than_panicking",
-        run: web::tests::an_empty_blob_describes_as_zeroes_rather_than_panicking,
     },
     Case {
         name: "web::every_csqs_api_route_is_registered",
@@ -516,96 +444,12 @@ pub const CASES: &[Case] = &[
         run: web::tests::every_route_the_frontend_calls_is_registered,
     },
     Case {
-        name: "web::the_setpoint_route_takes_what_the_schema_will_store",
-        run: web::tests::the_setpoint_route_takes_what_the_schema_will_store,
-    },
-    Case {
-        name: "web::the_setpoint_route_refuses_a_value_that_would_defeat_the_interlock",
-        run: web::tests::the_setpoint_route_refuses_a_value_that_would_defeat_the_interlock,
-    },
-    Case {
-        name: "web::a_flag_reads_the_csqs_spellings_and_treats_anything_else_as_off",
-        run: web::tests::a_flag_reads_the_csqs_spellings_and_treats_anything_else_as_off,
-    },
-    Case {
-        name: "web::an_explicit_toggle_command_carries_the_value_it_was_given",
-        run: web::tests::an_explicit_toggle_command_carries_the_value_it_was_given,
-    },
-    Case {
-        name: "web::a_toggle_route_inverts_the_published_value",
-        run: web::tests::a_toggle_route_inverts_the_published_value,
-    },
-    Case {
-        name: "web::the_ota_status_document_satisfies_the_uis_schema",
-        run: web::tests::the_ota_status_document_satisfies_the_uis_schema,
-    },
-    Case {
-        name: "web::the_ota_status_document_is_not_an_update_error",
-        run: web::tests::the_ota_status_document_is_not_an_update_error,
-    },
-    Case {
-        name: "web::an_unavailable_ota_route_says_which_build_and_which_task",
-        run: web::tests::an_unavailable_ota_route_says_which_build_and_which_task,
-    },
-    Case {
-        name: "web::a_write_that_needs_a_reboot_is_named_rather_than_claimed_applied",
-        run: web::tests::a_write_that_needs_a_reboot_is_named_rather_than_claimed_applied,
-    },
-    Case {
-        name: "web::an_ordinary_parameter_is_not_reported_as_needing_a_reboot",
-        run: web::tests::an_ordinary_parameter_is_not_reported_as_needing_a_reboot,
-    },
-    Case {
-        name: "web::a_rejected_write_still_names_the_reboot_keys_it_did_accept",
-        run: web::tests::a_rejected_write_still_names_the_reboot_keys_it_did_accept,
-    },
-    Case {
-        name: "web::a_write_that_changed_nothing_needs_no_reboot",
-        run: web::tests::a_write_that_changed_nothing_needs_no_reboot,
-    },
-    Case {
         name: "web::the_route_table_fits_the_servers_handler_budget",
         run: web::tests::the_route_table_fits_the_servers_handler_budget,
     },
     Case {
         name: "web::the_parameter_route_is_registered_for_both_methods",
         run: web::tests::the_parameter_route_is_registered_for_both_methods,
-    },
-    Case {
-        name: "web::a_query_string_is_reachable_from_the_uri",
-        run: web::tests::a_query_string_is_reachable_from_the_uri,
-    },
-    Case {
-        name: "web::a_parameter_post_of_the_four_kinds_is_accepted",
-        run: web::tests::a_parameter_post_of_the_four_kinds_is_accepted,
-    },
-    Case {
-        name: "web::an_unknown_key_is_a_400_and_names_nothing_in_the_body",
-        run: web::tests::an_unknown_key_is_a_400_and_names_nothing_in_the_body,
-    },
-    Case {
-        name: "web::a_value_out_of_range_is_the_same_400_as_an_unknown_key",
-        run: web::tests::a_value_out_of_range_is_the_same_400_as_an_unknown_key,
-    },
-    Case {
-        name: "web::one_rejected_parameter_does_not_lose_the_accepted_ones",
-        run: web::tests::one_rejected_parameter_does_not_lose_the_accepted_ones,
-    },
-    Case {
-        name: "web::a_request_that_names_no_parameter_is_the_third_response",
-        run: web::tests::a_request_that_names_no_parameter_is_the_third_response,
-    },
-    Case {
-        name: "web::the_updated_response_is_the_cpp_body_verbatim",
-        run: web::tests::the_updated_response_is_the_cpp_body_verbatim,
-    },
-    Case {
-        name: "web::a_query_string_and_a_body_carry_the_same_parameter",
-        run: web::tests::a_query_string_and_a_body_carry_the_same_parameter,
-    },
-    Case {
-        name: "web::a_command_field_is_read_from_the_query_string_as_well_as_the_body",
-        run: web::tests::a_command_field_is_read_from_the_query_string_as_well_as_the_body,
     },
     Case {
         name: "web::the_redirect_and_the_ui_are_routes",
@@ -664,28 +508,8 @@ pub const CASES: &[Case] = &[
         run: web::tests::a_read_does_not_consume_the_snapshot,
     },
     Case {
-        name: "web::the_parameters_body_carries_a_value_for_every_parameter",
-        run: web::tests::the_parameters_body_carries_a_value_for_every_parameter,
-    },
-    Case {
-        name: "web::a_parameter_value_is_typed_like_its_default",
-        run: web::tests::a_parameter_value_is_typed_like_its_default,
-    },
-    Case {
-        name: "web::a_set_parameter_reports_the_stored_value_not_the_default",
-        run: web::tests::a_set_parameter_reports_the_stored_value_not_the_default,
-    },
-    Case {
         name: "web::the_radio_fields_survive_a_machine_publish",
         run: web::tests::the_radio_fields_survive_a_machine_publish,
-    },
-    Case {
-        name: "web::a_default_snapshot_reports_no_radio_rather_than_a_fabricated_one",
-        run: web::tests::a_default_snapshot_reports_no_radio_rather_than_a_fabricated_one,
-    },
-    Case {
-        name: "web::the_status_body_reports_an_associated_radio",
-        run: web::tests::the_status_body_reports_an_associated_radio,
     },
     Case {
         name: "web::a_reboot_request_is_one_shot",
@@ -696,20 +520,12 @@ pub const CASES: &[Case] = &[
         run: web::tests::the_ui_shell_and_its_assets_are_embedded_and_gzipped,
     },
     Case {
-        name: "web::a_javascript_bundle_is_served_as_javascript",
-        run: web::tests::a_javascript_bundle_is_served_as_javascript,
-    },
-    Case {
         name: "web::a_client_side_route_serves_the_shell_but_a_missing_asset_does_not",
         run: web::tests::a_client_side_route_serves_the_shell_but_a_missing_asset_does_not,
     },
     Case {
         name: "web::wildcard_matching_leaves_the_api_routes_exact",
         run: web::tests::wildcard_matching_leaves_the_api_routes_exact,
-    },
-    Case {
-        name: "web::an_unavailable_endpoint_names_the_task_that_owns_it",
-        run: web::tests::an_unavailable_endpoint_names_the_task_that_owns_it,
     },
     Case {
         name: "wifi::the_connect_timeout_is_the_cpp_ten_seconds",

@@ -5,8 +5,9 @@
 # recipes' relative paths in the wrong place.
 #
 # Crate roles:
-#   cc-domain, cc-safety, cc-machine, cc-display, cc-config  portable, no_std,
-#       host-testable, MUST NOT name esp_idf_{svc,hal,sys} (CI grep, 05 §6)
+#   cc-domain, cc-safety, cc-machine, cc-display, cc-config, cc-web  portable,
+#       no_std, host-testable, MUST NOT name esp_idf_{svc,hal,sys} (CI grep,
+#       05 §6)
 #   cc-hal-esp32, cc-firmware                                  device-only;
 #       they do not compile for a host target and are therefore NOT in
 #       `default-members`.
@@ -19,6 +20,7 @@ members = [
     "crates/cc-config",
     "crates/cc-machine",
     "crates/cc-display",
+    "crates/cc-web",
     "crates/cc-hal-esp32",
     "crates/cc-firmware",
     # DEVICE-ONLY TOOL, deliberately outside `default-members`: the on-target
@@ -44,6 +46,7 @@ default-members = [
     "crates/cc-config",
     "crates/cc-machine",
     "crates/cc-display",
+    "crates/cc-web",
 ]
 
 [workspace.package]
@@ -60,6 +63,10 @@ cc-safety = { path = "crates/cc-safety" }
 cc-machine = { path = "crates/cc-machine" }
 cc-display = { path = "crates/cc-display" }
 cc-config = { path = "crates/cc-config" }
+# The HTTP application tier (finding 4.1). `no_std + alloc`, `cc-domain` and
+# `cc-config` only, so `just test` reaches the `*_json` renderers and
+# `classify_parameters` that were previously testable only by flashing a board.
+cc-web = { path = "crates/cc-web" }
 
 # Device crates.
 cc-hal-esp32 = { path = "crates/cc-hal-esp32" }

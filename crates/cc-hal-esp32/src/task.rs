@@ -47,7 +47,7 @@ use std::sync::Mutex;
 use esp_idf_hal::task::queue::Queue;
 use esp_idf_hal::task::thread::ThreadSpawnConfiguration;
 
-use crate::web::Command;
+use cc_web::Command;
 
 /// The queue depth. 04 §3.2: `Queue<Command, 32>`.
 pub const COMMAND_QUEUE_DEPTH: usize = 32;

@@ -636,7 +636,7 @@ Rust-side change touches it** short of not using Wi-Fi, which the machine needs.
 **`.dram0.data` — 10,416 B copied from flash into DRAM at boot** — for a
 `f64::from_str` that the configuration blob genuinely needs
 (`crates/cc-firmware/src/main.rs:315` documents `f64::from_str` as the leaf of
-every float parameter, and `cc-hal-esp32/src/web.rs:842` parses a float from the
+every float parameter, and `cc-web/src/request.rs` (`parse_setpoint`) parses a float from the
 setpoint endpoint). It is load-bearing *while the config schema has float
 parameters*; it is pure overhead the day the schema is all integers.
 

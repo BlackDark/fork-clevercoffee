@@ -29,6 +29,11 @@ cc-machine.workspace = true
 cc-display.workspace = true
 cc-safety.workspace = true
 cc-hal-esp32.workspace = true
+# `Telemetry`, `Command` and `parameters_json`, which the control task builds and
+# publishes. They were reached through `cc_hal_esp32::web` and are named
+# directly here so there is one owner: finding 4.5 was `Telemetry` existing
+# twice, and a re-export is how that starts again.
+cc-web.workspace = true
 esp-idf-hal.workspace = true
 esp-idf-svc.workspace = true
 log.workspace = true

@@ -56,9 +56,10 @@ use cc_hal_esp32::heap::{free_heap, min_free_heap};
 use cc_hal_esp32::nvs::EspNvsBlob;
 use cc_hal_esp32::provisioning::{self, Action, Session};
 use cc_hal_esp32::time::now_ms;
-use cc_hal_esp32::web::{Command, Shared, Sse, Telemetry, Web};
+use cc_hal_esp32::web::{Shared, Sse, Web};
 use cc_hal_esp32::wifi::Sta;
 use cc_safety::ConfigOrigin;
+use cc_web::{temperatures_json, Command};
 use log::{info, warn};
 
 use esp_idf_hal::delay::FreeRtos;
@@ -291,141 +292,22 @@ pub fn start_http(
     Ok(web)
 }
 
-/// The reading the control task has, and the configuration facts that go with it.
-///
-/// Grouped rather than passed as eight scalars because the eight scalars are
-/// the *shape of one telemetry record*, and a function whose signature is
-/// `(i32, f64, f64, f64, u32, Option<&Sta>, bool, bool)` cannot be read without
-/// counting the arguments against the field order of
-/// [`cc_hal_esp32::web::Telemetry`].
-#[allow(
-    clippy::struct_excessive_bools,
-    reason = "`Reading` is a *report of facts about the machine*, one field per \
-              key the C++'s `/api/status` publishes -- and seven of those are \
-              booleans because seven of the C++'s are \
-              (`WebServerManager.cpp:350-361`). Turning them into enums would \
-              make the publisher unreadable and would not make the data any \
-              more correct. The same reasoning is on `cc_hal_esp32::Telemetry`, \
-              whose payload this fills, and it is pinned there by \
-              `the_cpp_keys_are_the_schema`."
-)]
-#[derive(Clone, Copy, Debug, Default)]
-pub struct Reading {
-    /// `MachineState`'s integer discriminant, as `/api/status` publishes it.
-    pub state: i32,
-    /// The boiler temperature in °C, or `f64::NAN` before the first conversion.
-    pub temperature_c: f64,
-    /// The active setpoint in °C — `brew.setpoint + brew.temp_offset`, or
-    /// `steam.setpoint` while steam mode is on
-    /// (`ProcessController::updateSetpoint`, `ProcessController.cpp:235-244`).
-    pub setpoint_c: f64,
-    /// The PID output in per cent: `machine.pid.output / 10`, the C++'s own
-    /// conversion (`WebServerManager.cpp:352`).
-    ///
-    /// **What this is not:** a measurement of the pin. It is what the controller
-    /// computed, and `cc_hal_esp32::Actuators` is what decides whether that
-    /// reaches the heater — so with a tank interlock, an emergency latch or a
-    /// `test_only` inhibit in force, this can be non-zero while the boiler is
-    /// cold. That is the honest reading and it is the C++'s: the C++ publishes
-    /// `processPidOutput`, not a pin.
-    pub heater_power_pct: f64,
-    /// `context.isPidRuntimeEnabled()`.
-    pub pid_enabled: bool,
-    /// `MachineStateContext::steamON_` (`MachineStateContext.h:785`).
-    ///
-    /// Published because `POST /api/steam` with no field is a **toggle** in the
-    /// C++ (`!isSteamModeActive()`, `WebServerManager.cpp:444`) and the httpd
-    /// task needs the current value to compute the target.
-    pub steam_mode: bool,
-    /// `systemContext_->backflushMode()` — whether backflush *mode* is armed.
-    ///
-    /// Published for `POST /api/backflush`'s toggle
-    /// (`WebServerManager.cpp:490`), on the same reasoning as [`Self::steam_mode`].
-    pub backflush_mode: bool,
-    /// `isBrewState(state) && state != BREW_FINISHED`
-    /// (`BrewHandler::isBrewActive`).
-    pub brewing: bool,
-    /// `state == STANDBY`.
-    pub standby: bool,
-    /// `StandbyCoordinator::standbyModeRemainingMillis()`.
-    pub standby_remaining_ms: u32,
-    /// `MaintenanceCoordinator::shotsSinceBackflush()`.
-    pub shots_since_backflush: u32,
-    /// `maintenance.backflush_reminder.threshold`.
-    ///
-    /// `WebServerManager.cpp:362`. It was never published, so `/api/status`
-    /// answered `backflushReminderThreshold: 0` — a threshold of zero makes the
-    /// reminder look due forever *and* reads as "the machine does not know its
-    /// own limit", which is what the human reported as a 0/0 pair.
-    pub backflush_threshold: u32,
-    /// `MaintenanceCoordinator::isReminderDue()` —
-    /// `isReminderDueForCount(shots, enabled, threshold)`
-    /// (`MaintenanceCoordinator.cpp:68-73`).
-    pub backflush_due: bool,
-    /// `SensorCoordinator::isWaterTankFull()`, or `None` when no float is fitted.
-    pub water_tank_full: Option<bool>,
-    /// The ABP2's reading in bar, or `None` when no pressure sensor is fitted or
-    /// it has not answered.
-    pub pressure_bar: Option<f64>,
-    /// `mqtt.enabled` and a non-empty `mqtt.broker`.
-    pub mqtt_configured: bool,
-    /// Whether MQTT has a session.
-    pub mqtt_connected: bool,
-}
-
-/// The telemetry the control task publishes, from one [`Reading`].
-///
-/// The radio's four fields are **not** set here. See [`publish_radio`]: they
-/// belong to whoever holds the radio, and the control task does not.
-#[must_use]
-pub fn telemetry_from(reading: Reading, uptime_ms: u32, weight_g: Option<f64>) -> Telemetry {
-    Telemetry {
-        machine_state: reading.state,
-        temperature_c: reading.temperature_c,
-        setpoint_c: reading.setpoint_c,
-        heater_power_pct: reading.heater_power_pct,
-        pid_enabled: reading.pid_enabled,
-        steam_mode: reading.steam_mode,
-        backflush_mode: reading.backflush_mode,
-        brewing: reading.brewing,
-        standby: reading.standby,
-        standby_remaining_ms: reading.standby_remaining_ms,
-        shots_since_backflush: reading.shots_since_backflush,
-        backflush_threshold: reading.backflush_threshold,
-        backflush_due: reading.backflush_due,
-        // `None` publishes as `"waterTankFull":null`, which is what the C++'s
-        // "no float switch fitted" is: the key is only emitted when
-        // `hardwareSensorsWatertankEnabled` (`WebServerManager.cpp:356-372`).
-        water_tank_full: reading.water_tank_full,
-        pressure_bar: reading.pressure_bar,
-        uptime_ms,
-        mqtt_configured: reading.mqtt_configured,
-        mqtt_connected: reading.mqtt_connected,
-        // `None` publishes as `"weight":null`, which is what the C++'s
-        // "no reading" is (`WebServerManager.cpp:356-372` omits the key when no
-        // scale is enabled) and what `an_absent_reading_is_null_and_never_a_
-        // fabricated_zero` pins.
-        weight_g,
-        ..Telemetry::default()
-    }
-}
-
 /// Publish the radio's readings into the shared snapshot.
 ///
 /// The radio is `Sta`, which is a live handle to the netif and the driver. The
-/// control task publishes telemetry from a [`Reading`] it builds itself and has
-/// no handle on `Sta`; reaching across for one is the coupling 04 §3.2 forbids.
+/// control task publishes a [`Telemetry`] it builds itself and has no handle on
+/// `Sta`; reaching across for one is the coupling 04 §3.2 forbids.
 /// So the holder of the radio publishes these four fields, and the control task
 /// leaves them alone — which it does by *not writing them*, because
 /// [`Shared::publish`] is a whole-slot replace, so the two publishers have to
 /// agree on who owns which fields. That agreement is the four fields on
-/// [`Telemetry`] that are not in [`Reading`].
+/// [`Telemetry`] the control task's own publish leaves at their defaults.
 ///
 /// **This is what `/api/status`'s `wifiAssociated`, `wifiSignal`, `wifiOffline`
-/// and `ip` come from**, and until it was called the control task's
-/// `telemetry_from(.., None)` left them at their defaults — so a machine
-/// associated at −53 dBm reported `wifiAssociated: false, wifiSignal: 0,
-/// ip: null`. Measured on hardware, not inferred.
+/// and `ip` come from**, and until it was called the control task's publish
+/// left them at their defaults — so a machine associated at −53 dBm reported
+/// `wifiAssociated: false, wifiSignal: 0, ip: null`. Measured on hardware, not
+/// inferred.
 ///
 /// Note the ownership consequence, because it is the part that bites later: the
 /// snapshot is a single slot and both publishers write it, so the two must not
@@ -493,10 +375,9 @@ pub fn publish_radio(shared: &Shared, sta: Option<&Sta>) {
 /// the cadence lives where the C++ puts it rather than inside the stream.
 pub fn broadcast_temps(network: &Network) {
     let snapshot = network.shared.snapshot();
-    network.sse.broadcast(Sse::frame(
-        "new_temps",
-        &cc_hal_esp32::web::temperatures_json(&snapshot),
-    ));
+    network
+        .sse
+        .broadcast(Sse::frame("new_temps", &temperatures_json(&snapshot)));
     network.sse.note_push_attempt();
 }
 

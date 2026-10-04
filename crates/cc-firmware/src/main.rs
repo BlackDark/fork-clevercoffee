@@ -78,6 +78,10 @@ use cc_hal_esp32::onewire::GpioOneWire;
 use cc_hal_esp32::time::now_ms;
 use cc_hal_esp32::zacwire::{self, ZacwireCapture};
 use cc_hal_esp32::SwitchBank;
+// `Telemetry` is `cc_web`'s, named from its one owner since finding 4.5 deleted
+// the second copy in `network.rs`. `parameters_json` is here for the same
+// reason: the control task publishes the `/api/parameters` body it would serve.
+use cc_web::Telemetry;
 
 // The board's pin map: one copy, in `cc_hal_esp32::pins`, checked for legality
 // at compile time and checked against the wiring below at bring-up. Every
@@ -2768,7 +2772,7 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
                 // served the previous values. A browser that refetches on save
                 // therefore got the old number, put it back into the form, and the
                 // toggle appeared to spring back.
-                parameters.publish_live(cc_hal_esp32::parameters_json(&config));
+                parameters.publish_live(cc_web::parameters_json(&config));
                 // The ack the `POST` handler is blocked on. See
                 // `ParameterHandoff::stage_and_wait`.
                 parameters.note_applied();
@@ -3001,7 +3005,7 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
         // `PARAMETERS_PUBLISH_MS`.
         if now_ms().wrapping_sub(last_publish_ms) >= PARAMETERS_PUBLISH_MS {
             last_publish_ms = now_ms();
-            parameters.publish_live(cc_hal_esp32::parameters_json(&config));
+            parameters.publish_live(cc_web::parameters_json(&config));
         }
 
         // The scale's **events**, drained every tick. The weight is not among
@@ -3169,96 +3173,104 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
         let uptime = now_ms();
         let state = control.state();
         let machine = *control.machine();
-        net.shared.publish(network::telemetry_from(
-            network::Reading {
-                state: state as i32,
-                temperature_c: last_reading.map_or(f64::NAN, |(celsius, _)| celsius),
-                setpoint_c: control.setpoint(),
-                heater_power_pct: f64::from(control.pid_output()) / 10.0,
-                // `runtime_enabled`, **not** `mode_enabled` — and the difference
-                // is the whole bug the human reported.
-                //
-                // They are two different facts:
-                //
-                //   * `runtime_enabled` — `SystemContext::isProcessPidEnabled()`,
-                //     the **operator's setting**. This is what `POST /api/pid`
-                //     toggles (via `setUserPidEnabled`, which is exactly what
-                //     the C++ calls at `WebServerManager.cpp:468`) and what is
-                //     persisted in `config.pid.enabled`.
-                //   * `mode_enabled` — `ProcessController::isPIDEnabled()`, the
-                //     heater's **derived gate**, recomputed every tick by
-                //     `should_pid_be_enabled` from the machine state, and forced
-                //     to `false` whenever the PID is not *permitted* right now
-                //     (sensor error, empty tank, standby, a brew in progress).
-                //
-                // Reporting the gate made `POST /api/pid` answer
-                // `{"success":true,"pidEnabled":true}` and the very next
-                // `/api/status` report `false`, because in `PID_DISABLED` the gate
-                // is false by definition and `process_control` drives it straight
-                // back. The UI showed a switch that turned itself off.
-                //
-                // `runtime_enabled` is both the faithful answer (the C++'s
-                // `/api/pid` reads `!Config::pidEnabled`, the same operator's
-                // setting) and the only one a switch can be bound to. The gate
-                // is still observable, and it is what `heater_power_pct` and the
-                // state field are for.
-                pid_enabled: machine.pid.runtime_enabled,
-                // The two toggle inputs. `POST /api/steam` and
-                // `POST /api/backflush` are toggles in the C++ and compute
-                // `!current` from live machine state, which is only reachable
-                // from this task — so the httpd task gets the current value
-                // through the telemetry snapshot rather than by reaching into
-                // the machine.
-                steam_mode: machine.steam_mode,
-                backflush_mode: machine.backflush.on,
-                brewing: state.is_brew_state()
-                    && state != cc_domain::state::MachineState::BrewFinished,
-                standby: state == cc_domain::state::MachineState::Standby,
-                standby_remaining_ms: machine.standby.remaining_ms,
-                // `currBackflushCycles_` starts at 1 and only ever counts up, so
-                // a negative value is unreachable; the cast is a formality that
-                // documents it. `shots_since_backflush` is `i32` because that is
-                // what `MachineStateContext.h:788` declares and what the reducer
-                // keeps.
-                #[allow(
-                    clippy::cast_sign_loss,
-                    reason = "the counter is `i32` because \
+        net.shared.publish(Telemetry {
+            machine_state: state as i32,
+            temperature_c: last_reading.map_or(f64::NAN, |(celsius, _)| celsius),
+            setpoint_c: control.setpoint(),
+            heater_power_pct: f64::from(control.pid_output()) / 10.0,
+            // `runtime_enabled`, **not** `mode_enabled` — and the difference
+            // is the whole bug the human reported.
+            //
+            // They are two different facts:
+            //
+            //   * `runtime_enabled` — `SystemContext::isProcessPidEnabled()`,
+            //     the **operator's setting**. This is what `POST /api/pid`
+            //     toggles (via `setUserPidEnabled`, which is exactly what
+            //     the C++ calls at `WebServerManager.cpp:468`) and what is
+            //     persisted in `config.pid.enabled`.
+            //   * `mode_enabled` — `ProcessController::isPIDEnabled()`, the
+            //     heater's **derived gate**, recomputed every tick by
+            //     `should_pid_be_enabled` from the machine state, and forced
+            //     to `false` whenever the PID is not *permitted* right now
+            //     (sensor error, empty tank, standby, a brew in progress).
+            //
+            // Reporting the gate made `POST /api/pid` answer
+            // `{"success":true,"pidEnabled":true}` and the very next
+            // `/api/status` report `false`, because in `PID_DISABLED` the gate
+            // is false by definition and `process_control` drives it straight
+            // back. The UI showed a switch that turned itself off.
+            //
+            // `runtime_enabled` is both the faithful answer (the C++'s
+            // `/api/pid` reads `!Config::pidEnabled`, the same operator's
+            // setting) and the only one a switch can be bound to. The gate
+            // is still observable, and it is what `heater_power_pct` and the
+            // state field are for.
+            pid_enabled: machine.pid.runtime_enabled,
+            // The two toggle inputs. `POST /api/steam` and
+            // `POST /api/backflush` are toggles in the C++ and compute
+            // `!current` from live machine state, which is only reachable
+            // from this task — so the httpd task gets the current value
+            // through the telemetry snapshot rather than by reaching into
+            // the machine.
+            steam_mode: machine.steam_mode,
+            backflush_mode: machine.backflush.on,
+            brewing: state.is_brew_state() && state != cc_domain::state::MachineState::BrewFinished,
+            standby: state == cc_domain::state::MachineState::Standby,
+            standby_remaining_ms: machine.standby.remaining_ms,
+            // `currBackflushCycles_` starts at 1 and only ever counts up, so
+            // a negative value is unreachable; the cast is a formality that
+            // documents it. `shots_since_backflush` is `i32` because that is
+            // what `MachineStateContext.h:788` declares and what the reducer
+            // keeps.
+            #[allow(
+                clippy::cast_sign_loss,
+                reason = "the counter is `i32` because \
                               MachineStateContext.h:788 declares it that way, \
                               but it starts at 0 and is only ever incremented \
                               while brewing and reset to 0 on entering \
                               BACKFLUSH_FINISHED, so it is never negative"
-                )]
-                shots_since_backflush: machine.shots_since_backflush.max(0) as u32,
-                // `isReminderDueForCount(shots, enabled, threshold)`
-                // (`MaintenanceCoordinator.cpp:68-73`) — the count has to reach
-                // the threshold *and* the reminder has to be enabled. Both
-                // halves come from the control task's own `Config`, because
-                // that is the only place either is readable.
-                backflush_threshold: u32::try_from(config.maintenance.backflush_reminder.threshold)
-                    .unwrap_or(0),
-                // Step 7c, computed once and shared with the display. The C++ is
-                // `isReminderDue()` (`MaintenanceCoordinator.cpp:67-72`): the
-                // count has to reach the threshold *and* the reminder has to be
-                // enabled, and both halves come from this task's own `Config`
-                // because that is the only place either is readable.
-                backflush_due,
-                water_tank_full: config
-                    .hardware
-                    .sensors
-                    .watertank
-                    .enabled
-                    .then_some(tank_full),
-                pressure_bar,
-                mqtt_configured,
-                // **Read live, this tick.** It was read once, immediately after
-                // the client was constructed — which is structurally always
-                // `false`, because `esp_mqtt_client_start` connects on the
-                // client's own task and no tick had run yet.
-                mqtt_connected: mqtt.as_ref().is_some_and(mqtt_link::Link::connected),
-            },
-            uptime,
+            )]
+            shots_since_backflush: machine.shots_since_backflush.max(0) as u32,
+            // `isReminderDueForCount(shots, enabled, threshold)`
+            // (`MaintenanceCoordinator.cpp:68-73`) — the count has to reach
+            // the threshold *and* the reminder has to be enabled. Both
+            // halves come from the control task's own `Config`, because
+            // that is the only place either is readable.
+            backflush_threshold: u32::try_from(config.maintenance.backflush_reminder.threshold)
+                .unwrap_or(0),
+            // Step 7c, computed once and shared with the display. The C++ is
+            // `isReminderDue()` (`MaintenanceCoordinator.cpp:67-72`): the
+            // count has to reach the threshold *and* the reminder has to be
+            // enabled, and both halves come from this task's own `Config`
+            // because that is the only place either is readable.
+            backflush_due,
+            water_tank_full: config
+                .hardware
+                .sensors
+                .watertank
+                .enabled
+                .then_some(tank_full),
+            pressure_bar,
+            mqtt_configured,
+            // **Read live, this tick.** It was read once, immediately after
+            // the client was constructed — which is structurally always
+            // `false`, because `esp_mqtt_client_start` connects on the
+            // client's own task and no tick had run yet.
+            mqtt_connected: mqtt.as_ref().is_some_and(mqtt_link::Link::connected),
+            // The radio's four fields are NOT set here: they belong to
+            // `network::publish_radio`, which runs after this publish
+            // because `Shared::publish` replaces the whole slot.
+            uptime_ms: uptime,
             weight_g,
-        ));
+            // `brew_weight_g`, `signal`, `wifi_associated`, `ip` and
+            // `wifi_offline` stay at their defaults here. `brew_weight_g`
+            // is the radio's weight sample, published by the weight task;
+            // the other four belong to `network::publish_radio`, which runs
+            // AFTER this publish because `Shared::publish` replaces the
+            // whole slot. This is the same "do not write them" contract
+            // `telemetry_from` used to express by omission.
+            ..Telemetry::default()
+        });
 
         // **Acknowledge the commands drained this tick, now that the telemetry
         // the caller reads is published.**

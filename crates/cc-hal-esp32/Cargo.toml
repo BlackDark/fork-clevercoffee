@@ -32,6 +32,11 @@ cc-machine.workspace = true
 # the same one. `cc-safety` is `no_std` and depends only on `cc-domain`, so it
 # adds nothing to the device link.
 cc-safety.workspace = true
+# The HTTP application tier, finding 4.1: `Telemetry`, `Command`, `Auth`, every
+# `*_json` renderer and `classify_parameters`. This is the dependency that makes
+# the extraction worth having -- the direction is HAL -> cc-web, never the
+# reverse, so nothing portable can reach a pin through it.
+cc-web.workspace = true
 # The SSD1306 driver, R3-09. NOT `cc-display`: the templates are rendered by the
 # host-tested display crate and arrive here as a `&[u8; 1024]` already in the
 # controller's page order, so the HAL never needs to know what is on screen.
