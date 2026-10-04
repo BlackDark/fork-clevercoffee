@@ -232,6 +232,21 @@ own procedure, and should be.
 
 `156b50e9` completes the split and repairs it. `just test` now passes from a fresh clone.
 
+### Two process lessons worth keeping
+
+**A green gate does not mean the branch builds.** See above. The check that caught it was cloning to
+`/tmp` and running the gate there. That is not in the project's procedure and should be — the whole
+gate suite runs against the working directory, so anything unstaged is invisible to it. A
+`git stash list` check, or a CI job that builds from a clean checkout (which CI already is), is what
+would have caught it in seconds rather than hours.
+
+**A worker's commit message is a claim, not evidence.** Several times this effort the message
+described the change well and the change turned out to be unnecessary (finding 4.2), to be solving a
+bug the author had not seen (finding 8.2), or to be implementing a proposal the module's own docs
+argued against (the `Diagnostics` reshape). Reading the diff and re-running the gate caught all three.
+It also caught the reverse: a straggler's last commit (`6a5c007d`) looked like a style regression, and
+was worth keeping only after checking that the lint genuinely fired.
+
 ### The decision on 4.4 reversed, because it was already half-done
 
 I had decided **docs only, do not split `cc-domain`**. That was the right call for the reason I gave
@@ -249,7 +264,7 @@ on nothing, so `cc-safety`, which depends only on it, cannot acquire a periphera
 
 | # | item | why |
 | --- | --- | --- |
-| 3.3 | OTA (three endpoints, and S8's pump/valve-off requirement) | The async subagent backend failed to launch **any** child — even a trivial one — so no worker could be given it. OTA needs a worker: it is the largest remaining item and the one most in need of a second pair of eyes. |
+| 3.3 | OTA (three endpoints, and S8's pump/valve-off requirement) | The async subagent backend failed to launch **any** child — even a trivial one — so no worker could be given it. OTA needs a worker: it is the largest remaining item and the one most in need of a second pair of eyes. It is also the only remaining item that **writes to flash**, so it is the last thing that should be attempted without a reviewer. |
 | 4.7 | Split `main.rs` (~3,700 lines) into `probe.rs` + `config_io.rs` | Same cause. |
 | 8.4 | `CONFIG_REFERENCE.md:455` documents `pid.regular.i_max` as `0.0-999.0`; schema is `0.0..=100.0` | Same cause. |
 | 8.5 | `docs/ci.md`'s warm figure for the esp toolchain install contradicts its own Caches section | Same cause. |
