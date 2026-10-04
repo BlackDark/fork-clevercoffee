@@ -1476,7 +1476,8 @@ On the wire: `cc-hal-esp32::web::tests::the_config_upload_route_is_registered`,
 registered in `cc-config`'s schema, writable through `POST /api/parameters`,
 readable through `GET /api/parameters` — **and did nothing**. A key an operator
 can set that silently does nothing is worse than an absent key: it looks like a
-security control. `REVIEW.md` H-6 calls this the repo's own named anti-pattern.
+security control. A 2026-10 review (finding H-6, fixed by `71fcf364`) calls
+this the repo's own named anti-pattern.
 
 **The alternative, and why it was rejected.** Deleting the three keys was the
 brief's other option and is defensible. It was not taken because it is a *worse*

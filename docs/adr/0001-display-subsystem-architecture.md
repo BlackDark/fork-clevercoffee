@@ -89,6 +89,11 @@ Deferred flush for normal/fullscreen brew paths; immediate `sendBuffer()` for sy
 
 ## References
 
-- `docs/plans/display-refactor-plan.md`
-- `docs/display-architecture.md`
-- `docs/display-modern-layout.md`
+The refactor plan this ADR was written against (`docs/plans/display-refactor-plan.md`) has
+shipped and every item on it is done, so the plan was removed rather than left as a second,
+permanently-ticked copy of this record. The Context, Decision and Alternatives sections above
+are the whole of it, and they are what a reader needs; the two documents below are the
+living detail the ADR deliberately does not duplicate.
+
+- `docs/display-architecture.md` — the render pipeline as it is today, per screen and template
+- `docs/display-modern-layout.md` — the 128x64 layout rules and the row maps they enforce

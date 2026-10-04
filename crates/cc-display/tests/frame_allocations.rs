@@ -12,7 +12,7 @@
 //! oracle generated from the real U8G2. That is why the count is zero: a
 //! display cannot afford a heap.
 //!
-//! REVIEW.md M-12 also notes that the display bench target this recipe named
+//! The same review noted that the display bench target this recipe named
 //! (`layout`) did not exist at all until now, so nothing was checking this.
 
 #[path = "../benches/alloc.rs"]

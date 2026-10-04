@@ -169,9 +169,16 @@ pio test --verbose
 ## Documentation
 
 - `CLAUDE.md`: Agent instructions (C++ standards, project structure)
-- `TESTING_GUIDE.md`: Comprehensive testing guide
+- `AGENTS.md`: the same, plus the mandatory format/build/test gate per firmware
+- `docs/integration-tests.md`: the manual pre-release checklist
 - `CONTRIBUTING.md`: Code style and contribution guidelines
 - `CONFIG_REFERENCE.md`: Configuration reference
+
+Running the tests is one line each, and it is stated in `AGENTS.md`, `CLAUDE.md` and
+`README.md`: `pio test -e native_test` for the C++ oracle, `just test` for the Rust port,
+`just gate` before a commit. The long-form `test/TESTING_GUIDE.md` that used to sit here has
+been deleted — it was a fourth copy of those commands plus a description of a build layout
+that no longer exists.
 
 ## Important Notes
 

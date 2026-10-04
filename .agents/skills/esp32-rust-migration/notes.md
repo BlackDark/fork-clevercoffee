@@ -37,7 +37,8 @@ blocked.
 - `pio run -e esp32_usb` succeeds; produces `firmware.bin` (1,546,240 B),
   `bootloader.bin` (17,536 B), `partitions.bin` (3,072 B).
 - `pio test -e native_test` → **340 test cases, 340 succeeded** in 55.3 s.
-  (`docs/plan/task-list.md` still says 234 — that document is stale.)
+  (The 234 quoted by the now-deleted C++ cleanup tracker is gone with it; 340 is
+  the number, and 01 §10.2.3 re-verifies it.)
 - The `espressif32` platform and all 12 C++ libraries were downloaded and installed by
   that build.
 - `.mise.toml` existed but needed `mise trust`; after trusting, `mise ls` works and shows

@@ -69,6 +69,87 @@ curl -w "\n%{http_code}\n" -X POST http://<ip>/api/ota/url \
 - [ ] Log lines appear at INFO level during normal operation (e.g. temperature readings, state changes)
 - [ ] Log level filtering works (DEBUG messages hidden at INFO level)
 
+The serial node is `/dev/cu.usbserial-*` on macOS and `/dev/ttyUSB*` on Linux. The device's
+bridge is a **WCH CH340** (`iProduct` = `"USB Serial"`, VID `0x1A86` / PID `0x7523`), not a
+CP210x — `just wifi-provision <port>` and `tools/serial_log.py` take that node verbatim.
+
+### 3a. What a healthy boot log looks like — **the C++ firmware only**
+
+Preserved from the deleted root `DEBUG_GUIDE.md`, which was the only document that described
+a healthy C++ boot. The Rust firmware emits its own, different, and shorter boot log; do not
+expect these lines from it. Every line below is quoted from the **untouched oracle** in
+`src/`, and the file:line is given so it can be re-derived after any C++ change.
+
+- [ ] Flash, then capture the first ~30 s of serial output:
+
+      ```sh
+      pio run -e esp32_usb -t upload
+      /tmp/venv/bin/python tools/serial_log.py 30 --reset   # writes to stdout
+      ```
+
+- [ ] The tail of Phase 5 in `SystemInitializer.cpp` appears, in this order. This is the
+      whole point of the phase: the ISR context pointer is set **before** the timer is armed,
+      because the ISR dereferences it on its first tick.
+
+      ```text
+      [DEBUG] Setting ISR SystemContext at 0x...
+      [DEBUG] Global SystemContext set: ptr=0x..., valid=1
+      [DEBUG] Calling setupTiming()
+      [DEBUG] Calling initTimer1() - create timer after ISR context is available
+      [DEBUG] Calling enableTimer1() - ISR will now fire
+      [INFO]  ISR marked as ready - timer ISR can now safely execute
+      [DEBUG] Timer enabled - ISR should be firing every 10ms
+      [INFO]  System initialization completed successfully
+      ```
+
+      `SystemInitializer.cpp:206` (`Global SystemContext set`, with the `valid=%d` flag),
+      `:210-223` (the ordering above). **`valid=0` is a failure**, not a warning: the ISR
+      returns early and the heater is never driven.
+- [ ] `LoopManager initialized successfully` (`src/core/LoopManager.cpp:86`) and
+      `ProcessController initialized successfully` (`src/control/ProcessController.cpp:68`)
+      both appear. `Handlers initialized` is `SystemInitializer.cpp:424` — its absence means
+      a handler constructor threw and the boot is degraded.
+- [ ] At **DEBUG** level, within ~10 s, `src/main.cpp:225` prints a status line every 5 s:
+
+      ```text
+      [DEBUG] LOOP STATUS: loops=N, ISR enabled=1, ISR calls=N, relay_on=N, relay_off=N,
+              temp=23.5°C, setpoint=90.0°C, pidOutput=500.0
+      ```
+
+      Read it against the counters in `include/clevercoffee/isr.h:24-27` (`isr_enabled`,
+      `isr_call_count`, `isr_relay_on_count`, `isr_relay_off_count` — `std::atomic`, declared
+      extern, defined in `isr.cpp`):
+
+      - `ISR enabled=1`, and `ISR calls` **rising between successive lines** — the only proof
+        the 10 ms timer ISR is running. A frozen count with `enabled=1` is a stopped timer.
+      - `relay_on` **and** `relay_off` both rising while `pidOutput` is between 0 and 1000 —
+        the heater PWM is cycling. One frozen at 0 means the ISR is not reaching the relay
+        (`isr.h` null-checks `hardwareContext().heaterRelay()` and returns early if absent).
+      - `temp` changing over minutes, never pinned to its last value. A frozen `temp` is a
+        sensor problem, not a loop problem — see the "Temperature reading never changes"
+        section of this checklist's history, and `docs/rust-migration/09-cpp-findings.md` for
+        the probe-selection trap (a TSIC306 driver driving a fitted DS18B20 logs an error
+        and reports nothing).
+      - `setpoint` > 0. A `0` is a configuration read failure, not a setting.
+- [ ] When the state machine is in `PID_MODE` (state 4), the PID logs `updateProcessControl:`
+      with a **changing** `pidOutput`. A `pidOutput` pinned at 0 in `PID_MODE` means the
+      process controller is not being ticked.
+
+To keep the log for later, capture rather than scroll:
+
+```sh
+/tmp/venv/bin/python tools/serial_log.py 60 --reset > boot.log
+grep -E 'ERROR|FATAL' boot.log          # anything here is a real clue
+grep -E 'LOOP STATUS|State transition' boot.log
+```
+
+### 3b. DEBUG level on the C++ firmware
+
+The C++ takes its log level over **telnet** (port 23 — §4), not over USB: USB is the
+transcript you are reading, so it cannot carry the instruction that changes its own verbosity.
+Connect a telnet client, raise the level to `DEBUG`, then read the transcript over USB.
+`docs/rust-migration/01-feature-inventory.md` §9 records this as the telnet story's origin.
+
 ## 4. WiFi Telnet Logging
 
 - [ ] `nc <hostname> 23` connects and shows "CleverCoffee log stream connected"

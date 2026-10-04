@@ -8,7 +8,7 @@ name: Rust firmware
 # clang-format, frontend.yml ran pnpm. So 68,530 lines of new firmware and
 # 13,563 lines of Rust tests were merged with **no automated verification at
 # all**, and `just gate` was invoked by nothing. CI was green purely because the
-# untouched C++ tree still compiled. REVIEW.md H-1.
+# untouched C++ tree still compiled. Fixed by `e4ec70bd` (`.github/workflows/rust.yml`).
 #
 # `main.yml` still builds and tests the C++ — it is the parity oracle, and it
 # is what `release.yml` publishes. The two are not alternatives; both gates

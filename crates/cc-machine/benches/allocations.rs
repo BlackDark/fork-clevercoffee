@@ -2,7 +2,7 @@
 //!
 //! # Why this measures allocations and not nanoseconds
 //!
-//! REVIEW.md H-8: `reduce()` returned `(Machine, Vec<Effect>)` and allocated a
+//! Before `284ad17a`, `reduce()` returned `(Machine, Vec<Effect>)` and allocated a
 //! fresh `Vec` per call, and the control task calls it 4-5 times per 10 ms tick.
 //! Measured at **4.00 heap allocations and ~192 bytes per tick** -- about 400
 //! allocations a second out of the task that also runs the heater deadman, on a
@@ -109,7 +109,7 @@ fn main() {
         per(bytes, REPORTED_TICKS)
     );
     println!();
-    println!("  pre-fix, per REVIEW.md H-8: 4.00 allocations and ~192 B per tick,");
+    println!("  pre-fix, before 284ad17a: 4.00 allocations and ~192 B per tick,");
     println!("  plus 420 allocations per parameters_json() at the 10 ms gate.");
     assert_eq!(allocs, 0, "the control tick allocated {allocs} times");
 }

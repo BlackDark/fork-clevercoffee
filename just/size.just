@@ -8,7 +8,7 @@
 # recipes, and `record` takes an `mcu` argument — but `tgt` and `elf` were
 # constants, so `just size-record esp32s3 x` silently measured the **esp32**
 # image and only said "esp32s3" in an error message. The argument is now checked
-# against what actually exists rather than trusted. REVIEW.md M-12.
+# against what actually exists rather than trusted (fixed by `e4ec70bd`).
 # One error semantic, and it must be stated HERE: this file has no `set shell`
 # of its own, so just defaults to `sh -c`. On a Debian/Ubuntu runner /bin/sh is
 # DASH, and `set -o pipefail` is a bashism -- so a recipe that relied on its own
@@ -43,8 +43,8 @@ _require_esp32 mcu:
 # located in the current workspace" and measures nothing.
 #
 # Both packages are in `.mise.toml` for this reason and because the flash
-# recipes do need the cargo-aware one. REVIEW.md M-13 called them duplicates and
-# removed one; that was wrong, and it broke `just size-check` in CI.
+# recipes do need the cargo-aware one. A 2026-10 review called them duplicates
+# and removed one; that was wrong, and it broke `just size-check` in CI.
 part_table := "rust/partitions_4M.csv"
 baseline := "docs/rust-migration/size-baseline.json"
 records := "docs/rust-migration/size-records.jsonl"

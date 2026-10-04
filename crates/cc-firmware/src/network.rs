@@ -333,7 +333,7 @@ pub fn start_http(
 /// **This function must stay on a slow cadence.** It does four `esp-idf` FFI
 /// round-trips and, on the old `String` field, one heap allocation. It used to
 /// be called from every 10 ms control tick, which was both a performance defect
-/// and the write side of a use-after-free (REVIEW.md CR-1): the reassignment
+/// and the write side of a use-after-free (fixed by `30b59c48`): the reassignment
 /// `free()`d the previous IP buffer that the httpd task could be reading. The
 /// caller now gates it on the same 1 s [`crate::main::WIFI_POLL_MS`] the radio
 /// poll uses, which is the only cadence any of these values can change at.

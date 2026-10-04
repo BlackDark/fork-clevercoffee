@@ -2,7 +2,7 @@
 //!
 //! # Why this exists
 //!
-//! REVIEW.md M-12: `just bench` named two bench targets — `reducers` and
+//! A 2026-10 review found `just bench` named two bench targets — `reducers` and
 //! `layout` — and **neither existed**, so the recipe failed with
 //! `no bench target named 'reducers'`. A documented-but-nonexistent gate is
 //! worse than none, because everyone reading the recipe assumes it ran. This is

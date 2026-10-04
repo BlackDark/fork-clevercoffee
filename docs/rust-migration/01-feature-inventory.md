@@ -38,7 +38,7 @@ ESP32-S3, C3, C6, H2, or S2.
 | Filesystem | LittleFS | `platformio.ini:13` |
 | Flash | 4 MB, **DIO**, 40 MHz — **verified on hardware 2026-09-28** | `esptool.py flash_id` → `Detected flash size: 4MB`, JEDEC `0xD8` / `0x4016`; 2nd-stage bootloader prints `boot.esp32: SPI Speed : 40MHz`, `SPI Mode : DIO`, `SPI Flash Size : 4MB`. Both `bootloader.bin` and `firmware.bin` image headers encode `flash_mode = 0x02` (DIO), flash size "keep", 20 MHz. Also `README.md:5`; `.github/workflows/release.yml:125,132` |
 | PSRAM | **None.** | No `spiram`/`psram` line anywhere in the ESP-IDF 5.5.5 boot log; `heap_init` lists only DRAM/IRAM regions. See §10 for the caveat that this is conditional on `CONFIG_SPIRAM` in the build that produced that log |
-| USB | **None on the chip — the "no native USB" claim HOLDS and is now positively verified.** The USB device on this host is a **WCH CH340** USB-to-UART bridge (VID `0x1A86`, PID `0x7523`), *not* a CP210x/CP2102N. | `ioreg -p IOUSB -l -w 0` on 2026-09-28. The original ESP32 has no USB peripheral (ESP32 Series Datasheet v5.3 peripheral list), so USB CDC / TinyUSB / USB-Serial-JTAG remain impossible — the §8 conclusion is unaffected by the bridge being a CH340 rather than a CP210x. Corroborating: no `HWCDC`/`TinyUSB`/`usb_serial_jtag` anywhere in `src/`+`include/`; `DEBUG_GUIDE.md:15` uses `/dev/ttyUSB0`; `pinmapping.h:45` moves `PIN_STEAMLED` off GPIO 1 because "UART TX". The CP2102N claim in `.agents/skills/esp32-rust-migration/SKILL.md` §1 is **wrong for this board** |
+| USB | **None on the chip — the "no native USB" claim HOLDS and is now positively verified.** The USB device on this host is a **WCH CH340** USB-to-UART bridge (VID `0x1A86`, PID `0x7523`), *not* a CP210x/CP2102N. | `ioreg -p IOUSB -l -w 0` on 2026-09-28. The original ESP32 has no USB peripheral (ESP32 Series Datasheet v5.3 peripheral list), so USB CDC / TinyUSB / USB-Serial-JTAG remain impossible — the §8 conclusion is unaffected by the bridge being a CH340 rather than a CP210x. Corroborating: no `HWCDC`/`TinyUSB`/`usb_serial_jtag` anywhere in `src/`+`include/`; the serial node is `/dev/cu.usbserial-*`, not `/dev/ttyUSB0` (`docs/integration-tests.md` §3); `pinmapping.h:45` moves `PIN_STEAMLED` off GPIO 1 because "UART TX". The CP2102N claim in `.agents/skills/esp32-rust-migration/SKILL.md` §1 is **wrong for this board** |
 | Auto-reset | **Present and working.** DTR/RTS auto-reset achieved connection 5/5 times with no manual BOOT+EN | `esptool.py chip_id` / `flash_id` / `read_flash_status` / `read_flash_sfdp` / `get_security_info`, all `--port /dev/cu.usbserial-204140`, no manual intervention. Contradicts the warning in `SKILL.md` §6 |
 | `MAX_GPIO_PINS` | 40 (compile-time constant) | `pinmapping.h:58` |
 
@@ -468,8 +468,8 @@ See [03 — Decision record](./03-decision-record.md) §5 and
 | Native tests | `~/.platformio/penv/bin/pio test -e native_test` | `CLAUDE.md` |
 | OTA deploy | `pio run -e esp32_ota -t upload` → `silvia.local` | `platformio.ini:66-71` |
 | Merge binary | `esptool.py --chip esp32 merge_bin --flash_mode dio --flash_size 4MB 0x1000 …0x350000` | `README.md:5` + `release.yml:129` |
-| Serial monitor | `screen /dev/ttyUSB0 115200` | `DEBUG_GUIDE.md:15` |
-| Telnet logs | `telnet esp32.local 23` | `DEBUG_GUIDE.md:60-62` |
+| Serial monitor | `screen /dev/cu.usbserial-* 115200` | `docs/integration-tests.md` §3 |
+| Telnet logs | `nc <hostname> 23` | `docs/integration-tests.md` §4 |
 | Frontend build | `scripts/build_frontend.py` (pre-build hook) | `platformio.ini:57` |
 | Wokwi | `tools/platformio_wokwi.py` (post-build) | `platformio.ini:58` |
 
@@ -477,7 +477,7 @@ Native tests use `test_build_src = false` and `#include` the `.cpp` files direct
 hand-written stubs in `test/` (`test/Arduino.h`, `test/Wire.h`, `test/Preferences.h`,
 `test/ZACwire.h`, `test/U8g2lib.h`, `test/OneWire.h`, `test/DallasTemperature.h`,
 `test/WiFi*.h`, `test/PubSubClient.h`, `test/esp_task_wdt.h`, `test/esp_system.h`,
-`test/esp_heap_caps.h`). **Verified 2026-09-28: 340 test cases, 340 pass** (`pio test -e native_test`, 55 s). Note `docs/plan/task-list.md` still says 234 — it is stale.
+`test/esp_heap_caps.h`). **Verified 2026-09-28: 340 test cases, 340 pass** (`pio test -e native_test`, 55 s).
 **Re-verified 2026-09-28 at `34bf308`: 340 test cases, 340 succeeded in 22.382 s** (warm cache; see §10.2.2).
 
 ---
@@ -576,7 +576,8 @@ Measured: VID `0x1A86`, PID `0x7523`, `iProduct` = `"USB Serial"`, `iSerialNumbe
 `0x1A86` is QinHeng/WCH and `0x7523` is the **CH340** family. The bridge being a CH340 rather
 than a CP210x changes **nothing** in the plan (it is still a plain UART bridge, so the "no
 native USB" conclusion is unaffected), but `SKILL.md` §1 and `README.md` state CP2102N and
-that is wrong for this board. Install a WCH CH34x/CH340 driver note in `DEBUG_GUIDE.md`.
+that is wrong for this board. The WCH CH34x/CH340 driver note now lives in
+`docs/integration-tests.md` §3 (the old `DEBUG_GUIDE.md` it belonged to has been deleted).
 
 ### 🔴 3. Auto-reset works — no manual BOOT+EN needed
 
@@ -680,8 +681,9 @@ app slot **1,835,008 B**, LittleFS **393,216 B of which 225,280 B used → 167,9
 
 ### 10.2.3 Re-verified native-test count
 
-`docs/plan/task-list.md`'s "234" remains stale, as does nothing else — **340 is correct**
-(06 §"C++ test-suite coverage map" already says 340).
+**340 is correct**, and 06 §"C++ test-suite coverage map" already says so. The C++ cleanup
+tracker that once claimed 234 (`docs/plan/task-list.md`) has been deleted rather than left
+standing with a number 106 below the truth.
 
 ## 10.3 Still UNVERIFIED — what is missing and exactly how to close it
 

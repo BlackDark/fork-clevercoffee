@@ -148,7 +148,8 @@ const HEARTBEAT_MS: u32 = CONTROL_PERIOD_MS;
 /// onto the heartbeat and the gate with it. The effect, measured on the host
 /// against the real `SCHEMA`: **420 heap allocations and 20.5 KB per call, at
 /// 100 calls a second** -- about 42,000 allocations/s and 2 MB/s of allocator
-/// churn driven by the control task, next to the heater deadman. REVIEW.md H-7.
+/// churn driven by the control task, next to the heater deadman. Fixed by
+// `a2f597c2`.
 ///
 /// It could not simply be `HEARTBEAT_MS = 1000`:
 /// `const _: () = assert!(HEARTBEAT_MS * 2 <= DEADMAN_TIMEOUT_MS)` above would
@@ -1014,8 +1015,8 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
     )?;
 
     // 10a. The telnet log stream. `telnet esp32.local 23` is what
-    //     `docs/DEBUG_GUIDE.md` documents and what the field-diagnosis story in
-    //     `intentional-diffs.md` §1 is built on, and finding 3.2 of
+    //     `docs/integration-tests.md` §4 documents and what the field-diagnosis
+    //     story in `intentional-diffs.md` §1 is built on, and finding 3.2 of
     //     `32-findings-2026-10-03.md` was that the Rust port had the shed policy
     //     and no way to serve it. Spawned here, beside the HTTP server and
     //     after it, because the listener is a network-tier service with no
@@ -2002,7 +2003,7 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
         // `cc_machine::Effects`, not `Vec`: this is filled by the command
         // queue, appended to by `Control::tick`, and applied — four to five times
         // per 10 ms tick. A `Vec` here was a heap allocation per tick in the same
-        // loop that runs the heater deadman (REVIEW.md H-8).
+        // loop that runs the heater deadman (fixed by `284ad17a`).
         let mut effects = cc_machine::Effects::new();
         let mut commands_applied: u32 = 0;
         // Set by `Command::OtaBegin` and discharged after `apply`. See the arm.
@@ -3004,7 +3005,7 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
         // that change on DHCP events measured in minutes. It was also the write
         // side of the use-after-free fixed in `web::Snapshot` -- every
         // reassignment freed the previous IP buffer while the httpd task could
-        // be reading it. REVIEW.md H-7 / M-8.
+        // be reading it. Fixed by `30b59c48`.
         let radio_due = uptime.wrapping_sub(wifi_last_ms) >= WIFI_POLL_MS;
         if radio_due {
             wifi_last_ms = uptime;

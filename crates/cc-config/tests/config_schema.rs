@@ -675,7 +675,7 @@ fn store_errors_render() {
 /// "representative subset", which meant the claim in its own doc comment -- and
 /// in `AGENTS.md` ("an import test parses that file") -- was false: nothing
 /// detected a key added to or removed from the file a user downloads, and
-/// nothing detected it drifting out of step with the schema. REVIEW.md M-16.
+/// nothing detected it drifting out of step with the schema. Fixed by `a407536b`.
 ///
 /// `include_str!` is what makes the test a test rather than a snapshot of a
 /// snapshot: change the shipped file and this fails, which is the entire point.

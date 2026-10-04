@@ -48,7 +48,7 @@ min_version = "2024.1.0"
 
   # BOTH packages, and they are not duplicates.
   #
-  # REVIEW.md M-13 called these "the same tool from a second crate" and removed
+  # A 2026-10 review called these "the same tool from a second crate" and removed
   # one. That was wrong, and it broke CI. They are one tool with two ENTRY
   # POINTS for two different workflows:
   #

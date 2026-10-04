@@ -15,7 +15,7 @@ cc-safety.workspace = true
 # `Effects` is a `heapless::Vec`, not an `alloc::vec::Vec`: the control task
 # fills and empties it up to five times per 10 ms tick, and a heap allocation
 # per tick is allocator traffic in the same loop that runs the heater deadman
-# (REVIEW.md H-8). The workspace entry is the one `cc-hal-esp32` and
+# (fixed by `284ad17a`). The workspace entry is the one `cc-hal-esp32` and
 # `cc-firmware` already use — `default-features = false` plus `alloc` — so this
 # adds no second copy of the crate to the device build and names no
 # `esp_idf_*` crate, which a portable crate must not do.

@@ -29,7 +29,7 @@
 #   * a failing command aborts the recipe. Before, only the six recipes that
 #     declared their own `#!/usr/bin/env bash` + `set -euo pipefail` did -- which
 #     is how `reflash` erased the chip and then died on a stray `@just flash`
-#     (REVIEW.md H-9);
+#     (fixed by `e4ec70bd`, which added the `set shell` line below);
 #   * an unset variable is an error rather than an empty string;
 #   * a pipe fails if any stage fails.
 # The per-recipe shebangs and `set -euo pipefail` lines this made redundant were
@@ -110,7 +110,7 @@ bin_esp32 := "firmware"
 # WAS `env_var_or_default("CC_HOST_TARGET", "aarch64-apple-darwin")` -- the
 # original author's laptop -- so `just test` died on any non-Apple host with
 # `cc: error: unrecognized command-line option '-arch'`, and `just doctor`
-# printed the wrong triple without failing on it (REVIEW.md H-3).
+# printed the wrong triple without failing on it (fixed by `3d6295f4`).
 #
 # Two overrides, in order:
 #   1. `CC_HOST_TARGET`, for a host chosen on purpose.
@@ -384,7 +384,8 @@ env-file:
 # Before this recipe existed nothing built it: no recipe, no CI step, no `just`
 # invocation of `pnpm`. So `just build-esp32`, `lint-esp32`, `size`,
 # `size-check` -- and therefore the whole `gate` chain -- failed on a clean
-# checkout with a panic out of build.rs. REVIEW.md H-2.
+# checkout with a panic out of build.rs. Fixed by `e4ec70bd`, which added this
+# recipe.
 #
 # `--frozen-lockfile` so a contributor cannot silently resolve a different
 # dependency set than CI does.
@@ -756,7 +757,7 @@ parity-test:
 # These measure **heap allocations**, not nanoseconds, and that is deliberate.
 # The device has ~320 KB of RAM; what a control tick or a display frame costs in
 # allocator pressure matters far more than how many host cycles it took. The
-# pre-fix control tick allocated 4.00 times per 10 ms tick (REVIEW.md H-8) and
+# pre-fix control tick allocated 4.00 times per 10 ms tick (before `284ad17a`) and
 # `cc-display` has always been allocation-free because it is `no_std` with no
 # `alloc` in the device build. Both facts are now measured rather than assumed.
 #
@@ -772,7 +773,7 @@ bench:
 # It used to be `./scripts/parity/loop-timer.sh {{mcu}}`, and **that script does
 # not exist** — `scripts/parity/` contains only `run.sh`. So the recipe failed
 # with "No such file or directory" every time anyone tried the one thing that
-# would answer "does the control tick fit its budget?" REVIEW.md M-12.
+# would answer "does the control tick fit its budget?" (fixed by `284ad17a`).
 #
 # On the device the answer does not come from here. The control task already
 # measures itself, in the firmware, every `TICK_REPORT_INTERVAL_MS` and logs
@@ -793,7 +794,7 @@ size-bench:
 
 # `cargo doc` with warnings as errors. The workspace sets `missing_docs =
 # "warn"` but nothing ever promoted it, and no recipe or CI step ran rustdoc at
-# all, so the 83 broken intra-doc links accumulated silently (REVIEW.md M-3).
+# all, so the 83 broken intra-doc links accumulated silently (fixed by `cc1b06de`).
 doc:
     RUSTDOCFLAGS="-D warnings" cargo doc --locked --no-deps {{host_crates}} --target {{host_target}}
 

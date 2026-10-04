@@ -22,7 +22,7 @@
 //! failure mode a duplicated counting allocator would invite.
 //!
 //! Why it is an invariant and not a micro-optimisation: the device has ~320 KB
-//! of RAM. REVIEW.md H-8 measured 4.00 allocations and ~192 bytes per tick out
+//! of RAM. A 2026-10 review measured 4.00 allocations and ~192 bytes per tick out
 //! of the task that also runs the heater deadman, because `reduce()` returned a
 //! fresh `Vec<Effect>` per call. `Effects` is now a
 //! `heapless::Vec<Effect, MAX_EFFECTS_PER_EVENT>`, so the answer is a hard zero
@@ -53,7 +53,7 @@ static ALLOCATOR: Counting = Counting;
 const TICKS: u64 = 1_000;
 
 // The inline capacity is a compile-time question: "is it still a sane size for
-// a 10 ms tick" cannot change at runtime, and REVIEW.md H-8's fix put the whole
+// a 10 ms tick" cannot change at runtime, and the `284ad17a` fix put the whole
 // effect list on the control task's stack.
 const _: () = assert!(
     cc_machine::effect::MAX_EFFECTS_PER_EVENT <= 64,
@@ -100,7 +100,7 @@ fn the_control_tick_does_not_allocate() {
     // ---------------------------------------------------------------------
     // The second half of the same guarantee, stated as a type fact: the effect
     // list is INLINE storage, so there is no allocator for it to call even in
-    // principle. REVIEW.md H-8's `Vec<Effect>` made an allocation on the
+    // principle. The `Vec<Effect>` this replaced made an allocation on the
     // control tick possible at all; this is what stops that coming back. The
     // ceiling sanity check is a `const` assertion at module scope, because it
     // is a compile-time question and clippy is right that asserting it at
