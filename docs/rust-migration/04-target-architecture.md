@@ -207,13 +207,28 @@ state snapshot alongside the event stream so a monitor can still show
 
 ### Deadlock, race, and priority-inversion avoidance
 
-- No lock is held across an `await` or across a FreeRTOS yield point. The only lock in
-  the design is the config store, held for a bounded `NVS` read/write and never across
-  anything else.
+- No lock is held across an `await` or across a FreeRTOS yield point. The config store is
+  the longest-held lock in the design, held for a bounded `NVS` read/write and never across
+  anything else. 🔴 **Measured and amended 2026-10-04.** This bullet previously said the
+  config store was *the only* lock in the design. It is not: the control task takes three
+  per period, and the rule it actually keeps is **do not block on a lock whose critical
+  section is unbounded, and do not block on a lock a higher-priority task holds.** The
+  measurement that justifies each of the three — sizes, hold times, the priority table, and
+  the `esp-idf-svc` hardcoded `task_priority: 5` that puts httpd *level* with control — is
+  in `crates/cc-firmware/src/slots.rs`, under "The rule, and every lock on the control task
+  measured against it". Two are per-tick and cost under a microsecond on both sides; the
+  history ring's 7,200 B copy-out is once a second, not once per tick, and is bounded at
+  <= 22 us.
 - No task waits on another task. Queues are the only cross-task channel, and every
   producer is non-blocking (`try_send`).
-- The control task is the **highest-priority non-ISR task**, so nothing can preempt it. A
-  network task that blocks on a full queue drops the event rather than waiting.
+- 🔴 **Amended 2026-10-04.** "The control task is the **highest-priority non-ISR task**, so
+  nothing can preempt it" was true when written and is now two separate claims. It is no
+  longer the highest-priority *task* — the scale sampler is at 6, deliberately
+  (`SAMPLER_PRIO`, measured in `cc-hal-esp32/src/scale.rs`). It is still the highest-priority
+  task whose *stalls are fatal*, which is the property that matters: lwIP `tcpip` at 18
+  preempts it and that inversion is IDF's, not this firmware's. The consequence for the
+  mutex question is that httpd sits at 5, level with control, so on these locks priority
+  inheritance is a no-op and the wait is bounded by the holder's critical section alone.
 - `critical-section` (the `critical-section` crate, used by esp-idf-hal) is a FreeRTOS
   recursive mutex and therefore **is not ISR-safe**. ISR context must therefore use only
   `hal::task::queue::Queue` and `hal::task::notification` — and the design gives ISRs
