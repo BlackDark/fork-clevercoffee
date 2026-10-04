@@ -10,6 +10,9 @@ repository.workspace = true
 [dependencies]
 cc-domain.workspace = true
 cc-config.workspace = true
+# `mqtt`'s topic-to-parameter layout (`Item`, `Plan`) lives in `cc-netpolicy`
+# since the vocabulary split. It is pure policy with no dependencies at all.
+cc-netpolicy.workspace = true
 # Two dependencies beyond the two workspace crates, both of which were already
 # in the graph, so neither adds a download to any build:
 #

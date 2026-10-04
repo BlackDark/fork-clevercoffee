@@ -47,7 +47,7 @@
 //!
 //! That split is what lets the whole protocol — including every rejection path —
 //! be a host unit test, and it is the same split
-//! [`heater`](crate::heater) uses.
+//! [`heater`](cc_domain::heater) uses.
 //!
 //! # A credential cannot be printed, because the type cannot print it
 //!

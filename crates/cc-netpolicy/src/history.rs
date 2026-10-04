@@ -11,6 +11,11 @@
 //!
 //! # Why it is here and not in the HTTP layer
 //!
+//! Finding 4.4 moved this file out of `cc-domain` and into `cc-netpolicy`,
+//! alongside the link and publish policy that share its "no dependencies at
+//! all" property. The argument below is why it is not in `cc-web` either, and
+//! finding 4.4 did not change it.
+//!
 //! The C++'s ring is a file-static next to the web server, which is possible
 //! there because `Config::getInstance()` is a singleton the whole firmware
 //! reads. Here the configuration and the machine live in the control task, and

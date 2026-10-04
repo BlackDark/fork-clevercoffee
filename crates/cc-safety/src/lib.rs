@@ -161,7 +161,7 @@ pub struct SafetyConfig {
     /// same key.
     ///
     /// Both sensor types are now implemented — see
-    /// [`cc_domain::sensor::ds18b20`] and [`cc_domain::sensor::tsic306`] — so
+    /// `cc_protocol::sensor::ds18b20` and `cc_protocol::sensor::tsic306` — so
     /// there is no `ConfigViolation` left for either of them and nothing to
     /// validate. An earlier revision refused `TSIC_306`
     /// ([`ConfigViolation::UnsupportedTemperatureSensor`], removed) on the
@@ -215,7 +215,7 @@ impl Default for SafetyConfig {
             // `validate_config` reject `TSIC_306`, so that a default which the
             // validator refused could never be the machine's own configuration.
             // That reasoning was sound *given a missing driver*; the driver now
-            // exists (`cc_domain::sensor::tsic306`, R3-07) and both types are
+            // exists (`cc_protocol::sensor::tsic306`, R3-07) and both types are
             // supported, so the parity default is restored.
             //
             // **What this does not mean:** that a TSIC-306 is fitted to this

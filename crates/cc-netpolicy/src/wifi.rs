@@ -482,7 +482,7 @@ mod tests {
         // breaker *first* — so a monitor that both attempted and failed five
         // times goes offline (the retry policy) rather than reporting an open
         // circuit. Driving the breaker alone is what isolates its wiring in
-        // `poll`; its own state machine is `cc_domain::resilience`'s business.
+        // `poll`; its own state machine is `resilience`'s business.
         let mut m = Monitor::new();
         for t in 0..5u32 {
             m.record_attempt_result(false, t * 1_000);

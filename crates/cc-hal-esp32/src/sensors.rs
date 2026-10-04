@@ -5,13 +5,13 @@
 //! # What is here and what is not
 //!
 //! The decisions — when to read, the conversion arithmetic, the debounce state
-//! machine — are in [`cc_domain::abp2`] and [`cc_domain::switch`] and are
+//! machine — are in [`cc_protocol::abp2`] and [`cc_domain::switch`] and are
 //! host-tested there. This file supplies the two things those need from the
 //! outside world: an I²C bus, and a pin.
 //!
 //! # I²C: the count the HAL does not give you
 //!
-//! `cc_domain::abp2::I2cBus::read` returns how many bytes were actually read,
+//! `cc_protocol::abp2::I2cBus::read` returns how many bytes were actually read,
 //! because that is the check the C++ does not make. `hal::i2c`'s own `read`
 //! does **not** return a count — it takes a `&mut [u8]` and returns
 //! `Result<(), EspError>`
@@ -23,10 +23,10 @@
 //! path. It is kept because it costs nothing and it is the branch that matters
 //! on a bus where a device can NACK mid-transfer.
 
-use cc_domain::abp2::{self, I2cBus};
 use cc_domain::hardware::{SwitchMode, SwitchType};
 use cc_domain::switch::Debounced;
 use cc_domain::units::Millis;
+use cc_protocol::abp2::{self, I2cBus};
 use esp_idf_hal::delay::BLOCK;
 use esp_idf_hal::gpio::{Input, PinDriver, Pull};
 use esp_idf_hal::i2c::I2cDriver;
@@ -55,7 +55,7 @@ pub type SdaPin = esp_idf_hal::gpio::AnyIOPin<'static>;
 /// The SCL pin handed to [`Abp2I2c::new`]. See [`SdaPin`].
 pub type SclPin = esp_idf_hal::gpio::AnyIOPin<'static>;
 
-/// The I²C bus, as [`cc_domain::abp2::I2cBus`] needs it.
+/// The I²C bus, as [`cc_protocol::abp2::I2cBus`] needs it.
 ///
 /// A thin newtype over [`I2cDriver`]. The driver is a single owner of the
 /// peripheral; `04 §7` makes the bus a shared, mutex-guarded resource, and
@@ -132,13 +132,13 @@ impl I2cBus for Abp2I2c<'_> {
 
 /// The ABP2, wired to a bus.
 ///
-/// A newtype over [`cc_domain::abp2::Driver`] so the type says which sensor it
+/// A newtype over [`cc_protocol::abp2::Driver`] so the type says which sensor it
 /// is at every call site; the domain driver underneath is the whole decision.
 ///
 /// Generic over the bus because there are now two ways to reach it: an owned
 /// [`Abp2I2c`] for a machine with nothing else on the wires, and a borrow of
 /// the shared bus for a machine that also has a panel. The domain driver is
-/// already generic over [`I2cBus`](cc_domain::abp2::I2cBus), so this costs a
+/// already generic over [`I2cBus`](cc_protocol::abp2::I2cBus), so this costs a
 /// type parameter and nothing else.
 pub struct Abp2Pressure<B = Abp2I2c<'static>> {
     bus: B,

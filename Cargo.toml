@@ -5,7 +5,8 @@
 # recipes' relative paths in the wrong place.
 #
 # Crate roles:
-#   cc-domain, cc-safety, cc-machine, cc-display, cc-config, cc-web, cc-mqtt
+#   cc-domain, cc-protocol, cc-netpolicy, cc-safety, cc-machine, cc-display,
+#   cc-config, cc-web, cc-mqtt
 #   portable,
 #       no_std, host-testable, MUST NOT name esp_idf_{svc,hal,sys} (CI grep,
 #       05 §6)
@@ -17,6 +18,8 @@
 resolver = "2"
 members = [
     "crates/cc-domain",
+    "crates/cc-protocol",
+    "crates/cc-netpolicy",
     "crates/cc-safety",
     "crates/cc-config",
     "crates/cc-machine",
@@ -44,6 +47,8 @@ members = [
 # crates on the host (05 §4, 04 §6 "What compiles and tests on the host").
 default-members = [
     "crates/cc-domain",
+    "crates/cc-protocol",
+    "crates/cc-netpolicy",
     "crates/cc-safety",
     "crates/cc-config",
     "crates/cc-machine",
@@ -62,6 +67,13 @@ repository = "https://github.com/rbvsystems/CleverCoffee"
 [workspace.dependencies]
 # Portable crates. No esp-idf anywhere in this group — enforced by CI.
 cc-domain = { path = "crates/cc-domain" }
+# Device protocols as pure state machines over bytes (finding 4.4). Split out of
+# `cc-domain` with `sensor`, `abp2`, `http_auth` and `provisioning`; it names
+# `cc-domain` only for `units`.
+cc-protocol = { path = "crates/cc-protocol" }
+# Link, publish and retry policy (finding 4.4): `wifi`, `mqtt`, `resilience`,
+# `history`. NO dependencies at all -- see `crates/cc-netpolicy/src/lib.rs`.
+cc-netpolicy = { path = "crates/cc-netpolicy" }
 cc-safety = { path = "crates/cc-safety" }
 cc-machine = { path = "crates/cc-machine" }
 cc-display = { path = "crates/cc-display" }

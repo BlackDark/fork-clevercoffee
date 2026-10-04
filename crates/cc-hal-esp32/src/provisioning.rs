@@ -5,7 +5,7 @@
 //! # What this is
 //!
 //! The device half of the protocol whose grammar and framing are
-//! [`cc_domain::provisioning`]. Three pieces:
+//! [`cc_protocol::provisioning`]. Three pieces:
 //!
 //! 1. [`LineReader`] — assembles UART0 bytes into whole lines.
 //! 2. [`Session`] — the parser plus the pending credential, and the **log
@@ -20,7 +20,7 @@
 //! positional form, which exists because an operator typing by hand must keep
 //! working.
 //!
-//! **`cc_domain::provisioning::PASSWORD_WINDOW_MS` (30 s) bounds the exposure,
+//! **`cc_protocol::provisioning::PASSWORD_WINDOW_MS` (30 s) bounds the exposure,
 //! and on this board nothing else needs to.** The log stream is written by
 //! `esp_idf_svc::log` to UART0 *transmit*; the parser reads UART0 *receive*.
 //! A log line the firmware emits is never bytes the firmware reads back, so the
@@ -53,9 +53,9 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicBool, Ordering};
 
-use cc_domain::provisioning::password_window_expired;
-use cc_domain::provisioning::{Accepted, Parser, Reply, MAX_LINE_BYTES};
 use cc_domain::secret::Secret;
+use cc_protocol::provisioning::password_window_expired;
+use cc_protocol::provisioning::{Accepted, Parser, Reply, MAX_LINE_BYTES};
 use esp_idf_hal::gpio::Gpio1;
 use esp_idf_hal::gpio::Gpio3;
 use esp_idf_hal::uart::{UartDriver, UART0};
@@ -279,7 +279,7 @@ impl LineReader {
             if byte == b'\r' {
                 // Cooked-mode terminator. Skipped here rather than at the end
                 // so the reader's buffer holds exactly the line's bytes, and
-                // `cc_domain::provisioning` does not have to strip it.
+                // `cc_protocol::provisioning` does not have to strip it.
                 continue;
             }
             if self.len >= MAX_LINE_BYTES {
@@ -327,7 +327,7 @@ pub struct Session {
     /// When the password window opened, or `None` when no window is open.
     ///
     /// The *open* time, not the deadline: see
-    /// [`cc_domain::provisioning::password_window_expired`].
+    /// [`cc_protocol::provisioning::password_window_expired`].
     window_opened_ms: Option<u32>,
     /// `wifi clear` has been typed and is waiting for `wifi apply`.
     ///
@@ -355,7 +355,7 @@ pub enum Action {
 ///
 /// `describe()` is the only source of the text, and it returns a `&'static str`
 /// naming the command. The password is never part of it — see
-/// `cc_domain::provisioning`'s module documentation for why that is a property
+/// `cc_protocol::provisioning`'s module documentation for why that is a property
 /// of the types rather than of this function.
 #[must_use]
 pub fn reply_text(reply: Reply<'_>) -> String {
@@ -494,7 +494,7 @@ impl Session {
     /// `wifi set`, without which every later line — including `wifi clear` —
     /// would be eaten as a password.
     ///
-    /// The comparison is [`cc_domain::provisioning::password_window_expired`]
+    /// The comparison is [`cc_protocol::provisioning::password_window_expired`]
     /// and not a deadline, for the reason that function documents: `wrapping_sub`
     /// of a *negative* difference is a number near `u32::MAX`, so the deadline
     /// form of this test is true immediately and the window lasted zero

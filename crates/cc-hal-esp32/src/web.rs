@@ -122,7 +122,7 @@ use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Mutex;
 
 use cc_config::Config;
-use cc_domain::http_auth::WWW_AUTHENTICATE;
+use cc_protocol::http_auth::WWW_AUTHENTICATE;
 // Finding 4.1: the application tier moved to `cc-web`, which is `no_std` and
 // host-testable. These are the payload builders and the two shared types; what
 // stayed here is route registration, the chunked writers, the broadcaster and
@@ -396,7 +396,7 @@ pub struct Shared {
     /// reports as LOST rather than as a failure. It is the same lesson as the
     /// 1 KB `Display` framebuffer and the 7.2 KB `history_json` return value:
     /// anything this size is heap or it is a crash.
-    pub history: Mutex<alloc::boxed::Box<cc_domain::history::History>>,
+    pub history: Mutex<alloc::boxed::Box<cc_netpolicy::history::History>>,
     /// How many control commands the control task has applied.
     ///
     /// The ack every command caller waits on. A command is a **request**: the
@@ -420,7 +420,7 @@ impl Shared {
     pub fn new() -> Self {
         Self {
             telemetry: Snapshot::new(),
-            history: Mutex::new(alloc::boxed::Box::new(cc_domain::history::History::new())),
+            history: Mutex::new(alloc::boxed::Box::new(cc_netpolicy::history::History::new())),
             applied: AtomicU32::new(0),
             reboot_requested: AtomicBool::new(false),
             large_responses: AtomicU32::new(0),
@@ -903,7 +903,7 @@ pub fn history_json(shared: &Shared) -> String {
     let (points, len) = match shared.history.lock() {
         Ok(guard) => {
             let len = guard.len();
-            let mut copy = alloc::boxed::Box::new([cc_domain::history::Point::default(); 600]);
+            let mut copy = alloc::boxed::Box::new([cc_netpolicy::history::Point::default(); 600]);
             for (i, point) in copy.iter_mut().enumerate().take(len) {
                 if let Some(p) = guard.get(i) {
                     *point = p;

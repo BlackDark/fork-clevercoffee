@@ -29,7 +29,7 @@
 //! spins on the line going high (`OneWire.cpp:190-193`) precisely because it
 //! expects an external pull-up.
 
-use cc_domain::sensor::onewire::{self, OneWireBus};
+use cc_protocol::sensor::onewire::{self, OneWireBus};
 use esp_idf_hal::delay::Ets;
 use esp_idf_hal::gpio::{InputOutput, Level, OutputPin, PinDriver, Pull};
 use esp_idf_hal::interrupt;

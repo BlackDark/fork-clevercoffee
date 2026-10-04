@@ -195,7 +195,7 @@ impl ProbeReading {
     /// without making the answer a filter.
     #[must_use]
     pub fn is_usable(&self) -> bool {
-        crate::units::Celsius::new(self.celsius).is_valid()
+        cc_domain::units::Celsius::new(self.celsius).is_valid()
     }
 }
 
@@ -239,8 +239,8 @@ mod tests {
         // `cc_domain::units`' `tsic_fault_sentinels_are_rejected` pins from the
         // other side: if it were plausible, the range check that runs *after*
         // the sentinel checks would never see it.
-        assert!(!crate::units::Celsius::new(222.0).is_valid());
-        assert!(!crate::units::Celsius::new(-127.0).is_valid());
+        assert!(!cc_domain::units::Celsius::new(222.0).is_valid());
+        assert!(!cc_domain::units::Celsius::new(-127.0).is_valid());
     }
 
     #[test]
@@ -257,7 +257,7 @@ mod tests {
         // (`DallasTemperature.cpp:406-410`) folds every raw sentinel to -127, so
         // *all six* DS18B20 faults reach `TempSensorDallas` as -127 and are
         // rejected as "not connected". What the port keeps is the *reason*.
-        // See `cc_domain::sensor::onewire::div7_*`.
+        // See `cc_protocol::sensor::onewire::div7_*`.
         for fault in [
             ds18b20::Ds18b20Fault::Disconnected,
             ds18b20::Ds18b20Fault::Open,

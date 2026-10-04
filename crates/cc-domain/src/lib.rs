@@ -1,6 +1,23 @@
 //! Pure domain vocabulary for the Clever Coffee firmware: units, enums, the 18 machine
 //! states, error codes, the PID controller, and the compile-time policy whitelists.
 //!
+//! # Where this sits in the layering
+//!
+//! ```text
+//!   cc-domain ──> cc-protocol ──> cc-hal-esp32
+//!     │
+//!     ├──> cc-safety ──> cc-machine ──┐
+//!     └──> cc-config, cc-display ─────┴─> cc-hal-esp32
+//! ```
+//!
+//! **This is the crate at the bottom, and it stays small.** It is the vocabulary
+//! the rest of the firmware speaks: a temperature has a type, the machine is in
+//! one of eighteen states, an error has a code, and a PID has a mode. Nothing
+//! here decodes a byte, drives a pin, or holds a ring of samples -- those are
+//! `cc-protocol` (protocols over bytes) and `cc-netpolicy` (link, publish and
+//! retry policy). That is finding 4.4; this crate was ~18,700 lines of all
+//! three, and a reviewer could no longer read it in one sitting.
+//!
 //! # Rules
 //!
 //! * `no_std`, no `alloc`, and **no dependency is on by default** (04 §1, §6).
@@ -58,24 +75,16 @@ macro_rules! from_raw {
     };
 }
 
-pub mod abp2;
 pub mod error;
 pub mod hardware;
 pub mod heater;
-pub mod history;
-pub mod http_auth;
-pub mod mqtt;
 pub mod pid;
 pub mod process;
-pub mod provisioning;
-pub mod resilience;
 pub mod secret;
-pub mod sensor;
 pub mod state;
 pub mod switch;
 pub mod system;
 pub mod units;
-pub mod wifi;
 
 #[cfg(test)]
 extern crate alloc;

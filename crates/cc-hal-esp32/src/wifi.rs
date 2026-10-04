@@ -11,10 +11,10 @@
 //!   captive portal. **Not ported here**; the reason is at the bottom of this
 //!   file, and it is a decision rather than an omission.
 //! * `checkAndMaintainConnection` — the retry / circuit-breaker / offline-mode
-//!   decision. That is [`cc_domain::wifi::Monitor`], host-tested; this file
+//!   decision. That is [`cc_netpolicy::wifi::Monitor`], host-tested; this file
 //!   performs the ESP-IDF call it asks for and nothing else.
 //! * `getSignalStrength` — the four-bucket mapping. Also
-//!   [`cc_domain::wifi::Signal`].
+//!   [`cc_netpolicy::wifi::Signal`].
 //!
 //! # The hostname ordering, and why it is structural here
 //!
@@ -33,7 +33,7 @@
 //! `netif.rs:387,489-490` — that is, when the netif is *created*, which is
 //! necessarily before `wifi.start()` and therefore before any association. So
 //! [`Sta::new`] cannot construct the wrong order, and
-//! `cc_domain::wifi::ConnectionOrder::hostname_is_before_association` is a test
+//! `cc_netpolicy::wifi::ConnectionOrder::hostname_is_before_association` is a test
 //! of the reasoning rather than a guard on a call sequence.
 //!
 //! It is still worth stating out loud, because the alternative is a future
@@ -44,7 +44,7 @@ use alloc::format;
 use alloc::string::{String, ToString};
 use core::net::Ipv4Addr;
 
-use cc_domain::wifi::{Action, ConnectionOrder, Monitor, Signal};
+use cc_netpolicy::wifi::{Action, ConnectionOrder, Monitor, Signal};
 use esp_idf_hal::delay::FreeRtos;
 use esp_idf_svc::eventloop::EspSystemEventLoop;
 use esp_idf_svc::ipv4;
@@ -232,7 +232,7 @@ impl Sta {
     /// The received signal strength in dBm, or the C++'s -100 dBm stand-in.
     ///
     /// `CleverCoffeeWiFiManager.cpp:246`. Reproduced so the bucket arithmetic in
-    /// [`cc_domain::wifi::Signal`] is the C++'s arithmetic rather than a
+    /// [`cc_netpolicy::wifi::Signal`] is the C++'s arithmetic rather than a
     /// slightly different one.
     #[must_use]
     pub fn rssi(&self) -> i32 {

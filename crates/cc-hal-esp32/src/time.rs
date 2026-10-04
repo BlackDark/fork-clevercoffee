@@ -46,7 +46,7 @@
 /// Microseconds since boot, truncated to 31 bits.
 ///
 /// The low 31 bits, not the low 32, because that is what
-/// `cc_domain::sensor::tsic306::ring::EdgeRing` packs alongside an edge level in
+/// `cc_protocol::sensor::tsic306::ring::EdgeRing` packs alongside an edge level in
 /// one `AtomicU32` — the original ESP32 has no `AtomicU64`. The 35.8-minute
 /// wrap is harmless: every subtraction in the `ZACwire` decoder is a
 /// `saturating_sub` over a 2.75 ms burst, so a wrap inside a burst can only
@@ -73,7 +73,7 @@ pub fn now_us() -> u32 {
 /// Milliseconds since boot.
 ///
 /// The whole of the C++'s `millis()` and of the `now_ms` argument every
-/// `cc_domain::resilience` and `cc_domain::wifi` call takes.
+/// `cc_netpolicy::resilience` and `cc_netpolicy::wifi` call takes.
 ///
 /// A full 32 bits wrap every 49.7 days. Every deadline in this firmware is
 /// expressed with `wrapping_sub`, so a wrap is a subtraction that goes the right

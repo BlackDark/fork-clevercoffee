@@ -466,7 +466,7 @@ extern "C" fn sse_handler(req: *mut httpd_req_t) -> esp_idf_sys::esp_err_t {
             return refuse(
                 req,
                 c"401 Unauthorized",
-                cc_domain::http_auth::WWW_AUTHENTICATE,
+                cc_protocol::http_auth::WWW_AUTHENTICATE,
             );
         }
 

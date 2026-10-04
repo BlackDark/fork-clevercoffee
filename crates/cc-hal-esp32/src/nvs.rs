@@ -58,7 +58,7 @@ use alloc::vec::Vec;
 
 use cc_config::blob_store::BlobBackend;
 use cc_config::store::StoreError;
-use cc_domain::sensor::hx711::{decode_tare, encode_tare, TareRecord};
+use cc_protocol::sensor::hx711::{decode_tare, encode_tare, TareRecord};
 use esp_idf_svc::nvs::{EspDefaultNvs, EspDefaultNvsPartition, EspNvs};
 
 /// An NVS namespace opened read-write, behind [`BlobBackend`].

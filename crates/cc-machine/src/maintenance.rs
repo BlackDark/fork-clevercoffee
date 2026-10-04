@@ -127,7 +127,7 @@ pub const SHOT_COUNT_BYTES: usize = 4;
 /// The shot counter as the bytes NVS holds for it.
 ///
 /// Little-endian, like every other integer this firmware writes
-/// ([`cc_domain::sensor::hx711`](../../cc_domain/sensor/hx711/index.html)'s
+/// ([`cc_protocol::sensor::hx711`](../../cc_domain/sensor/hx711/index.html)'s
 /// tare record), so a little-endian reader of the partition sees a plain
 /// integer.
 #[must_use]

@@ -26,7 +26,7 @@
 //! `bitMask = 0x01, 0x02, ... 0x80` (`OneWire.cpp:266-302`), so the port walks
 //! the same order and the host tests assert it bit by bit.
 
-use crate::units::Millis;
+use cc_domain::units::Millis;
 
 /// The DS18B20 family code, and the only family this driver accepts.
 ///

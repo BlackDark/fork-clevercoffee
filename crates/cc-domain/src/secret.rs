@@ -11,10 +11,10 @@
 //! It started in `cc-config`, which is where the first four credential-bearing
 //! fields live (`system.wifi.ssid`, `system.wifi.password`, `mqtt.password`,
 //! `system.auth.password`). R3-12 added a fifth user: the UART provisioning
-//! parser in [`crate::provisioning`], which has to hand a password to the Wi-Fi
-//! stack and must not be printable in the process. `cc-domain` is the crate
-//! both depend on, and it is the one that can be read on its own, which is the
-//! property that makes redaction auditable.
+//! parser in `cc_protocol::provisioning`, which has to hand a password to the
+//! Wi-Fi stack and must not be printable in the process. `cc-domain` is the
+//! crate both depend on, and it is the one that can be read on its own, which
+//! is the property that makes redaction auditable.
 //!
 //! `cc_config::Secret` is a re-export of this type, so the configuration
 //! crate's public API is unchanged.

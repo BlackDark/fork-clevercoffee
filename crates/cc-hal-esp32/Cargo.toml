@@ -16,15 +16,22 @@ repository.workspace = true
 # cc-firmware` does not name it, so the release image is unchanged. Enabling it
 # makes the test modules `pub`, which is a link-time-only difference the
 # optimiser removes anyway, but the point is that it is never on.
-# Enabling this turns on `cc-domain/device-tests` for `http_auth::tests_support::encode`, which the
+# Enabling this turns on `cc-protocol/device-tests` for `http_auth::tests_support::encode`, which the
 # authentication tests below use to build an `Authorization` header. Still inert for a release
 # build, which never names this feature.
-device-tests = ["cc-domain/device-tests"]
+device-tests = ["cc-protocol/device-tests"]
 
 [dependencies]
 cc-domain.workspace = true
 cc-config.workspace = true
 cc-machine.workspace = true
+# The two crates the vocabulary split (finding 4.4) moved out of `cc-domain`:
+# `cc-protocol` holds the sensor protocol stacks and the HTTP auth policy,
+# `cc-netpolicy` the link and publish policy. Both are `no_std` and hold no
+# ESP dependency, which is why the HAL can name them without that changing what
+# this crate is.
+cc-protocol.workspace = true
+cc-netpolicy.workspace = true
 # For `cc_safety::steam_flow_allowed`, which the `Actuators` impl applies
 # **inside** `open_steam_valve` (R4-01). The whitelist is a `match` with no
 # wildcard arm over all eighteen `MachineState` variants, so naming it here
@@ -89,12 +96,12 @@ log.workspace = true
 embedded-io.workspace = true
 serde_json.workspace = true
 
-# `cc-domain` again, with the `device-tests` feature, for THIS crate's own test
+# `cc-protocol` again, with the `device-tests` feature, for THIS crate's own test
 # target only.
 #
 # Without it, `cargo clippy -p cc-hal-esp32 --all-targets` -- one crate, no
 # `--features device-tests` -- does not compile: `web.rs`'s test module reaches
-# `cc_domain::http_auth::tests_support::encode`, and that module is
+# `cc_protocol::http_auth::tests_support::encode`, and that module is
 # `#[cfg(any(test, feature = "device-tests"))]`. It only ever built because
 # `just lint-esp32` happens to name `cc-device-tests` in the same invocation, and
 # `cc-device-tests` depends on `cc-hal-esp32` *with* the feature -- so Cargo's
@@ -104,10 +111,10 @@ serde_json.workspace = true
 #
 # A dev-dependency is the mechanism that actually means "my tests need this": it
 # unifies into this crate's test target and into nothing else, so
-# `cc-hal-esp32`'s library build still sees `cc-domain` WITHOUT `device-tests`
+# `cc-hal-esp32`'s library build still sees `cc-protocol` WITHOUT `device-tests`
 # and the base64 encoder cannot reach the image.
 [dev-dependencies]
-cc-domain = { workspace = true, features = ["device-tests"] }
+cc-protocol = { workspace = true, features = ["device-tests"] }
 
 [lints]
 workspace = true

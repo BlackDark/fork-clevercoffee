@@ -29,6 +29,11 @@ cc-machine.workspace = true
 cc-display.workspace = true
 cc-safety.workspace = true
 cc-hal-esp32.workspace = true
+# The vocabulary split (finding 4.4): `cc-protocol` holds the sensor protocol
+# stacks `main.rs` brings up, `cc-netpolicy` the link policy the boot sequence
+# reads. Both are `no_std` and ESP-free.
+cc-protocol.workspace = true
+cc-netpolicy.workspace = true
 # `Telemetry`, `Command` and `parameters_json`, which the control task builds and
 # publishes. They were reached through `cc_hal_esp32::web` and are named
 # directly here so there is one owner: finding 4.5 was `Telemetry` existing

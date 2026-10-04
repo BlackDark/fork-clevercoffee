@@ -1,0 +1,29 @@
+[package]
+name = "cc-protocol"
+description = "CleverCoffee device protocols as pure state machines over bytes."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+# Compiles this crate's `#[cfg(any(test, feature = "device-tests"))]` items,
+# so `cc-hal-esp32 --features device-tests` can reach them.
+#
+# It exists for exactly one thing: `http_auth::tests_support::encode`, which
+# `cc-hal-esp32`'s authentication tests need to build an `Authorization`
+# header. Those tests are executable only by flashing a device, so the encoder
+# has to live in a crate they can compile against -- and duplicating a base64
+# encoder into the device crate to avoid a feature flag is worse than one.
+#
+# NEVER enabled by the shipped `firmware` binary: only `cc-hal-esp32`'s
+# `device-tests` feature turns it on, and nothing in a release build names
+# that. Enabling it adds a base64 encoder and nothing else.
+device-tests = []
+
+[dependencies]
+cc-domain.workspace = true
+
+[lints]
+workspace = true

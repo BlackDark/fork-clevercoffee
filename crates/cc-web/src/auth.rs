@@ -3,7 +3,7 @@
 use alloc::sync::Arc;
 
 use cc_config::Config;
-use cc_domain::http_auth::{self, MAX_CREDENTIAL_BYTES};
+use cc_protocol::http_auth::{self, MAX_CREDENTIAL_BYTES};
 use log::warn;
 
 /// The HTTP Basic credential check for every route on this server.

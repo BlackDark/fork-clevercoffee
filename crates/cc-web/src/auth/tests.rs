@@ -8,8 +8,8 @@ use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::sync::Arc;
 
-use cc_domain::http_auth::WWW_AUTHENTICATE;
 use cc_domain::secret::Secret;
+use cc_protocol::http_auth::WWW_AUTHENTICATE;
 
 /// A `Config` with the given `system.auth.*`, for the auth cases.
 fn auth_config(enabled: bool, username: &str, password: &str) -> Arc<Config> {
@@ -24,7 +24,7 @@ fn auth_config(enabled: bool, username: &str, password: &str) -> Arc<Config> {
 fn basic(user: &str, pass: &str) -> String {
     format!(
         "Basic {}",
-        cc_domain::http_auth::tests_support::encode(format!("{user}:{pass}").as_bytes())
+        cc_protocol::http_auth::tests_support::encode(format!("{user}:{pass}").as_bytes())
     )
 }
 

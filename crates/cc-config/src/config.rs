@@ -801,7 +801,7 @@ impl Default for HardwareSensorsTemperature {
     /// would have been a value the machine refused to run.
     ///
     /// **Reversed, because the reason no longer holds.** The TSIC-306 driver now
-    /// exists (`cc_domain::sensor::tsic306`, R3-07) and `validate_config` no
+    /// exists (`cc_protocol::sensor::tsic306`, R3-07) and `validate_config` no
     /// longer refuses it, so there is no longer a default that the validator
     /// rejects and no reason to prefer a development-machine fact over the C++'s
     /// shipped default. The C++'s value is restored for parity.

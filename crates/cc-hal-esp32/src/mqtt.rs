@@ -9,7 +9,7 @@
 //! `SystemInitializer::registerMQTTParameters` / `registerMQTTSensors`
 //! (`SystemInitializer.cpp:687-800`). The parts that are *policy* — the
 //! three-phase incremental publish under a 10 ms budget and the retained /
-//! not-retained split — are in [`cc_domain::mqtt`], host-tested. The Home
+//! not-retained split — are in [`cc_netpolicy::mqtt`], host-tested. The Home
 //! Assistant discovery payloads are in [`cc_config::discovery`], also
 //! host-tested, because a malformed discovery payload is *silently* ignored by
 //! Home Assistant and is exactly the failure a device-only test cannot catch.
@@ -33,7 +33,7 @@
 //! # The three things that are easy to lose
 //!
 //! 1. **The publish is incremental under a time budget.** See
-//!    [`cc_domain::mqtt`] — the budget is a safety property, not an
+//!    [`cc_netpolicy::mqtt`] — the budget is a safety property, not an
 //!    optimisation, because the C++ runs the publish from the main loop
 //!    (`LoopManager.cpp:505`). [`Feed::service`] reproduces the C++'s shape:
 //!    a cursor over the three phases, resumed across calls, with a
@@ -79,8 +79,8 @@ use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Mutex;
 
 use cc_config::Config;
-use cc_domain::mqtt::{Cursor, Item, Phase};
-use cc_domain::resilience::{CircuitBreaker, RetryPolicy};
+use cc_netpolicy::mqtt::{Cursor, Item, Phase};
+use cc_netpolicy::resilience::{CircuitBreaker, RetryPolicy};
 use esp_idf_svc::mqtt::client::{
     EspMqttClient, EspMqttEvent, EventPayload, LwtConfiguration, MqttClientConfiguration,
     MqttProtocolVersion, QoS,
@@ -584,7 +584,7 @@ pub struct Service {
 ///
 /// # Why this is built once and never rebuilt
 ///
-/// The `PlanView` the [`cc_domain::mqtt::Cursor`] walks borrows the registry's
+/// The `PlanView` the [`cc_netpolicy::mqtt::Cursor`] walks borrows the registry's
 /// topic strings, so a `Feed` that owns both needs a self-reference — or a
 /// registry that outlives it. The registry is built from the configuration once,
 /// at boot, and **never changes**: no C++ code path adds an MQTT topic after

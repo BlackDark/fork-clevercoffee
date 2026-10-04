@@ -124,7 +124,7 @@ pub mod ring;
 mod simulator;
 
 use crate::sensor::probe::{ProbeFault, ProbeReading, ProbeSource};
-use crate::units::Millis;
+use cc_domain::units::Millis;
 
 use self::decode::FrameError;
 use self::ring::{EdgeBuffer, EdgeRing, CAPACITY};

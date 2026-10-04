@@ -18,7 +18,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use cc_config::Config;
-use cc_domain::mqtt::{Item, Phase, Plan};
+use cc_netpolicy::mqtt::{Item, Phase, Plan};
 
 use crate::*;
 

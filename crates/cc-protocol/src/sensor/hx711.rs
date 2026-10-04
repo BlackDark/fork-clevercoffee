@@ -69,7 +69,7 @@
 //! distinguish "the weight has not moved" from "every sample is being
 //! rejected".
 
-use crate::units::Millis;
+use cc_domain::units::Millis;
 
 /// The HX711's output is 24 bits wide.
 ///

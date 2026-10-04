@@ -68,16 +68,16 @@ use core::error::Error;
 use std::sync::Arc;
 
 use cc_domain::hardware::TemperatureSensorType;
-use cc_domain::sensor::ds18b20::{self as ds18b20_domain, Driver as Ds18b20Driver};
-use cc_domain::sensor::onewire::{OneWireError, Rom};
-use cc_domain::sensor::tsic306 as tsic306_domain;
-use cc_domain::sensor::tsic306::Tsic306;
 use cc_domain::units::{Celsius, Millis};
 use cc_hal_esp32::heater::{HeaterOutput, TimerIsrPwm};
 use cc_hal_esp32::onewire::GpioOneWire;
 use cc_hal_esp32::time::now_ms;
 use cc_hal_esp32::zacwire::{self, ZacwireCapture};
 use cc_hal_esp32::SwitchBank;
+use cc_protocol::sensor::ds18b20::{self as ds18b20_domain, Driver as Ds18b20Driver};
+use cc_protocol::sensor::onewire::{OneWireError, Rom};
+use cc_protocol::sensor::tsic306 as tsic306_domain;
+use cc_protocol::sensor::tsic306::Tsic306;
 // `Telemetry` is `cc_web`'s, named from its one owner since finding 4.5 deleted
 // the second copy in `network.rs`. `parameters_json` is here for the same
 // reason: the control task publishes the `/api/parameters` body it would serve.
@@ -985,7 +985,7 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
     //     driver or a 20 Hz deadline on one. What the C++ *cannot* do is read one
     //     without blocking: `pressureSensor.h:35` does `delay(10)` on every
     //     50 ms sample, which is 20 % of the C++ loop's wall clock (01 §4, and
-    //     R4-01b's first listed win). `cc_domain::abp2::Driver` makes the 10 ms a
+    //     R4-01b's first listed win). `cc_protocol::abp2::Driver` makes the 10 ms a
     //     deadline instead, so the sample is spread across ticks and nothing
     //     sleeps.
     // The bus is boxed and **moved into the control task**, which is what makes
@@ -1398,7 +1398,7 @@ fn bring_up_ds18b20(
 /// **No `TSIC-306` is fitted to the machine this firmware was built for.** The
 /// probe is a `DS18B20` and [`PROBE`] says so, so this function is compiled (the
 /// types, the protocol arithmetic and the rejection paths are all checked) and
-/// **not executed**. See `cc_domain::sensor::tsic306` and
+/// **not executed**. See `cc_protocol::sensor::tsic306` and
 /// `cc_hal_esp32::zacwire` for what a green test run of this driver does and does
 /// not prove.
 ///
@@ -1467,7 +1467,7 @@ fn bring_up_tsic306(
 ///
 /// An enum, because the two arms own **different transports** and the pin: the
 /// 1-Wire arm bit-bangs GPIO16 itself, and the `ZACwire` arm's capture owns it as
-/// an interrupt-free sampler. `cc_domain::sensor::probe`'s `ProbeReading` is the
+/// an interrupt-free sampler. `cc_protocol::sensor::probe`'s `ProbeReading` is the
 /// vocabulary the state machine sees, and this is the one place that has to know
 /// which is which.
 #[allow(
@@ -1589,7 +1589,7 @@ impl TemperatureSensor {
     /// `isConnected()` (`:158-161`), which `BaseState::checkTransitions` turns
     /// into `SENSOR_ERROR` (`BaseState.h:145-148`). Both arms' drivers keep the
     /// flag to the C++'s own rule: set at
-    /// [`MAX_BAD_READINGS`](cc_domain::sensor::ds18b20::MAX_BAD_READINGS)
+    /// [`MAX_BAD_READINGS`](cc_protocol::sensor::ds18b20::MAX_BAD_READINGS)
     /// consecutive failures and cleared by the next success
     /// (`TempSensor.h:41-53`).
     ///
@@ -1826,7 +1826,7 @@ struct I2cPins {
 /// `SensorCoordinator::updatePressure` on a 50 ms cadence
 /// (`constants/Timing.h`). That is 10 ms of a 50 ms period — **20 % of the
 /// control loop's wall clock spent asleep** (01 §4, and the first of R4-01b's
-/// three listed wins). `cc_domain::abp2::Driver` makes the 10 ms a *deadline*
+/// three listed wins). `cc_protocol::abp2::Driver` makes the 10 ms a *deadline*
 /// instead: the conversion command is written on one tick and the answer read on
 /// a later one, so the sensor costs two I²C transactions spread over 10 ms of
 /// normal control-loop work and no sleep at all.
@@ -1871,8 +1871,8 @@ fn bring_up_pressure<'bus>(
          non-blocking — the C++'s 10 ms delay is a deadline here, cadence {} ms",
         pins::I2C_SDA,
         pins::I2C_SCL,
-        cc_domain::abp2::ADDRESS,
-        cc_domain::abp2::CADENCE.raw(),
+        cc_protocol::abp2::ADDRESS,
+        cc_protocol::abp2::CADENCE.raw(),
     );
     Some(cc_hal_esp32::Abp2Pressure::on_shared_bus(bus))
 }
@@ -2065,8 +2065,8 @@ fn bring_up_scale(
 
     // The rate is the C++'s `setGain(128)` from `begin()`
     // (`HX711_ADC.cpp:32`), which is the default of
-    // `cc_domain::sensor::hx711::Rate`.
-    let rate = cc_domain::sensor::hx711::Rate::default();
+    // `cc_protocol::sensor::hx711::Rate`.
+    let rate = cc_protocol::sensor::hx711::Rate::default();
 
     // `samples` is an `i32` config parameter in `1..=20`; anything else in a
     // blob is clamped by the domain crate rather than rejected, because
@@ -2093,7 +2093,7 @@ fn bring_up_scale(
     let (bus, driver) = match scale_config.r#type {
         cc_domain::hardware::ScaleType::Hx711Dual => {
             let bus = cc_hal_esp32::GpioHx711::dual(pins.data_1, pins.data_2, pins.clock)?;
-            let driver = cc_domain::sensor::hx711::Scale::dual(
+            let driver = cc_protocol::sensor::hx711::Scale::dual(
                 scale_config.calibration,
                 scale_config.calibration2,
                 average,
@@ -2102,7 +2102,8 @@ fn bring_up_scale(
         }
         cc_domain::hardware::ScaleType::Hx711Single => {
             let bus = cc_hal_esp32::GpioHx711::single(pins.data_1, pins.clock)?;
-            let driver = cc_domain::sensor::hx711::Scale::single(scale_config.calibration, average);
+            let driver =
+                cc_protocol::sensor::hx711::Scale::single(scale_config.calibration, average);
             (bus, driver)
         }
         // An Acaia BLE scale is R3-18: a different driver on a different
@@ -2958,7 +2959,7 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
         temp.poll(now, &mut sensor_fault_logged);
         let last_reading = temp.last_reading();
         let pressure_bar = pressure.as_mut().and_then(|sensor| match sensor.poll(now) {
-            Ok(cc_domain::abp2::Poll::Sample(sample)) => Some(f64::from(sample.pressure.raw())),
+            Ok(cc_protocol::abp2::Poll::Sample(sample)) => Some(f64::from(sample.pressure.raw())),
             Ok(_) => None,
             Err(err) => {
                 debug!("control: ABP2 read: {err:?}");
@@ -3892,7 +3893,7 @@ fn drain_scale(
                 match cc_hal_esp32::nvs::save_tare(store.backend_mut(), record) {
                     Ok(()) => info!(
                         "scale: tare persisted to NVS ({} B) — it survives a reboot",
-                        cc_domain::sensor::hx711::TARE_RECORD_BYTES
+                        cc_protocol::sensor::hx711::TARE_RECORD_BYTES
                     ),
                     Err(err) => error!(
                         "scale: the tare was taken but could NOT be persisted: \

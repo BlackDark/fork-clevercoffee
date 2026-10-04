@@ -9,7 +9,7 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use cc_config::Config;
-use cc_domain::mqtt::{Item, Plan};
+use cc_netpolicy::mqtt::{Item, Plan};
 
 use crate::topics::{ParamTopic, Topics, BACKFLUSH_ON, CALIBRATION_ON, STEAM_MODE, TARE_ON};
 

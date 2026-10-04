@@ -10,6 +10,10 @@ repository.workspace = true
 [dependencies]
 cc-domain.workspace = true
 cc-config.workspace = true
+# `http_auth` lives in `cc-protocol` since the vocabulary split; it is the
+# HTTP Basic-auth policy (`cc-web` owns the auth *middleware*, `cc-protocol`
+# owns the header parsing and the constant-time compare).
+cc-protocol.workspace = true
 # Two dependencies beyond the two workspace crates, both of which were already
 # in the graph, so neither adds a download to any build:
 #
@@ -32,12 +36,12 @@ log.workspace = true
 # shape without pinning its bytes (the C++'s key ORDER is not the contract --
 # its key SET is). `std` is re-enabled under `cfg(test)` for the parser.
 serde_json = { workspace = true, features = ["std"] }
-# `http_auth::tests_support::encode` lives in `cc-domain` under
+# `http_auth::tests_support::encode` lives in `cc-protocol` under
 # `#[cfg(any(test, feature = "device-tests"))]`, and `cfg(test)` here applies to
-# this crate's build, not to `cc-domain`'s. Without the feature the
+# this crate's build, not to `cc-protocol`'s. Without the feature the
 # authentication tests would have to state transcribed base64 blobs, which is
 # how a test stops testing what it thinks it tests.
-cc-domain = { workspace = true, features = ["device-tests"] }
+cc-protocol = { workspace = true, features = ["device-tests"] }
 
 [lints]
 workspace = true

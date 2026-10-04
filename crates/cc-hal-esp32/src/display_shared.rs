@@ -72,10 +72,10 @@ impl SharedBus {
 /// The shared bus as the ABP2's driver wants it.
 ///
 /// This is what lets the pressure sensor and the panel be peers: the domain
-/// driver is generic over [`I2cBus`](cc_domain::abp2::I2cBus), so implementing
+/// driver is generic over [`I2cBus`](cc_protocol::abp2::I2cBus), so implementing
 /// it here gives the sensor a bus that takes the lock per transaction without
 /// knowing a panel exists.
-impl cc_domain::abp2::I2cBus for SharedBus {
+impl cc_protocol::abp2::I2cBus for SharedBus {
     type Error = EspError;
 
     fn write(&mut self, address: u8, bytes: &[u8]) -> Result<(), Self::Error> {
@@ -99,9 +99,9 @@ impl cc_domain::abp2::I2cBus for SharedBus {
 ///
 /// This is what lets `ControlArgs` carry the pressure sensor as
 /// `Abp2Pressure<&'static SharedBus>`: the domain driver is generic over
-/// [`I2cBus`](cc_domain::abp2::I2cBus), and the sensor holds the bus by
+/// [`I2cBus`](cc_protocol::abp2::I2cBus), and the sensor holds the bus by
 /// reference, so the reference itself has to satisfy the trait.
-impl cc_domain::abp2::I2cBus for &SharedBus {
+impl cc_protocol::abp2::I2cBus for &SharedBus {
     type Error = EspError;
 
     fn write(&mut self, address: u8, bytes: &[u8]) -> Result<(), Self::Error> {

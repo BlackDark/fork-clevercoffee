@@ -10,7 +10,7 @@
 //! capture is not even brought up in the firmware build. Every claim below is
 //! either read out of the installed sources or host-tested against a
 //! synthesised waveform. **None of it is evidence that a TSIC-306 works.** See
-//! [`cc_domain::sensor::tsic306`]'s module docs, which say the same thing from
+//! [`cc_protocol::sensor::tsic306`]'s module docs, which say the same thing from
 //! the protocol side.
 //!
 //! # The app note asks for an ISR; this is a poller, and why
@@ -75,8 +75,8 @@
 //!
 //! [`Idle`]: Sampler::Idle
 
-use cc_domain::sensor::tsic306::ring::{EdgeRing, CAPACITY};
-use cc_domain::sensor::tsic306::{EdgeSource, RingSource};
+use cc_protocol::sensor::tsic306::ring::{EdgeRing, CAPACITY};
+use cc_protocol::sensor::tsic306::{EdgeSource, RingSource};
 use esp_idf_hal::delay::Ets;
 use esp_idf_hal::gpio::{Input, PinDriver};
 use esp_idf_svc::sys::EspError;
@@ -94,7 +94,7 @@ pub const BURST_POLL_US: u32 = 7;
 /// the burst rate and still catches an edge within 1 ms of it starting, which is
 /// 8 bit windows — so the burst begins with at most one bit of the transmission
 /// already gone, and one bit of loss at the *front* of a packet is harmless
-/// because [`decode_frame`](cc_domain::sensor::tsic306::decode_frame) scans
+/// because [`decode_frame`](cc_protocol::sensor::tsic306::decode_frame) scans
 /// forward for a start bit.
 ///
 /// A larger value would be cheaper and still work; a smaller one costs more and
@@ -258,7 +258,7 @@ impl<'d> ZacwireCapture<'d> {
                 } else {
                     // The ring is full. The frame in progress is lost and the
                     // overrun flag says so; nothing is overwritten. See
-                    // `cc_domain::sensor::tsic306::ring`.
+                    // `cc_protocol::sensor::tsic306::ring`.
                     self.stats.dropped = self.stats.dropped.wrapping_add(1);
                     // A full ring means we are not keeping up at all; stop
                     // sampling rather than spin, and let the drain resynchronise.
@@ -319,7 +319,7 @@ impl EdgeSource for ZacwireCapture<'_> {
         self.capture(DEFAULT_CAPTURE_US);
     }
 
-    fn take_edges(&mut self, into: &mut cc_domain::sensor::tsic306::ring::EdgeBuffer) {
+    fn take_edges(&mut self, into: &mut cc_protocol::sensor::tsic306::ring::EdgeBuffer) {
         self.source.take_edges(into);
     }
 

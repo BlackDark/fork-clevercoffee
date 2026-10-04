@@ -134,7 +134,7 @@ host_target := env_var_or_default("CC_HOST_TARGET", `./scripts/host-target.sh`)
 # `just test-esp32`. Both are here because `scripts/portable-purity.py` names
 # them as portable, and naming them anywhere else would leave those surfaces
 # untested on the host.
-host_crates := "-p cc-domain -p cc-safety -p cc-machine -p cc-display -p cc-config -p cc-web -p cc-mqtt"
+host_crates := "-p cc-domain -p cc-protocol -p cc-netpolicy -p cc-safety -p cc-machine -p cc-display -p cc-config -p cc-web -p cc-mqtt"
 
 # `--locked` on EVERY cargo invocation that resolves the dependency graph --
 # including `cargo doc` and `cargo test -p cc-parity`, which are not obvious

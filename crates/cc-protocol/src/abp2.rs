@@ -53,7 +53,7 @@
 //! `SensorCoordinator::cachedPressureFiltered_` and therefore the brew
 //! pressure control.
 
-use crate::units::{Bar, Celsius, Millis};
+use cc_domain::units::{Bar, Celsius, Millis};
 
 /// The ABP2's 7-bit I²C address.
 ///

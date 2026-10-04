@@ -60,7 +60,7 @@
 //! *"Temperature sensor not connected"* (`TempSensorDallas.cpp:30`). The
 //! decision is right; the diagnostic points an operator at the wiring when the
 //! fault is on the probe. Pinned by
-//! `cc_domain::sensor::onewire::div7_every_ds18b20_fault_is_rejected_by_the_cpp`.
+//! `cc_protocol::sensor::onewire::div7_every_ds18b20_fault_is_rejected_by_the_cpp`.
 //!
 //! **The last row is a divergence and it is deliberate.**
 //! `TempSensor::isValidTemperature` (`TempSensor.h:91-93`) is a
@@ -86,7 +86,7 @@
 pub use crate::sensor::onewire::Ds18b20Fault;
 use crate::sensor::onewire::{self, OneWireBus, OneWireError, Rom, RomSelection, ScratchPad};
 use crate::sensor::probe::{ProbeFault, ProbeReading, ProbeSource};
-use crate::units::Millis;
+use cc_domain::units::Millis;
 
 /// The reading cadence, in milliseconds.
 ///
@@ -190,7 +190,7 @@ pub struct Reading {
 /// The DS18B20 driver: a ROM code, a phase, and the C++'s error counter.
 ///
 /// Generic over [`OneWireBus`] so the whole pipeline is host-testable against
-/// the fake bus in `cc_domain::sensor::onewire`'s tests. The device crate supplies a
+/// the fake bus in `cc_protocol::sensor::onewire`'s tests. The device crate supplies a
 /// bit-banging implementation and nothing else.
 pub struct Driver {
     rom: Rom,
@@ -494,7 +494,7 @@ mod tests {
     /// The recovered boot log printed it as `0x41af78cdaa376928`, which is the
     /// same bytes **reversed** — 1-Wire is clocked out least-significant bit
     /// first, and the log prints the wire order. See
-    /// `cc_domain::sensor::onewire`'s `the_logged_rom_is_printed_least_significant_byte_first`.
+    /// `cc_protocol::sensor::onewire`'s `the_logged_rom_is_printed_least_significant_byte_first`.
     const LIVE_ROM: Rom = Rom([0x28, 0x69, 0x37, 0xAA, 0xCD, 0x78, 0xAF, 0x41]);
 
     /// A bus that plays the part of a DS18B20: answers the scratchpad read
@@ -739,7 +739,7 @@ mod tests {
     fn div6_every_ds18b20_fault_is_rejected_and_named() {
         // Restated at the driver level, against the corrected finding: the C++
         // rejects all six (they all arrive as -127 — see
-        // `cc_domain::sensor::onewire::div7_*`), and the *only* thing this port
+        // `cc_protocol::sensor::onewire::div7_*`), and the *only* thing this port
         // adds is that it keeps the reason. Walk the whole pipeline rather than
         // the enum, so a future refactor that starts folding the raws again —
         // which is what `rawToCelsius` does — fails here.

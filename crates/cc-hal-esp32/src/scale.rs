@@ -4,7 +4,7 @@
 //!
 //! # What this file is
 //!
-//! The device half of [`cc_domain::sensor::hx711`]. Every decision — how many
+//! The device half of [`cc_protocol::sensor::hx711`]. Every decision — how many
 //! clocks, which bit is the sign, what the tare subtracts, when the cell counts
 //! as absent — is in the domain crate and host-tested there. What is left here
 //! is three pins, a delay, a queue and a task.
@@ -36,10 +36,10 @@
 //! # Nothing here waits without a deadline
 //!
 //! [`GpioHx711::data_high`] is a *query*. The sampler polls it, and
-//! [`cc_domain::sensor::hx711::SignalWatchdog`] turns "the line has been high
+//! [`cc_protocol::sensor::hx711::SignalWatchdog`] turns "the line has been high
 //! for longer than one conversion" into a fault. A shorted or absent data line
 //! therefore produces a fault within
-//! [`cc_domain::sensor::hx711::SIGNAL_TIMEOUT`] and the sampler keeps running —
+//! [`cc_protocol::sensor::hx711::SIGNAL_TIMEOUT`] and the sampler keeps running —
 //! which is the acceptance criterion, and the exact thing
 //! `HX711Scale.cpp:44` and `:51` get wrong.
 //!
@@ -49,7 +49,7 @@
 //! data lines (`include/clevercoffee/hardware/pinmapping.h`). A shared SCK
 //! cannot clock two amplifiers' data lines independently, so the sampler tells
 //! the bus which cell is next ([`GpioHx711::select`]) and the domain's
-//! [`Scale`](cc_domain::sensor::hx711::Scale) alternates. That costs each cell
+//! [`Scale`](cc_protocol::sensor::hx711::Scale) alternates. That costs each cell
 //! half the sample rate, which is inherent to the wiring and is documented
 //! there.
 
@@ -58,10 +58,10 @@ use alloc::string::{String, ToString};
 use core::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
 use std::sync::Arc;
 
-use cc_domain::sensor::hx711::{
+use cc_domain::units::Millis;
+use cc_protocol::sensor::hx711::{
     Cell, Fault, Hx711Bus, Rate, ReadError, Scale, SignalWatchdog, TareRecord,
 };
-use cc_domain::units::Millis;
 use esp_idf_hal::delay::{Ets, FreeRtos};
 #[cfg(any(test, feature = "device-tests"))]
 use esp_idf_hal::gpio::{Gpio32, Gpio33};
@@ -730,7 +730,7 @@ fn run_sampler(
     // produces a conversion, so a watchdog armed on the first reading would stay
     // silent for exactly the machine that has no scale. The C++ gets this right
     // by accident (`HX711_ADC.cpp:129` sets `lastDoutLowTime = millis()` before
-    // its first `update`); `cc_domain::sensor::hx711`'s watchdog tests say so.
+    // its first `update`); `cc_protocol::sensor::hx711`'s watchdog tests say so.
     let mut watchdog = SignalWatchdog::new();
     watchdog.armed_at(Millis::new(now_ms()));
     let mut was_faulted = false;
@@ -828,7 +828,7 @@ fn run_sampler(
                      not answering. No scale is fitted, or GPIO{SCALE_DATA_1} is \
                      floating or shorted. The weight is reported as absent, not \
                      guessed, and nothing else is affected.",
-                    cc_domain::sensor::hx711::SIGNAL_TIMEOUT.raw(),
+                    cc_protocol::sensor::hx711::SIGNAL_TIMEOUT.raw(),
                 );
             } else {
                 info!("scale: the cell is answering again");
@@ -1027,7 +1027,7 @@ pub mod tests {
     #[cfg_attr(test, test)]
     pub fn the_sampler_stack_fits_the_datasets_it_carries() {
         // Two cells, because a dual scale is the larger of the two.
-        let scale = core::mem::size_of::<cc_domain::sensor::hx711::Scale>();
+        let scale = core::mem::size_of::<cc_protocol::sensor::hx711::Scale>();
         assert!(
             scale < SAMPLER_STACK_BYTES / 4,
             "a Scale is {scale} B and the stack is {SAMPLER_STACK_BYTES} B; the \
@@ -1095,7 +1095,7 @@ pub mod tests {
     /// `HX711Scale::init` spins on it forever (`HX711Scale.cpp:44`).
     #[cfg_attr(test, test)]
     pub fn an_unconnected_data_line_reports_not_ready_and_never_clocks() {
-        use cc_domain::sensor::hx711::{read_raw, Rate};
+        use cc_protocol::sensor::hx711::{read_raw, Rate};
 
         // Borrowed, not taken: see `lend_test_pins`.
         let Some((data_1, clock)) = take_test_pins() else {
@@ -1143,7 +1143,7 @@ pub mod tests {
     /// boundary is the property, not the wall time.
     #[cfg_attr(test, test)]
     pub fn the_signal_watchdog_reports_an_absent_cell_within_its_deadline() {
-        use cc_domain::sensor::hx711::{SignalWatchdog, SIGNAL_TIMEOUT};
+        use cc_protocol::sensor::hx711::{SignalWatchdog, SIGNAL_TIMEOUT};
 
         let mut watchdog = SignalWatchdog::new();
         assert!(
@@ -1199,7 +1199,7 @@ pub mod tests {
     /// is the only place the two meet.
     #[cfg_attr(test, test)]
     pub fn the_configured_sample_count_rounds_down_to_a_power_of_two() {
-        use cc_domain::sensor::hx711::{normalise_samples, Cell};
+        use cc_protocol::sensor::hx711::{normalise_samples, Cell};
         for (configured, expected) in [(1, 1), (2, 2), (3, 2), (4, 4), (20, 16)] {
             assert_eq!(
                 normalise_samples(configured),
