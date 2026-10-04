@@ -8,13 +8,24 @@
 //! of console exactly when an operator most needs them: the two lines printed
 //! immediately before `POST /api/restart` resets the machine.
 //!
+//! This only means anything because something is actually writing UART0. That
+//! is the `EspIdfLogger` inside `crate::telnet`'s `Fanout` — the firmware's
+//! installed logger writes every record to the console before it copies it into
+//! the telnet ring (`crate::telnet::init_log`), so the drain below is flushing
+//! the lines the operator would otherwise have lost. A firmware whose log path
+//! reached only the ring would drain an empty UART and this module would be
+//! theatre.
+//!
 //! That was a shipped device bug with a unit test that had never been run.
 //! [`drain_console`] is the fix, [`restart_now`] is the only reboot call site,
 //! and
 //! `firmware_tests::the_console_reaches_the_wire_before_a_reboot` in the
 //! `cc-device-tests` binary is the end-to-end proof: it writes two markers
 //! immediately before calling [`restart_now`], and the host runner fails the
-//! test unless **both** arrive on the wire.
+//! test unless **both** arrive on the wire. That proof runs in a binary that
+//! installs `esp_idf_svc::log::init_from_env()` rather than the firmware's
+//! [`init_log`](crate::telnet::init_log), so it proves the drain, not the
+//! composition above it.
 //!
 //! # Why it lives here and not in `cc-firmware`
 //!

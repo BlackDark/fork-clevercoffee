@@ -21,11 +21,14 @@
 //! working.
 //!
 //! **`cc_protocol::provisioning::PASSWORD_WINDOW_MS` (30 s) bounds the exposure,
-//! and on this board nothing else needs to.** The log stream is written by
-//! `esp_idf_svc::log` to UART0 *transmit*; the parser reads UART0 *receive*.
-//! A log line the firmware emits is never bytes the firmware reads back, so the
-//! two cannot collide here. The window is what keeps a mistyped `wifi set` from
-//! swallowing the next command the operator types.
+//! and on this board nothing else needs to.** The log stream is written by the
+//! `EspIdfLogger` inside `crate::telnet`'s `Fanout` to UART0 *transmit*; the
+//! parser reads UART0 *receive*. A log line the firmware emits is never bytes
+//! the firmware reads back, so the two cannot collide here. That holds only
+//! because `Fanout` really does write UART0: for a while it composed the ring
+//! with the *filter* rather than with the writer, so the argument below rested
+//! on a log stream that did not exist. The window is what keeps a mistyped
+//! `wifi set` from swallowing the next command the operator types.
 //!
 //! The mute ([`log_muted`]) exists for the transport that *does* collide: a log
 //! stream teed to a TCP client (`/events`, the telnet stream) is bytes the

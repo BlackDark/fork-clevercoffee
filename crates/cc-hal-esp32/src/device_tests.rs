@@ -356,6 +356,10 @@ pub const CASES: &[Case] = &[
         run: telnet::tests::the_task_priority_is_below_control_and_the_stack_is_four_k,
     },
     Case {
+        name: "telnet::the_fanout_is_one_filter_over_two_sinks",
+        run: telnet::tests::the_fanout_is_one_filter_over_two_sinks,
+    },
+    Case {
         name: "time::the_clock_advances_and_never_goes_backwards",
         run: time::tests::the_clock_advances_and_never_goes_backwards,
     },

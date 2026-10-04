@@ -432,10 +432,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     // dozen bytes, which is what makes them safe to leave on the small stack.
     esp_idf_svc::sys::link_patches();
     // The log sink, and it is the telnet fan-out rather than
-    // `esp_idf_svc::log::init_from_env()`: the same records go to UART0 *and*
-    // into `cc_hal_esp32::telnet::RING`, from which the port-23 listener
-    // streams them. `log::set_logger` succeeds once per process, so the stream
-    // wraps ESP-IDF's logger rather than sitting beside it.
+    // `esp_idf_svc::log::init_from_env()`: `Fanout` wraps `EspIdfLogger` — the
+    // UART0 writer — and additionally copies each record into
+    // `cc_hal_esp32::telnet::RING`, from which the port-23 listener streams
+    // them. `log::set_logger` succeeds once per process, so the stream wraps
+    // ESP-IDF's logger rather than sitting beside it; the UART0 half is not
+    // optional and losing it silences the console with no telnet client
+    // attached.
     cc_hal_esp32::telnet::init_log().map_err(|err| {
         Box::<dyn Error>::from(format!("the log fan-out could not be installed: {err}"))
     })?;
