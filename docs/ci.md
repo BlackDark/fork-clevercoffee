@@ -61,7 +61,7 @@ Three things forced this apart, each learned the hard way:
 | restore `~/.cargo/registry` | miss | fast | 407 crates that were otherwise re-downloaded |
 | `mise install` | 16 s | 16 s | host tools |
 | ensure free disk | 1 s | 1 s | conditional; see below |
-| install the esp toolchain | 71 s | 71 s | espup (0.4 s) + `espup install` |
+| install the esp toolchain | 71 s | ~0 s | espup (0.4 s) + `espup install`, skipped on a cache hit — see the Caches section, which is what the warm figure is drawn from |
 | install the pinned host toolchain | 8 s | 8 s | needed only so the lint-name probe has both channels |
 | lint-name probe | 1 s | 1 s | every `clippy::` in an allow/expect exists on ≥1 channel |
 | **device clippy** | 240 s | **114 s** | |

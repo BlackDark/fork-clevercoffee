@@ -79,8 +79,13 @@ credential, not a name, and is deliberately left alone.
 
 ```sh
 just check     # fmt, clippy -D warnings (pedantic), rustdoc -D warnings,
-               # 1,191 host tests, the parity harness, the device-test audit
+               # the host test suite, the parity harness, the device-test audit
 ```
+
+(There is deliberately no test count here. It drifted on every phase of the
+2026-10-03 review — 1,075, then 1,191, then 1,277 — because the count is a
+function of the tree, and a number in a doc goes stale silently. Count it with
+\`just test\` if you need it.)
 
 **`just check` deliberately runs on STABLE, not on the Espressif `esp` toolchain.**
 The five portable crates are `#![no_std]` plain Rust; nothing in them touches an

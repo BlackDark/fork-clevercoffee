@@ -1,4 +1,20 @@
-//! The 10 ms control tick must not touch the heap.
+//! The reducer must not touch the heap.
+//!
+//! # What this does and does not cover
+//!
+//! It covers `cc_machine::reduce` and nothing else. The **shell** around it —
+//! `cc_firmware::control::Control::tick` and the control task — is in
+//! `cc-firmware`, which does not build for a host target, so no host test can
+//! reach it. The shell does allocate: `parameters_json` is measured at ~420
+//! allocations and ~20.5 KB, once per second, on the control task, next to the
+//! heater deadman.
+//!
+//! That 1 Hz figure is a deliberate, measured fix for a worse 100 Hz version of
+//! the same thing (see the docs in `cc-firmware`), and it is the right call. But
+//! it means this file's original title — "the 10 ms control tick must not touch
+//! the heap" — overclaimed: it has always proved the *reducer* is
+//! allocation-free, which is a different and narrower claim. The title now says
+//! what the test does.
 //!
 //! This is the *gate*. `benches/allocations.rs` reports the same number for a
 //! human to watch over time; this fails the build. Both include

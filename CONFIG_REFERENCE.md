@@ -455,8 +455,10 @@ For each switch type (brew, power, steam):
 ### `pid.regular.i_max`
 - **Type**: Double
 - **Default**: `55.0`
-- **Range**: 0.0-999.0
-- **Description**: Maximum integral term contribution
+- **Range**: 0.0-100.0
+- **Description**: Maximum integral term contribution. `0.0` disables integral
+  action (Ki = 0); it is not the same as a tiny non-zero limit, which the
+  previous firmware silently turned into the library default of ±100.
 
 ## Brew Detection PID Parameters
 
