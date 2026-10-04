@@ -772,6 +772,25 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
         TEST_ONLY_INHIBIT.heater
     );
 
+    // 5c-bis. The status LED pins, **reserved** here and configured below once
+    //     `config` exists.
+    //
+    //     Reserved for the same reason as the switches' and the scale's: the
+    //     `hardware.leds.*.enabled` flags decide whether these pins are driven at
+    //     all, and `Peripherals::take` happens exactly once. Taking them here —
+    //     unconditionally, before the flags are known — is what makes it
+    //     impossible for a flag to decide *which pins the rest of the firmware
+    //     gets*, which is the same reasoning `SwitchPins` below records.
+    //
+    //     **GPIO26 and GPIO19 only.** `PIN_STEAMLED` is GPIO1, and GPIO1 belongs
+    //     to the UART provisioning console (`start_provisioning` below). A pin
+    //     has one owner; see `cc_hal_esp32::pins` for the full reasoning and
+    //     `intentional-diffs.md` for the entry.
+    let led_pins = LedPins {
+        status: peripherals.pins.gpio26,
+        brew: peripherals.pins.gpio19,
+    };
+
     // 5d. The five operator inputs: the four switches and the tank float.
     //
     //     These are **inputs**, so taking them here cannot energise anything, and
@@ -837,6 +856,50 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
         actuators.relay_polarity().pump.active,
         actuators.relay_polarity().valve.active
     );
+
+    // 7a-ter. The status LEDs, now that `hardware.leds.*` is known.
+    //
+    //     Built here rather than at the pin reservation above for the same reason
+    //     the switches' bank is: the `enabled` flags decide whether a pin is
+    //     driven, and reading them before the configuration exists would make the
+    //     driver — not the operator's setting — the thing that decided.
+    //
+    //     The C++ does this in `HardwareManager::initializeLEDs` (`:95-125`),
+    //     behind the same two flags, and also turns each LED **off** as it builds
+    //     it. `StandardLed::new` does the same, which is why a machine powered up
+    //     mid-brew does not look idle.
+    //
+    //     `inverted` comes from `hardware.leds.*.inverted` and **not** from the
+    //     relay trigger types — the brief for 3.1 said "an `inverted` flag from the
+    //     relay trigger config", which is not what the C++ does:
+    //     `HardwareManager.cpp:101,109,117` read the three `inverted` parameters
+    //     directly. They are separate settings for separate reasons, and the LEDs'
+    //     are about common-anode parts rather than relay coils.
+    //
+    //     A failure to configure a pin is **not** fatal. `bring_up` returns
+    //     `Result`, and an operator whose LED pin is broken should still get a
+    //     machine that makes coffee; this is the same call the I²C bus above makes
+    //     with `no pressure, no display`.
+    let status_pin = led_output_pin(config.hardware.leds.status.enabled, led_pins.status);
+    let brew_pin = led_output_pin(config.hardware.leds.brew.enabled, led_pins.brew);
+    let leds = cc_hal_esp32::leds::Leds::new(
+        status_pin,
+        brew_pin,
+        config.hardware.leds.status.inverted,
+        config.hardware.leds.brew.inverted,
+    );
+    if leds.any_configured() {
+        info!(
+            "leds: status=GPIO{} brew=GPIO{} driven by the control task \
+             (status inverted={} brew inverted={})",
+            cc_hal_esp32::leds::STATUS_PIN,
+            cc_hal_esp32::leds::BREW_PIN,
+            config.hardware.leds.status.inverted,
+            config.hardware.leds.brew.inverted,
+        );
+    } else {
+        info!("leds: hardware.leds.status.enabled and .brew.enabled are both false");
+    }
 
     // 7a. The temperature probe, **after the configuration and before anything
     // that reads it**.
@@ -1155,6 +1218,7 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
     let args = Box::new(ControlArgs {
         twdt,
         actuators,
+        leds,
         switches,
         shared_i2c,
         temp: temp_sensor,
@@ -1677,6 +1741,53 @@ struct SwitchPins {
     water_tank: esp_idf_hal::gpio::Gpio23<'static>,
 }
 
+/// The two status LED pins, taken from `Peripherals` at bring-up and held until
+/// `hardware.leds.*.enabled` says whether they are driven.
+///
+/// GPIO26 (`PIN_STATUSLED`) and GPIO19 (`PIN_BREWLED`), and **no third field**.
+/// `PIN_STEAMLED` is GPIO1 in `pinmapping.h:45`, and GPIO1 is the UART0 TXD this
+/// firmware gives to the provisioning console; `Peripherals::take` will not hand
+/// one pin to two owners. The full analysis, including what moving the steam LED
+/// to GPIO32 would cost, is the comment block in `cc_hal_esp32::pins`.
+struct LedPins {
+    /// `PIN_STATUSLED` (GPIO26).
+    status: esp_idf_hal::gpio::Gpio26<'static>,
+    /// `PIN_BREWLED` (GPIO19).
+    brew: esp_idf_hal::gpio::Gpio19<'static>,
+}
+
+/// Configure one LED pin as a push-pull output, or `None` when the operator has
+/// the LED disabled.
+///
+/// The `enabled` gate is here, not at the call site, so that "no LED" is always
+/// `None` and never a pin somebody could still write. A disabled LED's pin is
+/// simply dropped — `led_pins`' field is moved in and gone — which is the
+/// strongest form of the C++'s `if (enabled) { make_unique<StandardLED>(...) }`
+/// (`HardwareManager.cpp:96-124`).
+///
+/// # Errors
+///
+/// `EspError` from [`esp_idf_hal::gpio::PinDriver::output`], which fails if the
+/// pin is already owned. A machine that hits this has a wiring fault; the caller
+/// logs it and runs without the LED rather than refusing to boot, because
+/// "the brew LED does not work" is not a reason a coffee machine makes no
+/// coffee.
+fn led_output_pin<P>(enabled: bool, pin: P) -> Option<PinDriver<'static, esp_idf_hal::gpio::Output>>
+where
+    P: esp_idf_hal::gpio::OutputPin + 'static,
+{
+    if !enabled {
+        return None;
+    }
+    match esp_idf_hal::gpio::PinDriver::output(pin) {
+        Ok(driver) => Some(driver),
+        Err(err) => {
+            warn!("leds: a status LED pin could not be configured as an output: {err:?}");
+            None
+        }
+    }
+}
+
 /// The shared I²C bus, taken from `Peripherals` and held until the ABP2 is built.
 ///
 /// `I2C0` plus its two pins. **The ABP2 and the SSD1306 share this bus** —
@@ -2138,6 +2249,11 @@ struct ControlArgs {
     /// The actuator facade: the only owner of the pump, the valve and the
     /// heater, and the only thing that can beat the heater's deadman.
     actuators: cc_hal_esp32::Actuators,
+    /// The status and brew LEDs. Owned here for the same reason `actuators` is:
+    /// the control task is where `LoopManager::updateLEDs` runs in the C++, and a
+    /// second owner would be a second writer of a pin this type owns. The
+    /// **steam** LED is not in it — see `LedPins`.
+    leds: cc_hal_esp32::leds::Leds,
     /// The five operator inputs, debounced.
     switches: cc_hal_esp32::SwitchBank,
     /// The leaked I²C bus, lent to the ABP2 this task polls every tick. The
@@ -2250,6 +2366,7 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
     let ControlArgs {
         twdt,
         mut actuators,
+        mut leds,
         mut switches,
         // The I²C bus, owned by this frame and lent to the pressure sensor built
         // immediately below. Binding it is what keeps it alive for the life of
@@ -3015,6 +3132,39 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
                 ),
             }
         }
+
+        // ---- 7a-bis. the status LEDs ------------------------------------------
+        //
+        // `LoopManager::updateLEDs` (`LoopManager.cpp:255-286`), which in the C++
+        // is one of the four things the 10 ms main loop does. It sits here for
+        // the same reason the applier does: it is a function of the state this
+        // tick's transition produced, so asking before `apply` would light the
+        // wrong LED for one tick on every entry and exit.
+        //
+        // **Two of three.** `LedOutput::steam` is computed and discarded — see
+        // `cc_hal_esp32::pins` for why GPIO1 is the console's and not this
+        // machine's steam LED, and `intentional-diffs.md` for the entry.
+        //
+        // The `isr_counter` is the C++'s `systemContext_.isrCounter()`, which
+        // `isr.h:110-117` builds by adding `ISR_COUNTER_INCREMENT` (10, one
+        // 10 ms tick) and wrapping at `processWindowSize()` (1000,
+        // `ProcessState.h:183`) — so it is `millis()` truncated to 10 ms steps,
+        // modulo one second. `isBlinkPhaseOn` is `< 500`, i.e. the first half of
+        // that second, and the brew LED's manual-flush exception blinks on it.
+        // Deriving it from the tick clock rather than counting ticks is what makes
+        // it agree with the display's blink: the two halves have to come from one
+        // counter or the panel and the LED drift apart, and `tick_began_ms` is
+        // already this tick's 10 ms-aligned timestamp.
+        leds.apply(cc_display::leds::LedOutput::from_state(
+            &cc_display::model::DisplayInput {
+                state: control.state(),
+                temperature: last_reading.map_or(0.0, |(celsius, _)| celsius),
+                setpoint: control.setpoint(),
+                isr_counter: (tick_began_ms % 1000) / 10 * 10,
+                ..Default::default()
+            },
+            config.display.blinking.delta,
+        ));
 
         // Publish the values this task is actually running with, so
         // `GET /api/parameters` does not answer from the boot snapshot.

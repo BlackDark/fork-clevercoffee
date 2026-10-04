@@ -113,6 +113,7 @@ pub mod display;
 pub mod display_shared;
 pub mod heap;
 pub mod heater;
+pub mod leds;
 pub mod mqtt;
 pub mod nvs;
 pub mod onewire;

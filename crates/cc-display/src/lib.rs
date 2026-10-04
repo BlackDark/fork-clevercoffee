@@ -28,6 +28,11 @@ pub mod fullscreen;
 pub mod helpers;
 pub mod lang;
 pub mod layout;
+/// Which of the three status LEDs should be lit, as a pure function. Finding
+/// 3.1 — it lives here, next to `helpers`, because the C++ puts the LED rules in
+/// `displayHelpers.h` and that module is already this file's port. See the
+/// module's own doc for why `cc-web`/`cc-machine` would have been wrong.
+pub mod leds;
 pub mod model;
 pub mod ota;
 #[cfg(feature = "scenarios")]

@@ -80,6 +80,15 @@ pub const SCALE_CLOCK: u8 = 33;
 /// UART0's TXD, the `GPIO1` the provisioning console writes.
 pub const UART_TX: u8 = 1;
 
+/// `PIN_STATUSLED` (`pinmapping.h:43`) — the near-setpoint LED.
+///
+/// The `#define`'s comment reads "25 works with logging // Moved from pin 26
+/// (pin 26 had hardware issues)", which is a note about the *previous* pin, not a
+/// statement about this one: the value is 26 and that is what the C++ wires.
+pub const STATUS_LED: u8 = 26;
+/// `PIN_BREWLED` (`pinmapping.h:44`) — the brew/flush LED.
+pub const BREW_LED: u8 = 19;
+
 // ---- bidirectional ------------------------------------------------------
 
 /// `PIN_I2CSDA` (`pinmapping.h:54`) — the ABP2 and the SSD1306, shared.
@@ -98,7 +107,7 @@ pub const I2C_SCL: u8 = 22;
 /// that appears twice — which is what a copy-paste between the two lists
 /// produces — is a build failure naming nothing, which is why the message is on
 /// [`assert_valid`].
-const ALL: [u8; 16] = [
+const ALL: [u8; 18] = [
     POWER_SWITCH,
     BREW_SWITCH,
     STEAM_SWITCH,
@@ -113,23 +122,27 @@ const ALL: [u8; 16] = [
     PUMP,
     SCALE_CLOCK,
     UART_TX,
+    STATUS_LED,
+    BREW_LED,
     I2C_SDA,
     I2C_SCL,
 ];
 
 /// The pins this firmware can pull low: the three relays, the bit-banged scale
-/// clock, UART0's TXD, the 1-Wire bus and both I²C lines.
+/// clock, UART0's TXD, the 1-Wire bus, both I²C lines and the two status LEDs.
 ///
 /// Not "the outputs". [`TEMP_SENSOR`] is on this list because the DS18B20 bus
 /// is open-drain and the firmware drives the reset pulse itself
 /// (`GpioOneWire`), and the I²C lines because they are open-drain too. What
 /// the list is for is the rule below.
-const DRIVEN: [u8; 8] = [
+const DRIVEN: [u8; 10] = [
     HEATER,
     WATER_VALVE,
     PUMP,
     SCALE_CLOCK,
     UART_TX,
+    STATUS_LED,
+    BREW_LED,
     TEMP_SENSOR,
     I2C_SDA,
     I2C_SCL,
@@ -243,7 +256,7 @@ const _: () = assert_valid();
 /// `let _ =`; it has no failure mode that is not a bug.
 pub fn assert_wiring(peripherals: &Peripherals) {
     let pins = &peripherals.pins;
-    let checked: [(&str, u8, u8); 16] = [
+    let checked: [(&str, u8, u8); 18] = [
         ("POWER_SWITCH", POWER_SWITCH, Pin::pin(&pins.gpio39)),
         ("BREW_SWITCH", BREW_SWITCH, Pin::pin(&pins.gpio34)),
         ("STEAM_SWITCH", STEAM_SWITCH, Pin::pin(&pins.gpio35)),
@@ -262,6 +275,8 @@ pub fn assert_wiring(peripherals: &Peripherals) {
         ("PUMP", PUMP, Pin::pin(&pins.gpio27)),
         ("SCALE_CLOCK", SCALE_CLOCK, Pin::pin(&pins.gpio33)),
         ("UART_TX", UART_TX, Pin::pin(&pins.gpio1)),
+        ("STATUS_LED", STATUS_LED, Pin::pin(&pins.gpio26)),
+        ("BREW_LED", BREW_LED, Pin::pin(&pins.gpio19)),
         ("I2C_SDA", I2C_SDA, Pin::pin(&pins.gpio21)),
         ("I2C_SCL", I2C_SCL, Pin::pin(&pins.gpio22)),
     ];

@@ -228,6 +228,7 @@ name = "cc-hal-esp32"
 version = "0.1.0"
 dependencies = [
  "cc-config",
+ "cc-display",
  "cc-domain",
  "cc-machine",
  "cc-safety",

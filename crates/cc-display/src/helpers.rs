@@ -78,12 +78,18 @@ pub fn is_near_setpoint_with_config(temperature: f64, setpoint: f64, config: &Co
 }
 
 /// `getStatusLedTolerance` — steam gets the wider tolerance.
+///
+/// Takes `blinking_delta` rather than the whole [`Config`] because that is the
+/// only field it reads, and the LED rule is evaluated on every 10 ms control
+/// tick: passing a ~40-field struct to read one `f64` out of it would be a
+/// 100 Hz copy of the entire display configuration to obtain a single number.
+/// `displayConfig` is what supplies it at the call site.
 #[must_use]
-pub fn status_led_tolerance(state: MachineState, config: &Config) -> f64 {
+pub fn status_led_tolerance(state: MachineState, blinking_delta: f64) -> f64 {
     if is_steam_state(state) {
         f64::from(TEMP_TOLERANCE_STEAM_C)
     } else {
-        config.blinking_delta
+        blinking_delta
     }
 }
 
@@ -185,15 +191,15 @@ mod tests {
 
     #[test]
     fn steam_uses_the_wider_tolerance() {
-        let config = Config::default();
-        let steam = status_led_tolerance(MachineState::SteamRunning, &config);
-        let normal = status_led_tolerance(MachineState::PidNormal, &config);
+        let delta = Config::default().blinking_delta;
+        let steam = status_led_tolerance(MachineState::SteamRunning, delta);
+        let normal = status_led_tolerance(MachineState::PidNormal, delta);
         assert!(
             (steam - 5.0).abs() < f64::EPSILON,
             "steam tolerance is 5 C, got {steam}"
         );
         assert!(
-            (normal - config.blinking_delta).abs() < f64::EPSILON,
+            (normal - delta).abs() < f64::EPSILON,
             "normal tolerance is the blink delta"
         );
     }

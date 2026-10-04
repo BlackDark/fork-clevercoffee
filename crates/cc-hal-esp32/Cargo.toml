@@ -37,6 +37,16 @@ cc-safety.workspace = true
 # the extraction worth having -- the direction is HAL -> cc-web, never the
 # reverse, so nothing portable can reach a pin through it.
 cc-web.workspace = true
+# `cc_display::leds::LedOutput` — finding 3.1, the three status LEDs. Named for
+# the **type only**, and that is a deliberate exception to the comment below: the
+# HAL still does not know what is on screen and never renders anything, but
+# "which LEDs should be lit" is a rule the C++ puts in `displayHelpers.h`, so its
+# port lives in `cc-display` and this crate needs the value it produces. The
+# alternative was a parallel second copy of the near-setpoint rule in
+# `cc-machine`, which ADR-0001 §3 exists to prevent. `cc-display` is `no_std`,
+# depends only on `cc-domain`, and is already in the device build via
+# `cc-firmware`, so this adds no new compilation and no new edge into the graph.
+cc-display.workspace = true
 # The SSD1306 driver, R3-09. NOT `cc-display`: the templates are rendered by the
 # host-tested display crate and arrive here as a `&[u8; 1024]` already in the
 # controller's page order, so the HAL never needs to know what is on screen.
