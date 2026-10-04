@@ -28,7 +28,7 @@ name: Rust firmware
 # first version of this workflow failed.
 #
 # So: the host gate compiles the portable crates (`cc-domain`, `cc-safety`,
-# `cc-config`, `cc-machine`, `cc-display`, `cc-web` — all `#![no_std]`, all
+# `cc-config`, `cc-machine`, `cc-display`, `cc-web`, `cc-mqtt` — all `#![no_std]`, all
 # host-testable) on a stock toolchain, which is also what makes the workspace's
 # `rust-version = "1.82"` claim verifiable instead of decorative. The device gate
 # compiles the firmware on the pinned Xtensa fork.
@@ -507,7 +507,8 @@ jobs:
 
 
       - name: The portable crates must not name esp-idf in CODE
-        # cc-domain, cc-safety, cc-config, cc-machine, cc-display and cc-web are
+        # cc-domain, cc-safety, cc-config, cc-machine, cc-display, cc-web and
+        # cc-mqtt are
         # `#![no_std]` and host-testable. An `esp_idf_*` import in any of them
         # breaks every host test and every IDE's background check, and it is
         # invisible until it does.

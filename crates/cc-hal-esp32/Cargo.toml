@@ -37,6 +37,12 @@ cc-safety.workspace = true
 # the extraction worth having -- the direction is HAL -> cc-web, never the
 # reverse, so nothing portable can reach a pin through it.
 cc-web.workspace = true
+# The MQTT topic layout, registry, plan view and value buffers (finding 4.1b) --
+# the same extraction as `cc-web`, for the half of `mqtt.rs` that is a function
+# of a `Config` and a `MachineState` rather than of a socket. Nineteen
+# assertions about the C++'s 32-parameter, 13-sensor registration ran only
+# under `just test-esp32` before it existed.
+cc-mqtt.workspace = true
 # `cc_display::leds::LedOutput` — finding 3.1, the three status LEDs. Named for
 # the **type only**, and that is a deliberate exception to the comment below: the
 # HAL still does not know what is on screen and never renders anything, but

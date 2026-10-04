@@ -31,7 +31,7 @@
 //! register it is a build failure, not a quietly skipped test.
 
 use crate::{
-    actuators, display, heap, mqtt, provisioning, scale, switches, task, telnet, time, web, wifi,
+    actuators, display, heap, provisioning, scale, switches, task, telnet, time, web, wifi,
 };
 
 /// One registered unit test: the name the console shows, and the function to
@@ -138,82 +138,6 @@ pub const CASES: &[Case] = &[
     Case {
         name: "heap::the_shed_floor_is_the_adrs_thirty_kilobytes",
         run: heap::tests::the_shed_floor_is_the_adrs_thirty_kilobytes,
-    },
-    Case {
-        name: "mqtt::the_default_configuration_is_not_a_broker",
-        run: mqtt::tests::the_default_configuration_is_not_a_broker,
-    },
-    Case {
-        name: "mqtt::the_topic_layout_has_no_separator_the_cpp_does_not_have",
-        run: mqtt::tests::the_topic_layout_has_no_separator_the_cpp_does_not_have,
-    },
-    Case {
-        name: "mqtt::a_prefix_without_a_trailing_slash_reproduces_the_cpp_result",
-        run: mqtt::tests::a_prefix_without_a_trailing_slash_reproduces_the_cpp_result,
-    },
-    Case {
-        name: "mqtt::an_inbound_topic_is_parsed_exactly_as_the_csqs_matcher_does",
-        run: mqtt::tests::an_inbound_topic_is_parsed_exactly_as_the_csqs_matcher_does,
-    },
-    Case {
-        name: "mqtt::the_buffer_is_the_csqs_1024",
-        run: mqtt::tests::the_buffer_is_the_csqs_1024,
-    },
-    Case {
-        name: "mqtt::the_budget_is_a_fraction_of_the_control_period",
-        run: mqtt::tests::the_budget_is_a_fraction_of_the_control_period,
-    },
-    Case {
-        name: "mqtt::the_intervals_are_the_csqs",
-        run: mqtt::tests::the_intervals_are_the_csqs,
-    },
-    Case {
-        name: "mqtt::the_interval_follows_the_machine_state",
-        run: mqtt::tests::the_interval_follows_the_machine_state,
-    },
-    Case {
-        name: "mqtt::the_registry_is_the_csqs_registration",
-        run: mqtt::tests::the_registry_is_the_csqs_registration,
-    },
-    Case {
-        name: "mqtt::an_inbound_reading_resolves_only_if_it_is_registered",
-        run: mqtt::tests::an_inbound_reading_resolves_only_if_it_is_registered,
-    },
-    Case {
-        name: "mqtt::the_four_specials_are_not_configuration_keys",
-        run: mqtt::tests::the_four_specials_are_not_configuration_keys,
-    },
-    Case {
-        name: "mqtt::the_registry_puts_each_kind_of_topic_in_the_cpp_phase",
-        run: mqtt::tests::the_registry_puts_each_kind_of_topic_in_the_cpp_phase,
-    },
-    Case {
-        name: "mqtt::a_pressure_sensor_appears_only_when_it_is_fitted",
-        run: mqtt::tests::a_pressure_sensor_appears_only_when_it_is_fitted,
-    },
-    Case {
-        name: "mqtt::the_weight_topics_are_exactly_the_ones_discovery_advertises",
-        run: mqtt::tests::the_weight_topics_are_exactly_the_ones_discovery_advertises,
-    },
-    Case {
-        name: "mqtt::the_plan_slices_partition_the_view",
-        run: mqtt::tests::the_plan_slices_partition_the_view,
-    },
-    Case {
-        name: "mqtt::every_registered_value_fits_the_payload_buffer",
-        run: mqtt::tests::every_registered_value_fits_the_payload_buffer,
-    },
-    Case {
-        name: "mqtt::the_shared_plan_helper_still_sees_the_whole_registry",
-        run: mqtt::tests::the_shared_plan_helper_still_sees_the_whole_registry,
-    },
-    Case {
-        name: "mqtt::a_registry_never_names_a_credential",
-        run: mqtt::tests::a_registry_never_names_a_credential,
-    },
-    Case {
-        name: "mqtt::the_topics_string_names_the_base_so_a_bring_up_log_is_useful",
-        run: mqtt::tests::the_topics_string_names_the_base_so_a_bring_up_log_is_useful,
     },
     Case {
         name: "provisioning::a_log_line_produces_no_reply_at_all",

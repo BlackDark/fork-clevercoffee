@@ -5,7 +5,8 @@
 # recipes' relative paths in the wrong place.
 #
 # Crate roles:
-#   cc-domain, cc-safety, cc-machine, cc-display, cc-config, cc-web  portable,
+#   cc-domain, cc-safety, cc-machine, cc-display, cc-config, cc-web, cc-mqtt
+#   portable,
 #       no_std, host-testable, MUST NOT name esp_idf_{svc,hal,sys} (CI grep,
 #       05 §6)
 #   cc-hal-esp32, cc-firmware                                  device-only;
@@ -21,6 +22,7 @@ members = [
     "crates/cc-machine",
     "crates/cc-display",
     "crates/cc-web",
+    "crates/cc-mqtt",
     "crates/cc-hal-esp32",
     "crates/cc-firmware",
     # DEVICE-ONLY TOOL, deliberately outside `default-members`: the on-target
@@ -47,6 +49,7 @@ default-members = [
     "crates/cc-machine",
     "crates/cc-display",
     "crates/cc-web",
+    "crates/cc-mqtt",
 ]
 
 [workspace.package]
@@ -67,6 +70,10 @@ cc-config = { path = "crates/cc-config" }
 # `cc-config` only, so `just test` reaches the `*_json` renderers and
 # `classify_parameters` that were previously testable only by flashing a board.
 cc-web = { path = "crates/cc-web" }
+# The MQTT topic layout and registry (finding 4.1b). `no_std + alloc`,
+# `cc-domain` and `cc-config` only, so `just test` reaches the 32-parameter,
+# 13-sensor registration that was previously testable only by flashing a board.
+cc-mqtt = { path = "crates/cc-mqtt" }
 
 # Device crates.
 cc-hal-esp32 = { path = "crates/cc-hal-esp32" }

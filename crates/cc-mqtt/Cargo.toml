@@ -1,0 +1,31 @@
+[package]
+name = "cc-mqtt"
+description = "The MQTT topic layout and registry, as pure functions of a Config."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+cc-domain.workspace = true
+cc-config.workspace = true
+# Two dependencies beyond the two workspace crates, both of which were already
+# in the graph, so neither adds a download to any build:
+#
+# * `heapless` for `Payload` and `SetCommand`. Both are fixed-capacity strings
+#   and both are load-bearing: `Payload` is the reused value buffer the publish
+#   pass formats into, and `SetCommand` is produced on the `esp-mqtt` task and
+#   consumed on the control task, so an allocation on either side is heap
+#   traffic in the task that runs the heater deadman. `cc-machine` and
+#   `cc-hal-esp32` already depend on this exact crate for the same reason, so
+#   this is not a new edge in the graph.
+# * `log` for the two `warn!`s in `Payload` when a value does not fit
+#   `PAYLOAD_MAX`. A silently truncated retained value is the failure the
+#   overflow arm exists to avoid, and an operator has to be able to see it.
+#   `default-features = false` keeps this crate `no_std`.
+heapless.workspace = true
+log.workspace = true
+
+[lints]
+workspace = true

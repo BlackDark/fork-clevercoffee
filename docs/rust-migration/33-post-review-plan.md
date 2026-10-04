@@ -167,7 +167,7 @@ what the code actually guarantees, with every number recorded so a reader need n
 | 3.2 | Telnet has a ring buffer but no transport | `HeapShed` policy + ring already exist |
 | 3.3 | OTA endpoints answer `501` | **the partition table already has `app0`/`app1`/`ota_0`/`ota_1`/`otadata`** — no partition change needed. `Effect::SafeHardwareShutdown` exists and is unused: it is the S8 hook. |
 | 4.7 | `main.rs` is 3,671 lines and unnamed | extract `probe.rs`, `config_io.rs` |
-| 4.1b | `mqtt.rs`'s pure half (`Topics`, `Registry`, `interval_for`, `is_configured`) | the same extraction as `cc-web`; deliberately deferred because half-done is worse than not started |
+| 4.1b | ~~`mqtt.rs`'s pure half (`Topics`, `Registry`, `interval_for`, `is_configured`)~~ | **done** — `crates/cc-mqtt`, the seventh portable crate. 19 device-only tests became host tests; `mqtt.rs` is 2,033 → 875 lines. |
 
 ## Phase 6 — documentation 🔜
 
