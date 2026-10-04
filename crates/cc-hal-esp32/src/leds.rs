@@ -150,12 +150,11 @@ impl Leds {
     /// `unique_ptr` behind an `if`. Modelling "no LED" as "no pin" is the same
     /// rule without the null.
     ///
-    /// # Errors
-    ///
-    /// `EspError` from configuring either pin as an output. Propagated rather
-    /// than swallowed, unlike [`StandardLed::set`]: this runs once at bring-up,
-    /// before any task exists, and a machine whose LED pin is genuinely unusable
-    /// is worth a loud line in the boot log.
+    /// Both pins arrive **already configured as outputs**: a pin that could not
+    /// be configured arrives as `None`, with the failure already logged by the
+    /// caller. So this cannot fail, does not return a `Result`, and cannot
+    /// swallow anything — [`StandardLed::new`] only stores the pin and drives
+    /// it low.
     #[must_use]
     pub fn new(
         status: Option<PinDriver<'static, esp_idf_hal::gpio::Output>>,
@@ -166,19 +165,6 @@ impl Leds {
         Self {
             status: status.map(|pin| StandardLed::new(pin, status_inverted)),
             brew: brew.map(|pin| StandardLed::new(pin, brew_inverted)),
-        }
-    }
-
-    /// No LEDs at all — the `hardware.leds.*.enabled = false` case.
-    ///
-    /// A named constructor rather than a `Default` impl because "no LEDs" is a
-    /// configuration an operator chose, and a `Leds::default()` would make it
-    /// look like a fallback.
-    #[must_use]
-    pub const fn none() -> Self {
-        Self {
-            status: None,
-            brew: None,
         }
     }
 

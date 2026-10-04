@@ -40,11 +40,11 @@ page.
   the gzip bundle with `include_bytes!`, which is why a 199,270 B bundle costs
   0 B of RAM. A deep link to a client-side route (`/ui/config/behavior`) boots the
   configuration page with 104 live parameters, verified in Chrome on the device.
-- **The gate is green.** `just gate` at `a784f5f6`: fmt-check, clippy (host and
+- **The gate is green.** `just gate`: fmt-check, clippy (host and
   device) with `-D warnings`, rustdoc `-D warnings`, the host suite, the parity
   harness, the device-test audit, the Xtensa release build, and the size budget.
-  **1,697,456 B**, which fits the 1,835,008 B app0 slot with +137,552 B to spare
-  and is **+8.84 %** against `size-baseline.json`, inside the 10 % limit.
+  **1,697,472 B**, which fits the 1,835,008 B app0 slot with +137,536 B to spare
+  and is **+8.85 %** against `size-baseline.json`, inside the 10 % limit.
 - **The two firmware trees have not diverged by accident.** Zero lines changed in
   `src/`, `include/`, `lib/`, `platformio.ini` or the root `partitions_4M.csv`
   since the branch point `2006b710`. That is checkable:

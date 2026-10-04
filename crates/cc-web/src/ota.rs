@@ -10,6 +10,7 @@
 //! | [`PartReader`] | A streaming `multipart/form-data` splitter. It is a byte-level state machine over the request body, and it is where the memory argument lives — see below. |
 //! | [`Kind`], [`extension_allowed`] | `validateFileExtension` (`src/ota.cpp:186-193`), verbatim. |
 //! | [`fits`], [`MAX_FIRMWARE_BYTES`] | The size rule. `esp_ota_begin` takes an image size; a 1.6 MB image on a 1,835,008 B slot is 87 % full, and the C++ discovers that by erasing the whole partition first and failing afterwards. |
+//! | [`progress_percent`] | The progress bar's arithmetic, **including the per-kind floor**. It was in `cc-hal-esp32`, where `just test` cannot reach it, and it scaled both kinds against the firmware floor. |
 //! | `Status::status_json` | `handleStatus`'s document (`ota.cpp:726-756`), now carrying real values. |
 //!
 //! | In `cc-hal-esp32` | Why |
@@ -194,6 +195,49 @@ pub const fn capacity(kind: Kind) -> usize {
 #[must_use]
 pub const fn fits(kind: Kind, size: usize) -> bool {
     size >= kind.min_accepted() && size <= capacity(kind)
+}
+
+/// The number the C++ scales a `kind`'s progress percentage against.
+///
+/// `isFilesystem ? (256 * 1024) : (512 * 1024)` (`ota.cpp:234`) — a **floor**,
+/// not a declared length: a browser's `Content-Length` covers the multipart
+/// envelope, so the real image size is not known while the bytes arrive.
+///
+/// The two numbers are **per kind**, which is the whole point. A filesystem
+/// image lives in a 384 KiB partition, so a 512 KiB floor would leave the bar
+/// at ~50 % when the image is complete; the C++ scales each kind against its own
+/// floor and reaches ~90 % on both.
+///
+/// Distinct from [`Kind::min_accepted`], which is the same two C++ figures put to
+/// a different use: that one *refuses* a payload, and its filesystem figure is
+/// 64 KiB rather than 256 KiB, because it is this port's rule rather than the
+/// C++'s.
+#[must_use]
+pub const fn progress_floor(kind: Kind) -> usize {
+    match kind {
+        Kind::Firmware => 512 * 1024,
+        Kind::Filesystem => 256 * 1024,
+    }
+}
+
+/// The C++'s progress arithmetic: `min(90, uploaded * 90 / max(uploaded, floor))`
+/// (`ota.cpp:235-237`), capped at 90 so the last 10 % is the finalisation.
+///
+/// Past the floor the bar tracks the real fraction, so a large image reaches
+/// ~90 % and then jumps to 100 on success — which is what the C++ does and what
+/// an operator is used to.
+#[must_use]
+pub fn progress_percent(kind: Kind, uploaded: usize) -> u8 {
+    if uploaded == 0 {
+        return 0;
+    }
+    let floor = progress_floor(kind);
+    let denominator = if uploaded > floor { uploaded } else { floor };
+    let value = (uploaded.saturating_mul(90)) / denominator;
+    // `saturating_mul` above cannot exceed 90 for a real image, but a caller
+    // passing nonsense should not be able to produce a byte value that is not a
+    // percentage, and the UI writes it into a 0–100 slider.
+    u8::try_from(value.min(90)).unwrap_or(90)
 }
 
 /// Does this filename's extension pass?
@@ -614,8 +658,8 @@ fn filename_of(headers: &[u8]) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        capacity, extension_allowed, fits, Kind, PartReader, Progress, ReadError,
-        MAX_FIRMWARE_BYTES, MAX_PART_HEADER_BYTES,
+        capacity, extension_allowed, fits, progress_floor, progress_percent, Kind, PartReader,
+        Progress, ReadError, MAX_FIRMWARE_BYTES, MAX_PART_HEADER_BYTES,
     };
     use alloc::format;
     use alloc::string::String;
@@ -866,6 +910,56 @@ mod tests {
         assert_eq!(MAX_FIRMWARE_BYTES, 1_835_008);
         assert_eq!(capacity(Kind::Filesystem), 393_216);
         assert_eq!(capacity(Kind::Firmware), MAX_FIRMWARE_BYTES);
+    }
+
+    /// The progress bar is scaled against **each kind's own** floor.
+    ///
+    /// `ota.cpp:234`: `isFilesystem ? (256 * 1024) : (512 * 1024)`. This is the
+    /// test that would have caught the port applying the firmware floor to both
+    /// kinds, which left a 256 KiB filesystem upload reporting 45 % where the C++
+    /// reports 90 % — a bar that stalls halfway on a successful update, with
+    /// nothing on screen to say the flash is still running.
+    ///
+    /// The pairs are the whole assertion: the same byte count must land on
+    /// different percentages for the two kinds, and each kind must reach 90 at
+    /// **its own** floor rather than at the C++'s other one. Past the floor the
+    /// bar is saturated at 90, which is the C++'s behaviour and the reason the
+    /// cap exists at all.
+    #[test]
+    fn progress_is_scaled_against_each_kinds_own_floor() {
+        assert_eq!(progress_floor(Kind::Firmware), 512 * 1024);
+        assert_eq!(progress_floor(Kind::Filesystem), 256 * 1024);
+
+        // At each kind's own floor: 90 %.
+        assert_eq!(progress_percent(Kind::Firmware, 512 * 1024), 90);
+        assert_eq!(progress_percent(Kind::Filesystem, 256 * 1024), 90);
+
+        // Below each kind's floor the bar is linear against that floor — so the
+        // same 256 KiB reads 45 % as firmware and 90 % as a filesystem image.
+        // The second number is the bug.
+        assert_eq!(progress_percent(Kind::Firmware, 256 * 1024), 45);
+        assert_eq!(progress_percent(Kind::Filesystem, 128 * 1024), 45);
+        assert_eq!(progress_percent(Kind::Firmware, 128 * 1024), 22);
+
+        // A full filesystem partition is past its floor, so it saturates: the
+        // floor, not `capacity`, is the denominator.
+        assert_eq!(
+            progress_percent(Kind::Filesystem, capacity(Kind::Filesystem)),
+            90
+        );
+
+        // Nothing uploaded is nothing, and it cannot divide by zero.
+        assert_eq!(progress_percent(Kind::Firmware, 0), 0);
+        assert_eq!(progress_percent(Kind::Filesystem, 0), 0);
+        // A byte or two must not move the bar.
+        assert_eq!(progress_percent(Kind::Filesystem, 2), 0);
+
+        // Past the floor it tracks the real fraction.
+        assert_eq!(progress_percent(Kind::Firmware, 1024 * 1024), 90);
+        // And an absurd byte count still cannot produce a number the UI would
+        // render as more than 100. The value itself is meaningless — the
+        // multiplication saturates — so this asserts the cap and nothing else.
+        assert!(progress_percent(Kind::Filesystem, usize::MAX / 2) <= 90);
     }
 
     #[test]

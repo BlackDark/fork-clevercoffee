@@ -300,32 +300,8 @@ pub const CASES: &[Case] = &[
         run: telnet::tests::the_port_and_banner_are_the_csqs,
     },
     Case {
-        name: "telnet::the_line_buffer_is_the_adrs_256",
-        run: telnet::tests::the_line_buffer_is_the_adrs_256,
-    },
-    Case {
         name: "telnet::the_heartbeat_is_the_csqs_thirty_seconds",
         run: telnet::tests::the_heartbeat_is_the_csqs_thirty_seconds,
-    },
-    Case {
-        name: "telnet::a_line_buffer_splits_lines",
-        run: telnet::tests::a_line_buffer_splits_lines,
-    },
-    Case {
-        name: "telnet::a_crlf_pair_is_one_terminator_not_two",
-        run: telnet::tests::a_crlf_pair_is_one_terminator_not_two,
-    },
-    Case {
-        name: "telnet::an_over_long_line_is_flagged_rather_than_silently_split",
-        run: telnet::tests::an_over_long_line_is_flagged_rather_than_silently_split,
-    },
-    Case {
-        name: "telnet::a_partial_line_is_kept_for_the_next_chunk",
-        run: telnet::tests::a_partial_line_is_kept_for_the_next_chunk,
-    },
-    Case {
-        name: "telnet::a_bare_newline_is_not_a_line",
-        run: telnet::tests::a_bare_newline_is_not_a_line,
     },
     Case {
         name: "telnet::a_shed_engages_below_the_floor_and_recovers_above_it",
@@ -334,10 +310,6 @@ pub const CASES: &[Case] = &[
     Case {
         name: "telnet::a_heartbeat_is_due_once_per_interval",
         run: telnet::tests::a_heartbeat_is_due_once_per_interval,
-    },
-    Case {
-        name: "telnet::pump_passes_lines_through_and_stops_at_end_of_stream",
-        run: telnet::tests::pump_passes_lines_through_and_stops_at_end_of_stream,
     },
     Case {
         name: "telnet::the_stats_summary_names_the_floor",
@@ -488,10 +460,6 @@ pub const CASES: &[Case] = &[
         run: wifi::tests::an_over_long_ssid_is_refused_rather_than_truncated,
     },
     Case {
-        name: "ota::percent_matches_the_cpps_arithmetic",
-        run: ota::tests::percent_matches_the_cpps_arithmetic,
-    },
-    Case {
         name: "ota::a_session_refuses_a_second_claim_while_one_is_running",
         run: ota::tests::a_session_refuses_a_second_claim_while_one_is_running,
     },
@@ -514,5 +482,9 @@ pub const CASES: &[Case] = &[
     Case {
         name: "ota::the_status_reports_progress_as_bytes_arrive",
         run: ota::tests::the_status_reports_progress_as_bytes_arrive,
+    },
+    Case {
+        name: "ota::a_filesystem_upload_is_scaled_against_the_filesystem_floor",
+        run: ota::tests::a_filesystem_upload_is_scaled_against_the_filesystem_floor,
     },
 ];

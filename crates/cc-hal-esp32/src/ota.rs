@@ -447,6 +447,15 @@ pub enum Admission {
 /// about the write itself depends on this lock being healthy.
 pub struct Session {
     status: Mutex<cc_web::ota::Status>,
+    /// The kind of the update in flight, set by [`Session::claim`] and read by
+    /// [`Session::note_progress`].
+    ///
+    /// This is the session's answer to the C++'s `isFilesystem` flag
+    /// (`ota.cpp:234`), and it is a field rather than an argument because the
+    /// two are decided at different points: the route knows the kind when it
+    /// claims, and the progress callback only knows how many bytes have
+    /// arrived. A progress bar scaled against the wrong floor stalls halfway on
+    /// a filesystem upload.
     kind: Mutex<Option<Kind>>,
     /// Set while a flash handle is open, so a second request is refused.
     busy: AtomicBool,
@@ -537,17 +546,26 @@ impl Session {
 
     /// Note progress.
     pub fn note_progress(&self, phase: cc_web::ota::Phase, uploaded: usize, total: usize) {
+        // Read the kind before the status lock, so the two never nest.
+        let kind = self
+            .kind
+            .lock()
+            .ok()
+            .and_then(|slot| *slot)
+            .unwrap_or(Kind::Firmware);
         if let Ok(mut status) = self.status.lock() {
             status.phase = phase;
             status.uploaded = uploaded;
             status.total = total;
             // The C++ scales progress against a 512 KiB / 256 KiB floor
-            // (`ota.cpp:216-218`) rather than a declared length, because a
+            // (`ota.cpp:216-218,234`) rather than a declared length, because a
             // browser's `Content-Length` covers the multipart envelope. The same
-            // arithmetic is reproduced here for the same reason, and it means a
+            // arithmetic is reproduced here for the same reason, against **this
+            // session's** kind, so a filesystem image's bar fills the way the
+            // C++'s does instead of stalling at the firmware floor. It means a
             // large image's bar reaches ~90 % and then jumps to 100 on success —
             // which is what the C++ does and what the operator is used to.
-            status.progress = percent(uploaded, kind_min(phase));
+            status.progress = cc_web::ota::progress_percent(kind, uploaded);
         }
     }
 
@@ -597,55 +615,12 @@ impl Default for Session {
     }
 }
 
-/// The C++'s progress arithmetic: `uploaded * 90 / max(uploaded, floor)`,
-/// capped at 90 so the last 10 % is the finalisation (`ota.cpp:216-220`).
-fn percent(uploaded: usize, floor: usize) -> u8 {
-    if uploaded == 0 {
-        return 0;
-    }
-    let denominator = if uploaded > floor { uploaded } else { floor };
-    let value = (uploaded.saturating_mul(90)) / denominator;
-    // `saturating_mul` above cannot exceed 90 for a real image, but a caller
-    // passing nonsense should not be able to produce a byte value that is not a
-    // percentage, and the UI writes it into a 0–100 slider.
-    u8::try_from(value.min(90)).unwrap_or(90)
-}
-
-/// The progress floor for a phase: 512 KiB for firmware, 256 KiB for the
-/// filesystem (`ota.cpp:217`).
-const fn kind_min(phase: cc_web::ota::Phase) -> usize {
-    match phase {
-        // `Downloading` is a URL update, whose kind is the request's `type`
-        // field; the firmware figure is the conservative choice and only affects
-        // how fast a bar fills.
-        cc_web::ota::Phase::Downloading | cc_web::ota::Phase::Uploading => 512 * 1024,
-        _ => 0,
-    }
-}
-
 #[cfg(any(test, feature = "device-tests"))]
 #[cfg_attr(feature = "device-tests", doc(hidden))]
 pub mod tests {
-    use super::{percent, Admission, Session};
+    use super::{Admission, Session};
     use alloc::string::String;
     use cc_web::ota::{Kind, Phase, StatusMessage};
-
-    #[cfg_attr(test, test)]
-    pub fn percent_matches_the_cpps_arithmetic() {
-        // `min(90, uploaded * 90 / max(uploaded, 512 KiB))`.
-        assert_eq!(percent(0, 512 * 1024), 0);
-        assert_eq!(
-            percent(1, 512 * 1024),
-            0,
-            "a few bytes must not move the bar"
-        );
-        assert_eq!(percent(256 * 1024, 512 * 1024), 45);
-        assert_eq!(percent(512 * 1024, 512 * 1024), 90);
-        // Past the floor the bar tracks the real fraction.
-        assert_eq!(percent(1024 * 1024, 512 * 1024), 90);
-        // And it can never exceed 90 before the finalisation sets 100.
-        assert_eq!(percent(usize::MAX / 2, 512 * 1024), 90);
-    }
 
     #[cfg_attr(test, test)]
     pub fn a_session_refuses_a_second_claim_while_one_is_running() {
@@ -755,5 +730,31 @@ pub mod tests {
         assert!(status.is_in_progress());
         let json: String = status.status_json();
         assert!(json.contains("\"status\":\"uploading\""), "{json}");
+    }
+
+    /// 🔴 The claimed kind reaches the progress bar.
+    ///
+    /// The arithmetic is host-tested (`progress_is_scaled_against_each_kinds_own_
+    /// floor` in `cc-web`); this is the half only this crate can see — that
+    /// [`Session::claim`]'s kind is the one `note_progress` scales against. It was
+    /// the defect: the kind was written and never read, so a filesystem upload
+    /// was scaled against the 512 KiB firmware floor and its bar stalled at 45 %
+    /// on a successful update.
+    #[cfg_attr(test, test)]
+    pub fn a_filesystem_upload_is_scaled_against_the_filesystem_floor() {
+        let session = Session::new();
+        assert!(session.claim(Kind::Filesystem));
+        session.note_progress(Phase::Uploading, 256 * 1024, 393_216);
+        assert_eq!(
+            session.status().progress,
+            90,
+            "the C++ reaches 90 % at 256 KiB for a filesystem image (`ota.cpp:234`)"
+        );
+        // And the firmware floor would have read 45 for the same byte count, so
+        // the two kinds are distinguishable through this session.
+        let firmware = Session::new();
+        assert!(firmware.claim(Kind::Firmware));
+        firmware.note_progress(Phase::Uploading, 256 * 1024, 1_675_952);
+        assert_eq!(firmware.status().progress, 45);
     }
 }

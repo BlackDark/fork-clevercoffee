@@ -79,21 +79,25 @@ esp-idf-sys.workspace = true
 heapless.workspace = true
 log.workspace = true
 
-# Used ONLY by this crate's own `#[test]` functions, but they must be regular
-# dependencies, not `[dev-dependencies]`: the on-target runner
+# Used ONLY by this crate's own `#[test]` functions, but it must be a regular
+# dependency, not a `[dev-dependencies]` one: the on-target runner
 # (`crates/cc-device-tests`, `just test-esp32`) compiles this crate as an
 # ordinary library with `--features device-tests`, and Cargo does not link
-# `[dev-dependencies]` into that. The alternative -- keeping them as dev-deps and
+# `[dev-dependencies]` into that. The alternative -- keeping it as a dev-dep and
 # duplicating the tests behind `#[cfg(feature = "device-tests")]` -- would mean
 # two copies of every assertion, which is the failure mode this whole harness
 # exists to remove.
 #
-# Neither adds anything to the shipped image: `embedded-io` is already in the
-# graph under `esp-idf-hal` (and must be the SAME version, because `Read`'s
-# supertrait is that crate's `ErrorType` and a second copy would be a different
-# trait) and `serde_json` is already in the graph under `cc-config`. Nothing in
-# the firmware's own code names either, so the linker drops both.
-embedded-io.workspace = true
+# Adds nothing to the shipped image: `serde_json` is already in the graph under
+# `cc-config`, and nothing in the firmware's own code names it, so the linker
+# drops it.
+#
+# `embedded-io` used to be here too, for the fake reader behind
+# `telnet::pump`'s test. Both went when the read path did: the C++'s `Logger`
+# never reads a line from a telnet client (`Logger.cpp:123-156` only accepts,
+# writes the banner and pumps the heartbeat), so `pump` had no oracle counterpart
+# and no caller in `cc-firmware`. Its removal is why `Read` is no longer imported
+# by `telnet.rs`.
 serde_json.workspace = true
 
 # `cc-protocol` again, with the `device-tests` feature, for THIS crate's own test

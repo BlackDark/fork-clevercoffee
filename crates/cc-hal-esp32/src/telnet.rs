@@ -115,11 +115,10 @@ use core::ffi::{c_int, c_void};
 use core::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
 
-use esp_idf_svc::io::Read;
 use esp_idf_svc::log::EspIdfLogger;
 use esp_idf_sys::{
-    in_addr, lwip_accept, lwip_bind, lwip_close, lwip_htons, lwip_listen, lwip_send,
-    lwip_setsockopt, lwip_socket, sa_family_t, sockaddr, sockaddr_in,
+    in_addr, lwip_accept, lwip_bind, lwip_close, lwip_fcntl, lwip_htons, lwip_listen, lwip_send,
+    lwip_setsockopt, lwip_socket, sa_family_t, sockaddr, sockaddr_in, F_SETFL, O_NONBLOCK,
 };
 use log::{debug, info, warn};
 
@@ -457,8 +456,9 @@ impl Server {
     ///
     /// # Errors
     ///
-    /// [`c_int`] errors from `lwip_socket`/`lwip_setsockopt`/`lwip_bind`/
-    /// `lwip_listen`, returned as `Err(0)` with `errno` left in the lwIP global
+    /// [`c_int`] errors from `lwip_socket`/`lwip_setsockopt`/`lwip_fcntl`/
+    /// `lwip_bind`/`lwip_listen`, returned as `Err(0)` with `errno` left in the
+    /// lwIP global
     /// for the caller's own `warn!`. A plain `i32` is used rather than
     /// `EspError` because these are POSIX errno values, not `esp_err_t`, and
     /// wrapping one in the other's type would be a lie a reader has to undo.
@@ -519,6 +519,25 @@ impl Server {
             unsafe { lwip_close(listener) };
             return Err(-1);
         }
+        // `O_NONBLOCK`, so `lwip_accept` in [`Server::accept`] reports "nobody
+        // yet" instead of parking the task until a client arrives. Nothing else
+        // in lwIP will do it: `lwip_fcntl(F_SETFL)` is the only non-blocking
+        // switch its sockets carry (`sockets.c:3965-3976`), and it accepts
+        // `O_NONBLOCK` and nothing else.
+        //
+        // This has to happen *here*. A blocking listener makes the whole
+        // 50 ms loop unreachable, including the heartbeat that runs after
+        // `run` — so a client that connected and then sat idle was answered
+        // with silence, the failure ADR-0002 records. The accepted socket is
+        // unaffected: lwIP builds it with `netconn_alloc`, which does not copy
+        // the listener's flags (`api_msg.c:574, :806`), so
+        // [`Server::send`] keeps its all-or-nothing blocking write.
+        // Safety: `listener` is open, and `F_SETFL` takes a value, no pointer.
+        if unsafe { lwip_fcntl(listener, F_SETFL as c_int, O_NONBLOCK as c_int) } < 0 {
+            // Safety: closing a descriptor this function opened.
+            unsafe { lwip_close(listener) };
+            return Err(-1);
+        }
         Ok(Self {
             listener,
             client: Client::None,
@@ -551,9 +570,16 @@ impl Server {
 
     /// Take a pending connection, replacing any existing one.
     ///
-    /// The listener is non-blocking (`O_NONBLOCK`), so this returns immediately
-    /// when nobody has connected rather than parking the task — the task has a
-    /// heartbeat to keep and a heap to watch either way.
+    /// The listener is non-blocking (`O_NONBLOCK`, set once in
+    /// [`Server::bind`]), so this returns immediately when nobody has connected
+    /// rather than parking the task: the task has a
+    /// [`HEARTBEAT_INTERVAL_MS`] heartbeat to keep and a heap to watch, and
+    /// neither of them is reachable while `accept` waits.
+    ///
+    /// No peer is therefore the *expected* return, not a failure — lwIP gives
+    /// `EWOULDBLOCK` — and this leaves the client exactly as it was. Every
+    /// negative return is treated the same way, which is the rule
+    /// [`Server::run`] states for every socket call in this type.
     fn accept(&mut self) {
         // Safety: `self.listener` is an open listening socket; a null address
         // asks lwIP not to report the peer, which is all this needs since
@@ -739,119 +765,6 @@ fn account(decision: Decision, free: u32) -> bool {
     }
 }
 
-/// Split a byte stream into log lines.
-///
-/// The C++'s ring buffer holds whole entries; this holds one line, because the
-/// only consumer is a line-oriented client and a 16-entry ring of 304 bytes
-/// would be 5 KB of static RAM for a stream that is itself shed below 30 KB of
-/// free heap. A line longer than [`LINE_BUFFER_BYTES`] is truncated and the
-/// truncation is visible, so a caller does not read a mangled line as a whole
-/// one.
-#[derive(Clone, Debug)]
-pub struct LineBuffer {
-    buf: [u8; LINE_BUFFER_BYTES],
-    len: usize,
-    truncated: bool,
-}
-
-impl LineBuffer {
-    /// An empty buffer.
-    #[must_use]
-    pub const fn new() -> Self {
-        Self {
-            buf: [0; LINE_BUFFER_BYTES],
-            len: 0,
-            truncated: false,
-        }
-    }
-
-    /// Feed bytes, invoking `on_line` for each complete line.
-    ///
-    /// A `\r\n` is one terminator, not two, so a line is never emitted empty
-    /// because the sender used the other convention.
-    pub fn push(&mut self, bytes: &[u8], on_line: &mut impl FnMut(&str, bool)) {
-        for &byte in bytes {
-            match byte {
-                b'\n' => {
-                    let len = self.len;
-                    self.len = 0;
-                    if len == 0 {
-                        // A bare newline. Not a line, and emitting one would put
-                        // an empty frame on a stream whose next reader is a
-                        // terminal.
-                        continue;
-                    }
-                    let body = &self.buf[..len];
-                    match core::str::from_utf8(body) {
-                        Ok(line) => on_line(line, self.truncated),
-                        Err(_) => on_line("\u{fffd}", true),
-                    }
-                    self.truncated = false;
-                }
-                b'\r' => {}
-                other => {
-                    if self.len < LINE_BUFFER_BYTES {
-                        self.buf[self.len] = other;
-                        self.len += 1;
-                    } else {
-                        self.truncated = true;
-                    }
-                }
-            }
-        }
-    }
-
-    /// The bytes not yet terminated, for a final flush.
-    #[must_use]
-    pub fn pending(&self) -> &[u8] {
-        &self.buf[..self.len]
-    }
-}
-
-impl Default for LineBuffer {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// Read from a log client, for the R3-16 transport.
-///
-/// Named for what it does rather than existing to be called: the C++'s
-/// `Logger::update` (`:143-155`) accepts a new client, welcomes it, and pumps
-/// the heartbeat. This is that shape, parameterised over `R` so the transport is
-/// a decision R3-16 makes and this function is not.
-pub fn pump<R: Read>(
-    reader: &mut R,
-    line: &mut LineBuffer,
-    shed: &mut Shed,
-    on_line: &mut impl FnMut(&str),
-) {
-    let mut buf = [0u8; 64];
-    loop {
-        match reader.read(&mut buf) {
-            Ok(0) => return,
-            Ok(n) => {
-                let mut lines = 0usize;
-                line.push(&buf[..n], &mut |text, _truncated| {
-                    let free = free_heap();
-                    if account(shed.decide(free), free) {
-                        on_line(text);
-                        lines += 1;
-                    }
-                });
-                if lines > 0 {
-                    debug!("telnet: {lines} lines");
-                }
-            }
-            Err(err) => {
-                warn!("telnet: read failed: {err:?}");
-                STATS.client_errors.fetch_add(1, Ordering::Relaxed);
-                return;
-            }
-        }
-    }
-}
-
 // The lwIP socket constants, spelled out rather than imported.
 //
 // `esp-idf-sys` re-exports these from `bindings.rs`, and the values are the lwIP
@@ -882,58 +795,6 @@ pub mod tests {
     )]
 
     use super::*;
-    use alloc::string::ToString;
-    use alloc::vec;
-    use alloc::vec::Vec;
-
-    /// A reader over fixed chunks, for `pump`.
-    ///
-    /// The `offset` is the point: a fake reader that keeps returning its **first**
-    /// chunk is a fake reader that never reports end-of-stream, so `pump` never
-    /// returns and the test allocates until the heap gives out. That is not
-    /// hypothetical -- it is exactly what the first run of this suite on the
-    /// device did: `pump_passes_lines_through_and_stops_at_end_of_stream` was the
-    /// one case that took the chip down, with a 192 KB allocation.
-    struct Chunks<'a> {
-        chunks: &'a [&'a [u8]],
-        /// How far into `chunks[0]` the next call resumes.
-        offset: usize,
-    }
-
-    impl<'a> Chunks<'a> {
-        fn new(chunks: &'a [&'a [u8]]) -> Self {
-            Self { chunks, offset: 0 }
-        }
-    }
-
-    impl embedded_io::ErrorType for Chunks<'_> {
-        type Error = esp_idf_svc::io::EspIOError;
-    }
-
-    impl Read for Chunks<'_> {
-        fn read(&mut self, buf: &mut [u8]) -> Result<usize, esp_idf_svc::io::EspIOError> {
-            // One chunk per call, and `Ok(0)` once they run out — which is what
-            // `pump` reads as end-of-stream.
-            let Some((chunk, rest)) = self.chunks.split_first() else {
-                return Ok(0);
-            };
-            let remaining = &chunk[usize::min(self.offset, chunk.len())..];
-            if remaining.is_empty() {
-                self.chunks = rest;
-                self.offset = 0;
-                return self.read(buf);
-            }
-            let n = remaining.len().min(buf.len());
-            buf[..n].copy_from_slice(&remaining[..n]);
-            if n == remaining.len() {
-                self.chunks = rest;
-                self.offset = 0;
-            } else {
-                self.offset += n;
-            }
-            Ok(n)
-        }
-    }
 
     #[cfg_attr(test, test)]
     pub fn the_port_and_banner_are_the_csqs() {
@@ -941,13 +802,6 @@ pub mod tests {
         assert_eq!(TELNET_PORT, 23);
         assert_eq!(BANNER, "CleverCoffee log stream connected\r\n");
         assert_eq!(HEARTBEAT, "# heartbeat\r\n");
-    }
-
-    #[cfg_attr(test, test)]
-    pub fn the_line_buffer_is_the_adrs_256() {
-        // ADR-0002 decision 1: 512 -> 256, "down from 512", and
-        // "individual log lines rarely exceed 200 characters".
-        assert_eq!(LINE_BUFFER_BYTES, 256);
     }
 
     #[cfg_attr(test, test)]
@@ -978,77 +832,6 @@ pub mod tests {
     }
 
     #[cfg_attr(test, test)]
-    pub fn a_line_buffer_splits_lines() {
-        let mut buffer = LineBuffer::new();
-        let mut seen: Vec<String> = Vec::new();
-        buffer.push(
-            b"I (1) cc_firmware: one\r\nI (2) cc_firmware: two\n",
-            &mut |l, _t| {
-                seen.push(l.to_string());
-            },
-        );
-        assert_eq!(
-            seen,
-            vec!["I (1) cc_firmware: one", "I (2) cc_firmware: two"]
-        );
-    }
-
-    #[cfg_attr(test, test)]
-    pub fn a_crlf_pair_is_one_terminator_not_two() {
-        // Otherwise every line is followed by an empty one.
-        let mut buffer = LineBuffer::new();
-        let mut seen: Vec<String> = Vec::new();
-        buffer.push(b"a\r\nb\r\n", &mut |l, _t| seen.push(l.to_string()));
-        assert_eq!(seen, vec!["a", "b"]);
-    }
-
-    #[cfg_attr(test, test)]
-    pub fn an_over_long_line_is_flagged_rather_than_silently_split() {
-        // ADR-0002's accepted negative: "under extreme log burst, messages are
-        // dropped. Acceptable: the counter tracks this." Truncated-and-flagged
-        // is strictly better than a line that reads as complete.
-        //
-        // The newline matters and the test needs it: a line is emitted when it
-        // is *terminated*, so an unterminated over-long push correctly produces
-        // no line at all, only a sticky `truncated` flag. The flag is reported
-        // on the next line that does terminate, which is the contract
-        // `LineBuffer::push` documents and the C++'s `Logger` relies on.
-        let mut buffer = LineBuffer::new();
-        let mut flagged = false;
-        let mut length = 0usize;
-        let mut calls = 0usize;
-        let mut long = "x".repeat(LINE_BUFFER_BYTES + 50);
-        long.push('\n');
-        buffer.push(long.as_bytes(), &mut |l, truncated| {
-            calls += 1;
-            length = l.len();
-            flagged = truncated;
-        });
-        assert_eq!(calls, 1, "exactly one line, truncated to the buffer");
-        assert_eq!(length, LINE_BUFFER_BYTES);
-        assert!(flagged);
-    }
-
-    #[cfg_attr(test, test)]
-    pub fn a_partial_line_is_kept_for_the_next_chunk() {
-        let mut buffer = LineBuffer::new();
-        let mut seen: Vec<String> = Vec::new();
-        buffer.push(b"half", &mut |l, _t| seen.push(l.to_string()));
-        assert!(seen.is_empty());
-        assert_eq!(buffer.pending(), b"half");
-        buffer.push(b"-done\n", &mut |l, _t| seen.push(l.to_string()));
-        assert_eq!(seen, vec!["half-done"]);
-    }
-
-    #[cfg_attr(test, test)]
-    pub fn a_bare_newline_is_not_a_line() {
-        let mut buffer = LineBuffer::new();
-        let mut seen: Vec<String> = Vec::new();
-        buffer.push(b"\n\nreal\n", &mut |l, _t| seen.push(l.to_string()));
-        assert_eq!(seen, vec!["real"]);
-    }
-
-    #[cfg_attr(test, test)]
     pub fn a_shed_engages_below_the_floor_and_recovers_above_it() {
         // The state machine is tested for real in `cc-web` on a host, where both
         // edges are reachable. What is worth asserting here is that this crate's
@@ -1071,18 +854,6 @@ pub mod tests {
         // and that a zero clock is not immediately due.
         let now = now_ms();
         assert!(now.wrapping_sub(now) < HEARTBEAT_INTERVAL_MS);
-    }
-
-    #[cfg_attr(test, test)]
-    pub fn pump_passes_lines_through_and_stops_at_end_of_stream() {
-        let mut shed = Shed::new();
-        let mut line = LineBuffer::new();
-        let mut reader = Chunks::new(&[b"one\ntwo\nthree\n"]);
-        let mut seen: Vec<String> = Vec::new();
-        pump(&mut reader, &mut line, &mut shed, &mut |l| {
-            seen.push(l.to_string());
-        });
-        assert_eq!(seen, vec!["one", "two", "three"]);
     }
 
     #[cfg_attr(test, test)]

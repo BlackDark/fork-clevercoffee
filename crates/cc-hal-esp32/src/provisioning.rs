@@ -181,9 +181,10 @@ pub const REPLY_PREFIX: &str = "CCWIFI ";
 /// oversight.** The `log` stream goes through `esp_idf_svc::log` straight to
 /// UART0's transmit pin, so nothing the firmware logs can reach the parser; the
 /// flag has nothing to protect against yet. It is set and cleared correctly
-/// because the moment R3-11's telnet pump lands — a log stream the machine can
-/// also *read* — the flag is the whole of rule 5, and a flag that is wrong on
-/// arrival would not be noticed until a credential leaked.
+/// because the moment a transport arrives that the machine can also *read* — a
+/// telnet client read path, an SSE broadcast — the flag is the whole of rule 5,
+/// and a flag that is wrong on arrival would not be noticed until a credential
+/// leaked.
 ///
 /// An `AtomicBool` and not a `Mutex`: it is written twice per `wifi set` and
 /// read on every line of every log stream, from any task, including ones that
@@ -192,9 +193,9 @@ static LOG_MUTED: AtomicBool = AtomicBool::new(false);
 
 /// Whether the log stream is currently muted for a password window.
 ///
-/// ⚠️ **No consumer yet.** This is the flag R3-11's telnet pump and the SSE
-/// broadcast must check before writing a line; see the module documentation for
-/// why the window alone is sufficient until then.
+/// ⚠️ **No consumer yet.** This is the flag any readable transport must check
+/// before writing a line; see the module documentation for why the window alone
+/// is sufficient until then.
 #[must_use]
 pub fn log_muted() -> bool {
     LOG_MUTED.load(Ordering::Relaxed)

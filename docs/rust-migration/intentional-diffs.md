@@ -732,6 +732,26 @@ be true. Both are deleted. `HeaterOutput` is now a concrete struct holding a
 `TimerIsrPwm`, and its `set_duty` no longer returns a `Result` — the only
 fallible call in the chain was `LedcPwm::apply`'s `ledc_set_duty_and_update`.
 
+**Dead: `telnet::pump` and `telnet::LineBuffer`.** ~100 lines with no caller in
+`cc-firmware`, whose doc called them *"staged for the R3-16 transport"*. The
+staging claim did not survive the oracle: **the C++'s `Logger` never reads a
+line from a telnet client.** `Logger::update` (`src/Logger.cpp:123-156`) accepts
+a client, writes the banner, flushes the ring and pumps the heartbeat, and
+`rg 'client_\.'` over the file finds only `write`, `flush`, `stop` and
+`connected`. So this was not staged parity work but a *read* path with no C++ to
+match, and `LineBuffer` existed only to feed it.
+
+**Measured, and it contradicts the obvious reasoning: the deletion cost 0 B.**
+The argument for keeping unreachable `pub` code is that LTO cannot drop it,
+because an rlib exports its public symbols. That is true of an incremental build
+and false of this one: `lto = "fat"` with `codegen-units = 1` sees the whole
+program, so an uncalled `pub fn` in an rlib **is** removed. The release image is
+**byte-identical** with and without the two functions (1,697,488 B either way) —
+which is why the honest reason to delete is maintenance, not flash: 110 device
+tests that only a chip can run, a `[u8; 256]` stack buffer nothing shipped
+reaches, and a doc claiming a C++ behaviour that does not exist. The `embedded-io`
+dependency went with it; its only user was the fake reader behind `pump`'s test.
+
 **Kept: everything that is a fact about the hardware or about the C++.** The 1 Hz
 argument, the `div_param` arithmetic and the 17/18/19/20-bit table are in
 `cc_hal_esp32::heater`'s module docs; `CARRIER_HZ` and `RESOLUTION` are still
@@ -740,7 +760,10 @@ host-tested `CARRIER_HZ` / `CHOSEN_RESOLUTION_BITS` / `CHOSEN_MAX_DUTY`, so the
 numbers cannot drift away from the tests. A target whose chip has no spin re-adds
 a transport from those, and the three things that cost the deleted one — own the
 timer driver, duty 0 is the safe state, clamp before the register — are listed in
-that module's docs rather than left to be rediscovered.
+that module's docs rather than left to be rediscovered. The same applies to the
+telnet pair: the 256 B line bound (ADR-0002 decision 1) and the whole shed policy
+stay, `LINE_BUFFER_BYTES` is still `web.rs`'s `drain_body_bounded` limit, and a
+future client-read feature re-derives its splitter from the C++ — which has none.
 
 `cc-firmware` has **no LEDC construction site at all** and there is no LEDC
 transport type to construct, so no future edit can reach a duty write by
@@ -2071,12 +2094,34 @@ previous version, a progress websocket, and scheduling.
   water-flowing states refused by name, steam refused *despite* the water
   whitelist allowing it, `BrewFinished` admits while `BrewRunning` does not, the
   session emits exactly `SafeHardwareShutdown` and not the latching variant.
-- `cc_web::ota` — 27 host tests: byte-exact recovery at **eleven** chunk sizes
+- `cc_web::ota` — 28 host tests: byte-exact recovery at **eleven** chunk sizes
   from 1 B to 4 KiB, near-miss delimiters, truncation refused rather than
   finalised, oversized headers a hard error, every status message non-empty, and
-  every status document validated against the UI's `OtaStatusSchema` enum.
-- `cc_hal_esp32::ota` — 5 device tests: the C++'s progress arithmetic, one claim
-  at a time, exactly one restart request, a failure asks for no restart.
+  every status document validated against the UI's `OtaStatusSchema` enum. Plus
+  `progress_is_scaled_against_each_kinds_own_floor`, which pins `ota.cpp:234`:
+  the same 256 KiB reads 45 % as firmware and 90 % as a filesystem image.
+- `cc_hal_esp32::ota` — 6 device tests: one claim at a time, exactly one restart
+  request, a failure asks for no restart, and the claimed `Kind` reaching the
+  progress bar (the half only this crate can see — the arithmetic itself is
+  host-tested in `cc_web::ota`).
+
+### The progress floor is per **kind**, and it is now in the portable half
+
+The first cut of this port scaled *both* kinds against the firmware floor,
+because the floor was chosen by switching on the update's `Phase` rather than on
+its `Kind`. The C++ chooses it from `isFilesystem` (`ota.cpp:234`):
+
+```cpp
+const size_t  minSize  = isFilesystem ? (256 * 1024) : (512 * 1024);
+```
+
+A filesystem image therefore stalled at ~50 % on a successful upload. Two changes
+close it, and they are one change because the second is what the first needed:
+`Session::kind` — written by `claim`, read by nothing in the workspace — is the
+session's answer to `isFilesystem`, so `note_progress` now reads it, and the
+arithmetic itself moved to `cc_web::ota::progress_percent(kind, uploaded)` where
+`just test` reaches it. It was in `cc-hal-esp32` before, which meant a piece of
+pure arithmetic could only ever be run on a chip.
 
 ### A premise worth correcting: what actually protects the OTA routes
 

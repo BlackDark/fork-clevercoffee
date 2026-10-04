@@ -479,8 +479,8 @@ Also recorded, and *not* fixed:
   clears it correctly and the module documentation used to claim a log facade read it.
   None does. On this board the framing is safe anyway — the log stream is written to
   UART0 TX and the parser reads UART0 RX, so the firmware cannot read its own log — but
-  the moment R3-11's telnet pump lands, a log stream the machine can also *read* is a
-  real hazard and that flag is the whole of rule 5.
+  the moment a transport the machine can also *read* lands, a log stream it can
+  read is a real hazard and that flag is the whole of rule 5.
 * **`/api/parameters?filter=all` returns 5 of the C++'s 10 fields.** The C++
   (`Config.h:99-109,227-236`) sends `name`, `label`, `section`, `order`, `helpText`,
   `type`, `value`, `default`, `min`, `max`. The Rust sends `name`, `type`, `default`,
