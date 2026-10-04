@@ -197,7 +197,7 @@ fn the_registry_is_the_csqs_registration() {
     // The 9 unconditional sensors, :738-766.
     assert_eq!(bare.sensors().len(), 9);
     // No binary sensor without the tank, :794-798.
-    assert!(bare.binary_sensors().is_empty());
+    assert_eq!(bare.binary_sensors(), []);
 
     // Everything on, with a single-cell scale: the fifth conditional scale
     // parameter, `scale2Calibration`, is behind `HX711_DUAL`
@@ -282,7 +282,7 @@ fn the_registry_puts_each_kind_of_topic_in_the_cpp_phase() {
     // The phases are the C++'s, in its order.
     assert_eq!(plan.phase_items(Phase::Parameters).len(), 12);
     assert_eq!(plan.phase_items(Phase::Sensors).len(), 9);
-    assert!(plan.phase_items(Phase::BinarySensors).is_empty());
+    assert_eq!(plan.phase_items(Phase::BinarySensors), []);
 }
 
 /// The three plan slices must **partition** the view.
