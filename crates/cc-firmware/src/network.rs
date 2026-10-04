@@ -51,6 +51,7 @@ use core::fmt::Write as _;
 use std::sync::{Arc, Mutex};
 
 use cc_config::blob_store::BlobConfigStore;
+use cc_config::predecessor::{startup_notice, PredecessorProbe};
 use cc_config::{Config, NVS_NAMESPACE};
 use cc_hal_esp32::heap::{free_heap, min_free_heap};
 use cc_hal_esp32::nvs::EspNvsBlob;
@@ -117,6 +118,22 @@ pub fn bring_up_config() -> Result<Booted, EspError> {
             None
         }
     };
+
+    // Finding 3.6. Only when **this** firmware's store came up empty: a machine
+    // that already has a Rust configuration has nothing to be told, and walking
+    // a namespace nobody will read on every boot would be work for no possible
+    // output. The words and the decision are `cc_config::predecessor`'s and are
+    // host-tested; the enumeration is `cc_hal_esp32::nvs::probe_predecessor`'s,
+    // and it cannot fail — a probe that could stop the firmware booting would be
+    // a worse fault than the one it reports.
+    let predecessor = if stored.is_some() {
+        PredecessorProbe::Skipped
+    } else {
+        cc_hal_esp32::nvs::probe_predecessor(store.backend())
+    };
+    if let Some(notice) = startup_notice(predecessor) {
+        warn!("config: {notice}");
+    }
 
     // The fail-closed rule. `cc_safety::load_or_default` is the whole of the
     // decision and is fully tested in `cc-safety`; this is the call.

@@ -42,7 +42,7 @@
 //! | 3 | A bad value rejects the whole import | The C++ logs a warning and continues, then reports success. |
 //! | 4 | Text parameters have one storage-length bound | The C++ has eight length constants and checks none of them. See [`json`]. |
 //! | 5 | Credentials redact in `Debug`/`Display` | Skill rule 7. |
-//! | 6 | A C++-written NVS is ignored, not migrated | Decided 2026-09-28. See [`blob_store`]. |
+//! | 6 | A C++-written NVS is ignored, not migrated — but a boot that finds one says so | Decided 2026-09-28. See [`blob_store`] and [`predecessor`]. |
 //!
 //! Cross-parameter safety validation lives in `cc-safety`
 //! (`validate_config` / `load_or_default`), not here, because `cc-config` may
@@ -80,6 +80,7 @@ pub mod config;
 pub mod discovery;
 pub mod form;
 pub mod json;
+pub mod predecessor;
 pub mod schema;
 pub mod secret;
 pub mod store;
@@ -91,6 +92,7 @@ pub use json::{
     document_pairs, json_export, json_import, live_value, values_for, ImportError, LiveValue,
     MAX_CONFIG_BYTES,
 };
+pub use predecessor::{PredecessorProbe, CPP_NAMESPACE};
 pub use schema::{ParamKind, ParamSpec, ParamValue, SCHEMA};
 pub use secret::Secret;
 pub use store::StoreError;

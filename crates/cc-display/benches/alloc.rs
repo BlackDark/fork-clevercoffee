@@ -6,6 +6,35 @@
 //! number a human watches is worse than no gate at all.
 //!
 //! Why allocations and not nanoseconds is argued on the bench's own header.
+//!
+//! # It counts the calling THREAD, not the process
+//!
+//! A `#[global_allocator]` sees every allocation in the process, and the libtest
+//! harness is a process-wide concurrent program: it spawns the test body on its
+//! own thread and keeps working on the main thread. Counting the whole process
+//! therefore attributes harness work to whatever the test happens to be doing.
+//! Measured on this file, under CPU load: `a_frame_does_not_allocate` failed
+//! **62 of 80** runs (and 1 of 20 in a lighter session, 0 of 30 idle), reporting
+//! `rendering 60 frames allocated 4 times (900 bytes)`. After the change below,
+//! 0 of 80 under the same load. Instrumenting the allocator to print the thread
+//! id showed the test body running on `ThreadId(2)` and **all four allocations
+//! on `ThreadId(1)`** — 148/16 B from `test::term::termininfo`'s capability
+//! table, 608/8 B from `VecDeque<TimeoutEntry>::push_back` in `test::run_tests`,
+//! and 48/8 B plus 96/8 B from `run_test`'s spawn. Nothing in `cc-display`
+//! allocated at all.
+//!
+//! So the counters below are thread-local and only the thread that reads them is
+//! measured. This is not a narrowed assertion: `assert_eq!(allocs, 0)` still
+//! fails on the first heap byte the *rendering* thread touches, which is the
+//! only way a frame can reach the allocator — `templates::render` never spawns a
+//! thread, and on the device it runs entirely on the display task. A concurrent
+//! allocation from elsewhere in the process was never evidence about a frame
+//! anyway; it was noise.
+//!
+//! `const { Cell::new(..) }` with a `Drop`-less type means the `thread_local!`
+//! below compiles to a plain thread-local static: no lazy initialisation, no
+//! destructor registration, and so no allocation and no re-entry. That is what
+//! makes it safe to touch from inside a `GlobalAlloc`.
 
 #![allow(
     unsafe_code,
@@ -22,19 +51,25 @@
 )]
 
 use std::alloc::{GlobalAlloc, Layout, System};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::cell::Cell;
 use std::time::Duration;
 
-static ALLOCATIONS: AtomicU64 = AtomicU64::new(0);
-static BYTES: AtomicU64 = AtomicU64::new(0);
+thread_local! {
+    static ALLOCATIONS: Cell<u64> = const { Cell::new(0) };
+    static BYTES: Cell<u64> = const { Cell::new(0) };
+}
+
+fn count(size: usize) {
+    ALLOCATIONS.with(|n| n.set(n.get() + 1));
+    BYTES.with(|n| n.set(n.get() + size as u64));
+}
 
 /// The counting allocator.
 pub struct Counting;
 
 unsafe impl GlobalAlloc for Counting {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        ALLOCATIONS.fetch_add(1, Ordering::Relaxed);
-        BYTES.fetch_add(layout.size() as u64, Ordering::Relaxed);
+        count(layout.size());
         // SAFETY: forwarded verbatim to the system allocator with the same layout.
         unsafe { System.alloc(layout) }
     }
@@ -45,21 +80,22 @@ unsafe impl GlobalAlloc for Counting {
     }
 
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-        ALLOCATIONS.fetch_add(1, Ordering::Relaxed);
-        BYTES.fetch_add(new_size as u64, Ordering::Relaxed);
+        count(new_size);
         // SAFETY: forwarded verbatim to the system allocator.
         unsafe { System.realloc(ptr, layout, new_size) }
     }
 }
 
-/// Allocations and bytes so far. Cumulative: callers read either side of a
-/// window and subtract with [`delta_since`].
+/// Allocations and bytes the calling thread has made so far. Cumulative:
+/// callers read either side of a window and subtract with [`delta_since`].
+///
+/// Counting per thread, not per process — see the module header for the
+/// measurement that forced it.
 #[must_use]
 pub fn counters() -> (u64, u64) {
-    (
-        ALLOCATIONS.load(Ordering::Relaxed),
-        BYTES.load(Ordering::Relaxed),
-    )
+    let allocs = ALLOCATIONS.with(Cell::get);
+    let bytes = BYTES.with(Cell::get);
+    (allocs, bytes)
 }
 
 /// `(allocations, bytes)` since `mark`.

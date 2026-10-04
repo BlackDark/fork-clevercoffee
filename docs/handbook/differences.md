@@ -35,6 +35,7 @@ Features that simply do not exist in the C++ firmware.
 | 6 | **Scale support exists at all.** The C++'s `HX711Scale` was never constructed, so by-weight brewing could never stop a shot. The port ships a working HX711 driver. | §11 |
 | 7 | **The steam valve is whitelist-gated**, by a rule (`S5'`) the C++ does not have and its own comment admits it lacks. | §2 |
 | 8 | **`POST /api/config/upload` exists**, and takes `application/json`. | §19 |
+| 8b | **A boot on a machine that ran the C++ says so once, and says nothing was deleted.** The settings are in a different NVS namespace, not gone; the operator is told to re-enter the SSID and password. | §29 |
 
 ## The safety changes, all in the safe direction
 

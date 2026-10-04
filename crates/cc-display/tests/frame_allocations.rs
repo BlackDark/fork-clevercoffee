@@ -14,6 +14,29 @@
 //!
 //! The same review noted that the display bench target this recipe named
 //! (`layout`) did not exist at all until now, so nothing was checking this.
+//!
+//! # Why this file is one `#[test]`, and why the counters are thread-local
+//!
+//! A `#[global_allocator]` is invoked for allocations anywhere in the process,
+//! and libtest runs the test body on one thread while the harness keeps working
+//! on the main thread. Counting the process attributed that harness work to the
+//! frame: under CPU load this gate failed **62 of 80** runs with `rendering 60
+//! frames allocated 4 times (900 bytes)`, and 0 of 30 idle.
+//!
+//! Instrumenting the allocator to print the thread id of every allocation
+//! inside the window showed the test body on `ThreadId(2)` and **all four
+//! allocations on `ThreadId(1)`**: 148/16 B from `test::term::termininfo`'s
+//! capability table, 608/8 B from `VecDeque<TimeoutEntry>::push_back` in
+//! `test::run_tests`, 48/8 B and 96/8 B from `run_test`'s thread spawn.
+//! `cc-display` allocated nothing.
+//!
+//! So `benches/alloc.rs` counts the **calling thread**. The assertion is
+//! unchanged and still exact: `templates::render` is single-threaded and runs
+//! entirely on the display task on the device, so the rendering thread is the
+//! only one that can allocate on a frame's behalf. The sibling gate documents
+//! the same hazard for itself and hit the same class of failure from a
+//! `Box::leak` in its own window; this fix is at the allocator, so it covers
+//! both that file and this one rather than working around it here.
 
 #[path = "../benches/alloc.rs"]
 mod alloc;

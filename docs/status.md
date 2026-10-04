@@ -31,11 +31,35 @@ page.
   `failed=0`. The SSD1306 shares the I²C bus with the ABP2 behind a `Mutex` and
   the frame is chunked into 8 bus writes, not 64, so the pressure sensor is not
   starved.
+- **The no-allocation gates measure the code, not the test harness.** Rendering a
+  frame and running a control tick both allocate zero heap bytes, and both are
+  asserted by a `#[global_allocator]` that counts the **calling thread**. It used
+  to count the process, so libtest's own allocations landed in the window:
+  `cc-display`'s gate failed 62 of 80 runs under CPU load. Instrumenting the
+  allocator showed all four offending allocations on the harness thread, none in
+  `cc-display`. Measured after the fix: **0 of 80** under the same load.
+  `crates/cc-display/tests/frame_allocations.rs`,
+  `crates/cc-machine/tests/tick_allocations.rs`, and the shared
+  `benches/alloc.rs` in each crate, which is what the numbers above come from.
 - **98 parameters are writable over HTTP and survive a reboot.**
   `cc_config::schema::PARAM_COUNT` is 98 (`schema.rs:92`) and pinned by
   `assert_eq!(SCHEMA.len(), PARAM_COUNT)` (`schema.rs:1858`), by
   `crates/cc-config/tests/config_schema.rs:43` and by
   `crates/cc-web/src/help/tests.rs:91`.
+- **A machine flashed from the C++ says why its Wi-Fi is gone.** On a boot where
+  this firmware's own store is empty, it opens the C++'s `config` namespace
+  read-only, takes one key name, and — if there was one — prints a single `warn`
+  line naming both namespaces, stating that the previous settings were **not
+  deleted** and are still on the chip, and telling the operator to re-enter the
+  SSID and password. Nothing is read but a key name; nothing is written.
+  `cc_config::predecessor::startup_notice` (the words, 4 host tests) and
+  `cc_hal_esp32::nvs::probe_predecessor` (the check). Nothing is read but a key
+  name; nothing is written. The line reaching a telnet reader untruncated is
+  pinned by
+  `cc_web::telnet::tests::the_predecessor_boot_lines_are_not_truncated_on_the_wire`,
+  against the real formatter rather than a copied byte count.
+  **Verified by test and by reading the code; the line has not been seen on a
+  board.** [`intentional-diffs.md` §29](./rust-migration/intentional-diffs.md).
 - **The web UI is served from flash and renders.** `cc-hal-esp32/build.rs` embeds
   the gzip bundle with `include_bytes!`, which is why a 199,270 B bundle costs
   0 B of RAM. A deep link to a client-side route (`/ui/config/behavior`) boots the
@@ -43,8 +67,8 @@ page.
 - **The gate is green.** `just gate`: fmt-check, clippy (host and
   device) with `-D warnings`, rustdoc `-D warnings`, the host suite, the parity
   harness, the device-test audit, the Xtensa release build, and the size budget.
-  **1,697,472 B**, which fits the 1,835,008 B app0 slot with +137,536 B to spare
-  and is **+8.85 %** against `size-baseline.json`, inside the 10 % limit.
+  **1,700,448 B**, which fits the 1,835,008 B app0 slot with +134,560 B to spare
+  and is **+9.04 %** against `size-baseline.json`, inside the 10 % limit.
 - **The two firmware trees have not diverged by accident.** Zero lines changed in
   `src/`, `include/`, `lib/`, `platformio.ini` or the root `partitions_4M.csv`
   since the branch point `2006b710`. That is checkable:
@@ -95,6 +119,17 @@ rather than from memory.
   `pinmapping.h` and unwired in the port. See [`cpp-oracle.md`](./cpp-oracle.md).
 - **The PlatformIO build is deprecated but deliberately kept**, for one release
   cycle, as a rollback path (task R4-10).
+- **There is no configuration upgrade path from a C++-flashed machine.** The two
+  firmwares use different NVS namespaces (`config`, `defaults.h:13`, against this
+  port's `cc`), so nothing is lost and nothing is deleted — the previous
+  firmware's settings are still on the chip. They are simply not read, and the
+  firmware runs the compiled-in defaults, which carry no SSID. **A first boot
+  with an empty `cc` namespace now opens `config` read-only and prints one line
+  saying so, naming both namespaces and telling the operator to re-enter the
+  SSID and password** (`cc_config::predecessor::startup_notice` for the words,
+  `cc_hal_esp32::nvs::probe_predecessor` for the check). A deliberate migration
+  was declined: see [`intentional-diffs.md` §29](./rust-migration/intentional-diffs.md).
+  The re-provisioning itself has **not been exercised on hardware**.
 
 ---
 

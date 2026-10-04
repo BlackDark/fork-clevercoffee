@@ -9,6 +9,8 @@ use alloc::format;
 use alloc::string::{String as StdString, ToString as _};
 use alloc::vec::Vec;
 
+use cc_config::predecessor::{startup_notice, PredecessorProbe};
+
 use super::*;
 
 /// `Logger.h:159-161`. The ring is 16 entries of 256 B, not a knob.
@@ -202,4 +204,37 @@ fn a_line_that_exactly_fits_is_not_truncated() {
 #[test]
 fn an_empty_body_still_produces_a_well_formed_line() {
     assert_eq!(line(Level::Error, 7, "t", ""), "[7] [ERROR] t: \r\n");
+}
+
+/// The boot lines about a previous firmware's NVS reach a telnet reader whole.
+///
+/// `cc_config::predecessor::startup_notice` is the sentence and
+/// `cc_config::blob_store` is the namespace; this is the only place both halves
+/// and the real formatter meet, which is why the check lives here rather than
+/// being a hand-copied byte budget inside `cc-config` that a rename of the
+/// target or a change to `ENTRY_BYTES` would silently invalidate.
+///
+/// The inputs are the worst case: the widest `u32` uptime, the longest level
+/// word, and the module that actually logs it. An operator whose machine is on
+/// the wrong network reads these over telnet, and a truncated line loses the
+/// instruction to re-enter the SSID.
+#[test]
+fn the_predecessor_boot_lines_are_not_truncated_on_the_wire() {
+    for probe in [PredecessorProbe::Populated, PredecessorProbe::Unreadable] {
+        let Some(body) = startup_notice(probe) else {
+            panic!("{probe:?} must produce a line");
+        };
+        let text = line(
+            Level::Warning,
+            u32::MAX,
+            "cc_firmware::network",
+            &format!("config: {body}"),
+        );
+        assert!(text.ends_with("\r\n"), "{text}");
+        assert!(
+            !text[..text.len() - 2].ends_with(ELLIPSIS),
+            "the {probe:?} line is truncated to {} B: {text}",
+            text.len(),
+        );
+    }
 }

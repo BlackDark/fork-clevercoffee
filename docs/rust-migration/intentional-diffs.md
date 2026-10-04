@@ -2147,3 +2147,97 @@ behaviour and needs no OTA-specific decision; and `system.ota_password` remains 
 schema key with no implementation, precisely because espota is not built. When
 espota is added, that parameter becomes live and this paragraph stops being
 true.
+
+---
+
+## 29 — A first boot on a C++-flashed machine says so, once 🔴 added
+
+Finding 3.6 of [`32-findings-2026-10-03.md`](./32-findings-2026-10-03.md).
+
+### What the C++ does
+
+Nothing, because it cannot. The C++ reads the namespace it writes — `config`,
+`include/clevercoffee/defaults.h:13` — so "the settings I saved are the settings
+I am running" has never been a thing that could go wrong on a C++ machine. There
+is no predecessor firmware in its history.
+
+### What the Rust does
+
+The two firmwares use **different NVS namespaces**, so a machine that ran the C++
+has not lost its configuration — the Rust firmware has never opened the
+namespace it is in:
+
+| | namespace | key | written by |
+| --- | --- | --- | --- |
+| C++ | `config` (`defaults.h:13`) | `p` + 8 FNV-1a hex digits | `Config.cpp:154-171` |
+| Rust | `cc` (`blob_store::NAMESPACE`) | `cc.config`, one JSON blob | `BlobConfigStore::save` |
+
+One key per parameter in the C++, one blob here: the key-shape difference is
+`Config.h:318-332` and is what a migration would have to reproduce.
+
+So on a machine flashed from the C++, `store.load()` returns `Ok(None)`, the
+firmware writes the compiled-in defaults, and those carry no SSID. The operator
+gets a machine that is on a network it is no longer configured for, and — until
+now — only a boot log saying "nothing stored" to explain it.
+
+At boot, **when the Rust store is empty**, the firmware now opens `config`
+**read-only**, takes the first key name, and drops the handle. If there was one,
+it prints this and nothing else:
+
+```text
+config: the previous firmware's settings are in NVS namespace "config" and this
+firmware uses "cc": not read, not deleted, still on the chip. Re-enter the Wi-Fi
+SSID and password. Expected on a first flash.
+```
+
+(One physical line; wrapped here to fit this page.)
+
+It also says the two firmwares use different storage namespaces and that this is
+expected on a first flash — because an operator reading "your settings are not
+read" without that is entitled to suspect a bug. The re-provisioning path is
+named rather than described: `wifi set <ssid>` on the UART provisioning console,
+which is the same path §27 keeps GPIO1 wired for.
+
+### Why this and not a migration
+
+`cc_config::blob_store`'s module documentation carries the full reasoning, decided
+2026-09-28. The short form: a migration means shipping the C++'s FNV-1a key hash,
+its 98 key names and its per-parameter type table, and writing the result into
+the **one** configuration slot a machine has, with no rollback. On a device that
+heats a boiler, that is a bad trade for values that are almost all within a
+whisker of their defaults — and the only parameters whose loss is actually felt
+are the Wi-Fi credentials, re-entered in seconds over a UART the firmware already
+has. **Detection plus one sentence is the whole of this.**
+
+### What was deliberately not built
+
+- **No migration.** Above. Nothing reads a C++ key or writes a C++ namespace.
+- **No prompt, no second boot, no modal.** One `warn!` line at boot, once. The
+  same information is on the console, in the telnet ring and in the UART log,
+  which is where an operator with a machine on the wrong network will look.
+- **No key counting.** One key is enough to answer "was anything ever written
+  here", and reading the names would be the first half of a migration.
+- **No `/api/nvs-debug` field.** The endpoint reports on *this* firmware's
+  namespace; a boot log is where a machine that cannot associate has to be
+  explained, and adding an endpoint field would be a second spelling of the same
+  sentence.
+- **No change when the Rust store is populated.** A machine that already has this
+  firmware's settings is told nothing, and the namespace is not walked at all —
+  `PredecessorProbe::Skipped`.
+
+### What pins it
+
+- `cc_config::predecessor` — 4 host tests: the two namespaces are asserted to be
+  different key spaces; the four `PredecessorProbe` cases map to the four
+  outcomes, with the two quiet ones silent; the found message names both
+  namespaces, says "not deleted" and names the action; the unreadable message
+  does not also claim a finding.
+- `cc_web::telnet::tests::the_predecessor_boot_lines_are_not_truncated_on_the_wire`
+  — the sentence, the namespace and the **real** formatter meet, on the widest
+  `u32` uptime and this module's own log target. A hand-copied byte budget
+  inside `cc-config` would have been invalidated silently by a change to
+  `ENTRY_BYTES` or a rename of the target; this cannot.
+- `cc_hal_esp32::nvs::probe_predecessor` — device-only, and cannot fail: a
+  missing namespace is `Absent` (`ESP_ERR_NVS_NOT_FOUND` from a read-only open)
+  and every other error is `Unreadable`. It reads one key name and writes
+  nothing.

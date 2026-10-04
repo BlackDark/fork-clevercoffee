@@ -57,6 +57,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use cc_config::blob_store::BlobBackend;
+use cc_config::predecessor::{PredecessorProbe, CPP_NAMESPACE};
 use cc_config::store::StoreError;
 use cc_protocol::sensor::hx711::{decode_tare, encode_tare, TareRecord};
 use esp_idf_svc::nvs::{EspDefaultNvs, EspDefaultNvsPartition, EspNvs};
@@ -72,7 +73,25 @@ use esp_idf_svc::nvs::{EspDefaultNvs, EspDefaultNvsPartition, EspNvs};
 /// It also means `BlobConfigStore::erase_all` and the `raw()` diagnostics are
 /// reachable without a downcast, and that the store handed to the HTTP server
 /// has one concrete type.
-pub struct EspNvsBlob(EspDefaultNvs);
+///
+/// # Why it holds the partition as well as the handle
+///
+/// Because [`probe_predecessor`] has to open a **second** namespace, and
+/// `EspDefaultNvsPartition::take()` is a one-shot: `NvsDefault::new` returns
+/// `ESP_ERR_INVALID_STATE` if `DEFAULT_TAKEN` is already set
+/// (`nvs.rs:74-83`). There is no second `take()` to call at boot, and no public
+/// accessor that hands the partition back out of an `EspNvs` — so the handle
+/// alone cannot answer the question, and re-taking would have failed the very
+/// first boot.
+///
+/// `EspNvsPartition<NvsDefault>` is `Clone` (`nvs.rs:296-302`, an `Arc` clone),
+/// so the partition is kept here and the namespace opened from a clone of it.
+/// The stored clone is never dropped: `EspNvs` holds its own, and this one is
+/// released with the store.
+pub struct EspNvsBlob {
+    handle: EspDefaultNvs,
+    partition: EspDefaultNvsPartition,
+}
 
 impl core::fmt::Debug for EspNvsBlob {
     /// Names the namespace and key, never the value: the value is the whole
@@ -91,6 +110,65 @@ impl EspNvsBlob {
     }
 }
 
+/// Look at [`CPP_NAMESPACE`] and report whether it holds anything.
+///
+/// The **only** NVS enumeration this firmware performs outside its own
+/// namespace, and it is deliberately the smallest thing that answers the
+/// question: open `config` **read-only**, take the first key name, drop the
+/// handle. Key names and values are never read, nothing is written, and
+/// nothing is erased — a machine whose settings came from the C++ keeps every
+/// byte of them, which is what makes the boot line
+/// [`cc_config::predecessor::startup_notice`] promises when it says "not
+/// deleted".
+///
+/// Read-only is load-bearing. `nvs_open` with `NVS_READWRITE` **creates** a
+/// namespace that does not exist (`nvs.rs:341-347`), so opening `config`
+/// read-write on a machine that never ran the C++ would manufacture the very
+/// namespace whose absence is the signal. Read-only on a missing namespace
+/// returns `ESP_ERR_NVS_NOT_FOUND` instead, which is [`PredecessorProbe::Absent`].
+///
+/// The decision of **whether** to look — and the words to print if one does —
+/// are not here: both are [`cc_config::predecessor`]'s, and are host-tested.
+/// This function cannot fail: every error becomes
+/// [`PredecessorProbe::Unreadable`], because a diagnostic that could stop the
+/// firmware booting would be a worse fault than the one it reports.
+#[must_use]
+pub fn probe_predecessor(nvs: &EspNvsBlob) -> PredecessorProbe {
+    // `keys()` exists from ESP-IDF 5.2; this tree pins 5.5.5 (`just doctor`).
+    let opened = EspNvs::new(nvs.partition.clone(), CPP_NAMESPACE, false);
+    let handle = match opened {
+        Ok(handle) => handle,
+        // Not an error: no `config` namespace means the C++ never ran here, or
+        // something erased it. Both are "nothing there", which is the answer
+        // the caller wants and not a fault to report.
+        Err(err) if err.code() == esp_idf_sys::ESP_ERR_NVS_NOT_FOUND => {
+            return PredecessorProbe::Absent;
+        }
+        Err(err) => {
+            log::warn!(
+                "nvs: the {CPP_NAMESPACE:?} namespace could not be opened: {err:?} — this \
+                 firmware cannot tell whether a previous firmware's settings are present"
+            );
+            return PredecessorProbe::Unreadable;
+        }
+    };
+    let listing = handle.keys(None);
+    let probe = match listing {
+        Ok(mut keys) => {
+            if keys.next_key().is_some() {
+                PredecessorProbe::Populated
+            } else {
+                PredecessorProbe::Absent
+            }
+        }
+        Err(err) => {
+            log::warn!("nvs: the {CPP_NAMESPACE:?} namespace could not be listed: {err:?}");
+            PredecessorProbe::Unreadable
+        }
+    };
+    probe
+}
+
 /// Open the default NVS partition and one namespace within it.
 ///
 /// # Errors
@@ -104,8 +182,8 @@ pub fn open(namespace: &str) -> Result<EspNvsBlob, StoreError> {
         log::error!("nvs: default partition unavailable: {err:?}");
         StoreError::Unavailable
     })?;
-    EspNvs::new(partition, namespace, true)
-        .map(EspNvsBlob)
+    EspNvs::new(partition.clone(), namespace, true)
+        .map(|handle| EspNvsBlob { handle, partition })
         .map_err(|err| {
             log::error!("nvs: namespace {namespace:?} unavailable: {err:?}");
             StoreError::Unavailable
@@ -117,7 +195,7 @@ impl BlobBackend for EspNvsBlob {
         // `blob_len` first, so the read buffer is sized to the stored value and
         // not to `MAX_BLOB_BYTES`. A 2 KB configuration read into an 8 KB buffer
         // on every boot is 6 KB of peak heap for nothing, on a 320 KB heap.
-        let Some(len) = self.0.blob_len(key).map_err(|err| {
+        let Some(len) = self.handle.blob_len(key).map_err(|err| {
             log::error!("nvs: blob_len({key:?}) failed: {err:?}");
             StoreError::Unavailable
         })?
@@ -125,7 +203,7 @@ impl BlobBackend for EspNvsBlob {
             return Ok(None);
         };
         let mut buf = vec![0u8; len];
-        match self.0.get_blob(key, &mut buf) {
+        match self.handle.get_blob(key, &mut buf) {
             Ok(Some(bytes)) => Ok(Some(Vec::from(bytes))),
             Ok(None) => Ok(None),
             Err(err) => {
@@ -136,14 +214,14 @@ impl BlobBackend for EspNvsBlob {
     }
 
     fn set(&mut self, key: &str, value: &[u8]) -> Result<(), StoreError> {
-        self.0.set_blob(key, value).map_err(|err| {
+        self.handle.set_blob(key, value).map_err(|err| {
             log::error!("nvs: set_blob({key:?}) failed: {err:?}");
             StoreError::WriteFailed
         })
     }
 
     fn erase_all(&mut self) -> Result<(), StoreError> {
-        self.0.erase_all().map_err(|err| {
+        self.handle.erase_all().map_err(|err| {
             log::error!("nvs: erase_all failed: {err:?}");
             StoreError::WriteFailed
         })

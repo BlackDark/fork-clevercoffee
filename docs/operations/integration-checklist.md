@@ -68,6 +68,21 @@ curl -w "\n%{http_code}\n" -X POST http://<ip>/api/ota/url \
 - [ ] `pio device monitor -e esp32_usb` shows boot log lines (WiFi connect, state transitions)
 - [ ] Log lines appear at INFO level during normal operation (e.g. temperature readings, state changes)
 - [ ] Log level filtering works (DEBUG messages hidden at INFO level)
+- [ ] **A boot whose NVS was written by the C++ firmware prints the predecessor line**
+  (finding 3.6). Flash the Rust firmware over a machine that has run the C++, or
+  erase the NVS partition and plant a key in the `config` namespace. The boot
+  log must contain, verbatim and untruncated:
+
+  ```text
+  config: the previous firmware's settings are in NVS namespace "config" and this firmware uses "cc": not read, not deleted, still on the chip. Re-enter the Wi-Fi SSID and password. Expected on a first flash.
+  ```
+
+  Then: the machine does **not** associate (it has no SSID, which is the
+  condition this line exists to explain), and re-provisioning with
+  `wifi set <ssid>` + `wifi apply` over the serial console (§4 / `just
+  wifi-provision <port>`) restores it. **No line** should appear on a boot
+  where the `cc` namespace already holds a configuration. **Not yet run on
+  hardware** — see [`intentional-diffs.md` §29](../rust-migration/intentional-diffs.md).
 
 The serial node is `/dev/cu.usbserial-*` on macOS and `/dev/ttyUSB*` on Linux. The device's
 bridge is a **WCH CH340** (`iProduct` = `"USB Serial"`, VID `0x1A86` / PID `0x7523`), not a
