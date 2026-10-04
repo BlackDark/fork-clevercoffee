@@ -2625,47 +2625,39 @@ fn ota_validate(
     Ok(())
 }
 
-/// `POST /api/ota/{firmware,filesystem}` — stream one upload into flash.
+/// The refusal text for an OTA request the control task never answered.
 ///
-/// The order of the six checks below is the whole safety and memory argument, so
-/// it is the order they are written in:
+/// Its own message rather than a `FlashRefusal`'s, because there is no state to
+/// blame: the control task did not get to a decision within
+/// [`COMMAND_ACK_TIMEOUT_MS`], or the command was lost. The UI prints
+/// `result.message` verbatim, so it is operator-facing text and not a log line,
+/// and it says what to do about it.
+const NO_ANSWER_REFUSAL: &str =
+    "The machine did not confirm a safe state for the update. Try again.";
+
+/// The refusal text for a session another upload already holds.
+const SESSION_BUSY_REFUSAL: &str =
+    "OTA update already in progress. Please wait for current update to complete.";
+
+/// Checks 1–3 of [`ota_upload_route`], in order: admission on the published
+/// snapshot, the claim, and the safe hardware shutdown the control task applies
+/// against its **live** state.
 ///
-/// 1. **Admission.** [`cc_machine::ota::admit`] on the machine state from the
-///    published snapshot. Refused while brewing or steaming — the C++ does not
-///    check at all (`ota.cpp:437-455` jumps straight to the extension test), and
-///    this is the strictly-safer difference recorded in `intentional-diffs.md`.
-/// 2. **Claim.** One update at a time. A second concurrent upload gets the C++'s
-///    `409` (`ota.cpp:444`).
-/// 3. **Safe hardware shutdown.** [`cc_machine::ota::begin_session`]'s effect,
-///    applied by the **control task** on its next tick, before any flash write.
-///    This is S8, and it is a `Command` rather than a direct call because the
-///    httpd task does not own the actuators.
-/// 4. **Boundary.** No `Content-Type: multipart/form-data`, no part. The C++'s
-///    `sendUploadResult(request, "No firmware file provided")` arm.
-/// 5. **Open the slot.** [`crate::ota::Writer::begin`] — the first thing that
-///    erases anything.
-/// 6. **Stream.** One 4 KiB stack buffer, [`cc_web::ota::PartReader`] stripping
-///    the envelope, each run going straight to `esp_ota_write`. Nothing here
-///    allocates per chunk, so a 1.6 MB image costs the same heap as a 4 KB one.
-///
-/// # Why the shutdown is a Command and not a wait
-///
-/// The control task applies the shutdown on its next tick, so between the
-/// request and the shutdown there is a window of up to one 10 ms period in which
-/// the machine is still running normally. That is **not** a hole: `admit` has
-/// already established that nothing is flowing, and the shutdown is what makes
-/// the heater duty zero for the rest of the session. Waiting for an ack would buy
-/// nothing and would put a 10 ms stall on the httpd task for every upload.
-fn ota_upload_route(
+/// Split out of the route because the three together are the safety argument, and
+/// the route is otherwise over [`clippy::too_many_lines`]. Returns the
+/// operator-facing refusal text, or `Ok(())` when the flash may begin — which is
+/// to say, once the control task has confirmed against the state the machine is
+/// actually in that a `SafeHardwareShutdown` is now applied.
+fn ota_open_session(
     session: &crate::ota::Session,
     shared: &Arc<Shared>,
     send: &Arc<dyn Fn(Command) + Send + Sync + 'static>,
     kind: Kind,
-    mut req: Request<&mut EspHttpConnection<'_>>,
-) -> Result<(), EspError> {
+) -> Result<(), &'static str> {
     // 1. Admission, from the state the control task published. A snapshot is at
     //    most one control period stale, which is the same staleness every other
-    //    read-only handler accepts.
+    //    read-only handler accepts — and it is why this is a *first filter* and
+    //    not the decision. Check 3 is.
     let telemetry = shared.snapshot();
     // An id the firmware does not know is treated as "not safe to flash", which
     // is the conservative direction: an unrecognised state might be one that
@@ -2680,40 +2672,107 @@ fn ota_upload_route(
         None => cc_machine::ota::Admission::Refused(cc_machine::ota::FlashRefusal::FlowActive),
     };
     if let cc_machine::ota::Admission::Refused(refusal) = admission {
-        let status = cc_web::ota::Status {
-            phase: cc_web::ota::Phase::Error,
-            error: Some(cc_web::ota::StatusMessage::Refused(refusal.message())),
-            ..cc_web::ota::Status::default()
-        };
-        return respond(
-            req.connection(),
-            409,
-            &upload_response(false, refusal.message()),
-        )
-        .inspect(|()| {
-            // Reported through the status document too, so the UI's poll shows
-            // why rather than silently returning to idle.
-            info!("ota: refused — {}", refusal.message());
-            let _ = status;
-        });
+        info!("ota: refused — {}", refusal.message());
+        return Err(refusal.message());
     }
 
     // 2. One at a time. Claimed **before** the shutdown so a second request sees
     //    a busy session rather than racing this one into the shutdown.
     if !session.claim(kind) {
-        return respond(
-            req.connection(),
-            409,
-            &upload_response(
-                false,
-                "OTA update already in progress. Please wait for current update to complete.",
-            ),
-        );
+        return Err(SESSION_BUSY_REFUSAL);
     }
 
-    // 3. S8. The pump, the valve and the heater go off through the applier, on
-    //    the control task, before `Writer::begin` erases anything.
+    // 3. S8, and the wait that makes it mean something. The pump, the valve and
+    //    the heater go off through the applier, on the control task, before
+    //    `Writer::begin` erases anything — and the control task re-reads the
+    //    **live** state on its way, because the snapshot above can be a tick
+    //    stale and the machine is still running.
+    let before = shared.applied();
     send(Command::OtaBegin);
+    // `wait_applied` is the existing ack every command route uses, and it is
+    // honest here for the same reason it is there: the control task notes the
+    // command applied only after the telemetry a caller would read is published
+    // (`main.rs`, step 8), so a settled wait means the verdict is in place.
+    shared.wait_applied(before);
+
+    // `None` covers both "the control task refused" (it would have written a
+    // reason) and "the control task never answered", and both are the same
+    // answer to this route's only question, which is whether `esp_ota_begin`
+    // may run. No answer, no flash.
+    let Some(admission) = session.take_verdict() else {
+        session.finish_err(cc_web::ota::StatusMessage::Refused(NO_ANSWER_REFUSAL));
+        return Err(NO_ANSWER_REFUSAL);
+    };
+    if let crate::ota::Admission::Refused(refusal) = admission {
+        info!("ota: refused — {}", refusal.message());
+        session.finish_err(cc_web::ota::StatusMessage::Refused(refusal.message()));
+        return Err(refusal.message());
+    }
+    Ok(())
+}
+
+/// `POST /api/ota/{firmware,filesystem}` — stream one upload into flash.
+///
+/// The order of the six checks below is the whole safety and memory argument, so
+/// it is the order they are written in. Checks 1–3 live in
+/// [`ota_open_session`], which is where the safety argument is argued:
+///
+/// 1. **Admission.** [`cc_machine::ota::admit`] on the machine state from the
+///    published snapshot, as a cheap first filter. Refused while brewing or
+///    steaming — the C++ does not check at all (`ota.cpp:437-455` jumps straight
+///    to the extension test), and this is the strictly-safer difference recorded
+///    in `intentional-diffs.md`.
+/// 2. **Claim.** One update at a time. A second concurrent upload gets the C++'s
+///    `409` (`ota.cpp:444`).
+/// 3. **Safe hardware shutdown, waited for.** [`Command::OtaBegin`] to the
+///    **control task**, which re-reads the live machine state, re-runs
+///    admission against *that*, applies the shutdown as a separate applier pass
+///    after the tick's own effects, and answers
+///    [`crate::ota::Admission`](crate::ota::Admission). This is S8. A `Command`
+///    rather than a direct call because the httpd task does not own the
+///    actuators.
+/// 4. **Boundary.** No `Content-Type: multipart/form-data`, no part. The C++'s
+///    `sendUploadResult(request, "No firmware file provided")` arm.
+/// 5. **Open the slot.** [`crate::ota::Writer::begin`] — the first thing that
+///    erases anything.
+/// 6. **Stream.** One 4 KiB stack buffer, [`cc_web::ota::PartReader`] stripping
+///    the envelope, each run going straight to `esp_ota_write`. Nothing here
+///    allocates per chunk, so a 1.6 MB image costs the same heap as a 4 KB one.
+///
+/// # Why the shutdown is a Command, and why the route then **waits**
+///
+/// The httpd task cannot actuate anything, so the shutdown has to be a request
+/// the control task drains on its next tick. Between the request and that tick
+/// the machine is still fully live: it will honour a `brew_start` off MQTT, or a
+/// brew-switch press, and `BrewPreinfusion`'s `on_entry` opens the water valve.
+///
+/// That is why check 1 is **not** sufficient and this route does not pretend it
+/// is. Check 1 reads a telemetry snapshot up to one control period old and
+/// nothing latched what it established; the state can move into a refused one
+/// afterwards, and a state that has moved is exactly the state the flash must
+/// not see. So the decision that matters is re-taken where the state is live,
+/// and this route **refuses the flash** — a `409`, and no `esp_ota_begin` — when
+/// the control task says no. It does not merely drop the shutdown effect and
+/// carry on erasing.
+///
+/// The wait costs at most one 10 ms control period on the httpd task, bounded by
+/// [`COMMAND_ACK_TIMEOUT_MS`] through the existing [`Shared::wait_applied`] — the
+/// same ack every other command route uses. A timed-out wait reads as "no
+/// answer", which is the conservative direction: no answer, no flash.
+fn ota_upload_route(
+    session: &crate::ota::Session,
+    shared: &Arc<Shared>,
+    send: &Arc<dyn Fn(Command) + Send + Sync + 'static>,
+    kind: Kind,
+    mut req: Request<&mut EspHttpConnection<'_>>,
+) -> Result<(), EspError> {
+    // 1-3. Admission on the published snapshot, the one-at-a-time claim, and the
+    //    safe hardware shutdown the control task applies against its LIVE state.
+    //    `Err` is the refusal text, and it is already logged and — where a
+    //    session had been claimed — recorded on the status document.
+    if let Err(refusal) = ota_open_session(session, shared, send, kind) {
+        return respond(req.connection(), 409, &upload_response(false, refusal));
+    }
 
     // 4. The multipart boundary. Read before the flash is touched, because a
     //    request with no envelope is a client error and must not cost an erase.

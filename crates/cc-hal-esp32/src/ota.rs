@@ -178,11 +178,12 @@ impl Writer {
     ///
     /// # Safety-irreducible note
     ///
-    /// `esp_ota_begin` erases the destination before returning. The admission
-    /// check in [`cc_machine::ota::admit`] and the shutdown in
-    /// [`cc_machine::ota::begin_session`] must both have happened before this is
-    /// called; the route does that, and this doc comment is the second place that
-    /// fact is written down.
+    /// `esp_ota_begin` erases the destination before returning. The route waits
+    /// for the control task to apply [`cc_machine::ota::begin_session`]'s
+    /// shutdown — re-checking admission against the **live** machine state on
+    /// the way, not against a snapshot the httpd task read earlier — before
+    /// this is called, and this doc comment is the second place that fact is
+    /// written down.
     pub fn begin(kind: Kind) -> Result<Self, EspError> {
         match kind {
             Kind::Firmware => {
@@ -409,6 +410,25 @@ const fn capacity(kind: Kind) -> usize {
 
 // ==================================================== the session, across tasks
 
+/// The control task's answer to `Command::OtaBegin`.
+///
+/// The request cannot be answered where it is made: the httpd task sees a
+/// telemetry snapshot up to one control period old, and the machine stays fully
+/// live until the control task's next tick — long enough for a `brew_start` off
+/// MQTT, or a brew-switch press, to enter a state whose `on_entry` opens the
+/// water valve. So the answer is a value the control task produces and the
+/// route collects, not a verdict the route reaches on its own.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Admission {
+    /// The live state was quiescent and the safe hardware shutdown is applied.
+    ///
+    /// The only value that authorises `esp_ota_begin`. Set **after** the
+    /// shutdown has been applied, so the route cannot observe it early.
+    Admitted,
+    /// The live state had moved into one that flows water or steam.
+    Refused(cc_machine::ota::FlashRefusal),
+}
+
 /// The one update in flight, shared between the httpd task and the firmware.
 ///
 /// Behind a [`Mutex`] because a [`Status`] is four fields and this is written
@@ -430,6 +450,13 @@ pub struct Session {
     kind: Mutex<Option<Kind>>,
     /// Set while a flash handle is open, so a second request is refused.
     busy: AtomicBool,
+    /// The control task's answer to `Command::OtaBegin`, or `None` before it
+    /// has answered.
+    ///
+    /// An answer rather than a request, for the reason on [`Admission`]. Cleared
+    /// by [`Session::claim`] so a session can never inherit the previous one's,
+    /// and read once by [`Session::take_verdict`].
+    verdict: Mutex<Option<Admission>>,
     /// Set when a successful update wants the firmware to reboot.
     restart: AtomicBool,
 }
@@ -442,6 +469,7 @@ impl Session {
             status: Mutex::new(cc_web::ota::Status::default()),
             kind: Mutex::new(None),
             busy: AtomicBool::new(false),
+            verdict: Mutex::new(None),
             restart: AtomicBool::new(false),
         }
     }
@@ -460,6 +488,12 @@ impl Session {
         {
             return false;
         }
+        // A claim starts a new session, so it starts with no answer. Without
+        // this a session could inherit the previous one's `Admitted` and erase
+        // the running image with the hardware still live.
+        if let Ok(mut slot) = self.verdict.lock() {
+            *slot = None;
+        }
         if let Ok(mut slot) = self.kind.lock() {
             *slot = Some(kind);
         }
@@ -476,6 +510,29 @@ impl Session {
     #[must_use]
     pub fn is_busy(&self) -> bool {
         self.busy.load(Ordering::Acquire)
+    }
+
+    /// Record the control task's answer to `Command::OtaBegin`.
+    ///
+    /// Called from the control task beside the applier pass that applies
+    /// [`cc_machine::ota::begin_session`]'s effects — after it has re-read the
+    /// **live** machine state, so a state that moved into a refused one between
+    /// the request and the apply refuses here and never authorises a flash.
+    pub fn note_verdict(&self, admission: Admission) {
+        if let Ok(mut slot) = self.verdict.lock() {
+            *slot = Some(admission);
+        }
+    }
+
+    /// The control task's answer, and clear it.
+    ///
+    /// Read exactly once, by the upload route, after
+    /// [`crate::web::Shared::wait_applied`] has confirmed the command was
+    /// folded in. **`None` means no flash** — the command was never answered, or
+    /// the lock was poisoned. Both are the same answer to the only question the
+    /// route has, which is whether `esp_ota_begin` may run.
+    pub fn take_verdict(&self) -> Option<Admission> {
+        self.verdict.lock().ok().and_then(|mut slot| slot.take())
     }
 
     /// Note progress.
@@ -569,7 +626,7 @@ const fn kind_min(phase: cc_web::ota::Phase) -> usize {
 #[cfg(any(test, feature = "device-tests"))]
 #[cfg_attr(feature = "device-tests", doc(hidden))]
 pub mod tests {
-    use super::{percent, Session};
+    use super::{percent, Admission, Session};
     use alloc::string::String;
     use cc_web::ota::{Kind, Phase, StatusMessage};
 
@@ -605,6 +662,63 @@ pub mod tests {
             session.claim(Kind::Firmware),
             "and the next one is admitted"
         );
+    }
+
+    /// 🔴 A fresh claim inherits **no** verdict, and an unanswered request
+    /// reads as `None`.
+    ///
+    /// `None` is the answer that stops the flash: the route reads it after
+    /// `wait_applied`, and only `Admitted` lets `esp_ota_begin` run. So two
+    /// properties are load-bearing and both are asserted here — a claim clears
+    /// the verdict, so a session cannot inherit the previous one's `Admitted`
+    /// and erase the running image with the hardware still live, and the verdict
+    /// is consumed once, so a later reader cannot resurrect it.
+    #[cfg_attr(test, test)]
+    pub fn a_claim_starts_with_no_verdict_and_a_verdict_is_read_once() {
+        let session = Session::new();
+        assert!(session.claim(Kind::Firmware));
+        assert_eq!(
+            session.take_verdict(),
+            None,
+            "no answer has been given yet, and no answer means no flash"
+        );
+        session.note_verdict(Admission::Admitted);
+        assert_eq!(
+            session.take_verdict(),
+            Some(Admission::Admitted),
+            "the control task's answer reaches the route"
+        );
+        assert_eq!(
+            session.take_verdict(),
+            None,
+            "and it is consumed, so it cannot be read twice"
+        );
+
+        // The next session must not inherit it.
+        assert!(session.claim(Kind::Firmware));
+        assert_eq!(
+            session.take_verdict(),
+            None,
+            "a new claim must not inherit the previous session's verdict"
+        );
+    }
+
+    /// A refusal carries the operator-facing reason across the task boundary.
+    ///
+    /// The UI prints `result.message` verbatim, so the reason the control task
+    /// refused with has to arrive intact — a `Refused` that lost its payload
+    /// would reach an operator as a blank toast.
+    #[cfg_attr(test, test)]
+    pub fn a_refusal_keeps_its_reason_across_the_task_boundary() {
+        let session = Session::new();
+        assert!(session.claim(Kind::Firmware));
+        session.note_verdict(Admission::Refused(
+            cc_machine::ota::FlashRefusal::SteamActive,
+        ));
+        match session.take_verdict() {
+            Some(Admission::Refused(reason)) => assert!(!reason.message().is_empty()),
+            other => panic!("expected a refusal, got {other:?}"),
+        }
     }
 
     #[cfg_attr(test, test)]

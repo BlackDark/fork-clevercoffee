@@ -500,6 +500,14 @@ pub const CASES: &[Case] = &[
         run: ota::tests::a_failure_does_not_ask_for_a_restart,
     },
     Case {
+        name: "ota::a_claim_starts_with_no_verdict_and_a_verdict_is_read_once",
+        run: ota::tests::a_claim_starts_with_no_verdict_and_a_verdict_is_read_once,
+    },
+    Case {
+        name: "ota::a_refusal_keeps_its_reason_across_the_task_boundary",
+        run: ota::tests::a_refusal_keeps_its_reason_across_the_task_boundary,
+    },
+    Case {
         name: "ota::the_status_reports_progress_as_bytes_arrive",
         run: ota::tests::the_status_reports_progress_as_bytes_arrive,
     },

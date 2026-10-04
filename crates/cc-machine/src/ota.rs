@@ -175,6 +175,16 @@ impl Admission {
 /// the pump and the valve to their inactive levels through the applier, on the
 /// control task, before any flash write is attempted. Admission decides whether
 /// it is *reasonable* to flash; the shutdown is what makes it *safe*.
+///
+/// # Why the state must be read **here** and not where the request arrived
+///
+/// A verdict is only good for the instant it was computed. The httpd task cannot
+/// read a live state — it sees a telemetry snapshot up to one control period old
+/// — and in the tick that follows, the machine is still fully live: it honours a
+/// `brew_start` off MQTT, or a brew-switch press, and `BrewPreinfusion`'s
+/// `on_entry` opens the water valve. A state that has *moved into* a refused one
+/// by then must refuse the flash, which is why [`begin_session`] takes the state
+/// and can refuse rather than emitting unconditionally.
 #[must_use]
 pub const fn admit(state: MachineState) -> Admission {
     match state {
@@ -199,28 +209,62 @@ pub const fn admit(state: MachineState) -> Admission {
     }
 }
 
-/// The effects an OTA session must apply before it touches flash.
+/// The effects an OTA session must apply before it touches flash, **or** the
+/// refusal that means it must apply none.
 ///
-/// This is the S8 hook: 04 §4 names *OTA start* as a trigger for
-/// `safe_hardware_shutdown`, and this is the function that emits it. One effect,
-/// applied through the real applier on the control task, so the same
-/// `Actuators::safe_hardware_shutdown` that standby uses turns the pump off,
-/// closes the valve and zeroes the heater duty.
+/// # This is the decision point, and it is deliberately not a bare emitter
 ///
-/// Deliberately **not** latched, and the reason is in the module docs: a failed
-/// OTA must leave a machine that still runs. Deliberately **not**
-/// [`Effect::EmergencyShutdown`], for the same reason.
+/// This started as `begin_session() -> Effects`: an unconditional
+/// [`Effect::SafeHardwareShutdown`], with admission consulted somewhere else
+/// entirely — on the httpd task, against a telemetry snapshot up to one control
+/// period old. That is what left the P0 hole: between the snapshot read and the
+/// tick that drained `Command::OtaBegin`, the machine could enter
+/// [`MachineState::BrewPreinfusion`], and the tick then applied the shutdown
+/// **and** the brew's `EnablePump` / `OpenWaterValve` in one ordered pass, the
+/// second overwriting the first (`main.rs`, step 6). The flash then erased
+/// 1.8 MB with the pump and the valve open.
+///
+/// So the state moves *here*, and the shutdown is conditional on it. A caller
+/// cannot apply the session's effects without also having asked, at the same
+/// point and from the same live state, whether the machine is safe to flash.
+/// That is the property; the `Result` is how it is expressed.
+///
+/// # Errors
+///
+/// [`admit`] refused `state` — see [`admit`] for the rule and [`FlashRefusal`]
+/// for the operator-facing text. The caller must **refuse the flash**, not carry
+/// on with an empty effect list: an update that erases the running image while
+/// the machine is brewing is the failure this exists to prevent, and "no effects"
+/// is indistinguishable from "safe to proceed" to every caller but this one.
+///
+/// # The `Result` is also the ordering fix
+///
+/// The caller applies what comes back **after** the tick's own effect pass, not
+/// inside it. That is what makes the shutdown ordering-proof: nothing the same
+/// pass emitted can re-energise hardware after it. See [`admit`] for why the
+/// earlier snapshot read is not enough on its own.
+///
+/// # Deliberately not latched, and deliberately not an emergency shutdown
+///
+/// The reason is in the module docs: a failed OTA must leave a machine that
+/// still runs. So this is not [`Effect::EmergencyShutdown`], whose latch makes
+/// a machine flashed and recovered into permanently dead with no way out over
+/// the network.
 ///
 /// There is no `Machine` argument and no `&mut self`: an OTA start changes
 /// nothing about the machine's state, only about its hardware. A shot in
-/// progress is stopped by the refusal in [`admit`], not by transitioning the
-/// state machine — which would mean writing a `MachineState` from the web layer
-/// and would need a transition the C++ does not have.
-#[must_use]
-pub fn begin_session() -> Effects {
-    let mut effects = Effects::new();
-    effects.push(Effect::SafeHardwareShutdown);
-    effects
+/// progress is stopped by the refusal above, not by transitioning the state
+/// machine — which would mean writing a `MachineState` from the web layer and
+/// would need a transition the C++ does not have.
+pub fn begin_session(state: MachineState) -> Result<Effects, FlashRefusal> {
+    match admit(state) {
+        Admission::Admitted => {
+            let mut effects = Effects::new();
+            effects.push(Effect::SafeHardwareShutdown);
+            Ok(effects)
+        }
+        Admission::Refused(refusal) => Err(refusal),
+    }
 }
 
 #[cfg(test)]
@@ -347,14 +391,72 @@ mod tests {
     /// the pump off, the valve closed and a zero heater duty, and
     /// `applier.rs:250` is the single dispatch site — so the chain from this
     /// function to the pins is three hops and this test pins the first.
+    ///
+    /// Compared as a whole `Result` rather than unwrapped: the audit in
+    /// `tests/exhaustive_state_event.rs` rejects `expect`/`panic!` anywhere in
+    /// this crate's sources, test bodies included, and asserting the entire
+    /// value is a stronger statement than inspecting an unwrapped one anyway.
     #[test]
     fn a_session_shuts_the_hardware_down_and_nothing_else() {
-        let effects = super::begin_session();
-        assert!(
-            effects.contains(&Effect::SafeHardwareShutdown),
-            "an OTA session must apply the safe shutdown: {effects:?}"
+        assert_eq!(
+            super::begin_session(cc_domain::state::MachineState::PidNormal)
+                .as_ref()
+                .ok()
+                .map(|effects| &effects[..]),
+            Some(&[Effect::SafeHardwareShutdown][..]),
+            "an OTA session must apply the safe shutdown, and nothing else"
         );
-        assert_eq!(effects.len(), 1, "and nothing else: {effects:?}");
+    }
+
+    /// 🔴 **A state that moved into a refused one between the request and the
+    /// apply means no flash.** The P0 this function's signature exists for.
+    ///
+    /// The old shape returned `Effects` unconditionally, so a caller could ask
+    /// for a session's effects from any state at all and got the shutdown
+    /// either way. The httpd task asked against a telemetry snapshot up to one
+    /// control period old, and the control task applied the result one tick
+    /// later — a tick in which the operator could hit the brew switch, entering
+    /// `BREW_PREINFUSION`, whose `on_entry` opens the water valve. The tick's
+    /// one ordered effect pass then applied `SafeHardwareShutdown` and
+    /// `OpenWaterValve` back to back, the second overwriting the first, and the
+    /// flash erased 1.8 MB with the valve open.
+    ///
+    /// So the rule is asserted over **every** state, from a request that was
+    /// admitted, and both halves are asserted: a refused state yields **no
+    /// effects at all** — not an empty list, which a caller could mistake for
+    /// "nothing to do, carry on" — and it yields the refusal `admit` names. A
+    /// caller that carried on regardless would satisfy "nothing was applied"
+    /// and still erase the running image mid-brew, which is the failure itself.
+    #[test]
+    fn a_state_that_moved_into_a_refused_one_after_the_request_starts_nothing() {
+        // The request-time check, against the state the operator saw: admitted.
+        // This is the premise — without it there is no window to be unsafe in.
+        assert!(
+            admit(cc_domain::state::MachineState::PidNormal).is_admitted(),
+            "the premise of this test: the request was admitted"
+        );
+        for state in ALL {
+            let expected = admit(state);
+            let outcome = super::begin_session(state);
+            // No effects unless the state admits — the whole of "no flash".
+            assert_eq!(
+                outcome.as_ref().ok().map(|effects| &effects[..]),
+                match expected {
+                    Admission::Admitted => Some(&[Effect::SafeHardwareShutdown][..]),
+                    Admission::Refused(_) => None,
+                },
+                "{state:?} must emit the shutdown if and only if it admits"
+            );
+            // And a refusal is the one `admit` names, not a different one.
+            assert_eq!(
+                outcome.as_ref().err().copied(),
+                match expected {
+                    Admission::Admitted => None,
+                    Admission::Refused(refusal) => Some(refusal),
+                },
+                "{state:?} must refuse for the reason `admit` gave"
+            );
+        }
     }
 
     /// The shutdown is **not** the latching emergency shutdown.
@@ -368,7 +470,10 @@ mod tests {
     #[test]
     fn a_session_is_not_latched() {
         assert!(
-            !super::begin_session().contains(&Effect::EmergencyShutdown),
+            !matches!(
+                super::begin_session(cc_domain::state::MachineState::PidNormal),
+                Ok(ref effects) if effects.contains(&Effect::EmergencyShutdown)
+            ),
             "an OTA must leave a machine that can still be talked to"
         );
     }

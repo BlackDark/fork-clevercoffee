@@ -2002,6 +2002,8 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
         // loop that runs the heater deadman (REVIEW.md H-8).
         let mut effects = cc_machine::Effects::new();
         let mut commands_applied: u32 = 0;
+        // Set by `Command::OtaBegin` and discharged after `apply`. See the arm.
+        let mut ota_shutdown_pending = false;
         while let Some(command) = commands.recv() {
             info!("control: command {command:?}");
             // Counted, not acked, here: the ack is only honest once the
@@ -2023,12 +2025,24 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
                 // not just `disable_heater`"*. `cc_machine::ota::begin_session`
                 // emits the effect that closes them all.
                 //
-                // It cannot be applied right here — this is the queue-drain loop,
-                // before `apply` runs at step 6 — so it is deferred into `effects`
-                // like every other command, and lands in the same tick.
+                // **Only the request is handled here.** The decision is not, and
+                // that is the fix for the OTA admission race. The httpd task asked
+                // against a telemetry snapshot up to one control period old, and
+                // between that read and this tick the machine stayed live — it
+                // honours a `brew_start` off MQTT or a brew-switch press, and
+                // `BREW_PREINFUSION`'s `onEntryImpl` opens the water valve
+                // (`BrewStates.cpp:67-79`). A verdict is only good for the instant
+                // it was computed, so admission is re-taken below, against the
+                // state this tick's own transitions produced, which is the state
+                // the effects being applied are for.
+                //
+                // So this arm records the *request* and nothing else;
+                // `ota_shutdown_pending` is discharged after `apply`, where the
+                // live state is known and the shutdown can be applied as its own
+                // pass — which is also what makes it ordering-proof.
                 cc_hal_esp32::web::Command::OtaBegin => {
-                    info!("control: OTA session starting — safe hardware shutdown");
-                    effects.extend(&cc_machine::ota::begin_session());
+                    info!("control: OTA session requested — admission re-checked after apply");
+                    ota_shutdown_pending = true;
                 }
                 // The scale commands are the first ones that are **not** inert.
                 // In the C++ they set a flag on a `SensorCoordinator` that has
@@ -2552,6 +2566,55 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
         // MQTT path below already had to do this for the same reason.
         actuators.set_state(control.state());
         cc_machine::apply(&mut actuators, &mut side, control.machine(), &effects);
+
+        // ---- 6b. the OTA session's shutdown, decided and applied last --------
+        //
+        // Two things happen here that could not happen inside the pass above,
+        // and both are the point.
+        //
+        // **One: admission is re-read from the live state.** `effects` is the
+        // queue's list followed by this tick's, applied front to back with no
+        // coalescing (`applier.rs:190-201`). An `OtaBegin` extended into that
+        // list would put `SafeHardwareShutdown` *first*, and anything the same
+        // tick emitted after it — `EnablePump`, `OpenWaterValve` from entering
+        // `BREW_PREINFUSION` — would overwrite it in the same pass. The flash
+        // would then erase 1.8 MB with the pump and the valve open. So the
+        // admission check happens here, against `control.state()` as this tick's
+        // transitions left it, which is the state the pass above just acted on.
+        //
+        // **Two: the shutdown is its own applier pass**, applied after the one
+        // above rather than inside it, so nothing in that pass can re-energise
+        // hardware after it. That is the ordering-proof half, and it is why this
+        // is not folded back into `effects`.
+        //
+        // A refusal is not a dropped effect — it is the answer, and it goes back
+        // to the httpd task, which turns it into a `409` and never calls
+        // `esp_ota_begin`. The same three reboot paths below reach
+        // `SafeHardwareShutdown` directly and deliberately skip admission: a
+        // reboot is asked for by the operator who is already talking to the
+        // machine, and an OTA erase is not something to start mid-brew.
+        if ota_shutdown_pending {
+            match cc_machine::ota::begin_session(control.state()) {
+                Ok(session_effects) => {
+                    info!("control: OTA admitted — safe hardware shutdown");
+                    cc_machine::apply(
+                        &mut actuators,
+                        &mut side,
+                        control.machine(),
+                        &session_effects,
+                    );
+                    net.ota.note_verdict(cc_hal_esp32::ota::Admission::Admitted);
+                }
+                Err(refusal) => {
+                    // **Refuse the flash.** Not "skip the shutdown and carry
+                    // on": the session is dead, and the httpd task is waiting on
+                    // exactly this answer.
+                    warn!("control: OTA refused — {}", refusal.message());
+                    net.ota
+                        .note_verdict(cc_hal_esp32::ota::Admission::Refused(refusal));
+                }
+            }
+        }
 
         // ---- 7b. write down the shot counter, if it moved ---------------------
         //
