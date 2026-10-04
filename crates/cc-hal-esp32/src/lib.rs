@@ -117,6 +117,7 @@ pub mod leds;
 pub mod mqtt;
 pub mod nvs;
 pub mod onewire;
+pub mod ota;
 pub mod pins;
 pub mod provisioning;
 pub mod restart;

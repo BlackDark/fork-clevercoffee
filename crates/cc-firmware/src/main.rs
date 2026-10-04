@@ -1606,6 +1606,16 @@ const TEST_ONLY_INHIBIT: cc_hal_esp32::Inhibit = cc_hal_esp32::Inhibit {
 /// see that the long press did something before the console goes away.
 const REBOOT_DISPLAY_MS: u32 = 1_000;
 
+/// The pause between a successful OTA and the restart, in milliseconds.
+///
+/// `OTA_RESTART_DELAY_MS` (`src/ota.cpp:41`), 1000, and the reason is the same
+/// as the reboot branch's 500 ms: the response has to leave the socket before the
+/// chip resets, or the browser reports a network error instead of the success the
+/// firmware actually achieved. The C++ schedules it with `millis()` arithmetic
+/// (`ota.cpp:456-459`); here it is a `delay` between ticks, which is the same
+/// wait from the same place in the loop.
+const OTA_RESTART_DELAY_MS: u32 = 1_000;
+
 /// How often the PID's own P/I/D and the actuator refusals are logged, in
 /// milliseconds.
 ///
@@ -1987,6 +1997,25 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
             commands_applied += 1;
             match command {
                 cc_hal_esp32::web::Command::Restart => net.shared.set_reboot_requested(),
+                // **S8.** An OTA session has started, so the hardware goes off
+                // before any flash write — the pump, the water valve and the
+                // heater duty, through the real applier, on this task.
+                //
+                // The C++ calls `otaPrepareHardware()`
+                // (`SystemInitializer.cpp:57-63`) directly from the OTA module and
+                // gets `disableTimer1()` plus `disableHeater()`: the pump and the
+                // valve are left in whatever state they were in, which is the gap
+                // 04 §4 names when it says *"OTA must call `safe_hardware_shutdown`,
+                // not just `disable_heater`"*. `cc_machine::ota::begin_session`
+                // emits the effect that closes them all.
+                //
+                // It cannot be applied right here — this is the queue-drain loop,
+                // before `apply` runs at step 6 — so it is deferred into `effects`
+                // like every other command, and lands in the same tick.
+                cc_hal_esp32::web::Command::OtaBegin => {
+                    info!("control: OTA session starting — safe hardware shutdown");
+                    effects.extend(&cc_machine::ota::begin_session());
+                }
                 // The scale commands are the first ones that are **not** inert.
                 // In the C++ they set a flag on a `SensorCoordinator` that has
                 // no scale registered (`WebServerManager.cpp:540-580`,
@@ -2694,6 +2723,29 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
         // handler. A handler that called `esp_restart` directly could reset the
         // machine from inside a request; this is between ticks, after the
         // watchdog has been fed.
+        // A **successful OTA** asks for its own restart, through the same
+        // between-ticks path as `POST /api/restart` and for the same reason: a
+        // handler that called `esp_restart` itself would reset the machine from
+        // inside a request, abandoning the `200` the operator's browser is still
+        // reading (`ota.cpp:461` schedules the restart for exactly this reason:
+        // *"Restart only after the response has been handed to the client"*).
+        //
+        // The hardware is already off — `Command::OtaBegin` shut it down before
+        // the first flash byte — and the shutdown is applied again below, which
+        // is cheap and is the same belt-and-braces the reboot branch takes.
+        if net.ota.take_restart() {
+            info!("control: OTA completed — restarting into the new image");
+            let machine = *control.machine();
+            cc_machine::apply_one(
+                &mut actuators,
+                &mut side,
+                &machine,
+                cc_machine::Effect::SafeHardwareShutdown,
+            );
+            FreeRtos::delay_ms(OTA_RESTART_DELAY_MS);
+            restart_now();
+        }
+
         if net.shared.take_reboot_request() {
             info!("control: reboot requested — restarting");
             // **Shut the hardware down first.** The power-switch branch below

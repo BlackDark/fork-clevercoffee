@@ -10,12 +10,12 @@
 //! | [`PartReader`] | A streaming `multipart/form-data` splitter. It is a byte-level state machine over the request body, and it is where the memory argument lives — see below. |
 //! | [`Kind`], [`extension_allowed`] | `validateFileExtension` (`src/ota.cpp:186-193`), verbatim. |
 //! | [`fits`], [`MAX_FIRMWARE_BYTES`] | The size rule. `esp_ota_begin` takes an image size; a 1.6 MB image on a 1,835,008 B slot is 87 % full, and the C++ discovers that by erasing the whole partition first and failing afterwards. |
-//! | [`status_json`] | `handleStatus`'s document (`ota.cpp:726-756`), now carrying real values. |
+//! | `Status::status_json` | `handleStatus`'s document (`ota.cpp:726-756`), now carrying real values. |
 //!
 //! | In `cc-hal-esp32` | Why |
 //! | --- | --- |
 //! | `esp_ota_*` / `esp_partition_*` calls, the socket read loop, the restart | FFI and a socket. Neither is reachable from a host, and neither is where the decisions are. |
-//! | **the admission check** | it needs `cc_safety` and the live state; it is [`cc_machine::ota::admit`] and it is host-tested there. |
+//! | **the admission check** | it needs `cc_safety` and the live state; it is `cc_machine::ota::admit` and it is host-tested there. |
 //!
 //! # The memory argument, in one place
 //!
@@ -33,7 +33,7 @@
 //!
 //! and the heap high-water mark of an upload is **the size of one chunk**,
 //! independent of the image. [`PartReader`] holds a carry of
-//! `boundary.len() + 4` bytes ([`CARRY_SLACK`]) — under 80 for any legal
+//! `boundary.len() + 4` bytes — under 80 for any legal
 //! boundary — because a multipart delimiter may straddle two reads and the last
 //! few bytes cannot be emitted until it is known not to be one. Everything else
 //! goes straight through.
@@ -436,7 +436,7 @@ impl PartReader {
     ///
     /// [`ReadError::HeadersTooLong`] on a part header block past
     /// [`MAX_PART_HEADER_BYTES`], and [`ReadError::Truncated`] when the body ends
-    /// with the reader still in [`Stage::Preamble`] — no boundary was ever seen,
+    /// with the reader still before the opening delimiter — no boundary was ever seen,
     /// so nothing was written and there is nothing to report but a bad request.
     pub fn push(
         &mut self,
@@ -893,5 +893,370 @@ mod tests {
         assert!(fits(Kind::Firmware, Kind::Firmware.min_accepted()));
         assert!(fits(Kind::Filesystem, Kind::Filesystem.min_accepted()));
         assert!(!fits(Kind::Filesystem, Kind::Firmware.min_accepted()));
+    }
+}
+
+// ============================================================ /api/ota/status
+
+/// Where an update is in its lifecycle.
+///
+/// The six names `z.enum([...])` accepts in
+/// `OtaStatusSchema` (`ui/packages/frontend/src/lib/schemas.ts:59-72`), and the
+/// C++'s `Status` enum (`ota.h:29-36`) — which carries a seventh member,
+/// `Queued`, that the schema rejects.
+///
+/// # The `queued` problem, stated because it is a real one
+///
+/// The C++ sets `Status::Queued` for the window between "a URL update was
+/// accepted" and "the download starts" (`ota.cpp:816`), and serialises it as an
+/// **integer** (its `Status` has no string conversion), which the UI's
+/// `z.enum` of strings rejects anyway — finding 3.4's note that the C++'s wire
+/// type is already a divergence. So `queued` is **not** represented here: a
+/// queued URL update reports `status: "idle"` with `updateInProgress: true`,
+/// which the UI renders correctly, because what it draws for `queued` is the same
+/// progress bar it draws for `idle` plus an `updateInProgress` check
+/// (`OTAUpdateSection.tsx:145-152`).
+///
+/// Modelling it as a seventh variant would mean a status string the UI's schema
+/// rejects — a document that fails its own consumer's validation, which is worse
+/// than reporting the phase through the flag that already carries it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Phase {
+    /// Nothing is happening.
+    #[default]
+    Idle,
+    /// Bytes are arriving from a URL.
+    Downloading,
+    /// Bytes are arriving from a browser upload.
+    Uploading,
+    /// The payload is complete and the flash is being finalised.
+    Processing,
+    /// Finished, successfully.
+    Complete,
+    /// Finished, unsuccessfully.
+    Error,
+}
+
+impl Phase {
+    /// The wire string, which is what `OtaStatusSchema` validates.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Idle => "idle",
+            Self::Downloading => "downloading",
+            Self::Uploading => "uploading",
+            Self::Processing => "processing",
+            Self::Complete => "complete",
+            Self::Error => "error",
+        }
+    }
+}
+
+/// The values `GET /api/ota/status` reports.
+///
+/// A plain value rather than a reader of the HAL's session, so the document is a
+/// function of five numbers and a phase — which is what makes it host-testable
+/// against the UI's schema, the thing that actually broke when the C++'s wire
+/// type and the UI's expectation disagreed.
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct Status {
+    /// The lifecycle phase.
+    pub phase: Phase,
+    /// 0–100.
+    pub progress: u8,
+    /// Payload bytes written so far.
+    pub uploaded: usize,
+    /// Payload bytes expected, or 0 when not yet known.
+    pub total: usize,
+    /// The last error, if any. The C++ only sets this on a failure
+    /// (`ota.cpp:744-751`) and the UI reads it as `status.error || status.message`.
+    pub error: Option<StatusMessage>,
+}
+
+/// Why a status carries a message, without carrying the text.
+///
+/// A borrowed `&'static str` from a closed set, so a `Status` stays `Copy`-cheap
+/// and cannot smuggle a heap allocation into the httpd task — which is the
+/// ADR-0002 discipline applied to a type rather than to a function.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StatusMessage {
+    /// A reader failed before any byte was written.
+    Read(ReadError),
+    /// The extension rule refused the filename.
+    BadExtension(Kind),
+    /// The payload was the wrong size for its slot.
+    BadSize(Kind),
+    /// `cc_machine::ota::FlashRefusal`'s message.
+    Refused(&'static str),
+    /// An `esp_ota_*` / `esp_partition_*` call failed.
+    Flash,
+    /// `esp_ota_end` refused the image.
+    Invalid,
+}
+
+impl StatusMessage {
+    /// The operator-facing text, in the C++'s error-string voice.
+    ///
+    /// These are the strings `setUploadResult(500, …)` would have carried
+    /// (`ota.cpp:203,213`), so the UI's toast shows the same words for the same
+    /// class of failure.
+    #[must_use]
+    pub const fn message(self) -> &'static str {
+        match self {
+            Self::Read(ReadError::HeadersTooLong) => {
+                "Malformed upload: the part headers are too long."
+            }
+            Self::Read(ReadError::Truncated) => "Upload ended before the file was complete.",
+            Self::Read(ReadError::NoPart) => "No file was found in the upload.",
+            Self::BadExtension(Kind::Firmware) => "Invalid firmware file. Expected .bin extension.",
+            Self::BadExtension(Kind::Filesystem) => {
+                "Invalid filesystem file. Expected .bin or .img extension."
+            }
+            Self::BadSize(_) => "The file is too large or too small for this partition.",
+            Self::Refused(text) => text,
+            Self::Flash => "Writing to flash failed.",
+            Self::Invalid => "The uploaded file is not a valid firmware image.",
+        }
+    }
+}
+
+impl Status {
+    /// The C++'s `isUpdateInProgress()` (`ota.cpp:830`): anything but idle,
+    /// complete and error.
+    ///
+    /// A separate question from [`Self::is_updating`], and the C++ keeps them
+    /// apart too: `updating` is `Update.isRunning() || isUpdateStarted()` and
+    /// `updateInProgress` is the same test on the *state* only
+    /// (`ota.cpp:737-738`).
+    #[must_use]
+    pub const fn is_in_progress(&self) -> bool {
+        !matches!(self.phase, Phase::Idle | Phase::Complete | Phase::Error)
+    }
+
+    /// `updating`: bytes are moving.
+    #[must_use]
+    pub const fn is_updating(&self) -> bool {
+        matches!(
+            self.phase,
+            Phase::Downloading | Phase::Uploading | Phase::Processing
+        )
+    }
+
+    /// `GET /api/ota/status`, the C++'s `handleStatus` document
+    /// (`ota.cpp:726-756`).
+    ///
+    /// Every key the C++ emits is present, at its real value: `updating`,
+    /// `updateInProgress`, `progress`, `status`, `type`, `uploadedSize`,
+    /// `totalSize`, `filesystemPartition` and, on a failure, `error`. The UI's
+    /// `OtaStatusSchema` requires `status`, `progress` and `updateInProgress`, so
+    /// omitting any of them makes `pollOtaStatus` return `null` and the OTA page
+    /// cannot render at all.
+    #[must_use]
+    pub fn status_json(&self) -> String {
+        let mut json = String::with_capacity(224);
+        json.push_str("{\"success\":true,\"updating\":");
+        let _ = write!(json, "{}", self.is_updating());
+        json.push_str(",\"updateInProgress\":");
+        let _ = write!(json, "{}", self.is_in_progress());
+        json.push_str(",\"progress\":");
+        let _ = write!(json, "{}", self.progress);
+        json.push_str(",\"status\":\"");
+        json.push_str(self.phase.as_str());
+        json.push_str("\",\"uploadedSize\":");
+        let _ = write!(json, "{}", self.uploaded);
+        json.push_str(",\"totalSize\":");
+        let _ = write!(json, "{}", self.total);
+        json.push_str(",\"filesystemPartition\":\"");
+        json.push_str(Kind::STATUS_LABEL);
+        json.push('"');
+        if let Some(error) = self.error {
+            json.push_str(",\"error\":\"");
+            json.push_str(error.message());
+            json.push('"');
+        }
+        json.push('}');
+        json
+    }
+}
+
+#[cfg(test)]
+mod status_tests {
+    use super::{Kind, Phase, ReadError, Status, StatusMessage};
+    use alloc::string::String;
+
+    /// The UI's schema, transcribed.
+    ///
+    /// The whole point of this test: `pollOtaStatus` runs the body through
+    /// `OtaStatusSchema.safeParse` and returns `null` on failure
+    /// (`ui/.../api.ts`, `OTAUpdateSection.tsx:56-62`), so a status document the
+    /// schema rejects is an OTA page that cannot render. `serde_json` is already a
+    /// dev-dependency of this crate, so the enum really is checked rather than
+    /// described.
+    fn parses_in_the_ui(name: &str, json: &str) -> bool {
+        let parsed: serde_json::Value = serde_json::from_str(json).expect("valid JSON");
+        let allowed = [
+            "idle",
+            "downloading",
+            "uploading",
+            "processing",
+            "complete",
+            "error",
+        ];
+        let status = parsed["status"].as_str().unwrap_or_default();
+        assert!(
+            allowed.contains(&status),
+            "{name}: status {status:?} is not in the UI enum"
+        );
+        parsed["progress"].is_number()
+            && parsed["updateInProgress"].is_boolean()
+            && parsed["updating"].is_boolean()
+    }
+
+    #[test]
+    fn an_idle_status_parses_and_reports_nothing_running() {
+        let json = Status::default().status_json();
+        assert!(parses_in_the_ui("idle", &json));
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["updating"], false);
+        assert_eq!(parsed["updateInProgress"], false);
+        assert_eq!(parsed["progress"], 0);
+        assert_eq!(parsed["filesystemPartition"], "spiffs");
+        assert!(
+            parsed.get("error").is_none(),
+            "an idle status is not an error: {json}"
+        );
+    }
+
+    #[test]
+    fn every_phase_parses_in_the_ui_schema() {
+        for phase in [
+            Phase::Idle,
+            Phase::Downloading,
+            Phase::Uploading,
+            Phase::Processing,
+            Phase::Complete,
+            Phase::Error,
+        ] {
+            let status = Status {
+                phase,
+                progress: 42,
+                uploaded: 700_000,
+                total: 1_675_952,
+                error: None,
+            };
+            let json = status.status_json();
+            assert!(parses_in_the_ui(phase.as_str(), &json), "{json}");
+            let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+            assert_eq!(parsed["progress"], 42);
+            assert_eq!(parsed["uploadedSize"], 700_000);
+            assert_eq!(parsed["totalSize"], 1_675_952);
+        }
+    }
+
+    /// `updating` and `updateInProgress` are different questions and the C++
+    /// answers both (`ota.cpp:737-738`).
+    #[test]
+    fn updating_and_update_in_progress_are_distinct_questions() {
+        let uploading = Status {
+            phase: Phase::Uploading,
+            progress: 10,
+            uploaded: 0,
+            total: 0,
+            error: None,
+        };
+        assert!(uploading.is_updating());
+        assert!(uploading.is_in_progress());
+
+        let complete = Status {
+            phase: Phase::Complete,
+            ..Status::default()
+        };
+        assert!(
+            !complete.is_updating(),
+            "nothing is moving after completion"
+        );
+        assert!(
+            !complete.is_in_progress(),
+            "and the UI must be able to start the next update"
+        );
+
+        let error = Status {
+            phase: Phase::Error,
+            error: Some(StatusMessage::Flash),
+            ..Status::default()
+        };
+        assert!(
+            !error.is_in_progress(),
+            "a failed update is not in progress"
+        );
+    }
+
+    #[test]
+    fn a_failure_carries_its_message_and_an_idle_one_does_not() {
+        let status = Status {
+            phase: Phase::Error,
+            progress: 0,
+            uploaded: 12_345,
+            total: 1_675_952,
+            error: Some(StatusMessage::Read(ReadError::Truncated)),
+        };
+        let parsed: serde_json::Value = serde_json::from_str(&status.status_json()).unwrap();
+        assert_eq!(parsed["status"], "error");
+        assert_eq!(
+            parsed["error"], "Upload ended before the file was complete.",
+            "the UI shows this verbatim in its toast"
+        );
+    }
+
+    /// Every message variant reaches the operator as non-empty text.
+    #[test]
+    fn every_status_message_says_something() {
+        for message in [
+            StatusMessage::Read(ReadError::HeadersTooLong),
+            StatusMessage::Read(ReadError::Truncated),
+            StatusMessage::Read(ReadError::NoPart),
+            StatusMessage::BadExtension(Kind::Firmware),
+            StatusMessage::BadExtension(Kind::Filesystem),
+            StatusMessage::BadSize(Kind::Firmware),
+            StatusMessage::BadSize(Kind::Filesystem),
+            StatusMessage::Refused("Cannot start an update while brewing."),
+            StatusMessage::Flash,
+            StatusMessage::Invalid,
+        ] {
+            assert!(!message.message().is_empty(), "{message:?} has no text");
+        }
+    }
+
+    /// The extension messages are the C++'s, word for word.
+    #[test]
+    fn the_extension_messages_are_the_cpps_strings() {
+        assert_eq!(
+            StatusMessage::BadExtension(Kind::Firmware).message(),
+            "Invalid firmware file. Expected .bin extension."
+        );
+        assert_eq!(
+            StatusMessage::BadExtension(Kind::Filesystem).message(),
+            "Invalid filesystem file. Expected .bin or .img extension."
+        );
+    }
+
+    /// The document is a `String` of a known, small size.
+    ///
+    /// Not a performance assertion: it is the ADR-0002 shape. This body is built
+    /// once per poll on the httpd task, and a status document that grew with the
+    /// error message would be a document whose size the caller does not control.
+    #[test]
+    fn the_status_document_stays_small() {
+        let status = Status {
+            phase: Phase::Error,
+            progress: 100,
+            uploaded: 1_675_952,
+            total: 1_675_952,
+            error: Some(StatusMessage::Refused(
+                "Cannot start an update while water is flowing.",
+            )),
+        };
+        let json: String = status.status_json();
+        assert!(json.len() < 320, "the status document is {} B", json.len());
     }
 }

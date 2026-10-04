@@ -17,7 +17,7 @@
 //!
 //! An OTA is requested over HTTP, on the httpd task. That task **cannot**
 //! actuate anything: the actuators belong to the control task, and every other
-//! route reaches hardware the same way — a [`Command`] the control task drains on
+//! route reaches hardware the same way — a `cc_web::Command` the control task drains on
 //! its next tick. So "may I flash right now?" cannot be answered where the
 //! request arrives; it can only be answered *about the state the machine is
 //! actually in*. [`admit`] is that answer: a `MachineState` in, an admission out,
@@ -25,7 +25,7 @@
 //!
 //! That makes the whole safety decision a host test, which is the only reason to
 //! trust it. The alternative — asking "is the pump on?" from the httpd task —
-//! would be answered against a [`Telemetry`] snapshot up to one control period
+//! would be answered against a telemetry snapshot up to one control period
 //! stale, and finding 2.1 of the same review is a reminder of what a stale
 //! snapshot once cost this firmware.
 //!
@@ -36,7 +36,7 @@
 //! LEDs off, **not** latched*. The effect existed at
 //! [`effect.rs`](crate::effect::Effect::SafeHardwareShutdown) and was emitted by
 //! exactly one caller, `PowerHandler`'s power-off
-//! ([`handlers::power_off`](crate::handlers::power_off)). It was unused **by the
+//! (`PowerHandler`'s power-off). It was unused **by the
 //! OTA**, which is the gap finding 3.3 records; the two reboot paths in
 //! `cc-firmware/src/main.rs` also apply it directly, which is the same rule
 //! written twice.
@@ -49,7 +49,6 @@
 //! able to run again — which is what an OTA wants, because an OTA that fails
 //! halfway must leave a machine the operator can still talk to.
 //!
-//! [`Command`]: cc_web::telemetry::Command
 //!
 //! # What the C++ does, and why this is stricter
 //!
@@ -72,7 +71,7 @@
 //! Both differences here are strictly safer, and both are recorded in
 //! `intentional-diffs.md`:
 //!
-//! * [`begin_session`] emits the full shutdown — pump, valve **and** heater —
+//! * `begin_session` emits the full shutdown — pump, valve **and** heater —
 //!   through the real applier, not a direct `disableHeater()`.
 //! * [`admit`] refuses while water or steam is flowing, which the C++ never
 //!   does.

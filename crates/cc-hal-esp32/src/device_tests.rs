@@ -31,7 +31,7 @@
 //! register it is a build failure, not a quietly skipped test.
 
 use crate::{
-    actuators, display, heap, provisioning, scale, switches, task, telnet, time, web, wifi,
+    actuators, display, heap, ota, provisioning, scale, switches, task, telnet, time, web, wifi,
 };
 
 /// One registered unit test: the name the console shows, and the function to
@@ -482,5 +482,25 @@ pub const CASES: &[Case] = &[
     Case {
         name: "wifi::an_over_long_ssid_is_refused_rather_than_truncated",
         run: wifi::tests::an_over_long_ssid_is_refused_rather_than_truncated,
+    },
+    Case {
+        name: "ota::percent_matches_the_cpps_arithmetic",
+        run: ota::tests::percent_matches_the_cpps_arithmetic,
+    },
+    Case {
+        name: "ota::a_session_refuses_a_second_claim_while_one_is_running",
+        run: ota::tests::a_session_refuses_a_second_claim_while_one_is_running,
+    },
+    Case {
+        name: "ota::a_finished_update_asks_for_exactly_one_restart",
+        run: ota::tests::a_finished_update_asks_for_exactly_one_restart,
+    },
+    Case {
+        name: "ota::a_failure_does_not_ask_for_a_restart",
+        run: ota::tests::a_failure_does_not_ask_for_a_restart,
+    },
+    Case {
+        name: "ota::the_status_reports_progress_as_bytes_arrive",
+        run: ota::tests::the_status_reports_progress_as_bytes_arrive,
     },
 ];

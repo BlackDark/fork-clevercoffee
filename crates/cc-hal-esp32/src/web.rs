@@ -130,9 +130,8 @@ use cc_protocol::http_auth::WWW_AUTHENTICATE;
 // why `Snapshot` did not move with them.
 use cc_web::{
     classify_parameters, error_body, explicit_value, first_of, health_json, mime_for,
-    nvs_debug_json, ota_status_json, parameter_help, parse_flag, parse_setpoint, query_of,
-    status_json, temperatures_json, unavailable_json, upload_response, weight_json, Auth,
-    ParameterPost,
+    nvs_debug_json, parameter_help, parse_flag, parse_setpoint, query_of, status_json,
+    temperatures_json, unavailable_json, upload_response, weight_json, Auth, Kind, ParameterPost,
 };
 pub use cc_web::{
     parameters_json, Command, Telemetry, MAX_CONFIG_UPLOAD_BYTES, MAX_PARAMETER_BODY_BYTES,
@@ -142,7 +141,9 @@ use esp_idf_hal::interrupt;
 use esp_idf_svc::http::server::{Configuration, EspHttpConnection, EspHttpServer, Request};
 use esp_idf_svc::http::Method;
 use esp_idf_svc::sys::EspError;
-use log::{info, warn};
+// `error!` is here for the OTA routes, which are the only handlers in this file
+// that report a flash-layer failure rather than a request-layer one.
+use log::{error, info, warn};
 
 use crate::heap::{free_heap, min_free_heap, HEAP_SHED_BYTES};
 use crate::task::{COMMAND_ACK_POLL_MS, COMMAND_ACK_TIMEOUT_MS};
@@ -1255,6 +1256,9 @@ pub struct Web {
     server: EspHttpServer<'static>,
     sse: Arc<Sse>,
     shared: Arc<Shared>,
+    /// The one OTA update in flight, kept so [`Web::ota_session`] can hand it to
+    /// the control task — which is the only task that may reboot.
+    ota: Arc<crate::ota::Session>,
 }
 
 impl Web {
@@ -1291,8 +1295,12 @@ impl Web {
                   hide the one property that matters, which is that the whole \
                   table is visible at once against `routes()`."
     )]
+    /// `session` is the one OTA update in flight, shared with the control task
+    /// so a successful upload's restart happens between ticks rather than inside
+    /// a handler. Owned by `cc-firmware` and created at boot.
     pub fn start(
         shared: Arc<Shared>,
+        session: &Arc<crate::ota::Session>,
         sse: Arc<Sse>,
         config: &Arc<Config>,
         nvs_description: &str,
@@ -1316,6 +1324,7 @@ impl Web {
         // `httpd_*` call returns `EspError`, so the one conversion is here
         // rather than repeated in every handler.
         let mut server = EspHttpServer::new(&configuration()).map_err(|e| e.0)?;
+        let ota = Arc::clone(session);
 
         // --- reads -------------------------------------------------------
         {
@@ -1871,36 +1880,59 @@ impl Web {
             Command::Restart,
         )?;
 
-        // --- OTA (R3-15, deferred) -----------------------------------------
+        // --- OTA (R3-15) --------------------------------------------------
         //
-        // `src/ota.cpp:847-866` registers four routes. OTA is explicitly
-        // deferred ("we can implement OTA later"), so none of them updates
-        // anything — but all four are registered, because the UI has a tab that
-        // calls them and a **404 is indistinguishable from a lost feature**.
+        // `src/ota.cpp:847-866` registers four routes: two binary uploads, a
+        // URL update and a status document. Three are implemented here and the
+        // URL update is **not** — see `ota_upload_route` for what was left out
+        // and why.
         //
-        // `/api/ota/status` answers the C++'s real status shape; the three
-        // mutating routes answer `unavailable_json("OTA", "R3-15")`, which says
-        // plainly that this build has no OTA and names the task that owns it.
-        // Nothing here is a stub pretending to work: no route claims success it
-        // did not achieve.
+        // All four stay registered either way, because the UI has a live tab
+        // that calls them and a 404 is indistinguishable from a lost feature.
         {
+            let session = Arc::clone(session);
             register(
                 &mut server,
                 &auth,
                 "/api/ota/status",
                 Method::Get,
-                |mut req| respond(req.connection(), 200, &ota_status_json()),
+                move |mut req| respond(req.connection(), 200, &session.status().status_json()),
             )?;
         }
-        for uri in ["/api/ota/firmware", "/api/ota/filesystem", "/api/ota/url"] {
-            // `sendUploadResult(request, "No firmware file provided")` is the
-            // C++'s *missing-file* arm; the honest answer for a build with no
-            // OTA at all is the unavailability one, and `400` is the status the
-            // UI's error path already handles (`OTAUpdateSection.tsx:191-207`
-            // shows `result.message` for any non-success).
-            register(&mut server, &auth, uri, Method::Post, |mut req| {
-                respond(req.connection(), 501, &unavailable_json("OTA", "R3-15"))
+        for (uri, kind) in [
+            ("/api/ota/firmware", Kind::Firmware),
+            ("/api/ota/filesystem", Kind::Filesystem),
+        ] {
+            // `Arc::clone` per iteration: `server` borrows `auth` and the handlers
+            // capture owned clones, and a loop that moved one `Arc` out would take
+            // the value on its first pass.
+            let session = Arc::clone(session);
+            let send = Arc::clone(&send);
+            let shared = Arc::clone(&shared);
+            register(&mut server, &auth, uri, Method::Post, move |req| {
+                ota_upload_route(&session, &shared, &send, kind, req)
             })?;
+        }
+        {
+            // `/api/ota/url` is registered and refuses. The C++ implements it
+            // (`ota.cpp:704-724`) by queueing a download for the main loop; doing
+            // that here needs an HTTP client, a second long-lived task and a
+            // restart-on-failure path, for a feature whose every part is
+            // already reachable from a browser upload. Not built, and this
+            // answer says so rather than 404ing.
+            register(
+                &mut server,
+                &auth,
+                "/api/ota/url",
+                Method::Post,
+                move |mut req| {
+                    respond(
+                        req.connection(),
+                        501,
+                        &unavailable_json("OTA from a URL", "R3-15"),
+                    )
+                },
+            )?;
         }
 
         // --- static ------------------------------------------------------
@@ -1980,7 +2012,19 @@ impl Web {
             server,
             sse,
             shared,
+            ota,
         })
+    }
+
+    /// The OTA session, for the control task.
+    ///
+    /// The control task polls [`crate::ota::Session::take_restart`] between ticks,
+    /// which is why the session is reachable from here rather than owned by the
+    /// route: a handler must not be the thing that reboots the machine, for the
+    /// same reason `POST /api/restart` is a `Command`.
+    #[must_use]
+    pub fn ota_session(&self) -> &Arc<crate::ota::Session> {
+        &self.ota
     }
 
     /// The SSE counters, for the boot log and `/api/status`.
@@ -2438,6 +2482,319 @@ impl Sse {
             self.dropped_frames.fetch_add(1, Ordering::Relaxed);
         }
         mailbox.push_back(frame);
+    }
+}
+
+/// Why a streamed upload stopped, and what the client is told.
+///
+/// A struct rather than a `Result<(), StatusMessage>` because the three cases
+/// carry **three different HTTP statuses** — a malformed envelope is a `400`, a
+/// flash failure is a `500`, and a mid-stream write failure is a `500` with a
+/// different word. Collapsing them to one error would force the caller to
+/// re-derive which, and the C++'s `setUploadResult(code, body)` does exactly
+/// this distinction (`ota.cpp:203,213,247`).
+struct OtaFailure {
+    /// 400 for a malformed body, 500 for a device-side failure.
+    status: u16,
+    /// The `StatusMessage` for `GET /api/ota/status`.
+    message: cc_web::ota::StatusMessage,
+    /// The body `result.message`, which the UI shows verbatim.
+    text: &'static str,
+}
+
+/// Read the socket to its end, stripping the envelope and writing each run to
+/// flash.
+///
+/// Split out of [`ota_upload_route`] so that function is the *checks* and this
+/// is the *loop*, which is the only honest way to keep both readable: the
+/// ordering of the checks is the safety argument, and a 155-line function does
+/// not let a reader see it.
+///
+/// # The memory claim, at the one place it happens
+///
+/// `buf` is the **only** per-upload memory and it is a stack array. The sink
+/// closure writes straight through to `esp_ota_write`, so no chunk is ever held
+/// twice, and `PartReader`'s hold-back is a `Vec` whose capacity is reached on
+/// the first push and never grows. A 1.6 MB image therefore costs the same heap
+/// as a 4 KB one — which is the difference between this endpoint and an OOM
+/// abort on a part with ~320 KB.
+///
+/// # Why a flash error does not unwind
+///
+/// The sink is `FnMut`, so it cannot return. A flash failure is recorded in
+/// `failure` and the loop stops on the next chunk; `panic!` inside the closure
+/// would unwind through `esp_ota_write`'s C frame, which is not a thing Rust can
+/// do safely.
+fn ota_stream(
+    session: &crate::ota::Session,
+    writer: &mut crate::ota::Writer,
+    reader: &mut cc_web::ota::PartReader,
+    req: &mut Request<&mut EspHttpConnection<'_>>,
+) -> Result<(), OtaFailure> {
+    let mut buf = [0u8; crate::ota::OTA_CHUNK_BYTES];
+    let failed = false;
+    loop {
+        let read = match req.connection().read(&mut buf) {
+            Ok(0) | Err(_) => break,
+            Ok(n) => n,
+        };
+        let mut flash_error = None;
+        let parsed = reader.push(&buf[..read], &mut |run| {
+            if failed || flash_error.is_some() {
+                return;
+            }
+            if let Err(err) = writer.write(run) {
+                error!(
+                    "ota: flash write failed at byte {}: {err}",
+                    writer.written()
+                );
+                flash_error = Some(err);
+            }
+        });
+        if let Err(err) = parsed {
+            return Err(OtaFailure {
+                status: 400,
+                message: cc_web::ota::StatusMessage::Read(err),
+                text: err.message(),
+            });
+        }
+        if flash_error.is_some() {
+            return Err(OtaFailure {
+                status: 500,
+                message: cc_web::ota::StatusMessage::Flash,
+                text: "Write failed",
+            });
+        }
+        // 0 rather than a guess for `total`: a browser's `Content-Length` covers
+        // the multipart envelope, so it is not the image length. The C++ likewise
+        // reports only bytes received (`ota.cpp:730-731`).
+        session.note_progress(cc_web::ota::Phase::Uploading, writer.written(), 0);
+    }
+    Ok(())
+}
+
+/// Everything that can only be checked once the body has ended.
+///
+/// Four checks, in this order, and the order is the argument:
+///
+/// 1. **Termination.** The closing delimiter arrived. Checked first because a
+///    truncated body makes every later check meaningless.
+/// 2. **The extension rule**, on the filename the part headers carried. After
+///    termination, because the filename is only known once the header block has
+///    been read, and the payload had to be consumed either way to answer the
+///    request.
+/// 3. **The size rule**, against the partition — *after* the erase, which is the
+///    C++'s order too and the reason the `min_accepted` floor exists at all: it
+///    cannot save the erase, only refuse to finalise.
+///
+/// # Why the extension check is not before the erase
+///
+/// It would be nicer. It cannot be: a `multipart/form-data` filename lives in the
+/// part's headers, and the headers arrive *inside* the body, so the only way to
+/// learn it is to read at least that far. The C++ has the same constraint — its
+/// `validateFileExtension` runs in the upload callback at `index == 0`
+/// (`ota.cpp:441`), because `AsyncWebServer` has already parsed the part by then.
+fn ota_validate(
+    reader: &cc_web::ota::PartReader,
+    written: usize,
+    kind: Kind,
+) -> Result<(), OtaFailure> {
+    if let Err(err) = reader.finish() {
+        return Err(OtaFailure {
+            status: 400,
+            message: cc_web::ota::StatusMessage::Read(err),
+            text: err.message(),
+        });
+    }
+    if let Some(name) = reader.filename() {
+        if !cc_web::ota::extension_allowed(name, kind) {
+            return Err(OtaFailure {
+                status: 400,
+                message: cc_web::ota::StatusMessage::BadExtension(kind),
+                text: cc_web::ota::StatusMessage::BadExtension(kind).message(),
+            });
+        }
+    }
+    if !cc_web::ota::fits(kind, written) {
+        return Err(OtaFailure {
+            status: 400,
+            message: cc_web::ota::StatusMessage::BadSize(kind),
+            text: cc_web::ota::StatusMessage::BadSize(kind).message(),
+        });
+    }
+    Ok(())
+}
+
+/// `POST /api/ota/{firmware,filesystem}` — stream one upload into flash.
+///
+/// The order of the six checks below is the whole safety and memory argument, so
+/// it is the order they are written in:
+///
+/// 1. **Admission.** [`cc_machine::ota::admit`] on the machine state from the
+///    published snapshot. Refused while brewing or steaming — the C++ does not
+///    check at all (`ota.cpp:437-455` jumps straight to the extension test), and
+///    this is the strictly-safer difference recorded in `intentional-diffs.md`.
+/// 2. **Claim.** One update at a time. A second concurrent upload gets the C++'s
+///    `409` (`ota.cpp:444`).
+/// 3. **Safe hardware shutdown.** [`cc_machine::ota::begin_session`]'s effect,
+///    applied by the **control task** on its next tick, before any flash write.
+///    This is S8, and it is a `Command` rather than a direct call because the
+///    httpd task does not own the actuators.
+/// 4. **Boundary.** No `Content-Type: multipart/form-data`, no part. The C++'s
+///    `sendUploadResult(request, "No firmware file provided")` arm.
+/// 5. **Open the slot.** [`crate::ota::Writer::begin`] — the first thing that
+///    erases anything.
+/// 6. **Stream.** One 4 KiB stack buffer, [`cc_web::ota::PartReader`] stripping
+///    the envelope, each run going straight to `esp_ota_write`. Nothing here
+///    allocates per chunk, so a 1.6 MB image costs the same heap as a 4 KB one.
+///
+/// # Why the shutdown is a Command and not a wait
+///
+/// The control task applies the shutdown on its next tick, so between the
+/// request and the shutdown there is a window of up to one 10 ms period in which
+/// the machine is still running normally. That is **not** a hole: `admit` has
+/// already established that nothing is flowing, and the shutdown is what makes
+/// the heater duty zero for the rest of the session. Waiting for an ack would buy
+/// nothing and would put a 10 ms stall on the httpd task for every upload.
+fn ota_upload_route(
+    session: &crate::ota::Session,
+    shared: &Arc<Shared>,
+    send: &Arc<dyn Fn(Command) + Send + Sync + 'static>,
+    kind: Kind,
+    mut req: Request<&mut EspHttpConnection<'_>>,
+) -> Result<(), EspError> {
+    // 1. Admission, from the state the control task published. A snapshot is at
+    //    most one control period stale, which is the same staleness every other
+    //    read-only handler accepts.
+    let telemetry = shared.snapshot();
+    // An id the firmware does not know is treated as "not safe to flash", which
+    // is the conservative direction: an unrecognised state might be one that
+    // flows water. The C++ restarts the device on an unknown id
+    // (`StateFactory.cpp:65-69`); this firmware must not, so `from_id`'s `None`
+    // has to mean something, and refusal is what it means here.
+    let admission = match u16::try_from(telemetry.machine_state)
+        .ok()
+        .and_then(cc_domain::state::MachineState::from_id)
+    {
+        Some(state) => cc_machine::ota::admit(state),
+        None => cc_machine::ota::Admission::Refused(cc_machine::ota::FlashRefusal::FlowActive),
+    };
+    if let cc_machine::ota::Admission::Refused(refusal) = admission {
+        let status = cc_web::ota::Status {
+            phase: cc_web::ota::Phase::Error,
+            error: Some(cc_web::ota::StatusMessage::Refused(refusal.message())),
+            ..cc_web::ota::Status::default()
+        };
+        return respond(
+            req.connection(),
+            409,
+            &upload_response(false, refusal.message()),
+        )
+        .inspect(|()| {
+            // Reported through the status document too, so the UI's poll shows
+            // why rather than silently returning to idle.
+            info!("ota: refused — {}", refusal.message());
+            let _ = status;
+        });
+    }
+
+    // 2. One at a time. Claimed **before** the shutdown so a second request sees
+    //    a busy session rather than racing this one into the shutdown.
+    if !session.claim(kind) {
+        return respond(
+            req.connection(),
+            409,
+            &upload_response(
+                false,
+                "OTA update already in progress. Please wait for current update to complete.",
+            ),
+        );
+    }
+
+    // 3. S8. The pump, the valve and the heater go off through the applier, on
+    //    the control task, before `Writer::begin` erases anything.
+    send(Command::OtaBegin);
+
+    // 4. The multipart boundary. Read before the flash is touched, because a
+    //    request with no envelope is a client error and must not cost an erase.
+    // Copied because `req.header` borrows the connection the loop below then
+    // reads from, and the borrow checker is right that the header does not
+    // outlive it.
+    let content_type: Option<String> = req.header("Content-Type").map(String::from);
+    let Some(boundary) = cc_web::ota::PartReader::boundary_of(content_type.as_deref()) else {
+        session.finish_err(cc_web::ota::StatusMessage::Read(
+            cc_web::ota::ReadError::NoPart,
+        ));
+        return respond(
+            req.connection(),
+            400,
+            &upload_response(false, "No firmware file provided"),
+        );
+    };
+    let mut reader = cc_web::ota::PartReader::new(boundary);
+
+    // 5. The erase.
+    let mut writer = match crate::ota::Writer::begin(kind) {
+        Ok(writer) => writer,
+        Err(err) => {
+            session.finish_err(cc_web::ota::StatusMessage::Flash);
+            error!("ota: could not open the {kind:?} slot: {err}");
+            return respond(
+                req.connection(),
+                500,
+                &upload_response(false, "Failed to begin update"),
+            );
+        }
+    };
+
+    // 6. Stream.
+    if let Err(outcome) = ota_stream(session, &mut writer, &mut reader, &mut req) {
+        session.finish_err(outcome.message);
+        writer.abort();
+        return respond(
+            req.connection(),
+            outcome.status,
+            &upload_response(false, outcome.text),
+        );
+    }
+
+    // A truncated body is refused rather than finalised: `esp_ota_end` would
+    // validate a partial image, and a half-written slot is worse than an erased
+    // one because the erase has already happened.
+    if let Err(failure) = ota_validate(&reader, writer.written(), kind) {
+        session.finish_err(failure.message);
+        writer.abort();
+        return respond(
+            req.connection(),
+            failure.status,
+            &upload_response(false, failure.text),
+        );
+    }
+
+    let written = writer.written();
+
+    // 8. Finalise. For firmware this is where `esp_ota_end` validates the image
+    //    and switches the boot partition.
+    match writer.end() {
+        Ok(()) => {
+            info!("ota: {kind:?} update complete — {written} B");
+            session.note_progress(cc_web::ota::Phase::Processing, written, written);
+            session.finish_ok();
+            respond(
+                req.connection(),
+                200,
+                &upload_response(true, "Update successful. Device will restart."),
+            )
+        }
+        Err(err) => {
+            session.finish_err(cc_web::ota::StatusMessage::Invalid);
+            error!("ota: {kind:?} image rejected by esp_ota_end: {err}");
+            respond(
+                req.connection(),
+                500,
+                &upload_response(false, cc_web::ota::StatusMessage::Invalid.message()),
+            )
+        }
     }
 }
 

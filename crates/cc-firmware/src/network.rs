@@ -220,6 +220,11 @@ pub fn store_location(store: &BlobConfigStore<EspNvsBlob>) -> String {
 pub struct Network {
     /// The state every handler reads.
     pub shared: Arc<Shared>,
+    /// The one OTA update in flight. Owned here so the control task can read it
+    /// without reaching through [`crate::web::Web`], and so it outlives the
+    /// server handle: a restart request raised by the last upload must still be
+    /// seen by the tick that acts on it.
+    pub ota: Arc<cc_hal_esp32::ota::Session>,
     /// The SSE counters.
     pub sse: Arc<Sse>,
 }
@@ -230,6 +235,7 @@ impl Network {
     pub fn new() -> Self {
         Self {
             shared: Arc::new(Shared::new()),
+            ota: Arc::new(cc_hal_esp32::ota::Session::new()),
             sse: Arc::new(Sse::new(cc_hal_esp32::web::SseMode::Chunked)),
         }
     }
@@ -276,6 +282,7 @@ pub fn start_http(
     parameters: &Arc<cc_hal_esp32::task::ParameterHandoff>,
 ) -> Result<Web, EspError> {
     let shared = Arc::clone(&network.shared);
+    let session = Arc::clone(&network.ota);
     let sse = Arc::clone(&network.sse);
     let config = Arc::new(config.clone());
     // Non-blocking, drop-newest. A full queue means the control task is behind,
@@ -283,7 +290,15 @@ pub fn start_http(
     let sink: Arc<dyn Fn(Command) + Send + Sync + 'static> = Arc::new(move |command: Command| {
         let _ = commands.try_send(command);
     });
-    let web = Web::start(shared, sse, &config, nvs_description, &sink, parameters)?;
+    let web = Web::start(
+        shared,
+        &session,
+        sse,
+        &config,
+        nvs_description,
+        &sink,
+        parameters,
+    )?;
     info!(
         "http: {} routes registered; the large-response floor is {} B",
         cc_hal_esp32::web::routes().len(),

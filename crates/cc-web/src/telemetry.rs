@@ -175,6 +175,22 @@ pub enum Command {
     FactoryReset,
     /// `POST /api/restart` — reboot, keeping the configuration.
     Restart,
+    /// An OTA session has started: apply `Effect::SafeHardwareShutdown`.
+    ///
+    /// **Not a C++ route.** The C++ calls `otaPrepareHardware()`
+    /// (`SystemInitializer.cpp:57-63`) directly from the OTA module, on the main
+    /// loop, because in the C++ the OTA code *is* the main loop. Here the OTA
+    /// handler runs on the httpd task, which does not own the actuators — so this
+    /// is requirement S8 expressed the way this firmware expresses every other
+    /// web-initiated hardware action: a request the control task drains.
+    ///
+    /// What it buys is the applier. `otaPrepareHardware` calls
+    /// `disableHeater()` on the `HardwareManager` directly; going through
+    /// `Effect::SafeHardwareShutdown` reaches
+    /// `Actuators::safe_hardware_shutdown` (`actuators.rs:775`), which turns the
+    /// pump off and closes the valve as well as zeroing the heater duty — the
+    /// difference 04 §4 names, and the one S8 asks for.
+    OtaBegin,
 }
 
 #[cfg(test)]
