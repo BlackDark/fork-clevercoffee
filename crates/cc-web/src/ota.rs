@@ -870,11 +870,26 @@ mod tests {
 
     #[test]
     fn the_current_image_fits_its_own_slot() {
-        // The number `just size-check` prints. If this fails, no machine can be
-        // updated by this firmware at all — the worst possible OTA bug, and one
-        // a host test catches.
-        const CURRENT_IMAGE_BYTES: usize = 1_675_952;
+        // A **snapshot**, taken from the last `just size-check`, not a live
+        // measurement — a host test cannot measure the ELF. It drifts: the
+        // previous value here was already two features stale, and it still
+        // passed, because both the old and new numbers fit. That is the failure
+        // mode this test cannot catch, and the reason it is documented rather
+        // than trusted.
+        //
+        // What it DOES catch is the one that matters: an image that cannot fit
+        // its own slot means no machine can be updated by this firmware at all,
+        // which is the worst possible OTA bug and a host test catches it.
+        // `just size-check` measures the real ELF and is the authority.
+        const CURRENT_IMAGE_BYTES: usize = 1_695_696; // 2026-10-04, OTA merged
         assert!(fits(Kind::Firmware, CURRENT_IMAGE_BYTES));
+        // And say so out loud if it ever stops fitting, rather than letting the
+        // headroom silently disappear.
+        const SLOT_BYTES: usize = 1_835_008;
+        assert!(
+            CURRENT_IMAGE_BYTES < SLOT_BYTES,
+            "the image no longer fits its OTA slot; `just size-check` will fail"
+        );
     }
 
     #[test]
