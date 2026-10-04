@@ -159,23 +159,53 @@ what the code actually guarantees, with every number recorded so a reader need n
 
 ## Phase 5 — feature scope 🔄
 
-| # | item | note |
-| --- | --- | --- |
-| 3.1 | 3 status LEDs drive no GPIO | 6 schema params already exist and are UI-visible |
-| 3.4 | `/api/parameter-help` returns a stub with **HTTP 200** | error object returned as success |
-| 3.8 | No server-wide 404 handler | C++ returns JSON for `/api/*` |
-| 3.2 | Telnet has a ring buffer but no transport | `HeapShed` policy + ring already exist |
-| 3.3 | OTA endpoints answer `501` | **the partition table already has `app0`/`app1`/`ota_0`/`ota_1`/`otadata`** — no partition change needed. `Effect::SafeHardwareShutdown` exists and is unused: it is the S8 hook. |
-| 4.7 | `main.rs` is 3,671 lines and unnamed | extract `probe.rs`, `config_io.rs` |
-| 4.1b | ~~`mqtt.rs`'s pure half (`Topics`, `Registry`, `interval_for`, `is_configured`)~~ | **done** — `crates/cc-mqtt`, the seventh portable crate. 19 device-only tests became host tests; `mqtt.rs` is 2,033 → 875 lines. |
+| # | item | commit | note |
+| --- | --- | --- | --- |
+| 3.1 | 3 status LEDs drive no GPIO | `488433a7`, `0d2c4f18` | status (26) + brew (19) work; **steam deliberately unwired**, see below |
+| 3.2 | Telnet has a ring buffer but no transport | `66d72e3f` | port 23; constants taken from the C++, not chosen |
+| 3.4 | `/api/parameter-help` returns a stub with **HTTP 200** | `1ce694b2` | real per-parameter help; 200/404/422 now match the C++ |
+| 3.8 | No server-wide 404 handler | `1ce694b2` | JSON 404 for `/api/*` |
+| 3.3 | OTA endpoints answer `501` | 🔄 | running |
 
-## Phase 6 — documentation 🔜
+### The steam LED — a parity claim that did not survive checking
+
+The C++ puts the steam LED on GPIO 1, which is also UART0 TX. That was briefed as "reproduce the
+C++'s conflict". Checking it first turned up something stronger:
+
+- `Peripherals::take()` hands out each pin field **exactly once**, and `unsafe_code` is denied
+  workspace-wide, so a pin cannot be shared at all. It is a sole-ownership conflict, not a wire one.
+- **The C++ has the same bug.** `HardwareManager.cpp:117-125` calls `GPIOPin(1, OUT)` while
+  `Serial.begin()` has UART0 on GPIO1 — both drive the line, last attach wins. And `pinmapping.h:45`
+  contradicts *itself*: the comment says "Moved from pin 1 (UART TX - conflicts with serial logging)"
+  while the `#define` on that same line is still `1`.
+
+So "parity" would have meant matching a C++ bug, paid for with the machine's documented recovery path
+(a machine on a nonexistent network cannot be fixed any other way). The user's chosen option was
+overruled on that evidence and **option A** taken: the steam LED is not driven, GPIO1 stays with the
+provisioning console. Recorded as `intentional-diffs` §27 and row 18 of the new
+[`34-known-differences.md`](./34-known-differences.md).
+
+The LED worker then **corrected a false claim in its own first draft** — it had written "there is no
+free GPIO left"; in fact 10 of 28 are free, 13 and 14 genuinely so. The corrected conclusion is more
+useful than the wrong one: GPIO 32 was never available not because the chip ran out of pins but
+because that specific pin is `SCALE_DATA_1` — so a person *can* do it, and 13/14 is where the wire goes.
+
+## Phase 6 — splits and OTA 🔄
+
+| # | item | status |
+| --- | --- | --- |
+| 4.1b | `mqtt.rs`'s pure half | ✅ `5e31b7a2` — `cc-mqtt`, the seventh portable crate. 19 device-only tests became host tests; `mqtt.rs` 2,033 → 875 lines. |
+| 4.4 | `cc-domain` split into vocabulary / protocol / net-policy | 🔄 running |
+| 4.7 | `main.rs` (~3,700 lines) → `probe.rs` + `config_io.rs` | 🔄 running |
+| 3.3 | OTA, with the S8 safety requirement | 🔄 running |
+
+## Phase 7 — documentation 🔜
 
 | # | item |
 | --- | --- |
 | 2.9 | `tick_allocations.rs` is titled "the control tick must not touch the heap" but proves only the *reducer* |
 | 4.4 | `cc-domain` grew from "vocabulary" to "all portable logic"; its "read this in one sitting" claim is stale |
-| 7.1 | AGENTS.md/CLAUDE.md say 1,074 host tests; real count is ~1,150 + 168 device cases |
+| 7.1 | AGENTS.md/CLAUDE.md say 1,074 host tests; the real count has moved with every phase — recount at the end and state it once |
 | 7.2 | The migration README's "Not done" list omits LEDs, telnet and `parameter-help` |
 | 7.3 | README says `/events` is broken with `Content-Length: 0`; it was fixed and never updated |
 | 7.4 | `docs/ci.md`'s warm table says the esp toolchain install is 71 s; its own Caches section says no-op |
