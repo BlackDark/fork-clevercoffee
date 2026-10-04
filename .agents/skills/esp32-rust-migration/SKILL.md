@@ -160,8 +160,11 @@ Follow the architecture in 04. The most common mistakes:
   compile error by making a deliberate decision about the whitelist.
 - **Adding a task "for responsiveness".** Three task boundaries are justified in 04 §2.
   A fourth needs a written justification. Measure (R2-09) before optimising.
-- **Leaking the C++ `Config` singleton pattern.** Configuration is a value plus a
-  `ConfigStore` trait. No global mutable state.
+- **Leaking the C++ `Config` singleton pattern.** Configuration is a value plus
+  `cc_config::blob_store::BlobConfigStore<B>`, whose `load`/`save`/`erase_all`
+  are **inherent methods over a `BlobBackend`** — there is no `ConfigStore`
+  trait, because every caller names the concrete store and nothing is generic
+  over one (finding 4.6). Do not reintroduce it. No global mutable state.
 - **Porting `LoopManager::update()` as an 8-step function.** That god-function reaching
   into ten-plus subsystems is the defect the migration exists to remove (04 §3.1). The
   control loop is **functional core, imperative shell**: pure

@@ -7,7 +7,7 @@
 //! **Finding 4.1 of
 //! [`32-findings-2026-10-03.md`](../../../docs/rust-migration/32-findings-2026-10-03.md)
 //! — `just test` could not reach the REST surface at all.** `web.rs` was ~4,530
-//! lines and named `esp_idf_svc`, so the five portable crates named by `just
+//! lines and named `esp_idf_svc`, so the nine portable crates named by `just
 //! test` reached none of it: every `*_json` renderer, `classify_parameters`,
 //! `Telemetry` and `Command` were tested **only** by flashing a board
 //! (`just test-esp32`). Two real device bugs shipped through exactly that gap —
@@ -28,11 +28,17 @@
 //!   cc-domain ── cc-config ──┴─> cc-web ─────────┘
 //! ```
 //!
-//! * **`cc-domain` and `cc-config` are the only workspace dependencies**, and
-//!   neither is allowed to know this crate exists — `cc-config` may not depend
-//!   on `cc-safety`, and 04 §6 makes them siblings. The dependency arrow points
-//!   one way: a value flows *in*, and nothing about how it will be served is
-//!   visible from down here.
+//! * **`cc-domain`, `cc-config` and `cc-protocol` are the only workspace
+//!   dependencies**, and not one of them is allowed to know this crate exists —
+//!   `cc-config` may not depend on `cc-safety`, and 04 §6 makes them siblings.
+//!   The dependency arrow points one way: a value flows *in*, and nothing about
+//!   how it will be served is visible from down here. Beyond those three the
+//!   manifest lists only `heapless` (for `Telemetry::ip`, which must stay a
+//!   16-byte inline `String` so that `Snapshot::get`'s copy is a `memcpy` with
+//!   no allocator traffic) and `log` (for the one line `Auth::from_config`
+//!   warns on when authentication is enabled with no credentials). Both were
+//!   already in the dependency graph, and neither is an ESP-IDF crate — the
+//!   argument for this crate being portable rests on that, not on the count.
 //! * **`cc-hal-esp32` depends on this crate**, not the other way round. What
 //!   stayed behind is the part that genuinely needs ESP-IDF: route registration
 //!   on `EspHttpServer`, the `respond`/`respond_large` chunked writers, the SSE

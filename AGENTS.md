@@ -88,7 +88,7 @@ function of the tree, and a number in a doc goes stale silently. Count it with
 \`just test\` if you need it.)
 
 **`just check` deliberately runs on STABLE, not on the Espressif `esp` toolchain.**
-The five portable crates are `#![no_std]` plain Rust; nothing in them touches an
+The nine portable crates are `#![no_std]` plain Rust; nothing in them touches an
 Xtensa pin. Override the channel with `CC_RUST_TOOLCHAIN=stable` — the justfile's
 default stays `esp`, because a just `export` beats an environment variable, and
 because a device recipe must never silently compile with the wrong compiler.

@@ -476,10 +476,11 @@ relative paths in the wrong place.
 │   │     of (telemetry, config, state) -> verdict, so every safety rule in 01 §6
 │   │     is a host unit test.
 │   │
-│   ├── cc-config/                  # ── portable model + trait-bounded store ──
+│   ├── cc-config/                  # ── portable model + the blob store's format ──
 │   │   ConfigSchema (96 registered params, typed, const-validated)
 │   │   Config: the in-memory value
-│   │   trait ConfigStore { load, save, erase_all }
+│   │   BlobConfigStore<B>: load/save/erase_all/describe, INHERENT methods
+│   │   trait BlobBackend { get, set, erase_all }      # the medium seam
 │   │   JsonImport / JsonExport via serde_json
 │   │   Host tests: round-trip, defaults, the emergency-temp registration bug
 │   │
@@ -514,7 +515,7 @@ relative paths in the wrong place.
 │   │   I2cBus, Abp2Pressure, OneWireDs18b20, Tsic306, WaterTankSwitch
 │   │   Actuators — the single owner of pump/valve/heater
 │   │   Watchdog (TWDTDriver)
-│   │   NvsStore: impl ConfigStore
+│   │   EspNvsBlob: impl cc_config::blob_store::BlobBackend (not ConfigStore)
 │   │   Wifi, Ota, Logger (telnet + heap shed), Mqtt
 │   │
 │   ├── cc-provisioning/            # ── captive portal, ESP-IDF specific ──

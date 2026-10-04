@@ -89,14 +89,24 @@ Behaviour is the same; the mechanism is not. Listed so nobody re-investigates th
 ## How to use this with the parity harness
 
 [`cc-parity`](../crates/cc-parity) reads `intentional-diffs.md` directly and classifies every scenario
-difference against it. **An undeclared difference fails the harness.** That is the mechanism that keeps
-this page honest: if a diff is not in the ledger, the build says so.
+difference against it.
 
-**One honest limitation.** `docs/rust-migration/baseline/cpp/` is empty, so all 13 parity scenarios
-report `BASELINE-MISSING`. Every classification above rests on reading the two codebases, **not** on
-running them side by side. This was a deliberate decision — capturing a baseline means running the C++,
-and the C++ runs its own control loop on a powered, wired machine. Treat "intentional" in this document
-as *reviewed and reasoned*, not *measured*.
+**What that does today: nothing is measured.** `docs/rust-migration/baseline/cpp/` holds only
+`.gitkeep`, so all **17** parity scenarios — one file each under
+[`scenarios/`](./scenarios) — report `BASELINE-MISSING` and no difference is ever compared against
+anything. Every classification on this page rests on reading the two codebases, **not** on running
+them side by side.
+
+**So an undeclared difference does not fail the harness today, and this page is not kept honest by a
+machine.** Two things would have to exist first, and neither does:
+
+1. **A baseline.** Capturing one means running the C++, which runs its own control loop on a powered,
+   wired machine. That was a deliberate decision, not an oversight.
+2. **A matcher per entry.** `intentional-diffs.md` carries 5 machine-readable `ledger` blocks against
+   ~30 prose entries, so even with a baseline, most differences documented above would have nothing to
+   classify against and would surface as unexplained rather than as intentional.
+
+Treat "intentional" in this document as *reviewed and reasoned*, not *measured*.
 
 ## Adding to this document
 

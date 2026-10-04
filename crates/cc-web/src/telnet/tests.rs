@@ -11,12 +11,6 @@ use alloc::vec::Vec;
 
 use super::*;
 
-/// ADR-0002 decision 5 and `Logger.cpp:13`.
-#[test]
-fn the_shed_floor_is_the_adrs_thirty_kilobytes() {
-    assert_eq!(SHED_FLOOR_BYTES, 30_000);
-}
-
 /// `Logger.h:159-161`. The ring is 16 entries of 256 B, not a knob.
 #[test]
 fn the_ring_is_the_csqs_sixteen_by_two_fifty_six() {

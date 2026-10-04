@@ -3,15 +3,15 @@
 
 `cc-domain`, `cc-protocol`, `cc-netpolicy`, `cc-safety`, `cc-config`,
 `cc-machine`, `cc-display`, `cc-web` and `cc-mqtt` are ``#![no_std]`` and
-host-testable, which is the property that lets 1,191 tests run in seconds
+host-testable, which is the property that lets their test suites run in seconds
 without a board. An ``esp_idf_*`` item anywhere in them breaks every one of
 those tests *and* every IDE's background check, and it does so invisibly: the
 crate still compiles for the chip, it just stops compiling for the host.
 
 Why this is a script and not a ``grep``
 --------------------------------------
-The first version of this check was ``rg 'esp_idf_(hal|svc|sys)'`` over the five
-crates, and it fired on its own documentation:
+The first version of this check was ``rg 'esp_idf_(hal|svc|sys)'`` over the
+portable crates, and it fired on its own documentation:
 
     crates/cc-domain/src/lib.rs:11:  //! * This crate must never name `esp_idf_svc`, ...
 

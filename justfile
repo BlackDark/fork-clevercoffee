@@ -124,16 +124,16 @@ bin_esp32 := "firmware"
 # `just doctor-host` turns an empty result into a diagnostic.
 host_target := env_var_or_default("CC_HOST_TARGET", `./scripts/host-target.sh`)
 
-# The SEVEN portable crates. The device crates do not compile for a host target,
+# The NINE portable crates. The device crates do not compile for a host target,
 # so `cargo test --workspace` / `cargo clippy --workspace` are wrong.
 #
-# `cc-web` is the sixth (finding 4.1): the HTTP application tier, which was
+# `cc-web` was the sixth (finding 4.1): the HTTP application tier, which was
 # inside `cc-hal-esp32` and therefore reachable only by flashing a board.
-# `cc-mqtt` is the seventh (finding 4.1b): the same extraction for MQTT's topic
+# `cc-mqtt` was the seventh (finding 4.1b): the same extraction for MQTT's topic
 # layout, registry and plan slices, whose 19 assertions ran only under
-# `just test-esp32`. Both are here because `scripts/portable-purity.py` names
-# them as portable, and naming them anywhere else would leave those surfaces
-# untested on the host.
+# `just test-esp32`. `cc-protocol` and `cc-netpolicy` are the eighth and ninth.
+# All four are here because `scripts/portable-purity.py` names them as portable,
+# and naming them anywhere else would leave those surfaces untested on the host.
 host_crates := "-p cc-domain -p cc-protocol -p cc-netpolicy -p cc-safety -p cc-machine -p cc-display -p cc-config -p cc-web -p cc-mqtt"
 
 # `--locked` on EVERY cargo invocation that resolves the dependency graph --

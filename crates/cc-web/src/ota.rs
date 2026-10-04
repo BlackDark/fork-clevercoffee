@@ -881,15 +881,20 @@ mod tests {
         // its own slot means no machine can be updated by this firmware at all,
         // which is the worst possible OTA bug and a host test catches it.
         // `just size-check` measures the real ELF and is the authority.
+        //
+        // The headroom check is a `const` block, not a runtime `assert!`: both
+        // operands are constants, so `clippy::assertions_on_constants` is right
+        // that there is nothing to learn at run time, and a compile-time failure
+        // is the better report of "the image no longer fits its own slot".
         const CURRENT_IMAGE_BYTES: usize = 1_695_696; // 2026-10-04, OTA merged
-        assert!(fits(Kind::Firmware, CURRENT_IMAGE_BYTES));
-        // And say so out loud if it ever stops fitting, rather than letting the
-        // headroom silently disappear.
         const SLOT_BYTES: usize = 1_835_008;
-        assert!(
-            CURRENT_IMAGE_BYTES < SLOT_BYTES,
-            "the image no longer fits its OTA slot; `just size-check` will fail"
-        );
+        const {
+            assert!(
+                CURRENT_IMAGE_BYTES < SLOT_BYTES,
+                "the image no longer fits its OTA slot; `just size-check` will fail"
+            );
+        }
+        assert!(fits(Kind::Firmware, CURRENT_IMAGE_BYTES));
     }
 
     #[test]

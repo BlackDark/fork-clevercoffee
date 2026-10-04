@@ -802,15 +802,17 @@ const TCP_NODELAY: c_int = 1;
 #[cfg(any(test, feature = "device-tests"))]
 #[cfg_attr(feature = "device-tests", doc(hidden))]
 pub mod tests {
-    // A unit-test module globs its parent on purpose: the cases are exercising
-    // the parent's private helpers, which is the point of keeping them in the
-    // same file. `clippy::wildcard_imports` normally makes an exception for
-    // `use super::*` inside a `#[cfg(test)]` module, and this module is
-    // `#[cfg(any(test, feature = "device-tests"))]` -- the on-target runner
-    // compiles it outside a test build -- so the exception no longer applies and
-    // the allowance is made explicitly here instead of in eight import lists
-    // that would rot.
-    #![allow(clippy::wildcard_imports)]
+    #![allow(
+        clippy::wildcard_imports,
+        reason = "a unit-test module globs its parent on purpose: the cases are \
+                  exercising the parent's private helpers, which is the point of \
+                  keeping them in the same file. `clippy::wildcard_imports` makes \
+                  an exception for `use super::*` inside a `#[cfg(test)]` module, \
+                  and this module is `#[cfg(any(test, feature = \
+                  \"device-tests\"))]` — the on-target runner compiles it outside a \
+                  test build — so the exception no longer applies. Allow it here \
+                  rather than in eight import lists that would rot."
+    )]
 
     use super::*;
     use alloc::string::ToString;
