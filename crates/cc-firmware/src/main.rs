@@ -851,6 +851,20 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
     } else {
         info!("leds: hardware.leds.status.enabled and .brew.enabled are both false");
     }
+    // The third LED, and the only reason it is missing: `PIN_STEAMLED` is
+    // GPIO1 (`pinmapping.h:45`), which is UART0's TXD and therefore the
+    // provisioning console's recovery path. `Peripherals::take` will not hand
+    // one pin to two owners, so an operator who left `hardware.leds.steam.enabled`
+    // true gets a setting this firmware silently ignores. One `warn!` at boot is
+    // the whole diagnostic — the ledger entry is
+    // `intentional-diffs.md` ("The steam LED and GPIO1").
+    if config.hardware.leds.steam.enabled {
+        warn!(
+            "leds: hardware.leds.steam.enabled is set but this firmware drives no steam \
+             LED — PIN_STEAMLED (GPIO1) is UART0 TX, reserved for the wifi \
+             provisioning console. The steam mode indicator will not light."
+        );
+    }
 
     // 7a. The temperature probe, **after the configuration and before anything
     // that reads it**.

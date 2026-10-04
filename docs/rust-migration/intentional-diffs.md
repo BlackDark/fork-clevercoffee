@@ -1847,8 +1847,9 @@ Two of the three LEDs, on the C++'s pins, with the C++'s rules:
 
 `LedOutput.steam` is still computed, and still tested, by
 `cc_display::leds::LedOutput::from_state`: the *rule* is implemented, only the
-pin is absent. `cc_hal_esp32::leds::report_unavailable_steam_led` logs one line
-at boot if an operator has `hardware.leds.steam.enabled` set.
+pin is absent. One `warn!` at boot in `cc-firmware/src/main.rs` fires if an
+operator has `hardware.leds.steam.enabled` set, because a setting this firmware
+cannot honour is worth a line in the log rather than silence.
 
 ### Why this and not literal parity
 
