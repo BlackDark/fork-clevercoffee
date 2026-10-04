@@ -89,6 +89,94 @@ pub const STATUS_LED: u8 = 26;
 /// `PIN_BREWLED` (`pinmapping.h:44`) — the brew/flush LED.
 pub const BREW_LED: u8 = 19;
 
+// ---------------------------------------------------------------------------
+// `PIN_STEAMLED` — deliberately absent. Read this before "fixing" it.
+// ---------------------------------------------------------------------------
+//
+// `pinmapping.h:45` is one line, and it contradicts itself:
+//
+// ```c
+// #define PIN_STEAMLED  1  // 32 works with logging // Moved from pin 1 (UART TX
+//                          // - conflicts with serial logging)
+// ```
+//
+// The comment says the LED was *moved off* GPIO1 because GPIO1 is UART TX. **The
+// `#define` on that same line is still 1.** The migration was written down and
+// not made. So the C++ drives the steam LED on GPIO1 while `Serial.begin()` has
+// UART0 routed there — two owners of one line, last attach wins — and the
+// comment is the author telling us which of the two they meant to keep. It is not
+// parity with a working C++ feature; it is parity with a C++ bug.
+//
+// # Why this firmware does not have a `STEAM_LED` constant
+//
+// Not because a conflict was not found, and not because the effect was judged
+// unimportant — because the pin cannot be had. `Peripherals::take()` hands out
+// each pin field exactly once, and the sole consumer of `peripherals.pins.gpio1`
+// in this firmware is the UART provisioning console
+// (`cc-firmware/src/main.rs:1027`). There is no second copy to share: a second
+// `PinDriver` needs `AnyIOPin::steal`, which is `unsafe`, and `unsafe_code` is
+// denied workspace-wide (`Cargo.toml:132`).
+//
+// Taking the pin for the LED would cost the **documented recovery path**. The
+// console is what `wifi set` + `wifi apply` run on, and it is the only way to
+// point a machine that is joined to a nonexistent network at a real one
+// (`cc-firmware/src/main.rs:1000-1024` records that finding on the bench). Trading
+// that for an LED is the wrong end of the trade, and it is the opposite of what
+// `pinmapping.h:45` intended.
+//
+// So `hardware.leds.steam.*` is honoured as a **decision** — `LedOutput.steam`
+// is computed and tested — and not as a **write**. `cc_hal_esp32::leds` logs once
+// at boot when the parameter is enabled and the pin is not available, and
+// `intentional-diffs.md` carries the entry.
+//
+// # What moving it to GPIO 32 would cost
+//
+// GPIO 32 is the alternative `pinmapping.h:45` itself names ("32 works with
+// logging"), so it is the obvious candidate and it is **already spoken for**:
+//
+// * `SCALE_DATA_1` (`pins.rs:73` below) — the HX711's first data line
+//   (`pinmapping.h:29`, `PIN_HXDAT`). Wired in `cc-firmware/src/main.rs:689`,
+//   driven through `GpioHx711` in `cc-hal-esp32/src/scale.rs:74`, and re-exported
+//   to the device-test runner at `cc-device-tests/src/main.rs:208`.
+// * `cc-hal-esp32/src/scale.rs:1015` asserts `SCALE_DATA_1 == 32`, so the number
+//   is pinned by a test as well as by the map.
+// * GPIO 32 is also named in `cc-safety/src/lib.rs:195` and
+//   `cc-firmware/src/main.rs:392` as the pin trio that decides whether a scale is
+//   fitted at all (`32`/`25`/`33`).
+//
+// **So a move is a hardware change, not a firmware change.** With the machine in
+// hand, a person would have to open the case, trace the HX711 module's first data
+// wire off the ESP32's GPIO32 header pin, and re-terminate it on another pin.
+// Nothing about that is a five-minute job, and **the ESP32 is not out of pins:
+// two are free.** Of the 28 GPIOs this chip exposes (the set `is_gpio` below
+// admits), 18 are claimed by [`ALL`] and the remaining 10 are 0, 4, 5, 12, 13, 14,
+// 15, 18, 37 and 38. Of those ten:
+//
+// * **0, 5, 12 and 15 are strapping pins** (ESP32 Series Datasheet v5.3, Table 3-1,
+//   and `01-feature-inventory.md:120-122`), so their state at reset is a boot
+//   decision, not the firmware's. Unusable for a data line.
+// * **37 and 38 are input-only** with no output driver — `is_input_only` below
+//   exists for exactly this — so they cannot carry the HX711's clocked data at
+//   all. (34-39 share this.)
+// * **4, 5 and 18 are claimed by the C++** and are not merely free: `PIN_ROTARY_DT`
+//   (4), `PIN_ROTARY_SW` (5) and `PIN_ZC` (18, `pinmapping.h:22,24,48`) are on a
+//   board that has those peripherals. The rotary encoder and the zero-crossing
+//   dimmer are not ported, so those three are *unwired* here — but taking one
+//   forecloses a peripheral the C++ has.
+// * **13 and 14 are genuinely free**: absent from `pinmapping.h`, absent from the
+//   Rust tree, neither strapping nor input-only.
+//
+// **So 32 was never actually available either** — not because the chip ran out of
+// pins, but because the pin the comment names was already doing something else.
+// Relocating the scale to 13 or 14 *would* work and *is* what a person with the
+// machine should do if a steam LED is ever judged worth a solder joint.
+//
+// **Recommendation: leave the steam LED unwired.** The cost is a case opened and a
+// scale's data wire re-terminated, against an LED that duplicates the status
+// light's steam tolerance — `LedOutput` already lights `status` *and* `steam` in
+// `STEAM_RUNNING`. Nothing is lost that a person at the machine cannot read off
+// the panel, which is where the same information already appears.
+
 // ---- bidirectional ------------------------------------------------------
 
 /// `PIN_I2CSDA` (`pinmapping.h:54`) — the ABP2 and the SSD1306, shared.

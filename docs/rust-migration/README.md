@@ -286,6 +286,10 @@ having believed that. It omitted the LEDs (3.1) and the telnet log stream
 error object instead of the help text the C++ serves. That one is fixed; the
 entry is here so the next reader does not go looking for it. **Telnet (3.2)
 is now built** — port 23, one client, ADR-0002's heap shed — and is not
+below because it shipped; the **LEDs (3.1) are now built too**, two of the
+three on the C++'s pins, with the steam LED absent because
+`pinmapping.h:45` puts it on GPIO1 and gives that pin to the provisioning
+console — see `intentional-diffs.md` §27. Neither shipped feature is
 below because it shipped; the gap list is
 [`32-findings`](./32-findings-2026-10-03.md), and this section is a summary of
 it, not a substitute.
@@ -315,6 +319,19 @@ it, not a substitute.
   to. This is the async-detach path, it predates the UI work, and fixing it
   needs an ESP-IDF-level decision about how to keep `complete()` from firing.
   Until then the UI's live values come from polling, not the stream.
+- The **steam LED**, and it is a decision rather than a gap. The status LED
+  (GPIO26) and brew LED (GPIO19) are now driven, and finding 3.1 is otherwise
+  closed. `PIN_STEAMLED` is GPIO1 in the C++'s own `pinmapping.h:45`, and **that
+  line contradicts itself** — its comment says the LED was moved off GPIO1
+  because it is UART TX, and the `#define` on the same line is still 1. In Rust
+  it is not a race between two peripherals on one wire but a sole-ownership
+  conflict: `Peripherals::take()` hands out each pin once, and GPIO1 is the Wi-Fi
+  provisioning console, which is the only way to recover a machine joined to a
+  nonexistent network. The steam LED's *rule* is implemented and host-tested;
+  only the pin is absent. Moving it to GPIO32 — the C++'s own suggestion — is a
+  **hardware** change, because GPIO32 is the scale's data-1 line. Full analysis,
+  with every conflict and every file:line, is
+  [`intentional-diffs.md` §27](./intentional-diffs.md).
 - The **telnet transport** that ADR-0002's heap shed is meant to protect. The
   shed logic is unit-tested but has no real client to shed.
 - **Switch presses have still never been tested by hand.** The debounce and
