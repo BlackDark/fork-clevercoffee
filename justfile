@@ -546,6 +546,18 @@ check:
     @just test
     @just parity-test
     @just test-audit
+    @just doc-links
+
+# Every relative markdown link resolves.
+#
+# Added 2026-10-04, after a documentation restructure left sixteen rotted links
+# in place -- nine of them in `.agents/skills/esp32-rust-migration/SKILL.md`, the
+# file every agent reads first. All sixteen predated the move; the move did not
+# introduce one. It checks EXISTENCE only: a link to a file that exists but says
+# the wrong thing is a documentation defect, not a broken link, and conflating the
+# two would make this check unreliable.
+doc-links:
+    @python3 scripts/check-doc-links.py
 
 # Every screen on every template, as one PNG contact sheet. Host only, no
 # hardware: `just screens` then open the file. This is the check a golden image

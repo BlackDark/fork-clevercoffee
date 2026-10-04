@@ -459,6 +459,13 @@ jobs:
           CC_LINT_CHANNELS: 1.99.0:esp
         run: python3 scripts/lint-names.py .
 
+      # A documentation move cannot be reviewed by eye: nine of the sixteen links
+      # that rotted unnoticed were in the skill file every agent reads first.
+      # Cheap, needs no toolchain, and it is the check that makes the next move
+      # safe to attempt.
+      - name: Markdown links
+        run: python3 scripts/check-doc-links.py
+
       - name: clippy (device, pedantic, -D warnings)
         run: just lint-esp32
 

@@ -60,7 +60,7 @@ Stop and escalate if:
 
 **Do not run any of these without a reviewed safe test procedure.** For R1-07 and R3-04
 the procedure is in
-[06 §R1-07](../../docs/archive/migration/06-migration-task-list.md#r1-07--heater-output-method).
+[06 §R1-07](../../../docs/archive/migration/06-migration-task-list.md#r1-07--heater-output-method).
 Its essentials:
 
 1. **Physically disconnect the boiler.** Do not rely on a software switch.

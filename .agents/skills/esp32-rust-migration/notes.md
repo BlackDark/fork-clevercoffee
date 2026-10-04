@@ -76,7 +76,7 @@ does not.
 **Built and tested:**
 
 - **The scenario format**, specified in
-  [`docs/rust-migration/10-scenario-format.md`](../../docs/rust-migration/10-scenario-format.md)
+  [`docs/rust-migration/10-scenario-format.md`](../../../docs/rust-migration/10-scenario-format.md)
   and implemented by `crates/cc-parity`. Seven stimulus kinds (`rest`, `wait`,
   `button`, `sensor`, `config`, `mqtt`, `ota`), a capture spec, and nine assertion kinds.
 - **17 scenarios** in `docs/rust-migration/scenarios/`, covering S1–S11. Twelve of them
@@ -314,7 +314,7 @@ All six are **preserved**, not fixed, each with a `s<N>_`-prefixed test.
 
 ### R1-07 + safety-gap work (2026-09-28) ✅ for the host, ❌ for the hardware
 
-Four findings closed on purpose (see [`docs/rust-migration/intentional-diffs.md`](../../docs/rust-migration/intentional-diffs.md),
+Four findings closed on purpose (see [`docs/rust-migration/intentional-diffs.md`](../../../docs/rust-migration/intentional-diffs.md),
 which is now **created** and is R1-08's deliverable):
 
 1. **Pump timeouts armed** (09 §11) — on the pump-on edge, with
@@ -535,7 +535,7 @@ exists in the code.
 
 ## Unverified assumptions status
 
-See [02 §8](../../docs/rust-migration/02-research-compatibility-matrix.md#8-summary-of-unverified-assumptions).
+See [02 §8](../../../docs/rust-migration/02-research-compatibility-matrix.md#8-summary-of-unverified-assumptions).
 All ten (U1-U10) are still open. U3 (TSIC-306) is the one that can invalidate ADR-0004.
 
 ---
