@@ -82,6 +82,7 @@ pub mod guards;
 pub mod handlers;
 pub mod machine;
 pub mod maintenance;
+pub mod ota;
 pub mod states;
 pub mod timing;
 

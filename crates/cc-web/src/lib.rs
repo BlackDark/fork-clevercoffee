@@ -101,6 +101,7 @@ extern crate alloc;
 
 pub mod auth;
 pub mod help;
+pub mod ota;
 pub mod parameters;
 pub mod payload;
 pub mod request;
@@ -109,6 +110,7 @@ pub mod telnet;
 
 pub use auth::Auth;
 pub use help::{not_found_json, parameter_help, wants_json_not_found};
+pub use ota::{Kind, PartReader, Progress, ReadError, MAX_FILESYSTEM_BYTES, MAX_FIRMWARE_BYTES};
 pub use parameters::{
     classify_parameters, ParameterPost, MAX_CONFIG_UPLOAD_BYTES, MAX_PARAMETER_BODY_BYTES,
     MAX_PARAMETER_PAIRS,
