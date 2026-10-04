@@ -47,7 +47,7 @@ Each state that requires active hardware (pump, valve) **must**:
 
 ## Related
 
-- [ADR-0004: Rust Migration — Platform and Concurrency Architecture](../rust-migration/03-decision-record.md)
+- [ADR-0004: Rust Migration — Platform and Concurrency Architecture](../archive/migration/03-decision-record.md)
   — carries this contract forward into the Rust port. `water_flow_allowed` becomes a
   `match` with no wildcard arm, so the "adding a new water-flow state" hazard above
   becomes a compile error rather than a review item.

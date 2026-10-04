@@ -7,7 +7,7 @@
 
 Every version below was read from a primary source on the research date. Where a claim
 could not be confirmed from a primary source it is marked **UNVERIFIED** and has a
-corresponding proof-of-concept task in [06 — Task list](./06-migration-task-list.md).
+corresponding proof-of-concept task in [06 — Task list](../archive/migration/06-migration-task-list.md).
 
 Confidence key:
 
@@ -367,7 +367,7 @@ Contrary to the usual assumption, Rust captive-portal crates do exist:
 | `provision32` | 0.2 | esp-hal 1.1 + esp-radio | i18n, SSID scan, flash persistence |
 
 Caveat: these crates bind AP port 80 themselves, so they cannot share it with the SPA
-server. See [05 §5](./05-tooling-and-workflows.md).
+server. See [05 §5](../archive/migration/05-tooling-and-workflows.md).
 
 ### BLE scales
 
@@ -454,7 +454,7 @@ partition-table *offset*; content is a flashing-time concern.
   bootloader serial protocol *is* the esptool protocol, driven by DTR/RTS auto-reset.
   Real-world caveat: cheap ESP32-DevKitC boards without the EN↔GND 100 nF cap need the
   manual BOOT+RST dance. This is a real risk for this board — see
-  [05 §3](./05-tooling-and-workflows.md).
+  [05 §3](../archive/migration/05-tooling-and-workflows.md).
 - Other subcommands: `board-info`, `erase-flash`, `read-flash`, `write-bin`,
   `partition-table` (CSV↔bin), `hold-in-reset`, `list-ports`.
 - **Caveat:** espflash's monitor *"is currently unable to properly decode ESP-IDF
@@ -513,7 +513,7 @@ proven to build these crates, and it does not require ESP-IDF to be pre-installe
 
 ## 8. Summary of unverified assumptions
 
-Each has a spike task in [06 — Task list](./06-migration-task-list.md).
+Each has a spike task in [06 — Task list](../archive/migration/06-migration-task-list.md).
 
 | # | Assumption | Spike |
 | --- | --- | --- |

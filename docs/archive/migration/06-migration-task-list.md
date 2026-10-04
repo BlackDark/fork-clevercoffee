@@ -1,13 +1,21 @@
 # Migration Task List — Phased, Executable
 
-Companion to the [execution skill](../../.agents/skills/esp32-rust-migration/SKILL.md).
+> **ARCHIVED — non-normative. Dated 2026-09/10, preserved for provenance.**
+> Most of these tasks are done, and a task list that is 90 % complete reads as
+> current while describing a port that no longer exists. What is *not* done is
+> written down, dated and owned in [`docs/status.md`](../../status.md), which is
+> the only page permitted to claim anything. Read this for the sequencing history
+> and the acceptance criteria that were designed, not for the state of the work.
+> See [`docs/archive/README.md`](../README.md).
+
+Companion to the [execution skill](../../../.agents/skills/esp32-rust-migration/SKILL.md).
 Every task has an ID, prerequisites, acceptance criteria, and an exact validation command
 where one can already be determined.
 
-**Read first:** [01 — Feature inventory](./01-feature-inventory.md) ·
-[02 — Research matrix](./02-research-compatibility-matrix.md) ·
+**Read first:** [01 — Feature inventory](../../rust-migration/01-feature-inventory.md) ·
+[02 — Research matrix](../../rust-migration/02-research-compatibility-matrix.md) ·
 [03 — Decision record](./03-decision-record.md) ·
-[04 — Target architecture](./04-target-architecture.md) ·
+[04 — Target architecture](../../rust-migration/04-target-architecture.md) ·
 [05 — Tooling](./05-tooling-and-workflows.md)
 
 ---
@@ -48,7 +56,7 @@ plan means the former, and the latch must not be set by a routine shutdown.
   [05 §4](./05-tooling-and-workflows.md#4-justfile). If a recipe does not exist yet, the
   task that needs it creates it.
 - **HW** = hardware required. Tasks marked HW are **blocked** while no device is attached
-  (see [01 §10](./01-feature-inventory.md#10-local-environment-state-2026-09-28--what-is-and-is-not-verified)).
+  (see [01 §10](../../rust-migration/01-feature-inventory.md)).
 - **Safety** — any task touching pump, valve, or heater lists its safe test procedure.
   A future agent must not improvise one.
 - **Commit** — one task, one commit, message prefixed with the task ID:
@@ -112,9 +120,9 @@ These are not Rust tasks. They unblock everything else.
 
 | ID | Objective | Depends on | HW | Acceptance |
 | --- | --- | --- | --- | --- |
-| **R0-01** | Confirm the physical board: exact module (WROOM-32E vs WROVER-32E), silicon revision, flash size, PSRAM presence, and whether the EN↔GND 100 nF auto-reset cap is present. Photograph the module and the board. | — | **yes** | Findings written into [01 §10](./01-feature-inventory.md#10-local-environment-state-2026-09-28--what-is-and-is-not-verified), replacing the "still to confirm" table. |
+| **R0-01** | Confirm the physical board: exact module (WROOM-32E vs WROVER-32E), silicon revision, flash size, PSRAM presence, and whether the EN↔GND 100 nF auto-reset cap is present. Photograph the module and the board. | — | **yes** | Findings written into [01 §10](../../rust-migration/01-feature-inventory.md), replacing the "still to confirm" table. |
 | **R0-02** | Decide the partition rebalance and the asset strategy. Build the current frontend, measure the real LittleFS image size, then compute a new split. **Target is a formula, not a number** (see [07 §1](./07-image-size-budget.md#1-the-problem-stated-once)): maximise `min(app0, app1)` subject to `nvs`/`otadata`/`coredump` byte-identical and `spiffs ≥ S`. An earlier draft asked for "≥ 2 MB per slot" — **that is impossible**: two 2 MiB slots exceed the entire 4,063,232 B region by 131,072 B. Sanity check: max = (4,063,232 − 65,536)/2 = **1,998,848 B ≈ 1.906 MiB/slot** with a 64 KB `spiffs`. | R0-01 | no | A proposed `rust/partitions_4M.csv` checked in with the arithmetic shown, plus the measured SPA size and the embed-vs-mount decision. **Do not** overwrite the root `partitions_4M.csv` — that file stays C++-owned until R4-10. |
-| **R0-03** | Decide the scale-support question: formally drop F13 (HX711) and F14 (Acaia BLE), or keep them. Recommendation: drop. | — | no | A one-line decision in [01 §3](./01-feature-inventory.md#3-feature--source--hardware-matrix) plus a note for the release notes. |
+| **R0-03** | Decide the scale-support question: formally drop F13 (HX711) and F14 (Acaia BLE), or keep them. Recommendation: drop. | — | no | A one-line decision in [01 §3](../../rust-migration/01-feature-inventory.md) plus a note for the release notes. |
 | **R0-04** | Baseline the C++ firmware: run the C++ build + native tests and record the numbers, so parity has a reference. | — | no | `pio run -e esp32_usb` succeeds; `pio test -e native_test` result recorded. **Already verified on 2026-09-28: build succeeds (`firmware.bin` = 1,546,240 B) and 340/340 native tests pass in 55 s.** |
 
 ---
@@ -380,7 +388,7 @@ Each spike is a **throwaway `examples/` binary in the workspace**, deleted or mo
 
 **Decision: LEDC, 1 Hz, `Bits17`, low-speed mode; the 1 Hz chopper window is
 kept so the PID is unchanged.** Recorded in
-[`intentional-diffs.md` #5](./intentional-diffs.md#5-the-heater-is-driven-by-ledc-not-a-10-ms-isr-🔴-changed)
+[`intentional-diffs.md` #5](../../rust-migration/intentional-diffs.md)
 and in 04 §5.
 
 **R1-07 is NOT complete.** Its acceptance criterion is measured duty within 1 %
@@ -445,9 +453,9 @@ measurements to take rather than assumptions to make:
 
 | Step | Status |
 | --- | --- |
-| 1. Scenario format | **done** — [`10-scenario-format.md`](./10-scenario-format.md), implemented by `crates/cc-parity/src/scenario.rs`. Seven stimulus kinds, a capture spec, and nine assertion kinds. |
+| 1. Scenario format | **done** — [`10-scenario-format.md`](../../rust-migration/10-scenario-format.md), implemented by `crates/cc-parity/src/scenario.rs`. Seven stimulus kinds, a capture spec, and nine assertion kinds. |
 | 2. Scenario set | **done** — 17 scenarios in `docs/rust-migration/scenarios/`, covering all twelve named here plus S1's no-debounce path, S4's refill, S7's reboot path, S6's heater bound and S9's watchdog. Every dry_run scenario is **executed and its assertions checked** by `cc-parity`'s own tests, so a broken scenario fails `just parity-test` rather than a phase gate. |
-| 3. C++ baseline | **NOT DONE.** `docs/rust-migration/baseline/cpp/` is empty and `just parity` reports every scenario `BASELINE-MISSING` and exits **2**. Not a skip: nothing has been compared with anything. See the reasoning in [`baseline/README.md`](./baseline/README.md) — capturing one means flashing the C++ image and running its control loop against a real boiler, which needs the reviewed safe-test procedure and a human present. **No baseline was fabricated.** |
+| 3. C++ baseline | **NOT DONE.** `docs/rust-migration/baseline/cpp/` is empty and `just parity` reports every scenario `BASELINE-MISSING` and exits **2**. Not a skip: nothing has been compared with anything. See the reasoning in [`baseline/README.md`](../../rust-migration/baseline/README.md) — capturing one means flashing the C++ image and running its control loop against a real boiler, which needs the reviewed safe-test procedure and a human present. **No baseline was fabricated.** |
 | 4. `intentional-diffs.md` | **done** — the file existed; R1-08 added the five machine-readable `ledger` blocks the runner classifies against, each naming a heading in the same document so the prose and the ledger cannot drift. |
 
 **The safety problem, and how it was solved.** Twelve of the seventeen scenarios would
@@ -498,16 +506,16 @@ of the behavioural surface.
 | **R2-03** | Apply the R0-02 partition rebalance. Keep `nvs`, `otadata`, `coredump` byte-identical. | R0-02, R1-01 | no | `just build-esp32` produces an image that fits with recorded headroom; `cargo espflash` flashes without error. |
 | **R2-04** | `cc-domain`: units, enums, `MachineState` (18 variants), `ErrorCode`, and a port of the Arduino PID library. | Gate 1 | no | `cargo test -p cc-domain`; PID output matches the C++ for a fixed input sequence. |
 | **R2-05** | `cc-safety`: the `SafetyMonitor` — S1 (3-count debounce, immediate trip on out-of-range), S2 (emergency latch), S3 (recovery below 100 °C), S4 (water tank), S5 (`water_flow_allowed` with a `match` that has no `_` arm, so a new water-flow state is a compile error). **Plus the two fail-closed rules recovered from the oracle (08 §4.1), which the plan did not have:** (a) **cross-parameter validation** — `safety.emergency_temp` must exceed `steam.setpoint + safety.emergency_hysteresis`, else the machine trips itself during normal steam use; (b) **refuse a stored config that fails validation** — discard it, run defaults, and refuse to store an unsafe one. | Gate 1 | no | `cargo test -p cc-safety`; every branch of 01 §6 is a named test; adding a water-flow state without updating the whitelist **fails to compile** (tested by a `trybuild`-style case or a documented manual check). |
-| **R2-06** | `cc-config`: the 96-parameter registered schema (98 after the `safety.emergency_*` fix), the `ConfigStore` trait, NVS-independent JSON import/export, and a `Secret<T>` wrapper whose `Debug`/`Display` redact. | Gate 1 | no | `cargo test -p cc-config`; round-trip; defaults; the `safety.emergency_temp` registration bug from [01 §10](./01-feature-inventory.md#10-local-environment-state-2026-09-28--what-is-and-is-not-verified) is **fixed**, with a test that fails against the old behaviour. |
+| **R2-06** | `cc-config`: the 96-parameter registered schema (98 after the `safety.emergency_*` fix), the `ConfigStore` trait, NVS-independent JSON import/export, and a `Secret<T>` wrapper whose `Debug`/`Display` redact. | Gate 1 | no | `cargo test -p cc-config`; round-trip; defaults; the `safety.emergency_temp` registration bug from [01 §10](../../rust-migration/01-feature-inventory.md) is **fixed**, with a test that fails against the old behaviour. |
 | **R2-07** | Drop scale support (F13/F14) per R0-03. | R0-03 | no | No HX711 or BLE code in the Rust tree; documented in the release notes. |
-| **R2-08** | `cc-machine`: the state machine as an **Elm-style reducer** ([04 §3.1](./04-target-architecture.md#31-internal-structure-functional-core-imperative-shell)) — `reduce(state, ctx, event) -> (state, Vec<Effect>)`, 18 states, per-state `on_entry`/`on_exit`/`update` per ADR-0003, the global guards, and the handlers. **Do not** port `LoopManager::update()` as-is: its eight ordered steps reaching into ten-plus subsystems ([01 §4](./01-feature-inventory.md#4-execution-model-today)) is the defect being fixed. | R2-04, R2-05, R2-06 | no | The C++ suites `test_state_machine`, `test_pid_state_transitions`, `test_brew_preinfusion_pause`, `test_steam_water_injection`, `test_backflush_states`, `test_backflush_mode`, `test_state_flow_integration`, `test_power_handler`, `test_brew_handler`, `test_hot_water_handler`, `test_steam_handler` are ported and pass. Plus an **exhaustive `state × event` table** over the reducer — every pair reaches a named verdict. Every state that energises hardware disables it in `on_exit` **and** re-asserts it in `update`. `applier.apply()` is the only function that calls `Actuators`. |
+| **R2-08** | `cc-machine`: the state machine as an **Elm-style reducer** ([04 §3.1](../../rust-migration/04-target-architecture.md)) — `reduce(state, ctx, event) -> (state, Vec<Effect>)`, 18 states, per-state `on_entry`/`on_exit`/`update` per ADR-0003, the global guards, and the handlers. **Do not** port `LoopManager::update()` as-is: its eight ordered steps reaching into ten-plus subsystems ([01 §4](../../rust-migration/01-feature-inventory.md)) is the defect being fixed. | R2-04, R2-05, R2-06 | no | The C++ suites `test_state_machine`, `test_pid_state_transitions`, `test_brew_preinfusion_pause`, `test_steam_water_injection`, `test_backflush_states`, `test_backflush_mode`, `test_state_flow_integration`, `test_power_handler`, `test_brew_handler`, `test_hot_water_handler`, `test_steam_handler` are ported and pass. Plus an **exhaustive `state × event` table** over the reducer — every pair reaches a named verdict. Every state that energises hardware disables it in `on_exit` **and** re-asserts it in `update`. `applier.apply()` is the only function that calls `Actuators`. |
 | **R2-09** | **Host micro-benchmark** of the reducer in `cc-machine`. This is pure CPU, so it is legitimately hardware-free. | R2-08 | no | `cargo bench --bench reducers -p cc-machine`: reducer `step()` ≤ **50 µs at p99** across the full 18-state × N-event table. Committed as a recorded baseline. **Do not optimise before measuring.** |
 | **R2-09b** | Decide the display/SH1106/optional-feature **feature-flag set** from the first size measurement — see [07 — Image size budget](./07-image-size-budget.md). | R2-09 | no | `rust/partitions_4M.csv` and the feature set are agreed, and `intentional-diffs.md` lists anything dropped to fit. |
 | **R2-10** | `cc-display`: framebuffer, `DrawTarget`, ported glyphs, the layout helpers, 6 templates, and the golden-image harness with the AGENTS.md fit/spacing assertions. | R1-04 | no | `cargo test -p cc-display`; goldens regenerated with `just snapshot-display`; reviewer signs off on the diff against the C++ render. |
 
 **R2-10 status: engine parity and the golden harness are done; the
 template-layout sign-off is not.** See
-[`docs/display-parity.md`](../../docs/display-parity.md) for what is proven and
+[`docs/display-parity.md`](../../handbook/display-parity.md) for what is proven and
 what is not. Three gaps, in the order they should be closed:
 
 1. **The goldens record the port, not the C++.** All 48 images pass, and
@@ -521,7 +529,7 @@ what is not. Three gaps, in the order they should be closed:
    `setFontRefHeightExtendedText`. Fixed in `Display::prepare_display`. Expect
    more of the same in the Modern row map and the bottom-row bar.
 3. **`DrawTarget` is not implemented** and the deviation is recorded as *open*,
-   not decided — see [`intentional-diffs.md` §6](./intentional-diffs.md). It
+   not decided — see [`intentional-diffs.md` §6](../../rust-migration/intentional-diffs.md). It
    should be resolved before the templates are finished, because the resolution
    may change the drawing path.
 
@@ -540,7 +548,7 @@ what is not. Three gaps, in the order they should be closed:
 
 | ID | Objective | Depends on | HW | Acceptance |
 | --- | --- | --- | --- | --- |
-| **R3-01** | `cc-hal-esp32`: `Board` trait + the ESP32-DevKitC impl, the full pin map from [01 §2](./01-feature-inventory.md#2-pin-map--includeclevercoffeehardwarepinmappingh), and a `const` pin assertion. | Gate 2 | no | Compiles; a deliberately wrong pin fails to compile with a clear message. |
+| **R3-01** | `cc-hal-esp32`: `Board` trait + the ESP32-DevKitC impl, the full pin map from [01 §2](../../rust-migration/01-feature-inventory.md), and a `const` pin assertion. | Gate 2 | no | Compiles; a deliberately wrong pin fails to compile with a clear message. |
 | **R3-02** | `GpioIn` with 20 ms debounce and 500 ms long-press, matching `IOSwitch.cpp`. The water-tank switch is a `GpioIn` too. | R3-01 | yes | Debounce and long-press match the C++ on hardware; water-tank-empty kills the pump within one tick. |
 | **R3-03** | `Actuators`: the single owner of pump, valve, heater. `ValveState` enum preserved. Emergency latch and water-tank interlock checked **inside** the methods, not at call sites. **Plus the deadman heartbeat (08 §4): the heater output is gated by a latching heartbeat — the plan currently has no equivalent and relies on a 5 s watchdog reset, which leaves the heater energised far too long.** Also **reject `LOW_TRIGGER` for the heater relay**: an undriven GPIO at reset would energise it, so a `LOW_TRIGGER` heater config must be refused at config-validation time (08 §4.1) — this is a real hole in the current C++ firmware, which honours the setting. | R3-01, R2-05 | yes | Every method refuses when the latch is set; `close_*` always works. A test that tries to bypass via a state cannot. |
 | **R3-04** | `HeaterOutput` per the R1-07 decision. `heater_enabled` boolean **deleted**. | R1-07, R3-03 | yes | ⚠ Safe test procedure. Duty cycle correct; no other task may write the pin. |
@@ -554,8 +562,8 @@ what is not. Three gaps, in the order they should be closed:
 | **R3-12** | Wi-Fi STA, hostname-before-connect ordering, and the retry/circuit-breaker policy from `CleverCoffeeWiFiManager.cpp`. | R1-01 | yes | Connects, retries, and falls back to offline mode exactly as the C++ does. |
 | **R3-13** | MQTT: `EspMqttClient`, will, subscribe, incremental publishing within a time budget, and HA discovery every 300 s. | R3-12 | yes | HA sees the same entities as the C++ firmware; a brewery in progress does not publish. |
 | **R3-14** | HTTP: all 24 route registrations (20 `/api/*`, the `/` redirect, `/ui`), the 6 `serveStatic` mounts, and the `/events` SSE stream, static SPA from an embedded bundle, CORS and auth, `AsyncJsonResponse`-equivalent streaming for the large responses. | R1-05, R3-12 | yes | Endpoint-by-endpoint parity with the C++ `/api` responses; `/api/parameters?filter=all` returns complete JSON **with a telnet client connected** (the ADR-0002 crash). |
-| **R3-15** | OTA: espota equivalent + HTTP upload + URL update, with `safe_hardware_shutdown` (not just `disable_heater`) and watchdog suspend/resume. **PARTIAL, 2026-10-04** — the two upload endpoints and `/api/ota/status` are implemented and stream to flash in 4 KiB chunks (`a7722161`, `cbfeb091`); `/api/ota/url` and espota/port 3232 are **not**. S8 is closed and stricter than the C++ (refused while water or steam flows; full safe shutdown through the applier on the control task). **Not verified on hardware**, and rollback is off — both stated in [`intentional-diffs.md` §28](./intentional-diffs.md). The remainder needs an HTTP client and a second long-lived task. | R3-12, R3-03 | yes | An OTA started from every state leaves pump and valve off. **This fixes the gap in [01 §6](./01-feature-inventory.md#6-safety-critical-control-paths).** |
-| **R3-16** | Startup sequence per [04 §4](./04-target-architecture.md#4-startup-shutdown-and-fault-handling), including the pin readback assertion and the post-boot heater-command-zero check. | R3-01, R3-02, R3-03, R3-04, R3-05, R3-08, R3-10, R3-12 | yes | Startup is a **host-testable boot state machine with injected failure points**, so every failure path before the display exists is exercised without hardware: relays off, halts, no reboot. The on-device end-to-end run happens at R4-01 (the control task does not exist until then). Do **not** depend on R3-13/R3-14/R3-15 — they start *after* the sequence R3-16 orchestrates. |
+| **R3-15** | OTA: espota equivalent + HTTP upload + URL update, with `safe_hardware_shutdown` (not just `disable_heater`) and watchdog suspend/resume. **PARTIAL, 2026-10-04** — the two upload endpoints and `/api/ota/status` are implemented and stream to flash in 4 KiB chunks (`a7722161`, `cbfeb091`); `/api/ota/url` and espota/port 3232 are **not**. S8 is closed and stricter than the C++ (refused while water or steam flows; full safe shutdown through the applier on the control task). **Not verified on hardware**, and rollback is off — both stated in [`intentional-diffs.md` §28](../../rust-migration/intentional-diffs.md). The remainder needs an HTTP client and a second long-lived task. | R3-12, R3-03 | yes | An OTA started from every state leaves pump and valve off. **This fixes the gap in [01 §6](../../rust-migration/01-feature-inventory.md).** |
+| **R3-16** | Startup sequence per [04 §4](../../rust-migration/04-target-architecture.md), including the pin readback assertion and the post-boot heater-command-zero check. | R3-01, R3-02, R3-03, R3-04, R3-05, R3-08, R3-10, R3-12 | yes | Startup is a **host-testable boot state machine with injected failure points**, so every failure path before the display exists is exercised without hardware: relays off, halts, no reboot. The on-device end-to-end run happens at R4-01 (the control task does not exist until then). Do **not** depend on R3-13/R3-14/R3-15 — they start *after* the sequence R3-16 orchestrates. |
 
 | **R3-17** | **HX711 scale driver (KEEP — decided 2026-09-29).** `hx711` 0.7.0 is
   `embedded-hal 1.0` + `nb` and non-blocking, but 02 §HX711 records it cannot be driven from
@@ -597,12 +605,12 @@ what is not. Three gaps, in the order they should be closed:
 "improve performance and better use code". The known wins, in expected order of magnitude:
 (a) the ABP2 pressure read goes non-blocking — today `pressureSensor.h:35` does
 `delay(10)` every 50 ms, **20 % of wall clock**
-([01 §4](./01-feature-inventory.md#4-execution-model-today)); (b) the 10 ms software-PWM
+([01 §4](../../rust-migration/01-feature-inventory.md)); (b) the 10 ms software-PWM
 ISR is replaced by LEDC hardware PWM, so the heater costs **zero CPU**; (c) the tick is a
 pure reducer, so `cc-machine` becomes host-benchmarkable (R2-09). | R4-01, R3-05, R3-04 | yes | Control-loop budget over a **24 h soak**: worst-case tick **≤ 5 ms**, mean **≤ 2 ms**, **zero ticks > 10 ms**, compared against the per-iteration histogram recorded from C++ at R0-04. Heater duty error ≤ 1 %. Publish a before/after table. **If no improvement is demonstrated, say so** — a regression here is a finding, not a failure. |
-| **R4-02** | Run the full [integration checklist](../integration-tests.md) against the Rust firmware. | R4-01 | yes | Every section PASSes; failures recorded, not skipped. |
+| **R4-02** | Run the full [integration checklist](../../operations/integration-checklist.md) against the Rust firmware. | R4-01 | yes | Every section PASSes; failures recorded, not skipped. |
 | **R4-03** | Parity harness: `scripts/parity/run.sh` runs both firmwares against the same scripted input and diffs `/api/status`, `/api/parameters?filter=all`, the MQTT discovery payloads, and the state-transition log. | R4-01 | yes | **Zero unexplained diffs.** Any difference is either a documented intentional change or a bug. |
-| **R4-04** | Safety-path validation: overtemp trip, emergency latch and recovery, water-tank-empty pump kill, valve fail-safe, watchdog reboot, OTA actuator-off. | R4-01 | yes | Each behaves as in [01 §6](./01-feature-inventory.md#6-safety-critical-control-paths). **Every one of these needs a written safe test procedure reviewed before it runs.** |
+| **R4-04** | Safety-path validation: overtemp trip, emergency latch and recovery, water-tank-empty pump kill, valve fail-safe, watchdog reboot, OTA actuator-off. | R4-01 | yes | Each behaves as in [01 §6](../../rust-migration/01-feature-inventory.md). **Every one of these needs a written safe test procedure reviewed before it runs.** |
 | **R4-05** | Soak: 24 h unattended with periodic API and MQTT polling. Watch heap and the ADR-0002 pattern. | R4-01 | yes | No reboot, no leak, heap stable. |
 | **R4-06** | Flash-size and RAM final measurement; document the final partition table. | R3-16 | yes | Image fits with recorded headroom; static RAM budget documented. |
 | **R4-07** | ESP32-S3 spike **only if** desired: same workspace, `board-esp32s3-devkitc-1` feature, and the `LEDC`/pin differences resolved. | R4-06 | yes | Builds and boots. **A successful build is not support** — see the explicit rule below. |
@@ -615,7 +623,7 @@ pure reducer, so `cc-machine` becomes host-benchmarkable (R2-09). | R4-01, R3-05
 >
 > `build-esp32s3` and `build-esp32c6` exist but are **excluded from `build-all`**. A
 > target becomes supported only after it has been **flashed and exercised on real
-> hardware**, and its entry in [01 §1](./01-feature-inventory.md#1-target-hardware--what-esp32-v4-actually-means)
+> hardware**, and its entry in [01 §1](../../rust-migration/01-feature-inventory.md)
 > is updated with what was actually verified. The C6 in particular needs no compiler fork
 > — which makes it *look* easy — but it has a completely different GPIO map, no
 > GPIO 34-39 input-only block, and no native USB on some DevKitC variants.
@@ -655,7 +663,7 @@ R0-04 ──┴─> R1-01 ─┤                     ├─> R2-08 ─> R2-09 �
   is the owner of the hardware and answered that the code being dead is a **bug on their
   side**, not a reason to discard the feature. Not a divergence to be tolerated either —
   Rust is expected to do the job *properly*, which the C++ never does. See R3-17/R3-18
-  and [09 §23](./09-cpp-findings.md). | R2-07 | resolved |
+  and [09 §23](../../rust-migration/09-cpp-findings.md). | R2-07 | resolved |
 | Reduce app slots to grow the filesystem, or embed the SPA in the binary? | R2-03 | Measure first, then rebalance; embed the SPA |
 | Keep SH1106 support or drop it? | R2-10 | Drop it and document; `ssd1306` does not support SH1106 and `sh1106` 0.5.0 is stuck on `embedded-hal 0.2` |
 | SSE or WebSocket for the UI's live channel? | R3-14 | SSE via `EspHttpConnection::write` / `raw_connection()` (both ship in esp-idf-svc 0.53); WebSocket only if both fail |

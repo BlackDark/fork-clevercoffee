@@ -1,7 +1,14 @@
 # Post-review work plan — `rewrite/rust`
 
+> **ARCHIVED — non-normative. Dated 2026-10-03, preserved for provenance.**
+> This is the master tracker as it stood on 2026-10-03. Every item's fate is in
+> `git log`, and what is done or explicitly not done is dated and owned in
+> [`docs/status.md`](../../status.md) — a point-in-time plan document is not a
+> tracker. Read it for the reasoning behind the ordering. See
+> [`docs/archive/README.md`](../README.md).
+
 Master tracker for the work that came out of the 2026-10-03 independent review
-([`32-findings-2026-10-03.md`](./32-findings-2026-10-03.md)). One line per item, so a reader
+([`32-findings-2026-10-03.md`](../../rust-migration/32-findings-2026-10-03.md)). One line per item, so a reader
 picking this up cold knows what is done, what is next, and why the order is what it is.
 
 **Gate for every item:** `cargo fmt --all` then `just gate`. `just check` is **not** sufficient —
@@ -186,7 +193,7 @@ So "parity" would have meant matching a C++ bug, paid for with the machine's doc
 (a machine on a nonexistent network cannot be fixed any other way). The user's chosen option was
 overruled on that evidence and **option A** taken: the steam LED is not driven, GPIO1 stays with the
 provisioning console. Recorded as `intentional-diffs` §27 and row 18 of the new
-[`34-known-differences.md`](./34-known-differences.md).
+[`34-known-differences.md`](../../handbook/differences.md).
 
 The LED worker then **corrected a false claim in its own first draft** — it had written "there is no
 free GPIO left"; in fact 10 of 28 are free, 13 and 14 genuinely so. The corrected conclusion is more

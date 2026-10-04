@@ -60,7 +60,7 @@ Stop and escalate if:
 
 **Do not run any of these without a reviewed safe test procedure.** For R1-07 and R3-04
 the procedure is in
-[06 §R1-07](../../docs/rust-migration/06-migration-task-list.md#r1-07--heater-output-method).
+[06 §R1-07](../../docs/archive/migration/06-migration-task-list.md#r1-07--heater-output-method).
 Its essentials:
 
 1. **Physically disconnect the boiler.** Do not rely on a software switch.
@@ -89,7 +89,7 @@ just size-record mcu=esp32 label=gate-N
 just parity /dev/cu.usbserial-XXXX esp32.local
 
 # 2. Integration checklist, in order, recording PASS/FAIL with real output
-#    (docs/integration-tests.md)
+#    (docs/operations/integration-checklist.md)
 
 # 3. 24 h soak for Gate 4 (R4-05)
 ```
@@ -101,7 +101,7 @@ Then, before starting the next phase:
 - [ ] Every gate criterion in 06 is met **and recorded**.
 - [ ] ADR-0004 updated (status + any spike results).
 - [ ] `notes.md` updated: completed tasks, blockers, new findings.
-- [ ] `docs/integration-tests.md` updated with any newly discovered failure mode.
+- [ ] `docs/operations/integration-checklist.md` updated with any newly discovered failure mode.
 - [ ] `01-feature-inventory.md` §1 updated if a target was actually verified on hardware.
 
 ---

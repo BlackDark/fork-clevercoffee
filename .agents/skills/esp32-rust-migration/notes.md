@@ -724,7 +724,7 @@ is a real failure mode here. Three more, all from the same day:
 
 The machine went unreachable and took **three** faults, none visible in the
 firmware's own summary. Full write-up in `09-cpp-findings.md` §30 and the check
-list in `docs/integration-tests.md`.
+list in `docs/operations/integration-checklist.md`.
 
 * `wifi_auth_mode_t` is a **sequence, not a bitmask** and the driver compares it
   for **equality**. `WPA2WPA3Personal` cannot join a WPA2-only AP. This port had
@@ -739,7 +739,7 @@ list in `docs/integration-tests.md`.
 
 ## Where everything from 2026-10-01 is written down
 
-`docs/rust-migration/31-findings-2026-10-01.md` — the index. Every finding from
+`docs/archive/migration/31-findings-2026-10-01.md` — the index. Every finding from
 the day, with where the detail lives and what is still open.
 
 The four documents it points into:
@@ -748,7 +748,7 @@ The four documents it points into:
 | --- | --- |
 | `09-cpp-findings.md` §28–§31 | the `FreeRTOS` blocking hazard, the tick-rate measurement, the Wi-Fi recovery, the 15 ms in the applier span |
 | `intentional-diffs.md` §14–§17 | the layout divergences from the C++ (uptime, `°C`, Scale rows) and the two behaviour changes (S1 counting samples, the reboot shutdown) |
-| `docs/integration-tests.md` | a runnable check per finding — Wi-Fi, the tick, the screen fit, the language columns |
+| `docs/operations/integration-checklist.md` | a runnable check per finding — Wi-Fi, the tick, the screen fit, the language columns |
 | `notes.md` (this file) | the Wi-Fi recovery summary an agent needs before touching Wi-Fi again |
 
 **Open, with the next step named, in §7 of the index.** The first is the control

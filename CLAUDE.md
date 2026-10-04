@@ -9,4 +9,5 @@ restate them. If a rule is missing, add it to `AGENTS.md`, not here.
 
 For what currently works, read [`docs/status.md`](./docs/status.md) — the only
 page permitted to claim that. For the frozen C++ tree, read
-[`docs/cpp-oracle.md`](./docs/cpp-oracle.md).
+[`docs/cpp-oracle.md`](./docs/cpp-oracle.md). For everything else,
+[`docs/index.md`](./docs/index.md) is the map.

@@ -1,5 +1,15 @@
 # State Machine Architecture & Hardware Control
 
+> **ARCHIVED — describes the C++ state machine. The RULES in it are live and live
+> elsewhere; the DESCRIPTION is superseded for the Rust port.** Every symbol below
+> is C++ (`BaseState`, `valveSafetyShutdownCheck()`, `HardwareManager`). The
+> contract this document restates is normative in
+> [`docs/adr/0003`](../../adr/0003-state-machine-hardware-control-contract.md) and,
+> as numbered invariants, in `AGENTS.md` `AG-REPO-21` … `AG-REPO-26` — **archive
+> this file loses no rule.** The Rust states and their per-state hardware
+> behaviour are documented where they live, in `crates/cc-machine/src/states.rs`.
+> See [`docs/archive/README.md`](../README.md).
+
 Complete reference for the state machine, all transitions, and hardware (pump, valve, heater) behavior.
 
 ## How the State Machine Runs

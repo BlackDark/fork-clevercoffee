@@ -22,8 +22,11 @@ not to a document, not to a skill, not to `CLAUDE.md`.
 Pick the prefix by **what you touched**, not by which firmware you were thinking
 about. A rule that genuinely covers both is `AG-REPO-*` and says so.
 
-Two documents carry the repository's navigational load, and neither states a rule:
+Three documents carry the repository's navigational load, and none states a rule:
 
+- [`docs/index.md`](docs/index.md) — **the map.** One row per document, grouped
+  by situation. Every document in the repository appears there exactly once; if
+  you write one, the table is out of date until it is in it.
 - [`docs/status.md`](docs/status.md) — the **only** page permitted to claim what
   works. Dated, named owner, every line a pointer to a commit or a measurement.
 - [`docs/cpp-oracle.md`](docs/cpp-oracle.md) — where the C++ lives, why it is
@@ -118,7 +121,7 @@ necessary. If one is required, state the reason.
 **AG-REPO-15.** Tools available here: `gh` for GitHub, `jq` for JSON, `rg`
 (ripgrep) for search. For the project layout, build and test commands, coding
 standards and TDD practices as they stood for the C++ tree, see
-[`REPOSITORY_SUMMARY.md`](REPOSITORY_SUMMARY.md) -- it describes the C++, say so
+[`docs/archive/cpp/REPOSITORY_SUMMARY.md`](docs/archive/cpp/REPOSITORY_SUMMARY.md) -- it describes the C++, say so
 when you cite it.
 
 **AG-REPO-16.** If you are working with a new library or tool, look up its
@@ -128,7 +131,7 @@ recalled documentation; `https://llmstxt.site/` and
 `https://directory.llmstxt.cloud/` index collections.
 
 **AG-REPO-17.** **Integration testing** is
-[`docs/integration-tests.md`](docs/integration-tests.md). When the user asks for a
+[`docs/operations/integration-checklist.md`](docs/operations/integration-checklist.md). When the user asks for a
 full integration test flow: run **every** section in order; for each item execute
 the check (a `curl`, a `pio` command, a browser action); record PASS/FAIL with
 the actual output; **stop at the first FAIL** and diagnose before continuing;
@@ -136,7 +139,7 @@ report a summary table at the end.
 
 **AG-REPO-18.** **Keep that checklist current.** When you discover a new critical
 scenario -- a crash, an OOM, an endpoint failure, a timing bug -- add it to
-[`docs/integration-tests.md`](docs/integration-tests.md) immediately, in the same
+[`docs/operations/integration-checklist.md`](docs/operations/integration-checklist.md) immediately, in the same
 commit, rather than waiting for a separate task. The checklist must reflect every
 known failure mode. Examples of what belongs there: an API endpoint that handles
 large payloads; a concurrency scenario that caused a crash; a new OTA or upload
@@ -191,6 +194,37 @@ the C++ does something surprising.
 
 ---
 
+## Documentation structure
+
+**AG-REPO-28.** **`docs/index.md` is the map, and it is exhaustive.** One row per
+document, grouped by the four situations -- new here / changing behaviour / at
+the machine / reading history. Every document in the repository appears there
+**exactly once**. A document that is not in that table has no reachable entry
+point, which makes it invisible; if you write one, the table is out of date until
+it is in it.
+
+**AG-REPO-29.** **`docs/archive/` is preserved history, not a source of truth.**
+Material is moved there, never deleted, and never merged into a live document
+(the other way round defeats the point). Each archived file carries a banner
+saying what it was, when, and whether the Rust port supersedes it. **Any claim
+quoted out of `archive/` into a live document must be re-verified against live
+evidence** -- code, a test, a measurement, or [`docs/status.md`](docs/status.md) --
+and the archive citation is recorded as *provenance only*, never as the proof. The
+concrete failure this prevents: a retracted claim ("the ESP32 has no Bluetooth
+radio") was lifted out of a September survey and treated as today's constraint.
+[`docs/archive/README.md`](docs/archive/README.md) states the rule and says what is
+in the archive and why.
+
+**AG-REPO-30.** **`docs/rust-migration/` does not move.** Rust doc comments link
+into it with rustdoc link syntax and `just lint` runs `rustdoc -D warnings`, so
+moving a cited document is a **build break**, not a link cleanup. The machine-read
+fixtures there (`size-baseline.json`, `size-records.jsonl`, `scenarios/*.yaml`) are
+opened by code and CI by path. `intentional-diffs.md` is additionally *parsed* by
+`cc-parity` and its fenced `ledger` blocks live inside the prose on purpose, so the
+two cannot drift -- do not split them out.
+
+---
+
 ## 2. The C++ oracle
 
 Everything in this section is scoped `AG-ORACLE-*` and applies to `src/`,
@@ -213,7 +247,7 @@ only correct when a C++ change is the deliberate subject of the commit.
 
 **AG-ORACLE-4.** Nothing in the Rust migration touches the `pio` tooling, the
 partition table, or the C++ build until the corresponding task in
-[`06-migration-task-list.md`](docs/rust-migration/06-migration-task-list.md) says
+[`06-migration-task-list.md`](docs/archive/migration/06-migration-task-list.md) says
 so.
 
 **AG-ORACLE-5.** Source code lives in `src`, `lib`, `include`. The `pio` binaries
@@ -298,8 +332,10 @@ heights.
 **AG-ORACLE-17.** **Double-check before finishing.** Re-read the row map after
 edits; anchor bottom rows from `DISPLAY_HEIGHT` where possible. Prefer
 `DisplayLayoutUtils.h` for fixed-width and bar-plus-label cluster layout. See
-[`docs/display-modern-layout.md`](docs/display-modern-layout.md) and
-[`docs/display-architecture.md`](docs/display-architecture.md).
+[`docs/handbook/display.md`](docs/handbook/display.md) for which of the three
+display documents answers which question, then
+[`docs/handbook/display-modern-layout.md`](docs/handbook/display-modern-layout.md) and
+[`docs/handbook/display-architecture.md`](docs/handbook/display-architecture.md).
 
 **AG-ORACLE-18.** **Layout regressions are blocking.** Cut-off text, overlapping
 rows, shifting numbers and misaligned bar/label pairs must be fixed before the
@@ -338,7 +374,7 @@ tree, and a number in a doc goes stale silently. Count it yourself with
 
 **AG-RUST-5.** What the CI pipeline is, what each job costs, and why the
 toolchain pins and cache keys are shaped as they are:
-[`docs/ci.md`](docs/ci.md).
+[`docs/handbook/ci.md`](docs/handbook/ci.md).
 
 **AG-RUST-6.** **The web UI must be built before the firmware will link.**
 `cc-hal-esp32/build.rs` deliberately panics without

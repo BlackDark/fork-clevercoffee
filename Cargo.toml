@@ -92,7 +92,7 @@ cc-hal-esp32 = { path = "crates/cc-hal-esp32" }
 # `cc-provisioning` (the SoftAP captive portal, 05 §5) is NOT a workspace member.
 # It was a 17-line `#![no_std]` skeleton with zero users that every device build
 # still had to resolve a dependency graph for. The crate is deleted; the design
-# and its three rules survive in `docs/rust-migration/05-tooling-and-workflows.md`
+# and its three rules survive in `docs/archive/migration/05-tooling-and-workflows.md`
 # §5, and it returns at R4-11 with code rather than as a placeholder.
 
 # `cc-config` is the only portable crate with third-party dependencies: serde for

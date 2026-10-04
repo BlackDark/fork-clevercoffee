@@ -403,7 +403,7 @@ against no third-party crates. The reasons given in `crates/cc-display/Cargo.tom
 * The crate's whole job is bit-exact U8g2 parity, and U8g2 has behaviour that
   does not survive being expressed as `embedded-graphics` primitives — notably
   the 16-bit coordinate wrap in `u8g2_is_intersection_decision_tree` (see
-  [`docs/display-parity.md`](../../docs/display-parity.md)) and U8g2's
+  [`docs/handbook/display-parity.md`](../../docs/handbook/display-parity.md)) and U8g2's
   last-glyph and balanced-width quirks in `getStrWidth`. Going through a
   `DrawTarget` would mean re-deriving those on the far side.
 * The ten embedded fonts are raw U8g2 RLE (42,722 bytes) rather than

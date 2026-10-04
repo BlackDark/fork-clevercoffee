@@ -20,11 +20,11 @@ Before touching anything, read these in order. Do not skip to the task list.
 | --- | --- |
 | [`docs/rust-migration/01-feature-inventory.md`](../../docs/rust-migration/01-feature-inventory.md) | Every feature, its source, its hardware, and the **11 safety-critical control paths (S1-S11)**. Also §10 records what is verified vs. unknown on this hardware. |
 | [`docs/rust-migration/02-research-compatibility-matrix.md`](../../docs/rust-migration/02-research-compatibility-matrix.md) | Which crates cover which feature, and the **10 unverified assumptions (U1-U10)** with their spike tasks. |
-| [`docs/rust-migration/03-decision-record.md`](../../docs/rust-migration/03-decision-record.md) | ADR-0004: the platform decision, what was rejected and why, and the flash-size problem. |
+| [`docs/archive/migration/03-decision-record.md`](../../docs/archive/migration/03-decision-record.md) | ADR-0004: the platform decision, what was rejected and why, and the flash-size problem. |
 | [`docs/rust-migration/04-target-architecture.md`](../../docs/rust-migration/04-target-architecture.md) | Crate boundaries, task/priority table, the single-ownership rules, and the startup/shutdown contract. |
-| [`docs/rust-migration/05-tooling-and-workflows.md`](../../docs/rust-migration/05-tooling-and-workflows.md) | The `just` recipes, mise setup, and flashing rules. |
-| [`docs/rust-migration/06-migration-task-list.md`](../../docs/rust-migration/06-migration-task-list.md) | **The task list, dependencies, gates, and acceptance criteria.** |
-| [`docs/integration-tests.md`](../../docs/integration-tests.md) | The integration checklist to run at phase gates. |
+| [`docs/archive/migration/05-tooling-and-workflows.md`](../../docs/archive/migration/05-tooling-and-workflows.md) | The `just` recipes, mise setup, and flashing rules. |
+| [`docs/archive/migration/06-migration-task-list.md`](../../docs/archive/migration/06-migration-task-list.md) | **The task list, dependencies, gates, and acceptance criteria.** |
+| [`docs/operations/integration-checklist.md`](../../docs/operations/integration-checklist.md) | The integration checklist to run at phase gates. |
 | [`CLAUDE.md`](../../CLAUDE.md) | Repository-wide rules — including the OLED layout rules, which apply to `cc-display` too. |
 
 Also read [`notes.md`](./notes.md) in this skill directory: it records the current state,
@@ -215,7 +215,7 @@ And for a **phase gate**, additionally:
 ```bash
 just size-check                         # fail if the image exceeds the budget
 just parity /dev/cu.usbserial-XXXX esp32.local
-# then run every section of docs/integration-tests.md in order
+# then run every section of docs/operations/integration-checklist.md in order
 ```
 
 Rules:
@@ -292,13 +292,13 @@ At the end of each phase, before starting the next one:
 2. **Run the phase's gate checks.** For Gate 1 this is: R1-01, R1-02, R1-03, R1-07 all
    pass, and ADR-0004 moves from *Proposed* to *Accepted* with the R1-02 and R1-07 results
    filled in.
-3. **Run the integration checks** in [`docs/integration-tests.md`](../../docs/integration-tests.md),
+3. **Run the integration checks** in [`docs/operations/integration-checklist.md`](../../docs/operations/integration-checklist.md),
    in order, on the connected device, where applicable and safe. Record PASS/FAIL with
    actual output.
 4. **Run `just parity`** and require **zero unexplained diffs**. Any diff is either a
    documented intentional change (list it in the release notes per R4-09) or a bug.
 5. **Update** the task list (mark tasks complete), ADR-0004, and this skill's `notes.md`.
-6. **Add any newly discovered failure mode to `docs/integration-tests.md`** in the same
+6. **Add any newly discovered failure mode to `docs/operations/integration-checklist.md`** in the same
    commit. The checklist must reflect reality.
 7. Only then start the next phase.
 

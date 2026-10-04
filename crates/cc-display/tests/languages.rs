@@ -261,7 +261,8 @@ fn every_label_fits_its_column_in_every_language() {
 ///
 /// All C++ parity: the same strings, the same `displayMessage` primitive, the
 /// same per-glyph clipping in U8g2. See
-/// `docs/integration-tests.md` — an operator sees these exactly when something is
+/// `docs/operations/integration-checklist.md` — an operator sees these
+/// exactly when something is
 /// already broken, which is why they are worth a tracked entry and not a
 /// quiet re-wrap.
 const KNOWN_MESSAGE_OVERFLOWS: &[(&str, i32, i32)] = &[

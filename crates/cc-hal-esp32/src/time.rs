@@ -143,7 +143,7 @@ pub mod tests {
         // stamps agree to **1.4 %**: 1.256 s of device time inside 1.274 s of
         // host time. Whether `delay_ms` is systematically short, or that 12 ms
         // was the tick grid landing unluckily, is an open question and is
-        // deliberately not asserted here — `docs/rust-migration/06-migration-
+        // deliberately not asserted here — `docs/archive/migration/06-migration-
         // task-list.md` R2-09b owns the control-loop timing measurement.
         //
         // A 200 ms request is 20 ticks, so the quantisation is 5 % rather than

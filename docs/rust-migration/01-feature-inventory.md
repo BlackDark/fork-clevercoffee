@@ -10,12 +10,12 @@ hardware. Any Rust implementation that omits a row here is a behavioural regress
 
 Related documents:
 - [02 — Research & compatibility matrix](./02-research-compatibility-matrix.md)
-- [03 — Decision record (ADR-0004)](./03-decision-record.md)
+- [03 — Decision record (ADR-0004)](../archive/migration/03-decision-record.md)
 - [04 — Target architecture](./04-target-architecture.md)
-- [05 — Tooling & developer workflows](./05-tooling-and-workflows.md)
-- [06 — Migration task list](./06-migration-task-list.md)
-- Existing context: [`../state-machine-architecture.md`](../state-machine-architecture.md),
-  [`../display-architecture.md`](../display-architecture.md),
+- [05 — Tooling & developer workflows](../archive/migration/05-tooling-and-workflows.md)
+- [06 — Migration task list](../archive/migration/06-migration-task-list.md)
+- Existing context: [`../state-machine-architecture.md`](../archive/cpp/state-machine-architecture.md),
+  [`../display-architecture.md`](../handbook/display-architecture.md),
   [`../adr/0003-state-machine-hardware-control-contract.md`](../adr/0003-state-machine-hardware-control-contract.md)
 
 ---
@@ -31,14 +31,14 @@ ESP32-S3, C3, C6, H2, or S2.
 | --- | --- | --- |
 | Chip | ESP32 (original), **silicon revision v3.0** | `platformio.ini:9` `platform = espressif32 @^7.0.1`; `README.md:5` `esptool.py --chip esp32`. Revision **measured on hardware 2026-09-28**: `esptool.py --chip esp32 chip_id` → `Chip is ESP32-D0WD-V3 (revision v3.0)`, and the ESP-IDF boot log prints `efuse_init: Chip rev: v3.0` (`Min chip rev: v0.0`, `Max chip rev: v3.99`) |
 | Module | **ESP32-WROOM-32E** (high confidence; see [§10](#10-local-environment-state-2026-09-28--what-is-and-is-not-verified) for the evidence chain and the one open gap) | 4 MB flash, VDD_SDIO = 3.3 V, no PSRAM reported at boot, GPIO16/17 in active use — all measured; part marking not photographed |
-| Board | `az-delivery-devkit-v4` (AZ-Delivery ESP32-DevKitC-V4) | `platformio.ini:12`; `REPOSITORY_SUMMARY.md:43`; board JSON `~/.platformio/platforms/espressif32/boards/az-delivery-devkit-v4.json` |
+| Board | `az-delivery-devkit-v4` (AZ-Delivery ESP32-DevKitC-V4) | `platformio.ini:12`; `docs/archive/cpp/REPOSITORY_SUMMARY.md:43`; board JSON `~/.platformio/platforms/espressif32/boards/az-delivery-devkit-v4.json` |
 | Board history | `esp32dev` → `nodemcuv2` → `az-delivery-devkit-v4` (commit `0dafb58`) | `git log -p platformio.ini` |
 | Framework | Arduino (ESP-IDF 4.4 under Arduino core 2.0.x) | `platformio.ini:36` `framework = arduino` |
 | C++ standard | `-std=gnu++2a` | `platformio.ini:28` |
 | Filesystem | LittleFS | `platformio.ini:13` |
 | Flash | 4 MB, **DIO**, 40 MHz — **verified on hardware 2026-09-28** | `esptool.py flash_id` → `Detected flash size: 4MB`, JEDEC `0xD8` / `0x4016`; 2nd-stage bootloader prints `boot.esp32: SPI Speed : 40MHz`, `SPI Mode : DIO`, `SPI Flash Size : 4MB`. Both `bootloader.bin` and `firmware.bin` image headers encode `flash_mode = 0x02` (DIO), flash size "keep", 20 MHz. Also `README.md:5`; `.github/workflows/release.yml:125,132` |
 | PSRAM | **None.** | No `spiram`/`psram` line anywhere in the ESP-IDF 5.5.5 boot log; `heap_init` lists only DRAM/IRAM regions. See §10 for the caveat that this is conditional on `CONFIG_SPIRAM` in the build that produced that log |
-| USB | **None on the chip — the "no native USB" claim HOLDS and is now positively verified.** The USB device on this host is a **WCH CH340** USB-to-UART bridge (VID `0x1A86`, PID `0x7523`), *not* a CP210x/CP2102N. | `ioreg -p IOUSB -l -w 0` on 2026-09-28. The original ESP32 has no USB peripheral (ESP32 Series Datasheet v5.3 peripheral list), so USB CDC / TinyUSB / USB-Serial-JTAG remain impossible — the §8 conclusion is unaffected by the bridge being a CH340 rather than a CP210x. Corroborating: no `HWCDC`/`TinyUSB`/`usb_serial_jtag` anywhere in `src/`+`include/`; the serial node is `/dev/cu.usbserial-*`, not `/dev/ttyUSB0` (`docs/integration-tests.md` §3); `pinmapping.h:45` moves `PIN_STEAMLED` off GPIO 1 because "UART TX". The CP2102N claim in `.agents/skills/esp32-rust-migration/SKILL.md` §1 is **wrong for this board** |
+| USB | **None on the chip — the "no native USB" claim HOLDS and is now positively verified.** The USB device on this host is a **WCH CH340** USB-to-UART bridge (VID `0x1A86`, PID `0x7523`), *not* a CP210x/CP2102N. | `ioreg -p IOUSB -l -w 0` on 2026-09-28. The original ESP32 has no USB peripheral (ESP32 Series Datasheet v5.3 peripheral list), so USB CDC / TinyUSB / USB-Serial-JTAG remain impossible — the §8 conclusion is unaffected by the bridge being a CH340 rather than a CP210x. Corroborating: no `HWCDC`/`TinyUSB`/`usb_serial_jtag` anywhere in `src/`+`include/`; the serial node is `/dev/cu.usbserial-*`, not `/dev/ttyUSB0` (`docs/operations/integration-checklist.md` §3); `pinmapping.h:45` moves `PIN_STEAMLED` off GPIO 1 because "UART TX". The CP2102N claim in `.agents/skills/esp32-rust-migration/SKILL.md` §1 is **wrong for this board** |
 | Auto-reset | **Present and working.** DTR/RTS auto-reset achieved connection 5/5 times with no manual BOOT+EN | `esptool.py chip_id` / `flash_id` / `read_flash_status` / `read_flash_sfdp` / `get_security_info`, all `--port /dev/cu.usbserial-204140`, no manual intervention. Contradicts the warning in `SKILL.md` §6 |
 | `MAX_GPIO_PINS` | 40 (compile-time constant) | `pinmapping.h:58` |
 
@@ -453,8 +453,8 @@ a USB peripheral. Therefore:
    means. This is a **hardware change**, not a firmware change, and it is a separate
    decision.
 
-See [03 — Decision record](./03-decision-record.md) §5 and
-[05 — Tooling](./05-tooling-and-workflows.md) §5.
+See [03 — Decision record](../archive/migration/03-decision-record.md) §5 and
+[05 — Tooling](../archive/migration/05-tooling-and-workflows.md) §5.
 
 ---
 
@@ -462,14 +462,14 @@ See [03 — Decision record](./03-decision-record.md) §5 and
 
 | Activity | Command | Source |
 | --- | --- | --- |
-| Build firmware | `~/.platformio/penv/bin/pio run -e esp32_usb -s` | `REPOSITORY_SUMMARY.md:49` |
+| Build firmware | `~/.platformio/penv/bin/pio run -e esp32_usb -s` | `docs/archive/cpp/REPOSITORY_SUMMARY.md:49` |
 | Format | `~/.platformio/penv/bin/pio run --target format -e esp32_usb -s` | `CLAUDE.md` |
 | Format check (CI) | `pio run --target check-format -e esp32_usb -s` | `.github/workflows/format.yml:43` |
 | Native tests | `~/.platformio/penv/bin/pio test -e native_test` | `CLAUDE.md` |
 | OTA deploy | `pio run -e esp32_ota -t upload` → `silvia.local` | `platformio.ini:66-71` |
 | Merge binary | `esptool.py --chip esp32 merge_bin --flash_mode dio --flash_size 4MB 0x1000 …0x350000` | `README.md:5` + `release.yml:129` |
-| Serial monitor | `screen /dev/cu.usbserial-* 115200` | `docs/integration-tests.md` §3 |
-| Telnet logs | `nc <hostname> 23` | `docs/integration-tests.md` §4 |
+| Serial monitor | `screen /dev/cu.usbserial-* 115200` | `docs/operations/integration-checklist.md` §3 |
+| Telnet logs | `nc <hostname> 23` | `docs/operations/integration-checklist.md` §4 |
 | Frontend build | `scripts/build_frontend.py` (pre-build hook) | `platformio.ini:57` |
 | Wokwi | `tools/platformio_wokwi.py` (post-build) | `platformio.ini:58` |
 
@@ -577,7 +577,7 @@ Measured: VID `0x1A86`, PID `0x7523`, `iProduct` = `"USB Serial"`, `iSerialNumbe
 than a CP210x changes **nothing** in the plan (it is still a plain UART bridge, so the "no
 native USB" conclusion is unaffected), but `SKILL.md` §1 and `README.md` state CP2102N and
 that is wrong for this board. The WCH CH34x/CH340 driver note now lives in
-`docs/integration-tests.md` §3 (the old `DEBUG_GUIDE.md` it belonged to has been deleted).
+`docs/operations/integration-checklist.md` §3 (the old `DEBUG_GUIDE.md` it belonged to has been deleted).
 
 ### 🔴 3. Auto-reset works — no manual BOOT+EN needed
 

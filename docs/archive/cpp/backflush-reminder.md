@@ -1,5 +1,16 @@
 # Backflush Reminder / Shot Counter
 
+> **ARCHIVED — describes the C++ firmware's implementation, and is superseded
+> for the Rust port in its mechanism, not in its behaviour.** The shot counter,
+> the qualification rule and the reminder threshold **are** implemented in the
+> port (`cc_machine::maintenance`, `cc_hal_esp32::nvs`), but not with the pieces
+> named below: there is no `MaintenanceCoordinator`, and persistence uses the
+> port's own NVS key `cc.maint.shots`, **not** the C++'s
+> `maintenance`/`shots_since_bf`. The mechanism split is documented at the top of
+> `crates/cc-machine/src/maintenance.rs`. Every C++ type, path and NVS name below
+> is the C++'s; the "Status: Implemented (v1)" line describes the C++. See
+> [`docs/archive/README.md`](../README.md).
+
 **Status:** Implemented (v1)  
 **Last updated:** 2026-05-20  
 **Related config:** Maintenance section (`/config/behavior` → Maintenance)
@@ -40,11 +51,11 @@ flowchart TD
 
 | Layer | Responsibility |
 |-------|----------------|
-| [`BackflushReminderLogic.h`](../../include/clevercoffee/maintenance/BackflushReminderLogic.h) | Pure qualification + due-check helpers (unit-tested) |
-| [`MaintenanceCoordinator`](../../include/clevercoffee/coordinators/MaintenanceCoordinator.h) | Counter in RAM, NVS persistence, reminder state |
-| [`Config`](../../include/clevercoffee/Config.h) | `maintenance.backflush_reminder.enabled` / `.threshold` |
-| [`BrewFinishedState`](../../src/state/states/BrewStates.cpp) | Hook: record brew after cycle completes |
-| [`BackflushFinishedState`](../../src/state/states/BackflushStates.cpp) | Auto-reset counter when all configured cycles complete |
+| [`BackflushReminderLogic.h`../../../include/clevercoffee/maintenance/BackflushReminderLogic.h) | Pure qualification + due-check helpers (unit-tested) |
+| [`MaintenanceCoordinator`../../../include/clevercoffee/coordinators/MaintenanceCoordinator.h) | Counter in RAM, NVS persistence, reminder state |
+| [`Config`../../../include/clevercoffee/Config.h) | `maintenance.backflush_reminder.enabled` / `.threshold` |
+| [`BrewFinishedState`../../../src/state/states/BrewStates.cpp) | Hook: record brew after cycle completes |
+| [`BackflushFinishedState`../../../src/state/states/BackflushStates.cpp) | Auto-reset counter when all configured cycles complete |
 | Web / MQTT / OLED | Status, notifications, HA discovery |
 
 ### What counts as one shot?
@@ -103,14 +114,14 @@ Count **unless** `brewTime < 5s` **and** (scale disabled **or** `brewWeight < 10
 - Standard layout: footer line with backflush hint when due
 - Upright layout: main status shows **`CLEAN`** when due
 - No shot counter on OLED; no indicator while count is below threshold
-- Localized strings (EN / DE / ES) in [`languages.h`](../../include/clevercoffee/display/languages.h)
+- Localized strings (EN / DE / ES) in [`languages.h`../../../include/clevercoffee/display/languages.h)
 
 ### Web UI
 
-- **[`MachineStatusToasts`](../../ui/packages/frontend/src/components/MachineStatusToasts.tsx)** — bottom-right Sonner toasts for standby and backflush due (session dismiss)
-- **[`HomeMaintenanceCard`](../../ui/packages/frontend/src/components/HomeMaintenanceCard.tsx)** — home page shot counter, progress bar, and clean-due alert
-- **[`HomeStandbyAlert`](../../ui/packages/frontend/src/components/HomeStandbyAlert.tsx)** — home page standby banner with wake action
-- **Config → Behavior → Maintenance** — live `X / threshold` counter + **Reset counter** button ([`MaintenanceBackflushPanel`](../../ui/packages/frontend/src/components/MaintenanceBackflushPanel.tsx))
+- **[`MachineStatusToasts`../../../ui/packages/frontend/src/components/MachineStatusToasts.tsx)** — bottom-right Sonner toasts for standby and backflush due (session dismiss)
+- **[`HomeMaintenanceCard`../../../ui/packages/frontend/src/components/HomeMaintenanceCard.tsx)** — home page shot counter, progress bar, and clean-due alert
+- **[`HomeStandbyAlert`../../../ui/packages/frontend/src/components/HomeStandbyAlert.tsx)** — home page standby banner with wake action
+- **Config → Behavior → Maintenance** — live `X / threshold` counter + **Reset counter** button ([`MaintenanceBackflushPanel`../../../ui/packages/frontend/src/components/MaintenanceBackflushPanel.tsx))
 
 ### API
 

@@ -739,7 +739,7 @@ which implement the drivers properly rather than replicating this.
 
 **Severity note.** This is recorded as a C++ finding rather than a parity gap precisely
 because the human who owns the hardware has confirmed the deadness is **their** bug, not
-a decision to drop the feature ([06 open decisions](./06-migration-task-list.md)). Rust is
+a decision to drop the feature ([06 open decisions](../archive/migration/06-migration-task-list.md)). Rust is
 expected to make the scale work; there is no C++ behaviour to match, so R3-17 and R3-18
 have no parity baseline and are new functionality.
 

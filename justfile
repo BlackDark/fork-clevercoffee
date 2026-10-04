@@ -1,6 +1,6 @@
 # CleverCoffee developer recipes.
 #
-# Normative source: docs/rust-migration/05-tooling-and-workflows.md §4.
+# Normative source: docs/archive/migration/05-tooling-and-workflows.md §4.
 # The recipes below are that document's, with three corrections that the R1-01
 # build proved are required. Each is marked DEVIATION and says why:
 #

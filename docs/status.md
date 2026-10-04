@@ -51,7 +51,7 @@ page.
   `git diff --stat 2006b710..HEAD -- src/ include/ lib/ platformio.ini partitions_4M.csv`
   prints nothing.
 - **Every deliberate difference from the C++ is written down.**
-  [`34-known-differences.md`](./rust-migration/34-known-differences.md) is the
+  [`34-known-differences.md`](./handbook/differences.md) is the
   one-page index; [`intentional-diffs.md`](./rust-migration/intentional-diffs.md)
   is the detail, and 5 machine-readable `ledger` blocks are what `just parity`
   classifies against.
@@ -85,7 +85,7 @@ rather than from memory.
   *rule* is implemented and tested; only the pin is absent.
   [`intentional-diffs.md` §27](./rust-migration/intentional-diffs.md).
 - **The Acaia BLE scale is out of scope.** It was measured and does not fit; it
-  needs a decision. [`06-migration-task-list.md` R3-18](./rust-migration/06-migration-task-list.md).
+  needs a decision. [`06-migration-task-list.md` R3-18](./archive/migration/06-migration-task-list.md).
   The HX711 **is** implemented, and no scale is fitted to the board.
 - **The OTA has not been exercised on hardware.** Verified by reading ESP-IDF
   v5.5.5, not on a board, and the bootloader's fallback-to-factory behaviour on a

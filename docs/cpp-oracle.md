@@ -24,7 +24,7 @@ The C++ firmware is **both the parity oracle and the definition of feature scope
 for the Rust port. Every deliberate divergence is recorded in
 [`intentional-diffs.md`](./rust-migration/intentional-diffs.md); the one-page index
 of the ones a reader can actually meet is
-[`34-known-differences.md`](./rust-migration/34-known-differences.md).
+[`34-known-differences.md`](./handbook/differences.md).
 
 It is frozen because it **runs its own control loop** on a powered, wired machine:
 pump, valve, heater, and a real boiler behind them. Flashing it is not a build

@@ -1,6 +1,6 @@
 # Image-size reporting for the Rust firmware.
 #
-# Normative policy: docs/rust-migration/07-image-size-budget.md
+# Normative policy: docs/archive/migration/07-image-size-budget.md
 # Driven by the root justfile (`just size`, `just size-check`, `just size-record`).
 # Every phase gate must run `just size` and paste the output into the gate record.
 
@@ -135,7 +135,7 @@ check: (_require_esp32 "esp32")
         prev="$(python3 -c 'import json;print(json.load(open("{{baseline}}"))["image_bytes"])')"
         growth="$(awk -v a="$image" -v b="$prev" 'BEGIN{ if (b==0) {print 0} else {printf "%.2f", (a-b)*100.0/b} }')"
         if awk -v g="$growth" 'BEGIN{exit !(g>10.0)}'; then
-            echo "FAIL: image grew $growth % vs {{baseline}} (>10 %). Justify in docs/rust-migration/07-image-size-budget.md and re-record."
+            echo "FAIL: image grew $growth % vs {{baseline}} (>10 %). Justify in docs/archive/migration/07-image-size-budget.md and re-record."
             fail=1
         else
             echo "PASS: growth $growth % vs {{baseline}} (limit 10 %)"

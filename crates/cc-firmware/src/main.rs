@@ -1015,10 +1015,11 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
     )?;
 
     // 10a. The telnet log stream. `telnet esp32.local 23` is what
-    //     `docs/integration-tests.md` §4 documents and what the field-diagnosis
-    //     story in `intentional-diffs.md` §1 is built on, and finding 3.2 of
-    //     `32-findings-2026-10-03.md` was that the Rust port had the shed policy
-    //     and no way to serve it. Spawned here, beside the HTTP server and
+    //     `docs/operations/integration-checklist.md` §4 documents and what the
+    //     field-diagnosis story in `intentional-diffs.md` §1 is built on, and
+    //     finding 3.2 of `32-findings-2026-10-03.md` was that the Rust port had
+    //     the shed policy and no way to serve it. Spawned here, beside the HTTP
+    //     server and
     //     after it, because the listener is a network-tier service with no
     //     bearing on the control loop and a failure to bind is a `warn!` inside
     //     the task rather than a boot failure.

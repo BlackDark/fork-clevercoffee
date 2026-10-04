@@ -93,7 +93,7 @@ env:
   # declines to cache.
   #
   # `Swatinem/rust-cache` sets this itself; that cache action is not used here
-  # (see docs/ci.md for why the three caches below are hand-keyed instead), so the
+  # (see docs/handbook/ci.md for why the three caches below are hand-keyed instead), so the
   # setting is made directly.
   CARGO_INCREMENTAL: 0
   # Every recipe passes `--target {{host_target}}` explicitly, so this is only a

@@ -1,6 +1,6 @@
 # Target Architecture — Rust Port
 
-Companion to [03 — Decision record](./03-decision-record.md). Read the inventory
+Companion to [03 — Decision record](../archive/migration/03-decision-record.md). Read the inventory
 ([01](./01-feature-inventory.md)) first; every boundary below traces back to a row there.
 
 **Platform:** `esp-idf-svc` 0.53.0 / `esp-idf-hal` 0.47.0, ESP-IDF v5.5.5, target
@@ -352,7 +352,7 @@ this also un-finishes a known stub.
 Fallback: a **GPTimer** (`hal::timer`) with `auto_reload_on_alarm` at 10 ms, whose ISR
 only does `pin.set_level()` and `counter += 10; if counter >= window { counter = 0 }`. This
 is the direct translation of `isr.h:96-118`, and the RTL-style test in
-[06 — Task list](./06-migration-task-list.md) R1-07 is a table-driven unit test over
+[06 — Task list](../archive/migration/06-migration-task-list.md) R1-07 is a table-driven unit test over
 `(pid_output, counter) -> level` run on the host.
 
 > ### R1-07 decision, recorded 2026-09-28 — **corrected 2026-09-28**
@@ -503,7 +503,7 @@ relative paths in the wrong place.
 │   │   Framebuffer ([u8; 1024]) + DrawTarget impl
 │   │   Font: profont/fub glyph atlases as ImageRaw data
 │   │   DisplayLayoutUtils port (fixed-width fields, bar+label clusters)
-│   │   6 templates behind a trait, mirroring docs/display-architecture.md
+│   │   6 templates behind a trait, mirroring docs/handbook/display-architecture.md
 │   │   Host tests: render to a PPM, assert against golden images;
 │   │               assert 128x64 fit and no row overlap
 │   │

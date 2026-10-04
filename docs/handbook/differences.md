@@ -5,7 +5,7 @@
 The C++ in `src/` + `include/` is the parity oracle and the definition of feature scope. It is never
 modified and never flashed. This document is the **index** of where the Rust port departs from it.
 
-[`intentional-diffs.md`](./intentional-diffs.md) is the **detail**: each entry there has the C++'s
+[`intentional-diffs.md`](../rust-migration/intentional-diffs.md) is the **detail**: each entry there has the C++'s
 behaviour, the port's, the reasoning, and what pins it. This page is what you read when you want to
 know "will this surprise me?" — deliberately short, and it says nothing the ledger does not.
 
@@ -88,12 +88,12 @@ Behaviour is the same; the mechanism is not. Listed so nobody re-investigates th
 
 ## How to use this with the parity harness
 
-[`cc-parity`](../crates/cc-parity) reads `intentional-diffs.md` directly and classifies every scenario
+[`cc-parity`](../../crates/cc-parity) reads `intentional-diffs.md` directly and classifies every scenario
 difference against it.
 
 **What that does today: nothing is measured.** `docs/rust-migration/baseline/cpp/` holds only
 `.gitkeep`, so all **17** parity scenarios — one file each under
-[`scenarios/`](./scenarios) — report `BASELINE-MISSING` and no difference is ever compared against
+[`scenarios/`](../rust-migration/scenarios) — report `BASELINE-MISSING` and no difference is ever compared against
 anything. Every classification on this page rests on reading the two codebases, **not** on running
 them side by side.
 
@@ -112,7 +112,7 @@ Treat "intentional" in this document as *reviewed and reasoned*, not *measured*.
 
 If a change makes the firmware behave differently from the C++, it needs **both**:
 
-1. a section in [`intentional-diffs.md`](./intentional-diffs.md) with the reasoning and what pins it,
+1. a section in [`intentional-diffs.md`](../rust-migration/intentional-diffs.md) with the reasoning and what pins it,
    and
 2. a row above, filed under the category that matches how a reader would encounter it.
 

@@ -1,5 +1,13 @@
 # Repository Summary
 
+> **ARCHIVED — describes the C++ firmware only, and is NOT superseded for it.**
+> Every path, class, standard and command below is the C++ tree in `src/`,
+> `include/`, `lib/` and `test/`. That tree is the parity oracle: frozen, never
+> flashed, and still the firmware `release.yml` publishes. This document is still
+> true of it. It says **nothing** about the Rust port in `crates/`, for which read
+> [`docs/status.md`](../../status.md). `AGENTS.md` `AG-REPO-15` cites this file and
+> says so where it cites it. See [`docs/archive/README.md`](../README.md).
+
 ## Project Overview
 
 **CleverCoffee** is an ESP32-based coffee machine controller (forked from rancilio-pid/clevercoffee). It provides PID temperature control, state machine-based brewing workflows, web-based UI, and OTA updates for Rancilio Silvia coffee machines.
@@ -170,7 +178,7 @@ pio test --verbose
 
 - `CLAUDE.md`: Agent instructions (C++ standards, project structure)
 - `AGENTS.md`: the same, plus the mandatory format/build/test gate per firmware
-- `docs/integration-tests.md`: the manual pre-release checklist
+- `docs/operations/integration-checklist.md`: the manual pre-release checklist
 - `CONTRIBUTING.md`: Code style and contribution guidelines
 - `CONFIG_REFERENCE.md`: Configuration reference
 

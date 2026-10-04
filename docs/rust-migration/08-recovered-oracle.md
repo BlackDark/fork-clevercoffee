@@ -55,7 +55,7 @@ slot by taking 256 KB out of the filesystem.
 is at the slot boundary, and the tail is a string literal). So a Rust esp-idf image with
 `std` on this project is **≥ 1.8 MB**. The plan's "1.5–2.5 MB" estimate was right, and
 **154 KB of C++ headroom is nowhere near sufficient.** [07 — Image size
-budget](./07-image-size-budget.md) is validated by this measurement.
+budget](../archive/migration/07-image-size-budget.md) is validated by this measurement.
 
 ---
 

@@ -1,5 +1,11 @@
 # Wokwi Emulator (VS Code)
 
+> **ARCHIVED — describes the C++ firmware only, and IS superseded for the Rust
+> port.** Every command here is `pio`, and every artifact is in `.pio/build/`. The
+> Rust port has **no Wokwi simulator recipe and no `just` equivalent**; there is
+> nothing to run. `wokwi.toml` and `diagram.json` in the repository root are
+> C++-owned tooling. See [`docs/archive/README.md`](../README.md).
+
 ## Setup
 
 1. Install the Wokwi VS Code extension.
