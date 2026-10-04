@@ -91,6 +91,7 @@
 //! | `routes()` | returns `esp_idf_svc::http::Method`; the route table *is* a statement about what is registered on the httpd |
 //! | `history_json` | it takes `&Shared` and the copy-out-under-the-lock that keeps a 12 KB render off the control loop is the point of it. It had no direct test before this move and has none now. |
 //! | all of `mqtt.rs` | its pure half (`cc_hal_esp32::mqtt`'s `Topics`, `Registry`, `interval_for`) is a second extraction with the same shape. Not attempted here rather than attempted and left half-done. |
+//! | the telnet socket, accept loop, heartbeat | `lwip_socket`/`bind`/`listen`/`accept`/`send` are FFI, and a portable crate here compiles for a host target. The *policy* around them — the heap shed, the bounded ring, the line format — is [`telnet`] and did move, because finding 3.2 was that the policy shipped with nothing consuming it and therefore nothing testing it. |
 
 #![no_std]
 #![forbid(unsafe_code)] // already denied workspace-wide; restated for clarity
@@ -104,6 +105,7 @@ pub mod parameters;
 pub mod payload;
 pub mod request;
 pub mod telemetry;
+pub mod telnet;
 
 pub use auth::Auth;
 pub use help::{not_found_json, parameter_help, wants_json_not_found};
@@ -117,3 +119,4 @@ pub use payload::{
 };
 pub use request::{explicit_value, first_of, parse_flag, parse_setpoint, query_of};
 pub use telemetry::{Command, Telemetry};
+pub use telnet::{Decision, Level, Ring, Shed};

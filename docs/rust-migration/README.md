@@ -279,11 +279,16 @@ open. Read it first when picking the work up.
 
 **This list is not the gap list**, and finding 7.2 of
 [`32-findings-2026-10-03.md`](./32-findings-2026-10-03.md) is the record of
-having believed that. It omits at least the LEDs (3.1), and it said nothing about
+having believed that. It omitted the LEDs (3.1) and the telnet log stream
+(3.2), and it said nothing about
 `/api/parameter-help` (3.4) — which was not merely missing from this list but
 **broken in a way no list would have described**: the route answered `200` with an
 error object instead of the help text the C++ serves. That one is fixed; the
-entry is here so the next reader does not go looking for it.
+entry is here so the next reader does not go looking for it. **Telnet (3.2)
+is now built** — port 23, one client, ADR-0002's heap shed — and is not
+below because it shipped; the gap list is
+[`32-findings`](./32-findings-2026-10-03.md), and this section is a summary of
+it, not a substitute.
 
 - **R3-18, the Acaia BLE scale — measured, and it does not fit.** Enabling
   NimBLE and changing nothing else costs **+205,312 B flash** (headroom

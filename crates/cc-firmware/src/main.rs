@@ -480,7 +480,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     // the log sink, and both are process-wide. Their own stack frames are a few
     // dozen bytes, which is what makes them safe to leave on the small stack.
     esp_idf_svc::sys::link_patches();
-    esp_idf_svc::log::init_from_env();
+    // The log sink, and it is the telnet fan-out rather than
+    // `esp_idf_svc::log::init_from_env()`: the same records go to UART0 *and*
+    // into `cc_hal_esp32::telnet::RING`, from which the port-23 listener
+    // streams them. `log::set_logger` succeeds once per process, so the stream
+    // wraps ESP-IDF's logger rather than sitting beside it.
+    cc_hal_esp32::telnet::init_log().map_err(|err| {
+        Box::<dyn Error>::from(format!("the log fan-out could not be installed: {err}"))
+    })?;
     info!("Clever Coffee Rust firmware — R1-01 toolchain bring-up");
     info!("target: xtensa-esp32-espidf, ESP-IDF: {IDF_VERSION}");
 
@@ -974,6 +981,22 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
         Arc::clone(&commands),
         &parameters,
     )?;
+
+    // 10a. The telnet log stream. `telnet esp32.local 23` is what
+    //     `docs/DEBUG_GUIDE.md` documents and what the field-diagnosis story in
+    //     `intentional-diffs.md` §1 is built on, and finding 3.2 of
+    //     `32-findings-2026-10-03.md` was that the Rust port had the shed policy
+    //     and no way to serve it. Spawned here, beside the HTTP server and
+    //     after it, because the listener is a network-tier service with no
+    //     bearing on the control loop and a failure to bind is a `warn!` inside
+    //     the task rather than a boot failure.
+    //
+    //     It is at `task::TELNET_PRIO` = 2, the lowest priority in the firmware:
+    //     a terminal that has stopped reading costs the ring a dropped line and
+    //     nothing else, and the ring push is a bounded copy with no allocation.
+    if let Err(err) = cc_hal_esp32::telnet::start() {
+        error!("telnet: the log stream task could not be spawned: {err}");
+    }
 
     // 11b. The UART provisioning task. 04 §3.2 says "only spawned when no valid
     //     credentials exist, and it exits after success" — and that rule is what

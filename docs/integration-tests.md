@@ -248,6 +248,13 @@ This tests the critical OOM scenario that caused crashes.
 - [ ] With telnet open, hit 5+ API endpoints in rapid succession — all return HTTP 200
 - [ ] After load burst, `/api/health` still responds with HTTP 200
 - [ ] Repeat after fresh reboot (boot window is the most fragile period)
+- [ ] Connect a second terminal while one is open — the first is replaced, and
+      the machine stays up (`MAX_CLIENTS` is 1, `Logger.h:154`)
+- [ ] Stop reading on the connected terminal and drive the heap below 30 KB: the
+      telnet stream goes quiet and the connection stays open; the serial stream
+      keeps running (ADR-0002 decision 5)
+- [ ] Let the heap recover: one `heap recovered` line, then the stream resumes.
+      More than one means the shed is oscillating
 
 ## 8. Stability
 

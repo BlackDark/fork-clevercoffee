@@ -242,6 +242,23 @@ pub const DISPLAY_PRIO: u8 = 3;
 /// must not delay the tick.
 pub const PROVISION_PRIO: u8 = 4;
 
+/// The telnet log stream's priority, 2.
+///
+/// **The lowest priority in the firmware, and that is the requirement rather
+/// than an accident of numbering.** The stream's only job is to move bytes to a
+/// terminal; a client that has stopped reading is a condition to *drop* lines
+/// for, never to spend the machine's time on. So it sits below the display
+/// task's 3 and below provisioning's 4, and the ring
+/// ([`cc_web::telnet::Ring`]) is what keeps a stalled client off the control
+/// tick entirely: the producer claims a slot, copies, and returns, whatever the
+/// socket is doing.
+///
+/// Below [`CONTROL_PRIO`] on its own would have been enough for the tick, but
+/// the display task's doc names a ten-millisecond I²C frame as the thing that
+/// must not wait, and a `lwip_send` into a full TCP window is a longer wait
+/// than that.
+pub const TELNET_PRIO: u8 = 2;
+
 /// The priorities are a relationship, and a relationship expressed only in a
 /// table is not checked.
 ///
@@ -264,6 +281,17 @@ const _: () = {
         PROVISION_PRIO > DISPLAY_PRIO,
         "04 §2: an interactive UART console should answer while a frame is \
          being written to the panel"
+    );
+    assert!(
+        CONTROL_PRIO > TELNET_PRIO,
+        "the telnet stream must never preempt the tick that decides whether \
+         the heater stays on"
+    );
+    assert!(
+        DISPLAY_PRIO > TELNET_PRIO,
+        "a `lwip_send` into a full TCP window blocks for longer than a 10 ms \
+         I²C frame, and the log stream is the least urgent thing the firmware \
+         does"
     );
 };
 

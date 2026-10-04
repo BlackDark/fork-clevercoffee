@@ -73,6 +73,7 @@
 //! | esp-mqtt | 4 | `cc-hal-esp32/src/mqtt.rs:142`, `MQTT_TASK_PRIO` (module-private) |
 //! | provisioning | 4 | [`cc_hal_esp32::task::PROVISION_PRIO`] |
 //! | display | 3 | [`cc_hal_esp32::task::DISPLAY_PRIO`] |
+//! | telnet | 2 | [`cc_hal_esp32::task::TELNET_PRIO`] |
 //!
 //! **httpd runs at the same priority as the control task and
 //! [`cc_hal_esp32::web::configuration`] cannot move it.** `esp-idf-svc`'s

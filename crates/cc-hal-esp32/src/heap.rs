@@ -30,9 +30,15 @@
 ///
 /// ADR-0002 decision 5 and `Logger.cpp:13` `MIN_HEAP_FOR_WIFI_LOG = 30000`.
 /// The same number guards the large-HTTP-response path
-/// ([`crate::web::HEAP_FLOOR_BYTES`]) — one threshold, two subscribers, because
-/// two different constants for "the machine is tight" is how they drift.
-pub const HEAP_SHED_BYTES: u32 = 30_000;
+/// ([`crate::web::HEAP_FLOOR_BYTES`]) — one threshold, several subscribers,
+/// because several constants for "the machine is tight" is how they drift.
+///
+/// **Re-exported, not defined here.** The value moved to
+/// [`cc_web::telnet::SHED_FLOOR_BYTES`] when the log stream's policy moved
+/// there (`32-findings` 3.2): the shed decision is host-testable and a heap
+/// gauge is not, so the *policy* is portable and this module is the one place
+/// that reads the gauge and hands it over.
+pub use cc_web::telnet::SHED_FLOOR_BYTES as HEAP_SHED_BYTES;
 
 /// Free bytes on the heap right now.
 ///
@@ -91,6 +97,9 @@ pub mod tests {
         // ADR-0002 decision 5 and Logger.cpp:13. A test because it is a
         // judgement call someone will otherwise "tidy" to 32768, or to
         // HEAP_SHED_BYTES / 2, without reading the ADR that explains it.
+        // The literal is now in cc-web, which is where the policy lives; this
+        // pins the re-export rather than the definition.
         assert_eq!(HEAP_SHED_BYTES, 30_000);
+        assert_eq!(HEAP_SHED_BYTES, cc_web::telnet::SHED_FLOOR_BYTES);
     }
 }

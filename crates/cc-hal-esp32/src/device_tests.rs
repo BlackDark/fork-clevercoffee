@@ -420,6 +420,18 @@ pub const CASES: &[Case] = &[
         run: telnet::tests::the_stats_summary_names_the_floor,
     },
     Case {
+        name: "telnet::the_hal_reexports_the_same_floor_the_portable_shed_uses",
+        run: telnet::tests::the_hal_reexports_the_same_floor_the_portable_shed_uses,
+    },
+    Case {
+        name: "telnet::a_fresh_server_has_no_client",
+        run: telnet::tests::a_fresh_server_has_no_client,
+    },
+    Case {
+        name: "telnet::the_task_priority_is_below_control_and_the_stack_is_four_k",
+        run: telnet::tests::the_task_priority_is_below_control_and_the_stack_is_four_k,
+    },
+    Case {
         name: "time::the_clock_advances_and_never_goes_backwards",
         run: time::tests::the_clock_advances_and_never_goes_backwards,
     },

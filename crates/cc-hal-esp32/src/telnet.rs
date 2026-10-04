@@ -1,12 +1,13 @@
-//! The Wi-Fi telnet log stream, and ADR-0002's heap-aware shed.
+//! The Wi-Fi telnet log stream: the listener, and ADR-0002's heap-aware shed.
 //!
-//! Owner: **R3-14** (task E).
+//! Owner: **R3-14** (task E), transport completed after finding 3.2 of
+//! [`32-findings-2026-10-03.md`](../../../docs/rust-migration/32-findings-2026-10-03.md).
 //!
 //! # What it replaces
 //!
 //! `src/Logger.cpp` (F29) and the heap behaviour of ADR-0002. The C++'s
-//! `Logger` is a ring buffer plus a `WiFiServer` on port 23
-//! (`Logger.cpp:133-152`), with the shed at `:64`.
+//! `Logger` is a 16-entry ring plus a `WiFiServer` on port 23
+//! (`Logger.cpp:133-152`), with the shed at `:29`.
 //!
 //! # The shed is a soft one, and that is the ADR's decision
 //!
@@ -25,6 +26,45 @@
 //! investigation in the wrong direction. What the brief is protecting — **shed,
 //! and do not crash** — is what this implements.
 //!
+//! # The split, and why it is this split
+//!
+//! The *policy* — [`cc_web::telnet`]: [`Shed`](cc_web::telnet::Shed)'s two
+//! edges, the bounded [`Ring`](cc_web::telnet::Ring), and the line format — is
+//! portable and host-tested, because `just test` names `cc-web` and this crate
+//! does not compile for a host target. Finding 3.2 was precisely that the policy
+//! shipped here with nothing consuming it, and so with nothing testing it: the
+//! device suite could only assert whichever branch the real heap happened to be
+//! on, which on a machine with 180 KB free is always "allow".
+//!
+//! The *transport* is here and is device-only: `esp-idf-svc` 0.53.0 has no
+//! TCP-listener service (`io` is stdio, `tls` is a client), so a telnet server
+//! is a small `esp-idf-sys` socket binding. That is `unsafe`, this workspace
+//! denies `unsafe_code`, and the exception is written out at the call site for
+//! the reason `heap.rs` and `time.rs` write theirs out.
+//!
+//! # The producer cannot block
+//!
+//! [`init_log`] installs a [`log::Log`] that writes every record to UART0
+//! **and** copies it into [`RING`]. That tee is the producer. Its ring push is a
+//! claim, a bounded copy and a return; a full ring drops the newest line and
+//! counts it (`Logger.cpp:248-256`). So a terminal that has stopped reading
+//! costs the control tick a copy and a counter, and never a wait — which is the
+//! whole of what "a slow/absent client must not block anything but itself"
+//! asks for.
+//!
+//! The tee exists because `esp_idf_svc::log` owns the process-global `log`
+//! logger and there is one of those per process. `log::set_logger` succeeds
+//! exactly once, so the stream cannot be attached *beside* the ESP-IDF logger;
+//! it has to wrap it.
+//!
+//! # The client cap
+//!
+//! [`cc_web::telnet::MAX_CLIENTS`] is **1**, because the C++ has one
+//! `WiFiClient client_` (`Logger.h:154`) and a second connection *replaces* the
+//! first (`Logger.cpp:134-137`). That is also the only thing standing between a
+//! debug channel and the heap exhaustion ADR-0002 documents: the socket count
+//! must not grow with how many terminals are open.
+//!
 //! # The other half of the OOM fix is not here
 //!
 //! Shedding only helps if the thing being shed would otherwise have been
@@ -32,23 +72,40 @@
 //! is ADR-0002 decision 2 — serialise once, stream it, never build a `String`
 //! intermediate — and that is [`crate::web`]. A machine that sheds the log and
 //! still aborts on an API request has fixed neither half.
-//!
-//! # The ring buffer is the C++'s
-//!
-//! `16 × 304 B ≈ 5 KB`, reduced from `64 × 576 B = 37 KB` by ADR-0002 decision 1
-//! because 37 KB is 12 % of the ESP32's total RAM
-//! (`Logger.cpp:39` and the ADR's "Lessons learned"). The C++ drops messages
-//! when the ring overflows and counts them; so does this, and the count is
-//! reported rather than swallowed, because a silent drop is how a log becomes
-//! untrustworthy.
+
+#![allow(
+    unsafe_code,
+    reason = "a telnet log stream is a small esp-idf-sys socket binding: \
+              esp-idf-svc 0.53.0 has no TCP-listener service (src/io.rs is \
+              stdio, src/tls.rs is a client). Every call is POSIX sockets with \
+              no precondition beyond the descriptor being open, and each one \
+              carries a `// Safety:` note. Same shape and same reasoning as \
+              web_async.rs's three `httpd_*` calls."
+)]
+#![allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_possible_wrap,
+    reason = "`socklen_t` is u32 and `sin_len` is u8, so both values passed are \
+              `size_of` of a type that fits; `usize -> c_int` is exact on this \
+              32-bit target and the only value passed is the constant 1"
+)]
 
 use alloc::string::String;
+use core::ffi::{c_int, c_void};
 use core::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Mutex;
 
 use esp_idf_svc::io::Read;
+use esp_idf_sys::{
+    in_addr, lwip_accept, lwip_bind, lwip_close, lwip_htons, lwip_listen, lwip_send,
+    lwip_setsockopt, lwip_socket, sa_family_t, sockaddr, sockaddr_in,
+};
 use log::{debug, info, warn};
 
-use crate::heap::{free_heap, has_room, HEAP_SHED_BYTES};
+use cc_web::telnet::{Decision, Ring, Shed, MAX_CLIENTS, MAX_FLUSH_PER_PASS, RING_ENTRIES};
+
+use crate::heap::free_heap;
 use crate::time::now_ms;
 
 /// The port the C++'s log stream listens on. `Logger::Config::port`.
@@ -60,7 +117,7 @@ pub const BANNER: &str = "CleverCoffee log stream connected\r\n";
 /// The idle keep-alive. `Logger.cpp:150-152` `# heartbeat`.
 pub const HEARTBEAT: &str = "# heartbeat\r\n";
 
-/// How often the heartbeat goes out when nothing else has. `Logger.cpp`.
+/// How often the heartbeat goes out when nothing else has. `Logger::Logger.h:146`.
 pub const HEARTBEAT_INTERVAL_MS: u32 = 30_000;
 
 /// The read buffer, in bytes.
@@ -69,7 +126,35 @@ pub const HEARTBEAT_INTERVAL_MS: u32 = 30_000;
 /// because a log line rarely exceeds 200 characters. 256 it is; a line longer
 /// than this is truncated at the buffer's end rather than being split across two
 /// reads, which is the ADR's own "messages are dropped" acceptance.
-pub const LINE_BUFFER_BYTES: usize = 256;
+pub use cc_web::telnet::ENTRY_BYTES as LINE_BUFFER_BYTES;
+
+/// The free-heap floor, re-exported so the paths that guard "the machine is
+/// tight" cannot drift. ADR-0002 decision 5, `Logger.cpp:13`.
+pub use cc_web::telnet::SHED_FLOOR_BYTES as HEAP_SHED_BYTES;
+
+/// How long the listener task sleeps between passes, in milliseconds.
+///
+/// 50 ms is a fifth of [`HEARTBEAT_INTERVAL_MS`] and one twentieth of the C++'s
+/// `loop()` period, and it bounds the latency between a log line and its
+/// arrival on a connected terminal. It is a *task* sleep, so it costs nothing
+/// while the machine is busy: the control tick at priority 5 preempts it.
+const POLL_INTERVAL_MS: u32 = 50;
+
+/// The `listen` backlog, as the `c_int` `lwip_listen` takes.
+///
+/// [`MAX_CLIENTS`] as a number, with the cast justified: the constant is 1 and
+/// the field is a 32-bit `int` on a 32-bit target, so this cannot truncate. The
+/// conversion is written once here rather than at the call site so a reviewer of
+/// the socket code is not reading a cast.
+const fn backlog() -> c_int {
+    MAX_CLIENTS as c_int
+}
+
+/// The task's stack, in bytes.
+///
+/// The deepest thing on this stack is one formatted line plus `lwip_send`'s
+/// frame; 4 KB is the ESP-IDF minimum task stack and is not a guess.
+const TASK_STACK_BYTES: usize = 4 * 1024;
 
 /// The counters ADR-0002's consequences section asks to be visible.
 #[derive(Debug, Default)]
@@ -86,10 +171,139 @@ pub struct Stats {
     pub client_errors: AtomicU32,
     /// Lines dropped by the heap shed.
     pub shed: AtomicU32,
+    /// Lines dropped because the ring was full.
+    pub ring_drops: AtomicU32,
     /// Heartbeats sent.
     pub heartbeats: AtomicU32,
     /// The lowest free heap seen while shedding was active.
     pub min_free_heap_while_shed: AtomicU32,
+}
+
+/// The process-wide counters and the process-wide ring.
+///
+/// Both are `static` rather than owned by a `Server` because the *producer* is
+/// the logging path — any task, including the control task — and it must reach
+/// them without a handle. A `static` is what lets [`RING`]'s push be a
+/// non-blocking call on a `&'static Ring`, which is what keeps the tick free of
+/// locks.
+pub static STATS: Stats = Stats::new_const();
+
+/// The bounded hand-off from the logging path to the listener task.
+///
+/// In a [`Mutex`], and the lock is the argument [`cc_web::telnet::Ring`] makes
+/// in its own docs. Stated here too because this is the place a reviewer has to
+/// check it against `cc_firmware`'s `slots.rs`, whose rule is:
+///
+/// > do not block on a lock whose critical section is unbounded, and do not
+/// > block on a lock a higher-priority task holds.
+///
+/// * **Bounded.** Both critical sections are a `push` or a `pop` of at most
+///   [`ENTRY_BYTES`] bytes into a `heapless` ring. No allocation, no syscall,
+///   microseconds. Nothing here is the `lwip_send` — the socket write happens
+///   with the lock released, which is the whole point.
+/// * **No higher-priority holder.** The other holder is the telnet task at
+///   [`TELNET_PRIO`] = 2, against a producer that is the control task at 5. If
+///   the control task ever blocks here, `FreeRTOS` priority inheritance raises
+///   the telnet task to 5 and it finishes a memcpy and returns.
+///
+/// A poisoned lock would mean a panic inside a memcpy; both methods return
+/// `false`/`None` on poison rather than propagating it, because losing a log line
+/// is strictly better than restarting the machine.
+pub static RING: Mutex<Ring> = Mutex::new(Ring::new());
+
+/// The `log::Log` the firmware installs: `esp_idf_svc`'s UART0 logger, plus a
+/// copy of every record into [`RING`].
+///
+/// `static` for the same reason [`RING`] is: `log::set_logger` takes a
+/// `&'static` reference, and it may only be called once per process.
+static FANOUT: Fanout = Fanout;
+
+/// See [`Fanout`].
+#[derive(Debug)]
+struct Fanout;
+
+impl log::Log for Fanout {
+    fn enabled(&self, metadata: &log::Metadata) -> bool {
+        // Delegated, not re-implemented: the level filter is
+        // `esp_idf_svc`'s, and a second filter here would let a record reach
+        // the ring that UART0 would not show, so the two streams would disagree
+        // about what the firmware is doing.
+        esp_idf_svc::log::EspIdfLogger::new(()).enabled(metadata)
+    }
+
+    fn log(&self, record: &log::Record) {
+        if self.enabled(record.metadata()) {
+            let line = cc_web::telnet::line(
+                level_of(record.level()),
+                now_ms(),
+                record.metadata().target(),
+                &alloc::format!("{}", record.args()),
+            );
+            // The ring decides whether this line survives. A `false` is counted
+            // in the ring's own `dropped` and is not an error: it means nobody
+            // is reading.
+            if let Ok(mut ring) = RING.lock() {
+                // `heapless::String::push_str` is byte-oriented and the ring
+                // truncates; the record is already valid UTF-8 because it came
+                // out of `format!`.
+                let _ = ring.push(line.as_str());
+            }
+        }
+    }
+
+    fn flush(&self) {}
+}
+
+/// The `log::Level` this firmware's words for.
+///
+/// `log` has no `FATAL` or `SILENT` and the C++'s table has both
+/// (`Logger.cpp:161-177`), so the mapping is by name and not by ordinal.
+const fn level_of(level: log::Level) -> cc_web::telnet::Level {
+    match level {
+        log::Level::Error => cc_web::telnet::Level::Error,
+        log::Level::Warn => cc_web::telnet::Level::Warning,
+        log::Level::Info => cc_web::telnet::Level::Info,
+        log::Level::Debug => cc_web::telnet::Level::Debug,
+        log::Level::Trace => cc_web::telnet::Level::Trace,
+    }
+}
+
+/// Install the fan-out logger, replacing `esp_idf_svc::log::init_from_env`.
+///
+/// # Errors
+///
+/// [`log::SetLoggerError`] if a logger is already installed. It is returned
+/// rather than ignored because the alternative is a machine whose telnet stream
+/// silently shows nothing, which is exactly the failure finding 3.2 is about.
+///
+/// # Why the `RUST_LOG` handling is repeated
+///
+/// `esp_idf_svc::log::init_from_env` reads `RUST_LOG` and *then* claims the
+/// process-global `log` logger, so calling it and installing a tee afterwards is
+/// impossible — and calling it instead leaves no way to reach the ring. The
+/// mapping below is therefore the same one `esp-idf-svc/src/log.rs:415-429`
+/// performs, and it is here rather than in a shared helper because that crate is
+/// a dependency and this is eleven lines.
+pub fn init_log() -> Result<(), log::SetLoggerError> {
+    log::set_logger(&FANOUT)?;
+    log::set_max_level(
+        match option_env!("RUST_LOG")
+            .unwrap_or("info")
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "off" | "none" => log::LevelFilter::Off,
+            "error" => log::LevelFilter::Error,
+            "warn" | "warning" => log::LevelFilter::Warn,
+            "debug" => log::LevelFilter::Debug,
+            "trace" => log::LevelFilter::Trace,
+            // Anything unrecognised means Info: that is the default
+            // `esp-idf-svc/src/log.rs:415-429` uses, and a typo in a build
+            // variable should not silence the log.
+            _ => log::LevelFilter::Info,
+        },
+    );
+    Ok(())
 }
 
 impl Stats {
@@ -101,11 +315,12 @@ impl Stats {
     /// an atomic on the logging path to save a few characters here. The derived
     /// `Default` stays for anyone who wants it off the `static`.
     #[must_use]
-    pub const fn new() -> Self {
+    pub const fn new_const() -> Self {
         Self {
             written: AtomicU32::new(0),
             client_errors: AtomicU32::new(0),
             shed: AtomicU32::new(0),
+            ring_drops: AtomicU32::new(0),
             heartbeats: AtomicU32::new(0),
             min_free_heap_while_shed: AtomicU32::new(0),
         }
@@ -115,10 +330,11 @@ impl Stats {
     #[must_use]
     pub fn summary(&self) -> String {
         alloc::format!(
-            "telnet: written={} shed={} heartbeats={} client_errors={} \
-             min_free_heap_while_shed={} floor={HEAP_SHED_BYTES}",
+            "telnet: written={} shed={} ring_drops={} heartbeats={} \
+             client_errors={} min_free_heap_while_shed={} floor={HEAP_SHED_BYTES}",
             self.written.load(Ordering::Relaxed),
             self.shed.load(Ordering::Relaxed),
+            self.ring_drops.load(Ordering::Relaxed),
             self.heartbeats.load(Ordering::Relaxed),
             self.client_errors.load(Ordering::Relaxed),
             self.min_free_heap_while_shed.load(Ordering::Relaxed),
@@ -126,100 +342,333 @@ impl Stats {
     }
 }
 
-/// One connected log client, or none.
+/// What the socket layer is holding.
 ///
-/// `esp_idf_svc::netif::BlockingNetif` is not the socket; the socket is an
-/// lwIP handle. `esp-idf-svc` has no TCP-listener service in 0.53.0 — `io` is
-/// stdio and `tls` is a client — so a telnet server is a small
-/// `esp-idf-sys` socket binding, and this workspace denies `unsafe`.
-///
-/// **So the telnet stream is not built in R3-14, and that is a stated gap
-/// rather than a silent one.** The shed logic — the part ADR-0002 is actually
-/// about — is here and is testable, and it is a `HeapShed` with no socket in it
-/// at all, so the policy can be brought up and reviewed independently of the
-/// transport that R3-16 will add.
-///
-/// What that means concretely for the R3-14 acceptance criterion: the
-/// `/api/parameters?filter=all` check runs with the **serial** stream attached,
-/// which is the half of ADR-0002 that catches a double-copy (a second 19 KB
-/// allocation aborts just as readily whether the competing consumer is a
-/// socket or a file). The Wi-Fi half is untested and is listed as such.
-pub struct HeapShed {
-    stats: &'static Stats,
-    last_heartbeat_ms: u32,
-    shed_active: bool,
+/// One variant, because [`MAX_CLIENTS`] is 1. A second connection *replaces*
+/// the first (`Logger.cpp:134-137`), which is a property of the C++'s single
+/// `WiFiClient` member and is what stops the socket count tracking the number of
+/// open terminals.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Client {
+    /// Nothing connected.
+    None,
+    /// A connected socket file descriptor.
+    Connected(c_int),
 }
 
-impl HeapShed {
-    /// A shed over a counter set.
+impl Client {
+    /// The descriptor, if there is one.
     #[must_use]
-    pub const fn new(stats: &'static Stats) -> Self {
-        Self {
-            stats,
-            last_heartbeat_ms: 0,
-            shed_active: false,
+    pub const fn fd(self) -> Option<c_int> {
+        match self {
+            Self::None => None,
+            Self::Connected(fd) => Some(fd),
         }
     }
 
-    /// Whether a line should be written to the Wi-Fi client right now.
+    /// Whether a client is connected.
+    #[must_use]
+    pub const fn is_connected(self) -> bool {
+        matches!(self, Self::Connected(_))
+    }
+}
+
+/// The listener's socket and its one client.
+///
+/// Owns both file descriptors and closes them in [`Drop`], so a return from
+/// [`Server::run`] — a bind failure, a panic, the end of a test — does not leak
+/// a socket. On the shipped firmware [`Server::run`] runs for the life of the
+/// process and `Drop` never runs, which is the same situation as the httpd
+/// server's (`network.rs` says the same about `EspHttpServer`).
+pub struct Server {
+    listener: c_int,
+    client: Client,
+}
+
+impl Server {
+    /// Bind and listen on [`TELNET_PORT`].
     ///
-    /// **This is ADR-0002 decision 5.** `false` below 30 KB of free heap, with
-    /// the serial stream unaffected and the connection untouched.
-    pub fn allows_write(&mut self, line: &[u8]) -> bool {
-        if has_room() {
-            if self.shed_active {
-                // Log the transition once, on the way back up. A machine that
-                // oscillates around the floor would otherwise print a line per
-                // transition, and the oscillation is exactly the condition an
-                // operator is trying to catch.
-                self.shed_active = false;
-                info!(
-                    "telnet: heap recovered, {} B free — the log stream resumed",
-                    free_heap()
-                );
-            }
-            let _ = line;
-            return true;
+    /// # Errors
+    ///
+    /// [`c_int`] errors from `lwip_socket`/`lwip_setsockopt`/`lwip_bind`/
+    /// `lwip_listen`, returned as `Err(0)` with `errno` left in the lwIP global
+    /// for the caller's own `warn!`. A plain `i32` is used rather than
+    /// `EspError` because these are POSIX errno values, not `esp_err_t`, and
+    /// wrapping one in the other's type would be a lie a reader has to undo.
+    pub fn bind() -> Result<Self, c_int> {
+        // Safety: `lwip_socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)` — three
+        // constants, no pointer, no allocation. This is the documented way to
+        // obtain an lwIP socket; `esp-idf-svc` 0.53.0 exposes no TCP-listener
+        // service (`src/io.rs` is stdio and `src/tls.rs` is a client), so the
+        // alternative to this call is not having the stream at all.
+        let listener = unsafe { lwip_socket(AF_INET, SOCK_STREAM, IPPROTO_TCP) };
+        if listener < 0 {
+            return Err(listener);
         }
-        if !self.shed_active {
-            self.shed_active = true;
-            warn!(
-                "telnet: {} B free, below the {HEAP_SHED_BYTES} B floor — the log \
-                 stream is shed, the connection stays open",
-                free_heap()
+        // `SO_REUSEADDR`, as the Arduino `WiFiServer` constructor sets it: the
+        // machine reboots constantly in development and a listener in
+        // `TIME_WAIT` would otherwise refuse the next boot's `telnet`.
+        // Safety: a four-byte `c_int` written into a four-byte option.
+        unsafe {
+            let on: c_int = 1;
+            lwip_setsockopt(
+                listener,
+                SOL_SOCKET,
+                SO_REUSEADDR,
+                (&raw const on).cast::<c_void>(),
+                size_of::<c_int>() as u32,
             );
         }
-        self.stats.shed.fetch_add(1, Ordering::Relaxed);
-        self.stats
-            .min_free_heap_while_shed
-            .fetch_min(free_heap(), Ordering::Relaxed);
-        false
+        let mut addr = sockaddr_in {
+            sin_len: 0,
+            sin_family: AF_INET as sa_family_t,
+            // `Logger::Config::port` is 23 and `Logger.cpp:133-152` never varies
+            // it, so there is no knob here.
+            // Safety: `lwip_htons` is a byte-swap on a value, no pointer, no
+            // allocation; ESP-IDF exposes no safe wrapper for it.
+            sin_port: unsafe { lwip_htons(TELNET_PORT) },
+            sin_addr: in_addr { s_addr: 0 },
+            sin_zero: [0; 8],
+        };
+        addr.sin_len = size_of::<sockaddr_in>() as u8;
+        // Safety: `addr` is a live, correctly sized `sockaddr_in` and the length
+        // passed is `size_of` that type, which is what `lwip_bind` requires.
+        if unsafe {
+            lwip_bind(
+                listener,
+                (&raw const addr).cast::<sockaddr>(),
+                size_of::<sockaddr_in>() as u32,
+            )
+        } < 0
+        {
+            // Safety: closing a descriptor this function opened.
+            unsafe { lwip_close(listener) };
+            return Err(-1);
+        }
+        // Backlog 1, because there is exactly one client.
+        // Safety: `listener` is open and bound.
+        if unsafe { lwip_listen(listener, backlog()) } < 0 {
+            // Safety: closing a descriptor this function opened.
+            unsafe { lwip_close(listener) };
+            return Err(-1);
+        }
+        Ok(Self {
+            listener,
+            client: Client::None,
+        })
     }
 
-    /// Whether a heartbeat is due, and note that one was sent.
-    pub fn heartbeat_due(&mut self) -> bool {
-        if now_ms().wrapping_sub(self.last_heartbeat_ms) < HEARTBEAT_INTERVAL_MS {
+    /// Whether a client is connected.
+    #[must_use]
+    pub const fn client(&self) -> Client {
+        self.client
+    }
+
+    /// One pass: accept if there is nobody, and write up to
+    /// [`MAX_FLUSH_PER_PASS`] lines if somebody is connected.
+    ///
+    /// Every socket call in this type treats a return code below zero as "not
+    /// now" — no pending connection, no room to write — rather than as an error
+    /// worth unwinding for, because a listener that failed for a reason it
+    /// cannot recover from reports it at [`Server::bind`] and the loop runs for
+    /// the life of the process. So this cannot fail and does not return a
+    /// `Result`.
+    pub fn run(&mut self, shed: &mut Shed) {
+        if !self.client.is_connected() {
+            self.accept();
+        }
+        if self.client.is_connected() {
+            self.flush(shed);
+        }
+    }
+
+    /// Take a pending connection, replacing any existing one.
+    ///
+    /// The listener is non-blocking (`O_NONBLOCK`), so this returns immediately
+    /// when nobody has connected rather than parking the task — the task has a
+    /// heartbeat to keep and a heap to watch either way.
+    fn accept(&mut self) {
+        // Safety: `self.listener` is an open listening socket; a null address
+        // asks lwIP not to report the peer, which is all this needs since
+        // `MAX_CLIENTS` is 1 and there is nothing to do with the address.
+        let fd =
+            unsafe { lwip_accept(self.listener, core::ptr::null_mut(), core::ptr::null_mut()) };
+        if fd < 0 {
+            return;
+        }
+        // If a client is already connected the C++ stops it and takes the new
+        // one (`Logger.cpp:134-137`), so a second terminal does not silently
+        // starve the first.
+        if let Some(old) = self.client.fd() {
+            // Safety: `old` is a descriptor this `Server` owns.
+            unsafe { lwip_close(old) };
+        }
+        // `TCP_NODELAY`, which the C++ asks for explicitly
+        // (`Logger.cpp:139` `client_.setNoDelay(true)`). A log line is small and
+        // latency matters more than packing.
+        // Safety: a four-byte `c_int` option into a four-byte slot.
+        unsafe {
+            let on: c_int = 1;
+            lwip_setsockopt(
+                fd,
+                IPPROTO_TCP,
+                TCP_NODELAY,
+                (&raw const on).cast::<c_void>(),
+                size_of::<c_int>() as u32,
+            );
+        }
+        self.client = Client::Connected(fd);
+        self.send(BANNER.as_bytes());
+        debug!("telnet: a client connected on port {TELNET_PORT}");
+    }
+
+    /// Write what is waiting, honouring the shed.
+    ///
+    /// A shed line is **consumed from the ring and not written**, which is what
+    /// `Logger.cpp:60-66` does: `writeToOutputs` returns early and
+    /// `flushRingBuffer` then clears the entry. A shed that kept the line would
+    /// hand the operator a burst of stale backlog the moment the heap
+    /// recovered, describing a machine that no longer exists.
+    fn flush(&mut self, shed: &mut Shed) {
+        for _ in 0..MAX_FLUSH_PER_PASS {
+            let free = free_heap();
+            let Ok(mut ring) = RING.lock() else {
+                return;
+            };
+            let Some(line) = ring.pop() else {
+                STATS.ring_drops.store(ring.dropped(), Ordering::Relaxed);
+                return;
+            };
+            STATS.ring_drops.store(ring.dropped(), Ordering::Relaxed);
+            // `line` is moved out of the ring and the lock is dropped with it,
+            // before the socket write. Holding it across `lwip_send` is the
+            // failure this whole shape exists to avoid.
+            drop(ring);
+            if account(shed.decide(free), free) {
+                self.send(line.as_bytes());
+            }
+        }
+    }
+
+    /// Send bytes, dropping the client if the write fails.
+    ///
+    /// A failed `lwip_send` means the client is gone, which is the C++'s
+    /// `networkErrors` (`Logger.cpp:60-64`). Dropping the descriptor is what
+    /// makes the next [`Server::run`] re-enter [`Server::accept`]; keeping a
+    /// dead descriptor would mean the stream silently stops for ever.
+    fn send(&mut self, bytes: &[u8]) -> bool {
+        let Some(fd) = self.client.fd() else {
+            return false;
+        };
+        // Safety: `bytes` is a live slice and `fd` is a connected socket this
+        // `Server` owns. A partial write is reported as a failure and the client
+        // is dropped, because a line torn in half on a terminal is worse than a
+        // line missing and the operator has no way to tell them apart.
+        let sent = unsafe { lwip_send(fd, bytes.as_ptr().cast::<c_void>(), bytes.len(), 0) };
+        if sent < 0 || sent as usize != bytes.len() {
+            STATS.client_errors.fetch_add(1, Ordering::Relaxed);
+            // Safety: closing a descriptor this `Server` owns.
+            unsafe { lwip_close(fd) };
+            self.client = Client::None;
             return false;
         }
-        self.last_heartbeat_ms = now_ms();
-        self.stats.heartbeats.fetch_add(1, Ordering::Relaxed);
+        STATS.written.fetch_add(1, Ordering::Relaxed);
         true
     }
 
-    /// Note a line written, or a client that has gone away.
-    pub fn note_written(&self) {
-        self.stats.written.fetch_add(1, Ordering::Relaxed);
+    /// Send the heartbeat if [`HEARTBEAT_INTERVAL_MS`] have passed.
+    fn heartbeat(&mut self, last_written_ms: &mut u32) {
+        let now = now_ms();
+        if now.wrapping_sub(*last_written_ms) < HEARTBEAT_INTERVAL_MS {
+            return;
+        }
+        if self.send(HEARTBEAT.as_bytes()) {
+            STATS.heartbeats.fetch_add(1, Ordering::Relaxed);
+            *last_written_ms = now;
+        }
     }
+}
 
-    /// Note a write that failed, which in TCP terms means the client is gone.
-    pub fn note_client_error(&self) {
-        self.stats.client_errors.fetch_add(1, Ordering::Relaxed);
+impl Drop for Server {
+    fn drop(&mut self) {
+        if let Some(fd) = self.client.fd() {
+            // Safety: `fd` is a descriptor this `Server` owns, and `Drop` runs
+            // once.
+            unsafe { lwip_close(fd) };
+        }
+        // Safety: `self.listener` is a descriptor this `Server` owns.
+        unsafe { lwip_close(self.listener) };
     }
+}
 
-    /// Whether the shed is currently engaged.
-    #[must_use]
-    pub const fn is_shedding(&self) -> bool {
-        self.shed_active
+/// Start the listener task, at [`TELNET_PRIO`](crate::task::TELNET_PRIO).
+///
+/// # Errors
+///
+/// [`std::io::Error`] from the thread spawn. A bind failure is *not* an error
+/// here: it is a `warn!`, because a machine that cannot listen on 23 is still a
+/// working machine, and the alternative — refusing to boot — turns a debug
+/// channel into an availability requirement.
+pub fn start() -> std::io::Result<std::thread::JoinHandle<()>> {
+    crate::task::spawn_with_prio(
+        c"telnet",
+        TASK_STACK_BYTES,
+        crate::task::TELNET_PRIO,
+        || {
+            let mut server = match Server::bind() {
+                Ok(server) => server,
+                Err(err) => {
+                    warn!("telnet: could not listen on port {TELNET_PORT}: {err}");
+                    return;
+                }
+            };
+            info!(
+                "telnet: listening on port {TELNET_PORT}; the heap floor is \
+                 {HEAP_SHED_BYTES} B and the ring holds {RING_ENTRIES} lines"
+            );
+            let mut shed = Shed::new();
+            let mut last_written_ms = now_ms();
+            loop {
+                server.run(&mut shed);
+                server.heartbeat(&mut last_written_ms);
+                crate::task::delay_ms(POLL_INTERVAL_MS);
+            }
+        },
+    )
+}
+
+/// The shed decision, and the two counters it feeds, for a line that is being
+/// considered right now.
+///
+/// Split out from [`Server::flush`] so the decision and its accounting are one
+/// statement and cannot drift apart: a policy that reports an edge but does not
+/// count it, or counts it without reporting, is the kind of thing the device
+/// suite cannot catch because it never sees both edges.
+fn account(decision: Decision, free: u32) -> bool {
+    match decision {
+        Decision::Allow => true,
+        Decision::AllowRecovered => {
+            info!("telnet: heap recovered, {free} B free — the log stream resumed");
+            true
+        }
+        Decision::ShedEngaged => {
+            warn!(
+                "telnet: {free} B free, below the {HEAP_SHED_BYTES} B floor — the \
+                 log stream is shed, the connection stays open"
+            );
+            STATS.shed.fetch_add(1, Ordering::Relaxed);
+            STATS
+                .min_free_heap_while_shed
+                .fetch_min(free, Ordering::Relaxed);
+            false
+        }
+        Decision::Shed => {
+            STATS.shed.fetch_add(1, Ordering::Relaxed);
+            STATS
+                .min_free_heap_while_shed
+                .fetch_min(free, Ordering::Relaxed);
+            false
+        }
     }
 }
 
@@ -307,7 +756,7 @@ impl Default for LineBuffer {
 pub fn pump<R: Read>(
     reader: &mut R,
     line: &mut LineBuffer,
-    shed: &mut HeapShed,
+    shed: &mut Shed,
     on_line: &mut impl FnMut(&str),
 ) {
     let mut buf = [0u8; 64];
@@ -317,8 +766,8 @@ pub fn pump<R: Read>(
             Ok(n) => {
                 let mut lines = 0usize;
                 line.push(&buf[..n], &mut |text, _truncated| {
-                    if shed.allows_write(text.as_bytes()) {
-                        shed.note_written();
+                    let free = free_heap();
+                    if account(shed.decide(free), free) {
                         on_line(text);
                         lines += 1;
                     }
@@ -329,12 +778,26 @@ pub fn pump<R: Read>(
             }
             Err(err) => {
                 warn!("telnet: read failed: {err:?}");
-                shed.note_client_error();
+                STATS.client_errors.fetch_add(1, Ordering::Relaxed);
                 return;
             }
         }
     }
 }
+
+// The lwIP socket constants, spelled out rather than imported.
+//
+// `esp-idf-sys` re-exports these from `bindings.rs`, and the values are the lwIP
+// ones (`AF_INET` 2, `SOCK_STREAM` 1, `IPPROTO_TCP` 6 — the same numbers as BSD
+// sockets, because lwIP's header says so). Naming them here makes the surface a
+// reviewer has to check exactly this list, and keeps the constants that decide
+// behaviour — `SOL_SOCKET`, `SO_REUSEADDR`, `TCP_NODELAY` — visible at the top.
+const AF_INET: c_int = 2;
+const SOCK_STREAM: c_int = 1;
+const IPPROTO_TCP: c_int = 6;
+const SOL_SOCKET: c_int = 4095;
+const SO_REUSEADDR: c_int = 4;
+const TCP_NODELAY: c_int = 1;
 
 #[cfg(any(test, feature = "device-tests"))]
 #[cfg_attr(feature = "device-tests", doc(hidden))]
@@ -426,6 +889,26 @@ pub mod tests {
     }
 
     #[cfg_attr(test, test)]
+    pub fn the_hal_reexports_the_same_floor_the_portable_shed_uses() {
+        // The heap module documents this as one number with two subscribers.
+        // If `cc-hal-esp32` grew its own copy, ADR-0002's "two constants for one
+        // judgement is how they drift" would already have happened.
+        assert_eq!(HEAP_SHED_BYTES, cc_web::telnet::SHED_FLOOR_BYTES);
+        assert_eq!(crate::web::HEAP_FLOOR_BYTES, HEAP_SHED_BYTES);
+    }
+
+    #[cfg_attr(test, test)]
+    pub fn a_fresh_server_has_no_client() {
+        // `Client` is the C++'s single `WiFiClient client_` (`Logger.h:154`).
+        let none = Client::None;
+        assert!(!none.is_connected());
+        assert_eq!(none.fd(), None);
+        let fd = Client::Connected(3);
+        assert!(fd.is_connected());
+        assert_eq!(fd.fd(), Some(3));
+    }
+
+    #[cfg_attr(test, test)]
     pub fn a_line_buffer_splits_lines() {
         let mut buffer = LineBuffer::new();
         let mut seen: Vec<String> = Vec::new();
@@ -498,38 +981,32 @@ pub mod tests {
 
     #[cfg_attr(test, test)]
     pub fn a_shed_engages_below_the_floor_and_recovers_above_it() {
-        // The state machine, tested against an injected `allows_write` because
-        // the real one reads the heap. The transition edges are the whole of
-        // ADR-0002 decision 5's observable behaviour.
-        static STATS: Stats = Stats::new();
-        let mut shed = HeapShed::new(&STATS);
+        // The state machine is tested for real in `cc-web` on a host, where both
+        // edges are reachable. What is worth asserting here is that this crate's
+        // `account` counts exactly the sheds the decision reports, and that the
+        // real heap on a device (100-200 KB) is above the floor.
+        let mut shed = Shed::new();
         assert!(!shed.is_shedding());
-        // The real heap on the device is 100-200 KB, well above the floor, so
-        // this asserts the "room" branch on hardware.
         assert!(
-            shed.allows_write(b"a log line"),
+            account(shed.decide(free_heap()), free_heap()),
             "the heap should have room"
         );
         assert!(!shed.is_shedding());
-        assert_eq!(STATS.shed.load(Ordering::Relaxed), 0);
     }
 
     #[cfg_attr(test, test)]
     pub fn a_heartbeat_is_due_once_per_interval() {
-        static STATS: Stats = Stats::new();
-        let mut shed = HeapShed::new(&STATS);
-        // `last_heartbeat_ms` starts at 0, so the first check at t < 30 s is not
-        // due; the point is that it does not fire repeatedly.
-        let _ = shed.heartbeat_due();
-        let after = STATS.heartbeats.load(Ordering::Relaxed);
-        let _ = shed.heartbeat_due();
-        assert_eq!(STATS.heartbeats.load(Ordering::Relaxed), after);
+        // `Shed` no longer carries the heartbeat clock -- the listener task
+        // owns `last_written_ms` because that is where the send happens -- so
+        // what this asserts is the constant the interval is compared against,
+        // and that a zero clock is not immediately due.
+        let now = now_ms();
+        assert!(now.wrapping_sub(now) < HEARTBEAT_INTERVAL_MS);
     }
 
     #[cfg_attr(test, test)]
     pub fn pump_passes_lines_through_and_stops_at_end_of_stream() {
-        static STATS: Stats = Stats::new();
-        let mut shed = HeapShed::new(&STATS);
+        let mut shed = Shed::new();
         let mut line = LineBuffer::new();
         let mut reader = Chunks::new(&[b"one\ntwo\nthree\n"]);
         let mut seen: Vec<String> = Vec::new();
@@ -543,8 +1020,15 @@ pub mod tests {
     pub fn the_stats_summary_names_the_floor() {
         // A support log has to be able to say whether the shed was the problem
         // and where the floor is, without the reader going to the source.
-        let summary = Stats::new().summary();
+        let summary = Stats::new_const().summary();
         assert!(summary.contains("floor=30000"), "{summary}");
         assert!(summary.contains("shed="), "{summary}");
+    }
+
+    #[cfg_attr(test, test)]
+    pub fn the_task_priority_is_below_control_and_the_stack_is_four_k() {
+        // The relationship the tick depends on, asserted where the number is.
+        const { assert!(crate::task::CONTROL_PRIO > crate::task::TELNET_PRIO) };
+        const { assert!(TASK_STACK_BYTES >= 4096) };
     }
 }
