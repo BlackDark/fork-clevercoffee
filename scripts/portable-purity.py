@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """The portable crates must not name ESP-IDF -- in CODE.
 
-`cc-domain`, `cc-safety`, `cc-config`, `cc-machine`, `cc-display`, `cc-web` and
-# `cc-mqtt` are
-``#![no_std]`` and host-testable, which is the property that lets 1,074 tests run
-in seconds without a board. An ``esp_idf_*`` item anywhere in them breaks every
-one of those tests *and* every IDE's background check, and it does so invisibly:
-the crate still compiles for the chip, it just stops compiling for the host.
+`cc-domain`, `cc-protocol`, `cc-netpolicy`, `cc-safety`, `cc-config`,
+`cc-machine`, `cc-display`, `cc-web` and `cc-mqtt` are ``#![no_std]`` and
+host-testable, which is the property that lets 1,191 tests run in seconds
+without a board. An ``esp_idf_*`` item anywhere in them breaks every one of
+those tests *and* every IDE's background check, and it does so invisibly: the
+crate still compiles for the chip, it just stops compiling for the host.
 
 Why this is a script and not a ``grep``
 --------------------------------------
@@ -32,6 +32,8 @@ import sys
 # The crates 04 §6 calls portable, and the one grep they all share.
 PORTABLE = (
     "cc-domain",
+    "cc-protocol",
+    "cc-netpolicy",
     "cc-safety",
     "cc-config",
     "cc-machine",
