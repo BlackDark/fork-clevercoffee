@@ -44,15 +44,22 @@ Follow C++ Core Guidelines. Prefer compile-time errors over runtime errors.
 - if you need a more verbose output for the pio commands you can remove the `-s`
 - Always before you start doing any edits test if the project is in state which can be build with the build command
 
-### Rust migration (in progress — R4-01 is the critical path)
+### Rust migration (in progress — see "Where it actually is" first)
 
-A phased C++ → Rust migration is under way in this repo. Start at
-`docs/rust-migration/README.md`, and read
+A phased C++ → Rust migration is under way in this repo. **R4-01 has landed and was exercised on
+hardware (2026-09-30)**: the `cc-machine` reducer is wired into the 10 ms control task, effects are
+applied through `cc-hal-esp32::actuators` in the same tick, and the machine boots to `PID_NORMAL` with
+the PID driving the heater. There *is* a state machine, a PID and brewing on the device.
+
+If you find a document claiming otherwise, it is stale — check `git log --oneline -- <file>` before
+you trust it. This repo's own history contains several confidently-wrong status claims that were
+caught only by an independent review, and a following agent that believed one would re-implement the
+control loop.
+
+Start at `docs/rust-migration/README.md` and read
 ["Where the migration actually is"](./docs/rust-migration/README.md#where-the-migration-actually-is)
-**before planning any work** — several task IDs read as complete in
-`06-migration-task-list.md` and are not. The execution procedure for agents lives in
-`.agents/skills/esp32-rust-migration/SKILL.md` — read it before working on any task in
-`docs/rust-migration/06-migration-task-list.md`.
+**before planning any work**. The execution procedure for agents lives in
+`.agents/skills/esp32-rust-migration/SKILL.md`.
 
 **The development device's hostname is `test-cc-rust`** (`cc_config::schema::DEFAULT_HOSTNAME`),
 not `silvia`. The C++ default is `silvia` and the C++ firmware is unchanged: the distinct

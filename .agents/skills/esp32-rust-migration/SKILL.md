@@ -54,10 +54,17 @@ it.
 
 ### Where the work actually is
 
-**R4-01 is the critical path and it is not done.** `cc-machine` is a declared dependency
-of `cc-firmware` but `cc_machine::` appears **nowhere in the firmware source** — the 420-test
-reducer has never run on hardware, the control task is a hand-rolled heuristic that drops
-web commands, and **there is no state machine, no PID and no brewing on the device**.
+**R4-01 has landed and was exercised on hardware on 2026-09-30.** The `cc-machine`
+reducer IS wired into the 10 ms control task (`crates/cc-firmware/src/control.rs`), its
+effects are applied through `cc-hal-esp32::actuators` in the same tick, and the machine
+boots to `PID_NORMAL` with the PID driving the heater. There IS a state machine, a PID
+and brewing on the device.
+
+**Treat any document in this skill — including this one — as potentially stale, and check
+`git log --oneline -- <file>` before acting on a status claim.** This repository has a
+documented history of confidently-wrong status text that survived because it was never
+checked against the tree; an independent review on 2026-10-03 caught three copies of a
+claim that the control loop had never run on hardware, months after it had.
 Do not assume a task is complete because its description reads as though it is; see
 ["Where the migration actually is"](../../../docs/rust-migration/README.md#where-the-migration-actually-is)
 for the full done / not-started / deliberately-absent split.

@@ -554,9 +554,22 @@ relative paths in the wrong place.
   must be edited in one place. One crate, one `Board` impl, one place to look up a pin.
 - **There is no `cc-utils` crate.** Anything two crates need is either domain vocabulary
   or it belongs in one of the above.
-- **There is no `cc-web`.** The REST surface is thin; it is a translation of commands and
-  telemetry into the existing `cc-machine` ports, and it lives with the HAL's HTTP
-  plumbing.
+- ~~**There is no `cc-web`.** The REST surface is thin; it is a translation of commands
+  and telemetry into the existing `cc-machine` ports, and it lives with the HAL's HTTP
+  plumbing.~~ **SUPERSEDED (finding 4.1, 2026-10-03): `cc-web` now exists.** The premise was
+  that the REST surface is *thin*, which turned out to be wrong — `web.rs` was ~4,530 lines
+  and because the file names `esp_idf_svc`, none of its pure half was reachable by `just
+  test`. Two real device bugs shipped through exactly that gap. `cc-web` (`no_std` + `alloc`,
+  depending on `cc-domain`/`cc-config`/`cc-protocol`) now holds `Telemetry`, `Command`, `Auth`
+  and every `*_json` renderer; the HAL keeps only what touches `EspHttpServer`. The rule that
+  survives is the *second* one above: **anything two crates need is either domain vocabulary
+  or it belongs in exactly one crate** — and the boundary is drawn so that pure logic lands
+  where `just test` can reach it.
+
+  The same reasoning later added `cc-mqtt`, `cc-protocol` and `cc-netpolicy`, and split
+  `cc-domain` down to vocabulary. **There are now nine portable crates, not five** — see
+  `scripts/portable-purity.py`'s `PORTABLE` list, which is the enforced version of the rule
+  below, and `33-post-review-plan.md` for the sequence.
 
 ### Dependency direction
 
@@ -572,17 +585,26 @@ Rules, enforced by CI:
 - `cc-domain`, `cc-safety`, `cc-machine`, `cc-display`, `cc-config` must not name
   `esp_idf_svc`, `esp_idf_hal`, or `esp_idf_sys` anywhere. A CI grep enforces this, so a
   hardware dependency cannot leak into portable logic.
-- Only `cc-hal-esp32` and, from R4-11, `cc-provisioning` may depend on `esp-idf-svc`.
-  `cc-provisioning` is not a workspace member today (05 §5, "The crate, and why there
-  is not one yet").
+- Only `cc-hal-esp32` may depend on `esp-idf-svc`. (`cc-provisioning` was proposed here and
+  **deleted rather than left as a skeleton** — see 05 §5.)
 - `cc-firmware` depends on everything; nothing depends on `cc-firmware`.
 
 ### What compiles and tests on the host
 
-`cargo test --workspace` on macOS/Linux runs `cc-domain`, `cc-safety`, `cc-machine`,
-`cc-display`, and `cc-config` — the five crates covering **F1, F2, F3, F7, F11, F15, F16,
-F17, F27, F30, F32, F33** and safety paths **S1, S2, S3, S5**. That is the majority of the
+`just test` on macOS/Linux runs the **nine** portable crates: `cc-domain`, `cc-safety`,
+`cc-machine`, `cc-display`, `cc-config`, `cc-web`, `cc-mqtt`, `cc-protocol`, `cc-netpolicy`.
+The list is not maintained by hand — `scripts/portable-purity.py`'s `PORTABLE` tuple is the
+enforced version, and the justfile's `host_crates` is the running one. **If you add a portable
+crate, add it to all three**; the CI check is what stops the boundary quietly leaking.
+
+That covers **F1, F2, F3, F7, F11, F15, F16, F17, F27, F30, F32, F33** and safety paths
+**S1, S2, S3, S5**, and since 2026-10-03 also the whole REST surface, the MQTT topic layout and
+registry, the sensor protocol stacks and the network policy. That is the majority of the
 behavioural surface, and it is where the existing 340 C++ tests are ported to.
+
+*Superseded text, kept for provenance: this section previously said "the five crates" and
+enumerated only `cc-domain`, `cc-safety`, `cc-machine`, `cc-display`, `cc-config`. Four of the
+nine were missing, and the crate tree in §6 listed `cc-provisioning`, which was deleted.*
 
 `cc-hal-esp32` and `cc-firmware` build only for the ESP targets and
 are validated by `cargo clippy --target xtensa-esp32-espidf`.
