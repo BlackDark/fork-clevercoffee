@@ -1940,3 +1940,138 @@ gate is its own. The absence of the pin is checked the only way it can be —
 `cc_hal_esp32::pins` has no `STEAM_LED` to be wrong about, and `assert_valid` is
 a `const fn`, so a future edit that adds one back **fails the build** with the
 duplicate-pin assertion naming it.
+
+## 28 — OTA is implemented, and is stricter than the C++ in three ways
+
+R3-15, finding 3.3 of [`32-findings-2026-10-03.md`](./32-findings-2026-10-03.md).
+Requirement **S8** of
+[`01-feature-inventory.md`](./01-feature-inventory.md#6-safety-critical-control-paths).
+
+`/api/ota/firmware` and `/api/ota/filesystem` write to flash. `/api/ota/url`
+answers `501` and says why. `/api/ota/status` reports a real session.
+
+### The three differences, and why each is safer
+
+**1. An OTA is refused while water or steam is flowing.** `otaPrepareHardware`
+(`src/core/SystemInitializer.cpp:57-63`) is `disableTimer1()` plus
+`disableHeater()` — the pump and the 3-way valve are **not** touched, and no
+state is ever refused. `cc_machine::ota::admit` refuses the six water-flowing
+states and `SteamRunning`, so a machine flashed mid-shot is not a machine this
+firmware will flash.
+
+It is deliberately **not** `cc_safety::water_flow_allowed`. That answers *"may
+this state open the valve?"* and returns **false** for `SteamRunning`, which is
+the one state where a valve on this machine is open. Asking the whitelist would
+have answered the wrong question; `steam_is_refused_even_though_the_water_
+whitelist_allows_it` asserts both answers so the confusion cannot return.
+
+**2. The full safe hardware shutdown, not a heater disable.**
+`cc_machine::ota::begin_session` emits `Effect::SafeHardwareShutdown`, which
+reaches `Actuators::safe_hardware_shutdown` (`actuators.rs:775`): pump off,
+valve closed, heater duty zero. This is the effect finding 3.3 records as
+unused by OTA, and it is what 04 §4's shutdown table names for "OTA start".
+
+It is **not** `Effect::EmergencyShutdown`. That latches, and every later
+`enable_*` would be refused until something cleared it — so a machine whose OTA
+failed halfway would come back permanently dead with no way out over the network.
+A failed update must leave a machine that still runs;
+`a_session_is_not_latched` is the test of that decision.
+
+**3. The watchdog stays armed.** The C++ suspends it for the whole OTA
+(`ota.cpp:99-110` → `g_watchdog->suspend()`), because its flash write runs on
+the same loop that feeds the watchdog. Here the write is on the **httpd** task
+and the watchdog is subscribed to the **control** task (04 §2), so it keeps
+feeding while the flash erases and a genuinely wedged flash still resets the
+chip. Removing the fail-safe for the exact window one most wants one is a
+worse trade than the C++'s.
+
+### Where S8 is enforced
+
+`ota_upload_route` in `cc-hal-esp32/src/web.rs` runs eight checks in a fixed
+order, and the order is the argument: admission, claim, `Command::OtaBegin`,
+boundary, open the slot, stream, validate, finalise. Step 3 is the safety hook —
+it goes through the command queue, so the **control task** applies the shutdown
+through the real applier on its next tick, before step 5 erases anything.
+
+The window between the request and that tick is up to one 10 ms control period
+in which the machine still runs normally. It is not a hole: `admit` has already
+established that nothing is flowing, and the shutdown is what zeroes the heater
+duty for the rest of the session. Waiting for an ack would buy nothing and would
+put a 10 ms stall on the httpd task for every upload.
+
+### The memory strategy, and why it cannot OOM
+
+A firmware image is 1,675,952 B. The heap is ~320 KB. The pipeline is
+
+```text
+socket -> [ 4 KiB stack buffer ] -> cc_web::ota::PartReader -> esp_ota_write
+```
+
+and the **only** per-upload buffer is a `[u8; 4096]` on the task stack.
+Nothing in the loop allocates; `PartReader`'s hold-back is `boundary.len() + 4`
+bytes in a `Vec` whose capacity is reached on the first push. So the heap cost
+of a 1.6 MB upload equals that of a 4 KB one. This is the **inbound** half of
+[ADR-0002](../adr/0002-wifi-logging-ota-memory-architecture.md) decision 2,
+which fixed the outbound half; without it, one 1.6 MB `String` would undo that
+work.
+
+Three parser bugs the host tests found, all of which would have shipped:
+
+- the closing delimiter is `\r\n--BOUNDARY`, not `--BOUNDARY`. RFC 2046 puts a
+  CRLF before every delimiter but the first, and that CRLF belongs to the
+  envelope — searching for the bare form splices two bytes of MIME framing into
+  the middle of an image.
+- the Headers arm cleared its carry, so a `\r\n\r\n` split across two reads was
+  never found and an ordinary upload died of `HeadersTooLong`. **At small chunk
+  sizes only**, which is the worst shape of bug to reach hardware.
+- `const MIN_ACCEPTED_BYTES: usize = match self` does not compile as written;
+  the shape that does is one value for both variants, which silently applied the
+  512 KiB firmware floor to a 384 KiB filesystem partition.
+
+### The power-cut story, and how far it was verified
+
+**Verified by reading ESP-IDF v5.5.5, not on hardware.**
+
+- `esp_ota_end` validates the written image and **only then** calls
+  `esp_ota_set_boot_partition`, which writes the `otadata` sector
+  (`esp_ota_ops.c:60-95`, `esp_ota_ops.h:205-219`).
+- Therefore a power cut **before** `esp_ota_end` leaves `otadata` pointing at the
+  slot the machine booted from, and it boots that slot again.
+- A power cut **during** the `otadata` write leaves a CRC-invalid sector. **The
+  bootloader's fallback to the factory app was NOT verified** — it depends on the
+  bootloader binary flashed alongside this firmware, which was not inspected.
+- A power cut **after** `esp_ota_end` means the new image is selected and is a
+  complete, validated image.
+
+**There is no rollback.** `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE` is absent from
+this build's `sdkconfig` (checked: no `BOOTLOADER_APP_ROLLBACK` line at all), so
+`esp_ota_mark_app_valid_cancel_rollback` is a no-op and a new image that boots
+and then misbehaves **stays selected**. This is a stated limitation, and the C++
+behaves identically — it never enables rollback either. Enabling it is a
+bootloader rebuild and is not in scope for R3-15.
+
+### What was not built
+
+`/api/ota/url` answers `501`. The C++ implements it (`ota.cpp:704-724`) by
+queueing the download for its main loop, with the reason stated in a comment:
+*"Running it here would stall the AsyncTCP task and the response would never
+reach the client"*. Doing it here needs an HTTP client, a second long-lived
+task, and a restart-on-failure path — for a feature every part of which a browser
+upload already reaches. The route is registered and says so, rather than 404ing,
+because the UI has a live tab that calls it.
+
+Also not built, and not in the C++ either: resume, delta updates, rollback to a
+previous version, a progress websocket, and scheduling.
+
+### What pins it
+
+- `cc_machine::ota` — 10 host tests: every state classified, the six
+  water-flowing states refused by name, steam refused *despite* the water
+  whitelist allowing it, `BrewFinished` admits while `BrewRunning` does not, the
+  session emits exactly `SafeHardwareShutdown` and not the latching variant.
+- `cc_web::ota` — 27 host tests: byte-exact recovery at **eleven** chunk sizes
+  from 1 B to 4 KiB, near-miss delimiters, truncation refused rather than
+  finalised, oversized headers a hard error, every status message non-empty, and
+  every status document validated against the UI's `OtaStatusSchema` enum.
+- `cc_hal_esp32::ota` — 5 device tests: the C++'s progress arithmetic, one claim
+  at a time, exactly one restart request, a failure asks for no restart.

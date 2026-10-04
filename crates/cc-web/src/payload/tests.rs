@@ -327,57 +327,25 @@ fn the_status_steam_mode_agrees_with_the_steam_toggle_response() {
     assert!(json.contains(&from_toggle), "{json} vs {from_toggle}");
 }
 
-// ==================================================== OTA (R3-15, deferred)
+// ============================================== /api/ota/url (refused, not built)
 
+/// The URL route answers `501` and names what is missing, rather than 404ing.
+///
+/// A 404 is indistinguishable from a firmware that lost the feature; a `501`
+/// with a reason is a diagnosable answer, and the UI's error path already prints
+/// `result.message` for any non-success (`OTAUpdateSection.tsx:198`).
 #[test]
-fn the_ota_status_document_satisfies_the_uis_schema() {
-    // `OtaStatusSchema` (`ui/.../lib/schemas.ts:59-72`) **requires** status,
-    // progress and updateInProgress. If any is missing, `pollOtaStatus`
-    // returns null and the OTA page cannot render at all — so this is the
-    // test that keeps the page working on a build with no OTA.
-    let json = ota_status_json();
+fn the_refused_url_route_says_what_is_missing() {
+    let json = unavailable_json("OTA from a URL", "R3-15");
     let parsed: serde_json::Value = serde_json::from_str(&json).expect("valid JSON");
-    assert_eq!(parsed["status"], "idle");
-    assert_eq!(parsed["progress"], 0);
-    assert_eq!(parsed["updateInProgress"], false);
-    assert_eq!(parsed["updating"], false);
-    // "not available" must be visible, not merely implied by an idle status.
     assert_eq!(parsed["reason"], "R3-15");
-    let message = parsed["message"].as_str().unwrap_or_default();
     assert!(
-        message.contains("not available"),
-        "the message must say OTA is absent: {message}"
+        parsed["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("OTA from a URL"),
+        "the operator must be told which of the three endpoints is absent: {json}"
     );
-}
-
-#[test]
-fn the_ota_status_document_is_not_an_update_error() {
-    // The C++ only emits `error` when an update actually failed
-    // (`ota.cpp:744-751`). "OTA was never built" is not a failed update, and
-    // reporting it as one would make the UI show a failure toast on a
-    // machine that has simply never had OTA.
-    let json = ota_status_json();
-    let parsed: serde_json::Value = serde_json::from_str(&json).expect("valid JSON");
-    assert!(parsed.get("error").is_none(), "{json}");
-}
-
-#[test]
-fn an_unavailable_ota_route_says_which_build_and_which_task() {
-    let json = unavailable_json("OTA", "R3-15");
-    let parsed: serde_json::Value = serde_json::from_str(&json).expect("valid JSON");
-    assert!(parsed["error"]
-        .as_str()
-        .unwrap_or_default()
-        .contains("not available"));
-    assert_eq!(parsed["reason"], "R3-15");
-}
-
-#[test]
-fn an_unavailable_endpoint_names_the_task_that_owns_it() {
-    let json = unavailable_json("OTA", "R3-15");
-    let parsed: serde_json::Value = serde_json::from_str(&json).expect("valid JSON");
-    assert_eq!(parsed["reason"], "R3-15");
-    assert!(parsed["error"].as_str().is_some_and(|e| e.contains("OTA")));
 }
 
 // ================================================ POST /api/config/upload

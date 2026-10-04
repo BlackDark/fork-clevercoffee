@@ -64,6 +64,7 @@ there is a **hardware** change on the machine, not a firmware one. The cost anal
 | # | difference | detail |
 | --- | --- | --- |
 | 19 | `/api/ota/status` sends `status` as a string, not an integer. | §14 |
+| 19b | **`/api/ota/{firmware,filesystem}` are implemented and are stricter than the C++:** refused while brewing or steaming, and the full safe hardware shutdown (pump, valve, heater) rather than a heater disable alone. `/api/ota/url` is registered and answers `501`. | §28 |
 | 20 | `/api/status` reports `steamMode`, and keeps `brewing` as an addition. | §21 |
 | 21 | CORS preflight is answered; the C++'s per-response `Access-Control-Allow-Origin: *` is not. | §22 |
 | 22 | MQTT actually runs — it is implemented and driven from the control task, not stubbed. | §18 |

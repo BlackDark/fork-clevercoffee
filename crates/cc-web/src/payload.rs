@@ -245,42 +245,23 @@ pub fn upload_response(success: bool, message: &str) -> String {
     format!("{{\"success\":{success},\"message\":\"{message}\",\"restart\":{success}}}")
 }
 
-/// `GET /api/ota/status` — the C++'s `handleStatus` (`ota.cpp:726-756`), with
-/// every field present and the update permanently idle.
-///
-/// The UI parses this with `OtaStatusSchema` (`schemas.ts:59-72`), which
-/// **requires** `status`, `progress` and `updateInProgress`; omitting them makes
-/// `pollOtaStatus` return `null` and the OTA page cannot render at all
-/// (`OTAUpdateSection.tsx:56-62`). So the shape is the C++'s, and the honest
-/// content is: nothing is updating, nothing ever will from this build, and here
-/// is the task that owns it.
-///
-/// `updating`, `updateInProgress`, `type`, `uploadedSize`, `totalSize` and
-/// `filesystemPartition` are the C++'s remaining keys (`ota.cpp:735-742`) and
-/// are reported at their idle values so a client reading the C++'s full shape
-/// gets zeros rather than `undefined`.
-///
-/// `error` is deliberately **absent**: the C++ only sets it when an update has
-/// failed (`ota.cpp:744-751`), and "OTA was never built" is not an update error.
-/// `message` carries that instead.
-#[must_use]
-pub fn ota_status_json() -> String {
-    // `Status::Idle` as the enum's integer discriminant, the way the C++
-    // serialises it (`doc["status"] = state.getUpdateStatus()`, an enum written
-    // through ArduinoJson's integer encoding, `ota.cpp:738`).
-    //
-    // The UI reads `status` as a *string* — `z.enum([...])` in
-    // `OtaStatusSchema` — so the integer would fail validation and the page
-    // would go blank. The string is what the UI actually parses, so that is what
-    // this sends; the divergence from the C++'s wire type is recorded in
-    // intentional-diffs.
-    String::from(
-        "{\"success\":true,\"updating\":false,\"updateInProgress\":false,\"progress\":0,\
-\"status\":\"idle\",\"type\":\"none\",\"uploadedSize\":0,\"totalSize\":0,\
-\"filesystemPartition\":\"spiffs\",\
-\"message\":\"OTA is not available in this build\",\"reason\":\"R3-15\"}",
-    )
-}
+// **REMOVED — the real renderer is [`crate::ota::Status::status_json`].
+//
+// This returned a fixed document that always said "nothing is updating, and
+// nothing ever will", which is how a build without OTA kept its OTA tab
+// rendering. Now that OTA exists, a second status renderer would be a second
+// source of truth about one session, and the two would disagree the moment an
+// upload ran.
+//
+// The shape did not change: the same keys at the same idle values, and `status`
+// still a string rather than the C++'s integer, because the UI's
+// `OtaStatusSchema` is `z.enum([...])` of strings and the integer would fail
+// validation. The one key dropped is `reason: "R3-15"`, which named the task
+// that owned the absence — and the absence is no longer there. See
+// [`crate::ota::Phase`] for the six phase names and why the C++'s seventh,
+// `Queued`, is deliberately not among them.
+
+// ======================================= endpoints R3 has not ported
 
 /// The endpoints R3 has not ported, and what they say.
 ///

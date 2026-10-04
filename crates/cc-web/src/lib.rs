@@ -116,8 +116,8 @@ pub use parameters::{
     MAX_PARAMETER_PAIRS,
 };
 pub use payload::{
-    error_body, health_json, mime_for, nvs_debug_json, ota_status_json, parameters_json,
-    status_json, temperatures_json, unavailable_json, upload_response, weight_json,
+    error_body, health_json, mime_for, nvs_debug_json, parameters_json, status_json,
+    temperatures_json, unavailable_json, upload_response, weight_json,
 };
 pub use request::{explicit_value, first_of, parse_flag, parse_setpoint, query_of};
 pub use telemetry::{Command, Telemetry};

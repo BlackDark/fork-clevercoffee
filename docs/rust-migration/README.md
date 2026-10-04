@@ -10,8 +10,9 @@ runnable check for each.
 hardware, the display lights up, the PID regulates, all 98 parameters are writable
 over HTTP and survive a reboot, the **web UI is on the device**, MQTT publishes
 and accepts commands, and the backflush reminder counts shots and survives a
-reboot. **Not done:** OTA (R3-15 — the three mutating endpoints answer `501`),
-and the Acaia BLE scale (R3-18 — measured, does not fit, needs a decision). See
+reboot. **Not done:** OTA from a URL (R3-15 — `/api/ota/url` answers `501`;
+the two upload endpoints and the status document are implemented), and the Acaia
+BLE scale (R3-18 — measured, does not fit, needs a decision). See
 ["Where the migration actually is"](#where-the-migration-actually-is) before
 planning work — several task IDs read as complete in the task list and are not.
 
@@ -304,8 +305,16 @@ it, not a substitute.
   [07 §14](./07-image-size-budget.md) — move the 199 KB web UI to the LittleFS
   partition, and shrink the font set, since **pixel parity is not a requirement**
   (the human's words: stay readable and in frame).
-- **R3-15**, OTA: still a `unavailable_json` stub. The safety gap in 01 §6 — an
-  OTA must leave pump and valve off — is therefore still open.
+- **R3-15, partially.** `/api/ota/{firmware,filesystem}` are implemented and
+  stream to flash in 4 KiB chunks, so a 1.6 MB image costs the same heap as a
+  4 KB one. The S8 gap in 01 §6 — an OTA must leave pump and valve off — is
+  **closed**: an OTA is refused while water or steam flows, and a session emits
+  `Effect::SafeHardwareShutdown` through the applier on the control task before
+  any flash byte is written (`intentional-diffs.md` §28). What remains is
+  `/api/ota/url`, which answers `501`, and `ArduinoOTA`/espota on port 3232,
+  which the C++ has and this does not. **Not verified on hardware** — and
+  `system.ota_password` is still a schema key with no implementation, because
+  the C++ only uses it for the espota path, not for the HTTP routes.
 - **`/ui` is not done in one respect: the SSE stream.** The SPA itself is served
   from flash and renders on the device (see "Verified working" above), but
   `GET /events` answers `200 text/event-stream` and then **ends the response

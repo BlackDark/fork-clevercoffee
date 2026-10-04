@@ -3,7 +3,7 @@
 //! # Why
 //!
 //! `OtaInput::error_message` is whatever the HTTP server said
-//! (`web.rs::ota_status_json` renders a message straight into that field), and
+//! (`cc_web::ota::StatusMessage::message` renders a string straight into that field), and
 //! `panic = "abort"` means a panic in the display task is a **device reset**.
 //! Before the bounds guard in [`cc_display::font::Font::glyph_header`], one
 //! emoji or CJK character in a server's error string walked off the end of the
