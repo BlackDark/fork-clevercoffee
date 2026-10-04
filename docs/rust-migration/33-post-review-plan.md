@@ -70,7 +70,7 @@ Two of these did not go the way the finding anticipated, and both were right:
 | 4.3 | Three levels of `dyn` in the safety applier | ✅ **done** — generic + `?Sized`; `.flash.text` −280 B |
 | P2-2 | `Diagnostics` — 11 optional methods, 4 implemented | ✅ **done** — 11 → **5**, not deleted |
 | 4.6 | `ConfigStore` — one impl, never used as a bound | ✅ **done** — trait and `MemStore` deleted; methods are inherent on `BlobConfigStore<B>` |
-| 4.2 | Three blocking mutexes in the 10 ms tick | 🔄 **in progress** — highest risk, unverifiable on hardware |
+| 4.2 | Three blocking mutexes in the 10 ms tick | ✅ measured — rule amended, code unchanged |
 | 8.1 | `on_log` unimplemented, so a pump-watchdog trip logged nothing | ✅ `f4a6341b` |
 
 Also in this phase: finding **8.3** — the obvious fix for 2.6 (raise the `i_max` schema floor above 0)
@@ -198,21 +198,57 @@ because that specific pin is `SCALE_DATA_1` — so a person *can* do it, and 13/
 | # | item | status |
 | --- | --- | --- |
 | 4.1b | `mqtt.rs`'s pure half | ✅ `5e31b7a2` — `cc-mqtt`, the seventh portable crate. 19 device-only tests became host tests; `mqtt.rs` 2,033 → 875 lines. |
-| 4.4 | `cc-domain` split into vocabulary / protocol / net-policy | 🔄 running |
-| 4.7 | `main.rs` (~3,700 lines) → `probe.rs` + `config_io.rs` | 🔄 running |
-| 3.3 | OTA, with the S8 safety requirement | 🔄 running |
+| 4.4 | `cc-domain` split into vocabulary / protocol / net-policy | ✅ `cc-protocol` + `cc-netpolicy`; `cc-safety` still depends on `cc-domain` alone, so its purity guarantee is intact |
+| 4.7 | `main.rs` → `probe.rs` + `config_io.rs` | ✅ `a2051b77`; 4,136 → 3,422 lines, budget unchanged |
+| 3.3 | OTA, with the S8 safety requirement | ✅ four commits; S8 **satisfied and stricter than the C++** |
 
-## Phase 7 — documentation 🔜
+## Phase 7 — documentation ✅
 
-| # | item |
+Every drift item closed. The stale test counts were **removed** rather than refreshed, because they
+drift on every change and a number in a doc goes stale silently. `CONFIG_REFERENCE.md`'s `i_max`
+range, `docs/ci.md`'s self-contradicting warm column, and `tick_allocations.rs`'s overclaiming title
+are all fixed.
+
+## Phase 8 — independent verification ✅
+
+Two reviewers, briefed to find what is **wrong** rather than to confirm the work: one on the safety
+invariants and the four original fixes, one on the crate boundary and whether the docs tell the truth.
+
+**Safety pass:** "OK with notes. I would hand this to someone... across ~30 commits of extraction and
+remediation touching the state machine, the applier, the safety crate and the pin map, **I found no
+safety regression.**" All six AGENTS.md hardware invariants re-checked against source; the S5 whitelist
+still matches `BrewHandler.h` arm for arm; the one state that does not re-assert its hardware
+(`BackflushFilling`) does so because the C++ doesn't either, and that is written down rather than
+inherited by accident.
+
+**Honesty pass:** "The remediation work itself I'd sign off on" — but the documentation was asserting
+verification it did not have. Ten specific defects were found and fixed, the two worst being a ledger
+entry promising a boot diagnostic that did not exist, and a test constant two features stale that kept
+passing because both numbers fit.
+
+---
+
+## Final state
+
+| | |
 | --- | --- |
-| 2.9 | `tick_allocations.rs` is titled "the control tick must not touch the heap" but proves only the *reducer* |
-| 4.4 | `cc-domain` grew from "vocabulary" to "all portable logic"; its "read this in one sitting" claim is stale |
-| 7.1 | AGENTS.md/CLAUDE.md said 1,074 host tests — **now 1,191 host tests plus 109 registered device cases**, counted from a fresh clone at the end of the work. Fixed in both files. |
-| 7.2 | The migration README's "Not done" list omits LEDs, telnet and `parameter-help` |
-| 7.3 | README says `/events` is broken with `Content-Length: 0`; it was fixed and never updated |
-| 7.4 | `docs/ci.md`'s warm table says the esp toolchain install is 71 s; its own Caches section says no-op |
+| commits on this branch | **37**, `just gate` green throughout |
+| **C++ oracle** | **0 lines changed** across the whole effort |
+| portable crates | **9** (was 5) |
+| host tests | **1,276** (was 1,075) |
+| device tests registered | 114, all audited |
+| image | 1,695,632 B, **+8.73 %** of a 10 % budget |
+| `just check` / `just gate` | 9.4 s / ~20 s |
 
+### The three things still open, all deliberate
+
+1. **No C++ parity baseline.** Decided 2026-10-03: capturing one means running the C++, which owns
+   the wired machine. Every "intentional" classification rests on reading the two codebases, not on
+   measurement — now stated plainly in `34-known-differences.md` rather than glossed.
+2. **`/api/ota/url` answers 501.** It needs an HTTP client and a second long-lived task, for something
+   a browser upload already reaches. Left out rather than half-built.
+3. **The steam LED is unwired**, and there is no bootloader rollback
+   (`CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE` is absent from this build's sdkconfig — same as the C++).
 ---
 
 ## Blocked — and one thing that had to be repaired first
