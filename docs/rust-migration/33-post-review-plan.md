@@ -165,7 +165,10 @@ what the code actually guarantees, with every number recorded so a reader need n
 | 3.2 | Telnet has a ring buffer but no transport | `66d72e3f` | port 23; constants taken from the C++, not chosen |
 | 3.4 | `/api/parameter-help` returns a stub with **HTTP 200** | `1ce694b2` | real per-parameter help; 200/404/422 now match the C++ |
 | 3.8 | No server-wide 404 handler | `1ce694b2` | JSON 404 for `/api/*` |
-| 3.3 | OTA endpoints answer `501` | 🔄 | running |
+| 3.3 | OTA endpoints answer `501` | ❌ **blocked** — the async subagent backend failed to launch any child after the cc-mqtt run, and OTA needs a worker. See "Blocked" below. |
+| 4.1b | `mqtt.rs`'s pure half (`Topics`, `Registry`, `interval_for`, `is_configured`) | ✅ `5e31b7a2` + `156b50e9` — `cc-mqtt`, and the split it needed |
+| 4.4 | `cc-domain` had grown from vocabulary to all-portable-logic | ✅ `156b50e9` — **split after all**; see "The decision reversed" below |
+| 4.7 | `main.rs` is ~3,700 lines and unnamed | ❌ **blocked** with OTA |
 
 ### The steam LED — a parity claim that did not survive checking
 
@@ -205,12 +208,53 @@ because that specific pin is `SCALE_DATA_1` — so a person *can* do it, and 13/
 | --- | --- |
 | 2.9 | `tick_allocations.rs` is titled "the control tick must not touch the heap" but proves only the *reducer* |
 | 4.4 | `cc-domain` grew from "vocabulary" to "all portable logic"; its "read this in one sitting" claim is stale |
-| 7.1 | AGENTS.md/CLAUDE.md say 1,074 host tests; the real count has moved with every phase — recount at the end and state it once |
+| 7.1 | AGENTS.md/CLAUDE.md said 1,074 host tests — **now 1,191 host tests plus 109 registered device cases**, counted from a fresh clone at the end of the work. Fixed in both files. |
 | 7.2 | The migration README's "Not done" list omits LEDs, telnet and `parameter-help` |
 | 7.3 | README says `/events` is broken with `Content-Length: 0`; it was fixed and never updated |
 | 7.4 | `docs/ci.md`'s warm table says the esp toolchain install is 71 s; its own Caches section says no-op |
 
 ---
+
+## Blocked — and one thing that had to be repaired first
+
+### The branch did not build from a clean checkout, and the gate did not say so
+
+`53c99df2` (cc-web) and `5e31b7a2` (cc-mqtt) were committed importing `cc_protocol` and
+`cc_netpolicy` — crates that existed only in a worker's **uncommitted** working tree. `cargo` could
+not resolve either one, so `just test` and `just gate` both failed on a fresh clone. Every gate run
+during that period passed **only because the missing crates were sitting unstaged in the same tree**.
+
+This is the most important thing that happened in this effort, and it is worth keeping: `just gate`
+was green, the commit history looked clean, and the branch was still broken. Nothing in the gate
+distinguishes "builds" from "builds because something is lying in my working directory". The only
+check that caught it was cloning to `/tmp` and running the gate there — which is not in the project's
+own procedure, and should be.
+
+`156b50e9` completes the split and repairs it. `just test` now passes from a fresh clone.
+
+### The decision on 4.4 reversed, because it was already half-done
+
+I had decided **docs only, do not split `cc-domain`**. That was the right call for the reason I gave
+(the layering was already sound, so splitting added churn without fixing a boundary). It stopped being
+the right call the moment `cc-mqtt` had already moved `mqtt`/`wifi`/`resilience`/`history` out —
+at which point the split was not a proposal, it was an unpaid debt that two committed crates were
+already leaning on.
+
+It is now complete: `cc-domain` is the vocabulary, `cc-protocol` is the protocol stacks plus
+`http_auth`/`provisioning`, `cc-netpolicy` is the link and publish policy with **no dependencies at
+all**. The audit property the review leaned on is now more literal than before — `cc-domain` depends
+on nothing, so `cc-safety`, which depends only on it, cannot acquire a peripheral.
+
+### Still open
+
+| # | item | why |
+| --- | --- | --- |
+| 3.3 | OTA (three endpoints, and S8's pump/valve-off requirement) | The async subagent backend failed to launch **any** child — even a trivial one — so no worker could be given it. OTA needs a worker: it is the largest remaining item and the one most in need of a second pair of eyes. |
+| 4.7 | Split `main.rs` (~3,700 lines) into `probe.rs` + `config_io.rs` | Same cause. |
+| 8.4 | `CONFIG_REFERENCE.md:455` documents `pid.regular.i_max` as `0.0-999.0`; schema is `0.0..=100.0` | Same cause. |
+| 8.5 | `docs/ci.md`'s warm figure for the esp toolchain install contradicts its own Caches section | Same cause. |
+| 3.5 | No C++ parity baseline | Decided: leave it. |
+| 3.7 | Acaia BLE scale | Decided: out of scope. |
 
 ## Verified sound — do not "fix" these
 

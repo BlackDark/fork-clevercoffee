@@ -79,7 +79,7 @@ credential, not a name, and is deliberately left alone.
 
 ```sh
 just check     # fmt, clippy -D warnings (pedantic), rustdoc -D warnings,
-               # 1,074 host tests, the parity harness, the device-test audit
+               # 1,191 host tests, the parity harness, the device-test audit
 ```
 
 **`just check` deliberately runs on STABLE, not on the Espressif `esp` toolchain.**
