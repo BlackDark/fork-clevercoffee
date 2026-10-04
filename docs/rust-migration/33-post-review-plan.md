@@ -113,27 +113,61 @@ whose only caller in the workspace was its own test — `Command::FactoryReset` 
 still an unwired stub (`cc-firmware/src/main.rs:2669`, R3-16), so it had no
 production caller and did not become an inherent method.
 
-## Phase 4 — `cc-web` extraction 🔜
+## Phase 4 — `cc-web` extraction ✅
 
-The one restructure that pays back "test device-independent things fast".
-~1,500 lines of pure REST surface (`Telemetry`, `Command`, all `*_json` renderers,
-`classify_parameters`, `resolve_ui`, `mime_for`, `routes`) move out of `cc-hal-esp32` into a `no_std`
-crate `just test` can reach. **Two real device bugs already shipped through exactly this gap**
-(a zero-millisecond Wi-Fi provisioning password window; console lines lost across `esp_restart()`).
+The one restructure that pays back "test device-independent things fast". **Done** in `53c99df2`.
 
-Absorbs finding 4.5 (the duplicated `Telemetry` / `network::Reading` pair collapses once
-`Telemetry` has one home).
+| | |
+| --- | --- |
+| crate | `cc-web`, `#![no_std]` + `alloc`, depends on `cc-domain` + `cc-config` (+ `heapless`, `log`, both already in the graph) |
+| moved | `Telemetry`, `Command`, `Auth`, every `*_json` renderer that is actually pure, `mime_for`, `ParameterPost`, `classify_parameters`, `needs_reboot`, three request limits, five request-parsing helpers |
+| stayed | route registration, `respond*`, `Sse` + broadcaster + `web_async`, `Shared`/`Snapshot`, `routes()`, `resolve_ui`/bundle, `history_json`, the httpd `Configuration` |
+| **result** | **host tests 1,075 → 1,124 (+49); device cases 169 → 123.** `web.rs` 4,669 → 2,893 lines |
 
-## Phase 5 — feature scope 🔜
+It is in `default-members`, in the justfile's `host_crates`, **and in `scripts/portable-purity.py`'s
+`PORTABLE` list** — the last one is the load-bearing part, since a purity list that did not name the
+new crate would leave the boundary unenforced.
+
+**Three claims in the plan were wrong, and the worker said so rather than forcing them:**
+
+1. "Every `*_json` renderer is a pure function of a Config and a snapshot" — false for two.
+   `status_json` and `nvs_debug_json` interpolate `free_heap()` via FFI. They now take the readings
+   as arguments; the bytes emitted are unchanged.
+2. "Depending only on `cc-domain` + `cc-config`" — `Telemetry::ip` must stay a
+   `heapless::String<15>` (that *is* the `unsafe impl Sync` argument), and `Auth::from_config`
+   reproduces the C++'s loud warning, so `heapless` and `log` were needed.
+3. `history_json` is not pure — it takes `&Shared`, and the copy-out-under-lock *is* its point.
+
+**The `Snapshot` problem resolved for free.** `Snapshot<T>` was already generic over its payload, so
+only `Telemetry` had to move; `Snapshot<cc_web::Telemetry>` type-checks with zero change to the type,
+its hand-written `Sync`, or the take-and-restore fix. A genuinely portable `Snapshot` would have
+needed either a one-impl trait (banned here) or a `Sync` whose safety argument no longer holds.
+
+**The move found a third broken test.** `the_status_steam_mode_agrees_with_the_steam_toggle_response`
+asserted `/api/status` contains `{"success":true,"steamMode":…}`, which it never has — it could only
+ever fail, and never did because nothing runs device tests in the gate. First instance of that gap
+being a broken test rather than an untested bug.
+
+## Phase 4B — finding 4.2 ✅ measured, no refactor
+
+The one item where the honest answer was **not to change the code**. See commit `2a2d6fef` and
+`32-findings` §4B. The finding said three blocking mutexes per tick against a rule forbidding it;
+measured, it was substantially overstated — the two per-tick locks cost under a microsecond on both
+sides, the third is once a *second* (inside the SSE gate, not the tick), and httpd runs at the *same*
+priority as control with no priority field in `esp-idf-svc` to change it. The rule was amended to
+what the code actually guarantees, with every number recorded so a reader need not re-derive them.
+
+## Phase 5 — feature scope 🔄
 
 | # | item | note |
 | --- | --- | --- |
 | 3.1 | 3 status LEDs drive no GPIO | 6 schema params already exist and are UI-visible |
-| 3.2 | Telnet has a ring buffer but no transport | `HeapShed` policy + ring already exist |
-| 3.3 | OTA endpoints answer `501` | **the partition table already has `app0`/`app1`/`ota_0`/`ota_1`/`otadata`** — no partition change needed. `Effect::SafeHardwareShutdown` exists and is unused: it is the S8 hook. |
 | 3.4 | `/api/parameter-help` returns a stub with **HTTP 200** | error object returned as success |
 | 3.8 | No server-wide 404 handler | C++ returns JSON for `/api/*` |
+| 3.2 | Telnet has a ring buffer but no transport | `HeapShed` policy + ring already exist |
+| 3.3 | OTA endpoints answer `501` | **the partition table already has `app0`/`app1`/`ota_0`/`ota_1`/`otadata`** — no partition change needed. `Effect::SafeHardwareShutdown` exists and is unused: it is the S8 hook. |
 | 4.7 | `main.rs` is 3,671 lines and unnamed | extract `probe.rs`, `config_io.rs` |
+| 4.1b | `mqtt.rs`'s pure half (`Topics`, `Registry`, `interval_for`, `is_configured`) | the same extraction as `cc-web`; deliberately deferred because half-done is worse than not started |
 
 ## Phase 6 — documentation 🔜
 
