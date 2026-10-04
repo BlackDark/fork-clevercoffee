@@ -2075,3 +2075,28 @@ previous version, a progress websocket, and scheduling.
   every status document validated against the UI's `OtaStatusSchema` enum.
 - `cc_hal_esp32::ota` — 5 device tests: the C++'s progress arithmetic, one claim
   at a time, exactly one restart request, a failure asks for no restart.
+
+### A premise worth correcting: what actually protects the OTA routes
+
+It is tempting to read `system.ota_password` (`Config.h:1336`) as "the OTA routes
+are password-protected, so Basic auth on them is parity". It is not. Its **only**
+reader in the C++ is
+
+```cpp
+OTA::initializeArduinoOta(Config::getInstance().systemHostname.get().c_str(),
+                          Config::getInstance().systemOtaPassword.get().c_str());
+```
+
+(`src/core/SystemInitializer.cpp:471-474`), which is `ArduinoOTA.setPassword` —
+the **espota** protocol on port 3232, not HTTP. The three HTTP endpoints are
+protected by `system.auth_enabled` / `system.auth_username` /
+`system.auth_password` through `AsyncAuthenticationMiddleware`
+(`WebServerManager.cpp:280-294`), which covers every route including
+`/events` and the not-found handler.
+
+So this port's situation is: the HTTP OTA routes are behind `Auth` because
+**every** route here is (`cc_hal_esp32::web::register`), which is the parity
+behaviour and needs no OTA-specific decision; and `system.ota_password` remains a
+schema key with no implementation, precisely because espota is not built. When
+espota is added, that parameter becomes live and this paragraph stops being
+true.
