@@ -2,6 +2,17 @@
 
 This is fork from [CleverCoffee](https://github.com/rancilio-pid/clevercoffee) which includes some internal refactorings and new features for testing and ideas.
 
+## Read these two first
+
+- **[docs/status.md](docs/status.md)** — the only page in this repository that
+  claims what works. Dated, owned, every line a pointer to a commit or a
+  measurement. Start here if you want to know what this thing actually does.
+- **[docs/cpp-oracle.md](docs/cpp-oracle.md)** — the C++ tree is frozen: where it
+  lives, why it is never modified or flashed, what may still be built from it, and
+  what must never be done to it.
+
+Agent rules are numbered in [AGENTS.md](AGENTS.md). `CLAUDE.md` is a pointer to it.
+
 ## Which firmware do you want?
 
 This fork currently carries **two firmwares**, and picking the wrong one wastes
@@ -19,7 +30,8 @@ an afternoon.
 "cleaned up", and the Rust port's own test suite is measured against it. Every
 deliberate divergence is recorded in
 [intentional-diffs.md](docs/rust-migration/intentional-diffs.md) — start there
-when a behaviour looks wrong.
+when a behaviour looks wrong. What may and may not be done to that tree is stated
+once, in [docs/cpp-oracle.md](docs/cpp-oracle.md).
 
 ### Building the Rust firmware
 
