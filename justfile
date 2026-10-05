@@ -568,6 +568,7 @@ check:
 # two would make this check unreliable.
 doc-links:
     @python3 scripts/check-doc-links.py
+    @python3 scripts/check-openapi.py .
 
 # Every screen on every template, as one PNG contact sheet. Host only, no
 # hardware: `just screens` then open the file. This is the check a golden image

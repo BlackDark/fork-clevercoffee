@@ -1,5 +1,5 @@
 # CleverCoffee ESP32 API Specification
-# Shared contract between backend (C++) and frontend (React)
+# Shared contract between the firmware's HTTP handlers and the React frontend.
 # Version: 1.0.0
 
 openapi: 3.0.3
@@ -619,6 +619,95 @@ paths:
               schema:
                 type: object
                 additionalProperties: true
+
+  # =============================================================================
+  # Power management
+  # =============================================================================
+  #
+  # Both of these carry a DELIBERATE divergence from the C++ firmware, and that
+  # is why they were missing from this spec until now: a reference that silently
+  # omits the endpoints where the firmware misbehaves by design is worse than no
+  # reference. See `docs/history/divergences.md`.
+
+  /api/sleep:
+    post:
+      tags: [Machine]
+      summary: Enter standby
+      description: |
+        Transitions the machine to `PID_DISABLED` with the heater off, then to
+        `STANDBY`.
+
+        DIVERGES from the C++ firmware. This firmware honours the request with
+        the PID explicitly disabled; the C++ read no field at all and treated the
+        call as a pure toggle. Recorded in `docs/history/divergences.md`.
+      responses:
+        "200":
+          description: Sleep accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  state:
+                    type: string
+
+  /api/wake:
+    post:
+      tags: [Machine]
+      summary: Leave standby
+      description: Returns the machine to `PID_NORMAL` with the PID enabled.
+      responses:
+        "200":
+          description: Wake accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  state:
+                    type: string
+
+  # =============================================================================
+  # Event stream
+  # =============================================================================
+
+  /events:
+    get:
+      tags: [Status]
+      summary: Server-sent event stream
+      description: |
+        A long-lived `text/event-stream` of telemetry frames. The consumer is a
+        browser `EventSource`, so there is no request body and no response
+        envelope: each message is one SSE frame.
+
+        This is the endpoint that starves if a display frame is written one I2C
+        transaction per pixel row, because it shares the bus with the panel.
+      responses:
+        "200":
+          description: The event stream (never completes)
+          content:
+            text/event-stream:
+              schema:
+                type: string
+
+  # =============================================================================
+  # Web UI
+  # =============================================================================
+
+  /:
+    get:
+      tags: [System]
+      summary: The web UI
+      description: |
+        Serves the embedded single-page application from flash. The bundle costs
+        0 bytes of RAM; it is a gzipped asset embedded with `include_bytes!`.
+      responses:
+        "200":
+          description: The UI's index document
 
 components:
   # `system.auth.*` is implemented (see intentional-diffs.md #20). Every route

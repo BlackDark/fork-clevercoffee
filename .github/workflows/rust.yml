@@ -466,6 +466,12 @@ jobs:
       - name: Markdown links
         run: python3 scripts/check-doc-links.py
 
+      # `openapi.yaml` shipped for the whole port with no consumer and no check,
+      # and omitted exactly the three routes carrying deliberate divergences. One
+      # regex on each side, so it runs here rather than rotting again.
+      - name: The API spec matches the routes the firmware serves
+        run: python3 scripts/check-openapi.py .
+
       - name: clippy (device, pedantic, -D warnings)
         run: just lint-esp32
 

@@ -1011,8 +1011,8 @@ mod tests {
     /// cc-parity`, long before anyone gets to a phase gate.
     #[test]
     fn every_shipped_scenario_loads_and_every_dry_run_one_passes() {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../docs/history/scenarios");
+        let dir =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/history/scenarios");
         let mut names: Vec<String> = std::fs::read_dir(&dir)
             .unwrap_or_else(|e| panic!("{}: {e}", dir.display()))
             .filter_map(|e| e.ok())
@@ -1048,8 +1048,8 @@ mod tests {
     /// reducer, and both say so in their scenario's `why`.
     #[test]
     fn every_safety_path_has_at_least_one_scenario() {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../docs/history/scenarios");
+        let dir =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/history/scenarios");
         let mut covered: std::collections::BTreeSet<String> = Default::default();
         for entry in std::fs::read_dir(&dir).unwrap() {
             let path = entry.unwrap().path();

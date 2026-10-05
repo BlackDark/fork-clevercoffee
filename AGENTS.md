@@ -56,10 +56,11 @@ run `git log --oneline -- <file>` on it. This repository's own history contains
 several confidently-wrong status claims that were caught only by an independent
 review.
 
-**AG-REPO-3.** Start at
-[`docs/history/README.md`](docs/history/README.md) and read
-["Where the migration actually is"](docs/history/README.md#where-the-migration-actually-is)
-**before planning any work**. The execution procedure for agents lives in
+**AG-REPO-3.** Start at [`docs/history/README.md`](docs/history/README.md) and
+read ["Where the migration actually is"](docs/history/README.md#where-the-migration-actually-is)
+**before planning any work**. For what the firmware *is*, read
+[`docs/architecture.md`](docs/architecture.md); for the vocabulary, read
+[`GLOSSARY.md`](GLOSSARY.md). The execution procedure for agents lives in
 [`.agents/skills/esp32-rust-migration/SKILL.md`](.agents/skills/esp32-rust-migration/SKILL.md).
 Neither document may restate a rule from this file; if one needs to, it links
 here instead.
@@ -219,13 +220,38 @@ radio") was lifted out of a September survey and treated as today's constraint.
 [`docs/archive/README.md`](docs/archive/README.md) states the rule and says what is
 in the archive and why.
 
-**AG-REPO-30.** **`docs/history/` does not move.** Rust doc comments link
-into it with rustdoc link syntax and `just lint` runs `rustdoc -D warnings`, so
-moving a cited document is a **build break**, not a link cleanup. The machine-read
-fixtures there (`size-baseline.json`, `size-records.jsonl`, `scenarios/*.yaml`) are
-opened by code and CI by path. `intentional-diffs.md` is additionally *parsed* by
-`cc-parity` and its fenced `ledger` blocks live inside the prose on purpose, so the
-two cannot drift -- do not split them out.
+**AG-REPO-30.** **`docs/history/` is machine-read. Move it only deliberately.**
+It was `docs/rust-migration/` until 2026-10-06, when the whole documentation tree
+was restructured and this directory moved with it. That move was **not** a
+link cleanup and it is the reason this rule now has an explicit exemption: the
+paths that name this directory are resolved by code and by CI, not only by
+prose.
+
+- `crates/cc-parity/tests/runner.rs` reads `history/divergences.md` at a
+  hard-coded path.
+- `scripts/parity/run.sh` and `scripts/size-record.py` take it as input.
+- `just/size.just` reads `size-baseline.json` and appends to
+  `size-records.jsonl`; `rust.yml` uploads the latter.
+- Rust doc comments link into it with rustdoc link syntax, and `just lint` runs
+  `rustdoc -D warnings`, so a broken link there is a **build break**.
+
+**Amending it means changing those paths in the same commit**, and the amendment
+must be dated in this rule. `divergences.md` is additionally *parsed* by
+`cc-parity`: its fenced `ledger` blocks live inside the prose on purpose, so the
+reasoning and the machine-readable declarations cannot drift apart. Do not split
+them out, and do not renumber a section without updating the `heading` field of
+the ledger entry that names it — `cc-parity` checks that the heading still
+appears in the prose, so a renumber that misses one fails the harness rather than
+passing quietly.
+
+**AG-REPO-31.** **`docs/api/openapi.yaml` is checked against the routes the
+firmware serves.** `scripts/check-openapi.py` compares it against the `ROUTES`
+table in `cc-hal-esp32/src/web.rs`, in both directions, and runs in `just
+check` and in CI. It exists because the spec sat for the whole port with no
+consumer and no check, and omitted exactly the three routes carrying deliberate
+divergences (`/api/sleep`, `/api/wake`, `/events`). A reference that is silent
+about where the firmware behaves differently *by design* looks complete and is
+not.
 
 ---
 
