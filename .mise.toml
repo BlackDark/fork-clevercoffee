@@ -34,8 +34,13 @@ min_version = "2024.1.0"
 [tools]
   # --- C++ parity oracle + web UI ---
   node = "24"
+  # Pinned, and it must stay equal to `ui/package.json`'s `packageManager`
+  # (`pnpm@11.25.0`). `origin/main` carried `pnpm = "latest"` here from before
+  # the Rust port; a float next to a committed `pnpm-lock.yaml` is how a
+  # contributor ends up resolving a different dependency set than CI.
   pnpm = "11.25.0"
-  python = "3.14.7"
+  # 3.14.8 from `origin/main` (renovate), not the 3.14.7 this branch pinned.
+  python = "3.14.8"
   # The version itself is `[vars] clang_format_version` below -- mise
   # cannot interpolate a var into `[tools]`, so the two must be kept in step.
   # Nothing checks that these two agree. The assertion that protects the tree
