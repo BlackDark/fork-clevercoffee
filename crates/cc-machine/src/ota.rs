@@ -2,12 +2,12 @@
 //! before a single byte is written to flash.
 //!
 //! Owner: **R3-15**, and the fix for finding 3.3 of
-//! [`32-findings-2026-10-03.md`](../../../docs/rust-migration/32-findings-2026-10-03.md).
+//! [`32-findings-2026-10-03.md`](../../../docs/history/review-2026-10-03.md).
 //!
 //! # What this is for
 //!
 //! Requirement **S8** of
-//! [`01-feature-inventory.md`](../../../docs/rust-migration/01-feature-inventory.md#6-safety-critical-control-paths):
+//! [`01-feature-inventory.md`](../../../docs/history/feature-inventory.md#6-safety-critical-control-paths):
 //! *"an OTA must leave pump and valve off."* A machine reflashed mid-brew, or
 //! booting with the 3-way valve energised, is the hardware damage
 //! `AGENTS.md`'s Hardware Control Invariants exist to prevent. This module is

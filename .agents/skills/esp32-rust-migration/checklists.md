@@ -89,7 +89,7 @@ just size-record mcu=esp32 label=gate-N
 just parity /dev/cu.usbserial-XXXX esp32.local
 
 # 2. Integration checklist, in order, recording PASS/FAIL with real output
-#    (docs/operations/integration-checklist.md)
+#    (docs/operations/runbook.md)
 
 # 3. 24 h soak for Gate 4 (R4-05)
 ```
@@ -101,7 +101,7 @@ Then, before starting the next phase:
 - [ ] Every gate criterion in 06 is met **and recorded**.
 - [ ] ADR-0004 updated (status + any spike results).
 - [ ] `notes.md` updated: completed tasks, blockers, new findings.
-- [ ] `docs/operations/integration-checklist.md` updated with any newly discovered failure mode.
+- [ ] `docs/operations/runbook.md` updated with any newly discovered failure mode.
 - [ ] `01-feature-inventory.md` §1 updated if a target was actually verified on hardware.
 
 ---

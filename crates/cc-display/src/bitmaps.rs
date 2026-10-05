@@ -1,26 +1,21 @@
-//! The firmware's `include/clevercoffee/display/bitmaps.h`, by name.
+//! The firmware's OLED artwork, by name.
 //!
-//! [`bitmaps_data`] holds the bytes, copied verbatim by
-//! `tools/extract_bitmaps.py`. This module adds the *name* the C++ uses for
-//! each one, plus its dimensions, so a caller can go from a name to something
-//! drawable without repeating the `w`/`h` pair that `bitmaps.h` declares as
-//! `*_width`/`*_height` macros.
+//! [`bitmaps_data`] holds the bytes. This module adds the *name* each bitmap is
+//! drawn under, plus its dimensions, so a caller can go from a name to
+//! something drawable without repeating the `w`/`h` pair at every call site.
 //!
-//! # Why a table rather than a macro
+//! # Why a table rather than a bare array
 //!
-//! The C++ exposes eleven C arrays and eleven width/height macro pairs. There is
-//! no enumeration of them, so C++ callers name the array directly:
-//! `display->drawXBMP(x, y, CleverCoffee_Logo_width, CleverCoffee_Logo_height,
-//! CleverCoffee_Logo)`. That is a *better* interface at the call site -- the
-//! compiler checks the dimensions against the array length, and renaming a
-//! bitmap is a compile error everywhere it is used.
+//! The bytes are eleven standalone `static` arrays, each with its own width and
+//! height. That is a *better* interface at the call site -- the dimensions sit
+//! next to the data and renaming an array is a compile error everywhere it is
+//! used.
 //!
-//! A name table trades that away, and it is worth being explicit about why the
-//! trade is acceptable here: the only caller that needs names is the parity
-//! scenario runner, which has to agree with `tools/oracle/display_oracle.cpp`
-//! -- a *string* table in C++ for the same reason. The production call sites
-//! keep using [`bitmaps_data`] directly, with the dimensions written next to
-//! the array, and the test below pins every dimension against the C++ header.
+//! A name table adds a second way in, and it is worth being explicit about why
+//! that is acceptable: the only caller that needs names is the parity scenario
+//! runner, which has to agree with `tools/oracle/display_oracle.cpp` -- a
+//! *string* table in C++ for the same reason. The production call sites keep
+//! using [`bitmaps_data`] directly.
 
 use crate::bitmaps_data as data;
 
@@ -31,17 +26,17 @@ use crate::bitmaps_data as data;
 /// exactly what a call site needs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Bitmap {
-    /// The C++ identifier, e.g. `"logo"` for `CleverCoffee_Logo`.
+    /// The name the display draws it under, e.g. `"logo"`.
     pub name: &'static str,
-    /// Width in pixels, from the `*_width` macro.
+    /// Width in pixels.
     pub width: u8,
-    /// Height in pixels, from the `*_height` macro.
+    /// Height in pixels.
     pub height: u8,
     /// The bytes, big-endian 1bpp, as `u8g2_DrawHXBMP` expects.
     pub data: &'static [u8],
 }
 
-/// Every bitmap the firmware ships, in the order `bitmaps.h` declares them.
+/// Every bitmap the firmware ships.
 ///
 /// The order matches the oracle's `BITMAPS[]` so the two are read side by side.
 pub const ALL: [Bitmap; 11] = [
@@ -113,7 +108,7 @@ pub const ALL: [Bitmap; 11] = [
     },
 ];
 
-/// Look a bitmap up by the C++ name.
+/// Look a bitmap up by name.
 #[must_use]
 pub fn lookup(name: &str) -> Option<Bitmap> {
     ALL.iter().copied().find(|b| b.name == name)

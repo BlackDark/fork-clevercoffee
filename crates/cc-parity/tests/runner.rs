@@ -26,7 +26,7 @@ fn binary() -> PathBuf {
 }
 
 fn ledger_path() -> PathBuf {
-    repo_root().join("docs/rust-migration/intentional-diffs.md")
+    repo_root().join("docs/history/divergences.md")
 }
 
 /// A scratch directory under `target/`, cleaned by `cargo clean`.
@@ -210,7 +210,7 @@ fn every_dry_run_scenario_is_runnable_through_the_binary() {
     let dir = scratch("list");
     let out = Command::new(binary())
         .args(["list"])
-        .arg(repo_root().join("docs/rust-migration/scenarios"))
+        .arg(repo_root().join("docs/history/scenarios"))
         .output()
         .expect("cc-parity runs");
     assert!(out.status.success(), "list must succeed");
@@ -252,7 +252,7 @@ fn one_scenario_runs_end_to_end_through_the_binary() {
     let dir = scratch("run");
     let out = Command::new(binary())
         .args(["run"])
-        .arg(repo_root().join("docs/rust-migration/scenarios/brew_by_time.yaml"))
+        .arg(repo_root().join("docs/history/scenarios/brew_by_time.yaml"))
         .output()
         .expect("cc-parity runs");
     assert!(

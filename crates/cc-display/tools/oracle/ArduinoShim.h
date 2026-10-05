@@ -55,9 +55,9 @@ inline void yield() {}
 
 /* The Arduino core's binary byte constants, `B00000000` .. `B11111111`.
  *
- * `include/clevercoffee/display/bitmaps.h` writes its three small icons with
- * them, so they are load-bearing for the oracle, not decoration. The firmware
- * gets them from `pgmspace.h`; the shim defines them with the same values.
+ * The firmware's small icons are written with them, so they are load-bearing
+ * for the oracle, not decoration. The firmware gets them from `pgmspace.h`;
+ * the shim defines them with the same values.
  */
 #define B00000000 0x00
 #define B00000001 0x01

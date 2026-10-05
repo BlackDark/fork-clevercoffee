@@ -51,5 +51,5 @@ Each state that requires active hardware (pump, valve) **must**:
   — carries this contract forward into the Rust port. `water_flow_allowed` becomes a
   `match` with no wildcard arm, so the "adding a new water-flow state" hazard above
   becomes a compile error rather than a review item.
-- [Rust migration — target architecture](../rust-migration/04-target-architecture.md)
+- [Rust migration — target architecture](../history/target-architecture.md)
   — §4 (startup/shutdown/fail-safe) and §7 (component ownership).

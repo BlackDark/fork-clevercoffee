@@ -95,5 +95,5 @@ permanently-ticked copy of this record. The Context, Decision and Alternatives s
 are the whole of it, and they are what a reader needs; the two documents below are the
 living detail the ADR deliberately does not duplicate.
 
-- `docs/handbook/display-architecture.md` — the render pipeline as it is today, per screen and template
-- `docs/handbook/display-modern-layout.md` — the 128x64 layout rules and the row maps they enforce
+- `docs/display/rendering.md` — the render pipeline as it is today, per screen and template
+- `docs/display/layout-rules.md` — the 128x64 layout rules and the row maps they enforce

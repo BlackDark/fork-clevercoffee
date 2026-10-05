@@ -736,7 +736,7 @@ Explains a thing.
         // which is the property `just parity` depends on.
         let path = concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../docs/rust-migration/intentional-diffs.md"
+            "/../../docs/history/divergences.md"
         );
         let text = std::fs::read_to_string(path)
             .unwrap_or_else(|e| panic!("{path}: {e}; the ledger lives in the document"));

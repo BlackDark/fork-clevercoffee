@@ -35,19 +35,12 @@ fn scenario_files() -> Vec<PathBuf> {
     files
 }
 
-/// The U8g2 tree the firmware links, or `None` when it has not been fetched.
+/// The U8g2 tree the display oracle links, or `None` when it has not been
+/// fetched. `CC_U8G2_DIR` overrides `just u8g2`'s default location.
 fn u8g2_dir() -> Option<PathBuf> {
-    let libdeps = crate_root().join("../../.pio/libdeps");
-    let direct = libdeps.join("esp32_usb/U8g2");
-    if direct.join("src/clib").is_dir() {
-        return Some(direct);
-    }
-    let entries = std::fs::read_dir(&libdeps).ok()?;
-    entries
-        .filter_map(std::result::Result::ok)
-        .map(|e| e.path())
-        .map(|p| p.join("U8g2"))
-        .find(|p| p.join("src/clib").is_dir())
+    let from_env = std::env::var_os("CC_U8G2_DIR").map(PathBuf::from);
+    let dir = from_env.unwrap_or_else(|| crate_root().join("../../target/u8g2"));
+    dir.join("csrc").is_dir().then_some(dir)
 }
 
 fn work_dir() -> PathBuf {
@@ -81,18 +74,18 @@ fn run_oracle(scenario_path: &Path, out: &Path) -> Framebuffer {
 }
 
 #[test]
-#[ignore = "needs the U8g2 tree from .pio/libdeps; run with --ignored"]
+#[ignore = "needs the U8g2 tree; run `just u8g2` first, then with --ignored"]
 fn every_scenario_renders_identically_to_u8g2() {
     let Some(u8g2) = u8g2_dir() else {
         panic!(
-            "U8g2 is not under .pio/libdeps. Run `pio run -e esp32_usb` (or \
-             `pio pkg install -e esp32_usb`) first: the parity claim must be \
-             against the tree the firmware links."
+            "U8g2 is not under target/u8g2. Run `just u8g2` (or set \
+             CC_U8G2_DIR): the parity claim must be against the tree the \
+             firmware links."
         );
     };
     // Fail early and clearly if the build script cannot find it either.
     assert!(
-        u8g2.join("src/clib").is_dir(),
+        u8g2.join("csrc").is_dir(),
         "{} is not a U8g2 checkout",
         u8g2.display()
     );
@@ -142,12 +135,12 @@ fn every_scenario_renders_identically_to_u8g2() {
 }
 
 #[test]
-#[ignore = "needs the U8g2 tree from .pio/libdeps; run with --ignored"]
+#[ignore = "needs the U8g2 tree; run `just u8g2` first, then with --ignored"]
 fn the_oracle_binary_builds() {
     // The parity test above depends on `run.sh`; if the build breaks, that test
     // fails with "the oracle failed", which reads like a pixel difference. This
     // one fails with the compiler's message instead.
-    u8g2_dir().expect("U8g2 is not under .pio/libdeps; run `pio run -e esp32_usb`");
+    u8g2_dir().expect("U8g2 is not under target/u8g2; run `just u8g2`");
     let script = crate_root().join(RUN_SH);
     let out = Command::new("bash")
         .arg(&script)

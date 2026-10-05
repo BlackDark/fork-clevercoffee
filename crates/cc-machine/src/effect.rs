@@ -199,7 +199,7 @@ pub enum Effect {
     ///   (`BrewHandler.h:256`)
     /// * `HotWaterHandler::checkPumpTimeout` — `"Hot water pump timeout - stopping
     ///   for safety"` (`HotWaterHandler.h:117`; also recovered verbatim from the
-    ///   previous Rust firmware, [08 §4.2](../../docs/rust-migration/08-recovered-oracle.md))
+    ///   previous Rust firmware, [08 §4.2](../../docs/history/recovered-oracle.md))
     ///
     /// The applier turns it into the log line; the *action* that follows
     /// (`Request::BrewStop` / `Effect::DisablePump`) is a separate effect, in

@@ -4,10 +4,9 @@
 duplicated here.** This file is a pointer, deliberately: two copies of the same
 rules means one of them is always wrong, and this one already was.
 
-Rules are numbered (`AG-ORACLE-*`, `AG-RUST-*`, `AG-REPO-*`) — cite them, never
+Rules are numbered (`AG-DISPLAY-*`, `AG-RUST-*`, `AG-REPO-*`) — cite them, never
 restate them. If a rule is missing, add it to `AGENTS.md`, not here.
 
 For what currently works, read [`docs/status.md`](./docs/status.md) — the only
-page permitted to claim that. For the frozen C++ tree, read
-[`docs/cpp-oracle.md`](./docs/cpp-oracle.md). For everything else,
+page permitted to claim that. For everything else,
 [`docs/index.md`](./docs/index.md) is the map.

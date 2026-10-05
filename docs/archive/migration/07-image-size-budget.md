@@ -3,9 +3,9 @@
 > **ARCHIVED — non-normative. Dated 2026-09/10, preserved for provenance.**
 > **Every measured number in this document is from 2026-09-28 and has moved.**
 > The policy it argues for is still enforced, and enforced in code, by
-> `just/size.just` reading [`size-baseline.json`](../../rust-migration/size-baseline.json)
-> and appending to [`size-records.jsonl`](../../rust-migration/size-records.jsonl)
-> — both live, both still in `docs/rust-migration/`. The current image size and
+> `just/size.just` reading [`size-baseline.json`](../../history/size-baseline.json)
+> and appending to [`size-records.jsonl`](../../history/size-records.jsonl)
+> — both live, both still in `docs/history/`. The current image size and
 > its headroom are in [`docs/status.md`](../../status.md). See
 > [`docs/archive/README.md`](../README.md).
 
@@ -25,7 +25,7 @@ Related: [03 — Decision record](./03-decision-record.md) (the 154 KB problem) 
 | C++ `firmware.bin` | **1,546,240 B** | measured, `pio run -e esp32_usb` 2026-09-28 |
 | `app0` slot (current table) | **1,703,936 B** (`0x1A0000`) | `partitions_4M.csv` |
 | **Headroom** | **157,696 B (154.0 KiB)** | arithmetic, verified |
-| A Rust esp-idf image with `std`, measured | **≥ 1,835,008 B — it filled a 1,835,008 B slot** | [08 §2](../../rust-migration/08-recovered-oracle.md): the recovered firmware's app0 image occupied its slot to the last non-`0xFF` byte |
+| A Rust esp-idf image with `std`, measured | **≥ 1,835,008 B — it filled a 1,835,008 B slot** | [08 §2](../../history/recovered-oracle.md): the recovered firmware's app0 image occupied its slot to the last non-`0xFF` byte |
 | **Our own minimal image, measured 2026-09-28 (R1-01)** | **382,528 B** — blink-equivalent: `std`, logging, three GPIO pins, a TWDT-fed control task, and the whole default ESP-IDF component set | `just size`; recorded in `size-baseline.json` as label `r1-01-minimal` |
 
 **154 KiB will not hold a Rust esp-idf image.** The partition table must change. This
@@ -97,7 +97,7 @@ target:      xtensa-esp32-espidf
 image:       target/xtensa-esp32-espidf/release/firmware      1,9xx,xxx B
 app slot:    rust/partitions_4M.csv app0                      2,037,xxx B
 headroom:                                          + 1xx,xxx B (x.x %)
-baseline:    docs/rust-migration/size-baseline.json   (previous gate)
+baseline:    docs/history/size-baseline.json   (previous gate)
 delta:                                       +  xxx,xxx B   <-- attributed below
 ```
 
@@ -169,7 +169,7 @@ target:      xtensa-esp32-espidf (esp32), ESP-IDF v5.5.5, release + lto=fat, str
 image:       target/xtensa-esp32-espidf/release/firmware  ->  382,528 B flashable app image
 app slot:    rust/partitions_4M.csv app0  0x1C0000  ->  1,835,008 B
 headroom:                                       +  1,452,480 B (79.15 %)
-baseline:    docs/rust-migration/size-baseline.json  (label r1-01-minimal)
+baseline:    docs/history/size-baseline.json  (label r1-01-minimal)
 delta:                                        n/a — this is the first datapoint
 ```
 

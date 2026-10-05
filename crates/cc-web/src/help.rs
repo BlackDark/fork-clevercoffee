@@ -4,7 +4,7 @@
 //! # Why these two and nothing else
 //!
 //! Both are finding 3.4 and 3.8 of
-//! [`32-findings-2026-10-03.md`](../../../docs/rust-migration/32-findings-2026-10-03.md),
+//! [`32-findings-2026-10-03.md`](../../../docs/history/review-2026-10-03.md),
 //! and both are wrong in the same way: **the status line does not match the
 //! body.** `/api/parameter-help` returned an error object with `200`, so every
 //! third-party client read a failure as a success; a `/api/*` path that matched

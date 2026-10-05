@@ -183,7 +183,7 @@ impl Stage {
     ///
     /// The C++ sets `displayBufferReady` differently per stage, and
     /// `LoopManager::updateDisplay` only flushes when the flag is set
-    /// (`docs/handbook/display-architecture.md`, "Buffer policy"). Getting
+    /// (`docs/display/rendering.md`, "Buffer policy"). Getting
     /// this wrong stalls the SSE stream, which is the failure mode ADR-0001 §7
     /// fixed.
     #[must_use]
@@ -428,7 +428,7 @@ mod tests {
 
     #[test]
     fn the_buffer_policy_is_deferred_only_for_the_four_stages_that_say_so() {
-        // `docs/handbook/display-architecture.md` "Buffer policy": the fullscreen timers
+        // `docs/display/rendering.md` "Buffer policy": the fullscreen timers
         // and the normal layout defer; the OTA, offline and system screens
         // flush immediately. Getting this wrong stalls the web UI.
         assert!(Stage::FullscreenBrew.is_deferred());

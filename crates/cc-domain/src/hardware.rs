@@ -31,7 +31,7 @@ pub enum SwitchMode {
 /// low-trigger relay board — which energises its coil when the input is low or
 /// floating — turns the heater **on** at every boot, before any firmware runs.
 /// `cc-safety`'s `validate_config` refuses this value for the heater relay; see
-/// the recovered-oracle note in `docs/rust-migration/08-recovered-oracle.md` §4.1.
+/// the recovered-oracle note in `docs/history/recovered-oracle.md` §4.1.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(i8)]
 pub enum RelayTriggerType {
@@ -83,7 +83,7 @@ pub enum TemperatureSensorType {
     /// This is the probe actually fitted to *this* machine: the boot log of the
     /// image recovered from flash reported `sensor: DS18B20 at
     /// 0x41af78cdaa376928 (family 0x28)`. See
-    /// `docs/rust-migration/01-feature-inventory.md` §10.1 finding 4.
+    /// `docs/history/feature-inventory.md` §10.1 finding 4.
     DallasDs18b20 = 1,
 }
 

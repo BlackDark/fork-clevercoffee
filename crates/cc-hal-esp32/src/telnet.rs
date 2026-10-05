@@ -1,7 +1,7 @@
 //! The Wi-Fi telnet log stream: the listener, and ADR-0002's heap-aware shed.
 //!
 //! Owner: **R3-14** (task E), transport completed after finding 3.2 of
-//! [`32-findings-2026-10-03.md`](../../../docs/rust-migration/32-findings-2026-10-03.md).
+//! [`32-findings-2026-10-03.md`](../../../docs/history/review-2026-10-03.md).
 //!
 //! # What it replaces
 //!

@@ -178,9 +178,9 @@ pio test --verbose
 
 - `CLAUDE.md`: Agent instructions (C++ standards, project structure)
 - `AGENTS.md`: the same, plus the mandatory format/build/test gate per firmware
-- `docs/operations/integration-checklist.md`: the manual pre-release checklist
+- `docs/operations/runbook.md`: the manual pre-release checklist
 - `CONTRIBUTING.md`: Code style and contribution guidelines
-- `CONFIG_REFERENCE.md`: Configuration reference
+- `config/reference.md`: Configuration reference
 
 Running the tests is one line each, and it is stated in `AGENTS.md`, `CLAUDE.md` and
 `README.md`: `pio test -e native_test` for the C++ oracle, `just test` for the Rust port,

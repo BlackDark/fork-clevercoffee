@@ -5,7 +5,7 @@
 //! # Why this crate exists
 //!
 //! **Finding 4.1 of
-//! [`32-findings-2026-10-03.md`](../../../docs/rust-migration/32-findings-2026-10-03.md)
+//! [`32-findings-2026-10-03.md`](../../../docs/history/review-2026-10-03.md)
 //! — `just test` could not reach the REST surface at all.** `web.rs` was ~4,530
 //! lines and named `esp_idf_svc`, so the nine portable crates named by `just
 //! test` reached none of it: every `*_json` renderer, `classify_parameters`,

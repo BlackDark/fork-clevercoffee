@@ -10,13 +10,13 @@ blocked.
 
 > ⚠ **Updated 2026-09-29.** The table below supersedes the 2026-09-28 entry. If you are
 > reading a task description and assuming it is done because it sounds finished, check
-> [README §Where the migration actually is](../../../docs/rust-migration/README.md#where-the-migration-actually-is).
+> [README §Where the migration actually is](../../../docs/history/README.md#where-it-is-now).
 
 | Field | Value |
 | --- | --- |
 | Current phase | **Phase 4 (R4), with the control loop restructured on 2026-10-01.** R0, R1, R2 and most of R3 implemented. |
 | **Critical path** | **R4-01 — the reducer is NOT wired to the hardware.** `cc_machine::` appears nowhere in `cc-firmware/src`; the control task is a heuristic that drops web commands. **No state machine, no PID, no brewing on the device yet.** |
-| **Device hostname** | **`test-cc-rust`** (`cc_config::schema::DEFAULT_HOSTNAME`). The C++ default is `silvia` and the C++ is unchanged — the name is what distinguishes the two firmwares on one network. `mqtt.password`'s default is *also* `silvia`; that is a credential, leave it. See [intentional-diffs §12](../../../docs/rust-migration/intentional-diffs.md). |
+| **Device hostname** | **`test-cc-rust`** (`cc_config::schema::DEFAULT_HOSTNAME`). The C++ default is `silvia` and the C++ is unchanged — the name is what distinguishes the two firmwares on one network. `mqtt.password`'s default is *also* `silvia`; that is a credential, leave it. See [intentional-diffs §12](../../../docs/history/divergences.md). |
 | Plan reviewed | 2026-09-28 by two adversarial subagents; 24 hard factual errors and 5 blocking tooling defects found and **fixed**. See 06 and 07. |
 | ADR-0004 status | **Accepted** in practice — `esp-idf-svc` 0.53.0 / ESP-IDF v5.5.5 is what is built. |
 | C++ baseline | `pio run -e esp32_usb` **succeeds**; `firmware.bin` = 1,546,240 B; `pio test -e native_test` = **340/340 pass**. **The C++ is never modified or flashed** — the human has declined the C++ baseline capture for exactly that reason. |
@@ -76,10 +76,10 @@ does not.
 **Built and tested:**
 
 - **The scenario format**, specified in
-  [`docs/rust-migration/10-scenario-format.md`](../../../docs/rust-migration/10-scenario-format.md)
+  [`docs/history/scenario-format.md`](../../../docs/history/scenario-format.md)
   and implemented by `crates/cc-parity`. Seven stimulus kinds (`rest`, `wait`,
   `button`, `sensor`, `config`, `mqtt`, `ota`), a capture spec, and nine assertion kinds.
-- **17 scenarios** in `docs/rust-migration/scenarios/`, covering S1–S11. Twelve of them
+- **17 scenarios** in `docs/history/scenarios/`, covering S1–S11. Twelve of them
   would energise an actuator; all twelve are `dry_run`.
 - **`scripts/parity/run.sh`**, which `just parity` calls. It runs each scenario, diffs
   the observation against `baseline/cpp/`, classifies every diff against the ledger, and
@@ -92,7 +92,7 @@ does not.
 
 **Not built, and it is the reason Gate 1 is not passable:**
 
-- `docs/rust-migration/baseline/cpp/` is **empty**. `just parity` reports every scenario
+- `docs/history/baseline/cpp/` is **empty**. `just parity` reports every scenario
   `BASELINE-MISSING` and exits **2**. Capturing one means flashing the **C++** image and
   letting its control loop run against a real boiler — a reviewed safe-test procedure
   and a human present, neither of which R1-08 had. **No baseline was fabricated.**
@@ -314,7 +314,7 @@ All six are **preserved**, not fixed, each with a `s<N>_`-prefixed test.
 
 ### R1-07 + safety-gap work (2026-09-28) ✅ for the host, ❌ for the hardware
 
-Four findings closed on purpose (see [`docs/rust-migration/intentional-diffs.md`](../../../docs/rust-migration/intentional-diffs.md),
+Four findings closed on purpose (see [`docs/history/divergences.md`](../../../docs/history/divergences.md),
 which is now **created** and is R1-08's deliverable):
 
 1. **Pump timeouts armed** (09 §11) — on the pump-on edge, with
@@ -527,7 +527,7 @@ fixed in Rust, not replicated**:
    (`:419-423`).
    → R2-08 must decide and implement these deliberately.
 
-Documentation drift, for the record: `CONFIG_REFERENCE.md:114` documents
+Documentation drift, for the record: `config/reference.md:114` documents
 `display.blescale_brew_timer` and `:165-172` documents `display.blinking.mode` — neither
 exists in the code.
 
@@ -535,7 +535,7 @@ exists in the code.
 
 ## Unverified assumptions status
 
-See [02 §8](../../../docs/rust-migration/02-research-compatibility-matrix.md#8-summary-of-unverified-assumptions).
+See [02 §8](../../../docs/history/dependency-evaluation.md#8-summary-of-unverified-assumptions).
 All ten (U1-U10) are still open. U3 (TSIC-306) is the one that can invalidate ADR-0004.
 
 ---
@@ -724,7 +724,7 @@ is a real failure mode here. Three more, all from the same day:
 
 The machine went unreachable and took **three** faults, none visible in the
 firmware's own summary. Full write-up in `09-cpp-findings.md` §30 and the check
-list in `docs/operations/integration-checklist.md`.
+list in `docs/operations/runbook.md`.
 
 * `wifi_auth_mode_t` is a **sequence, not a bitmask** and the driver compares it
   for **equality**. `WPA2WPA3Personal` cannot join a WPA2-only AP. This port had
@@ -748,7 +748,7 @@ The four documents it points into:
 | --- | --- |
 | `09-cpp-findings.md` §28–§31 | the `FreeRTOS` blocking hazard, the tick-rate measurement, the Wi-Fi recovery, the 15 ms in the applier span |
 | `intentional-diffs.md` §14–§17 | the layout divergences from the C++ (uptime, `°C`, Scale rows) and the two behaviour changes (S1 counting samples, the reboot shutdown) |
-| `docs/operations/integration-checklist.md` | a runnable check per finding — Wi-Fi, the tick, the screen fit, the language columns |
+| `docs/operations/runbook.md` | a runnable check per finding — Wi-Fi, the tick, the screen fit, the language columns |
 | `notes.md` (this file) | the Wi-Fi recovery summary an agent needs before touching Wi-Fi again |
 
 **Open, with the next step named, in §7 of the index.** The first is the control

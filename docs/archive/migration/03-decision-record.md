@@ -38,7 +38,7 @@ Rust:
    image with `std` is typically 1.5–2.5 MB. A partition rebalance is probably mandatory.
 2. **RAM.** ~320 KB, with a hard-won 30 KB heap-shed threshold documented in ADR-0002.
 3. **Safety.** Eleven distinct control paths must prevent unexpected heating, pumping, or
-   actuation ([01 §6](../../rust-migration/01-feature-inventory.md)). A
+   actuation ([01 §6](../../history/feature-inventory.md)). A
    regression here can boil water or run a dry pump.
 
 A fourth, easily-missed property: **"ESP32 v4" means the AZ-Delivery DevKitC **PCB
@@ -49,9 +49,9 @@ is a misnomer. This has a direct consequence for the "provision Wi-Fi over USB" 
 discussed in §5.
 
 Evidence for all of the above is in
-[01 — Feature inventory](../../rust-migration/01-feature-inventory.md); the ecosystem survey with links,
+[01 — Feature inventory](../../history/feature-inventory.md); the ecosystem survey with links,
 versions, and dates is in
-[02 — Research matrix](../../rust-migration/02-research-compatibility-matrix.md).
+[02 — Research matrix](../../history/dependency-evaluation.md).
 
 ---
 
@@ -193,14 +193,14 @@ budget, and it is the only one with a viable path to the flash-size constraint.
    set.
 
 **The architecture is deliberately executor-agnostic.** Every task boundary in
-[04 — Target architecture](../../rust-migration/04-target-architecture.md) §3 is a plain "spawn this loop"
+[04 — Target architecture](../../history/target-architecture.md) §3 is a plain "spawn this loop"
 seam, so switching to `embassy` or `edge-executor` later is a change to the `spawn_*`
 functions and nothing else. Spike R1-02 records the evidence so the choice can be revisited
 with data.
 
 **Concurrency is not introduced for its own sake.** Three activities genuinely need
 independent execution contexts, and the reasoning is in
-[04 — Target architecture](../../rust-migration/04-target-architecture.md) §2:
+[04 — Target architecture](../../history/target-architecture.md) §2:
 
 1. The **control loop** must keep its deadline even if the network stack stalls. This
    already happens today via `AsyncTCP`'s priority, but by accident.

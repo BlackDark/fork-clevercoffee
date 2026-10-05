@@ -197,7 +197,7 @@
 //!
 //! It is **resolved**, by not using LEDC here: `cc-firmware` builds
 //! [`TimerIsrPwm`] instead, and the boot log records that it is an ISR. See
-//! [09-cpp-findings.md §17](../../../docs/rust-migration/09-cpp-findings.md).
+//! [09-cpp-findings.md §17](../../../docs/history/cpp-findings.md).
 //!
 //! ### The `LEDC` transport type was deleted, not parked
 //!
@@ -257,7 +257,7 @@
 //!
 //! The duty-versus-time measurement against a dummy load — R1-07 steps 1 and 2 —
 //! is **not** done, and **R1-07 stays open**. See
-//! `docs/rust-migration/intentional-diffs.md` #5.
+//! `docs/history/divergences.md` #5.
 
 use alloc::sync::Arc;
 use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -422,7 +422,7 @@ impl TimerIsrPwm {
         // ISR booted and panicked here for exactly that reason until
         // `AtomicChopper::tick` was made integer-only
         // (`heater::chopper_tick_level_ms`); see
-        // `docs/rust-migration/09-cpp-findings.md` §22. `tick` is the only
+        // `docs/history/cpp-findings.md` §22. `tick` is the only
         // arithmetic below, so keeping it integer is what keeps this closure
         // FP-free — do not reintroduce a float here, and do not "fix" a
         // clippy pedantic cast warning by widening to `f32`.
@@ -578,8 +578,8 @@ impl TimerIsrPwm {
 /// `HeaterOutput::set_duty` is the only way to move the pin above zero, and it
 /// consults the [`HeaterGate`] first. That is the whole of the recovered
 /// firmware's `"output held off until the supervisor beats"`
-/// ([08 §3](../../docs/rust-migration/08-recovered-oracle.md)) and its deadman
-/// ([08 §4](../../docs/rust-migration/08-recovered-oracle.md)): there is no
+/// ([08 §3](../../docs/history/recovered-oracle.md)) and its deadman
+/// ([08 §4](../../docs/history/recovered-oracle.md)): there is no
 /// method that writes a non-zero duty without passing the gate, so a new caller
 /// cannot bypass it.
 pub struct HeaterOutput {
@@ -690,7 +690,7 @@ impl HeaterOutput {
     }
 
     /// The heater's on-time fraction, for the oracle's `on_fraction=` log field
-    /// ([08 §4](../../docs/rust-migration/08-recovered-oracle.md)).
+    /// ([08 §4](../../docs/history/recovered-oracle.md)).
     #[must_use]
     pub fn on_fraction(pid_output: Duty) -> f64 {
         heater::on_fraction(pid_output)

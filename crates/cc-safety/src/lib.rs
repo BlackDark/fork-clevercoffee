@@ -20,25 +20,25 @@
 //! | **S5'** steam-valve fail-safe | **absent in the C++** — see [`steam_flow_allowed`] | [`steam_flow_allowed`] |
 //!
 //! Plus the two fail-closed configuration rules recovered from the previous
-//! Rust firmware ([08 §4.1](../docs/rust-migration/08-recovered-oracle.md)):
+//! Rust firmware ([08 §4.1](../docs/history/recovered-oracle.md)):
 //! [`validate_config`] and [`load_or_default`].
 //!
 //! # Semantics that are *not* the C++'s, and why
 //!
 //! These are deliberate, human-approved divergences. Every one is a line in
-//! [`intentional-diffs.md`](../../docs/rust-migration/intentional-diffs.md)
+//! [`intentional-diffs.md`](../../docs/history/divergences.md)
 //! and is pinned by a `div_`-prefixed test, so a parity harness that reports a
 //! diff there knows it is expected.
 //!
 //! * **S4 gates the water valve as well as the pump.** The C++ checks
 //!   `waterTankEmpty_` in `enablePump` and `setPumpPressure` only
 //!   (`HardwareManager.cpp:325-328,398-406`); `openWaterValve` does not check it
-//!   ([09 §3](../docs/rust-migration/09-cpp-findings.md)). Emptying the tank and
+//!   ([09 §3](../docs/history/cpp-findings.md)). Emptying the tank and
 //!   then entering a brew state opened the water valve against a dry reservoir.
 //!   Gating it costs nothing — the S5 whitelist is consulted in the same breath —
 //!   and removes a way to be wrong.
 //! * **S5' is new.** The C++ has no steam-valve whitelist at all
-//!   ([09 §2](../docs/rust-migration/09-cpp-findings.md)); see
+//!   ([09 §2](../docs/history/cpp-findings.md)); see
 //!   [`steam_flow_allowed`] for the derivation and for why it is not merely
 //!   theoretical.
 //! * **S4 is edge-free here.** The C++ kills a running pump inside
@@ -385,7 +385,7 @@ pub enum Reason {
     /// S5': the current state is not one in which steam may flow.
     ///
     /// **No C++ equivalent** — `openSteamValve` checks only `emergencyMode_`
-    /// ([09 §2](../../docs/rust-migration/09-cpp-findings.md)). See
+    /// ([09 §2](../../docs/history/cpp-findings.md)). See
     /// [`steam_flow_allowed`].
     NotASteamState {
         /// The state that was refused.
@@ -421,14 +421,14 @@ pub struct Verdict {
     /// set, when the water tank is empty, **or** when the current state is not a
     /// water-flow state.
     ///
-    /// The tank condition is a **deliberate divergence** ([09 §3](../../docs/rust-migration/09-cpp-findings.md)):
+    /// The tank condition is a **deliberate divergence** ([09 §3](../../docs/history/cpp-findings.md)):
     /// the C++'s `openWaterValve` checks only `emergencyMode_`.
     pub may_open_water: bool,
     /// May the steam valve be energised? `false` when the latch is set **or**
     /// the current state is not a steam-flow state.
     ///
     /// The state condition is a **deliberate divergence**
-    /// ([09 §2](../../docs/rust-migration/09-cpp-findings.md)): the C++'s
+    /// ([09 §2](../../docs/history/cpp-findings.md)): the C++'s
     /// `openSteamValve` checks only `emergencyMode_`, and the steam and water
     /// valves are the *same physical relay*.
     pub may_open_steam: bool,
@@ -661,7 +661,7 @@ pub const fn steam_flow_allowed(state: MachineState) -> bool {
 /// 6. **S5.** A state outside [`water_flow_allowed`] blocks the water valve.
 /// 7. **S5'.** A state outside [`steam_flow_allowed`] blocks the steam valve.
 ///    This check does not exist in the C++ at all
-///    ([09 §2](../../docs/rust-migration/09-cpp-findings.md)); it is added here
+///    ([09 §2](../../docs/history/cpp-findings.md)); it is added here
 ///    because the steam valve is the same relay as the water valve and the port
 ///    can reach it. See [`steam_flow_allowed`] for the derivation.
 #[must_use]
@@ -869,13 +869,13 @@ pub enum ConfigViolation {
     /// (`cc_hal_esp32::Sampler`), so the arm is live and the weight is threaded
     /// into it; that is precisely what makes the *unreachable* case the one
     /// worth refusing. Inherited, not introduced — see
-    /// [09 §23](../docs/rust-migration/09-cpp-findings.md).
+    /// [09 §23](../docs/history/cpp-findings.md).
     BrewByWeightWithNoScale,
 }
 
 /// Validate a configuration before it is run or stored.
 ///
-/// Recovered from the previous Rust firmware ([08 §4.1](../docs/rust-migration/08-recovered-oracle.md)),
+/// Recovered from the previous Rust firmware ([08 §4.1](../docs/history/recovered-oracle.md)),
 /// which is the only implementation known to have had this check. The C++ has
 /// neither rule: it validates each parameter in isolation
 /// (`Config.h:isValid`) and never looks at two parameters at once, so a
@@ -996,7 +996,7 @@ pub enum ConfigOrigin {
     /// A stored configuration was found, failed [`validate_config`], and was
     /// **discarded**. The defaults are in use instead.
     ///
-    /// This is the fail-closed rule from [08 §4.1](../docs/rust-migration/08-recovered-oracle.md):
+    /// This is the fail-closed rule from [08 §4.1](../docs/history/recovered-oracle.md):
     /// refuse to store an unsafe configuration, and refuse to run one that was
     /// stored by an older or corrupted image. The alternative — running a
     /// configuration that trips emergency stop on every steam shot, or that

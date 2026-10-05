@@ -46,8 +46,8 @@ _require_esp32 mcu:
 # recipes do need the cargo-aware one. A 2026-10 review called them duplicates
 # and removed one; that was wrong, and it broke `just size-check` in CI.
 part_table := "rust/partitions_4M.csv"
-baseline := "docs/rust-migration/size-baseline.json"
-records := "docs/rust-migration/size-records.jsonl"
+baseline := "docs/history/size-baseline.json"
+records := "docs/history/size-records.jsonl"
 
 # Report image size, per-section breakdown and headroom.
 [script]

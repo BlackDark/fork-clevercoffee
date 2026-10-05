@@ -5,7 +5,7 @@
 //! # Why this crate exists
 //!
 //! **Finding 4.1b of
-//! [`32-findings-2026-10-03.md`](../../../docs/rust-migration/32-findings-2026-10-03.md)
+//! [`32-findings-2026-10-03.md`](../../../docs/history/review-2026-10-03.md)
 //! — `just test` could not reach the MQTT surface at all.** `mqtt.rs` was ~2,030
 //! lines and named `esp_idf_svc`, so the six portable crates named by `just
 //! test` reached none of it. Every assertion about the wire contract — that the

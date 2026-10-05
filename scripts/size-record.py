@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Record a phase-gate image-size datapoint (docs/rust-migration/07 §4).
+"""Record a phase-gate image-size datapoint (docs/history/07 §4).
 
-Appends one JSON object to docs/rust-migration/size-records.jsonl and rewrites
-docs/rust-migration/size-baseline.json, which `just size` / `just size-check`
+Appends one JSON object to docs/history/size-records.jsonl and rewrites
+docs/history/size-baseline.json, which `just size` / `just size-check`
 compare against.
 
 Usage: size-record.py <image_bytes> <app_slot_bytes> <label> <records.jsonl>
@@ -14,7 +14,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-BASELINE = Path("docs/rust-migration/size-baseline.json")
+BASELINE = Path("docs/history/size-baseline.json")
 
 
 def git_rev() -> str:

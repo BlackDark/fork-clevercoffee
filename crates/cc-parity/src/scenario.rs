@@ -1,7 +1,7 @@
 //! The scenario file format: parse it, validate it, and reject it loudly.
 //!
 //! The format is specified in
-//! [`10-scenario-format.md`](../../docs/rust-migration/10-scenario-format.md).
+//! [`10-scenario-format.md`](../../docs/history/scenario-format.md).
 //! This module is the normative implementation of that document; where the two
 //! disagree, this module is the one that is wrong and the document is the one
 //! that is right.

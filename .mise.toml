@@ -6,7 +6,7 @@ min_version = "2024.1.0"
 # OWNERSHIP RULE (deliberate, and the reason `rust` is NOT in [tools]):
 #
 #   mise owns every tool that is a plain versioned binary -- node, pnpm, python,
-#   clang-format, just, and the cargo-installed *host* utilities.
+#   just, and the cargo-installed *host* utilities.
 #
 #   rustup + espup own the COMPILER. mise does not, for three reasons:
 #
@@ -32,7 +32,7 @@ min_version = "2024.1.0"
 # ---------------------------------------------------------------------------
 
 [tools]
-  # --- C++ parity oracle + web UI ---
+  # --- web UI ---
   node = "24"
   # Pinned, and it must stay equal to `ui/package.json`'s `packageManager`
   # (`pnpm@11.25.0`). `origin/main` carried `pnpm = "latest"` here from before
@@ -41,12 +41,6 @@ min_version = "2024.1.0"
   pnpm = "11.25.0"
   # 3.14.8 from `origin/main` (renovate), not the 3.14.7 this branch pinned.
   python = "3.14.8"
-  # The version itself is `[vars] clang_format_version` below -- mise
-  # cannot interpolate a var into `[tools]`, so the two must be kept in step.
-  # Nothing checks that these two agree. The assertion that protects the tree
-  # is in `scripts/run_clangformat.py`, which refuses to format anything unless
-  # the binary on PATH reports `clang_format_version` below.
-  clang-format = "23.1.2"
 
   # --- Rust host tooling ---
   just = "1.58.0"
@@ -109,24 +103,6 @@ min_version = "2024.1.0"
   x86_64_toolchain_version = "1.97.0.0"
 
   espup_version = "0.17.1"
-
-  # THE clang-format version. One value, and every path reads it: `format.yml`
-  # installs `pip install clang-format==$this`, `.pre-commit-config.yaml`'s hook
-  # goes through `scripts/run_clangformat.py` which asserts it, and
-  # `just fmt-cpp` reaches the same script.
-  #
-  # It used to live in FOUR places that disagreed -- this file said 23.1.1,
-  # format.yml said 22.1.2, the script pinned a `clang-tools:22` Docker image, and
-  # the pre-commit hook used whatever `clang-format` was on the developer's PATH.
-  # They agreed only because 22.1.x and 23.1.x happen to produce byte-identical
-  # output on this tree. Renovate owns this file, so a 24.x bump would move what
-  # a developer's hook and `just fmt-cpp` use while CI still checked 22.1.2 --
-  # and the hook runs `clang-format -i`, so it would REWRITE THE PARITY ORACLE.
-  #
-  # Measured over all 143 files of `src/ include/ lib/`: 22.1.x and 23.1.x give
-  # byte-identical output (0-line diff over 28,632 formatted lines); 21.1.8 and
-  # older change 2 files. So this is a free choice, and it is made once, here.
-  clang_format_version = "23.1.2"
 
   # sha256 of the espup BINARY `cargo-binstall` installs on linux-x86_64, for
   # `espup_version` above.

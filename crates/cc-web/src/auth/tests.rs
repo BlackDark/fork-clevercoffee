@@ -63,7 +63,7 @@ fn auth_with_empty_credentials_serves_the_api_open_exactly_as_the_cpp_does() {
     // the username AND the password are non-empty, and the else arm is a
     // `LOG(WARNING)` -- not a locked door. Reproduced deliberately; the
     // alternative locks an operator out of a machine whose only other
-    // console is a UART. See `docs/rust-migration/intentional-diffs.md`.
+    // console is a UART. See `docs/history/divergences.md`.
     for (username, password) in [("", "espresso"), ("barista", ""), ("", "")] {
         let auth = Auth::from_config(&auth_config(true, username, password));
         assert!(

@@ -1,40 +1,42 @@
 # CleverCoffee (fork) — ESP32 espresso-machine firmware
 
 This is a fork of [CleverCoffee](https://github.com/rancilio-pid/clevercoffee)
-with internal refactorings and new features. It currently carries **two
-firmwares**, and picking the wrong one is the most common way to waste an
-afternoon here.
+with internal refactorings and new features. It carries **one** firmware, written
+in Rust. The C++ firmware this repository started with was deleted once the Rust
+port became the product; it survives in git history and its behaviour is recorded
+in [`docs/history/cpp-findings.md`](docs/history/cpp-findings.md).
 
 **The machine is an ESP32-DevKitC V4 / ESP32-WROOM-32E** — the original ESP32,
 Xtensa LX6. There is no S3, C3 or C6 in this project. `esp32_usb` in the
-PlatformIO environment name refers to a USB-to-UART cable; the chip has no
-native USB.
+historical PlatformIO environment name referred to a USB-to-UART cable; the chip
+has no native USB.
 
-| | **Rust** — the port | **C++** — the parity oracle |
-| --- | --- | --- |
-| Source | `crates/cc-*`, `justfile`, `rust-toolchain.toml` | `src/`, `include/`, `lib/`, `test/`, `platformio.ini` |
-| Build | `just setup` once, then `just build-esp32` | `pio run -e esp32_usb` |
-| Gate | `just check` (no hardware) · `just gate` (full) | `pio run --target format -e esp32_usb -s` · `pio test -e native_test` |
-| Status | the port; booting, regulating and serving on hardware | what `release.yml` publishes today |
-| What works | [`docs/status.md`](docs/status.md) | [`docs/archive/cpp/REPOSITORY_SUMMARY.md`](docs/archive/cpp/REPOSITORY_SUMMARY.md) |
+| | **Rust** — the firmware |
+| --- | --- |
+| Source | `crates/cc-*`, `justfile`, `rust-toolchain.toml` |
+| Build | `just setup` once, then `just build-esp32` |
+| Gate | `just check` (no hardware) · `just gate` (full) |
+| Flash | `just identify <port>` then `just flash <port>` |
+| What works | [`docs/status.md`](docs/status.md) |
 
-> ### ⚠️ Never flash the C++ image
+> ### ⚠️ A machine flashed from C++ is still running C++
 >
-> It runs **its own control loop** on a powered, wired machine — pump, three-way
-> valve, a 2 kW boiler. Flashing it is not a build step, it is putting the real
-> machine's control loop back on the board. The same is why the C++ parity
-> baseline is deliberately empty. What may and may not be done to that tree is
-> stated once, in [`docs/cpp-oracle.md`](docs/cpp-oracle.md), and in the numbered
-> `AG-ORACLE-*` rules.
+> The deleted C++ firmware ran **its own control loop** on a powered, wired
+> machine — pump, three-way valve, a 2 kW boiler. Nothing in this repository will
+> flash it and nothing in this repository can rebuild it. If a board still answers
+> as the C++ did, its settings are in the C++ `config` NVS namespace; the Rust
+> boot prints a single `warn` line naming both namespaces and telling the operator
+> the previous settings were **not** deleted.
 
 ## Start here
 
 | Your situation | Read |
 | --- | --- |
-| **New here** | [`README.md`](README.md) (this page), then [`docs/index.md`](docs/index.md) for the map |
-| **I am about to change firmware behaviour** | [`AGENTS.md`](AGENTS.md) — the rulebook — then [`docs/handbook/differences.md`](docs/handbook/differences.md) |
-| **I am at the machine** | [`docs/operations/integration-checklist.md`](docs/operations/integration-checklist.md) |
-| **I want the history** | [`docs/archive/README.md`](docs/archive/README.md) |
+| **New here** | This page, then [`GLOSSARY.md`](GLOSSARY.md) for the vocabulary and [`docs/architecture.md`](docs/architecture.md) for the shape |
+| **I am about to change firmware behaviour** | [`AGENTS.md`](AGENTS.md) — the rulebook — then [`docs/differences.md`](docs/differences.md) |
+| **I am at the machine** | [`docs/operations/runbook.md`](docs/operations/runbook.md) |
+| **I want to know how it got this way** | [`docs/history/README.md`](docs/history/README.md) |
+| **I want a specific document** | [`docs/index.md`](docs/index.md) is the map. Every document appears there exactly once. |
 
 **[`docs/index.md`](docs/index.md) is the map**: one row per document, grouped by
 those four situations. [`docs/status.md`](docs/status.md) is the only page in
@@ -74,24 +76,25 @@ just identify <port>     # ALWAYS first — confirm the chip before writing to i
 just flash <port>
 ```
 
-What CI runs and what it costs: [`docs/handbook/ci.md`](docs/handbook/ci.md).
+What CI runs and what it costs: [`docs/operations/ci.md`](docs/operations/ci.md).
 
-## Building the C++ firmware (the parity oracle)
+## The C++ firmware this replaces
 
-Only if you have decided to. See the warning above first.
+It was deleted on 2026-10-06, along with its PlatformIO build. There is nothing
+here to build, and **no way to rebuild it** short of checking out `9fa8c834` and
+reconstructing the tooling. If a board still answers as the C++ did, it is
+running that firmware, not this one.
 
-```sh
-pio run -e esp32_usb
-pio test -e native_test
-```
+What the C++ did is recorded rather than forgotten:
+[`docs/history/divergences.md`](docs/history/divergences.md) for every
+deliberate difference, and
+[`docs/history/cpp-findings.md`](docs/history/cpp-findings.md) for every bug and
+ambiguity found while porting it.
 
-`esptool.py --chip esp32 merge_bin -o merged-flash.bin --flash_mode dio --flash_size 4MB 0x1000 bootloader.bin 0x8000 partitions.bin 0x10000 firmware.bin`
-
-The C++ tree is the **parity baseline for the whole migration**: it is not being
-deleted and not being cleaned up, and the port's test suite is measured against
-it. Every deliberate divergence is recorded in
-[`intentional-diffs.md`](docs/rust-migration/intentional-diffs.md) — start there
-when a behaviour looks wrong.
+**Parity with the C++ has never been measured on this machine.** The harness is
+built and its scenarios run, but capturing a baseline means flashing the C++ onto
+a powered, wired machine, and that was declined.
+[`docs/differences.md`](docs/differences.md) says what that costs.
 
 ## What this fork changed
 
@@ -102,7 +105,8 @@ when a behaviour looks wrong.
   ([ESP-IDF docs](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/storage/nvs_flash.html))
 - A brand new React UI, precompiled and served from flash
 - Hostname configuration during setup, for direct access by DNS name
-- OTA in the web app: upload a binary or give it a URL
+- OTA in the web app: upload a binary. The download-from-URL route exists and
+  answers `501` — see [`docs/web/http-and-ui.md`](docs/web/http-and-ui.md)
 
 ### New frontend / UI
 
@@ -114,5 +118,13 @@ when a behaviour looks wrong.
 
 ## How to try it out
 
-Build the binaries and flash your device, as the C++ documentation describes.
+```sh
+just setup          # once: mise tools, the Espressif Xtensa toolchain, the web UI
+just build-esp32    # the firmware
+just identify <port>   # ALWAYS first — confirm the chip before flashing
+just flash <port>
+```
+
+Then open `http://test-cc-rust.local`. The full pre-release procedure is
+[`docs/operations/runbook.md`](docs/operations/runbook.md).
 Easy going — but flash the **Rust** image.

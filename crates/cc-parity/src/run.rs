@@ -986,14 +986,14 @@ mod tests {
     /// The scenario set as it ships.
     ///
     /// The tests below deliberately read
-    /// `docs/rust-migration/scenarios/*.yaml` rather than carrying their own
+    /// `docs/history/scenarios/*.yaml` rather than carrying their own
     /// copies. A duplicated scenario is a scenario that can drift from the one
     /// `just parity` runs, and a test that passes against a copy while the
     /// shipped file is broken is worse than no test. The path is relative to
     /// `CARGO_MANIFEST_DIR` so it does not depend on the working directory.
     fn shipped(name: &str) -> Scenario {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../docs/rust-migration/scenarios")
+            .join("../../docs/history/scenarios")
             .join(format!("{name}.yaml"));
         Scenario::load(&path).unwrap_or_else(|e| panic!("{e}"))
     }
@@ -1011,8 +1011,8 @@ mod tests {
     /// cc-parity`, long before anyone gets to a phase gate.
     #[test]
     fn every_shipped_scenario_loads_and_every_dry_run_one_passes() {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../docs/rust-migration/scenarios");
+        let dir =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/history/scenarios");
         let mut names: Vec<String> = std::fs::read_dir(&dir)
             .unwrap_or_else(|e| panic!("{}: {e}", dir.display()))
             .filter_map(|e| e.ok())
@@ -1048,8 +1048,8 @@ mod tests {
     /// reducer, and both say so in their scenario's `why`.
     #[test]
     fn every_safety_path_has_at_least_one_scenario() {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../docs/rust-migration/scenarios");
+        let dir =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/history/scenarios");
         let mut covered: std::collections::BTreeSet<String> = Default::default();
         for entry in std::fs::read_dir(&dir).unwrap() {
             let path = entry.unwrap().path();

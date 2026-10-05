@@ -5,12 +5,12 @@
 //! # Source, and what "as the app note states them" excludes
 //!
 //! Everything in this file is transcribed from `ATTSic_E2.3.0.pdf` §1.1–§1.4
-//! (summarised in [02 §6](../../../docs/rust-migration/02-research-compatibility-matrix.md))
-//! and cross-read against the two implementations in this tree: the
-//! `ZACwire` 2.0.0 library `TempSensorTSIC` wraps
-//! (`.pio/libdeps/esp32_usb/ZACwire for TSic/ZACwire.cpp`) and the app note's
-//! own worked example, which the C++ does not implement and which is the only
-//! published ground truth for the frame's *content*.
+//! (summarised in [02 §6](../../../docs/history/dependency-evaluation.md))
+//! and cross-read against the two implementations that existed at the time:
+//! the `ZACwire` 2.0.0 library `TempSensorTSIC` wrapped (PlatformIO-fetched,
+//! no longer vendored here) and the app note's own worked example, which the C++
+//! does not implement and which is the only published ground truth for the
+//! frame's *content*.
 //!
 //! The tolerances in [`tolerances`] are the exception and are flagged as such:
 //! the app note publishes no clock-tolerance figure, so they are this port's

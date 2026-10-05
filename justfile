@@ -568,6 +568,8 @@ check:
 # two would make this check unreliable.
 doc-links:
     @python3 scripts/check-doc-links.py
+    @python3 scripts/check-openapi.py .
+    @python3 scripts/check-divergence-refs.py .
 
 # Every screen on every template, as one PNG contact sheet. Host only, no
 # hardware: `just screens` then open the file. This is the check a golden image
@@ -590,9 +592,29 @@ screens:
 snapshot-display:
     cargo test --locked -p cc-display --features scenarios --target {{host_target}} -- --ignored render_goldens
 
-# Display parity against the real U8g2 the firmware links. Needs the U8g2 tree
-# from `pio run -e esp32_usb`, and takes about a minute (it rebuilds the oracle).
-test-display-parity:
+# The U8g2 tree the display oracle and `extract_fonts.py` read, pinned at the
+# same upstream tag the firmware linked before the C++ tree was removed. Fetched
+# into `target/`, never vendored: it is third-party source the oracle links, not
+# something the firmware ships.
+U8G2_REPO := "https://github.com/olikraus/u8g2.git"
+U8G2_TAG := "2.36.18"
+
+[script]
+u8g2:
+    if [ -d target/u8g2/csrc ]; then
+      echo "target/u8g2 already present"
+      exit 0
+    fi
+    if [ -e target/u8g2 ]; then
+      echo "target/u8g2 exists but is not a U8g2 checkout -- rm it and re-run"
+      exit 1
+    fi
+    git clone --quiet --depth 1 --branch {{U8G2_TAG}} {{U8G2_REPO}} target/u8g2
+    echo "U8g2 {{U8G2_TAG}} fetched into target/u8g2"
+
+# Display parity against the real U8g2 the firmware links. `just u8g2` fetches
+# that tree; `CC_U8G2_DIR` points the oracle at a checkout you already have.
+test-display-parity: u8g2
     cargo test --locked -p cc-display --features scenarios --target {{host_target}} --test parity -- --ignored
 
 # ---------------------------------------------------------------------- build
@@ -842,10 +864,3 @@ doc:
 clean:
     cargo clean
     rm -rf target/{{tgt_esp32}} target/{{tgt_esp32s3}} target/{{tgt_esp32c6}}
-
-# The C++ parity oracle has a formatter too, and this is the single entry point
-# for it. `.pre-commit-config.yaml` and `.mise.toml` used to disagree about
-# clang-format's version (17 vs 23.1.1) and CI ran a third copy; they now agree,
-# and `just fmt-cpp` is the one thing a contributor needs.
-fmt-cpp:
-    pio run -e esp32_usb --target format

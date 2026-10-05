@@ -841,7 +841,7 @@ where
 /// the omission is deliberate: the SPA is served same-origin from `/ui` and
 /// needs nothing, and a wildcard origin on an endpoint that can reboot a boiler
 /// or change its safety cut-offs is a widening with no consumer. Recorded in
-/// `docs/rust-migration/intentional-diffs.md`.
+/// `docs/history/divergences.md`.
 fn register_preflight(server: &mut EspHttpServer<'static>) -> Result<(), EspError> {
     server
         .fn_handler::<EspError, _>("/api*", Method::Options, |mut req| {

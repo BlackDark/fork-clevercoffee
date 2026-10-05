@@ -1,4 +1,4 @@
-//! Parity pins for [`09-cpp-findings.md`](../../docs/rust-migration/09-cpp-findings.md)
+//! Parity pins for [`09-cpp-findings.md`](../../docs/history/cpp-findings.md)
 //! — every finding that touches the state machine, plus the new ones found while
 //! porting it.
 //!
@@ -17,7 +17,7 @@
 //! deleted, not left alongside, or the pair would disagree.
 //!
 //! The closed ones, all in
-//! [`intentional-diffs.md`](../../docs/rust-migration/intentional-diffs.md):
+//! [`intentional-diffs.md`](../../docs/history/divergences.md):
 //!
 //! | closed finding | test |
 //! | --- | --- |
@@ -60,7 +60,7 @@ use common::Harness;
 // §2 — the steam valve had no safety whitelist. CLOSED.
 // ---------------------------------------------------------------------------
 
-/// **Divergence, see [`intentional-diffs.md`](../../docs/rust-migration/intentional-diffs.md)
+/// **Divergence, see [`intentional-diffs.md`](../../docs/history/divergences.md)
 /// #2 and 09 §2.** This replaces `s2_the_steam_valve_is_not_whitelist_gated`,
 /// which pinned the C++ behaviour.
 ///
@@ -150,7 +150,7 @@ fn div2_the_steam_valve_is_whitelist_gated() {
 // §3 — the water valve was not gated on an empty tank. CLOSED.
 // ---------------------------------------------------------------------------
 
-/// **Divergence, see [`intentional-diffs.md`](../../docs/rust-migration/intentional-diffs.md)
+/// **Divergence, see [`intentional-diffs.md`](../../docs/history/divergences.md)
 /// #3 and 09 §3.** This replaces `s3_the_water_valve_is_not_gated_on_an_empty_tank`,
 /// which pinned the C++ behaviour.
 ///
@@ -321,7 +321,7 @@ fn s5_the_emergency_threshold_constant_is_dead() {
 // §11 (new) — the pump watchdogs were never armed. CLOSED.
 // ---------------------------------------------------------------------------
 
-/// **Divergence, see [`intentional-diffs.md`](../../docs/rust-migration/intentional-diffs.md)
+/// **Divergence, see [`intentional-diffs.md`](../../docs/history/divergences.md)
 /// #1 and 09 §11.** This replaces `s11_the_pump_timeouts_are_never_armed`, which
 /// pinned the C++ behaviour.
 ///

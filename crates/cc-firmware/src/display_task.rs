@@ -145,7 +145,7 @@ impl DisplayTask {
             // answered, and that IP is `0.0.0.0`. The screen was therefore drawn
             // with `0.0.0.0` on it — which is the one thing the screen exists to
             // prevent, and the failure
-            // `docs/operations/integration-checklist.md` calls out as a
+            // `docs/operations/runbook.md` calls out as a
             // failed check. Wait for an address that is not unspecified.
             if !shown_address {
                 // `Telemetry::ip` is the **formatted** address, so "unspecified"

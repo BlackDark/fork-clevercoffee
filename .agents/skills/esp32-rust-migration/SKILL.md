@@ -18,13 +18,13 @@ Before touching anything, read these in order. Do not skip to the task list.
 
 | Document | What you need from it |
 | --- | --- |
-| [`docs/rust-migration/01-feature-inventory.md`](../../../docs/rust-migration/01-feature-inventory.md) | Every feature, its source, its hardware, and the **11 safety-critical control paths (S1-S11)**. Also §10 records what is verified vs. unknown on this hardware. |
-| [`docs/rust-migration/02-research-compatibility-matrix.md`](../../../docs/rust-migration/02-research-compatibility-matrix.md) | Which crates cover which feature, and the **10 unverified assumptions (U1-U10)** with their spike tasks. |
+| [`docs/history/feature-inventory.md`](../../../docs/history/feature-inventory.md) | Every feature, its source, its hardware, and the **11 safety-critical control paths (S1-S11)**. Also §10 records what is verified vs. unknown on this hardware. |
+| [`docs/history/dependency-evaluation.md`](../../../docs/history/dependency-evaluation.md) | Which crates cover which feature, and the **10 unverified assumptions (U1-U10)** with their spike tasks. |
 | [`docs/archive/migration/03-decision-record.md`](../../../docs/archive/migration/03-decision-record.md) | ADR-0004: the platform decision, what was rejected and why, and the flash-size problem. |
-| [`docs/rust-migration/04-target-architecture.md`](../../../docs/rust-migration/04-target-architecture.md) | Crate boundaries, task/priority table, the single-ownership rules, and the startup/shutdown contract. |
+| [`docs/history/target-architecture.md`](../../../docs/history/target-architecture.md) | Crate boundaries, task/priority table, the single-ownership rules, and the startup/shutdown contract. |
 | [`docs/archive/migration/05-tooling-and-workflows.md`](../../../docs/archive/migration/05-tooling-and-workflows.md) | The `just` recipes, mise setup, and flashing rules. |
 | [`docs/archive/migration/06-migration-task-list.md`](../../../docs/archive/migration/06-migration-task-list.md) | **The task list, dependencies, gates, and acceptance criteria.** |
-| [`docs/operations/integration-checklist.md`](../../../docs/operations/integration-checklist.md) | The integration checklist to run at phase gates. |
+| [`docs/operations/runbook.md`](../../../docs/operations/runbook.md) | The integration checklist to run at phase gates. |
 | [`CLAUDE.md`](../../../CLAUDE.md) | Repository-wide rules — including the OLED layout rules, which apply to `cc-display` too. |
 
 Also read [`notes.md`](./notes.md) in this skill directory: it records the current state,
@@ -47,7 +47,7 @@ it. Both firmwares share a network during the migration, so the name distinguish
 The single definition is `cc_config::schema::DEFAULT_HOSTNAME` — change it there, never at
 a use site, and change `docs/example_config.json` with it (an import test parses that exact
 file, which is what keeps the two in step). Rationale:
-[`intentional-diffs.md` §12](../../../docs/rust-migration/intentional-diffs.md).
+[`intentional-diffs.md` §12](../../../docs/history/divergences.md).
 
 `mqtt.password` also defaults to `"silvia"`. That is a **credential, not a name** — leave
 it.
@@ -66,7 +66,7 @@ documented history of confidently-wrong status text that survived because it was
 checked against the tree; an independent review on 2026-10-03 caught three copies of a
 claim that the control loop had never run on hardware, months after it had.
 Do not assume a task is complete because its description reads as though it is; see
-["Where the migration actually is"](../../../docs/rust-migration/README.md#where-the-migration-actually-is)
+["Where the migration actually is"](../../../docs/history/README.md#where-it-is-now)
 for the full done / not-started / deliberately-absent split.
 
 ---
@@ -215,7 +215,7 @@ And for a **phase gate**, additionally:
 ```bash
 just size-check                         # fail if the image exceeds the budget
 just parity /dev/cu.usbserial-XXXX esp32.local
-# then run every section of docs/operations/integration-checklist.md in order
+# then run every section of docs/operations/runbook.md in order
 ```
 
 Rules:
@@ -292,13 +292,13 @@ At the end of each phase, before starting the next one:
 2. **Run the phase's gate checks.** For Gate 1 this is: R1-01, R1-02, R1-03, R1-07 all
    pass, and ADR-0004 moves from *Proposed* to *Accepted* with the R1-02 and R1-07 results
    filled in.
-3. **Run the integration checks** in [`docs/operations/integration-checklist.md`](../../../docs/operations/integration-checklist.md),
+3. **Run the integration checks** in [`docs/operations/runbook.md`](../../../docs/operations/runbook.md),
    in order, on the connected device, where applicable and safe. Record PASS/FAIL with
    actual output.
 4. **Run `just parity`** and require **zero unexplained diffs**. Any diff is either a
    documented intentional change (list it in the release notes per R4-09) or a bug.
 5. **Update** the task list (mark tasks complete), ADR-0004, and this skill's `notes.md`.
-6. **Add any newly discovered failure mode to `docs/operations/integration-checklist.md`** in the same
+6. **Add any newly discovered failure mode to `docs/operations/runbook.md`** in the same
    commit. The checklist must reflect reality.
 7. Only then start the next phase.
 
@@ -332,7 +332,7 @@ You will find things the research could not have known. When that happens:
 ## 11. Support files
 
 - [`notes.md`](./notes.md) — current state, completed tasks, open blockers. Update it.
-- [`../../docs/rust-migration/08-recovered-oracle.md`](../../../docs/rust-migration/08-recovered-oracle.md)
+- [`../../docs/history/recovered-oracle.md`](../../../docs/history/recovered-oracle.md)
   — **read before designing anything.** A complete Rust firmware previously ran on this
   board; its source is gone but the binary was recovered from flash. It contains a
   **deadman heartbeat**, **config-time cross-parameter safety validation**, a **refusal of

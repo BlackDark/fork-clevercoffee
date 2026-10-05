@@ -34,7 +34,7 @@ use cc_domain::units::Millis;
 /// (`DallasTemperature.h:24`). This is also the family of the probe **measured
 /// on the board**: the recovered image's boot log reported
 /// `sensor: DS18B20 at 0x41af78cdaa376928 (family 0x28)`
-/// ([08 §4](../../../docs/rust-migration/08-recovered-oracle.md)).
+/// ([08 §4](../../../docs/history/recovered-oracle.md)).
 pub const FAMILY_DS18B20: u8 = 0x28;
 
 /// DS18S20 / DS1820.

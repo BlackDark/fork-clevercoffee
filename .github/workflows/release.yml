@@ -1,26 +1,26 @@
 name: Release
 
 # ---------------------------------------------------------------------------
-# THIS WORKFLOW BUILDS THE **C++** FIRMWARE. IT IS NOT THE RUST FIRMWARE.
+# THIS WORKFLOW BUILDS THE **RUST** FIRMWARE.
 #
-# Every step below is PlatformIO (`pio run`, `pio run --target buildfs`). The
-# Rust workspace in `crates/` is built by `rust.yml`, which does not publish
-# anything.
+# It replaced a PlatformIO pipeline that published the C++ image, at a time
+# when the Rust firmware was still the port. The rewrite is honest about one
+# thing: it has never executed on a tag. `docs/status.md` says so in "What is
+# NOT verified", and that line is not decoration -- read it before treating the
+# published artifact as tested.
 #
-# WHY THE BRANCH GUARD: `on.push.tags` alone means a `v*` tag pushed from ANY
-# branch fires this workflow. Before the guard below, tagging the Rust port
-# branch `v2.0.0` would have built the untouched C++ tree (which still
-# compiles — `git diff --stat main -- src include lib` is empty), staged its
-# `firmware.bin` plus a `littlefs.bin` intended for offset 0x350000, and
-# published all four under the CleverCoffee name. `rust/partitions_4M.csv`
-# puts `littlefs` at 0x390000 and has no region at 0x350000, so the release
-# notes would have told every user to flash an image at an address their
-# Rust-partitioned flash does not have. `fail_on_unmatched_files` does not
-# help: the C++ build produces all four files, so the upload succeeds.
+# WHY THE BRANCH GUARD. `on.push.tags` alone means a `v*` tag pushed from ANY
+# branch fires this workflow, so the tagged commit must be proved reachable from
+# `origin/main` before anything is built or published. Cheap, and it is the only
+# thing standing between a topic branch and the CleverCoffee release name.
 #
-# The C++ image remains the published artifact while it is the production
-# firmware. When the Rust image becomes the product, this workflow is
-# replaced, not merely unlocked.
+# WHY ONE ARTIFACT. `espflash save-image --merge` folds the bootloader, the
+# partition table and the application into a single full-flash image, which is
+# what `esptool write_flash` wants at offset 0 and what the ESP Flash Download
+# Tool wants with no offset column. Publishing a bare `firmware.bin` and a note
+# telling someone which offsets to use is the alternative, and it is the
+# alternative the C++ pipeline used, with the result that its release notes
+# pointed at 0x350000 -- an address the Rust partition table does not have.
 # ---------------------------------------------------------------------------
 
 on:
@@ -38,9 +38,6 @@ concurrency:
 jobs:
   # The guard. A `v*` tag carries no branch name, so `on.push.tags` alone
   # cannot tell a release cut from `main` from one cut from any other branch.
-  # This proves the tagged commit is actually reachable from `origin/main`
-  # before anything is built or published. It is cheap, and it is the only
-  # thing standing between a mistagged branch and a published C++ image.
   guard:
     runs-on: ubuntu-latest
     outputs:
@@ -50,20 +47,19 @@ jobs:
         with:
           # Full history: the ancestry check needs the main-line commits.
           fetch-depth: 0
+          persist-credentials: false
 
       - id: check
         run: |
+          set -euo pipefail
           git fetch --no-tags origin main
           if git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
             echo "tag $GITHUB_REF_NAME is on main -- allowed"
             echo "allowed=true" >> "$GITHUB_OUTPUT"
           else
             echo "::error::tag $GITHUB_REF_NAME is NOT reachable from origin/main."
-            echo "This workflow builds the C++ firmware with PlatformIO."
-            echo "Tagging a non-main branch would publish the C++ image under"
-            echo "the CleverCoffee name, with release notes pointing"
-            echo "littlefs.bin at 0x350000 -- an address that does not exist in"
-            echo "rust/partitions_4M.csv."
+            echo "This workflow publishes the Rust image under the CleverCoffee"
+            echo "name. Tagging a topic branch would publish an unreleased build."
             echo "allowed=false" >> "$GITHUB_OUTPUT"
           fi
 
@@ -71,35 +67,49 @@ jobs:
     needs: guard
     if: needs.guard.outputs.allowed == 'true'
     runs-on: ubuntu-latest
+    # The ESP-IDF build is the cost here; 60 min leaves headroom without letting
+    # a wedged espup bill for hours.
+    timeout-minutes: 60
+    # Same reason as `rust.yml`'s device job: mise-action runs `mise install`,
+    # and a bare `cargo install` from one of its `cargo:` backends would resolve
+    # through `rust-toolchain.toml` and demand the `esp` channel.
+    env:
+      RUSTUP_TOOLCHAIN: stable
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
-          python-version: "3.14"
-          cache: pip
-          cache-dependency-path: .github/requirements-ci.txt
+          persist-credentials: false
 
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
         with:
-          path: |
-            ~/.platformio/.cache
-            .pio/buildcache
-          key: ${{ runner.os }}-pio-${{ hashFiles('platformio.ini', 'platformio_extra.ini') }}
-          restore-keys: |
-            ${{ runner.os }}-pio-
+          install: true
+          experimental: true
 
-      - name: Install PlatformIO
-        run: pip install -r .github/requirements-ci.txt
-
-      - name: Set CLEVERCOFFEE_VERSION
+      # Same reasoning as `rust.yml`: the ESP-IDF clone embuild drives is
+      # several GB, and a build job that dies of ENOSPC looks exactly like a
+      # code failure.
+      - name: Ensure enough free disk
         run: |
-          VERSION="${GITHUB_REF#refs/tags/}"
-          echo "CLEVERCOFFEE_VERSION=${VERSION}" >> "${GITHUB_ENV}"
+          set -euo pipefail
+          avail_kb=$(df --output=avail / | tail -1)
+          avail_gb=$(( avail_kb / 1024 / 1024 ))
+          echo "free disk: ${avail_gb}G"
+          if [ "$avail_gb" -lt 30 ]; then
+            sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+            echo "free disk now: $(df --output=avail / | tail -1 | awk '{print int($1/1024/1024}')G"
+          fi
 
-      - name: Run native tests
-        run: pio test -e native_test
+      - name: Install the Espressif Xtensa toolchain and ESP-IDF
+        run: |
+          set -euxo pipefail
+          mise trust
+          mise install
+          ./scripts/setup-esp-toolchain.sh
+          just env-file
+          just doctor
 
+      # `cc-hal-esp32/build.rs` panics without `ui/packages/frontend/dist`, so
+      # the UI is not optional here (AG-RUST-6).
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
         with:
           version: 11
@@ -110,82 +120,77 @@ jobs:
           cache: pnpm
           cache-dependency-path: ui/pnpm-lock.yaml
 
-      - name: Build firmware
-        run: pio run -e esp32_usb
-        env:
-          CLEVERCOFFEE_VERSION: ${{ env.CLEVERCOFFEE_VERSION }}
-          PLATFORMIO_BUILD_FLAGS: '-D VERSION=\"${{ env.CLEVERCOFFEE_VERSION }}\"'
-
-      - name: Build filesystem
-        run: pio run --target buildfs -e esp32_usb
-        env:
-          CLEVERCOFFEE_VERSION: ${{ env.CLEVERCOFFEE_VERSION }}
-          PLATFORMIO_BUILD_FLAGS: '-D VERSION=\"${{ env.CLEVERCOFFEE_VERSION }}\"'
-
-      - name: Stage release artifacts
+      - name: Build the web UI
+        working-directory: ui
         run: |
+          pnpm install --frozen-lockfile
+          pnpm --filter @clevercoffee/frontend build
+
+      - name: Build the firmware
+        run: just build-esp32
+
+      - name: Merge the image
+        # `--merge` folds bootloader + partition table + application into one
+        # full-flash image at their real offsets. `espflash` reads the partition
+        # table out of the ESP-IDF metadata cargo embedded in the ELF, so this
+        # cannot silently use a different table than the firmware was built with.
+        run: |
+          set -euo pipefail
           mkdir -p release-artifacts
-          for file in firmware.bin littlefs.bin bootloader.bin partitions.bin; do
-            cp ".pio/build/esp32_usb/${file}" "release-artifacts/${file}"
-          done
+          espflash save-image \
+            --chip esp32 \
+            --flash-size 4mb \
+            --flash-freq 40mhz \
+            --flash-mode dio \
+            --merge \
+            target/xtensa-esp32-espidf/release/firmware \
+            release-artifacts/firmware.bin
           ls -la release-artifacts/
 
-      - name: Verify release artifacts
+      - name: Verify the release artifact
         run: |
-          for file in firmware.bin littlefs.bin bootloader.bin partitions.bin; do
-            test -f "release-artifacts/${file}" || {
-              echo "Missing release artifact: ${file}"
-              exit 1
-            }
-          done
+          set -euo pipefail
+          test -s release-artifacts/firmware.bin
+          # A merged image is one full flash, so it must be close to 4 MB. A
+          # short file means `--merge` silently produced a bare application.
+          size=$(stat -c %s release-artifacts/firmware.bin)
+          echo "firmware.bin: ${size} bytes"
+          if [ "$size" -lt 3500000 ]; then
+            echo "::error::firmware.bin is ${size} bytes; a merged 4 MB image is not."
+            exit 1
+          fi
 
       - name: Generate release notes
         env:
           TAG: ${{ github.ref_name }}
-          REPO: ${{ github.repository }}
+          REPO: ${{ repository }}
         run: |
+          set -euo pipefail
           BASE="https://github.com/${REPO}/releases/download/${TAG}"
 
           printf '%s\n' \
             "## CleverCoffee ${TAG}" \
             "" \
-            "### OTA updates (web UI)" \
+            "### Flash it" \
             "" \
-            "Open **System → OTA Updates** on the device and use these direct download URLs:" \
+            "\`firmware.bin\` is a **merged full-flash image**: bootloader," \
+            "partition table and application, already at their own offsets." \
             "" \
-            "| File | Purpose | URL |" \
-            "|------|---------|-----|" \
-            "| \`firmware.bin\` | Application firmware | [Download](${BASE}/firmware.bin) |" \
-            "| \`littlefs.bin\` | Web UI filesystem | [Download](${BASE}/littlefs.bin) |" \
+            "\`\`\`bash" \
+            "esptool.py --chip esp32 write_flash 0x0 firmware.bin" \
+            '\`\`\`' \
             "" \
-            "Direct links:" \
-            "" \
-            "- Firmware: \`${BASE}/firmware.bin\`" \
-            "- Filesystem: \`${BASE}/littlefs.bin\`" \
-            "" \
-            "### USB flash (initial install or recovery)" \
-            "" \
-            "Flash all four files with the ESP Flash Download Tool or \`esptool.py\`:" \
-            "" \
-            "| File | Flash address | Purpose |" \
-            "|------|---------------|---------|" \
-            "| \`bootloader.bin\` | \`0x1000\` | ESP32 bootloader |" \
-            "| \`partitions.bin\` | \`0x8000\` | Partition table |" \
-            "| \`firmware.bin\` | \`0x10000\` | Application |" \
-            "| \`littlefs.bin\` | \`0x350000\` | Filesystem (web UI) |" \
-            "" \
-            "Merge into a single image:" \
-            "" \
-            '```bash' \
-            "esptool.py --chip esp32 merge_bin -o merged-flash.bin \\" \
-            "  --flash_mode dio --flash_size 4MB \\" \
-            "  0x1000 bootloader.bin \\" \
-            "  0x8000 partitions.bin \\" \
-            "  0x10000 firmware.bin \\" \
-            "  0x350000 littlefs.bin" \
-            '```' \
+            "or use the ESP Flash Download Tool with address \`0x0\`." \
             "" \
             "Flash settings: SPI speed 40 MHz, SPI mode DIO, flash size 4 MB." \
+            "" \
+            "Direct link: ${BASE}/firmware.bin" \
+            "" \
+            "### OTA updates (web UI)" \
+            "" \
+            "Open **System → OTA Updates** on the device and use the direct" \
+            "download URL above. The OTA has not been exercised on hardware; see" \
+            "the repository's \`docs/status.md\`." \
             > release_notes.md
 
       - name: Publish GitHub release
@@ -193,9 +198,4 @@ jobs:
         with:
           name: CleverCoffee ${{ github.ref_name }}
           body_path: release_notes.md
-          files: |
-            release-artifacts/firmware.bin
-            release-artifacts/littlefs.bin
-            release-artifacts/bootloader.bin
-            release-artifacts/partitions.bin
-          fail_on_unmatched_files: true
+          files: release-artifacts/firmware.bin
