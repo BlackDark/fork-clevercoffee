@@ -1,6 +1,18 @@
-# Manual Integration Test Checklist
+# The pre-release runbook
 
-Pre-release validation. Every item must pass before merging to main or tagging a release.
+**Everything you do at the machine before a release.** Every item must pass
+before merging to `main` or tagging.
+
+This is a procedure, not a reference. Where a check exists because the C++
+firmware behaved a certain way, the comparison lives in
+[`../history/cpp-behaviour-comparisons.md`](../history/cpp-behaviour-comparisons.md)
+and this file just says "see the comparison". Findings that were recorded and
+deliberately not fixed are in
+[`../history/outstanding-findings.md`](../history/outstanding-findings.md).
+
+Run the sections in order and stop at the first failure. Diagnose before
+continuing; a later section's result means nothing once an earlier one has
+failed.
 
 ## Prerequisites
 
@@ -571,7 +583,7 @@ order after any change to the control loop, the display task or the HTTP layer.
     and **no** `Authorization` header may appear in the telnet log. Now clear the
     username or the password and reboot again: the API is **open**, with a boot
     warning. That is the C++'s behaviour (`WebServerManager.cpp:290-294`) and it
-    is deliberate — see `intentional-diffs.md` #20.
+    is deliberate — see [`divergences.md` #23](../history/divergences.md#23).
 
 16. **The UI logs in without a code change.** With auth on, open `http://<device>/ui/`
     in a browser: it must raise the native credential prompt, and after that the
@@ -590,7 +602,7 @@ order after any change to the control loop, the display task or the HTTP layer.
     ```
 
     Before this work the route emitted a *brew-state* value under the name
-    `steamMode`; the two are different facts (`intentional-diffs.md` #21).
+    `steamMode`; the two are different facts ([`divergences.md` #24](../history/divergences.md#24)).
 
 18. **A CORS preflight answers.** `OPTIONS` on any `/api` route must be `204`
     with `Access-Control-Allow-Origin` — and must **not** be challenged, because a
@@ -752,24 +764,6 @@ finding loses the only record of what the bench is for.
       outside the parameter-write path, no MQTT session was configured, and no
       browser was opened. **Not diagnosed.** Reproduce by watching
       `GET /api/parameters` across a reboot and an idle hour.
-
-## Outstanding — recorded 2026-10-01, none of it fixed
-
-Each item is a decision or a measurement, not a defect with an obvious fix.
-
-| # | What | Why it is not fixed | What is needed |
-| --- | --- | --- | --- |
-| 1 | **The Scale template's brew row erases the setpoint row.** Both are at `y = 26`; the brew row's inverted field is `78 x 10` at `(x + 50, y + 1)` and it erases the setpoint's label, value and `°C`. | The C++ has the identical collision, and both firmwares default `fullscreen_brew_timer` to false, so this is **live on a Scale-template machine during a brew**, not hidden. Every fix is a visible layout change: re-pitch the rows to `13 / 22 / 31 / 40 / 49`, or drop the row, or shrink the field — and the field cannot shrink, because both rows use the same value column. | A layout decision. The row map and the arithmetic are in `docs/operations/runbook.md` and in the review that produced it. |
-| 2 | **The Scale value column is 50 px and four labels are wider**, including English `Pressure: ` at 60 px. | Same family as #1, same "fixing it moves a screen somebody looks at". | The same decision. Measured widths are pinned by `tests/languages.rs`. |
-| 3 | **The EEPROM error line is 185 px into a 128 px panel** (57 px cut), in all three languages. | C++ parity: the same string, the same `displayMessage`, the same per-glyph clipping. | Shorter text, or wrapping into the five slots the call already leaves empty. Both are deliberate divergences. |
-| 4 | **The German sensor-error line is 153 px into 128** (25 px cut); English and Spanish are 111 px and fit. | C++ parity. | A shorter German string. |
-| 5 | **The OTA error title is 150 px in `fub17`, centred at `x = -11`** — clipped at *both* edges at once. | C++ parity, and no bounds test of any kind can detect it. | A smaller font for that screen, or a shorter title. |
-| 6 | **The sensor-error and EEPROM message screens overlap by a pixel** (a 10 px pitch with an 11 px font). | The pitch cannot grow: `displayMessage` is six lines and six at 11 px is 66 px into a 64 px panel. | `profont10` for those two screens, which changes six screens' typography. |
-| 7 | **The control loop's 10 ms period is not met**: mean tick work ~16 ms, achieved period ~13–22 ms. The work is **not localised** — a bisect says the temperature poll is about half of it, which does not square with a scratchpad read at 2.4 Hz. | I have not localised it and will not guess in the source. | A profile that is not more `now_ms()` calls: a GPIO toggle captured by the idle task's accounting, or an external logic analyser. |
-| 8 | **`CONFIG_FREERTOS_HZ`** — measured at 1000 and **reverted**: identical work and period, so the tick rate was never the limiter. | Reverted on evidence. | Revisit only if #7 lands under a millisecond. Note it is 100 because **ESP-IDF 5.5.5's own default** is 100 (`components/freertos/Kconfig:37`), not the widely-quoted 1000. |
-| 9 | **A sensor task cannot own the DS18B20**: the bit-bang is the only user of `esp_idf_hal::interrupt::free`, a process-global cross-core critical section, and running it from a second task asserts inside the kernel. | The mechanism is in the `FreeRTOS`/hal layer, not in a design choice of ours. | An upstream fix, or a driver that does not need a global critical section. The display half of the split works and is in the firmware. |
-| 10 | **The cross-flash deadman assert**: a `Queue` with a blocking receive, a `std::sync::Mutex` hand-off and an ESP-IDF task notification each assert on this build. | Same. The frame hand-off is lock-free instead. | As #9. |
-| 11 | **A reboot into `PID_DISABLED` is the C++'s behaviour**, not a bug: the power switch is a `Toggle` and a toggle reading off at boot starts disabled. `pid.enabled` wins only when no power switch is configured. | Correct parity. | If the config should win, that is a *config default* change, and it is a product decision. |
 
 ## The screen contact sheet — how to make one
 

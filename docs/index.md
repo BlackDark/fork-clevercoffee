@@ -95,6 +95,8 @@ else in that folder is the detail behind it.
 | [`docs/history/recovered-oracle.md`](history/recovered-oracle.md) | The only surviving record of a Rust firmware that ran on this board. **The derivation** for the fail-closed `LOW_TRIGGER` rule; the rule itself is enforced by `cc_safety::validate_config`. | You touch heater-relay pin selection. |
 | [`docs/history/scenario-format.md`](history/scenario-format.md) | The scenario-file format `cc-parity` parses, written twice on purpose. | You add a parity scenario. |
 | [`docs/history/review-2026-10-03.md`](history/review-2026-10-03.md) | An independent review's findings, one per row, with status. The most recent hard-eyed record. | You want to know what has already been looked at and found wanting. |
+| [`docs/history/cpp-behaviour-comparisons.md`](history/cpp-behaviour-comparisons.md) | Every "the C++ answered X, this firmware answers Y", in one place: parity that was **chosen**, and where this firmware is safer than the original. | You are about to change a behaviour and need to know what the C++ did first. |
+| [`docs/history/outstanding-findings.md`](history/outstanding-findings.md) | What was found during bring-up and deliberately not fixed, with the reason and what a decision would take. | You think something is broken and want to know whether it already is. |
 
 ## Preserved history
 

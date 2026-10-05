@@ -356,6 +356,11 @@ The text below is left as the record of what R1-07 decided and why, because the
 
 ## Preserved C++ behaviours — do not "fix" these
 
+**Deliberately unnumbered, because these are not divergences.** The numbered
+sections below are places this firmware does something *different*; this one is
+a list of places it does the same thing on purpose. They are in this file so
+nobody "fixes" them.
+
 These are C++ bugs the port **reproduces on purpose**. A diff at any of these is
 *not* a regression; the `s<N>_`-prefixed tests in
 `cc-machine/tests/parity_findings.rs` pin each one, and the `s<N>` numbering is
@@ -429,6 +434,11 @@ nothing; the design change is not cheap.
 ---
 
 ## Also intentional, from before this file existed
+
+**Deliberately unnumbered**, like the section above it: this is a collection, not
+one divergence. It is read by `cc-parity` all the same, and its ledger entry
+(`ota_gap`) names this heading verbatim, which is why the number is absent rather
+than merely omitted from the index.
 
 Recorded here so the file is complete; each was decided in its own task.
 
@@ -903,7 +913,7 @@ transcriptions:
 
 ---
 
-## 18. MQTT actually runs 🔴 changed
+## 11. MQTT actually runs 🔴 changed
 
 | | |
 | --- | --- |
@@ -1043,7 +1053,7 @@ claim about what the broker sees is derived from the C++ and from
 
 ---
 
-## 11. R3-17 / R3-18: scale support exists at all 🔴 new
+## 12. R3-17 / R3-18: scale support exists at all 🔴 new
 
 `config` already carries `hardware.sensors.scale.*` (enabled, type, calibration,
 calibration2, samples, known_weight) and `cc-display` already has the scale templates, so
@@ -1073,7 +1083,7 @@ accident.
 
 ---
 
-## 12. The device's default hostname is `test-cc-rust`, not `silvia` 🔴 changed
+## 13. The device's default hostname is `test-cc-rust`, not `silvia` 🔴 changed
 
 **Decided 2026-09-29 by the human**, replacing the C++ default in
 `include/clevercoffee/defaults.h:14` (`#define HOSTNAME "silvia"`).
@@ -1105,7 +1115,7 @@ firmwares and changing it in one would break a config the other reads.
 
 ---
 
-## 13. The four operator switches default to `enabled: true`, not `false` 🔴 changed
+## 14. The four operator switches default to `enabled: true`, not `false` 🔴 changed
 
 **Decided 2026-09-30 by the human**, who owns the machine, after pressing the switches
 and finding that nothing happened.
@@ -1170,7 +1180,7 @@ floating-input risk was resolved. It is not resolved.
 
 ---
 
-## 14. `/api/ota/status` sends `status` as a string, not an integer 🔴 changed
+## 15. `/api/ota/status` sends `status` as a string, not an integer 🔴 changed
 
 OTA itself is deferred to R3-15 and nothing here implements it. What is registered is the
 **route**, because the UI has an OTA tab and a `404` is indistinguishable from a firmware
@@ -1208,7 +1218,7 @@ route exists and this build declines to implement it, which is what 501 means.
 
 ---
 
-## 13. A request to sleep is honoured with the PID disabled 🔴 changed
+## 16. A request to sleep is honoured with the PID disabled 🔴 changed
 
 **Closed 2026-09-30** by the human's decision, after the human found it by using
 the UI: `POST /api/sleep` answered `202 {"accepted":true}`, the command reached the
@@ -1251,7 +1261,7 @@ Three pins in `parity_findings.rs` (`div13_*`) hold both halves: the request is
 honoured, it is **consumed** on the transition that acted on it, and waking still
 works — so closing this does not make standby a one-way door.
 
-## 14. The status bar's uptime and `°C` column are laid out from the frame edge, not from a fixed x 🔴 changed
+## 17. The status bar's uptime and `°C` column are laid out from the frame edge, not from a fixed x 🔴 changed
 
 **What changed.** Two numbers on the Standard (and Minimal, and Scale) template.
 
@@ -1284,7 +1294,7 @@ reserved fixed width — win over matching a layout that clips.
 set) differ **only** by these two columns; every other pixel is where it was.
 
 
-## 15. The inverted value field closes on the frame, and the `°C` unit is placed by its ink 🔴 changed
+## 18. The inverted value field closes on the frame, and the `°C` unit is placed by its ink 🔴 changed
 
 **What changed.** Two numbers on the Standard and Minimal templates.
 
@@ -1333,7 +1343,7 @@ a **64 logical pixel**-wide panel received 111 px of ink and 91 px of it was
 dropped. Restored for all three languages.
 
 
-## 16. S1's over-temperature debounce counts probe *samples*, not control ticks 🔴 changed
+## 19. S1's over-temperature debounce counts probe *samples*, not control ticks 🔴 changed
 
 **What changed.** `cc_safety::Telemetry` gained a `sample_seq`, and `reduce`
 advances the debounce **only when it changes**. `Sensors` carries the same
@@ -1366,7 +1376,7 @@ times stays at one count and does not latch, and three *distinct* samples do; pl
 one for the trap in the other direction — after `clear()`, a sample that is still
 over threshold must count again, so a recovery is not swallowed.
 
-## 17. The reboot request now shuts the hardware down before the 500 ms pause 🔴 changed
+## 20. The reboot request now shuts the hardware down before the 500 ms pause 🔴 changed
 
 `POST /api/restart` did `delay_ms(500)` **inside the control task** and then
 reset. For those 500 ms the loop was not running: no heartbeat, no watchdog feed,
@@ -1376,7 +1386,7 @@ said why; this one did not. It now applies `Effect::SafeHardwareShutdown` throug
 `apply_one` before the pause, exactly as its sibling does.
 
 
-## 15. The Scale template's five rows are re-pitched; the setpoint no longer disappears during a brew 🔴 changed
+## 21. The Scale template's five rows are re-pitched; the setpoint no longer disappears during a brew 🔴 changed
 
 **What changed.** The Scale template's content rows move from the C++'s
 `16 / 26 / 26 / 36 / 46` to **`13 / 22 / 31 / 40 / 49`**.
@@ -1421,7 +1431,7 @@ value covers the setpoint's too.
 
 ---
 
-## 19. `/api/config/upload` exists, and takes `application/json` 🔴 new
+## 22. `/api/config/upload` exists, and takes `application/json` 🔴 new
 
 **What the C++ does.** `WebServerManager.cpp:725-762` registers
 `AsyncURIMatcher::exact("/api/config/upload")` for `HTTP_POST` with an
@@ -1486,7 +1496,7 @@ On the wire: `cc-hal-esp32::web::tests::the_config_upload_route_is_registered`,
 `::the_upload_response_is_the_cpp_shape`,
 `::the_upload_body_is_bounded_and_the_cap_is_the_cpps`.
 
-## 20. HTTP Basic authentication is implemented, and is boot-time 🔴 new
+## 23. HTTP Basic authentication is implemented, and is boot-time 🔴 new
 
 **What the C++ does.** `WebServerManager::setupMiddleware`
 (`WebServerManager.cpp:272-296`) installs `AsyncCorsMiddleware` and, when
@@ -1553,7 +1563,7 @@ of this work where "untested" means "ships a machine that opens or locks itself"
 and it is `no_std`, allocation-free and covered by `just test` on the host. The
 wiring is pinned by `cc-hal-esp32::web::tests::auth_*` (device-only).
 
-## 21. `/api/status` reports `steamMode`, and keeps `brewing` as an addition 🔴 changed
+## 24. `/api/status` reports `steamMode`, and keeps `brewing` as an addition 🔴 changed
 
 **What the C++ does.** `doc["steamMode"] = systemContext_->steamMode()`
 (`WebServerManager.cpp:359`).
@@ -1591,7 +1601,7 @@ value before the command was applied.
 `cc-hal-esp32::web::tests::steam_mode_is_the_latched_steam_flag_and_not_the_brew_state`
 and `::the_status_steam_mode_agrees_with_the_steam_toggle_response` (device-only).
 
-## 22. CORS preflight is answered; the C++'s per-response `Access-Control-Allow-Origin: *` is not 🔴 changed
+## 25. CORS preflight is answered; the C++'s per-response `Access-Control-Allow-Origin: *` is not 🔴 changed
 
 **What the C++ does.** `AsyncCorsMiddleware` with `setOrigin("*")`,
 `setMethods("GET,POST,PUT,DELETE,OPTIONS")` and
@@ -1628,7 +1638,7 @@ permanently and confusingly.
 (device-only), which fails if the advertised `Options` entry is anything other
 than the one real wildcard.
 
-## 23. `POST /api/setpoint` takes the schema's bound, and the brew pair is cross-checked 🔴 changed
+## 26. `POST /api/setpoint` takes the schema's bound, and the brew pair is cross-checked 🔴 changed
 
 **What the C++ does.** `WebServerManager.cpp:391-402` filters the field to
 `0.0..=150.0`, applies `setProcessSetpoint` to the **running** machine, and then
@@ -1681,7 +1691,7 @@ discard), plus
 `cc-hal-esp32::web::tests::the_setpoint_route_{takes_what_the_schema_will_store,refuses_a_value_that_would_defeat_the_interlock}`
 (device-only, registered in `CASES`).
 
-## 24. `brew.by_weight` stops the shot, and is refused where nothing can 🔴 changed
+## 27. `brew.by_weight` stops the shot, and is refused where nothing can 🔴 changed
 
 **What the C++ does.** `BrewRunningState::checkSpecificTransitions`
 (`BrewStates.cpp:266-303`) ends an automatic shot on `brew.by_time` (whose
@@ -1752,7 +1762,7 @@ the relay rules, `check_storable`, and the load-time discard.
 `cc-parity::run::tests::the_safety_view_mapping_is_the_one_the_driver_uses`
 carries the four new fields so a rename in `cc-config` cannot silently drop them.
 
-## 25. `pid.regular.i_max = 0` disables integral action 🔴 changed
+## 28. `pid.regular.i_max = 0` disables integral action 🔴 changed
 
 **What the C++ does.** `ProcessController::setPIDTunings`
 (`ProcessController.cpp:203-218`) computes `Ki = Kp / Tn` — with no reference to
@@ -1784,7 +1794,7 @@ boiler is the thing being regulated.
 next to `a_zero_tn_gives_a_zero_ki_rather_than_a_division_by_zero`, which is the
 rule this one joins.
 
-## 26. The water valve's interlock consults S5's whitelist too 🔴 added
+## 29. The water valve's interlock consults S5's whitelist too 🔴 added
 
 **What the C++ does.** `HardwareManager::openWaterValve`
 (`HardwareManager.cpp:404-419`) checks only `emergencyMode_`, exactly as
@@ -1828,7 +1838,7 @@ was corrected with it: `PID_NORMAL` is not a water state either.
 
 ---
 
-## 27. The steam LED is not driven: GPIO1 is the provisioning console's 🔴 known deviation
+## 30. The steam LED is not driven: GPIO1 is the provisioning console's 🔴 known deviation
 
 | | |
 | --- | --- |
