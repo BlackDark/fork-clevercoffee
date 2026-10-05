@@ -117,7 +117,18 @@ export function HomePage() {
   // Handle form submission for brew setpoint
   const handleSubmitParameters = async (e: React.FormEvent) => {
     e.preventDefault();
-    const success = await saveParameters(); // Only submit brew.setpoint from home page
+    // **Send only `brew.setpoint`.** Calling `saveParameters()` with no argument
+    // posts *every* parameter — 98 pairs, ~2.7 KB — and the firmware caps a
+    // form body at `MAX_PARAMETER_BODY_BYTES` (1024) and **drops the whole body**
+    // when it does not fit, answering `200 {"success":true,"message":"No
+    // parameters updated"}`. So this page showed "Parameters saved
+    // successfully" and changed nothing, which is the report this fixes. The
+    // comment used to say "only submit brew.setpoint from home page"; the call
+    // did the opposite.
+    if (!brewSetpointParam) return;
+    const success = await saveParameters([
+      { name: "brew.setpoint", value: brewSetpointParam.value },
+    ]);
 
     if (success) {
       toast.success("Parameters saved successfully", {
@@ -196,7 +207,10 @@ export function HomePage() {
     if (!param) return;
     const newValue = !param.value;
     updateParameter(paramName, newValue);
-    const saved = await saveParameters();
+    // Only this parameter, for the same reason as the setpoint above: an
+    // argument-less `saveParameters()` posts all 98 and the firmware drops a
+    // body that does not fit in 1024 B.
+    const saved = await saveParameters([{ name: paramName, value: newValue }]);
     if (saved) {
       toast.success(
         `${parameterLabels.en[paramName] || paramName} toggled successfully`,

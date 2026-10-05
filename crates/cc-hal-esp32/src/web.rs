@@ -1559,7 +1559,26 @@ impl Web {
                 "/api/parameters",
                 Method::Post,
                 move |mut req| {
-                    let body = drain_body_bounded(req.connection(), MAX_PARAMETER_BODY_BYTES);
+                    // **A body that did not fit is refused, not silently empty.**
+                    // `drain_body_bounded` turns an over-cap body into `""`, which
+                    // parses to zero pairs and answers `200 {"success":true,
+                    // "message":"No parameters updated"}` -- a success for a
+                    // request that changed nothing. Measured on a bench ESP32:
+                    // the web UI's homepage save posts all 98 parameters
+                    // (~2.7 KB), lands here, and reported success while the
+                    // setpoint stayed put.
+                    let Some(body) = drain_body_checked(req.connection(), MAX_PARAMETER_BODY_BYTES)
+                    else {
+                        warn!(
+                            "http: /api/parameters body exceeded {MAX_PARAMETER_BODY_BYTES} B \
+                             and was refused -- send only the parameters that changed"
+                        );
+                        return respond(
+                            req.connection(),
+                            413,
+                            &error_body("request body too large; send only what changed"),
+                        );
+                    };
                     // `request->params()` (`:823`) is the query string *and* the body,
                     // in that order, because `AsyncWebServerRequest` appends the query
                     // args before the POST fields. So `?pid.enabled=1` and
