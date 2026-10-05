@@ -11,6 +11,15 @@ compiled binary survives.
 > repository.** It lives only in a scratch directory outside the project. Everything in
 > this document is derived, redacted analysis. Do not commit a flash dump.
 
+> **This document is NORMATIVE, despite living in `history/`.** It is the sole surviving
+> derivation of the fail-closed `LOW_TRIGGER` heater rule (§4.1): a relay that is
+> energised by an undriven pin cannot be made safe in firmware, so a configuration
+> selecting one is **refused outright** rather than handled. The rule itself is enforced
+> by `cc_safety::validate_config` and pinned by `crates/cc-safety/tests/safety_paths.rs`;
+> this page is where that decision came from. Do not prune it as historical — the folder
+> it lives in describes where the knowledge *came from*, not whether it is still load-
+> bearing.
+
 ---
 
 ## 1. Why this document exists
@@ -22,7 +31,7 @@ this document is the only surviving record of the design decisions it made. It i
 
 **The plan is not replaced by this.** Nothing here is reusable as source. But several
 designs it settled are better than what the plan independently proposed, and the plan is
-revised where they are. See §6.
+revised where they are. See [§6](divergences.md#d06).
 
 ---
 

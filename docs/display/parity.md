@@ -18,15 +18,19 @@ subsumes the other.
 
 ## Engine parity
 
-`tools/oracle/display_oracle.cpp` links the **actual** U8g2 tree the firmware
-links (`.pio/libdeps/esp32_usb/U8g2`) and replays a scenario file through
-`U8G2`. `cc_display::scenario` replays the *same file* through
+`tools/oracle/display_oracle.cpp` links the **real** U8g2, fetched by
+`just u8g2` into `target/u8g2` at upstream tag `2.36.18`, and replays a scenario
+file through it. `cc_display::scenario` replays the *same file* through
 `Display`. The two 128×64 framebuffers must be **bit identical** — zero
 differing pixels, not "close enough", because one pixel is one wrong glyph
 advance or one off-by-one in a clip.
 
+The oracle's artwork is generated from the firmware's own
+`cc_display::bitmaps::ALL` at build time, so the bytes it compares are the bytes
+that ship.
+
 ```sh
-just test-display-parity     # ~45 s; needs `pio run -e esp32_usb` first
+just test-display-parity     # ~90 s; fetches U8g2 itself on first run
 ```
 
 The corpus is `tests/scenarios/`: eleven files covering all ten fonts at both
@@ -71,8 +75,8 @@ place where the obvious port is wrong.
   A Rust `&str` cannot hold a lone `0xB0`, so `"\u{b0}"` is two bytes and a byte
   walk measures **30 px instead of 25** in `profont10`. `font::latin1_of` folds
   the code point back to the byte.
-- **The bare `Display` and the *prepared* display differ.** `OledDriver::prepareDisplay`
-  sets `setFontRefHeightExtendedText()` and `setFontPosTop()` once at init.
+- **The bare `Display` and the *prepared* display differ.** Preparation sets
+  `setFontRefHeightExtendedText()` and `setFontPosTop()` once at init.
   `ExtendedText` uses `ascent_para` where `Text` uses `ascent_A` (7 vs 6 in
   `profont10`), and without `pos top` a `y` is a *baseline*, so the Modern
   template's `fub20` readout at y=14 lands at rows −9..13 — clipped off the top

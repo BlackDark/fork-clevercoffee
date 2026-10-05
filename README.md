@@ -78,22 +78,23 @@ just flash <port>
 
 What CI runs and what it costs: [`docs/operations/ci.md`](docs/operations/ci.md).
 
-## Building the C++ firmware (the parity oracle)
+## The C++ firmware this replaces
 
-Only if you have decided to. See the warning above first.
+It was deleted on 2026-10-06, along with its PlatformIO build. There is nothing
+here to build, and **no way to rebuild it** short of checking out `9fa8c834` and
+reconstructing the tooling. If a board still answers as the C++ did, it is
+running that firmware, not this one.
 
-```sh
-pio run -e esp32_usb
-pio test -e native_test
-```
+What the C++ did is recorded rather than forgotten:
+[`docs/history/divergences.md`](docs/history/divergences.md) for every
+deliberate difference, and
+[`docs/history/cpp-findings.md`](docs/history/cpp-findings.md) for every bug and
+ambiguity found while porting it.
 
-`esptool.py --chip esp32 merge_bin -o merged-flash.bin --flash_mode dio --flash_size 4MB 0x1000 bootloader.bin 0x8000 partitions.bin 0x10000 firmware.bin`
-
-The C++ tree is the **parity baseline for the whole migration**: it is not being
-deleted and not being cleaned up, and the port's test suite is measured against
-it. Every deliberate divergence is recorded in
-[`intentional-diffs.md`](docs/history/divergences.md) — start there
-when a behaviour looks wrong.
+**Parity with the C++ has never been measured on this machine.** The harness is
+built and its scenarios run, but capturing a baseline means flashing the C++ onto
+a powered, wired machine, and that was declined.
+[`docs/differences.md`](docs/differences.md) says what that costs.
 
 ## What this fork changed
 
@@ -104,7 +105,8 @@ when a behaviour looks wrong.
   ([ESP-IDF docs](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/storage/nvs_flash.html))
 - A brand new React UI, precompiled and served from flash
 - Hostname configuration during setup, for direct access by DNS name
-- OTA in the web app: upload a binary or give it a URL
+- OTA in the web app: upload a binary. The download-from-URL route exists and
+  answers `501` — see [`docs/web/http-and-ui.md`](docs/web/http-and-ui.md)
 
 ### New frontend / UI
 
@@ -116,5 +118,13 @@ when a behaviour looks wrong.
 
 ## How to try it out
 
-Build the binaries and flash your device, as the C++ documentation describes.
+```sh
+just setup          # once: mise tools, the Espressif Xtensa toolchain, the web UI
+just build-esp32    # the firmware
+just identify <port>   # ALWAYS first — confirm the chip before flashing
+just flash <port>
+```
+
+Then open `http://test-cc-rust.local`. The full pre-release procedure is
+[`docs/operations/runbook.md`](docs/operations/runbook.md).
 Easy going — but flash the **Rust** image.

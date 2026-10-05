@@ -10,8 +10,8 @@ reduce(machine: &Machine, ctx: &Context<'_>, ev: Event) -> (Machine, Effects)
 
 No I/O, no clock, no hardware. It takes a state and one event and returns a new
 state plus a list of instructions. This is the decision that shapes everything
-else in the firmware, and it is why the state machine has around 1,100 host
-tests that run in eleven seconds.
+else in the firmware, and it is why the state machine can be tested with a
+plain `cargo test` and no hardware (`just test`).
 
 For the crate boundaries around it, read [`../architecture.md`](../architecture.md).
 For the rules that bind changes here, `AG-REPO-21` through `AG-REPO-26` in

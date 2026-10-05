@@ -94,10 +94,10 @@ curl -w "\n%{http_code}\n" -X POST http://<ip>/api/ota/url \
 
   Then: the machine does **not** associate (it has no SSID, which is the
   condition this line exists to explain), and re-provisioning with
-  `wifi set <ssid>` + `wifi apply` over the serial console (§4 / `just
+  `wifi set <ssid>` + `wifi apply` over the serial console (`ADR-0002` / `just
   wifi-provision <port>`) restores it. **No line** should appear on a boot
   where the `cc` namespace already holds a configuration. **Not yet run on
-  hardware** — see [`intentional-diffs.md` §29](../history/divergences.md).
+  hardware** — see [`divergences.md` [§32](../history/divergences.md#d32)](../history/divergences.md).
 
 The serial node is `/dev/cu.usbserial-*` on macOS and `/dev/ttyUSB*` on Linux. The device's
 bridge is a **WCH CH340** (`iProduct` = `"USB Serial"`, VID `0x1A86` / PID `0x7523`), not a
@@ -147,9 +147,10 @@ record for the Rust firmware.
               temp=23.5°C, setpoint=90.0°C, pidOutput=500.0
       ```
 
-      Read it against the counters in `include/clevercoffee/isr.h:24-27` (`isr_enabled`,
-      `isr_call_count`, `isr_relay_on_count`, `isr_relay_off_count` — `std::atomic`, declared
-      extern, defined in `isr.cpp`):
+      Read it against the ISR counters in `cc-hal-esp32`'s heater module
+      (`isr_enabled`, `isr_call_count`, `isr_relay_on_count`, `isr_relay_off_count`).
+      The C++ originals were in `include/clevercoffee/isr.h` — `git show
+      9fa8c834:include/clevercoffee/isr.h` — and are gone:
 
       - `ISR enabled=1`, and `ISR calls` **rising between successive lines** — the only proof
         the 10 ms timer ISR is running. A frozen count with `enabled=1` is a stopped timer.
@@ -176,7 +177,7 @@ grep -E 'LOOP STATUS|State transition' boot.log
 
 ### 3b. ~~DEBUG level on the C++ firmware~~
 
-The C++ takes its log level over **telnet** (port 23 — §4), not over USB: USB is the
+The C++ takes its log level over **telnet** (port 23 — `ADR-0002`), not over USB: USB is the
 transcript you are reading, so it cannot carry the instruction that changes its own verbosity.
 Connect a telnet client, raise the level to `DEBUG`, then read the transcript over USB.
 `docs/history/feature-inventory.md` §9 records this as the telnet story's origin.
@@ -229,7 +230,7 @@ body each:
 
 - [ ] An **unknown key** → `400 {"error":"Some parameter updates failed"}`, nothing written
 - [ ] A value that **does not parse** (`pid.regular.kp=hello`) → `400`. The C++ writes
-      **0** here and answers `200`; see `09-cpp-findings.md` §25
+      **0** here and answers `200`; see `09-cpp-findings.md` [§25](../history/cpp-findings.md#cf25)
 - [ ] A value **out of range** (`standby.time=1234.5`, bounds 1..120) → `400`
 - [ ] A request naming **no** parameter, or only valueless fields → `200
       {"success":true,"message":"No parameters updated"}`
@@ -274,7 +275,7 @@ both encodings are accepted and the body wins if both are present.
 
 ⚠ **`hardware.switches.*.enabled` now defaults to `true` in the Rust firmware and `false`
 in the C++** (`Config.h:985,1004,1023,1042`). Changed on request 2026-09-30; the reasoning
-and the risk are in `intentional-diffs.md` §13. The short version: the human pressed the
+and the risk are in `divergences.md` [§14](../history/divergences.md#d14). The short version: the human pressed the
 switches and nothing happened, because a disabled switch's edges are read and discarded.
 
 ⚠ **GPIO 34/35/36/39 are input-only with no internal pull** (`switches.rs` has the full
@@ -583,7 +584,7 @@ order after any change to the control loop, the display task or the HTTP layer.
     and **no** `Authorization` header may appear in the telnet log. Now clear the
     username or the password and reboot again: the API is **open**, with a boot
     warning. That is the C++'s behaviour (`WebServerManager.cpp:290-294`) and it
-    is deliberate — see [`divergences.md` #23](../history/divergences.md#23).
+    is deliberate — see [`divergences.md` #23](../history/divergences.md#d23).
 
 16. **The UI logs in without a code change.** With auth on, open `http://<device>/ui/`
     in a browser: it must raise the native credential prompt, and after that the
@@ -602,7 +603,7 @@ order after any change to the control loop, the display task or the HTTP layer.
     ```
 
     Before this work the route emitted a *brew-state* value under the name
-    `steamMode`; the two are different facts ([`divergences.md` #24](../history/divergences.md#24)).
+    `steamMode`; the two are different facts ([`divergences.md` #24](../history/divergences.md#d24)).
 
 18. **A CORS preflight answers.** `OPTIONS` on any `/api` route must be `204`
     with `Access-Control-Allow-Origin` — and must **not** be challenged, because a
@@ -725,7 +726,7 @@ finding loses the only record of what the bench is for.
       status from the route table. After: `GET /api/nope` → `404`
       `application/json`, `POST /api/status` → `405` `application/json`,
       `GET /nope` → ESP-IDF's `text/html` `404`. Verified on the bench.
-      [`intentional-diffs.md` §30c](../history/divergences.md).
+      [`divergences.md` [§33](../history/divergences.md#d33)](../history/divergences.md).
 
 - [x] **A PID tuning written over HTTP did not reach the running PID.** With
       `pid.regular.kp` at `62` restored by `POST`, `/api/parameters` reported
@@ -736,7 +737,7 @@ finding loses the only record of what the bench is for.
       It is now a divergence **on request**: a gain write re-chooses the gains
       on the next tick. After: `kp=10` → duty 43.79 %, `kp=62` → 100 %, with
       no state change in between. Verified on the bench.
-      [`intentional-diffs.md` §31](../history/divergences.md).
+      [`divergences.md` [§34](../history/divergences.md#d34)](../history/divergences.md).
 
 ### Two more found in the same pass — also fixed
 
@@ -746,14 +747,14 @@ finding loses the only record of what the bench is for.
       (`WebServerManager.cpp:394-396`); this port cast to `i32`. Now `88.5`,
       `91.2` and `60.75` all land exactly. This is almost certainly what "the
       setpoint control does nothing" looked like from the UI.
-      [`intentional-diffs.md` §30a](../history/divergences.md).
+      [`divergences.md` [§33](../history/divergences.md#d33)](../history/divergences.md).
 
 - [x] **Backflush mode could not be turned off.** Four presses in a row —
       including the explicit `?on=0` — all answered `{"backflushOn":true}` and
       the machine stayed in `BACKFLUSH_IDLE`, because the toggle fed
       `BackflushStop`, which stops a cycle without clearing the mode flag. Now
       on → off → on, verified on the bench.
-      [`intentional-diffs.md` §30b](../history/divergences.md).
+      [`divergences.md` [§33](../history/divergences.md#d33)](../history/divergences.md).
 
 ### Still open
 
@@ -861,7 +862,7 @@ The loop runs at **~65 Hz**, not 100 Hz, and the time is in the **applier span**
 — `cc_machine::apply`, the scale drain and the reboot checks — at ~12 ms per tick.
 Not the sensors (0 ms), not the reducer (0 ms), not the display (0 ms). Full
 measurement and the two traps that produced wrong numbers on the way are in
-`09-cpp-findings.md` §31.
+`09-cpp-findings.md` [§31](../history/cpp-findings.md#cf31).
 
 To narrow it further, split the applier span into `apply` / `drain_scale` / the
 reboot checks and read the same line. Do **not** attribute it without a

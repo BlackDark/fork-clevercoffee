@@ -57,7 +57,7 @@ several confidently-wrong status claims that were caught only by an independent
 review.
 
 **AG-REPO-3.** Start at [`docs/history/README.md`](docs/history/README.md) and
-read ["Where the migration actually is"](docs/history/README.md#where-the-migration-actually-is)
+read ["Where the migration actually is"](docs/history/README.md#where-it-is-now)
 **before planning any work**. For what the firmware *is*, read
 [`docs/architecture.md`](docs/architecture.md); for the vocabulary, read
 [`GLOSSARY.md`](GLOSSARY.md). The execution procedure for agents lives in
@@ -68,7 +68,7 @@ here instead.
 **AG-REPO-4.** `docs/status.md` is the only page permitted to claim what works.
 If you change behaviour, update it **in the same commit** (AG-REPO-20).
 
-**AG-REPO-5.** This file is the rulebook. `CLAUDE.md` is a five-line pointer to
+**AG-REPO-5.** This file is the rulebook. `CLAUDE.md` is a pointer to
 it and must stay one — two copies of the same rules means one of them is always
 wrong, and it already was.
 
@@ -91,7 +91,7 @@ as the marker they hang on. Change it **only** in
 [`docs/example_config.json`](docs/example_config.json) in step -- an import test
 parses that exact file, so the two cannot drift apart. `mqtt.password` also
 defaults to `silvia`; that is a **credential, not a name**. Full reasoning:
-[`intentional-diffs.md` §12](docs/history/divergences.md).
+[`divergences.md` [§13](docs/history/divergences.md#d13)](docs/history/divergences.md#d13).
 
 **AG-REPO-10.** The target is the **original ESP32** (Xtensa), not an S3 or C6.
 `esp32_usb` refers to the USB-to-UART cable; the chip has no native USB.
@@ -221,8 +221,8 @@ radio") was lifted out of a September survey and treated as today's constraint.
 in the archive and why.
 
 **AG-REPO-30.** **`docs/history/` is machine-read. Move it only deliberately.**
-It was `docs/rust-migration/` until 2026-10-06, when the whole documentation tree
-was restructured and this directory moved with it. That move was **not** a
+It was `docs/rust-migration/` until commit `dc046aab` (2026-10-05), when the whole
+documentation tree was restructured and this directory moved with it. That move was **not** a
 link cleanup and it is the reason this rule now has an explicit exemption: the
 paths that name this directory are resolved by code and by CI, not only by
 prose.
@@ -232,8 +232,10 @@ prose.
 - `scripts/parity/run.sh` and `scripts/size-record.py` take it as input.
 - `just/size.just` reads `size-baseline.json` and appends to
   `size-records.jsonl`; `rust.yml` uploads the latter.
-- Rust doc comments link into it with rustdoc link syntax, and `just lint` runs
-  `rustdoc -D warnings`, so a broken link there is a **build break**.
+- Rust doc comments link into it with rustdoc link syntax, and `just doc` runs
+  `RUSTDOCFLAGS="-D warnings"`, so a broken link there is a **build break**.
+  (`just lint` is clippy; the rustdoc recipe is separate, and `just check` runs
+  both. `AG-RUST-1` lists them as two steps for that reason.)
 
 **Amending it means changing those paths in the same commit**, and the amendment
 must be dated in this rule. `divergences.md` is additionally *parsed* by

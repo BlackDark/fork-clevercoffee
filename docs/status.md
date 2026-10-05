@@ -19,7 +19,7 @@ page.
 
 **The Rust firmware boots, regulates and serves.** Recorded 2026-09-30 and
 2026-10-01 on the board; the full record with the measurements is
-["Where the migration actually is"](./history/README.md#where-the-migration-actually-is).
+["Where the migration actually is"](./history/README.md#where-it-is-now).
 
 - **The state machine, the PID and brewing are on the device.** R4-01, `4c4e072`.
   The reducer is wired into the 10 ms control task
@@ -27,10 +27,17 @@ page.
   `cc-hal-esp32/src/actuators.rs` in the same tick. At a 30 °C target with a
   ~7 K error the duty settles at ~48 %; at 95 °C with a 72 K error it goes to
   100 %. Both measured on the board, reproducible from the web UI.
-- **The display runs and does not clip.** `present=true`, 125 frames per 60 s,
-  `failed=0`. The SSD1306 shares the I²C bus with the ABP2 behind a `Mutex` and
-  the frame is chunked into 8 bus writes, not 64, so the pressure sensor is not
-  starved.
+- **The display renders every frame, and `failed=0`.** `present=true`, frames
+  tick over on schedule. The SSD1306 shares the I²C bus with the ABP2 behind a
+  `Mutex` and the frame is chunked into 8 bus writes, not 64, so the pressure
+  sensor is not starved.
+
+  **This is a liveness claim, not a layout one.** Four *specific strings* still
+  clip, and no bounds test can catch them — the telemetry above would look
+  identical either way. They are recorded in
+  [`history/outstanding-findings.md`](history/outstanding-findings.md) #3–#6 with
+  the measurements, and the layout rules that would prevent new ones are
+  `AG-DISPLAY-1` through `AG-DISPLAY-6`.
 - **The display parity oracle still links the real U8g2, and the bitmaps it
   draws are the firmware's own.** The C++ tree it used to pull artwork from is
   gone, so `crates/cc-display/examples/emit_bitmaps.rs` generates the oracle's
@@ -46,7 +53,10 @@ page.
   survived. `docs/architecture.md` answers "what is this thing" in one page,
   `GLOSSARY.md` pins the words inherited from the deleted C++, and
   `docs/history/README.md` tells the transformation as a narrative rather than as
-  a hardware spec. `scripts/check-doc-links.py`: 373 links, none broken.
+  a hardware spec. `scripts/check-doc-links.py` and `scripts/check-divergence-refs.py` now
+  also resolve **heading anchors**, not just files: the ledger was renumbered
+  twice and 19 of `differences.md`'s 31 `§N` pointers rotted silently while the
+  existence-only check passed. 520 links and 176 anchors, none broken.
 - **The API spec is now checked against the routes.** `scripts/check-openapi.py`
   diffs `docs/api/openapi.yaml` against the `ROUTES` table in
   `cc-hal-esp32/src/web.rs` in both directions and runs in `just check` and CI
@@ -86,11 +96,11 @@ page.
   `cc_web::telnet::tests::the_predecessor_boot_lines_are_not_truncated_on_the_wire`,
   against the real formatter rather than a copied byte count.
   **Verified by test and by reading the code; the line has not been seen on a
-  board.** [`intentional-diffs.md` §29](./history/divergences.md).
+  board.** [`divergences.md` [§32](history/divergences.md#d32)](./history/divergences.md).
 - **The web UI is served from flash and renders.** `cc-hal-esp32/build.rs` embeds
   the gzip bundle with `include_bytes!`, which is why a 199,270 B bundle costs
   0 B of RAM. A deep link to a client-side route (`/ui/config/behavior`) boots the
-  configuration page with 104 live parameters, verified in Chrome on the device.
+  configuration page with its live parameters, verified in Chrome on the device.
 - **`/api/status` reports the radio truthfully.** `wifiAssociated`, `wifiSignal`,
   `wifiOffline` and `ip` come from `network::publish_radio`, which runs on the
   1 s poll. The control task's own publish carries them **forward** rather than
@@ -120,7 +130,7 @@ page.
   `/api/sleep` move the machine. Three were broken and are fixed — a truncated
   setpoint, a backflush mode that could not be turned off, and an unknown
   `/api/` path answered `405` instead of the C++'s JSON `404`.
-  [`intentional-diffs.md` §30](./history/divergences.md).
+  [`divergences.md` [§33](history/divergences.md#d33)](./history/divergences.md).
 - **Wi-Fi provisioning over the UART console is exercised.** `just
   wifi-provision /dev/cu.usbserial-224140` stores the credential from `.env`,
   the machine reboots, associates at `10.0.1.168` and serves the API. The
@@ -130,19 +140,21 @@ page.
 - **The gate is green.** `just gate`: fmt-check, clippy (host and
   device) with `-D warnings`, rustdoc `-D warnings`, the host suite, the parity
   harness, the device-test audit, the Xtensa release build, and the size budget.
-  **1,700,992 B**, which fits the 1,835,008 B app0 slot with +134,016 B to spare
-  and is **+9.07 %** against `size-baseline.json`, inside the 10 % limit.
-  Re-measured 2026-10-05.
-- **The two firmware trees have not diverged by accident.** Zero lines changed in
-  `src/`, `include/`, `lib/`, `platformio.ini` or the root `partitions_4M.csv`
-  since the branch point `2006b710`. That is checkable:
-  `git diff --stat 2006b710..HEAD -- src/ include/ lib/ platformio.ini partitions_4M.csv`
-  prints nothing.
+  **1,701,904 B**, which fits the 1,835,008 B app0 slot with +133,104 B to spare
+  and is **+9.13 %** against `size-baseline.json`, inside the 10 % limit.
+  Re-measured 2026-10-06 with `just size-check`, which prints both numbers.
+- **The C++ tree was frozen while the port ran, and then deleted.** It stood
+  unchanged from branch point `2006b710` until it was removed on 2026-10-06
+  (`a36ebc50`, 248 files). That the deletion is what changed it is checkable:
+  `git diff --stat 2006b710..HEAD -- src/ include/ lib/ platformio.ini
+  partitions_4M.csv` reports **153 files changed, 29,023 deletions**, and every
+  one of them is the deletion.
 - **Every deliberate difference from the C++ is written down.**
-  [`34-known-differences.md`](./differences.md) is the
-  one-page index; [`intentional-diffs.md`](./history/divergences.md)
-  is the detail, and 5 machine-readable `ledger` blocks are what `just parity`
-  classifies against.
+  [`docs/differences.md`](differences.md) is the one-page index;
+  [`history/divergences.md`](history/divergences.md) is the detail, holding 34
+  sections and 5 machine-readable `ledger` blocks that `cc-parity` classifies
+  against. Every prose reference into it is anchored and machine-checked by
+  `scripts/check-divergence-refs.py`, so a renumber cannot silently rot one.
 
 ---
 
@@ -159,7 +171,7 @@ rather than from memory.
 - **`/api/ota/url` answers `501`.** The route is registered and says why:
   `cc-hal-esp32/src/web.rs:1917-1934`. The two upload endpoints and
   `/api/ota/status` **are** implemented and stricter than the C++'s — see
-  [`intentional-diffs.md` §28](./history/divergences.md). The URL
+  [`divergences.md` [§31](history/divergences.md#d31)](./history/divergences.md). The URL
   route needs an HTTP client and a second long-lived task, for something a
   browser upload already reaches.
 - **There is no bootloader rollback.**
@@ -171,9 +183,10 @@ rather than from memory.
   nonexistent network, and a pin cannot be shared on this HAL. GPIO32 — the C++'s
   own suggested alternative — is `PIN_HXDAT`. Moving it is a hardware change. The
   *rule* is implemented and tested; only the pin is absent.
-  [`intentional-diffs.md` §27](./history/divergences.md).
+  [`divergences.md` [§30](history/divergences.md#d30)](./history/divergences.md).
 - **The Acaia BLE scale is out of scope.** It was measured and does not fit; it
-  needs a decision. [`06-migration-task-list.md` R3-18](./archive/migration/06-migration-task-list.md).
+  needs a decision. Open in [`history/divergences.md`](history/divergences.md#d12)
+  (R3-18); the original task is [`archive/migration/06-migration-task-list.md`](archive/migration/06-migration-task-list.md).
   The HX711 **is** implemented, and no scale is fitted to the board.
 - **The OTA has not been exercised on hardware.** Verified by reading ESP-IDF
   v5.5.5, not on a board, and the bootloader's fallback-to-factory behaviour on a
@@ -198,7 +211,7 @@ rather than from memory.
   saying so, naming both namespaces and telling the operator to re-enter the
   SSID and password** (`cc_config::predecessor::startup_notice` for the words,
   `cc_hal_esp32::nvs::probe_predecessor` for the check). A deliberate migration
-  was declined: see [`intentional-diffs.md` §29](./history/divergences.md).
+  was declined: see [`divergences.md` [§32](history/divergences.md#d32)](./history/divergences.md).
   **The re-provisioning itself has now been exercised on hardware** (2026-10-05,
   a bench ESP32): `just wifi-provision` stores the credential, the machine
   reboots onto the network and serves the API. What is still unexercised is the
@@ -217,7 +230,7 @@ be filed and they are not fixed by the next green gate.
 2. **The parity classification is unmeasured.** Every "intentional difference"
    rests on reading the two codebases, not on running them side by side. With an
    empty baseline, an *undeclared* difference does not fail the harness today.
-   And `intentional-diffs.md` carries 5 `ledger` blocks against ~30 prose entries,
+   And `divergences.md` carries 5 `ledger` blocks against ~30 prose entries,
    so most differences would surface as unexplained even once a baseline exists.
    Treat "intentional" as *reviewed and reasoned*, not *measured*.
 3. **`FrameSlot` is verified by review, not by test.** It lives in `cc-firmware`,
@@ -249,7 +262,7 @@ be filed and they are not fixed by the next green gate.
    C++ too, so the behaviour was parity. I checked the oracle before changing
    it, which is the only reason this is item 10 and not a divergence nobody
    noticed. It is now a divergence **on request** — see
-   [`intentional-diffs.md` §31](./history/divergences.md) — and it
+   [`divergences.md` [§34](history/divergences.md#d34)](./history/divergences.md) — and it
    is verified only by measurement, because the call site is in `cc-firmware`
    and the device-test registry cannot reach it.
 ---

@@ -76,7 +76,7 @@ and not one.
 | `sensor` | `temperature_c`, `water_tank_full`, `has_temperature_error`, `has_scale_error`, `brew_weight` | a new sample → `Event::SensorUpdated`, and a `cc_safety::reduce` |
 | `config` | `set: { dotted.key: value }` | mutate `cc_config::Config` mid-run. The C++ equivalent is a `/api/parameters` write. |
 | `mqtt` | `command` — a `cc_machine::Command` name | a request from outside the switch layer → `Event::Command` |
-| `ota` | `action` (`begin`/`end`), `path` (for `begin`) | an OTA session. `begin` asserts the actuator gap is closed (see §7). |
+| `ota` | `action` (`begin`/`end`), `path` (for `begin`) | an OTA session. `begin` asserts the actuator gap is closed (see [§7](divergences.md#d07)). |
 
 `mqtt` is named for the C++'s transport but the *stimulus* is the request flag it
 sets, which is what both firmwares consume (`MQTTManager` and `WebServerManager` both
@@ -193,7 +193,7 @@ negation:
 - { kind: actuator_safe }
 ```
 
-`divergences.md` §1's sibling entry — the OTA gap — is the ledger entry that
+`divergences.md` [§1](divergences.md#d01)'s sibling entry — the OTA gap — is the ledger entry that
 declares this diff expected. A diff here is the fix working.
 
 ## 8. Where the files live
@@ -207,7 +207,7 @@ docs/history/
 └── divergences.md      the divergence ledger the runner consults
 ```
 
-A baseline is a canonicalised observation (§4) as JSON. The runner diffs
+A baseline is a canonicalised observation ([§4](divergences.md#d04)) as JSON. The runner diffs
 `rust/<name>.json` against `cpp/<name>.json`.
 
 **A scenario with no `baseline/cpp/` file has no C++ reference, and the runner says

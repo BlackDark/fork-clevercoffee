@@ -1,7 +1,9 @@
 # Outstanding findings
 
-**What was found during hardware bring-up and deliberately not fixed.**
-Recorded 2026-10-01; none of it had been fixed when it was written.
+**What was found during hardware bring-up.** Recorded 2026-10-01. Items #1 and
+#2 were fixed afterwards and are struck through; the rest were still open when
+this file was last written. Check the date on a row before acting on it — this is
+a record, not a live tracker.
 
 It lives in `history/` rather than in the runbook because none of it is a
 procedure. Nothing here is something you run before a release; it is what was
@@ -20,8 +22,8 @@ comparison is in [`cpp-behaviour-comparisons.md`](cpp-behaviour-comparisons.md).
 
 | # | What | Why it is not fixed | What is needed |
 | --- | --- | --- | --- |
-| 1 | **The Scale template's brew row erases the setpoint row.** Both are at `y = 26`; the brew row's inverted field is `78 x 10` at `(x + 50, y + 1)` and it erases the setpoint's label, value and `°C`. | The C++ has the identical collision, and both firmwares default `fullscreen_brew_timer` to false, so this is **live on a Scale-template machine during a brew**, not hidden. Every fix is a visible layout change: re-pitch the rows to `13 / 22 / 31 / 40 / 49`, or drop the row, or shrink the field — and the field cannot shrink, because both rows use the same value column. | A layout decision. The row map and the arithmetic are in [`../display/layout-rules.md`](../display/layout-rules.md) and in [`review-2026-10-03.md`](review-2026-10-03.md). |
-| 2 | **The Scale value column is 50 px and four labels are wider**, including English `Pressure: ` at 60 px. | Same family as #1, same "fixing it moves a screen somebody looks at". | The same decision. Measured widths are pinned by `tests/languages.rs`. |
+| 1 | ~~**The Scale template's brew row erases the setpoint row.**~~ | **FIXED**, by re-pitching the rows to `13 / 22 / 31 / 40 / 49`. [`divergences.md` §21](divergences.md#d21). The rows no longer collide and the setpoint survives a brew. | Closed. |
+| 2 | **The Scale value column is 50 px and four labels are wider**, including English `Pressure: ` at 60 px. | Same family as #1, and closed by the same change. Measured widths are pinned by `tests/languages.rs`. | Closed. |
 | 3 | **The EEPROM error line is 185 px into a 128 px panel** (57 px cut), in all three languages. | C++ parity: the same string, the same `displayMessage`, the same per-glyph clipping. | Shorter text, or wrapping into the five slots the call already leaves empty. Both are deliberate divergences. |
 | 4 | **The German sensor-error line is 153 px into 128** (25 px cut); English and Spanish are 111 px and fit. | C++ parity. | A shorter German string. |
 | 5 | **The OTA error title is 150 px in `fub17`, centred at `x = -11`** — clipped at *both* edges at once. | C++ parity, and no bounds test of any kind can detect it. | A smaller font for that screen, or a shorter title. |

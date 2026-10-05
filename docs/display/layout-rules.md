@@ -1,8 +1,13 @@
 # Modern OLED layout — font metrics and row map
 
-Hardware: **128×64** monochrome OLED, U8G2 with **`setFontPosTop()`** (`OledDriver::prepareDisplay()`).
+Hardware: **128×64** monochrome OLED, U8G2 with **`setFontPosTop()`**.
 
-Constants live in `include/clevercoffee/display/templates/ModernTemplate.h` (`ModernTemplateLayout` namespace). Layout helpers: `include/clevercoffee/display/DisplayLayoutUtils.h`.
+The constants live in `cc-display/src/templates/modern_layout.rs`. The C++ file
+they were transcribed from is gone; recover it with
+`git show 9fa8c834:include/clevercoffee/display/templates/ModernTemplate.h`,
+and the layout helpers with
+`git show 9fa8c834:include/clevercoffee/display/DisplayLayoutUtils.h`. Where a
+number here and a number there disagree, the Rust file is right.
 
 ## U8G2 font → pixel mapping
 

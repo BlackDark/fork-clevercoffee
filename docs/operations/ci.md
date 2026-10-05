@@ -30,8 +30,8 @@ the time a contributor waits is `device`, and everything else is runner-minutes.
 only `espup` installs. It compiles the firmware for Xtensa.
 
 The other five crates — `cc-domain`, `cc-safety`, `cc-config`, `cc-machine`,
-`cc-display` — are `#![no_std]` and touch no Xtensa pin. They are the 1,074 host
-tests, and they run in the `host` job on a **pinned stable** (`host_toolchain`
+`cc-display` — are `#![no_std]` and touch no Xtensa pin. Their tests are the host
+test suite, and they run in the `host` job on a **pinned stable** (`host_toolchain`
 in `.mise.toml`'s `[vars]`, installed by the workflow).
 
 Three things forced this apart, each learned the hard way:
@@ -170,7 +170,7 @@ Found by CI on a commit that was locally green, and now covered in-repo.
 | split the device job in two | ~30 s, at ~170 runner-s |
 | cache the host `target/` | 5.8 GB, 3.2 GB of it `debug/incremental`, ~20 s on a non-bottleneck |
 | drop the host job's UI block (duplicates `frontend.yml`) | 12 s, and it trades a real property — one workflow is the merge gate — for it |
-| split `just test` into a matrix | it is 11 s for 1,074 tests |
+| split `just test` into a matrix | it is seconds, not minutes |
 | pin `ubuntu-latest` → `ubuntu-24.04` everywhere | reproducibility, but GitHub's security updates land on `latest` |
 | delete the `refs/pull/N/merge` caches | worth doing (~5.8 GB is unrecoverable after merge) but it needs a deletion pass with a token, not a workflow edit |
 

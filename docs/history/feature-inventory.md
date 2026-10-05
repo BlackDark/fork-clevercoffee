@@ -15,7 +15,7 @@ Related documents:
 - [05 — Tooling & developer workflows](../archive/migration/05-tooling-and-workflows.md)
 - [06 — Migration task list](../archive/migration/06-migration-task-list.md)
 - Existing context: [`../state-machine-architecture.md`](../archive/cpp/state-machine-architecture.md),
-  [`../display-architecture.md`](../display/rendering.md),
+  [`../display/rendering.md`](../display/rendering.md),
   [`../adr/0003-state-machine-hardware-control-contract.md`](../adr/0003-state-machine-hardware-control-contract.md)
 
 ---

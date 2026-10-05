@@ -24,11 +24,11 @@ bug, so they are recorded with equal care.
 
 ---
 
-## 1. Both pump safety timeouts are armed 🔴 closed
+## 1. Both pump safety timeouts are armed 🔴 closed {#d01}
 
 | | |
 | --- | --- |
-| **Finding** | [09 §11](./cpp-findings.md#11-🔴-both-pump-safety-timeouts-are-dead-code) — "Both pump safety timeouts are dead code" |
+| **Finding** | [09 §11](./cpp-findings.md#cf11) — "Both pump safety timeouts are dead code" |
 | **Severity in the C++** | The most serious finding in 09. An unbounded pump run on a machine with a 2 kW boiler. |
 | **Test** | `cc-machine/tests/parity_findings.rs::div1_the_pump_timeouts_are_armed`, `::div1_the_watchdogs_re_arm_after_a_release` |
 
@@ -112,7 +112,7 @@ follow-up rather than smuggled in.
 
 ---
 
-## 2. The steam valve is whitelist-gated 🔴 added
+## 2. The steam valve is whitelist-gated 🔴 added {#d02}
 
 | | |
 | --- | --- |
@@ -203,7 +203,7 @@ disjoint**, and a test enforces it.
 
 ---
 
-## 3. The water valve is gated on the water tank 🔴 added
+## 3. The water valve is gated on the water tank 🔴 added {#d03}
 
 | | |
 | --- | --- |
@@ -243,7 +243,7 @@ configuration the machine must honour.
 
 ---
 
-## 4. The PID derivative is taken over the real elapsed time 🔴 fixed
+## 4. The PID derivative is taken over the real elapsed time 🔴 fixed {#d04}
 
 | | |
 | --- | --- |
@@ -342,7 +342,7 @@ oracle to agree with the port.**
 
 ---
 
-## 5. ~~The heater is driven by LEDC, not a 10 ms ISR~~ — superseded by #9 🔴 reversed
+## 5. ~~The heater is driven by LEDC, not a 10 ms ISR~~ — superseded by #9 🔴 reversed {#d05}
 
 | | |
 | --- | --- |
@@ -354,7 +354,7 @@ oracle to agree with the port.**
 The text below is left as the record of what R1-07 decided and why, because the
 *reason* is still correct and the next person to look at the heater needs it.
 
-## Preserved C++ behaviours — do not "fix" these
+## Preserved C++ behaviours — do not "fix" these {#preserved}
 
 **Deliberately unnumbered, because these are not divergences.** The numbered
 sections below are places this firmware does something *different*; this one is
@@ -383,7 +383,7 @@ These are C++ bugs the port **reproduces on purpose**. A diff at any of these is
 
 ---
 
-## 6. `cc-display` does not implement `embedded-graphics::DrawTarget` 🟡 open
+## 6. `cc-display` does not implement `embedded-graphics::DrawTarget` 🟡 open {#d06}
 
 | | |
 | --- | --- |
@@ -459,7 +459,7 @@ Recorded here so the file is complete; each was decided in its own task.
 
 ---
 
-## 7. R1-03 / R3-07: both temperature sensors are implemented 🔴 changed
+## 7. R1-03 / R3-07: both temperature sensors are implemented 🔴 changed {#d07}
 
 | | |
 | --- | --- |
@@ -576,7 +576,7 @@ the module** and it is unresolved for want of hardware.
 
 * **The fault is named, not folded.** All six `DallasTemperature` faults arrive at
   `TempSensorDallas` as `-127` (see
-  [`09 §17`](./cpp-findings.md#17-) — corrected in this pass), and the C++
+  [`09 §17`](./cpp-findings.md#cf17) — corrected in this pass), and the C++
   reports all six as *"Temperature sensor not connected"*. The **decision** is
   identical; the diagnostic is not. Tests:
   `onewire::div7_every_ds18b20_fault_is_rejected_by_the_cpp`,
@@ -585,11 +585,11 @@ the module** and it is unresolved for want of hardware.
 
 ---
 
-## 8. The Dallas temperature path applies `isValidTemperature`'s range 🔴 added
+## 8. The Dallas temperature path applies `isValidTemperature`'s range 🔴 added {#d08}
 
 | | |
 | --- | --- |
-| **Finding** | [09 §18](./cpp-findings.md#18-) — `TempSensor::isValidTemperature` is dead and the DS18B20 path has no range check |
+| **Finding** | [09 §18](./cpp-findings.md#cf18) — `TempSensor::isValidTemperature` is dead and the DS18B20 path has no range check |
 | **Test** | `cc_domain::sensor::ds18b20::div8_the_dallas_path_applies_the_range_check_it_never_applied`, `::div8_the_two_ranges_overlap_only_between_zero_and_a_hundred_and_fifty`, `::div8_only_the_cold_end_of_the_ds18b20s_range_is_now_refused`, `::div8_a_reading_outside_the_range_is_a_read_failure_not_a_hot_temperature` |
 
 ### What the C++ does
@@ -657,11 +657,11 @@ The constant is shared with the TSIC-506 (`ZACwire.cpp:62-63` switches formula o
 
 ---
 
-## 9. The heater is chopped by a 10 ms `GPTimer` ISR, not by LEDC 🔴 changed
+## 9. The heater is chopped by a 10 ms `GPTimer` ISR, not by LEDC 🔴 changed {#d09}
 
 | | |
 | --- | --- |
-| **Finding** | [09 §17](./cpp-findings.md#17-) — the original ESP32 cannot use LEDC at a low carrier |
+| **Finding** | [09 §17](./cpp-findings.md#cf17) — the original ESP32 cannot use LEDC at a low carrier |
 | **Test** | `cc_domain::heater::isr_tests::*` (13 tests), `cc_domain::heater::atomic_chopper_tests::*` (7), `cc_domain::heater::transport_tests::*` (5) |
 
 ### What the C++ does
@@ -794,7 +794,7 @@ measurement against a dummy load is still **not** done and **R1-07 stays open**.
 
 ---
 
-## 10. R3-05: the ABP2 read no longer blocks, and checks what the C++ ignores 🔴 changed
+## 10. R3-05: the ABP2 read no longer blocks, and checks what the C++ ignores 🔴 changed {#d10}
 
 | | |
 | --- | --- |
@@ -838,7 +838,7 @@ Three things, all of them wrong in the same direction:
 
 This is one of the only two real performance wins in the migration (the other is
 R1-07's LEDC carrier, which is currently blocked — see
-[`cpp-findings.md` §17](./cpp-findings.md#17-)). A plausible pressure built
+[`cpp-findings.md` §17](./cpp-findings.md#cf17)). A plausible pressure built
 from bytes the sensor never sent would flow into the brew pressure control.
 
 ### Known, and deliberately not changed
@@ -913,7 +913,7 @@ transcriptions:
 
 ---
 
-## 11. MQTT actually runs 🔴 changed
+## 11. MQTT actually runs 🔴 changed {#d11}
 
 | | |
 | --- | --- |
@@ -1053,7 +1053,7 @@ claim about what the broker sees is derived from the C++ and from
 
 ---
 
-## 12. R3-17 / R3-18: scale support exists at all 🔴 new
+## 12. R3-17 / R3-18: scale support exists at all 🔴 new {#d12}
 
 `config` already carries `hardware.sensors.scale.*` (enabled, type, calibration,
 calibration2, samples, known_weight) and `cc-display` already has the scale templates, so
@@ -1083,7 +1083,7 @@ accident.
 
 ---
 
-## 13. The device's default hostname is `test-cc-rust`, not `silvia` 🔴 changed
+## 13. The device's default hostname is `test-cc-rust`, not `silvia` 🔴 changed {#d13}
 
 **Decided 2026-09-29 by the human**, replacing the C++ default in
 `include/clevercoffee/defaults.h:14` (`#define HOSTNAME "silvia"`).
@@ -1115,7 +1115,7 @@ firmwares and changing it in one would break a config the other reads.
 
 ---
 
-## 14. The four operator switches default to `enabled: true`, not `false` 🔴 changed
+## 14. The four operator switches default to `enabled: true`, not `false` 🔴 changed {#d14}
 
 **Decided 2026-09-30 by the human**, who owns the machine, after pressing the switches
 and finding that nothing happened.
@@ -1180,7 +1180,7 @@ floating-input risk was resolved. It is not resolved.
 
 ---
 
-## 15. `/api/ota/status` sends `status` as a string, not an integer 🔴 changed
+## 15. `/api/ota/status` sends `status` as a string, not an integer 🔴 changed {#d15}
 
 OTA itself is deferred to R3-15 and nothing here implements it. What is registered is the
 **route**, because the UI has an OTA tab and a `404` is indistinguishable from a firmware
@@ -1218,14 +1218,14 @@ route exists and this build declines to implement it, which is what 501 means.
 
 ---
 
-## 16. A request to sleep is honoured with the PID disabled 🔴 changed
+## 16. A request to sleep is honoured with the PID disabled 🔴 changed {#d16}
 
 **Closed 2026-09-30** by the human's decision, after the human found it by using
 the UI: `POST /api/sleep` answered `202 {"accepted":true}`, the command reached the
 machine (`control: command Sleep`), and the state never left `PID_DISABLED`.
 
 The C++ cannot do this. Two defects compose — see
-[09 §25](./cpp-findings.md#25-rr-a-request-to-sleep-is-silently-dropped-whenever-the-pid-is-off):
+[09 §25](./cpp-findings.md#cf25):
 
 * `PidDisabledState::update` clears `requestStandby_` via `clearAllActionRequests()`
   (`MachineStateContext.h:626`) **before** `checkTransitions` runs;
@@ -1261,7 +1261,7 @@ Three pins in `parity_findings.rs` (`div13_*`) hold both halves: the request is
 honoured, it is **consumed** on the transition that acted on it, and waking still
 works — so closing this does not make standby a one-way door.
 
-## 17. The status bar's uptime and `°C` column are laid out from the frame edge, not from a fixed x 🔴 changed
+## 17. The status bar's uptime and `°C` column are laid out from the frame edge, not from a fixed x 🔴 changed {#d17}
 
 **What changed.** Two numbers on the Standard (and Minimal, and Scale) template.
 
@@ -1294,7 +1294,7 @@ reserved fixed width — win over matching a layout that clips.
 set) differ **only** by these two columns; every other pixel is where it was.
 
 
-## 18. The inverted value field closes on the frame, and the `°C` unit is placed by its ink 🔴 changed
+## 18. The inverted value field closes on the frame, and the `°C` unit is placed by its ink 🔴 changed {#d18}
 
 **What changed.** Two numbers on the Standard and Minimal templates.
 
@@ -1343,7 +1343,7 @@ a **64 logical pixel**-wide panel received 111 px of ink and 91 px of it was
 dropped. Restored for all three languages.
 
 
-## 19. S1's over-temperature debounce counts probe *samples*, not control ticks 🔴 changed
+## 19. S1's over-temperature debounce counts probe *samples*, not control ticks 🔴 changed {#d19}
 
 **What changed.** `cc_safety::Telemetry` gained a `sample_seq`, and `reduce`
 advances the debounce **only when it changes**. `Sensors` carries the same
@@ -1376,7 +1376,7 @@ times stays at one count and does not latch, and three *distinct* samples do; pl
 one for the trap in the other direction — after `clear()`, a sample that is still
 over threshold must count again, so a recovery is not swallowed.
 
-## 20. The reboot request now shuts the hardware down before the 500 ms pause 🔴 changed
+## 20. The reboot request now shuts the hardware down before the 500 ms pause 🔴 changed {#d20}
 
 `POST /api/restart` did `delay_ms(500)` **inside the control task** and then
 reset. For those 500 ms the loop was not running: no heartbeat, no watchdog feed,
@@ -1386,7 +1386,7 @@ said why; this one did not. It now applies `Effect::SafeHardwareShutdown` throug
 `apply_one` before the pause, exactly as its sibling does.
 
 
-## 21. The Scale template's five rows are re-pitched; the setpoint no longer disappears during a brew 🔴 changed
+## 21. The Scale template's five rows are re-pitched; the setpoint no longer disappears during a brew 🔴 changed {#d21}
 
 **What changed.** The Scale template's content rows move from the C++'s
 `16 / 26 / 26 / 36 / 46` to **`13 / 22 / 31 / 40 / 49`**.
@@ -1431,7 +1431,7 @@ value covers the setpoint's too.
 
 ---
 
-## 22. `/api/config/upload` exists, and takes `application/json` 🔴 new
+## 22. `/api/config/upload` exists, and takes `application/json` 🔴 new {#d22}
 
 **What the C++ does.** `WebServerManager.cpp:725-762` registers
 `AsyncURIMatcher::exact("/api/config/upload")` for `HTTP_POST` with an
@@ -1496,7 +1496,7 @@ On the wire: `cc-hal-esp32::web::tests::the_config_upload_route_is_registered`,
 `::the_upload_response_is_the_cpp_shape`,
 `::the_upload_body_is_bounded_and_the_cap_is_the_cpps`.
 
-## 23. HTTP Basic authentication is implemented, and is boot-time 🔴 new
+## 23. HTTP Basic authentication is implemented, and is boot-time 🔴 new {#d23}
 
 **What the C++ does.** `WebServerManager::setupMiddleware`
 (`WebServerManager.cpp:272-296`) installs `AsyncCorsMiddleware` and, when
@@ -1563,7 +1563,7 @@ of this work where "untested" means "ships a machine that opens or locks itself"
 and it is `no_std`, allocation-free and covered by `just test` on the host. The
 wiring is pinned by `cc-hal-esp32::web::tests::auth_*` (device-only).
 
-## 24. `/api/status` reports `steamMode`, and keeps `brewing` as an addition 🔴 changed
+## 24. `/api/status` reports `steamMode`, and keeps `brewing` as an addition 🔴 changed {#d24}
 
 **What the C++ does.** `doc["steamMode"] = systemContext_->steamMode()`
 (`WebServerManager.cpp:359`).
@@ -1601,7 +1601,7 @@ value before the command was applied.
 `cc-hal-esp32::web::tests::steam_mode_is_the_latched_steam_flag_and_not_the_brew_state`
 and `::the_status_steam_mode_agrees_with_the_steam_toggle_response` (device-only).
 
-## 25. CORS preflight is answered; the C++'s per-response `Access-Control-Allow-Origin: *` is not 🔴 changed
+## 25. CORS preflight is answered; the C++'s per-response `Access-Control-Allow-Origin: *` is not 🔴 changed {#d25}
 
 **What the C++ does.** `AsyncCorsMiddleware` with `setOrigin("*")`,
 `setMethods("GET,POST,PUT,DELETE,OPTIONS")` and
@@ -1638,7 +1638,7 @@ permanently and confusingly.
 (device-only), which fails if the advertised `Options` entry is anything other
 than the one real wildcard.
 
-## 26. `POST /api/setpoint` takes the schema's bound, and the brew pair is cross-checked 🔴 changed
+## 26. `POST /api/setpoint` takes the schema's bound, and the brew pair is cross-checked 🔴 changed {#d26}
 
 **What the C++ does.** `WebServerManager.cpp:391-402` filters the field to
 `0.0..=150.0`, applies `setProcessSetpoint` to the **running** machine, and then
@@ -1691,7 +1691,7 @@ discard), plus
 `cc-hal-esp32::web::tests::the_setpoint_route_{takes_what_the_schema_will_store,refuses_a_value_that_would_defeat_the_interlock}`
 (device-only, registered in `CASES`).
 
-## 27. `brew.by_weight` stops the shot, and is refused where nothing can 🔴 changed
+## 27. `brew.by_weight` stops the shot, and is refused where nothing can 🔴 changed {#d27}
 
 **What the C++ does.** `BrewRunningState::checkSpecificTransitions`
 (`BrewStates.cpp:266-303`) ends an automatic shot on `brew.by_time` (whose
@@ -1762,7 +1762,7 @@ the relay rules, `check_storable`, and the load-time discard.
 `cc-parity::run::tests::the_safety_view_mapping_is_the_one_the_driver_uses`
 carries the four new fields so a rename in `cc-config` cannot silently drop them.
 
-## 28. `pid.regular.i_max = 0` disables integral action 🔴 changed
+## 28. `pid.regular.i_max = 0` disables integral action 🔴 changed {#d28}
 
 **What the C++ does.** `ProcessController::setPIDTunings`
 (`ProcessController.cpp:203-218`) computes `Ki = Kp / Tn` — with no reference to
@@ -1794,7 +1794,7 @@ boiler is the thing being regulated.
 next to `a_zero_tn_gives_a_zero_ki_rather_than_a_division_by_zero`, which is the
 rule this one joins.
 
-## 29. The water valve's interlock consults S5's whitelist too 🔴 added
+## 29. The water valve's interlock consults S5's whitelist too 🔴 added {#d29}
 
 **What the C++ does.** `HardwareManager::openWaterValve`
 (`HardwareManager.cpp:404-419`) checks only `emergencyMode_`, exactly as
@@ -1838,7 +1838,7 @@ was corrected with it: `PID_NORMAL` is not a water state either.
 
 ---
 
-## 30. The steam LED is not driven: GPIO1 is the provisioning console's 🔴 known deviation
+## 30. The steam LED is not driven: GPIO1 is the provisioning console's 🔴 known deviation {#d30}
 
 | | |
 | --- | --- |
@@ -1976,7 +1976,7 @@ gate is its own. The absence of the pin is checked the only way it can be —
 a `const fn`, so a future edit that adds one back **fails the build** with the
 duplicate-pin assertion naming it.
 
-## 28 — OTA is implemented, and is stricter than the C++ in three ways
+## 31 — OTA is implemented, and is stricter than the C++ in three ways {#d31}
 
 R3-15, finding 3.3 of [`review-2026-10-03.md`](./review-2026-10-03.md).
 Requirement **S8** of
@@ -2160,7 +2160,7 @@ true.
 
 ---
 
-## 29 — A first boot on a C++-flashed machine says so, once 🔴 added
+## 32 — A first boot on a C++-flashed machine says so, once 🔴 added {#d32}
 
 Finding 3.6 of [`review-2026-10-03.md`](./review-2026-10-03.md).
 
@@ -2254,7 +2254,7 @@ has. **Detection plus one sentence is the whole of this.**
 
 ---
 
-## 30 — Three defects the C++ does not have, found on a bench ESP32 🔴 changed
+## 33 — Three defects the C++ does not have, found on a bench ESP32 🔴 changed {#d33}
 
 All three were found by running
 [`integration-checklist.md`](../operations/runbook.md) against a
@@ -2312,7 +2312,7 @@ changing it is recorded at §31.
 
 ---
 
-## 31 — A PID gain written at runtime takes effect on the next tick 🔴 changed
+## 34 — A PID gain written at runtime takes effect on the next tick 🔴 changed {#d34}
 
 **The C++ deliberately does not do this**, and this is the one item here that is
 a decision rather than a defect.

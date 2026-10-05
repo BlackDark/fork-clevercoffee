@@ -569,6 +569,7 @@ check:
 doc-links:
     @python3 scripts/check-doc-links.py
     @python3 scripts/check-openapi.py .
+    @python3 scripts/check-divergence-refs.py .
 
 # Every screen on every template, as one PNG contact sheet. Host only, no
 # hardware: `just screens` then open the file. This is the check a golden image

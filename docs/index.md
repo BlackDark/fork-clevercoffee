@@ -22,7 +22,7 @@ this page, not in your question.
 | Document | What it is for | Read it if |
 | --- | --- | --- |
 | [`AGENTS.md`](../AGENTS.md) | **The rulebook.** Numbered, scoped rules (`AG-REPO-*`, `AG-DISPLAY-*`, `AG-RUST-*`). Citable, never restated. | Before you change anything. |
-| [`CLAUDE.md`](../CLAUDE.md) | A five-line pointer to `AGENTS.md`, deliberately. | Your tool looks for it. Nothing else. |
+| [`CLAUDE.md`](../CLAUDE.md) | A pointer to `AGENTS.md` and nothing else, deliberately. | Your tool looks for it. Nothing else. |
 | [`CONTRIBUTING.md`](../CONTRIBUTING.md) | Formatting, the gates, and the pre-commit setup. | You are about to open a pull request. |
 
 ## Changing behaviour
@@ -33,6 +33,16 @@ this page, not in your question.
 | [`docs/history/divergences.md`](history/divergences.md) | The ledger in full: for each divergence, the C++'s behaviour, the port's, the reasoning, and what pins it. **Read by `cc-parity` at a hard-coded path — do not move it or split out its `ledger` blocks.** | You are justifying a behaviour change and need the reasoning, not the summary. |
 | [`docs/config/reference.md`](config/reference.md) | Every configuration key, its type, range, default and bounds. | You need a parameter name or what it may be set to. |
 
+## Architecture decisions
+
+Cross-cutting. Each records a decision that outlived the port, and what was
+rejected.
+
+| Document | What it is for | Read it if |
+| --- | --- | --- |
+| [`docs/adr/0001-display-subsystem-architecture.md`](adr/0001-display-subsystem-architecture.md) | Accepted: one render pipeline, shared defaults with template overrides, one source of truth for thresholds. | You want the *why* behind the display structure. |
+| [`docs/adr/0002-wifi-logging-ota-memory-architecture.md`](adr/0002-wifi-logging-ota-memory-architecture.md) | Accepted: Wi-Fi logging, OTA admission, and the memory budget. | You are touching networking, OTA, or the heap. |
+
 ## By subsystem
 
 **Control** — the state machine, the PID, and what is allowed to move water.
@@ -40,9 +50,6 @@ this page, not in your question.
 | Document | What it is for | Read it if |
 | --- | --- | --- |
 | [`docs/control/state-machine.md`](control/state-machine.md) | The 18 states and what each energises, what a tick actually is, and the checklist for adding a state. | You are changing what the machine does next. |
-| [`docs/adr/0003-state-machine-hardware-control-contract.md`](adr/0003-state-machine-hardware-control-contract.md) | Accepted: the pump, valve and heater ownership contract. Energise on entry, reinforce on update, release on exit. | **Adding a state, or touching anything that moves water.** |
-| [`docs/adr/0002-wifi-logging-ota-memory-architecture.md`](adr/0002-wifi-logging-ota-memory-architecture.md) | Accepted: Wi-Fi logging, OTA admission, and the memory budget. | You are touching networking, OTA, or heap. |
-
 **Display** — the 128×64 panel. Layout rules are `AG-DISPLAY-1` through `AG-DISPLAY-6` and are blocking.
 
 | Document | What it is for | Read it if |
@@ -51,8 +58,6 @@ this page, not in your question.
 | [`docs/display/layout-rules.md`](display/layout-rules.md) | The binding layout rules: font to pixel mapping, fixed-width numeric fields, the row maps, bar and label pairing. | You are placing pixels. |
 | [`docs/display/rendering.md`](display/rendering.md) | How the Rust renderer works: frame lifecycle, I²C chunking, shared versus template ownership. | You need to know when a frame reaches the panel. |
 | [`docs/display/parity.md`](display/parity.md) | The display checks, what each caught, and plainly what they do **not** prove. | You are about to claim the display is correct, or regenerate a golden. |
-| [`docs/adr/0001-display-subsystem-architecture.md`](adr/0001-display-subsystem-architecture.md) | Accepted: one render pipeline, shared defaults with template overrides, one source of truth for thresholds. | You want the *why* behind the display structure. |
-
 **Hardware** — pins, relays and buses.
 
 | Document | What it is for | Read it if |
@@ -123,12 +128,13 @@ is moved there, never deleted, and never merged into a live document.
 ## Not documentation — read by code or CI, do not move
 
 Moving any of these is a build or CI break, not a link cleanup (`AG-REPO-30`,
-`AG-REPO-31`).
+`AG-REPO-31`). `history/divergences.md` is in this category and has its own row
+above; `history/scenarios/` and `history/baseline/` likewise have rows in the
+history table. Nothing below is linked twice.
 
 | Path | Who reads it |
 | --- | --- |
 | [`docs/example_config.json`](example_config.json) | A working configuration, imported unchanged by `cc-config`'s test. |
-| [`docs/history/divergences.md`](history/divergences.md) | Parsed by `cc-parity` for its `ledger` blocks. |
 | [`docs/history/scenarios/`](history/scenarios) | The scenario set, read by `cc-parity`. |
 | [`docs/history/baseline/`](history/baseline) | Where a C++ baseline would go. **Deliberately empty**; the README says why. |
 | [`docs/history/size-baseline.json`](history/size-baseline.json) · [`size-records.jsonl`](history/size-records.jsonl) | The image-size budget, read by `just/size.just`. Never read these by eye. |

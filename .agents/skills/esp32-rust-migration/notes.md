@@ -10,7 +10,7 @@ blocked.
 
 > ⚠ **Updated 2026-09-29.** The table below supersedes the 2026-09-28 entry. If you are
 > reading a task description and assuming it is done because it sounds finished, check
-> [README §Where the migration actually is](../../../docs/history/README.md#where-the-migration-actually-is).
+> [README §Where the migration actually is](../../../docs/history/README.md#where-it-is-now).
 
 | Field | Value |
 | --- | --- |

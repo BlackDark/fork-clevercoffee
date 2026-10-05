@@ -48,27 +48,30 @@ from the C++. "Deliberately" is the operative word. Each one is recorded in
 [`docs/history/divergences.md`](docs/history/divergences.md) with the C++'s
 behaviour, this one's, and the reasoning.
 
-**Ledger** — the machine-readable half of the divergence record: a set of
-declarations, each naming the prose section it belongs to and the diff lines it
-explains. It lives *inside* the prose document rather than beside it, so it
-cannot drift from the reasoning it claims to encode. `cc-parity` reads it, and
-an unexplained diff fails the build.
+**Ledger** — the machine-readable half of the divergence record: 5 fenced blocks
+inside `divergences.md`, each declaration naming the prose section it belongs to
+and the diff lines it explains. It lives *inside* the prose rather than beside
+it, so it cannot drift from the reasoning it claims to encode. `cc-parity` reads
+it; with an empty baseline there is nothing yet for it to classify.
 
-**Parity** — equivalence with the C++ on a committed set of scenarios. Parity is
-measured, not asserted: see [`docs/history/scenario-format.md`](docs/history/scenario-format.md).
-The C++ baseline is empty, so **parity has never actually been demonstrated on
-this machine.** What the harness does today is prove the Rust scenarios still
-run and the ledger is still readable.
+**Parity** — equivalence with the C++ on a committed set of scenarios. **It has
+never been demonstrated on this machine.** Capturing a baseline means flashing
+the C++ onto a powered, wired machine, and the owner declined; `docs/history/baseline/cpp/`
+is deliberately empty. The scenarios run and the ledger is readable, but an
+undeclared difference does **not** fail anything today, because there is no
+reference to differ from. See
+[`docs/differences.md`](docs/differences.md) for what that costs.
 
 **Scenario** — one named, reproducible situation fed to the reducer: a cold
 boot, a sensor read, a heater-gate check. Each records one *observation*, a
 short structured description of what the machine did.
 
 **Oracle** — historically, the frozen C++ tree that new behaviour was compared
-against. The C++ is gone, so the word survives in only two places: the *display
-oracle*, a C++ harness that links the real U8g2 so the Rust renderer can be
-checked against it, and [`docs/history/recovered-oracle.md`](docs/history/recovered-oracle.md),
-a Rust firmware recovered from a flash dump whose source never existed.
+against. The C++ is gone, so the word survives in two places, neither of them
+that: the *display oracle*, a C++ harness that links the real U8g2 so the Rust
+renderer can be checked against it, and
+[`docs/history/recovered-oracle.md`](docs/history/recovered-oracle.md), a
+different Rust firmware recovered from a flash dump whose source never existed.
 
 ## The safety layer
 

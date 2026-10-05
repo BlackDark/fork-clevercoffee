@@ -127,7 +127,7 @@ this design than anything else.
 | `cc-firmware` | boot order and the 10 ms task | logic of its own |
 
 `cc-web` and `cc-mqtt` are pure functions of a telemetry snapshot, which is why
-they have hundreds of host tests for an application that runs on one microcontroller.
+they can be unit tested for an application that runs on one microcontroller.
 
 ## Tools that are not firmware
 

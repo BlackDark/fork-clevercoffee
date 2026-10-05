@@ -8,7 +8,7 @@ Each becomes a line in [`divergences.md`](./divergences.md) (R1-08) when the
 Rust behaviour intentionally diverges.
 
 > **Updated 2026-09-28 (R1-07 + safety-gap work).** Four findings have since been
-> **closed on purpose** — §1, §2, §3 and §11 — and each now has a `div<N>_` test
+> **closed on purpose** — [§1](divergences.md#d01), [§2](divergences.md#d02), [§3](divergences.md#d03) and [§11](divergences.md#d11) — and each now has a `div<N>_` test
 > instead of an `s<N>_` one. The text below is left as the record of what the C++
 > does; the divergence and its reasoning live in
 > [`divergences.md`](./divergences.md). A `div<N>_` test replaces its
@@ -16,18 +16,18 @@ Rust behaviour intentionally diverges.
 >
 > | finding | closed by | test |
 > | --- | --- | --- |
-> | §1 integer division by zero | [intentional-diffs #4](./divergences.md#4-the-pid-derivative-is-taken-over-the-real-elapsed-time-🔴-fixed) | `cc-domain::pid_parity::scenario_d_the_cpp_goes_nan_and_this_port_does_not` |
-> | §2 no steam-valve whitelist | [intentional-diffs #2](./divergences.md#2-the-steam-valve-is-whitelist-gated-🔴-added) | `cc-machine::parity_findings::div2_the_steam_valve_is_whitelist_gated` |
-> | §3 water valve not tank-gated | [intentional-diffs #3](./divergences.md#3-the-water-valve-is-gated-on-the-water-tank-🔴-added) | `cc-machine::parity_findings::div3_the_water_valve_is_tank_gated` |
-> | §11 pump timeouts dead | [intentional-diffs #1](./divergences.md#1-both-pump-safety-timeouts-are-armed-🔴-closed) | `cc_machine::parity_findings::div1_the_pump_timeouts_are_armed` |
+> | [§1](divergences.md#d01) integer division by zero | [divergences #4](./divergences.md#d04) | `cc-domain::pid_parity::scenario_d_the_cpp_goes_nan_and_this_port_does_not` |
+> | [§2](divergences.md#d02) no steam-valve whitelist | [divergences #2](./divergences.md#d02) | `cc-machine::parity_findings::div2_the_steam_valve_is_whitelist_gated` |
+> | [§3](divergences.md#d03) water valve not tank-gated | [divergences #3](./divergences.md#d03) | `cc-machine::parity_findings::div3_the_water_valve_is_tank_gated` |
+> | [§11](divergences.md#d11) pump timeouts dead | [divergences #1](./divergences.md#d01) | `cc_machine::parity_findings::div1_the_pump_timeouts_are_armed` |
 >
-> §4, §5, §6, §7, §12–§16 remain **preserved** and are listed in the
+> [§4](divergences.md#d04), [§5](divergences.md#d05), [§6](divergences.md#d06), [§7](divergences.md#d07), [§12](divergences.md#d12)–[§16](divergences.md#d16) remain **preserved** and are listed in the
 > "Preserved C++ behaviours" table of
-> [`divergences.md`](./divergences.md#preserved-cpp-behaviours--do-not-fix-these).
+> [`divergences.md`](divergences.md#preserved).
 
 ---
 
-## 1. `PID_v1.cpp:85` — integer division by zero when `SampleTime < 1000`
+## 1. `PID_v1.cpp:85` — integer division by zero when `SampleTime < 1000` {#cf1}
 
 ```cpp
 dInput = (lastFilteredInput - oldFiltered) / (SampleTime / 1000);
@@ -49,11 +49,11 @@ cannot step on it.
   `f64`, so the trap cannot occur at any window. Scenarios A–C of the PID oracle are
   still bit-identical to the C++; scenario D is retained *as the C++'s `NaN`* and the
   divergence is asserted. See
-  [`divergences.md` #4](./divergences.md#4-the-pid-derivative-is-taken-over-the-real-elapsed-time-🔴-fixed).
+  [`divergences.md` #4](./divergences.md#d04).
 - The `Controller::derivative_seconds` / `derivative_seconds_at` pair keeps the trap
   documented.
 
-## 2. The steam valve has no safety whitelist at all
+## 2. The steam valve has no safety whitelist at all {#cf2}
 
 `BrewHandler::valveSafetyShutdownCheck()` (S5) gates the **water** valve on an explicit
 state whitelist. `openSteamValve()` (`HardwareManager.cpp:397-400`) checks **only**
@@ -66,12 +66,12 @@ So the steam valve can be commanded open in any state, while the water valve can
   `steamValveSafetyShutdownCheck` in the reducer's tail. Pinned by
   `div2_the_steam_valve_is_whitelist_gated`, which **replaced**
   `s5_the_steam_valve_is_not_whitelist_gated`. See
-  [`divergences.md` #2](./divergences.md#2-the-steam-valve-is-whitelist-gated-🔴-added)
+  [`divergences.md` #2](./divergences.md#d02)
   for the derivation from the C++.
 - This was a real safety gap, not a port artifact: steam and water share **one relay**
   (`ValveState.h:8-11`), so an ungated steam valve is an ungated water valve.
 
-## 3. The water valve is not gated on an empty tank
+## 3. The water valve is not gated on an empty tank {#cf3}
 
 Only `enablePump` and `setPumpPressure` check `waterTankEmpty_`
 (`HardwareManager.cpp:325-328, 398-406`). `openWaterValve` does not.
@@ -80,9 +80,9 @@ Only `enablePump` and `setPumpPressure` check `waterTankEmpty_`
   be full as well as the state to be on the S5 whitelist. Pinned by
   `div1_s4_empty_tank_blocks_the_water_valve_too` and
   `div3_the_water_valve_is_tank_gated`. See
-  [`divergences.md` #3](./divergences.md#3-the-water-valve-is-gated-on-the-water-tank-🔴-added).
+  [`divergences.md` #3](./divergences.md#d03).
 
-## 4. S1 keeps heating through the debounce window
+## 4. S1 keeps heating through the debounce window {#cf4}
 
 Emergency stop needs three consecutive readings above the threshold. At the production
 400 ms sensor interval the heater stays energised for up to ~800 ms while already above
@@ -92,7 +92,7 @@ the emergency temperature.
   reading above the threshold and use the debounce only for recovery, or reduce the
   interval. Deliberate divergence.
 
-## 5. Two dead "145 °C" constants; the live default is 150 °C
+## 5. Two dead "145 °C" constants; the live default is 150 °C {#cf5}
 
 `constants/Temperature.h:6-7` defines `EMERGENCY_THRESHOLD_C = 145.0` and
 `EMERGENCY_RESET_THRESHOLD_C = 120.0`. **Neither is read anywhere.** The live value is
@@ -101,7 +101,7 @@ The test suite's "145" is a fixture that sets it explicitly.
 
 - Rust: uses **150.0**, matching the live behaviour, not the dead constant.
 
-## 6. The anti-windup dead band can freeze the integrator
+## 6. The anti-windup dead band can freeze the integrator {#cf6}
 
 `PID_v1.cpp:70` accumulates only when the previous output is strictly inside
 `(outMin+0.01, outMax-0.01)`. With production limits `(0, 1000)` and a start-up output
@@ -109,7 +109,7 @@ of `0.0`, the integrator cannot accumulate until the output leaves the exact bou
 
 - Rust: preserved. Consider a follow-up; not a migration concern.
 
-## 7. The shipped PID gains look like bang-bang control
+## 7. The shipped PID gains look like bang-bang control {#cf7}
 
 `kd = Tv*Kp = 11.5*62 = 713`, rescaled by `SetSampleTime(1000)` to ~7130 ms⁻¹. A 3.1 °C
 change in the EMA-filtered input moves the D term by ~22 000 against a 1000-wide output
@@ -119,7 +119,7 @@ window. The parity vector shows the output alternating `1000 → 0 → 0 → …
   Flagged because the machine may effectively be running on/off control rather than PID,
   which is worth someone's attention independent of the port.
 
-## 8. Config validation is per-parameter only
+## 8. Config validation is per-parameter only {#cf8}
 
 `Config.h::isValid` is a pure range check, so `steam.setpoint = 140` with
 `safety.emergency_temp = 120` is accepted — a machine that cannot be steamed.
@@ -127,7 +127,7 @@ window. The parity vector shows the output alternating `1000 → 0 → 0 → …
 - Rust: adds the oracle's **cross-parameter** rule in `cc_safety::validate_config`.
   Defaults are safe by 10 °C of margin; range maxima leave 25 °C.
 
-## 9. Eight string-length constants in `defaults.h:118-125` are never enforced
+## 9. Eight string-length constants in `defaults.h:118-125` are never enforced {#cf9}
 
 `Config.h::isValid` returns `true` unconditionally for `String`, so a 4 KB hostname is
 accepted and handed to `WiFi.setHostname()`.
@@ -135,7 +135,7 @@ accepted and handed to `WiFi.setHostname()`.
 - Rust: **not enforced** (enforcing it would reject configs the production firmware
   accepts). `json::MAX_TEXT_LEN = 4096` is a loose storage bound only.
 
-## 10. Duplicate `order` value in the config schema
+## 10. Duplicate `order` value in the config schema {#cf10}
 
 `Config.h:817` and `Config.h:837` both use order `203` in section 1. Harmless.
 
@@ -144,13 +144,13 @@ accepted and handed to `WiFi.setHostname()`.
 ## Corroboration that the ported schema is right
 
 The Rust default config blob serialises to **2077 bytes**. The recovered firmware logged
-`cc_firmware: config: nvs (2071 B stored)` (see [08 — Oracle](./recovered-oracle.md) §3)
+`cc_firmware: config: nvs (2071 B stored)` (see [08 — Oracle](./recovered-oracle.md) [§3](divergences.md#d03))
 for a 98-key schema whose source no longer exists. A 6-byte delta against a lost
 firmware is strong evidence the parameter shape is correct.
 
 ---
 
-## 11. 🔴 Both pump safety timeouts are dead code
+## 11. 🔴 Both pump safety timeouts are dead code {#cf11}
 
 `PumpTimer::isExpired()` (`PumpTimer.h:30-33`) returns `false` unless `isRunning_` is set,
 and `isRunning_` is only set by `PumpTimer::start()`.
@@ -180,11 +180,11 @@ machine with a heated boiler.
   one-directional: the Rust can trip a watchdog the C++ cannot. Pinned by
   `div1_the_pump_timeouts_are_armed`, which **replaced**
   `s11_the_pump_timeouts_are_never_armed`. See
-  [`divergences.md` #1](./divergences.md#1-both-pump-safety-timeouts-are-armed-🔴-closed).
+  [`divergences.md` #1](./divergences.md#d01).
 - **Not covered, on purpose:** `MANUAL_FLUSH_RUNNING` and the backflush fill/flush phases
   also run the pump and neither C++ timer covers them. Recorded as a follow-up.
 
-## 12. 🔴 `SensorErrorState`'s recovery clock is measured from the wrong instant
+## 12. 🔴 `SensorErrorState`'s recovery clock is measured from the wrong instant {#cf12}
 
 `ErrorStates.cpp:47-50` documents the recovery delay as running "from when the error
 actually clears". In fact, the sensor-error guard in `BaseState.h:145-148` has **no
@@ -195,7 +195,7 @@ reached. The delay is therefore measured from **entry into `SENSOR_ERROR`**.
 
 - Rust: preserved. Pinned by `s12_the_sensor_error_recovery_clock_is_never_reset`.
 
-## 13. Backflush states never re-assert their hardware in `update()`
+## 13. Backflush states never re-assert their hardware in `update()` {#cf13}
 
 All four backflush `update()` methods only log. **This is not unique to `Filling`** —
 `Filling`, `Flushing`, `Idle` and `Finished` all fail to re-assert.
@@ -212,13 +212,13 @@ The severity differs:
 
 - Rust: preserved. Pinned by `s13_*`.
 
-## 14. The water switch cannot wake the machine from standby
+## 14. The water switch cannot wake the machine from standby {#cf14}
 
 `hasUserActivity()` and `shouldExitStandby()` are hard `return false` stubs
 (`MachineStateContext.cpp:419-429`). The water switch resets the standby countdown and
 does nothing else.
 
-## 15. `powerOff()` shuts down before requesting standby
+## 15. `powerOff()` shuts down before requesting standby {#cf15}
 
 `PowerHandler.h:167-170` performs the safe shutdown *before* requesting standby, so for
 one loop the machine is in `PID_NORMAL` with hardware off — and `PidNormalState::update`
@@ -226,7 +226,7 @@ re-enables the pump if the water switch happens to be held.
 
 ---
 
-## 16. The C++ state-machine test coverage is much thinner than 340 cases suggests
+## 16. The C++ state-machine test coverage is much thinner than 340 cases suggests {#cf16}
 
 Worth recording so nobody treats the C++ suite as a complete safety net:
 
@@ -242,7 +242,7 @@ replaces.
 
 ---
 
-## 17. 🔴🔴 `TempSensorDallas` accepts −251 °C and −250 °C, and cannot reach the faults it checks
+## 17. 🔴🔴 `TempSensorDallas` accepts −251 °C and −250 °C, and cannot reach the faults it checks {#cf17}
 
 > **🔴 THE TITLE OF THIS SECTION IS WRONG, AND WAS WRONG WHEN IT WAS WRITTEN
 > (2026-09-28, R1-03/R3-07).** The title claims the C++ accepts -251 °C and -250 °C.
@@ -250,7 +250,7 @@ replaces.
 > rejects them, exactly as it rejects the other four. The body text below gets the
 > *mechanism* right — all six raws are at or below `DEVICE_DISCONNECTED_RAW` — but then
 > draws the wrong conclusion from it. Read
-> [the correction in §18](#18-🔴-corrected-2026-09-28-the-ds18b20s-power-sentinels-are-rejected)
+> [the correction in [§18](divergences.md#d18)](#18-🔴-corrected-2026-09-28-the-ds18b20s-power-sentinels-are-rejected)
 > instead; it is short, it is right, and it has a test that stops it being re-inverted
 > (`cc_domain::sensor::onewire::div7_every_ds18b20_fault_is_rejected_by_the_cpp`).
 >
@@ -329,7 +329,7 @@ port because changing it would be a behaviour change. Pinned by
 
 ---
 
-## 18. 🔴 `TempSensor::isValidTemperature` is dead, and the DS18B20 path has no range check
+## 18. 🔴 `TempSensor::isValidTemperature` is dead, and the DS18B20 path has no range check {#cf18}
 
 **Found 2026-09-28 (R1-03).**
 
@@ -362,7 +362,7 @@ last-good value, which is strictly worse. Pinned by
 
 ---
 
-## 19. 🔴 `TempSensor::update_moving_average` reads uninitialised timing on its first sample
+## 19. 🔴 `TempSensor::update_moving_average` reads uninitialised timing on its first sample {#cf19}
 
 **Found 2026-09-28 (R1-03), incidental to reading `TempSensor.h`.**
 
@@ -393,7 +393,7 @@ here so it is not lost.
 
 ---
 
-## 20. 🔴🔴 Not a C++ finding: R1-07's 1 Hz LEDC carrier cannot run on this chip
+## 20. 🔴🔴 Not a C++ finding: R1-07's 1 Hz LEDC carrier cannot run on this chip {#cf20}
 
 **Found 2026-09-28, on the board, while bringing up the DS18B20 (R1-03).**
 Recorded here because every other finding in this file is a C++ bug and this one
@@ -474,7 +474,7 @@ any heater work continues.**
 
 ---
 
-## 17. 🔴 The original ESP32 cannot use LEDC at a 1 Hz carrier — hardware constraint
+## 17. 🔴 The original ESP32 cannot use LEDC at a 1 Hz carrier — hardware constraint {#cf17a}
 
 Discovered 2026-09-28 during R1-03, after the LEDC heater implementation **panicked on
 every boot** with `Interrupt wdt timeout on CPU0`. Backtrace:
@@ -516,13 +516,13 @@ use, and is proven on this hardware. The `LEDC` transport this finding retired �
 the one-method `HeaterDuty` seam it was the second impl of — has since been **deleted**: it had
 zero construction sites, and the spin is unique to the chip this firmware runs on. The carrier
 arithmetic an `LEDC` transport would need survives in `cc_hal_esp32::heater`'s module docs and in
-`divergences.md` §9, and a chip without the spin gets a transport written for it rather
+`divergences.md` [§9](divergences.md#d09), and a chip without the spin gets a transport written for it rather
 than one that has sat unbrought-up through two code reviews.
 
 The 100 Hz/ISR CPU cost is ~100 IRQs/s on a 240 MHz Xtensa — negligible. The "LEDC costs
 zero CPU" argument in 04 §5 does not survive contact on this chip.
 
-## 18. 🔴 CORRECTED 2026-09-28: the DS18B20's power sentinels **are** rejected
+## 18. 🔴 CORRECTED 2026-09-28: the DS18B20's power sentinels **are** rejected {#cf18a}
 
 The first version of this section claimed that `TempSensorDallas` "accepts −251 and
 −250" and that the three wiring checks are "dead code". **Both claims were wrong**, and the
@@ -565,15 +565,15 @@ to look at the wiring when the fault is on the probe.
 Pinned by `cc_domain::sensor::onewire::div7_every_ds18b20_fault_is_rejected_by_the_cpp`,
 whose test name exists specifically so this correction cannot be re-inverted.
 
-See also §17 above, which is the long-form version of the same finding and carries the
+See also [§17](divergences.md#d17) above, which is the long-form version of the same finding and carries the
 same correction.
 
-## 19. The moving-average filter divides 0/0 on its first sample
+## 19. The moving-average filter divides 0/0 on its first sample {#cf19a}
 
 `TempSensor::update_moving_average` initialises its sum to zero and divides by the sample
 count before the first sample is committed, producing `NaN` on the first reading.
 
-## 20. The temperature path has no range check
+## 20. The temperature path has no range check {#cf20a}
 
 `isValidTemperature` in `TempSensor.h` is **dead code** — the Dallas path never calls it,
 so there is no `-50..150 °C` validation on the DS18B20 reading. A 165 °C reading is
@@ -594,14 +594,14 @@ Tests: `cc_domain::sensor::ds18b20::div8_the_dallas_path_applies_the_range_check
 `::div8_a_reading_outside_the_range_is_a_read_failure_not_a_hot_temperature`.
 See `divergences.md` #8.
 
-The original "combined with §18, a sentinel value can reach PID" claim is **withdrawn**:
-§18 is corrected above and no sentinel reaches the PID.
+The original "combined with [§18](divergences.md#d18), a sentinel value can reach PID" claim is **withdrawn**:
+[§18](divergences.md#d18) is corrected above and no sentinel reaches the PID.
 
 ---
 
-## 21. New C++ findings from the sensor port (2026-09-28)
+## 21. New C++ findings from the sensor port (2026-09-28) {#cf21}
 
-- **§17 correction:** `rawToCelsius` (`DallasTemperature.cpp:406-410`) folds every raw at or
+- **[§17](divergences.md#d17) correction:** `rawToCelsius` (`DallasTemperature.cpp:406-410`) folds every raw at or
   below −7040 to −127, and the two power-on sentinels are −32128 / −32000, so **all six
   DS18B20 faults are in fact rejected** by the C++. The three MAX31850-only checks are
   still dead here, but for a different reason: `rawToCelsius` cannot produce
@@ -619,7 +619,7 @@ The original "combined with §18, a sentinel value can reach PID" claim is **wit
   `TempSensorTSIC.cpp:39` compares it against degrees. Unresolved; the port applies
   degrees and exposes `COUNT_SCALE`.
 
-## 22. 🔴 Not a C++ finding: an FPU instruction in a level-1 ISR panics the original ESP32
+## 22. 🔴 Not a C++ finding: an FPU instruction in a level-1 ISR panics the original ESP32 {#cf22}
 
 Found 2026-09-28 while diagnosing the R1-07 heater panic. **It is a hardware
 constraint of the original ESP32, not a bug, and it constrains every ISR this
@@ -691,7 +691,7 @@ instruction at all. The pre-fix callback had five, the first of which — the
 
 ---
 
-## 23. 🔴 The entire scale stack is unreachable — it is never constructed, and its weight is never read
+## 23. 🔴 The entire scale stack is unreachable — it is never constructed, and its weight is never read {#cf23}
 
 **Found 2026-09-29**, while re-scoping what had been planned as "drop the dead scale
 code". It is not merely unused: the feature is *structurally* absent while the
@@ -765,7 +765,7 @@ calibration target instead of describing a feature that does not exist.
 armed `SignalWatchdog` on the *first conversion* rather than at driver start, reasoning
 that "a cell that has never spoken has not yet been late". On hardware that is visibly
 wrong: with no scale, `note_ready` is never called, `is_faulted` is permanently `false`,
-and the machine reports a healthy scale forever while measuring nothing — §23's exact
+and the machine reports a healthy scale forever while measuring nothing — [§23](divergences.md#d23)'s exact
 defect, reproduced in new code. The C++ avoids it only by accident (`HX711_ADC.cpp:129`
 sets `lastDoutLowTime = millis()` before its first `update`). Rust now arms from driver
 start and `a_cell_that_never_converts_is_faulted_from_the_moment_the_driver_starts` is
@@ -794,7 +794,7 @@ its start-up on its first iteration for a reason that has nothing to do with the
 
 ---
 
-## 24. 🟡 Found in Rust, not C++: the control tick overruns its own budget
+## 24. 🟡 Found in Rust, not C++: the control tick overruns its own budget {#cf24}
 
 **Found 2026-09-29** while establishing R3-17's "the control tick is measurably
 unaffected" acceptance criterion. It is not a C++ finding, and it is recorded here because
@@ -835,7 +835,7 @@ must either find and fix the cost, or record against the criterion that the C++ 
 also overruns — which is checkable, because R0-04 recorded the C++ per-iteration histogram.
 Do not "fix" this by relaxing `TICK_BUDGET_MS`.
 
-## 25. 🟡 `POST /api/parameters` cannot fail on a scalar, so a mistyped value is saved as zero
+## 25. 🟡 `POST /api/parameters` cannot fail on a scalar, so a mistyped value is saved as zero {#cf25}
 
 **Found 2026-09-30** while porting R3-14's parameter writer. Recorded because the
 response *shape* is reproduced exactly and the *arithmetic* deliberately is not, and a
@@ -879,7 +879,7 @@ enumeration is a `u8` discriminant on the wire (`Config.h:212`), which is also w
 `/api/parameters` reports as the current `value`, so a client that reads before it
 writes never needs the label.
 
-## 26. 🟡 A parameter write is one NVS key per parameter, so a power cut leaves a half-changed machine
+## 26. 🟡 A parameter write is one NVS key per parameter, so a power cut leaves a half-changed machine {#cf26}
 
 **Found 2026-09-30**, same task. Not a defect — a design consequence with a safety
 shape worth naming.
@@ -899,7 +899,7 @@ write rather than after it, with a store failure reported in the log
 (`config: the parameters were applied but NOT persisted`) instead of being folded into
 the HTTP status the way `set`'s `false` return is in the C++ (`:171-172`).
 
-## 27. 🟡 `POST /api/pid` and `/api/steam` are toggles that read no parameter at all
+## 27. 🟡 `POST /api/pid` and `/api/steam` are toggles that read no parameter at all {#cf27}
 
 **Found 2026-09-30**, while checking whether the Rust firmware's `?on=0` 400 was a
 parity gap. It is a gap in the opposite direction, and the C++'s own documentation
@@ -928,7 +928,7 @@ document you read".
 
 ---
 
-## 25. 🔴🔴 A request to sleep is silently dropped whenever the PID is off
+## 25. 🔴🔴 A request to sleep is silently dropped whenever the PID is off {#cf25a}
 
 **Found 2026-09-30**, by the human driving the web UI. `POST /api/sleep` returned
 `202 {"accepted":true}`, the log showed `control: command Sleep` — so the request
@@ -961,7 +961,7 @@ re-enabled (S11).
 
 **Closed 2026-09-30** at the human's decision. Two changes, both in `cc-machine`:
 `Requests::clear_all` spares `standby`, and `PidDisabled`'s transition check
-honours it. See `divergences.md` §13 and the `div13_*` pins in
+honours it. See `divergences.md` [§13](divergences.md#d13) and the `div13_*` pins in
 `crates/cc-machine/tests/parity_findings.rs`.
 
 **Verified on hardware**, with the PID off throughout: `POST /api/sleep` →
@@ -970,7 +970,7 @@ honours it. See `divergences.md` §13 and the `div13_*` pins in
 seven frames drawn and then the 100 ms gate correctly stops writing to a blanked
 panel.
 
-## 28. 🔴🔴 A second task may not own the DS18B20: `interrupt::free` is a global cross-core critical section
+## 28. 🔴🔴 A second task may not own the DS18B20: `interrupt::free` is a global cross-core critical section {#cf28}
 
 **Found** 2026-10-01, on hardware, while porting the control loop to the 100 Hz
 cadence 04 §2 specifies.
@@ -1035,7 +1035,7 @@ unaffected: Arduino-ESP32 runs one loop task and never enters that critical
 section from a second one.
 
 
-## 29. 🔴 The 10 ms control period is unreachable at `CONFIG_FREERTOS_HZ=100`, and raising it changes nothing
+## 29. 🔴 The 10 ms control period is unreachable at `CONFIG_FREERTOS_HZ=100`, and raising it changes nothing {#cf29}
 
 **Found** 2026-10-01, while moving the loop from 400 ms to 10 ms (R4-01b).
 
@@ -1081,7 +1081,7 @@ change:
    is itself per-tick. The next honest step is a GPIO pin toggle captured by a
    logic analyser or by the idle task's accounting, not more `now_ms()` calls.
 
-## 30. 🔴🔴 Three faults in one: the station refused a WPA2 network, the stored SSID was wrong, and a wrong SSID was unfixable over USB
+## 30. 🔴🔴 Three faults in one: the station refused a WPA2 network, the stored SSID was wrong, and a wrong SSID was unfixable over USB {#cf30}
 
 **Found** 2026-10-01, recovering a machine that had gone unreachable. All three
 had to be fixed before it associated, and **none of them was visible from the
@@ -1145,7 +1145,7 @@ stop.
 | no `wifi:state:` transitions at all | the **SSID is not on the air** — check the stored SSID's bytes |
 | `wifi:state: init -> auth` then a `reason=` disconnect | a **password** problem |
 
-## 31. 🟡 The control tick's 15 ms is in the applier span, not in the sensors and not in the reducer
+## 31. 🟡 The control tick's 15 ms is in the applier span, not in the sensors and not in the reducer {#cf31}
 
 **Measured** 2026-10-01, with the section timing instrumented into the tick and
 then removed again. The loop now reports mean work and achieved period, because

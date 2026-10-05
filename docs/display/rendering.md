@@ -1,62 +1,81 @@
-# Display subsystem architecture
+# How a frame reaches the panel
 
-## Component roles
+**What `cc-display` does with a frame, and why it allocates nothing.**
 
-| Component | Responsibility |
-|-----------|----------------|
-| **DisplayManager** | Hardware RAII: create U8G2, power save, `getDisplay()` |
-| **OledDriver** | OLED setup (`prepareDisplay`) and deferred flush (`forceUpdate`) only |
-| **UICoordinator** | Cross-cutting flags: `displayBufferReady`, brew-timer FSM state, website/MQTT busy |
-| **DisplayTemplateManager** | Single entry: `printScreen()`, `setSystemContext()` |
-| **DisplayTemplateBase + templates/** | CRTP pipeline + per-template `renderNormalDisplay()` override |
-| **displayHelpers.h** | Tolerance / near-setpoint / heating condition math (template-agnostic) |
-| **DisplayTemplatePolicy.h** | Per-template `DisplayPolicy` — which shared pipeline stages run |
-| **DisplayWidgets / DisplayFullscreenModes / DisplaySystemScreens** | Shared drawing primitives and default system screens |
+The C++ renderer's architecture is preserved in
+[`../archive/cpp/display-subsystem-architecture.md`](../archive/cpp/display-subsystem-architecture.md).
+This page is the Rust one, because that is what runs.
 
-Templates draw via raw `U8G2*` from `hardwareContext().display()`. OledDriver does not draw content.
+For the layout rules — what may go where, and what must not clip — read
+[`layout-rules.md`](layout-rules.md). For the checks, read
+[`parity.md`](parity.md).
 
-## Frame lifecycle
+---
 
-Each display timer tick calls `DisplayTemplateManager::printScreen()`:
+## One render pipeline
 
-1. **Fullscreen modes** — brew timer, hot water, manual flush (deferred flush); offline splash (immediate)
-2. **`drawSystemScreen()`** — standby, heating logo, steam, errors (gated by template `DisplayPolicy`)
-3. **`renderNormalDisplay()`** — template-specific idle/brew layout (deferred flush)
+There is one framebuffer, one `DrawTarget`, and one set of shared stages. Each
+template is an override of the shared pipeline, not a separate renderer, and the
+thresholds a stage uses come from one place so a template cannot disagree with
+itself about what "near setpoint" means.
 
-`LoopManager::updateDisplay()` flushes deferred buffers via `OledDriver::forceUpdate()` when bus arbitration allows it, then clears `displayBufferReady`.
+[`ADR-0001`](../../docs/adr/0001-display-subsystem-architecture.md) records the
+decision and the alternatives rejected.
 
-## Buffer policy (truth table)
+## A frame, in order
 
-| Stage | sendBuffer | displayBufferReady after stage | LoopManager flush |
-|-------|------------|-------------------------------|-------------------|
-| Fullscreen brew / hot water / manual flush | No (deferred) | **true** | Yes, when canUpdate |
-| Offline splash (`displayOfflineMode`) | Yes (immediate) | **false** | No |
-| System screen (standby, heating, steam, errors) | Yes (immediate) | **false** | No |
-| Normal template draw | No (deferred) | **true** | Yes, when canUpdate |
+1. The caller asks for a state — `PidNormal`, `BrewRunning`, and so on.
+2. The active template fills the framebuffer: shared stages first, then its
+   overrides, then its own widgets.
+3. `present()` pushes the framebuffer to the panel.
 
-If `displayBufferReady` stays true while flush is blocked, website SSE/history can stall (`updateWebsite` waits for `!isDisplayBufferReady()`).
+Step 3 is where the memory budget bites, and the next section is why.
 
-## Shared vs template-specific
+## The I²C bus is shared, and that is the whole constraint
 
-| Concern | Default | Template override |
-|---------|---------|-------------------|
-| Standby, PID off, steam, water, errors | `drawSystemScreen()` | Upright portrait coords via template-id branch |
-| Heating logo (>5°C below setpoint) | `DisplayPolicy::sharedHeatingLogoScreen()` | e.g. Modern/Minimal skip; idle shows HEATING row instead |
-| Fullscreen brew / flush / hot water | `DisplayPolicy` flags | e.g. Modern skips shared fullscreen brew |
-| Idle / brew layout | — | `renderNormalDisplay()` |
-| Fully custom system screens | — | Override `tryDrawSystemScreen()` (protected) |
+The SSD1306 and the ABP2 differential pressure sensor sit on **one** I²C bus.
+A naive frame is 64 bus writes — one per pixel row — and at that rate the
+pressure sensor is starved, which shows up as an erratic brew weight rather than
+as a display problem.
 
-## Standby coordinator
+So a frame is **chunked into 8 bus writes**. That is the number to remember:
+changing it is a change to sensor behaviour, not to display performance. The
+sensor task also takes the bus behind the same `Mutex`, so a frame never holds it
+long enough to delay a reading.
 
-- `getRemainingTimeMillis()` — countdown **until** standby activates
-- `shouldTurnOffDisplay()` — true after standby + display-off delay (OLED power save)
+`AG-REPO-12` records this, and the interaction with the event stream is in
+[`../web/http-and-ui.md`](../web/http-and-ui.md).
 
-Use `shouldTurnOffDisplay()` for display/network gating — not `getRemainingTimeMillis()`.
+## A frame allocates nothing
 
-## Near-setpoint helpers (`displayHelpers.h`)
+`cc-display` is `#![no_std]` and has **no `alloc`** in the device build. An
+allocation there is a link error on the chip, not a runtime failure, which is a
+much better way to find out.
 
-- `isNearSetpointForDisplay()` — strict `< displayBlinkingDelta` (OLED blink / READY)
-- `isNearSetpointForStatusLed()` — `<= tolerance` (steam uses 5°C, else blink delta)
-- `isHeatingLogoConditionMet()` — config + PID normal + more than `HEATING_LOGO_THRESHOLD_C` below setpoint (no template id; gated by `DisplayPolicy`)
+`crates/cc-display/tests/frame_allocations.rs` asserts zero heap bytes per frame.
+The counting allocator it uses deliberately counts the **calling thread**: an
+earlier version counted the whole process, so libtest's own allocations landed in
+the measurement window and the gate failed 62 of 80 runs under CPU load. Nothing
+in `cc-display` was allocating; the instrument was.
 
-See ADR 0001 for design decisions.
+## The bitmap table
+
+`cc_display::bitmaps::ALL` names each bitmap and gives its dimensions;
+`cc_display::bitmaps_data` holds the bytes. The display parity oracle builds its
+own C header from that table at test time rather than carrying a second copy, so
+the artwork the oracle draws is the artwork the firmware ships.
+
+There are two traps in the artwork worth knowing, both recorded in
+[`../hardware/pins.md`](../hardware/pins.md): the steam LED is on GPIO1, which is
+UART TX, and GPIO32 — the alternative — is the scale's data line.
+
+## Fonts
+
+Ten profont/fub atlases, copied verbatim from U8g2 into
+`cc-display/src/font/data.rs` rather than linked at runtime. That is a deliberate
+flash-versus-RAM trade and it is measured; the reasoning is in the generated
+file's own header.
+
+`crates/cc-display/tools/extract_fonts.py check` proves the file still matches
+the U8g2 it was extracted from. U8g2 is fetched by `just u8g2` at upstream tag
+`2.36.18`.

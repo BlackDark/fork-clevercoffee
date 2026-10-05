@@ -66,7 +66,7 @@ documented history of confidently-wrong status text that survived because it was
 checked against the tree; an independent review on 2026-10-03 caught three copies of a
 claim that the control loop had never run on hardware, months after it had.
 Do not assume a task is complete because its description reads as though it is; see
-["Where the migration actually is"](../../../docs/history/README.md#where-the-migration-actually-is)
+["Where the migration actually is"](../../../docs/history/README.md#where-it-is-now)
 for the full done / not-started / deliberately-absent split.
 
 ---

@@ -5,9 +5,9 @@ registry, and a React app served from flash.**
 
 Everything here is a pure function of a telemetry snapshot. `cc-web` and
 `cc-mqtt` do not touch a socket — they take the machine's state and return what
-the response should be. That is why the HTTP layer has hundreds of host tests for
-an application that runs on one microcontroller, and why the same handlers are
-testable against the mock server in `ui/` without hardware.
+the response should be. That is why the HTTP layer can be unit
+tested for an application that runs on one microcontroller, and why the same
+handlers are testable against the mock server in `ui/` without hardware.
 
 The contract is [`../api/openapi.yaml`](../api/openapi.yaml): 28 paths, checked
 against the routes the firmware actually registers by
@@ -35,7 +35,7 @@ silently turning every unknown API path into a `405`.
 **The UI is one wildcard.** `/ui*` serves the shell, the assets and the
 client-side routes, with the MIME types checked. A deep link to a route that only
 exists in JavaScript — `/ui/config/behavior` — has to boot the configuration page
-with all 104 live parameters, which only works if the fallback serves the shell
+with every live parameter the schema exposes (98 of them), which only works if the fallback serves the shell
 *and* the MIME types let the JS and CSS execute. A `200` on `/ui` is not evidence
 of any of that.
 
@@ -67,13 +67,16 @@ Four routes:
 
 | Route | Behaviour |
 | --- | --- |
-| `GET /api/ota/status` | Answers a real status document saying the feature is not built |
-| `POST /api/ota/firmware` | Multipart upload, answers "unavailable" |
-| `POST /api/ota/filesystem` | Same |
-| `POST /api/ota/url` | Same |
+| `GET /api/ota/status` | Answers a real status document |
+| `POST /api/ota/firmware` | **Implemented.** Multipart upload, and stricter than the C++: refused while brewing or steaming |
+| `POST /api/ota/filesystem` | **Implemented.** Same refusals |
+| `POST /api/ota/url` | **Not implemented.** Answers `501` with a JSON body naming the task that deferred it |
 
-A `404` would have been indistinguishable from a lost feature. Answering with a
-truthful status is not the same as working, and the difference is recorded.
+Three of the four exist. The fourth is deliberately a `501` rather than a `404`,
+because a `404` is indistinguishable from a lost feature.
+
+Full reasoning and the refusal conditions are
+[`../history/divergences.md`](../history/divergences.md#d31).
 
 **The OTA has never been exercised on hardware.** It was verified by reading
 ESP-IDF v5.5.5, and the bootloader's fallback-to-factory behaviour on a power cut

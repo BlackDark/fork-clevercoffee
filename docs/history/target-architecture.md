@@ -428,7 +428,7 @@ is the direct translation of `isr.h:96-118`, and the RTL-style test in
 > board's boiler-disconnection state is unconfirmed, and skill §2 rule 4 forbids an
 > energising test without a reviewed procedure. The hardware acceptance criterion
 > is unverified and is left that way. See
-> [`divergences.md` #5](./divergences.md#5-the-heater-is-driven-by-ledc-not-a-10-ms-isr-🔴-changed).
+> [`divergences.md` #5](./divergences.md#d05).
 
 Either way, `HardwareActuator` owns `pin` and `window` and nothing else touches them. The
 `heater_enabled` boolean the C++ code maintains is **deleted** — the actuator's own

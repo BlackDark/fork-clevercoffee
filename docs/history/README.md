@@ -3,8 +3,11 @@
 **The story of a C++ firmware being replaced by a Rust one, and what that cost,
 what it found, and what it did not finish.**
 
-This is the spine of `docs/history/`. Every other document in this folder is the
-detail behind a claim made here. If you want the shape of the firmware rather
+This is the spine of `docs/history/`. Every other document in the folder is the
+detail behind a claim made here — **with one exception**:
+[`recovered-oracle.md`](recovered-oracle.md) is normative, because it is the sole
+derivation of the fail-closed `LOW_TRIGGER` heater rule. The folder says where
+knowledge came from, not whether it is still load-bearing. If you want the shape of the firmware rather
 than its history, read [`../architecture.md`](../architecture.md) instead; if you
 want to know what works right now, read [`../status.md`](../status.md), which is
 the only page allowed to claim that.
@@ -51,7 +54,7 @@ The single most consequential decision was structural, and it is the reason most
 this firmware is testable: **the control logic was written as a pure reducer with
 no access to hardware.** `reduce(machine, context, event) -> (machine', effects)`.
 It asks for `EnablePump`; it does not set a pin. That is not a style preference.
-It is why the state machine has 1,100-odd host tests, why the sensor protocols are
+It is why the state machine is testable with a plain `cargo test` at all, why the sensor protocols are
 state machines over bytes, and why a bug in the heating logic can be demonstrated
 fixed without a coffee machine in the room.
 
@@ -122,7 +125,7 @@ to appear. The control task now runs at 100 Hz and the panel has its own task. A
 sensor task was tried and removed: the DS18B20's bit-bang asserts inside the
 FreeRTOS kernel when it runs on a second task.
 
-## What it did not finish
+## What it did not finish {#where-it-is-now}
 
 Stated here because a reader will otherwise assume otherwise. The full list, with
 what backs each line, is [`../status.md`](../status.md).
@@ -153,7 +156,7 @@ what backs each line, is [`../status.md`](../status.md).
 | [`cpp-findings.md`](cpp-findings.md) | Every bug and ambiguity found in the C++, each pinned by a named test. |
 | [`divergences.md`](divergences.md) | Every place this firmware deliberately differs, with reasoning. Read by `cc-parity`. |
 | [`target-architecture.md`](target-architecture.md) | The intended crate boundary. Partly superseded; check before trusting it. |
-| [`recovered-oracle.md`](recovered-oracle.md) | A Rust firmware recovered from a flash dump whose source is gone. The derivation of the fail-closed heater rule. |
+| [`recovered-oracle.md`](recovered-oracle.md) | **Normative despite living here.** A Rust firmware recovered from a flash dump whose source is gone, and the only surviving derivation of the fail-closed `LOW_TRIGGER` heater rule. |
 | [`dependency-evaluation.md`](dependency-evaluation.md) | Per-crate evidence: licence, MSRV, what was verified and what was not. |
 | [`scenario-format.md`](scenario-format.md) | The scenario file format `cc-parity` parses. |
 | [`review-2026-10-03.md`](review-2026-10-03.md) | An independent review's findings, one per row, with status. |

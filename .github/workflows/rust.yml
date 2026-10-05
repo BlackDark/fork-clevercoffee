@@ -472,6 +472,12 @@ jobs:
       - name: The API spec matches the routes the firmware serves
         run: python3 scripts/check-openapi.py .
 
+      # The ledger is renumbered as the port finds divergences, and a `§N` prose
+      # reference silently rots when it is. These checks make the references
+      # anchored and prove the anchors resolve.
+      - name: Divergence references resolve to real sections
+        run: python3 scripts/check-divergence-refs.py .
+
       - name: clippy (device, pedantic, -D warnings)
         run: just lint-esp32
 
