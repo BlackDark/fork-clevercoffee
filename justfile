@@ -532,6 +532,11 @@ gate:
     just doc
     just test
     just parity-test
+    # `doc-links` was in `check` and **not** here, so a run of this recipe could
+    # push four broken links while reporting green -- which is what happened on
+    # 2026-10-05. It needs no hardware and takes under a second, so there was
+    # never a reason for the two recipes to disagree about it.
+    just doc-links
     just build-esp32
     just size-check
 

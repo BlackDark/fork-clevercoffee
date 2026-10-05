@@ -709,7 +709,7 @@ finding loses the only record of what the bench is for.
       status from the route table. After: `GET /api/nope` → `404`
       `application/json`, `POST /api/status` → `405` `application/json`,
       `GET /nope` → ESP-IDF's `text/html` `404`. Verified on the bench.
-      [`intentional-diffs.md` §30c](./rust-migration/intentional-diffs.md).
+      [`intentional-diffs.md` §30c](../rust-migration/intentional-diffs.md).
 
 - [x] **A PID tuning written over HTTP did not reach the running PID.** With
       `pid.regular.kp` at `62` restored by `POST`, `/api/parameters` reported
@@ -720,7 +720,7 @@ finding loses the only record of what the bench is for.
       It is now a divergence **on request**: a gain write re-chooses the gains
       on the next tick. After: `kp=10` → duty 43.79 %, `kp=62` → 100 %, with
       no state change in between. Verified on the bench.
-      [`intentional-diffs.md` §31](./rust-migration/intentional-diffs.md).
+      [`intentional-diffs.md` §31](../rust-migration/intentional-diffs.md).
 
 ### Two more found in the same pass — also fixed
 
@@ -730,14 +730,14 @@ finding loses the only record of what the bench is for.
       (`WebServerManager.cpp:394-396`); this port cast to `i32`. Now `88.5`,
       `91.2` and `60.75` all land exactly. This is almost certainly what "the
       setpoint control does nothing" looked like from the UI.
-      [`intentional-diffs.md` §30a](./rust-migration/intentional-diffs.md).
+      [`intentional-diffs.md` §30a](../rust-migration/intentional-diffs.md).
 
 - [x] **Backflush mode could not be turned off.** Four presses in a row —
       including the explicit `?on=0` — all answered `{"backflushOn":true}` and
       the machine stayed in `BACKFLUSH_IDLE`, because the toggle fed
       `BackflushStop`, which stops a cycle without clearing the mode flag. Now
       on → off → on, verified on the bench.
-      [`intentional-diffs.md` §30b](./rust-migration/intentional-diffs.md).
+      [`intentional-diffs.md` §30b](../rust-migration/intentional-diffs.md).
 
 ### Still open
 
