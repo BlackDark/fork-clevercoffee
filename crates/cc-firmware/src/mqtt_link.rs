@@ -419,7 +419,7 @@ impl Link {
         if let Err(err) = store.save(config) {
             error!("config: an MQTT parameter write could NOT be persisted: {err}");
         }
-        crate::config_io::push_into_machine(control, config, before, effects);
+        crate::config_io::push_into_machine(control, config, before, &pairs, effects);
         info!("config: {key} = {value} written from MQTT");
     }
 }

@@ -239,6 +239,23 @@ pub enum Command {
     /// `backflush/BackflushModeLogic.h:26-34`. The command is only the request
     /// flag that function sets.
     BackflushEnter,
+    /// `setBackflushMode(bool)` (`MachineStateContext.cpp:354-381`) — the C++'s
+    /// own entry point, which `POST /api/backflush` calls with
+    /// `!backflushMode()` (`WebServerManager.cpp:489-491`).
+    ///
+    /// **This is the command the toggle needs and did not have.** There was a
+    /// `BackflushEnter` (mode on) and a `BackflushStop` (stop the running
+    /// cycle), so turning backflush mode *off* had no command that clears
+    /// `backflush.on`: the firmware fed `BackflushStop`, which leaves the mode
+    /// flag set. Measured on a bench ESP32 — four consecutive toggles, including
+    /// the explicit `?on=0`, all answered `{"backflushOn":true}` and the
+    /// machine stayed in `BACKFLUSH_IDLE`.
+    ///
+    /// One command carrying the value is also the faithful shape: the C++
+    /// computes the new state in the web handler and passes it down, and the
+    /// decision function ([`crate::backflush::apply_backflush_mode`]) is already
+    /// a pure function of `(was_active, requested, cycles)`.
+    SetBackflushMode(bool),
     /// `setBackflushCycleStartRequested(true)`.
     BackflushCycleStart,
     /// `setBackflushStopRequested(true)`.

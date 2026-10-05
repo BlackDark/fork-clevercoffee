@@ -118,10 +118,15 @@ pub struct Telemetry {
 /// point in the tick. The write itself is not a second path —
 /// [`cc_config::assign::apply`] is the only writer of a parameter, and R3-13's
 /// inbound MQTT calls it directly because MQTT already runs on the control task.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Command {
-    /// `POST /api/setpoint?value=<celsius>`.
-    SetSetpoint(i32),
+    /// `POST /api/setpoint?value=<celsius>` — an `f64`, not an `i32`.
+    ///
+    /// The C++ hands the `double` from the request straight to
+    /// `setProcessSetpoint` (`WebServerManager.cpp:394-396`) and to
+    /// `Config::brewSetpoint`, and `brew.setpoint` is a float parameter, so a
+    /// fractional setpoint is meaningful end to end. It was an `i32` here.
+    SetSetpoint(f64),
     /// `POST /api/steam?on=0|1` — the **explicit** form.
     SetSteam(bool),
     /// `POST /api/steam` with no field — the C++'s toggle.

@@ -567,6 +567,27 @@ pub(crate) fn register_raw_api_not_found(
             Some(not_found_handler),
         )
     };
+    if let Some(err) = EspError::from(rc) {
+        return Err(err);
+    }
+
+    // **`405` as well, and this is the fix.** The preflight wildcard `/api*` is
+    // a URI handler to ESP-IDF, so a mistyped `/api/...` path matches it with
+    // the wrong method and ESP-IDF raises `405` rather than `404` — the `404`
+    // handler above never ran, and the client got `text/html` where the C++
+    // returns JSON. Registering the same handler for `405` puts the decision
+    // back in our hands: `cc_web::help::unmatched` tells a mistyped URL (the
+    // C++'s `404`) from a real route with a method it lacks (an honest `405`).
+    //
+    // SAFETY: as above — same signature, same enum member
+    // (`HTTPD_405_METHOD_NOT_ALLOWED`, `bindings.rs:56548`).
+    let rc = unsafe {
+        esp_idf_sys::httpd_register_err_handler(
+            server_handle,
+            esp_idf_sys::httpd_err_code_t_HTTPD_405_METHOD_NOT_ALLOWED,
+            Some(not_found_handler),
+        )
+    };
     match EspError::from(rc) {
         None => Ok(()),
         Some(err) => Err(err),
@@ -598,18 +619,48 @@ extern "C" fn not_found_handler(
     // crate that wraps this server does. The query string is included, which is
     // harmless: the path comes first, so `starts_with("/api/")` is decided by
     // the path alone.
-    let is_api = !req.is_null() && {
+    // SAFETY: as above — a live request on the httpd task, whose `uri` field
+    // is NUL-terminated.
+    let uri = if req.is_null() {
+        ""
+    } else {
         // SAFETY: as above — a live request on the httpd task, whose `uri` field
         // is NUL-terminated.
-        let uri = unsafe { core::ffi::CStr::from_ptr((*req).uri.as_ptr()) };
-        cc_web::help::wants_json_not_found(uri.to_str().unwrap_or(""))
+        unsafe { core::ffi::CStr::from_ptr((*req).uri.as_ptr()) }
+            .to_str()
+            .unwrap_or("")
     };
+    // The query string rides along in `uri`, which is harmless for the decision:
+    // the path comes first, and `starts_with("/api/")` is decided by the path.
+    let path = uri.split(['?', '#']).next().unwrap_or(uri);
 
     // SAFETY: `req` is live on the httpd task and both branches write a complete
     // response through ESP-IDF's own accessors.
     unsafe {
-        if !is_api {
-            return httpd_resp_send_err(req, error, c"Not found".as_ptr());
+        match cc_web::help::unmatched(path) {
+            cc_web::help::Unmatched::NotApi => {
+                return httpd_resp_send_err(req, error, c"Not found".as_ptr());
+            }
+            cc_web::help::Unmatched::Api => {
+                // The status is set **explicitly**, and it has to be: ESP-IDF
+                // does not put one on the request before calling a custom error
+                // handler, so `httpd_resp_send` alone answers `200`. The C++
+                // answers this request with `404` (`handleNotFound`), and the
+                // status it raised here was `405` because the preflight
+                // wildcard matched the URI with the wrong method — which is the
+                // divergence this whole path exists to close.
+                if httpd_resp_set_status(req, c"404 Not Found".as_ptr()) != ESP_OK {
+                    return ESP_FAIL;
+                }
+            }
+            cc_web::help::Unmatched::Served => {
+                // A real route with a method it does not have. `405` is the
+                // honest status and only the body was wrong — but it still has
+                // to be written, for the reason above.
+                if httpd_resp_set_status(req, c"405 Method Not Allowed".as_ptr()) != ESP_OK {
+                    return ESP_FAIL;
+                }
+            }
         }
         if httpd_resp_set_type(req, c"application/json".as_ptr()) != ESP_OK {
             return ESP_FAIL;

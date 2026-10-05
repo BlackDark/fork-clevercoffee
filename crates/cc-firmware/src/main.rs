@@ -2089,7 +2089,6 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
                 // the machine unable to run safely is *reported*, and the
                 // fail-closed rule discards it at the next boot (08 §4.1).
                 cc_hal_esp32::web::Command::SetSetpoint(celsius) => {
-                    let celsius = f64::from(celsius);
                     config.brew.setpoint = celsius;
                     control.set_setpoint(celsius);
                     if let Err(violation) =
@@ -2185,13 +2184,19 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
                 // (`WebServerManager.cpp:490`), with the same wake-the-machine
                 // pair the steam handler does.
                 cc_hal_esp32::web::Command::ToggleBackflush => {
+                    // **One command carrying the value**, which is what the C++
+                    // does: `setBackflushMode(!backflushMode())`
+                    // (`WebServerManager.cpp:489-491`). This used to branch to
+                    // `BackflushEnter` / `BackflushStop`, and neither of those
+                    // turns the mode *off* — `BackflushStop` stops a running
+                    // cycle and leaves `backflush.on` set. Bench-measured: four
+                    // toggles in a row all answered `backflushOn: true`.
                     let on = !control.machine().backflush.on;
-                    let request = if on {
-                        cc_machine::Command::BackflushEnter
-                    } else {
-                        cc_machine::Command::BackflushStop
-                    };
-                    control.feed(&config, Event::Command(request), &mut effects);
+                    control.feed(
+                        &config,
+                        Event::Command(cc_machine::Command::SetBackflushMode(on)),
+                        &mut effects,
+                    );
                     control.feed(
                         &config,
                         Event::Command(cc_machine::Command::NormalOperation),
@@ -2218,17 +2223,16 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
                 // is `apply_backflush_mode`'s job and is already the reducer's
                 // (`cc_machine::backflush`).
                 cc_hal_esp32::web::Command::SetBackflush(on) => {
-                    // The reducer's `BackflushEnter` is the enable arm only; the
-                    // disable arm is `BackflushStop`, which the C++ reaches
-                    // through the same handler. Mapping `false` to the stop
-                    // request is the honest translation: it is what "leave
-                    // backflush mode" means to the state machine.
-                    let request = if on {
-                        cc_machine::Command::BackflushEnter
-                    } else {
-                        cc_machine::Command::BackflushStop
-                    };
-                    control.feed(&config, Event::Command(request), &mut effects);
+                    // One command, both directions — the C++'s single
+                    // `setBackflushMode(newState)`. Mapping `false` to
+                    // `BackflushStop` was wrong: that stops a running cycle and
+                    // leaves `backflush.on` set, so `?on=0` answered
+                    // `backflushOn: true` on the bench.
+                    control.feed(
+                        &config,
+                        Event::Command(cc_machine::Command::SetBackflushMode(on)),
+                        &mut effects,
+                    );
                 }
                 cc_hal_esp32::web::Command::StartBackflush => {
                     control.feed(
@@ -2357,6 +2361,7 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
                     &mut control,
                     &config,
                     (pid_enabled_before, brew_setpoint_before),
+                    &pairs,
                     &mut effects,
                 );
                 // `standbyCoordinator().reset(); requestNormalOperation(...)` — the

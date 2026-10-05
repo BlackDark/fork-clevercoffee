@@ -82,11 +82,18 @@ page.
   image is now built by the `build-*` recipe and flashed from its ELF by the new
   `flash-elf` recipe, which `just doctor` asserts the standalone binary for.
 - **The on-target suite is green on the board.** `just test-esp32` on an
-  original ESP32 rev 3.0: **111 passed, 0 failed, 1 lost, 0 hung**, firmware
+  original ESP32 rev 3.0: **112 passed, 0 failed, 1 lost, 0 hung**, firmware
   restored afterwards. Three cases failed on the first run and all three were
   defects in the cases, not in the firmware — two table-wide invariants in
   `web.rs` that the deliberate `/api*` preflight wildcard trips, and an OTA
   session test that claimed a second session without releasing the first.
+- **Every command endpoint on the homepage works.** Tested individually on the
+  bench: `/api/pid`, `/api/steam` and `/api/backflush` toggle and report the
+  device's own state; `/api/setpoint` keeps a fractional value; `/api/wake` and
+  `/api/sleep` move the machine. Three were broken and are fixed — a truncated
+  setpoint, a backflush mode that could not be turned off, and an unknown
+  `/api/` path answered `405` instead of the C++'s JSON `404`.
+  [`intentional-diffs.md` §30](./rust-migration/intentional-diffs.md).
 - **Wi-Fi provisioning over the UART console is exercised.** `just
   wifi-provision /dev/cu.usbserial-224140` stores the credential from `.env`,
   the machine reboots, associates at `10.0.1.168` and serves the API. The
@@ -96,8 +103,8 @@ page.
 - **The gate is green.** `just gate`: fmt-check, clippy (host and
   device) with `-D warnings`, rustdoc `-D warnings`, the host suite, the parity
   harness, the device-test audit, the Xtensa release build, and the size budget.
-  **1,699,872 B**, which fits the 1,835,008 B app0 slot with +135,136 B to spare
-  and is **+9.00 %** against `size-baseline.json`, inside the 10 % limit.
+  **1,700,992 B**, which fits the 1,835,008 B app0 slot with +134,016 B to spare
+  and is **+9.07 %** against `size-baseline.json`, inside the 10 % limit.
   Re-measured 2026-10-05.
 - **The two firmware trees have not diverged by accident.** Zero lines changed in
   `src/`, `include/`, `lib/`, `platformio.ini` or the root `partitions_4M.csv`
@@ -203,14 +210,15 @@ be filed and they are not fixed by the next green gate.
    depend on `cc-firmware` to reach it. Treat every device case that reconstructs
    the production call in a test helper as coverage of the *contract*, not of the
    *code*.
-10. **Two open defects found on the bench 2026-10-05, both unfixed** and recorded
-   in [`integration-checklist.md`](./operations/integration-checklist.md):
-   an unknown `/api/...` path answers ESP-IDF's `405` in `text/html` instead of
-   the JSON `404` the C++ returns, because the `/api*` preflight wildcard makes
-   ESP-IDF treat the URI as matched-but-wrong-method; and a `POST
-   /api/parameters` that changes a PID tuning is persisted and reported back but
-   does not reach the running PID until the machine changes state.
-
+10. **A retired claim, kept because it was wrong twice.** The bench session on
+   2026-10-05 recorded a PID-tuning write as a defect in this port. It is not:
+   `ProcessController.cpp:170` gates the retune on a **state** change in the
+   C++ too, so the behaviour was parity. I checked the oracle before changing
+   it, which is the only reason this is item 10 and not a divergence nobody
+   noticed. It is now a divergence **on request** — see
+   [`intentional-diffs.md` §31](./rust-migration/intentional-diffs.md) — and it
+   is verified only by measurement, because the call site is in `cc-firmware`
+   and the device-test registry cannot reach it.
 ---
 
 ## How to keep this true

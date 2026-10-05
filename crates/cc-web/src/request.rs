@@ -65,16 +65,18 @@ use crate::telemetry::Command;
 #[must_use]
 pub fn parse_setpoint(value: &str) -> Option<Command> {
     match cc_config::assign::parse("brew.setpoint", value) {
-        Ok(cc_config::json::LiveValue::Float(celsius)) =>
-        {
-            #[allow(
-                clippy::cast_possible_truncation,
-                reason = "cc_config::assign::parse has already range-checked this \
-                          against the schema's 20.0..=110.0, which is three \
-                          orders of magnitude inside an i32; the C++ truncates \
-                          the same way into its process setpoint"
-            )]
-            Some(Command::SetSetpoint(celsius as i32))
+        Ok(cc_config::json::LiveValue::Float(celsius)) => {
+            // **Not truncated.** This cast to `i32` and the comment above it
+            // claimed "the C++ truncates the same way into its process setpoint".
+            // It does not: `setProcessSetpoint(newSetpoint)` takes the `double`
+            // straight (`WebServerManager.cpp:394-396`), so `93.5` is 93.5 in the
+            // C++ and 93 here. Measured on a bench ESP32: `?value=93.5`,
+            // `?value=80.5` and `?value=91.2` were all accepted and all landed
+            // on the truncated integer, which is what "the setpoint control does
+            // nothing" looks like from the UI. `brew.setpoint` is a float
+            // parameter and the machine carries an `f64` setpoint end to end;
+            // the only thing that was an integer was this cast.
+            Some(Command::SetSetpoint(celsius))
         }
         // Every other outcome — a non-number, `NaN`, `inf`, or a value outside
         // the schema's range — is a `None`, and `register_command` answers

@@ -589,7 +589,15 @@ pub mod tests {
         // parameter write travels in `ParameterHandoff` instead.
         fn assert_copy<T: Copy>() {}
         assert_copy::<Command>();
-        assert!(core::mem::size_of::<Command>() <= 8);
+        // 16, not the 8 it used to be. `SetSetpoint` carries an `f64` because
+        // the C++ hands the request's `double` straight to
+        // `setProcessSetpoint` (`WebServerManager.cpp:394-396`) and
+        // `brew.setpoint` is a float parameter; as an `i32` it silently dropped
+        // `93.5` to `93` on the bench. The bound still exists and still means
+        // "a fixed-size `Copy` slot, no allocator" — which is the property this
+        // case is for — so it is written as the constant the queue is sized
+        // against rather than as a number that drifts with the enum.
+        assert_eq!(core::mem::size_of::<Command>(), 16);
     }
 
     #[cfg_attr(test, test)]

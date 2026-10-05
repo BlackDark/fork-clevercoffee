@@ -3029,6 +3029,28 @@ pub mod tests {
     /// (`WebServerManager.cpp:586`), and a `POST` to it would now fall through
     /// to the JSON `404` rather than being answered.
     #[cfg_attr(test, test)]
+    pub fn every_registered_route_is_in_the_raw_handlers_own_table() {
+        // `cc_web::help::ROUTE_PATHS` is a compile-time list, because the `extern
+        // "C"` handler that consults it cannot capture one. `routes()` is the
+        // runtime list the server actually registers, and this is what stops the
+        // two drifting: a path in `routes()` and missing from `ROUTE_PATHS`
+        // would answer a `404` where the C++ answers a `405`, and the only way
+        // that happens is someone adding a route here and not there.
+        for (path, _) in routes() {
+            assert!(
+                cc_web::help::ROUTE_PATHS.contains(&path),
+                "{path} is registered but the raw 404/405 handler does not know it"
+            );
+        }
+        for path in cc_web::help::ROUTE_PATHS {
+            assert!(
+                routes().iter().any(|(registered, _)| registered == path),
+                "{path} is in the raw handler's table but no handler is registered"
+            );
+        }
+    }
+
+    #[cfg_attr(test, test)]
     pub fn the_parameter_help_route_is_a_get_and_nothing_else() {
         let entries: Vec<&'static str> = routes()
             .iter()

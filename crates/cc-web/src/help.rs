@@ -105,5 +105,96 @@ pub fn wants_json_not_found(path: &str) -> bool {
     path.starts_with("/api/")
 }
 
+/// Which of ESP-IDF's two "no handler" answers an unmatched request deserves.
+///
+/// This exists because of a divergence the bench found on 2026-10-05. The C++
+/// answers an unknown `/api/` path with `handleNotFound` — a JSON `404`. This
+/// firmware registers the CORS preflight answer on the URI wildcard `/api*`
+/// (the Rust stand-in for the C++'s `AsyncCorsMiddleware`, which is not a URI
+/// handler and so shadows nothing). To ESP-IDF a wildcard **is** a URI handler,
+/// so `GET /api/nope` matches it with the wrong method and ESP-IDF answers its
+/// own `405 text/html` — the registered `404` handler never runs. Measured
+/// against the C++'s `404` with a JSON body.
+///
+/// `known` answers "is this a route the server serves, for some method", which
+/// separates the two cases ESP-IDF conflates into one `405`. It is
+/// [`ROUTE_PATHS`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Unmatched {
+    /// A mistyped URL: nothing is registered for it. The C++'s `404`, with
+    /// [`not_found_json`].
+    Api,
+    /// A real route asked for with a method it does not have. Honestly a `405`;
+    /// only the body was wrong.
+    Served,
+    /// A path outside `/api/`. ESP-IDF's own plain-text `404`, which is what the
+    /// C++ answers for these too (`WebServerManager.cpp:1023-1024`).
+    NotApi,
+}
+
+/// Every URI this firmware serves, for the raw unmatched-request handler.
+///
+/// A compile-time list, because the handler that needs it is an `extern "C"`
+/// function ESP-IDF dispatches itself: it cannot capture, so a runtime-built
+/// table would have to be stashed in a mutable `static`. `web.rs` builds its
+/// own `routes()` at runtime, and a device case asserts the two agree — so the
+/// duplication is test-pinned rather than free.
+///
+/// The two wildcards are in here deliberately: they *are* URI handlers to
+/// ESP-IDF, and `/api*` is exactly why an unknown path has to be
+/// distinguished from a wrong-method one.
+pub const ROUTE_PATHS: &[&str] = &[
+    "/api/status",
+    "/api/health",
+    "/api/temperatures",
+    "/api/history",
+    "/api/nvs-debug",
+    "/api/parameter-help",
+    "/api/config",
+    "/api/config/download",
+    "/api/config/upload",
+    "/api/parameters",
+    "/api*",
+    "/api/setpoint",
+    "/api/steam",
+    "/api/pid",
+    "/api/backflush",
+    "/api/sleep",
+    "/api/wake",
+    "/api/scale/tare",
+    "/api/scale/calibration",
+    "/api/maintenance/reset-backflush-counter",
+    "/api/wifi-reset",
+    "/api/factory-reset",
+    "/api/restart",
+    "/api/ota/status",
+    "/api/ota/firmware",
+    "/api/ota/filesystem",
+    "/api/ota/url",
+    "/events",
+    "/",
+    "/ui*",
+];
+
+/// Decide which answer an unmatched request gets.
+///
+/// The C++ decides JSON-vs-text on `path.startsWith("/api/")` and has one
+/// status for all of them; this splits the status out so the preflight
+/// wildcard's shadowing is visible to the caller instead of silently turning
+/// every unknown API path into a `405`.
+#[must_use]
+pub fn unmatched(path: &str) -> Unmatched {
+    if !wants_json_not_found(path) {
+        return Unmatched::NotApi;
+    }
+    // A wildcard URI answers anything under it, so `/api/anything` is "served"
+    // for the method it does not have — and is an unknown path for every other.
+    if ROUTE_PATHS.contains(&path) {
+        Unmatched::Served
+    } else {
+        Unmatched::Api
+    }
+}
+
 #[cfg(test)]
 mod tests;

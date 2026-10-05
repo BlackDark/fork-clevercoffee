@@ -126,6 +126,31 @@ fn only_api_paths_get_the_json_404() {
 }
 
 #[test]
+fn an_unknown_api_path_is_the_cpp_404_and_a_known_one_is_a_405() {
+    // The C++ answers a mistyped `/api/` URL with `handleNotFound` — `404` and
+    // a JSON body. This firmware's preflight wildcard `/api*` made ESP-IDF treat
+    // every `/api/...` URI as matched-but-wrong-method, so it answered its own
+    // `405 text/html` and the registered handler never ran. Bench-measured.
+    assert_eq!(unmatched("/api/nope"), Unmatched::Api);
+    assert_eq!(unmatched("/api/status/deep"), Unmatched::Api);
+    // A real route with a method it does not have: honestly a 405.
+    assert_eq!(unmatched("/api/status"), Unmatched::Served);
+    assert_eq!(unmatched("/api/parameters"), Unmatched::Served);
+    // Outside `/api/`: ESP-IDF's plain text, as in the C++.
+    assert_eq!(unmatched("/nope"), Unmatched::NotApi);
+    assert_eq!(unmatched("/ui/assets/x.js"), Unmatched::NotApi);
+}
+
+#[test]
+fn the_unmatched_decision_ignores_the_query_string() {
+    // ESP-IDF's `httpd_req_t::uri` carries the query string, and the raw
+    // handler strips it before asking. A URL that is a real route plus a query
+    // must not be demoted to a 404.
+    assert_eq!(unmatched("/api/parameters"), Unmatched::Served);
+    assert_eq!(unmatched("/api/parameters?filter=all"), Unmatched::Api);
+}
+
+#[test]
 fn the_error_bodies_are_valid_json_objects() {
     // The point of the 404 being JSON is that a client can parse it, so the
     // test asserts it parses as one object with the expected key rather than

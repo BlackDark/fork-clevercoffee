@@ -2241,3 +2241,104 @@ has. **Detection plus one sentence is the whole of this.**
   missing namespace is `Absent` (`ESP_ERR_NVS_NOT_FOUND` from a read-only open)
   and every other error is `Unreadable`. It reads one key name and writes
   nothing.
+
+---
+
+## 30 — Three defects the C++ does not have, found on a bench ESP32 🔴 changed
+
+All three were found by running
+[`integration-checklist.md`](../operations/integration-checklist.md) against a
+bench board on 2026-10-05, and all three are places where this firmware was
+**less faithful** than the oracle rather than more. Each was verified against
+the C++ source before being changed, so none of them is a design decision.
+
+### 30a. A fractional setpoint was truncated to an integer
+
+The C++ hands the request's `double` straight to `setProcessSetpoint` and to
+`Config::brewSetpoint` (`WebServerManager.cpp:391-404`), and `brew.setpoint` is
+a **float** parameter. `cc_web::request::parse_setpoint` cast it to `i32`, so
+`?value=93.5` was accepted with `202 {"accepted":true}` and arrived as 93.
+Measured: `93.5`, `80.5` and `91.2` were all accepted and all landed on the
+truncated integer. `Command::SetSetpoint` now carries an `f64`, which takes the
+enum from 8 to 16 bytes; `set_tunings` writes gains without touching the
+integrator, so the size costs nothing at runtime.
+
+### 30b. Backflush mode could not be turned off
+
+`POST /api/backflush` toggled by feeding `Command::BackflushEnter` /
+`Command::BackflushStop`. `BackflushStop` stops a running cycle and leaves
+`backflush.on` set, so **the mode had no off switch**: four presses, including
+the explicit `?on=0`, all answered `{"backflushOn":true}` and the machine stayed
+in `BACKFLUSH_IDLE`. The C++ has one call for both directions —
+`setBackflushMode(!backflushMode())` (`WebServerManager.cpp:489-491`) — and
+`Command::SetBackflushMode(bool)` is that call.
+
+### 30c. An unknown `/api/` path answered ESP-IDF's `405`, not the C++'s `404`
+
+The C++'s CORS is `AsyncCorsMiddleware`, which is not a URI handler and shadows
+nothing, so a mistyped URL reaches `handleNotFound` and gets a JSON `404`
+(`WebServerManager.cpp:1006-1027`). This firmware answers preflight with a URI
+wildcard `/api*` (§22), and to ESP-IDF a wildcard **is** a handler: the URI
+matches, the method does not, and ESP-IDF answers its own `405 text/html`
+before the registered `404` handler can run. The same handler is now registered
+for `405` as well, and `cc_web::help::unmatched` decides between the C++'s
+`404` (nothing is registered for that path) and an honest `405` (a real route,
+wrong method).
+
+### What pins them
+
+- `cc_web::request::tests::a_fractional_setpoint_survives_to_the_command` —
+  `93.5`, `80.5`, `91.2` reach the command intact.
+- `cc_machine::handlers::tests::the_backflush_mode_toggle_turns_the_mode_off_again`
+  — on, off, on again, through the command the web layer now sends.
+- `cc_web::help::tests` — the `404`/`405`/`plain` decision, and that the query
+  string does not change it. Plus
+  `cc_hal_esp32::web::tests::every_registered_route_is_in_the_raw_handlers_own_table`,
+  a device case, because `ROUTE_PATHS` is a compile-time list that has to agree
+  with the runtime `routes()` or a real route answers a `404`.
+
+The retune behaviour is **not** in this section: leaving it is §0 behaviour, and
+changing it is recorded at §31.
+
+---
+
+## 31 — A PID gain written at runtime takes effect on the next tick 🔴 changed
+
+**The C++ deliberately does not do this**, and this is the one item here that is
+a decision rather than a defect.
+
+`ProcessController::updatePIDState` chooses the gains inside
+`if (lastMachineStatePid_ != machineState)` (`ProcessController.cpp:170`), and
+`lastMachineStatePid_` is only a state. So a `pid.regular.kp` written over HTTP
+is range-checked, applied to the `Config`, written to NVS, reported back by
+`GET /api/parameters` and survives a reboot — while the **running** PID keeps
+the old gains until the machine happens to change state. Measured on a bench
+ESP32 on 2026-10-05: `POST /api/parameters pid.regular.kp=62` after a test had
+left it at 2.5, and `heaterPower` stayed at 21.8 % (the old tuning's answer at
+a 65 K error) for as long as the machine sat in `PID_NORMAL`. Cycling the PID
+with `POST /api/pid?on=0` then `?on=1` made it jump to 100 % at the same error,
+which is what the status page documents for this machine.
+
+`Control::retune_now` clears `tuned_for`, so the next tick re-chooses the gains
+for the state the machine is in. Called from `config_io::push_into_machine`
+when any written key starts with `pid.` — a prefix rather than a list of keys,
+because the gains are derived (`ki` comes from `tn` and `i_max`, brew detection
+has its own subtree) and a hand-kept list would rot. `set_tunings` writes gains
+without touching the integrator, so being broad costs one idempotent write.
+
+**What did not change.** The state rule is intact: the same gains are still
+chosen per state, and the brew-detection gains still cannot leak into
+`PID_NORMAL` by a stale assignment, because that guard is *why* `tuned_for`
+exists. Only the trigger moves — from "the state changed" to "the state changed,
+or a gain was written".
+
+Approved on request, 2026-10-05.
+
+### What pins it
+
+- `config_io::touches_pid_gains` — the predicate, by prefix.
+- Bench only, and honestly labelled as such: this path is in `cc-firmware`,
+  which `cc-hal-esp32` cannot depend on, so the device-test registry cannot
+  reach it. The verification is the measurement above, repeated after the
+  change: write `kp`, read `heaterPower` within one control period, no state
+  change in between.

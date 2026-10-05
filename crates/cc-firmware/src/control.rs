@@ -84,6 +84,9 @@ pub struct Control {
     /// (`ProcessController.cpp:174`). The tunings change **only** on a state
     /// change, which is what stops the brew-detection gains from being applied
     /// in `PID_NORMAL` by a stale assignment.
+    ///
+    /// **Except** after a tuning is written at runtime — see
+    /// [`Self::retune_now`], which clears this so the next tick re-chooses.
     tuned_for: Option<MachineState>,
     /// The S1-S5 configuration, from `cc-config`'s `safety_view()`.
     safety: SafetyConfig,
@@ -456,6 +459,31 @@ impl Control {
         let (machine, produced) = reduce(&self.machine, &ctx, event);
         self.machine = machine;
         effects.extend(&produced);
+    }
+
+    /// Re-choose the gains on the next tick, without waiting for a state change.
+    ///
+    /// **A deliberate divergence from the C++**, approved on 2026-10-05. The C++
+    /// gates the retune on `lastMachineStatePid_ != machineState`
+    /// (`ProcessController.cpp:170`), so a `pid.regular.kp` written over HTTP is
+    /// stored and reported back by `GET /api/parameters` while the running PID
+    /// keeps the old gains until the machine happens to change state. Measured
+    /// on a bench ESP32: `POST /api/parameters pid.regular.kp=62` was accepted,
+    /// persisted across a reboot and reported by the `GET`, and `heaterPower`
+    /// stayed at the old tuning's 21.8 % until the PID was cycled off and on —
+    /// at which point it jumped to 100 % at a 65 K error.
+    ///
+    /// The C++ behaviour is defensible (a tuning is a preference, not an
+    /// event) and this keeps the *state-change* rule intact — the same gains
+    /// are still chosen per state, brew detection still never leaks into
+    /// `PID_NORMAL`. The only change is that a write takes effect on the next
+    /// tick instead of on the next transition. Recorded in
+    /// `docs/rust-migration/intentional-diffs.md`.
+    ///
+    /// Called by the control task after a staged parameter write, so a tuning
+    /// change is one control period old rather than one state change old.
+    pub fn retune_now(&mut self) {
+        self.tuned_for = None;
     }
 
     /// Apply the tunings for the current state, if the state changed.

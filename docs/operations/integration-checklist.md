@@ -692,23 +692,62 @@ two open defects. The sections above are unchanged; these are additive.
       floating input on GPIO34/35/36/39 and a brew that starts on its own** —
       fix the pull or set the flag back to false before anything else.
 
-### Open defects, unfixed
+### Open defects — FOUND AND FIXED 2026-10-05
 
-- [ ] **An unknown `/api/...` path answers `405 text/html`, not the JSON `404`.**
-      `GET /api/nope` → `405`, `Specified method is invalid for this resource`,
-      `content-type: text/html`. The C++ answers `{"error":"API endpoint not
-      found"}` (`handleNotFound`, `WebServerManager.cpp:1011`). Cause: the
-      `/api*` `Options` preflight wildcard matches the URI, so ESP-IDF reports
-      *method mismatch* rather than *no match*, and the registered `404` error
-      handler never runs. `GET /nope` is unaffected (ESP-IDF's own `404`). A
-      client that branches on the body shape breaks on a mistyped URL.
-- [ ] **A PID tuning written over HTTP does not reach the running PID.** With
-      `pid.regular.kp` at `62` (the default) restored by `POST`, `/api/parameters`
-      reported the new value and the boot log persisted it, but `heaterPower`
-      stayed at the old tuning's `21.8 %` for 15 s. Cycling the PID
-      (`POST /api/pid?on=0` then `?on=1`) made it jump to `100 %` at a 65 K
-      error — which is the behaviour the status page documents. The stored value
-      and the live value are two different things until the state changes.
+Both were recorded here first as open and are now closed. The text is left as
+written, with the closure underneath, because a checklist that quietly drops a
+finding loses the only record of what the bench is for.
+
+- [x] **An unknown `/api/...` path answered `405 text/html`, not the JSON
+      `404`.** `GET /api/nope` → `405`, `Specified method is invalid for this
+      resource`, `content-type: text/html`. The C++ answers
+      `{"error": "API endpoint not found"}` (`handleNotFound`,
+      `WebServerManager.cpp:1006-1027`). Cause: the `/api*` `Options`
+      preflight wildcard matches the URI, so ESP-IDF reports *method mismatch*
+      rather than *no match*, and the registered `404` handler never ran.
+      **Fixed** by registering the same handler for `405` and deciding the
+      status from the route table. After: `GET /api/nope` → `404`
+      `application/json`, `POST /api/status` → `405` `application/json`,
+      `GET /nope` → ESP-IDF's `text/html` `404`. Verified on the bench.
+      [`intentional-diffs.md` §30c](./rust-migration/intentional-diffs.md).
+
+- [x] **A PID tuning written over HTTP did not reach the running PID.** With
+      `pid.regular.kp` at `62` restored by `POST`, `/api/parameters` reported
+      the new value and the boot log persisted it, but `heaterPower` stayed at
+      the old tuning's `21.8 %` for 15 s, and only jumped to `100 %` at a 65 K
+      error after the PID was cycled. **This was parity, not a defect** —
+      `ProcessController.cpp:170` gates the C++'s retune on a state change too.
+      It is now a divergence **on request**: a gain write re-chooses the gains
+      on the next tick. After: `kp=10` → duty 43.79 %, `kp=62` → 100 %, with
+      no state change in between. Verified on the bench.
+      [`intentional-diffs.md` §31](./rust-migration/intentional-diffs.md).
+
+### Two more found in the same pass — also fixed
+
+- [x] **A fractional setpoint was truncated.** `POST /api/setpoint?value=93.5`
+      answered `202 {"accepted":true}` and set 93. Same for `80.5` and `91.2`.
+      The C++ passes the `double` straight to `setProcessSetpoint`
+      (`WebServerManager.cpp:394-396`); this port cast to `i32`. Now `88.5`,
+      `91.2` and `60.75` all land exactly. This is almost certainly what "the
+      setpoint control does nothing" looked like from the UI.
+      [`intentional-diffs.md` §30a](./rust-migration/intentional-diffs.md).
+
+- [x] **Backflush mode could not be turned off.** Four presses in a row —
+      including the explicit `?on=0` — all answered `{"backflushOn":true}` and
+      the machine stayed in `BACKFLUSH_IDLE`, because the toggle fed
+      `BackflushStop`, which stops a cycle without clearing the mode flag. Now
+      on → off → on, verified on the bench.
+      [`intentional-diffs.md` §30b](./rust-migration/intentional-diffs.md).
+
+### Still open
+
+- [ ] **`standby.enabled` and `standby.time` changed to `true` / `2` with no
+      recorded write.** Both were at their defaults, then read back as
+      `standby.enabled = true, standby.time = 2` (defaults `false` / `35`)
+      during the 2026-10-05 session. Nothing in the firmware assigns either
+      outside the parameter-write path, no MQTT session was configured, and no
+      browser was opened. **Not diagnosed.** Reproduce by watching
+      `GET /api/parameters` across a reboot and an idle hour.
 
 ## Outstanding — recorded 2026-10-01, none of it fixed
 

@@ -13,17 +13,33 @@ fn the_setpoint_route_takes_what_the_schema_will_store() {
     // are the schema's two edges (`Config.h:795-802`, `defaults.h:81-82`)
     // and the value the integration checklist posts, spelled both ways.
     for (field, expected) in [
-        ("20", 20),
-        ("20.0", 20),
-        ("95", 95),
-        ("95.0", 95),
-        ("110", 110),
-        ("110.0", 110),
+        ("20", 20.0),
+        ("20.0", 20.0),
+        ("95", 95.0),
+        ("95.0", 95.0),
+        ("110", 110.0),
+        ("110.0", 110.0),
     ] {
         assert_eq!(
             parse_setpoint(field),
             Some(Command::SetSetpoint(expected)),
             "{field} is inside the schema's range and must be accepted"
+        );
+    }
+}
+
+#[test]
+fn a_fractional_setpoint_survives_to_the_command() {
+    // The one that was broken on the bench. `93.5`, `80.5` and `91.2` were all
+    // accepted with `202 {"accepted":true}` and all arrived as the truncated
+    // integer, because `parse_setpoint` cast to `i32`. The C++ passes the
+    // `double` straight through (`WebServerManager.cpp:394-396`) and
+    // `brew.setpoint` is a float parameter, so 93.5 must stay 93.5.
+    for (field, expected) in [("93.5", 93.5), ("80.5", 80.5), ("91.2", 91.2)] {
+        assert_eq!(
+            parse_setpoint(field),
+            Some(Command::SetSetpoint(expected)),
+            "{field} must not be truncated"
         );
     }
 }

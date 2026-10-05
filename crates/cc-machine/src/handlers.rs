@@ -643,6 +643,10 @@ fn apply_command(
         C::ManualFlushStart => machine.requests.set(Request::ManualFlushStart, true),
         C::ManualFlushStop => machine.requests.set(Request::ManualFlushStop, true),
         C::BackflushEnter => fx.extend(&apply_backflush_mode(machine, ctx, true)),
+        // `setBackflushMode(bool)` — the C++'s one call for both directions. The
+        // `BackflushEnter` above is kept because `backflush.cycles`-driven paths
+        // still use it as the request flag.
+        C::SetBackflushMode(active) => fx.extend(&apply_backflush_mode(machine, ctx, active)),
         C::BackflushCycleStart => {
             fx.extend(&set_request(machine, ctx, Request::BackflushCycleStart));
         }
@@ -715,6 +719,9 @@ fn one(effect: Effect) -> Effects {
 mod tests {
     use super::*;
     use crate::machine::SwitchLevels;
+    use cc_domain::units::Celsius;
+
+    use crate::event::Command as C;
 
     #[test]
     fn brew_is_active_excludes_brew_finished() {
@@ -740,5 +747,35 @@ mod tests {
         // updating the handlers.
         let levels = SwitchLevels::ALL_RELEASED;
         assert!(!levels.level(SwitchId::Brew));
+    }
+
+    #[test]
+    fn the_backflush_mode_toggle_turns_the_mode_off_again() {
+        // **The bug this pins.** `POST /api/backflush` toggled backflush mode
+        // by feeding `BackflushEnter` / `BackflushStop`, and `BackflushStop`
+        // stops a running cycle without clearing `backflush.on`. So the toggle
+        // had no off switch: four presses on a bench ESP32 all answered
+        // `{"backflushOn":true}` and the machine stayed in `BACKFLUSH_IDLE`.
+        //
+        // The C++ has one call for both directions —
+        // `setBackflushMode(!backflushMode())` (`WebServerManager.cpp:489-491`)
+        // — and `SetBackflushMode(bool)` is that call.
+        let config = cc_config::Config::default();
+        let ctx = Context::new(&config, Celsius::new(95.0));
+        let mut machine = Machine::cold();
+
+        apply_command(&mut machine, &ctx, C::SetBackflushMode(true));
+        assert!(machine.backflush.on, "the first press must turn mode on");
+
+        apply_command(&mut machine, &ctx, C::SetBackflushMode(false));
+        assert!(
+            !machine.backflush.on,
+            "the second press must turn mode OFF -- this is what the bench showed \
+             stuck on forever"
+        );
+
+        // And it is a toggle, not a one-way door: back on again.
+        apply_command(&mut machine, &ctx, C::SetBackflushMode(true));
+        assert!(machine.backflush.on);
     }
 }

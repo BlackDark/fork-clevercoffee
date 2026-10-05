@@ -364,6 +364,10 @@ pub const CASES: &[Case] = &[
         run: web::tests::the_parameter_help_route_is_a_get_and_nothing_else,
     },
     Case {
+        name: "web::every_registered_route_is_in_the_raw_handlers_own_table",
+        run: web::tests::every_registered_route_is_in_the_raw_handlers_own_table,
+    },
+    Case {
         name: "web::the_route_table_fits_the_servers_handler_budget",
         run: web::tests::the_route_table_fits_the_servers_handler_budget,
     },

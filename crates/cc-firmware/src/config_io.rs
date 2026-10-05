@@ -54,10 +54,16 @@ use crate::mqtt_link;
 ///
 /// `before` is `(pid.enabled, brew.setpoint)` **read before** the apply, which is
 /// the only way to tell whether either actually moved.
+///
+/// `written` is the `(key, value)` pairs the apply consumed, and it is here for
+/// one reason: the PID's **gains** are not cached in the machine at all, so a
+/// write to `pid.regular.kp` reaches the running PID only if the controller is
+/// told to re-choose them. See [`touches_pid_gains`].
 pub(crate) fn push_into_machine(
     control: &mut control::Control,
     config: &cc_config::Config,
     before: (bool, f64),
+    written: &[(String, String)],
     effects: &mut cc_machine::Effects,
 ) {
     let (pid_enabled_before, brew_setpoint_before) = before;
@@ -82,6 +88,27 @@ pub(crate) fn push_into_machine(
             config.brew.setpoint
         );
     }
+    if touches_pid_gains(written) {
+        // The C++ would wait for the next state change; this does not. See
+        // `Control::retune_now`.
+        control.retune_now();
+        info!(
+            "config: PID gains re-chosen for the running machine without waiting for a \
+               state change"
+        );
+    }
+}
+
+/// Whether any written key is one of the PID's gains.
+///
+/// A `pid.` prefix rather than a list of keys, deliberately: the gains are
+/// derived — `pid.regular.ki` comes from `tn` and `i_max`, the brew-detection
+/// arm has its own subtree — so a hand-kept list is a list that rots. The cost
+/// of being broad is one idempotent `set_tunings` call, which writes the same
+/// numbers back and does not touch the integrator.
+#[must_use]
+pub fn touches_pid_gains(written: &[(String, String)]) -> bool {
+    written.iter().any(|(key, _)| key.starts_with("pid."))
 }
 
 /// Persist `brew.setpoint` and report the outcome.
