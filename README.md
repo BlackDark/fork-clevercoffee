@@ -32,10 +32,11 @@ has no native USB.
 
 | Your situation | Read |
 | --- | --- |
-| **New here** | [`README.md`](README.md) (this page), then [`docs/index.md`](docs/index.md) for the map |
+| **New here** | This page, then [`GLOSSARY.md`](GLOSSARY.md) for the vocabulary and [`docs/architecture.md`](docs/architecture.md) for the shape |
 | **I am about to change firmware behaviour** | [`AGENTS.md`](AGENTS.md) — the rulebook — then [`docs/differences.md`](docs/differences.md) |
 | **I am at the machine** | [`docs/operations/runbook.md`](docs/operations/runbook.md) |
-| **I want the history** | [`docs/archive/README.md`](docs/archive/README.md) |
+| **I want to know how it got this way** | [`docs/history/README.md`](docs/history/README.md) |
+| **I want a specific document** | [`docs/index.md`](docs/index.md) is the map. Every document appears there exactly once. |
 
 **[`docs/index.md`](docs/index.md) is the map**: one row per document, grouped by
 those four situations. [`docs/status.md`](docs/status.md) is the only page in

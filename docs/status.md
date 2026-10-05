@@ -40,6 +40,19 @@ page.
   `just u8g2`; it is the same version, a different packaging.
   `just test-display-parity`: 2 passed. `just snapshot-display`: 1 golden
   rendered, unchanged.
+- **The documentation has one map, one architecture page and one glossary.**
+  `docs/index.md` is exhaustive again (`AG-REPO-28`): `docs/api/openapi.yaml`
+  had been missing from it for the whole port, which is how a 759-line orphan
+  survived. `docs/architecture.md` answers "what is this thing" in one page,
+  `GLOSSARY.md` pins the words inherited from the deleted C++, and
+  `docs/history/README.md` tells the transformation as a narrative rather than as
+  a hardware spec. `scripts/check-doc-links.py`: 373 links, none broken.
+- **The API spec is now checked against the routes.** `scripts/check-openapi.py`
+  diffs `docs/api/openapi.yaml` against the `ROUTES` table in
+  `cc-hal-esp32/src/web.rs` in both directions and runs in `just check` and CI
+  (`AG-REPO-31`). The spec had drifted: it covered 24 of 28 routes and omitted
+  `/api/sleep`, `/api/wake` and `/events`, which are exactly the three carrying
+  deliberate divergences. All 28 are now present.
 - **`extract_fonts.py check` passes again.** It compared the whole of
   `font/data.rs`, licence header included, against generator output that never
   emitted that header — so it could not pass, and had not been run since the
