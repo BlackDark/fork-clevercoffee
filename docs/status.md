@@ -1,6 +1,6 @@
 # Status
 
-**Dated 2026-10-04. Owner: Eduard Marbach** (`mail@eduard-marbach.de`), who also
+**Dated 2026-10-05. Owner: Eduard Marbach** (`mail@eduard-marbach.de`), who also
 owns the wired machine. Re-verify with `git log --oneline -1` and `just gate`
 before trusting a line below.
 
@@ -64,11 +64,41 @@ page.
   the gzip bundle with `include_bytes!`, which is why a 199,270 B bundle costs
   0 B of RAM. A deep link to a client-side route (`/ui/config/behavior`) boots the
   configuration page with 104 live parameters, verified in Chrome on the device.
+- **`/api/status` reports the radio truthfully.** `wifiAssociated`, `wifiSignal`,
+  `wifiOffline` and `ip` come from `network::publish_radio`, which runs on the
+  1 s poll. The control task's own publish carries them **forward** rather than
+  defaulting them, because `Shared::publish` replaces the whole slot: the
+  control task publishes every 10 ms, so "the radio publishes second" only
+  described the last microsecond of each second and the association flag was
+  gone again before any client could read it. Measured before the fix on a bench
+  ESP32 associated at −45 dBm with `10.0.1.168`: `/api/status` reported
+  `wifiAssociated: false, wifiSignal: 0, ip: null` continuously while
+  `publish_radio` was provably writing the true values every second. After it:
+  `wifiAssociated: true, wifiSignal: 4, ip: "10.0.1.168"`.
+- **`just flash` and `just test-esp32` work.** Both shelled out to
+  `cargo espflash`, which builds the binary itself, accepts no `-Z`, and reads
+  build-std from the cargo config rather than the environment — so both died
+  with "'build-std' not configured" from `e4ec70bd` (2026-10-03) onwards. The
+  image is now built by the `build-*` recipe and flashed from its ELF by the new
+  `flash-elf` recipe, which `just doctor` asserts the standalone binary for.
+- **The on-target suite is green on the board.** `just test-esp32` on an
+  original ESP32 rev 3.0: **111 passed, 0 failed, 1 lost, 0 hung**, firmware
+  restored afterwards. Three cases failed on the first run and all three were
+  defects in the cases, not in the firmware — two table-wide invariants in
+  `web.rs` that the deliberate `/api*` preflight wildcard trips, and an OTA
+  session test that claimed a second session without releasing the first.
+- **Wi-Fi provisioning over the UART console is exercised.** `just
+  wifi-provision /dev/cu.usbserial-224140` stores the credential from `.env`,
+  the machine reboots, associates at `10.0.1.168` and serves the API. The
+  script also accepts the reset as confirmation, because the firmware's
+  `credential from the console was stored` line does not reach UART0 — see the
+  open item below.
 - **The gate is green.** `just gate`: fmt-check, clippy (host and
   device) with `-D warnings`, rustdoc `-D warnings`, the host suite, the parity
   harness, the device-test audit, the Xtensa release build, and the size budget.
-  **1,700,448 B**, which fits the 1,835,008 B app0 slot with +134,560 B to spare
-  and is **+9.04 %** against `size-baseline.json`, inside the 10 % limit.
+  **1,699,872 B**, which fits the 1,835,008 B app0 slot with +135,136 B to spare
+  and is **+9.00 %** against `size-baseline.json`, inside the 10 % limit.
+  Re-measured 2026-10-05.
 - **The two firmware trees have not diverged by accident.** Zero lines changed in
   `src/`, `include/`, `lib/`, `platformio.ini` or the root `partitions_4M.csv`
   since the branch point `2006b710`. That is checkable:
@@ -129,7 +159,10 @@ rather than from memory.
   SSID and password** (`cc_config::predecessor::startup_notice` for the words,
   `cc_hal_esp32::nvs::probe_predecessor` for the check). A deliberate migration
   was declined: see [`intentional-diffs.md` §29](./rust-migration/intentional-diffs.md).
-  The re-provisioning itself has **not been exercised on hardware**.
+  **The re-provisioning itself has now been exercised on hardware** (2026-10-05,
+  a bench ESP32): `just wifi-provision` stores the credential, the machine
+  reboots onto the network and serves the API. What is still unexercised is the
+  *migration* — no C++ `config` namespace was present on that board.
 
 ---
 
@@ -162,6 +195,21 @@ be filed and they are not fixed by the next green gate.
    fitted and that arm has never run.
 8. **Two pump watchdogs are armed that the C++ leaves inert.** Correct call, and
    a behaviour change: a 5-minute brew the C++ ran indefinitely now stops.
+9. **The Wi-Fi telemetry defect was invisible to the test suite.** The device case
+   `web.rs:3277` asserts that a control-task publish leaves the radio fields
+   alone — but it asserts it about a **helper defined in the test module**, not
+   about the call site in `main.rs`, which is where the bug lived. The invariant
+   is only observable at `/api/status` on real hardware, and `cc-hal-esp32` cannot
+   depend on `cc-firmware` to reach it. Treat every device case that reconstructs
+   the production call in a test helper as coverage of the *contract*, not of the
+   *code*.
+10. **Two open defects found on the bench 2026-10-05, both unfixed** and recorded
+   in [`integration-checklist.md`](./operations/integration-checklist.md):
+   an unknown `/api/...` path answers ESP-IDF's `405` in `text/html` instead of
+   the JSON `404` the C++ returns, because the `/api*` preflight wildcard makes
+   ESP-IDF treat the URI as matched-but-wrong-method; and a `POST
+   /api/parameters` that changes a PID tuning is persisted and reported back but
+   does not reach the running PID until the machine changes state.
 
 ---
 

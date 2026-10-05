@@ -3004,6 +3004,13 @@ pub mod tests {
     #[cfg_attr(test, test)]
     pub fn every_advertised_api_route_is_covered_by_the_json_404() {
         for (path, _) in routes() {
+            // A wildcard answers the requests it matches, so it never reaches
+            // the 404 and the rule cannot apply to it. The two registered
+            // wildcards are checked for their own method in
+            // `wildcard_matching_leaves_the_api_routes_exact`.
+            if path.ends_with('*') {
+                continue;
+            }
             if path.starts_with("/api") {
                 assert!(
                     cc_web::help::wants_json_not_found(path),
@@ -3376,10 +3383,29 @@ pub mod tests {
         // switch is global. `httpd_uri_match_wildcard` requires an exact length
         // match for a template with no `*`/`?` (httpd_uri.c:57-60), so this
         // asserts the invariant the whole `/api/*` surface depends on.
-        for (uri, _) in routes() {
-            if uri != "/ui*" {
-                assert!(!uri.ends_with('*'), "{uri} would match by prefix");
+        // Exactly two wildcards are registered and both are deliberate: the UI
+        // shell (`/ui*`), and the `/api*` preflight, which answers `Options` and
+        // therefore cannot serve the wrong body to a `GET`. Anything else with a
+        // `*` would match a real route by prefix.
+        let mut wildcards: Vec<&str> = routes()
+            .iter()
+            .filter(|(uri, _)| uri.ends_with('*'))
+            .map(|(uri, _)| *uri)
+            .collect();
+        wildcards.sort_unstable();
+        assert_eq!(wildcards, ["/api*", "/ui*"], "wildcard routes changed");
+        for (uri, method) in routes() {
+            if !uri.ends_with('*') {
+                continue;
             }
+            // Each wildcard is paired with the one method it may answer, so
+            // neither can start serving a body to a request it was not meant for.
+            let allowed = match uri {
+                "/ui*" => Method::Get,
+                "/api*" => Method::Options,
+                other => panic!("unexpected wildcard route {other}"),
+            };
+            assert_eq!(method, allowed, "{uri} answers the wrong method");
         }
         assert!(configuration().uri_match_wildcard);
     }

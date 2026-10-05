@@ -2400,6 +2400,24 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
             match network::apply_staged(&mut store, staged) {
                 Ok(()) => {
                     info!("config: a wifi credential from the console was stored; rebooting");
+                    // **Same shape as the two reboot paths below**, and for the
+                    // same two reasons. Without the shutdown, the relays are
+                    // left as the last tick left them until the reset lands --
+                    // the hazard the `take_reboot_request` branch documents. And
+                    // without the pause the line above does not reach the wire:
+                    // measured on a bench ESP32, `restart_now()` immediately
+                    // after this `info!` reset the chip before UART0 had
+                    // drained, so `just wifi-provision` waited out its window
+                    // and reported "no confirmation that the credential was
+                    // stored" for a credential that had been stored.
+                    let machine = *control.machine();
+                    cc_machine::apply_one(
+                        &mut actuators,
+                        &mut side,
+                        &machine,
+                        cc_machine::Effect::SafeHardwareShutdown,
+                    );
+                    FreeRtos::delay_ms(REBOOT_DISPLAY_MS);
                     restart_now();
                 }
                 Err(err) => {
@@ -2883,6 +2901,21 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
         let uptime = now_ms();
         let state = control.state();
         let machine = *control.machine();
+        // The radio's four fields belong to `network::publish_radio`, and this
+        // is a **whole-slot replace**, so they have to be carried forward rather
+        // than defaulted.
+        //
+        // Ordering alone is not enough, and the ordering argument that used to
+        // sit here was wrong. `publish_radio` runs once a second and this
+        // publish runs every 10 ms tick, so "the radio publishes second" only
+        // describes the last microsecond of each second: the very next tick
+        // replaced the slot with `..Telemetry::default()` and the association
+        // flag was gone again. Measured on a bench ESP32 associated at -45 dBm
+        // with 10.0.0.7 — `/api/status` reported `wifiAssociated: false,
+        // wifiSignal: 0, ip: null` continuously, and `publish_radio` was
+        // provably writing the true values every second. A reader only ever saw
+        // them if it polled inside the sub-10 ms window.
+        let radio_fields = net.shared.snapshot();
         net.shared.publish(Telemetry {
             machine_state: state as i32,
             temperature_c: last_reading.map_or(f64::NAN, |(celsius, _)| celsius),
@@ -2967,18 +3000,19 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
             // `false`, because `esp_mqtt_client_start` connects on the
             // client's own task and no tick had run yet.
             mqtt_connected: mqtt.as_ref().is_some_and(mqtt_link::Link::connected),
-            // The radio's four fields are NOT set here: they belong to
-            // `network::publish_radio`, which runs after this publish
-            // because `Shared::publish` replaces the whole slot.
+            // **Carried forward, not written.** These belong to
+            // `network::publish_radio`, which owns them; see the comment on
+            // `radio_fields` above for why leaving them at their defaults here
+            // was a real, measured defect.
+            signal: radio_fields.signal,
+            wifi_associated: radio_fields.wifi_associated,
+            wifi_offline: radio_fields.wifi_offline,
+            ip: radio_fields.ip.clone(),
             uptime_ms: uptime,
             weight_g,
-            // `brew_weight_g`, `signal`, `wifi_associated`, `ip` and
-            // `wifi_offline` stay at their defaults here. `brew_weight_g`
-            // is the radio's weight sample, published by the weight task;
-            // the other four belong to `network::publish_radio`, which runs
-            // AFTER this publish because `Shared::publish` replaces the
-            // whole slot. This is the same "do not write them" contract
-            // `telemetry_from` used to express by omission.
+            // `brew_weight_g` stays at its default here: it is the radio's weight
+            // sample, published by the weight task, and nothing on the control
+            // task writes it.
             ..Telemetry::default()
         });
 

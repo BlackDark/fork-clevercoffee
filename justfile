@@ -157,6 +157,11 @@ dev_crates := "-p cc-hal-esp32 -p cc-firmware -p cc-device-tests"
 bin_tests := "firmware-tests"
 
 # Source the generated environment file (D2) without failing when it is absent.
+#
+# `CARGO_UNSTABLE_BUILD_STD` is NOT set here. `cargo espflash` reads the config
+# table directly and ignores the env form, so the flash recipes build the image
+# with `cargo` (which takes `-Zbuild-std`) and flash the ELF with plain
+# `espflash` -- see `flash-elf`.
 env_prefix := "[ -f .rust-esp-env.sh ] && . ./.rust-esp-env.sh || true; "
 
 # ---------------------------------------------------------------- setup / env
@@ -323,6 +328,9 @@ doctor:
 
     just env-file
     cargo espflash --version
+    # The flash recipes shell out to the standalone binary too (see `flash-elf`),
+    # so a missing one has to fail here rather than at the flash.
+    espflash --version
     command -v ldproxy >/dev/null && echo "ldproxy present"
 
 # First-time setup, in the right order: host tools, then the device toolchain
@@ -485,9 +493,8 @@ test-audit:
 # `just flash <port>` before putting the machine back into service.
 [script]
 test-esp32 port: test-audit
-    {{env_prefix}} cargo espflash flash --release --package cc-device-tests \
-        --bin {{bin_tests}} --target {{tgt_esp32}} --port {{port}} \
-        --chip {{mcu_esp32}} --partition-table rust/partitions_4M.csv
+    just build-tests-esp32
+    just flash-elf {{port}} target/{{tgt_esp32}}/release/{{bin_tests}}
     py=""
     for c in .embuild/espressif/python_env/*/bin/python python3; do
         [ -x "$c" ] && "$c" -c 'import serial' 2>/dev/null && { py="$c"; break; }
@@ -499,15 +506,13 @@ test-esp32 port: test-audit
     # `cc-device-tests` is flashed over the top of the running firmware, so after
     # this recipe the board is running the **test runner**: 142 cases, then a
     # blank panel and no Wi-Fi until something is flashed. That is not an
-    # inconvenience — it is a machine that looks broken, and the first time this
+    # inconvenience -- it is a machine that looks broken, and the first time this
     # ran nobody (including the person who wrote the recipe) worked out that the
     # board was fine and simply had the wrong image on it.
     echo ""
     echo "device-tests finished; restoring the firmware on {{port}}"
-    {{env_prefix}} cargo espflash flash --release --package cc-firmware \
-        --bin {{bin_esp32}} --target {{tgt_esp32}} --port {{port}} \
-        --chip {{mcu_esp32}} --partition-table rust/partitions_4M.csv
-    echo "firmware restored — the panel and the API are back"
+    just flash {{port}}
+    echo "firmware restored -- the panel and the API are back"
 
 # Build the on-target test image without flashing. Same opt-level, same
 # panic=abort, same overflow-checks as the release profile, so what is measured
@@ -520,15 +525,15 @@ build-tests-esp32: ui
 # in the chain because it needs a board and a port; the guard against "the device
 # tests never run" is `test-audit`, which is in `lint-esp32`, which is here.
 gate:
-    @just doctor-host
-    @just fmt-check
-    @just lint
-    @just lint-esp32
-    @just doc
-    @just test
-    @just parity-test
-    @just build-esp32
-    @just size-check
+    just doctor-host
+    just fmt-check
+    just lint
+    just lint-esp32
+    just doc
+    just test
+    just parity-test
+    just build-esp32
+    just size-check
 
 # Everything a gate must run, on ONE toolchain.
 #
@@ -539,14 +544,14 @@ gate:
 # prize, and it is what makes the workspace's `rust-version = "1.82"` claim
 # verifiable instead of decorative.
 check:
-    @just doctor-host
-    @just fmt-check
-    @just lint
-    @just doc
-    @just test
-    @just parity-test
-    @just test-audit
-    @just doc-links
+    just doctor-host
+    just fmt-check
+    just lint
+    just doc
+    just test
+    just parity-test
+    just test-audit
+    just doc-links
 
 # Every relative markdown link resolves.
 #
@@ -604,7 +609,7 @@ build-esp32c6:
 # build-esp32s3 / build-esp32c6 are deliberately NOT included: a target that
 # builds is not a supported target (06 R4-07/R4-08, skill rule 5).
 build-all:
-    @just build-esp32
+    just build-esp32
 
 # ------------------------------------------------- diagnostic build (unstripped)
 
@@ -619,9 +624,8 @@ diag-build: ui
 
 # Flash the unstripped build. Same partition table and chip as `just flash`.
 diag-flash port:
-    {{env_prefix}} cargo espflash flash --profile diagnostic --package cc-firmware \
-        --bin {{bin_esp32}} --target {{tgt_esp32}} --port {{port}} --chip {{mcu_esp32}} \
-        --partition-table rust/partitions_4M.csv
+    just diag-build
+    just flash-elf {{port}} target/{{tgt_esp32}}/diagnostic/{{bin_esp32}}
 
 # Resolve backtrace addresses against the diagnostic ELF. `just diag-addr2line
 # 0x40112379 0x400d6dbe` (or paste a whole `Backtrace:` line).
@@ -642,15 +646,15 @@ diag-addr2line *addresses:
 # Image size vs the app slot, and the delta vs the previous gate. Run after
 # every task (skill rule 5c).
 size: ui
-    @just --working-directory . --justfile just/size.just size
+    just --working-directory . --justfile just/size.just size
 
 # CI gate: fail if the image exceeds the budget.
 size-check: ui
-    @just --working-directory . --justfile just/size.just check
+    just --working-directory . --justfile just/size.just check
 
 # Record a phase-gate datapoint: just size-record esp32 gate-1
 size-record mcu="esp32" label="":
-    @just --working-directory . --justfile just/size.just record {{mcu}} "{{label}}"
+    just --working-directory . --justfile just/size.just record {{mcu}} "{{label}}"
 
 # --------------------------------------------------------------------- flash
 
@@ -664,12 +668,32 @@ identify port:
     cargo espflash board-info --port {{port}}
     @echo "Confirm the reported chip matches the MCU you intend to build for."
 
+# Flash a built ELF onto a port.
+#
+# `cargo espflash flash --package ...` is NOT usable from a recipe: it builds the
+# binary itself, accepts no `-Z`, and reads the build-std setting from the cargo
+# config table rather than the environment. `e4ec70bd` removed
+# `[unstable] build-std` from `.cargo/config.toml` on the grounds that every
+# device recipe passes `-Zbuild-std` on the command line -- true for
+# `build-esp32` and `lint-esp32`, false for these four, which have been dead
+# ever since ("'build-std' not configured"). So the image is built by the
+# `build-*` recipe, which can pass the flag, and flashed from its ELF here.
+#
+# D3 still holds: the app image does not contain the partition table. `espflash`
+# reads `rust/partitions_4M.csv` out of the ESP-IDF metadata cargo embeds in the
+# ELF, which is why no `--partition-table` is passed here; the flash log prints
+# the table it used.
+[script]
+flash-elf port elf:
+    [ -f {{elf}} ] || { echo "no {{elf}} -- build it first"; exit 1; }
+    espflash flash --port {{port}} --chip {{mcu_esp32}} {{elf}}
+
 # Flash the production target. PORT is positional and REQUIRED — a bare
 # `just flash` fails with a usage message rather than guessing a device.
+[script]
 flash port:
-    {{env_prefix}} cargo espflash flash --release --package cc-firmware --bin {{bin_esp32}} \
-        --target {{tgt_esp32}} --port {{port}} --chip {{mcu_esp32}} \
-        --partition-table rust/partitions_4M.csv
+    just build-esp32
+    just flash-elf {{port}} target/{{tgt_esp32}}/release/{{bin_esp32}}
 
 # Wipe and flash. Destroys NVS — but NVS is rewritten anyway (no cross-version
 # compatibility, 06 R3-08), so this is about a known-clean state, not data loss.

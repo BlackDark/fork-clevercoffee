@@ -669,7 +669,11 @@ pub mod tests {
             "and it is consumed, so it cannot be read twice"
         );
 
-        // The next session must not inherit it.
+        // The next session must not inherit it. `claim` refuses while a
+        // session is running, so the first one has to be finished first --
+        // otherwise this asserts nothing about inheritance, it asserts the
+        // refusal that the case above already covers.
+        session.finish_err(StatusMessage::Flash);
         assert!(session.claim(Kind::Firmware));
         assert_eq!(
             session.take_verdict(),

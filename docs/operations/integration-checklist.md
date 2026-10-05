@@ -666,6 +666,50 @@ primitive: that would change four screens that currently match the C++, in
 exchange for hiding a defect the baseline also has.
 
 
+## Added 2026-10-05 — from a bench ESP32 (original, rev 3.0), Rust firmware
+
+Found while running the sections above against a bench with a DS18B20, an
+SSD1306 and four switches, and nothing on the heater pin. Four new checks and
+two open defects. The sections above are unchanged; these are additive.
+
+### New checks
+
+- [ ] `GET /api/status` on an **associated** machine reports `wifiAssociated:
+      true`, a non-zero `wifiSignal` and the DHCP address in `ip`. It read
+      `false` / `0` / `null` continuously on an associated machine, because the
+      control task's publish runs every 10 ms and `Shared::publish` replaces the
+      whole slot — so the radio's values, written once a second, were gone again
+      within one tick. Fixed by carrying the four fields forward.
+- [ ] `GET /api/parameter-help` takes **`param=`**, not `parameter=`. A wrong key
+      answers `422 {"error":"parameter is missing"}`, which reads like "this
+      endpoint is broken" rather than "you spelled it wrong".
+- [ ] `POST /api/parameters` → `GET /api/parameters` **after a reboot** is the
+      only persistence check that counts. Verified on the bench for a bool, an
+      int, a float and a text parameter, and for a boot-only key (which answers
+      `200` with `requiresReboot: true` and names the key).
+- [ ] Boot log line `switch resting levels after settling: …`. With the bench's
+      buttons wired, all four reported `false`. **All four `true` means a
+      floating input on GPIO34/35/36/39 and a brew that starts on its own** —
+      fix the pull or set the flag back to false before anything else.
+
+### Open defects, unfixed
+
+- [ ] **An unknown `/api/...` path answers `405 text/html`, not the JSON `404`.**
+      `GET /api/nope` → `405`, `Specified method is invalid for this resource`,
+      `content-type: text/html`. The C++ answers `{"error":"API endpoint not
+      found"}` (`handleNotFound`, `WebServerManager.cpp:1011`). Cause: the
+      `/api*` `Options` preflight wildcard matches the URI, so ESP-IDF reports
+      *method mismatch* rather than *no match*, and the registered `404` error
+      handler never runs. `GET /nope` is unaffected (ESP-IDF's own `404`). A
+      client that branches on the body shape breaks on a mistyped URL.
+- [ ] **A PID tuning written over HTTP does not reach the running PID.** With
+      `pid.regular.kp` at `62` (the default) restored by `POST`, `/api/parameters`
+      reported the new value and the boot log persisted it, but `heaterPower`
+      stayed at the old tuning's `21.8 %` for 15 s. Cycling the PID
+      (`POST /api/pid?on=0` then `?on=1`) made it jump to `100 %` at a 65 K
+      error — which is the behaviour the status page documents. The stored value
+      and the live value are two different things until the state changes.
+
 ## Outstanding — recorded 2026-10-01, none of it fixed
 
 Each item is a decision or a measurement, not a defect with an obvious fix.

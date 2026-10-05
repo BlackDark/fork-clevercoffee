@@ -32,6 +32,9 @@ import time
 REPLY = "CCWIFI"
 SETTLE = 0.4
 DRAIN = 3.0
+# The reset the bootloader prints when it comes back up. `wifi apply` has no
+# other way to reboot the machine; see the note where it is matched.
+RESET = "SW_CPU_RESET"
 
 
 def read_env(path: pathlib.Path) -> tuple[str, str]:
@@ -170,6 +173,15 @@ def main() -> None:
     #
     # The confirmation is therefore the firmware's own log line, and a reset is
     # corroborating evidence.
+    #
+    # **A reset counts.** Measured on a bench ESP32 (2026-10-05), the
+    # credential was stored and the chip rebooted — and the firmware's
+    # `credential from the console was stored` line still never reached UART0,
+    # so this script waited out its window and reported a successful store as a
+    # failure. It still did with a 1 s pause between the log line and the reset,
+    # so the line is lost somewhere this script cannot see. `wifi apply` has no
+    # other way to reboot, and the three console commands above were all
+    # answered, so within this window a reset means `apply_staged` returned `Ok`.
     send("wifi apply")
     stored = False
     refused = ""
@@ -178,10 +190,10 @@ def main() -> None:
         chunk = scrub(port.read(4096))
         if f"{REPLY} err" in chunk:
             refused = chunk
-        if "credential from the console was stored" in chunk:
+        if "credential from the console was stored" in chunk or RESET in chunk:
             stored = True
     tail = collect(1.5)
-    if "credential from the console was stored" in tail:
+    if "credential from the console was stored" in tail or RESET in tail:
         stored = True
 
     if refused:
@@ -192,7 +204,8 @@ def main() -> None:
         die(
             "no confirmation that the credential was stored. `wifi apply` answers "
             "nothing by design, so this script waits for the firmware's own "
-            "'stored' log line; not seeing it means the write did not happen."
+            "'stored' log line or for the reset it causes; seeing neither means "
+            "the write did not happen."
         )
 
     print("wifi: credential accepted and stored.")
