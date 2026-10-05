@@ -39,6 +39,7 @@ this page, not in your question.
 
 | Document | What it is for | Read it if |
 | --- | --- | --- |
+| [`docs/control/state-machine.md`](control/state-machine.md) | The 18 states and what each energises, what a tick actually is, and the checklist for adding a state. | You are changing what the machine does next. |
 | [`docs/adr/0003-state-machine-hardware-control-contract.md`](adr/0003-state-machine-hardware-control-contract.md) | Accepted: the pump, valve and heater ownership contract. Energise on entry, reinforce on update, release on exit. | **Adding a state, or touching anything that moves water.** |
 | [`docs/adr/0002-wifi-logging-ota-memory-architecture.md`](adr/0002-wifi-logging-ota-memory-architecture.md) | Accepted: Wi-Fi logging, OTA admission, and the memory budget. | You are touching networking, OTA, or heap. |
 
@@ -62,12 +63,14 @@ this page, not in your question.
 
 | Document | What it is for | Read it if |
 | --- | --- | --- |
+| [`docs/protocols/sensors.md`](protocols/sensors.md) | The four sensor protocols written as state machines over bytes, why the TSIC-306 was the risk, and what has never run. | You are touching a sensor, or adding a protocol. |
 | [`docs/history/dependency-evaluation.md`](history/dependency-evaluation.md) | Per-dependency evidence: crate exists, licence, MSRV, what was verified and what was not. | You add or evaluate a crate. |
 
 **Web** — HTTP, MQTT and the UI.
 
 | Document | What it is for | Read it if |
 | --- | --- | --- |
+| [`docs/web/http-and-ui.md`](web/http-and-ui.md) | Routing, the event stream, authentication, the OTA hole, and why the UI costs 0 B of RAM. | You are changing an endpoint, the stream, or the UI's delivery. |
 | [`docs/api/openapi.yaml`](api/openapi.yaml) | The API contract, 28 paths. **Checked against the routes the firmware serves by `scripts/check-openapi.py`**; the check runs in `just check`. | You are calling or changing an endpoint. |
 | [`ui/packages/frontend/README.md`](../ui/packages/frontend/README.md) | The React app's own build and test instructions. | You are changing the UI. |
 | [`ui/packages/mock-server/README.md`](../ui/packages/mock-server/README.md) | Running the UI against a mock device. | You are working on the UI without hardware. |
