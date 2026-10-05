@@ -22,9 +22,11 @@ so a reader who only ever opens one source file still sees the obligation.
 
 **How the bytes got here**
 
-`crates/cc-display/tools/extract_fonts.py` reads the `u8g2_fonts.c` that the C++
-firmware links (`platformio.ini`, `lib_deps: olikraus/U8g2 @ 2.36.18`) and emits
-the arrays byte-for-byte. Regenerate with:
+`crates/cc-display/tools/extract_fonts.py` reads `u8g2_fonts.c` from **U8g2
+upstream tag `2.36.18`** — commit `d66b49af`, the version the firmware was built
+against — and emits the arrays byte-for-byte. Fetch the tree with `just u8g2`
+(it lands in `target/u8g2`); the tag this repository pinned while the C++ build
+existed is recoverable at `git show 213be5ee^:platformio.ini`. Regenerate with:
 
 ```sh
 crates/cc-display/tools/oracle/run.sh          # rebuild data.rs

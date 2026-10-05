@@ -157,10 +157,10 @@ Found by CI on a commit that was locally green, and now covered in-repo.
 
 > Action pins are **not** checked in-repo and are not needed: `.github/renovate.json5`
 > owns `actions/*`, `jdx/mise-action`, `pnpm/action-setup` and `softprops/*`, so
-> they are bumped by a bot on a schedule. There was a `scripts/check-action-pins.py`
-> here for one commit; it is gone, and the two invented SHAs it was written after
-> are the reason it is not worth keeping — a hand-written 40-hex string is a
-> thing a bot should never have to compete with.
+> they are bumped by a bot on a schedule. An action-pin checker lived here for
+> one commit and was removed; the two invented SHAs it was written after are the
+> reason it was not worth keeping — a hand-written 40-hex string is a thing a
+> bot should never have to compete with.
 
 ## Measured and rejected
 
@@ -255,6 +255,26 @@ commit has been removed.
 
 **`concurrency: group: ${{ github.workflow }}-${{ github.ref }}`.** Already the
 shape here; `cancel-in-progress: true` is already set per workflow.
+
+## A size failure has no automatic "what grew?"
+
+When `just size-check` fails with *"image grew X % vs baseline"*, nothing in the
+gate answers **what grew**. `just size` gives a section breakdown
+(`.flash.text`, `.rodata`, `.iram0`, `.dram0`) and that is where you stop.
+
+`scripts/size-buckets.py` is the per-crate, per-symbol attribution tool, and it
+is **not wired into any recipe**. It is written and working; it is simply never
+called, because [`archive/migration/07-image-size-budget.md`](../archive/migration/07-image-size-budget.md)
+§8 requires attribution "so an increase is never unexplained" and the R1-09
+follow-up to close that gap was never taken. Recorded here so the next reader
+does not re-derive that the tool does not exist.
+
+It needs a `diagnostic`-profile ELF, not the release one, because the release
+profile is stripped. Build it first:
+
+```sh
+just diag-build && python3 scripts/size-buckets.py target/xtensa-esp32-espidf/diagnostic/firmware
+```
 
 ## Reproducing the measurements
 

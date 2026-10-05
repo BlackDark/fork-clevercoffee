@@ -42,6 +42,7 @@ rejected.
 | --- | --- | --- |
 | [`docs/adr/0001-display-subsystem-architecture.md`](adr/0001-display-subsystem-architecture.md) | Accepted: one render pipeline, shared defaults with template overrides, one source of truth for thresholds. | You want the *why* behind the display structure. |
 | [`docs/adr/0002-wifi-logging-ota-memory-architecture.md`](adr/0002-wifi-logging-ota-memory-architecture.md) | Accepted: Wi-Fi logging, OTA admission, and the memory budget. | You are touching networking, OTA, or the heap. |
+| [`docs/adr/0003-state-machine-hardware-control-contract.md`](adr/0003-state-machine-hardware-control-contract.md) | Accepted: the pump, valve and heater ownership contract. Energise on entry, reinforce on update, release on exit. | **Adding a state, or touching anything that moves water.** |
 
 ## By subsystem
 

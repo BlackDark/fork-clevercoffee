@@ -14,6 +14,15 @@ Deliberately checks *existence*, not content. A link to a file that exists but
 says the wrong thing is a documentation defect, not a broken link, and conflating
 the two would make this check unreliable.
 
+BACKTICKED PATHS ARE NOW CHECKED. Existence and anchors cover markdown link
+syntax; they cannot see `` `scripts/foo.py` `` in prose. That is how a live skill
+note went on citing a deleted script with every gate green. Only paths under the
+repository's own directories are checked, and only when they look like a real
+path: a `git show <rev>:<path>` form, or anything with an ellipsis, is a citation
+of history rather than a pointer at the working tree. `docs/archive/` and
+`docs/history/` are excluded entirely — their whole job is to record what was
+true when, and AG-REPO-29 and AG-REPO-30 say so.
+
 FRAGMENTS ARE NOW CHECKED. Existence alone was not enough: the divergence ledger
 is renumbered as the port finds more divergences, and 143 references into it were
 `§N` prose pointing at a section number. Renumbering made 19 of
@@ -39,6 +48,16 @@ SKIP_DIRS = {
 LINK = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
 SCHEMES = ("http://", "https://", "mailto:", "tel:", "#")
 HEADING = re.compile(r"^#{1,6}\s+(.*)$", re.MULTILINE)
+# Directories whose documents cite history by design (AG-REPO-29, AG-REPO-30).
+# A path named in an archived document is evidence of what was true then, not a
+# pointer at the working tree, so the prose check does not apply there.
+HISTORY_DIRS = (os.path.join("docs", "archive"), os.path.join("docs", "history"))
+
+# A backticked path into the repository's own tree.
+CODE_PATH = re.compile(
+    r"`((?:scripts|crates|just|docs|ui|tools|\.agents|\.github)/[\w./-]+"
+    r"\.(?:py|sh|rs|just|md|ya?ml|json|jsonl|ts|tsx|c|h|cpp))`"
+)
 STATUS_WORDS = re.compile(
     r"\s*(?:🔴|🟡)?\s*(?:closed|added|fixed|changed|new|reversed|open|known)\s*$",
     re.IGNORECASE,
@@ -78,6 +97,7 @@ def main() -> int:
     fragment_checked = 0
     broken: list[tuple[str, str]] = []
     bad_fragment: list[tuple[str, str, str]] = []
+    bad_path: list[tuple[str, str]] = []
     anchor_cache: dict[str, set[str]] = {}
 
     for dirpath, dirnames, filenames in os.walk(root):
@@ -100,6 +120,23 @@ def main() -> int:
                 target = target_part.split(" ", 1)[0].strip()
                 if not target or target.startswith(SCHEMES):
                     continue
+                for cp in CODE_PATH.findall(text):
+                    # `git show <rev>:<path>` and truncated forms cite history.
+                    if ":" in cp or ".." in cp or cp.endswith("/"):
+                        continue
+                    rel_from_root = os.path.relpath(path, root)
+                    if rel_from_root.startswith(HISTORY_DIRS):
+                        continue
+                    checked += 1
+                    # A backticked path is written the way a human says it, so
+                    # it resolves against the repository root even when the file
+                    # citing it lives three directories down.
+                    if os.path.exists(os.path.join(root, cp)):
+                        continue
+                    if os.path.exists(os.path.normpath(os.path.join(dirpath, cp))):
+                        continue
+                    bad_path.append((os.path.relpath(path, root), cp))
+
                 checked += 1
                 resolved = os.path.normpath(os.path.join(dirpath, target))
                 if not os.path.exists(resolved):
@@ -115,7 +152,7 @@ def main() -> int:
                              os.path.relpath(resolved, root))
                         )
 
-    if broken or bad_fragment:
+    if broken or bad_fragment or bad_path:
         if broken:
             print(f"FAIL: {len(broken)} broken relative markdown link(s) of {checked} checked")
             for source, target in sorted(set(broken)):
@@ -127,6 +164,14 @@ def main() -> int:
             )
             for source, fragment, target in sorted(set(bad_fragment)):
                 print(f"  {source} -> {target}#{fragment}")
+        if bad_path:
+            uniq = sorted(set(bad_path))
+            print(
+                f"FAIL: {len(uniq)} backticked path(s) in prose do not exist "
+                f"(markdown links cannot see these)"
+            )
+            for source, cp in uniq:
+                print(f"  {source} -> {cp}")
         return 1
 
     extra = f", {fragment_checked} heading anchors resolved" if fragment_checked else ""

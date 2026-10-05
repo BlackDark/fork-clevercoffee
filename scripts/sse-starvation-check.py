@@ -3,8 +3,13 @@
 
 The bug: ESP-IDF's httpd runs every handler in ONE task, and the /events
 handler used to loop in the handler. One SSE client therefore made every other
-API request time out. The C++ does not do this -- AsyncEventSource returns
-from the handler and pushes later from the loop task.
+API request time out -- measured at 55 of 60 API calls timing out at the
+client's 5 s limit.
+
+`spawn_broadcaster` in crates/cc-hal-esp32/src/web.rs is the fix: the handler
+returns and pushes from its own task. Nothing in the compiler, the clippy gate
+or the host tests can catch a regression, so this script is the only check that
+does, and it is a required step in docs/operations/runbook.md section 5d.
 
 This script: connects one SSE client, then hammers /api/parameters and
 reports how many answered. Run it BEFORE and AFTER a fix and compare.

@@ -463,8 +463,11 @@ tree; **nothing is committed**.
    task's `config: a wifi credential from the console was stored` receipt were dropped
    by the reset that followed them. The write is queued to the UART ring; the ROM
    reset does not drain it. → every reboot path needs a `uart_wait_tx_done` (or an
-   equivalent) before `esp_restart()`. `scripts/drive-provisioning.py` treats the
-   absence of those two lines as inconclusive for that reason.
+   equivalent) before `esp_restart()`. The provisioner script that established
+   this was deleted with the C++ tooling on 2026-10-06;
+   `scripts/wifi_provision.py:177-184` now carries the same measurement — a reset
+   is the corroborating signal, because the confirmation line never reached
+   UART0 even with a 1 s pause.
 5. **There is no `just test-esp32`, so `cc-hal-esp32`'s unit tests never run.**
    `just lint-esp32` compiles them (≈50 of them) and `just test` cannot build the
    crate for a host target, so every one of them has been type-checked and never

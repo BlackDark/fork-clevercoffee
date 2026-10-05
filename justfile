@@ -466,9 +466,6 @@ lint-esp32c6:
 test:
     cargo test --locked {{host_crates}} --features cc-display/scenarios --target {{host_target}}
 
-test-domain:
-    cargo test --locked -p cc-domain -p cc-safety --target {{host_target}}
-
 # THE RECURRENCE GUARD. Fails if any device-crate test exists that the on-target
 # runner cannot execute: a bare `#[test]` (the compiler deletes it unless the
 # crate is built with --test), a `#[cfg_attr(test, test)]` that is missing from
@@ -830,28 +827,24 @@ parity-test:
 bench:
     cargo bench --locked --bench allocations -p cc-machine --target {{host_target}}
     cargo bench --locked --bench layout -p cc-display --target {{host_target}}
+    @echo
+    @echo "host approximation only. The device number the firmware itself logs is"
+    @echo "'control tick: worst ... budget 10 ms' — capture it with:"
+    @echo "    just mon-noreset <port> 60 | grep 'control tick'"
 
-# Control-loop timing, on the device if one is attached, on the host otherwise.
+# Control-loop timing. The host approximation is the `allocations` bench above
+# (`just bench`); the device number is captured with `just mon-noreset`.
 #
 # It used to be `./scripts/parity/loop-timer.sh {{mcu}}`, and **that script does
 # not exist** — `scripts/parity/` contains only `run.sh`. So the recipe failed
 # with "No such file or directory" every time anyone tried the one thing that
 # would answer "does the control tick fit its budget?" (fixed by `284ad17a`).
 #
-# On the device the answer does not come from here. The control task already
-# measures itself, in the firmware, every `TICK_REPORT_INTERVAL_MS` and logs
-# `control tick: worst … budget 10 ms` — that is the number that counts, because
-# it is the one taken on the chip with the sensor, display and network tasks
-# running. This recipe is the host approximation, and it says so.
-#
-# With a port, capture the device's own report over a minute of idle and a brew:
-#     just mon-headless <port> 60 | grep 'control tick'
-size-bench:
-    cargo bench --locked --bench allocations -p cc-machine --target {{host_target}}
-    @echo
-    @echo "host approximation only. The device number the firmware itself logs is"
-    @echo "'control tick: worst ... budget 10 ms' — capture it with:"
-    @echo "    just mon-headless <port> 60 | grep 'control tick'"
+# Control-loop timing has no recipe of its own: the host approximation is the
+# `allocations` bench (`just bench`), and the number that actually counts is the
+# one the firmware measures on the chip. Capture it without disturbing a running
+# brew -- `mon-noreset` attaches, `mon` and `mon-headless` reset the board:
+#     just mon-noreset <port> 60 | grep 'control tick'
 
 # ------------------------------------------------------------------- hygiene
 
