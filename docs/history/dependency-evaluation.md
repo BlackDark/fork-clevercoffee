@@ -3,7 +3,7 @@
 **Research date:** 2026-09-28
 **Researcher:** agent session, primary sources only (docs.rs, crates.io, `esp-rs` GitHub,
 `docs.espressif.com/projects/rust/book`, vendor datasheets/app notes).
-**Baseline:** [01 — Feature inventory](./01-feature-inventory.md)
+**Baseline:** [01 — Feature inventory](./feature-inventory.md)
 
 Every version below was read from a primary source on the research date. Where a claim
 could not be confirmed from a primary source it is marked **UNVERIFIED** and has a
@@ -188,7 +188,7 @@ published 2026-08-20 with a new pluggable-queue design; whether it fixes that is
 **UNVERIFIED**.
 
 → **Spike R1-02 settles this.** The architecture in
-[04 — Target architecture](./04-target-architecture.md) §3 is designed to work with
+[04 — Target architecture](./target-architecture.md) §3 is designed to work with
 *either* executor so the choice is not load-bearing.
 
 ### Approach B — `esp-hal` + `esp-rtos`
@@ -246,7 +246,7 @@ would use is carrying 1-Wire traffic from the DS18B20 that is actually fitted.
 about the arithmetic and about nothing else. Two things in the above are now known to be
 wrong or misleading and are called out in the code: `temp >= 180` **cannot fire** on a
 TSIC-306 (its span ends at 150 °C), and the change-rate constants are used in *two
-different units* in two adjacent C++ files (see `intentional-diffs.md` #7).
+different units* in two adjacent C++ files (see `divergences.md` #7).
 Also learned: `esp-idf-hal` 0.47 has no `AtomicU64` on this target, so the edge ring
 packs the level and a 31-bit timestamp into one `AtomicU32`; and there is no
 safe timestamped per-edge GPIO callback anywhere in this HAL, so the capture is a
@@ -282,7 +282,7 @@ constraint:** `esp_idf_hal::delay::Ets` rounds `delay_ns` **up to 1 µs**. That 
 
 **SUPERSEDED 2026-09-29 — the original recommendation to drop scale support was
 wrong.** It rested on the C++ scale code being dead, which is a real defect in the C++
-firmware ([09 §23](./09-cpp-findings.md)) rather than a decision to drop the feature: the
+firmware ([09 §23](./cpp-findings.md)) rather than a decision to drop the feature: the
 human who owns the hardware confirmed the deadness is a bug on their side. Both scales are
 kept, as **R3-17** (HX711) and **R3-18** (Acaia BLE).
 
@@ -378,7 +378,7 @@ Python. The original ESP32 *does* have a BR/EDR + BLE radio (01 §3), and
 
 **CORRECTED 2026-09-29 — this section previously concluded "Drop", and the conclusion was
 doubly wrong.** It called the dead C++ code a second reason to drop, when the deadness is
-a bug to be fixed rather than a decision ([09 §23](./09-cpp-findings.md)). The BLE radio
+a bug to be fixed rather than a decision ([09 §23](./cpp-findings.md)). The BLE radio
 argument it listed as reinforcing the drop was in fact the argument *for* keeping it.
 Implemented as **R3-18**. NimBLE's flash and RAM cost is real and both are tight
 (07 §3); if the image cannot absorb it, that is a gate decision to raise explicitly, not

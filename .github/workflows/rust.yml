@@ -93,7 +93,7 @@ env:
   # declines to cache.
   #
   # `Swatinem/rust-cache` sets this itself; that cache action is not used here
-  # (see docs/handbook/ci.md for why the three caches below are hand-keyed instead), so the
+  # (see docs/operations/ci.md for why the three caches below are hand-keyed instead), so the
   # setting is made directly.
   CARGO_INCREMENTAL: 0
   # Every recipe passes `--target {{host_target}}` explicitly, so this is only a
@@ -481,12 +481,12 @@ jobs:
       - name: Upload the image size
         # So a size change is a downloadable artefact in the run summary rather
         # than something a human has to go and read a log for. `just size-record`
-        # appends to docs/rust-migration/size-records.jsonl; this uploads the
+        # appends to docs/history/size-records.jsonl; this uploads the
         # tail of it.
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: image-size
-          path: docs/rust-migration/size-records.jsonl
+          path: docs/history/size-records.jsonl
           if-no-files-found: error
 
   # ---------------------------------------------------------------- invariants

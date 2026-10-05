@@ -52,7 +52,7 @@ for one board and not a set of variants.
 says the LED was moved off GPIO1 for exactly that reason. The move was written
 down and not made, so the C++ drove both and the last attach won — parity with a
 bug, not with a working feature. The port leaves the steam LED unwired; see
-[`intentional-diffs.md` §27](../rust-migration/intentional-diffs.md).
+[`intentional-diffs.md` §27](../history/divergences.md).
 
 **Moving it is a hardware change, not a firmware change.** GPIO32 is the
 HX711 data pin, and that is the very alternative the comment names ("32 works
@@ -71,4 +71,4 @@ tick and not only while brewing. See
 An undriven GPIO at reset energises a `LOW_TRIGGER` heater relay, so a
 configuration selecting one is refused outright rather than made safe. The rule
 is normative and its derivation is in
-[`08-recovered-oracle.md`](../rust-migration/08-recovered-oracle.md).
+[`08-recovered-oracle.md`](../history/recovered-oracle.md).

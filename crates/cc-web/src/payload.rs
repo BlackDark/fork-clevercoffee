@@ -53,7 +53,7 @@ use crate::telemetry::Telemetry;
 /// field at all. It was previously emitted *under the name* `steamMode`, which
 /// made a brew-state flag answer to a steam-mode name; nothing consumed it
 /// (`rg` finds no reader of `/api/status` in the UI at all), so both are emitted
-/// now and the addition is recorded in `docs/rust-migration/intentional-diffs.md`.
+/// now and the addition is recorded in `docs/history/divergences.md`.
 #[must_use]
 pub fn status_json(t: &Telemetry, heap_free: u32) -> String {
     // `write!` into the `String` rather than `push_str(&format!(..))`: this runs
@@ -302,7 +302,7 @@ pub fn unavailable_json(feature: &str, task: &str) -> String {
 /// `helpText` is a fourth case and it is **not** a data gap any more.
 /// `cc_config::schema::ParamSpec::help` carries all 98 strings, transcribed from
 /// the same `Config.h` constructor argument the C++ reads (finding 3.4 of
-/// [`32-findings-2026-10-03.md`](../../../docs/rust-migration/32-findings-2026-10-03.md)),
+/// [`32-findings-2026-10-03.md`](../../../docs/history/review-2026-10-03.md)),
 /// and `GET /api/parameter-help` serves them — see [`crate::help`]. This body
 /// still does not carry the field, and that is a **size** decision rather than a
 /// data one: the 98 strings are ~9 KB, this body is built as one `String` in one

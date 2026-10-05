@@ -52,7 +52,7 @@ use crate::telemetry::Command;
 /// `400` here, and `?value=150` is a `200` on the C++ that leaves a 150 °C
 /// process setpoint in RAM. Narrowing the accepted range is a divergence from
 /// the C++ and is recorded in
-/// [`intentional-diffs.md`](../../docs/rust-migration/intentional-diffs.md).
+/// [`intentional-diffs.md`](../../docs/history/divergences.md).
 /// What is *not* given up: a fractional setpoint still truncates rather than
 /// being refused, because `setProcessSetpoint` takes a `double` in the C++ and
 /// a truncated integer is not a safety question.

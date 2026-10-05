@@ -1,7 +1,7 @@
 //! Which of the three status LEDs should be lit, as a pure function.
 //!
 //! Owner: **3.1** of
-//! [`32-findings-2026-10-03.md`](../../../docs/rust-migration/32-findings-2026-10-03.md)
+//! [`32-findings-2026-10-03.md`](../../../docs/history/review-2026-10-03.md)
 //! — "`hardware.leds.*` (6 params) are writable and shown in the UI, but there
 //! is no LED code anywhere".
 //!

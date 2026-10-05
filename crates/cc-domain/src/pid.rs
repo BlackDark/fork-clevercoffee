@@ -59,7 +59,7 @@
 //!   |delta| **0.0**. The port can only differ from the C++ when a step arrives
 //!   *late*, where the C++ divides by the nominal 1.0 s and the port divides by
 //!   the interval that actually elapsed. That is a deliberate, bounded
-//!   divergence — see `docs/rust-migration/intentional-diffs.md` #4.
+//!   divergence — see `docs/history/divergences.md` #4.
 //!
 //! * **D-PID-2 — the constructor does not initialise the controller state.**
 //!   `integrator`, `lastInput`, `lastFilteredInput`, `lastFilteredDifferential`,

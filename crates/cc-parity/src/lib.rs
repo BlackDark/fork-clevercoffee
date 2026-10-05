@@ -5,7 +5,7 @@
 //! `just parity <port> <host>` replays a declarative script against a firmware and
 //! compares what it observes against a recorded reference. The format is
 //! specified in
-//! [`docs/rust-migration/10-scenario-format.md`](../../docs/rust-migration/10-scenario-format.md).
+//! [`docs/history/scenario-format.md`](../../docs/history/scenario-format.md).
 //!
 //! # The safety property, and where it comes from
 //!

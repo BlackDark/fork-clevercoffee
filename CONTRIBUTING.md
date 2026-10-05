@@ -7,8 +7,8 @@ guidelines when submitting code changes.
 
 This repository holds **one** firmware, written in Rust, in `crates/cc-*`. The
 C++ firmware it replaced was deleted once the port became the product; start at
-[docs/rust-migration/README.md](docs/rust-migration/README.md), and read
-[intentional-diffs.md](docs/rust-migration/intentional-diffs.md) before changing
+[docs/history/README.md](docs/history/README.md), and read
+[intentional-diffs.md](docs/history/divergences.md) before changing
 anything whose behaviour looks wrong -- it is a ledger of places the port
 deliberately differs from the C++, with the reasoning for each.
 

@@ -51,4 +51,4 @@
 //! is not worth shipping a firmware that trips it. So the temperature probe stays
 //! on the control task, where it has run without incident, and the *display* —
 //! which the bisect shows is safe — moves out. See
-//! `docs/rust-migration/09-cpp-findings.md` for where this finding is recorded.
+//! `docs/history/cpp-findings.md` for where this finding is recorded.

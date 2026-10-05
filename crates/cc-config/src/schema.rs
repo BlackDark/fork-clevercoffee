@@ -22,7 +22,7 @@
 //! defaults on every reboot — so a user who lowered the emergency threshold to
 //! 130 °C through the web UI got 150 °C back after the next power cycle, with
 //! no message. This is finding 1 of
-//! [`docs/rust-migration/01-feature-inventory.md` §10](../../docs/rust-migration/01-feature-inventory.md)
+//! [`docs/history/feature-inventory.md` §10](../../docs/history/feature-inventory.md)
 //! and this port **fixes** it: both keys are in the schema, both are in
 //! [`crate::Config`], and `schema_covers_every_registered_key` asserts the count.
 //!
@@ -238,7 +238,7 @@ pub struct ParamSpec {
     /// `paramDef->getHelpText()` (`WebServerManager.cpp:598-599`) and nothing
     /// else, so this field *is* that route's body. It was missing here until
     /// finding 3.4 of
-    /// [`32-findings-2026-10-03.md`](../../../docs/rust-migration/32-findings-2026-10-03.md)
+    /// [`32-findings-2026-10-03.md`](../../../docs/history/review-2026-10-03.md)
     /// — `web.rs` answered that route with an error object and HTTP 200 rather
     /// than admit it had no data. The bytes are the C++'s, so a client reading
     /// the Rust firmware gets the same string it got from the C++ one.

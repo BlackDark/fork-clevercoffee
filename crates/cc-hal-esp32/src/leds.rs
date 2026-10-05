@@ -1,7 +1,7 @@
 //! The two status LEDs the firmware actually drives, as GPIO writes.
 //!
 //! Owner: **3.1** of
-//! [`32-findings-2026-10-03.md`](../../../docs/rust-migration/32-findings-2026-10-03.md).
+//! [`32-findings-2026-10-03.md`](../../../docs/history/review-2026-10-03.md).
 //!
 //! # This is the whole of the hardware half
 //!

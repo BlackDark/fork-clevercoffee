@@ -6,7 +6,7 @@
 //!
 //! The app note recommends a falling-edge ISR that measures `Tstrobe` and then
 //! *waits* for the next nine edges, sampling after each (app note §1.4). That is
-//! a bit-sampling ISR, and [04 §3.1](../../../../../docs/rust-migration/04-target-architecture.md)
+//! a bit-sampling ISR, and [04 §3.1](../../../../../docs/history/target-architecture.md)
 //! constrains this firmware's ISRs to "nothing beyond one GPIO write". The two
 //! cannot both be satisfied, and the constraint wins, so the split is:
 //!

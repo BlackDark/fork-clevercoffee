@@ -36,7 +36,7 @@
 //!
 //! # What the clock is *not* used for
 //!
-//! **Not in an ISR.** [09 §22](../../../docs/rust-migration/09-cpp-findings.md):
+//! **Not in an ISR.** [09 §22](../../../docs/history/cpp-findings.md):
 //! an FPU instruction in a level-1 ISR panics the original ESP32, because Xtensa
 //! does not save coprocessor state on an interrupt. These functions are
 //! integer-only and neither is called from an ISR — the heater's ISR owns its

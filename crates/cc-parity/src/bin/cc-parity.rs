@@ -69,7 +69,7 @@ fn cmd_list() -> Result<u8, String> {
     let dir = PathBuf::from(
         std::env::args()
             .nth(2)
-            .unwrap_or_else(|| "docs/rust-migration/scenarios".to_string()),
+            .unwrap_or_else(|| "docs/history/scenarios".to_string()),
     );
     let mut names: Vec<(String, String, Vec<String>)> = Vec::new();
     for entry in std::fs::read_dir(&dir).map_err(|e| format!("{}: {e}", dir.display()))? {

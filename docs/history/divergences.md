@@ -28,7 +28,7 @@ bug, so they are recorded with equal care.
 
 | | |
 | --- | --- |
-| **Finding** | [09 §11](./09-cpp-findings.md#11-🔴-both-pump-safety-timeouts-are-dead-code) — "Both pump safety timeouts are dead code" |
+| **Finding** | [09 §11](./cpp-findings.md#11-🔴-both-pump-safety-timeouts-are-dead-code) — "Both pump safety timeouts are dead code" |
 | **Severity in the C++** | The most serious finding in 09. An unbounded pump run on a machine with a 2 kW boiler. |
 | **Test** | `cc-machine/tests/parity_findings.rs::div1_the_pump_timeouts_are_armed`, `::div1_the_watchdogs_re_arm_after_a_release` |
 
@@ -80,7 +80,7 @@ it acts**.
   own `logError` text verbatim — `"Pump timeout - stopping for safety"`
   (`BrewHandler.h:256`) and `"Hot water pump timeout - stopping for safety"`
   (`HotWaterHandler.h:117`, also recovered verbatim from the previous Rust
-  firmware, [08 §4.2](./08-recovered-oracle.md)). It is emitted **before** the
+  firmware, [08 §4.2](./recovered-oracle.md)). It is emitted **before** the
   action, so a field log answers "did this ever trip?" rather than leaving it to
   be inferred from a missing cup of coffee.
 * The action is unchanged: the brew timer *requests* a stop
@@ -116,7 +116,7 @@ follow-up rather than smuggled in.
 
 | | |
 | --- | --- |
-| **Finding** | [09 §2](./09-cpp-findings.md) — "The steam valve has no safety whitelist at all" |
+| **Finding** | [09 §2](./cpp-findings.md) — "The steam valve has no safety whitelist at all" |
 | **Severity in the C++** | A real gap, not a port artefact. Closed only by the accident that nothing calls `openSteamValve()`. |
 | **Test** | `cc-safety/tests/safety_paths.rs::div2_the_steam_valve_is_whitelist_gated`, `::div2_steam_running_is_the_only_state_that_may_flow_steam`, `::div2_the_two_whitelists_never_agree_on_a_state`; `cc-machine/tests/parity_findings.rs::div2_the_steam_valve_is_whitelist_gated` |
 
@@ -207,7 +207,7 @@ disjoint**, and a test enforces it.
 
 | | |
 | --- | --- |
-| **Finding** | [09 §3](./09-cpp-findings.md) — "The water valve is not gated on an empty tank" |
+| **Finding** | [09 §3](./cpp-findings.md) — "The water valve is not gated on an empty tank" |
 | **Test** | `cc-safety/tests/safety_paths.rs::div1_s4_empty_tank_blocks_the_water_valve_too`; `cc-machine/tests/parity_findings.rs::div3_the_water_valve_is_tank_gated` |
 
 ### What the C++ does
@@ -247,7 +247,7 @@ configuration the machine must honour.
 
 | | |
 | --- | --- |
-| **Finding** | [09 §1](./09-cpp-findings.md) — `PID_v1.cpp:85`, integer division by zero |
+| **Finding** | [09 §1](./cpp-findings.md) — `PID_v1.cpp:85`, integer division by zero |
 | **Test** | `cc-domain/src/pid.rs::derivative_divisor_is_never_zero_at_any_window`, `::a_sub_second_window_now_yields_a_finite_derivative`, `::a_late_step_uses_the_real_interval`; `cc-domain/src/pid_parity.rs::scenario_d_the_cpp_goes_nan_and_this_port_does_not`, `::scenario_e_a_late_step_uses_the_real_interval` |
 
 ### What the C++ does
@@ -359,7 +359,7 @@ The text below is left as the record of what R1-07 decided and why, because the
 These are C++ bugs the port **reproduces on purpose**. A diff at any of these is
 *not* a regression; the `s<N>_`-prefixed tests in
 `cc-machine/tests/parity_findings.rs` pin each one, and the `s<N>` numbering is
-[09](./09-cpp-findings.md)'s.
+[09](./cpp-findings.md)'s.
 
 | # | C++ behaviour | Pinned by | Note |
 | --- | --- | --- | --- |
@@ -403,7 +403,7 @@ against no third-party crates. The reasons given in `crates/cc-display/Cargo.tom
 * The crate's whole job is bit-exact U8g2 parity, and U8g2 has behaviour that
   does not survive being expressed as `embedded-graphics` primitives — notably
   the 16-bit coordinate wrap in `u8g2_is_intersection_decision_tree` (see
-  [`docs/handbook/display-parity.md`](../../docs/handbook/display-parity.md)) and U8g2's
+  [`docs/display/parity.md`](../../docs/display/parity.md)) and U8g2's
   last-glyph and balanced-width quirks in `getStrWidth`. Going through a
   `DrawTarget` would mean re-deriving those on the far side.
 * The ten embedded fonts are raw U8g2 RLE (42,722 bytes) rather than
@@ -435,7 +435,7 @@ Recorded here so the file is complete; each was decided in its own task.
 | What | Why | Pinned by |
 | --- | --- | --- |
 | `safety.emergency_temp` and `safety.emergency_hysteresis` are registered and persisted | The C++ defines and reads them but omits them from `getAllConfigParams()` (`src/Config.cpp:438-563`), so they silently reset to the compiled default on every reboot — a live bug on safety path S1 | `cc-config/tests/config_schema.rs` |
-| Cross-parameter config validation, and refusing to store or run an unsafe one | Recovered from the previous Rust firmware ([08 §4.1](./08-recovered-oracle.md)). The C++ has neither | `cc-safety::tests::safety_paths.rs::config_*`, `::store_refuses_an_unsafe_config` |
+| Cross-parameter config validation, and refusing to store or run an unsafe one | Recovered from the previous Rust firmware ([08 §4.1](./recovered-oracle.md)). The C++ has neither | `cc-safety::tests::safety_paths.rs::config_*`, `::store_refuses_an_unsafe_config` |
 | A `LOW_TRIGGER` heater relay is refused outright | An undriven GPIO during reset would energise a 2 kW heater. No firmware can prevent it; it is a wiring property | `cc-safety::tests/safety_paths.rs` |
 | The `SetHeaterDuty` effect is gated on `may_heat` at emission, where the C++ emits the value and zeroes it microseconds later | Fail-safe rather than fail-fast. The machine state is identical; the port never asks the heater to be on when it must not be | `cc-machine/tests/*` |
 | `Duty` is bounded at `0..=1000`, i.e. the PID output is a **millisecond** duty, not `setHeaterPower`'s `uint8_t` percent | The C++ heater path is a PWM window compared against the PID output, and `HardwareManager::setHeaterPower` (`HardwareManager.cpp:305-318`) is a TODO stub | `cc-domain/src/units.rs::tests::duty_bound_is_the_chopper_window` |
@@ -463,11 +463,11 @@ Recorded here so the file is complete; each was decided in its own task.
 builds whichever driver the config names, and the config default is `TSIC_306`
 (`Config.h:1085-1092`). On this machine the probe is a **DS18B20** — family
 `0x28`, ROM `0x28 69 37 aa cd 78 af 41`, measured,
-[01 §"The temperature sensor fitted to this machine is a DS18B20"](./01-feature-inventory.md)
+[01 §"The temperature sensor fitted to this machine is a DS18B20"](./feature-inventory.md)
 — so the C++ default constructs a TSIC-306 driver pointed at a 1-Wire bus it
 does not own, and the recovered firmware logged the substitution rather than
 refusing it
-([08 §4.1](./08-recovered-oracle.md)).
+([08 §4.1](./recovered-oracle.md)).
 
 ### What the Rust does
 
@@ -566,7 +566,7 @@ the module** and it is unresolved for want of hardware.
 
 * **The fault is named, not folded.** All six `DallasTemperature` faults arrive at
   `TempSensorDallas` as `-127` (see
-  [`09 §17`](./09-cpp-findings.md#17-) — corrected in this pass), and the C++
+  [`09 §17`](./cpp-findings.md#17-) — corrected in this pass), and the C++
   reports all six as *"Temperature sensor not connected"*. The **decision** is
   identical; the diagnostic is not. Tests:
   `onewire::div7_every_ds18b20_fault_is_rejected_by_the_cpp`,
@@ -579,7 +579,7 @@ the module** and it is unresolved for want of hardware.
 
 | | |
 | --- | --- |
-| **Finding** | [09 §18](./09-cpp-findings.md#18-) — `TempSensor::isValidTemperature` is dead and the DS18B20 path has no range check |
+| **Finding** | [09 §18](./cpp-findings.md#18-) — `TempSensor::isValidTemperature` is dead and the DS18B20 path has no range check |
 | **Test** | `cc_domain::sensor::ds18b20::div8_the_dallas_path_applies_the_range_check_it_never_applied`, `::div8_the_two_ranges_overlap_only_between_zero_and_a_hundred_and_fifty`, `::div8_only_the_cold_end_of_the_ds18b20s_range_is_now_refused`, `::div8_a_reading_outside_the_range_is_a_read_failure_not_a_hot_temperature` |
 
 ### What the C++ does
@@ -651,7 +651,7 @@ The constant is shared with the TSIC-506 (`ZACwire.cpp:62-63` switches formula o
 
 | | |
 | --- | --- |
-| **Finding** | [09 §17](./09-cpp-findings.md#17-) — the original ESP32 cannot use LEDC at a low carrier |
+| **Finding** | [09 §17](./cpp-findings.md#17-) — the original ESP32 cannot use LEDC at a low carrier |
 | **Test** | `cc_domain::heater::isr_tests::*` (13 tests), `cc_domain::heater::atomic_chopper_tests::*` (7), `cc_domain::heater::transport_tests::*` (5) |
 
 ### What the C++ does
@@ -669,7 +669,7 @@ if (newCounter >= ctx->processWindowSize()) newCounter = 0;         // 1000
 with `Timing::ISR_TIMER_INTERVAL_US = 10000` and
 `Timing::ISR_COUNTER_INCREMENT = 10` (`constants/Timing.h:15,17`). The lost
 firmware did the same
-([08 §3](./08-recovered-oracle.md): *"heater interrupt running on GPIO2 (active
+([08 §3](./recovered-oracle.md): *"heater interrupt running on GPIO2 (active
 high), 1000 ms window"*).
 
 ### What the Rust did, and what it does now
@@ -828,7 +828,7 @@ Three things, all of them wrong in the same direction:
 
 This is one of the only two real performance wins in the migration (the other is
 R1-07's LEDC carrier, which is currently blocked — see
-[`09-cpp-findings.md` §17](./09-cpp-findings.md#17-)). A plausible pressure built
+[`cpp-findings.md` §17](./cpp-findings.md#17-)). A plausible pressure built
 from bytes the sensor never sent would flow into the brew pressure control.
 
 ### Known, and deliberately not changed
@@ -1054,7 +1054,7 @@ read a weight, so the equivalent of every one of those settings is inert there.
 `scale_` is always `nullptr`, and `src/main.cpp:145-150` only logs
 `"Scale sensor support via SensorCoordinator"` under a comment saying the work is
 pending. Full analysis, including the MQTT and web tare/calibration commands that accept
-input and silently do nothing, is in [09 §23](./09-cpp-findings.md).
+input and silently do nothing, is in [09 §23](./cpp-findings.md).
 
 **What this means for the parity harness.** A scenario that exercises the scale has **no
 C++ baseline to diff against** — the C++ produces no weight in any state. R3-17 and R3-18
@@ -1215,7 +1215,7 @@ the UI: `POST /api/sleep` answered `202 {"accepted":true}`, the command reached 
 machine (`control: command Sleep`), and the state never left `PID_DISABLED`.
 
 The C++ cannot do this. Two defects compose — see
-[09 §25](./09-cpp-findings.md#25-rr-a-request-to-sleep-is-silently-dropped-whenever-the-pid-is-off):
+[09 §25](./cpp-findings.md#25-rr-a-request-to-sleep-is-silently-dropped-whenever-the-pid-is-off):
 
 * `PidDisabledState::update` clears `requestStandby_` via `clearAllActionRequests()`
   (`MachineStateContext.h:626`) **before** `checkTransitions` runs;
@@ -1662,7 +1662,7 @@ extended to the setpoint that is actually used.
 The rule lives in `validate_config` rather than at the write path so that **every**
 writer is covered — HTTP, MQTT and `/api/parameters` — rather than only the one
 where the bug was found. It is the fail-closed rule of
-[08 §4.1](./08-recovered-oracle.md): a configuration that cannot run safely is
+[08 §4.1](./recovered-oracle.md): a configuration that cannot run safely is
 discarded at load, and `SafetyConfig` reaches the validator through the same
 `safety_view` the boot path already uses.
 
@@ -1717,7 +1717,7 @@ it on got a shot that ran until the brew switch or the 300-second pump watchdog.
 
 **Why the second change is in `validate_config` and not at the write path.** The
 same argument as §23: it has to cover HTTP, MQTT and `/api/parameters` alike,
-and the fail-closed rule of [08 §4.1](./08-recovered-oracle.md) is what makes a
+and the fail-closed rule of [08 §4.1](./recovered-oracle.md) is what makes a
 configuration written by an older firmware — or by a machine that *had* a scale
 — safe on the next boot. `hardware.sensors.scale.enabled` is carried in
 `SafetyConfig::scale_fitted` because it is **the C++'s own definition of a
@@ -1832,7 +1832,7 @@ was corrected with it: `PID_NORMAL` is not a water state either.
 
 | | |
 | --- | --- |
-| **Finding** | [32-findings §3.1](./32-findings-2026-10-03.md) — "3 status LEDs absent" |
+| **Finding** | [32-findings §3.1](./review-2026-10-03.md) — "3 status LEDs absent" |
 | **Severity in the C++** | Cosmetic, and the C++ is the broken one. See below. |
 | **Test** | `cc-display/src/leds.rs` — all 11 tests, host. The steam LED's *rule* is tested even though its pin is not. |
 
@@ -1930,7 +1930,7 @@ precise about.** Of the 28 GPIOs this chip exposes (the set `is_gpio` in
 **0, 4, 5, 12, 13, 14, 15, 18, 37, 38**, and they divide:
 
 - **0, 5, 12, 15** — strapping pins (ESP32 Series Datasheet v5.3, Table 3-1;
-  `01-feature-inventory.md:120-122`). Their reset state is a boot decision, not
+  `feature-inventory.md:120-122`). Their reset state is a boot decision, not
   the firmware's, so they cannot carry a clocked data line.
 - **37, 38** — input-only, no output driver. `pins::is_input_only` exists for
   exactly this bank (34-39). Unusable for the HX711.
@@ -1968,9 +1968,9 @@ duplicate-pin assertion naming it.
 
 ## 28 — OTA is implemented, and is stricter than the C++ in three ways
 
-R3-15, finding 3.3 of [`32-findings-2026-10-03.md`](./32-findings-2026-10-03.md).
+R3-15, finding 3.3 of [`review-2026-10-03.md`](./review-2026-10-03.md).
 Requirement **S8** of
-[`01-feature-inventory.md`](./01-feature-inventory.md#6-safety-critical-control-paths).
+[`feature-inventory.md`](./feature-inventory.md#6-safety-critical-control-paths).
 
 `/api/ota/firmware` and `/api/ota/filesystem` write to flash. `/api/ota/url`
 answers `501` and says why. `/api/ota/status` reports a real session.
@@ -2152,7 +2152,7 @@ true.
 
 ## 29 — A first boot on a C++-flashed machine says so, once 🔴 added
 
-Finding 3.6 of [`32-findings-2026-10-03.md`](./32-findings-2026-10-03.md).
+Finding 3.6 of [`review-2026-10-03.md`](./review-2026-10-03.md).
 
 ### What the C++ does
 
@@ -2247,7 +2247,7 @@ has. **Detection plus one sentence is the whole of this.**
 ## 30 — Three defects the C++ does not have, found on a bench ESP32 🔴 changed
 
 All three were found by running
-[`integration-checklist.md`](../operations/integration-checklist.md) against a
+[`integration-checklist.md`](../operations/runbook.md) against a
 bench board on 2026-10-05, and all three are places where this firmware was
 **less faithful** than the oracle rather than more. Each was verified against
 the C++ source before being changed, so none of them is a design decision.

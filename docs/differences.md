@@ -6,7 +6,7 @@ The C++ firmware this replaces was the parity oracle and the definition of featu
 been deleted; it is recoverable at `git show 9fa8c834:<path>`. This document is the
 **index** of where the Rust port departed from it.
 
-[`intentional-diffs.md`](../rust-migration/intentional-diffs.md) is the **detail**: each entry there has the C++'s
+[`intentional-diffs.md`](history/divergences.md) is the **detail**: each entry there has the C++'s
 behaviour, the port's, the reasoning, and what pins it. This page is what you read when you want to
 know "will this surprise me?" — deliberately short, and it says nothing the ledger does not.
 
@@ -90,12 +90,12 @@ Behaviour is the same; the mechanism is not. Listed so nobody re-investigates th
 
 ## How to use this with the parity harness
 
-[`cc-parity`](../../crates/cc-parity) reads `intentional-diffs.md` directly and classifies every scenario
+[`cc-parity`](../crates/cc-parity) reads `intentional-diffs.md` directly and classifies every scenario
 difference against it.
 
-**What that does today: nothing is measured.** `docs/rust-migration/baseline/cpp/` holds only
+**What that does today: nothing is measured.** `docs/history/baseline/cpp/` holds only
 `.gitkeep`, so all **17** parity scenarios — one file each under
-[`scenarios/`](../rust-migration/scenarios) — report `BASELINE-MISSING` and no difference is ever compared against
+[`scenarios/`](history/scenarios) — report `BASELINE-MISSING` and no difference is ever compared against
 anything. Every classification on this page rests on reading the two codebases, **not** on running
 them side by side.
 
@@ -114,7 +114,7 @@ Treat "intentional" in this document as *reviewed and reasoned*, not *measured*.
 
 If a change makes the firmware behave differently from the C++, it needs **both**:
 
-1. a section in [`intentional-diffs.md`](../rust-migration/intentional-diffs.md) with the reasoning and what pins it,
+1. a section in [`intentional-diffs.md`](history/divergences.md) with the reasoning and what pins it,
    and
 2. a row above, filed under the category that matches how a reader would encounter it.
 

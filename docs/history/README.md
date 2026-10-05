@@ -3,7 +3,7 @@
 Plan for migrating the CleverCoffee ESP32 firmware from C++/Arduino to Rust.
 
 **Start here:** [`31-findings-2026-10-01.md`](../archive/migration/31-findings-2026-10-01.md) is the
-index of the most recent session's findings; `docs/operations/integration-checklist.md` has a
+index of the most recent session's findings; `docs/operations/runbook.md` has a
 runnable check for each.
 
 **Status:** in progress, and the machine works end to end: the reducer runs on
@@ -60,7 +60,7 @@ than a brand-neutral one. The C++ is unchanged and still answers to `silvia`.
 One definition: `cc_config::schema::DEFAULT_HOSTNAME`. Change the name there, and
 `docs/example_config.json` with it — an existing import test parses that exact file, so
 the two cannot drift apart. Full rationale in
-[intentional-diffs.md §12](./intentional-diffs.md#12-the-devices-default-hostname-is-test-cc-rust-not-silvia-).
+[divergences.md §12](./divergences.md#12-the-devices-default-hostname-is-test-cc-rust-not-silvia-).
 
 > `mqtt.password`'s default is *also* `"silvia"`. That is a **credential, not a name**,
 > and it is deliberately left alone.
@@ -73,17 +73,17 @@ Read in this order.
 
 | # | Document | What it answers |
 | --- | --- | --- |
-| 01 | [Feature inventory](./01-feature-inventory.md) | What does the firmware do today, on what hardware, with which libraries — and which 11 control paths are safety-critical? |
-| 02 | [Research and compatibility matrix](./02-research-compatibility-matrix.md) | Which Rust crates cover which feature, at which versions, with which gaps? What is verified vs. assumed? |
+| 01 | [Feature inventory](./feature-inventory.md) | What does the firmware do today, on what hardware, with which libraries — and which 11 control paths are safety-critical? |
+| 02 | [Research and compatibility matrix](./dependency-evaluation.md) | Which Rust crates cover which feature, at which versions, with which gaps? What is verified vs. assumed? |
 | 03 | [Decision record (ADR-0004)](../archive/migration/03-decision-record.md) | `esp-idf-svc` or bare metal? What was rejected, and what would make the decision wrong? |
-| 04 | [Target architecture](./04-target-architecture.md) | Crate layout, task boundaries, priorities, single-ownership rules, startup and shutdown. |
+| 04 | [Target architecture](./target-architecture.md) | Crate layout, task boundaries, priorities, single-ownership rules, startup and shutdown. |
 | 05 | [Tooling and workflows](../archive/migration/05-tooling-and-workflows.md) | mise setup, the `just` recipes, flashing rules, Wi-Fi provisioning, CI. |
 | 06 | [Migration task list](../archive/migration/06-migration-task-list.md) | R0–R4, one task at a time, with dependencies, gates, acceptance criteria, and the 33-suite test coverage map. |
 | 07 | [Image size budget](../archive/migration/07-image-size-budget.md) | The 154 KiB problem, the rebalance arithmetic, the drop order, and the per-gate size report. |
-| 08 | [Recovered oracle](./08-recovered-oracle.md) | A complete Rust firmware that previously ran on this board, recovered from a flash dump. Source is gone; design decisions, partition table, config schema and safety design are the only surviving record. |
-| 09 | [C++ findings](./09-cpp-findings.md) | Every bug and ambiguity found in the C++ while porting it, each pinned by a named parity test — and which of them have since been closed on purpose. |
-| 10 | [Parity scenario format](./10-scenario-format.md) | The declarative format `just parity` replays: the seven stimulus kinds, what is captured, and what an assertion can claim. Read this before adding a scenario. |
-| — | [**Intentional divergences**](./intentional-diffs.md) | Where the Rust firmware **deliberately differs** from the C++ it replaces, why, and the test that pins each one. A parity diff here is expected, not a regression. Start here when a diff appears. Carries the machine-readable `ledger` blocks `just parity` classifies diffs against. |
+| 08 | [Recovered oracle](./recovered-oracle.md) | A complete Rust firmware that previously ran on this board, recovered from a flash dump. Source is gone; design decisions, partition table, config schema and safety design are the only surviving record. |
+| 09 | [C++ findings](./cpp-findings.md) | Every bug and ambiguity found in the C++ while porting it, each pinned by a named parity test — and which of them have since been closed on purpose. |
+| 10 | [Parity scenario format](./scenario-format.md) | The declarative format `just parity` replays: the seven stimulus kinds, what is captured, and what an assertion can claim. Read this before adding a scenario. |
+| — | [**Intentional divergences**](./divergences.md) | Where the Rust firmware **deliberately differs** from the C++ it replaces, why, and the test that pins each one. A parity diff here is expected, not a regression. Start here when a diff appears. Carries the machine-readable `ledger` blocks `just parity` classifies diffs against. |
 
 Execution guidance lives in the agent skill:
 [`../../.agents/skills/esp32-rust-migration/SKILL.md`](../../.agents/skills/esp32-rust-migration/SKILL.md).
@@ -199,7 +199,7 @@ re-verified on the board:
   ported now, and the panel keeps showing the standby screen until it expires.
 - **The header time lost its `m` and the degree `C` was off the panel** past a
   100-hour uptime — a fixed `x` and a minimum-width format. Both are laid out
-  from the frame edge now ([intentional-diffs §14](./intentional-diffs.md)).
+  from the frame edge now ([intentional-diffs §14](./divergences.md)).
 - **The log said `TSIC_306` next to a DS18B20.** It was never aliased — the
   driver is selected by a `const` that says `DallasDs18b20` — but the line read
   like the configuration had been ignored, and the configured value is `1`. The
@@ -282,7 +282,7 @@ open. Read it first when picking the work up.
 ### Not done
 
 **This list is not the gap list**, and finding 7.2 of
-[`32-findings-2026-10-03.md`](./32-findings-2026-10-03.md) is the record of
+[`review-2026-10-03.md`](./review-2026-10-03.md) is the record of
 having believed that. It omitted the LEDs (3.1) and the telnet log stream
 (3.2), and it said nothing about
 `/api/parameter-help` (3.4) — which was not merely missing from this list but
@@ -293,9 +293,9 @@ is now built** — port 23, one client, ADR-0002's heap shed — and is not
 below because it shipped; the **LEDs (3.1) are now built too**, two of the
 three on the C++'s pins, with the steam LED absent because
 `pinmapping.h:45` puts it on GPIO1 and gives that pin to the provisioning
-console — see `intentional-diffs.md` §27. Neither shipped feature is
+console — see `divergences.md` §27. Neither shipped feature is
 below because it shipped; the gap list is
-[`32-findings`](./32-findings-2026-10-03.md), and this section is a summary of
+[`32-findings`](./review-2026-10-03.md), and this section is a summary of
 it, not a substitute.
 
 - **R3-18, the Acaia BLE scale — measured, and it does not fit.** Enabling
@@ -313,7 +313,7 @@ it, not a substitute.
   4 KB one. The S8 gap in 01 §6 — an OTA must leave pump and valve off — is
   **closed**: an OTA is refused while water or steam flows, and a session emits
   `Effect::SafeHardwareShutdown` through the applier on the control task before
-  any flash byte is written (`intentional-diffs.md` §28). What remains is
+  any flash byte is written (`divergences.md` §28). What remains is
   `/api/ota/url`, which answers `501`, and `ArduinoOTA`/espota on port 3232,
   which the C++ has and this does not. **Not verified on hardware** — and
   `system.ota_password` is still a schema key with no implementation, because
@@ -343,7 +343,7 @@ it, not a substitute.
   only the pin is absent. Moving it to GPIO32 — the C++'s own suggestion — is a
   **hardware** change, because GPIO32 is the scale's data-1 line. Full analysis,
   with every conflict and every file:line, is
-  [`intentional-diffs.md` §27](./intentional-diffs.md).
+  [`divergences.md` §27](./divergences.md).
 - The **telnet transport** that ADR-0002's heap shed is meant to protect. The
   shed logic is unit-tested but has no real client to shed.
 - **Switch presses have still never been tested by hand.** The debounce and
@@ -388,7 +388,7 @@ it is IRAM belonging to the prebuilt Wi-Fi MAC, which is untouchable without
 dropping Wi-Fi.
 
 And the control tick already overruns its 10 ms budget in ~62 % of ticks,
-independent of any scale ([09 §24](./09-cpp-findings.md)) — R4-01b's "zero ticks
+independent of any scale ([09 §24](./cpp-findings.md)) — R4-01b's "zero ticks
 over 10 ms" currently fails, and the fix must not be to relax the budget.
 
 ## How the migration runs
@@ -406,7 +406,7 @@ What replaced it:
 
 ```
 just build-esp32         # the only firmware
-just parity <port> <host>  # Rust against docs/rust-migration/baseline/cpp/,
+just parity <port> <host>  # Rust against docs/history/baseline/cpp/,
                            # which is still empty — see that directory's README
 ```
 

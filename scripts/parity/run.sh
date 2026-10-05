@@ -4,10 +4,10 @@
 #
 #   scripts/parity/run.sh <port> <host>
 #
-# It runs every scenario in docs/rust-migration/scenarios/ against the firmware
+# It runs every scenario in docs/history/scenarios/ against the firmware
 # currently on the device, captures the observation each scenario declares, and
-# diffs it against docs/rust-migration/baseline/cpp/. Any diff not explained by
-# a ```ledger entry in docs/rust-migration/intentional-diffs.md is a regression
+# diffs it against docs/history/baseline/cpp/. Any diff not explained by
+# a ```ledger entry in docs/history/divergences.md is a regression
 # and exits non-zero.
 #
 # WHAT THIS SCRIPT DOES NOT DO
@@ -24,7 +24,7 @@
 #   * No actuator is energised by this script. The hardware scenarios in the set
 #     are the three that cannot: cold boot, a sensor read, and the heater-gate
 #     check, all with `pid.enabled: false`. See
-#     docs/rust-migration/scenarios/heater_gate_closed.yaml for why a real
+#     docs/history/scenarios/heater_gate_closed.yaml for why a real
 #     over-temperature test is NOT in the set.
 #
 # EXIT CODES
@@ -44,9 +44,9 @@ set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "${here}/../.." && pwd)"
 
-scenario_dir="${repo_root}/docs/rust-migration/scenarios"
-baseline_dir="${repo_root}/docs/rust-migration/baseline"
-ledger_file="${repo_root}/docs/rust-migration/intentional-diffs.md"
+scenario_dir="${repo_root}/docs/history/scenarios"
+baseline_dir="${repo_root}/docs/history/baseline"
+ledger_file="${repo_root}/docs/history/divergences.md"
 out_dir="${CC_PARITY_OUT:-${repo_root}/target/parity}"
 
 die() {
@@ -244,7 +244,7 @@ if [ "${failures}" -gt 0 ]; then
     echo
     echo "FAILED: ${failed_names[*]}"
     echo "Each one is either a regression, or a change that belongs in"
-    echo "docs/rust-migration/intentional-diffs.md with a \`\`\`ledger entry."
+    echo "docs/history/divergences.md with a \`\`\`ledger entry."
     exit 1
 fi
 

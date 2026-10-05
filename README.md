@@ -4,7 +4,7 @@ This is a fork of [CleverCoffee](https://github.com/rancilio-pid/clevercoffee)
 with internal refactorings and new features. It carries **one** firmware, written
 in Rust. The C++ firmware this repository started with was deleted once the Rust
 port became the product; it survives in git history and its behaviour is recorded
-in [`docs/rust-migration/09-cpp-findings.md`](docs/rust-migration/09-cpp-findings.md).
+in [`docs/history/cpp-findings.md`](docs/history/cpp-findings.md).
 
 **The machine is an ESP32-DevKitC V4 / ESP32-WROOM-32E** — the original ESP32,
 Xtensa LX6. There is no S3, C3 or C6 in this project. `esp32_usb` in the
@@ -33,8 +33,8 @@ has no native USB.
 | Your situation | Read |
 | --- | --- |
 | **New here** | [`README.md`](README.md) (this page), then [`docs/index.md`](docs/index.md) for the map |
-| **I am about to change firmware behaviour** | [`AGENTS.md`](AGENTS.md) — the rulebook — then [`docs/handbook/differences.md`](docs/handbook/differences.md) |
-| **I am at the machine** | [`docs/operations/integration-checklist.md`](docs/operations/integration-checklist.md) |
+| **I am about to change firmware behaviour** | [`AGENTS.md`](AGENTS.md) — the rulebook — then [`docs/differences.md`](docs/differences.md) |
+| **I am at the machine** | [`docs/operations/runbook.md`](docs/operations/runbook.md) |
 | **I want the history** | [`docs/archive/README.md`](docs/archive/README.md) |
 
 **[`docs/index.md`](docs/index.md) is the map**: one row per document, grouped by
@@ -75,7 +75,7 @@ just identify <port>     # ALWAYS first — confirm the chip before writing to i
 just flash <port>
 ```
 
-What CI runs and what it costs: [`docs/handbook/ci.md`](docs/handbook/ci.md).
+What CI runs and what it costs: [`docs/operations/ci.md`](docs/operations/ci.md).
 
 ## Building the C++ firmware (the parity oracle)
 
@@ -91,7 +91,7 @@ pio test -e native_test
 The C++ tree is the **parity baseline for the whole migration**: it is not being
 deleted and not being cleaned up, and the port's test suite is measured against
 it. Every deliberate divergence is recorded in
-[`intentional-diffs.md`](docs/rust-migration/intentional-diffs.md) — start there
+[`intentional-diffs.md`](docs/history/divergences.md) — start there
 when a behaviour looks wrong.
 
 ## What this fork changed

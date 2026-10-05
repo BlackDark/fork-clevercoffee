@@ -85,7 +85,7 @@ curl -w "\n%{http_code}\n" -X POST http://<ip>/api/ota/url \
   `wifi set <ssid>` + `wifi apply` over the serial console (§4 / `just
   wifi-provision <port>`) restores it. **No line** should appear on a boot
   where the `cc` namespace already holds a configuration. **Not yet run on
-  hardware** — see [`intentional-diffs.md` §29](../rust-migration/intentional-diffs.md).
+  hardware** — see [`intentional-diffs.md` §29](../history/divergences.md).
 
 The serial node is `/dev/cu.usbserial-*` on macOS and `/dev/ttyUSB*` on Linux. The device's
 bridge is a **WCH CH340** (`iProduct` = `"USB Serial"`, VID `0x1A86` / PID `0x7523`), not a
@@ -146,7 +146,7 @@ record for the Rust firmware.
         (`isr.h` null-checks `hardwareContext().heaterRelay()` and returns early if absent).
       - `temp` changing over minutes, never pinned to its last value. A frozen `temp` is a
         sensor problem, not a loop problem — see the "Temperature reading never changes"
-        section of this checklist's history, and `docs/rust-migration/09-cpp-findings.md` for
+        section of this checklist's history, and `docs/history/cpp-findings.md` for
         the probe-selection trap (a TSIC306 driver driving a fitted DS18B20 logs an error
         and reports nothing).
       - `setpoint` > 0. A `0` is a configuration read failure, not a setting.
@@ -167,7 +167,7 @@ grep -E 'LOOP STATUS|State transition' boot.log
 The C++ takes its log level over **telnet** (port 23 — §4), not over USB: USB is the
 transcript you are reading, so it cannot carry the instruction that changes its own verbosity.
 Connect a telnet client, raise the level to `DEBUG`, then read the transcript over USB.
-`docs/rust-migration/01-feature-inventory.md` §9 records this as the telnet story's origin.
+`docs/history/feature-inventory.md` §9 records this as the telnet story's origin.
 
 ## 4. WiFi Telnet Logging
 
@@ -713,7 +713,7 @@ finding loses the only record of what the bench is for.
       status from the route table. After: `GET /api/nope` → `404`
       `application/json`, `POST /api/status` → `405` `application/json`,
       `GET /nope` → ESP-IDF's `text/html` `404`. Verified on the bench.
-      [`intentional-diffs.md` §30c](../rust-migration/intentional-diffs.md).
+      [`intentional-diffs.md` §30c](../history/divergences.md).
 
 - [x] **A PID tuning written over HTTP did not reach the running PID.** With
       `pid.regular.kp` at `62` restored by `POST`, `/api/parameters` reported
@@ -724,7 +724,7 @@ finding loses the only record of what the bench is for.
       It is now a divergence **on request**: a gain write re-chooses the gains
       on the next tick. After: `kp=10` → duty 43.79 %, `kp=62` → 100 %, with
       no state change in between. Verified on the bench.
-      [`intentional-diffs.md` §31](../rust-migration/intentional-diffs.md).
+      [`intentional-diffs.md` §31](../history/divergences.md).
 
 ### Two more found in the same pass — also fixed
 
@@ -734,14 +734,14 @@ finding loses the only record of what the bench is for.
       (`WebServerManager.cpp:394-396`); this port cast to `i32`. Now `88.5`,
       `91.2` and `60.75` all land exactly. This is almost certainly what "the
       setpoint control does nothing" looked like from the UI.
-      [`intentional-diffs.md` §30a](../rust-migration/intentional-diffs.md).
+      [`intentional-diffs.md` §30a](../history/divergences.md).
 
 - [x] **Backflush mode could not be turned off.** Four presses in a row —
       including the explicit `?on=0` — all answered `{"backflushOn":true}` and
       the machine stayed in `BACKFLUSH_IDLE`, because the toggle fed
       `BackflushStop`, which stops a cycle without clearing the mode flag. Now
       on → off → on, verified on the bench.
-      [`intentional-diffs.md` §30b](../rust-migration/intentional-diffs.md).
+      [`intentional-diffs.md` §30b](../history/divergences.md).
 
 ### Still open
 
@@ -759,7 +759,7 @@ Each item is a decision or a measurement, not a defect with an obvious fix.
 
 | # | What | Why it is not fixed | What is needed |
 | --- | --- | --- | --- |
-| 1 | **The Scale template's brew row erases the setpoint row.** Both are at `y = 26`; the brew row's inverted field is `78 x 10` at `(x + 50, y + 1)` and it erases the setpoint's label, value and `°C`. | The C++ has the identical collision, and both firmwares default `fullscreen_brew_timer` to false, so this is **live on a Scale-template machine during a brew**, not hidden. Every fix is a visible layout change: re-pitch the rows to `13 / 22 / 31 / 40 / 49`, or drop the row, or shrink the field — and the field cannot shrink, because both rows use the same value column. | A layout decision. The row map and the arithmetic are in `docs/operations/integration-checklist.md` and in the review that produced it. |
+| 1 | **The Scale template's brew row erases the setpoint row.** Both are at `y = 26`; the brew row's inverted field is `78 x 10` at `(x + 50, y + 1)` and it erases the setpoint's label, value and `°C`. | The C++ has the identical collision, and both firmwares default `fullscreen_brew_timer` to false, so this is **live on a Scale-template machine during a brew**, not hidden. Every fix is a visible layout change: re-pitch the rows to `13 / 22 / 31 / 40 / 49`, or drop the row, or shrink the field — and the field cannot shrink, because both rows use the same value column. | A layout decision. The row map and the arithmetic are in `docs/operations/runbook.md` and in the review that produced it. |
 | 2 | **The Scale value column is 50 px and four labels are wider**, including English `Pressure: ` at 60 px. | Same family as #1, same "fixing it moves a screen somebody looks at". | The same decision. Measured widths are pinned by `tests/languages.rs`. |
 | 3 | **The EEPROM error line is 185 px into a 128 px panel** (57 px cut), in all three languages. | C++ parity: the same string, the same `displayMessage`, the same per-glyph clipping. | Shorter text, or wrapping into the five slots the call already leaves empty. Both are deliberate divergences. |
 | 4 | **The German sensor-error line is 153 px into 128** (25 px cut); English and Spanish are 111 px and fit. | C++ parity. | A shorter German string. |

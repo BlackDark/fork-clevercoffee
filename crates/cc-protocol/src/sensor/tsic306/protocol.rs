@@ -5,7 +5,7 @@
 //! # Source, and what "as the app note states them" excludes
 //!
 //! Everything in this file is transcribed from `ATTSic_E2.3.0.pdf` §1.1–§1.4
-//! (summarised in [02 §6](../../../docs/rust-migration/02-research-compatibility-matrix.md))
+//! (summarised in [02 §6](../../../docs/history/dependency-evaluation.md))
 //! and cross-read against the two implementations that existed at the time:
 //! the `ZACwire` 2.0.0 library `TempSensorTSIC` wrapped (PlatformIO-fetched,
 //! no longer vendored here) and the app note's own worked example, which the C++

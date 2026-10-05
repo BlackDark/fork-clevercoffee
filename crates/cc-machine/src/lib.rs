@@ -1,5 +1,5 @@
 //! Orchestration: the 18-state machine as a pure Elm-style reducer, per
-//! [04 §3.1](../../docs/rust-migration/04-target-architecture.md#31-internal-structure-functional-core-imperative-shell).
+//! [04 §3.1](../../docs/history/target-architecture.md#31-internal-structure-functional-core-imperative-shell).
 //!
 //! Owner: **R2-08**.
 //!

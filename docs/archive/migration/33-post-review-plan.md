@@ -8,7 +8,7 @@
 > [`docs/archive/README.md`](../README.md).
 
 Master tracker for the work that came out of the 2026-10-03 independent review
-([`32-findings-2026-10-03.md`](../../rust-migration/32-findings-2026-10-03.md)). One line per item, so a reader
+([`32-findings-2026-10-03.md`](../../history/review-2026-10-03.md)). One line per item, so a reader
 picking this up cold knows what is done, what is next, and why the order is what it is.
 
 **Gate for every item:** `cargo fmt --all` then `just gate`. `just check` is **not** sufficient —
@@ -193,7 +193,7 @@ So "parity" would have meant matching a C++ bug, paid for with the machine's doc
 (a machine on a nonexistent network cannot be fixed any other way). The user's chosen option was
 overruled on that evidence and **option A** taken: the steam LED is not driven, GPIO1 stays with the
 provisioning console. Recorded as `intentional-diffs` §27 and row 18 of the new
-[`34-known-differences.md`](../../handbook/differences.md).
+[`34-known-differences.md`](../../differences.md).
 
 The LED worker then **corrected a false claim in its own first draft** — it had written "there is no
 free GPIO left"; in fact 10 of 28 are free, 13 and 14 genuinely so. The corrected conclusion is more
@@ -212,7 +212,7 @@ because that specific pin is `SCALE_DATA_1` — so a person *can* do it, and 13/
 ## Phase 7 — documentation ✅
 
 Every drift item closed. The stale test counts were **removed** rather than refreshed, because they
-drift on every change and a number in a doc goes stale silently. `CONFIG_REFERENCE.md`'s `i_max`
+drift on every change and a number in a doc goes stale silently. `config/reference.md`'s `i_max`
 range, `docs/ci.md`'s self-contradicting warm column, and `tick_allocations.rs`'s overclaiming title
 are all fixed.
 
@@ -309,7 +309,7 @@ on nothing, so `cc-safety`, which depends only on it, cannot acquire a periphera
 | --- | --- | --- |
 | 3.3 | OTA (three endpoints, and S8's pump/valve-off requirement) | The async subagent backend failed to launch **any** child — even a trivial one — so no worker could be given it. OTA needs a worker: it is the largest remaining item and the one most in need of a second pair of eyes. It is also the only remaining item that **writes to flash**, so it is the last thing that should be attempted without a reviewer. |
 | 4.7 | Split `main.rs` (~3,700 lines) into `probe.rs` + `config_io.rs` | Same cause. |
-| 8.4 | `CONFIG_REFERENCE.md:455` documents `pid.regular.i_max` as `0.0-999.0`; schema is `0.0..=100.0` | Same cause. |
+| 8.4 | `config/reference.md:455` documents `pid.regular.i_max` as `0.0-999.0`; schema is `0.0..=100.0` | Same cause. |
 | 8.5 | `docs/ci.md`'s warm figure for the esp toolchain install contradicts its own Caches section | Same cause. |
 | 3.5 | No C++ parity baseline | Decided: leave it. |
 | 3.7 | Acaia BLE scale | Decided: out of scope. |

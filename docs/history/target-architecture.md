@@ -1,7 +1,7 @@
 # Target Architecture — Rust Port
 
 Companion to [03 — Decision record](../archive/migration/03-decision-record.md). Read the inventory
-([01](./01-feature-inventory.md)) first; every boundary below traces back to a row there.
+([01](./feature-inventory.md)) first; every boundary below traces back to a row there.
 
 **Platform:** `esp-idf-svc` 0.53.0 / `esp-idf-hal` 0.47.0, ESP-IDF v5.5.5, target
 `xtensa-esp32-espidf`, `std` enabled.
@@ -19,7 +19,7 @@ Companion to [03 — Decision record](../archive/migration/03-decision-record.md
    constraint rather than a convention.
 3. **A relay is only ever driven by one owner, through a state that cannot lie.** The
    C++ code's `heaterEnabled_` is a `std::atomic<bool>` that the ISR deliberately does not
-   update ([01 §4](./01-feature-inventory.md#4-execution-model-today)). In Rust the
+   update ([01 §4](./feature-inventory.md#4-execution-model-today)). In Rust the
    heater output has exactly one owner, so the flag cannot drift.
 4. **Board configuration is data, not `#[cfg]` spaghetti.** One `Board` trait, one impl per
    board, one `PinMap` const. A pin that does not exist on the chip is a compile error.
@@ -54,7 +54,7 @@ and, more importantly, makes the *priority relationship* a testable property.
 | --- | --- | --- |
 | **Heater output** | **LEDC hardware PWM** (preferred) or a **dedicated GPTimer ISR** (fallback) | The only safety-critical timing in the machine. Must be independent of the scheduler, of heap allocation, and of flash erases. Hardware PWM has no CPU involvement at all. A fallback ISR must be the highest-priority ISR on the chip and must do nothing but one GPIO write and a counter increment. |
 | **Control loop** (sensors, state machine, PID, interlocks, MQTT publish) | **One FreeRTOS task**, priority 5, 100 Hz | Needs a hard 10 ms period. Its work is CPU-cheap and highly interdependent — splitting it across tasks would add message passing for no benefit. Sensors are already async (`start_read` / `try_get`), so the loop never blocks. |
-| **Display** (render, flush) | **One FreeRTOS task**, priority 3, 100 ms | 🔴 **Added 2026-10-01, and the only addition to this table.** A 1 KB frame goes out as eight I²C writes — tens of milliseconds of bus time — and it was being paid *inside* the control tick, which is the whole of "the control tick overruns its 10 ms budget in 62 % of ticks" (09 §24). Moving it is what makes the 100 Hz control period achievable, and it is a slow consumer, which 04 §3.2 already says is the case for a boundary. The hand-off is lock-free (a double buffer), never a queue: see [`intentional-diffs`](intentional-diffs.md) and 09 §28 for the two cross-task blocking primitives that assert on this toolchain. |
+| **Display** (render, flush) | **One FreeRTOS task**, priority 3, 100 ms | 🔴 **Added 2026-10-01, and the only addition to this table.** A 1 KB frame goes out as eight I²C writes — tens of milliseconds of bus time — and it was being paid *inside* the control tick, which is the whole of "the control tick overruns its 10 ms budget in 62 % of ticks" (09 §24). Moving it is what makes the 100 Hz control period achievable, and it is a slow consumer, which 04 §3.2 already says is the case for a boundary. The hand-off is lock-free (a double buffer), never a queue: see [`intentional-diffs`](divergences.md) and 09 §28 for the two cross-task blocking primitives that assert on this toolchain. |
 | **Sensors** (DS18B20, switches, ABP2) | **stays on the control task** | 🔴 **Tried and removed.** 04 §2's "sensors are already async" is true of the *drivers* and false of the *bus*: the DS18B20's bit-bang is the only user of `esp_idf_hal::interrupt::free`, which on this chip is a process-global cross-core critical section, and running it from a second task asserts inside the `FreeRTOS` kernel on every boot. Measured, bisected and recorded in 09 §28. |
 | **Network / HTTP** | **FreeRTOS task(s) inside lwIP/esp-idf-svc**, priority 3 | A JSON render, a LittleFS read, or an OTA flash write is unbounded in duration. The C++ code already accepts this (AsyncTCP is a separate task); the fix is that our control loop at priority 5 now *outranks* it, and the network task is explicitly low priority. |
 | **Config / NVS writes** | **Synchronous, inside the control task, rate-limited** | NVS writes are slow (erase + program). The C++ code already does this. Introduce an async writer only if measurement shows it blocks the loop > 5 ms. |
@@ -116,7 +116,7 @@ The task boundaries above say nothing about the shape of the work *inside* the c
 task. That is where the C++ design's real problem lives: `LoopManager::update()` is a
 god-function that reaches into ten-plus subsystems in eight fixed steps
 (`src/core/LoopManager.cpp:90-253`; the coupling is catalogued in
-[01 §4](./01-feature-inventory.md#4-execution-model-today)). Every new feature adds a step,
+[01 §4](./feature-inventory.md#4-execution-model-today)). Every new feature adds a step,
 and the order becomes load-bearing and untestable.
 
 The control task is therefore structured as an **Elm-style reducer with a polling shell**:
@@ -324,7 +324,7 @@ Three levels, matching the C++ semantics but stronger:
   compile error until the whitelist is updated** (via a `match` with no `_` arm).
 - **OTA** must call `safe_hardware_shutdown`, not just `disable_heater` — this fixes the
   gap in `SystemInitializer.cpp:54-59` recorded in
-  [01 §6](./01-feature-inventory.md#6-safety-critical-control-paths).
+  [01 §6](./feature-inventory.md#6-safety-critical-control-paths).
 
 ---
 
@@ -336,7 +336,7 @@ Zero CPU, zero jitter, immune to scheduler stalls.
 > **This is a behaviour change and must be recorded as one.** The C++ implementation is
 > a **1 Hz / 100-step chopper**: `windowSize_ = 1000` ms (`context/ProcessState.h:183`)
 > with `ISR_COUNTER_INCREMENT = 10` per 10 ms tick. R1-07 must decide the target frequency,
-> record it, and add it to `intentional-diffs.md`. Two more caveats
+> record it, and add it to `divergences.md`. Two more caveats
 > from `esp-idf-hal/src/ledc.rs`: the duty must not exceed `2^N - 1` at max resolution
 > (20-bit on the original ESP32, 14-bit elsewhere), and the **original ESP32 is the only
 > chip with LEDC high-speed mode**. Driving a *relay* coil is defensible — the machine
@@ -370,7 +370,7 @@ is the direct translation of `isr.h:96-118`, and the RTL-style test in
 > one-method trait that made the swap look supported. `HeaterOutput` is now
 > concrete. The carrier arithmetic below and `CARRIER_HZ` / `RESOLUTION` survive in
 > `cc_hal_esp32::heater` for a chip without the spin; see
-> [09-cpp-findings.md §17](./09-cpp-findings.md) and `intentional-diffs.md` §9.
+> [cpp-findings.md §17](./cpp-findings.md) and `divergences.md` §9.
 >
 > **The carrier is low, and that is a hardware requirement, not a rounding
 > argument.** The C++ ISR fires 100 times a second, but its predicate
@@ -382,7 +382,7 @@ is the direct translation of `isr.h:96-118`, and the RTL-style test in
 > the reasoning that it "reproduces the existing 10 ms-step / 1 Hz chopping
 > exactly". **That was wrong** — 100 Hz would switch a 2 kW boiler contactor
 > **200 times a second, a hundred times the C++'s mechanical duty** — and it has
-> been corrected here, in `intentional-diffs.md` #5, and in both crate module docs.
+> been corrected here, in `divergences.md` #5, and in both crate module docs.
 >
 > Three facts about the pair, read out of ESP-IDF v5.5.5's own source rather than
 > guessed (`ledc_calculate_divisor`, `esp_driver_ledc/src/ledc.c:459-477`;
@@ -428,7 +428,7 @@ is the direct translation of `isr.h:96-118`, and the RTL-style test in
 > board's boiler-disconnection state is unconfirmed, and skill §2 rule 4 forbids an
 > energising test without a reviewed procedure. The hardware acceptance criterion
 > is unverified and is left that way. See
-> [`intentional-diffs.md` #5](./intentional-diffs.md#5-the-heater-is-driven-by-ledc-not-a-10-ms-isr-🔴-changed).
+> [`divergences.md` #5](./divergences.md#5-the-heater-is-driven-by-ledc-not-a-10-ms-isr-🔴-changed).
 
 Either way, `HardwareActuator` owns `pin` and `window` and nothing else touches them. The
 `heater_enabled` boolean the C++ code maintains is **deleted** — the actuator's own
@@ -503,7 +503,7 @@ relative paths in the wrong place.
 │   │   Framebuffer ([u8; 1024]) + DrawTarget impl
 │   │   Font: profont/fub glyph atlases as ImageRaw data
 │   │   DisplayLayoutUtils port (fixed-width fields, bar+label clusters)
-│   │   6 templates behind a trait, mirroring docs/handbook/display-architecture.md
+│   │   6 templates behind a trait, mirroring docs/display/rendering.md
 │   │   Host tests: render to a PPM, assert against golden images;
 │   │               assert 128x64 fit and no row overlap
 │   │

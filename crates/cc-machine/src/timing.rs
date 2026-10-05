@@ -125,7 +125,7 @@ pub const HOT_WATER_PUMP_TIMEOUT_MS: u32 = 60_000;
 /// only question was whether it could ever run.
 ///
 /// This is a **deliberate divergence** and is line 1 of
-/// `docs/rust-migration/intentional-diffs.md`.
+/// `docs/history/divergences.md`.
 pub const PUMP_TIMEOUTS_NEVER_ARM: bool = true;
 
 #[cfg(test)]

@@ -2,8 +2,8 @@
 
 **Empty, on purpose, and the runner treats it as an error rather than a skip.**
 
-`docs/rust-migration/baseline/cpp/<name>.json` is a C++ firmware's observation of
-`docs/rust-migration/scenarios/<name>.yaml`, recorded by `just parity` while the **C++**
+`docs/history/baseline/cpp/<name>.json` is a C++ firmware's observation of
+`docs/history/scenarios/<name>.yaml`, recorded by `just parity` while the **C++**
 image was on the device. `just parity` diffs the Rust observation against it and exits
 non-zero on any difference the divergence ledger does not explain.
 
@@ -12,7 +12,7 @@ non-zero on any difference the divergence ledger does not explain.
 R1-08 could not capture it safely. The C++ firmware runs its own control loop, so
 flashing it to take a baseline means running the real machine's control loop against a
 real boiler, and every scenario that would energise an actuator is a `dry_run` one by
-design (see [the format](../10-scenario-format.md) §2). The `hardware` scenarios in the
+design (see [the format](../scenario-format.md) §2). The `hardware` scenarios in the
 set are the three that cannot energise anything, and capturing even those needs a
 reviewed safe-test procedure and a human present.
 
@@ -38,7 +38,7 @@ and because `just parity` still reads this directory and still reports
    C++ has no effect stream and no in-process reducer, so the C++ side of a `dry_run`
    scenario has to be driven through the C++ native test harness
    (`test/`, built by `pio test -e native_test`) or through the device's log.
-3. Commit `docs/rust-migration/baseline/cpp/<name>.json`.
+3. Commit `docs/history/baseline/cpp/<name>.json`.
 
 Step 2 is the real gap, and it is R4-03's job: the C++ half of the harness does not
 exist yet. The Rust half, the format, the ledger and the runner do, and they are
@@ -46,7 +46,7 @@ tested.
 
 ## The ledger
 
-`../intentional-diffs.md` carries a fenced `ledger` block per divergence. The runner
+`../divergences.md` carries a fenced `ledger` block per divergence. The runner
 reads those blocks, so a divergence is declared in the same file as its reasoning and
 the two cannot drift — a block naming a heading the document does not contain is a
 load-time error.

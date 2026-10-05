@@ -1,7 +1,7 @@
 # CleverCoffee — Feature Inventory (pre-migration baseline)
 
 **Status:** Frozen baseline for the Rust migration. Read-only reference.
-**See also:** [08 — Recovered oracle](./08-recovered-oracle.md) — a complete Rust
+**See also:** [08 — Recovered oracle](./recovered-oracle.md) — a complete Rust
 firmware that previously ran on this board, recovered from flash before the device was
 erased. Its source is gone; the binary is the only surviving record.
 **Captured:** 2026-09-28, against `main` @ `2006b71`.
@@ -9,13 +9,13 @@ erased. Its source is gone; the binary is the only surviving record.
 hardware. Any Rust implementation that omits a row here is a behavioural regression.
 
 Related documents:
-- [02 — Research & compatibility matrix](./02-research-compatibility-matrix.md)
+- [02 — Research & compatibility matrix](./dependency-evaluation.md)
 - [03 — Decision record (ADR-0004)](../archive/migration/03-decision-record.md)
-- [04 — Target architecture](./04-target-architecture.md)
+- [04 — Target architecture](./target-architecture.md)
 - [05 — Tooling & developer workflows](../archive/migration/05-tooling-and-workflows.md)
 - [06 — Migration task list](../archive/migration/06-migration-task-list.md)
 - Existing context: [`../state-machine-architecture.md`](../archive/cpp/state-machine-architecture.md),
-  [`../display-architecture.md`](../handbook/display-architecture.md),
+  [`../display-architecture.md`](../display/rendering.md),
   [`../adr/0003-state-machine-hardware-control-contract.md`](../adr/0003-state-machine-hardware-control-contract.md)
 
 ---
@@ -38,7 +38,7 @@ ESP32-S3, C3, C6, H2, or S2.
 | Filesystem | LittleFS | `platformio.ini:13` |
 | Flash | 4 MB, **DIO**, 40 MHz — **verified on hardware 2026-09-28** | `esptool.py flash_id` → `Detected flash size: 4MB`, JEDEC `0xD8` / `0x4016`; 2nd-stage bootloader prints `boot.esp32: SPI Speed : 40MHz`, `SPI Mode : DIO`, `SPI Flash Size : 4MB`. Both `bootloader.bin` and `firmware.bin` image headers encode `flash_mode = 0x02` (DIO), flash size "keep", 20 MHz. Also `README.md:5`; `.github/workflows/release.yml:125,132` |
 | PSRAM | **None.** | No `spiram`/`psram` line anywhere in the ESP-IDF 5.5.5 boot log; `heap_init` lists only DRAM/IRAM regions. See §10 for the caveat that this is conditional on `CONFIG_SPIRAM` in the build that produced that log |
-| USB | **None on the chip — the "no native USB" claim HOLDS and is now positively verified.** The USB device on this host is a **WCH CH340** USB-to-UART bridge (VID `0x1A86`, PID `0x7523`), *not* a CP210x/CP2102N. | `ioreg -p IOUSB -l -w 0` on 2026-09-28. The original ESP32 has no USB peripheral (ESP32 Series Datasheet v5.3 peripheral list), so USB CDC / TinyUSB / USB-Serial-JTAG remain impossible — the §8 conclusion is unaffected by the bridge being a CH340 rather than a CP210x. Corroborating: no `HWCDC`/`TinyUSB`/`usb_serial_jtag` anywhere in `src/`+`include/`; the serial node is `/dev/cu.usbserial-*`, not `/dev/ttyUSB0` (`docs/operations/integration-checklist.md` §3); `pinmapping.h:45` moves `PIN_STEAMLED` off GPIO 1 because "UART TX". The CP2102N claim in `.agents/skills/esp32-rust-migration/SKILL.md` §1 is **wrong for this board** |
+| USB | **None on the chip — the "no native USB" claim HOLDS and is now positively verified.** The USB device on this host is a **WCH CH340** USB-to-UART bridge (VID `0x1A86`, PID `0x7523`), *not* a CP210x/CP2102N. | `ioreg -p IOUSB -l -w 0` on 2026-09-28. The original ESP32 has no USB peripheral (ESP32 Series Datasheet v5.3 peripheral list), so USB CDC / TinyUSB / USB-Serial-JTAG remain impossible — the §8 conclusion is unaffected by the bridge being a CH340 rather than a CP210x. Corroborating: no `HWCDC`/`TinyUSB`/`usb_serial_jtag` anywhere in `src/`+`include/`; the serial node is `/dev/cu.usbserial-*`, not `/dev/ttyUSB0` (`docs/operations/runbook.md` §3); `pinmapping.h:45` moves `PIN_STEAMLED` off GPIO 1 because "UART TX". The CP2102N claim in `.agents/skills/esp32-rust-migration/SKILL.md` §1 is **wrong for this board** |
 | Auto-reset | **Present and working.** DTR/RTS auto-reset achieved connection 5/5 times with no manual BOOT+EN | `esptool.py chip_id` / `flash_id` / `read_flash_status` / `read_flash_sfdp` / `get_security_info`, all `--port /dev/cu.usbserial-204140`, no manual intervention. Contradicts the warning in `SKILL.md` §6 |
 | `MAX_GPIO_PINS` | 40 (compile-time constant) | `pinmapping.h:58` |
 
@@ -203,7 +203,7 @@ live, varying room-temperature readings. A TSIC-306/ZACwire sensor would not res
 that the code was dead. The human who owns the hardware confirmed the deadness is a bug on
 their side, so both scales are ported and made to actually work. The findings below are
 still accurate and are the reason the task is sized as it is. Full defect analysis in
-[09 §23](./09-cpp-findings.md).
+[09 §23](./cpp-findings.md).
 
 
 Neither `HX711Scale` nor `BluetoothScale` is ever constructed.
@@ -372,7 +372,7 @@ Tracked as task R4-09.
 
 - Never drive a relay except through the actuator facade that also updates its own
   bookkeeping. Exception: the heater PWM path, which must be a single owner (see
-  [04 — Target architecture](./04-target-architecture.md) §5).
+  [04 — Target architecture](./target-architecture.md) §5).
 - `ActuatorState` must be a single value that cannot represent "pump believed off while
   relay is on". Model it as an explicit state machine, not three booleans.
 - Every energising state must have a matching `on_exit` that returns the machine to a
@@ -468,8 +468,8 @@ See [03 — Decision record](../archive/migration/03-decision-record.md) §5 and
 | Native tests | `~/.platformio/penv/bin/pio test -e native_test` | `CLAUDE.md` |
 | OTA deploy | `pio run -e esp32_ota -t upload` → `silvia.local` | `platformio.ini:66-71` |
 | Merge binary | `esptool.py --chip esp32 merge_bin --flash_mode dio --flash_size 4MB 0x1000 …0x350000` | `README.md:5` + `release.yml:129` |
-| Serial monitor | `screen /dev/cu.usbserial-* 115200` | `docs/operations/integration-checklist.md` §3 |
-| Telnet logs | `nc <hostname> 23` | `docs/operations/integration-checklist.md` §4 |
+| Serial monitor | `screen /dev/cu.usbserial-* 115200` | `docs/operations/runbook.md` §3 |
+| Telnet logs | `nc <hostname> 23` | `docs/operations/runbook.md` §4 |
 | Frontend build | `scripts/build_frontend.py` (pre-build hook) | `platformio.ini:57` |
 | Wokwi | `tools/platformio_wokwi.py` (post-build) | `platformio.ini:58` |
 
@@ -514,7 +514,7 @@ hand-written stubs in `test/` (`test/Arduino.h`, `test/Wire.h`, `test/Preference
   `getAllConfigParams()`** (`src/Config.cpp:438-563`), so they are never loaded, saved, or
   exported. They silently reset to compiled defaults on reboot. **This is a live
   over-temperature-settings bug in S1.** Do not port it; record it in the parity notes.
-- `CONFIG_REFERENCE.md:114` documents `display.blescale_brew_timer` and `:165-172`
+- `config/reference.md:114` documents `display.blescale_brew_timer` and `:165-172`
   documents `display.blinking.mode` — neither exists in the code.
 
 ---
@@ -577,7 +577,7 @@ Measured: VID `0x1A86`, PID `0x7523`, `iProduct` = `"USB Serial"`, `iSerialNumbe
 than a CP210x changes **nothing** in the plan (it is still a plain UART bridge, so the "no
 native USB" conclusion is unaffected), but `SKILL.md` §1 and `README.md` state CP2102N and
 that is wrong for this board. The WCH CH34x/CH340 driver note now lives in
-`docs/operations/integration-checklist.md` §3 (the old `DEBUG_GUIDE.md` it belonged to has been deleted).
+`docs/operations/runbook.md` §3 (the old `DEBUG_GUIDE.md` it belonged to has been deleted).
 
 ### 🔴 3. Auto-reset works — no manual BOOT+EN needed
 

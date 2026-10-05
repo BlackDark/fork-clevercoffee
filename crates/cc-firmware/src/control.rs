@@ -478,7 +478,7 @@ impl Control {
     /// are still chosen per state, brew detection still never leaks into
     /// `PID_NORMAL`. The only change is that a write takes effect on the next
     /// tick instead of on the next transition. Recorded in
-    /// `docs/rust-migration/intentional-diffs.md`.
+    /// `docs/history/divergences.md`.
     ///
     /// Called by the control task after a staged parameter write, so a tuning
     /// change is one control period old rather than one state change old.

@@ -19,7 +19,7 @@ that was later retracted. A September 2026 hardware survey asserted that **the
 ESP32 has no Bluetooth radio** and treated it as a constraint on the port's
 design. It is false: the original ESP32 does have a Bluetooth radio, and the
 port's own
-[compatibility matrix](../rust-migration/02-research-compatibility-matrix.md) is
+[compatibility matrix](../history/dependency-evaluation.md) is
 where the correction lives. The claim survived as long as it did because it was
 written down confidently, in prose, in a document that read like a reference.
 
@@ -40,10 +40,10 @@ port was being built; the work they planned is recorded in
 | File | What it was | Why it is here |
 | --- | --- | --- |
 | [`03-decision-record.md`](migration/03-decision-record.md) | ADR-0004: the platform and concurrency decision (`esp-idf` vs bare metal), what was rejected, and what would make it wrong. | The decision is done and shipped. Its **consequences** are still binding and live in `AGENTS.md` (`AG-RUST-*`); the reasoning that produced them is history. `docs/adr/0003` is the part of it that is still an active contract. |
-| [`05-tooling-and-workflows.md`](migration/05-tooling-and-workflows.md) | The `mise` setup, the `just` recipes, the flashing rules, Wi-Fi provisioning, CI. | Superseded by the tooling itself: the `justfile`, `just/size.just`, `mise.toml` and `.github/workflows/rust.yml` are now the specification, and [`docs/handbook/ci.md`](../handbook/ci.md) documents the CI. The `justfile` header still records the three deviations it forced. |
+| [`05-tooling-and-workflows.md`](migration/05-tooling-and-workflows.md) | The `mise` setup, the `just` recipes, the flashing rules, Wi-Fi provisioning, CI. | Superseded by the tooling itself: the `justfile`, `just/size.just`, `mise.toml` and `.github/workflows/rust.yml` are now the specification, and [`docs/operations/ci.md`](../operations/ci.md) documents the CI. The `justfile` header still records the three deviations it forced. |
 | [`06-migration-task-list.md`](migration/06-migration-task-list.md) | The R0–R4 phased task list, with dependencies, gates and acceptance criteria. | Every task is now either done, superseded, or explicitly not done — and the not-done list is [`docs/status.md`](../status.md), which is dated and owned. A task list that is 90 % complete is worse than no task list: it reads as current. |
-| [`07-image-size-budget.md`](migration/07-image-size-budget.md) | The 154 KiB headroom problem, the partition-rebalance arithmetic, the drop order, the per-gate size report. | The **numbers in it are measured 2026-09-28 and have moved.** The size gate that enforces the limit is `just/size.just`, reading `size-baseline.json` and appending to `size-records.jsonl` — both live, both still in `docs/rust-migration/`. |
-| [`31-findings-2026-10-01.md`](migration/31-findings-2026-10-01.md) | The findings index for the 2026-10-01 session, with a status per item. | Superseded by [`32-findings-2026-10-03.md`](../rust-migration/32-findings-2026-10-03.md) and then by the fixes. Kept because it records *when* each finding was made, which is the provenance a reviewer needs. |
+| [`07-image-size-budget.md`](migration/07-image-size-budget.md) | The 154 KiB headroom problem, the partition-rebalance arithmetic, the drop order, the per-gate size report. | The **numbers in it are measured 2026-09-28 and have moved.** The size gate that enforces the limit is `just/size.just`, reading `size-baseline.json` and appending to `size-records.jsonl` — both live, both still in `docs/history/`. |
+| [`31-findings-2026-10-01.md`](migration/31-findings-2026-10-01.md) | The findings index for the 2026-10-01 session, with a status per item. | Superseded by [`32-findings-2026-10-03.md`](../history/review-2026-10-03.md) and then by the fixes. Kept because it records *when* each finding was made, which is the provenance a reviewer needs. |
 | [`33-post-review-plan.md`](migration/33-post-review-plan.md) | The master tracker for the work out of the 2026-10-03 independent review. | Same reason. Every item's fate is visible in `git log`; the plan document itself is a point-in-time artefact. |
 
 ### `cpp/` — documents that describe the **C++ firmware only**
@@ -51,8 +51,8 @@ port was being built; the work they planned is recorded in
 Superseded: these describe the **C++ firmware**, which was deleted when the Rust
 port became the product. They are archived because the source they describe is
 only reachable in git history now, and its behaviour is recorded in
-[`../handbook/pins.md`](../handbook/pins.md) and
-[`../rust-migration/09-cpp-findings.md`](../rust-migration/09-cpp-findings.md).
+[`../hardware/pins.md`](../hardware/pins.md) and
+[`../history/cpp-findings.md`](../history/cpp-findings.md).
 
 | File | What it is | Superseded for the Rust port? |
 | --- | --- | --- |
@@ -66,7 +66,7 @@ only reachable in git history now, and its behaviour is recorded in
 - **[`docs/status.md`](../status.md)** — the only page permitted to claim what
   works. Dated, owned, and updated in the same commit as any behaviour change
   (`AG-REPO-4`, `AG-REPO-20`).
-- **[`docs/rust-migration/`](../rust-migration/)** — deliberately left in place.
+- **[`docs/history/`](../history/)** — deliberately left in place.
   Rust doc comments link into it with rustdoc link syntax and `just lint` runs
   `rustdoc -D warnings`, so moving any of those documents is a **build break**,
   not a link cleanup. That includes `intentional-diffs.md`, which `cc-parity`
@@ -75,7 +75,7 @@ only reachable in git history now, and its behaviour is recorded in
   `scenarios/*.yaml`, [`../example_config.json`](../example_config.json) and
   [`../THIRD_PARTY_LICENSES.md`](../THIRD_PARTY_LICENSES.md). These are not
   documentation; code and CI open them by path.
-- **[`docs/rust-migration/baseline/`](../rust-migration/baseline/)** — an
+- **[`docs/history/baseline/`](../history/baseline/)** — an
   *empty* directory with a README explaining that empty is the honest state.
   Capturing a C++ baseline means flashing the C++ onto a powered, wired machine,
   which the C++'s own freeze forbade and which is now impossible: the tree is

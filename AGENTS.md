@@ -31,7 +31,7 @@ Three documents carry the repository's navigational load, and none states a rule
   you write one, the table is out of date until it is in it.
 - [`docs/status.md`](docs/status.md) — the **only** page permitted to claim what
   works. Dated, named owner, every line a pointer to a commit or a measurement.
-- [`docs/handbook/pins.md`](docs/handbook/pins.md) — the GPIO map and the traps
+- [`docs/hardware/pins.md`](docs/hardware/pins.md) — the GPIO map and the traps
   in it. The C++ header it was transcribed from is gone; see that page for what
   the transcription is and is not.
 
@@ -57,8 +57,8 @@ several confidently-wrong status claims that were caught only by an independent
 review.
 
 **AG-REPO-3.** Start at
-[`docs/rust-migration/README.md`](docs/rust-migration/README.md) and read
-["Where the migration actually is"](docs/rust-migration/README.md#where-the-migration-actually-is)
+[`docs/history/README.md`](docs/history/README.md) and read
+["Where the migration actually is"](docs/history/README.md#where-the-migration-actually-is)
 **before planning any work**. The execution procedure for agents lives in
 [`.agents/skills/esp32-rust-migration/SKILL.md`](.agents/skills/esp32-rust-migration/SKILL.md).
 Neither document may restate a rule from this file; if one needs to, it links
@@ -90,7 +90,7 @@ as the marker they hang on. Change it **only** in
 [`docs/example_config.json`](docs/example_config.json) in step -- an import test
 parses that exact file, so the two cannot drift apart. `mqtt.password` also
 defaults to `silvia`; that is a **credential, not a name**. Full reasoning:
-[`intentional-diffs.md` §12](docs/rust-migration/intentional-diffs.md).
+[`intentional-diffs.md` §12](docs/history/divergences.md).
 
 **AG-REPO-10.** The target is the **original ESP32** (Xtensa), not an S3 or C6.
 `esp32_usb` refers to the USB-to-UART cable; the chip has no native USB.
@@ -134,7 +134,7 @@ recalled documentation; `https://llmstxt.site/` and
 `https://directory.llmstxt.cloud/` index collections.
 
 **AG-REPO-17.** **Integration testing** is
-[`docs/operations/integration-checklist.md`](docs/operations/integration-checklist.md). When the user asks for a
+[`docs/operations/runbook.md`](docs/operations/runbook.md). When the user asks for a
 full integration test flow: run **every** section in order; for each item execute
 the check (a `curl`, a `pio` command, a browser action); record PASS/FAIL with
 the actual output; **stop at the first FAIL** and diagnose before continuing;
@@ -142,7 +142,7 @@ report a summary table at the end.
 
 **AG-REPO-18.** **Keep that checklist current.** When you discover a new critical
 scenario -- a crash, an OOM, an endpoint failure, a timing bug -- add it to
-[`docs/operations/integration-checklist.md`](docs/operations/integration-checklist.md) immediately, in the same
+[`docs/operations/runbook.md`](docs/operations/runbook.md) immediately, in the same
 commit, rather than waiting for a separate task. The checklist must reflect every
 known failure mode. Examples of what belongs there: an API endpoint that handles
 large payloads; a concurrency scenario that caused a crash; a new OTA or upload
@@ -193,7 +193,7 @@ ISR's heater PWM (documented at its definition).
 When a behaviour is surprising, `git log -- <path>` and `git show
 HEAD~:<path>` recover the implementation this port replaced; the per-feature
 catalogue of what it did and which bugs it had is in
-[`09-cpp-findings.md`](docs/rust-migration/09-cpp-findings.md). Read it before
+[`09-cpp-findings.md`](docs/history/cpp-findings.md). Read it before
 concluding the port does something surprising.
 
 ---
@@ -219,7 +219,7 @@ radio") was lifted out of a September survey and treated as today's constraint.
 [`docs/archive/README.md`](docs/archive/README.md) states the rule and says what is
 in the archive and why.
 
-**AG-REPO-30.** **`docs/rust-migration/` does not move.** Rust doc comments link
+**AG-REPO-30.** **`docs/history/` does not move.** Rust doc comments link
 into it with rustdoc link syntax and `just lint` runs `rustdoc -D warnings`, so
 moving a cited document is a **build break**, not a link cleanup. The machine-read
 fixtures there (`size-baseline.json`, `size-records.jsonl`, `scenarios/*.yaml`) are
@@ -257,10 +257,10 @@ heights.
 
 **AG-DISPLAY-5.** **Double-check before finishing.** Re-read the row map after
 edits; anchor bottom rows from `DISPLAY_HEIGHT` where possible. See
-[`docs/handbook/display.md`](docs/handbook/display.md) for which of the three
+[`docs/display/overview.md`](docs/display/overview.md) for which of the three
 display documents answers which question, then
-[`docs/handbook/display-modern-layout.md`](docs/handbook/display-modern-layout.md)
-and [`docs/handbook/display-architecture.md`](docs/handbook/display-architecture.md).
+[`docs/display/layout-rules.md`](docs/display/layout-rules.md)
+and [`docs/display/rendering.md`](docs/display/rendering.md).
 
 **AG-DISPLAY-6.** **Layout regressions are blocking.** Cut-off text, overlapping
 rows, shifting numbers and misaligned bar/label pairs must be fixed before the
@@ -298,7 +298,7 @@ tree, and a number in a doc goes stale silently. Count it yourself with
 
 **AG-RUST-5.** What the CI pipeline is, what each job costs, and why the
 toolchain pins and cache keys are shaped as they are:
-[`docs/handbook/ci.md`](docs/handbook/ci.md).
+[`docs/operations/ci.md`](docs/operations/ci.md).
 
 **AG-RUST-6.** **The web UI must be built before the firmware will link.**
 `cc-hal-esp32/build.rs` deliberately panics without

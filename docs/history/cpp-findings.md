@@ -4,26 +4,26 @@ Found 2026-09-28 while implementing R2-04/R2-05/R2-06. **Every one of these was
 *preserved* in the Rust port, not silently fixed**, each pinned by a named parity
 test. They are recorded here because they are decisions, not accidents.
 
-Each becomes a line in [`intentional-diffs.md`](./intentional-diffs.md) (R1-08) when the
+Each becomes a line in [`divergences.md`](./divergences.md) (R1-08) when the
 Rust behaviour intentionally diverges.
 
 > **Updated 2026-09-28 (R1-07 + safety-gap work).** Four findings have since been
 > **closed on purpose** — §1, §2, §3 and §11 — and each now has a `div<N>_` test
 > instead of an `s<N>_` one. The text below is left as the record of what the C++
 > does; the divergence and its reasoning live in
-> [`intentional-diffs.md`](./intentional-diffs.md). A `div<N>_` test replaces its
+> [`divergences.md`](./divergences.md). A `div<N>_` test replaces its
 > `s<N>_` counterpart; the two are never both present, because they would disagree.
 >
 > | finding | closed by | test |
 > | --- | --- | --- |
-> | §1 integer division by zero | [intentional-diffs #4](./intentional-diffs.md#4-the-pid-derivative-is-taken-over-the-real-elapsed-time-🔴-fixed) | `cc-domain::pid_parity::scenario_d_the_cpp_goes_nan_and_this_port_does_not` |
-> | §2 no steam-valve whitelist | [intentional-diffs #2](./intentional-diffs.md#2-the-steam-valve-is-whitelist-gated-🔴-added) | `cc-machine::parity_findings::div2_the_steam_valve_is_whitelist_gated` |
-> | §3 water valve not tank-gated | [intentional-diffs #3](./intentional-diffs.md#3-the-water-valve-is-gated-on-the-water-tank-🔴-added) | `cc-machine::parity_findings::div3_the_water_valve_is_tank_gated` |
-> | §11 pump timeouts dead | [intentional-diffs #1](./intentional-diffs.md#1-both-pump-safety-timeouts-are-armed-🔴-closed) | `cc_machine::parity_findings::div1_the_pump_timeouts_are_armed` |
+> | §1 integer division by zero | [intentional-diffs #4](./divergences.md#4-the-pid-derivative-is-taken-over-the-real-elapsed-time-🔴-fixed) | `cc-domain::pid_parity::scenario_d_the_cpp_goes_nan_and_this_port_does_not` |
+> | §2 no steam-valve whitelist | [intentional-diffs #2](./divergences.md#2-the-steam-valve-is-whitelist-gated-🔴-added) | `cc-machine::parity_findings::div2_the_steam_valve_is_whitelist_gated` |
+> | §3 water valve not tank-gated | [intentional-diffs #3](./divergences.md#3-the-water-valve-is-gated-on-the-water-tank-🔴-added) | `cc-machine::parity_findings::div3_the_water_valve_is_tank_gated` |
+> | §11 pump timeouts dead | [intentional-diffs #1](./divergences.md#1-both-pump-safety-timeouts-are-armed-🔴-closed) | `cc_machine::parity_findings::div1_the_pump_timeouts_are_armed` |
 >
 > §4, §5, §6, §7, §12–§16 remain **preserved** and are listed in the
 > "Preserved C++ behaviours" table of
-> [`intentional-diffs.md`](./intentional-diffs.md#preserved-cpp-behaviours--do-not-fix-these).
+> [`divergences.md`](./divergences.md#preserved-cpp-behaviours--do-not-fix-these).
 
 ---
 
@@ -49,7 +49,7 @@ cannot step on it.
   `f64`, so the trap cannot occur at any window. Scenarios A–C of the PID oracle are
   still bit-identical to the C++; scenario D is retained *as the C++'s `NaN`* and the
   divergence is asserted. See
-  [`intentional-diffs.md` #4](./intentional-diffs.md#4-the-pid-derivative-is-taken-over-the-real-elapsed-time-🔴-fixed).
+  [`divergences.md` #4](./divergences.md#4-the-pid-derivative-is-taken-over-the-real-elapsed-time-🔴-fixed).
 - The `Controller::derivative_seconds` / `derivative_seconds_at` pair keeps the trap
   documented.
 
@@ -66,7 +66,7 @@ So the steam valve can be commanded open in any state, while the water valve can
   `steamValveSafetyShutdownCheck` in the reducer's tail. Pinned by
   `div2_the_steam_valve_is_whitelist_gated`, which **replaced**
   `s5_the_steam_valve_is_not_whitelist_gated`. See
-  [`intentional-diffs.md` #2](./intentional-diffs.md#2-the-steam-valve-is-whitelist-gated-🔴-added)
+  [`divergences.md` #2](./divergences.md#2-the-steam-valve-is-whitelist-gated-🔴-added)
   for the derivation from the C++.
 - This was a real safety gap, not a port artifact: steam and water share **one relay**
   (`ValveState.h:8-11`), so an ungated steam valve is an ungated water valve.
@@ -80,7 +80,7 @@ Only `enablePump` and `setPumpPressure` check `waterTankEmpty_`
   be full as well as the state to be on the S5 whitelist. Pinned by
   `div1_s4_empty_tank_blocks_the_water_valve_too` and
   `div3_the_water_valve_is_tank_gated`. See
-  [`intentional-diffs.md` #3](./intentional-diffs.md#3-the-water-valve-is-gated-on-the-water-tank-🔴-added).
+  [`divergences.md` #3](./divergences.md#3-the-water-valve-is-gated-on-the-water-tank-🔴-added).
 
 ## 4. S1 keeps heating through the debounce window
 
@@ -144,7 +144,7 @@ accepted and handed to `WiFi.setHostname()`.
 ## Corroboration that the ported schema is right
 
 The Rust default config blob serialises to **2077 bytes**. The recovered firmware logged
-`cc_firmware: config: nvs (2071 B stored)` (see [08 — Oracle](./08-recovered-oracle.md) §3)
+`cc_firmware: config: nvs (2071 B stored)` (see [08 — Oracle](./recovered-oracle.md) §3)
 for a 98-key schema whose source no longer exists. A 6-byte delta against a lost
 firmware is strong evidence the parameter shape is correct.
 
@@ -180,7 +180,7 @@ machine with a heated boiler.
   one-directional: the Rust can trip a watchdog the C++ cannot. Pinned by
   `div1_the_pump_timeouts_are_armed`, which **replaced**
   `s11_the_pump_timeouts_are_never_armed`. See
-  [`intentional-diffs.md` #1](./intentional-diffs.md#1-both-pump-safety-timeouts-are-armed-🔴-closed).
+  [`divergences.md` #1](./divergences.md#1-both-pump-safety-timeouts-are-armed-🔴-closed).
 - **Not covered, on purpose:** `MANUAL_FLUSH_RUNNING` and the backflush fill/flush phases
   also run the pump and neither C++ timer covers them. Recorded as a follow-up.
 
@@ -516,7 +516,7 @@ use, and is proven on this hardware. The `LEDC` transport this finding retired �
 the one-method `HeaterDuty` seam it was the second impl of — has since been **deleted**: it had
 zero construction sites, and the spin is unique to the chip this firmware runs on. The carrier
 arithmetic an `LEDC` transport would need survives in `cc_hal_esp32::heater`'s module docs and in
-`intentional-diffs.md` §9, and a chip without the spin gets a transport written for it rather
+`divergences.md` §9, and a chip without the spin gets a transport written for it rather
 than one that has sat unbrought-up through two code reviews.
 
 The 100 Hz/ISR CPU cost is ~100 IRQs/s on a 240 MHz Xtensa — negligible. The "LEDC costs
@@ -592,7 +592,7 @@ Tests: `cc_domain::sensor::ds18b20::div8_the_dallas_path_applies_the_range_check
 `::div8_the_two_ranges_overlap_only_between_zero_and_a_hundred_and_fifty`,
 `::div8_only_the_cold_end_of_the_ds18b20s_range_is_now_refused`,
 `::div8_a_reading_outside_the_range_is_a_read_failure_not_a_hot_temperature`.
-See `intentional-diffs.md` #8.
+See `divergences.md` #8.
 
 The original "combined with §18, a sentinel value can reach PID" claim is **withdrawn**:
 §18 is corrected above and no sentinel reaches the PID.
@@ -961,7 +961,7 @@ re-enabled (S11).
 
 **Closed 2026-09-30** at the human's decision. Two changes, both in `cc-machine`:
 `Requests::clear_all` spares `standby`, and `PidDisabled`'s transition check
-honours it. See `intentional-diffs.md` §13 and the `div13_*` pins in
+honours it. See `divergences.md` §13 and the `div13_*` pins in
 `crates/cc-machine/tests/parity_findings.rs`.
 
 **Verified on hardware**, with the PID off throughout: `POST /api/sleep` →

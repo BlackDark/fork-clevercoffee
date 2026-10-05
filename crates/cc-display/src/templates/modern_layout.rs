@@ -6,7 +6,7 @@
 //!
 //! # The heights are NOT U8g2's font metrics
 //!
-//! `docs/handbook/display-modern-layout.md` says these are "the font bbox pixel
+//! `docs/display/layout-rules.md` says these are "the font bbox pixel
 //! heights (not the number in the font name)". Measured against real U8g2,
 //! that is not quite true, and the difference matters:
 //!
@@ -29,7 +29,7 @@
 //! pixel off the bar's midline. `Layout::bar_label_height_is_the_reserved_row`
 //! exists to make that decision explicit rather than accidental.
 //!
-//! # Row map (idle), from `docs/handbook/display-modern-layout.md`
+//! # Row map (idle), from `docs/display/layout-rules.md`
 //!
 //! ```text
 //!  y=0  ─ status bar (radio, MQTT, uptime)
@@ -197,7 +197,7 @@ pub fn screen_for(flushing: bool, post_brew: bool, brewing: bool) -> Screen {
 pub const BREW_CUP_LOGO_W: i32 = 40;
 /// The post-brew cup's height, in pixels.
 pub const BREW_CUP_LOGO_H: i32 = 40;
-/// `cupY` — where the cup starts, `docs/handbook/display-modern-layout.md`
+/// `cupY` — where the cup starts, `docs/display/layout-rules.md`
 /// "y=2".
 pub const BREW_CUP_Y: i32 = 2;
 
@@ -270,7 +270,7 @@ mod tests {
 
     #[test]
     fn the_post_brew_time_row_ends_inside_the_panel() {
-        // `docs/handbook/display-modern-layout.md`: "y=46, font 15px -> ends y=60".
+        // `docs/display/layout-rules.md`: "y=46, font 15px -> ends y=60".
         let time_y = BREW_CUP_Y + BREW_CUP_LOGO_H + 4;
         assert_eq!(time_y, 46);
         // The documented end is y=60, inside a 64-row panel.
@@ -398,7 +398,7 @@ mod tests {
 
     #[test]
     fn the_bar_tick_is_five_degrees_below_setpoint() {
-        // `docs/handbook/display-modern-layout.md`: "Bar tick = setpoint - 5 C".
+        // `docs/display/layout-rules.md`: "Bar tick = setpoint - 5 C".
         let inner = K_BOTTOM_BAR_W - 2;
         let at_tick = map_temp_to_bar_width(94.0 - 5.0, 94.0, inner);
         let just_past = map_temp_to_bar_width(94.0 - 5.1, 94.0, inner);

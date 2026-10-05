@@ -51,7 +51,7 @@
 //! supervisor has beaten — which only the control task's heartbeat does, and it
 //! passes 0 regardless. R1-07's hardware test (drive a **dummy load**, measure
 //! with a scope) is **not** done: see the module docs of `cc-hal-esp32::heater`
-//! and `docs/rust-migration/intentional-diffs.md` #5.
+//! and `docs/history/divergences.md` #5.
 //!
 //! There is deliberately **no** control loop, no state machine and no sensor
 //! here. Those arrive at R2-08 and R3-xx.
@@ -1015,7 +1015,7 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
     )?;
 
     // 10a. The telnet log stream. `telnet esp32.local 23` is what
-    //     `docs/operations/integration-checklist.md` §4 documents and what the
+    //     `docs/operations/runbook.md` §4 documents and what the
     //     field-diagnosis story in `intentional-diffs.md` §1 is built on, and
     //     finding 3.2 of `32-findings-2026-10-03.md` was that the Rust port had
     //     the shed policy and no way to serve it. Spawned here, beside the HTTP
@@ -2511,7 +2511,7 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
             // because 0 °C is a *plausible* temperature; only the sensor-error
             // path does. **The C++'s behaviour here is not reproduced**, and this
             // is a deliberate divergence rather than a bug fix: see the boot-window
-            // note in `docs/rust-migration/intentional-diffs.md` (#12).
+            // note in `docs/history/divergences.md` (#12).
             temperature: last_reading.map_or(Celsius::new(0.0), |(celsius, _)| {
                 #[allow(
                     clippy::cast_possible_truncation,

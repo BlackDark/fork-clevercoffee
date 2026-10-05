@@ -46,7 +46,7 @@
 //!   preserved because it is the C++'s behaviour and because the alternative
 //!   (locking an operator out of their own machine because they enabled auth and
 //!   then did not finish) is worse on a device whose only other console is a
-//!   UART. It is called out in `docs/rust-migration/intentional-diffs.md`.
+//!   UART. It is called out in `docs/history/divergences.md`.
 //!
 //! # Why there is no ESP-IDF auth hook to use instead
 //!

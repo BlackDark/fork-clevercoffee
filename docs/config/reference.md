@@ -114,7 +114,7 @@ See `docs/example_config.json` for the full nested file format used by seed, dow
 ### `display.blescale_brew_timer`
 
 > **⚠ DOCUMENTED BUT NOT IMPLEMENTED.** This entry has been in
-> `CONFIG_REFERENCE.md` and in `docs/example_config.json` since before the Rust
+> `config/reference.md` and in `docs/example_config.json` since before the Rust
 > port, but **neither** firmware has the key: `git grep blescale_brew_timer main`
 > finds only these two files, and the Rust schema has never declared it. It
 > belongs to the Acaia BLE scale (R3-18), which is not built.

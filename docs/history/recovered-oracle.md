@@ -262,7 +262,7 @@ Notes:
   persisted** — the exact pair the C++ firmware defines but never registers in
   `getAllConfigParams()` (plan 01 §10 finding #1). The previous Rust author independently
   hit and fixed that bug.
-- `display.blinking.delta` exists; `CONFIG_REFERENCE.md` documents a `display.blinking.mode`
+- `display.blinking.delta` exists; `config/reference.md` documents a `display.blinking.mode`
   that does not exist in C++ (plan 01 §10 finding: doc drift).
 - No `hardware.switches.hot_water` omission here — all four switches are present.
 - Storage was **a single nested JSON blob** in one NVS namespace (2,071 B), not 96 hashed

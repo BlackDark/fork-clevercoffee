@@ -4,7 +4,7 @@
 //! # Why this is in `cc-domain` and not in `cc-hal-esp32`
 //!
 //! R1-07 decides *how* the heater is driven — LEDC hardware PWM, with a
-//! `GPTimer` ISR as the fallback ([04 §5](../../docs/rust-migration/04-target-architecture.md#5-heater-output--the-one-hard-real-time-path)).
+//! `GPTimer` ISR as the fallback ([04 §5](../../docs/history/target-architecture.md#5-heater-output--the-one-hard-real-time-path)).
 //! Everything *about* the decision is portable: what duty a PID output means,
 //! how a millisecond duty becomes a fraction, and whether the output may be
 //! non-zero at all. Those are arithmetic and policy, they must be unit-tested on
@@ -111,7 +111,7 @@
 //!   have not been read back from hardware.
 //!
 //! Until a person with a scope, a dummy load and the boiler **disconnected**
-//! measures it, R1-07 stays open. See `docs/rust-migration/intentional-diffs.md`
+//! measures it, R1-07 stays open. See `docs/history/divergences.md`
 //! #5.
 
 use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -472,7 +472,7 @@ pub enum GateBlock {
     ///
     /// The recovered firmware's boot log says, verbatim:
     /// `"heater interrupt running on GPIO2 (active high), output held off until
-    /// the supervisor beats"` ([08 §3](../../docs/rust-migration/08-recovered-oracle.md)).
+    /// the supervisor beats"` ([08 §3](../../docs/history/recovered-oracle.md)).
     /// Without this, a non-zero PID output computed during start-up — before the
     /// state machine, the sensors and the config are all live — would reach the
     /// relay. The gate makes "the supervisor is running" a precondition of
@@ -483,7 +483,7 @@ pub enum GateBlock {
     /// The deadman: if the heartbeat has not been refreshed within
     /// [`DEADMAN_TIMEOUT_MS`], the heater is de-energised. Stronger than the
     /// watchdog, which only fires at 5 s and only resets the chip
-    /// ([04 §3.4](../../docs/rust-migration/04-target-architecture.md#watchdog));
+    /// ([04 §3.4](../../docs/history/target-architecture.md#watchdog));
     /// the deadman drops the heater in about one interlock period.
     DeadmanExpired {
         /// How long since the last beat.
@@ -492,7 +492,7 @@ pub enum GateBlock {
 }
 
 /// How often the shell re-asserts the actuator states, from the recovered
-/// firmware's boot log: `config: ... interlock 500 ms` ([08 §3](../../docs/rust-migration/08-recovered-oracle.md)).
+/// firmware's boot log: `config: ... interlock 500 ms` ([08 §3](../../docs/history/recovered-oracle.md)).
 ///
 /// It is the granularity at which the gate is consulted and at which the duty is
 /// pushed to the hardware, so the worst-case time between "the supervisor
@@ -521,7 +521,7 @@ pub const DEADMAN_TIMEOUT_MS: u32 = 2 * INTERLOCK_PERIOD_MS;
 /// The latching gate in front of the heater output.
 ///
 /// The two properties it exists to provide, both from the recovered firmware
-/// ([08 §3, §4](../../docs/rust-migration/08-recovered-oracle.md)):
+/// ([08 §3, §4](../../docs/history/recovered-oracle.md)):
 ///
 /// 1. **The output is held at zero until the supervisor's first heartbeat.**
 ///    [`HeaterGate::new`] starts closed and there is no way to open it except
@@ -1241,7 +1241,7 @@ impl IsrChopper {
     ///
     /// The C++ has no equivalent — it has `isISRReady()`, which is set once and
     /// never cleared — but the recovered firmware's *"output held off until the
-    /// supervisor beats"* ([08 §3](../../docs/rust-migration/08-recovered-oracle.md))
+    /// supervisor beats"* ([08 §3](../../docs/history/recovered-oracle.md))
     /// is exactly this, and a deadman that cannot de-energise the heater is not a
     /// deadman.
     pub const fn disarm(&mut self) {

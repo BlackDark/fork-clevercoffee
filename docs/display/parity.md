@@ -105,7 +105,7 @@ none:
   but a reimplementation of `SystemContext`. The goldens record what the Rust
   templates *do*, and the unit assertions in
   `src/templates/modern_layout.rs` pin the row map — but "the Modern layout puts
-  its temperature at y=14" is a claim about `docs/handbook/display-modern-layout.md`, not
+  its temperature at y=14" is a claim about `docs/display/layout-rules.md`, not
   a measured comparison with the C++.
 - **The goldens are only as good as the review that first read the C++.** They
   record the port's behaviour. Where the port misread the C++, the golden
@@ -127,6 +127,6 @@ The goldens earned their keep immediately. The first `modern` render showed the
 large temperature clipped off the top of the display — the `prepareDisplay`
 finding above. There is more of the same waiting: the Modern row map, the
 bottom-row bar, and the per-field boxes have been checked against
-`docs/handbook/display-modern-layout.md` and against U8g2's metrics, but not against a
+`docs/display/layout-rules.md` and against U8g2's metrics, but not against a
 rendered C++ frame. That comparison is the next thing to build, and it needs a
 `SystemContext` stub that is small enough to be obviously faithful.

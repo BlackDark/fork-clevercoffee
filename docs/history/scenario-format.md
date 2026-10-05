@@ -193,18 +193,18 @@ negation:
 - { kind: actuator_safe }
 ```
 
-`intentional-diffs.md` §1's sibling entry — the OTA gap — is the ledger entry that
+`divergences.md` §1's sibling entry — the OTA gap — is the ledger entry that
 declares this diff expected. A diff here is the fix working.
 
 ## 8. Where the files live
 
 ```text
-docs/rust-migration/
+docs/history/
 ├── scenarios/*.yaml          the scripts
 ├── baseline/
 │   ├── cpp/<name>.json       the C++ reference observation
 │   └── rust/<name>.json      the Rust observation
-└── intentional-diffs.md      the divergence ledger the runner consults
+└── divergences.md      the divergence ledger the runner consults
 ```
 
 A baseline is a canonicalised observation (§4) as JSON. The runner diffs

@@ -6,14 +6,14 @@
 > `.github/workflows/rust.yml` are what actually run. The recipes here were
 > written before the R1-01 build and **three of them did not work as written** —
 > the deviations are recorded in the `justfile` header, which is live. For what
-> CI runs and what it costs, read [`docs/handbook/ci.md`](../../handbook/ci.md). Do
+> CI runs and what it costs, read [`docs/operations/ci.md`](../../operations/ci.md). Do
 > not follow this file's commands. See [`docs/archive/README.md`](../README.md).
 
 Everything the migration needs, installed **from the repository** via `mise`, driven by a
 root `justfile`. No undocumented global installs.
 
 Related: [03 — Decision record](./03-decision-record.md) (platform choice),
-[02 §7](../../rust-migration/02-research-compatibility-matrix.md) (toolchain evidence),
+[02 §7](../../history/dependency-evaluation.md) (toolchain evidence),
 [06 — Task list](./06-migration-task-list.md) (who does what, when).
 
 ---

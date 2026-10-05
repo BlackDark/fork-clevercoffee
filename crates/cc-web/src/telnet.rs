@@ -4,7 +4,7 @@
 //! # Why this is here and not in `cc-hal-esp32`
 //!
 //! Finding **3.2 of
-//! [`32-findings-2026-10-03.md`](../../../docs/rust-migration/32-findings-2026-10-03.md)
+//! [`32-findings-2026-10-03.md`](../../../docs/history/review-2026-10-03.md)
 //! recorded that the telnet log server had a `HeapShed` and nothing consuming
 //! it: `cc-hal-esp32/src/telnet.rs` said so in its own doc comment. The shed
 //! policy was therefore never exercised by `just test`, and the acceptance

@@ -522,7 +522,7 @@ extern "C" fn sse_handler(req: *mut httpd_req_t) -> esp_idf_sys::esp_err_t {
 /// Register the JSON `404` for `/api/` paths that matched no route.
 ///
 /// Finding 3.8 of
-/// [`32-findings-2026-10-03.md`](../../../docs/rust-migration/32-findings-2026-10-03.md).
+/// [`32-findings-2026-10-03.md`](../../../docs/history/review-2026-10-03.md).
 /// The C++ registers `server_->onNotFound(...)`
 /// (`WebServerManager.cpp:235`), whose `handleNotFound` (`:1006-1027`) answers a
 /// JSON `{"error": …}` for any path starting `/api/` and plain text for the rest.

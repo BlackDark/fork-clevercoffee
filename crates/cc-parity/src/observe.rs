@@ -138,7 +138,7 @@ impl Default for Actuators {
 ///
 /// Two runs of the same firmware against the same scenario must produce equal
 /// observations. That is the property the baseline is recorded from, and a test
-/// asserts it over every scenario in `docs/rust-migration/scenarios/`.
+/// asserts it over every scenario in `docs/history/scenarios/`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Observation {
     /// The scenario this came from.
