@@ -5,21 +5,21 @@ One row per document. Find the row that matches your situation.
 | Document | What it is for | Read it if |
 | --- | --- | --- |
 | **New here** | | |
-| [`README.md`](../README.md) | What this repository is, the two firmwares, the three build commands. | You just opened the repository. |
+| [`README.md`](../README.md) | What this repository is and how to build, gate and flash it. | You just opened the repository. |
 | [`docs/index.md`](index.md) | This page: one row per document, grouped by situation. | You want to know which document to open. |
-| [`AGENTS.md`](../AGENTS.md) | **The rulebook.** Numbered, scoped rules (`AG-REPO-*`, `AG-ORACLE-*`, `AG-RUST-*`). Citable, never restated. | Before you change anything. |
+| [`AGENTS.md`](../AGENTS.md) | **The rulebook.** Numbered, scoped rules (`AG-REPO-*`, `AG-DISPLAY-*`, `AG-RUST-*`). Citable, never restated. | Before you change anything. |
 | [`CLAUDE.md`](../CLAUDE.md) | A five-line pointer to `AGENTS.md`, deliberately. | Your tool looks for it. Nothing else. |
 | [`docs/status.md`](status.md) | **The only page permitted to claim what works.** Dated, owned, every line a pointer to a commit or a measurement. | You want to know what this firmware actually does today. |
-| [`docs/cpp-oracle.md`](cpp-oracle.md) | The C++ tree is frozen: where it lives, why, what may still be built from it, what must never be done to it. Includes the pin table. | You are about to touch, build, or flash anything in `src/` or `include/`. |
+| [`docs/handbook/pins.md`](handbook/pins.md) | The GPIO map, the two traps in it, and what the table is transcribed from. | You are touching a pin, a relay, or a sensor. |
 | [`docs/rust-migration/README.md`](rust-migration/README.md) | "Where the migration actually is" — the navigation page for the Rust port. | You are new to the Rust side and want one map. |
-| [`CONTRIBUTING.md`](../CONTRIBUTING.md) | Which firmware, how to run the formatter, and the C++ style rules. | You are about to open a pull request. |
+| [`CONTRIBUTING.md`](../CONTRIBUTING.md) | How to run the formatter and the gates, and the Rust style rules. | You are about to open a pull request. |
 | [`CONFIG_REFERENCE.md`](../CONFIG_REFERENCE.md) | Every configuration key, its type, range, default and which firmware reads it. | You need a parameter name or its bounds. |
 | **Changing firmware behaviour** | | |
 | [`docs/handbook/differences.md`](handbook/differences.md) | **The one-page answer to "will this surprise me?"** Every behavioural difference from the C++, filed by how a reader would meet it. | Anything looks wrong and you need to know whether it is intentional. |
 | [`docs/rust-migration/intentional-diffs.md`](rust-migration/intentional-diffs.md) | The ledger: for each divergence, the C++'s behaviour, the port's, the reasoning, and what pins it. **Read by `cc-parity` at a hard-coded path — do not move it or split its `ledger` blocks.** | You are justifying a behaviour change and need the reasoning, not the summary. |
 | [`docs/handbook/display.md`](handbook/display.md) | Entry point for the display: which of the three display documents to read, and the layout rules condensed. | You are changing anything on the 128×64 screen. |
 | [`docs/handbook/display-modern-layout.md`](handbook/display-modern-layout.md) | The binding layout rules: font→pixel mapping, fixed-width numeric fields, the row maps, bar/label pairing. | You are placing pixels. Blocking if violated. |
-| [`docs/handbook/display-architecture.md`](handbook/display-architecture.md) | How the **C++** renders: frame lifecycle, the deferred-flush buffer truth table, shared-vs-template ownership. | You need to know when a frame reaches the panel, or why SSE stalls. |
+| [`docs/handbook/display-architecture.md`](handbook/display-architecture.md) | How the **Rust** renderer works: frame lifecycle, shared-vs-template ownership, the I²C chunking. | You need to know when a frame reaches the panel. |
 | [`docs/handbook/display-parity.md`](handbook/display-parity.md) | The three display checks, what each caught, and — plainly — **what they do not prove**. | You are about to claim the display is correct, or regenerating a golden. |
 | [`docs/adr/0001-display-subsystem-architecture.md`](adr/0001-display-subsystem-architecture.md) | Accepted: one render pipeline, shared defaults with template overrides, one source of truth for thresholds. | You want the *why* behind the display structure. |
 | [`docs/adr/0002-wifi-logging-ota-memory-architecture.md`](adr/0002-wifi-logging-ota-memory-architecture.md) | Accepted: Wi-Fi logging, OTA admission, and the memory budget. | You are touching networking, OTA, or heap. |
@@ -37,7 +37,7 @@ One row per document. Find the row that matches your situation.
 | **Reading history** | | |
 | [`docs/archive/README.md`](archive/README.md) | **The archive rule.** Preserved, not a source of truth; any claim quoted out must be re-verified against live evidence. Says what is in the archive and why. | Before you quote anything dated. |
 | [`docs/archive/migration/`](archive/migration) | The migration's own planning: ADR-0004, tooling, the R0–R4 task list, the size budget, two findings/plan sessions. | You want to know why a decision was made, or what a task was. |
-| [`docs/archive/cpp/`](archive/cpp) | Documents that describe the **C++ firmware's implementation**: its repository summary, Wokwi setup, the backflush-reminder design, the C++ state machine. | You are working in `src/`/`include/` and want the old map. |
+| [`docs/archive/cpp/`](archive/cpp) | Documents that describe the **deleted C++ firmware's** implementation: its repository summary, Wokwi setup, the backflush-reminder design, the C++ state machine. **Superseded** — cite only for what the C++ did. | You want to know why a decision was made about C++ behaviour. |
 | [`docs/rust-migration/32-findings-2026-10-03.md`](rust-migration/32-findings-2026-10-03.md) | The independent review's findings, one per row, with status. The most recent hard-eyed record. | You want to know what has already been looked at and found wanting. |
 | [`docs/handbook/ci.md`](handbook/ci.md) | What CI runs, what each job costs, and why the caches are hand-keyed. | You want to know whether CI will catch something, or what it will cost. |
 | [`docs/THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md) | Vendored third-party notices. Checked by CI with `test -f`. | Legal, or adding a vendored dependency. |

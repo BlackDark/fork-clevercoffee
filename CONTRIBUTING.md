@@ -3,20 +3,16 @@
 Thank you for considering contributing to the project. To ensure consistency and maintainability, please follow these style
 guidelines when submitting code changes.
 
-## Before you start: which firmware?
+## Before you start
 
-This repository is mid-migration and holds **two** firmwares. Picking the wrong
-one is the most common way to waste an afternoon here.
+This repository holds **one** firmware, written in Rust, in `crates/cc-*`. The
+C++ firmware it replaced was deleted once the port became the product; start at
+[docs/rust-migration/README.md](docs/rust-migration/README.md), and read
+[intentional-diffs.md](docs/rust-migration/intentional-diffs.md) before changing
+anything whose behaviour looks wrong -- it is a ledger of places the port
+deliberately differs from the C++, with the reasoning for each.
 
-- **The C++ firmware** (`src/`, `include/`, `test/`) is the one that ships today.
-  It is also the **parity oracle** the Rust port is measured against, so it is
-  retained deliberately. Format with `clang-format` (`just fmt-cpp`), build with
-  `pio run -e esp32_usb`, test with `pio test -e native_test`.
-- **The Rust firmware** (`crates/cc-*`) is the port. Start at
-  [docs/rust-migration/README.md](docs/rust-migration/README.md), and read
-  [intentional-diffs.md](docs/rust-migration/intentional-diffs.md) before
-  changing anything whose behaviour looks wrong -- it is a ledger of places the
-  port deliberately differs, with the reasoning.
+The numbered rules are in [AGENTS.md](AGENTS.md) and are not restated here.
 
 ```sh
 just setup     # once: mise tools, the Espressif Xtensa toolchain, the web UI
@@ -25,109 +21,38 @@ just gate      # the above plus device clippy, the firmware build, the size budg
 ```
 
 `just check` is the gate a pull request has to pass; CI runs it in
-`.github/workflows/rust.yml`.
+`.github/workflows/rust.yml`. Do not commit until it is green (`AG-REPO-6`).
 
 ## Code Style Guidelines
 
-This repository uses `clang-format` to keep a unified style across all files and to avoid changing indentation and other style
-features back and forth between different contributors. The style is enforced by the CI (the pipeline will fail if the
-submitted code does not adhere to the chosen standard) but local tools are available to ensure proper formatting before
-committing.
+### Formatting
 
-### Running Code Formatting Automatically
+`cargo fmt` is the formatter, and `rustfmt`'s defaults are the style -- there is
+no `rustfmt.toml` to disagree with them. Apply it with `just fmt`, check it with
+`just fmt-check`; CI runs the check.
 
-The recommended way of dealing with code formatting is [`pre-commit`](https://pre-commit.com/). It is a tool which registers
-as `git` hook and automatically runs whenever `git commit` is called. It will run checks against the code to be committed and
-correct any leftover formatting issues.
-
-`pre-commit` needs to be installed and activated once:
+[`pre-commit`](https://pre-commit.com/) is available for the generic hygiene
+hooks (trailing whitespace, end-of-file newline, merge conflicts):
 
 ```bash
 $ pip install pre-commit
 $ pre-commit install
 ```
 
-### Running Code Formatting Manually
+There is deliberately **no** `cargo fmt` pre-commit hook: a `language: system`
+hook runs with pre-commit's own PATH, which does not contain the project's cargo,
+so every commit on a Rust file would report "Executable `cargo` not found". A
+hook that cannot run teaches people to pass `--no-verify`. `just fmt-check` is
+the single gate, and CI enforces it where it cannot be skipped.
 
-The code formatting tool `clang-format` can also be invoked manually via the `platformio` build system. Two targets are
-available:
+### What the lints enforce for you
 
-* `pio run -t check-format`: This target only *checks* if the formatting adheres to the rules but does not apply any changes
-  This target is used in the CI pipeline to check proper code formatting.
-* `pio run -t format`: This target adjusts the code formatting to the coding standard.
+`just lint` runs clippy with `clippy::pedantic` as **deny**, and rustdoc runs
+with `-D warnings`. Read those two before adding an `#[allow]` or an `#[expect]`
+(`AG-RUST-10`) -- every one already in the tree is there for a reason.
 
-### Coding Standards
-
-In the following, the chosen coding standards are briefly summarized. The corresponding rule set can be found in the
-`.clang-format` file of the repository.
-
-- **Indentation**: Use 4 spaces for indentation.
-- **Curly Braces**: Place opening curly braces on the same line as the statement.
-  ```cpp
-  // Example
-  if (condition) {
-      // code
-  }
-  else {
-      // code
-  }
-  ```
-- **Capitalization**: Follow C++ style capitalization.
-  ```cpp
-  // Example
-  int myVariable;
-
-  void myFunction() {
-      // code
-  }
-  ```
-- **Operators**: Use spaces around operators.
-  ```cpp
-  // Example
-  int sum = a + b;
-
-  if (x == y) {
-      // code
-  }
-  ```
-
-### Code Organization
-
-**Blank Lines**: Include a blank line before and after a code block.
-  ```cpp
-  // Example
-  void functionA() {
-      // code
-  }
-
-  void functionB() {
-      // code
-  }
-  ```
-
-### Encapsulation
-
-- **Separate Files or Classes**: Encapsulate significant code changes in separate header files or classes if applicable. This helps maintain a modular and organized codebase, improving readability and reusability.
-- **Include guards**: Use the #pragma directive instead of include guards:
-  ```cpp
-  #pragma once
-  // code
-
-  // instead of
-  #ifndef MENU_H
-  #define MENU_H
-    // code
-  #endif
-  ```
-
-### Comments
-
-**Meaningful Comments**: Write clear and descriptive comments. Comments should explain the 'why' behind the code, not just reiterate the code itself. For instance, the following example doesn't provide any additional information:
-  ```cpp
-  // increment some values
-  i++;
-  j++;
-  ```
+Comments should explain the **why**, not restate the code. Write for the
+maintainer who does not know the subsystem.
 
 ## Submitting Changes
 

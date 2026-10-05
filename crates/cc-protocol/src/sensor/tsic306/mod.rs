@@ -30,8 +30,10 @@
 //!
 //! # What this replaces
 //!
-//! `TempSensorTSIC` (`src/hardware/tempsensors/TempSensorTSIC.cpp`) over
-//! `ZACwire` 2.0.0 (`.pio/libdeps/esp32_usb/ZACwire for TSic/ZACwire.cpp`).
+//! `TempSensorTSIC` (`src/hardware/tempsensors/TempSensorTSIC.cpp`, deleted
+//! with the C++ tree — `git show 9fa8c834:src/hardware/tempsensors/TempSensorTSIC.cpp`)
+//! over `ZACwire` 2.0.0, which `PlatformIO` fetched and which this repository no
+//! longer vendors.
 //!
 //! # The C++'s four safety-relevant behaviours, all ported
 //!

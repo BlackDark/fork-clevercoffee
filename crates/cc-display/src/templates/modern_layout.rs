@@ -193,9 +193,9 @@ pub fn screen_for(flushing: bool, post_brew: bool, brewing: bool) -> Screen {
     }
 }
 
-/// `Brew_Cup_Logo_width` — the post-brew cup's width.
+/// The post-brew cup's width, in pixels.
 pub const BREW_CUP_LOGO_W: i32 = 40;
-/// `Brew_Cup_Logo_height` — the post-brew cup's height.
+/// The post-brew cup's height, in pixels.
 pub const BREW_CUP_LOGO_H: i32 = 40;
 /// `cupY` — where the cup starts, `docs/handbook/display-modern-layout.md`
 /// "y=2".

@@ -25,60 +25,11 @@
       groupName: "all minor updates",
       groupSlug: "all-minor-updates",
     },
-    {
-      groupName: "PlatformIO platform",
-      matchDepTypes: ["dep-pio-platform"],
-      addLabels: ["renovate", "pio", "platform"],
-    },
-    {
-      groupName: "PlatformIO library",
-      matchDepTypes: ["dep-pio-library"],
-      addLabels: ["renovate", "pio", "library"],
-    },
   ],
 
-  customDatasources: {
-    "ds-pio-platform": {
-      description: "PlatformIO Platform Registry",
-      defaultRegistryUrlTemplate: "https://api.registry.platformio.org/v3/packages/platformio/platform/{{{packageName}}}",
-      format: "json",
-      transformTemplates: ["{\"releases\": [versions.{\"version\": name, \"releaseTimestamp\": released_at}]}"],
-    },
-    "ds-pio-library": {
-      description: "PlatformIO Library Registry",
-      defaultRegistryUrlTemplate: "https://api.registry.platformio.org/v3/packages/{{{replace '/.*' '' packageName}}}/library/{{{encodeURIComponent (replace '.*/' '' packageName)}}}",
-      format: "json",
-      transformTemplates: ["{\"releases\": [versions.{\"version\": name, \"releaseTimestamp\": released_at}]}"],
-    },
-  },
-
-  customManagers: [
-    {
-      customType: "regex",
-      description: "PlatformIO platform in platformio.ini (platform = name @^x.y.z)",
-      managerFilePatterns: ["/^platformio\\.ini$/"],
-      // Anchors are per-file in Renovate, not per-line -> use explicit \n.
-      // Do not consume the trailing newline (would skip every other match).
-      matchStrings: [
-        "(?:^|\\n)[ \\t]*platform[ \\t]*=[ \\t]*(?<depName>[\\w\\-]+)[ \\t]*@[ \\t]*\\^?(?<currentValue>[\\d.]+)",
-      ],
-      datasourceTemplate: "custom.ds-pio-platform",
-      packageNameTemplate: "{{depName}}",
-      versioningTemplate: "loose",
-      depTypeTemplate: "dep-pio-platform",
-    },
-    {
-      customType: "regex",
-      description: "PlatformIO libraries in platformio.ini lib_deps (owner/name @ x.y.z), skips git+ deps",
-      managerFilePatterns: ["/^platformio\\.ini$/"],
-      // Leading \n keeps git+ deps out (their line starts with "git+").
-      matchStrings: [
-        "(?:^|\\n)[ \\t]*(?<depName>[\\w\\-.]+/[\\w \\-.]*[\\w\\-.])[ \\t]*@[ \\t]*\\^?(?<currentValue>[\\d.]+)",
-      ],
-      datasourceTemplate: "custom.ds-pio-library",
-      packageNameTemplate: "{{depName}}",
-      versioningTemplate: "loose",
-      depTypeTemplate: "dep-pio-library",
-    },
-  ],
+  // No custom datasources or managers. The PlatformIO registry readers that
+  // lived here watched `platformio.ini`, which was deleted with the C++ tree.
+  // U8g2 is pinned as `U8G2_TAG` in the root `justfile` instead: it is one
+  // upstream tag the display oracle links, not a dependency to bump
+  // independently of what the oracle expects.
 }

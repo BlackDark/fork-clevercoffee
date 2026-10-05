@@ -1,6 +1,6 @@
 # CI in this repository
 
-Five workflows. This file says what each one is for, what it costs, and — where
+Three workflows. This file says what each one is for, what it costs, and — where
 the answer is not obvious — why it is the way it is. Every number here was
 measured from a real run; the run ids are in the commit history.
 
@@ -10,19 +10,19 @@ measured from a real run; the run ids are in the commit history.
 rust.yml        host      (42 s)   fmt, clippy -D warnings, rustdoc, 1074 tests, parity, device-test audit, UI
                 device   (370 s)   esp toolchain, device clippy, release build, image size budget
                 invariants(15 s)   four cross-cutting greps and scripts
-main.yml        firmware  (184 s)   the C++ firmware build -- the parity oracle
-                native-tests(137 s) the C++ 340-case native suite
-format.yml      format      (9 s)   clang-format over src/ include/ lib/
 frontend.yml    frontend    (26 s)  the React UI: lint, types, tests, build
+release.yml     release       --   on a v* tag only; builds the Rust image and publishes a
+                                  merged full-flash binary. NEVER RUN on a tag -- see
+                                  "What is NOT verified" in docs/status.md.
 ```
 
-**Wall clock is the device job.** The other seven run in parallel with it, so
+**Wall clock is the device job.** The other jobs run in parallel with it, so
 the time a contributor waits is `device`, and everything else is runner-minutes.
 
 | | wall clock | runner-minutes |
 |---|---|---|
-| before this work | 599 s (device job) | 988 s across 3 jobs — and the C++ workflows never ran on a PR to `rewrite/rust` |
-| now | **370 s** | **791 s across all 8 jobs** |
+| before the C++ removal | 599 s (device job) | 988 s across 3 jobs — and the C++ workflows never ran on a PR to `rewrite/rust` |
+| now | **370 s** | **~450 s across 4 jobs** |
 
 ## Two toolchains, and why they are separate jobs
 
@@ -151,39 +151,9 @@ the `rm` would help. The `rm` is kept as a fallback, because the question it was
 silently answering is real — a build job that dies of ENOSPC looks exactly like a
 code failure — and a measured answer beats an unconditional one.
 
-## C++ formatting: one pin, asserted
-
-`format.yml` used to run `pio run -e esp32_usb --target check-format`, which
-took **103 s**, 76 s of it PlatformIO installing espressif32, the Xtensa
-toolchain, the Arduino framework, esptoolpy, SCons and 13 libraries to run a
-formatter. Now it runs `python3 scripts/run_clangformat.py` directly. **9 s.**
-
-The formatter version is declared once, in `.mise.toml`'s
-`[vars] clang_format_version`, and `scripts/run_clangformat.py` **asserts** the
-binary on PATH matches before it will format anything. That assertion is the
-point. The pin used to live in four places — `.mise.toml`, `format.yml`, a
-`clang-tools:22` Docker image, and a pre-commit hook that used whatever
-clang-format the developer had — and they agreed only because 22.1.x and 23.1.x
-produce byte-identical output here (0-line diff across 28,632 formatted lines;
-21.1.8 and older change two files). The hook runs `-i`: on a machine with an older
-clang-format it would have rewritten the **parity oracle**, silently, in a commit
-about something else. Renovate owns `.mise.toml`, so a future 24.x would have
-done the same.
-
-> The earlier "105 files reformatted" panic was a **phantom**: with
-> `.clang-format` out of scope, *every* version reformats *every* file. Losing
-> `.clang-format` from the invocation, not a version difference.
-
 ## A thing only CI can catch
 
 Found by CI on a commit that was locally green, and now covered in-repo.
-
-* **`scripts/run_clangformat.py` has two entry points**, and the PlatformIO one
-  only runs when `platformio.ini` loads the script as a `pre:` script. Deleting it
-  took `check_format_callback` with it and every C++ firmware build in CI died at
-  its first step — a job that had, until the trigger fix, never run on this
-  branch at all. There is a simulation of the SCons load path in the commit that
-  fixed it.
 
 > Action pins are **not** checked in-repo and are not needed: `.github/renovate.json5`
 > owns `actions/*`, `jdx/mise-action`, `pnpm/action-setup` and `softprops/*`, so
@@ -201,7 +171,7 @@ Found by CI on a commit that was locally green, and now covered in-repo.
 | cache the host `target/` | 5.8 GB, 3.2 GB of it `debug/incremental`, ~20 s on a non-bottleneck |
 | drop the host job's UI block (duplicates `frontend.yml`) | 12 s, and it trades a real property — one workflow is the merge gate — for it |
 | split `just test` into a matrix | it is 11 s for 1,074 tests |
-| pin `ubuntu-latest` → `ubuntu-24.04` everywhere | reproducibility, but GitHub's security updates land on `latest`; `format.yml` is pinned because it now runs a binary rather than a container |
+| pin `ubuntu-latest` → `ubuntu-24.04` everywhere | reproducibility, but GitHub's security updates land on `latest` |
 | delete the `refs/pull/N/merge` caches | worth doing (~5.8 GB is unrecoverable after merge) but it needs a deletion pass with a token, not a workflow edit |
 
 ## What a generic Rust CI template gets right, and wrong, here
@@ -251,8 +221,6 @@ idea and it is the fix for the missed-gate bug in a more robust form than the on
 I shipped. Enumerating `[main, rewrite/rust]` works until a third long-lived
 branch appears, and forgetting it re-opens the hole silently — which is exactly
 what happened. A bare filter is correct by construction and needs no maintenance.
-The cost is C++ CI on PRs that do not touch C++; that is bounded and it runs in
-parallel, so it never reaches anyone's wall clock.
 
 ### Rejected
 

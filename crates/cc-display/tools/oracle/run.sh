@@ -4,43 +4,42 @@
 #   crates/cc-display/tools/oracle/run.sh <scenario> <out.ppm>
 #   crates/cc-display/tools/oracle/run.sh --all          # build only
 #
-# The oracle links the REAL U8g2 that the firmware links
-# (`.pio/libdeps/esp32_usb/U8g2`, `olikraus/U8g2 @ 2.36.18` per
-# `platformio.ini`) and the firmware's own `include/clevercoffee/display/bitmaps.h`.
-# Only the Arduino platform underneath is shimmed
-# (`tools/oracle/ArduinoShim.h`), same as `tools/pid_oracle/run.sh`.
+# The oracle links the REAL U8g2, at upstream tag `2.36.18` (commit
+# d66b49af3e48cd0becf95f862353bf94a9c0c2be) -- the version the firmware was
+# built against. Only the Arduino platform underneath is shimmed
+# (`tools/oracle/ArduinoShim.h`), same as the PID oracle.
+#
+# NOTE THE LAYOUT: upstream U8g2 keeps its sources in `csrc/` and `cppsrc/`.
+# The `src/clib` tree this oracle used to read was PlatformIO's repackaging of
+# the same tag, and it no longer exists now that there is no PlatformIO.
 #
 # The build goes to `$CARGO_TARGET_DIR/display-oracle` so the source tree stays
 # clean and no binary is ever left next to the committed artefacts.
 #
-# If U8g2 is not installed, run `pio run -e esp32_usb` (or
-# `pio pkg install -e esp32_usb`) first; PlatformIO fetches it from the
-# registry, and the oracle must link that exact tree rather than a download, or
-# the parity claim is against the wrong library.
+# U8g2 is NOT vendored: it is fetched by `just u8g2` into `target/u8g2`, and
+# `CC_U8G2_DIR` overrides that. The oracle must link that exact tree rather than
+# a download, or the parity claim is against the wrong library.
 
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "${here}/../../../.." && pwd)"
 
-u8g2_dir="${repo_root}/.pio/libdeps/esp32_usb/U8g2"
-if [ ! -d "${u8g2_dir}/src/clib" ]; then
-    for candidate in "${repo_root}"/.pio/libdeps/*/U8g2; do
-        if [ -d "${candidate}/src/clib" ]; then
-            u8g2_dir="${candidate}"
-            break
-        fi
-    done
-fi
-if [ ! -d "${u8g2_dir}/src/clib" ]; then
-    echo "display_oracle: U8g2 not found under .pio/libdeps." >&2
-    echo "  Run: pio run -e esp32_usb   (or: pio pkg install -e esp32_usb)" >&2
+u8g2_dir="${CC_U8G2_DIR:-${repo_root}/target/u8g2}"
+if [ ! -d "${u8g2_dir}/csrc" ]; then
+    echo "display_oracle: U8g2 not found at ${u8g2_dir}." >&2
+    echo "  Run: just u8g2   (or clone https://github.com/olikraus/u8g2 there at tag 2.36.18)" >&2
     exit 1
 fi
 
 out_dir="${CARGO_TARGET_DIR:-${repo_root}/target}/display-oracle"
 mkdir -p "${out_dir}"
 bin="${out_dir}/display_oracle"
+
+# The artwork the oracle draws comes from the firmware's own `cc_display::bitmaps`,
+# generated here so the oracle can never carry a stale second copy.
+cargo run --quiet --example emit_bitmaps --manifest-path "${here}/../../Cargo.toml" \
+    > "${out_dir}/bitmaps.h"
 
 cxx="${CXX:-c++}"
 cc="${CC:-cc}"
@@ -54,12 +53,12 @@ cc="${CC:-cc}"
 # clib file goes through a separate C compiler invocation, and only
 # `U8g2lib.cpp` is C++.
 objects=()
-for src in "${u8g2_dir}"/src/clib/*.c "${u8g2_dir}/src/U8g2lib.cpp"; do
+for src in "${u8g2_dir}"/csrc/*.c "${u8g2_dir}/cppsrc/U8g2lib.cpp"; do
     obj="${out_dir}/$(basename "${src}").o"
     objects+=("${obj}")
     case "${src}" in
-        *.c) "${cc}" -std=c99 -O0 -w -DARDUINO=10819 -I "${here}" -I "${u8g2_dir}/src" -c "${src}" -o "${obj}" ;;
-        *)   "${cxx}" -std=c++17 -O0 -w -DARDUINO=10819 -I "${here}" -I "${u8g2_dir}/src" -c "${src}" -o "${obj}" ;;
+        *.c) "${cc}" -std=c99 -O0 -w -DARDUINO=10819 -I "${here}" -I "${u8g2_dir}/csrc" -I "${u8g2_dir}/cppsrc" -c "${src}" -o "${obj}" ;;
+        *)   "${cxx}" -std=c++17 -O0 -w -DARDUINO=10819 -I "${here}" -I "${u8g2_dir}/csrc" -I "${u8g2_dir}/cppsrc" -c "${src}" -o "${obj}" ;;
     esac
 done
 
@@ -76,8 +75,9 @@ trap 'rm -f "${link_tmp}"' EXIT
     -std=c++17 -O0 -Wall \
     -DARDUINO=10819 \
     -I "${here}" \
-    -I "${repo_root}/include" \
-    -I "${u8g2_dir}/src" \
+    -I "${out_dir}" \
+    -I "${u8g2_dir}/csrc" \
+    -I "${u8g2_dir}/cppsrc" \
     -o "${link_tmp}" \
     "${here}/display_oracle.cpp" \
     "${objects[@]}"

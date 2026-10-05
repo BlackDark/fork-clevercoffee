@@ -5,37 +5,39 @@ Pre-release validation. Every item must pass before merging to main or tagging a
 ## Prerequisites
 
 - Device flashed with the build under test (USB or OTA)
-- Device connected to WiFi and reachable at its hostname. The Rust firmware
-  defaults to **`test-cc-rust`** (`cc_config::schema::DEFAULT_HOSTNAME`); the C++
-  firmware defaults to `silvia`. The name distinguishes the two firmwares, which
-  share a network during the migration.
+- Device connected to WiFi and reachable at its hostname. The firmware
+  defaults to **`test-cc-rust`** (`cc_config::schema::DEFAULT_HOSTNAME`). A
+  machine still running the deleted C++ answers to `silvia` — that difference is
+  how you tell which firmware is on the board before you start.
 - Serial monitor available (USB) **or** telnet client for WiFi logging
 
 ## 1. Build & Unit Tests
 
-- [ ] `pio run -e esp32_usb` — firmware compiles without errors
-- [ ] `pio test -e native_test` — all native tests pass (280/280 or current count)
-- [ ] `pio run --target format -e esp32_usb` — no formatting changes
+- [ ] `just check` — fmt, clippy (pedantic, `-D warnings`), rustdoc, the host test
+      suite, the parity harness, the device-test audit, and the markdown links
+- [ ] `just gate` — the above plus device clippy, the Xtensa release build and
+      the image-size budget
+- [ ] `just size-check` — the image still fits `app0` and inside the growth limit
 
 ## 2. OTA Update
 
 All three update paths must be exercised — they use independent code paths and
 have each broken separately before.
 
-### 2a. ArduinoOTA / espota (`pio`)
+### 2a. ~~ArduinoOTA / espota~~ — removed
 
-- [ ] `pio run -e esp32_ota -t upload` completes at 100% with "Result: OK"
-- [ ] Device reboots and responds to `/api/health` within 15s after OTA
-- [ ] Serial log shows **no** `task_wdt: Task watchdog got triggered` during the
-      transfer. The transfer blocks `loop()` for ~25s, so the Task Watchdog must
-      be suspended for its whole duration (regression: espota died at ~18% with
-      `OTA_RECEIVE_ERROR` because the watchdog rebooted the device mid-flash).
+There is no espota path. The C++ firmware offered one through PlatformIO's
+`esp32_ota` environment; the Rust firmware uses ESP-IDF's own OTA, and its three
+update routes are 2b (multipart upload), 2c (download from a URL) and 2d
+(`/api/ota/status`). Do not expect an `espota`-shaped flow to work, and do not
+add one back: a serial OTA that blocks the control task is a regression waiting
+for a release.
 
 ### 2b. HTTP firmware upload (`/api/ota/firmware`, used by the web UI)
 
 ```sh
 curl -w "\n%{http_code}\n" -X POST http://<ip>/api/ota/firmware \
-  -F "firmware=@.pio/build/esp32_usb/firmware.bin;filename=firmware.bin"
+  -F "firmware=@firmware.bin;filename=firmware.bin"
 ```
 
 - [ ] Responds **200** with `{"success": true, ...}` (regression: returned 400
@@ -52,7 +54,7 @@ curl -w "\n%{http_code}\n" -X POST http://<ip>/api/ota/firmware \
 ### 2c. URL-based update (`/api/ota/url`)
 
 ```sh
-(cd .pio/build/esp32_usb && python3 -m http.server 8765 &)
+(mkdir -p /tmp/cc-ota && cp firmware.bin /tmp/cc-ota/ && cd /tmp/cc-ota && python3 -m http.server 8765 &)
 curl -w "\n%{http_code}\n" -X POST http://<ip>/api/ota/url \
   -d "url=http://<host-ip>:8765/firmware.bin&type=firmware"
 ```
@@ -65,7 +67,8 @@ curl -w "\n%{http_code}\n" -X POST http://<ip>/api/ota/url \
 
 ## 3. USB Serial Logging
 
-- [ ] `pio device monitor -e esp32_usb` shows boot log lines (WiFi connect, state transitions)
+- [ ] The serial monitor shows boot log lines (WiFi connect, state transitions).
+      Open it with `just mon <port>`; `pio device monitor` no longer exists.
 - [ ] Log lines appear at INFO level during normal operation (e.g. temperature readings, state changes)
 - [ ] Log level filtering works (DEBUG messages hidden at INFO level)
 - [ ] **A boot whose NVS was written by the C++ firmware prints the predecessor line**
@@ -90,17 +93,18 @@ CP210x — `just wifi-provision <port>` and `tools/serial_log.py` take that node
 
 ### 3a. What a healthy boot log looks like — **the C++ firmware only**
 
-Preserved from the deleted root `DEBUG_GUIDE.md`, which was the only document that described
-a healthy C++ boot. The Rust firmware emits its own, different, and shorter boot log; do not
-expect these lines from it. Every line below is quoted from the **untouched oracle** in
-`src/`, and the file:line is given so it can be re-derived after any C++ change.
+**Historical. Nothing in this section is runnable any more.** It is preserved
+from the deleted root `DEBUG_GUIDE.md`, which was the only document that
+described a healthy C++ boot, because it is the reference for *what the machine
+used to print* and a surprising line in a Rust boot log is best judged against
+it. The C++ source it quotes is recoverable with
+`git show 9fa8c834:src/...`.
 
-- [ ] Flash, then capture the first ~30 s of serial output:
+The items above it in this section, and `docs/status.md`, are the runnable
+record for the Rust firmware.
 
-      ```sh
-      pio run -e esp32_usb -t upload
-      /tmp/venv/bin/python tools/serial_log.py 30 --reset   # writes to stdout
-      ```
+- [ ] *(historical, C++ only — recorded, not re-run)* Capture the first ~30 s of
+      serial output with `python tools/serial_log.py 30 --reset`.
 
 - [ ] The tail of Phase 5 in `SystemInitializer.cpp` appears, in this order. This is the
       whole point of the phase: the ISR context pointer is set **before** the timer is armed,
@@ -158,7 +162,7 @@ grep -E 'ERROR|FATAL' boot.log          # anything here is a real clue
 grep -E 'LOOP STATUS|State transition' boot.log
 ```
 
-### 3b. DEBUG level on the C++ firmware
+### 3b. ~~DEBUG level on the C++ firmware~~
 
 The C++ takes its log level over **telnet** (port 23 — §4), not over USB: USB is the
 transcript you are reading, so it cannot carry the instruction that changes its own verbosity.

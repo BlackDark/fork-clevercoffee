@@ -1,31 +1,32 @@
 # CleverCoffee (fork) — ESP32 espresso-machine firmware
 
 This is a fork of [CleverCoffee](https://github.com/rancilio-pid/clevercoffee)
-with internal refactorings and new features. It currently carries **two
-firmwares**, and picking the wrong one is the most common way to waste an
-afternoon here.
+with internal refactorings and new features. It carries **one** firmware, written
+in Rust. The C++ firmware this repository started with was deleted once the Rust
+port became the product; it survives in git history and its behaviour is recorded
+in [`docs/rust-migration/09-cpp-findings.md`](docs/rust-migration/09-cpp-findings.md).
 
 **The machine is an ESP32-DevKitC V4 / ESP32-WROOM-32E** — the original ESP32,
 Xtensa LX6. There is no S3, C3 or C6 in this project. `esp32_usb` in the
-PlatformIO environment name refers to a USB-to-UART cable; the chip has no
-native USB.
+historical PlatformIO environment name referred to a USB-to-UART cable; the chip
+has no native USB.
 
-| | **Rust** — the port | **C++** — the parity oracle |
-| --- | --- | --- |
-| Source | `crates/cc-*`, `justfile`, `rust-toolchain.toml` | `src/`, `include/`, `lib/`, `test/`, `platformio.ini` |
-| Build | `just setup` once, then `just build-esp32` | `pio run -e esp32_usb` |
-| Gate | `just check` (no hardware) · `just gate` (full) | `pio run --target format -e esp32_usb -s` · `pio test -e native_test` |
-| Status | the port; booting, regulating and serving on hardware | what `release.yml` publishes today |
-| What works | [`docs/status.md`](docs/status.md) | [`docs/archive/cpp/REPOSITORY_SUMMARY.md`](docs/archive/cpp/REPOSITORY_SUMMARY.md) |
+| | **Rust** — the firmware |
+| --- | --- |
+| Source | `crates/cc-*`, `justfile`, `rust-toolchain.toml` |
+| Build | `just setup` once, then `just build-esp32` |
+| Gate | `just check` (no hardware) · `just gate` (full) |
+| Flash | `just identify <port>` then `just flash <port>` |
+| What works | [`docs/status.md`](docs/status.md) |
 
-> ### ⚠️ Never flash the C++ image
+> ### ⚠️ A machine flashed from C++ is still running C++
 >
-> It runs **its own control loop** on a powered, wired machine — pump, three-way
-> valve, a 2 kW boiler. Flashing it is not a build step, it is putting the real
-> machine's control loop back on the board. The same is why the C++ parity
-> baseline is deliberately empty. What may and may not be done to that tree is
-> stated once, in [`docs/cpp-oracle.md`](docs/cpp-oracle.md), and in the numbered
-> `AG-ORACLE-*` rules.
+> The deleted C++ firmware ran **its own control loop** on a powered, wired
+> machine — pump, three-way valve, a 2 kW boiler. Nothing in this repository will
+> flash it and nothing in this repository can rebuild it. If a board still answers
+> as the C++ did, its settings are in the C++ `config` NVS namespace; the Rust
+> boot prints a single `warn` line naming both namespaces and telling the operator
+> the previous settings were **not** deleted.
 
 ## Start here
 

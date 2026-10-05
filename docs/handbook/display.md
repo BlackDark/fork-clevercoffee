@@ -5,19 +5,19 @@ want and, just as importantly, which one is a *rule* and which is a *record*.
 
 The display is the part of this firmware with the most moving pieces that a
 regression in it is **invisible** until someone stands in front of the machine.
-That is why the layout rules below are binding (`AG-ORACLE-13` … `AG-ORACLE-18`)
+That is why the layout rules below are binding (`AG-DISPLAY-1` … `AG-DISPLAY-6`)
 rather than advisory.
 
 | File | What it is | Read it when |
 | --- | --- | --- |
 | [`display-modern-layout.md`](display-modern-layout.md) | **The rules.** The 128×64 constraint, the U8G2 font→pixel-height mapping, the fixed-width numeric fields, the row maps, the bar-and-label pairing. | You are moving anything on the screen. Start here. |
-| [`display-architecture.md`](display-architecture.md) | **How the C++ renders.** Component roles, the three-stage frame lifecycle, the buffer/deferred-flush truth table, shared-vs-template ownership. | You need to know *when* a frame is actually pushed to the panel, or why the SSE stream stalls. C++-side; the port's equivalent is `cc-display`. |
+| [`display-architecture.md`](display-architecture.md) | **How the Rust renderer works.** Component roles, the frame lifecycle, the I²C chunking, shared-vs-template ownership. | You need to know *when* a frame is actually pushed to the panel. |
 | [`display-parity.md`](display-parity.md) | **What is proven, and what is not.** The three checks (engine parity against real U8g2, template goldens, metric parity), what each caught, and — the part that matters — where the checking stops. | You are about to claim the display is correct, or you are regenerating a golden. |
 
 ## The rules, condensed
 
 These are stated in full in [`display-modern-layout.md`](display-modern-layout.md)
-and are binding under `AG-ORACLE-13` … `AG-ORACLE-18`:
+and are binding under `AG-DISPLAY-1` … `AG-DISPLAY-6`:
 
 - **Everything fits in 128×64.** Nothing clips at an edge. Not a glyph, not a
   bar, not a bitmap.

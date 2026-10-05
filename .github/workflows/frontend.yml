@@ -9,16 +9,12 @@ on:
       - ".github/workflows/frontend.yml"
   # BARE, with no `branches:` filter.
   #
-  # This used to say `branches: [main]`, and PR #96 targets `rewrite/rust`,
-  # so the C++ firmware build, the C++ native tests and the clang-format
-  # check never ran on it -- while rust.yml's own header claimed they did.
-  # Enumerating branches is the bug: a new long-lived branch needs a second
-  # edit here, and forgetting it re-opens the hole silently. A bare filter
-  # is correct by construction and needs no maintenance.
-  #
-  # The cost is C++ CI on PRs that do not touch C++. That is bounded and it
-  # runs in parallel with everything else, so it does not reach anyone's
-  # wall clock.
+  # This used to say `branches: [main]`, and PR #96 targeted `rewrite/rust`,
+  # so the long-lived rewrite branch's jobs never ran on it -- while
+  # rust.yml's own header claimed they did. Enumerating branches is the bug: a
+  # new long-lived branch needs a second edit here, and forgetting it re-opens
+  # the hole silently. A bare filter is correct by construction and needs no
+  # maintenance.
   pull_request:
     paths:
       - "ui/**"

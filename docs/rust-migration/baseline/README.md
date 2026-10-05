@@ -21,7 +21,13 @@ reviewed safe-test procedure and a human present.
 Rust firmware and labelled `cpp/` would be a lie that `just parity` then confirms on
 every future run.
 
-## What capturing one involves
+## What capturing one involved
+
+**This is now impossible.** The C++ image cannot be built or flashed: the tree
+was deleted. The steps are kept because they say what a baseline capture *is*,
+and because `just parity` still reads this directory and still reports
+`BASELINE-MISSING` rather than pretending the comparison happened.
+
 
 1. Build and flash the **C++** image: `pio run -e esp32_usb` then
    `pio run -e esp32_usb -t upload`. This is the step that needs approval — see the

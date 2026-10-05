@@ -48,15 +48,15 @@ port was being built; the work they planned is recorded in
 
 ### `cpp/` — documents that describe the **C++ firmware only**
 
-Not superseded: these describe the parity oracle, which is frozen and still in
-the tree. They are archived because a reader working on the Rust port will not
-find them relevant, and leaving them among the live pages is what makes the live
-pages unreadable. For *why* the C++ tree is frozen, read
-[`docs/cpp-oracle.md`](../cpp-oracle.md) — that page is live.
+Superseded: these describe the **C++ firmware**, which was deleted when the Rust
+port became the product. They are archived because the source they describe is
+only reachable in git history now, and its behaviour is recorded in
+[`../handbook/pins.md`](../handbook/pins.md) and
+[`../rust-migration/09-cpp-findings.md`](../rust-migration/09-cpp-findings.md).
 
 | File | What it is | Superseded for the Rust port? |
 | --- | --- | --- |
-| [`REPOSITORY_SUMMARY.md`](cpp/REPOSITORY_SUMMARY.md) | The C++ tree's layout, its coding standards, its build and test commands. `AGENTS.md` `AG-REPO-15` cites it and says plainly that it describes the C++. | **No** — it is still true of the C++ firmware, which still ships. Nothing in the Rust port replaces it. |
+| [`REPOSITORY_SUMMARY.md`](cpp/REPOSITORY_SUMMARY.md) | The C++ tree's layout, its coding standards, its build and test commands. `AGENTS.md` `AG-REPO-15` cites it and says plainly that it describes the C++. | **Yes, entirely.** The tree it describes no longer exists. Cite it only for what the C++ did. |
 | [`wokwi.md`](cpp/wokwi.md) | Running the **C++** firmware in the Wokwi simulator (`pio run -e esp32_usb -t wokwi`, `wokwi.toml`, `diagram.json`). | **Yes, entirely.** The Rust port has no Wokwi simulator recipe; `just` has no equivalent target. |
 | [`backflush-reminder.md`](cpp/backflush-reminder.md) | The C++ `MaintenanceCoordinator` backflush shot counter: its NVS key, its OLED/web surfacing, its threshold semantics. | **In mechanism only.** The counter, the qualification rule and the threshold **are** ported (`cc_machine::maintenance`, `cc_hal_esp32::nvs`) — but there is no `MaintenanceCoordinator`, and the port persists under its own NVS key `cc.maint.shots`, not the C++'s `maintenance`/`shots_since_bf`. Every C++ type and path below is the C++'s. |
 | [`state-machine-architecture.md`](cpp/state-machine-architecture.md) | The C++ state machine in full: the state diagram, the per-state pump/valve/heater table, the flag lifecycle, the safety layers. | **Yes as a description of the port.** Its *rules* are live and normative in [`docs/adr/0003`](../adr/0003-state-machine-hardware-control-contract.md) and in `AGENTS.md` `AG-REPO-21` … `AG-REPO-26` — that is what this file was archived for, and it is why archiving it loses nothing. The Rust states are documented where they live, in `crates/cc-machine/src/states.rs`. |
@@ -78,5 +78,6 @@ pages unreadable. For *why* the C++ tree is frozen, read
 - **[`docs/rust-migration/baseline/`](../rust-migration/baseline/)** — an
   *empty* directory with a README explaining that empty is the honest state.
   Capturing a C++ baseline means flashing the C++ onto a powered, wired machine,
-  which [`cpp-oracle.md`](../cpp-oracle.md) forbids. Cleaning it up would
-  destroy a deliberate honesty signal, so it stays empty and stays visible.
+  which the C++'s own freeze forbade and which is now impossible: the tree is
+  deleted. Cleaning this up would destroy a deliberate honesty signal, so it
+  stays empty and stays visible.

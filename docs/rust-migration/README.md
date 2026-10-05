@@ -30,6 +30,9 @@ planning work — several task IDs read as complete in the task list and are not
 **C++ baseline verified green:** `pio run -e esp32_usb` succeeds (`firmware.bin`
 1,546,240 B); `pio test -e native_test` → 340/340 pass in 55 s. The C++ is the parity
 baseline and is **never modified or flashed** during the port.
+*(Recorded 2026-09-28, while that was true. The C++ tree was deleted once the Rust
+port became the product — see `AGENTS.md` §Scope. The measurements above are the
+record of what it did, not a set of commands that still run.)*
 
 ---
 
@@ -390,16 +393,28 @@ over 10 ms" currently fails, and the fix must not be to relax the budget.
 
 ## How the migration runs
 
-The C++ firmware stays in production the whole time. PlatformIO and Cargo coexist:
+*As it ran until the C++ tree was deleted. There is nothing left to run in
+parallel with.*
 
 ```
-pio run -e esp32_usb     # C++ — unchanged, still the production build
+pio run -e esp32_usb     # C++ — the parity baseline, never flashed
 just build-esp32         # Rust
 just parity              # both, on hardware, diffed
 ```
 
-PlatformIO is deprecated only at the very end (R4-10), and even then is kept for one
-release cycle as a rollback path.
+What replaced it:
+
+```
+just build-esp32         # the only firmware
+just parity <port> <host>  # Rust against docs/rust-migration/baseline/cpp/,
+                           # which is still empty — see that directory's README
+```
+
+*(This was the plan at R4-10: keep PlatformIO for one release cycle as a rollback
+path. There is no rollback path now — the C++ tree is deleted and cannot be
+rebuilt. There is also no C++ image in git history beyond `9fa8c834`, so a
+rollback would mean checking that commit out and rebuilding the tooling around
+it.)*
 
 Phases: **0** preconditions → **1** feasibility spikes (Gate 1 confirms ADR-0004) →
 **2** portable domain (no hardware) → **3** hardware abstraction → **4** integration,

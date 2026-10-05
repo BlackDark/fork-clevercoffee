@@ -1,6 +1,6 @@
 # Status
 
-**Dated 2026-10-05. Owner: Eduard Marbach** (`mail@eduard-marbach.de`), who also
+**Dated 2026-10-06. Owner: Eduard Marbach** (`mail@eduard-marbach.de`), who also
 owns the wired machine. Re-verify with `git log --oneline -1` and `just gate`
 before trusting a line below.
 
@@ -31,6 +31,20 @@ page.
   `failed=0`. The SSD1306 shares the I²C bus with the ABP2 behind a `Mutex` and
   the frame is chunked into 8 bus writes, not 64, so the pressure sensor is not
   starved.
+- **The display parity oracle still links the real U8g2, and the bitmaps it
+  draws are the firmware's own.** The C++ tree it used to pull artwork from is
+  gone, so `crates/cc-display/examples/emit_bitmaps.rs` generates the oracle's
+  C bitmap header from `cc_display::bitmaps::ALL` at build time — one copy, and
+  it is the copy that ships. U8g2 itself moved from PlatformIO's registry copy
+  (`src/clib/`) to upstream tag `2.36.18` (`csrc/`, `cppsrc/`), fetched by
+  `just u8g2`; it is the same version, a different packaging.
+  `just test-display-parity`: 2 passed. `just snapshot-display`: 1 golden
+  rendered, unchanged.
+- **`extract_fonts.py check` passes again.** It compared the whole of
+  `font/data.rs`, licence header included, against generator output that never
+  emitted that header — so it could not pass, and had not been run since the
+  header was added. It now compares only the generated region, and
+  `font/data.rs` is byte-identical to upstream `csrc/u8g2_fonts.c` at `2.36.18`.
 - **The no-allocation gates measure the code, not the test harness.** Rendering a
   frame and running a control tick both allocate zero heap bytes, and both are
   asserted by a `#[global_allocator]` that counts the **calling thread**. It used
@@ -152,10 +166,16 @@ rather than from memory.
   v5.5.5, not on a board, and the bootloader's fallback-to-factory behaviour on a
   power cut during the `otadata` write was **not** verified.
 - **Neither the rotary encoder nor the zero-crossing dimmer is ported.**
-  `PIN_ROTARY_DT`/`_CLK`/`_SW` and `PIN_ZC` are declared in
-  `pinmapping.h` and unwired in the port. See [`cpp-oracle.md`](./cpp-oracle.md).
-- **The PlatformIO build is deprecated but deliberately kept**, for one release
-  cycle, as a rollback path (task R4-10).
+  GPIO 4/3/5 and GPIO 18 are declared and unwired in the port. See
+  [`handbook/pins.md`](./handbook/pins.md).
+- **There is no PlatformIO build.** The C++ firmware it built was deleted with
+  the rest of that tree; there is no rollback image in this repository.
+- **The Rust release pipeline has never run.** `release.yml` was rewritten to
+  publish the Rust image and has not executed on a tag yet, so the release
+  artifact path is unverified — including the `espflash save-image --merge`
+  step and its 3.5 MB size assertion. The build it wraps is not unverified:
+  `just gate` runs `just build-esp32` and the size budget, and both are green.
+  Flashing with `just flash <port>` is the verified path.
 - **There is no configuration upgrade path from a C++-flashed machine.** The two
   firmwares use different NVS namespaces (`config`, `defaults.h:13`, against this
   port's `cc`), so nothing is lost and nothing is deleted — the previous
@@ -237,4 +257,4 @@ be filed and they are not fixed by the next green gate.
   before you claim it is green.
 - **Rules are not here.** They are in [`AGENTS.md`](../AGENTS.md), numbered.
   This page may not restate one.
-- For the C++ tree's frozen status, see [`cpp-oracle.md`](./cpp-oracle.md).
+- For the pin map and the traps in it, see [`handbook/pins.md`](./handbook/pins.md).

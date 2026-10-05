@@ -10,9 +10,9 @@ name: Rust firmware
 # all**, and `just gate` was invoked by nothing. CI was green purely because the
 # untouched C++ tree still compiled. Fixed by `e4ec70bd` (`.github/workflows/rust.yml`).
 #
-# `main.yml` still builds and tests the C++ — it is the parity oracle, and it
-# is what `release.yml` publishes. The two are not alternatives; both gates
-# have to be green.
+# `main.yml` and `format.yml` no longer exist: they existed to gate the C++ tree,
+# which was deleted once this firmware became the product. That is the only
+# reason this file is now the merge gate rather than one of two.
 #
 # TWO TOOLCHAIN CHANNELS, ON PURPOSE
 # -----------------------------------
