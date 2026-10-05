@@ -4,9 +4,19 @@ on:
   push:
     branches:
       - main
+  # BARE, with no `branches:` filter.
+  #
+  # This used to say `branches: [main]`, and PR #96 targets `rewrite/rust`,
+  # so the C++ firmware build, the C++ native tests and the clang-format
+  # check never ran on it -- while rust.yml's own header claimed they did.
+  # Enumerating branches is the bug: a new long-lived branch needs a second
+  # edit here, and forgetting it re-opens the hole silently. A bare filter
+  # is correct by construction and needs no maintenance.
+  #
+  # The cost is C++ CI on PRs that do not touch C++. That is bounded and it
+  # runs in parallel with everything else, so it does not reach anyone's
+  # wall clock.
   pull_request:
-    branches:
-      - main
 
 concurrency:
   group: format-${{ github.ref }}
@@ -17,27 +27,53 @@ permissions:
 
 jobs:
   format:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    # checkout + pip install + one 143-file check; measured ~10 s.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # zizmor: the checkout token is written to .git/config and is then
+          # readable by anything that runs in this job. Nothing here pushes,
+          # tags or creates releases, so it does not need to persist.
+          persist-credentials: false
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.14"
-          cache: pip
-          cache-dependency-path: .github/requirements-ci.txt
 
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-        with:
-          path: ~/.platformio/.cache
-          key: ${{ runner.os }}-pio-${{ hashFiles('platformio.ini', 'platformio_extra.ini') }}
-          restore-keys: |
-            ${{ runner.os }}-pio-
+      # THE PIN IS NOT WRITTEN HERE.
+      #
+      # It is `[vars] clang_format_version` in `.mise.toml`, which is also what
+      # `mise install` puts on a developer's PATH and what
+      # `scripts/run_clangformat.py` ASSERTS before it will format anything.
+      # Four pins that agree only by luck is how a 23.x bump on this branch would
+      # have rewritten the parity oracle through a `-i` hook; there is now one.
+      #
+      # This replaces `pio run -e esp32_usb --target check-format`, which took
+      # 103 s of job time and 76 s of that step -- PlatformIO installing
+      # espressif32, the Xtensa toolchain, the Arduino framework, esptoolpy,
+      # SCons and 13 libraries, none of which a formatter uses. The same script,
+      # the same file list and the same flags now run without it.
+      #
+      # The wheel is STATICALLY LINKED (~2 MB, `ldd` -> "not a dynamic
+      # executable"): no apt.llvm.org keyring, no libclang-cpp22/libllvm22
+      # (47 MB of debs), no Docker pull. Measured cold: ~1.8 s to install,
+      # ~0.3 s to check 143 files.
+      - name: Install the pinned clang-format
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/^[[:space:]]*clang_format_version = "\(.*\)"/\1/p' .mise.toml)
+          test -n "$version" || { echo "::error::cannot read clang_format_version from .mise.toml [vars]"; exit 1; }
+          echo "installing clang-format ${version}"
+          pip install --no-cache-dir "clang-format==${version}"
 
-      - name: Install PlatformIO
-        run: pip install -r .github/requirements-ci.txt
+      - name: Show clang-format version
+        run: clang-format --version
 
-      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
-
+      # Same script, same file list and same flags as `pio run -e esp32_usb
+      # --target check-format` (which is what `just fmt-cpp` calls). Run
+      # directly, it needs no PlatformIO, no SCons, no espressif32 and no
+      # Xtensa toolchain -- none of which a formatter uses.
       - name: Check clang-format
-        run: pio run -e esp32_usb --target check-format
+        run: python3 scripts/run_clangformat.py

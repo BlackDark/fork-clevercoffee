@@ -16,6 +16,9 @@ servers:
   - url: /
     description: Development (use VITE_SERVER_ENDPOINT)
 
+security:
+  - basicAuth: []
+
 tags:
   - name: Machine
     description: Machine control endpoints
@@ -178,30 +181,45 @@ paths:
         On success the device validates, persists to NVS, and restarts.
       requestBody:
         required: true
+        description: |
+          A nested JSON object -- NOT multipart/form-data. The C++ registers an
+          `AsyncCallbackJsonWebHandler` and says so at `WebServerManager.cpp:725`,
+          and the UI posts the selected file's text as `application/json`
+          (`ui/packages/frontend/src/pages/SystemPage.tsx:178-183`).
         content:
           application/json:
             schema:
               $ref: "#/components/schemas/ConfigFile"
       responses:
         "200":
-          description: Configuration applied
+          description: |
+            Configuration validated and applied. `restart` is true; the device
+            does not reboot itself -- the client calls `POST /api/restart`. An
+            invalid value anywhere in the document rejects the WHOLE document;
+            nothing is applied.
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                  message:
-                    type: string
-                  restart:
-                    type: boolean
+                $ref: "#/components/schemas/ConfigUploadResponse"
         "400":
-          description: Invalid or empty JSON body
+          description: |
+            Invalid, empty, oversized-as-a-configuration, or non-object body.
+            The `message` names which, in the C++'s words.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
+                $ref: "#/components/schemas/ConfigUploadResponse"
+        "413":
+          description: |
+            Body over the 16384-byte transport limit (`MAX_CONFIG_UPLOAD_SIZE`,
+            `WebServerManager.cpp:48`). Refused unread rather than truncated, so
+            a partial configuration is never applied. Nothing is parsed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigUploadResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
 
   /api/parameters:
     get:
@@ -303,6 +321,20 @@ paths:
                     type: number
                   pidEnabled:
                     type: boolean
+                  steamMode:
+                    type: boolean
+                    description: |
+                      The latched steam-mode flag (the C++'s `steamMode`,
+                      `WebServerManager.cpp:359`). True while the machine is in
+                      the steam state. This is the same fact `POST /api/steam`
+                      answers in its own body.
+                  brewing:
+                    type: boolean
+                    description: |
+                      Whether a brew is in progress, derived from the current
+                      state. NOT the same as `steamMode`, and not a field the C++
+                      publishes -- an addition. See
+                      docs/rust-migration/intentional-diffs.md #21.
                   shotsSinceBackflush:
                     type: integer
                   backflushReminderThreshold:
@@ -589,6 +621,35 @@ paths:
                 additionalProperties: true
 
 components:
+  # `system.auth.*` is implemented (see intentional-diffs.md #20). Every route
+  # except `OPTIONS` is behind it, including `/` and `/ui*`, so the browser
+  # raises its credential prompt on a top-level navigation.
+  securitySchemes:
+    basicAuth:
+      type: http
+      scheme: basic
+      description: |
+        Realm `CleverCoffee` (`WebServerManager.cpp:286`). Only consulted when
+        `system.auth.enabled` is set AND both credentials are non-empty -- the
+        C++'s exact condition, reproduced: empty credentials mean no
+        authentication at all. Enabling it takes effect at the next boot, and a
+        `POST /api/parameters` that changes it answers with
+        `requiresRebootKeys`. Not TLS: the credential crosses the wire base64
+        encoded.
+  responses:
+    Unauthorized:
+      description: |
+        Credentials absent or wrong. The `WWW-Authenticate` header carries the
+        realm.
+      headers:
+        WWW-Authenticate:
+          schema:
+            type: string
+            example: Basic realm="CleverCoffee"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
   schemas:
   # Nested machine configuration (seed file, download, upload, GET /api/config).
   # Parameter logical IDs remain dotted (e.g. brew.setpoint) but JSON uses nested objects.
@@ -644,7 +705,7 @@ components:
               additionalProperties: true
       example:
         system:
-          hostname: silvia
+          hostname: test-cc-rust
           wifi:
             ssid: my-network
             password: secret
@@ -665,6 +726,19 @@ components:
       properties:
         error:
           type: string
+
+    # `sendConfigUploadResponse` (WebServerManager.cpp:50-62), verbatim.
+    ConfigUploadResponse:
+      type: object
+      required: [success, message, restart]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        restart:
+          type: boolean
+          description: Mirrors `success`. The device never reboots itself.
 
     StatusResponse:
       type: object

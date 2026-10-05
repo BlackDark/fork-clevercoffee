@@ -1,0 +1,45 @@
+[package]
+name = "cc-display"
+description = "128x64 framebuffer, glyphs, and the fixed-width layout helpers."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# `no_std` with no `alloc` and no third-party crates: the display crate renders
+# into a `[u8; 1024]`, so `embedded-graphics` (R1-04 step 1) buys nothing and
+# would add a heap-free but still sizeable dependency for one trait. The CI
+# `cargo tree` check (05 §6) additionally forbids any `esp_idf_*` here.
+#
+# `cc-domain` supplies `MachineState`, so the display cannot invent its own
+# state enum and drift from the state machine (04 §6 dependency direction).
+cc-domain = { workspace = true }
+
+[[example]]
+# Needs the scenario interpreter, which needs `alloc`. Without
+# `required-features`, `cargo clippy --all-targets` on the default feature set
+# would try to build it and fail -- and the default feature set is what the
+# device build uses.
+name = "render_scenario"
+required-features = ["scenarios"]
+
+[features]
+# The scenario runner used by the display parity oracle and the golden
+# snapshots. It needs `alloc`, so it is off by default and must stay off for the
+# device: `cc-firmware` depends on `cc-display` with `default-features = true`
+# and does not name this one, so an accidental `cargo build -p cc-firmware`
+# cannot pull in a heap.
+scenarios = []
+
+[lints]
+workspace = true
+
+# Frame render: heap traffic and time. `cc-display` is `no_std` with no `alloc`
+# in the device build, so a nonzero allocation count is a link error on the chip,
+# not a slow frame -- which is why this bench counts allocations rather than
+# only timing. See the file's header.
+[[bench]]
+name = "layout"
+harness = false

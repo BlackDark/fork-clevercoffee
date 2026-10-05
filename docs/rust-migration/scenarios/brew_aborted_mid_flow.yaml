@@ -1,0 +1,59 @@
+# S5 — aborting while the pump is running.
+#
+# The one-loop window 09 §15 is about is adjacent to this: the state changes and
+# the valve fail-safe runs in the same loop, so the abort path is exactly where
+# a valve could be left open for one iteration.
+name: brew_aborted_mid_flow
+title: Releasing the brew switch during the flow phase leaves the pump and valve off
+mode: dry_run
+covers: [S5, S11]
+
+duration_ms: 12000
+
+why: >
+  Same mechanism as `brew_aborted_mid_preinfusion`, later in the flow. Here the
+  pump and the valve were genuinely open, so "off afterwards" is a real claim
+  rather than a vacuous one.
+
+  The `never: EnablePump after 6000` assertion is the interesting one. Releasing
+  the switch sets a request flag; the transition happens on the next
+  `checkTransitions`, and `BREW_RUNNING`'s `onExitImpl` disables the pump
+  (`BrewStates.cpp`). A regression that left the pump on would keep emitting
+  `EnablePump` from `PidNormalState::update` only if the water switch were held,
+  so the assertion is about the machine, not about the harness.
+
+config:
+  set:
+    pid.enabled: true
+    brew.mode: 1                       # Automatic
+    brew.pre_infusion.enabled: true
+    brew.pre_infusion.time: 3.0
+    brew.pre_infusion.pause: 2.0
+    brew.by_time.enabled: false        # a manual brew, so the switch ends it
+    hardware.switches.brew.enabled: true
+    hardware.sensors.watertank.enabled: true
+
+stimuli:
+  - { at_ms: 0,    kind: button, switch: brew, action: press }
+  - { at_ms: 100,  kind: sensor, temperature_c: 95.0, water_tank_full: true }
+  # Released during BREW_RUNNING, 6 s in: past the 3 s pre-infusion and the 2 s
+  # pause, so the pump and valve are open.
+  - { at_ms: 6000, kind: button, switch: brew, action: release }
+
+capture:
+  state_transitions: true
+  effects: true
+
+assert:
+  - { kind: visited_states, value: [BREW_PREINFUSION, BREW_PREINFUSION_PAUSE, BREW_RUNNING, PID_NORMAL] }
+  - { kind: final_state, value: PID_NORMAL }
+  - { kind: always, effect: EnablePump }
+  - { kind: always, effect: OpenWaterValve }
+  # From 6010, one loop after the release. The release at 6000 sets
+  # `requestBrewStop_`; the transition happens on the next
+  # `checkTransitions`, and `BrewRunningState::update` re-asserts the pump in the
+  # loop before that. So 6000 itself is the last loop with the pump on, and the
+  # assertion says so rather than rounding it away.
+  - { kind: never, effect: EnablePump, after_ms: 6010 }
+  - { kind: never, effect: OpenWaterValve, after_ms: 6010 }
+  - { kind: actuator_safe }

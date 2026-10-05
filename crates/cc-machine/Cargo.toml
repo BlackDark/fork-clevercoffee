@@ -1,0 +1,34 @@
+[package]
+name = "cc-machine"
+description = "The 18-state machine as a pure Elm-style reducer plus its ports."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+cc-domain.workspace = true
+cc-config.workspace = true
+cc-safety.workspace = true
+
+# `Effects` is a `heapless::Vec`, not an `alloc::vec::Vec`: the control task
+# fills and empties it up to five times per 10 ms tick, and a heap allocation
+# per tick is allocator traffic in the same loop that runs the heater deadman
+# (fixed by `284ad17a`). The workspace entry is the one `cc-hal-esp32` and
+# `cc-firmware` already use — `default-features = false` plus `alloc` — so this
+# adds no second copy of the crate to the device build and names no
+# `esp_idf_*` crate, which a portable crate must not do.
+heapless.workspace = true
+
+[lints]
+workspace = true
+
+# The control tick's heap traffic. A host benchmark rather than a unit test
+# because `cargo bench` is where a number gets watched over time; the same
+# measurement also runs as `#[test]`, so `just test` fails if the count is ever
+# non-zero. `harness = false` because the file supplies its own `main()` to
+# report allocations *and* time; the `#[test]` inside is still collected.
+[[bench]]
+name = "allocations"
+harness = false

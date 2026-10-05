@@ -1,16 +1,195 @@
 min_version = "2024.1.0"
 
+# ---------------------------------------------------------------------------
+# CleverCoffee tool manifest.
+#
+# OWNERSHIP RULE (deliberate, and the reason `rust` is NOT in [tools]):
+#
+#   mise owns every tool that is a plain versioned binary -- node, pnpm, python,
+#   clang-format, just, and the cargo-installed *host* utilities.
+#
+#   rustup + espup own the COMPILER. mise does not, for three reasons:
+#
+#     1. The device compiler is Espressif's `esp` *nightly fork*. mise's rust
+#        backend cannot express it -- there is no versioned channel name to pin.
+#     2. `rust-toolchain.toml` is the file rustup itself reads, so it is also the
+#        pin that rust-analyzer, every IDE, and CI will resolve. One file, one
+#        source of truth.
+#     3. mise's rust backend installs no compiler here anyway. It symlinks
+#        `mise/installs/rust/stable -> ~/.cargo/bin` -- that is, it hands you
+#        back rustup and lets `rust-toolchain.toml` decide. A `rust = "stable"`
+#        line in [tools] therefore advertised "stable" while the file next to it
+#        said "esp", which is the wrong mental model for the single thing most
+#        likely to break a size-budgeted device build.
+#        (Verified: `mise ls` printed `rust stable (symlink)` and
+#         `ls -la ~/.local/share/mise/installs/rust/` showed a symlink to
+#         `~/.cargo/bin`.)
+#
+#   `[tasks.setup-esp]` bootstraps rustup/espup from scratch; `just setup` calls it.
+#
+# NOTE: `justfile` appends ~/.cargo/bin to PATH, so rustup and cargo are
+# reachable from every recipe even though mise installs no Rust.
+# ---------------------------------------------------------------------------
+
 [tools]
-  # Node.js + JS tooling
+  # --- C++ parity oracle + web UI ---
   node = "24"
-  pnpm = "latest"
-
-  # Python
+  # Pinned, and it must stay equal to `ui/package.json`'s `packageManager`
+  # (`pnpm@11.25.0`). `origin/main` carried `pnpm = "latest"` here from before
+  # the Rust port; a float next to a committed `pnpm-lock.yaml` is how a
+  # contributor ends up resolving a different dependency set than CI.
+  pnpm = "11.25.0"
+  # 3.14.8 from `origin/main` (renovate), not the 3.14.7 this branch pinned.
   python = "3.14.8"
-
-  # C++ tooling
+  # The version itself is `[vars] clang_format_version` below -- mise
+  # cannot interpolate a var into `[tools]`, so the two must be kept in step.
+  # Nothing checks that these two agree. The assertion that protects the tree
+  # is in `scripts/run_clangformat.py`, which refuses to format anything unless
+  # the binary on PATH reports `clang_format_version` below.
   clang-format = "23.1.2"
+
+  # --- Rust host tooling ---
+  just = "1.58.0"
+
+  # BOTH packages, and they are not duplicates.
+  #
+  # A 2026-10 review called these "the same tool from a second crate" and removed
+  # one. That was wrong, and it broke CI. They are one tool with two ENTRY
+  # POINTS for two different workflows:
+  #
+  #   cargo-espflash -> `cargo espflash <cmd> ...` is cargo-aware: `flash` and
+  #     `save-image` BUILD a cargo package first, which is why they take
+  #     `--package`, `--bin`, `--target`. That is what every flashing recipe here
+  #     wants, because the ELF does not exist until cargo has built it.
+  #
+  #   espflash       -> `espflash <cmd> ...` operates on what already exists. It
+  #     is what `just/size.just` wants: `espflash -S save-image --chip esp32
+  #     <ELF> <OUT>` measures an image cargo has ALREADY built. Handing that to
+  #     `cargo espflash save-image` does not measure the image -- it looks for a
+  #     cargo package ("No package could be located in the current workspace").
+  #
+  # So: `cargo espflash` where cargo is involved, bare `espflash` where it is not.
+  "cargo:cargo-espflash" = "4.6.0"
+  "cargo:espflash" = "4.6.0"
+
+  # `cargo-binstall` installs crates from their GitHub RELEASE ASSETS instead of
+  # compiling them from source. It is here for one job: `espup`.
+  #
+  #   `cargo install espup`   139 s  (compiles espup + ~180 dependencies, every
+  #                                run -- the measured #1 cost in the device job)
+  #   `cargo-binstall espup`    0.4 s (downloads the 12 MB prebuilt)
+  #
+  # The `aqua:` backend is what makes that possible: mise fetches
+  # cargo-binstall ITSELF as a prebuilt (1.4 s), where the `cargo:` backend would
+  # compile it. `espup` is not in mise's registry, so mise cannot fetch it
+  # directly -- but espup's own Cargo.toml carries
+  # `[package.metadata.binstall]`, and binstall reads that to find the release
+  # asset. So: mise owns binstall, binstall owns espup, one owner each.
+  "aqua:cargo-bins/cargo-binstall" = "1.25.0"
+
+  # Wraps the Xtensa `ld` for the ESP-IDF link. See .cargo/config.toml.
+  "cargo:ldproxy" = "0.3.5"
 
 [settings]
   experimental = true
-  jobs = 4
+
+# ---------------------------------------------------------------------------
+# Pins mise cannot express as a tool, hoisted out of a task body so they are
+# greppable and reviewable in one place. `[vars]` (not top-level keys, which
+# mise folds into `[settings]` and then warns about) and referenced from the
+# task as `${name}`.
+# ---------------------------------------------------------------------------
+
+[vars]
+  # The Rust release Espressif's `esp` toolchain is cut from. rustup's `esp`
+  # channel is FLOATING, so this is the only version pin in the repo for the
+  # device compiler. `rust-toolchain.toml` says `channel = "esp"` and cannot
+  # carry a number, so the two must be bumped together -- `just doctor` asserts
+  # that the file exists and is on the esp channel, and prints both side by side.
+  x86_64_toolchain_version = "1.97.0.0"
+
+  espup_version = "0.17.1"
+
+  # THE clang-format version. One value, and every path reads it: `format.yml`
+  # installs `pip install clang-format==$this`, `.pre-commit-config.yaml`'s hook
+  # goes through `scripts/run_clangformat.py` which asserts it, and
+  # `just fmt-cpp` reaches the same script.
+  #
+  # It used to live in FOUR places that disagreed -- this file said 23.1.1,
+  # format.yml said 22.1.2, the script pinned a `clang-tools:22` Docker image, and
+  # the pre-commit hook used whatever `clang-format` was on the developer's PATH.
+  # They agreed only because 22.1.x and 23.1.x happen to produce byte-identical
+  # output on this tree. Renovate owns this file, so a 24.x bump would move what
+  # a developer's hook and `just fmt-cpp` use while CI still checked 22.1.2 --
+  # and the hook runs `clang-format -i`, so it would REWRITE THE PARITY ORACLE.
+  #
+  # Measured over all 143 files of `src/ include/ lib/`: 22.1.x and 23.1.x give
+  # byte-identical output (0-line diff over 28,632 formatted lines); 21.1.8 and
+  # older change 2 files. So this is a free choice, and it is made once, here.
+  clang_format_version = "23.1.2"
+
+  # sha256 of the espup BINARY `cargo-binstall` installs on linux-x86_64, for
+  # `espup_version` above.
+  #
+  # This is not ceremony. `cargo install` verifies the crates.io tarball against
+  # a checksum the registry index pins, and then BUILDS the binary. binstall
+  # downloads a prebuilt from a GitHub release and espup publishes no checksum
+  # file for it, so without this the trust model quietly weakens. Pinning the
+  # binary's own digest restores it -- a wrong or tampered download fails here
+  # rather than quietly becoming the tool that installs your toolchain.
+  #
+  # `scripts/setup-esp-toolchain.sh` verifies ONLY on linux-x86_64, which is the
+  # only platform this repository's CI builds on. Elsewhere it prints that the
+  # check was skipped and continues; a developer on a Mac is not silently
+  # protected, and is told so.
+  espup_sha256_linux_x86_64 = "dbe54e9907b687809dbe1b955731569ed6df2b525362710d676256c5c8cf9ccd"
+
+  # The toolchain the HOST gate compiles with: `cargo fmt`, clippy, rustdoc and
+  # the portable crates' tests.
+  #
+  # PINNED, and it has to be. `stable` looked sufficient and is not: a GitHub
+  # runner ships whatever `stable` was when its image was built, which in
+  # PR #96 was old enough that `clippy::assert_is_empty` (clippy 1.99) was
+  # unknown to it. A lint gate whose lint SET depends on the runner image's
+  # build date is not a gate -- and neither is any check that asks "does every
+  # lint we name exist on the supported channels", because the answer changes
+  # with the image.
+  #
+  # It is the same version `rust-toolchain.toml`'s `esp` channel currently
+  # resolves to, so the two channels are one minor version apart and the
+  # difference in their lint sets is exactly the one `unknown_lints = "allow"`
+  # exists to absorb. Pin it, and `just doctor` asserts the two agree.
+  host_toolchain = "1.99.0"
+
+  # ONLY the production target. esp32s2/esp32s3/esp32c6 are R4-07/R4-08 work
+  # that has not been flashed or exercised; their Xtensa GCC costs ~1 GB each
+  # for nothing.
+  x86_64_targets = "esp32"
+
+# Install/refresh the esp-rs Xtensa toolchain -- the one step mise cannot own.
+#
+# NOTE: each array element runs in its OWN shell, so these stay separate commands
+# and must not rely on variables set by a previous element. The
+# ${espup_version} / ${x86_64_toolchain_version} forms substitute from the keys
+# above, so no version is written twice.
+[tasks.setup-esp]
+  description = "Install the esp-rs Xtensa toolchain pinned by x86_64_toolchain_version"
+  run = [
+    # A script, and ONE script, because every inline spelling of this has failed
+    # at least once and the reason is always the same shape: `esp` is the
+    # toolchain this installs, so it cannot be the one that installs it.
+    # `scripts/setup-esp-toolchain.sh` documents all four traps where it fixes
+    # them -- the chicken-and-egg with `rust-toolchain.toml`, the fact that the
+    # justfile's `CC_RUST_TOOLCHAIN` is invisible to rustup, mise stripping
+    # `~/.cargo/bin` from a task's PATH, and mise not substituting `[vars]` in a
+    # task's `run` array (so `${x86_64_toolchain_version}` reached espup
+    # literally). It reads the pins from this file itself, which is the single
+    # place they are written.
+    #
+    # WHY espup is `cargo install`ed rather than declared as `cargo:espup` in
+    # [tools]: espup must exist before `mise install` can affect the compiler at
+    # all, and mixing a mise-managed espup with `cargo install --force` gives two
+    # owners of one binary -- whichever is first on PATH wins, silently.
+    "./scripts/setup-esp-toolchain.sh",
+    "just env-file",
+  ]

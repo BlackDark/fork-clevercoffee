@@ -117,7 +117,18 @@ export function HomePage() {
   // Handle form submission for brew setpoint
   const handleSubmitParameters = async (e: React.FormEvent) => {
     e.preventDefault();
-    const success = await saveParameters(); // Only submit brew.setpoint from home page
+    // **Send only `brew.setpoint`.** Calling `saveParameters()` with no argument
+    // posts *every* parameter — 98 pairs, ~2.7 KB — and the firmware caps a
+    // form body at `MAX_PARAMETER_BODY_BYTES` (1024) and **drops the whole body**
+    // when it does not fit, answering `200 {"success":true,"message":"No
+    // parameters updated"}`. So this page showed "Parameters saved
+    // successfully" and changed nothing, which is the report this fixes. The
+    // comment used to say "only submit brew.setpoint from home page"; the call
+    // did the opposite.
+    if (!brewSetpointParam) return;
+    const success = await saveParameters([
+      { name: "brew.setpoint", value: brewSetpointParam.value },
+    ]);
 
     if (success) {
       toast.success("Parameters saved successfully", {
@@ -132,39 +143,78 @@ export function HomePage() {
 
   // Handle function toggles by calling dedicated context methods if available
   const handleToggleFunction = async (paramName: string) => {
-    let success: boolean | undefined;
-    if (paramName === "pid.enabled") {
-      success = await togglePid();
-    } else if (paramName === "STEAM_MODE") {
-      success = await toggleSteam();
-    } else if (paramName === "BACKFLUSH_ON") {
-      const result = await toggleBackflush();
+    // **Which of these can be written into the local parameter list.**
+    //
+    // Only `pid.enabled`: it is the one device toggle whose state *is* a
+    // parameter. `steamMode` and `backflushOn` are runtime flags of the machine —
+    // they are in the POST's answer and in `/api/status`, but they are not rows in
+    // `/api/parameters` — so writing them into the parameter list would invent a
+    // key that nothing reads. Those two rely on the refetch the context already
+    // does after the toggle.
+    //
+    // The report this fixes: "the device switches correctly but the toggle stays
+    // active until I refresh". The handlers used to return a bare boolean, the
+    // page showed a success toast, and **nothing wrote the new value anywhere**,
+    // so the switch kept rendering what it had fetched before the press.
+    const LOCAL_PARAMETER: Record<string, string> = {
+      "pid.enabled": "pid.enabled",
+    };
+
+    const isDeviceToggle =
+      paramName === "pid.enabled" ||
+      paramName === "STEAM_MODE" ||
+      paramName === "BACKFLUSH_ON";
+
+    if (isDeviceToggle) {
+      const result =
+        paramName === "pid.enabled"
+          ? await togglePid()
+          : paramName === "STEAM_MODE"
+            ? await toggleSteam()
+            : await toggleBackflush();
+
       if (result.success) {
+        const localKey = LOCAL_PARAMETER[paramName];
+        if (localKey !== undefined && result.value !== undefined) {
+          // What the **device** says it is now — not the inverse of what the UI
+          // last fetched. The two differ whenever the runtime state is forced
+          // (the PID being off because the machine is in standby, say), and
+          // guessing is what put this toggle out of step in the first place.
+          updateParameter(localKey, result.value);
+        }
+        // Otherwise the device did not report a state for a key the UI holds
+        // locally, and the context's own refetch brings the truth in.
         toast.success(
           `${parameterLabels.en[paramName] || paramName} toggled successfully`,
           {
-            description: "Setting updated via API endpoint or parameter save.",
+            description:
+              result.value === undefined
+                ? "Setting updated; re-read from the device."
+                : "Setting updated via the device's own toggle.",
           },
         );
       } else {
-        toast.error("Failed to toggle backflush", {
+        toast.error("Failed to toggle", {
           description:
             result.error ?? "Please check your connection and try again.",
         });
       }
       return;
-    } else {
-      // Fallback: update and save parameter
-      const param = parameters.find((p) => p.name === paramName);
-      if (!param) return;
-      const newValue = !param.value;
-      updateParameter(paramName, newValue);
-      success = await saveParameters();
     }
-    if (success) {
+
+    // Fallback: update and save the parameter directly.
+    const param = parameters.find((p) => p.name === paramName);
+    if (!param) return;
+    const newValue = !param.value;
+    updateParameter(paramName, newValue);
+    // Only this parameter, for the same reason as the setpoint above: an
+    // argument-less `saveParameters()` posts all 98 and the firmware drops a
+    // body that does not fit in 1024 B.
+    const saved = await saveParameters([{ name: paramName, value: newValue }]);
+    if (saved) {
       toast.success(
         `${parameterLabels.en[paramName] || paramName} toggled successfully`,
-        { description: "Setting updated via API endpoint or parameter save." },
+        { description: "Setting updated via parameter save." },
       );
     } else {
       toast.error("Failed to toggle", {

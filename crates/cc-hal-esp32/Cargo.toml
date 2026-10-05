@@ -1,0 +1,124 @@
+[package]
+name = "cc-hal-esp32"
+description = "The only crate that talks to ESP-IDF: board, drivers, actuators, watchdog."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+# Compiles this crate's `#[test]` functions as ordinary `pub fn`s and publishes
+# them through `device_tests::CASES`, so the on-target runner
+# (`just test-esp32`, crate `cc-device-tests`) can call them.
+#
+# NEVER enabled by the shipped `firmware` binary: `cargo build --release -p
+# cc-firmware` does not name it, so the release image is unchanged. Enabling it
+# makes the test modules `pub`, which is a link-time-only difference the
+# optimiser removes anyway, but the point is that it is never on.
+# Enabling this turns on `cc-protocol/device-tests` for `http_auth::tests_support::encode`, which the
+# authentication tests below use to build an `Authorization` header. Still inert for a release
+# build, which never names this feature.
+device-tests = ["cc-protocol/device-tests"]
+
+[dependencies]
+cc-domain.workspace = true
+cc-config.workspace = true
+cc-machine.workspace = true
+# The two crates the vocabulary split (finding 4.4) moved out of `cc-domain`:
+# `cc-protocol` holds the sensor protocol stacks and the HTTP auth policy,
+# `cc-netpolicy` the link and publish policy. Both are `no_std` and hold no
+# ESP dependency, which is why the HAL can name them without that changing what
+# this crate is.
+cc-protocol.workspace = true
+cc-netpolicy.workspace = true
+# For `cc_safety::steam_flow_allowed`, which the `Actuators` impl applies
+# **inside** `open_steam_valve` (R4-01). The whitelist is a `match` with no
+# wildcard arm over all eighteen `MachineState` variants, so naming it here
+# rather than re-deriving the list is what makes the two callers of that list
+# the same one. `cc-safety` is `no_std` and depends only on `cc-domain`, so it
+# adds nothing to the device link.
+cc-safety.workspace = true
+# The HTTP application tier, finding 4.1: `Telemetry`, `Command`, `Auth`, every
+# `*_json` renderer and `classify_parameters`. This is the dependency that makes
+# the extraction worth having -- the direction is HAL -> cc-web, never the
+# reverse, so nothing portable can reach a pin through it.
+cc-web.workspace = true
+# The MQTT topic layout, registry, plan view and value buffers (finding 4.1b) --
+# the same extraction as `cc-web`, for the half of `mqtt.rs` that is a function
+# of a `Config` and a `MachineState` rather than of a socket. Nineteen
+# assertions about the C++'s 32-parameter, 13-sensor registration ran only
+# under `just test-esp32` before it existed.
+cc-mqtt.workspace = true
+# `cc_display::leds::LedOutput` — finding 3.1, the three status LEDs. Named for
+# the **type only**, and that is a deliberate exception to the comment below: the
+# HAL still does not know what is on screen and never renders anything, but
+# "which LEDs should be lit" is a rule the C++ puts in `displayHelpers.h`, so its
+# port lives in `cc-display` and this crate needs the value it produces. The
+# alternative was a parallel second copy of the near-setpoint rule in
+# `cc-machine`, which ADR-0001 §3 exists to prevent. `cc-display` is `no_std`,
+# depends only on `cc-domain`, and is already in the device build via
+# `cc-firmware`, so this adds no new compilation and no new edge into the graph.
+cc-display.workspace = true
+# The SSD1306 driver, R3-09. NOT `cc-display`: the templates are rendered by the
+# host-tested display crate and arrive here as a `&[u8; 1024]` already in the
+# controller's page order, so the HAL never needs to know what is on screen.
+ssd1306.workspace = true
+# `ssd1306` returns `display_interface::DisplayError` and takes
+# `WriteOnlyDataCommand`, and neither is re-exported. Naming it is naming a
+# crate `ssd1306` already pulls in, so it adds nothing to the device build.
+display-interface.workspace = true
+esp-idf-hal.workspace = true
+esp-idf-svc.workspace = true
+esp-idf-sys.workspace = true
+# `heapless` is the string type the `embedded-svc` configuration structs use --
+# `ClientConfiguration::ssid` is a `heapless::String<32>` and
+# `DHCPClientSettings::hostname` a `heapless::String<30>`. It is already in the
+# tree as a transitive dependency of `esp-idf-svc`, so naming it directly adds
+# no new download to the device build.
+heapless.workspace = true
+log.workspace = true
+
+# Used ONLY by this crate's own `#[test]` functions, but it must be a regular
+# dependency, not a `[dev-dependencies]` one: the on-target runner
+# (`crates/cc-device-tests`, `just test-esp32`) compiles this crate as an
+# ordinary library with `--features device-tests`, and Cargo does not link
+# `[dev-dependencies]` into that. The alternative -- keeping it as a dev-dep and
+# duplicating the tests behind `#[cfg(feature = "device-tests")]` -- would mean
+# two copies of every assertion, which is the failure mode this whole harness
+# exists to remove.
+#
+# Adds nothing to the shipped image: `serde_json` is already in the graph under
+# `cc-config`, and nothing in the firmware's own code names it, so the linker
+# drops it.
+#
+# `embedded-io` used to be here too, for the fake reader behind
+# `telnet::pump`'s test. Both went when the read path did: the C++'s `Logger`
+# never reads a line from a telnet client (`Logger.cpp:123-156` only accepts,
+# writes the banner and pumps the heartbeat), so `pump` had no oracle counterpart
+# and no caller in `cc-firmware`. Its removal is why `Read` is no longer imported
+# by `telnet.rs`.
+serde_json.workspace = true
+
+# `cc-protocol` again, with the `device-tests` feature, for THIS crate's own test
+# target only.
+#
+# Without it, `cargo clippy -p cc-hal-esp32 --all-targets` -- one crate, no
+# `--features device-tests` -- does not compile: `web.rs`'s test module reaches
+# `cc_protocol::http_auth::tests_support::encode`, and that module is
+# `#[cfg(any(test, feature = "device-tests"))]`. It only ever built because
+# `just lint-esp32` happens to name `cc-device-tests` in the same invocation, and
+# `cc-device-tests` depends on `cc-hal-esp32` *with* the feature -- so Cargo's
+# feature unification turned it on for the whole graph. Anything that compiles
+# this crate alone, without the feature, hits it. That is a latent build break
+# hiding behind a coincidence in one recipe.
+#
+# A dev-dependency is the mechanism that actually means "my tests need this": it
+# unifies into this crate's test target and into nothing else, so
+# `cc-hal-esp32`'s library build still sees `cc-protocol` WITHOUT `device-tests`
+# and the base64 encoder cannot reach the image.
+[dev-dependencies]
+cc-protocol = { workspace = true, features = ["device-tests"] }
+
+[lints]
+workspace = true

@@ -1,0 +1,43 @@
+[package]
+name = "cc-device-tests"
+description = "On-target unit test runner. Never flashed as the firmware."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# WHY A SEPARATE CRATE AND NOT A SECOND `[[bin]]` OF cc-firmware:
+# `cc-hal-esp32`'s test modules are reachable only through its `device-tests`
+# feature. Enabling that feature is a package-wide setting, so putting the runner
+# in `cc-firmware` would enable it for the shipped `firmware` binary too. One
+# crate owns "the thing that talks to the chips" and nothing else does, and the
+# production image must not depend on a test-only feature being off.
+#
+# Same reasoning as the esp-rs template's `[[bin]] harness = false`: there is no
+# libtest on the ESP32, so `main` is the runner and the `#[test]` functions come
+# in through `cc_hal_esp32::device_tests::CASES`.
+[[bin]]
+name = "firmware-tests"
+path = "src/main.rs"
+test = false
+bench = false
+harness = false
+
+[dependencies]
+# `device-tests` turns `#[test] fn` into `pub fn` behind `device_tests::CASES`.
+# See `crates/cc-hal-esp32/src/device_tests.rs`.
+cc-hal-esp32 = { workspace = true, features = ["device-tests"] }
+esp-idf-hal.workspace = true
+esp-idf-svc.workspace = true
+log.workspace = true
+
+# Same reason as `cc-firmware`: esp-idf-sys publishes its link arguments as
+# `links` metadata, and Cargo does not forward a dependency's link args to a
+# dependent package. Without this the link fails with hundreds of undefined
+# references.
+[build-dependencies]
+embuild = "=0.33.5"
+
+[lints]
+workspace = true

@@ -780,8 +780,19 @@ export const defaultParametersList: Array<ParameterTemplate> = [
     max: 2,
     defaultValue: 0,
     options: [
-      { value: 0, label: "Deutsch" },
-      { value: 1, label: "English" },
+      // `cc_domain::system::Language` (process/defaults.h:196-200 in the C++):
+      // ENGLISH = 0, GERMAN = 1, SPANISH = 2.
+      //
+      // **These two labels were swapped.** The table said 0 = Deutsch and
+      // 1 = English, so choosing "English" in the UI wrote 1 — which the firmware
+      // reads as German. The report was "I set the language to English in the UI
+      // and the OLED comes up German", which is exactly right and was not a
+      // display bug at all. `cc-config`'s
+      // `the_ui_enum_labels_match_the_firmware_discriminants` test now pins
+      // every enum in this file against the firmware, so a swapped pair cannot
+      // survive a build again.
+      { value: 0, label: "English" },
+      { value: 1, label: "Deutsch" },
       { value: 2, label: "Español" },
     ],
   },

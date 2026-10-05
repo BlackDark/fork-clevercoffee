@@ -1,0 +1,68 @@
+# The four rotations, with a shape whose image is not symmetric under
+# any of them and text, which exposes the baseline rotation too.
+# R1 and R3 use a 64x128 logical space, so anything drawn past x=64 or
+# y=64 is clipped rather than scaled -- that is the panel's real limit.
+
+## R0
+rot R0
+font p17
+pos top
+clear
+str 0 0 "rot R0"
+hline 0 12 40
+vline 0 12 20
+pixel 1 1
+line 5 20 45 45
+box 50 4 30 12
+frame 50 4 30 12
+disc 90 40 10
+circle 90 40 14
+tri 10 60 40 62 25 45
+
+## R1
+rot R1
+font p17
+pos top
+clear
+str 0 0 "rot R1"
+hline 0 12 40
+vline 0 12 20
+pixel 1 1
+line 5 20 45 45
+box 50 4 30 12
+frame 50 4 30 12
+disc 90 40 10
+circle 90 40 14
+tri 10 60 40 62 25 45
+
+## R2
+rot R2
+font p17
+pos top
+clear
+str 0 0 "rot R2"
+hline 0 12 40
+vline 0 12 20
+pixel 1 1
+line 5 20 45 45
+box 50 4 30 12
+frame 50 4 30 12
+disc 90 40 10
+circle 90 40 14
+tri 10 60 40 62 25 45
+
+## R3
+rot R3
+font p17
+pos top
+clear
+str 0 0 "rot R3"
+hline 0 12 40
+vline 0 12 20
+pixel 1 1
+line 5 20 45 45
+box 50 4 30 12
+frame 50 4 30 12
+disc 90 40 10
+circle 90 40 14
+tri 10 60 40 62 25 45

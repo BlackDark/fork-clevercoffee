@@ -112,6 +112,24 @@ See `docs/example_config.json` for the full nested file format used by seed, dow
 - **Description**: Show brew timer in fullscreen mode
 
 ### `display.blescale_brew_timer`
+
+> **⚠ DOCUMENTED BUT NOT IMPLEMENTED.** This entry has been in
+> `CONFIG_REFERENCE.md` and in `docs/example_config.json` since before the Rust
+> port, but **neither** firmware has the key: `git grep blescale_brew_timer main`
+> finds only these two files, and the Rust schema has never declared it. It
+> belongs to the Acaia BLE scale (R3-18), which is not built.
+>
+> It has been **removed from `docs/example_config.json`**, because a shipped
+> download that contains a key the firmware silently ignores is exactly the
+> "config key that lies" failure the audit in
+> `crates/cc-config/tests/config_schema.rs` exists to catch. That test now
+> walks every leaf of the shipped file and fails on a key the schema does not
+> declare; it found this one. It was removed here rather than added to the
+> schema, because adding an inert key to make a test pass is the same lie one
+> layer down.
+>
+> If the BLE scale is built (R3-18), this key comes back with it.
+
 - **Type**: Boolean
 - **Default**: `false`
 - **Description**: Enable starting and stopping the brew timer on a connected BLE scale
@@ -437,8 +455,10 @@ For each switch type (brew, power, steam):
 ### `pid.regular.i_max`
 - **Type**: Double
 - **Default**: `55.0`
-- **Range**: 0.0-999.0
-- **Description**: Maximum integral term contribution
+- **Range**: 0.0-100.0
+- **Description**: Maximum integral term contribution. `0.0` disables integral
+  action (Ki = 0); it is not the same as a tiny non-zero limit, which the
+  previous firmware silently turned into the library default of ±100.
 
 ## Brew Detection PID Parameters
 
@@ -504,7 +524,7 @@ For each switch type (brew, power, steam):
 
 ### `system.hostname`
 - **Type**: String
-- **Default**: `"silvia"`
+- **Default**: `"test-cc-rust"` (the C++ firmware's default is `"silvia"`)
 - **Max Length**: 32 characters
 - **Description**: Network hostname for the device
 

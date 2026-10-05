@@ -25,7 +25,6 @@
     "temp_offset": 0
   },
   "display": {
-    "blescale_brew_timer": false,
     "blinking": {
       "delta": 0.3
     },
@@ -155,7 +154,7 @@
       "password": "admin",
       "username": "admin"
     },
-    "hostname": "silvia",
+    "hostname": "test-cc-rust",
     "log_level": 2,
     "offline_mode": false,
     "ota_password": "otapass",

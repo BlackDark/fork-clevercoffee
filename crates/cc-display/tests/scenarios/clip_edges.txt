@@ -1,0 +1,32 @@
+# Primitives that leave the clip window, and the degenerate sizes.
+#
+# `frame 5 5 0 4` draws its side lines and no top or bottom. That is a
+# U8g2 quirk (`u8g2_box.c`: the top and bottom lines are drawn under a
+# `w > 0` test, the sides are not), and a box routine written from the
+# obvious description gets it exactly backwards.
+rot R0
+font p17
+pos top
+clear
+pixel 0 0
+pixel 127 63
+pixel -1 0
+pixel 128 0
+pixel 0 -1
+pixel 0 64
+frame 5 5 0 4
+frame 20 5 0 4
+box 30 5 0 0
+frame 40 5 1 1
+box 50 5 1 1
+hline -5 20 20
+hline 110 22 30
+vline 60 -5 20
+vline 62 45 30
+hline 0 30 128
+vline 127 0 64
+line 0 63 127 0
+disc 5 58 8
+circle 120 58 9
+disc 64 32 0
+circle 64 32 1

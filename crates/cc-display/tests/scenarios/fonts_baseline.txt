@@ -1,0 +1,82 @@
+# The same labels in the baseline frame, because the C++ mixes the two:
+# `setFontPosTop` for the layout, `getFontAscent` for the row below it.
+
+## p10
+rot R0
+font p10
+pos baseline
+clear
+str 2 12 "100\xb0C"
+str 2 34 "Baseline p10"
+
+## p11
+rot R0
+font p11
+pos baseline
+clear
+str 2 12 "100\xb0C"
+str 2 34 "Baseline p11"
+
+## p12
+rot R0
+font p12
+pos baseline
+clear
+str 2 12 "100\xb0C"
+str 2 34 "Baseline p12"
+
+## p15
+rot R0
+font p15
+pos baseline
+clear
+str 2 12 "100\xb0C"
+str 2 34 "Baseline p15"
+
+## p17
+rot R0
+font p17
+pos baseline
+clear
+str 2 12 "100\xb0C"
+str 2 34 "Baseline p17"
+
+## p22
+rot R0
+font p22
+pos baseline
+clear
+str 2 12 "100\xb0C"
+str 2 34 "Baseline p22"
+
+## f17
+rot R0
+font f17
+pos baseline
+clear
+str 2 12 "100\xb0C"
+str 2 34 "Baseline f17"
+
+## f20
+rot R0
+font f20
+pos baseline
+clear
+str 2 12 "100\xb0C"
+str 2 34 "Baseline f20"
+
+## f25
+rot R0
+font f25
+pos baseline
+clear
+str 2 12 "100\xb0C"
+str 2 34 "Baseline f25"
+
+## f30
+rot R0
+font f30
+pos baseline
+clear
+str 2 12 "100\xb0C"
+str 2 34 "Baseline f30"

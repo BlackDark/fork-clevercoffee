@@ -1,0 +1,421 @@
+/*
+ * Display parity oracle — R1-04 / R2-10.
+ *
+ * Reads a *scenario* (a list of draw calls) and executes it against the REAL
+ * U8g2 2.36.16 that the firmware links, then writes the resulting framebuffer
+ * as a binary PPM. `crates/cc-display/tests/parity.rs` runs the same scenario
+ * through the Rust renderer and diffs the two images pixel by pixel.
+ *
+ * This is the ground truth for the rendering layer: glyph pixels, glyph metrics
+ * (`getStrWidth`), the draw primitives, the rotation transforms, and the
+ * clipping. Same precedent as `crates/cc-domain/tools/pid_oracle/`: the real
+ * library, a shim for the Arduino platform underneath it, and a checked-in
+ * artefact to diff against. Never compiled into the firmware.
+ *
+ * WHAT THIS DOES NOT COVER, and it matters:
+ *
+ *   It does not execute the C++ *template classes*. Those need `Config`
+ *   (NVS-backed), `SystemContext`, the coordinators and `WiFi`, none of which
+ *   exist off-device. The scenario file is a transcription of a template's draw
+ *   sequence for one input state, so this proves the *rendering* is identical,
+ *   not that the branch logic is. Branch logic parity is the state machine's
+ *   job (R2-08) and the scenario set (R1-08); the two are complementary.
+ *
+ * Build & run:  crates/cc-display/tools/oracle/run.sh <scenario> <out.ppm>
+ */
+
+#include "ArduinoShim.h"
+
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <string>
+#include <vector>
+
+#include "U8g2lib.h"
+
+/* ------------------------------------------------------------ the display */
+
+/* Buffer-only 128x64: the same `u8x8_display_info_t` (tile 16x8, 128x64) as
+ * `..._HW_I2C`, so `u8g2_GetBufferPtr` is exactly the bytes the device would
+ * receive. No I2C is attempted. The SH1106 variant differs only in a 2-column
+ * x offset applied at flush time, which is R3-09's concern, not the
+ * framebuffer's. */
+static uint8_t null_byte(u8x8_t*, uint8_t, uint8_t, void*) {
+    return 0;
+}
+static uint8_t null_gpio(u8x8_t*, uint8_t, uint8_t, void*) {
+    return 0;
+}
+
+class HostDisplay : public U8G2 {
+public:
+    explicit HostDisplay(const u8g2_cb_t* rotation) {
+        u8g2_Setup_ssd1306_128x64_noname_f(&u8g2, rotation, null_byte, null_gpio);
+    }
+};
+
+/* ------------------------------------------------------------------ fonts */
+
+struct FontEntry {
+    const char* name;
+    const uint8_t* data;
+};
+
+/* The ten fonts the templates use. The names match
+ * `tools/extract_fonts.py`'s output so a scenario reads the same in both
+ * languages. */
+static const FontEntry FONTS[] = {
+    {"p10", u8g2_font_profont10_tf}, {"p11", u8g2_font_profont11_tf}, {"p12", u8g2_font_profont12_tf},
+    {"p15", u8g2_font_profont15_tf}, {"p17", u8g2_font_profont17_tf}, {"p22", u8g2_font_profont22_tf},
+    {"f17", u8g2_font_fub17_tf},     {"f20", u8g2_font_fub20_tf},     {"f25", u8g2_font_fub25_tf},
+    {"f30", u8g2_font_fub30_tf},
+};
+
+/* ---------------------------------------------------------------- bitmaps */
+
+struct BitmapEntry {
+    const char* name;
+    const unsigned char* data;
+    int w;
+    int h;
+};
+
+#include "clevercoffee/display/bitmaps.h" /* the firmware's own bitmaps.h, unmodified */
+
+static const BitmapEntry BITMAPS[] = {
+    {"antenna_ok", Antenna_OK_Icon, 8, 8},
+    {"antenna_nok", Antenna_NOK_Icon, 8, 8},
+    {"bluetooth", Bluetooth_Icon, 8, 9},
+    {"logo", CleverCoffee_Logo, CleverCoffee_Logo_width, CleverCoffee_Logo_height},
+    {"heating_logo", Heating_Logo, Heating_Logo_width, Heating_Logo_height},
+    {"off_logo", Off_Logo, Off_Logo_width, Off_Logo_height},
+    {"steam_logo", Steam_Logo, Steam_Logo_width, Steam_Logo_height},
+    {"brew_cup", Brew_Cup_Logo, Brew_Cup_Logo_width, Brew_Cup_Logo_height},
+    {"hot_water_logo", Hot_Water_Logo, Hot_Water_Logo_width, Hot_Water_Logo_height},
+    {"water_empty", Water_Tank_Empty_Logo, Water_Tank_Empty_Logo_width, Water_Tank_Empty_Logo_height},
+    {"manual_flush", Manual_Flush_Logo, Manual_Flush_Logo_width, Manual_Flush_Logo_height},
+};
+
+/* --------------------------------------------------------------- scenario */
+
+/*
+ * A scenario is a line-oriented script. One op per line, `#` starts a comment,
+ * blank lines are ignored. Coordinates are pen coordinates; strings are the
+ * literal characters, with `\xNN` for a raw byte (so `\xb0` is the degree sign
+ * the C++ gets from `static_cast<char>(176)`).
+ *
+ *   rot     R0|R1|R2|R3
+ *   font    p10|p11|p12|p15|p17|p22|f17|f20|f25|f30
+ *   pos     top|baseline
+ *   refh    text|extended|all
+ *   color   N                      (0, 1, 2; >=3 clamps to 1)
+ *   powersave 0|1
+ *   clear
+ *   cursor  X Y
+ *   str     X Y "text"             (drawStr: ASCII, stops at NUL and \n)
+ *   utf8    X Y "text"             (drawUTF8)
+ *   print   "text"                 (Print at the cursor)
+ *   printc  N                      (print(char) at the cursor)
+ *   printf1 X Y V                  (print(double, 1) at X,Y)
+ *   printf0 X Y V                  (print(double, 0) at X,Y)
+ *   printi  X Y V                  (print(int) at X,Y)
+ *   hline   X Y L
+ *   vline   X Y L
+ *   pixel   X Y
+ *   line    X1 Y1 X2 Y2
+ *   box     X Y W H
+ *   frame   X Y W H
+ *   disc    X Y R
+ *   circle  X Y R
+ *   tri     X0 Y0 X1 Y1 X2 Y2
+ *   xbmp    NAME X Y W H
+ *   width   "text"                 (query only; prints to stdout)
+ *   ascent | descent | maxchar | dispw | disph
+ */
+
+struct Op {
+    std::string name;
+    std::vector<long> nums;
+    std::string text;
+    int bitmap = -1;
+};
+
+static std::string unescape(const std::string& in) {
+    std::string out;
+    for (size_t i = 0; i < in.size(); i++) {
+        if (in[i] == '\\' && i + 3 < in.size() && in[i + 1] == 'x') {
+            out.push_back((char)strtol(in.substr(i + 2, 2).c_str(), nullptr, 16));
+            i += 3;
+        } else if (in[i] == '\\' && i + 1 < in.size() && in[i + 1] == 'n') {
+            out.push_back('\n');
+            i += 1;
+        } else {
+            out.push_back(in[i]);
+        }
+    }
+    return out;
+}
+
+/*
+ * One token: its (unescaped) text, and whether it was written quoted.
+ *
+ * The quoted flag is load-bearing. A scenario says `str 2 12 "0"` to draw a
+ * zero, and without the flag the parser would see the token `0`, decide it is
+ * a number, and draw an empty string instead. The Rust side
+ * (`cc_display::scenario`) makes the same distinction by only trying to parse
+ * *unquoted* tokens as numbers, so the two agree.
+ */
+struct Token {
+    std::string text;
+    bool quoted;
+};
+
+/* Split a line into whitespace-separated tokens, honouring "..." quoting. */
+static std::vector<Token> tokenize(const std::string& line) {
+    std::vector<Token> out;
+    size_t i = 0;
+    while (i < line.size()) {
+        while (i < line.size() && isspace((unsigned char)line[i])) {
+            i++;
+        }
+        if (i >= line.size()) {
+            break;
+        }
+        if (line[i] == '"') {
+            i++;
+            size_t start = i;
+            while (i < line.size() && line[i] != '"') {
+                i++;
+            }
+            out.push_back(Token{unescape(line.substr(start, i - start)), true});
+            if (i < line.size()) {
+                i++;
+            }
+        } else {
+            size_t start = i;
+            while (i < line.size() && !isspace((unsigned char)line[i])) {
+                i++;
+            }
+            out.push_back(Token{line.substr(start, i - start), false});
+        }
+    }
+    return out;
+}
+
+static std::vector<Op> parse(const std::string& path) {
+    FILE* f = fopen(path.c_str(), "r");
+    if (!f) {
+        fprintf(stderr, "oracle: cannot open scenario %s\n", path.c_str());
+        exit(2);
+    }
+    std::vector<Op> ops;
+    char buf[4096];
+    while (fgets(buf, sizeof(buf), f)) {
+        std::string line(buf);
+        /* A `#` starts a comment, but only outside a quoted string: a scenario
+         * is entitled to draw the literal text `100#2`, and truncating at the
+         * first `#` anywhere would silently drop the rest of the line. */
+        {
+            bool in_quotes = false;
+            for (size_t i = 0; i < line.size(); i++) {
+                if (line[i] == '"') {
+                    in_quotes = !in_quotes;
+                } else if (line[i] == '#' && !in_quotes) {
+                    line = line.substr(0, i);
+                    break;
+                }
+            }
+        }
+        auto tok = tokenize(line);
+        if (tok.empty()) {
+            continue;
+        }
+        Op op;
+        op.name = tok[0].text;
+        for (size_t i = 1; i < tok.size(); i++) {
+            const std::string& s = tok[i].text;
+            /* A token is a number only if it is unquoted AND parses *entirely*
+             * as an integer. Both halves matter, and the Rust side
+             * (`cc_display::scenario`) uses the same rule via `parse::<i32>()`:
+             *
+             * - unquoted: `"0"` is how a scenario draws a zero, so a quoted
+             *   token is always text however numeric it looks.
+             * - entirely: `93.5` in `printf1 0 32 93.5` is a *value*, and
+             *   `strtol` would stop at the `.` and silently return 93 with an
+             *   empty text slot -- which then formats as "0.0". */
+            char* end = nullptr;
+            const long v = strtol(s.c_str(), &end, 10);
+            const bool numeric = !tok[i].quoted && !s.empty() && end == s.c_str() + s.size();
+            if (numeric) {
+                op.nums.push_back(v);
+            } else {
+                op.text = s;
+            }
+        }
+        ops.push_back(op);
+    }
+    fclose(f);
+    return ops;
+}
+
+static const uint8_t* lookup_font(const std::string& n) {
+    for (const auto& e : FONTS) {
+        if (n == e.name) {
+            return e.data;
+        }
+    }
+    fprintf(stderr, "oracle: unknown font %s\n", n.c_str());
+    exit(2);
+}
+
+static const BitmapEntry* lookup_bitmap(const std::string& n) {
+    for (const auto& e : BITMAPS) {
+        if (n == e.name) {
+            return &e;
+        }
+    }
+    fprintf(stderr, "oracle: unknown bitmap %s\n", n.c_str());
+    exit(2);
+}
+
+/* ------------------------------------------------------------------- main */
+
+int main(int argc, char** argv) {
+    if (argc < 3) {
+        fprintf(stderr, "usage: display_oracle <scenario> <out.ppm>\n");
+        return 2;
+    }
+    const std::string scenario_path = argv[1];
+    const std::string out_path      = argv[2];
+
+    auto ops = parse(scenario_path);
+
+    /* The rotation is the first thing the scenario sets, so the display is
+     * constructed once and then re-pointed -- exactly as the firmware does, by
+     * calling `setDisplayRotation` in `prepareDisplay` after construction. */
+    HostDisplay d(U8G2_R0);
+
+    for (const Op& op : ops) {
+        const std::string& n = op.name;
+        auto num             = [&](size_t i) -> int { return i < op.nums.size() ? (int)op.nums[i] : 0; };
+
+        if (n == "rot") {
+            const u8g2_cb_t* r = U8G2_R0;
+            if (op.text == "R1") {
+                r = U8G2_R1;
+            } else if (op.text == "R2") {
+                r = U8G2_R2;
+            } else if (op.text == "R3") {
+                r = U8G2_R3;
+            }
+            d.setDisplayRotation(r);
+        } else if (n == "font") {
+            d.setFont(lookup_font(op.text));
+        } else if (n == "pos") {
+            if (op.text == "top") {
+                d.setFontPosTop();
+            } else {
+                d.setFontPosBaseline();
+            }
+        } else if (n == "refh") {
+            if (op.text == "text") {
+                d.setFontRefHeightText();
+            } else if (op.text == "all") {
+                d.setFontRefHeightAll();
+            } else {
+                d.setFontRefHeightExtendedText();
+            }
+        } else if (n == "color") {
+            d.setDrawColor((uint8_t)num(0));
+        } else if (n == "powersave") {
+            d.setPowerSave((uint8_t)num(0));
+        } else if (n == "clear") {
+            d.clearBuffer();
+        } else if (n == "cursor") {
+            d.setCursor(num(0), num(1));
+        } else if (n == "str") {
+            d.drawStr(num(0), num(1), op.text.c_str());
+        } else if (n == "utf8") {
+            d.drawUTF8(num(0), num(1), op.text.c_str());
+        } else if (n == "print") {
+            d.setCursor(d.getCursorX(), d.getCursorY());
+            d.print(op.text.c_str());
+        } else if (n == "printc") {
+            d.print((char)num(0));
+        } else if (n == "printf1") {
+            d.setCursor(num(0), num(1));
+            d.print(strtod(op.text.c_str(), nullptr), 1);
+        } else if (n == "printf0") {
+            d.setCursor(num(0), num(1));
+            d.print(strtod(op.text.c_str(), nullptr), 0);
+        } else if (n == "printi") {
+            /* `printi X Y V`: the value is the *third* token. Reading num(0)
+             * would print the x position. */
+            d.setCursor(num(0), num(1));
+            d.print((int)num(2), 10);
+        } else if (n == "hline") {
+            d.drawHLine(num(0), num(1), num(2));
+        } else if (n == "vline") {
+            d.drawVLine(num(0), num(1), num(2));
+        } else if (n == "pixel") {
+            d.drawPixel(num(0), num(1));
+        } else if (n == "line") {
+            d.drawLine(num(0), num(1), num(2), num(3));
+        } else if (n == "box") {
+            d.drawBox(num(0), num(1), num(2), num(3));
+        } else if (n == "frame") {
+            d.drawFrame(num(0), num(1), num(2), num(3));
+        } else if (n == "disc") {
+            d.drawDisc(num(0), num(1), num(2));
+        } else if (n == "circle") {
+            d.drawCircle(num(0), num(1), num(2));
+        } else if (n == "tri") {
+            d.drawTriangle(num(0), num(1), num(2), num(3), num(4), num(5));
+        } else if (n == "xbmp") {
+            const BitmapEntry* b = lookup_bitmap(op.text);
+            d.drawXBMP(num(0), num(1), b->w, b->h, b->data);
+        } else if (n == "width") {
+            printf("%d\n", (int)d.getStrWidth(op.text.c_str()));
+        } else if (n == "utf8width") {
+            printf("%d\n", (int)d.getUTF8Width(op.text.c_str()));
+        } else if (n == "ascent") {
+            printf("%d\n", (int)d.getFontAscent());
+        } else if (n == "descent") {
+            printf("%d\n", (int)d.getFontDescent());
+        } else if (n == "maxchar") {
+            printf("%d\n", (int)d.getMaxCharHeight());
+        } else if (n == "dispw") {
+            printf("%d\n", (int)d.getDisplayWidth());
+        } else if (n == "disph") {
+            printf("%d\n", (int)d.getDisplayHeight());
+        } else {
+            fprintf(stderr, "oracle: unknown op %s\n", n.c_str());
+            return 2;
+        }
+    }
+
+    /* P4, 1 = white -- the same convention as the Rust golden writer, so the
+     * two files are byte-comparable. */
+    const uint8_t* buf = d.getBufferPtr();
+    FILE* out         = fopen(out_path.c_str(), "wb");
+    if (!out) {
+        fprintf(stderr, "oracle: cannot write %s\n", out_path.c_str());
+        return 2;
+    }
+    fprintf(out, "P4\n128 64\n");
+    for (int y = 0; y < 64; y++) {
+        for (int x = 0; x < 128; x += 8) {
+            uint8_t byte = 0;
+            for (int b = 0; b < 8; b++) {
+                if (buf[(y >> 3) * 128 + x + b] & (1u << (y & 7))) {
+                    byte |= 0x80 >> b;
+                }
+            }
+            fputc(byte, out);
+        }
+    }
+    fclose(out);
+    return 0;
+}

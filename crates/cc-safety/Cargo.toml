@@ -1,0 +1,14 @@
+[package]
+name = "cc-safety"
+description = "The one place that decides whether an actuator may be energised."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+cc-domain.workspace = true
+
+[lints]
+workspace = true

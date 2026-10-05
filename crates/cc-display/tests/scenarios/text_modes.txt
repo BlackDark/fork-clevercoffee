@@ -1,0 +1,15 @@
+# `drawStr` against `drawUTF8`, which the C++ uses interchangeably for
+# its Latin-1 text, and the three reference-height modes, which move the
+# baseline and therefore every row below them.
+rot R0
+font p17
+pos top
+clear
+str 0 0 "100\xb0C"
+utf8 0 16 "100\xb0C"
+refh text
+str 0 32 "refh text"
+refh all
+str 0 44 "refh all"
+refh extended
+str 0 56 "refh extended"

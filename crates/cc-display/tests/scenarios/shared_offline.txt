@@ -1,0 +1,7 @@
+# The offline splash, `FullscreenHandler::drawOfflineLogo`, which every
+# template shares -- so a rotation bug in it would show on all six at once.
+rot R0
+font p22
+pos top
+clear
+xbmp off_logo 38 6 0 0

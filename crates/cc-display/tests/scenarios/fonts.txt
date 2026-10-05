@@ -1,0 +1,94 @@
+# Every embedded font at `pos top`, which is what the firmware sets
+# (`setFontPosTop`). The labels are the ones the display actually draws.
+# The per-glyph widths are pinned in `tests/glyph_parity.rs`; this is the
+# on-screen check that a glyph is drawn where its width says it is.
+
+## p10
+rot R0
+font p10
+pos top
+clear
+str 2 2 "100\xb0C"
+str 2 20 "Ready p10"
+str 2 40 "'MmWw@#%&gjpqy"
+
+## p11
+rot R0
+font p11
+pos top
+clear
+str 2 2 "100\xb0C"
+str 2 20 "Ready p11"
+str 2 40 "'MmWw@#%&gjpqy"
+
+## p12
+rot R0
+font p12
+pos top
+clear
+str 2 2 "100\xb0C"
+str 2 20 "Ready p12"
+str 2 40 "'MmWw@#%&gjpqy"
+
+## p15
+rot R0
+font p15
+pos top
+clear
+str 2 2 "100\xb0C"
+str 2 20 "Ready p15"
+str 2 40 "'MmWw@#%&gjpqy"
+
+## p17
+rot R0
+font p17
+pos top
+clear
+str 2 2 "100\xb0C"
+str 2 20 "Ready p17"
+str 2 40 "'MmWw@#%&gjpqy"
+
+## p22
+rot R0
+font p22
+pos top
+clear
+str 2 2 "100\xb0C"
+str 2 20 "Ready p22"
+str 2 40 "'MmWw@#%&gjpqy"
+
+## f17
+rot R0
+font f17
+pos top
+clear
+str 2 2 "100\xb0C"
+str 2 20 "Ready f17"
+str 2 40 "'MmWw@#%&gjpqy"
+
+## f20
+rot R0
+font f20
+pos top
+clear
+str 2 2 "100\xb0C"
+str 2 20 "Ready f20"
+str 2 40 "'MmWw@#%&gjpqy"
+
+## f25
+rot R0
+font f25
+pos top
+clear
+str 2 2 "100\xb0C"
+str 2 20 "Ready f25"
+str 2 40 "'MmWw@#%&gjpqy"
+
+## f30
+rot R0
+font f30
+pos top
+clear
+str 2 2 "100\xb0C"
+str 2 20 "Ready f30"
+str 2 40 "'MmWw@#%&gjpqy"

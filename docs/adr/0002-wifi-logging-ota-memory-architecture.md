@@ -90,4 +90,4 @@ When `ESP.getFreeHeap() < 30 KB`, `writeToOutputs()` skips WiFi writes (Serial s
 - **Always check base class defaults** — `Print::availableForWrite()` returning 0 silently broke WiFi logging with no compiler warning.
 - **Calculate static RAM budgets** — on ESP32, a 37 KB ring buffer is 12% of total RAM. Size buffers for the actual throughput, not theoretical maximums.
 - **Serialize directly to the response** — `AsyncJsonResponse` exists for exactly this purpose. Never build a `String` intermediate for large JSON.
-- **Test with all outputs active** — USB-only testing missed the WiFi logging failure entirely. The integration test checklist (`docs/integration-tests.md`) now requires telnet + API concurrency testing.
+- **Test with all outputs active** — USB-only testing missed the WiFi logging failure entirely. The integration test checklist (`docs/operations/integration-checklist.md`) now requires telnet + API concurrency testing.

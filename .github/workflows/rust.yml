@@ -1,0 +1,554 @@
+name: Rust firmware
+
+# ===========================================================================
+# THE RUST FIRMWARE.
+#
+# Before this file existed, `.github/workflows/` contained zero references to
+# `cargo` or `just`: main.yml and release.yml ran PlatformIO, format.yml ran
+# clang-format, frontend.yml ran pnpm. So 68,530 lines of new firmware and
+# 13,563 lines of Rust tests were merged with **no automated verification at
+# all**, and `just gate` was invoked by nothing. CI was green purely because the
+# untouched C++ tree still compiled. Fixed by `e4ec70bd` (`.github/workflows/rust.yml`).
+#
+# `main.yml` still builds and tests the C++ — it is the parity oracle, and it
+# is what `release.yml` publishes. The two are not alternatives; both gates
+# have to be green.
+#
+# TWO TOOLCHAIN CHANNELS, ON PURPOSE
+# -----------------------------------
+# `rust-toolchain.toml` pins `channel = "esp"` — an Espressif nightly fork that
+# only `espup` installs. The `host` job below therefore runs on **stable**, via
+# `CC_RUST_TOOLCHAIN=stable`, and the `device` job on **esp**.
+#
+# The reason is not speed. It is that a runner with only GitHub's stock Rust
+# cannot run `just` AT ALL: `host_target` is derived from a backtick, just
+# evaluates backticks while PARSING the justfile, and a failing backtick is a
+# parse error — so `rustc -vV` failing to resolve `esp` takes down every recipe
+# in the job with a message that never mentions the toolchain. That is how the
+# first version of this workflow failed.
+#
+# So: the host gate compiles the portable crates (`cc-domain`, `cc-safety`,
+# `cc-config`, `cc-machine`, `cc-display`, `cc-web`, `cc-mqtt` — all `#![no_std]`, all
+# host-testable) on a stock toolchain, which is also what makes the workspace's
+# `rust-version = "1.82"` claim verifiable instead of decorative. The device gate
+# compiles the firmware on the pinned Xtensa fork.
+#
+# The device build also needs a compiled ESP-IDF (via embuild). `just setup`
+# handles it; the Xtensa jobs below are the ones that would otherwise be silently
+# unverified, and they are exactly the ones that cannot be skipped "because it
+# needs a board" — only `just test-esp32` needs a board.
+# ===========================================================================
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - ".cargo/**"
+      - ".mise.toml"
+      - "justfile"
+      - "just/**"
+      - "scripts/**"
+      - "ui/**"
+      - ".github/workflows/rust.yml"
+      - "components_esp32.lock"
+      - "rust/**"
+  pull_request:
+    paths:
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - ".cargo/**"
+      - ".mise.toml"
+      - "justfile"
+      - "just/**"
+      - "scripts/**"
+      - "ui/**"
+      - ".github/workflows/rust.yml"
+      - "components_esp32.lock"
+      - "rust/**"
+
+concurrency:
+  group: rust-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Single source of truth, asserted by `just doctor` against
+  # `components_esp32.lock`. If these two drift, a "works on CI" build happens.
+  ESP_IDF_VERSION: "v5.5.5"
+  RUSTFLAGS: "--cfg espidf_time64"
+  ESP_IDF_SYS_ROOT_CRATE: "cc-firmware"
+  # Incremental compilation is dead weight in CI: the workspace changes, so almost
+  # every crate is rebuilt anyway, and the incremental bookkeeping is pure cost on
+  # top. It also produced 3.2 GB of `debug/incremental` under the host target
+  # directory -- the single largest thing in a tree this repository already
+  # declines to cache.
+  #
+  # `Swatinem/rust-cache` sets this itself; that cache action is not used here
+  # (see docs/handbook/ci.md for why the three caches below are hand-keyed instead), so the
+  # setting is made directly.
+  CARGO_INCREMENTAL: 0
+  # Every recipe passes `--target {{host_target}}` explicitly, so this is only a
+  # safety net for a bare `cargo` invocation inside a recipe.
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ---------------------------------------------------------------- host gates
+  #
+  # No hardware, no ESP-IDF, no device toolchain. This is the job that has to be
+  # green for a change to be mergeable, and it is fast.
+  host:
+    name: format, lint, doc, test (host)
+    runs-on: ubuntu-latest
+    # measured 63 s wall; 25 min is ~24x.
+    timeout-minutes: 25
+    # A PINNED toolchain, installed by the step below. Not `stable`.
+    #
+    # `stable` looked sufficient and is not: a GitHub runner ships whatever
+    # `stable` was when its image was built, and in PR #96 that was old enough
+    # that `clippy::assert_is_empty` (added in clippy 1.99) was unknown to it --
+    # which broke the clippy step, and would equally let a brand-new lint through
+    # one week and fail the next. A lint gate whose lint SET depends on the
+    # runner image's build date is not a gate.
+    #
+    # The version comes from `.mise.toml`'s `[vars]` (`host_toolchain`), read by
+    # the step below and exported as `CC_RUST_TOOLCHAIN` -- the switch the
+    # justfile turns into `RUSTUP_TOOLCHAIN` for every recipe. The justfile's own
+    # default stays `esp`, so no device recipe is affected.
+    #
+    # `RUSTUP_TOOLCHAIN: stable` at JOB level, and it is for exactly ONE step:
+    # the `mise-action` below. mise installs its `cargo:` backend tools (espflash,
+    # cargo-espflash, ldproxy) by exec'ing a bare `cargo install`, and a bare cargo
+    # resolves through `rust-toolchain.toml` -- which says `esp`, a channel this
+    # job never installs. Without it the job died in step 3, before reaching
+    # anything of its own.
+    #
+    # Only `CC_RUST_TOOLCHAIN` is written to `$GITHUB_ENV`: every step after the
+    # install goes through `just`, so one variable is enough, and not writing
+    # `RUSTUP_TOOLCHAIN` avoids a collision between the job-level value mise needs
+    # and the pinned one the gate needs.
+    env:
+      RUSTUP_TOOLCHAIN: stable
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # zizmor: the checkout token is written to .git/config and is then
+          # readable by anything that runs in this job. Nothing here pushes,
+          # tags or creates releases, so it does not need to persist.
+          persist-credentials: false
+
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+        with:
+          # The Espressif `esp` toolchain is NOT needed here, and installing it
+          # costs minutes per job. `rust-toolchain.toml` is the compiler pin;
+          # mise deliberately does not own the compiler (see its header).
+          install: true
+          experimental: true
+
+      - name: Install the pinned host toolchain
+        run: |
+          set -euxo pipefail
+          echo "CC_RUST_TOOLCHAIN=$(./scripts/install-host-toolchain.sh)" >> "$GITHUB_ENV"
+
+      - name: Show the resolved toolchain
+        run: |
+          rustc --version
+          cargo --version
+          echo "host triple: $(just --evaluate host_target)"
+
+      - name: Host checks (no device toolchain required)
+        # `doctor-host`, not `doctor`: `doctor` asserts the DEVICE toolchain — the
+        # esp channel and a Xtensa GCC — and a host job has no business
+        # downloading one. `doctor-host` checks everything a host-only job can
+        # actually assert: the host triple resolved, the ESP-IDF pin still
+        # matches components_esp32.lock, and mise still does not claim to own
+        # the compiler.
+        run: just doctor-host
+
+      - name: cargo fmt
+        run: just fmt-check
+
+      - name: clippy (host, pedantic, -D warnings)
+        run: just lint
+
+      - name: rustdoc, warnings as errors
+        run: just doc
+
+      - name: Host tests
+        run: just test
+
+      - name: Parity harness tests
+        run: just parity-test
+
+      - name: The device-test registry audit
+        # Fails if any device-crate `#[test]` exists that the on-target runner
+        # cannot execute. This is the guard against "147 tests that never ran",
+        # and it needs no hardware and no cargo.
+        run: just test-audit
+
+      - name: The web UI lints, typechecks, tests and builds
+        working-directory: ui
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm lint
+          pnpm --filter @clevercoffee/frontend tsc
+          pnpm --filter @clevercoffee/frontend test:run
+          pnpm --filter @clevercoffee/frontend build
+
+  # ------------------------------------------------------------- device gates
+  #
+  # The Xtensa build. `just setup` installs the Espressif toolchain via espup and
+  # ESP-IDF via embuild; that is slow but it is the only way the firmware this
+  # branch exists to produce is ever compiled before a merge.
+  device:
+    name: clippy + firmware build + size budget (xtensa-esp32)
+    runs-on: ubuntu-latest
+    # measured 486-533 s wall COLD, including a full ESP-IDF build; 45 min leaves headroom without letting a wedged espup bill for hours.
+    timeout-minutes: 45
+    # STABLE for the whole job, and the justfile turns it back into `esp` for
+    # every recipe.
+    #
+    # `jdx/mise-action` runs `mise install` itself, and mise installs its
+    # `cargo:` backend tools (espflash, cargo-espflash, ldproxy) by exec'ing a
+    # bare `cargo install`. A bare cargo resolves through `rust-toolchain.toml`,
+    # which says `channel = "esp"` -- the channel this job has not installed yet.
+    # So on a cold cache every one of them died:
+    #
+    #   mise cargo:ldproxy@0.3.5 error: custom toolchain 'esp' specified in
+    #     override file '.../rust-toolchain.toml' is not installed
+    #
+    # It passed on earlier runs only because `Restoring mise cache` covered those
+    # three tools, so mise never had to build them. Changing the tool set changed
+    # the cache key, and the latent failure surfaced. A cache is not a design.
+    #
+    # Safe for the recipes that follow: a just `export` beats an environment
+    # variable (verified), so `RUSTUP_TOOLCHAIN := env_var_or_default(
+    # "CC_RUST_TOOLCHAIN", "esp")` inside the justfile makes every recipe use `esp`
+    # regardless of what is ambient here.
+    env:
+      RUSTUP_TOOLCHAIN: stable
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # zizmor: the checkout token is written to .git/config and is then
+          # readable by anything that runs in this job. Nothing here pushes,
+          # tags or creates releases, so it does not need to persist.
+          persist-credentials: false
+
+      # ---------------------------------------------------------------- caches
+      #
+      # Until this file, `rust.yml` had NO `actions/cache` step at all. Measured on
+      # the green run 37075489144, the device job spent 596 s of which:
+      #
+      #     139 s  `cargo install espup`   recompiling espup + ~180 deps, every run
+      #      61 s  `espup install`         unpacking 1.9 GB of toolchain
+      #     186 s  esp-idf-sys's build script, TWICE (dev and release OUT_DIR)
+      #      ~10 s downloading crates
+      #
+      # so ~400 s was downloading or re-deriving things that are a pure function
+      # of files already in the repository. (The 139 s is now gone for a different
+      # reason -- `scripts/setup-esp-toolchain.sh` uses cargo-binstall, 0.4 s --
+      # but the rest is here.)
+      #
+      # PR runs save AND restore, deliberately.
+      #
+      # An earlier version of this gated every save on
+      # `github.event_name != 'pull_request'`, on the reading that a cache written
+      # by a PR run is dead weight. That was half right and the wrong half
+      # expensive:
+      #
+      #   * TRUE: a cache written by a PR is scoped to that PR's merge ref and
+      #     cannot be read by another PR or by the base branch.
+      #   * FALSE, and this is what was missed: it CAN be read by later runs of
+      #     the SAME pull request -- which is the developer loop. Push 2..N of a
+      #     branch are exactly the case where a 186 s ESP-IDF rebuild is pure
+      #     waste, and gating the save threw that away.
+      #
+      # A PR that has not diverged from main restores main's cache anyway, since
+      # base-branch caches are visible to pull requests. So this is strictly
+      # better than the gate: warm on the second push of a branch, and still warm
+      # when a branch is brand new.
+      #
+      # The real cost is LRU pressure on the 10 GB repository budget, which is
+      # why the keys are as narrow as they are and why the host `target/` dir
+      # (5.8 GB raw, 3.2 GB of it `debug/incremental`) is deliberately NOT cached.
+      # If eviction ever bites, the order to sacrifice is: this comment first, the
+      # cargo registry second. The ESP-IDF cache is the one worth 186 s.
+      #
+      # The `.embuild`/`target` key names ESP_IDF_VERSION, ESP_IDF_SYS_ROOT_CRATE,
+      # RUSTFLAGS, runner.arch and `.cargo/config.toml` alongside the lockfiles,
+      # and none of those are decoration:
+      #   * `esp-idf-sys` builds ESP-IDF from `env.ESP_IDF_VERSION`, which is
+      #     independent of `components_esp32.lock` (that is the component list);
+      #   * `ESP_IDF_SYS_ROOT_CRATE` picks the crate that owns the `links`
+      #     metadata, and therefore the `OUT_DIR` the build script uses;
+      #   * `.cargo/config.toml`'s `[idf] partition_table` is a CMake configure
+      #     input, so changing it must not restore a stale ESP-IDF tree;
+      #   * `runner.arch`, because `.embuild` carries a host python_env and
+      #     idf_tools cmake/ninja that are not portable.
+      - name: Restore the ESP-IDF build and the device target dir
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            .embuild
+            target/xtensa-esp32-espidf
+          key: esp32-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.ESP_IDF_VERSION }}-${{ env.ESP_IDF_SYS_ROOT_CRATE }}-${{ env.RUSTFLAGS }}-${{ hashFiles('components_esp32.lock', 'Cargo.lock', '.mise.toml', 'rust-toolchain.toml', '.cargo/config.toml', 'rust/partitions_4M.csv') }}
+          restore-keys: |
+            esp32-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.ESP_IDF_VERSION }}-${{ env.ESP_IDF_SYS_ROOT_CRATE }}-${{ env.RUSTFLAGS }}-
+
+      # A cached `target/` cannot make a build pass on OLD code, and that is worth
+      # stating rather than assuming. `actions/cache` uses tar, which preserves
+      # mtimes; `actions/checkout` stamps every source file with checkout time, so
+      # sources are always NEWER than cached artifacts and cargo's mtime freshness
+      # rebuilds the workspace crates. Verified locally in both directions: with a
+      # newer source mtime cargo recompiles; force an older one
+      # (`touch -d 2020-01-01`) and cargo accepts the stale rlib and reports
+      # `Finished in 0.00s`. The guarantee comes entirely from `checkout` writing
+      # fresh mtimes -- do not add a cache path that restores artifacts without a
+      # checkout in the same job.
+
+      - name: Restore the esp toolchain
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          # `espup install` spends 61 s, of which only 2.1 s is the download; the
+          # rest is unpacking 1.9 GB. Restored, it is a re-entrant no-op.
+          path: ~/.rustup/toolchains/esp
+          key: rustup-esp-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.mise.toml', 'rust-toolchain.toml') }}
+
+      - name: Restore the cargo registry
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          # Makes the `target/` cache above usable at all: without the registry,
+          # the crates a cached build depends on are absent and everything
+          # recompiles anyway.
+          path: ~/.cargo/registry
+          key: cargo-reg-v1-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+        with:
+          install: true
+          experimental: true
+
+      # Free space. The ESP-IDF clone embuild drives is several GB. Free space is
+      # now MEASURED rather than assumed -- see the log line this step prints.
+      # Disk. Now MEASURED rather than assumed.
+      #
+      # This step used to `rm -rf` dotnet/android/ghc unconditionally and cost
+      # 43-98 s of pure `rm` I/O (three observed values for the same command on
+      # the same image -- it is contention noise). An analysis proposed deleting
+      # it outright on the basis of "~77 GB free"; that number was in NO log,
+      # because the step only ever ran `df` AFTER the delete. So the step now
+      # measures before it decides, and the measured value is:
+      #
+      #     free BEFORE: 85G      free AFTER: 102G
+      #
+      # 85 GB against a working set of roughly .embuild 4.5 GB + esp toolchain
+      # 1.9 GB + host toolchain 1.5 GB + target 1.6 GB + cargo registry 1.3 GB +
+      # pnpm 1.1 GB = ~12 GB, and on a cold cache the tarballs are downloaded AND
+      # extracted on top. So the threshold below is set at 30 GB: far above
+      # need, far below the point where the `rm` saves anything.
+      #
+      # The `rm` is KEPT, as a fallback. The question it was silently answering
+      # ("is there enough disk?") is real -- a build job that dies of ENOSPC
+      # looks exactly like a code failure -- and an unconditional `rm` is a worse
+      # answer to it than a measured one.
+      - name: Ensure enough free disk
+        run: |
+          set -euo pipefail
+          # `-BG` rounds UP to whole GB, which is the safe direction for a
+          # "do we have enough" test.
+          avail_kb=$(df --output=avail / | tail -1)
+          avail_gb=$(( avail_kb / 1024 / 1024 ))
+          echo "free disk: ${avail_gb}G"
+          if [ "$avail_gb" -lt 30 ]; then
+            echo "under 30G -- freeing dotnet/android/ghc"
+            sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+            echo "free disk now: $(df --output=avail / | tail -1 | awk '{print int($1/1024/1024}')G"
+          else
+            echo "plenty of space; not touching the image's toolchains"
+          fi
+
+      - name: Install the Espressif Xtensa toolchain and ESP-IDF
+        # `espup` is a NORMAL cargo install, and `rust-toolchain.toml` says
+        # `channel = "esp"` — which does not exist yet, precisely because espup is
+        # what installs it. So the bootstrap has to run on a toolchain that IS
+        # present: without `CC_RUST_TOOLCHAIN=stable` here, the very first
+        # `cargo install` fails with "custom toolchain 'esp' is not installed" and
+        # the device job dies before it starts.
+        #
+        # Every LATER step gets `esp` from `rust-toolchain.toml`, which is what
+        # the justfile's default (`RUSTUP_TOOLCHAIN := esp`) expects. The
+        # concrete version is pinned in `.mise.toml` as
+        # `x86_64_toolchain_version`; the `esp` rustup channel is FLOATING, so
+        # that pin is the only version pin there is, and `just doctor` checks it.
+        # NO step-level `env:` here, deliberately.
+        #
+        # `CC_RUST_TOOLCHAIN` is the justfile's switch and nothing else: it picks
+        # what the justfile puts in `RUSTUP_TOOLCHAIN` for a RECIPE. rustup never
+        # reads it, so a bare `cargo` in a raw `run:` block still resolves through
+        # `rust-toolchain.toml` and dies with "custom toolchain 'esp' ... is not
+        # installed" -- which is exactly what PR #96's device job did on its
+        # `cargo install espup` line.
+        #
+        # The bootstrap therefore names the toolchain on the command line, with
+        # `+stable`, which overrides the override file AND the environment and
+        # cannot be got wrong by an env block in the wrong place.
+        run: |
+          set -euxo pipefail
+          mise trust
+          mise install
+          # `scripts/setup-esp-toolchain.sh`, NOT `mise run setup-esp` and NOT an
+          # inline `cargo install espup`. All three spellings were tried here and
+          # two of them failed; the script's header says why, and it matters
+          # because the causes are not obvious:
+          #
+          #  * `rust-toolchain.toml` says `channel = "esp"`, which is what this
+          #    step installs -- so a bare `cargo install espup` dies
+          #    "custom toolchain 'esp' ... is not installed".
+          #  * `CC_RUST_TOOLCHAIN` (the justfile's switch) is invisible to rustup,
+          #    so setting it as a step env is a no-op that looks correct.
+          #  * mise does NOT substitute `[vars]` in a task's `run` array, so
+          #    `mise run setup-esp` handed espup the literal string
+          #    "${x86_64_toolchain_version}".
+          #
+          # The script reads the pins from `.mise.toml` and asserts them non-empty.
+          ./scripts/setup-esp-toolchain.sh
+          just env-file
+          just doctor
+
+      - name: Install the pinned host toolchain
+        # Not for building -- this job builds with `esp`. It is here so that the
+        # lint-name probe below can check BOTH channels in one place, which is
+        # the whole point of that check: `unknown_lints = "allow"` in Cargo.toml
+        # is only safe while something verifies that every lint we name is a lint
+        # that EXISTS on at least one supported channel.
+        #
+        # It cannot live in `invariants` (no toolchain there, and the Espressif
+        # fork is not on static.rust-lang.org) and it cannot live in `host` (that
+        # job does not have esp). So both channels meet here, in the one job
+        # that installs esp.
+        run: |
+          set -euxo pipefail
+          ./scripts/install-host-toolchain.sh
+
+      - name: Every lint named in an allow/expect is a real lint
+        # It lives HERE and not in the `invariants` job because it needs BOTH
+        # channels. `Cargo.toml` sets `unknown_lints = "allow"`, so a suppression
+        # naming a lint a channel predates is a harmless no-op rather than a build
+        # failure -- and the cost of that allowance is that a typo would go
+        # unnoticed. This closes it: every lint named in an allow/expect must
+        # exist on AT LEAST ONE of the channels the repo supports, and the report
+        # names the ones that exist on only one. A typo exists on neither and
+        # fails here.
+        #
+        # It cannot be in `invariants`, which installs no toolchain at all: the
+        # Espressif `esp` fork is NOT distributed from `static.rust-lang.org`, only
+        # `espup` can install it. This job has just run `espup`.
+        # The PINNED host toolchain, not `stable`: the runner's `stable` is
+        # whatever its image shipped, and "does every lint we name exist on the
+        # supported channels" must not change with the image.
+        env:
+          CC_LINT_CHANNELS: 1.99.0:esp
+        run: python3 scripts/lint-names.py .
+
+      # A documentation move cannot be reviewed by eye: nine of the sixteen links
+      # that rotted unnoticed were in the skill file every agent reads first.
+      # Cheap, needs no toolchain, and it is the check that makes the next move
+      # safe to attempt.
+      - name: Markdown links
+        run: python3 scripts/check-doc-links.py
+
+      - name: clippy (device, pedantic, -D warnings)
+        run: just lint-esp32
+
+      - name: Build the firmware
+        run: just build-esp32
+
+      - name: Image size is within budget
+        run: just size-check
+
+      - name: Record the image size
+        run: just size-record esp32 ci
+
+      - name: Upload the image size
+        # So a size change is a downloadable artefact in the run summary rather
+        # than something a human has to go and read a log for. `just size-record`
+        # appends to docs/rust-migration/size-records.jsonl; this uploads the
+        # tail of it.
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: image-size
+          path: docs/rust-migration/size-records.jsonl
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------- invariants
+  #
+  # Cheap greps that encode rules this workspace depends on and that a compiler
+  # cannot check across crate boundaries.
+  invariants:
+    name: workspace invariants
+    runs-on: ubuntu-latest
+    # Four greps and four small python scripts; measured 12 s.
+    timeout-minutes: 10
+    # Same reason as the device job: mise-action runs `mise install`, and a bare
+    # `cargo install` from one of its `cargo:` backends would resolve through
+    # `rust-toolchain.toml` and demand the `esp` channel. These checks need no
+    # toolchain at all, but the job must still get past step 1.
+    env:
+      RUSTUP_TOOLCHAIN: stable
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # zizmor: the checkout token is written to .git/config and is then
+          # readable by anything that runs in this job. Nothing here pushes,
+          # tags or creates releases, so it does not need to persist.
+          persist-credentials: false
+
+
+      - name: The portable crates must not name esp-idf in CODE
+        # cc-domain, cc-safety, cc-config, cc-machine, cc-display, cc-web and
+        # cc-mqtt are
+        # `#![no_std]` and host-testable. An `esp_idf_*` import in any of them
+        # breaks every host test and every IDE's background check, and it is
+        # invisible until it does.
+        #
+        # A script, not a grep, because `rg 'esp_idf_(hal|svc|sys)'` fires on
+        # PROSE -- and cc-domain/src/lib.rs line 11 is a doc comment saying
+        # "this crate must never name esp_idf_svc". The first version of this
+        # check failed on its own documentation. Comments and doc-comments are
+        # stripped before the search, so a portable crate can still explain why
+        # it does not use ESP-IDF.
+        run: python3 scripts/portable-purity.py .
+
+      - name: no blanket lint suppression
+        # `#![allow(clippy::all)]` or a bare `-A warnings` hides a whole class of
+        # defect, including the clippy this workflow exists to run.
+        run: |
+          if rg -n '#!\[allow\((clippy::)?(all|warnings)' crates/; then
+            echo "::error::a blanket lint suppression crept in"
+            exit 1
+          fi
+          echo "ok: no blanket lint suppression"
+
+      - name: "Every `unsafe` site carries a written reason"
+        # `unsafe_code = "deny"` workspace-wide. Every escape hatch must say why,
+        # which is what makes the remaining `unsafe` reviewable.
+        run: |
+          python3 scripts/unsafe-audit.py .
+
+      - name: Third-party licence notices are present
+        # U8g2 is BSD-2-Clause and its font streams are redistributed verbatim in
+        # crates/cc-display/src/font/data.rs. Clause 3 of the licence requires
+        # the notice to travel with the redistribution.
+        run: |
+          grep -q 'THIRD-PARTY NOTICE' crates/cc-display/src/font/data.rs
+          test -f docs/THIRD_PARTY_LICENSES.md
+          echo "ok: U8g2 notice present in data.rs and in docs/THIRD_PARTY_LICENSES.md"

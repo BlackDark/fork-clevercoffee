@@ -1,0 +1,47 @@
+[package]
+name = "cc-web"
+description = "The HTTP/MQTT application tier as pure functions of a Config and a snapshot."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+cc-domain.workspace = true
+cc-config.workspace = true
+# `http_auth` lives in `cc-protocol` since the vocabulary split; it is the
+# HTTP Basic-auth policy (`cc-web` owns the auth *middleware*, `cc-protocol`
+# owns the header parsing and the constant-time compare).
+cc-protocol.workspace = true
+# Two dependencies beyond the two workspace crates, both of which were already
+# in the graph, so neither adds a download to any build:
+#
+# * `heapless` for `Telemetry::ip`. The field is a `heapless::String<15>` and
+#   must stay one: it is what makes `cc_hal_esp32::web::Snapshot::get`'s copy a
+#   `memcpy` of at most 16 bytes with no allocator traffic, which is the whole
+#   argument that a reader's `clone()` cannot be a use-after-free (see that
+#   type). `cc-machine` already depends on this exact crate for the same reason
+#   (`Effect` is a `heapless::Vec`), so this is not a new edge in the graph.
+# * `log` for the one line `Auth::from_config` warns on when authentication is
+#   enabled with no credentials -- a condition the C++ logs and serves around
+#   (`WebServerManager.cpp:283-294`), and one an operator has to be able to
+#   see. `default-features = false` keeps this crate `no_std`.
+heapless.workspace = true
+log.workspace = true
+
+[dev-dependencies]
+# `serde_json` is already in the graph under `cc-config`; these tests parse the
+# payloads they assert on, which is the only way to check a JSON document's
+# shape without pinning its bytes (the C++'s key ORDER is not the contract --
+# its key SET is). `std` is re-enabled under `cfg(test)` for the parser.
+serde_json = { workspace = true, features = ["std"] }
+# `http_auth::tests_support::encode` lives in `cc-protocol` under
+# `#[cfg(any(test, feature = "device-tests"))]`, and `cfg(test)` here applies to
+# this crate's build, not to `cc-protocol`'s. Without the feature the
+# authentication tests would have to state transcribed base64 blobs, which is
+# how a test stops testing what it thinks it tests.
+cc-protocol = { workspace = true, features = ["device-tests"] }
+
+[lints]
+workspace = true

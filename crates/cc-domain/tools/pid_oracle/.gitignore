@@ -1,0 +1,2 @@
+# The compiled oracle. Regenerate with ./run.sh; never commit a binary.
+pid_oracle

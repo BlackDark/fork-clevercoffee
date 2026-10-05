@@ -1,0 +1,69 @@
+# S5' — the steam valve, which the C++ has no whitelist for at all.
+name: steam_on_off
+title: A steam session turns steam mode on, and the steam valve stays shut and is closed every loop
+mode: dry_run
+covers: [S5]
+
+why: >
+  09 §2. The C++'s `openSteamValve()` checks only `emergencyMode_`
+  (`HardwareManager.cpp:397-400`); there is no `steamSafetyShutdownCheck`
+  anywhere in the tree, and `rg openSteamValve` finds the definition, the
+  pass-through, the interface declaration and nothing else. So the C++ is safe
+  only by the accident that nothing calls it.
+
+  It is a real gap rather than a theoretical one, because the steam valve and
+  the water valve are **the same physical relay** — `ValveState.h:8-11` says so,
+  and the pin map agrees (GPIO17, `pinmapping.h:39`). An ungated
+  `openSteamValve()` is an ungated *water* valve.
+
+  ## What the reducer does with the steam valve, and what it does not
+
+  **`OpenSteamValve` is never emitted.** The steam valve is a physical solenoid
+  the machine cannot open by itself — the operator's steam wand is what pushes
+  water through it — so no state asks for it. The port keeps the effect because
+  the state machine has to be able to say it, and adds two things around it:
+
+  * `CloseSteamValve` in the reducer's tail, on **every loop** outside
+    `STEAM_RUNNING`. This is `steamValveSafetyShutdownCheck`, the mirror of S5's
+    `valveSafetyShutdownCheck`, and the C++ does not have it. It is why the
+    scenario asserts the *close* count rather than an open.
+  * `may_open_steam` in the verdict, refusing the actuator call outside
+    `STEAM_RUNNING`.
+
+  So the assertion that makes the whitelist observable is
+  `CloseSteamValve` being emitted once per loop, and the machine ending with the
+  valve shut. Asserting an open here would be asserting something the firmware
+  never does — and it is worth a scenario saying so, because "the steam valve
+  is never opened" is the fact the shared-relay argument rests on.
+
+  The steam switch's registered default type is **TOGGLE**
+  (`hardware.switches.steam.type`, `Config.h`), so a press starts the session
+  and a release is not a stop request. The stop here is the `STEAM_STOP`
+  request, which is what `/api/steam` toggling off and an MQTT `off` both set.
+
+config:
+  set:
+    pid.enabled: true
+    steam.setpoint: 130.0
+    hardware.switches.steam.enabled: true
+    hardware.sensors.watertank.enabled: true
+
+duration_ms: 6000
+stimuli:
+  - { at_ms: 0,    kind: button, switch: steam, action: press }
+  - { at_ms: 1000, kind: mqtt, command: STEAM_STOP }
+
+capture:
+  state_transitions: true
+  effects: true
+
+assert:
+  - { kind: visited_states, value: [STEAM_RUNNING, PID_NORMAL] }
+  - { kind: final_state, value: PID_NORMAL }
+  # Steam mode is on for the session and off after it.
+  - { kind: always, effect: SetSteamMode }
+  # The whitelist, in the direction it actually acts: the valve is closed on
+  # every loop outside STEAM_RUNNING. This is the S5' fail-safe the C++ lacks.
+  - { kind: always, effect: CloseSteamValve }
+  - { kind: never, effect: OpenSteamValve, after_ms: 0 }
+  - { kind: no_fluid_flow }

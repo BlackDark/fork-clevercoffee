@@ -1,0 +1,52 @@
+# S5/S11 — aborting before the water ever moves.
+name: brew_aborted_mid_preinfusion
+title: Releasing the brew switch during pre-infusion leaves the pump and valve off
+mode: dry_run
+covers: [S5, S11]
+
+duration_ms: 10000
+
+why: >
+  `BrewHandler::processSwitchInput` (`BrewHandler.h:165-252`) sets
+  `requestBrewStop_` on the release, and `BaseState::checkBrewStopRequest`
+  (`BaseState.h:103-111`) consumes it *before* the state-specific rules. The
+  request is therefore honoured from `BREW_PREINFUSION` exactly as it is from
+  `BREW_RUNNING`.
+
+  S11 is the other half: `PID_DISABLED` drains the action requests it cannot
+  act on, and `BREW_FINISHED`'s entry does the same, so a stop request that
+  arrives while the machine is between states is discarded rather than
+  re-triggering the abort on the next loop.
+
+config:
+  set:
+    pid.enabled: true
+    brew.mode: 1                       # Automatic
+    brew.pre_infusion.enabled: true
+    brew.pre_infusion.time: 6.0
+    brew.pre_infusion.pause: 2.0
+    brew.by_time.enabled: false        # a manual brew, so the switch ends it
+    hardware.switches.brew.enabled: true
+    hardware.sensors.watertank.enabled: true
+
+stimuli:
+  - { at_ms: 0,   kind: button, switch: brew, action: press }
+  - { at_ms: 100, kind: sensor, temperature_c: 95.0, water_tank_full: true }
+  # Released while still in BREW_PREINFUSION (6 s of pre-infusion).
+  - { at_ms: 2000, kind: button, switch: brew, action: release }
+
+capture:
+  state_transitions: true
+  effects: true
+
+assert:
+  - { kind: visited_states, value: [BREW_PREINFUSION, PID_NORMAL] }
+  - { kind: not_visited, value: [BREW_RUNNING, BREW_FINISHED] }
+  - { kind: final_state, value: PID_NORMAL }
+  # From 2010, one loop after the release — see the note in
+  # `brew_aborted_mid_flow`. The release sets the flag; the transition happens
+  # on the next `checkTransitions`; `BrewPreinfusionState::update` re-asserts the
+  # pump in the loop before that.
+  - { kind: never, effect: EnablePump, after_ms: 2010 }
+  - { kind: never, effect: OpenWaterValve, after_ms: 2010 }
+  - { kind: actuator_safe }

@@ -7,9 +7,19 @@ on:
     paths:
       - "ui/**"
       - ".github/workflows/frontend.yml"
+  # BARE, with no `branches:` filter.
+  #
+  # This used to say `branches: [main]`, and PR #96 targets `rewrite/rust`,
+  # so the C++ firmware build, the C++ native tests and the clang-format
+  # check never ran on it -- while rust.yml's own header claimed they did.
+  # Enumerating branches is the bug: a new long-lived branch needs a second
+  # edit here, and forgetting it re-opens the hole silently. A bare filter
+  # is correct by construction and needs no maintenance.
+  #
+  # The cost is C++ CI on PRs that do not touch C++. That is bounded and it
+  # runs in parallel with everything else, so it does not reach anyone's
+  # wall clock.
   pull_request:
-    branches:
-      - main
     paths:
       - "ui/**"
       - ".github/workflows/frontend.yml"
@@ -24,11 +34,18 @@ permissions:
 jobs:
   frontend:
     runs-on: ubuntu-latest
+    # pnpm install/lint/tsc/test/build; measured 25 s.
+    timeout-minutes: 20
     defaults:
       run:
         shell: bash
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # zizmor: the checkout token is written to .git/config and is then
+          # readable by anything that runs in this job. Nothing here pushes,
+          # tags or creates releases, so it does not need to persist.
+          persist-credentials: false
 
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
         with:

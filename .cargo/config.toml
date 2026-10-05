@@ -1,0 +1,69 @@
+# CleverCoffee — Rust workspace cargo configuration.
+#
+# Keep the build knobs here in sync with the `justfile` module-level variables
+# (05 §4) and the `firmware` CI job env (05 §6). `just doctor` asserts them.
+
+[build]
+# NO `target = ...` HERE, ON PURPOSE. It used to pin every cargo invocation in
+# the repository to `xtensa-esp32-espidf`, which meant:
+#
+#   * `cargo check -p cc-safety` died with `E0463: can't find crate for core`
+#     — the portable crates cannot be built for the chip without the flags the
+#     device recipes pass;
+#   * rust-analyzer, `cargo test`, `cargo clippy` and every editor integration
+#     aimed at a target that will not link on a development machine;
+#   * the justfile grew a DEVIATION D1 section whose whole content was "we have
+#     to pass `--target` explicitly to work around this file", and a
+#     `CC_HOST_TARGET` env var whose default was one contributor's laptop.
+#
+# Every device recipe already passes `--target {{tgt_esp32}}` explicitly
+# (`just -n build-esp32` prints it), so nothing needed this. Removing it is what
+# makes bare `cargo` mean "the host", which is what a reader expects.
+#
+# `rustflags` stays: it is the one thing a recipe would have to repeat, and
+# getting it wrong silently selects 32-bit `time_t`.
+#
+# Keep `espidf_time64` in step with the `RUSTFLAGS` export in the justfile.
+rustflags = ["--cfg", "espidf_time64"]
+
+# The ESP-IDF link must go through `ldproxy`, which wraps the Xtensa `ld` and
+# resolves the `--defsym`/`-T` script gymnastics of the ESP-IDF linker setup.
+# `esp-idf-sys` emits `--ldproxy-linker`/`--ldproxy-cwd` as link args, so if the
+# linker is the bare `xtensa-esp32-elf-gcc` the link dies with
+# "unrecognized command-line option '--ldproxy-linker'".
+# embuild detects this via `$RUSTC_LINKER` and only warns if it is missing, so
+# the failure surfaces late. Scoped to the device triple: the host crates must
+# still link with the system linker.
+[target.xtensa-esp32-espidf]
+linker = "ldproxy"
+
+[unstable]
+# NO `build-std` HERE, ON PURPOSE. It applied to every cargo invocation,
+# including the host ones, so `just test` rebuilt all of `std` from source on
+# every cold cache — 9 `rustc_std_workspace` rlibs and 258 MB for a single
+# `cargo test -p cc-safety`, and 1.5 GB for the full host suite. Every device
+# recipe already passes `-Zbuild-std=std,panic_abort` on the command line, so
+# nothing needed it here.
+# NOTE: this key is the ONLY remaining `[unstable]` key, and it is the only one
+# that has no command-line equivalent. The old comment above claimed the section
+# was "ignored with a warning" on a stable cargo; that was wrong — `cargo` 1.99
+# stable ignores `[unstable]` **silently**, so a developer on stable got a
+# quietly wrong build instead of a diagnostic. (Verified with
+# `RUSTUP_TOOLCHAIN=stable cargo tree -p cc-safety`: exit 0, no stderr.)
+#
+# std's `backtrace-trace-only` feature (upstream, "For use with -Zbuild-std").
+# Cargo's build-std turns std's `backtrace` feature on by default, which makes
+# the panic hook link the whole `addr2line`/`object` DWARF reader (gimli) so it
+# can turn frame addresses into symbol names. The app image carries only its
+# 256-byte descriptor, not a symbol table, so on the device that can only ever
+# produce addresses. `backtrace-trace-only` makes
+# `std::sys::backtrace::_print_fmt` walk the frames and print the raw PCs
+# instead, which drops addr2line/object/miniz_oxide from the link. The PCs are
+# resolved host-side with `just diag-addr2line`. 07-image-size-budget.md §9.
+build-std-features = ["std/backtrace-trace-only"]
+
+[idf]
+# Relative to the workspace root. Deliberately NOT copied from the upstream
+# esp-idf repo's partitions.csv, and deliberately NOT the C++
+# partitions_4M.csv (which is 0x1A0000 per slot and would not hold a Rust image).
+partition_table = "rust/partitions_4M.csv"

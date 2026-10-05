@@ -42,3 +42,14 @@ Each state that requires active hardware (pump, valve) **must**:
 - Adding a new water-flow state requires updating `valveSafetyShutdownCheck()` whitelist AND the `BaseState` constexpr exclusion list.
 - Every state's hardware contract is explicit in its entry/exit/update methods — no implicit "the loop handles it" assumptions.
 - Defense-in-depth: multiple layers ensure hardware safety even if one layer has a bug.
+
+---
+
+## Related
+
+- [ADR-0004: Rust Migration — Platform and Concurrency Architecture](../archive/migration/03-decision-record.md)
+  — carries this contract forward into the Rust port. `water_flow_allowed` becomes a
+  `match` with no wildcard arm, so the "adding a new water-flow state" hazard above
+  becomes a compile error rather than a review item.
+- [Rust migration — target architecture](../rust-migration/04-target-architecture.md)
+  — §4 (startup/shutdown/fail-safe) and §7 (component ownership).

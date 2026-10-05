@@ -1,0 +1,215 @@
+# CleverCoffee — Rust firmware workspace.
+#
+# The workspace is at the REPOSITORY ROOT (04 §6), not in a subdirectory: the
+# justfile, scripts/ and ui/ already live here and a subdirectory would put the
+# recipes' relative paths in the wrong place.
+#
+# Crate roles:
+#   cc-domain, cc-protocol, cc-netpolicy, cc-safety, cc-machine, cc-display,
+#   cc-config, cc-web, cc-mqtt
+#   portable,
+#       no_std, host-testable, MUST NOT name esp_idf_{svc,hal,sys} (CI grep,
+#       05 §6)
+#   cc-hal-esp32, cc-firmware                                  device-only;
+#       they do not compile for a host target and are therefore NOT in
+#       `default-members`.
+
+[workspace]
+resolver = "2"
+members = [
+    "crates/cc-domain",
+    "crates/cc-protocol",
+    "crates/cc-netpolicy",
+    "crates/cc-safety",
+    "crates/cc-config",
+    "crates/cc-machine",
+    "crates/cc-display",
+    "crates/cc-web",
+    "crates/cc-mqtt",
+    "crates/cc-hal-esp32",
+    "crates/cc-firmware",
+    # DEVICE-ONLY TOOL, deliberately outside `default-members`: the on-target
+    # unit test runner (`just test-esp32`). It exists because `cc-hal-esp32`
+    # cannot be tested by `cargo test` -- it names `esp_idf_hal` -- so its
+    # `#[test]` functions were type-checked and never run. Not in `host_crates`
+    # for the same reason `cc-firmware` is not: it does not compile for a host
+    # target. It is NEVER flashed as the firmware.
+    "crates/cc-device-tests",
+    # HOST-ONLY TOOL, deliberately outside `default-members`. This is the
+    # `just parity` runner: it drives `cc-machine`'s reducer in process on the
+    # build machine with a recording `Actuators` standing in for the GPIO. It is
+    # a `std` crate that no device crate depends on, so it can never reach a
+    # pin, and it is not in `host_crates` because `just test` is the firmware's
+    # test suite, not the harness's. Test it with `cargo test -p cc-parity`.
+    "crates/cc-parity",
+]
+# `cargo test` / `cargo clippy` with no `-p` must not try to build the device
+# crates on the host (05 §4, 04 §6 "What compiles and tests on the host").
+default-members = [
+    "crates/cc-domain",
+    "crates/cc-protocol",
+    "crates/cc-netpolicy",
+    "crates/cc-safety",
+    "crates/cc-config",
+    "crates/cc-machine",
+    "crates/cc-display",
+    "crates/cc-web",
+    "crates/cc-mqtt",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/rbvsystems/CleverCoffee"
+
+[workspace.dependencies]
+# Portable crates. No esp-idf anywhere in this group — enforced by CI.
+cc-domain = { path = "crates/cc-domain" }
+# Device protocols as pure state machines over bytes (finding 4.4). Split out of
+# `cc-domain` with `sensor`, `abp2`, `http_auth` and `provisioning`; it names
+# `cc-domain` only for `units`.
+cc-protocol = { path = "crates/cc-protocol" }
+# Link, publish and retry policy (finding 4.4): `wifi`, `mqtt`, `resilience`,
+# `history`. NO dependencies at all -- see `crates/cc-netpolicy/src/lib.rs`.
+cc-netpolicy = { path = "crates/cc-netpolicy" }
+cc-safety = { path = "crates/cc-safety" }
+cc-machine = { path = "crates/cc-machine" }
+cc-display = { path = "crates/cc-display" }
+cc-config = { path = "crates/cc-config" }
+# The HTTP application tier (finding 4.1). `no_std + alloc`, `cc-domain` and
+# `cc-config` only, so `just test` reaches the `*_json` renderers and
+# `classify_parameters` that were previously testable only by flashing a board.
+cc-web = { path = "crates/cc-web" }
+# The MQTT topic layout and registry (finding 4.1b). `no_std + alloc`,
+# `cc-domain` and `cc-config` only, so `just test` reaches the 32-parameter,
+# 13-sensor registration that was previously testable only by flashing a board.
+cc-mqtt = { path = "crates/cc-mqtt" }
+
+# Device crates.
+cc-hal-esp32 = { path = "crates/cc-hal-esp32" }
+# `cc-provisioning` (the SoftAP captive portal, 05 §5) is NOT a workspace member.
+# It was a 17-line `#![no_std]` skeleton with zero users that every device build
+# still had to resolve a dependency graph for. The crate is deleted; the design
+# and its three rules survive in `docs/archive/migration/05-tooling-and-workflows.md`
+# §5, and it returns at R4-11 with code rather than as a placeholder.
+
+# `cc-config` is the only portable crate with third-party dependencies: serde for
+# the configuration value's Serialize/Deserialize, and serde_json for the nested
+# JSON blob. Both are pulled in already by esp-idf-svc, so this adds no new
+# download to the device build. `default-features = false` + `alloc` keeps
+# cc-config no_std (04 §1); the `std` feature is re-enabled under `cfg(test)` for
+# `serde_json::to_string_pretty` in the round-trip tests.
+serde = { version = "1.0", default-features = false, features = ["derive", "alloc"] }
+serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
+
+# ESP-IDF. Exact pins, per 06 R1-01 step 3.
+esp-idf-svc = "=0.53.0"
+esp-idf-hal = "=0.47.0"
+esp-idf-sys = "=0.38.1"
+# `log` output is routed to UART0 by esp-idf-svc's own logger when its `log`
+# feature is on, so no extra logger crate is needed.
+# Already a transitive dependency of `esp-idf-svc`; named directly because
+# `cc-hal-esp32` constructs `heapless::String`s for the `embedded-svc` Wi-Fi
+# configuration types. No new download.
+heapless = { version = "0.9", default-features = false, features = ["alloc"] }
+log = { version = "0.4", default-features = false }
+
+# The OLED stack (R3-09). Two crates, one version line between them: `ssd1306`
+# is re-exported through `display_interface`, so naming the transport's own
+# error and data types is naming a crate that is already in the graph the
+# moment `ssd1306` is -- no second download, no second copy.
+#
+# `default-features = false` drops `ssd1306`'s `graphics` feature, and with it
+# `embedded-graphics-core`. That feature only gates `DrawTarget` on
+# `BufferedGraphicsMode`, and this driver uses `BasicMode` and feeds it
+# `cc-display`'s own framebuffer, so the whole drawing stack would be linked,
+# uncalled, for nothing. The `async` feature is off for the same reason: the
+# firmware's I2C is the blocking `embedded-hal 1.0` one that `esp-idf-hal`
+# 0.47.0 implements.
+ssd1306 = { version = "0.10.0", default-features = false }
+display-interface = "0.5.0"
+
+# Test-only. `cc-hal-esp32`'s unit tests build a fake `embedded_io::Read` for the
+# telnet pump and parse its own JSON response bodies; neither is needed by the
+# shipped library, so both live in `[dev-dependencies]`. Both are already in the
+# tree — `embedded-io` under `esp-idf-hal` (pinned to the same 0.7.1 the
+# `Read`/`ErrorType` traits come from, so the fake reader implements *that*
+# trait, not a second copy of it), and `serde_json` under `cc-config`. Neither
+# adds a download to the device build; `[dev-dependencies]` are not linked into
+# `cargo build --release`.
+embedded-io = "0.7.1"
+
+# The `esp` toolchain is a nightly fork, so the device build runs on the
+# unstable channel's lints. `-D clippy::pedantic` is declared HERE and nowhere
+# else (04 §1.7, skill rule 8): passing it on the command line as well
+# double-flags and hides the real config.
+
+[workspace.lints.rust]
+missing_docs = "warn"
+unsafe_code = "deny"
+
+# 🔴 WHY THIS IS `allow`, NOT `deny`
+#
+# `unknown_lints` is warn-by-default, and every lint recipe in this repo runs
+# clippy with `-D warnings`, which promotes it to an error. So a single
+# suppression naming a lint that the toolchain in use has never heard of takes
+# the whole build down:
+#
+#     error: unknown lint: `clippy::assert_is_empty`
+#        = note: `-D unknown-lints` implied by `-D warnings`
+#
+# This repository runs clippy on TWO generations at once by design: `rust.yml`'s
+# host job on whatever `stable` the runner image pinned, and the device job on
+# the Espressif `esp` fork (1.97). A lint added to clippy after an older channel
+# was cut therefore breaks the NEWER channel's build -- which is exactly what
+# happened in PR #96, where `clippy::assert_is_empty` (clippy 1.99) was unknown
+# to the runner's stable.
+#
+# The cost of allowing it is that a typo in a suppression would go unnoticed.
+# `scripts/lint-names.py` closes that hole, and it is a CI step: every lint
+# named in an `allow`/`expect` must exist on AT LEAST ONE supported channel, and
+# the report names the ones that exist on only one. A typo exists on neither and
+# fails the build.
+unknown_lints = "allow"
+# `esp-idf-sys` 0.38 emits ~1300 `esp_idf_*` cfgs from the ESP-IDF kconfig
+# (`cargo:rustc-cfg=...`, `esp-idf-sys/build/common.rs:239`) but cannot emit
+# `rustc-check-cfg` for them, so every use of one is an `unexpected_cfgs`
+# warning. The three we use are declared here; R1-03 etc. must add theirs in the
+# same place. Without this, `-D warnings` on the device target is unachievable.
+unexpected_cfgs = { level = "warn", check-cfg = [
+    "cfg(esp_idf_version_at_least_5_1_0)",
+    "cfg(esp_idf_version_at_least_5_5_0)",
+    "cfg(esp_idf_version_at_least_6_0_0)",
+] }
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+
+[profile.release]
+opt-level = "s"     # size is the binding constraint (07); debug info off below
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+overflow-checks = true
+
+# DIAGNOSTIC ONLY -- never shipped, never measured by `just size`.
+#
+# `just build-esp32` strips the release ELF (`strip = "symbols"`), so a panic
+# backtrace from a release image resolves to nothing: every frame comes back
+# `??`. This profile is byte-for-byte the same codegen as release -- same
+# `opt-level`, same `lto = "fat"`, same `codegen-units = 1`, same
+# `panic = "abort"`, same `overflow-checks` -- with the symbol table kept and
+# DWARF level 2 emitted, so `addr2line -pfiaC` can name the frames.
+#
+# It exists so a release-only panic can still be diagnosed; it is NOT a
+# substitute for release. `debug = 2` costs flash and the device build is
+# size-constrained (07), so nothing outside `just diag-build` / `just
+# diag-flash` / `just diag-addr2line` may use it.
+[profile.diagnostic]
+inherits = "release"
+strip = "none"
+debug = 2
