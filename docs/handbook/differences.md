@@ -2,8 +2,9 @@
 
 **One page. Every behavioural difference between this firmware and the C++ it replaces.**
 
-The C++ in `src/` + `include/` is the parity oracle and the definition of feature scope. It is never
-modified and never flashed. This document is the **index** of where the Rust port departs from it.
+The C++ firmware this replaces was the parity oracle and the definition of feature scope. It has
+been deleted; it is recoverable at `git show 9fa8c834:<path>`. This document is the
+**index** of where the Rust port departed from it.
 
 [`intentional-diffs.md`](../rust-migration/intentional-diffs.md) is the **detail**: each entry there has the C++'s
 behaviour, the port's, the reasoning, and what pins it. This page is what you read when you want to
