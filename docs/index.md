@@ -64,6 +64,7 @@ rejected.
 | Document | What it is for | Read it if |
 | --- | --- | --- |
 | [`docs/hardware/pins.md`](hardware/pins.md) | The GPIO map, the two traps in it, and what the table is transcribed from. | You are touching a pin, a relay, or a sensor. |
+| [`docs/hardware/bench-setup.md`](hardware/bench-setup.md) | What to attach to a spare ESP32 to test without a machine, and exactly what an LED on a pin does not prove. | You are setting up a bench, or about to claim the water path works. |
 
 **Protocols** — the wire.
 
