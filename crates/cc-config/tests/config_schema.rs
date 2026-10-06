@@ -1102,6 +1102,121 @@ fn an_unknown_key_in_an_upload_is_ignored_as_in_the_cpp() {
     assert_eq!(got, vec![("brew.setpoint", "95.0")]);
 }
 
+// ============================================== the C++ hand-off (config.json)
+
+/// Every key the deleted C++ firmware exported is still a key this schema knows.
+///
+/// **The operator procedure this pins.** Decided 2026-10-06: there is no NVS
+/// migration between the firmwares, and an operator moves their settings by
+/// downloading `config.json` from the C++ UI and uploading it here. That only
+/// works while the key names agree, and nothing else in the suite would notice
+/// a rename — the C++ side is deleted, so there is no counterparty left to fail.
+/// The fixture is the C++'s own key list, recovered from `9fa8c834`; a key
+/// added to or removed from the Rust schema that touches this surface fails
+/// here rather than on a machine.
+#[test]
+fn every_cxx_config_key_is_still_a_key_the_schema_knows() {
+    let fixture = include_str!("fixtures/cxx_config_keys.txt");
+    let known: Vec<&str> = schema::SCHEMA.iter().map(|spec| spec.key).collect();
+
+    let mut missing = Vec::new();
+    for line in fixture.lines() {
+        let key = line.trim();
+        if key.is_empty() || key.starts_with('#') {
+            continue;
+        }
+        if !known.contains(&key) {
+            missing.push(key);
+        }
+    }
+
+    assert!(
+        missing.is_empty(),
+        "the C++ exported these keys and this firmware no longer knows them, so \
+         an operator's config.json would silently lose them: {missing:?}"
+    );
+}
+
+/// A document shaped like the C++'s `exportToJsonObject` output imports whole.
+///
+/// Three properties of that document are the procedure's real dependencies, and
+/// only the first is obvious:
+///
+/// * **The key names are the C++'s dotted names.** Pinned by the test above.
+/// * **Secrets are plaintext.** `Secret` serialises transparently
+///   (`cc-domain/src/secret.rs`), so `mqtt.password` and `system.wifi.password`
+///   arrive as the real credentials — which is what makes the hand-off work, and
+///   what makes the downloaded file something to delete afterwards.
+/// * **It carries keys this firmware does not have.** The C++'s export walks
+///   `getAllConfigParams()` and nothing else, so it is pure parameters; a
+///   document assembled by any other route — or a firmware newer than this one —
+///   also carries keys here that are unknown, and the import must ignore them
+///   rather than reject the whole file.
+#[test]
+fn a_cxx_shaped_config_document_imports_with_its_values() {
+    let document = r#"{
+        "brew": { "setpoint": 94.5, "mode": 1 },
+        "pid": { "regular": { "kp": 62.0 } },
+        "safety": { "emergency_temp": 130.0 },
+        "system": {
+            "wifi": { "ssid": "silvia", "password": "hunter2" },
+            "hostname": "silvia"
+        },
+        "mqtt": { "password": "broker-secret", "port": 1883 },
+        "display": { "language": 1 },
+        "state": { "machine_state": "IDLE", "uptime": 4242 },
+        "computed": { "pid_ki": 0.5 },
+        "legacy": { "a_removed_parameter": true }
+    }"#;
+
+    let parsed = json_import(document).expect("a C++-shaped config.json must import");
+
+    assert!((parsed.brew.setpoint - 94.5).abs() < 1e-9);
+    assert!((parsed.pid.regular.kp - 62.0).abs() < 1e-9);
+    assert!((parsed.safety.emergency_temp - 130.0).abs() < 1e-9);
+    assert_eq!(
+        parsed.display.language,
+        cc_domain::system::Language::German,
+        "an enum is carried as a plain integer by the C++ (Config.h:423), so \
+         `1` must still mean German here"
+    );
+    assert_eq!(
+        parsed.mqtt.password.expose(),
+        "broker-secret",
+        "a credential must survive the hand-off, or the operator retypes their \
+         broker password for nothing"
+    );
+    assert_eq!(
+        parsed.system.wifi.ssid, "silvia",
+        "the SSID is the one value whose loss is actually felt — see \
+         divergences.md §32"
+    );
+    // The unknown keys are the point of the third property: `state`,
+    // `computed` and `legacy` are in the document and none of them is a key.
+    assert_eq!(parsed.system.hostname, "silvia");
+}
+
+#[test]
+fn a_cxx_shaped_config_document_yields_only_the_keys_this_schema_has() {
+    // The same document, checked through the *upload* path rather than
+    // `json_import`, because that is the one the operator's browser takes and
+    // it is the one that hands pairs to the control task. Every pair must be a
+    // key the single writer accepts, and the unknown sections must leave
+    // nothing behind.
+    let got = pairs(
+        r#"{
+            "brew": { "setpoint": 94.5 },
+            "system": { "auth": { "password": "hunter2" } },
+            "state": { "machine_state": "IDLE" },
+            "legacy": { "a_removed_parameter": true }
+        }"#,
+    );
+    let mut got_keys: Vec<&str> = got.iter().map(|(k, _)| *k).collect();
+    got_keys.sort_unstable();
+
+    assert_eq!(got_keys, vec!["brew.setpoint", "system.auth.password"]);
+}
+
 #[test]
 fn a_credential_in_an_upload_is_carried_as_a_pair_and_nothing_else() {
     // The upload path carries credentials in a heap `Vec<(String, String)>`,

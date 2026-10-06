@@ -899,3 +899,54 @@ measurement and the two traps that produced wrong numbers on the way are in
 To narrow it further, split the applier span into `apply` / `drain_scale` / the
 reboot checks and read the same line. Do **not** attribute it without a
 measurement: "the applier is slow" is not a finding, "the applier is 12 ms" is.
+
+---
+
+## 12. Moving configuration off the C++ firmware
+
+**Decided 2026-10-06 by Eduard Marbach.** The two firmwares use different NVS
+namespaces — `config` (`9fa8c834:include/clevercoffee/defaults.h:13`) against
+this port's `cc` — so nothing is lost and nothing is deleted: the old settings are
+still on the chip, unread. There is deliberately **no migration**; the reasoning is
+in [`../history/divergences.md` §32](../history/divergences.md#d32).
+
+The operator's path is the one both UIs already have: **download `config.json`
+from the C++ firmware's web UI, upload it to this firmware's web UI.** It works
+because the export and import key names are the C++'s own dotted names
+(`cc-config/src/json.rs`, module documentation), and the C++'s export walks
+`getAllConfigParams()` and nothing else, so the document is pure parameters.
+`every_cxx_config_key_is_still_a_key_the_schema_knows` pins that; if a key is
+renamed, that test fails here rather than on a machine.
+
+- [ ] **On the machine still running the C++** (it answers to `silvia`, not
+      `test-cc-rust`): *System* → *Download configuration* → `config.json`.
+
+- [ ] ⚠️ **The file contains your Wi-Fi and MQTT passwords in cleartext.**
+      `Secret` serialises transparently — the machine has to be able to *use*
+      the credential — so this is not redacted on the way out, and the C++
+      behaved the same way. Treat it like a password file: keep it off shared
+      storage, and delete it once the upload has succeeded.
+
+- [ ] **Flash this firmware, provision the network** (§"Wi-Fi: four checks")
+      if you have not already, because the machine comes up on no network at
+      all with an empty `cc` namespace.
+
+- [ ] **On this firmware:** *System* → *Upload configuration* → the file.
+      Expect `{"success":true,...,"restart":true}` and let it restart.
+
+- [ ] **Verify a value that is not the default, not one that is:**
+
+      ```
+      jq '.brew.setpoint, .safety.emergency_temp' /tmp/config.json
+      curl -s 'http://test-cc-rust.lan/api/parameters?filter=all' \
+        | jq '.[]|select(.name=="brew.setpoint")'
+      ```
+
+- [ ] **A `400` names the offending keys** and nothing is applied — the import is
+      all-or-nothing, deliberately stricter than the C++'s, which logged a warning
+      per bad parameter and answered `200` if one had imported (§14 above). An
+      out-of-range value in a document downloaded years ago will land here.
+
+- [ ] **Keys this firmware has and the C++ did not** (`pid.enabled`,
+      `system.offline_mode`, `hardware.oled.enabled` and 28 more — 98 against 96)
+      are absent from the file and come up at their compiled-in defaults.
