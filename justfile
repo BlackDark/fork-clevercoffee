@@ -703,14 +703,30 @@ identify port:
 # ever since ("'build-std' not configured"). So the image is built by the
 # `build-*` recipe, which can pass the flag, and flashed from its ELF here.
 #
-# D3 still holds: the app image does not contain the partition table. `espflash`
-# reads `rust/partitions_4M.csv` out of the ESP-IDF metadata cargo embeds in the
-# ELF, which is why no `--partition-table` is passed here; the flash log prints
-# the table it used.
+# The partition table is passed explicitly, and that comment used to be a lie.
+#
+# It said: "D3 still holds: the app image does not contain the partition table.
+# `espflash` reads `rust/partitions_4M.csv` out of the ESP-IDF metadata cargo
+# embeds in the ELF, which is why no `--partition-table` is passed here." Neither
+# half is true of esp-idf-sys 0.38.1. Its README says a custom `partitions.csv`
+# is *not* consumed by the build — "the build would not use your custom
+# partitions - nor does it need to" — and that flashing must pass
+# `espflash flash [...] --partition-table partitions.csv`. The build emits the
+# ESP-IDF default table (`partition-table.bin` in the target dir, verified with
+# `gen_esp32part.py`), and the ELF carries no table metadata.
+#
+# So every `just flash` left the device's *previous* table in place. Measured on
+# a bench ESP32 (2026-10-06): the chip booted with `nvs 0x6000 / phy_init /
+# factory 0x10000+0x3f0000` -- one app slot, no app0/app1, no littlefs -- which
+# is why `POST /api/ota/firmware` answered 500 and `esp_ota_get_next_update_partition()`
+# returned NULL. With `--partition-table` the same flash reports
+# `App/part. size: 1,701,296/1,835,008` instead of `/4,128,768`, and the device
+# boots `app0`/`app1`/`littlefs`/`coredump` from `rust/partitions_4M.csv`.
 [script]
 flash-elf port elf:
     [ -f {{elf}} ] || { echo "no {{elf}} -- build it first"; exit 1; }
-    espflash flash --port {{port}} --chip {{mcu_esp32}} {{elf}}
+    espflash flash --port {{port}} --chip {{mcu_esp32}} \
+      --partition-table rust/partitions_4M.csv {{elf}}
 
 # Flash the production target. PORT is positional and REQUIRED — a bare
 # `just flash` fails with a usage message rather than guessing a device.
