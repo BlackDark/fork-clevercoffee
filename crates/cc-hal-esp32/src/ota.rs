@@ -338,19 +338,30 @@ impl Writer {
     /// For a **firmware** session this is the whole power-cut story, and it is
     /// worth stating exactly what was and was not verified:
     ///
-    /// * `esp_ota_end` validates the written image (magic byte, segment headers
-    ///   and, when enabled, the SHA-256 of the whole image) and only then calls
-    ///   `esp_ota_set_boot_partition`, which writes the `otadata` sector
-    ///   (`esp_ota_ops.c:60-95`, `esp_ota_ops.h:205-219`). **Verified by reading
-    ///   ESP-IDF v5.5.5's `esp_ota_ops.c`, not on hardware.**
+    /// * `esp_ota_end` validates the written image (magic byte, segment
+    ///   headers and, when enabled, the SHA-256 of the whole image) — and
+    ///   **that is all it does**. It does *not* select the new slot.
+    ///   `esp_ota_end` is `ota_verify_partition` and cleanup
+    ///   (`esp_ota_ops.c:477-524`); the only writer of `otadata` on the write
+    ///   path is `esp_ota_set_boot_partition` (`:599`). This module never calls
+    ///   it, and `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE` is not set in this
+    ///   build, so nothing else switches the slot either.
+    ///   **Measured on a bench ESP32, 2026-10-06:** an upload answers
+    ///   `200 {"success":true,...,"restart":true}`, the device reboots, and the
+    ///   bootloader logs `Loaded app from partition at offset 0x10000` — `app0`,
+    ///   the slot it was already running from. The image in `app1` is complete
+    ///   and validated, and is not booted. **An OTA through this route does not
+    ///   take effect**, and the fix is one call —
+    ///   `esp_ota_set_boot_partition(partition)` after a successful
+    ///   `esp_ota_end` — deliberately not made here, because with no rollback a
+    ///   bad image in the selected slot is only recoverable over USB.
     /// * Therefore: a power cut **before** `esp_ota_end` leaves `otadata`
     ///   pointing at the slot the machine booted from, and it boots that slot
-    ///   again. A power cut **during** `esp_ota_end`'s `otadata` write leaves the
-    ///   `otadata` sector CRC-invalid, and the bootloader then falls back to the
-    ///   factory app (`esp_ota_ops.c` / the bootloader's `esp_image_verify` path).
-    ///   **This fallback was NOT verified** — it depends on the bootloader binary
-    ///   flashed alongside this firmware, which was not inspected.
-    /// * A power cut **after** `esp_ota_end` means the new image is selected and
+    ///   again. A power cut **during** `esp_ota_end` leaves the `app1` image
+    ///   half-written and `otadata` untouched, so the device still boots the
+    ///   slot it came from.
+    /// * Once the slot is switched (see the first bullet — it is not switched
+    ///   today), a power cut after that point means the new image is selected and
     ///   is a complete, validated image. There is no rollback: `CONFIG_
     ///   BOOTLOADER_APP_ROLLBACK_ENABLE` is **not set** in this build's
     ///   `sdkconfig` (checked: no `BOOTLOADER_APP_ROLLBACK` line at all), so
