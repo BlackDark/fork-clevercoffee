@@ -6,8 +6,7 @@
   "type": "module",
   "scripts": {
     "start": "tsx server.ts",
-    "dev": "tsx watch server.ts",
-    "test:ota": "node test-ota.js"
+    "dev": "tsx watch server.ts"
   },
   "dependencies": {
     "cors": "^2.8.6",

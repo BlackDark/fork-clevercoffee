@@ -1218,9 +1218,10 @@ pub fn routes() -> Vec<(&'static str, Method)> {
         ("/api/wifi-reset", Method::Post),
         ("/api/factory-reset", Method::Post),
         ("/api/restart", Method::Post),
-        // R3-15 defers OTA. `/api/ota/status` answers a real status document
-        // saying so; the three mutating routes answer `unavailable_json`. A
-        // 404 here would be indistinguishable from a lost feature.
+        // All four OTA routes stay registered. `/api/ota/firmware` and
+        // `/api/ota/filesystem` are implemented (real multipart upload);
+        // `/api/ota/url` is deferred by R3-15 and answers 501. A 404 here would
+        // be indistinguishable from a lost feature.
         ("/api/ota/status", Method::Get),
         ("/api/ota/firmware", Method::Post),
         ("/api/ota/filesystem", Method::Post),

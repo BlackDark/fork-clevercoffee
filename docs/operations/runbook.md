@@ -101,7 +101,8 @@ curl -w "\n%{http_code}\n" -X POST http://<ip>/api/ota/url \
 
 The serial node is `/dev/cu.usbserial-*` on macOS and `/dev/ttyUSB*` on Linux. The device's
 bridge is a **WCH CH340** (`iProduct` = `"USB Serial"`, VID `0x1A86` / PID `0x7523`), not a
-CP210x — `just wifi-provision <port>` and `tools/serial_log.py` take that node verbatim.
+CP210x — `just wifi-provision <port>` and `just mon-headless <port>` take that node
+verbatim.
 
 ### 3a. What a healthy boot log looks like — **the C++ firmware only**
 
@@ -116,7 +117,7 @@ The items above it in this section, and `docs/status.md`, are the runnable
 record for the Rust firmware.
 
 - [ ] *(historical, C++ only — recorded, not re-run)* Capture the first ~30 s of
-      serial output with `python tools/serial_log.py 30 --reset`.
+      serial output with `just mon-headless <port> 30`.
 
 - [ ] The tail of Phase 5 in `SystemInitializer.cpp` appears, in this order. This is the
       whole point of the phase: the ISR context pointer is set **before** the timer is armed,
@@ -170,7 +171,7 @@ record for the Rust firmware.
 To keep the log for later, capture rather than scroll:
 
 ```sh
-/tmp/venv/bin/python tools/serial_log.py 60 --reset > boot.log
+just mon-headless <port> 60 > boot.log
 grep -E 'ERROR|FATAL' boot.log          # anything here is a real clue
 grep -E 'LOOP STATUS|State transition' boot.log
 ```
@@ -297,6 +298,28 @@ ESP-IDF accepts on GPIO34 and silently ignores.
 
 ## 5d. The event stream (`GET /events`)
 
+**The SSE starvation check is a required step, not an optional one.** ESP-IDF's
+httpd runs every handler in ONE task, so an `/events` handler that loops inside
+the handler starves every other request: one live client used to time out 55 of
+60 API calls. `spawn_broadcaster` is the fix — the handler returns and pushes
+from its own task. Nothing in the compiler, the clippy gate or the host tests
+catches a regression here, so this is the only check that does.
+
+```sh
+python3 scripts/sse-starvation-check.py <host>     # exits non-zero on regression
+```
+
+- [ ] One `/events` client held open while `/api/parameters?filter=all` is
+      hammered: **every** API call answers. `AG-REPO-12` requires that
+      particular request to keep working with telnet connected, because it is
+      the heaviest one
+- [ ] The same with a telnet client attached, which is the condition `AG-REPO-12`
+      actually names
+- [ ] Attach to a running board **without resetting it**:
+      `just mon-noreset <port> 60`. `just mon` and `just mon-headless` both
+      pulse DTR/RTS and reboot the chip, which is destructive mid-brew — use
+      `mon-noreset` whenever the machine is doing something
+
 ⚠ **This is the check that catches the two-responses bug**, which is invisible to `curl`
 and obvious to a browser. It must be done at the socket level.
 
@@ -333,16 +356,25 @@ print("bytes:", len(buf))
 PY
 ```
 
-## 5e. OTA (deferred — the routes must still answer)
+## 5e. OTA — three routes implemented, one deferred
 
-OTA is **not implemented** (R3-15). These check that the UI's OTA tab gets an honest
-answer instead of a `404`, which would look like a lost feature.
+`/api/ota/firmware` and `/api/ota/filesystem` **are implemented**: real multipart
+upload, refused while brewing or steaming. `/api/ota/status` answers a real
+status document. Only `/api/ota/url` is deferred (R3-15) and returns `501`.
+
+**The OTA has never been exercised on hardware** — see
+[`../status.md`](../status.md). These checks are about the routes answering
+honestly, not about a successful flash.
 
 - [ ] `GET /api/ota/status` → `200`, with `status`, `progress` and `updateInProgress`
       present (`OtaStatusSchema` requires all three), and `message`/`reason` naming R3-15
 - [ ] `GET /api/ota/status` carries **no** `error` key — "never built" is not "failed"
-- [ ] `POST /api/ota/firmware` → `501` + `{"error":"OTA is not available in this build"}`
-- [ ] The same for `/api/ota/filesystem` and `/api/ota/url`
+- [ ] `POST /api/ota/firmware` with a `.bin` while **idle** → accepted, and
+      `/api/ota/status` moves off `idle`
+- [ ] The same upload while **brewing** → refused, and the device says why
+- [ ] `POST /api/ota/filesystem` with a bad extension → `400`, not `501`
+- [ ] `POST /api/ota/url` → `501` with a JSON body naming R3-15. A `404` would be
+      indistinguishable from a lost feature
 - [ ] The OTA page renders in the browser without a console error
 
 ## 6. Web UI
@@ -805,7 +837,7 @@ checks exist so that the next one costs ten minutes instead of an afternoon.
 1. **What does it think it is connecting to?**
 
    ```
-   /tmp/venv/bin/python tools/serial_log.py 25 --reset | grep 'stored credential'
+   just mon-headless <port> 25 | grep 'stored credential'
    firmware: wifi: stored credential — ssid "Cappuxinno" (10 bytes), password 14 bytes
    ```
 
@@ -817,7 +849,7 @@ checks exist so that the next one costs ten minutes instead of an afternoon.
 2. **Is it the encryption?**
 
    ```
-   /tmp/venv/bin/python tools/serial_log.py 30 --reset | grep authmode
+   just mon-headless <port> 30 | grep authmode
    wifi:authmode threshold failure, ignore!, (recvd, thresh) : (3, 7)
    ```
 

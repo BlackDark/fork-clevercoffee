@@ -56,7 +56,11 @@ page.
   a hardware spec. `scripts/check-doc-links.py` and `scripts/check-divergence-refs.py` now
   also resolve **heading anchors**, not just files: the ledger was renumbered
   twice and 19 of `differences.md`'s 31 `§N` pointers rotted silently while the
-  existence-only check passed. 520 links and 176 anchors, none broken.
+  existence-only check passed. It now also resolves **backticked paths in prose**,
+  which markdown link syntax cannot see — that is how a live skill note went on
+  citing a deleted script with every gate green. 4,241 paths and 136 anchors,
+  none broken. `docs/archive/` and `docs/history/` are excluded from the prose
+  check: their job is to record what was true then (`AG-REPO-29`, `AG-REPO-30`).
 - **The API spec is now checked against the routes.** `scripts/check-openapi.py`
   diffs `docs/api/openapi.yaml` against the `ROUTES` table in
   `cc-hal-esp32/src/web.rs` in both directions and runs in `just check` and CI
