@@ -4,6 +4,17 @@
 owns the wired machine. Re-verify with `git log --oneline -1` and `just gate`
 before trusting a line below.
 
+**The port is closed out as of 2026-10-06.** Five items that were open are now
+settled decisions — the C++ parity baseline, the water-path inhibit, the
+configuration hand-off, the R4-04 procedures and the OTA surface. Each carries
+its own entry below with a date, a named owner, the reasoning and its reversal
+condition; the reasoning is in
+[`history/divergences.md` §35](history/divergences.md#d35), and the four claim
+states this page uses are defined in [`GLOSSARY.md`](../GLOSSARY.md) under
+"How a claim ends". **Closing the port found two hardware defects** — a flash
+path that never wrote the partition table, and an OTA that never boots what it
+wrote. Both are recorded below; the first is fixed, the second is not.
+
 **This is the only page in this repository permitted to claim what works.**
 Everything else states rules ([`AGENTS.md`](../AGENTS.md), via `AG-*` numbers) or
 evidence. A status claim anywhere else is unverified until you have run
@@ -144,9 +155,15 @@ page.
 - **The gate is green.** `just gate`: fmt-check, clippy (host and
   device) with `-D warnings`, rustdoc `-D warnings`, the host suite, the parity
   harness, the device-test audit, the Xtensa release build, and the size budget.
-  **1,701,904 B**, which fits the 1,835,008 B app0 slot with +133,104 B to spare
-  and is **+9.13 %** against `size-baseline.json`, inside the 10 % limit.
+  **1,701,296 B**, which fits the 1,835,008 B app0 slot with +133,712 B to spare
+  and is **+9.09 %** against `size-baseline.json`, inside the 10 % limit.
   Re-measured 2026-10-06 with `just size-check`, which prints both numbers.
+  **The slot this is measured against is now the slot the device has.** Until
+  `08f4312c` (2026-10-06) `just flash` never wrote the partition table, so no
+  device was carrying `rust/partitions_4M.csv` at all — the figure was real
+  arithmetic about a table that was on no chip. It is now true of a flashed
+  device: the board boots `app0 0x10000+0x1C0000` out of the CSV, and the flash
+  log prints `App/part. size: 1,701,296/1,835,008`.
 - **The C++ tree was frozen while the port ran, and then deleted.** It stood
   unchanged from branch point `2006b710` until it was removed on 2026-10-06
   (`a36ebc50`, 248 files). That the deletion is what changed it is checkable:
@@ -165,19 +182,46 @@ page.
 ## What is explicitly NOT done
 
 Accurate as of the date above, and each taken from code or a findings document
-rather than from memory.
+rather than from memory. **The four states are defined in
+[`GLOSSARY.md`](../GLOSSARY.md) under "How a claim ends"** — done, closed by
+decision, residual risk, not started. The close-out decisions of 2026-10-06 are
+[`history/divergences.md` §35](history/divergences.md#d35).
 
-- **There is no C++ parity baseline.** `docs/history/baseline/cpp/` holds
-  only `.gitkeep`, by decision: capturing one means flashing and running the C++,
-  which owns its own control loop on a powered, wired machine. `just parity`
-  reports `BASELINE-MISSING` for all 17 scenarios rather than pretending. See
-  [`baseline/README.md`](./history/baseline/README.md).
+- **An OTA writes the new image and does not boot it. Measured, 2026-10-06,**
+  open defect. On a bench ESP32 carrying the project's partition table,
+  `POST /api/ota/firmware` with a valid image answers `200 {"success":true,
+  "message":"Update successful. Device will restart.","restart":true}`, the
+  device reboots, and the bootloader logs `Loaded app from partition at offset
+  0x10000` — `app0`, the slot it was already running from. Cause, read in
+  ESP-IDF v5.5.5 and then confirmed on the board: `esp_ota_end` validates the
+  image and **does not select the slot** (`esp_ota_ops.c:477-524`); the only
+  writer of `otadata` on the write path is `esp_ota_set_boot_partition`
+  (`:599`), which this firmware never calls, and `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`
+  is unset. **The fix is one call after a successful `esp_ota_end`, and it is
+  deliberately not made**: with no rollback, selecting a bad image makes the
+  device unbootable without USB. Owner: Eduard Marbach.
+- **There is no C++ parity baseline, by decision, permanently.**
+  `docs/history/baseline/cpp/` holds only `.gitkeep`: capturing one means
+  flashing and running the deleted C++ — reconstructible from `9fa8c834`, but
+  only with its PlatformIO build reconstructed too — on a powered, wired
+  machine, while it owns its own control loop. `just parity` reports
+  `BASELINE-MISSING` for all 17 scenarios rather than pretending. **"An
+  intentional difference" in `divergences.md` now means reviewed and reasoned,
+  never measured.** [§35.1](history/divergences.md#d35).
+  See [`baseline/README.md`](./history/baseline/README.md).
 - **`/api/ota/url` answers `501`.** The route is registered and says why:
   `cc-hal-esp32/src/web.rs:1917-1934`. The two upload endpoints and
   `/api/ota/status` **are** implemented and stricter than the C++'s — see
   [`divergences.md` [§31](history/divergences.md#d31)](./history/divergences.md). The URL
   route needs an HTTP client and a second long-lived task, for something a
   browser upload already reaches.
+- **Three of the six R4-04 safety cases cannot be run on a bench.** Written in
+  [`operations/runbook.md` §13](operations/runbook.md), **not run**: the
+  watchdog reboot needs a debug route this port does not have (the oracle's
+  `/debug/hang-supervisor` was not ported), and tank-empty pump *kill* and
+  valve fail-safe need the machine, because they are about a real float switch,
+  a real pump and a real valve de-energised. Owner: Eduard Marbach.
+  [§35.4](history/divergences.md#d35).
 - **There is no bootloader rollback.**
   `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE` is absent from this build's sdkconfig,
   so a new image that boots and misbehaves stays selected. The C++ behaves
@@ -192,9 +236,17 @@ rather than from memory.
   needs a decision. Open in [`history/divergences.md`](history/divergences.md#d12)
   (R3-18); the original task is [`archive/migration/06-migration-task-list.md`](archive/migration/06-migration-task-list.md).
   The HX711 **is** implemented, and no scale is fitted to the board.
-- **The OTA has not been exercised on hardware.** Verified by reading ESP-IDF
-  v5.5.5, not on a board, and the bootloader's fallback-to-factory behaviour on a
-  power cut during the `otadata` write was **not** verified.
+- **The OTA was exercised on hardware on 2026-10-06, and it found two defects.**
+  The upload path works end to end — the safe shutdown, the slot erase, the
+  stream, the 200 — but **`just flash` had never written the partition table**
+  (`esp-idf-sys` 0.38.1 does not consume a custom CSV; the build emitted
+  ESP-IDF's default table), so the first attempt answered `500 Failed to begin
+  update` with `ota: could not open the Firmware slot: ESP_ERR_INVALID_ARG`:
+  `esp_ota_get_next_update_partition()` returns NULL on a table with no second
+  app slot. Fixed by passing `--partition-table` in `flash-elf`; the device then
+  boots `app0`/`app1`/`littlefs`/`coredump` and the upload returns 200. **The
+  second defect is unfixed and is the first bullet in this section**: the slot
+  is written and validated but never selected.
 - **Neither the rotary encoder nor the zero-crossing dimmer is ported.**
   GPIO 4/3/5 and GPIO 18 are declared and unwired in the port. See
   [`hardware/pins.md`](./hardware/pins.md).
@@ -220,6 +272,16 @@ rather than from memory.
   a bench ESP32): `just wifi-provision` stores the credential, the machine
   reboots onto the network and serves the API. What is still unexercised is the
   *migration* — no C++ `config` namespace was present on that board.
+- **The configuration moves by download and re-upload, and the hand-off is
+  pinned by a test rather than assumed.** Decided 2026-10-06: an operator
+  downloads `config.json` from the C++ UI and uploads it here. It works because
+  the export and import key names are the C++'s own dotted names, and
+  `every_cxx_config_key_is_still_a_key_the_schema_knows` holds the C++'s 96
+  keys — recovered from `getAllConfigParams()` at `9fa8c834:src/Config.cpp:438`
+  — and fails on a rename. The procedure is
+  [`operations/runbook.md` §12](operations/runbook.md), and it says plainly
+  that the downloaded file holds the Wi-Fi and MQTT passwords in cleartext.
+  [§35.3](history/divergences.md#d35).
 
 ---
 

@@ -2352,3 +2352,87 @@ Approved on request, 2026-10-05.
   reach it. The verification is the measurement above, repeated after the
   change: write `kp`, read `heaterPower` within one control period, no state
   change in between.
+
+---
+
+## 35 — The port is closed; five decisions, and what each costs 🔴 changed {#d35}
+
+Decided 2026-10-06 by Eduard Marbach, at the close of the migration. **None of
+this changes runtime behaviour**, so unlike the sections above there are no
+`ledger` blocks: `cc-parity` classifies differences the firmware *exhibits*, and
+there are none here. What there is instead is the record of five things that were
+open, what was decided, and what would reverse each decision.
+
+### 35.1 The C++ parity baseline is never captured
+
+`docs/history/baseline/cpp/` holds only `.gitkeep`, and `just parity` reports
+`BASELINE-MISSING` for all 17 scenarios. Capturing one means flashing the
+deleted C++ onto a powered, wired machine — which runs its own control loop.
+The tree is recoverable (`git show 9fa8c834:...`, `AG-REPO-27`) but its
+PlatformIO build is not, so the cost is a reconstruction plus a machine.
+
+**Decided: abandoned, permanently.** Not deferred — the owner declined the
+capture when it was first offered, and the cost has since gone up rather than
+down. **What "intentional difference" means in `divergences.md` from now on is
+reviewed and reasoned, never measured.** **Reverses if** the C++ is rebuilt from
+`9fa8c834` and a powered machine is available to run it against.
+
+### 35.2 The water path is live, and the bring-up inhibit is gone
+
+R4-01 added a `test_only` inhibit holding the pump and the valve off while the
+heater stayed live, because its acceptance criterion was the PID. Nothing since
+has revisited it, and a machine flashed with that image heats, displays and
+serves an API **and cannot move water**. Steam was dead with it: steam shares
+the valve relay.
+
+**Decided: the inhibit is deleted.** It was not parity — the recovered oracle's
+boot log records "pump on GPIO27, valve on GPIO17, both asserted off" as a
+*boot* state (`recovered-oracle.md:92`) and its debug surface includes
+`/debug/brew/start` and `/debug/hotwater/on` (`:209`); the C++ moved water.
+`cc_hal_esp32::Inhibit` stays, with its device test, for a bring-up build that
+wants it. **Verified on a bench ESP32**: the boot log reads `no inhibit, the
+water path follows the reducer`, and the control line reports
+`refused pump=0 water=0 steam=0 heater=0`. **Reverses with** one
+`actuators.set_inhibit` call.
+
+### 35.3 The configuration moves by download and re-upload, not by migration
+
+The two firmwares use different NVS namespaces (`config` against `cc`), and
+§32's reasoning for refusing a migration was accepted then. What is new is the
+operator path being pinned rather than assumed: an operator downloads
+`config.json` from the C++ UI and uploads it here, which works because the key
+names are the C++'s own dotted names.
+
+**Decided: the hand-off is the procedure, and it is pinned by a test.**
+`every_cxx_config_key_is_still_a_key_the_schema_knows` holds the C++'s own 96
+keys — recovered from `getAllConfigParams()` at `9fa8c834:src/Config.cpp:438` —
+and fails on a rename. Runbook §12 is the operator's steps, and says plainly
+that the downloaded file contains Wi-Fi and MQTT passwords in cleartext.
+
+### 35.4 Four of the six R4-04 safety cases are written and runnable; three are not
+
+Runbook §13 has procedures for overtemp trip, the emergency latch and its
+recovery, the tank-empty pump inhibit and OTA actuator-off — all observable on a
+bench with LEDs on GPIO2/27/17. **Written, not run.**
+
+**Not runnable on a bench, each with what it needs:** the watchdog reboot needs a
+debug route this port does not have (the oracle's `/debug/hang-supervisor` was
+never ported); tank-empty pump *kill* and valve fail-safe need the machine,
+because they are about a real float switch, a real pump and a real valve
+de-energised. Owner: Eduard Marbach.
+
+### 35.5 The flash path, and the two defects that surfaced while exercising it
+
+Running §13 and §2b on a bench ESP32 on 2026-10-06 found two things that the
+green gate could not see, both now in [`../status.md`](../status.md):
+
+- **`just flash` never wrote the partition table.** The comment claiming the ELF
+  carried it was wrong in both halves; esp-idf-sys 0.38.1's README says the build
+  does not consume a custom CSV and that flashing must pass
+  `--partition-table`. Fixed, and the device now boots `app0`/`app1`/`littlefs`/
+  `coredump` from `rust/partitions_4M.csv`.
+- **An OTA does not take effect.** `esp_ota_end` validates the image and does not
+  select the slot; `esp_ota_set_boot_partition` is never called, and rollback is
+  not compiled in. The upload answers `200` and the device reboots into the slot
+  it came from. **Not fixed here**, deliberately: with no rollback, selecting a
+  bad image makes it unbootable without USB. That is the owner's call.
