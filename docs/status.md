@@ -244,10 +244,22 @@ be filed and they are not fixed by the next green gate.
    reason. The two behaviours it restores are pinned host-side.
 5. **Hardware timing has never been measured** — the contactor's minimum on/off
    time and the realised duty on the heater pin.
-6. **`TEST_ONLY_INHIBIT` holds the pump and valve off in this build**
-   (`crates/cc-firmware/src/main.rs:1613`), so the water path has never been
-   exercised against real hardware. The heater is live. Returning to a machine
-   that can brew is a one-line change, gated on R4-04's safety-path procedures.
+6. **The water path is enabled in this build and has never been exercised
+   against real hardware.** Decided 2026-10-06 by Eduard Marbach: R4-01's
+   bring-up inhibit (`TEST_ONLY_INHIBIT`, which held the pump and valve off
+   while the heater stayed live) is deleted, because the C++ and the recovered
+   oracle both moved water — `recovered-oracle.md:92` records "pump on GPIO27,
+   valve on GPIO17, both asserted off" as a *boot* state, and its debug surface
+   includes `/debug/brew/start` and `/debug/hotwater/on` (`:209`) — so a build
+   that cannot brew is a bring-up artifact, not parity. `Actuators` defaults to
+   `Inhibit::NONE`, and the HAL keeps the `Inhibit` type and its device test for
+   a future build that wants water held off.
+   **Brewing on a machine is therefore enabled but unproven.** What bounds it:
+   the five bench-exercisable R4-04 cases are written in
+   [`operations/runbook.md`](operations/runbook.md) and two water-dependent ones
+   — tank-empty pump *kill* and valve fail-safe — are marked machine-only and
+   unrun. Reversal: reinstate `actuators.set_inhibit` in
+   `crates/cc-firmware/src/main.rs` with pump and valve held.
 7. **The TSIC-306 arm of the F1 fix does not latch on total silence.** No TSIC is
    fitted and that arm has never run.
 8. **Two pump watchdogs are armed that the C++ leaves inert.** Correct call, and
