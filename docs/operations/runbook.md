@@ -950,3 +950,88 @@ renamed, that test fails here rather than on a machine.
 - [ ] **Keys this firmware has and the C++ did not** (`pid.enabled`,
       `system.offline_mode`, `hardware.oled.enabled` and 28 more — 98 against 96)
       are absent from the file and come up at their compiled-in defaults.
+
+---
+
+## 13. R4-04 — the safety paths
+
+Six cases the port owes the machine, written down before the water path is
+trusted with a real reservoir. Decided 2026-10-06 by Eduard Marbach: the four
+bench-exercisable ones are written and runnable now, the three that cannot be
+run on a bench say what each would need and who owns it. **None of this has been
+run yet** — these are procedures, and `docs/status.md` is where the result
+belongs.
+
+Set-up for all of them: the bench in [`../hardware/bench-setup.md`](../hardware/bench-setup.md),
+LED + 330 Ω on GPIO2/27/17, one DS18B20 on GPIO16. An LED proves the pin, not a
+relay — read that page before treating a dark LED as a verified water path.
+
+### 13.1 Overtemp trip — bench
+
+Drive the machine over its own emergency threshold by lowering the threshold, not
+by heating the boiler: `safety.emergency_temp` has a 150 °C default, so a bench
+sits at ~24 °C forever otherwise.
+
+- [ ] `curl -s -X POST "http://<host>/api/parameters?safety.emergency_temp=40"` →
+      `200 {"success":true,...}`; reboot (`POST /api/restart`).
+- [ ] `GET /api/status` → `machineState` reaches `EMERGENCY_STOP`. S1 needs
+      **three consecutive** readings above the threshold (`DEBOUNCE_COUNT`, 3),
+      so allow three poll intervals — seconds, not one.
+- [ ] The heater LED goes **dark** and stays dark. That is `Actuators::set_heater_duty`
+      refusing while latched (`actuators.rs:338`), not the PID reaching 0 %.
+- [ ] Restore the threshold (`safety.emergency_temp=150`) and reboot before anything else.
+
+### 13.2 Emergency latch and recovery — bench
+
+- [ ] With the machine in `EMERGENCY_STOP` from 13.1, start a brew
+      — press the **brew button**. There is no `/api/brew` route: brewing starts
+      from the switch, and `POST /api/backflush` is the water path the API does
+      expose. The serial log carries
+      `actuators: enablePump REFUSED — latched 1, ...` and the pump LED stays
+      dark. The latch refuses **everything**, including the heater.
+- [ ] **Recovery is a restart.** The latch lives in `Machine::safety` in RAM and
+      nothing persists it, so `POST /api/restart` (or a power cycle) clears it.
+      There is no route that clears it without rebooting, and that is deliberate.
+- [ ] After the restart, with the threshold restored, `machineState` is `PID_NORMAL`
+      or `PID_DISABLED` and not latched — one brew command, and the pump LED
+      lights.
+
+### 13.3 Tank-empty pump inhibit — bench
+
+The float switch on GPIO23 is a single input, so an empty tank is a short to GND.
+
+- [ ] Short GPIO23 to GND. `GET /api/status` then reports `waterTankFull:false`
+      (and the boot line `switch resting levels after settling: … water_tank=false`
+      is how you confirm which way the pin reads before you trust anything else).
+- [ ] Start a brew with the **brew button**. The pump LED stays dark and the log carries
+      `enablePump REFUSED — latched 0, tank_full 0, inhibited 0`.
+- [ ] **The water valve LED also stays dark** — a deliberate divergence: the C++
+      gated the pump but not the valve (09 §3), so a brew entered with an empty
+      tank opened the valve against a dry reservoir.
+- [ ] The heater LED is unaffected. An empty tank is not an emergency.
+- [ ] Release the short; the pump is permitted again on the next tick.
+
+### 13.4 Actuator-off during OTA — bench
+
+- [ ] With all three LEDs **lit** (a state that reaches the machine in a running
+      brew, or by holding the LEDs' states from a brew command), start an upload:
+      `POST /api/ota/firmware -F "firmware=@firmware.bin"`.
+- [ ] All three go **dark** for the duration. The route waits for the control task
+      to apply `cc_machine::ota::begin_session`'s shutdown before it touches the
+      flash, and re-checks admission against the **live** machine state on the way
+      — see the safety-irreducible note at `cc-hal-esp32/src/ota.rs`.
+- [ ] `GET /api/ota/status` reports `idle` afterwards and the device reboots on its
+      own within ~20 s (§2b).
+
+### 13.5 Not exercisable on a bench — and what each needs
+
+| Case | Why not | What it needs | Owner |
+| --- | --- | --- | --- |
+| **Watchdog reboot** | There is no way to hang the control task from outside. This port has no `/debug/*` route; the recovered oracle had `/debug/hang-supervisor`, and it was not ported. | Either a debug build with that route, or the machine. Until then the recovery this checks — a wedged chip resetting rather than running away — is a design property of the TWDT subscription plus the deadman, not a measurement. | Eduard Marbach |
+| **Tank-empty pump *kill*** (R4-04) | 13.3 proves the *logic* given the input; it cannot prove the float switch's electrical behaviour or that a real pump actually stops. | The machine, reservoir filled, float switch submerged and withdrawn mid-brew. | Eduard Marbach |
+| **Valve fail-safe** (R4-04) | Needs a real valve to be observed de-energised, and a power loss to be observed with it. | The machine, with power removed while a brew is in progress: the valve must be closed, not merely commanded closed. | Eduard Marbach |
+
+**The order to run them in:** 13.1 → 13.2 → 13.3 → 13.4 on the bench, then the
+machine with an **empty reservoir** (13.1–13.4 again, where the tank interlock is
+now a real float switch), then filled, which is when the last two table rows
+become runnable.
