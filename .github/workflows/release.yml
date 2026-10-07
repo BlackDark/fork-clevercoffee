@@ -96,7 +96,8 @@ jobs:
           echo "free disk: ${avail_gb}G"
           if [ "$avail_gb" -lt 30 ]; then
             sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
-            echo "free disk now: $(df --output=avail / | tail -1 | awk '{print int($1/1024/1024}')G"
+            freed_kb=$(df --output=avail / | tail -1)
+            echo "free disk now: $(( freed_kb / 1024 / 1024 ))G"
           fi
 
       - name: Install the Espressif Xtensa toolchain and ESP-IDF
@@ -163,7 +164,7 @@ jobs:
       - name: Generate release notes
         env:
           TAG: ${{ github.ref_name }}
-          REPO: ${{ repository }}
+          REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           BASE="https://github.com/${REPO}/releases/download/${TAG}"
