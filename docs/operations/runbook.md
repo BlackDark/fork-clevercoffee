@@ -63,6 +63,13 @@ curl -w "\n%{http_code}\n" -X POST http://<ip>/api/ota/firmware \
   - [ ] `filename=bad.txt` → 400 "Invalid firmware file. Expected .bin extension."
   - [ ] `/api/ota/filesystem` with `bad.txt` → 400 "Invalid filesystem file..."
 
+> ⚠️ **After any OTA, `just flash <port>` may not change the running image.**
+> `espflash flash` writes the app to the ELF's offset (`app0`) while `otadata`
+> keeps selecting whichever slot the last update chose, so the flash reports
+> success and the machine keeps running the old image. Check the boot log's
+> `Loaded app from partition at offset …`, and upload over HTTP instead. Recorded
+> as [`../history/outstanding-findings.md` #17](../history/outstanding-findings.md).
+
 ### 2c. URL-based update (`/api/ota/url`)
 
 ```sh
@@ -966,7 +973,7 @@ Set-up for all of them: the bench in [`../hardware/bench-setup.md`](../hardware/
 LED + 330 Ω on GPIO2/27/17, one DS18B20 on GPIO16. An LED proves the pin, not a
 relay — read that page before treating a dark LED as a verified water path.
 
-### 13.1 Overtemp trip — machine, or a test build (NOT bench, as written before 2026-10-07)
+### 13.1 Overtemp trip — machine, or a bench build ✅ **PASSED 2026-10-07 (bench build)**
 
 **The obvious bench trick does not work, and I got this wrong the first time.**
 The procedure used to say "lower `safety.emergency_temp` instead of heating the
@@ -1017,7 +1024,14 @@ boiler". Two things stop that:
 - [ ] **Restore the threshold and reboot before anything else**, and check the
       boot log again for `DiscardedUnsafe`.
 
-### 13.2 Emergency latch and recovery — needs 13.1
+  **Result, bench ESP32, `just bench-flash`, 2026-10-07.** Threshold written at
+  30 °C with room temperature 22.9 °C — 7 K of headroom — and the probe warmed
+  by hand. It tripped: the PID stopped, the heater LED went dark and stayed
+  dark, and a brew press during the latch was refused. See
+  [`../history/outstanding-findings.md` #15](../history/outstanding-findings.md)
+  for the two things the trip exposed, one of them a real defect.
+
+### 13.2 Emergency latch and recovery — half-passed 2026-10-07
 
 Same trigger, and it follows from it: there is no route that latches the
 emergency stop, so it cannot be exercised without tripping it for real.
@@ -1033,6 +1047,17 @@ emergency stop, so it cannot be exercised without tripping it for real.
 - [ ] After the restart, with the threshold restored, `machineState` is
       `PID_NORMAL` or `PID_DISABLED` and not latched — one brew command, and the
       pump LED lights.
+
+  **Result, 2026-10-07.** The refusal half is confirmed on hardware: during the
+  latch the brew button did nothing and the pump LED stayed dark. **The
+  recovery half did not behave as this section assumed, in two ways.** The latch
+  clears on temperature alone — which is *C++ parity*
+  (`EmergencyStopManager::isEmergencyCleared`: a valid reading at or below
+  `EMERGENCY_SAFE_TEMP_C`, 100 °C) and looks alarming only because the bench
+  threshold was 30 °C, so room air cleared it in seconds; on a machine the
+  boiler has to fall below 100 °C first. **The brew press was not lost, though:
+  it fired when the latch cleared.** That is finding #15, it is a real defect,
+  and it is what the recovery half is actually testing.
 
 ### 13.3 Tank-empty pump inhibit — bench
 
