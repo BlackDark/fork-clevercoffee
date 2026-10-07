@@ -966,35 +966,73 @@ Set-up for all of them: the bench in [`../hardware/bench-setup.md`](../hardware/
 LED + 330 Ω on GPIO2/27/17, one DS18B20 on GPIO16. An LED proves the pin, not a
 relay — read that page before treating a dark LED as a verified water path.
 
-### 13.1 Overtemp trip — bench
+### 13.1 Overtemp trip — machine, or a test build (NOT bench, as written before 2026-10-07)
 
-Drive the machine over its own emergency threshold by lowering the threshold, not
-by heating the boiler: `safety.emergency_temp` has a 150 °C default, so a bench
-sits at ~24 °C forever otherwise.
+**The obvious bench trick does not work, and I got this wrong the first time.**
+The procedure used to say "lower `safety.emergency_temp` instead of heating the
+boiler". Two things stop that:
 
-- [ ] `curl -s -X POST "http://<host>/api/parameters?safety.emergency_temp=40"` →
-      `200 {"success":true,...}`; reboot (`POST /api/restart`).
-- [ ] `GET /api/status` → `machineState` reaches `EMERGENCY_STOP`. S1 needs
-      **three consecutive** readings above the threshold (`DEBOUNCE_COUNT`, 3),
-      so allow three poll intervals — seconds, not one.
-- [ ] The heater LED goes **dark** and stays dark. That is `Actuators::set_heater_duty`
-      refusing while latched (`actuators.rs:338`), not the PID reaching 0 %.
-- [ ] Restore the threshold (`safety.emergency_temp=150`) and reboot before anything else.
+- **The parameter floor is 120 °C** (`safety.emergency_temp` range 120–180,
+  `steam.setpoint` 100–140). A bench boiler sits at ~23 °C with only an LED on
+  the heater pin, so the lowest *legal* value is still 100 K above ambient.
+- **Lowering it is refused anyway**, and refusing is expensive. Setting
+  `safety.emergency_temp=120` with the default `steam.setpoint=120` trips
+  `cc_safety`'s `EmergencyTempTooLowForSteam` — the threshold must sit above
+  `steam.setpoint + safety.emergency_hysteresis` or the machine cannot be
+  steamed. Measured 2026-10-07 on a bench ESP32:
 
-### 13.2 Emergency latch and recovery — bench
+  ```txt
+  config: (configuration is unsafe to run: EmergencyTempTooLowForSteam { emergency_temp: 120, steam_setpoint: 120 })
+  config: keeping the stored Wi-Fi credential so the machine stays reachable and the unsafe setting can be fixed over HTTP
+  config: stored but unsafe — DISCARDED
+  nvs: the boot decision was `DiscardedUnsafe(...)`
+  ```
 
-- [ ] With the machine in `EMERGENCY_STOP` from 13.1, start a brew
-      — press the **brew button**. There is no `/api/brew` route: brewing starts
-      from the switch, and `POST /api/backflush` is the water path the API does
-      expose. The serial log carries
+  **⚠️ Read that third line before you push any parameter you are not sure of.
+  The discard is whole-configuration, not per-parameter** — see
+  [`../history/outstanding-findings.md` #12](../history/outstanding-findings.md).
+  On this bench it silently reverted `hardware.sensors.temperature.type` from
+  Dallas to TSIC-306 and put the machine in `SENSOR_ERROR` with `NaN`.
+
+**What actually works**, in order of preference:
+
+1. **The machine.** Steam drives the boiler to `steam.setpoint`, and a lowered
+   `safety.emergency_temp` reachable below it trips S1 for real. Set
+   `steam.setpoint=100`, `safety.emergency_temp=120`, and steam.
+2. **A test build** (`just bench-build`): the parameter floor and the
+   steam-headroom check are compiled out, so `safety.emergency_temp=30` is
+   accepted and a DS18B20 warmed past 30 °C — a hand, a mug of hot water, a
+   hair dryer — trips S1. The override is a build-time constant with the real
+   bounds as its default; see the recipe and the constant it reads.
+
+- [ ] `POST /api/parameters safety.emergency_temp=<value>` → `200`
+- [ ] Restart; `GET /api/parameters` reports the new value, and the boot log says
+      `the boot decision was `Stored`` — **not** `DiscardedUnsafe`.
+- [ ] Warm the probe past the threshold. S1 needs **three consecutive** readings
+      above it (`DEBOUNCE_COUNT`, 3), so allow three poll intervals.
+- [ ] `GET /api/status` → `machineState` reaches `EMERGENCY_STOP`.
+- [ ] The heater LED goes **dark** and stays dark — that is
+      `Actuators::set_heater_duty` refusing while latched (`actuators.rs:338`),
+      not the PID reaching 0 %.
+- [ ] **Restore the threshold and reboot before anything else**, and check the
+      boot log again for `DiscardedUnsafe`.
+
+### 13.2 Emergency latch and recovery — needs 13.1
+
+Same trigger, and it follows from it: there is no route that latches the
+emergency stop, so it cannot be exercised without tripping it for real.
+
+- [ ] With the machine in `EMERGENCY_STOP`, start a brew (press the **brew
+      button**; there is no `/api/brew` route, and `POST /api/backflush` is the
+      water path the API does expose). The serial log carries
       `actuators: enablePump REFUSED — latched 1, ...` and the pump LED stays
       dark. The latch refuses **everything**, including the heater.
 - [ ] **Recovery is a restart.** The latch lives in `Machine::safety` in RAM and
       nothing persists it, so `POST /api/restart` (or a power cycle) clears it.
       There is no route that clears it without rebooting, and that is deliberate.
-- [ ] After the restart, with the threshold restored, `machineState` is `PID_NORMAL`
-      or `PID_DISABLED` and not latched — one brew command, and the pump LED
-      lights.
+- [ ] After the restart, with the threshold restored, `machineState` is
+      `PID_NORMAL` or `PID_DISABLED` and not latched — one brew command, and the
+      pump LED lights.
 
 ### 13.3 Tank-empty pump inhibit — bench
 
@@ -1011,7 +1049,10 @@ The float switch on GPIO23 is a single input, so an empty tank is a short to GND
 - [ ] The heater LED is unaffected. An empty tank is not an emergency.
 - [ ] Release the short; the pump is permitted again on the next tick.
 
-### 13.4 Actuator-off during OTA — bench
+### 13.4 Actuator-off during OTA — bench ✅ **PASSED 2026-10-07**
+
+Wiring: LED + 330 Ω (220 Ω on the valve LED, which is blue and visibly dim at
+3.3 V) on GPIO2/17/27. Red = heater, green = GPIO27 pump, blue = GPIO17 valve.
 
 - [ ] With all three LEDs **lit** (a state that reaches the machine in a running
       brew, or by holding the LEDs' states from a brew command), start an upload:
@@ -1023,6 +1064,26 @@ The float switch on GPIO23 is a single input, so an empty tank is a short to GND
 - [ ] `GET /api/ota/status` reports `idle` afterwards and the device reboots on its
       own within ~20 s (§2b).
 
+  **Result, bench ESP32 rev 3.0, 2026-10-07.** Upload `200` in 13.0 s; all three
+  LEDs dark for the whole write and lit again after the reboot; `uptime_ms` reset
+  and the machine back in `PID_NORMAL` with the heap steady. The log carries the
+  sequence the case is about:
+
+  ```txt
+  [292126] control: command OtaBegin
+  [292131] control: OTA session requested — admission re-checked after apply
+  [292137] control: OTA admitted — safe hardware shutdown
+  [292146] actuators: safe hardware shutdown — relays off, latch untouched
+  [303873] ota: Firmware update complete — 1701296 B
+  [303882] control: OTA completed — restarting into the new image
+  ```
+
+  **And one thing nobody expected:** 9 s into the write the machine went
+  `PID_NORMAL -> SENSOR_ERROR` and stayed there until the reboot. The heater was
+  already off, so nothing overheated, but the state machine declared a sensor
+  fault while the flash was being written. Recorded as
+  [`../history/outstanding-findings.md` #13](../history/outstanding-findings.md).
+
 ### 13.5 Not exercisable on a bench — and what each needs
 
 | Case | Why not | What it needs | Owner |
@@ -1031,7 +1092,13 @@ The float switch on GPIO23 is a single input, so an empty tank is a short to GND
 | **Tank-empty pump *kill*** (R4-04) | 13.3 proves the *logic* given the input; it cannot prove the float switch's electrical behaviour or that a real pump actually stops. | The machine, reservoir filled, float switch submerged and withdrawn mid-brew. | Eduard Marbach |
 | **Valve fail-safe** (R4-04) | Needs a real valve to be observed de-energised, and a power loss to be observed with it. | The machine, with power removed while a brew is in progress: the valve must be closed, not merely commanded closed. | Eduard Marbach |
 
-**The order to run them in:** 13.1 → 13.2 → 13.3 → 13.4 on the bench, then the
-machine with an **empty reservoir** (13.1–13.4 again, where the tank interlock is
-now a real float switch), then filled, which is when the last two table rows
+**The order to run them in:** 13.1 → 13.2 need a test build or the machine (see
+13.1); 13.3 needs one jumper wire on GPIO23; 13.4 is done. Then the machine with
+an **empty reservoir** — 13.1–13.4 again, where the tank interlock is a real
+float switch — and then filled, which is when the last two table rows in 13.5
 become runnable.
+
+**Do not push a parameter you are unsure of.** A write the validator refuses
+costs the whole stored configuration, not the one value. Read
+[`../history/outstanding-findings.md` #12](../history/outstanding-findings.md)
+before you experiment with configuration on any machine.

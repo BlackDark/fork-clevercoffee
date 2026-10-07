@@ -216,12 +216,18 @@ decision, residual risk, not started. The close-out decisions of 2026-10-06 are
   route needs an HTTP client and a second long-lived task, for something a
   browser upload already reaches.
 - **Three of the six R4-04 safety cases cannot be run on a bench.** Written in
-  [`operations/runbook.md` §13](operations/runbook.md), **not run**: the
-  watchdog reboot needs a debug route this port does not have (the oracle's
-  `/debug/hang-supervisor` was not ported), and tank-empty pump *kill* and
-  valve fail-safe need the machine, because they are about a real float switch,
-  a real pump and a real valve de-energised. Owner: Eduard Marbach.
-  [§35.4](history/divergences.md#d35).
+  [`operations/runbook.md` §13](operations/runbook.md), and **13.4 has now
+  passed on hardware** (2026-10-07). **13.1 and 13.2 — the over-temp trip and the
+  latch — are not runnable on a bench as written**: `safety.emergency_temp` has a
+  120 °C floor, and the steam-headroom check refuses any value at or below
+  `steam.setpoint + safety.emergency_hysteresis`, so the only ways to trip S1 are
+  the machine or a test build compiled without those bounds. **13.3** (tank
+  interlock) needs one jumper wire on GPIO23. The watchdog reboot needs a debug
+  route this port does not have (the oracle's `/debug/hang-supervisor` was not
+  ported), and tank-empty pump *kill* and valve fail-safe need the machine,
+  because they are about a real float switch, a real pump and a real valve
+  de-energised. Owner: Eduard Marbach. [§35.4](history/divergences.md#d35),
+  [`outstanding-findings.md` #12–#14](history/outstanding-findings.md).
 - **There is no bootloader rollback.**
   `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE` is absent from this build's sdkconfig,
   so a new image that boots and misbehaves stays selected. The C++ behaves
@@ -316,12 +322,17 @@ be filed and they are not fixed by the next green gate.
    that cannot brew is a bring-up artifact, not parity. `Actuators` defaults to
    `Inhibit::NONE`, and the HAL keeps the `Inhibit` type and its device test for
    a future build that wants water held off.
-   **Brewing on a machine is therefore enabled but unproven.** What bounds it:
-   the five bench-exercisable R4-04 cases are written in
-   [`operations/runbook.md`](operations/runbook.md) and two water-dependent ones
-   — tank-empty pump *kill* and valve fail-safe — are marked machine-only and
-   unrun. Reversal: reinstate `actuators.set_inhibit` in
-   `crates/cc-firmware/src/main.rs` with pump and valve held.
+   **The bench half is now measured (2026-10-07, LEDs on GPIO2/17/27):** a brew
+   switch press lights the pump LED and the valve LED and drops the heater LED,
+   and an OTA upload takes all three dark for the whole write and restores them
+   after the reboot — [`operations/runbook.md` §13.4](operations/runbook.md).
+   **What is still unexercised is the machine**: the reservoir, the real float
+   switch, the real valve. Three new findings came out of the bench session —
+   [`history/outstanding-findings.md` #12–#14](history/outstanding-findings.md),
+   including one this work caused: a configuration the validator refuses costs
+   the **whole** stored configuration, not the offending value.
+   **Reversal: reinstate `actuators.set_inhibit` in
+   `crates/cc-firmware/src/main.rs` with pump and valve held.**
 7. **The TSIC-306 arm of the F1 fix does not latch on total silence.** No TSIC is
    fitted and that arm has never run.
 8. **Two pump watchdogs are armed that the C++ leaves inert.** Correct call, and
