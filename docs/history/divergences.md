@@ -2436,3 +2436,75 @@ green gate could not see, both now in [`../status.md`](../status.md):
   not compiled in. The upload answers `200` and the device reboots into the slot
   it came from. **Not fixed here**, deliberately: with no rollback, selecting a
   bad image makes it unbootable without USB. That is the owner's call.
+
+---
+
+## 36 — The emergency latch drains action requests, and the C++ does not 🔴 changed {#d36}
+
+Finding #15 of [`outstanding-findings.md`](./outstanding-findings.md). Approved
+by Eduard Marbach on 2026-10-07, on the measurement below.
+
+### What the C++ does
+
+Nothing. `EmergencyStopState::performEmergencyShutdown`
+(`9fa8c834:src/state/states/EmergencyStopState.cpp:49-52`) is
+`context.emergencyShutdown()` plus `context.setPidRuntimeState(false)`, and no
+handler clears `brewStartRequested_` while the latch is up. A brew pressed during
+an over-temperature survives the whole latch.
+
+### What the Rust does
+
+`EMERGENCY_STOP` drains the action requests on entry **and on every tick while
+the latch persists** (`cc-machine/src/states.rs`, both arms), emitting
+`Effect::ClearActionRequests` so the flag is cleared in the appliance and in the
+reducer's next view of the machine. The guard on the tick drain is
+`machine.is_emergency_stop()` — the same condition as this state's exit
+transition, which is what ADR-0003 rule 3 asks for.
+
+### The measurement that decided it
+
+Bench ESP32 rev 3.0, `just bench-flash`, emergency threshold 30 °C, probe warmed
+by hand, 2026-10-07:
+
+1. The machine tripped into `EMERGENCY_STOP`; the PID stopped and the heater LED
+   went dark.
+2. A brew press during the latch was refused — `enablePump REFUSED — latched 1`,
+   pump LED dark. Correct, and the reason it looked harmless.
+3. The probe cooled below the threshold, the latch cleared, **and the machine
+   started that same brew with nobody pressing anything.**
+
+On a machine the water is at brewing temperature and the reservoir is not empty,
+and the operator who pressed brew has usually walked away.
+
+### Why this is compliance, not invention
+
+`AG-REPO-24` — "States that cannot act on action requests must drain incoming
+flags to prevent unexpected transitions on recovery" — and ADR-0003 rules 2 and 3
+both ask for exactly this. The C++ never did it; `AG-REPO-24` was written *about*
+this class of defect (ADR-0003's own background is `PidDisabledState` not
+draining, which cost a brew that started itself).
+
+**The "never drain wake-up signals" rule is not touched.** That rule is about
+`STANDBY` preserving `brewStartRequested` so that *waking* runs it. An emergency
+stop is not a state anyone intends to wake from, and draining it is the whole
+point: recovery must require a fresh press.
+
+### What pins it
+
+`cc-machine/tests/emergency_latch_drains.rs`, three tests, all of which fail
+against the pre-fix code and pass against it:
+
+- `a_brew_pressed_during_the_latch_is_refused_and_then_dropped` — nothing is
+  energised while latched, `ClearActionRequests` is emitted **every tick** (a
+  request arrives after entry has run, so an entry-only drain is not enough),
+  and `requests.brew_start` is false afterwards.
+- `the_recovery_tick_starts_no_brew` — after five latched ticks and a cleared
+  latch, the machine leaves `EMERGENCY_STOP` and **no brew begins**.
+- `an_empty_tank_drains_the_same_press_and_the_latch_now_does_too` — the
+  contrast with R4-04 case 13.3, where `WATER_TANK_EMPTY` already drained the
+  same press and the operator watched it happen at the LEDs.
+
+```ledger
+{"id":"div36","heading":"## 36 — The emergency latch drains action requests","scenarios":["emergency_trip","emergency_recover"],
+ "matchers":["/effect rust:ClearActionRequests/","/state EMERGENCY_STOP/"]}
+```

@@ -220,11 +220,9 @@ decision, residual risk, not started. The close-out decisions of 2026-10-06 are
   press, then started that same brew on recovery, unprompted — C++ behaviour, and
   a violation of `AG-REPO-24` in this repository. `EMERGENCY_STOP` now drains
   the action requests on entry and on every latched tick, pinned by three tests
-  that fail against the pre-fix code. **Verified on hardware
-  2026-10-07:** threshold 30 °C on a bench build, probe warmed by hand, the
-  machine tripped, the press during the latch did nothing, and **when the probe
-  cooled and the latch cleared by itself no brew started** and the heater
-  returned. Recorded as a divergence in the next commit.
+  that fail against the pre-fix code. **Not hardware-verified**: the trip was
+  measured on the unfixed build, and the fix landed after that session.
+  [`divergences.md` §36](history/divergences.md#d36).
 - **Three of the six R4-04 safety cases cannot be run on a bench.** Written in
   [`operations/runbook.md` §13](operations/runbook.md), and **13.4 has now
   passed on hardware** (2026-10-07). **13.1 and 13.2 — the over-temp trip and the
@@ -258,12 +256,6 @@ decision, residual risk, not started. The close-out decisions of 2026-10-06 are
   needs a decision. Open in [`history/divergences.md`](history/divergences.md#d12)
   (R3-18); the original task is [`archive/migration/06-migration-task-list.md`](archive/migration/06-migration-task-list.md).
   The HX711 **is** implemented, and no scale is fitted to the board.
-- **After any OTA, `just flash <port>` does not change the running image** —
-  measured 2026-10-07, open defect #17. `espflash flash` writes `app0` at the
-  ELF's offset while `otadata` keeps selecting the slot the last update chose, so
-  the flash reports success and the old image keeps running. It is why a bench
-  build flashed over USB did not take, and it is now how #17 was found. Upload
-  over `POST /api/ota/firmware` until it is fixed.
 - **The OTA was exercised on hardware on 2026-10-06, and it found two defects.**
   The upload path works end to end — the safe shutdown, the slot erase, the
   stream, the 200 — but **`just flash` had never written the partition table**

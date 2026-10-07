@@ -85,7 +85,7 @@ use std::sync::Mutex;
 use esp_idf_svc::sys::EspError;
 use esp_idf_sys::{
     esp_ota_abort, esp_ota_begin, esp_ota_end, esp_ota_get_next_update_partition, esp_ota_handle_t,
-    esp_ota_write, esp_partition_erase_range, esp_partition_find_first,
+    esp_ota_set_boot_partition, esp_ota_write, esp_partition_erase_range, esp_partition_find_first,
     esp_partition_subtype_t_ESP_PARTITION_SUBTYPE_DATA_LITTLEFS, esp_partition_t,
     esp_partition_type_t_ESP_PARTITION_TYPE_DATA, esp_partition_write,
 };
@@ -346,15 +346,21 @@ impl Writer {
     ///   path is `esp_ota_set_boot_partition` (`:599`). This module never calls
     ///   it, and `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE` is not set in this
     ///   build, so nothing else switches the slot either.
-    ///   **Measured on a bench ESP32, 2026-10-06:** an upload answers
-    ///   `200 {"success":true,...,"restart":true}`, the device reboots, and the
-    ///   bootloader logs `Loaded app from partition at offset 0x10000` — `app0`,
-    ///   the slot it was already running from. The image in `app1` is complete
-    ///   and validated, and is not booted. **An OTA through this route does not
-    ///   take effect**, and the fix is one call —
-    ///   `esp_ota_set_boot_partition(partition)` after a successful
-    ///   `esp_ota_end` — deliberately not made here, because with no rollback a
-    ///   bad image in the selected slot is only recoverable over USB.
+    ///   **Measured on a bench ESP32, 2026-10-06:** an upload answered
+    ///   `200 {"success":true,...,"restart":true}`, the device rebooted, and the
+    ///   bootloader logged `Loaded app from partition at offset 0x10000` —
+    ///   `app0`, the slot it was already running from. The image in `app1` was
+    ///   complete and validated, and was not booted. **An OTA through this route
+    ///   did not take effect.**
+    /// * [`Writer::end`] now calls `esp_ota_set_boot_partition` after a
+    ///   successful `esp_ota_end`, so the slot is selected. **The consequence is
+    ///   stated plainly because it is the reason this was not done sooner:**
+    ///   there is no rollback, so a *bad* image in the selected slot is
+    ///   unbootable without USB. Before this call, a bad update cost nothing and
+    ///   a good one did nothing either; now a good one takes effect and a bad
+    ///   one needs a cable. Recovery is `just flash <port>`, and the upload is
+    ///   validated by `esp_ota_end` before the slot moves, so the window is an
+    ///   image that boots and then misbehaves.
     /// * Therefore: a power cut **before** `esp_ota_end` leaves `otadata`
     ///   pointing at the slot the machine booted from, and it boots that slot
     ///   again. A power cut **during** `esp_ota_end` leaves the `app1` image
@@ -388,6 +394,30 @@ impl Writer {
                 // second call is possible.
                 let rc = unsafe { esp_ota_end(self.handle) };
                 self.handle = 0;
+                // A validated image is not a *selected* one. `esp_ota_end` is
+                // `ota_verify_partition` and cleanup
+                // (`esp_ota_ops.c:477-524`); the only writer of `otadata` on the
+                // write path is `esp_ota_set_boot_partition` (`:599`), and with
+                // `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE` unset nothing else
+                // switches the slot either. Without this call the machine
+                // restarts into the slot it came from and the update silently
+                // does not take effect — measured on a bench ESP32 on 2026-10-07
+                // before this line existed.
+                //
+                // Only on success: a rejected image must leave `otadata`
+                // pointing at the slot that is known to work, which is the
+                // direction `abort` also takes. `EspError::from` is `None` on
+                // `ESP_OK` in this binding.
+                if let Some(err) = EspError::from(rc) {
+                    return Err(err);
+                }
+                // SAFETY: `self.partition` came from `esp_ota_get_next_update_partition`
+                // in `begin`, so it is a pointer into the static partition table
+                // and outlives this call; it is an OTA app partition, which is
+                // what `esp_ota_set_boot_partition` requires of its argument.
+                // The function reads `otadata` and writes the selector; it does
+                // not take ownership of the pointer.
+                let rc = unsafe { esp_ota_set_boot_partition(self.partition) };
                 EspError::from(rc).map_or(Ok(()), Err)
             }
             // No finalisation: `esp_partition_write` is already durable in the

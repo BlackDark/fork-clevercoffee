@@ -256,6 +256,12 @@ pub fn on_entry(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -
             fx.push(Effect::EmergencyShutdown);
             machine.pid.runtime_enabled = false;
             fx.push(Effect::SetPidRuntime { enabled: false });
+            // 🔴 Drain on entry — and again on every tick, below. `AG-REPO-24`
+            // and ADR-0003 rules 2 and 3 both require it of a state that cannot
+            // act on an action request. See the tick arm for the measurement and
+            // the divergence note.
+            machine.requests.clear_all();
+            fx.push(Effect::ClearActionRequests);
         }
 
         // `StandbyState::onEntryImpl` (`SystemStates.cpp:14-25`).
@@ -554,10 +560,33 @@ pub fn update(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -> 
         // Re-runs the full emergency shutdown **every loop**, not just on
         // entry. This is S2's enforcement: the latch lives in the actuator
         // facade, and something could re-energise a relay between loops.
+        //
+        // And drains on every loop, which the entry drain alone cannot do: a
+        // request that arrives *during* the latch is set after entry has run,
+        // and without this it survives to the recovery tick. Measured on a bench
+        // ESP32 on 2026-10-07 — the machine tripped, refused the press with
+        // `enablePump REFUSED — latched 1`, and then began that same brew with
+        // nobody pressing anything once the probe cooled below the threshold.
+        //
+        // **A divergence from the C++**, which drains nothing here:
+        // `EmergencyStopState::performEmergencyShutdown` is
+        // `emergencyShutdown()` plus `setPidRuntimeState(false)`. It is
+        // compliance with ADR-0003 rather than a departure from it — rules 2
+        // and 3 ask for exactly this, on entry and guarded during update — and
+        // it does not touch that ADR's "never drain wake-up signals" rule: that
+        // rule is about `STANDBY` preserving a brew request so that *waking*
+        // runs it, and an emergency stop is not a state anyone intends to wake
+        // from. The guard is the latch itself, which is the same condition as
+        // this state's exit transition (`is_emergency_stop`). Recorded in
+        // `docs/history/divergences.md` §36.
         MachineState::EmergencyStop => {
             fx.push(Effect::EmergencyShutdown);
             machine.pid.runtime_enabled = false;
             fx.push(Effect::SetPidRuntime { enabled: false });
+            if machine.is_emergency_stop() {
+                machine.requests.clear_all();
+                fx.push(Effect::ClearActionRequests);
+            }
         }
 
         // `StandbyState::update` (`SystemStates.cpp:36-41`): a log. The heater
