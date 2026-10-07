@@ -22,7 +22,10 @@ build failure rather than a surprise at 2 a.m.
 | --- | --- | --- |
 | DS18B20 | 16 | One temperature sensor is enough. The TSIC-306 arm shares the pin and is not exercised. |
 | SSD1306 (128×64, I²C) | 21 = SDA, 22 = SCL | Shares the bus with the ABP2 pressure sensor; with no sensor fitted the display still works. |
-| Four momentary buttons | 34, 35, 36, 39 | Brew, steam, hot water, power. **Each needs a pull resistor** — see the warning below. |
+| Brew button — **momentary** | 34 | Returns to rest when released. |
+| Steam button — **toggle** | 35 | Retains its position. |
+| Hot-water button — **toggle** | 36 | Also the water-injection switch while steaming. |
+| *(no power switch)* | 39 | **Nothing is fitted here.** See the warning below and `hardware.switches.power.enabled` in the profile. |
 | LED + 330 Ω | 2 | Heater. |
 | LED + 330 Ω | 27 | Pump. |
 | LED + 330 Ω | 17 | Valve — steam and water, multiplexed, so one LED shows both. |
@@ -85,3 +88,50 @@ The bench proves the firmware. The machine proves the plumbing. In this order:
 Reversal, if the polarity or the float switch turns out wrong on the machine:
 `actuators.set_inhibit` in `crates/cc-firmware/src/main.rs` holds the pump and
 valve off again, and `cc_hal_esp32::Inhibit` exists for exactly that.
+## The bench configuration profile
+
+Five parameters differ from their compiled-in defaults, and every one is
+deliberate. Nothing else needs changing: the four operator switches default to
+`TOGGLE`, which is also what the deleted C++ defaulted them to
+(`9fa8c834:include/clevercoffee/Config.h:988-1046`), so a bench that "fixes"
+them to `MOMENTARY` has quietly diverged from the machine it stands in for.
+
+| Parameter | Bench value | Why |
+| --- | --- | --- |
+| `pid.enabled` | `true` | The default is `false`; a bench wants the PID driving the heater LED. |
+| `hardware.switches.brew.type` | **`0`** (Momentary) | The brew button returns to rest when released. All four operator switches default to `TOGGLE` — which is also the deleted C++'s default (`9fa8c834:include/clevercoffee/Config.h:988-1046`) — so this is the one place the bench deliberately differs, because **the bench's hardware differs**. |
+| `hardware.switches.power.enabled` | **`false`** | **No power switch is fitted on this bench.** Leaving it `true` with GPIO39 unwired leaves a floating input, and because the power switch is a `TOGGLE` that reads *off* at boot, the machine starts in `PID_DISABLED` whatever `pid.enabled` says. |
+
+`hardware.switches.steam.type` and `hardware.switches.hot_water.type` stay at
+their default `TOGGLE` (`1`): those two buttons really do latch.
+| `hardware.sensors.temperature.type` | **`1`** (Dallas DS18B20) | The default is `0` = TSIC-306, and **a DS18B20 is what is on GPIO16 here.** With the default the boot log says `driver = Tsic306 … but the probe measured on this board is DallasDs18b20`, and the machine sits in `SENSOR_ERROR` with `currentTemp: NaN`. |
+| `hardware.sensors.watertank.enabled` | `true` | The default is `false`, which makes an absent float report the tank **full** so S4 cannot block the pump forever. Needed for runbook §13.3. |
+| `hardware.sensors.watertank.mode` | **`0`** — bench only | Matches a breadboard tank switch wired pin → 3V3 with the pin idling low: low = empty, high = full. **The machine uses `1`**, which configures an internal pull-*up* so a cut wire reads empty and blocks the pump. `0` is the unsafe direction for a real float and must not be copied to a machine. |
+| `system.wifi.ssid` / `password` | your network | Provisioned with `just wifi-provision`; deliberately preserved by the validator even when the rest of the configuration is discarded. |
+
+Two things that look like misconfiguration and are not:
+
+- **`state 20` vs `state 90` on `/api/status`.** `20` is `PID_NORMAL` and `90` is
+  `PID_DISABLED`; the numbers are the enumerator ids, not a count. With the power
+  switch disabled a healthy bench sits in `20` with `pidEnabled: true`.
+- **`hardware.sensors.scale.enabled` and `hardware.sensors.pressure.enabled` are
+  `false`** because nothing is fitted. Leave them; a floating input is worse
+  than an absent one.
+
+**Apply and check**, with the tank switch in whichever position you are testing:
+
+```sh
+curl -X POST 'http://<host>/api/parameters?pid.enabled=1'
+curl -X POST 'http://<host>/api/parameters?hardware.switches.brew.type=0'
+curl -X POST 'http://<host>/api/parameters?hardware.switches.power.enabled=false'
+curl -X POST 'http://<host>/api/parameters?hardware.sensors.temperature.type=1'
+curl -X POST 'http://<host>/api/parameters?hardware.sensors.watertank.enabled=1'
+curl -X POST 'http://<host>/api/parameters?hardware.sensors.watertank.mode=0'
+curl -X POST 'http://<host>/api/restart'          # both sensor keys are read at boot
+curl 'http://<host>/api/parameters?filter=all' | jq '.[]|select(.value != .default)|{name,value}'
+```
+
+Then read `the boot decision was `Stored`` in the boot log — **`DiscardedUnsafe`
+means the validator threw the whole configuration away** and you are back on
+defaults, which is how this bench lost its Dallas probe once already
+([`../history/outstanding-findings.md` #12](../history/outstanding-findings.md)).
