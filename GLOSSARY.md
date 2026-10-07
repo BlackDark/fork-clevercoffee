@@ -82,7 +82,12 @@ the backstop under the control logic, not part of it.
 
 **Whitelist** — the list of states permitted to hold a valve open. Water and
 steam have separate ones, and the separation matters because **both valves share
-a single relay**, so an ungated steam valve is an ungated water valve.
+a single relay** — so the gate has to be keyed on state, not on which valve is
+open. **What the relay actually is**: the water/group valve. Steam leaves through
+a **hand-operated wand valve**, and the firmware has no pin for a steam outlet and
+makes no request for one (see `outstanding-findings.md` #14). So this whitelist
+is a guard against a *future* change driving that relay as a steam outlet, not a
+repair of a live hazard.
 
 **Fail-closed** — the design rule for anything whose failure energises
 something. A heater relay that is `LOW_TRIGGER` is not "inverted" and made to

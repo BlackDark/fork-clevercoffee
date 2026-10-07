@@ -72,7 +72,10 @@ Four findings worth knowing without reading the catalogue:
 the water valve and no equivalent for steam, and nothing called the function that
 would have been one. This port adds `cc_safety::steam_flow_allowed` and closes the
 valve in every state but `STEAM_RUNNING`. That is not tidying: steam and water
-share **one relay**, so an ungated steam valve is an ungated water valve.
+share **one relay** — which is true of the software model and, since 2026-10-07,
+corrected in `pins.md`: the relay is the *water* valve, and steam is released by a
+hand-operated wand valve, so no build has ever asked for that position. The
+whitelist is a guard against a future change, not a repair of a live hazard.
 
 **The steam LED is wired to GPIO 1, which is UART TX.** The C++ header's own
 comment records the decision to move it and the move was never made, so both

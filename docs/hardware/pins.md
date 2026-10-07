@@ -34,7 +34,7 @@ is what the C++'s 21 `static_assert`s gave the oracle.
 | 23 | water tank float switch |
 | 32 / 25 | HX711 #1 / #2 data |
 | 33 | HX711 shared clock |
-| 17 | valve relay — steam **and** water, multiplexed |
+| 17 | water / group valve relay. Modelled in software as also serving steam (`ValveState::SteamOpen`), but nothing ever requests that position — see below. |
 | 27 | pump relay |
 | 2 | heater relay |
 | 26 | status LED |
@@ -59,12 +59,36 @@ HX711 data pin, and that is the very alternative the comment names ("32 works
 with logging"). Choosing the new pin is therefore constrained by the scale
 wiring, not free.
 
-## Steam and water share one relay
+## The valve relay is the water valve
 
-`AG-REPO-22` exists because of this row: an ungated steam valve is an ungated
-*water* valve, which is why `cc_safety::steam_flow_allowed` is checked every
-tick and not only while brewing. See
-[`ADR-0003`](../adr/0003-state-machine-hardware-control-contract.md).
+Corrected 2026-10-07. This section used to be titled *"Steam and water share one
+relay"* and to argue that an ungated steam valve is an ungated water valve. That
+is true of the **software model** — `ValveState` admits `STEAM_OPEN` and
+`BOTH_OPEN` (`9fa8c834:include/clevercoffee/hardware/ValveState.h:13-14`) — and
+false of the **machine**.
+
+Steam on this machine is released by **a hand-operated wand valve**. The owner
+operates it: the steam switch heats the boiler to `steam.setpoint` (~120 °C),
+pressure builds in a closed system, and the handle is turned by hand. The water
+switch while steaming refills the boiler, which is why
+`DisplayFullscreenModes.h:26` and `:115` gate the water-injection display on
+`STEAM_RUNNING` as well as `PID_NORMAL`.
+
+The evidence that the firmware has no steam outlet: `openSteamValve` and
+`closeSteamValve` appear eight times in the deleted C++ — three declarations, two
+definitions, one forwarder — and **not one call site**; the pin map has no second
+solenoid (`pinmapping.h:37-39` lists exactly three relays); and
+`cc-machine/src/applier.rs:74` says of `Effect::OpenSteamValve` that it is
+**never emitted by the reducer**.
+
+Opening this relay during steam would give the pressure somewhere to go that is
+not the wand, so nothing requesting it is the correct behaviour.
+
+`AG-REPO-22` and `cc_safety::steam_flow_allowed` stay: they are a guard against a
+*future* change driving this relay as a steam outlet. The gate is still checked
+every tick and not only while brewing. See
+[`ADR-0003`](../adr/0003-state-machine-hardware-control-contract.md) and
+[`../history/outstanding-findings.md` #14](../history/outstanding-findings.md).
 
 ## The heater relay is fail-closed by configuration, not by default
 

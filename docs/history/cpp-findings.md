@@ -69,7 +69,11 @@ So the steam valve can be commanded open in any state, while the water valve can
   [`divergences.md` #2](./divergences.md#d02)
   for the derivation from the C++.
 - This was a real safety gap, not a port artifact: steam and water share **one relay**
-  (`ValveState.h:8-11`), so an ungated steam valve is an ungated water valve.
+  (`ValveState.h:8-11`), so an ungated steam valve would be an ungated water
+  valve. **Corrected 2026-10-07:** the relay is the *water* valve. Steam is
+  released by a hand-operated wand valve, no build has ever requested the steam
+  position, and there is no steam solenoid on the pin map — so this is a guard
+  against a future change, not a live hazard. See `outstanding-findings.md` #14.
 
 ## 3. The water valve is not gated on an empty tank {#cf3}
 
