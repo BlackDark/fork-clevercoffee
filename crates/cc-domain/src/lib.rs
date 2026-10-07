@@ -86,6 +86,31 @@ pub mod switch;
 pub mod system;
 pub mod units;
 
+/// Whether this build's emergency-temperature safety bounds are relaxed so the
+/// over-temp trip can be exercised on a bench.
+///
+/// **Off unless `CC_BENCH_UNSAFE_TEMPERATURES` is set in the build environment.**
+/// It is read with [`option_env!`], so it is baked in at compile time: there is
+/// no runtime switch, no HTTP route, no parameter, and nothing an operator can
+/// reach at runtime. `just bench-flash <port>` sets it; `just build-esp32`
+/// does not.
+///
+/// # Why it exists
+///
+/// The emergency threshold has a 120 °C floor, and `cc_safety::validate_config`
+/// will not accept a threshold at or below either setpoint plus the hysteresis. A
+/// bench boiler sits at room temperature with an LED on the heater pin, so the
+/// over-temp trip in [`operations/runbook.md` §13.1] cannot be reached on a
+/// bench at all without this — and it cannot be reached by hand either, because
+/// warming a DS18B20 past 120 °C is not something a person should attempt.
+///
+/// # What it does NOT relax
+///
+/// The relay rules. `LOW_TRIGGER` on the heater, the pump or the valve stays
+/// refused, because a floating pin that energises a relay is a hazard that no
+/// test procedure creates and no test procedure should excuse.
+pub const BENCH_UNSAFE_TEMPERATURES: bool = option_env!("CC_BENCH_UNSAFE_TEMPERATURES").is_some();
+
 #[cfg(test)]
 extern crate alloc;
 

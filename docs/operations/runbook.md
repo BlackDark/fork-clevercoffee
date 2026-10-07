@@ -63,6 +63,13 @@ curl -w "\n%{http_code}\n" -X POST http://<ip>/api/ota/firmware \
   - [ ] `filename=bad.txt` → 400 "Invalid firmware file. Expected .bin extension."
   - [ ] `/api/ota/filesystem` with `bad.txt` → 400 "Invalid filesystem file..."
 
+> ✅ **Both app slots are written by `just flash`, so it always wins.** It used to
+> write only `app0` while `otadata` selected whichever slot the last update chose,
+> so on a board that had taken an OTA the flash reported success and the old
+> image kept running. Check the boot log's `Loaded app from partition at offset …`
+> when you need to know which slot ran. Recorded and fixed as
+> [`../history/outstanding-findings.md` #16](../history/outstanding-findings.md).
+
 ### 2c. URL-based update (`/api/ota/url`)
 
 ```sh
@@ -899,3 +906,224 @@ measurement and the two traps that produced wrong numbers on the way are in
 To narrow it further, split the applier span into `apply` / `drain_scale` / the
 reboot checks and read the same line. Do **not** attribute it without a
 measurement: "the applier is slow" is not a finding, "the applier is 12 ms" is.
+
+---
+
+## 12. Moving configuration off the C++ firmware
+
+**Decided 2026-10-06 by Eduard Marbach.** The two firmwares use different NVS
+namespaces — `config` (`9fa8c834:include/clevercoffee/defaults.h:13`) against
+this port's `cc` — so nothing is lost and nothing is deleted: the old settings are
+still on the chip, unread. There is deliberately **no migration**; the reasoning is
+in [`../history/divergences.md` §32](../history/divergences.md#d32).
+
+The operator's path is the one both UIs already have: **download `config.json`
+from the C++ firmware's web UI, upload it to this firmware's web UI.** It works
+because the export and import key names are the C++'s own dotted names
+(`cc-config/src/json.rs`, module documentation), and the C++'s export walks
+`getAllConfigParams()` and nothing else, so the document is pure parameters.
+`every_cxx_config_key_is_still_a_key_the_schema_knows` pins that; if a key is
+renamed, that test fails here rather than on a machine.
+
+- [ ] **On the machine still running the C++** (it answers to `silvia`, not
+      `test-cc-rust`): *System* → *Download configuration* → `config.json`.
+
+- [ ] ⚠️ **The file contains your Wi-Fi and MQTT passwords in cleartext.**
+      `Secret` serialises transparently — the machine has to be able to *use*
+      the credential — so this is not redacted on the way out, and the C++
+      behaved the same way. Treat it like a password file: keep it off shared
+      storage, and delete it once the upload has succeeded.
+
+- [ ] **Flash this firmware, provision the network** (§"Wi-Fi: four checks")
+      if you have not already, because the machine comes up on no network at
+      all with an empty `cc` namespace.
+
+- [ ] **On this firmware:** *System* → *Upload configuration* → the file.
+      Expect `{"success":true,...,"restart":true}` and let it restart.
+
+- [ ] **Verify a value that is not the default, not one that is:**
+
+      ```
+      jq '.brew.setpoint, .safety.emergency_temp' /tmp/config.json
+      curl -s 'http://test-cc-rust.lan/api/parameters?filter=all' \
+        | jq '.[]|select(.name=="brew.setpoint")'
+      ```
+
+- [ ] **A `400` names the offending keys** and nothing is applied — the import is
+      all-or-nothing, deliberately stricter than the C++'s, which logged a warning
+      per bad parameter and answered `200` if one had imported (§14 above). An
+      out-of-range value in a document downloaded years ago will land here.
+
+- [ ] **Keys this firmware has and the C++ did not** (`pid.enabled`,
+      `system.offline_mode`, `hardware.oled.enabled` and 28 more — 98 against 96)
+      are absent from the file and come up at their compiled-in defaults.
+
+---
+
+## 13. R4-04 — the safety paths
+
+Six cases the port owes the machine, written down before the water path is
+trusted with a real reservoir. Decided 2026-10-06 by Eduard Marbach: the four
+bench-exercisable ones are written and runnable now, the three that cannot be
+run on a bench say what each would need and who owns it. **None of this has been
+run yet** — these are procedures, and `docs/status.md` is where the result
+belongs.
+
+Set-up for all of them: the bench in [`../hardware/bench-setup.md`](../hardware/bench-setup.md),
+LED + 330 Ω on GPIO2/27/17, one DS18B20 on GPIO16. An LED proves the pin, not a
+relay — read that page before treating a dark LED as a verified water path.
+
+### 13.1 Overtemp trip — machine, or a bench build ✅ **PASSED 2026-10-07 (bench build)**
+
+**The obvious bench trick does not work, and I got this wrong the first time.**
+The procedure used to say "lower `safety.emergency_temp` instead of heating the
+boiler". Two things stop that:
+
+- **The parameter floor is 120 °C** (`safety.emergency_temp` range 120–180,
+  `steam.setpoint` 100–140). A bench boiler sits at ~23 °C with only an LED on
+  the heater pin, so the lowest *legal* value is still 100 K above ambient.
+- **Lowering it is refused anyway**, and refusing is expensive. Setting
+  `safety.emergency_temp=120` with the default `steam.setpoint=120` trips
+  `cc_safety`'s `EmergencyTempTooLowForSteam` — the threshold must sit above
+  `steam.setpoint + safety.emergency_hysteresis` or the machine cannot be
+  steamed. Measured 2026-10-07 on a bench ESP32:
+
+  ```txt
+  config: (configuration is unsafe to run: EmergencyTempTooLowForSteam { emergency_temp: 120, steam_setpoint: 120 })
+  config: keeping the stored Wi-Fi credential so the machine stays reachable and the unsafe setting can be fixed over HTTP
+  config: stored but unsafe — DISCARDED
+  nvs: the boot decision was `DiscardedUnsafe(...)`
+  ```
+
+  **⚠️ Read that third line before you push any parameter you are not sure of.
+  The discard is whole-configuration, not per-parameter** — see
+  [`../history/outstanding-findings.md` #12](../history/outstanding-findings.md).
+  On this bench it silently reverted `hardware.sensors.temperature.type` from
+  Dallas to TSIC-306 and put the machine in `SENSOR_ERROR` with `NaN`.
+
+**What actually works**, in order of preference:
+
+1. **The machine.** Steam drives the boiler to `steam.setpoint`, and a lowered
+   `safety.emergency_temp` reachable below it trips S1 for real. Set
+   `steam.setpoint=100`, `safety.emergency_temp=120`, and steam.
+2. **A test build** (`just bench-flash <port>`): the parameter floor and the
+   steam-headroom check are compiled out, so `safety.emergency_temp=30` is
+   accepted and a DS18B20 warmed past 30 °C — a hand, a mug of hot water, a
+   hair dryer — trips S1. The override is a build-time constant with the real
+   bounds as its default; see the recipe and the constant it reads.
+
+- [ ] `POST /api/parameters safety.emergency_temp=<value>` → `200`
+- [ ] Restart; `GET /api/parameters` reports the new value, and the boot log says
+      `the boot decision was `Stored`` — **not** `DiscardedUnsafe`.
+- [ ] Warm the probe past the threshold. S1 needs **three consecutive** readings
+      above it (`DEBOUNCE_COUNT`, 3), so allow three poll intervals.
+- [ ] `GET /api/status` → `machineState` reaches `EMERGENCY_STOP`.
+- [ ] The heater LED goes **dark** and stays dark — that is
+      `Actuators::set_heater_duty` refusing while latched (`actuators.rs:338`),
+      not the PID reaching 0 %.
+- [ ] **Restore the threshold and reboot before anything else**, and check the
+      boot log again for `DiscardedUnsafe`.
+
+  **Result, bench ESP32, `just bench-flash`, 2026-10-07.** Threshold written at
+  30 °C with room temperature 22.9 °C — 7 K of headroom — and the probe warmed
+  by hand. It tripped: the PID stopped, the heater LED went dark and stayed
+  dark, and a brew press during the latch was refused. See
+  [`../history/outstanding-findings.md` #15](../history/outstanding-findings.md)
+  for the two things the trip exposed, one of them a real defect.
+
+### 13.2 Emergency latch and recovery — half-passed 2026-10-07
+
+Same trigger, and it follows from it: there is no route that latches the
+emergency stop, so it cannot be exercised without tripping it for real.
+
+- [ ] With the machine in `EMERGENCY_STOP`, start a brew (press the **brew
+      button**; there is no `/api/brew` route, and `POST /api/backflush` is the
+      water path the API does expose). The serial log carries
+      `actuators: enablePump REFUSED — latched 1, ...` and the pump LED stays
+      dark. The latch refuses **everything**, including the heater.
+- [ ] **Recovery is a restart.** The latch lives in `Machine::safety` in RAM and
+      nothing persists it, so `POST /api/restart` (or a power cycle) clears it.
+      There is no route that clears it without rebooting, and that is deliberate.
+- [ ] After the restart, with the threshold restored, `machineState` is
+      `PID_NORMAL` or `PID_DISABLED` and not latched — one brew command, and the
+      pump LED lights.
+
+  **Result, 2026-10-07.** The refusal half is confirmed on hardware: during the
+  latch the brew button did nothing and the pump LED stayed dark. **The
+  recovery half did not behave as this section assumed, in two ways.** The latch
+  clears on temperature alone — which is *C++ parity*
+  (`EmergencyStopManager::isEmergencyCleared`: a valid reading at or below
+  `EMERGENCY_SAFE_TEMP_C`, 100 °C) and looks alarming only because the bench
+  threshold was 30 °C, so room air cleared it in seconds; on a machine the
+  boiler has to fall below 100 °C first. **The brew press was not lost, though:
+  it fired when the latch cleared.** That is finding #15, it is a real defect,
+  and it is what the recovery half is actually testing.
+
+### 13.3 Tank-empty pump inhibit — bench
+
+The float switch on GPIO23 is a single input, so an empty tank is a short to GND.
+
+- [ ] Short GPIO23 to GND. `GET /api/status` then reports `waterTankFull:false`
+      (and the boot line `switch resting levels after settling: … water_tank=false`
+      is how you confirm which way the pin reads before you trust anything else).
+- [ ] Start a brew with the **brew button**. The pump LED stays dark and the log carries
+      `enablePump REFUSED — latched 0, tank_full 0, inhibited 0`.
+- [ ] **The water valve LED also stays dark** — a deliberate divergence: the C++
+      gated the pump but not the valve (09 §3), so a brew entered with an empty
+      tank opened the valve against a dry reservoir.
+- [ ] The heater LED is unaffected. An empty tank is not an emergency.
+- [ ] Release the short; the pump is permitted again on the next tick.
+
+### 13.4 Actuator-off during OTA — bench ✅ **PASSED 2026-10-07**
+
+Wiring: LED + 330 Ω (220 Ω on the valve LED, which is blue and visibly dim at
+3.3 V) on GPIO2/17/27. Red = heater, green = GPIO27 pump, blue = GPIO17 valve.
+
+- [ ] With all three LEDs **lit** (a state that reaches the machine in a running
+      brew, or by holding the LEDs' states from a brew command), start an upload:
+      `POST /api/ota/firmware -F "firmware=@firmware.bin"`.
+- [ ] All three go **dark** for the duration. The route waits for the control task
+      to apply `cc_machine::ota::begin_session`'s shutdown before it touches the
+      flash, and re-checks admission against the **live** machine state on the way
+      — see the safety-irreducible note at `cc-hal-esp32/src/ota.rs`.
+- [ ] `GET /api/ota/status` reports `idle` afterwards and the device reboots on its
+      own within ~20 s (§2b).
+
+  **Result, bench ESP32 rev 3.0, 2026-10-07.** Upload `200` in 13.0 s; all three
+  LEDs dark for the whole write and lit again after the reboot; `uptime_ms` reset
+  and the machine back in `PID_NORMAL` with the heap steady. The log carries the
+  sequence the case is about:
+
+  ```txt
+  [292126] control: command OtaBegin
+  [292131] control: OTA session requested — admission re-checked after apply
+  [292137] control: OTA admitted — safe hardware shutdown
+  [292146] actuators: safe hardware shutdown — relays off, latch untouched
+  [303873] ota: Firmware update complete — 1701296 B
+  [303882] control: OTA completed — restarting into the new image
+  ```
+
+  **And one thing nobody expected:** 9 s into the write the machine went
+  `PID_NORMAL -> SENSOR_ERROR` and stayed there until the reboot. The heater was
+  already off, so nothing overheated, but the state machine declared a sensor
+  fault while the flash was being written. Recorded as
+  [`../history/outstanding-findings.md` #13](../history/outstanding-findings.md).
+
+### 13.5 Not exercisable on a bench — and what each needs
+
+| Case | Why not | What it needs | Owner |
+| --- | --- | --- | --- |
+| **Watchdog reboot** | There is no way to hang the control task from outside. This port has no `/debug/*` route; the recovered oracle had `/debug/hang-supervisor`, and it was not ported. | Either a debug build with that route, or the machine. Until then the recovery this checks — a wedged chip resetting rather than running away — is a design property of the TWDT subscription plus the deadman, not a measurement. | Eduard Marbach |
+| **Tank-empty pump *kill*** (R4-04) | 13.3 proves the *logic* given the input; it cannot prove the float switch's electrical behaviour or that a real pump actually stops. | The machine, reservoir filled, float switch submerged and withdrawn mid-brew. | Eduard Marbach |
+| **Valve fail-safe** (R4-04) | Needs a real valve to be observed de-energised, and a power loss to be observed with it. | The machine, with power removed while a brew is in progress: the valve must be closed, not merely commanded closed. | Eduard Marbach |
+
+**The order to run them in:** 13.1 → 13.2 need a test build or the machine (see
+13.1); 13.3 needs one jumper wire on GPIO23; 13.4 is done. Then the machine with
+an **empty reservoir** — 13.1–13.4 again, where the tank interlock is a real
+float switch — and then filled, which is when the last two table rows in 13.5
+become runnable.
+
+**Do not push a parameter you are unsure of.** A write the validator refuses
+costs the whole stored configuration, not the one value. Read
+[`../history/outstanding-findings.md` #12](../history/outstanding-findings.md)
+before you experiment with configuration on any machine.

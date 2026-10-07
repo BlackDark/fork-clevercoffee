@@ -2352,3 +2352,223 @@ Approved on request, 2026-10-05.
   reach it. The verification is the measurement above, repeated after the
   change: write `kp`, read `heaterPower` within one control period, no state
   change in between.
+
+---
+
+## 35 — The port is closed; five decisions, and what each costs 🔴 changed {#d35}
+
+Decided 2026-10-06 by Eduard Marbach, at the close of the migration. **None of
+this changes runtime behaviour**, so unlike the sections above there are no
+`ledger` blocks: `cc-parity` classifies differences the firmware *exhibits*, and
+there are none here. What there is instead is the record of five things that were
+open, what was decided, and what would reverse each decision.
+
+### 35.1 The C++ parity baseline is never captured
+
+`docs/history/baseline/cpp/` holds only `.gitkeep`, and `just parity` reports
+`BASELINE-MISSING` for all 17 scenarios. Capturing one means flashing the
+deleted C++ onto a powered, wired machine — which runs its own control loop.
+The tree is recoverable (`git show 9fa8c834:...`, `AG-REPO-27`) but its
+PlatformIO build is not, so the cost is a reconstruction plus a machine.
+
+**Decided: abandoned, permanently.** Not deferred — the owner declined the
+capture when it was first offered, and the cost has since gone up rather than
+down. **What "intentional difference" means in `divergences.md` from now on is
+reviewed and reasoned, never measured.** **Reverses if** the C++ is rebuilt from
+`9fa8c834` and a powered machine is available to run it against.
+
+### 35.2 The water path is live, and the bring-up inhibit is gone
+
+R4-01 added a `test_only` inhibit holding the pump and the valve off while the
+heater stayed live, because its acceptance criterion was the PID. Nothing since
+has revisited it, and a machine flashed with that image heats, displays and
+serves an API **and cannot move water**. Steam was dead with it: steam shares
+the valve relay.
+
+**Decided: the inhibit is deleted.** It was not parity — the recovered oracle's
+boot log records "pump on GPIO27, valve on GPIO17, both asserted off" as a
+*boot* state (`recovered-oracle.md:92`) and its debug surface includes
+`/debug/brew/start` and `/debug/hotwater/on` (`:209`); the C++ moved water.
+`cc_hal_esp32::Inhibit` stays, with its device test, for a bring-up build that
+wants it. **Verified on a bench ESP32**: the boot log reads `no inhibit, the
+water path follows the reducer`, and the control line reports
+`refused pump=0 water=0 steam=0 heater=0`. **Reverses with** one
+`actuators.set_inhibit` call.
+
+### 35.3 The configuration moves by download and re-upload, not by migration
+
+The two firmwares use different NVS namespaces (`config` against `cc`), and
+§32's reasoning for refusing a migration was accepted then. What is new is the
+operator path being pinned rather than assumed: an operator downloads
+`config.json` from the C++ UI and uploads it here, which works because the key
+names are the C++'s own dotted names.
+
+**Decided: the hand-off is the procedure, and it is pinned by a test.**
+`every_cxx_config_key_is_still_a_key_the_schema_knows` holds the C++'s own 96
+keys — recovered from `getAllConfigParams()` at `9fa8c834:src/Config.cpp:438` —
+and fails on a rename. Runbook §12 is the operator's steps, and says plainly
+that the downloaded file contains Wi-Fi and MQTT passwords in cleartext.
+
+### 35.4 Four of the six R4-04 safety cases are written and runnable; three are not
+
+Runbook §13 has procedures for overtemp trip, the emergency latch and its
+recovery, the tank-empty pump inhibit and OTA actuator-off — all observable on a
+bench with LEDs on GPIO2/27/17. **Written, not run.**
+
+**Not runnable on a bench, each with what it needs:** the watchdog reboot needs a
+debug route this port does not have (the oracle's `/debug/hang-supervisor` was
+never ported); tank-empty pump *kill* and valve fail-safe need the machine,
+because they are about a real float switch, a real pump and a real valve
+de-energised. Owner: Eduard Marbach.
+
+### 35.5 The flash path, and the two defects that surfaced while exercising it
+
+Running §13 and §2b on a bench ESP32 on 2026-10-06 found two things that the
+green gate could not see, both now in [`../status.md`](../status.md):
+
+- **`just flash` never wrote the partition table.** The comment claiming the ELF
+  carried it was wrong in both halves; esp-idf-sys 0.38.1's README says the build
+  does not consume a custom CSV and that flashing must pass
+  `--partition-table`. Fixed, and the device now boots `app0`/`app1`/`littlefs`/
+  `coredump` from `rust/partitions_4M.csv`.
+- **An OTA does not take effect.** `esp_ota_end` validates the image and does not
+  select the slot; `esp_ota_set_boot_partition` is never called, and rollback is
+  not compiled in. The upload answers `200` and the device reboots into the slot
+  it came from. **Fixed 2026-10-07 (`83b3c419`)** after the owner took the
+  decision: `Writer::end` now calls `esp_ota_set_boot_partition` after a
+  successful `esp_ota_end`. The cost stands and is stated in the code: with no
+  rollback, a bad image in the selected slot is unbootable without USB.
+
+---
+
+## 36 — The emergency latch drains action requests, and the C++ does not 🔴 changed {#d36}
+
+Finding #15 of [`outstanding-findings.md`](./outstanding-findings.md). Approved
+by Eduard Marbach on 2026-10-07, on the measurement below.
+
+### What the C++ does
+
+Nothing. `EmergencyStopState::performEmergencyShutdown`
+(`9fa8c834:src/state/states/EmergencyStopState.cpp:49-52`) is
+`context.emergencyShutdown()` plus `context.setPidRuntimeState(false)`, and no
+handler clears `brewStartRequested_` while the latch is up. A brew pressed during
+an over-temperature survives the whole latch.
+
+### What the Rust does
+
+`EMERGENCY_STOP` drains the action requests on entry **and on every tick while
+the latch persists** (`cc-machine/src/states.rs`, both arms), emitting
+`Effect::ClearActionRequests` so the flag is cleared in the appliance and in the
+reducer's next view of the machine. The guard on the tick drain is
+`machine.is_emergency_stop()` — the same condition as this state's exit
+transition, which is what ADR-0003 rule 3 asks for.
+
+### The measurement that decided it
+
+Bench ESP32 rev 3.0, `just bench-flash`, emergency threshold 30 °C, probe warmed
+by hand, 2026-10-07:
+
+1. The machine tripped into `EMERGENCY_STOP`; the PID stopped and the heater LED
+   went dark.
+2. A brew press during the latch was refused — `enablePump REFUSED — latched 1`,
+   pump LED dark. Correct, and the reason it looked harmless.
+3. The probe cooled below the threshold, the latch cleared, **and the machine
+   started that same brew with nobody pressing anything.**
+
+On a machine the water is at brewing temperature and the reservoir is not empty,
+and the operator who pressed brew has usually walked away.
+
+### Why this is compliance, not invention
+
+`AG-REPO-24` — "States that cannot act on action requests must drain incoming
+flags to prevent unexpected transitions on recovery" — and ADR-0003 rules 2 and 3
+both ask for exactly this. The C++ never did it; `AG-REPO-24` was written *about*
+this class of defect (ADR-0003's own background is `PidDisabledState` not
+draining, which cost a brew that started itself).
+
+**The "never drain wake-up signals" rule is not touched.** That rule is about
+`STANDBY` preserving `brewStartRequested` so that *waking* runs it. An emergency
+stop is not a state anyone intends to wake from, and draining it is the whole
+point: recovery must require a fresh press.
+
+### What pins it
+
+`cc-machine/tests/emergency_latch_drains.rs`, three tests, all of which fail
+against the pre-fix code and pass against it:
+
+- `a_brew_pressed_during_the_latch_is_refused_and_then_dropped` — nothing is
+  energised while latched, `ClearActionRequests` is emitted **every tick** (a
+  request arrives after entry has run, so an entry-only drain is not enough),
+  and `requests.brew_start` is false afterwards.
+- `the_recovery_tick_starts_no_brew` — after five latched ticks and a cleared
+  latch, the machine leaves `EMERGENCY_STOP` and **no brew begins**.
+- `an_empty_tank_drains_the_same_press_and_the_latch_now_does_too` — the
+  contrast with R4-04 case 13.3, where `WATER_TANK_EMPTY` already drained the
+  same press and the operator watched it happen at the LEDs.
+
+```ledger
+{"id":"div36","heading":"## 36 — The emergency latch drains action requests","scenarios":["overtemp_trip","overtemp_recovery"],
+ "matchers":["/effect rust:ClearActionRequests/","/state EMERGENCY_STOP/"]}
+```
+
+---
+
+## 37 — The error states drain action requests, and the C++ does not 🔴 changed {#d37}
+
+Found by review on 2026-10-07, and the same class as [§36](#d36): a state that
+cannot act on an action request must not leave one behind for the state it
+recovers into (`AG-REPO-24`).
+
+### What the C++ does
+
+Nothing. `ErrorStates.cpp` never clears `brewStartRequested_`.
+
+### What the Rust does
+
+`SensorError` and `EepromError` drain on entry, alongside the `EMERGENCY_STOP`
+drain from §36.
+
+### Why it matters now and did not before
+
+`SENSOR_ERROR` recovers on `error_duration > ERROR_RECOVERY_DELAY_MS`
+(`states.rs`) and `PID_NORMAL` acts on whatever `brew_start` it finds. Before the
+inhibit's deletion a brew request that survived an error state ended at
+`enablePump REFUSED`; now it starts a real brew, at whatever temperature the
+boiler happens to be. The trigger is ordinary rather than exotic — **runbook
+§13.4 records the machine falling into `SENSOR_ERROR` during an ordinary OTA
+write**, because the DS18B20 stalls while flash is erased.
+
+### The test that was wrong, and why
+
+`ported_pid_state_transitions.rs` asserted the opposite — *"the error states drain
+nothing, and that is deliberate … the drain happens on entry to the recovery state
+instead"*. Two things were false about that:
+
+1. `PidNormal`'s `on_entry` is empty. **There is no drain on the recovery
+   state.**
+2. The comment it cited (`ErrorStates.cpp:52-54`) is about the machine *staying*
+   in `SENSOR_ERROR` so a persistent fault stays visible. It says nothing about
+   requests.
+
+The test had carried a plausible-sounding mechanism that does not exist, for as
+long as it existed. It now asserts the corrected behaviour, and the reasoning is
+recorded here rather than deleted.
+
+### What pins it
+
+- `ported_pid_state_transitions.rs::the_error_states_drain_requests` — both
+  error states, entry drain and the request's disappearance.
+- `cc-machine/tests/emergency_latch_drains.rs::a_brew_pressed_during_a_sensor_error_is_not_acted_on_after_it_recovers`
+  — the end-to-end version: press brew, fault the probe, let it recover, and the
+  brew has not started. Verified to fail against the pre-fix code.
+
+### Related, deliberately NOT changed
+
+`BackflushFilling`'s update still does not re-assert its pump or valve. That is a
+**recorded decision** (`cpp-findings.md` §13: "Rust: preserved. Pinned by
+`s13_*`"), and the `s13_backflush_filling_never_re_asserts_its_hardware` test
+still enforces it, so changing it here would have overturned a decision this
+branch was not asked to revisit. What the inhibit's removal changes is the cost:
+a single tank-interlock refusal on entry now leaves the fill stalled and silent
+for the whole cycle, where before it was indistinguishable from correct
+behaviour. Recorded as `outstanding-findings.md` #18 for the owner.

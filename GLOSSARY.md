@@ -88,6 +88,17 @@ a single relay**, so an ungated steam valve is an ungated water valve.
 something. A heater relay that is `LOW_TRIGGER` is not "inverted" and made to
 work; it is *refused*, because an undriven GPIO at reset would turn it on.
 
+**Water path** — everything that moves liquid: the pump and the water valve,
+feeding the boiler. Steam shares the valve relay, so steam is part of the water
+path's blast radius even though it moves no water. It is enabled by default and
+gated per tick by the tank interlock and the safety layer, never by the firmware
+holding the actuators off.
+
+**Inhibit** — a bring-up-only refusal to energise an actuator, set once at boot
+and logged. It exists so "the pump did not run" can mean "the pump was
+inhibited" instead of leaving the distinction to a reading of `/api/status`. An
+inhibit is not a safety mechanism: the interlock and the safety layer are.
+
 ## Working on it
 
 **The gate** — the checks that must pass before anything is committed. `just
@@ -102,3 +113,27 @@ A claim nobody can follow is a wrong claim.
 **Dormant** — a schema key, an endpoint or a declared divergence that exists but
 has never been exercised. Dormant is not broken and it is not verified; it is
 the third thing, and the honest word for it.
+
+## How a claim ends
+
+[`docs/status.md`](docs/status.md) says what works, and its sections are not
+interchangeable. Four words, and the difference between them is the difference
+between a page that helps and the next confidently-wrong document.
+
+**Done** — verified here, on this thing, with the measurement or the commit the
+line points at. Only "done" may be described in the present tense.
+
+**Closed by decision** — settled, and settled *without* being executed. It
+requires four things and all four must be present or the claim is not made: a
+**date**, a **named owner**, the **reasoning**, and the **reversal condition** —
+what would have to change for the decision to be revisited. A decision with no
+reversal condition is a preference, and belongs in the open list.
+
+**Residual risk** — accepted, not closed. Real, understood, and not going to be
+fixed on the current schedule. It is neither done nor decided against; it is
+known.
+
+**Not started** — no work has been done and none has been ruled out.
+
+A thing that was *measured to not work* is none of these: it is an open defect,
+and it says so in the same words.

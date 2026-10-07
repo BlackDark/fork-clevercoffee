@@ -701,8 +701,10 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
     //     accidentally poke a relay, because it has no way to reach one" made
     //     structural rather than aspirational.
     //
-    //     The `test_only` inhibit is set here and **never changed afterwards**.
-    //     See [`TEST_ONLY_INHIBIT`] for what is held off and why.
+    //     Nothing is inhibited: the pump, the valve relay and the heater all
+    //     follow the reducer's effects. R4-01's bring-up inhibit is gone, and
+    //     `cc_hal_esp32::actuators` defaults to `Inhibit::NONE`, so a build that
+    //     wants the water path held off sets it explicitly and logs it.
     // The relay polarities are **not known yet** — the configuration is loaded
     // further down, and reading it before that is what made the setting a lie in
     // the first place. The facade is built with the default, which is what
@@ -715,16 +717,12 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
         heater,
         cc_hal_esp32::actuators::RelayPolarities::all_high_trigger(),
     );
-    actuators.set_inhibit(TEST_ONLY_INHIBIT);
     info!(
         "actuators: pump=GPIO{} valve=GPIO{} heater=GPIO{} owned by the control task; \
-         test_only inhibit pump={} valve={} heater={}",
+         no inhibit, the water path follows the reducer",
         pins::PUMP,
         pins::WATER_VALVE,
         pins::HEATER,
-        TEST_ONLY_INHIBIT.pump,
-        TEST_ONLY_INHIBIT.valve,
-        TEST_ONLY_INHIBIT.heater
     );
 
     // 5c-bis. The status LED pins, **reserved** here and configured below once
@@ -811,6 +809,17 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
         actuators.relay_polarity().pump.active,
         actuators.relay_polarity().valve.active
     );
+    // A bench build is only ever one `option_env!` away from being impossible to
+    // tell apart from a ship build, so it says so at boot, loudly and unmissably,
+    // next to the relay line it is nearest to being unsafe about.
+    if cc_domain::BENCH_UNSAFE_TEMPERATURES {
+        warn!(
+            "SAFETY BENCH BUILD — CC_BENCH_UNSAFE_TEMPERATURES was set when this \
+             image was compiled: the emergency-threshold floor and the steam and \
+             brew headroom checks are compiled out. DO NOT FIT THIS TO A MACHINE. \
+             It exists for operations/runbook.md §13.1."
+        );
+    }
 
     // 7a-ter. The status LEDs, now that `hardware.leds.*` is known.
     //
@@ -1574,48 +1583,6 @@ fn bring_up_scale(
     }
     Ok(Some(sampler))
 }
-
-/// 🔴 The `test_only` inhibit for R4-01's acceptance run.
-///
-/// **The pump and the valve relay are held off. The heater is not.** That split
-/// is the whole of the safety argument for this task, so it is spelled out.
-///
-/// * **Why the pump and the valve are inhibited.** A brew switch press — or a
-///   `POST /api/brew`, or a `backflush` command — makes the reducer emit
-///   `EnablePump` and `OpenWaterValve`, and the state machine's job is to emit
-///   them. The human has a real machine with a real reservoir, and R4-01's
-///   acceptance criterion is about the **PID**, not about water. The inhibit
-///   makes "the pump did not run" mean "the pump was inhibited", which
-///   `cc_hal_esp32::actuators` counts and logs, rather than leaving the
-///   distinction to a reading of `/api/status`.
-///
-/// * **Why the heater is not.** The acceptance criterion the human will check by
-///   hand is *"with a target temperature of 30 °C the heater must NOT be at
-///   100 % output"*. That is a statement about a duty the heater **reached**,
-///   and it cannot be answered by a duty the code computed and then refused to
-///   apply. The heater runs through `HeaterOutput::set_duty` and the 10 ms ISR
-///   either way, and the deadman gate is armed on the first supervisor beat
-///   exactly as it is in any other build — so the thing being proven is the real
-///   path, not a shadow of it.
-///
-/// * **What bounds it.** A 30 °C setpoint against a ~24 °C boiler is a ~6 K
-///   error, which is well inside the emergency threshold
-///   (`safety.emergency_temp`, default 150 °C, `Config.h:813-829`) and inside the
-///   200 °C plausibility ceiling. Nothing here can run away: S1 trips on three
-///   consecutive readings above the threshold, and the state machine's own
-///   `should_pid_be_enabled` refuses the duty in `PID_DISABLED`, `SENSOR_ERROR`,
-///   `EMERGENCY_STOP`, `STANDBY` and every backflush state.
-///
-/// **To return to a machine that can brew:** set
-/// [`cc_hal_esp32::Inhibit::NONE`]. That is a one-line change and a rebuild, and
-/// it is the correct ship state once R4-04's safety-path procedures have been
-/// written and reviewed — 06 lists them as a separate task for exactly this
-/// reason.
-const TEST_ONLY_INHIBIT: cc_hal_esp32::Inhibit = cc_hal_esp32::Inhibit {
-    pump: true,
-    valve: true,
-    heater: false,
-};
 
 /// The long-press "REBOOTING" pause, in milliseconds.
 ///

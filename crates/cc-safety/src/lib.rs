@@ -912,24 +912,31 @@ pub enum ConfigViolation {
 /// anywhere in the firmware that could substitute for it.
 pub fn validate_config(cfg: &SafetyConfig) -> Result<(), ConfigViolation> {
     let steam_headroom = cfg.steam_setpoint.raw() + cfg.emergency_hysteresis.raw();
-    if cfg.emergency_temp.raw() <= steam_headroom {
-        return Err(ConfigViolation::EmergencyTempTooLowForSteam {
-            emergency_temp: cfg.emergency_temp,
-            steam_setpoint: cfg.steam_setpoint,
-            emergency_hysteresis: cfg.emergency_hysteresis,
-        });
-    }
+    // A bench build compiles the two headroom rules out so the over-temp trip
+    // in `operations/runbook.md` §13.1 can be reached with a hand-warmed
+    // DS18B20. Everything below this point still applies: the relay rules, the
+    // brew-target rule, and everything after them. See
+    // [`cc_domain::BENCH_UNSAFE_TEMPERATURES`].
+    if !cc_domain::BENCH_UNSAFE_TEMPERATURES {
+        if cfg.emergency_temp.raw() <= steam_headroom {
+            return Err(ConfigViolation::EmergencyTempTooLowForSteam {
+                emergency_temp: cfg.emergency_temp,
+                steam_setpoint: cfg.steam_setpoint,
+                emergency_hysteresis: cfg.emergency_hysteresis,
+            });
+        }
 
-    // The brew pair, immediately after the steam one so the two read as the rule
-    // they are: the threshold must clear *both* setpoints the PID can be told
-    // to hold, plus the hysteresis, by a strictly positive margin.
-    let brew_headroom = cfg.effective_brew_setpoint.raw() + cfg.emergency_hysteresis.raw();
-    if cfg.emergency_temp.raw() <= brew_headroom {
-        return Err(ConfigViolation::EmergencyTempTooLowForBrew {
-            emergency_temp: cfg.emergency_temp,
-            brew_setpoint: cfg.effective_brew_setpoint,
-            emergency_hysteresis: cfg.emergency_hysteresis,
-        });
+        // The brew pair, immediately after the steam one so the two read as the
+        // rule they are: the threshold must clear *both* setpoints the PID can
+        // be told to hold, plus the hysteresis, by a strictly positive margin.
+        let brew_headroom = cfg.effective_brew_setpoint.raw() + cfg.emergency_hysteresis.raw();
+        if cfg.emergency_temp.raw() <= brew_headroom {
+            return Err(ConfigViolation::EmergencyTempTooLowForBrew {
+                emergency_temp: cfg.emergency_temp,
+                brew_setpoint: cfg.effective_brew_setpoint,
+                emergency_hysteresis: cfg.emergency_hysteresis,
+            });
+        }
     }
 
     // **Every relay, not just the heater.** The recovered oracle refused

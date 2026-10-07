@@ -85,7 +85,7 @@ use std::sync::Mutex;
 use esp_idf_svc::sys::EspError;
 use esp_idf_sys::{
     esp_ota_abort, esp_ota_begin, esp_ota_end, esp_ota_get_next_update_partition, esp_ota_handle_t,
-    esp_ota_write, esp_partition_erase_range, esp_partition_find_first,
+    esp_ota_set_boot_partition, esp_ota_write, esp_partition_erase_range, esp_partition_find_first,
     esp_partition_subtype_t_ESP_PARTITION_SUBTYPE_DATA_LITTLEFS, esp_partition_t,
     esp_partition_type_t_ESP_PARTITION_TYPE_DATA, esp_partition_write,
 };
@@ -338,20 +338,37 @@ impl Writer {
     /// For a **firmware** session this is the whole power-cut story, and it is
     /// worth stating exactly what was and was not verified:
     ///
-    /// * `esp_ota_end` validates the written image (magic byte, segment headers
-    ///   and, when enabled, the SHA-256 of the whole image) and only then calls
-    ///   `esp_ota_set_boot_partition`, which writes the `otadata` sector
-    ///   (`esp_ota_ops.c:60-95`, `esp_ota_ops.h:205-219`). **Verified by reading
-    ///   ESP-IDF v5.5.5's `esp_ota_ops.c`, not on hardware.**
+    /// * `esp_ota_end` validates the written image (magic byte, segment
+    ///   headers and, when enabled, the SHA-256 of the whole image) — and
+    ///   **that is all it does**. It does *not* select the new slot.
+    ///   `esp_ota_end` is `ota_verify_partition` and cleanup
+    ///   (`esp_ota_ops.c:477-524`); the only writer of `otadata` on the write
+    ///   path is `esp_ota_set_boot_partition` (`:599`). This module never calls
+    ///   it, and `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE` is not set in this
+    ///   build, so nothing else switches the slot either.
+    ///   **Measured on a bench ESP32, 2026-10-06:** an upload answered
+    ///   `200 {"success":true,...,"restart":true}`, the device rebooted, and the
+    ///   bootloader logged `Loaded app from partition at offset 0x10000` —
+    ///   `app0`, the slot it was already running from. The image in `app1` was
+    ///   complete and validated, and was not booted. **An OTA through this route
+    ///   did not take effect.**
+    /// * [`Writer::end`] now calls `esp_ota_set_boot_partition` after a
+    ///   successful `esp_ota_end`, so the slot is selected. **The consequence is
+    ///   stated plainly because it is the reason this was not done sooner:**
+    ///   there is no rollback, so a *bad* image in the selected slot is
+    ///   unbootable without USB. Before this call, a bad update cost nothing and
+    ///   a good one did nothing either; now a good one takes effect and a bad
+    ///   one needs a cable. Recovery is `just flash <port>`, and the upload is
+    ///   validated by `esp_ota_end` before the slot moves, so the window is an
+    ///   image that boots and then misbehaves.
     /// * Therefore: a power cut **before** `esp_ota_end` leaves `otadata`
     ///   pointing at the slot the machine booted from, and it boots that slot
-    ///   again. A power cut **during** `esp_ota_end`'s `otadata` write leaves the
-    ///   `otadata` sector CRC-invalid, and the bootloader then falls back to the
-    ///   factory app (`esp_ota_ops.c` / the bootloader's `esp_image_verify` path).
-    ///   **This fallback was NOT verified** — it depends on the bootloader binary
-    ///   flashed alongside this firmware, which was not inspected.
-    /// * A power cut **after** `esp_ota_end` means the new image is selected and
-    ///   is a complete, validated image. There is no rollback: `CONFIG_
+    ///   again. A power cut **during** `esp_ota_end` leaves the `app1` image
+    ///   half-written and `otadata` untouched, so the device still boots the
+    ///   slot it came from.
+    /// * Once [`Writer::end`] has selected the slot (it does, on success), a
+    ///   power cut after that point means the new image is selected and is a
+    ///   complete, validated image. There is no rollback: `CONFIG_
     ///   BOOTLOADER_APP_ROLLBACK_ENABLE` is **not set** in this build's
     ///   `sdkconfig` (checked: no `BOOTLOADER_APP_ROLLBACK` line at all), so
     ///   `esp_ota_mark_app_valid_cancel_rollback` is a no-op and a new image that
@@ -365,10 +382,11 @@ impl Writer {
     ///
     /// # Errors
     ///
-    /// `esp_ota_end`'s validation error — a truncated image, a bad magic byte, a
-    /// SHA-256 mismatch. That is the answer to "the upload completed but the image
-    /// is wrong", and it arrives here rather than at the socket.
-    pub fn end(mut self) -> Result<(), EspError> {
+    /// [`EndError::Image`] for `esp_ota_end`'s validation error — a truncated
+    /// image, a bad magic byte, a SHA-256 mismatch — and [`EndError::SelectSlot`]
+    /// when the image validated but the `otadata` write that selects it failed.
+    /// They are kept apart so the caller can report which one happened.
+    pub fn end(mut self) -> Result<(), EndError> {
         match self.kind {
             Kind::Firmware => {
                 // SAFETY: `handle` is live (from `begin`, not yet ended) and
@@ -377,7 +395,34 @@ impl Writer {
                 // second call is possible.
                 let rc = unsafe { esp_ota_end(self.handle) };
                 self.handle = 0;
-                EspError::from(rc).map_or(Ok(()), Err)
+                // A validated image is not a *selected* one. `esp_ota_end` is
+                // `ota_verify_partition` and cleanup
+                // (`esp_ota_ops.c:477-524`); the only writer of `otadata` on the
+                // write path is `esp_ota_set_boot_partition` (`:599`), and with
+                // `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE` unset nothing else
+                // switches the slot either. Without this call the machine
+                // restarts into the slot it came from and the update silently
+                // does not take effect — measured on a bench ESP32 on 2026-10-07
+                // before this line existed.
+                //
+                // Only on success: a rejected image must leave `otadata`
+                // pointing at the slot that is known to work, which is the
+                // direction `abort` also takes. `EspError::from` is `None` on
+                // `ESP_OK` in this binding.
+                if let Some(err) = EspError::from(rc) {
+                    return Err(EndError::Image(err));
+                }
+                // SAFETY: `self.partition` came from `esp_ota_get_next_update_partition`
+                // in `begin`, so it is a pointer into the static partition table
+                // and outlives this call; it is an OTA app partition, which is
+                // what `esp_ota_set_boot_partition` requires of its argument.
+                // The function reads `otadata` and writes the selector; it does
+                // not take ownership of the pointer.
+                let rc = unsafe { esp_ota_set_boot_partition(self.partition) };
+                match EspError::from(rc) {
+                    Some(err) => Err(EndError::SelectSlot(err)),
+                    None => Ok(()),
+                }
             }
             // No finalisation: `esp_partition_write` is already durable in the
             // partition. `self` is consumed for symmetry with the firmware arm.
@@ -396,6 +441,35 @@ impl Writer {
             // (`esp_ota_ops.h:224-230`).
             unsafe { esp_ota_abort(self.handle) };
             self.handle = 0;
+        }
+    }
+}
+
+/// Which of the two calls inside [`Writer::end`] failed.
+///
+/// `esp_ota_end` rejecting an image and `esp_ota_set_boot_partition` failing to
+/// record it are different problems with different remedies, and reporting both
+/// as "invalid firmware image" sends an operator whose *flash* is failing to
+/// re-upload a perfectly good file — the symptom then looks identical to the
+/// bug the slot selection was added to fix.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EndError {
+    /// `esp_ota_end` rejected the image it was given.
+    Image(EspError),
+    /// The image validated, and writing `otadata` to select it failed.
+    SelectSlot(EspError),
+}
+
+impl core::fmt::Display for EndError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Image(err) => write!(f, "the image was rejected: {err}"),
+            Self::SelectSlot(err) => {
+                write!(
+                    f,
+                    "the image validated but selecting its slot failed: {err}"
+                )
+            }
         }
     }
 }

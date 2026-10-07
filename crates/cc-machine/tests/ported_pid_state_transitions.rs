@@ -237,22 +237,38 @@ fn pid_disabled_entry_stops_the_pump_and_closes_the_valve() {
     );
 }
 
-/// The error states drain nothing, and that is deliberate: the comment at
-/// `ErrorStates.cpp:52-54` says a persistent sensor error must stay visible, and
-/// the drain happens on entry to the *recovery* state instead.
+/// The error states DO drain, and this test previously asserted the opposite
+/// on a rationale that turned out to be false.
+///
+/// It read: *"the drain happens on entry to the recovery state instead"* — but
+/// `PidNormal`'s `on_entry` is empty (`states.rs:138`), so no such drain exists.
+/// The comment it cited (`ErrorStates.cpp:52-54`) is about the machine *staying*
+/// in `SENSOR_ERROR` so a persistent fault stays visible; it says nothing about
+/// request draining. The port had carried a false mechanism as a pin.
+///
+/// With the bring-up inhibit deleted the difference is physical: a brew pressed
+/// while the machine was in `SENSOR_ERROR` used to end at `enablePump REFUSED`,
+/// and now starts a real brew when the fault clears and the recovery delay
+/// elapses. `AG-REPO-24` names the error states for exactly this reason.
+///
+/// **Divergence from the C++**, recorded in `docs/history/divergences.md` §37.
 #[test]
-fn the_error_states_do_not_drain_requests() {
-    let mut h = Harness::in_state(MachineState::SensorError);
-    h.machine.requests.set(Request::BrewStart, true);
-    let fx = h.on_entry(MachineState::SensorError);
-    assert_eq!(
-        common::count(&fx, cc_machine::Effect::ClearActionRequests),
-        0
-    );
-    assert!(
-        h.requested(Request::BrewStart),
-        "the recovery path is what drains, not the error state"
-    );
+fn the_error_states_drain_requests() {
+    for state in [MachineState::SensorError, MachineState::EepromError] {
+        let mut h = Harness::in_state(state);
+        h.machine.requests.set(Request::BrewStart, true);
+        let fx = h.on_entry(state);
+        assert_eq!(
+            common::count(&fx, cc_machine::Effect::ClearActionRequests),
+            1,
+            "{state:?} must drain on entry: it cannot act on the request, and \
+             nothing between it and PID_NORMAL does either"
+        );
+        assert!(
+            !h.requested(Request::BrewStart),
+            "{state:?}: the request must not survive into the recovery state"
+        );
+    }
 }
 
 /// `STANDBY` drains the stops and keeps the starts (ADR-0003's "never drain
