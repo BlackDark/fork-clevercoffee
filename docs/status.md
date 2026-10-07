@@ -288,7 +288,12 @@ decision, residual risk, not started. The close-out decisions of 2026-10-06 are
 - **The Rust release pipeline has never run.** `release.yml` was rewritten to
   publish the Rust image and has not executed on a tag yet, so the release
   artifact path is unverified — including the `espflash save-image --merge`
-  step and its 3.5 MB size assertion. The build it wraps is not unverified:
+  step and its 3.5 MB size assertion. Until 2026-10-07 the file also named an
+  undefined expression variable (`${{ repository }}`), which GitHub rejects
+  outright: every push produced a run with zero jobs and a "No jobs were run"
+  mail, so nothing in the pipeline could execute. `actionlint` reports that
+  class of error and the push that carried the fix produced no run at all.
+  The build it wraps is not unverified:
   `just gate` runs `just build-esp32` and the size budget, and both are green.
   Flashing with `just flash <port>` is the verified path.
 - **There is no configuration upgrade path from a C++-flashed machine.** The two
