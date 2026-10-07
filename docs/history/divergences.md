@@ -2065,18 +2065,26 @@ Three parser bugs the host tests found, all of which would have shipped:
 
 ### The power-cut story, and how far it was verified
 
-**Verified by reading ESP-IDF v5.5.5, not on hardware.**
+**Verified by reading ESP-IDF v5.5.5, and corrected on hardware 2026-10-07.**
 
-- `esp_ota_end` validates the written image and **only then** calls
-  `esp_ota_set_boot_partition`, which writes the `otadata` sector
-  (`esp_ota_ops.c:60-95`, `esp_ota_ops.h:205-219`).
-- Therefore a power cut **before** `esp_ota_end` leaves `otadata` pointing at the
-  slot the machine booted from, and it boots that slot again.
+- **This section originally said** that `esp_ota_end` validates the image and
+  *only then* calls `esp_ota_set_boot_partition`. That was wrong, and the
+  measurement is what disproved it: `esp_ota_end` is `ota_verify_partition` and
+  cleanup (`esp_ota_ops.c:477-524`) and **never** touches `otadata`. The slot is
+  selected by a separate call — which this firmware did not make until
+  [`cc-hal-esp32/src/ota.rs`](../../crates/cc-hal-esp32/src/ota.rs) started
+  calling `esp_ota_set_boot_partition` after a successful `esp_ota_end`.
+- Therefore a power cut **before** that call leaves `otadata` pointing at the slot
+  the machine booted from, and it boots that slot again. Measured 2026-10-07: an
+  upload answered `200`, the device rebooted, and the bootloader logged
+  `Loaded app from partition at offset 0x10000` — the slot it came from.
 - A power cut **during** the `otadata` write leaves a CRC-invalid sector. **The
   bootloader's fallback to the factory app was NOT verified** — it depends on the
   bootloader binary flashed alongside this firmware, which was not inspected.
-- A power cut **after** `esp_ota_end` means the new image is selected and is a
-  complete, validated image.
+- A power cut **after `esp_ota_set_boot_partition`** means the new image is
+  selected and is a complete, validated image. A cut in the window between
+  `esp_ota_end` and that call does **not** select it: `otadata` is untouched and
+  the machine boots what it booted from, which is the safe direction.
 
 **There is no rollback.** `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE` is absent from
 this build's `sdkconfig` (checked: no `BOOTLOADER_APP_ROLLBACK` line at all), so
@@ -2409,11 +2417,14 @@ keys — recovered from `getAllConfigParams()` at `9fa8c834:src/Config.cpp:438` 
 and fails on a rename. Runbook §12 is the operator's steps, and says plainly
 that the downloaded file contains Wi-Fi and MQTT passwords in cleartext.
 
-### 35.4 Four of the six R4-04 safety cases are written and runnable; three are not
+### 35.4 Four of the six R4-04 safety cases are runnable on a bench; all four have now been run
 
 Runbook §13 has procedures for overtemp trip, the emergency latch and its
 recovery, the tank-empty pump inhibit and OTA actuator-off — all observable on a
-bench with LEDs on GPIO2/27/17. **Written, not run.**
+bench with LEDs on GPIO2/27/17. **All four have since been run on a bench
+ESP32 (2026-10-07):** 13.4 and 13.1 passed, 13.2 half-passed (its refusal half
+confirmed, and its recovery half is what found finding #15), 13.3 part-passed with
+its tick timing unmeasured. Runbook §13 carries the results.
 
 **Not runnable on a bench, each with what it needs:** the watchdog reboot needs a
 debug route this port does not have (the oracle's `/debug/hang-supervisor` was

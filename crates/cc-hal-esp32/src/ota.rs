@@ -343,9 +343,10 @@ impl Writer {
     ///   **that is all it does**. It does *not* select the new slot.
     ///   `esp_ota_end` is `ota_verify_partition` and cleanup
     ///   (`esp_ota_ops.c:477-524`); the only writer of `otadata` on the write
-    ///   path is `esp_ota_set_boot_partition` (`:599`). This module never calls
-    ///   it, and `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE` is not set in this
-    ///   build, so nothing else switches the slot either.
+    ///   path is `esp_ota_set_boot_partition` (`:599`). **This module used not
+    ///   to call it**, and `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE` is not set in
+    ///   this build, so nothing else switched the slot either — which is why
+    ///   [`Writer::end`] now calls it explicitly.
     ///   **Measured on a bench ESP32, 2026-10-06:** an upload answered
     ///   `200 {"success":true,...,"restart":true}`, the device rebooted, and the
     ///   bootloader logged `Loaded app from partition at offset 0x10000` —
@@ -361,11 +362,12 @@ impl Writer {
     ///   one needs a cable. Recovery is `just flash <port>`, and the upload is
     ///   validated by `esp_ota_end` before the slot moves, so the window is an
     ///   image that boots and then misbehaves.
-    /// * Therefore: a power cut **before** `esp_ota_end` leaves `otadata`
-    ///   pointing at the slot the machine booted from, and it boots that slot
-    ///   again. A power cut **during** `esp_ota_end` leaves the `app1` image
-    ///   half-written and `otadata` untouched, so the device still boots the
-    ///   slot it came from.
+    /// * Therefore: the boundary is **`esp_ota_set_boot_partition`**, not
+    ///   `esp_ota_end` — the latter never touches `otadata`. A power cut before
+    ///   that call leaves `otadata` naming the slot the machine booted from, and
+    ///   it boots that slot again; a power cut before it but during `esp_ota_end`
+    ///   additionally leaves the written image half-written. Either way the
+    ///   machine keeps running what it had.
     /// * Once [`Writer::end`] has selected the slot (it does, on success), a
     ///   power cut after that point means the new image is selected and is a
     ///   complete, validated image. There is no rollback: `CONFIG_
@@ -402,7 +404,7 @@ impl Writer {
                 // `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE` unset nothing else
                 // switches the slot either. Without this call the machine
                 // restarts into the slot it came from and the update silently
-                // does not take effect — measured on a bench ESP32 on 2026-10-07
+                // does not take effect — measured on a bench ESP32 on 2026-10-06
                 // before this line existed.
                 //
                 // Only on success: a rejected image must leave `otadata`

@@ -69,16 +69,24 @@ An LED on a GPIO proves **the pin**. It does not prove:
 
 The R4-04 safety cases, written up in
 [`../operations/runbook.md`](../operations/runbook.md) §R4-04, split along this
-line. On a bench, observable as pin transitions or log lines: overtemp trip,
-emergency latch and recovery, tank-empty **pump inhibit**, watchdog reboot, and
-actuator-off during OTA. Machine-only, because they are about liquid that must
-not move: tank-empty pump **kill** and valve fail-safe.
+line. On a bench, observable as pin transitions or log lines: the over-temp trip
+and the emergency latch — both of which need a `just bench-flash` build, because
+the 120 °C threshold floor is what stops a bench boiler reaching S1 (§13.1) — plus
+tank-empty **pump inhibit** and actuator-off during OTA.
+
+**Not bench-exercisable.** The **watchdog reboot** is the non-obvious one: it
+needs a debug route this port does not have (the recovered oracle had
+`/debug/hang-supervisor` and it was never ported), so there is nothing to hang
+the control task with. Tank-empty pump **kill** and valve fail-safe are
+machine-only because they are about liquid that must not move. Runbook §13.5
+carries the table.
 
 ## First water-enabled run on the machine
 
 The bench proves the firmware. The machine proves the plumbing. In this order:
 
-1. Bench, LEDs only: run the five bench-exercisable R4-04 cases.
+1. Bench, LEDs only: run the four bench-exercisable R4-04 cases (a
+   `just bench-flash` build for the first two).
 2. Machine, **reservoir empty**: boot and confirm `switch resting levels after
    settling:` reports `false`, so the tank-empty pump inhibit proves itself
    before any water can move.
@@ -88,9 +96,10 @@ The bench proves the firmware. The machine proves the plumbing. In this order:
 Reversal, if the polarity or the float switch turns out wrong on the machine:
 `actuators.set_inhibit` in `crates/cc-firmware/src/main.rs` holds the pump and
 valve off again, and `cc_hal_esp32::Inhibit` exists for exactly that.
+
 ## The bench configuration profile
 
-Five parameters differ from their compiled-in defaults, and every one is
+Six parameters differ from their compiled-in defaults, and every one is
 deliberate. Nothing else needs changing: the four operator switches default to
 `TOGGLE`, which is also what the deleted C++ defaulted them to
 (`9fa8c834:include/clevercoffee/Config.h:988-1046`), so a bench that "fixes"

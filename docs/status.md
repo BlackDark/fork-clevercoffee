@@ -229,14 +229,19 @@ decision, residual risk, not started. The close-out decisions of 2026-10-06 are
   machine tripped, the press during the latch did nothing, and **when the probe
   cooled and the latch cleared by itself no brew started** and the heater
   returned. [`divergences.md` §36](history/divergences.md#d36).
-- **Three of the six R4-04 safety cases cannot be run on a bench.** Written in
-  [`operations/runbook.md` §13](operations/runbook.md), and **13.4 has now
-  passed on hardware** (2026-10-07). **13.1 and 13.2 — the over-temp trip and the
-  latch — are not runnable on a bench as written**: `safety.emergency_temp` has a
-  120 °C floor, and the steam-headroom check refuses any value at or below
-  `steam.setpoint + safety.emergency_hysteresis`, so the only ways to trip S1 are
-  the machine or a test build compiled without those bounds. **13.3** (tank
-  interlock) is now part-passed on hardware: the request is drained when the
+- **Four of the six R4-04 safety cases have bench procedures, and all four have
+  been run on a bench ESP32** (2026-10-07): 13.1 over-temp trip **passed**,
+  13.4 OTA actuator-off **passed**, 13.2 latch **half-passed**, 13.3 tank interlock
+  **part-passed**. Two more are machine-only (tank-empty pump *kill*, valve
+  fail-safe) and one — the watchdog reboot — cannot be run anywhere without a
+  debug route this port lacks. [`operations/runbook.md` §13](operations/runbook.md)
+  carries the procedures and the per-case results. **13.1** (over-temp trip) and **13.2** (the latch) need a
+  `just bench-flash` build: `safety.emergency_temp` has a 120 °C floor and the
+  steam-headroom check refuses a value at or below
+  `steam.setpoint + safety.emergency_hysteresis`, so a legal configuration
+  cannot reach S1 on a bench whose boiler sits at 23 °C. **Without** that build
+  they are not runnable there at all. **13.3** (tank
+  interlock) is part-passed on hardware: the request is drained when the
   tank is empty, both the pump **and** the water valve are refused on a
   mid-brew empty tank (`refused pump=1 water=2` — the water one being the
   divergence from the C++), and refilling the tank returns the machine to

@@ -954,20 +954,35 @@ renamed, that test fails here rather than on a machine.
       per bad parameter and answered `200` if one had imported (§14 above). An
       out-of-range value in a document downloaded years ago will land here.
 
-- [ ] **Keys this firmware has and the C++ did not** (`pid.enabled`,
-      `system.offline_mode`, `hardware.oled.enabled` and 28 more — 98 against 96)
-      are absent from the file and come up at their compiled-in defaults.
+- [ ] **Two keys are missing from the file**: `safety.emergency_temp` and
+      `safety.emergency_hysteresis`. They are exactly the two the C++ *defined
+      but never registered* — `Config.h:813` and `:822`, read by
+      `EmergencyStopManager.cpp:18-19` and absent from
+      `getAllConfigParams()` (`Config.cpp:438`) — two of the **37** parameters it
+      declared and never registered (`feature-inventory.md` F27). The C++
+      therefore never wrote them to NVS, and an operator who lowered the
+      threshold there got it back after the next power cycle. **98 keys here against the C++'s 96, and the
+      difference is the pair that was broken.** Both come up at their
+      compiled-in defaults on this firmware.
 
 ---
 
 ## 13. R4-04 — the safety paths
 
 Six cases the port owes the machine, written down before the water path is
-trusted with a real reservoir. Decided 2026-10-06 by Eduard Marbach: the four
-bench-exercisable ones are written and runnable now, the three that cannot be
-run on a bench say what each would need and who owns it. **None of this has been
-run yet** — these are procedures, and `docs/status.md` is where the result
-belongs.
+trusted with a real reservoir. Decided 2026-10-06 by Eduard Marbach.
+
+**Four have bench procedures and all four have now been run** on a bench ESP32
+(2026-10-07): 13.1 **passed** and 13.4 **passed**, 13.2 **half-passed**, 13.3
+**part-passed** with its tick timing unmeasured. The results are at the end of
+each subsection, and [`../status.md`](../status.md) carries the summary.
+
+**Three rows in §13.5 cannot be run on a bench**, and they are not three more
+cases: tank-empty pump *kill* is the machine form of 13.3, which is why the
+headings here number 13.1–13.4 and the table below holds three rows. The other
+two are the valve fail-safe (machine only — it is about liquid that must not
+move) and the watchdog reboot (not exercisable at all without a debug route this
+port lacks).
 
 Set-up for all of them: the bench in [`../hardware/bench-setup.md`](../hardware/bench-setup.md),
 LED + 330 Ω on GPIO2/27/17, one DS18B20 on GPIO16. An LED proves the pin, not a
@@ -1056,23 +1071,61 @@ emergency stop, so it cannot be exercised without tripping it for real.
   `EMERGENCY_SAFE_TEMP_C`, 100 °C) and looks alarming only because the bench
   threshold was 30 °C, so room air cleared it in seconds; on a machine the
   boiler has to fall below 100 °C first. **The brew press was not lost, though:
-  it fired when the latch cleared.** That is finding #15, it is a real defect,
+  it fired when the latch cleared.** That is finding #15, it was a real defect,
   and it is what the recovery half is actually testing.
 
-### 13.3 Tank-empty pump inhibit — bench
+  **Re-run after the fix, same day.** Finding #15 was fixed — see
+  [`../history/divergences.md` §36](../history/divergences.md#d36) — by having
+  the latch drain action requests on entry and on every latched tick. Bench
+  re-run 2026-10-07: the trip is unchanged, the press during the latch does
+  nothing, and **when the probe cooled and the latch cleared on its own, no brew
+  started** and the heater came back. Note that the checklist's "recovery is a
+  restart" step describes the **C++'s** behaviour and is not what this firmware
+  does: the latch clears on temperature alone (`can_clear` — a valid reading at
+  or below 100 °C, which is C++ parity), and a restart is simply how an operator
+  clears it deliberately.
 
-The float switch on GPIO23 is a single input, so an empty tank is a short to GND.
+### 13.3 Tank-empty pump inhibit — bench ✅ **PART-PASSED 2026-10-07**
 
-- [ ] Short GPIO23 to GND. `GET /api/status` then reports `waterTankFull:false`
-      (and the boot line `switch resting levels after settling: … water_tank=false`
-      is how you confirm which way the pin reads before you trust anything else).
-- [ ] Start a brew with the **brew button**. The pump LED stays dark and the log carries
-      `enablePump REFUSED — latched 0, tank_full 0, inhibited 0`.
-- [ ] **The water valve LED also stays dark** — a deliberate divergence: the C++
-      gated the pump but not the valve (09 §3), so a brew entered with an empty
-      tank opened the valve against a dry reservoir.
-- [ ] The heater LED is unaffected. An empty tank is not an emergency.
-- [ ] Release the short; the pump is permitted again on the next tick.
+The float switch on GPIO23 is one input, so the tank is faked with a jumper.
+**On a bench, `mode=0`:** the pin idles low, so **GND = empty and 3V3 = full**.
+That is the opposite of the machine, which uses `mode=1` (internal pull-*up*) so a
+cut wire reads empty and blocks the pump — see
+[`../hardware/bench-setup.md`](../hardware/bench-setup.md). Both sensor keys are
+read once at startup, so set them and restart before anything else.
+
+- [ ] **Empty tank** — jumper GPIO23 to GND. `GET /api/status` reports
+      `waterTankFull:false`, and the machine is in `WATER_TANK_EMPTY` with the
+      heater duty at 0 — with the default
+      `hardware.sensors.watertank.keep_heater_on_empty=false`; set it true and
+      the heater is *supposed* to keep running and the LED stays lit. *Confirmed.*
+- [ ] **A brew press while empty does nothing at all**, and the log proves it is
+      the **state machine** that stopped it rather than the actuator layer: the line
+      reads `tank_full=false … refused pump=0 water=0` — zero refusals, and
+      nothing was asked for: the brew handler returns before it reads the switch
+      at all (`handlers.rs:126`, `ProcessDeniesPermissionWhenWaterTankEmpty`).
+      This half passes, and it is what finding #15 should have looked like — the
+      latch, by contrast, *did* read the switch and needed `AG-REPO-24`'s drain to
+      undo it. *Confirmed.*
+- [ ] **Tank full** (jumper to 3V3), then press and **hold** brew. The button is
+      `Momentary`, and a momentary brew button does **not** stop the brew when
+      you let go — `handlers.rs:188` is explicit, "release doesn't trigger stop
+      (handled by second press)". **Press again to stop it.** Pump and valve LEDs
+      light while it runs. *Confirmed.*
+- [ ] **Empty the tank mid-brew** by moving the jumper to GND → **both LEDs go
+      dark**. *Observed at the LEDs; the counters after the run read
+      `refused pump=1 water=2`, so **both** actuators were gated — and the water
+      refusal is the divergence, because the C++ gated the pump but not the valve.*
+      Those counters are cumulative since boot, and `BrewRunning` re-asserts both
+      effects every tick, so they cannot separate "this event" from "an earlier
+      one" — **the tick timing of the drop is unmeasured.** The UART and telnet
+      streams each dropped the window while this was repeated, so "within one
+      10 ms tick" is what the design claims and what the LEDs are consistent
+      with, not something a log line brackets.
+- [ ] **Refill the tank** (jumper back to 3V3) → the machine returns to
+      `PID_NORMAL` and **the brew does not resume**. *Confirmed:* the request was
+      consumed and dropped, not left pending — which is what finding #15 gets
+      wrong in `EMERGENCY_STOP`.
 
 ### 13.4 Actuator-off during OTA — bench ✅ **PASSED 2026-10-07**
 

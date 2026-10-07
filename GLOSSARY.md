@@ -48,7 +48,7 @@ from the C++. "Deliberately" is the operative word. Each one is recorded in
 [`docs/history/divergences.md`](docs/history/divergences.md) with the C++'s
 behaviour, this one's, and the reasoning.
 
-**Ledger** — the machine-readable half of the divergence record: 5 fenced blocks
+**Ledger** — the machine-readable half of the divergence record: 6 `ledger` fenced blocks
 inside `divergences.md`, each declaration naming the prose section it belongs to
 and the diff lines it explains. It lives *inside* the prose rather than beside
 it, so it cannot drift from the reasoning it claims to encode. `cc-parity` reads
