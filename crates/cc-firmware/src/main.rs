@@ -809,6 +809,17 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
         actuators.relay_polarity().pump.active,
         actuators.relay_polarity().valve.active
     );
+    // A bench build is only ever one `option_env!` away from being impossible to
+    // tell apart from a ship build, so it says so at boot, loudly and unmissably,
+    // next to the relay line it is nearest to being unsafe about.
+    if cc_domain::BENCH_UNSAFE_TEMPERATURES {
+        warn!(
+            "SAFETY BENCH BUILD — CC_BENCH_UNSAFE_TEMPERATURES was set when this \
+             image was compiled: the emergency-threshold floor and the steam and \
+             brew headroom checks are compiled out. DO NOT FIT THIS TO A MACHINE. \
+             It exists for operations/runbook.md §13.1."
+        );
+    }
 
     // 7a-ter. The status LEDs, now that `hardware.leds.*` is known.
     //

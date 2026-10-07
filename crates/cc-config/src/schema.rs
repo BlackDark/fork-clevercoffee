@@ -1615,7 +1615,11 @@ pub const SCHEMA: &[ParamSpec] = &[
         "Temperature threshold that triggers emergency stop",
         ParamKind::Float,
         ParamValue::Float(150.0),
-        Some(120.0),
+        if cc_domain::BENCH_UNSAFE_TEMPERATURES {
+            Some(20.0)
+        } else {
+            Some(120.0)
+        },
         Some(180.0),
         accessors!(float, "safety.emergency_temp", safety.emergency_temp),
     ),
@@ -1890,7 +1894,16 @@ mod tests {
         let temp = find("safety.emergency_temp").expect("safety.emergency_temp must be registered");
         assert_eq!(temp.kind, ParamKind::Float);
         assert_eq!(temp.default, ParamValue::Float(150.0));
-        assert_eq!(temp.min, Some(120.0));
+        assert_eq!(
+            temp.min,
+            if cc_domain::BENCH_UNSAFE_TEMPERATURES {
+                Some(20.0)
+            } else {
+                Some(120.0)
+            },
+            "the floor is the bench override or the real bound; a build that \\
+             shows 20.0 without CC_BENCH_UNSAFE_TEMPERATURES is a bug"
+        );
         assert_eq!(temp.max, Some(180.0));
 
         let hyst = find("safety.emergency_hysteresis")

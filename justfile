@@ -735,6 +735,37 @@ flash port:
     just build-esp32
     just flash-elf {{port}} target/{{tgt_esp32}}/release/{{bin_esp32}}
 
+# Build and flash a BENCH image: the emergency-threshold floor and the two
+# headroom checks are compiled out, so `safety.emergency_temp=30` is accepted and
+# a hand-warmed DS18B20 trips S1. That is the only way to run runbook §13.1/§13.2
+# on a bench, because the real floor is 120 °C and a bench boiler sits at 23 °C.
+#
+# The flag is baked in by `option_env!` — there is no runtime switch and no HTTP
+# route that can turn it on — and the firmware prints a `SAFETY BENCH BUILD`
+# warning at boot.
+#
+# `cc-safety`'s own suite is deliberately NOT run against a bench build, and
+# this recipe says so rather than quietly skipping tests: eight of its tests
+# assert the two headroom rules or the *order* between them and the relay rules,
+# and a bench build has neither. `just check` and `just gate` run that suite
+# against the production image, which is where its value is.
+#
+# **Never flash this to the coffee machine.** On a machine it removes the check
+# that stops the emergency threshold being set where the PID would trip it during
+# normal brewing or steaming.
+[script]
+bench-flash port:
+    printf 'Bench build (SAFETY CHECKS RELAXED) to %s - not the machine.\n' {{port}}
+    CC_BENCH_UNSAFE_TEMPERATURES=1 just build-esp32
+    just flash-elf {{port}} target/{{tgt_esp32}}/release/{{bin_esp32}}
+
+# Back to the production image. Run this the moment the bench work is done.
+[script]
+unbench-flash port:
+    just build-esp32
+    just flash-elf {{port}} target/{{tgt_esp32}}/release/{{bin_esp32}}
+
+
 # Wipe and flash. Destroys NVS — but NVS is rewritten anyway (no cross-version
 # compatibility, 06 R3-08), so this is about a known-clean state, not data loss.
 [script]
