@@ -125,3 +125,127 @@ fn an_empty_tank_drains_the_same_press_and_the_latch_now_does_too() {
         "the latch must behave like the states that already drain"
     );
 }
+
+/// **The window the first version of the fix missed.** The tick drain was
+/// originally guarded on `is_emergency_stop()` — `safety.latched` — on the belief
+/// that it was "the same condition as this state's exit transition". It is not:
+/// the exit test is `is_emergency_cleared`, a *temperature* test. `cc_safety`
+/// clears the latch earlier in the same control period, so on the recovery tick
+/// the guard was already false, the drain was skipped, and a request that had
+/// arrived in that window survived into `PID_NORMAL` and started a brew.
+///
+/// This test is the one that pins it: the request is set **after** the latch has
+/// been cleared and while the machine is still in `EMERGENCY_STOP`, which is
+/// exactly the state of the world on that tick. Removing the unguarded drain
+/// makes it fail.
+#[test]
+fn a_request_set_on_the_recovery_tick_is_still_drained() {
+    let mut h = latched_machine_with_a_brew_pressed_during_the_latch();
+    for _ in 0..3 {
+        h.elapse(10);
+    }
+
+    // The latch clears -- which is what `cc_safety` does earlier in the period,
+    // before `update` runs.
+    h.machine.safety.clear();
+    assert!(!h.machine.is_emergency_stop(), "the latch is clear");
+
+    // The request arrives in the window between that and the update.
+    h.press(SwitchId::Brew);
+
+    // The tick that also leaves the state.
+    h.elapse(10);
+
+    assert!(
+        !h.machine.requests.brew_start,
+        "the update must drain unguarded: by the time it runs the latch is \
+         already false, so a latch-guarded drain skips the one tick that matters"
+    );
+    assert_ne!(h.state(), MachineState::BrewRunning);
+}
+
+/// The drain covers every action request, not just brew. `clear_all` spares
+/// exactly one flag, and that carve-out is ADR-0003's "never drain wake-up
+/// signals" rule in its actual scope.
+#[test]
+fn every_action_request_is_drained_except_the_standby_wake_signal() {
+    for switch in [
+        SwitchId::Brew,
+        SwitchId::Steam,
+        SwitchId::HotWater,
+        SwitchId::Power,
+    ] {
+        let mut h = latched_machine_with_a_brew_pressed_during_the_latch();
+        h.press(switch);
+        h.elapse(10);
+        assert!(
+            !h.machine.requests.any(),
+            "{switch:?} must be drained by the latch"
+        );
+    }
+
+    // `standby` is the one flag `clear_all` preserves, deliberately: it asks the
+    // machine to go somewhere rather than start something. ADR-0003's carve-out
+    // is scoped to `STANDBY`, but the survival of this flag is a fact about
+    // `clear_all` and is pinned here rather than left to be rediscovered.
+    let mut h = latched_machine_with_a_brew_pressed_during_the_latch();
+    h.machine.requests.standby = true;
+    h.elapse(10);
+    assert!(
+        h.machine.requests.standby,
+        "`clear_all` spares the standby request; if that changes, ADR-0003 and \\
+         this test both have to be revisited"
+    );
+}
+
+/// Where recovery actually lands. The first version of this file asserted only
+/// `assert_ne!(state, EmergencyStop)`, which a regression to `Standby` or a
+/// permanent re-entry loop would satisfy.
+#[test]
+fn recovery_lands_in_init_and_not_in_a_brew_state() {
+    let mut h = latched_machine_with_a_brew_pressed_during_the_latch();
+    for _ in 0..3 {
+        h.elapse(10);
+    }
+    h.machine.safety.clear();
+    h.elapse(10);
+
+    assert_eq!(
+        h.state(),
+        MachineState::Init,
+        "EMERGENCY_STOP returns to INIT (EmergencyStopState.cpp:43), not \
+         straight to PID_NORMAL"
+    );
+    assert!(!h.machine.requests.brew_start);
+}
+
+/// `AG-REPO-24` names the error states too, and with the inhibit deleted a
+/// request that survives one starts a real brew when the machine recovers.
+#[test]
+fn a_brew_pressed_during_a_sensor_error_is_not_acted_on_after_it_recovers() {
+    use cc_machine::{timing, Sensors};
+
+    fn probe_faulted() -> Sensors {
+        Sensors {
+            has_temperature_error: true,
+            ..Sensors::healthy()
+        }
+    }
+
+    let mut h = common::Harness::in_state(MachineState::PidNormal);
+    h.press(SwitchId::Brew);
+    // The probe faults in the same period the request is outstanding.
+    let _ = h.send(cc_machine::Event::SensorUpdated(probe_faulted()));
+    h.elapse(10);
+    assert_eq!(h.state(), MachineState::SensorError);
+
+    // The fault clears and the recovery delay elapses.
+    let _ = h.send(cc_machine::Event::SensorUpdated(Sensors::healthy()));
+    h.elapse(timing::ERROR_RECOVERY_DELAY_MS + 20);
+
+    assert!(
+        !h.machine.requests.brew_start,
+        "SENSOR_ERROR must drain like the emergency latch does, or the request \
+         fires when the machine recovers"
+    );
+}

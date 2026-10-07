@@ -92,7 +92,8 @@ pub mod units;
 /// **Off unless `CC_BENCH_UNSAFE_TEMPERATURES` is set in the build environment.**
 /// It is read with [`option_env!`], so it is baked in at compile time: there is
 /// no runtime switch, no HTTP route, no parameter, and nothing an operator can
-/// reach at runtime. `just bench-build` sets it; `just build-esp32` does not.
+/// reach at runtime. `just bench-flash <port>` sets it; `just build-esp32`
+/// does not.
 ///
 /// # Why it exists
 ///

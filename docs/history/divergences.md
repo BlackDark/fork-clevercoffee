@@ -2434,8 +2434,10 @@ green gate could not see, both now in [`../status.md`](../status.md):
 - **An OTA does not take effect.** `esp_ota_end` validates the image and does not
   select the slot; `esp_ota_set_boot_partition` is never called, and rollback is
   not compiled in. The upload answers `200` and the device reboots into the slot
-  it came from. **Not fixed here**, deliberately: with no rollback, selecting a
-  bad image makes it unbootable without USB. That is the owner's call.
+  it came from. **Fixed 2026-10-07 (`83b3c419`)** after the owner took the
+  decision: `Writer::end` now calls `esp_ota_set_boot_partition` after a
+  successful `esp_ota_end`. The cost stands and is stated in the code: with no
+  rollback, a bad image in the selected slot is unbootable without USB.
 
 ---
 
@@ -2505,6 +2507,68 @@ against the pre-fix code and pass against it:
   same press and the operator watched it happen at the LEDs.
 
 ```ledger
-{"id":"div36","heading":"## 36 — The emergency latch drains action requests","scenarios":["emergency_trip","emergency_recover"],
+{"id":"div36","heading":"## 36 — The emergency latch drains action requests","scenarios":["overtemp_trip","overtemp_recovery"],
  "matchers":["/effect rust:ClearActionRequests/","/state EMERGENCY_STOP/"]}
 ```
+
+---
+
+## 37 — The error states drain action requests, and the C++ does not 🔴 changed {#d37}
+
+Found by review on 2026-10-07, and the same class as [§36](#d36): a state that
+cannot act on an action request must not leave one behind for the state it
+recovers into (`AG-REPO-24`).
+
+### What the C++ does
+
+Nothing. `ErrorStates.cpp` never clears `brewStartRequested_`.
+
+### What the Rust does
+
+`SensorError` and `EepromError` drain on entry, alongside the `EMERGENCY_STOP`
+drain from §36.
+
+### Why it matters now and did not before
+
+`SENSOR_ERROR` recovers on `error_duration > ERROR_RECOVERY_DELAY_MS`
+(`states.rs`) and `PID_NORMAL` acts on whatever `brew_start` it finds. Before the
+inhibit's deletion a brew request that survived an error state ended at
+`enablePump REFUSED`; now it starts a real brew, at whatever temperature the
+boiler happens to be. The trigger is ordinary rather than exotic — **runbook
+§13.4 records the machine falling into `SENSOR_ERROR` during an ordinary OTA
+write**, because the DS18B20 stalls while flash is erased.
+
+### The test that was wrong, and why
+
+`ported_pid_state_transitions.rs` asserted the opposite — *"the error states drain
+nothing, and that is deliberate … the drain happens on entry to the recovery state
+instead"*. Two things were false about that:
+
+1. `PidNormal`'s `on_entry` is empty. **There is no drain on the recovery
+   state.**
+2. The comment it cited (`ErrorStates.cpp:52-54`) is about the machine *staying*
+   in `SENSOR_ERROR` so a persistent fault stays visible. It says nothing about
+   requests.
+
+The test had carried a plausible-sounding mechanism that does not exist, for as
+long as it existed. It now asserts the corrected behaviour, and the reasoning is
+recorded here rather than deleted.
+
+### What pins it
+
+- `ported_pid_state_transitions.rs::the_error_states_drain_requests` — both
+  error states, entry drain and the request's disappearance.
+- `cc-machine/tests/emergency_latch_drains.rs::a_brew_pressed_during_a_sensor_error_is_not_acted_on_after_it_recovers`
+  — the end-to-end version: press brew, fault the probe, let it recover, and the
+  brew has not started. Verified to fail against the pre-fix code.
+
+### Related, deliberately NOT changed
+
+`BackflushFilling`'s update still does not re-assert its pump or valve. That is a
+**recorded decision** (`cpp-findings.md` §13: "Rust: preserved. Pinned by
+`s13_*`"), and the `s13_backflush_filling_never_re_asserts_its_hardware` test
+still enforces it, so changing it here would have overturned a decision this
+branch was not asked to revisit. What the inhibit's removal changes is the cost:
+a single tank-interlock refusal on entry now leaves the fill stalled and silent
+for the whole cycle, where before it was indistinguishable from correct
+behaviour. Recorded as `outstanding-findings.md` #18 for the owner.

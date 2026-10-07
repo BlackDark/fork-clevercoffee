@@ -25,7 +25,7 @@ build failure rather than a surprise at 2 a.m.
 | Brew button — **momentary** | 34 | Returns to rest when released. |
 | Steam button — **toggle** | 35 | Retains its position. |
 | Hot-water button — **toggle** | 36 | Also the water-injection switch while steaming. |
-| *(no power switch)* | 39 | **Nothing is fitted here.** See the warning below and `hardware.switches.power.enabled` in the profile. |
+| *(no power switch)* | 39 | **Nothing is fitted here**, so `hardware.switches.power.enabled` is `false` in the profile — see below. |
 | LED + 330 Ω | 2 | Heater. |
 | LED + 330 Ω | 27 | Pump. |
 | LED + 330 Ω | 17 | Valve — steam and water, multiplexed, so one LED shows both. |
@@ -101,9 +101,8 @@ them to `MOMENTARY` has quietly diverged from the machine it stands in for.
 | `pid.enabled` | `true` | The default is `false`; a bench wants the PID driving the heater LED. |
 | `hardware.switches.brew.type` | **`0`** (Momentary) | The brew button returns to rest when released. All four operator switches default to `TOGGLE` — which is also the deleted C++'s default (`9fa8c834:include/clevercoffee/Config.h:988-1046`) — so this is the one place the bench deliberately differs, because **the bench's hardware differs**. |
 | `hardware.switches.power.enabled` | **`false`** | **No power switch is fitted on this bench.** Leaving it `true` with GPIO39 unwired leaves a floating input, and because the power switch is a `TOGGLE` that reads *off* at boot, the machine starts in `PID_DISABLED` whatever `pid.enabled` says. |
-
-`hardware.switches.steam.type` and `hardware.switches.hot_water.type` stay at
-their default `TOGGLE` (`1`): those two buttons really do latch.
+| `hardware.switches.steam.type` | default `TOGGLE` (`1`) | **Not changed**: those two buttons really do latch, and the deleted C++ defaulted them the same way. |
+| `hardware.switches.hot_water.type` | default `TOGGLE` (`1`) | As above. |
 | `hardware.sensors.temperature.type` | **`1`** (Dallas DS18B20) | The default is `0` = TSIC-306, and **a DS18B20 is what is on GPIO16 here.** With the default the boot log says `driver = Tsic306 … but the probe measured on this board is DallasDs18b20`, and the machine sits in `SENSOR_ERROR` with `currentTemp: NaN`. |
 | `hardware.sensors.watertank.enabled` | `true` | The default is `false`, which makes an absent float report the tank **full** so S4 cannot block the pump forever. Needed for runbook §13.3. |
 | `hardware.sensors.watertank.mode` | **`0`** — bench only | Matches a breadboard tank switch wired pin → 3V3 with the pin idling low: low = empty, high = full. **The machine uses `1`**, which configures an internal pull-*up* so a cut wire reads empty and blocks the pump. `0` is the unsafe direction for a real float and must not be copied to a machine. |

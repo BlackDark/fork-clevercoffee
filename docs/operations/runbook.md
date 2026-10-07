@@ -63,12 +63,12 @@ curl -w "\n%{http_code}\n" -X POST http://<ip>/api/ota/firmware \
   - [ ] `filename=bad.txt` → 400 "Invalid firmware file. Expected .bin extension."
   - [ ] `/api/ota/filesystem` with `bad.txt` → 400 "Invalid filesystem file..."
 
-> ⚠️ **After any OTA, `just flash <port>` may not change the running image.**
-> `espflash flash` writes the app to the ELF's offset (`app0`) while `otadata`
-> keeps selecting whichever slot the last update chose, so the flash reports
-> success and the machine keeps running the old image. Check the boot log's
-> `Loaded app from partition at offset …`, and upload over HTTP instead. Recorded
-> as [`../history/outstanding-findings.md` #17](../history/outstanding-findings.md).
+> ✅ **Both app slots are written by `just flash`, so it always wins.** It used to
+> write only `app0` while `otadata` selected whichever slot the last update chose,
+> so on a board that had taken an OTA the flash reported success and the old
+> image kept running. Check the boot log's `Loaded app from partition at offset …`
+> when you need to know which slot ran. Recorded and fixed as
+> [`../history/outstanding-findings.md` #16](../history/outstanding-findings.md).
 
 ### 2c. URL-based update (`/api/ota/url`)
 
@@ -1006,7 +1006,7 @@ boiler". Two things stop that:
 1. **The machine.** Steam drives the boiler to `steam.setpoint`, and a lowered
    `safety.emergency_temp` reachable below it trips S1 for real. Set
    `steam.setpoint=100`, `safety.emergency_temp=120`, and steam.
-2. **A test build** (`just bench-build`): the parameter floor and the
+2. **A test build** (`just bench-flash <port>`): the parameter floor and the
    steam-headroom check are compiled out, so `safety.emergency_temp=30` is
    accepted and a DS18B20 warmed past 30 °C — a hand, a mug of hot water, a
    hair dryer — trips S1. The override is a build-time constant with the real

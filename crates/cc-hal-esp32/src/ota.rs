@@ -366,9 +366,9 @@ impl Writer {
     ///   again. A power cut **during** `esp_ota_end` leaves the `app1` image
     ///   half-written and `otadata` untouched, so the device still boots the
     ///   slot it came from.
-    /// * Once the slot is switched (see the first bullet — it is not switched
-    ///   today), a power cut after that point means the new image is selected and
-    ///   is a complete, validated image. There is no rollback: `CONFIG_
+    /// * Once [`Writer::end`] has selected the slot (it does, on success), a
+    ///   power cut after that point means the new image is selected and is a
+    ///   complete, validated image. There is no rollback: `CONFIG_
     ///   BOOTLOADER_APP_ROLLBACK_ENABLE` is **not set** in this build's
     ///   `sdkconfig` (checked: no `BOOTLOADER_APP_ROLLBACK` line at all), so
     ///   `esp_ota_mark_app_valid_cancel_rollback` is a no-op and a new image that
@@ -382,10 +382,11 @@ impl Writer {
     ///
     /// # Errors
     ///
-    /// `esp_ota_end`'s validation error — a truncated image, a bad magic byte, a
-    /// SHA-256 mismatch. That is the answer to "the upload completed but the image
-    /// is wrong", and it arrives here rather than at the socket.
-    pub fn end(mut self) -> Result<(), EspError> {
+    /// [`EndError::Image`] for `esp_ota_end`'s validation error — a truncated
+    /// image, a bad magic byte, a SHA-256 mismatch — and [`EndError::SelectSlot`]
+    /// when the image validated but the `otadata` write that selects it failed.
+    /// They are kept apart so the caller can report which one happened.
+    pub fn end(mut self) -> Result<(), EndError> {
         match self.kind {
             Kind::Firmware => {
                 // SAFETY: `handle` is live (from `begin`, not yet ended) and
@@ -409,7 +410,7 @@ impl Writer {
                 // direction `abort` also takes. `EspError::from` is `None` on
                 // `ESP_OK` in this binding.
                 if let Some(err) = EspError::from(rc) {
-                    return Err(err);
+                    return Err(EndError::Image(err));
                 }
                 // SAFETY: `self.partition` came from `esp_ota_get_next_update_partition`
                 // in `begin`, so it is a pointer into the static partition table
@@ -418,7 +419,10 @@ impl Writer {
                 // The function reads `otadata` and writes the selector; it does
                 // not take ownership of the pointer.
                 let rc = unsafe { esp_ota_set_boot_partition(self.partition) };
-                EspError::from(rc).map_or(Ok(()), Err)
+                match EspError::from(rc) {
+                    Some(err) => Err(EndError::SelectSlot(err)),
+                    None => Ok(()),
+                }
             }
             // No finalisation: `esp_partition_write` is already durable in the
             // partition. `self` is consumed for symmetry with the firmware arm.
@@ -437,6 +441,35 @@ impl Writer {
             // (`esp_ota_ops.h:224-230`).
             unsafe { esp_ota_abort(self.handle) };
             self.handle = 0;
+        }
+    }
+}
+
+/// Which of the two calls inside [`Writer::end`] failed.
+///
+/// `esp_ota_end` rejecting an image and `esp_ota_set_boot_partition` failing to
+/// record it are different problems with different remedies, and reporting both
+/// as "invalid firmware image" sends an operator whose *flash* is failing to
+/// re-upload a perfectly good file — the symptom then looks identical to the
+/// bug the slot selection was added to fix.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EndError {
+    /// `esp_ota_end` rejected the image it was given.
+    Image(EspError),
+    /// The image validated, and writing `otadata` to select it failed.
+    SelectSlot(EspError),
+}
+
+impl core::fmt::Display for EndError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Image(err) => write!(f, "the image was rejected: {err}"),
+            Self::SelectSlot(err) => {
+                write!(
+                    f,
+                    "the image validated but selecting its slot failed: {err}"
+                )
+            }
         }
     }
 }

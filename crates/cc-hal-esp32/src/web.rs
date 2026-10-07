@@ -2865,13 +2865,23 @@ fn ota_upload_route(
                 &upload_response(true, "Update successful. Device will restart."),
             )
         }
-        Err(err) => {
-            session.finish_err(cc_web::ota::StatusMessage::Invalid);
-            error!("ota: {kind:?} image rejected by esp_ota_end: {err}");
+        // **Which of the two failures this is matters.** `esp_ota_end`
+        // rejecting the image and the `otadata` write that selects it failing
+        // are different problems, and collapsing them into "invalid firmware
+        // image" tells an operator whose flash is failing to re-upload a good
+        // file — a symptom identical to the bug the slot selection was added to
+        // fix. `StatusMessage::Flash` already exists for the second.
+        Err(err @ (crate::ota::EndError::Image(_) | crate::ota::EndError::SelectSlot(_))) => {
+            let status = match err {
+                crate::ota::EndError::Image(_) => cc_web::ota::StatusMessage::Invalid,
+                crate::ota::EndError::SelectSlot(_) => cc_web::ota::StatusMessage::Flash,
+            };
+            session.finish_err(status);
+            error!("ota: {kind:?} finalise failed — {err}");
             respond(
                 req.connection(),
                 500,
-                &upload_response(false, cc_web::ota::StatusMessage::Invalid.message()),
+                &upload_response(false, status.message()),
             )
         }
     }

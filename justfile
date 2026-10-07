@@ -722,16 +722,55 @@ identify port:
 # returned NULL. With `--partition-table` the same flash reports
 # `App/part. size: 1,701,296/1,835,008` instead of `/4,128,768`, and the device
 # boots `app0`/`app1`/`littlefs`/`coredump` from `rust/partitions_4M.csv`.
+#
+# Both app slots are written, and finding #17 is why: `espflash flash` writes the
+# application at the offset in the ELF -- `app0`, 0x10000 -- and knows nothing
+# about `otadata`. Since `Writer::end` started selecting a slot
+# (`cc-hal-esp32/src/ota.rs`, 2026-10-07), a device that had taken an OTA booted
+# `app1` while every `just flash` wrote `app0`: the flash reported success, the
+# old image kept running, and the change was invisible. Found because a bench
+# build flashed this way did not take -- the emergency-threshold floor was still
+# 120 afterwards -- and only landed once it was uploaded over HTTP.
+#
+# `app1`'s offset is read out of `rust/partitions_4M.csv` rather than written
+# here, so the recipe and the partition table cannot drift apart again. Writing
+# the slot the chip is currently running from is safe: while flashing, the chip
+# executes the ROM loader from IRAM, not the application.
 [script]
 flash-elf port elf:
     [ -f {{elf}} ] || { echo "no {{elf}} -- build it first"; exit 1; }
+    # Read and check the app1 offset BEFORE anything is written to the device.
+    # Doing it after `espflash flash` left a half-flashed board behind whenever
+    # the CSV had lost its app1 row: new bootloader, new table, new app0, and
+    # then exit 1 with app1 stale and otadata still naming whatever it named.
+    app1="$(awk -F, '/^app1,/ { gsub(/[ \t]/, "", $4); print $4 }' rust/partitions_4M.csv)"
+    case "$app1" in
+        0x*) ;;
+        *) echo "rust/partitions_4M.csv gave app1 offset '$app1', which is not an offset; refusing to flash"; exit 1 ;;
+    esac
+    tmp="$(mktemp -d)"
+    trap 'rm -rf "$tmp"' EXIT
+    espflash save-image --chip {{mcu_esp32}} {{elf}} "$tmp/app.bin" >/dev/null
     espflash flash --port {{port}} --chip {{mcu_esp32}} \
       --partition-table rust/partitions_4M.csv {{elf}}
+    # Writing the slot the chip is currently running from is safe while the write
+    # is in flight: the chip executes the ROM loader from IRAM, not the app.
+    # It is NOT safe if the write is *interrupted* -- the selected slot is left
+    # corrupt, there is no rollback, and recovery is another `just flash` over the
+    # cable you are already holding. That is the trade for "a USB flash always
+    # wins" (finding #17), and it is the reason this line is commented at all.
+    espflash write-bin --port {{port}} --chip {{mcu_esp32}} "$app1" "$tmp/app.bin"
 
 # Flash the production target. PORT is positional and REQUIRED — a bare
 # `just flash` fails with a usage message rather than guessing a device.
 [script]
 flash port:
+    # A bench image has the over-temperature floor compiled out. `bench-flash`
+    # scopes the variable to its own build; this refuses to build at all if it is
+    # in the ambient environment, where `export`, a `.cargo/config.toml [env]`,
+    # or a stray CI layer would otherwise produce a relaxed image from the
+    # ordinary recipe with nothing but a boot warning to show for it.
+    [ -z "${CC_BENCH_UNSAFE_TEMPERATURES:-}" ] || { echo "CC_BENCH_UNSAFE_TEMPERATURES is set in this shell. This is a BENCH build; use 'just bench-flash', and never on a machine."; exit 1; }
     just build-esp32
     just flash-elf {{port}} target/{{tgt_esp32}}/release/{{bin_esp32}}
 
@@ -745,9 +784,12 @@ flash port:
 # warning at boot.
 #
 # `cc-safety`'s own suite is deliberately NOT run against a bench build, and
-# this recipe says so rather than quietly skipping tests: eight of its tests
-# assert the two headroom rules or the *order* between them and the relay rules,
-# and a bench build has neither. `just check` and `just gate` run that suite
+# this recipe says so rather than quietly skipping tests: measured on
+# 2026-10-07, `CC_BENCH_UNSAFE_TEMPERATURES=1 cargo test -p cc-safety` reports
+# **13 failures**, all of them tests that assert the two headroom rules or the
+# *order* between them and the relay rules -- none of which a bench build has.
+# `just check` and `just gate` run that suite against the production image, which
+# is where its value is. `just check` and `just gate` run that suite
 # against the production image, which is where its value is.
 #
 # **Never flash this to the coffee machine.** On a machine it removes the check
@@ -762,6 +804,7 @@ bench-flash port:
 # Back to the production image. Run this the moment the bench work is done.
 [script]
 unbench-flash port:
+    [ -z "${CC_BENCH_UNSAFE_TEMPERATURES:-}" ] || { echo "CC_BENCH_UNSAFE_TEMPERATURES is set in this shell; unbench-flash must build the production image. Unset it."; exit 1; }
     just build-esp32
     just flash-elf {{port}} target/{{tgt_esp32}}/release/{{bin_esp32}}
 

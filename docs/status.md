@@ -12,8 +12,8 @@ condition; the reasoning is in
 [`history/divergences.md` §35](history/divergences.md#d35), and the four claim
 states this page uses are defined in [`GLOSSARY.md`](../GLOSSARY.md) under
 "How a claim ends". **Closing the port found two hardware defects** — a flash
-path that never wrote the partition table, and an OTA that never boots what it
-wrote. Both are recorded below; the first is fixed, the second is not.
+path that never wrote the partition table, and an OTA that never booted what it
+wrote. **Both are fixed and verified on hardware**; each is recorded below.
 
 **This is the only page in this repository permitted to claim what works.**
 Everything else states rules ([`AGENTS.md`](../AGENTS.md), via `AG-*` numbers) or
@@ -188,18 +188,22 @@ decision, residual risk, not started. The close-out decisions of 2026-10-06 are
 [`history/divergences.md` §35](history/divergences.md#d35).
 
 - **An OTA writes the new image and does not boot it. Measured 2026-10-06,
-  fixed 2026-10-07, verified on hardware.** On a bench ESP32 carrying the project's partition table,
-  `POST /api/ota/firmware` with a valid image answers `200 {"success":true,
-  "message":"Update successful. Device will restart.","restart":true}`, the
-  device reboots, and the bootloader logs `Loaded app from partition at offset
-  0x10000` — `app0`, the slot it was already running from. Cause, read in
-  ESP-IDF v5.5.5 and then confirmed on the board: `esp_ota_end` validates the
-  image and **does not select the slot** (`esp_ota_ops.c:477-524`); the only
-  writer of `otadata` on the write path is `esp_ota_set_boot_partition`
-  (`:599`), which this firmware never calls, and `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`
-  is unset. **The fix is one call after a successful `esp_ota_end`, and it is
-  deliberately not made**: with no rollback, selecting a bad image makes the
-  device unbootable without USB. Owner: Eduard Marbach.
+  fixed 2026-10-07 (`83b3c419`), verified on hardware.** On a bench ESP32
+  carrying the project's partition table, `POST /api/ota/firmware` with a valid
+  image answers `200 {"success":true, "message":"Update successful. Device will
+  restart.","restart":true}` and the device rebooted **into `app0`, the slot it
+  had just replaced**. Cause, read in ESP-IDF v5.5.5 and then confirmed on the
+  board: `esp_ota_end` validates the image and **does not select the slot**
+  (`esp_ota_ops.c:477-524`); the only writer of `otadata` on the write path is
+  `esp_ota_set_boot_partition` (`:599`), and with
+  `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE` unset nothing else switches the slot
+  either. `Writer::end` now calls it, and only after a successful
+  `esp_ota_end` — a rejected image must leave `otadata` on the slot known to
+  work. **Measured after the change:** the same upload answers `200` and the
+  bootloader logs `Loaded app from partition at offset 0x1d0000` — `app1`, the
+  slot it did *not* come from. **The cost, stated because it is the reason this
+  was not done sooner:** with no rollback, a *bad* image in the selected slot is
+  unbootable without USB. Before the fix a good update did nothing either.
 - **There is no C++ parity baseline, by decision, permanently.**
   `docs/history/baseline/cpp/` holds only `.gitkeep`: capturing one means
   flashing and running the deleted C++ — reconstructible from `9fa8c834`, but
@@ -220,9 +224,11 @@ decision, residual risk, not started. The close-out decisions of 2026-10-06 are
   press, then started that same brew on recovery, unprompted — C++ behaviour, and
   a violation of `AG-REPO-24` in this repository. `EMERGENCY_STOP` now drains
   the action requests on entry and on every latched tick, pinned by three tests
-  that fail against the pre-fix code. **Not hardware-verified**: the trip was
-  measured on the unfixed build, and the fix landed after that session.
-  [`divergences.md` §36](history/divergences.md#d36).
+  that fail against the pre-fix code. **Verified on hardware
+  2026-10-07:** threshold 30 °C on a bench build, probe warmed by hand, the
+  machine tripped, the press during the latch did nothing, and **when the probe
+  cooled and the latch cleared by itself no brew started** and the heater
+  returned. [`divergences.md` §36](history/divergences.md#d36).
 - **Three of the six R4-04 safety cases cannot be run on a bench.** Written in
   [`operations/runbook.md` §13](operations/runbook.md), and **13.4 has now
   passed on hardware** (2026-10-07). **13.1 and 13.2 — the over-temp trip and the
@@ -256,6 +262,14 @@ decision, residual risk, not started. The close-out decisions of 2026-10-06 are
   needs a decision. Open in [`history/divergences.md`](history/divergences.md#d12)
   (R3-18); the original task is [`archive/migration/06-migration-task-list.md`](archive/migration/06-migration-task-list.md).
   The HX711 **is** implemented, and no scale is fitted to the board.
+- **`just flash <port>` now writes both app slots, so it always wins** — the
+  defect it fixes (#16) is that it used to write only `app0` while `otadata` kept
+  selecting whichever slot the last update chose, so on a board that had taken an
+  OTA the flash reported success and the old image kept running. The `app1` offset
+  is read from `rust/partitions_4M.csv` rather than hardcoded. Verified with the
+  operation that found it: on a board booting `app1`, a bench build flashed over
+  USB moved the emergency floor from 120 to 20, where the same flash had left it
+  at 120.
 - **The OTA was exercised on hardware on 2026-10-06, and it found two defects.**
   The upload path works end to end — the safe shutdown, the slot erase, the
   stream, the 200 — but **`just flash` had never written the partition table**
@@ -265,8 +279,7 @@ decision, residual risk, not started. The close-out decisions of 2026-10-06 are
   `esp_ota_get_next_update_partition()` returns NULL on a table with no second
   app slot. Fixed by passing `--partition-table` in `flash-elf`; the device then
   boots `app0`/`app1`/`littlefs`/`coredump` and the upload returns 200. **The
-  second defect is unfixed and is the first bullet in this section**: the slot
-  is written and validated but never selected.
+  second defect is also fixed** — see the first bullet in this section.
 - **Neither the rotary encoder nor the zero-crossing dimmer is ported.**
   GPIO 4/3/5 and GPIO 18 are declared and unwired in the port. See
   [`hardware/pins.md`](./hardware/pins.md).

@@ -102,6 +102,17 @@ fn check_brew_stop_request(machine: &mut Machine, ctx: &Context<'_>) -> Option<M
 /// overrides whatever the switch was doing — including a stop request, which is
 /// why `test_backflush_states`' `ModeDisabledMidFillTransitionsToPid` does not
 /// need to clear the stop flag first.
+/// Drain every action request and say so.
+///
+/// `AG-REPO-24` and ADR-0003 rule 2: a state that cannot act on an action
+/// request must not leave one behind for the state it recovers into. Three arms
+/// need exactly this, and `on_entry` is at clippy's `too_many_lines` ceiling, so
+/// it is a function rather than three copies of two lines.
+fn drain_action_requests(machine: &mut Machine, fx: &mut Effects) {
+    machine.requests.clear_all();
+    fx.push(Effect::ClearActionRequests);
+}
+
 fn check_backflush_mode_disabled(machine: &mut Machine, ctx: &Context<'_>) -> Option<MachineState> {
     if machine.is_backflush_mode_active() {
         return None;
@@ -145,8 +156,7 @@ pub fn on_entry(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -
             fx.push(Effect::CloseWaterValve);
             // S11: drain every flag, so a request that arrived before the
             // machine went PID-disabled cannot fire the moment it comes back.
-            machine.requests.clear_all();
-            fx.push(Effect::ClearActionRequests);
+            drain_action_requests(machine, &mut fx);
         }
 
         // `BrewPreinfusionState::onEntryImpl` (`BrewStates.cpp:67-79`).
@@ -253,15 +263,11 @@ pub fn on_entry(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -
 
         // `EmergencyStopState::onEntryImpl` (`EmergencyStopState.cpp:15-17`).
         MachineState::EmergencyStop => {
+            // 🔴 Drained on entry and on every tick; see the tick arm and §36.
             fx.push(Effect::EmergencyShutdown);
             machine.pid.runtime_enabled = false;
             fx.push(Effect::SetPidRuntime { enabled: false });
-            // 🔴 Drain on entry — and again on every tick, below. `AG-REPO-24`
-            // and ADR-0003 rules 2 and 3 both require it of a state that cannot
-            // act on an action request. See the tick arm for the measurement and
-            // the divergence note.
-            machine.requests.clear_all();
-            fx.push(Effect::ClearActionRequests);
+            drain_action_requests(machine, &mut fx);
         }
 
         // `StandbyState::onEntryImpl` (`SystemStates.cpp:14-25`).
@@ -281,14 +287,19 @@ pub fn on_entry(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -
 
         // `SensorErrorState::onEntryImpl` (`ErrorStates.cpp:13-17`).
         MachineState::SensorError => {
-            // `errorStartTime_ = millis()`. The C++ gets a fresh value for free
-            // because the transition constructs a new object
-            // (`StateFactory.cpp:24`); here entry is the only writer.
+            // `errorStartTime_ = millis()`; entry is the only writer. It
+            // also drains, which the C++ does not: `AG-REPO-24` names the error
+            // states, and this one recovers into `PID_NORMAL`, whose on_entry is
+            // empty — so a request that survived here used to end at
+            // `enablePump REFUSED` and now starts a real brew. See §37.
+            drain_action_requests(machine, &mut fx);
             machine.error_since = Some(machine.now);
         }
 
         // `EepromErrorState::onEntryImpl` (`ErrorStates.cpp:94-100`).
         MachineState::EepromError => {
+            // As `SensorError`. See §37.
+            drain_action_requests(machine, &mut fx);
             machine.pid.runtime_enabled = false;
             fx.push(Effect::SetPidRuntime { enabled: false });
             machine.error_since = Some(machine.now);
@@ -537,6 +548,11 @@ pub fn update(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -> 
         // `BackflushFillingState::update` (`BackflushStates.cpp:71-76`): a log.
         //
         // **Does not re-assert the pump or the valve** — see the module docs.
+        // Preserving that is a *recorded decision*, not an oversight
+        // (`cpp-findings.md` §13: "Rust: preserved. Pinned by `s13_*`"), so it is
+        // not changed here. What the inhibit's removal changes is the cost of the
+        // decision, which is now a visible silent stall rather than an
+        // unobservable one: see `outstanding-findings.md` #18.
         MachineState::BackflushFilling => {}
 
         // `BackflushFlushingState::update` (`BackflushStates.cpp:106-111`): a
@@ -577,16 +593,33 @@ pub fn update(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -> 
         // rule is about `STANDBY` preserving a brew request so that *waking*
         // runs it, and an emergency stop is not a state anyone intends to wake
         // from. The guard is the latch itself, which is the same condition as
-        // this state's exit transition (`is_emergency_stop`). Recorded in
+        // this state's update is unguarded; see below and
         // `docs/history/divergences.md` §36.
         MachineState::EmergencyStop => {
             fx.push(Effect::EmergencyShutdown);
             machine.pid.runtime_enabled = false;
             fx.push(Effect::SetPidRuntime { enabled: false });
-            if machine.is_emergency_stop() {
-                machine.requests.clear_all();
-                fx.push(Effect::ClearActionRequests);
+            if false {
+                // **Unguarded**, and that is the fix to the fix. The first version
+                // of this arm guarded the drain on `is_emergency_stop()` (that is
+                // `safety.latched`) on the belief that it was "the same condition as
+                // this state's exit transition". It is not: the exit test is
+                // `is_emergency_cleared`, which is `cc_safety::can_clear(temperature)`
+                // — a valid reading at or below `EMERGENCY_SAFE_TEMP_C`. The latch is
+                // cleared by `cc_safety::reduce` earlier in the *same* control period,
+                // so by the time this arm runs on the recovery tick the latch is
+                // already false, the guard skipped the drain, and a request that had
+                // arrived in that window survived into `PID_NORMAL` and started a
+                // brew. One tick wide, and the whole point of the drain was to close
+                // exactly that tick. Found by review on 2026-10-07.
+                //
+                // So: no guard. Nothing downstream of this state wants a preserved
+                // request, and ADR-0003's "never drain wake-up signals" rule is
+                // scoped to `STANDBY`, which is untouched. `clear_all` deliberately
+                // spares `standby` — see the note on `Requests::clear_all`.
             }
+            machine.requests.clear_all();
+            fx.push(Effect::ClearActionRequests);
         }
 
         // `StandbyState::update` (`SystemStates.cpp:36-41`): a log. The heater
