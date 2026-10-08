@@ -1,6 +1,6 @@
 # Status
 
-**Dated 2026-10-06. Owner: Eduard Marbach** (`mail@eduard-marbach.de`), who also
+**Dated 2026-10-08. Owner: Eduard Marbach** (`mail@eduard-marbach.de`), who also
 owns the wired machine. Re-verify with `git log --oneline -1` and `just gate`
 before trusting a line below.
 
@@ -155,15 +155,15 @@ page.
 - **The gate is green.** `just gate`: fmt-check, clippy (host and
   device) with `-D warnings`, rustdoc `-D warnings`, the host suite, the parity
   harness, the device-test audit, the Xtensa release build, and the size budget.
-  **1,701,296 B**, which fits the 1,835,008 B app0 slot with +133,712 B to spare
-  and is **+9.09 %** against `size-baseline.json`, inside the 10 % limit.
-  Re-measured 2026-10-06 with `just size-check`, which prints both numbers.
+  **1,709,760 B**, which fits the 1,835,008 B app0 slot with +125,248 B to spare
+  and is **+9.63 %** against `size-baseline.json`, inside the 10 % limit.
+  Re-measured 2026-10-08 with `just size-check`, which prints both numbers.
   **The slot this is measured against is now the slot the device has.** Until
   `08f4312c` (2026-10-06) `just flash` never wrote the partition table, so no
   device was carrying `rust/partitions_4M.csv` at all — the figure was real
   arithmetic about a table that was on no chip. It is now true of a flashed
-  device: the board boots `app0 0x10000+0x1C0000` out of the CSV, and the flash
-  log prints `App/part. size: 1,701,296/1,835,008`.
+  device: the board boots `app0 0x10000+0x1C0000` out of the CSV, and that
+  2026-10-06 flash log printed `App/part. size: 1,701,296/1,835,008`.
 - **The C++ tree was frozen while the port ran, and then deleted.** It stood
   unchanged from branch point `2006b710` until it was removed on 2026-10-06
   (`a36ebc50`, 248 files). That the deletion is what changed it is checkable:
@@ -365,9 +365,11 @@ be filed and they are not fixed by the next green gate.
    after the reboot — [`operations/runbook.md` §13.4](operations/runbook.md).
    **What is still unexercised is the machine**: the reservoir, the real float
    switch, the real valve. Three new findings came out of the bench session —
-   [`history/outstanding-findings.md` #12–#14](history/outstanding-findings.md),
-   including one this work caused: a configuration the validator refuses costs
-   the **whole** stored configuration, not the offending value.
+   [`history/outstanding-findings.md` #12–#14](history/outstanding-findings.md).
+   Finding #12 refuses the write and repairs implicated keys on boot.
+   Measured 2026-10-08: unsafe blob repaired `safety.emergency_temp` only;
+   all 98 parameters matched the pre-plant snapshot; repeat POST answered `400`.
+   [`operations/runbook.md` §13.1](operations/runbook.md).
    **Reversal: reinstate `actuators.set_inhibit` in
    `crates/cc-firmware/src/main.rs` with pump and valve held.**
 7. **The TSIC-306 arm of the F1 fix does not latch on total silence.** No TSIC is

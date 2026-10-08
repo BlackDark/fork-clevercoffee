@@ -2583,3 +2583,28 @@ branch was not asked to revisit. What the inhibit's removal changes is the cost:
 a single tank-interlock refusal on entry now leaves the fill stalled and silent
 for the whole cycle, where before it was indistinguishable from correct
 behaviour. Recorded as `outstanding-findings.md` #18 for the owner.
+
+---
+
+## 38 — An unsafe configuration is refused at the write, and repaired at boot 🔴 changed {#d38}
+
+Finding #12. 2026-10-08, bench ESP32: previous image stored `safety.emergency_temp=120`; this image's first boot repaired that key only; repeat `POST /api/parameters` answered `400`. Record: [`outstanding-findings.md` #12](outstanding-findings.md).
+
+### What the C++ does
+
+No cross-parameter check. A key in range (`Config.h:isValid`) is stored, including a pair that cannot run: `safety.emergency_temp` below `steam.setpoint + hysteresis`, a `LOW_TRIGGER` relay, brew-by-weight with no scale.
+
+### What the Rust does
+
+`validate_config` failure stores nothing:
+
+- `POST /api/parameters` and `POST /api/config/upload` wait, then HTTP 400 naming `ConfigViolation::implicated_keys`.
+- MQTT `apply_parameter` logs, does not save, does not `push_into_machine`.
+- `Command::SetSetpoint` validates first. `/api/setpoint` already answered `202 {"accepted":true}` (`register_command`). No second ack. Control task must not apply an unsafe setpoint.
+
+Boot repair keeps reverting the keys `validate` returns. `REPAIR_ESCALATION_KEYS` run one key at a time, and only when those keys make no progress. Still unsafe: full defaults plus the Wi-Fi credential. Boot line: `stored but unsafe`, not `DISCARDED`.
+
+### What pins it
+
+- `cc-safety/tests/safety_paths.rs::div38_every_violation_names_the_keys_it_implicates`
+- `cc-config/tests/config_repair.rs`

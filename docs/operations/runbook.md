@@ -997,24 +997,19 @@ boiler". Two things stop that:
 - **The parameter floor is 120 °C** (`safety.emergency_temp` range 120–180,
   `steam.setpoint` 100–140). A bench boiler sits at ~23 °C with only an LED on
   the heater pin, so the lowest *legal* value is still 100 K above ambient.
-- **Lowering it is refused anyway**, and refusing is expensive. Setting
-  `safety.emergency_temp=120` with the default `steam.setpoint=120` trips
-  `cc_safety`'s `EmergencyTempTooLowForSteam` — the threshold must sit above
-  `steam.setpoint + safety.emergency_hysteresis` or the machine cannot be
-  steamed. Measured 2026-10-07 on a bench ESP32:
+- **Lowering it is refused at the write.** `safety.emergency_temp=120` with `steam.setpoint=120` is `EmergencyTempTooLowForSteam`. HTTP 400 on `/api/parameters`. An already-unsafe blob repairs implicated keys. Boot line `stored but unsafe`, not `DISCARDED`. 2026-10-07 printed the discard. 2026-10-08, same unsafe blob already stored:
 
   ```txt
-  config: (configuration is unsafe to run: EmergencyTempTooLowForSteam { emergency_temp: 120, steam_setpoint: 120 })
-  config: keeping the stored Wi-Fi credential so the machine stays reachable and the unsafe setting can be fixed over HTTP
-  config: stored but unsafe — DISCARDED
-  nvs: the boot decision was `DiscardedUnsafe(...)`
+  config: (configuration is unsafe to run: EmergencyTempTooLowForSteam { emergency_temp: Celsius(120.0), steam_setpoint: Celsius(120.0), emergency_hysteresis: Celsius(5.0) }) -> repairing the implicated key(s) and keeping everything else
+  config: reverted safety.emergency_temp to its default
+  config: the repair is persisted (safety.emergency_temp)
+  config: stored but unsafe (cc/cc.config: schema v1, 2102 B JSON)
+  nvs: the boot decision was `DiscardedUnsafe(EmergencyTempTooLowForSteam { ... })`
   ```
 
-  **⚠️ Read that third line before you push any parameter you are not sure of.
-  The discard is whole-configuration, not per-parameter** — see
-  [`../history/outstanding-findings.md` #12](../history/outstanding-findings.md).
-  On this bench it silently reverted `hardware.sensors.temperature.type` from
-  Dallas to TSIC-306 and put the machine in `SENSOR_ERROR` with `NaN`.
+  `DiscardedUnsafe` is the blob as loaded. Repair already ran. Old discard reset `hardware.sensors.temperature.type` to TSIC-306 and left `SENSOR_ERROR` / `NaN`. [`../history/outstanding-findings.md` #12](../history/outstanding-findings.md).
+
+- [x] **Finding #12 — PASSED 2026-10-08.** Boot lines above. All 98 parameters matched the pre-plant snapshot, including `hardware.sensors.temperature.type=1`. Repeat POST `400` naming `safety.emergency_temp`. Probe 20.62 °C, `PID_NORMAL`.
 
 **What actually works**, in order of preference:
 
@@ -1176,7 +1171,7 @@ an **empty reservoir** — 13.1–13.4 again, where the tank interlock is a real
 float switch — and then filled, which is when the last two table rows in 13.5
 become runnable.
 
-**Do not push a parameter you are unsure of.** A write the validator refuses
-costs the whole stored configuration, not the one value. Read
-[`../history/outstanding-findings.md` #12](../history/outstanding-findings.md)
-before you experiment with configuration on any machine.
+**Do not push a parameter you are unsure of.** A refused write stays refused
+(HTTP 400). An already-unsafe blob repairs implicated keys on boot. Measured
+2026-10-08: §13.1 above and
+[`../history/outstanding-findings.md` #12](../history/outstanding-findings.md).

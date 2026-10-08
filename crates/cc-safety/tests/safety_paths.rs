@@ -1597,3 +1597,47 @@ fn high_trigger_relays_are_accepted_for_every_relay() {
     // configuration has to boot.
     assert!(validate_config(&SafetyConfig::default()).is_ok());
 }
+
+/// Each variant names its keys. The repair loop is `cc-config`'s `config_repair.rs`.
+#[test]
+fn div38_every_violation_names_the_keys_it_implicates() {
+    use cc_domain::units::Celsius;
+    use cc_safety::ConfigViolation;
+
+    let names = |v: ConfigViolation| v.implicated_keys().join(",");
+
+    assert_eq!(
+        names(ConfigViolation::EmergencyTempTooLowForSteam {
+            emergency_temp: Celsius::new(120.0),
+            steam_setpoint: Celsius::new(120.0),
+            emergency_hysteresis: Celsius::new(5.0),
+        }),
+        "safety.emergency_temp"
+    );
+    assert_eq!(
+        names(ConfigViolation::EmergencyTempTooLowForBrew {
+            emergency_temp: Celsius::new(120.0),
+            brew_setpoint: Celsius::new(118.0),
+            emergency_hysteresis: Celsius::new(5.0),
+        }),
+        "safety.emergency_temp"
+    );
+
+    assert_eq!(
+        names(ConfigViolation::HeaterRelayLowTrigger),
+        "hardware.relays.heater.trigger_type"
+    );
+    assert_eq!(
+        names(ConfigViolation::PumpRelayLowTrigger),
+        "hardware.relays.pump.trigger_type"
+    );
+    assert_eq!(
+        names(ConfigViolation::ValveRelayLowTrigger),
+        "hardware.relays.valve.trigger_type"
+    );
+
+    assert_eq!(
+        names(ConfigViolation::BrewByWeightWithNoScale),
+        "brew.by_weight.enabled"
+    );
+}

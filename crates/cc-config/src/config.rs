@@ -34,6 +34,7 @@
 //! nobody has to re-derive them and get it subtly wrong.
 
 use alloc::string::String;
+use alloc::vec::Vec;
 
 use cc_domain::hardware::{
     OledAddress, OledType, RelayTriggerType, ScaleType, SwitchMode, SwitchType,
@@ -45,6 +46,37 @@ use cc_domain::units::Celsius;
 use serde::{Deserialize, Serialize};
 
 use crate::secret::Secret;
+
+/// Revert one key to [`Config::default`]. `false` for any other key.
+///
+/// Covers `ConfigViolation::implicated_keys` plus [`REPAIR_ESCALATION_KEYS`].
+/// Defaults sit on the safe side: higher `safety.emergency_temp`,
+/// `HIGH_TRIGGER` relays, lower setpoints.
+pub fn revert_key(config: &mut Config, key: &str) -> bool {
+    let defaults = Config::default();
+    match key {
+        "safety.emergency_temp" => config.safety.emergency_temp = defaults.safety.emergency_temp,
+        "safety.emergency_hysteresis" => {
+            config.safety.emergency_hysteresis = defaults.safety.emergency_hysteresis;
+        }
+        "hardware.relays.heater.trigger_type" => {
+            config.hardware.relays.heater.trigger_type =
+                defaults.hardware.relays.heater.trigger_type;
+        }
+        "hardware.relays.valve.trigger_type" => {
+            config.hardware.relays.valve.trigger_type = defaults.hardware.relays.valve.trigger_type;
+        }
+        "hardware.relays.pump.trigger_type" => {
+            config.hardware.relays.pump.trigger_type = defaults.hardware.relays.pump.trigger_type;
+        }
+        "brew.by_weight.enabled" => config.brew.by_weight.enabled = defaults.brew.by_weight.enabled,
+        "steam.setpoint" => config.steam.setpoint = defaults.steam.setpoint,
+        "brew.setpoint" => config.brew.setpoint = defaults.brew.setpoint,
+        "brew.temp_offset" => config.brew.temp_offset = defaults.brew.temp_offset,
+        _ => return false,
+    }
+    true
+}
 
 /// The whole configuration: 98 typed fields mirroring the C++
 /// `ParamDef` members. See the module documentation for the mapping and
@@ -1474,4 +1506,78 @@ impl Config {
     pub fn ota_enabled(&self) -> bool {
         !self.ota_password().is_empty()
     }
+}
+
+/// Used one key at a time, and only when the keys `validate` returns make no progress.
+///
+/// `steam.setpoint` 140 plus `safety.emergency_hysteresis` 15 exceeds the 150
+/// default of `safety.emergency_temp`.
+pub const REPAIR_ESCALATION_KEYS: &[&str] = &[
+    "steam.setpoint",
+    "safety.emergency_hysteresis",
+    "brew.setpoint",
+    "brew.temp_offset",
+];
+
+/// Keys reverted, in order, and whether `validate` now accepts the configuration.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Repair {
+    /// Boot log prints these.
+    pub reverted: Vec<String>,
+    /// `validate` accepts the configuration.
+    pub resolved: bool,
+}
+
+/// `revert_key` accepts nine keys. The loop stops after that many steps.
+const REPAIR_STEP_LIMIT: usize = 9;
+
+/// Revert keys `validate` returns until it accepts, or give up.
+///
+/// Finding #12: boot used to drop all 98 parameters. `validate` is a closure
+/// because `cc-config` does not depend on `cc-safety`. It returns one violation
+/// at a time, so the loop follows whatever it returns next. [`REPAIR_ESCALATION_KEYS`]
+/// apply one key at a time, and only when those keys make no progress. At most
+/// one step per key [`revert_key`] knows. Unresolved: caller uses full defaults
+/// plus the Wi-Fi credential.
+pub fn repair_unsafe(
+    config: &mut Config,
+    validate: impl Fn(&Config) -> Option<&'static [&'static str]>,
+) -> Repair {
+    let mut repair = Repair::default();
+    for _ in 0..REPAIR_STEP_LIMIT {
+        let Some(keys) = validate(config) else {
+            repair.resolved = true;
+            return repair;
+        };
+        if revert_new(config, &mut repair, keys) {
+            continue;
+        }
+        let Some(key) = REPAIR_ESCALATION_KEYS
+            .iter()
+            .copied()
+            .find(|key| !repair.reverted.iter().any(|seen| seen == key))
+        else {
+            break;
+        };
+        if !revert_new(config, &mut repair, &[key]) {
+            break;
+        }
+    }
+    repair.resolved = validate(config).is_none();
+    repair
+}
+
+/// Revert each `key` not already reverted. `false` when none of them moved.
+fn revert_new(config: &mut Config, repair: &mut Repair, keys: &[&str]) -> bool {
+    let mut any = false;
+    for key in keys {
+        if repair.reverted.iter().any(|seen| seen == key) {
+            continue;
+        }
+        if revert_key(config, key) {
+            repair.reverted.push(String::from(*key));
+            any = true;
+        }
+    }
+    any
 }

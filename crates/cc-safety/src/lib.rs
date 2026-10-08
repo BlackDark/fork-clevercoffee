@@ -873,6 +873,27 @@ pub enum ConfigViolation {
     BrewByWeightWithNoScale,
 }
 
+impl ConfigViolation {
+    /// Keys this violation implicates. Repair reverts these. HTTP 400 names them.
+    ///
+    /// Headroom rules name `safety.emergency_temp`, not the setpoint: raising
+    /// the threshold cannot fail the rule. Not always enough: `steam.setpoint`
+    /// 140 plus `safety.emergency_hysteresis` 15 exceeds the 150 default.
+    /// `cc_config::repair_unsafe` then uses `REPAIR_ESCALATION_KEYS`. Finding #12.
+    #[must_use]
+    pub const fn implicated_keys(self) -> &'static [&'static str] {
+        match self {
+            Self::EmergencyTempTooLowForSteam { .. } | Self::EmergencyTempTooLowForBrew { .. } => {
+                &["safety.emergency_temp"]
+            }
+            Self::HeaterRelayLowTrigger => &["hardware.relays.heater.trigger_type"],
+            Self::PumpRelayLowTrigger => &["hardware.relays.pump.trigger_type"],
+            Self::ValveRelayLowTrigger => &["hardware.relays.valve.trigger_type"],
+            Self::BrewByWeightWithNoScale => &["brew.by_weight.enabled"],
+        }
+    }
+}
+
 /// Validate a configuration before it is run or stored.
 ///
 /// Recovered from the previous Rust firmware ([08 §4.1](../docs/history/recovered-oracle.md)),

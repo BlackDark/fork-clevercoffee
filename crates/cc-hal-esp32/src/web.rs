@@ -1607,7 +1607,10 @@ impl Web {
                         }
                     }
                     let accepted = verdict.clone().into_pairs();
-                    if !accepted.is_empty() && !handoff.stage_and_wait(accepted) {
+                    // Read the refusal only after this request was staged. A leftover
+                    // flag would 400 an empty post.
+                    let staged = !accepted.is_empty();
+                    if staged && !handoff.stage_and_wait(accepted) {
                         // Either the mailbox was full, or the control task had not
                         // applied the request within the ack timeout. The response
                         // is about to say the parameters were saved, so this is the
@@ -1619,6 +1622,20 @@ impl Web {
                             503,
                             &error_body("the control task did not apply the parameters, retry"),
                         );
+                    }
+                    // Finding #12: unsafe result, nothing stored. 200 would claim a save.
+                    if staged {
+                        if let Some((keys, n)) = handoff.take_refused() {
+                            let implicated = keys[..n].join(", ");
+                            return respond(
+                                req.connection(),
+                                400,
+                                &error_body(&format!(
+                                    "refused: the resulting configuration would be unsafe \
+                                     (implicated: {implicated}), so nothing was written."
+                                )),
+                            );
+                        }
                     }
                     let (status, payload) = verdict.response();
                     // A `200 {"success":true}` on a write that cannot affect the
@@ -1777,6 +1794,21 @@ impl Web {
                             &upload_response(
                                 false,
                                 "the control task did not apply the configuration, retry",
+                            ),
+                        );
+                    }
+                    // Same 400 as `/api/parameters`. Upload is all or nothing. Finding #12.
+                    if let Some((keys, n)) = handoff.take_refused() {
+                        let implicated = keys[..n].join(", ");
+                        return respond(
+                            req.connection(),
+                            400,
+                            &upload_response(
+                                false,
+                                &format!(
+                                    "refused: the resulting configuration would be unsafe \
+                                     (implicated: {implicated}), so nothing was written"
+                                ),
                             ),
                         );
                     }

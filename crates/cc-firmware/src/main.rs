@@ -2051,30 +2051,33 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
                 // and reloaded on every boot here. The `validate_config` call
                 // below is the second half of the same rule — the cross-
                 // parameter one, `emergency_temp` against the setpoint plus
-                // hysteresis — and it is here for the same reason it is on the
-                // `/api/parameters` and MQTT paths below: a write that leaves
-                // the machine unable to run safely is *reported*, and the
-                // fail-closed rule discards it at the next boot (08 §4.1).
+                // hysteresis. Unsafe setpoint is not applied. `/api/setpoint`
+                // already answered 202; no second ack (§38).
                 cc_hal_esp32::web::Command::SetSetpoint(celsius) => {
-                    config.brew.setpoint = celsius;
-                    control.set_setpoint(celsius);
+                    let mut candidate = config.clone();
+                    candidate.brew.setpoint = celsius;
                     if let Err(violation) =
-                        cc_safety::validate_config(&control::safety_config(&config))
+                        cc_safety::validate_config(&control::safety_config(&candidate))
                     {
+                        let keys = violation.implicated_keys();
                         error!(
-                            "config: brew.setpoint = {celsius} leaves the configuration \\
-                             UNSAFE ({violation:?}); the next boot will discard it"
+                            "config: REFUSED — brew.setpoint = {celsius} would leave the \
+                             configuration unsafe ({violation:?}); implicated key(s): \
+                             {keys:?}. Nothing was written and nothing was changed."
+                        );
+                    } else {
+                        config.brew.setpoint = celsius;
+                        control.set_setpoint(celsius);
+                        persist_setpoint(&mut store, celsius, &config);
+                        // `requestNormalOperation(systemContext_)` — the C++'s third
+                        // line, and the reason a setpoint change also wakes the
+                        // machine.
+                        control.feed(
+                            &config,
+                            Event::Command(cc_machine::Command::NormalOperation),
+                            &mut effects,
                         );
                     }
-                    persist_setpoint(&mut store, celsius, &config);
-                    // `requestNormalOperation(systemContext_)` — the C++'s third
-                    // line, and the reason a setpoint change also wakes the
-                    // machine.
-                    control.feed(
-                        &config,
-                        Event::Command(cc_machine::Command::NormalOperation),
-                        &mut effects,
-                    );
                 }
                 // `POST /api/pid?on=0|1` toggles `Config::pidEnabled` **and** calls
                 // `setUserPidEnabled` (`WebServerManager.cpp:472-492`), which
@@ -2293,7 +2296,9 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
             // Read before `apply`, not after.
             let pid_enabled_before = config.pid.enabled;
             let brew_setpoint_before = config.brew.setpoint;
-            let applied = cc_config::assign::apply(&mut config, &pairs);
+            // Apply on a copy. A refusal must not change the live config.
+            let mut candidate = config.clone();
+            let applied = cc_config::assign::apply(&mut candidate, &pairs);
             for (key, err) in &applied.failed {
                 // The handler already logged each rejection with the request
                 // that caused it. This line is the one that matters if the two
@@ -2308,51 +2313,57 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
                 // machine already holds from timing out.
                 parameters.note_applied();
             } else {
-                info!(
-                    "config: {} parameter(s) written: {applied:?}",
-                    applied.updated
-                );
-                // A write that leaves the machine unable to run safely is persisted,
-                // and the fail-closed rule discards it at the next boot (08 §4.1).
-                // Saying so now is the difference between "my setting vanished" and a
-                // diagnosis; the C++ has no check on this path and loses it silently.
-                if let Err(violation) = cc_safety::validate_config(&control::safety_config(&config))
+                // Finding #12: refuse the whole request. Do not persist. Ack so
+                // HTTP can answer 400. The violation is of the result, not one pair.
+                if let Err(violation) =
+                    cc_safety::validate_config(&control::safety_config(&candidate))
                 {
+                    let keys = violation.implicated_keys();
                     error!(
-                        "config: the stored configuration is now UNSAFE ({violation:?}) and the \
-                         next boot will discard it"
+                        "config: REFUSED — the resulting configuration would be unsafe \
+                         ({violation:?}); implicated key(s): {keys:?}. Nothing was \
+                         written and nothing was changed."
                     );
+                    parameters.note_refused(keys);
+                    parameters.note_applied();
+                } else {
+                    info!(
+                        "config: {} parameter(s) written: {applied:?}",
+                        applied.updated
+                    );
+                    // Live config changes only after `validate_config` accepts.
+                    config = candidate;
+                    persist_config(&mut store, &config);
+                    push_into_machine(
+                        &mut control,
+                        &config,
+                        (pid_enabled_before, brew_setpoint_before),
+                        &pairs,
+                        &mut effects,
+                    );
+                    // `standbyCoordinator().reset(); requestNormalOperation(...)` — the
+                    // C++'s last two lines (`:870-872`), on the same "a POST wakes the
+                    // machine" rule as `/api/setpoint`.
+                    control.feed(
+                        &config,
+                        Event::Command(cc_machine::Command::NormalOperation),
+                        &mut effects,
+                    );
+                    // **Publish the new values now, not on the next heartbeat.**
+                    //
+                    // This is the read-after-write half of "the UI saved it and the UI
+                    // then read the old value back". The apply above has written the
+                    // `Config` *and* NVS, so the value is real; but `GET /api/parameters`
+                    // is answered from `publish_live`, which used to run only on the 1 s
+                    // heartbeat, so for up to a second after a successful save the API
+                    // served the previous values. A browser that refetches on save
+                    // therefore got the old number, put it back into the form, and the
+                    // toggle appeared to spring back.
+                    parameters.publish_live(cc_web::parameters_json(&config));
+                    // The ack the `POST` handler is blocked on. See
+                    // `ParameterHandoff::stage_and_wait`.
+                    parameters.note_applied();
                 }
-                persist_config(&mut store, &config);
-                push_into_machine(
-                    &mut control,
-                    &config,
-                    (pid_enabled_before, brew_setpoint_before),
-                    &pairs,
-                    &mut effects,
-                );
-                // `standbyCoordinator().reset(); requestNormalOperation(...)` — the
-                // C++'s last two lines (`:870-872`), on the same "a POST wakes the
-                // machine" rule as `/api/setpoint`.
-                control.feed(
-                    &config,
-                    Event::Command(cc_machine::Command::NormalOperation),
-                    &mut effects,
-                );
-                // **Publish the new values now, not on the next heartbeat.**
-                //
-                // This is the read-after-write half of "the UI saved it and the UI
-                // then read the old value back". The apply above has written the
-                // `Config` *and* NVS, so the value is real; but `GET /api/parameters`
-                // is answered from `publish_live`, which used to run only on the 1 s
-                // heartbeat, so for up to a second after a successful save the API
-                // served the previous values. A browser that refetches on save
-                // therefore got the old number, put it back into the form, and the
-                // toggle appeared to spring back.
-                parameters.publish_live(cc_web::parameters_json(&config));
-                // The ack the `POST` handler is blocked on. See
-                // `ParameterHandoff::stage_and_wait`.
-                parameters.note_applied();
             }
         }
 

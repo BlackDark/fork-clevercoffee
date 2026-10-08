@@ -365,6 +365,12 @@ pub struct ParameterHandoff {
     ///
     /// The read-after-write ack. See [`ParameterHandoff::stage_and_wait`].
     applied: alloc::sync::Arc<core::sync::atomic::AtomicU32>,
+    /// 0 applied, 1 refused. `stage_and_wait` returns only bool, so without this
+    /// a refusal looks like success and the route answers 200. Finding #12.
+    refused: alloc::sync::Arc<core::sync::atomic::AtomicU32>,
+    /// The implicated keys for that refusal. Pointers only; the control task
+    /// copies them in, the HTTP task formats them.
+    refused_slot: alloc::sync::Arc<Mutex<([&'static str; 4], usize)>>,
 }
 
 impl ParameterHandoff {
@@ -375,6 +381,8 @@ impl ParameterHandoff {
             queue: alloc::sync::Arc::new(Mutex::new(VecDeque::new())),
             live: alloc::sync::Arc::new(Mutex::new(None)),
             applied: alloc::sync::Arc::new(core::sync::atomic::AtomicU32::new(0)),
+            refused: alloc::sync::Arc::new(core::sync::atomic::AtomicU32::new(0)),
+            refused_slot: alloc::sync::Arc::new(Mutex::new(([""; 4], 0))),
         }
     }
 
@@ -449,6 +457,48 @@ impl ParameterHandoff {
             .fetch_add(1, core::sync::atomic::Ordering::Release);
     }
 
+    /// Copy `'static` key pointers, then set the flag. Caller must
+    /// [`Self::note_applied`] or the HTTP wait times out and the 400 never runs.
+    pub fn note_refused(&self, keys: &'static [&'static str]) {
+        if let Ok(mut slot) = self.refused_slot.lock() {
+            let (buf, len) = &mut *slot;
+            *buf = [""; 4];
+            let n = keys.len().min(buf.len());
+            buf[..n].copy_from_slice(&keys[..n]);
+            *len = n;
+        }
+        self.refused.store(1, core::sync::atomic::Ordering::Release);
+    }
+
+    /// Whether the request whose ack ended the last wait was refused.
+    #[must_use]
+    pub fn was_refused(&self) -> bool {
+        self.refused.load(core::sync::atomic::Ordering::Acquire) > 0
+    }
+
+    /// The implicated keys named by the last refusal. Empty if none.
+    #[must_use]
+    pub fn refused_keys(&self) -> ([&'static str; 4], usize) {
+        self.refused_slot.lock().map_or(([""; 4], 0), |slot| *slot)
+    }
+
+    /// Read the refusal and clear it.
+    ///
+    /// An empty POST never calls [`Self::stage_and_wait`], so a leftover flag
+    /// would 400 a write that did not happen.
+    #[must_use]
+    pub fn take_refused(&self) -> Option<([&'static str; 4], usize)> {
+        if !self.was_refused() {
+            return None;
+        }
+        let keys = self.refused_keys();
+        self.refused.store(0, core::sync::atomic::Ordering::Release);
+        if let Ok(mut slot) = self.refused_slot.lock() {
+            *slot = ([""; 4], 0);
+        }
+        Some(keys)
+    }
+
     /// The current applied count, for the waiter's termination condition.
     #[must_use]
     pub fn applied(&self) -> u32 {
@@ -487,6 +537,11 @@ impl ParameterHandoff {
     pub fn stage_and_wait(&self, request: ParameterRequest) -> bool {
         use core::sync::atomic::Ordering;
         let before = self.applied.load(Ordering::Acquire);
+        // Clear this wait's verdict. One waiter at a time.
+        if let Ok(mut slot) = self.refused_slot.lock() {
+            *slot = ([""; 4], 0);
+        }
+        self.refused.store(0, Ordering::Release);
         if !self.stage(request) {
             return false;
         }
@@ -643,6 +698,31 @@ pub mod tests {
         handoff.note_applied();
         assert_eq!(handoff.applied(), 1, "one taken, one acked");
         assert_eq!(handoff.len(), 1, "the second post is still waiting");
+    }
+
+    /// Refusal must `note_applied`, or the handler times out and the 400 is dead.
+    /// `stage_and_wait` sleeps on `FreeRTOS`, so this test does not call it.
+    #[cfg_attr(test, test)]
+    pub fn note_refused_then_note_applied_acks_the_refusal() {
+        const KEYS: &[&str] = &["safety.emergency_temp"];
+        let handoff = ParameterHandoff::new();
+        assert!(!handoff.was_refused());
+        assert_eq!(handoff.applied(), 0);
+        handoff.note_refused(KEYS);
+        handoff.note_applied();
+        assert!(handoff.was_refused());
+        assert_eq!(handoff.applied(), 1);
+        let (stored, n) = handoff.refused_keys();
+        assert_eq!(&stored[..n], KEYS);
+        let (taken, n) = handoff
+            .take_refused()
+            .expect("the refusal is consumed once");
+        assert_eq!(&taken[..n], KEYS);
+        assert!(
+            !handoff.was_refused(),
+            "a later post must not inherit this refusal"
+        );
+        assert!(handoff.take_refused().is_none());
     }
 
     #[cfg_attr(test, test)]

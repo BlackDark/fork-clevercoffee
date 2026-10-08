@@ -99,6 +99,21 @@ pub(crate) fn push_into_machine(
     }
 }
 
+/// Keys the violation implicates, or `None` when the configuration is safe.
+///
+/// Lives here because this crate maps `Config` to `SafetyConfig`. `cc-config`
+/// and `cc-safety` stay peers.
+fn validate_for_repair(config: &cc_config::Config) -> Option<&'static [&'static str]> {
+    cc_safety::validate_config(&crate::control::safety_config(config))
+        .err()
+        .map(cc_safety::ConfigViolation::implicated_keys)
+}
+
+/// Finding #12. Revert implicated keys. See [`cc_config::repair_unsafe`].
+pub fn repair_unsafe(config: &mut cc_config::Config) -> cc_config::config::Repair {
+    cc_config::config::repair_unsafe(config, validate_for_repair)
+}
+
 /// Whether any written key is one of the PID's gains.
 ///
 /// A `pid.` prefix rather than a list of keys, deliberately: the gains are
