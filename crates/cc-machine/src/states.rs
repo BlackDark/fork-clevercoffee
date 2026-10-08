@@ -16,23 +16,10 @@
 //! | reinforce | "Reinforce hardware state in `update()`" | [`update`] |
 //! | release | "Disable hardware in `onExitImpl()`" | [`on_exit`] |
 //!
-//! # The two states that break the pattern, and why
+//! # What does not follow the three lines
 //!
-//! Both are **preserved deliberately** and both are reported:
-//!
-//! * **`BACKFLUSH_FILLING` does not re-assert in `update`.**
-//!   `BackflushFillingState::update` (`BackflushStates.cpp:71-76`) only logs,
-//!   so it never calls `enablePump()`/`openWaterValve()`. It *is* on S5's
-//!   water-flow whitelist, so `valveSafetyShutdownCheck` does not close its
-//!   valve, and the pump is only blocked by the tank interlock — which means
-//!   the pump survives an arbitrary number of loops in exactly the one
-//!   backflush state where nothing re-asserts it. `test_backflush_states` does
-//!   not check `update`, which is why nobody noticed.
 //! * **`SENSOR_ERROR` and `EEPROM_ERROR` have no `onExit` hardware release.**
-//!   They never energise anything, so there is nothing to release — and they
-//!   do drain nothing, because `PidDisabledState`'s drain (`PidStates.cpp:119`)
-//!   is what protects the recovery, and the recovery states are
-//!   `PID_NORMAL`/`PID_DISABLED`, which drain on *their* entry.
+//!   They never energise anything, so there is nothing to release.
 
 use cc_domain::state::MachineState;
 
@@ -450,12 +437,6 @@ pub fn on_exit(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) ->
 /// whitelist-gated, so a state that asserts "open" and a safety check that
 /// asserts "closed" in the same tick is *resolved by the whitelist*, not by
 /// which call came last.
-///
-/// The two states that energise hardware and do **not** re-assert it are
-/// `BACKFLUSH_FILLING` and `STEAM_RUNNING`. `STEAM_RUNNING` is fine — the steam
-/// valve is not the machine's to assert. `BACKFLUSH_FILLING` is not: its
-/// `update` (`BackflushStates.cpp:71-76`) only logs. Preserved; see the module
-/// docs.
 #[allow(clippy::match_same_arms)]
 // Justification: the eighteen arms are kept separate on purpose. Several
 // states genuinely do the same thing, but each cites a different C++
@@ -545,19 +526,20 @@ pub fn update(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -> 
         // `BackflushState::update` (`BackflushStates.cpp:38-40`): a log.
         MachineState::BackflushIdle => {}
 
-        // `BackflushFillingState::update` (`BackflushStates.cpp:71-76`): a log.
-        //
-        // **Does not re-assert the pump or the valve** — see the module docs.
-        // Preserving that is a *recorded decision*, not an oversight
-        // (`cpp-findings.md` §13: "Rust: preserved. Pinned by `s13_*`"), so it is
-        // not changed here. What the inhibit's removal changes is the cost of the
-        // decision, which is now a visible silent stall rather than an
-        // unobservable one: see `outstanding-findings.md` #18.
-        MachineState::BackflushFilling => {}
+        // Fill keeps the pump on and the valve open. The C++ only logged
+        // (`BackflushStates.cpp:71-76`). One refused apply used to leave both
+        // off for the rest of the phase.
+        MachineState::BackflushFilling => {
+            fx.push(Effect::EnablePump);
+            fx.push(Effect::OpenWaterValve);
+        }
 
-        // `BackflushFlushingState::update` (`BackflushStates.cpp:106-111`): a
-        // log.
-        MachineState::BackflushFlushing => {}
+        // Flush keeps both off. The C++ only logged
+        // (`BackflushStates.cpp:106-111`).
+        MachineState::BackflushFlushing => {
+            fx.push(Effect::DisablePump);
+            fx.push(Effect::CloseWaterValve);
+        }
 
         // `BackflushFinishedState::update` (`BackflushStates.cpp:148-150`): a
         // log.

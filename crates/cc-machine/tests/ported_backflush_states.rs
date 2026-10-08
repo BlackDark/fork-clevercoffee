@@ -13,8 +13,7 @@
 //! | `LastCycleTransitionsToFinished` (:106) | [`last_cycle_transitions_to_finished`] |
 //! | `FinishedOnEntryResetsMaintenanceCounter` (:119) | [`finished_on_entry_resets_the_maintenance_counter`] |
 //!
-//! Plus the S5 case the suite is *assigned* to check and does not, and the
-//! `BACKFLUSH_FILLING` re-assert gap reported in `parity_findings.rs`.
+//! Plus the S5 case the suite is assigned to check.
 
 mod common;
 
@@ -121,27 +120,28 @@ fn finished_on_entry_resets_the_maintenance_counter() {
 // The S5 case this suite is assigned to check and does not
 // ---------------------------------------------------------------------------
 
-/// `BACKFLUSH_FILLING` and `BACKFLUSH_FLUSHING` are on the S5 whitelist, so a
-/// full tick in either must not close the water valve.
-///
-/// This is the case the coverage map assigns `test_backflush_states` for, and the
-/// C++ suite does not contain it: it only calls `checkTransitions` and
-/// `onEntry`, never a loop.
+/// `BACKFLUSH_FILLING` and `BACKFLUSH_FLUSHING` are on the S5 whitelist, so
+/// the safety check does not close the valve. Fill emits no close. Flush
+/// emits one, from its own update.
 #[test]
 fn the_s5_valve_check_keeps_the_valve_open_during_a_backflush() {
-    for state in [
-        MachineState::BackflushFilling,
-        MachineState::BackflushFlushing,
-    ] {
-        let mut h = backflushing(state, 1);
-        h.config.standby.enabled = false;
-        let fx = h.tick();
-        assert_eq!(
-            common::count(&fx, Effect::CloseWaterValve),
-            0,
-            "S5 must not close the valve in {state:?}: {fx:?}"
-        );
-    }
+    let mut fill = backflushing(MachineState::BackflushFilling, 1);
+    fill.config.standby.enabled = false;
+    let fx = fill.tick();
+    assert_eq!(
+        common::count(&fx, Effect::CloseWaterValve),
+        0,
+        "S5 must not close the valve in fill: {fx:?}"
+    );
+
+    let mut flush = backflushing(MachineState::BackflushFlushing, 1);
+    flush.config.standby.enabled = false;
+    let fx = flush.tick();
+    assert_eq!(
+        common::count(&fx, Effect::CloseWaterValve),
+        1,
+        "flush closes once, from the state; a second close would be S5: {fx:?}"
+    );
 }
 
 /// And the converse: `BACKFLUSH_IDLE` and `BACKFLUSH_FINISHED` are *not* on the
