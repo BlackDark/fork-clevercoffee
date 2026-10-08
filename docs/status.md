@@ -155,7 +155,7 @@ page.
 - **The gate is green.** `just gate`: fmt-check, clippy (host and
   device) with `-D warnings`, rustdoc `-D warnings`, the host suite, the parity
   harness, the device-test audit, the Xtensa release build, and the size budget.
-  **1,720,144 B**, which fits the 1,835,008 B app0 slot with +114,864 B to spare.
+  **1,720,192 B**, which fits the 1,835,008 B app0 slot with +114,816 B to spare.
   Re-recorded 2026-10-08 as `ui-bundle-2026-10-08`. The 2026-09-30 baseline
   (1,559,520 B) was passed at +10.29 % by the rebuilt web bundle. The 10 %
   limit is unchanged.
@@ -303,6 +303,7 @@ decision, residual risk, not started. The close-out decisions of 2026-10-06 are
   `just gate` runs `just build-esp32` and the size budget, and both are green.
   Flashing with `just flash <port>` is the verified path.
 - **An admitted OTA skips the probe and re-applies the shutdown until the session ends.** Measured 2026-10-08. [`operations/runbook.md` §13.4](operations/runbook.md).
+- **Backflush fill and flush re-assert their pins each tick.** An empty tank still leaves the state. [`divergences.md` §39](history/divergences.md#d39).
 - **There is no configuration upgrade path from a C++-flashed machine.** The two
   firmwares use different NVS namespaces (`config`, `defaults.h:13`, against this
   port's `cc`), so nothing is lost and nothing is deleted — the previous

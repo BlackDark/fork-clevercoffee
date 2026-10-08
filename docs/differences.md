@@ -52,6 +52,7 @@ Features that simply do not exist in the C++ firmware.
 | 16 | **A pump-watchdog trip logs why it happened.** The C++ left both watchdogs inert; the port arms them, and the trip says so. | [§1](history/divergences.md#d01) + `f4a6341b` |
 | 17 | **A sleep request is honoured with the PID disabled**, rather than ignored. | [§16](history/divergences.md#d16) |
 | 17b | **Unsafe config write refused.** Boot repairs implicated keys only, not the whole configuration. | [§38](history/divergences.md#d38) |
+| 17c | **Backflush fill and flush repeat their pin commands each tick.** A one-tick refusal no longer leaves the fill dark for the rest of the phase. An empty tank still leaves the state. | [§39](history/divergences.md#d39) |
 
 ## The known deviation we cannot fix in firmware
 

@@ -7,8 +7,8 @@ test. They are recorded here because they are decisions, not accidents.
 Each becomes a line in [`divergences.md`](./divergences.md) (R1-08) when the
 Rust behaviour intentionally diverges.
 
-> **Updated 2026-09-28 (R1-07 + safety-gap work).** Four findings have since been
-> **closed on purpose** — [§1](divergences.md#d01), [§2](divergences.md#d02), [§3](divergences.md#d03) and [§11](divergences.md#d11) — and each now has a `div<N>_` test
+> **Updated 2026-10-08.** Five findings have since been
+> **closed on purpose** — [§1](divergences.md#d01), [§2](divergences.md#d02), [§3](divergences.md#d03), [§11](divergences.md#d11) and cpp-findings §13 — and each now has a `div<N>_` test
 > instead of an `s<N>_` one. The text below is left as the record of what the C++
 > does; the divergence and its reasoning live in
 > [`divergences.md`](./divergences.md). A `div<N>_` test replaces its
@@ -20,6 +20,7 @@ Rust behaviour intentionally diverges.
 > | [§2](divergences.md#d02) no steam-valve whitelist | [divergences #2](./divergences.md#d02) | `cc-machine::parity_findings::div2_the_steam_valve_is_whitelist_gated` |
 > | [§3](divergences.md#d03) water valve not tank-gated | [divergences #3](./divergences.md#d03) | `cc-machine::parity_findings::div3_the_water_valve_is_tank_gated` |
 > | [§11](divergences.md#d11) pump timeouts dead | [divergences #1](./divergences.md#d01) | `cc_machine::parity_findings::div1_the_pump_timeouts_are_armed` |
+> | cpp-findings §13 backflush update only logs | [divergences #39](./divergences.md#d39) | `cc_machine::parity_findings::div39_backflush_fill_and_flush_reassert_their_hardware` |
 >
 > [§4](divergences.md#d04), [§5](divergences.md#d05), [§6](divergences.md#d06), [§7](divergences.md#d07), [§12](divergences.md#d12)–[§16](divergences.md#d16) remain **preserved** and are listed in the
 > "Preserved C++ behaviours" table of
@@ -214,7 +215,7 @@ The severity differs:
   failure mode is inverted: a safety check that opens the valve mid-flush is never
   re-closed.
 
-- Rust: preserved. Pinned by `s13_*`.
+- Rust: fill and flush re-assert each tick. [divergences §39](divergences.md#d39).
 
 ## 14. The water switch cannot wake the machine from standby {#cf14}
 

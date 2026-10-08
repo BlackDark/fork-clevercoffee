@@ -376,7 +376,6 @@ These are C++ bugs the port **reproduces on purpose**. A diff at any of these is
 | 09 §9 | Eight string-length constants in `defaults.h:118-125` are never enforced; a 4 KB hostname is accepted | — | Not enforced in the port either; enforcing it would reject configs the C++ accepts. |
 | 09 §10 | Two config parameters share `order = 203` | — | Cosmetic; the port's schema has one of them. |
 | 09 §12 | `SensorErrorState`'s recovery clock is measured from **entry**, not from the moment the error clears, because the sensor-error guard in `BaseState.h:145-148` has no exclusion list | `s12_the_sensor_error_recovery_clock_is_never_reset` | The `errorStartTime_ = millis()` line at `ErrorStates.cpp:49` is unreachable. |
-| 09 §13 | `BackflushFillingState::update` (`BackflushStates.cpp:71-76`) only logs, so it never re-asserts its pump or valve — violating the contract ADR-0003 exists to state | `s13_backflush_filling_never_re_asserts_its_hardware` | All four backflush states fail to re-assert; `Filling` is the worse case because it is on the S5 whitelist. |
 | 09 §14 | `hasUserActivity()` is a hard `return false` (`MachineStateContext.cpp:419-423`), so the water switch cannot wake the machine from standby | `s14_the_water_switch_does_not_wake_the_machine_from_standby` | |
 | 09 §15 | `powerOff()` performs the safe shutdown *before* requesting standby (`PowerHandler.h:163-175`), so for one loop the machine is in `PID_NORMAL` with the hardware off and `PidNormalState::update` re-enables the pump | `s15_the_power_off_happens_before_the_standby_request` | One loop. Narrow and real. |
 | 09 §16 | The C++ state-machine test coverage is far thinner than 340 cases suggests: `test_state_machine` exercises gMock plumbing only, `test_pid_state_transitions` uses hand-written mock states, and `test_steam_water_injection` / `test_pid_mode_water_dispensing` never include the real state sources | — | The port replaces them with 4140 real state × event pairs. |
@@ -2576,16 +2575,9 @@ recorded here rather than deleted.
   — the end-to-end version: press brew, fault the probe, let it recover, and the
   brew has not started. Verified to fail against the pre-fix code.
 
-### Related, deliberately NOT changed
+### Related
 
-`BackflushFilling`'s update still does not re-assert its pump or valve. That is a
-**recorded decision** (`cpp-findings.md` §13: "Rust: preserved. Pinned by
-`s13_*`"), and the `s13_backflush_filling_never_re_asserts_its_hardware` test
-still enforces it, so changing it here would have overturned a decision this
-branch was not asked to revisit. What the inhibit's removal changes is the cost:
-a single tank-interlock refusal on entry now leaves the fill stalled and silent
-for the whole cycle, where before it was indistinguishable from correct
-behaviour. Recorded as `outstanding-findings.md` #18 for the owner.
+Fill and flush now re-assert. See [§39](#d39).
 
 ---
 
@@ -2611,3 +2603,15 @@ Boot repair keeps reverting the keys `validate` returns. `REPAIR_ESCALATION_KEYS
 
 - `cc-safety/tests/safety_paths.rs::div38_every_violation_names_the_keys_it_implicates`
 - `cc-config/tests/config_repair.rs`
+
+---
+
+## 39 — Backflush fill and flush re-assert their hardware each tick 🔴 changed {#d39}
+
+Finding #18. Decided 2026-10-08. The C++ `update` only logs (`BackflushStates.cpp:71-76`, `:106-111`).
+
+Fill emits `EnablePump` and `OpenWaterValve` each tick. Flush emits `DisablePump` and `CloseWaterValve`. Idle and finished are unchanged. An empty tank still leaves through the global guard.
+
+### What pins it
+
+`cc-machine/tests/parity_findings.rs::div39_backflush_fill_and_flush_reassert_their_hardware`

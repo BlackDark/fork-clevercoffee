@@ -24,6 +24,7 @@
 //! | 09 §11 the pump watchdogs are dead | [`div1_the_pump_timeouts_are_armed`], [`div1_the_watchdogs_arm_only_while_the_pump_is_commanded_on`], [`div1_the_watchdogs_re_arm_after_a_release`] |
 //! | 09 §2 the steam valve has no whitelist | [`div2_the_steam_valve_is_whitelist_gated`] |
 //! | 09 §3 the water valve is not tank-gated | [`div3_the_water_valve_is_tank_gated`] |
+//! | 09 §13 backflush fill and flush only logged | [`div39_backflush_fill_and_flush_reassert_their_hardware`] |
 //!
 //! 09 §1 (the PID's integer division) is closed too, but in `cc-domain` rather
 //! than here: `cc_domain::pid_parity::scenario_d_the_cpp_goes_nan_and_this_port_does_not`.
@@ -42,7 +43,7 @@
 //! | [`s1_the_pid_sample_time_is_integer_divided_by_1000`] | §1 integer division by zero | **fixed** in `cc-domain`, R1-07 |
 //! | [`div1_the_pump_timeouts_are_armed`] | **new** — the pump watchdogs are dead | **closed** |
 //! | [`s12_the_sensor_error_recovery_clock_is_never_reset`] | **new** — `ErrorStates.cpp:49` is unreachable | yes |
-//! | [`s13_backflush_filling_never_re_asserts_its_hardware`] | **new** — violates ADR-0003's own rule | yes |
+//! | [`div39_backflush_fill_and_flush_reassert_their_hardware`] | **closed** — backflush fill and flush re-assert | **closed** |
 //! | [`s14_the_water_switch_does_not_wake_the_machine_from_standby`] | **new** — `hasUserActivity()` is a stub | yes |
 //! | [`s15_the_power_off_happens_before_the_standby_request`] | **new** — a one-tick window | yes |
 
@@ -600,83 +601,38 @@ fn s12_the_sensor_error_recovery_clock_is_never_reset() {
 }
 
 // ---------------------------------------------------------------------------
-// §13 (new) — BACKFLUSH_FILLING never re-asserts its hardware
+// §39 — fill and flush re-assert their hardware
 // ---------------------------------------------------------------------------
 
-/// **Preserved deliberately; new finding, and the most serious one here.
-///
-/// ADR-0003's contract is three lines per energising state: enable in
-/// `onEntryImpl`, **reinforce in `update`**, disable in `onExitImpl`. The contract
-/// is stated as a bug fix in ADR-0003's context ("`valveSafetyShutdownCheck()`
-/// only excluded brew states…"), and `test_backflush_states` is the suite the
-/// coverage map assigns to S5 for the backflush.
-///
-/// `BackflushFillingState::update` (`BackflushStates.cpp:71-76`) only logs. It
-/// never calls `enablePump()` or `openWaterValve()`.
-///
-/// Why it is a gap and not merely an omission: `BACKFLUSH_FILLING` **is** on the
-/// S5 whitelist, so `valveSafetyShutdownCheck` does *not* close its valve, and the
-/// pump is only ever blocked by the tank interlock. So the fill phase's pump and
-/// valve are set once on entry and then left to the hardware manager for an
-/// arbitrary number of loops, with no layer re-asserting them. `BREW_PREINFUSION`,
-/// `BREW_PREINFUSION_PAUSE`, `BREW_RUNNING` and `MANUAL_FLUSH_RUNNING` all
-/// re-assert every loop.
+/// [`divergences.md` §39](../../docs/history/divergences.md#d39).
 #[test]
-fn s13_backflush_filling_never_re_asserts_its_hardware() {
-    let mut h = Harness::in_state(MachineState::BackflushFilling);
-    h.config.backflush.cycles = 5;
-    h.config.backflush.fill_time = 5.0;
-    h.machine.backflush.on = true;
-    h.config.brew.pid_delay = 0.0;
+fn div39_backflush_fill_and_flush_reassert_their_hardware() {
+    let mut fill = Harness::in_state(MachineState::BackflushFilling);
+    fill.config.backflush.cycles = 5;
+    fill.config.backflush.fill_time = 5.0;
+    fill.machine.backflush.on = true;
+    fill.config.brew.pid_delay = 0.0;
 
-    // Entry energises, as ADR-0003 requires.
-    let entry = h.on_entry(MachineState::BackflushFilling);
-    assert!(common::has(&entry, Effect::EnablePump), "{entry:?}");
-    assert!(common::has(&entry, Effect::OpenWaterValve), "{entry:?}");
+    let update = fill.update(MachineState::BackflushFilling);
+    assert!(common::has(&update, Effect::EnablePump), "{update:?}");
+    assert!(common::has(&update, Effect::OpenWaterValve), "{update:?}");
 
-    // `update` does not. This is the finding.
-    let update = h.update(MachineState::BackflushFilling);
-    assert_eq!(
-        common::count(&update, Effect::EnablePump),
-        0,
-        "preserved: BackflushFillingState::update does not re-assert the pump \
-         (BackflushStates.cpp:71-76) — see 09 §13"
-    );
-    assert_eq!(
-        common::count(&update, Effect::OpenWaterValve),
-        0,
-        "{update:?}"
-    );
-
-    // And a whole tick, with the S5 whitelist satisfied, therefore produces no
-    // pump or valve effect at all.
-    let fx = h.elapse(1_000);
-    assert_eq!(
-        common::count(&fx, Effect::EnablePump),
-        0,
-        "and a full tick does not either: {fx:?}"
-    );
+    let fx = fill.elapse(1_000);
+    assert!(common::has(&fx, Effect::EnablePump), "{fx:?}");
     assert_eq!(common::count(&fx, Effect::CloseWaterValve), 0, "{fx:?}");
 
-    // The contrast, so the test cannot pass by accident: the four other
-    // energising states DO re-assert.
-    for state in [
-        MachineState::BrewPreinfusion,
-        MachineState::BrewPreinfusionPause,
-        MachineState::BrewRunning,
-        MachineState::ManualFlushRunning,
-    ] {
-        let mut h2 = Harness::in_state(state);
-        h2.config.brew.mode = cc_domain::process::BrewMode::Automatic;
-        h2.config.brew.pre_infusion.enabled = true;
-        h2.config.brew.pre_infusion.pause = 600.0;
-        h2.config.brew.pid_delay = 0.0;
-        let fx = h2.update(state);
-        assert!(
-            common::has(&fx, Effect::OpenWaterValve),
-            "{state:?} must re-assert its valve: {fx:?}"
-        );
-    }
+    let mut flush = Harness::in_state(MachineState::BackflushFlushing);
+    flush.config.backflush.cycles = 5;
+    flush.config.backflush.flush_time = 10.0;
+    flush.machine.backflush.on = true;
+
+    let update = flush.update(MachineState::BackflushFlushing);
+    assert!(common::has(&update, Effect::DisablePump), "{update:?}");
+    assert!(common::has(&update, Effect::CloseWaterValve), "{update:?}");
+
+    let fx = flush.tick();
+    assert_eq!(common::count(&fx, Effect::CloseWaterValve), 1, "{fx:?}");
+    assert!(common::has(&fx, Effect::DisablePump), "{fx:?}");
 }
 
 // ---------------------------------------------------------------------------

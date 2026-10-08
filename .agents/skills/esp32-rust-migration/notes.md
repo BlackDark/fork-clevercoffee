@@ -292,10 +292,8 @@ Found by adversarial review. Each was a real error in an earlier draft of these 
    `test_steam_water_injection` / `test_pid_mode_water_dispensing` (self-contained
    mock contexts, the real state files are never included). **The C++ has far less
    state-machine coverage than the 340-case count suggests.**
-2. **ADR-0003 is violated by the code it was written for.**
-   `BackflushFillingState::update` (`BackflushStates.cpp:71-76`) only logs, so the
-   one backflush state that runs the pump never re-asserts it — while its four
-   siblings all do. Pinned as `s13_…`.
+2. **Backflush fill and flush re-assert their pins each tick.** The C++
+   `update` only logs. [`divergences.md` §39](../../../docs/history/divergences.md#d39).
 3. **`SensorErrorState`'s recovery-clock reset is unreachable.**
    `ErrorStates.cpp:47-50` intends to measure the recovery delay from when the
    sensor error *clears*, but `BaseState::checkTransitions` returns `SENSOR_ERROR`
