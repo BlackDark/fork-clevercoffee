@@ -26,6 +26,10 @@ fn validate(config: &Config) -> Option<&'static [&'static str]> {
     {
         return Some(&["hardware.relays.heater.trigger_type"]);
     }
+    if config.hardware.relays.pump.trigger_type == cc_domain::hardware::RelayTriggerType::LowTrigger
+    {
+        return Some(&["hardware.relays.pump.trigger_type"]);
+    }
     if config.brew.by_weight.enabled
         && !config.hardware.sensors.scale.enabled
         && !config.brew.by_time.enabled
@@ -99,6 +103,32 @@ fn the_repair_keeps_every_setting_it_did_not_implicate() {
 }
 
 #[test]
+fn two_independent_violations_are_both_repaired() {
+    let mut c = threshold_collision();
+    c.hardware.relays.pump.trigger_type = cc_domain::hardware::RelayTriggerType::LowTrigger;
+    mark_operational_settings(&mut c);
+
+    let repair = repair_unsafe(&mut c, validate);
+
+    assert!(
+        repair.resolved,
+        "both violations must clear, got {repair:?}"
+    );
+    assert_eq!(
+        repair.reverted,
+        vec![
+            "safety.emergency_temp".to_owned(),
+            "hardware.relays.pump.trigger_type".to_owned(),
+        ]
+    );
+    assert_eq!(c.system.hostname, "silvia");
+    assert_eq!(
+        c.hardware.relays.pump.trigger_type,
+        cc_domain::hardware::RelayTriggerType::HighTrigger
+    );
+}
+
+#[test]
 fn one_pass_is_not_enough_and_the_repair_escalates() {
     let mut c = setpoint_and_hysteresis_collision();
     let repair = repair_unsafe(&mut c, validate);
@@ -108,10 +138,12 @@ fn one_pass_is_not_enough_and_the_repair_escalates() {
         "steam 140 + hysteresis 15 exceeds the threshold default 150, so \
          reverting only safety.emergency_temp leaves it unsafe"
     );
-    assert!(
-        repair.reverted.len() > 1,
-        "the repair must escalate past the first implicated key, got {:?}",
-        repair.reverted
+    assert_eq!(
+        repair.reverted,
+        vec![
+            "safety.emergency_temp".to_owned(),
+            "steam.setpoint".to_owned(),
+        ]
     );
     assert!(validate(&c).is_none());
 }

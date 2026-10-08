@@ -2602,7 +2602,7 @@ No cross-parameter check. A key in range (`Config.h:isValid`) is stored, includi
 - MQTT `apply_parameter` logs, does not save, does not `push_into_machine`.
 - `Command::SetSetpoint` validates first. `/api/setpoint` already answered `202 {"accepted":true}` (`register_command`). No second ack. Control task must not apply an unsafe setpoint.
 
-Boot repair reverts implicated keys, then `REPAIR_ESCALATION_KEYS`. Still unsafe: full defaults plus the Wi-Fi credential. Boot line: `stored but unsafe`, not `DISCARDED`.
+Boot repair keeps reverting the keys `validate` returns. `REPAIR_ESCALATION_KEYS` run one key at a time, and only when those keys make no progress. Still unsafe: full defaults plus the Wi-Fi credential. Boot line: `stored but unsafe`, not `DISCARDED`.
 
 ### What pins it
 

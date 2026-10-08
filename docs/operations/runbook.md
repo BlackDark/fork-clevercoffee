@@ -1171,8 +1171,7 @@ an **empty reservoir** — 13.1–13.4 again, where the tank interlock is a real
 float switch — and then filled, which is when the last two table rows in 13.5
 become runnable.
 
-**Do not push a parameter you are unsure of.** A write the validator refuses
-is now refused at the write, and an already-unsafe blob repairs implicated keys
-on boot (`stored but unsafe`, not `DISCARDED`). That has **not** been run on
-the bench — see
+**Do not push a parameter you are unsure of.** A refused write stays refused
+(HTTP 400). An already-unsafe blob repairs implicated keys on boot. Measured
+2026-10-08: §13.1 above and
 [`../history/outstanding-findings.md` #12](../history/outstanding-findings.md).

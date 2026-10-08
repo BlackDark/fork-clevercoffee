@@ -1508,7 +1508,7 @@ impl Config {
     }
 }
 
-/// Second pass, when the implicated keys alone stay unsafe.
+/// Used one key at a time, and only when the keys `validate` returns make no progress.
 ///
 /// `steam.setpoint` 140 plus `safety.emergency_hysteresis` 15 exceeds the 150
 /// default of `safety.emergency_temp`.
@@ -1528,38 +1528,56 @@ pub struct Repair {
     pub resolved: bool,
 }
 
-/// Revert implicated keys until `validate` accepts, or give up.
+/// `revert_key` accepts nine keys. The loop stops after that many steps.
+const REPAIR_STEP_LIMIT: usize = 9;
+
+/// Revert keys `validate` returns until it accepts, or give up.
 ///
 /// Finding #12: boot used to drop all 98 parameters. `validate` is a closure
-/// because `cc-config` does not depend on `cc-safety`. Second pass uses
-/// [`REPAIR_ESCALATION_KEYS`]. Unresolved: caller falls back to full defaults
+/// because `cc-config` does not depend on `cc-safety`. It returns one violation
+/// at a time, so the loop follows whatever it returns next. [`REPAIR_ESCALATION_KEYS`]
+/// apply one key at a time, and only when those keys make no progress. At most
+/// one step per key [`revert_key`] knows. Unresolved: caller uses full defaults
 /// plus the Wi-Fi credential.
 pub fn repair_unsafe(
     config: &mut Config,
     validate: impl Fn(&Config) -> Option<&'static [&'static str]>,
 ) -> Repair {
     let mut repair = Repair::default();
-    for pass in 0..2 {
+    for _ in 0..REPAIR_STEP_LIMIT {
         let Some(keys) = validate(config) else {
             repair.resolved = true;
             return repair;
         };
-        let keys: &[&str] = if pass == 0 {
-            keys
-        } else {
-            REPAIR_ESCALATION_KEYS
-        };
-        let mut reverted_any = false;
-        for key in keys {
-            if revert_key(config, key) && !repair.reverted.iter().any(|k| k == key) {
-                repair.reverted.push(String::from(*key));
-                reverted_any = true;
-            }
+        if revert_new(config, &mut repair, keys) {
+            continue;
         }
-        if !reverted_any {
+        let Some(key) = REPAIR_ESCALATION_KEYS
+            .iter()
+            .copied()
+            .find(|key| !repair.reverted.iter().any(|seen| seen == key))
+        else {
+            break;
+        };
+        if !revert_new(config, &mut repair, &[key]) {
             break;
         }
     }
     repair.resolved = validate(config).is_none();
     repair
+}
+
+/// Revert each `key` not already reverted. `false` when none of them moved.
+fn revert_new(config: &mut Config, repair: &mut Repair, keys: &[&str]) -> bool {
+    let mut any = false;
+    for key in keys {
+        if repair.reverted.iter().any(|seen| seen == key) {
+            continue;
+        }
+        if revert_key(config, key) {
+            repair.reverted.push(String::from(*key));
+            any = true;
+        }
+    }
+    any
 }
