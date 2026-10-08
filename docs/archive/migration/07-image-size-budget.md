@@ -1,7 +1,8 @@
 # Image Size Budget
 
 > **ARCHIVED — non-normative. Dated 2026-09/10, preserved for provenance.**
-> **Every measured number in this document is from 2026-09-28 and has moved.**
+> **Measured numbers through §14 are from 2026-09 and have moved. §15 is the
+> 2026-10-08 re-baseline.**
 > The policy it argues for is still enforced, and enforced in code, by
 > `just/size.just` reading [`size-baseline.json`](../../history/size-baseline.json)
 > and appending to [`size-records.jsonl`](../../history/size-records.jsonl)
@@ -861,3 +862,17 @@ legitimate ways forward are:
 The NimBLE stack **initialises and builds**. No scan, no pairing, no weight, and
 no Acaia hardware is present, so nothing about the feature is verified. The
 measurement is the deliverable of this section; the driver is not.
+
+---
+
+## 15. Re-baselined 2026-10-08 — the web bundle crossed 10 %
+
+`just size-check` failed the growth gate. The slot still fit.
+
+| | |
+| --- | ---: |
+| image that crossed | 1,720,032 B (+10.29 % vs 1,559,520 B) |
+| app0 slot | 1,835,008 B |
+| headroom then | +114,976 B |
+
+Already 1,710,208 B (+9.66 %) before this rebuild. The step over 10 % is the web bundle after the dependency update (`1e8bc315`), +9,824 B. Nothing from §3 was dropped. Re-recorded as `ui-bundle-2026-10-08`. The 10 % limit is unchanged. Live figure: [`docs/status.md`](../../status.md).

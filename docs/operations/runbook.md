@@ -1157,6 +1157,11 @@ Wiring: LED + 330 Ω (220 Ω on the valve LED, which is blue and visibly dim at
   fault while the flash was being written. Recorded as
   [`../history/outstanding-findings.md` #13](../history/outstanding-findings.md).
 
+  **Re-run, 2026-10-08, `10.0.1.168`.** Upload `200` in 14.1 s. From admission to
+  `Firmware update complete` (12.8 s): no `temperature:` line, no `SENSOR_ERROR`.
+  After reboot: Dallas, 19.62 °C, `machineState` 20, OTA `idle`. One
+  `read failed: not connected`, then readings resumed. LEDs not watched.
+
 ### 13.5 Not exercisable on a bench — and what each needs
 
 | Case | Why not | What it needs | Owner |

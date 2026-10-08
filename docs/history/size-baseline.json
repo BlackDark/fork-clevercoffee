@@ -1,9 +1,9 @@
 {
-  "label": "f25-web-ui-embedded",
-  "recorded_utc": "2026-09-30T10:36:15+00:00",
-  "git": "0815710",
+  "label": "ui-bundle-2026-10-08",
+  "recorded_utc": "2026-10-08T17:28:55+00:00",
+  "git": "b4381b38",
   "mcu": "esp32",
-  "image_bytes": 1559520,
+  "image_bytes": 1720032,
   "app_slot_bytes": 1835008,
-  "headroom_bytes": 275488
+  "headroom_bytes": 114976
 }

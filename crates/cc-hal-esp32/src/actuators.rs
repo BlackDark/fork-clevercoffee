@@ -414,6 +414,8 @@ pub struct Actuators {
     /// [`Self::set_now`] before the applier runs, which is the only ordering in
     /// which the two can agree.
     now: Millis,
+    /// Later shutdowns in one hold stay quiet.
+    shutdown_announced: bool,
     /// How many energise requests the interlock refused, by actuator.
     ///
     /// Counted rather than swallowed: "the pump did not run" and "the pump was
@@ -458,6 +460,7 @@ impl Actuators {
             valve_state: ValveState::Closed,
             interlock: Interlock::healthy(),
             now: Millis::ZERO,
+            shutdown_announced: false,
             refusals: Refusals {
                 pump: 0,
                 water_valve: 0,
@@ -534,6 +537,11 @@ impl Actuators {
     #[must_use]
     pub const fn interlock(&self) -> Interlock {
         self.interlock
+    }
+
+    /// The hold ended. The next shutdown may log again.
+    pub const fn release_shutdown_announcement(&mut self) {
+        self.shutdown_announced = false;
     }
 
     /// The per-actuator refusal counts.
@@ -781,7 +789,10 @@ impl ActuatorsTrait for Actuators {
         self.pump.set_level(self.pump_polarity.inactive).ok();
         self.valve.set_level(self.valve_polarity.inactive).ok();
         self.force_heater_duty(0.0);
-        info!("actuators: safe hardware shutdown — relays off, latch untouched");
+        if !self.shutdown_announced {
+            info!("actuators: safe hardware shutdown — relays off, latch untouched");
+        }
+        self.shutdown_announced = true;
     }
 }
 
