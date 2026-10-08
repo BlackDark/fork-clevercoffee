@@ -604,9 +604,7 @@ fn s12_the_sensor_error_recovery_clock_is_never_reset() {
 // §39 — fill and flush re-assert their hardware
 // ---------------------------------------------------------------------------
 
-/// Fill repeats pump-on and valve-open. Flush repeats pump-off and
-/// valve-closed. A full tick in fill does not add a whitelist close, and a
-/// full tick in flush closes the valve once, from the state.
+/// [`divergences.md` §39](../../docs/history/divergences.md#d39).
 #[test]
 fn div39_backflush_fill_and_flush_reassert_their_hardware() {
     let mut fill = Harness::in_state(MachineState::BackflushFilling);

@@ -117,12 +117,9 @@ fn finished_on_entry_resets_the_maintenance_counter() {
 }
 
 // ---------------------------------------------------------------------------
-// The S5 case this suite is assigned to check and does not
+// S5 whitelist. Fill emits no close. Flush emits one. A second close would be S5.
 // ---------------------------------------------------------------------------
 
-/// `BACKFLUSH_FILLING` and `BACKFLUSH_FLUSHING` are on the S5 whitelist, so
-/// the safety check does not close the valve. Fill emits no close. Flush
-/// emits one, from its own update.
 #[test]
 fn the_s5_valve_check_keeps_the_valve_open_during_a_backflush() {
     let mut fill = backflushing(MachineState::BackflushFilling, 1);

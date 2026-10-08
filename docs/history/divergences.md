@@ -2608,17 +2608,9 @@ Boot repair keeps reverting the keys `validate` returns. `REPAIR_ESCALATION_KEYS
 
 ## 39 — Backflush fill and flush re-assert their hardware each tick 🔴 changed {#d39}
 
-Finding #18. Decided 2026-10-08.
+Finding #18. Decided 2026-10-08. The C++ `update` only logs (`BackflushStates.cpp:71-76`, `:106-111`).
 
-### What the C++ does
-
-`BackflushFillingState::update` and `BackflushFlushingState::update` only log (`BackflushStates.cpp:71-76`, `:106-111`). The pins are set on entry and then left alone.
-
-### What the Rust does
-
-Fill's `update` emits `EnablePump` and `OpenWaterValve`. Flush's emits `DisablePump` and `CloseWaterValve`. Idle and finished still set the pins on entry only. They are not water-flow states, so the valve check closes the valve each tick.
-
-An empty tank still leaves through the global guard. The re-assert covers a tick that stays in fill or flush after a pin was cleared.
+Fill emits `EnablePump` and `OpenWaterValve` each tick. Flush emits `DisablePump` and `CloseWaterValve`. Idle and finished are unchanged. An empty tank still leaves through the global guard.
 
 ### What pins it
 

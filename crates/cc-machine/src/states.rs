@@ -526,16 +526,13 @@ pub fn update(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -> 
         // `BackflushState::update` (`BackflushStates.cpp:38-40`): a log.
         MachineState::BackflushIdle => {}
 
-        // Fill keeps the pump on and the valve open. The C++ only logged
-        // (`BackflushStates.cpp:71-76`). One refused apply used to leave both
-        // off for the rest of the phase.
+        // The C++ only logs (`BackflushStates.cpp:71-76`).
         MachineState::BackflushFilling => {
             fx.push(Effect::EnablePump);
             fx.push(Effect::OpenWaterValve);
         }
 
-        // Flush keeps both off. The C++ only logged
-        // (`BackflushStates.cpp:106-111`).
+        // The C++ only logs (`BackflushStates.cpp:106-111`).
         MachineState::BackflushFlushing => {
             fx.push(Effect::DisablePump);
             fx.push(Effect::CloseWaterValve);
