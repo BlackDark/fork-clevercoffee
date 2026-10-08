@@ -1976,7 +1976,7 @@ gate is its own. The absence of the pin is checked the only way it can be —
 a `const fn`, so a future edit that adds one back **fails the build** with the
 duplicate-pin assertion naming it.
 
-## 31 — OTA is implemented, and is stricter than the C++ in three ways {#d31}
+## 31 — OTA is implemented, and is stricter than the C++ in four ways {#d31}
 
 R3-15, finding 3.3 of [`review-2026-10-03.md`](./review-2026-10-03.md).
 Requirement **S8** of
@@ -2020,6 +2020,8 @@ feeding while the flash erases and a genuinely wedged flash still resets the
 chip. Removing the fail-safe for the exact window one most wants one is a
 worse trade than the C++'s.
 
+**4. The probe is not polled, and the shutdown is re-applied, while the session is busy.** The C++ erases flash on the loop that reads the DS18B20, so the probe does not run. Here the write is on the httpd task and the control task keeps ticking. That is what put the machine in `SENSOR_ERROR` (runbook §13.4). From admission until the session ends, the probe stays on its last reading and `SafeHardwareShutdown` is applied again each tick, including after an MQTT effect. A failed upload clears the hold. Measured 2026-10-08: [runbook §13.4](../operations/runbook.md).
+
 ### Where S8 is enforced
 
 `ota_upload_route` in `cc-hal-esp32/src/web.rs` runs eight checks in a fixed
@@ -2030,8 +2032,9 @@ through the real applier on its next tick, before step 5 erases anything.
 
 The window between the request and that tick is up to one 10 ms control period
 in which the machine still runs normally. It is not a hole: `admit` has already
-established that nothing is flowing, and the shutdown is what zeroes the heater
-duty for the rest of the session. Waiting for an ack would buy nothing and would
+established that nothing is flowing, and the control task re-applies the shutdown
+each tick while the session is busy, which is what keeps the heater off.
+Waiting for an ack would buy nothing and would
 put a 10 ms stall on the httpd task for every upload.
 
 ### The memory strategy, and why it cannot OOM

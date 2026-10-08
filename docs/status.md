@@ -301,6 +301,7 @@ decision, residual risk, not started. The close-out decisions of 2026-10-06 are
   The build it wraps is not unverified:
   `just gate` runs `just build-esp32` and the size budget, and both are green.
   Flashing with `just flash <port>` is the verified path.
+- **An admitted OTA skips the probe and re-applies the shutdown until the session ends.** Measured 2026-10-08. [`operations/runbook.md` §13.4](operations/runbook.md).
 - **There is no configuration upgrade path from a C++-flashed machine.** The two
   firmwares use different NVS namespaces (`config`, `defaults.h:13`, against this
   port's `cc`), so nothing is lost and nothing is deleted — the previous

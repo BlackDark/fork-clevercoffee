@@ -1926,6 +1926,8 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
     // The last sensor fault logged, so a probe that is simply not there says so
     // once instead of fifty times a second.
     let mut sensor_fault_logged: Option<DallasFaultTag> = None;
+    // Finding #13. Admitted OTA. Cleared if the upload fails without a restart.
+    let mut ota_admitted = false;
 
     // 🔴 The tick-timing measurement, which is R3-17's "the control tick is
     // unaffected" acceptance criterion and R4-01b's instrument.
@@ -1957,6 +1959,10 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
         // excludes the sleep itself — the sleep is the tick's *period*, and
         // including it would report 400 ms every time and say nothing.
         let tick_began_ms = now_ms();
+        if ota_admitted && !net.ota.is_busy() && !net.ota.restart_pending() {
+            ota_admitted = false;
+            actuators.release_shutdown_announcement();
+        }
         watchdog.feed()?;
         tick = tick.wrapping_add(1);
         let now = Millis::new(tick_began_ms);
@@ -2421,7 +2427,10 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
         // The probe stays on **this** task on purpose — see [`sensor_task`] for
         // the measurement that says a second task cannot own it on this
         // toolchain.
-        temp.poll(now, &mut sensor_fault_logged);
+        // Finding #13. The httpd task is writing flash. Leave the last reading.
+        if !ota_admitted {
+            temp.poll(now, &mut sensor_fault_logged);
+        }
         let last_reading = temp.last_reading();
         let pressure_bar = pressure.as_mut().and_then(|sensor| match sensor.poll(now) {
             Ok(cc_protocol::abp2::Poll::Sample(sample)) => Some(f64::from(sample.pressure.raw())),
@@ -2610,6 +2619,7 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
                         &session_effects,
                     );
                     net.ota.note_verdict(cc_hal_esp32::ota::Admission::Admitted);
+                    ota_admitted = true;
                 }
                 Err(refusal) => {
                     // **Refuse the flash.** Not "skip the shutdown and carry
@@ -2620,6 +2630,16 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
                         .note_verdict(cc_hal_esp32::ota::Admission::Refused(refusal));
                 }
             }
+        } else if ota_admitted {
+            // The next tick's PID would energise the heater. MQTT below can
+            // too; that pass shuts it down again. The log is once per hold.
+            let machine = *control.machine();
+            cc_machine::apply_one(
+                &mut actuators,
+                &mut side,
+                &machine,
+                cc_machine::Effect::SafeHardwareShutdown,
+            );
         }
 
         // ---- 7b. write down the shot counter, if it moved ---------------------
@@ -3133,6 +3153,16 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
                 // refused by the very interlock it was just asked to satisfy.
                 actuators.set_state(after.state);
                 cc_machine::apply(&mut actuators, &mut side, &after, &mqtt_effects);
+                // This pass can energise a relay after the shutdown above.
+                if ota_admitted {
+                    let machine = *control.machine();
+                    cc_machine::apply_one(
+                        &mut actuators,
+                        &mut side,
+                        &machine,
+                        cc_machine::Effect::SafeHardwareShutdown,
+                    );
+                }
             }
         }
         if uptime.wrapping_sub(last_sse_ms) >= SSE_INTERVAL_MS {

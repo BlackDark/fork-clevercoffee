@@ -652,8 +652,10 @@ impl Session {
             status.progress = 100;
             status.error = None;
         }
-        self.busy.store(false, Ordering::Release);
+        // `restart` before `busy`. The control task drops the hold when
+        // `busy` is clear and no restart is pending.
         self.restart.store(true, Ordering::Release);
+        self.busy.store(false, Ordering::Release);
     }
 
     /// Record a failure and release the session.
@@ -682,6 +684,12 @@ impl Session {
     /// is the same reason the reboot routes go through a `Command`.
     pub fn take_restart(&self) -> bool {
         self.restart.swap(false, Ordering::AcqRel)
+    }
+
+    /// Set by a successful update. [`Self::take_restart`] clears it.
+    #[must_use]
+    pub fn restart_pending(&self) -> bool {
+        self.restart.load(Ordering::Acquire)
     }
 }
 
@@ -781,6 +789,8 @@ pub mod tests {
         let session = Session::new();
         assert!(session.claim(Kind::Firmware));
         session.finish_ok();
+        assert!(session.restart_pending());
+        assert!(!session.is_busy());
         assert!(session.take_restart());
         assert!(
             !session.take_restart(),
