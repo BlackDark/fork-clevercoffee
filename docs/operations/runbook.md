@@ -795,15 +795,13 @@ finding loses the only record of what the bench is for.
       on → off → on, verified on the bench.
       [`divergences.md` [§33](../history/divergences.md#d33)](../history/divergences.md).
 
-### Still open
+### Closed 2026-10-08
 
-- [ ] **`standby.enabled` and `standby.time` changed to `true` / `2` with no
-      recorded write.** Both were at their defaults, then read back as
-      `standby.enabled = true, standby.time = 2` (defaults `false` / `35`)
-      during the 2026-10-05 session. Nothing in the firmware assigns either
-      outside the parameter-write path, no MQTT session was configured, and no
-      browser was opened. **Not diagnosed.** Reproduce by watching
-      `GET /api/parameters` across a reboot and an idle hour.
+- [x] **`standby.enabled` and `standby.time` read `true` / `2` on 2026-10-05,
+      with no recorded write.** Defaults are `false` / `35`. No firmware path
+      writes that pair.
+      **Closed 2026-10-08**, bench `10.0.1.168`. After boot (uptime 127 s,
+      `PID_NORMAL`): `false` / `35`. Same reading a minute later.
 
 ## The screen contact sheet — how to make one
 
