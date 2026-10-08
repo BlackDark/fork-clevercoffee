@@ -366,10 +366,9 @@ be filed and they are not fixed by the next green gate.
    **What is still unexercised is the machine**: the reservoir, the real float
    switch, the real valve. Three new findings came out of the bench session —
    [`history/outstanding-findings.md` #12–#14](history/outstanding-findings.md).
-   Finding #12 now refuses the write and repairs implicated keys on boot.
-   **Measured 2026-10-08** on this bench: an already-unsafe blob repaired
-   `safety.emergency_temp` only, all 98 parameters matched the pre-plant
-   snapshot, and a repeat POST answered `400`.
+   Finding #12 refuses the write and repairs implicated keys on boot.
+   Measured 2026-10-08: unsafe blob repaired `safety.emergency_temp` only;
+   all 98 parameters matched the pre-plant snapshot; repeat POST answered `400`.
    [`operations/runbook.md` §13.1](operations/runbook.md).
    **Reversal: reinstate `actuators.set_inhibit` in
    `crates/cc-firmware/src/main.rs` with pump and valve held.**

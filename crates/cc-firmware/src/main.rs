@@ -2051,10 +2051,8 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
                 // and reloaded on every boot here. The `validate_config` call
                 // below is the second half of the same rule — the cross-
                 // parameter one, `emergency_temp` against the setpoint plus
-                // hysteresis — and it is here for the same reason it is on the
-                // `/api/parameters` and MQTT paths below: a write that leaves
-                // the machine unable to run safely is refused here. `/api/setpoint`
-                // has already answered 202; there is no second ack (§38).
+                // hysteresis. Unsafe setpoint is not applied. `/api/setpoint`
+                // already answered 202; no second ack (§38).
                 cc_hal_esp32::web::Command::SetSetpoint(celsius) => {
                     let mut candidate = config.clone();
                     candidate.brew.setpoint = celsius;
@@ -2298,10 +2296,7 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
             // Read before `apply`, not after.
             let pid_enabled_before = config.pid.enabled;
             let brew_setpoint_before = config.brew.setpoint;
-            // Apply to a **copy**, so a refusal below leaves the live `config`
-            // untouched. `apply` mutates in place, and a write that is refused
-            // after the fact would otherwise leave the machine *running* the
-            // values it just refused — the failure this change exists to remove.
+            // Apply on a copy. A refusal must not change the live config.
             let mut candidate = config.clone();
             let applied = cc_config::assign::apply(&mut candidate, &pairs);
             for (key, err) in &applied.failed {
@@ -2318,20 +2313,8 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
                 // machine already holds from timing out.
                 parameters.note_applied();
             } else {
-                // 🔴 **Refuse, do not warn** — finding #12.
-                //
-                // This used to log `the next boot will discard it` and persist the
-                // write anyway, which is how an unsafe configuration reached the
-                // blob at all. A refused write changes nothing on disk and nothing
-                // in the machine, so the stored configuration stays valid and the
-                // boot-time repair never has to run.
-                //
-                // The whole *request* is refused, not the offending pair: the
-                // violation is a property of the resulting configuration rather
-                // than of any one value, so no subset of these pairs is storable.
-                // Every other kind of rejection on this route keeps its per-key
-                // contract (`assign::apply` above); this is a distinct failure with
-                // a distinct reason.
+                // Finding #12: refuse the whole request. Do not persist. Ack so
+                // HTTP can answer 400. The violation is of the result, not one pair.
                 if let Err(violation) =
                     cc_safety::validate_config(&control::safety_config(&candidate))
                 {
@@ -2348,9 +2331,7 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
                         "config: {} parameter(s) written: {applied:?}",
                         applied.updated
                     );
-                    // The candidate is the one that passed; the live config only
-                    // becomes it here, after the refusal branch is known not to
-                    // have run.
+                    // Live config changes only after `validate_config` accepts.
                     config = candidate;
                     persist_config(&mut store, &config);
                     push_into_machine(

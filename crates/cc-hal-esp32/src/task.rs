@@ -365,14 +365,8 @@ pub struct ParameterHandoff {
     ///
     /// The read-after-write ack. See [`ParameterHandoff::stage_and_wait`].
     applied: alloc::sync::Arc<core::sync::atomic::AtomicU32>,
-    /// The verdict for the request whose ack is in flight: 0 applied, 1 refused.
-    ///
-    /// **Why a verdict and not just the counter.** `stage_and_wait` blocks the
-    /// HTTP route until the control task has drained the request, and returns
-    /// `bool`. A cross-parameter refusal (`cc_safety::validate_config`) cannot be
-    /// expressed as "applied", so without this the route would answer `200` and
-    /// the operator would learn nothing — a *silent* refusal is worse than the
-    /// loud warning this replaced. Finding #12.
+    /// 0 applied, 1 refused. `stage_and_wait` returns only bool, so without this
+    /// a refusal looks like success and the route answers 200. Finding #12.
     refused: alloc::sync::Arc<core::sync::atomic::AtomicU32>,
     /// The implicated keys for that refusal. Pointers only; the control task
     /// copies them in, the HTTP task formats them.
@@ -463,11 +457,8 @@ impl ParameterHandoff {
             .fetch_add(1, core::sync::atomic::Ordering::Release);
     }
 
-    /// Record that the request just drained was **refused**, naming the keys.
-    ///
-    /// Copies `'static` pointers into the slot, then `store`s the flag. The
-    /// caller then [`Self::note_applied`]s so the waiter unblocks and can read
-    /// both.
+    /// Copy `'static` key pointers, then set the flag. Caller must
+    /// [`Self::note_applied`] or the HTTP wait times out and the 400 never runs.
     pub fn note_refused(&self, keys: &'static [&'static str]) {
         if let Ok(mut slot) = self.refused_slot.lock() {
             let (buf, len) = &mut *slot;
@@ -493,10 +484,8 @@ impl ParameterHandoff {
 
     /// Read the refusal and clear it.
     ///
-    /// The flag survives the handler that observed it. A later
-    /// `POST /api/parameters` that stages nothing never calls
-    /// [`Self::stage_and_wait`], which is the only other place the flag is
-    /// cleared, and would answer `400` for a write that did not happen.
+    /// An empty POST never calls [`Self::stage_and_wait`], so a leftover flag
+    /// would 400 a write that did not happen.
     #[must_use]
     pub fn take_refused(&self) -> Option<([&'static str; 4], usize)> {
         if !self.was_refused() {
@@ -548,11 +537,7 @@ impl ParameterHandoff {
     pub fn stage_and_wait(&self, request: ParameterRequest) -> bool {
         use core::sync::atomic::Ordering;
         let before = self.applied.load(Ordering::Acquire);
-        // Clear the verdict for *this* wait. It is a flag rather than a counter
-        // because a route is blocked here for the duration, so the only writer
-        // between here and the ack is the control task draining this one
-        // request. Two routes cannot be inside this wait at once: the mailbox is
-        // drained in order and each waiter watches its own `before` count.
+        // Clear this wait's verdict. One waiter at a time.
         if let Ok(mut slot) = self.refused_slot.lock() {
             *slot = ([""; 4], 0);
         }
@@ -715,9 +700,8 @@ pub mod tests {
         assert_eq!(handoff.len(), 1, "the second post is still waiting");
     }
 
-    /// Finding #12: a refusal must ack, or the HTTP handler times out with
-    /// "did not apply" and the 400 is dead. `stage_and_wait` is not called —
-    /// it sleeps on `FreeRTOS`.
+    /// Refusal must `note_applied`, or the handler times out and the 400 is dead.
+    /// `stage_and_wait` sleeps on `FreeRTOS`, so this test does not call it.
     #[cfg_attr(test, test)]
     pub fn note_refused_then_note_applied_acks_the_refusal() {
         const KEYS: &[&str] = &["safety.emergency_temp"];

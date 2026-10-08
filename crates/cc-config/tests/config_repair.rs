@@ -1,43 +1,23 @@
-//! The repair loop behind finding #12.
+//! Finding #12 repair loop.
 //!
-//! **Why this is a test and not a comment.** Before this, a stored configuration
-//! that failed `cc_safety::validate_config` was discarded **whole** at boot: all
-//! 98 parameters reverted to their compiled-in defaults except the Wi-Fi
-//! credential. On a bench that cost `hardware.sensors.temperature.type` — the
-//! machine reverted to TSIC-306 while a DS18B20 was fitted, and sat in
-//! `SENSOR_ERROR` with `currentTemp: NaN`. One wrong number cost every other
-//! number.
+//! Old boot dropped all 98 parameters except the Wi-Fi credential. On a DS18B20
+//! bench that reset `hardware.sensors.temperature.type` to TSIC-306
+//! (`SENSOR_ERROR`, `NaN`). These tests revert implicated keys only.
 //!
-//! These tests pin the replacement: **revert the implicated keys, keep
-//! everything else**, write the repair back, and never leave the machine running
-//! something the validator refuses.
-//!
-//! # The case that makes one pass insufficient
-//!
-//! `steam.setpoint` may legally be 140 and `safety.emergency_hysteresis` 15.
-//! 140 + 15 is **above** the emergency threshold's 150 default, so reverting the
-//! implicated key alone leaves the configuration unsafe. The repair therefore
-//! re-validates and escalates — see [`repair_unsafe`].
+//! One pass is not enough: `steam.setpoint` 140 plus `safety.emergency_hysteresis`
+//! 15 exceeds the 150 default of `safety.emergency_temp`. See [`repair_unsafe`].
 
 use alloc::string::String;
 use cc_config::config::{repair_unsafe, Config};
 extern crate alloc;
 
-/// A **synthetic** validator, standing in for `cc_safety::validate_config`.
+/// Stand-in for `cc_safety::validate_config`.
 ///
-/// It is synthetic on purpose. `cc-config` and `cc-safety` are peers, so the
-/// library takes the verdict as a parameter and cannot name the real type; a test
-/// here that wanted the real validator would have to rebuild the 12-field
-/// `Config -> SafetyConfig` mapping that `cc_firmware::control::safety_config`
-/// owns, and a drifted copy of that mapping is exactly the sort of thing this
-/// repository has been bitten by. So this file tests the **loop**: which keys it
-/// reverts, in what order, when it escalates, when it stops, and what it leaves
-/// alone. `implicated_keys()` is pinned per variant in `cc-safety`'s own tests,
-/// where the types are native. The two halves together are the production path.
+/// `cc-config` cannot name that type. Real keys are pinned in
+/// `div38_every_violation_names_the_keys_it_implicates`. This file pins the loop.
 fn validate(config: &Config) -> Option<&'static [&'static str]> {
-    // The same shape as the real rule: the threshold must clear the steam
-    // setpoint plus the hysteresis, with the hysteresis able to exceed the
-    // threshold's default — which is why one pass is not enough.
+    // Threshold must clear steam setpoint + hysteresis. Hysteresis can exceed
+    // the threshold default, so one pass is not enough.
     if config.safety.emergency_temp <= config.steam.setpoint + config.safety.emergency_hysteresis {
         return Some(&["safety.emergency_temp"]);
     }
@@ -62,8 +42,7 @@ fn threshold_collision() -> Config {
     c
 }
 
-/// The oracle's counter-example: both values individually legal, jointly unsafe,
-/// and reverting the threshold alone does **not** fix it.
+/// Both values legal alone. Together unsafe. Reverting the threshold does not fix it.
 fn setpoint_and_hysteresis_collision() -> Config {
     let mut c = Config::default();
     c.steam.setpoint = 140.0;
@@ -72,8 +51,7 @@ fn setpoint_and_hysteresis_collision() -> Config {
     c
 }
 
-/// Settings that must survive any repair, because they are the ones an operator
-/// actually notices losing.
+/// Settings a wipe would lose and a repair must keep.
 fn mark_operational_settings(c: &mut Config) {
     c.system.hostname = "silvia".into();
     c.hardware.sensors.temperature.r#type =
@@ -99,10 +77,8 @@ fn the_repair_resolves_a_threshold_collision() {
 
 #[test]
 fn the_repair_keeps_every_setting_it_did_not_implicate() {
-    // **The direct regression test for #12.** It asserts the *preserved* keys,
-    // not merely that the offending one reverted: a test that only checked the
-    // reverted key would have passed against the old discard-everything
-    // behaviour if it looked at the wrong pair.
+    // Preserved keys, not only the reverted one. Checking only the reverted
+    // key would pass against the old discard-everything path.
     let mut c = threshold_collision();
     mark_operational_settings(&mut c);
 
@@ -142,8 +118,7 @@ fn one_pass_is_not_enough_and_the_repair_escalates() {
 
 #[test]
 fn a_low_trigger_relay_reverts_to_high_trigger() {
-    // The variant whose wrong answer energises hardware at reset, so it is the
-    // one worth testing hardest.
+    // Wrong polarity energises the heater at reset.
     let mut c = Config::default();
     c.hardware.relays.heater.trigger_type = cc_domain::hardware::RelayTriggerType::LowTrigger;
 
@@ -175,7 +150,7 @@ fn an_already_valid_configuration_is_left_alone() {
 
 #[test]
 fn the_wifi_credential_survives_a_repair() {
-    // The bench case that cost the session. The repair must never touch it.
+    // Credential must survive. A wipe leaves the machine unreachable.
     let mut c = threshold_collision();
     c.system.wifi.ssid = "Cappuxinno".into();
     c.system.wifi.password = cc_domain::secret::Secret::new(String::from("hunter2"));

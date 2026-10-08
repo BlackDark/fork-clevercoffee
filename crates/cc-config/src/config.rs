@@ -47,20 +47,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::secret::Secret;
 
-/// Put one configuration key back to its compiled-in default.
+/// Revert one key to [`Config::default`]. `false` for any other key.
 ///
-/// **Only the keys a safety violation can implicate** are handled, and the
-/// function is total over them: it answers `false` for anything else rather than
-/// guessing, so a caller cannot revert a key by accident because a string
-/// happened to match. The set is
-/// `cc_safety::ConfigViolation::implicated_keys()` plus
-/// [`REPAIR_ESCALATION_KEYS`], and the loop that walks it is
-/// `cc_firmware::config_io::repair_unsafe` — it lives in `cc-firmware` rather
-/// than here because `cc-config` does not depend on `cc-safety`, by design.
-///
-/// The defaults are the *safe* direction in every case — a higher emergency
-/// threshold, `HIGH_TRIGGER` relays, a lower setpoint — so a repair cannot move
-/// the machine away from safety.
+/// Covers `ConfigViolation::implicated_keys` plus [`REPAIR_ESCALATION_KEYS`].
+/// Defaults sit on the safe side: higher `safety.emergency_temp`,
+/// `HIGH_TRIGGER` relays, lower setpoints.
 pub fn revert_key(config: &mut Config, key: &str) -> bool {
     let defaults = Config::default();
     match key {
@@ -1517,14 +1508,10 @@ impl Config {
     }
 }
 
-/// The keys a repair escalates to when `cc_safety::ConfigViolation::implicated_keys`
-/// does not resolve the violation.
+/// Second pass, when the implicated keys alone stay unsafe.
 ///
-/// `steam.setpoint` may legally be 140 and `safety.emergency_hysteresis` 15, and
-/// 140 + 15 is above the emergency threshold's 150 default — so reverting the
-/// implicated keys alone can leave the configuration unsafe. These are the values
-/// that can pull the threshold's territory away, which is why they are the second
-/// pass rather than the first.
+/// `steam.setpoint` 140 plus `safety.emergency_hysteresis` 15 exceeds the 150
+/// default of `safety.emergency_temp`.
 pub const REPAIR_ESCALATION_KEYS: &[&str] = &[
     "steam.setpoint",
     "safety.emergency_hysteresis",
@@ -1532,38 +1519,21 @@ pub const REPAIR_ESCALATION_KEYS: &[&str] = &[
     "brew.temp_offset",
 ];
 
-/// What a repair did, and whether it worked.
+/// Keys reverted, in order, and whether `validate` now accepts the configuration.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Repair {
-    /// Every key reverted, in the order it was reverted. This is what the boot
-    /// log prints: the operator's only way to learn what happened without a
-    /// serial console.
+    /// Boot log prints these.
     pub reverted: Vec<String>,
-    /// The configuration is safe to run.
+    /// `validate` accepts the configuration.
     pub resolved: bool,
 }
 
-/// Make a stored configuration safe to run, keeping everything not implicated.
+/// Revert implicated keys until `validate` accepts, or give up.
 ///
-/// Finding #12: the boot path used to discard **all** of a stored configuration
-/// and run the compiled-in defaults, which cost a bench its sensor configuration
-/// and put the machine in `SENSOR_ERROR` with `NaN`. One wrong number should cost
-/// one number.
-///
-/// **Why the validator is a parameter.** `cc-config` and `cc-safety` are peers —
-/// both leaf crates on `cc-domain`, neither depending on the other — and this
-/// function needs both. Taking the verdict as a closure keeps that true: the
-/// caller passes `|c| cc_safety::validate_config(...).err().map(|v| v.implicated_keys())`,
-/// and the loop below stays testable on the host against the real validator
-/// without a dependency edge that would invert the layering.
-///
-/// **Every default is the conservative value**, so every reversion moves the
-/// machine toward safety rather than away from it: a higher emergency threshold,
-/// `HIGH_TRIGGER` relays, lower setpoints.
-///
-/// Two passes, then it gives up — see [`REPAIR_ESCALATION_KEYS`] for why one is
-/// not enough. The caller falls back to the full-defaults behaviour it already
-/// had, so the machine is never left running something the validator refuses.
+/// Finding #12: boot used to drop all 98 parameters. `validate` is a closure
+/// because `cc-config` does not depend on `cc-safety`. Second pass uses
+/// [`REPAIR_ESCALATION_KEYS`]. Unresolved: caller falls back to full defaults
+/// plus the Wi-Fi credential.
 pub fn repair_unsafe(
     config: &mut Config,
     validate: impl Fn(&Config) -> Option<&'static [&'static str]>,

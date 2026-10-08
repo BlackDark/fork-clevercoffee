@@ -997,14 +997,7 @@ boiler". Two things stop that:
 - **The parameter floor is 120 °C** (`safety.emergency_temp` range 120–180,
   `steam.setpoint` 100–140). A bench boiler sits at ~23 °C with only an LED on
   the heater pin, so the lowest *legal* value is still 100 K above ambient.
-- **Lowering it is refused at the write.** Setting
-  `safety.emergency_temp=120` with the default `steam.setpoint=120` trips
-  `cc_safety`'s `EmergencyTempTooLowForSteam` — the threshold must sit above
-  `steam.setpoint + safety.emergency_hysteresis` or the machine cannot be
-  steamed. The write is refused (HTTP 400 on `/api/parameters`); an already-unsafe
-  blob repairs implicated keys on boot. The boot line is `stored but unsafe`,
-  not `DISCARDED`. The 2026-10-07 session printed the discard. The 2026-10-08
-  boot, after that same unsafe blob was already stored, printed:
+- **Lowering it is refused at the write.** `safety.emergency_temp=120` with `steam.setpoint=120` is `EmergencyTempTooLowForSteam`. HTTP 400 on `/api/parameters`. An already-unsafe blob repairs implicated keys. Boot line `stored but unsafe`, not `DISCARDED`. 2026-10-07 printed the discard. 2026-10-08, same unsafe blob already stored:
 
   ```txt
   config: (configuration is unsafe to run: EmergencyTempTooLowForSteam { emergency_temp: Celsius(120.0), steam_setpoint: Celsius(120.0), emergency_hysteresis: Celsius(5.0) }) -> repairing the implicated key(s) and keeping everything else
@@ -1014,21 +1007,9 @@ boiler". Two things stop that:
   nvs: the boot decision was `DiscardedUnsafe(EmergencyTempTooLowForSteam { ... })`
   ```
 
-  `DiscardedUnsafe` in that last line is the blob as loaded. The repair had
-  already run.
-  **⚠️ See [`../history/outstanding-findings.md` #12](../history/outstanding-findings.md).**
-  On this bench the old whole-configuration discard silently reverted
-  `hardware.sensors.temperature.type` from Dallas to TSIC-306 and put the
-  machine in `SENSOR_ERROR` with `NaN`.
+  `DiscardedUnsafe` is the blob as loaded. Repair already ran. Old discard reset `hardware.sensors.temperature.type` to TSIC-306 and left `SENSOR_ERROR` / `NaN`. [`../history/outstanding-findings.md` #12](../history/outstanding-findings.md).
 
-- [x] **Finding #12 — PASSED 2026-10-08.** The previous image stored
-  `safety.emergency_temp=120` against `steam.setpoint=120`. The new image's
-  first boot repaired that key only (`reverted safety.emergency_temp`,
-  `the repair is persisted`, `stored but unsafe`, not `DISCARDED`). All 98
-  parameters matched the snapshot taken before the plant, including
-  `hardware.sensors.temperature.type=1`. A repeat POST answered `400` naming
-  `safety.emergency_temp`. The probe read 20.62 °C and the state was
-  `PID_NORMAL`.
+- [x] **Finding #12 — PASSED 2026-10-08.** Boot lines above. All 98 parameters matched the pre-plant snapshot, including `hardware.sensors.temperature.type=1`. Repeat POST `400` naming `safety.emergency_temp`. Probe 20.62 °C, `PID_NORMAL`.
 
 **What actually works**, in order of preference:
 

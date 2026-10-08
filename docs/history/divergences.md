@@ -2588,34 +2588,21 @@ behaviour. Recorded as `outstanding-findings.md` #18 for the owner.
 
 ## 38 — An unsafe configuration is refused at the write, and repaired at boot 🔴 changed {#d38}
 
-Finding #12. Dated 2026-10-08. Measured the same day on the bench ESP32:
-the previous image stored `safety.emergency_temp=120`, the new image's first
-boot repaired that key only, and a repeat `POST /api/parameters` answered
-`400`. Record is [`outstanding-findings.md` #12](outstanding-findings.md).
+Finding #12. 2026-10-08, bench ESP32: previous image stored `safety.emergency_temp=120`; this image's first boot repaired that key only; repeat `POST /api/parameters` answered `400`. Record: [`outstanding-findings.md` #12](outstanding-findings.md).
 
 ### What the C++ does
 
-No cross-parameter check. Each key is stored if it is in range
-(`Config.h:isValid`). A legal pair that cannot run — `safety.emergency_temp`
-below `steam.setpoint + hysteresis`, a `LOW_TRIGGER` relay, brew-by-weight with
-no scale — is written and reloaded.
+No cross-parameter check. A key in range (`Config.h:isValid`) is stored, including a pair that cannot run: `safety.emergency_temp` below `steam.setpoint + hysteresis`, a `LOW_TRIGGER` relay, brew-by-weight with no scale.
 
 ### What the Rust does
 
-A write that would fail `validate_config` is refused, and nothing is stored:
+`validate_config` failure stores nothing:
 
-- `POST /api/parameters` and `POST /api/config/upload` wait for the control
-  task, then answer HTTP 400 naming `ConfigViolation::implicated_keys`.
-- MQTT `apply_parameter` applies onto a candidate; a violation logs, does not
-  save, and does not `push_into_machine`.
-- `Command::SetSetpoint` validates a candidate first. `/api/setpoint` has
-  already answered `202 {"accepted":true}` (`register_command`); there is no
-  second ack. The control task simply must not apply an unsafe setpoint.
+- `POST /api/parameters` and `POST /api/config/upload` wait, then HTTP 400 naming `ConfigViolation::implicated_keys`.
+- MQTT `apply_parameter` logs, does not save, does not `push_into_machine`.
+- `Command::SetSetpoint` validates first. `/api/setpoint` already answered `202 {"accepted":true}` (`register_command`). No second ack. Control task must not apply an unsafe setpoint.
 
-A blob that is already unsafe is repaired at boot: only the implicated keys
-revert, then `REPAIR_ESCALATION_KEYS` if that is not enough. Full defaults plus
-the Wi-Fi credential are the fail-closed backstop if the repair cannot resolve
-it. The boot line is `stored but unsafe`, not `DISCARDED`.
+Boot repair reverts implicated keys, then `REPAIR_ESCALATION_KEYS`. Still unsafe: full defaults plus the Wi-Fi credential. Boot line: `stored but unsafe`, not `DISCARDED`.
 
 ### What pins it
 

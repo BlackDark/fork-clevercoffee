@@ -1598,10 +1598,7 @@ fn high_trigger_relays_are_accepted_for_every_relay() {
     assert!(validate_config(&SafetyConfig::default()).is_ok());
 }
 
-/// `implicated_keys()` is what lets a repair revert a *field* and an HTTP refusal
-/// name one, instead of both parsing a `Debug` rendering. It is pinned per
-/// variant here, where the types are native; the repair loop that walks it is
-/// pinned in `cc-config`'s `config_repair.rs`.
+/// Each variant names its keys. The repair loop is `cc-config`'s `config_repair.rs`.
 #[test]
 fn div38_every_violation_names_the_keys_it_implicates() {
     use cc_domain::units::Celsius;
@@ -1609,8 +1606,6 @@ fn div38_every_violation_names_the_keys_it_implicates() {
 
     let names = |v: ConfigViolation| v.implicated_keys().join(",");
 
-    // Both headroom rules implicate the **threshold**, never the setpoint: raising
-    // the threshold can never make the rule fail, whereas lowering a setpoint can.
     assert_eq!(
         names(ConfigViolation::EmergencyTempTooLowForSteam {
             emergency_temp: Celsius::new(120.0),
@@ -1628,8 +1623,6 @@ fn div38_every_violation_names_the_keys_it_implicates() {
         "safety.emergency_temp"
     );
 
-    // The relay rules name the relay whose polarity is the subject — and whose
-    // wrong answer energises hardware at reset.
     assert_eq!(
         names(ConfigViolation::HeaterRelayLowTrigger),
         "hardware.relays.heater.trigger_type"
@@ -1643,8 +1636,6 @@ fn div38_every_violation_names_the_keys_it_implicates() {
         "hardware.relays.valve.trigger_type"
     );
 
-    // The scale is not what is wrong: brewing by weight with no scale refuses a
-    // *mode*, so the mode is what goes back.
     assert_eq!(
         names(ConfigViolation::BrewByWeightWithNoScale),
         "brew.by_weight.enabled"

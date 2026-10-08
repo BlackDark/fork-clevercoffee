@@ -163,24 +163,9 @@ pub fn bring_up_config() -> Result<Booted, EspError> {
             }
         }
         ConfigOrigin::DiscardedUnsafe(violation) => {
-            // 🔴 **Repair, do not discard** — finding #12.
-            //
-            // This used to throw away all 98 parameters and run the compiled-in
-            // defaults, keeping only the Wi-Fi credential. That cost a bench its
-            // sensor configuration and put the machine in `SENSOR_ERROR` with
-            // `NaN`, because reverting `hardware.sensors.temperature.type` to
-            // its default (TSIC-306) is just as fatal as the value that caused
-            // the refusal. One wrong number now costs one number.
-            //
-            // The repair is safe by construction: every key it reverts goes to a
-            // default that is the *conservative* side — a higher emergency
-            // threshold, `HIGH_TRIGGER` relays, lower setpoints — so it moves the
-            // machine toward safety and never away from it.
-            //
-            // The blob is **written back**, or the machine repairs itself on every
-            // boot and the log starts lying. If the repair cannot resolve it, the
-            // loop gives up and the full-defaults path below still runs, so the
-            // machine is never left running something `validate_config` refuses.
+            // Finding #12: revert implicated keys and write them back. Do not
+            // wipe all 98 parameters. If repair fails, full defaults plus the
+            // Wi-Fi credential: reachable, and never running a refused config.
             warn!(
                 "config: (configuration is unsafe to run: {violation:?}) -> \
                  repairing the implicated key(s) and keeping everything else"
@@ -200,10 +185,7 @@ pub fn bring_up_config() -> Result<Booted, EspError> {
                 }
                 config = repaired;
             } else {
-                // The loop gave up. Fall back to the previous behaviour, because
-                // a machine that cannot be repaired must still not run something
-                // the validator refuses — and it must keep its credential so it
-                // can be reached to be fixed.
+                // Repair failed. Full defaults. Wi-Fi credential kept.
                 warn!(
                     "config: the repair did not resolve it after {} pass(es) -> \
                      falling back to the compiled-in defaults",
@@ -243,9 +225,7 @@ fn origin_text(origin: ConfigOrigin) -> &'static str {
     match origin {
         ConfigOrigin::Defaults => "defaults",
         ConfigOrigin::Stored => "stored",
-        // Not "DISCARDED" any more: the repair above keeps the configuration and
-        // reverts only what the violation implicated (finding #12). The blob as found
-        // was unsafe, which is what this describes.
+        // Blob was unsafe. Repair kept the rest. Not "DISCARDED".
         ConfigOrigin::DiscardedUnsafe(_) => "stored but unsafe",
     }
 }
@@ -580,14 +560,9 @@ pub fn apply_staged(
     staged: Staged,
 ) -> Result<(), cc_config::StoreError> {
     let mut config = store.load()?.unwrap_or_default();
-    // **Repair before writing, or the documented recovery path undoes the
-    // recovery.** This loads the whole stored configuration, changes one field
-    // and saves all of it back, with no `validate_config` anywhere in the
-    // function. So on a machine whose stored configuration is unsafe — precisely
-    // the state the old boot-time discard created and left on disk — the operator
-    // follows the documented path, types the credential, and the very next boot
-    // discards the credential they just entered, putting the machine back on a
-    // network it is not configured for. Finding #19.
+    // Repair before save. An unsafe blob plus a new credential would otherwise
+    // be written back whole, and the next boot would drop the credential.
+    // Finding #12.
     let repair = crate::config_io::repair_unsafe(&mut config);
     if repair.resolved {
         for key in &repair.reverted {
