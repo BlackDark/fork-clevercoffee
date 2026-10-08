@@ -87,6 +87,7 @@ Behaviour is the same; the mechanism is not. Listed so nobody re-investigates th
 | 28 | `cc-display` does not implement `embedded-graphics::DrawTarget`. | [§6](history/divergences.md#d06) |
 | 29 | Four display layout re-pitches, all fixing text that was clipped or overlapping. | [§17](history/divergences.md#d17), [§18](history/divergences.md#d18) |
 | 30 | The Scale template's rows are re-pitched so the setpoint stops disappearing during a brew. | [§21](history/divergences.md#d21) |
+| 31 | Clipped error strings: `profont10` on sensor and EEPROM, those lines wrapped, OTA error title in `profont17`. | [§40](history/divergences.md#d40) |
 
 ---
 

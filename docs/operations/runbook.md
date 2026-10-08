@@ -681,15 +681,7 @@ Before flashing anything, two checks that need no hardware:
     `m` and the missing brew timer all passed every assertion and were found by
     looking.
 
-Known-and-accepted, from reading the sheet (2026-10-01, inherited from the C++):
-
-* The sensor-error and EEPROM-error message screens use a 10 px line pitch with
-  `profont11`, so adjacent lines overlap by one pixel. `displayMessage` has six
-  lines at a ten-pixel pitch, and six lines at eleven pixels is 66 — taller than
-  the panel — so the pitch cannot simply grow. Fixing it means dropping those
-  screens to `profont10`, which changes the typography of six screens.
-* The OTA error message and the offline splash can run past the right edge
-  depending on the string. Worth a decision before anyone relies on them.
+Findings #3–#6 closed, host only. [`divergences.md` §40](../history/divergences.md#d40).
 
 
 ### Measured layout overruns (2026-10-01, third pass — all C++ behaviour unless noted)
@@ -700,10 +692,6 @@ build.
 
 | where | line | width | panel | note |
 | --- | --- | --- | --- | --- |
-| EepromError, all languages | `EEPROM Error, please set Values` | 185 | 128 | 57 px cut |
-| SensorError, German only | `Temp.-Sensor ueberpruefen!` | 153 | 128 | 25 px cut; EN/ES are 111 and fit |
-| SensorError, **portrait** | `ueberpruefen!` | 75 | **64** | the baseline's German translation |
-| OTA title | `Update failed` in `fub17` | 150 | 128 | centred at `x = -11`, so **both** edges clip at once |
 | Scale, English | `Pressure: ` | 60 | 50 | runs into the value column |
 | Scale, Spanish | `Pressure: ` | 54 | 50 | |
 | Scale, German | `Weight: `, `Flush: ` | 54 | 50 | |

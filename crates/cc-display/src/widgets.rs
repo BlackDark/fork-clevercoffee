@@ -688,9 +688,7 @@ pub fn display_statusbar(
 
 /// `displayMessage` (`DisplayWidgets.h:391`).
 ///
-/// Six lines at a fixed ten-pixel pitch, the C++'s "message screen" primitive.
-/// `displayMessage` does not `setFont`, so it draws in whatever font the caller
-/// last selected; every caller selects `profont11` first.
+/// Six lines at a fixed ten-pixel pitch. Does not `setFont`.
 pub fn display_message(d: &mut Display, lines: [&str; 6]) {
     d.clear_buffer();
     d.set_cursor(0, 0);

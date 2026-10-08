@@ -12,11 +12,8 @@
 //! So: every case, every template, every language, and two assertions —
 //!
 //! 1. **Nothing inks outside 128x64.** Cheap, and it catches the extreme.
-//! 2. **No string is wider than the slot it is drawn into.** This is the one
-//!    that matters, because a string clipped at the right edge is still
-//!    *inside* the frame — the bounds check passes and the glyphs are gone.
-//!    "EEPROM Error, please set Values" and the German sensor line both reach
-//!    column 127 today, and neither is visible to a bounds check.
+//! 2. **No string is wider than the slot it is drawn into.** A clipped glyph is
+//!    still inside the frame, so a bounds check cannot see it.
 //!
 //! # What is asserted, and where it lives
 //!
@@ -61,10 +58,8 @@ const LABEL_SLOTS: [Label; 6] = [
     ("manual_flush", |l| l.manual_flush),
 ];
 
-/// Every message line drawn through `display_message`, and the width it has.
-///
-/// The six-line primitive draws at `x = 0` in `profont11` and has no width
-/// budget other than the panel, so the budget is the panel minus a margin.
+/// Message lines. Sensor-error lines are drawn in `profont10`; the rest in
+/// `profont11`.
 fn message_lines(l: &Lang) -> Vec<(&'static str, &'static str)> {
     let mut out: Vec<(&'static str, &'static str)> = Vec::new();
     for (i, line) in l.error_tsensor.iter().enumerate() {
@@ -257,99 +252,39 @@ fn every_label_fits_its_column_in_every_language() {
     }
 }
 
-/// Message lines that overflow the panel today, with the number for each.
-///
-/// All C++ parity: the same strings, the same `displayMessage` primitive, the
-/// same per-glyph clipping in U8g2. See
-/// `docs/operations/runbook.md` — an operator sees these
-/// exactly when something is
-/// already broken, which is why they are worth a tracked entry and not a
-/// quiet re-wrap.
-const KNOWN_MESSAGE_OVERFLOWS: &[(&str, i32, i32)] = &[
-    // (the exact line, its measured ink width, the panel it overflows)
-    ("EEPROM Error, please set Values", 185, 128),
-    ("Temp.-Sensor ueberpruefen!", 153, 128),
-    // Portrait: the panel is 64 logical px wide under `Rotation::R1`, and this
-    // is the **baseline's German translation** — a defect in `languages.h`, not
-    // something the port can fix without inventing a different string.
-    ("ueberpruefen!", 75, 64),
-];
-
-/// **No message line is wider than the panel**, in any language.
-///
-/// `display_message` draws at `x = 0` with no width budget of its own, so the
-/// budget is the panel — and in portrait the panel is **64 logical pixels**,
-/// because `Rotation::R1` swaps the axes. A framebuffer scan cannot see this: the
-/// clipped glyphs are simply absent, and the bounds test passes.
+/// No message line is wider than the panel. Width is measured in the font the
+/// screen draws, because a clipped glyph is still inside the frame.
 #[test]
 fn every_message_line_fits_the_panel_in_every_language() {
-    // The strings the firmware supplies itself, drawn the same way.
-    const HARDCODED: [(&str, &str); 3] = [
-        ("eeprom error", "EEPROM Error, please set Values"),
-        ("ota error", "Update failed"),
-        ("ota retry", "Retry from web UI"),
-    ];
-    let f = font::profont11();
+    const EEPROM: [&str; 2] = ["EEPROM Error,", "please set Values"];
+    let message = font::profont11();
+    let sensor = font::profont10();
     for language in LANGUAGES {
         let l = lang::for_language(language);
         for (name, line) in message_lines(l) {
-            let width = f.str_width(line);
-            if let Some((_, recorded, _)) = KNOWN_MESSAGE_OVERFLOWS
-                .iter()
-                .find(|(known_line, _, _)| *known_line == line)
-            {
-                assert_eq!(
-                    width, *recorded,
-                    "{language:?}: the {name} line {line:?} is now {width} px and the \
-                     recorded overflow was {recorded} px"
-                );
+            let width = if name == "error_tsensor" {
+                sensor.str_width(line)
             } else {
-                assert!(
-                    width <= DISPLAY_WIDTH,
-                    "{language:?}: the {name} line {line:?} is {width} px wide and the \
-                     landscape panel is {DISPLAY_WIDTH}"
-                );
-            }
+                message.str_width(line)
+            };
+            assert!(
+                width <= DISPLAY_WIDTH,
+                "{language:?}: the {name} line {line:?} is {width} px wide and the \
+                 landscape panel is {DISPLAY_WIDTH}"
+            );
         }
-        for (name, line) in HARDCODED {
-            let width = f.str_width(line);
-            match KNOWN_MESSAGE_OVERFLOWS
-                .iter()
-                .find(|(known_line, _, _)| *known_line == line)
-                .map(|(_, w, _)| *w)
-            {
-                Some(recorded) => {
-                    assert_eq!(width, recorded, "the {name} line changed width");
-                }
-                None => {
-                    assert!(
-                        width <= DISPLAY_WIDTH,
-                        "the {name} line {line:?} is {width} px wide"
-                    );
-                }
-            }
-        }
-        // The OTA titles are drawn in `fub17`, not `profont11`, so they need
-        // their own measurement — and this is the worst case in the firmware:
-        // "Update failed" is 150 px, centred by
-        // `layout::draw_str_centered_on_screen`, which computes
-        // `x = (128 - 150) / 2 = -11`. So it is clipped at **both** edges at
-        // once, which is why no ink-bounds test of any kind can see it.
-        for line in ["Update failed", "Update OK", "Updating"] {
-            let width = font::fub17().str_width(line);
-            if line == "Update failed" {
-                assert_eq!(
-                    width, 150,
-                    "the OTA error title changed width; if it now fits, delete the \
-                     entry rather than leaving a stale one"
-                );
-            } else {
-                assert!(
-                    width <= DISPLAY_WIDTH,
-                    "the OTA title {line:?} is {width} px wide"
-                );
-            }
-        }
+    }
+    for line in EEPROM {
+        let width = sensor.str_width(line);
+        assert!(width <= DISPLAY_WIDTH, "eeprom {line:?} is {width} px");
+    }
+    let retry = sensor.str_width("Retry from web UI");
+    assert!(retry <= DISPLAY_WIDTH, "ota retry is {retry} px");
+    let failed = font::profont17().str_width("Update failed");
+    assert!(failed <= DISPLAY_WIDTH, "ota error title is {failed} px");
+    for line in ["Update OK", "Updating"] {
+        let width = font::fub17().str_width(line);
+        assert!(width <= DISPLAY_WIDTH, "ota title {line:?} is {width} px");
     }
 }
 
@@ -367,28 +302,16 @@ fn the_portrait_panel_is_64_wide_and_the_portrait_lines_fit_it() {
         "the portrait rotation must swap the panel's axes; everything below \
          assumes it"
     );
-    let f = font::profont11();
+    let f = font::profont10();
     for language in LANGUAGES {
         let l = lang::for_language(language);
         for (index, line) in l.error_tsensor_ur.iter().enumerate() {
             let width = f.str_width(line);
-            let known = KNOWN_MESSAGE_OVERFLOWS
-                .iter()
-                .find(|(known_line, _, _)| known_line == line)
-                .map(|(_, w, _)| *w);
-            match known {
-                Some(recorded) => assert_eq!(
-                    width, recorded,
-                    "{language:?}: portrait line {index} {line:?} changed width"
-                ),
-                // The temperature value itself is drawn in this slot and is up to
-                // 29 px, so the budget is the panel minus that.
-                None => assert!(
-                    width <= 64,
-                    "{language:?}: the portrait sensor-error line {index} {line:?} is \
-                     {width} px into a 64 px panel"
-                ),
-            }
+            assert!(
+                width <= 64,
+                "{language:?}: the portrait sensor-error line {index} {line:?} is \
+                 {width} px into a 64 px panel"
+            );
         }
     }
 }
@@ -505,4 +428,26 @@ fn every_translated_character_has_a_glyph() {
             }
         }
     }
+}
+
+/// profont10 at the 10 px message pitch does not ink the neighbouring row.
+/// profont11 does, which is why those two screens changed font.
+#[test]
+fn profont10_message_rows_do_not_share_a_row() {
+    use cc_display::display::Rotation;
+    let text = "Agjyqp";
+    let spill = |y: i32, font: fn() -> cc_display::font::Font| -> bool {
+        let mut d = Display::new();
+        d.prepare_display(Rotation::R0);
+        d.set_font(font());
+        d.set_cursor(0, y);
+        d.print(text);
+        let fb = d.framebuffer();
+        let into_next = (0..DISPLAY_WIDTH).any(|x| fb.pixel(x, y + 10));
+        let into_prev = y > 0 && (0..DISPLAY_WIDTH).any(|x| fb.pixel(x, y - 1));
+        into_next || into_prev
+    };
+    assert!(!spill(0, font::profont10));
+    assert!(!spill(10, font::profont10));
+    assert!(spill(0, font::profont11));
 }
