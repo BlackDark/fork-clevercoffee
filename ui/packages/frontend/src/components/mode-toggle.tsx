@@ -1,5 +1,5 @@
-import { Moon, Sun } from "lucide-react";
 import { useSyncExternalStore } from "react";
+import { Moon, Sun } from "@/components/icons";
 
 import { Button } from "@/components/ui/button";
 import {

@@ -1,8 +1,8 @@
-import { Menu, X } from "lucide-react";
 import { useState } from "react";
-import { Link, Outlet, useLocation } from "react-router-dom";
+import { Menu, X } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { basePathWithoutTrailingSlash } from "@/lib/config";
+import { Link, Outlet, useLocation } from "@/lib/router";
 import { cn } from "@/lib/utils";
 import { LiveStatusIndicator } from "./LiveStatusIndicator";
 import { MachineStatusToasts } from "./MachineStatusToasts";

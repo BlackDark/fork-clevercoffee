@@ -105,7 +105,7 @@ discovery surface are a different matter; see
 ## Memory
 
 The web UI is served from **flash**, and that is a deliberate consequence of the
-ESP32's 320 KB. A 199 KB gzipped bundle costs **0 B of RAM** because
+ESP32's 320 KB. A 195,436 B embedded bundle costs **0 B of RAM** because
 `cc-hal-esp32/build.rs` embeds it with `include_bytes!`. Static RAM is identical
 before and after the UI is included.
 
