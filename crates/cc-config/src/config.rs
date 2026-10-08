@@ -34,6 +34,7 @@
 //! nobody has to re-derive them and get it subtly wrong.
 
 use alloc::string::String;
+use alloc::vec::Vec;
 
 use cc_domain::hardware::{
     OledAddress, OledType, RelayTriggerType, ScaleType, SwitchMode, SwitchType,
@@ -45,6 +46,46 @@ use cc_domain::units::Celsius;
 use serde::{Deserialize, Serialize};
 
 use crate::secret::Secret;
+
+/// Put one configuration key back to its compiled-in default.
+///
+/// **Only the keys a safety violation can implicate** are handled, and the
+/// function is total over them: it answers `false` for anything else rather than
+/// guessing, so a caller cannot revert a key by accident because a string
+/// happened to match. The set is
+/// `cc_safety::ConfigViolation::implicated_keys()` plus
+/// [`REPAIR_ESCALATION_KEYS`], and the loop that walks it is
+/// `cc_firmware::config_io::repair_unsafe` — it lives in `cc-firmware` rather
+/// than here because `cc-config` does not depend on `cc-safety`, by design.
+///
+/// The defaults are the *safe* direction in every case — a higher emergency
+/// threshold, `HIGH_TRIGGER` relays, a lower setpoint — so a repair cannot move
+/// the machine away from safety.
+pub fn revert_key(config: &mut Config, key: &str) -> bool {
+    let defaults = Config::default();
+    match key {
+        "safety.emergency_temp" => config.safety.emergency_temp = defaults.safety.emergency_temp,
+        "safety.emergency_hysteresis" => {
+            config.safety.emergency_hysteresis = defaults.safety.emergency_hysteresis;
+        }
+        "hardware.relays.heater.trigger_type" => {
+            config.hardware.relays.heater.trigger_type =
+                defaults.hardware.relays.heater.trigger_type;
+        }
+        "hardware.relays.valve.trigger_type" => {
+            config.hardware.relays.valve.trigger_type = defaults.hardware.relays.valve.trigger_type;
+        }
+        "hardware.relays.pump.trigger_type" => {
+            config.hardware.relays.pump.trigger_type = defaults.hardware.relays.pump.trigger_type;
+        }
+        "brew.by_weight.enabled" => config.brew.by_weight.enabled = defaults.brew.by_weight.enabled,
+        "steam.setpoint" => config.steam.setpoint = defaults.steam.setpoint,
+        "brew.setpoint" => config.brew.setpoint = defaults.brew.setpoint,
+        "brew.temp_offset" => config.brew.temp_offset = defaults.brew.temp_offset,
+        _ => return false,
+    }
+    true
+}
 
 /// The whole configuration: 98 typed fields mirroring the C++
 /// `ParamDef` members. See the module documentation for the mapping and
@@ -1474,4 +1515,81 @@ impl Config {
     pub fn ota_enabled(&self) -> bool {
         !self.ota_password().is_empty()
     }
+}
+
+/// The keys a repair escalates to when `cc_safety::ConfigViolation::implicated_keys`
+/// does not resolve the violation.
+///
+/// `steam.setpoint` may legally be 140 and `safety.emergency_hysteresis` 15, and
+/// 140 + 15 is above the emergency threshold's 150 default — so reverting the
+/// implicated keys alone can leave the configuration unsafe. These are the values
+/// that can pull the threshold's territory away, which is why they are the second
+/// pass rather than the first.
+pub const REPAIR_ESCALATION_KEYS: &[&str] = &[
+    "steam.setpoint",
+    "safety.emergency_hysteresis",
+    "brew.setpoint",
+    "brew.temp_offset",
+];
+
+/// What a repair did, and whether it worked.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Repair {
+    /// Every key reverted, in the order it was reverted. This is what the boot
+    /// log prints: the operator's only way to learn what happened without a
+    /// serial console.
+    pub reverted: Vec<String>,
+    /// The configuration is safe to run.
+    pub resolved: bool,
+}
+
+/// Make a stored configuration safe to run, keeping everything not implicated.
+///
+/// Finding #12: the boot path used to discard **all** of a stored configuration
+/// and run the compiled-in defaults, which cost a bench its sensor configuration
+/// and put the machine in `SENSOR_ERROR` with `NaN`. One wrong number should cost
+/// one number.
+///
+/// **Why the validator is a parameter.** `cc-config` and `cc-safety` are peers —
+/// both leaf crates on `cc-domain`, neither depending on the other — and this
+/// function needs both. Taking the verdict as a closure keeps that true: the
+/// caller passes `|c| cc_safety::validate_config(...).err().map(|v| v.implicated_keys())`,
+/// and the loop below stays testable on the host against the real validator
+/// without a dependency edge that would invert the layering.
+///
+/// **Every default is the conservative value**, so every reversion moves the
+/// machine toward safety rather than away from it: a higher emergency threshold,
+/// `HIGH_TRIGGER` relays, lower setpoints.
+///
+/// Two passes, then it gives up — see [`REPAIR_ESCALATION_KEYS`] for why one is
+/// not enough. The caller falls back to the full-defaults behaviour it already
+/// had, so the machine is never left running something the validator refuses.
+pub fn repair_unsafe(
+    config: &mut Config,
+    validate: impl Fn(&Config) -> Option<&'static [&'static str]>,
+) -> Repair {
+    let mut repair = Repair::default();
+    for pass in 0..2 {
+        let Some(keys) = validate(config) else {
+            repair.resolved = true;
+            return repair;
+        };
+        let keys: &[&str] = if pass == 0 {
+            keys
+        } else {
+            REPAIR_ESCALATION_KEYS
+        };
+        let mut reverted_any = false;
+        for key in keys {
+            if revert_key(config, key) && !repair.reverted.iter().any(|k| k == key) {
+                repair.reverted.push(String::from(*key));
+                reverted_any = true;
+            }
+        }
+        if !reverted_any {
+            break;
+        }
+    }
+    repair.resolved = validate(config).is_none();
+    repair
 }

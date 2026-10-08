@@ -99,6 +99,30 @@ pub(crate) fn push_into_machine(
     }
 }
 
+/// The verdict a repair needs: the keys a configuration's violation implicates,
+/// or `None` when the configuration is safe to run.
+///
+/// The closure lives at the call site so this crate — which has both — owns the
+/// one place that knows how a [`cc_config::Config`] becomes a
+/// [`cc_safety::SafetyConfig`]. [`cc_config::repair_unsafe`] takes it as a
+/// parameter precisely so `cc-config` and `cc-safety` stay peers.
+fn validate_for_repair(config: &cc_config::Config) -> Option<&'static [&'static str]> {
+    cc_safety::validate_config(&crate::control::safety_config(config))
+        .err()
+        .map(cc_safety::ConfigViolation::implicated_keys)
+}
+
+/// Make a stored configuration safe to run, keeping everything not implicated.
+///
+/// Finding #12. The boot path used to discard **all** of it and run the
+/// compiled-in defaults, which cost a bench its sensor configuration and put the
+/// machine in `SENSOR_ERROR` with `NaN`. One wrong number should cost one number.
+///
+/// See [`cc_config::repair_unsafe`] for the loop and why it needs two passes.
+pub fn repair_unsafe(config: &mut cc_config::Config) -> cc_config::config::Repair {
+    cc_config::config::repair_unsafe(config, validate_for_repair)
+}
+
 /// Whether any written key is one of the PID's gains.
 ///
 /// A `pid.` prefix rather than a list of keys, deliberately: the gains are

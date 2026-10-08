@@ -873,6 +873,46 @@ pub enum ConfigViolation {
     BrewByWeightWithNoScale,
 }
 
+impl ConfigViolation {
+    /// The configuration keys this violation implicates.
+    ///
+    /// **Why a mapping and not a `Debug` string.** Both callers need the *keys*,
+    /// not a rendered variant: the boot repair reverts exactly these to their
+    /// defaults, and an HTTP refusal has to name the field the operator must fix.
+    /// Parsing a `Debug` rendering to recover a key name would be a second place
+    /// where the wording of a message is load-bearing.
+    ///
+    /// **Why the threshold and not the setpoint.** Every variant here is a
+    /// *relationship*, and one of its two sides is always safe to move: raising
+    /// `safety.emergency_temp` can never make a headroom rule fail, whereas
+    /// lowering a setpoint can. So the threshold is the value to revert.
+    ///
+    /// **Not sufficient on its own.** `steam.setpoint` may legally be 140 and
+    /// `safety.emergency_hysteresis` 15, and 140 + 15 exceeds the threshold's
+    /// 150 default — so reverting only the implicated keys can leave the
+    /// configuration unsafe. A repair must therefore re-validate and escalate;
+    /// `cc_config::repair_unsafe` does, with
+    /// `cc_config::REPAIR_ESCALATION_KEYS` as the escalation set. Finding #12 is
+    /// the record.
+    #[must_use]
+    pub const fn implicated_keys(self) -> &'static [&'static str] {
+        match self {
+            // Both headroom rules implicate the threshold, for the reason above.
+            Self::EmergencyTempTooLowForSteam { .. } | Self::EmergencyTempTooLowForBrew { .. } => {
+                &["safety.emergency_temp"]
+            }
+            // The relay rules implicate the one relay whose polarity is the rule's
+            // subject, and whose wrong answer energises hardware at reset.
+            Self::HeaterRelayLowTrigger => &["hardware.relays.heater.trigger_type"],
+            Self::PumpRelayLowTrigger => &["hardware.relays.pump.trigger_type"],
+            Self::ValveRelayLowTrigger => &["hardware.relays.valve.trigger_type"],
+            // The scale is not what is wrong: brewing by weight without a scale
+            // is refusing a mode, so the mode is what goes back.
+            Self::BrewByWeightWithNoScale => &["brew.by_weight.enabled"],
+        }
+    }
+}
+
 /// Validate a configuration before it is run or stored.
 ///
 /// Recovered from the previous Rust firmware ([08 §4.1](../docs/history/recovered-oracle.md)),

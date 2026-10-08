@@ -272,6 +272,10 @@ pub const CASES: &[Case] = &[
         run: task::tests::only_one_staged_request_is_taken_per_tick,
     },
     Case {
+        name: "task::note_refused_then_note_applied_acks_the_refusal",
+        run: task::tests::note_refused_then_note_applied_acks_the_refusal,
+    },
+    Case {
         name: "task::a_full_parameter_mailbox_refuses_rather_than_dropping",
         run: task::tests::a_full_parameter_mailbox_refuses_rather_than_dropping,
     },

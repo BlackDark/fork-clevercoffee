@@ -403,19 +403,26 @@ impl Link {
         // not a per-tick event.
         let pairs = vec![(String::from(key), String::from(value))];
         let before = (config.pid.enabled, config.brew.setpoint);
-        let applied = cc_config::assign::apply(config, &pairs);
+        let mut candidate = config.clone();
+        let applied = cc_config::assign::apply(&mut candidate, &pairs);
         for (name, err) in &applied.failed {
             warn!("mqtt: {name} was not written: {err}");
         }
         if applied.updated == 0 {
             return;
         }
-        if let Err(violation) = cc_safety::validate_config(&crate::control::safety_config(config)) {
+        if let Err(violation) =
+            cc_safety::validate_config(&crate::control::safety_config(&candidate))
+        {
+            let keys = violation.implicated_keys();
             error!(
-                "config: an MQTT write left the configuration UNSAFE ({violation:?}); \
-                 the next boot will discard it"
+                "config: REFUSED — MQTT write of {key} would leave the configuration \
+                 unsafe ({violation:?}); implicated key(s): {keys:?}. Nothing was \
+                 written and nothing was changed."
             );
+            return;
         }
+        *config = candidate;
         if let Err(err) = store.save(config) {
             error!("config: an MQTT parameter write could NOT be persisted: {err}");
         }

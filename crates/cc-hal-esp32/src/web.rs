@@ -1607,7 +1607,13 @@ impl Web {
                         }
                     }
                     let accepted = verdict.clone().into_pairs();
-                    if !accepted.is_empty() && !handoff.stage_and_wait(accepted) {
+                    // Only a request that was actually staged may read the refusal.
+                    // The flag outlives the handler that set it, and an empty or
+                    // fully-rejected post never enters `stage_and_wait`, which is
+                    // what clears it. Reading it here would answer `400` for the
+                    // previous write.
+                    let staged = !accepted.is_empty();
+                    if staged && !handoff.stage_and_wait(accepted) {
                         // Either the mailbox was full, or the control task had not
                         // applied the request within the ack timeout. The response
                         // is about to say the parameters were saved, so this is the
@@ -1619,6 +1625,24 @@ impl Web {
                             503,
                             &error_body("the control task did not apply the parameters, retry"),
                         );
+                    }
+                    // 🔴 A refusal the operator cannot see is worse than the loud
+                    // warning it replaced (finding #12): the control task dropped
+                    // the whole request because the *resulting configuration*
+                    // would be unsafe, so answering `200` here would say "saved"
+                    // for a write that changed nothing at all.
+                    if staged {
+                        if let Some((keys, n)) = handoff.take_refused() {
+                            let implicated = keys[..n].join(", ");
+                            return respond(
+                                req.connection(),
+                                400,
+                                &error_body(&format!(
+                                    "refused: the resulting configuration would be unsafe \
+                                     (implicated: {implicated}), so nothing was written."
+                                )),
+                            );
+                        }
                     }
                     let (status, payload) = verdict.response();
                     // A `200 {"success":true}` on a write that cannot affect the
@@ -1777,6 +1801,23 @@ impl Web {
                             &upload_response(
                                 false,
                                 "the control task did not apply the configuration, retry",
+                            ),
+                        );
+                    }
+                    // The same refusal answer as `POST /api/parameters`: the
+                    // upload is all-or-nothing, so a configuration that cannot be
+                    // stored is refused whole, with nothing applied. Finding #12.
+                    if let Some((keys, n)) = handoff.take_refused() {
+                        let implicated = keys[..n].join(", ");
+                        return respond(
+                            req.connection(),
+                            400,
+                            &upload_response(
+                                false,
+                                &format!(
+                                    "refused: the resulting configuration would be unsafe \
+                                     (implicated: {implicated}), so nothing was written"
+                                ),
                             ),
                         );
                     }

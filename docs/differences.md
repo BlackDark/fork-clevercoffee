@@ -51,6 +51,7 @@ Features that simply do not exist in the C++ firmware.
 | 15 | **A dead temperature probe now reaches `SENSOR_ERROR`.** The C++ computed this and then dropped it on the floor, so the PID regulated a frozen reading indefinitely. | Phase 1, `3794bef6` |
 | 16 | **A pump-watchdog trip logs why it happened.** The C++ left both watchdogs inert; the port arms them, and the trip says so. | [§1](history/divergences.md#d01) + `f4a6341b` |
 | 17 | **A sleep request is honoured with the PID disabled**, rather than ignored. | [§16](history/divergences.md#d16) |
+| 17b | **An unsafe configuration write is refused**, and boot repairs only implicated keys, rather than storing the write and discarding the whole configuration on the next boot. | [§38](history/divergences.md#d38) |
 
 ## The known deviation we cannot fix in firmware
 

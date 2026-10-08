@@ -2583,3 +2583,41 @@ branch was not asked to revisit. What the inhibit's removal changes is the cost:
 a single tank-interlock refusal on entry now leaves the fill stalled and silent
 for the whole cycle, where before it was indistinguishable from correct
 behaviour. Recorded as `outstanding-findings.md` #18 for the owner.
+
+---
+
+## 38 — An unsafe configuration is refused at the write, and repaired at boot 🔴 changed {#d38}
+
+Finding #12. Dated 2026-10-08. Measured the same day on the bench ESP32:
+the previous image stored `safety.emergency_temp=120`, the new image's first
+boot repaired that key only, and a repeat `POST /api/parameters` answered
+`400`. Record is [`outstanding-findings.md` #12](outstanding-findings.md).
+
+### What the C++ does
+
+No cross-parameter check. Each key is stored if it is in range
+(`Config.h:isValid`). A legal pair that cannot run — `safety.emergency_temp`
+below `steam.setpoint + hysteresis`, a `LOW_TRIGGER` relay, brew-by-weight with
+no scale — is written and reloaded.
+
+### What the Rust does
+
+A write that would fail `validate_config` is refused, and nothing is stored:
+
+- `POST /api/parameters` and `POST /api/config/upload` wait for the control
+  task, then answer HTTP 400 naming `ConfigViolation::implicated_keys`.
+- MQTT `apply_parameter` applies onto a candidate; a violation logs, does not
+  save, and does not `push_into_machine`.
+- `Command::SetSetpoint` validates a candidate first. `/api/setpoint` has
+  already answered `202 {"accepted":true}` (`register_command`); there is no
+  second ack. The control task simply must not apply an unsafe setpoint.
+
+A blob that is already unsafe is repaired at boot: only the implicated keys
+revert, then `REPAIR_ESCALATION_KEYS` if that is not enough. Full defaults plus
+the Wi-Fi credential are the fail-closed backstop if the repair cannot resolve
+it. The boot line is `stored but unsafe`, not `DISCARDED`.
+
+### What pins it
+
+- `cc-safety/tests/safety_paths.rs::div38_every_violation_names_the_keys_it_implicates`
+- `cc-config/tests/config_repair.rs`

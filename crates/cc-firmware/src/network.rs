@@ -163,44 +163,65 @@ pub fn bring_up_config() -> Result<Booted, EspError> {
             }
         }
         ConfigOrigin::DiscardedUnsafe(violation) => {
-            // 🔴 Refuse to run it, and **keep it on disk** — see the module
-            // documentation for why erasing it would destroy the evidence.
-            // `ConfigViolation` has no `Display`. It is `Debug`, and it is the
-            // only one of its four variants that can be produced from a `Config`
-            // the firmware itself wrote, so the name is enough to act on; the
-            // full variant detail is in `/api/nvs-debug` once that reports it.
+            // 🔴 **Repair, do not discard** — finding #12.
             //
-            // **But the network credential survives.** This was found the hard
-            // way: refusing a stored configuration discarded the whole blob, the
-            // machine came up on the compiled-in defaults, and the defaults carry
-            // no SSID — so the radio never associated and the **only** way to fix
-            // the parameter that caused the refusal was a serial console. The
-            // refusal is about a relay's polarity, not about connectivity, and
-            // discarding the connectivity along with it turns a configuration
-            // mistake into an unreachable machine.
+            // This used to throw away all 98 parameters and run the compiled-in
+            // defaults, keeping only the Wi-Fi credential. That cost a bench its
+            // sensor configuration and put the machine in `SENSOR_ERROR` with
+            // `NaN`, because reverting `hardware.sensors.temperature.type` to
+            // its default (TSIC-306) is just as fatal as the value that caused
+            // the refusal. One wrong number now costs one number.
             //
-            // So the credential is carried over, and **not** written back: the
-            // blob on disk stays exactly as it was, so `/api/nvs-debug` and the
-            // next boot still see the configuration that was refused. The
-            // operator reaches the UI, fixes the parameter, and the blob becomes
-            // valid again.
-            let credential = config.system.wifi.clone();
+            // The repair is safe by construction: every key it reverts goes to a
+            // default that is the *conservative* side — a higher emergency
+            // threshold, `HIGH_TRIGGER` relays, lower setpoints — so it moves the
+            // machine toward safety and never away from it.
+            //
+            // The blob is **written back**, or the machine repairs itself on every
+            // boot and the log starts lying. If the repair cannot resolve it, the
+            // loop gives up and the full-defaults path below still runs, so the
+            // machine is never left running something `validate_config` refuses.
             warn!(
-                "config: (configuration is unsafe to run: {violation:?}) -> discarding \
-                 all of it and running defaults. The blob is left on disk so \
-                 /api/nvs-debug and the next boot can still see it."
+                "config: (configuration is unsafe to run: {violation:?}) -> \
+                 repairing the implicated key(s) and keeping everything else"
             );
-            let mut defaults = Config::default();
-            let ssid = credential.ssid.trim();
-            if !ssid.is_empty() {
-                info!(
-                    "config: keeping the stored Wi-Fi credential ({ssid}) so the \
-                     machine stays reachable and the unsafe setting can be fixed \
-                     over HTTP"
+            let mut repaired = config.clone();
+            let repair = crate::config_io::repair_unsafe(&mut repaired);
+            if repair.resolved {
+                for key in &repair.reverted {
+                    info!("config: reverted {key} to its default");
+                }
+                match store.save(&repaired) {
+                    Ok(()) => info!(
+                        "config: the repair is persisted ({})",
+                        repair.reverted.join(", ")
+                    ),
+                    Err(err) => warn!("config: could not persist the repair: {err}"),
+                }
+                config = repaired;
+            } else {
+                // The loop gave up. Fall back to the previous behaviour, because
+                // a machine that cannot be repaired must still not run something
+                // the validator refuses — and it must keep its credential so it
+                // can be reached to be fixed.
+                warn!(
+                    "config: the repair did not resolve it after {} pass(es) -> \
+                     falling back to the compiled-in defaults",
+                    repair.reverted.len()
                 );
-                defaults.system.wifi = credential;
+                let credential = config.system.wifi.clone();
+                let mut defaults = Config::default();
+                let ssid = credential.ssid.trim();
+                if !ssid.is_empty() {
+                    info!(
+                        "config: keeping the stored Wi-Fi credential ({ssid}) so the \
+                         machine stays reachable and the unsafe setting can be fixed \
+                         over HTTP"
+                    );
+                    defaults.system.wifi = credential;
+                }
+                config = defaults;
             }
-            config = defaults;
         }
     }
 
@@ -222,7 +243,10 @@ fn origin_text(origin: ConfigOrigin) -> &'static str {
     match origin {
         ConfigOrigin::Defaults => "defaults",
         ConfigOrigin::Stored => "stored",
-        ConfigOrigin::DiscardedUnsafe(_) => "stored but unsafe — DISCARDED",
+        // Not "DISCARDED" any more: the repair above keeps the configuration and
+        // reverts only what the violation implicated (finding #12). The blob as found
+        // was unsafe, which is what this describes.
+        ConfigOrigin::DiscardedUnsafe(_) => "stored but unsafe",
     }
 }
 
@@ -556,6 +580,27 @@ pub fn apply_staged(
     staged: Staged,
 ) -> Result<(), cc_config::StoreError> {
     let mut config = store.load()?.unwrap_or_default();
+    // **Repair before writing, or the documented recovery path undoes the
+    // recovery.** This loads the whole stored configuration, changes one field
+    // and saves all of it back, with no `validate_config` anywhere in the
+    // function. So on a machine whose stored configuration is unsafe — precisely
+    // the state the old boot-time discard created and left on disk — the operator
+    // follows the documented path, types the credential, and the very next boot
+    // discards the credential they just entered, putting the machine back on a
+    // network it is not configured for. Finding #19.
+    let repair = crate::config_io::repair_unsafe(&mut config);
+    if repair.resolved {
+        for key in &repair.reverted {
+            info!("config: reverted {key} to its default before writing the credential");
+        }
+    } else {
+        warn!(
+            "config: the stored configuration is unsafe and the repair could not \
+             resolve it; writing the credential into a repaired-from-scratch one so \
+             the machine stays reachable"
+        );
+        config = Config::default();
+    }
     match staged {
         Staged::Set(mut pending) => config.set_wifi_credential(
             // Moved out, never `expose`d: there is no point at which a second
