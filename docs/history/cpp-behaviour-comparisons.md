@@ -28,7 +28,7 @@ here so the decision is visible rather than inherited by accident.
 
 | Behaviour | Why it is kept | Ledger |
 | --- | --- | --- |
-| A reboot boots to `PID_DISABLED` | `hardware.switches.power.type` is `Toggle`, and a toggle reading off at boot starts disabled. This is the C++'s behaviour matched line for line; `pid.enabled` only wins when no power switch is configured. | [`divergences.md`](divergences.md) |
+| A reboot boots to `PID_DISABLED` when the power switch is a toggle reading off | Kept for a configured switch. `hardware.switches.power.enabled=false` follows `pid.enabled`. | [`outstanding-findings.md`](outstanding-findings.md) #11 |
 | Error strings used to clip off the panel | No longer kept. | [`divergences.md` §40](divergences.md#d40) |
 | The Scale template's rows collide | Both firmwares default `fullscreen_brew_timer` to false, so the collision is live during a brew rather than hidden. Fixing it moves a screen somebody looks at. | [`outstanding-findings.md`](outstanding-findings.md) #1–#2 |
 | The steam LED is not driven | GPIO1 is UART TX, so the C++ drove both and the last attach won. The rule is implemented and host-tested; only the pin is absent, and moving it is a hardware change because GPIO32 is the scale's data line. | [`divergences.md`](divergences.md) #30 |
