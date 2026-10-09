@@ -3,11 +3,10 @@ name: Release
 # ---------------------------------------------------------------------------
 # THIS WORKFLOW BUILDS THE **RUST** FIRMWARE.
 #
-# It replaced a PlatformIO pipeline that published the C++ image, at a time
-# when the Rust firmware was still the port. The rewrite is honest about one
-# thing: it has never executed on a tag. `docs/status.md` says so in "What is
-# NOT verified", and that line is not decoration -- read it before treating the
-# published artifact as tested.
+# It replaced a PlatformIO pipeline that published the C++ image.
+# First tag: `v2.0.0-alpha.1` (2026-10-09, run 37925778055). The
+# published `firmware.bin` passed the 4 MB merge check. That file has
+# not been flashed from the release asset onto the board.
 #
 # WHY THE BRANCH GUARD. `on.push.tags` alone means a `v*` tag pushed from ANY
 # branch fires this workflow, so the tagged commit must be proved reachable from
@@ -179,7 +178,7 @@ jobs:
             "" \
             "\`\`\`bash" \
             "esptool.py --chip esp32 write_flash 0x0 firmware.bin" \
-            '\`\`\`' \
+            "\`\`\`" \
             "" \
             "or use the ESP Flash Download Tool with address \`0x0\`." \
             "" \
@@ -190,8 +189,8 @@ jobs:
             "### OTA updates (web UI)" \
             "" \
             "Open **System → OTA Updates** on the device and use the direct" \
-            "download URL above. The OTA has not been exercised on hardware; see" \
-            "the repository's \`docs/status.md\`." \
+            "download URL above. The upload path was exercised on hardware." \
+            "See the repository's \`docs/status.md\`." \
             > release_notes.md
 
       - name: Publish GitHub release

@@ -18,7 +18,6 @@ None.
 
 - **Rotary encoder.** GPIO 4, 3 and 5 are declared and unused.
 - **Zero-crossing dimmer.** GPIO 18 is declared and unused.
-- **Release workflow.** `release.yml` has never run on a tag.
 - **Acaia scale.** Measured, and it does not fit. Needs a decision before any build. [`history/divergences.md` §12](history/divergences.md#d12).
 - **TSIC-306.** None is fitted. The silence-latch arm has never run.
 - **Contactor timing.** The contactor's minimum on/off time and the realised heater-pin duty have never been measured.
