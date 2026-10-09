@@ -18,7 +18,7 @@ subsumes the other.
 
 ## Engine parity
 
-`tools/oracle/display_oracle.cpp` links the **real** U8g2, fetched by
+`crates/cc-display/tools/oracle/display_oracle.cpp` links the **real** U8g2, fetched by
 `just u8g2` into `target/u8g2` at upstream tag `2.36.18`, and replays a scenario
 file through it. `cc_display::scenario` replays the *same file* through
 `Display`. The two 128×64 framebuffers must be **bit identical** — zero
@@ -132,5 +132,5 @@ large temperature clipped off the top of the display — the `prepareDisplay`
 finding above. There is more of the same waiting: the Modern row map, the
 bottom-row bar, and the per-field boxes have been checked against
 `docs/display/layout-rules.md` and against U8g2's metrics, but not against a
-rendered C++ frame. That comparison is the next thing to build, and it needs a
+rendered C++ frame. That comparison is Potential ([`../attention.md`](../attention.md)). It needs a
 `SystemContext` stub that is small enough to be obviously faithful.

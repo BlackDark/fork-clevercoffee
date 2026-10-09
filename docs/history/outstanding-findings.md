@@ -1,17 +1,12 @@
 # Outstanding findings
 
-**What was found during hardware bring-up.** Recorded 2026-10-01. Items #1 and
-#2 were fixed afterwards and are struck through; the rest were still open when
-this file was last written. Check the date on a row before acting on it — this is
-a record, not a live tracker.
+**Closed findings from hardware bring-up.** Recorded from 2026-10-01. Every row
+below is closed. This is not a task list. Open work is
+[`../attention.md`](../attention.md).
 
-It lives in `history/` rather than in the runbook because none of it is a
-procedure. Nothing here is something you run before a release; it is what was
-found, why it was left alone, and what a decision would take.
-
-A reader who wants to *do* something should be in
-[`../operations/runbook.md`](../operations/runbook.md). A reader who wants to
-know what was decided to leave broken should be here.
+Check the date on a row before quoting it. Nothing here is a procedure. A
+reader who wants to run something should be in
+[`../operations/runbook.md`](../operations/runbook.md).
 
 Most items are justified by "C++ parity" — this firmware reproduces a C++
 behaviour on purpose, and the reasoning for each is in
@@ -40,8 +35,8 @@ comparison is in [`cpp-behaviour-comparisons.md`](cpp-behaviour-comparisons.md).
 
 Found while running the R4-04 procedures in
 [`../operations/runbook.md`](../operations/runbook.md) §13 with the water path
-live. Every one of these is measured, none is a bench artefact, and each row says
-below whether it is still open.
+live. Every one of these is measured, none is a bench artefact, and each row
+below is closed.
 
 | # | What | Why it is not fixed | What is needed |
 | --- | --- | --- | --- |

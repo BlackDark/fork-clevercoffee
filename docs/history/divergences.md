@@ -2430,9 +2430,7 @@ its tick timing unmeasured. Runbook §13 carries the results.
 
 **Not runnable on a bench, each with what it needs:** the watchdog reboot needs a
 debug route this port does not have (the oracle's `/debug/hang-supervisor` was
-never ported); tank-empty pump *kill* and valve fail-safe need the machine,
-because they are about a real float switch, a real pump and a real valve
-de-energised. Owner: Eduard Marbach.
+never ported). Tank-empty pump *kill* and valve fail-safe are about a real float, a real pump and a real valve. Not an agent task. Owner: Eduard Marbach.
 
 ### 35.5 The flash path, and the two defects that surfaced while exercising it
 

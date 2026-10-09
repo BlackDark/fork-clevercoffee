@@ -113,9 +113,7 @@ can leave hardware stuck in a state the bookkeeping does not believe in.
 records the contract these rules come from, including the two C++ behaviours that
 motivated it.
 
-## What has not been tested by a human
+## A hand on the buttons
 
-**Switch presses.** The debounce and the long-press are pinned by 17 host tests
-against a synthetic clock, and everything around a press is fast: 10 ms loop,
-20 ms debounce, 100 ms panel. The press itself has still never been made by a
-person on this board.
+Debounce and long-press are pinned by 17 host tests against a synthetic clock.
+The 2026-10-09 hand check is on [`status.md`](../status.md). It is not a Problem.

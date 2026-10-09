@@ -78,9 +78,7 @@ because a `404` is indistinguishable from a lost feature.
 Full reasoning and the refusal conditions are
 [`../history/divergences.md`](../history/divergences.md#d31).
 
-**The OTA has never been exercised on hardware.** It was verified by reading
-ESP-IDF v5.5.5, and the bootloader's fallback-to-factory behaviour on a power cut
-during the `otadata` write was not verified at all.
+**The OTA upload was exercised on hardware.** The record is [`../status.md`](../status.md). A power cut during the `otadata` write was not part of that pass.
 
 ## The 98 parameters
 

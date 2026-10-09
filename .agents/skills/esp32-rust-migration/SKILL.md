@@ -1,20 +1,19 @@
 ---
 name: esp32-rust-migration
-description: Execute the CleverCoffee C++-to-Rust firmware migration task by task, safely. Use when asked to continue, resume, or work on the ESP32 Rust migration (tasks R0-* through R4-*), port firmware features to Rust, or work on the Rust workspace under crates/cc-*. Covers per-task validation, hardware safety, parity checking against the C++ baseline, and the rules for never claiming a target is supported because it merely builds.
+description: Safety procedure for a named firmware change on this fork. The port is closed. Open work is docs/attention.md. An empty Problems section means stop. Covers hardware safety and the rule against claiming a target is supported because it merely builds.
 ---
 
 # ESP32 Rust Migration — Execution Skill
 
-You are executing a phased, safety-critical migration of an ESP32 coffee-machine
-controller from C++/Arduino to Rust. The plan already exists. **Your job is to execute
-it faithfully, one task at a time, and to report honestly — not to redesign it, not to
-skip it, and not to claim success you have not observed.**
+The port is closed. Open work is [`docs/attention.md`](../../../docs/attention.md). An empty Problems section means stop. Do not resume R0–R4 from the archive.
+
+The sections below are the safety procedure for a change that is named. Report honestly. Do not claim a result you have not observed.
 
 ---
 
 ## 0. Read this first, every session
 
-Before touching anything, read these in order. Do not skip to the task list.
+Before touching anything, read these in order. The archive task list is not open work.
 
 | Document | What you need from it |
 | --- | --- |
@@ -23,7 +22,7 @@ Before touching anything, read these in order. Do not skip to the task list.
 | [`docs/archive/migration/03-decision-record.md`](../../../docs/archive/migration/03-decision-record.md) | ADR-0004: the platform decision, what was rejected and why, and the flash-size problem. |
 | [`docs/history/target-architecture.md`](../../../docs/history/target-architecture.md) | Crate boundaries, task/priority table, the single-ownership rules, and the startup/shutdown contract. |
 | [`docs/archive/migration/05-tooling-and-workflows.md`](../../../docs/archive/migration/05-tooling-and-workflows.md) | The `just` recipes, mise setup, and flashing rules. |
-| [`docs/archive/migration/06-migration-task-list.md`](../../../docs/archive/migration/06-migration-task-list.md) | **The task list, dependencies, gates, and acceptance criteria.** |
+| [`docs/archive/migration/06-migration-task-list.md`](../../../docs/archive/migration/06-migration-task-list.md) | Archive. Not open work. |
 | [`docs/operations/runbook.md`](../../../docs/operations/runbook.md) | The integration checklist to run at phase gates. |
 | [`CLAUDE.md`](../../../CLAUDE.md) | Repository-wide rules — including the OLED layout rules, which apply to `cc-display` too. |
 
@@ -108,16 +107,12 @@ doubt, err toward the safe state and stop.
 1. **One task at a time.** Do not start R2-08 while R2-07 is unfinished. Do not
    opportunistically refactor something outside the current task. If you spot an
    out-of-scope problem, record it and move on.
-2. **Never change the C++ firmware's behaviour.** `src/` and `include/clevercoffee/` are
-   the production system and the parity baseline. You may add Rust alongside. Only
-   change C++ if a task explicitly says to.
+2. **The C++ tree is deleted.** Do not reconstruct it. `AG-REPO-27`.
 3. **Never flash an unidentified device.** Run `just list-ports`, then
    `just identify <port>`, and confirm the reported chip matches the MCU you are
    building. If the chip does not match, **stop**.
-4. **Never run an actuator-energising test without a written safe test procedure.** If
-   the task list has one (R1-03, R1-07, R3-04, R4-04), follow it exactly. If it does not
-   and the test needs one, **write the procedure and get it reviewed before running it**.
-   Never improvise a safety procedure.
+4. **Never run an actuator-energising test without a written safe test procedure.**
+   Follow [`docs/operations/runbook.md`](../../../docs/operations/runbook.md). The archive task list is not a queue. Do not improvise a safety procedure.
 5. **Never claim a target is supported because it builds.** A build is a build. Support
    means flashed and exercised. See §6.
 5b. **Never modify the root `partitions_4M.csv`.** It is C++-owned until R4-10. The Rust
@@ -143,14 +138,7 @@ doubt, err toward the safe state and stop.
 
 ## 3. Starting a task
 
-1. **Check prerequisites.** Every task in 06 lists `Depends on`. If any prerequisite is
-   not complete, stop.
-2. **Check the gate.** Phase 1 has **Gate 1**, Phase 2 **Gate 2**, and so on. Do not
-   proceed past a gate until every gate criterion is met *and recorded*.
-3. **Read the whole task entry**, including `Uncertainty`. If the uncertainty has
-   materialised as a surprise, that is data — record it and, if it invalidates the
-   approach, **stop and escalate** rather than pushing through.
-4. **Announce the task ID and its acceptance criteria** before you start.
+Do not start one from the archive. Open work is [`docs/attention.md`](../../../docs/attention.md). An empty Problems section means stop.
 
 ## 4. Implementing
 
@@ -286,21 +274,9 @@ and stop. A commit that says "done" when it is not is worse than no commit.
 
 ## 8. Phase gates
 
-At the end of each phase, before starting the next one:
+The phases are finished. Do not run Gate 1. Do not require a parity baseline. Do not update the archive task list.
 
-1. Every task in the phase has passed its own validation.
-2. **Run the phase's gate checks.** For Gate 1 this is: R1-01, R1-02, R1-03, R1-07 all
-   pass, and ADR-0004 moves from *Proposed* to *Accepted* with the R1-02 and R1-07 results
-   filled in.
-3. **Run the integration checks** in [`docs/operations/runbook.md`](../../../docs/operations/runbook.md),
-   in order, on the connected device, where applicable and safe. Record PASS/FAIL with
-   actual output.
-4. **Run `just parity`** and require **zero unexplained diffs**. Any diff is either a
-   documented intentional change (list it in the release notes per R4-09) or a bug.
-5. **Update** the task list (mark tasks complete), ADR-0004, and this skill's `notes.md`.
-6. **Add any newly discovered failure mode to `docs/operations/runbook.md`** in the same
-   commit. The checklist must reflect reality.
-7. Only then start the next phase.
+For a change that is named, run the runbook checks that change touches. A new failure mode goes in the runbook in the same commit (`AG-REPO-18`).
 
 ## 9. Reporting results
 
