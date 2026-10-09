@@ -1,5 +1,5 @@
-import { Globe, Info, Link, MessageCircle } from "lucide-react";
 import { useEffect, useMemo } from "react";
+import { Globe, Info, Link, MessageCircle } from "@/components/icons";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useCleverCoffee } from "@/context/useCleverCoffee";
 

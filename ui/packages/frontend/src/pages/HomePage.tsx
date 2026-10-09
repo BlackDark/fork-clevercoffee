@@ -1,3 +1,10 @@
+import type React from "react";
+import { useEffect, useMemo } from "react";
+import { toast } from "sonner";
+import HeaterChart from "@/components/charts/HeaterChart";
+import TemperatureChart from "@/components/charts/TemperatureChart";
+import { HomeMaintenanceCard } from "@/components/HomeMaintenanceCard";
+import { HomeStandbyAlert } from "@/components/HomeStandbyAlert";
 import {
   Activity,
   AlertCircle,
@@ -8,14 +15,7 @@ import {
   Thermometer,
   TrendingUp,
   Zap,
-} from "lucide-react";
-import type React from "react";
-import { useEffect, useMemo } from "react";
-import { toast } from "sonner";
-import HeaterChart from "@/components/charts/HeaterChart";
-import TemperatureChart from "@/components/charts/TemperatureChart";
-import { HomeMaintenanceCard } from "@/components/HomeMaintenanceCard";
-import { HomeStandbyAlert } from "@/components/HomeStandbyAlert";
+} from "@/components/icons";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";

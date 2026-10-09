@@ -1,4 +1,4 @@
-import { Wifi, WifiOff } from "lucide-react";
+import { Wifi, WifiOff } from "@/components/icons";
 import { useCleverCoffee } from "@/context/useCleverCoffee";
 
 export function LiveStatusIndicator() {

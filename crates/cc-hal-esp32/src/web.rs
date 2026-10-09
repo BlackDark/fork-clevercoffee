@@ -1047,7 +1047,7 @@ use bundle::{UiAsset, UI_ASSETS, UI_FILE_COUNT, UI_INDEX, UI_TOTAL_BYTES};
 /// The same 512 B [`respond`] uses, and for the same reason: the httpd task's
 /// stack is 8 KB and the send path buffers, so a large chunk is a large
 /// allocation on a machine whose heap is the scarce resource. At 512 B the
-/// 183 KB bundle is 357 `httpd_resp_send_chunk` calls, which is nothing.
+/// 179,038 B JS bundle is 350 `httpd_resp_send_chunk` calls, which is nothing.
 const UI_CHUNK_BYTES: usize = 512;
 
 /// What `GET /ui...` resolved to.

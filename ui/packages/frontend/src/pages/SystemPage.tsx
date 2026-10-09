@@ -1,3 +1,5 @@
+import { useState } from "react";
+import { toast } from "sonner";
 import {
   AlertCircle,
   Download,
@@ -9,9 +11,7 @@ import {
   Upload,
   Wifi,
   Zap,
-} from "lucide-react";
-import { useState } from "react";
-import { toast } from "sonner";
+} from "@/components/icons";
 import { OTAUpdateSection } from "@/components/OTAUpdateSection";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";

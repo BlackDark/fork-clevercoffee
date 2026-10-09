@@ -110,8 +110,10 @@ page.
   **Verified by test and by reading the code; the line has not been seen on a
   board.** [`divergences.md` [§32](history/divergences.md#d32)](./history/divergences.md).
 - **The web UI is served from flash and renders.** `cc-hal-esp32/build.rs` embeds
-  the gzip bundle with `include_bytes!`, which is why a 199,270 B bundle costs
-  0 B of RAM. A deep link to a client-side route (`/ui/config/behavior`) boots the
+  the gzip bundle with `include_bytes!`, which is why the bundle costs
+  0 B of RAM. Embedded total measured from `ui/packages/frontend/dist` on
+  2026-10-08: 195,436 B, of which the JS file is 179,038 B gzip. A deep link
+  to a client-side route (`/ui/config/behavior`) boots the
   configuration page with its live parameters, verified in Chrome on the device.
 - **`/api/status` reports the radio truthfully.** `wifiAssociated`, `wifiSignal`,
   `wifiOffline` and `ip` come from `network::publish_radio`, which runs on the
