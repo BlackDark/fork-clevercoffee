@@ -43,12 +43,9 @@ page.
   `Mutex` and the frame is chunked into 8 bus writes, not 64, so the pressure
   sensor is not starved.
 
-  **This is a liveness claim, not a layout one.** Four *specific strings* still
-  clip, and no bounds test can catch them — the telemetry above would look
-  identical either way. They are recorded in
-  [`history/outstanding-findings.md`](history/outstanding-findings.md) #3–#6 with
-  the measurements, and the layout rules that would prevent new ones are
-  `AG-DISPLAY-1` through `AG-DISPLAY-6`.
+  **Layout.** Findings #3–#6 (clipped EEPROM, German sensor, OTA title, 1 px
+  row overlap) are fixed in host tests, not on the machine.
+  [`history/divergences.md` §40](history/divergences.md#d40).
 - **The display parity oracle still links the real U8g2, and the bitmaps it
   draws are the firmware's own.** The C++ tree it used to pull artwork from is
   gone, so `crates/cc-display/examples/emit_bitmaps.rs` generates the oracle's
@@ -155,7 +152,7 @@ page.
 - **The gate is green.** `just gate`: fmt-check, clippy (host and
   device) with `-D warnings`, rustdoc `-D warnings`, the host suite, the parity
   harness, the device-test audit, the Xtensa release build, and the size budget.
-  **1,720,192 B**, which fits the 1,835,008 B app0 slot with +114,816 B to spare.
+  **1,720,176 B**, which fits the 1,835,008 B app0 slot with +114,832 B to spare.
   Re-recorded 2026-10-08 as `ui-bundle-2026-10-08`. The 2026-09-30 baseline
   (1,559,520 B) was passed at +10.29 % by the rebuilt web bundle. The 10 %
   limit is unchanged.

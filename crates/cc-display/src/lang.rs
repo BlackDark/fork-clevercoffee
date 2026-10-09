@@ -70,24 +70,9 @@ pub struct Lang {
     /// `langstring_backflush_reminder[0..3]`
     pub backflush_reminder: [&'static str; 3],
 
-    // -- the sensor-error screen. The C++ has a 5-element array; the
-    //    landscape screen only ever shows [0] and [1], the portrait one all
-    //    five, so the whole array is carried here.
-    /// `langstring_error_tsensor[0..5]`
+    /// Landscape: `[0]`, the reading, `[1]`, `[2]`. `languages.h`.
     pub error_tsensor: [&'static str; 5],
-    /// `langstring_error_tsensor_ur[5]` — the **portrait** sensor-error lines.
-    ///
-    /// The C++ carries two arrays and the portrait screen uses the second one
-    /// (`languages.h:35,69-73,110-114,155-159`); the landscape screen uses the
-    /// first. The port had only `error_tsensor` and fed *it* to both, so the
-    /// portrait screen drew the landscape sentence "Error, Temp: 92.5 / Check
-    /// Temp. sensor!" into a panel that is **64 logical pixels wide** — 111 px
-    /// of ink into 64, so 91 px of it was dropped and the operator saw a
-    /// fragment.
-    ///
-    /// The `lang.rs` header comment claimed the landscape array was carried
-    /// "because the portrait one shows all five lines". That was true of
-    /// `error_tsensor` and irrelevant: the portrait screen never read it.
+    /// Portrait lines. `languages.h`.
     pub error_tsensor_ur: [&'static str; 5],
 }
 
@@ -143,10 +128,9 @@ const GERMAN: Lang = Lang {
     backflush_start: "um zu starten...",
     backflush_finish: "um zu beenden...",
     backflush_reminder: ["Rueckspuelen", "Reiniger-", "Rueckspuelung"],
-    error_tsensor: ["Fehler, Temp: ", "Temp.-Sensor ueberpruefen!", "", "", ""],
-    // `languages.h:155-159`. The last word is 75 px into a 64 px portrait panel,
-    // which is a defect in the **baseline's German translation** and not
-    // something the port can fix without inventing a different string.
+    // Split: one line is 129 px in profont10 (`languages.h`).
+    error_tsensor: ["Fehler, Temp: ", "Temp.-Sensor", "ueberpruefen!", "", ""],
+    // Last word is 63 px in profont10, 75 in profont11 (`languages.h:155-159`).
     error_tsensor_ur: ["Fehler", "Temp: ", "Temp.", "Sensor", "ueberpruefen!"],
 };
 
@@ -239,16 +223,14 @@ mod tests {
 
     #[test]
     fn the_sensor_error_screen_has_five_slots() {
-        // Landscape shows slots 0 and 1; portrait shows all five. The
-        // English table has the last three empty, which is what the C++ does.
+        // Landscape draws slots 0–2. English leaves 2–4 empty.
         let en = for_language(Language::English);
         assert_eq!(en.error_tsensor.len(), 5);
         assert_eq!(en.error_tsensor[0], "Error, Temp: ");
         assert_eq!(en.error_tsensor[1], "Check Temp. sensor!");
-        // ...but the German one has all five, which is the case the landscape
-        // screen silently drops.
         let de = for_language(Language::German);
-        assert_eq!(de.error_tsensor[2], "");
+        assert_eq!(de.error_tsensor[1], "Temp.-Sensor");
+        assert_eq!(de.error_tsensor[2], "ueberpruefen!");
         let es = for_language(Language::Spanish);
         assert_eq!(es.error_tsensor[1], "Comprueba sensor T!");
     }

@@ -186,24 +186,22 @@ pub fn draw(
         return Some(SystemScreenId::EmergencyStop);
     }
 
-    // 8. The temperature-sensor-error screen. Landscape packs the reading into
-    //    line 2; portrait spends five lines on the message. The C++ has a
-    //    `snprintf("%.1f")` between them, which is why the landscape variant
-    //    takes `tempBuffer` as a *pre-built string*.
+    // 8. Sensor error. `DisplaySystemScreens.h:166-176`. profont10: the pitch is
+    //    10 px and profont11 overlaps the next row.
     if state == MachineState::SensorError {
         let temp = format_fixed(input.temperature, 1);
         d.clear_buffer();
-        d.set_font(font::profont11());
+        d.set_font(font::profont10());
         if upright {
             widgets::display_message(
                 d,
                 [
-                    l.error_tsensor[0],
-                    l.error_tsensor[1],
+                    l.error_tsensor_ur[0],
+                    l.error_tsensor_ur[1],
                     temp.as_str(),
-                    l.error_tsensor[2],
-                    l.error_tsensor[3],
-                    l.error_tsensor[4],
+                    l.error_tsensor_ur[2],
+                    l.error_tsensor_ur[3],
+                    l.error_tsensor_ur[4],
                 ],
             );
         } else {
@@ -213,7 +211,7 @@ pub fn draw(
                     l.error_tsensor[0],
                     temp.as_str(),
                     l.error_tsensor[1],
-                    "",
+                    l.error_tsensor[2],
                     "",
                     "",
                 ],
@@ -222,16 +220,12 @@ pub fn draw(
         return Some(SystemScreenId::SensorError);
     }
 
-    // 9. The EEPROM-error screen. The C++ has a *six*-argument
-    //    `displayMessage` call with a trailing comma after `"EEPROM Error,
-    //    please set Values"`, which does not compile in C++ -- so this screen has
-    //    never been reached. Ported as a one-line message, which is what the
-    //    author clearly intended. Recorded here because it is the one place the
-    //    C++ is known-broken.
+    // 9. EEPROM error. One line is 154 px in profont10
+    //    (`DisplaySystemScreens.h:184`).
     if state == MachineState::EepromError {
         d.clear_buffer();
-        d.set_font(font::profont11());
-        widgets::display_message(d, ["EEPROM Error, please set Values", "", "", "", "", ""]);
+        d.set_font(font::profont10());
+        widgets::display_message(d, ["EEPROM Error,", "please set Values", "", "", "", ""]);
         return Some(SystemScreenId::EepromError);
     }
 

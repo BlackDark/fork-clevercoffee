@@ -2615,3 +2615,21 @@ Fill emits `EnablePump` and `OpenWaterValve` each tick. Flush emits `DisablePump
 ### What pins it
 
 `cc-machine/tests/parity_findings.rs::div39_backflush_fill_and_flush_reassert_their_hardware`
+
+---
+
+## 40 — Clipped error strings fit the panel 🔴 changed {#d40}
+
+Findings #3–#6. 2026-10-09. Host `Font::str_width` and a framebuffer row check. Not measured on the machine.
+
+`displayMessage` is six lines at 10 px (`DisplayWidgets.h:391`). Sensor and EEPROM used `profont11` (`DisplaySystemScreens.h:161`, `:183`), which inks the next row. Those two screens are `profont10`. The offline splash is unchanged.
+
+EEPROM was one line, 185 px in `profont11`, 154 in `profont10`. Drawn as `EEPROM Error,` and `please set Values`.
+
+German landscape `Temp.-Sensor ueberpruefen!` is 153 px in `profont11` and 129 in `profont10`. Drawn as `Temp.-Sensor` and `ueberpruefen!`. Portrait uses `error_tsensor_ur` (`DisplaySystemScreens.h:166-173`). `ueberpruefen!` is 75 px in `profont11` and 63 in `profont10`, into a 64 px panel.
+
+OTA error title was `fub17` (`DisplayOtaScreen.cpp:63-64`), 150 px, centred at `x = -11`. It is `profont17` (116 px). `Update OK` and `Updating` stay `fub17`; both fit.
+
+### What pins it
+
+`cc-display/tests/languages.rs`

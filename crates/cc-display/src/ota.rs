@@ -55,7 +55,8 @@ pub fn draw(d: &mut Display, input: &DisplayInput) -> Option<Stage> {
         // `hasError() || status == Error` -- the C++ checks both, so an error
         // flag with a non-error status still takes this branch.
         OtaStatus::Error => {
-            d.set_font(font::fub17());
+            // fub17 is 150 px and centres at x = -11.
+            d.set_font(font::profont17());
             draw_str_centered_on_screen(d, 8, "Update failed");
 
             d.set_font(font::profont10());
