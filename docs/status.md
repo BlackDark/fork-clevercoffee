@@ -1,6 +1,6 @@
 # Status
 
-**Dated 2026-10-08. Owner: Eduard Marbach** (`mail@eduard-marbach.de`), who also
+**Dated 2026-10-09. Owner: Eduard Marbach** (`mail@eduard-marbach.de`), who also
 owns the wired machine. Re-verify with `git log --oneline -1` and `just gate`
 before trusting a line below.
 
@@ -29,8 +29,7 @@ page.
 ## What works today
 
 **The Rust firmware boots, regulates and serves.** Recorded 2026-09-30 and
-2026-10-01 on the board; the full record with the measurements is
-["Where the migration actually is"](./history/README.md#where-it-is-now).
+2026-10-01 on the board. Open work is [`attention.md`](attention.md).
 
 - **The state machine, the PID and brewing are on the device.** R4-01, `4c4e072`.
   The reducer is wired into the 10 ms control task
@@ -38,6 +37,11 @@ page.
   `cc-hal-esp32/src/actuators.rs` in the same tick. At a 30 °C target with a
   ~7 K error the duty settles at ~48 %; at 95 °C with a 72 K error it goes to
   100 %. Both measured on the board, reproducible from the web UI.
+- **Operator switches drive the pins.** 2026-10-09, bench LEDs on GPIO 2, 17 and 27. The LED is the pin.
+  Brew held: state 33, heater duty 0, pump and valve LEDs on. Release: state 20, heater duty 100 %.
+  Hot water: state 20, pump LED on, valve LED off.
+  Steam: state 51, heater duty 100 %, pump and valve LEDs off, steam screen on the panel.
+  Power toggle: open is state 95, heater duty 0. Closed is on. Momentary, and a boot with the toggle off, were not in this pass. `power.enabled` set back to false. Reboot returned to state 20.
 - **The display renders every frame, and `failed=0`.** `present=true`, frames
   tick over on schedule. The SSD1306 shares the I²C bus with the ABP2 behind a
   `Mutex` and the frame is chunked into 8 bus writes, not 64, so the pressure
@@ -247,20 +251,13 @@ decision, residual risk, not started. The close-out decisions of 2026-10-06 are
   unmeasured. The bench profile it needs is in
   [`hardware/bench-setup.md`](hardware/bench-setup.md). The watchdog reboot needs a debug
   route this port does not have (the oracle's `/debug/hang-supervisor` was not
-  ported), and tank-empty pump *kill* and valve fail-safe need the machine,
-  because they are about a real float switch, a real pump and a real valve
-  de-energised. Owner: Eduard Marbach. [§35.4](history/divergences.md#d35),
+  ported). Tank-empty pump *kill* and valve fail-safe are about a real float, a real pump and a real valve. Not an agent task. Owner: Eduard Marbach. [§35.4](history/divergences.md#d35),
   [`outstanding-findings.md` #12–#14](history/outstanding-findings.md).
 - **There is no bootloader rollback.**
   `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE` is absent from this build's sdkconfig,
   so a new image that boots and misbehaves stays selected. The C++ behaves
   identically.
-- **The steam LED is unwired, by decision.** GPIO1 is the UART provisioning
-  console's TX line, which is the documented recovery path for a machine on a
-  nonexistent network, and a pin cannot be shared on this HAL. GPIO32 — the C++'s
-  own suggested alternative — is `PIN_HXDAT`. Moving it is a hardware change. The
-  *rule* is implemented and tested; only the pin is absent.
-  [`divergences.md` [§30](history/divergences.md#d30)](./history/divergences.md).
+- **The steam LED is unwired.** GPIO1 is the UART console TX. GPIO32 is the scale data line. Whether another pin is worth a solder joint is Potential. [`attention.md`](attention.md). [`divergences.md` §30](history/divergences.md#d30).
 - **The Acaia BLE scale is out of scope.** It was measured and does not fit; it
   needs a decision. Open in [`history/divergences.md`](history/divergences.md#d12)
   (R3-18); the original task is [`archive/migration/06-migration-task-list.md`](archive/migration/06-migration-task-list.md).
@@ -363,8 +360,8 @@ be filed and they are not fixed by the next green gate.
    switch press lights the pump LED and the valve LED and drops the heater LED,
    and an OTA upload takes all three dark for the whole write and restores them
    after the reboot — [`operations/runbook.md` §13.4](operations/runbook.md).
-   **What is still unexercised is the machine**: the reservoir, the real float
-   switch, the real valve. Three new findings came out of the bench session —
+   **2026-10-09 the pin is the accepted proof** (the bullet above). A reservoir,
+   a float and a valve coil are not an open task. Three findings came out of the 2026-10-07 bench —
    [`history/outstanding-findings.md` #12–#14](history/outstanding-findings.md).
    Finding #12 refuses the write and repairs implicated keys on boot.
    Measured 2026-10-08: unsafe blob repaired `safety.emergency_temp` only;

@@ -408,7 +408,7 @@ is the direct translation of `isr.h:96-118`, and the RTL-style test in
 >    low speed is six orders of magnitude inside its range, and high-speed timers
 >    are the scarce resource on this part.
 >
-> **Not yet verified on hardware, and this is why R1-07 is still open.** Matching
+> **Not yet verified on hardware.** The measurement is Potential ([`../attention.md`](../attention.md)). Matching
 > the C++'s transition rate is *necessary and not sufficient*. Still unknown, and
 > **not guessed here**:
 >

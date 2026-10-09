@@ -16,6 +16,7 @@ this page, not in your question.
 | [`docs/index.md`](index.md) | This page. | You want to know which document to open. |
 | [`docs/architecture.md`](architecture.md) | **What the firmware is.** The three boundaries that shape it, the 10 ms loop, where the 320 KB of RAM goes, and what each crate owns. | You want the shape of the thing before you change anything. |
 | [`docs/status.md`](status.md) | **The only page permitted to claim what works.** Dated, owned, every line a pointer to a commit or a measurement. | You want to know what this firmware actually does today. |
+| [`docs/attention.md`](attention.md) | **The only task list.** Problems, potential work, and dated later checks. An empty Problems section means stop. | You are about to start work. |
 
 ## The rules
 
@@ -106,7 +107,7 @@ else in that folder is the detail behind it.
 | [`docs/history/scenario-format.md`](history/scenario-format.md) | The scenario-file format `cc-parity` parses, written twice on purpose. | You add a parity scenario. |
 | [`docs/history/review-2026-10-03.md`](history/review-2026-10-03.md) | An independent review's findings, one per row, with status. The most recent hard-eyed record. | You want to know what has already been looked at and found wanting. |
 | [`docs/history/cpp-behaviour-comparisons.md`](history/cpp-behaviour-comparisons.md) | Every "the C++ answered X, this firmware answers Y", in one place: parity that was **chosen**, and where this firmware is safer than the original. | You are about to change a behaviour and need to know what the C++ did first. |
-| [`docs/history/outstanding-findings.md`](history/outstanding-findings.md) | What was found during bring-up and deliberately not fixed, with the reason and what a decision would take. | You think something is broken and want to know whether it already is. |
+| [`docs/history/outstanding-findings.md`](history/outstanding-findings.md) | Closed bring-up findings. Not a task list. | You think something is broken and want to know whether it was already closed. |
 
 ## Preserved history
 

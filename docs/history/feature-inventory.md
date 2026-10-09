@@ -685,7 +685,9 @@ app slot **1,835,008 B**, LittleFS **393,216 B of which 225,280 B used → 167,9
 tracker that once claimed 234 (`docs/plan/task-list.md`) has been deleted rather than left
 standing with a number 106 below the truth.
 
-## 10.3 Still UNVERIFIED — what is missing and exactly how to close it
+## 10.3 Still UNVERIFIED — dated 2026-09-28
+
+Not a queue. Do not flash the C++. Open work is [`../attention.md`](../attention.md).
 
 | Gap | Why it is still open | Cheapest way to close it |
 | --- | --- | --- |

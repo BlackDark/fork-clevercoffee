@@ -1,7 +1,7 @@
 # How the firmware became what it is
 
-**The story of a C++ firmware being replaced by a Rust one, and what that cost,
-what it found, and what it did not finish.**
+**The story of a C++ firmware being replaced by a Rust one, and what that cost
+and what it found.** Open work is [`../attention.md`](../attention.md).
 
 This is the spine of `docs/history/`. Every other document in the folder is the
 detail behind a claim made here — **with one exception**:
@@ -128,29 +128,15 @@ to appear. The control task now runs at 100 Hz and the panel has its own task. A
 sensor task was tried and removed: the DS18B20's bit-bang asserts inside the
 FreeRTOS kernel when it runs on a second task. Kept. Recheck 2027-01.
 
-## What it did not finish {#where-it-is-now}
+## Where to look before planning {#where-it-is-now}
 
-Stated here because a reader will otherwise assume otherwise. The full list, with
-what backs each line, is [`../status.md`](../status.md).
+The only task list is [`../attention.md`](../attention.md).
 
-- **The parity baseline was never captured.** The harness works; 13 scenarios
-  report `BASELINE-MISSING` and exit 2. Capturing one means flashing the C++ onto a
-  powered, wired machine, which runs its own control loop. The owner declined,
-  and a baseline never measured beats one fabricated. **Parity has therefore never
-  been demonstrated on this machine.** What the harness proves today is that the
-  scenarios run and the ledger is readable.
-- **The C++ is deleted.** As of 2026-10-06 the tree, its PlatformIO build and its
-  Wokwi simulator are gone. There is no rollback image and no way to rebuild one
-  short of checking out `9fa8c834` and reconstructing the tooling.
-- **Switch presses have still never been tested by hand.** Debounce and long-press
-  are pinned by 17 host tests against a synthetic clock. The press itself is still
-  a human's to make.
-- **A machine that boots to `PID_DISABLED` is the power switch.** It defaults
-  to enabled, type `Toggle`, so a toggle reading off starts disabled. Set
-  `hardware.switches.power.enabled` false and `pid.enabled` true to boot in
-  `PID_NORMAL`.
-- The rotary encoder and the zero-crossing dimmer are not ported. OTA has never
-  been exercised on hardware. The HX711 is implemented and no scale is fitted.
+- **Problems** empty means stop. Do not invent a fault.
+- **Potential** is not a fault. List it when asked what is open. Start a row only when it is named. Do not drop a row.
+- **Later** is skipped until its date.
+
+What works is [`../status.md`](../status.md). Closed findings are [`outstanding-findings.md`](outstanding-findings.md).
 
 ## Where the detail is
 

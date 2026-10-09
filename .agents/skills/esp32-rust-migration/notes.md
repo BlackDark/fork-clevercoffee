@@ -1,8 +1,6 @@
 # Migration Notes
 
-Running log for the C++ → Rust firmware migration. **Update this at the end of every
-task and every phase gate.** Keep it factual: what was done, what was observed, what is
-blocked.
+Log, not a queue. Open work is [`docs/attention.md`](../../../docs/attention.md). A "must" below is what was true when it was written.
 
 ---
 
@@ -537,7 +535,7 @@ exists in the code.
 ## Unverified assumptions status
 
 See [02 §8](../../../docs/history/dependency-evaluation.md#8-summary-of-unverified-assumptions).
-All ten (U1-U10) are still open. U3 (TSIC-306) is the one that can invalidate ADR-0004.
+Not a queue. TSIC-306 is Potential on [`docs/attention.md`](../../../docs/attention.md).
 
 ---
 
@@ -705,11 +703,9 @@ is a real failure mode here. Three more, all from the same day:
 
 ## Still not verified
 
-* **No hand on a switch.** The loop is fast and the debounce is pinned, but the
-  press itself has still never been made by a person. "Wakes from standby" and
-  "the steam button reacts immediately" are therefore *unverified on hardware* —
-  what is verified is that the code path is the C++'s and that the latency budget
-  above it is 10 ms + 20 ms + 100 ms instead of 400 ms + 20 ms + 100 ms.
+* **Hand presses, 2026-10-09.** Brew, hot water, steam and the power toggle were
+  pressed on the bench. The record is `docs/status.md`. Momentary power, and a
+  boot with the toggle off, were not in that pass.
 * **A reboot into `PID_DISABLED` is correct, not a bug.** `hardware.switches.power.type`
   is `Toggle` and a toggle that reads off at boot starts disabled — in the C++ too
   (`SystemInitializer.cpp:606-641`). `pid.enabled` wins only when no power switch

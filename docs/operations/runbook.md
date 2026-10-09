@@ -33,8 +33,7 @@ failed.
 
 ## 2. OTA Update
 
-All three update paths must be exercised — they use independent code paths and
-have each broken separately before.
+The multipart upload was exercised on hardware. See [`../status.md`](../status.md). `/api/ota/url` answers `501`. Not an agent task.
 
 ### 2a. ~~ArduinoOTA / espota~~ — removed
 
@@ -72,17 +71,7 @@ curl -w "\n%{http_code}\n" -X POST http://<ip>/api/ota/firmware \
 
 ### 2c. URL-based update (`/api/ota/url`)
 
-```sh
-(mkdir -p /tmp/cc-ota && cp firmware.bin /tmp/cc-ota/ && cd /tmp/cc-ota && python3 -m http.server 8765 &)
-curl -w "\n%{http_code}\n" -X POST http://<ip>/api/ota/url \
-  -d "url=http://<host-ip>:8765/firmware.bin&type=firmware"
-```
-
-- [ ] Responds **202** immediately, before the download finishes (regression:
-      the download ran inside the async web handler, starving AsyncTCP so the
-      client got no response at all / broken pipe)
-- [ ] `/api/ota/status` reports rising `progress` with `status: "downloading"`
-- [ ] Device reboots and comes back; status returns to `idle`
+Deferred. `POST /api/ota/url` answers `501`. Not an agent task.
 
 ## 3. USB Serial Logging
 
@@ -369,9 +358,9 @@ PY
 upload, refused while brewing or steaming. `/api/ota/status` answers a real
 status document. Only `/api/ota/url` is deferred (R3-15) and returns `501`.
 
-**The OTA has never been exercised on hardware** — see
+**The OTA upload was exercised on hardware** — see
 [`../status.md`](../status.md). These checks are about the routes answering
-honestly, not about a successful flash.
+honestly.
 
 - [ ] `GET /api/ota/status` → `200`, with `status`, `progress` and `updateInProgress`
       present (`OtaStatusSchema` requires all three), and `message`/`reason` naming R3-15
@@ -949,8 +938,7 @@ renamed, that test fails here rather than on a machine.
 
 ## 13. R4-04 — the safety paths
 
-Six cases the port owes the machine, written down before the water path is
-trusted with a real reservoir. Decided 2026-10-06 by Eduard Marbach.
+Six cases, written down before a real reservoir is trusted. Decided 2026-10-06 by Eduard Marbach. The machine rows are not an agent task.
 
 **Four have bench procedures and all four have now been run** on a bench ESP32
 (2026-10-07): 13.1 **passed** and 13.4 **passed**, 13.2 **half-passed**, 13.3
@@ -1151,10 +1139,8 @@ Wiring: LED + 330 Ω (220 Ω on the valve LED, which is blue and visibly dim at
 | **Valve fail-safe** (R4-04) | Needs a real valve to be observed de-energised, and a power loss to be observed with it. | The machine, with power removed while a brew is in progress: the valve must be closed, not merely commanded closed. | Eduard Marbach |
 
 **The order to run them in:** 13.1 → 13.2 need a test build or the machine (see
-13.1); 13.3 needs one jumper wire on GPIO23; 13.4 is done. Then the machine with
-an **empty reservoir** — 13.1–13.4 again, where the tank interlock is a real
-float switch — and then filled, which is when the last two table rows in 13.5
-become runnable.
+13.1); 13.3 needs one jumper wire on GPIO23; 13.4 is done. A filled machine is
+when the last two table rows in 13.5 become runnable. That step is not an agent task.
 
 **Do not push a parameter you are unsure of.** A refused write stays refused
 (HTTP 400). An already-unsafe blob repairs implicated keys on boot. Measured

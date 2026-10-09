@@ -142,7 +142,4 @@ firmware.
 
 ## What this does not yet do
 
-Stated plainly because a reader will otherwise assume otherwise: there is no
-MQTT-over-anything-else, no scale fitted to the board, no OTA path exercised on
-hardware, and neither the rotary encoder nor the dimmer is ported. The full and
-current list, with what backs each line, is [`status.md`](status.md).
+Open work is [`attention.md`](attention.md). What works is [`status.md`](status.md).

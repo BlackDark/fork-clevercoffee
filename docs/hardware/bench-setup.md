@@ -83,7 +83,7 @@ carries the table.
 
 ## First water-enabled run on the machine
 
-The bench proves the firmware. The machine proves the plumbing. In this order:
+Not an agent task. The 2026-10-09 pin check is the accepted proof ([`../status.md`](../status.md)). The bench proves the pins. The machine proves the plumbing. In this order:
 
 1. Bench, LEDs only: run the four bench-exercisable R4-04 cases (a
    `just bench-flash` build for the first two).
