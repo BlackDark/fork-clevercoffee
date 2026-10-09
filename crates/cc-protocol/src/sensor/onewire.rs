@@ -242,6 +242,8 @@ pub const fn delay_ns_to_us_ceil(ns: u32) -> u32 {
 ///   wide.
 ///
 /// So the bus is bit-banged here, and the C++'s numbers are the reference.
+/// Recheck 2027-01 before moving the probe onto `OWDriver`: that is the path
+/// which does not call `interrupt::free`.
 pub trait OneWireBus {
     /// What the transport reports when the pin itself fails.
     type Error;

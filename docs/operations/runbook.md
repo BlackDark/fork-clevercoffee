@@ -661,7 +661,9 @@ order after any change to the control loop, the display task or the HTTP layer.
     bisect is in 09 §28 and in `crates/cc-firmware/src/sensor_task.rs`. The same
     applies to every cross-task *blocking* hand-off: a `Queue` with a blocking
     receive, a `std::sync::Mutex`, and an ESP-IDF task notification were each
-    measured to assert. Non-blocking `CommandQueue::try_send` does not.
+    measured to assert. Non-blocking `CommandQueue::try_send` does not. Recheck
+    2027-01 before trying a second task again: on 2026-10-09 `esp-idf-hal` 0.47.0
+    was still current and `interrupt::free` was still one global lock.
 
 
 ### The host-side screen verifier (added 2026-10-01)

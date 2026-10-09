@@ -126,7 +126,7 @@ not be to relax the budget.
 frame was written inside that tick, which is why a switch press took half a second
 to appear. The control task now runs at 100 Hz and the panel has its own task. A
 sensor task was tried and removed: the DS18B20's bit-bang asserts inside the
-FreeRTOS kernel when it runs on a second task.
+FreeRTOS kernel when it runs on a second task. Kept. Recheck 2027-01.
 
 ## What it did not finish {#where-it-is-now}
 
