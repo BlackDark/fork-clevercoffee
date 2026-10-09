@@ -12,8 +12,8 @@ rust.yml        host      (42 s)   fmt, clippy -D warnings, rustdoc, 1074 tests,
                 invariants(15 s)   four cross-cutting greps and scripts
 frontend.yml    frontend    (26 s)  the React UI: lint, types, tests, build
 release.yml     release       --   on a v* tag only; builds the Rust image and publishes a
-                                  merged full-flash binary. NEVER RUN on a tag -- see
-                                  "What is NOT verified" in docs/status.md.
+                                  merged full-flash binary. Ran on `v2.0.0-alpha.1`
+                                  (run `37925778055`).
 ```
 
 **Wall clock is the device job.** The other jobs run in parallel with it, so
