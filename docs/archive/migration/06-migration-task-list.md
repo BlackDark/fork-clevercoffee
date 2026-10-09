@@ -8,9 +8,9 @@
 > and the acceptance criteria that were designed, not for the state of the work.
 > See [`docs/archive/README.md`](../README.md).
 
-Companion to the [execution skill](../../../.agents/skills/esp32-rust-migration/SKILL.md).
-Every task has an ID, prerequisites, acceptance criteria, and an exact validation command
-where one can already be determined.
+The execution skill this was a companion to is gone; the port it governed is
+closed. Every task has an ID, prerequisites, acceptance criteria, and an exact
+validation command where one can already be determined.
 
 **Read first:** [01 — Feature inventory](../../history/feature-inventory.md) ·
 [02 — Research matrix](../../history/dependency-evaluation.md) ·

@@ -2,9 +2,10 @@
 """Fail if any relative markdown link in this repository is broken.
 
 Added 2026-10-04. Sixteen relative links had rotted unnoticed -- nine of them in
-`.agents/skills/esp32-rust-migration/SKILL.md`, the file every agent reads first,
-which is the worst place for a link that leads nowhere. A doc cleanup that moves
-files cannot be reviewed by eye alone, and this is the check that makes such a
+the migration execution skill (since removed), the file every agent read first
+at the time, which is the worst place for a link that leads nowhere. A doc
+cleanup that moves files cannot be reviewed by eye alone, and this is the check
+that makes such a
 move safe to do again.
 
 Vendor trees are excluded: `.embuild/` is a checkout of ESP-IDF, `lib/` is

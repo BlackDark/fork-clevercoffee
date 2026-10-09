@@ -120,14 +120,6 @@ is moved there, never deleted, and never merged into a live document.
 | [`docs/archive/migration/`](archive/migration) | The migration's own planning: the decision record, tooling, the R0–R4 task list, the size budget, and two review rounds. | You want to know why a decision was made, or what a task was. |
 | [`docs/archive/cpp/`](archive/cpp) | Documents describing the **deleted C++ firmware**: its repository summary, Wokwi setup, the backflush-reminder design, the C++ state machine. **Superseded** — cite only for what the C++ did. | You want to know why a decision was made about C++ behaviour. |
 
-## Agent-facing
-
-| Document | What it is for | Read it if |
-| --- | --- | --- |
-| [`.agents/skills/esp32-rust-migration/SKILL.md`](../.agents/skills/esp32-rust-migration/SKILL.md) | The execution procedure for an agent picking up migration work. | An agent is resuming this migration. |
-| [`.agents/skills/esp32-rust-migration/checklists.md`](../.agents/skills/esp32-rust-migration/checklists.md) | Per-phase checklists the agent runs. | An agent is closing out a phase. |
-| [`.agents/skills/esp32-rust-migration/notes.md`](../.agents/skills/esp32-rust-migration/notes.md) | Session notes and working records. | An agent needs the history of a specific session. |
-
 ## Not documentation — read by code or CI, do not move
 
 Moving any of these is a build or CI break, not a link cleanup (`AG-REPO-30`,

@@ -558,8 +558,8 @@ check:
 # Every relative markdown link resolves.
 #
 # Added 2026-10-04, after a documentation restructure left sixteen rotted links
-# in place -- nine of them in `.agents/skills/esp32-rust-migration/SKILL.md`, the
-# file every agent reads first. All sixteen predated the move; the move did not
+# in place -- nine of them in the migration execution skill, the file every
+# agent read first at the time. All sixteen predated the move; the move did not
 # introduce one. It checks EXISTENCE only: a link to a file that exists but says
 # the wrong thing is a documentation defect, not a broken link, and conflating the
 # two would make this check unreliable.

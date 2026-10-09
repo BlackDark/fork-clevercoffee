@@ -60,10 +60,8 @@ review.
 read ["Where the migration actually is"](docs/history/README.md#where-it-is-now)
 **before planning any work**. For what the firmware *is*, read
 [`docs/architecture.md`](docs/architecture.md); for the vocabulary, read
-[`GLOSSARY.md`](GLOSSARY.md). The execution procedure for agents lives in
-[`.agents/skills/esp32-rust-migration/SKILL.md`](.agents/skills/esp32-rust-migration/SKILL.md).
-Neither document may restate a rule from this file; if one needs to, it links
-here instead.
+[`GLOSSARY.md`](GLOSSARY.md). The port is closed and has no execution skill;
+open work is [`docs/attention.md`](docs/attention.md).
 
 **AG-REPO-4.** `docs/status.md` is the only page permitted to claim what works.
 If you change behaviour, update it **in the same commit** (AG-REPO-20).
