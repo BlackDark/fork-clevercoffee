@@ -145,9 +145,10 @@ what backs each line, is [`../status.md`](../status.md).
 - **Switch presses have still never been tested by hand.** Debounce and long-press
   are pinned by 17 host tests against a synthetic clock. The press itself is still
   a human's to make.
-- **A machine that boots to `PID_DISABLED` is not a bug.** The power switch is
-  configured as a `Toggle`, and a toggle reading off at boot starts the machine
-  disabled in the C++ too. The port matches it line for line.
+- **A machine that boots to `PID_DISABLED` is the power switch.** It defaults
+  to enabled, type `Toggle`, so a toggle reading off starts disabled. Set
+  `hardware.switches.power.enabled` false and `pid.enabled` true to boot in
+  `PID_NORMAL`.
 - The rotary encoder and the zero-crossing dimmer are not ported. OTA has never
   been exercised on hardware. The HX711 is implemented and no scale is fitted.
 
