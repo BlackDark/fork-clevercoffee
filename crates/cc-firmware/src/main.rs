@@ -3267,6 +3267,10 @@ fn control_task(args: Box<ControlArgs>) -> Result<(), EspError> {
 
         // 🔴 The tick's own cost, measured **before** the sleep.
         //
+        // Remeasured 2026-10-09: mean work 1 ms, achieved period 10 ms. Worst
+        // 62 ms is the boot baseline. About 5% of later ticks exceed 10 ms.
+        // Do not add per-section timers.
+        //
         // A first revision of this took the timestamp *after*
         // the block and so reported ~431 ms — the sleep
         // itself, which is the tick's *period* and not its work. The tick budget

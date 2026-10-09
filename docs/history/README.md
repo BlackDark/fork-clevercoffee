@@ -118,9 +118,9 @@ and 94 KB of that is IRAM belonging to the prebuilt Wi-Fi MAC, which is untoucha
 without dropping Wi-Fi. This is why the web UI is served from flash: a 199 KB gzipped
 bundle costs 0 B of RAM because `build.rs` embeds it with `include_bytes!`.
 
-**A control tick overruns its 10 ms budget in about 62 % of ticks**, independent
-of any scale. The stated goal of zero overruns currently fails, and the fix must
-not be to relax the budget.
+**The 10 ms period is met.** Remeasured 2026-10-09: mean work 1 ms, achieved
+period 10 ms. About 5% of ticks still exceed 10 ms. The September 62% figure
+was the display frame inside the tick. Do not relax `TICK_BUDGET_MS`.
 
 **The loop was running at 2.5 Hz.** `CONTROL_TICK_MS` was 400 ms, and the display
 frame was written inside that tick, which is why a switch press took half a second

@@ -799,7 +799,7 @@ its start-up on its first iteration for a reason that has nothing to do with the
 
 ---
 
-## 24. 🟡 Found in Rust, not C++: the control tick overruns its own budget {#cf24}
+## 24. The 2026-09-29 tick overrun, display still inside the tick {#cf24}
 
 **Found 2026-09-29** while establishing R3-17's "the control tick is measurably
 unaffected" acceptance criterion. It is not a C++ finding, and it is recorded here because
@@ -833,12 +833,13 @@ timing instrument that has never disagreed with a result is not known to be work
 The instrument was wrong in the direction that would have hidden a real overrun only if
 someone read past the 431.
 
-**Consequence for R4-01b.** That task's acceptance is "worst-case tick ≤ 5 ms, mean ≤ 2 ms,
-zero ticks > 10 ms, compared against the C++ histogram recorded at R0-04". The
-**zero-ticks-over-10-ms** half is currently failed by the Rust tick on its own. R4-01b
-must either find and fix the cost, or record against the criterion that the C++ baseline
-also overruns — which is checkable, because R0-04 recorded the C++ per-iteration histogram.
-Do not "fix" this by relaxing `TICK_BUDGET_MS`.
+**Consequence for R4-01b, as of this measurement.** Acceptance was "worst-case
+tick ≤ 5 ms, mean ≤ 2 ms, zero ticks > 10 ms". The zero-over-10 ms half failed
+here. Do not relax `TICK_BUDGET_MS`.
+
+**The panel left the tick on 2026-10-01.** The later 16 ms mean is §29.
+Remeasured 2026-10-09: mean work 1 ms, achieved period 10 ms. About 5% of ticks
+still exceed 10 ms. The 62 ms worst is the boot baseline. Left. See §29.
 
 ## 25. 🟡 `POST /api/parameters` cannot fail on a scalar, so a mistyped value is saved as zero {#cf25}
 
@@ -1035,9 +1036,15 @@ shift. The display task's use was clean in this bisect. The 1-Wire hold is the
 GPIO write; the delay sits outside it.
 
 
-## 29. 🔴 The 10 ms control period is unreachable at `CONFIG_FREERTOS_HZ=100`, and raising it changes nothing {#cf29}
+## 29. Control period at `CONFIG_FREERTOS_HZ=100` — closed 2026-10-09 {#cf29}
 
 **Found** 2026-10-01, while moving the loop from 400 ms to 10 ms (R4-01b).
+
+**Closed 2026-10-09.** Production image, UART, no reset. Two 30 s windows: mean
+work 1 ms, achieved period 10 ms of a 10 ms target. Worst stayed 62 ms, inside
+the first 1000 ticks. The last window added 134 over-budget ticks of 2878 (~5%).
+`now_ms` resolves 1 ms, so that tail is not named. HZ stays 100. The tail was
+not chased. The 16 ms figures below are the 2026-10-01 measurement.
 
 **The measurement.** Two builds, same source, one line of sdkconfig apart:
 
@@ -1060,7 +1067,7 @@ instrument** (both were printing plausible nonsense for several builds):
   updated — so it printed the sum of every tick's uptime delta, divided by the
   tick count, which is why "41 seconds" appeared as a mean period.
 
-**Where the 16 ms is.** Not localised. One bisect says the temperature poll is
+**Where the 16 ms was, on 2026-10-01.** Not localised. One bisect says the temperature poll is
 about half of it (8 ms with the DS18B20 poll disabled, 15-16 ms with it), which
 does not square with a scratchpad read happening 2.4 times a second, so the
 accounting is not understood and is **not** guessed at in the source. The
@@ -1068,18 +1075,9 @@ instrument now prints mean work and achieved period beside the worst tick,
 because "worst" alone is how a loop running at half its claimed rate stays
 invisible.
 
-**What is left for the human.** Two decisions, neither of which is a code
-change:
-
-1. `CONFIG_FREERTOS_HZ` stays at 100 — IDF 5.5.5's own Kconfig default
-   (`components/freertos/Kconfig:37`; note it is **not** 1000, which is the
-   widely-quoted figure and was the wrong assumption when this was first
-   investigated). If the tick work is ever brought under a millisecond, 1000 Hz
-   becomes worth reconsidering, and the trade is then legible from the numbers.
-2. Profiling the tick properly — `esp_timer_get_time` around each section is
-   what was tried and it cost more than it measured, because the instrumentation
-   is itself per-tick. The next honest step is a GPIO pin toggle captured by a
-   logic analyser or by the idle task's accounting, not more `now_ms()` calls.
+`CONFIG_FREERTOS_HZ` stays at 100 — IDF 5.5.5's own Kconfig default
+(`components/freertos/Kconfig:37`; note it is **not** 1000). Per-section
+`esp_timer_get_time` cost more than it measured. Do not add it back.
 
 ## 30. 🔴🔴 Three faults in one: the station refused a WPA2 network, the stored SSID was wrong, and a wrong SSID was unfixable over USB {#cf30}
 
@@ -1145,7 +1143,7 @@ stop.
 | no `wifi:state:` transitions at all | the **SSID is not on the air** — check the stored SSID's bytes |
 | `wifi:state: init -> auth` then a `reason=` disconnect | a **password** problem |
 
-## 31. 🟡 The control tick's 15 ms is in the applier span, not in the sensors and not in the reducer {#cf31}
+## 31. The 2026-10-01 applier-span split — not this image {#cf31}
 
 **Measured** 2026-10-01, with the section timing instrumented into the tick and
 then removed again. The loop now reports mean work and achieved period, because
@@ -1171,8 +1169,7 @@ between "`control.tick` returned" and "step 8 begins" — `cc_machine::apply`,
 match over effects writing atomics, `drain_scale` is a no-op with no scale fitted,
 and the publish and reboot checks are once-per-second or a single atomic swap.
 A 12 ms mean inside arithmetic that should take microseconds is exactly the
-shape of something waiting, and the next honest step is to split *that* span —
-apply alone, then the scale drain, then the reboot checks — rather than to guess.
+shape of something waiting. Splitting that span further is closed below.
 
 **Two measurement traps hit on the way, both recorded because they waste an
 afternoon if you repeat them:**
@@ -1184,9 +1181,7 @@ afternoon if you repeat them:**
 * Reading the totals **after** zeroing them prints zeroes for every section while
   the tick is 15 ms, which points at the clock instead of at the code.
 
-**What this does and does not change.** Nothing is claimed as fixed: the loop runs
-at ~65 Hz rather than 100 Hz, the deadline is missed on every tick, and the
-machine is one `CONFIGURED_FREERTOS_HZ` change away from hitting it. Nothing here
-is a *safety* regression — the deadman is fed on every pass whatever the pass
-costs, and the heater's 10 ms chopper is an ISR. It is a responsiveness
-finding, and the open question is what in the applier span costs 12 ms.
+**Closed 2026-10-09.** The section timers are not in this image. Whole-tick mean
+work is 1 ms and the period is 10 ms (§29), so the 12 ms applier mean is not
+what this image does. Do not split the span. The deadman is still fed every
+pass, and the heater chopper is still the ISR.

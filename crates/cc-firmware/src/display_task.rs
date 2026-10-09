@@ -19,6 +19,9 @@
 //! the loop was not slow because the loop was slow, it was slow because the
 //! display was in it.
 //!
+//! A later whole-tick measurement (2026-10-09) is mean work 1 ms, achieved
+//! period 10 ms. The 1 October 16 ms mean is a different measurement.
+//!
 //! With the panel here, the control task's cost is the reducer and the applier,
 //! and the panel's cost is the panel. The two contend for one I²C bus, which is
 //! a mutex, and neither can make the other miss a deadline that matters: the

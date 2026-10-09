@@ -27,7 +27,7 @@ blocked.
 | **Static RAM** | **131,688 B — 42 % of the ESP32's 320 KB**, roughly double the pre-network figure. **RAM, not flash, is now the binding constraint**, and ADR-0002's 30 KB shed margin was tuned against a much smaller baseline. |
 | Connected device | `/dev/cu.usbserial-224140` — `esp32` rev v3.0, 4 MB, dual core, WiFi+BT, MAC `ec:62:60:76:b5:3c`. **WCH CH340**, not CP2102N. Link unreliable above ~460800. |
 | Heater output | **10 ms GPTimer ISR**, not LEDC (LEDC cannot do a 1 Hz carrier on this chip — 09 §17). **Never energised** except in a deliberate, logged panic-probe. |
-| Known regression | **Resolved 2026-10-01.** The control tick overran its 10 ms budget in ~62 % of ticks because a 1 KB display frame was written inside it (09 §24). The panel is now on its own task at 100 ms and the loop is at 100 Hz; the periodic `control tick:` line reports the worst tick and the over-budget count, and it is the check to watch. |
+| Known regression | **Period met, 2026-10-09.** Mean work 1 ms, achieved period 10 ms. The 62% overrun was the display frame inside the tick (09 §24). About 5% of ticks still exceed 10 ms; left. |
 
 ---
 
@@ -736,18 +736,18 @@ list in `docs/operations/runbook.md`.
 
 ## Where everything from 2026-10-01 is written down
 
-`docs/archive/migration/31-findings-2026-10-01.md` — the index. Every finding from
-the day, with where the detail lives and what is still open.
+`docs/archive/migration/31-findings-2026-10-01.md` — the index of that day.
+Its tick next-step (split the applier, revisit HZ under 1 ms) is closed.
+Outstanding findings #7.
 
 The four documents it points into:
 
 | document | what it holds |
 | --- | --- |
-| `09-cpp-findings.md` §28–§31 | the `FreeRTOS` blocking hazard, the tick-rate measurement, the Wi-Fi recovery, the 15 ms in the applier span |
+| `09-cpp-findings.md` §28–§31 | the `FreeRTOS` blocking hazard, the tick-rate measurement, the Wi-Fi recovery, the 15 ms applier span (not this image, §31) |
 | `intentional-diffs.md` §14–§17 | the layout divergences from the C++ (uptime, `°C`, Scale rows) and the two behaviour changes (S1 counting samples, the reboot shutdown) |
 | `docs/operations/runbook.md` | a runnable check per finding — Wi-Fi, the tick, the screen fit, the language columns |
 | `notes.md` (this file) | the Wi-Fi recovery summary an agent needs before touching Wi-Fi again |
 
-**Open, with the next step named, in §7 of the index.** The first is the control
-tick: ~65 Hz rather than 100 Hz, with the **applier span** measured at 12 ms of
-the 15 ms and nothing in it obviously blocking.
+**The 16 ms tick mean is not this image.** Remeasured 2026-10-09: mean work
+1 ms, achieved period 10 ms. Outstanding findings #7.

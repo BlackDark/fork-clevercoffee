@@ -485,15 +485,17 @@ order after any change to the control loop, the display task or the HTTP layer.
 
 ### Control loop
 
-1. **The loop is at 100 Hz, not slower.** Read the periodic tick line:
+1. **The loop holds 10 ms.** Read the periodic tick line:
 
    ```
-   control tick: worst N ms of the last M (baseline B ms ..., budget 10 ms, K over budget)
+   control tick: worst N ms of the last M (baseline B ms ..., budget 10 ms, K over budget) —
+     mean work W ms, achieved period P ms of a 10 ms target
    ```
 
-   `K` must be 0 once the first second has passed, and `N` must be under 10 ms.
-   A `N` in the tens of milliseconds means something slow is back inside the tick
-   — the display frame is the usual culprit, and it belongs in the display task.
+   Measured 2026-10-09: `W` = 1, `P` = 10. `N` stayed at the baseline (62 ms,
+   inside the first 1000 ticks). After that, `K` grew by about 5% of ticks.
+   A mean near 15 ms, or a period above 10 ms, is the old fault. Do not relax
+   the budget. [`../history/outstanding-findings.md`](../history/outstanding-findings.md) #7.
 
 2. **A 400 ms period is itself a failure.** If a change reintroduces a period
    longer than 10 ms, the machine is back to reacting in half a second, which is
@@ -878,22 +880,12 @@ checks exist so that the next one costs ten minutes instead of an afternoon.
    DallasDs18b20`).
 
 
-### The control tick is not at 100 Hz, and we now know where the time is
+### The 16 ms tick mean is not this image
 
-```
-control tick: worst N ms of the last M (… budget 10 ms, K over budget) —
-  mean work 15 ms, achieved period 15 ms of a 10 ms target
-```
-
-The loop runs at **~65 Hz**, not 100 Hz, and the time is in the **applier span**
-— `cc_machine::apply`, the scale drain and the reboot checks — at ~12 ms per tick.
-Not the sensors (0 ms), not the reducer (0 ms), not the display (0 ms). Full
-measurement and the two traps that produced wrong numbers on the way are in
-`09-cpp-findings.md` [§31](../history/cpp-findings.md#cf31).
-
-To narrow it further, split the applier span into `apply` / `drain_scale` / the
-reboot checks and read the same line. Do **not** attribute it without a
-measurement: "the applier is slow" is not a finding, "the applier is 12 ms" is.
+Remeasured 2026-10-09: mean work 1 ms, achieved period 10 ms. The 1 October
+applier split (~12 ms) is not this image. Do not split that span.
+[`cpp-findings.md` §29](../history/cpp-findings.md#cf29),
+[§31](../history/cpp-findings.md#cf31).
 
 ---
 
