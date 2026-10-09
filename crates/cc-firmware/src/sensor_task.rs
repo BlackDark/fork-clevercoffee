@@ -32,23 +32,26 @@
 //!
 //! # The mechanism, as far as the evidence goes
 //!
-//! The DS18B20 is the only thing that calls [`esp_idf_hal::interrupt::free`], and
-//! on the original ESP32 that is `vPortEnterCritical` on a **process-global**
-//! `IsrCriticalSection` (`esp-idf-hal-0.47.0/src/interrupt.rs`: `pub(crate)
-//! static CS`). esp-idf-hal's own comment on it says what happens when a second
-//! task touches it from the other core:
+//! On the original ESP32 [`esp_idf_hal::interrupt::free`] enters one
+//! process-global `static CS` via `xPortEnterCriticalTimeout`
+//! (`esp-idf-hal-0.47.0/src/interrupt.rs`). The display frame, telemetry, and
+//! the HX711 shift use it too. The display task's use was clean in the bisect
+//! above. esp-idf-hal's own comment on a second core:
 //!
 //! > *"the second core will then spinlock (busy-wait) in
 //! > `IsrCriticalSection::enter`, until the first CPU releases the critical
 //! > section"*
 //!
-//! 1-Wire holds that critical section 80-odd times per scratchpad read, for
-//! 3–65 µs each. On one task that is unremarkable — it is what the C++ does with
-//! `noInterrupts()`. On a second task it is a spinlock that the FreeRTOS port
-//! also expects to be able to reschedule through, and this build asserts.
+//! A scratchpad read enters that lock once per GPIO write. The wait sits
+//! outside it (`onewire.rs` `pulse_low`). On one task that matches the C++
+//! `noInterrupts()` around the edge. On a second task this build asserts.
 //!
 //! It is reproducible, it is in the kernel rather than in this workspace, and it
 //! is not worth shipping a firmware that trips it. So the temperature probe stays
 //! on the control task, where it has run without incident, and the *display* —
 //! which the bisect shows is safe — moves out. See
 //! `docs/history/cpp-findings.md` for where this finding is recorded.
+//!
+//! Recheck 2027-01. On 2026-10-09 crate 0.47.0 was still the latest release and
+//! `free` still entered that one `CS`. The other path is RMT `OWDriver` in the
+//! same crate; its CRC helpers are still `todo`.

@@ -1228,14 +1228,8 @@ fn bring_up() -> Result<(), Box<dyn Error>> {
     // control task owns and which panics the chip when it trips — is already
     // subscribed before anything else starts moving.
     //
-    // **The display task and nothing else.** A sensor task was written, measured
-    // and removed: the DS18B20's bit-bang is the only user of
-    // `esp_idf_hal::interrupt::free`, which on this chip is `vPortEnterCritical`
-    // on a process-global cross-core critical section, and running it from a
-    // second task asserts inside the FreeRTOS kernel on every boot. The bisect
-    // table is in `sensor_task.rs`, which is now a note about why the sensor
-    // task does not exist. The display task was in the same bisect and was clean
-    // in every combination, so it stays.
+    // **The display task and nothing else.** A sensor task was measured and
+    // removed. The bisect is in `sensor_task.rs`. Recheck 2027-01.
     let display_thread = cc_hal_esp32::task::spawn_with_prio(
         c"display",
         DISPLAY_STACK_BYTES,
@@ -1663,14 +1657,8 @@ struct ControlArgs {
     /// every tick for the rest of the process, and a `&'static mut` would be a
     /// lifetime this call site cannot honestly promise.
     ///
-    /// It stays on *this* task, and not on a sensor task of its own, because of
-    /// a measured toolchain defect: the DS18B20's bit-bang is the only user of
-    /// `esp_idf_hal::interrupt::free`, which on this chip is `vPortEnterCritical`
-    /// on a process-global cross-core critical section, and running it from a
-    /// second task asserts inside the `FreeRTOS` kernel on every boot. The full
-    /// bisect is in the module that used to hold the sensor task; the short
-    /// version is three rows of a table and it is worth reading before anyone
-    /// tries this again.
+    /// Stays on this task. A second task that polls it asserts. Bisect and the
+    /// 2027-01 recheck are in [`sensor_task`].
     temp: TemperatureSensor,
     /// The shared HTTP/MQTT telemetry slot.
     net: Arc<network::Network>,

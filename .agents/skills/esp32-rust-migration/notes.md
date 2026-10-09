@@ -667,12 +667,8 @@ The **sensor** task does not. Bisected on hardware, one variable at a time:
 | started, DS18B20 poll enabled (any cadence) | not started | 3–4 |
 | not started | started | **0** |
 
-The DS18B20 is the only user of `esp_idf_hal::interrupt::free`, which on the
-original ESP32 is `vPortEnterCritical` on a **process-global** cross-core
-critical section. On one task that is what the C++ does with `noInterrupts()`; on
-a second task this build asserts inside the kernel
-(`xTaskRemoveFromEventList`, and a `LoadProhibited` in the lwIP `tcpip_thread`
-that has nothing to do with the firmware).
+A second task that polls the DS18B20 asserts in the kernel. The lock and the
+2027-01 recheck are in `crates/cc-firmware/src/sensor_task.rs`.
 
 **The same applies to every cross-task blocking hand-off.** A `Queue` with a
 blocking receive, a `std::sync::Mutex`, and an ESP-IDF task notification were each

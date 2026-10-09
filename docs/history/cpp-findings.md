@@ -1007,20 +1007,12 @@ a task with nothing to do with this firmware, corrupted from outside. The
 frequency does not matter, which rules out a timing or CPU-budget explanation and
 leaves the *presence of a second task touching the probe* as the variable.
 
-**The mechanism, as far as the evidence goes.** The DS18B20 is the only thing in
-the firmware that calls `esp_idf_hal::interrupt::free`, and on the original ESP32
-that is `vPortEnterCritical` on a **process-global** `IsrCriticalSection`
-(`esp-idf-hal-0.47.0/src/interrupt.rs`: `pub(crate) static CS`). esp-idf-hal's own
-comment on it says what happens when a second task reaches it from the other core:
-
-> the second core will then spinlock (busy-wait) in `IsrCriticalSection::enter`,
-> until the first CPU releases the critical section
-
-1-Wire enters and leaves that critical section 80-odd times per scratchpad read,
-for 3–65 µs each (`cc_domain::onewire::timing`, and the C++'s own numbers). On
-one task that is unremarkable — it is precisely what the C++ does with
-`noInterrupts()`. On a second task it is a spinlock the `FreeRTOS` port also
-expects to be able to reschedule through, and this build asserts.
+**The mechanism, as far as the evidence goes.** On the original ESP32
+`interrupt::free` enters one `static CS` (`esp-idf-hal-0.47.0/src/interrupt.rs`).
+The display frame uses it too, and that task was clean. A scratchpad read enters
+the lock once per GPIO write. The delay sits outside the lock. On one task that
+matches the C++ `noInterrupts()` around the edge. On a second task this build
+asserts.
 
 **What was done about it.** The sensor task was removed and the probe left on the
 control task, where it has run without incident. The **display** task was in the
@@ -1033,11 +1025,14 @@ the top of the next period. The evidence is kept in
 `crates/cc-firmware/src/sensor_task.rs`, which is now a note about why the sensor
 task does not exist.
 
-**Open.** Whether this is a defect in `esp-idf-hal`, in ESP-IDF v5.5.5's
-non-SMP `FreeRTOS` port, or in the way the two interact is **not established**
-here, and the firmware should not be changed on a guess. The C++ firmware is
-unaffected: Arduino-ESP32 runs one loop task and never enters that critical
-section from a second one.
+**Closed 2026-10-09, kept.** `esp-idf-hal` 0.47.0 was still the latest release.
+On the original ESP32 `interrupt::free` enters one `static CS` via
+`xPortEnterCriticalTimeout`. No changelog entry removes that. The probe stays
+on the control task. Recheck 2027-01. The RMT `OWDriver` in that crate does not
+bit-bang; its CRC helpers are still `todo`, so it is not a drop-in.
+`interrupt::free` is also used for the display frame, telemetry, and the HX711
+shift. The display task's use was clean in this bisect. The 1-Wire hold is the
+GPIO write; the delay sits outside it.
 
 
 ## 29. 🔴 The 10 ms control period is unreachable at `CONFIG_FREERTOS_HZ=100`, and raising it changes nothing {#cf29}
