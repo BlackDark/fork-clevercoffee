@@ -50,6 +50,13 @@ page.
   **Layout.** Findings #3–#6 (clipped EEPROM, German sensor, OTA title, 1 px
   row overlap) are fixed in host tests, not on the machine.
   [`history/divergences.md` §40](history/divergences.md#d40).
+
+  **`°C`.** Four temperature fields drew nothing at all: `fmt::Formatted::push`
+  stored `c as u8`, so a `°` put a lone `0xB0` in a buffer `as_str()` reads as
+  UTF-8 — and it returned `""` for the whole field, not just the character.
+  Fixed in host tests, same as above: the buffer holds UTF-8 and the Latin-1
+  mapping happens at the font, where `print_char` already did it. The goldens
+  had recorded the blank fields as correct, which is what a golden does.
 - **The display parity oracle still links the real U8g2, and the bitmaps it
   draws are the firmware's own.** The C++ tree it used to pull artwork from is
   gone, so `crates/cc-display/examples/emit_bitmaps.rs` generates the oracle's
@@ -58,7 +65,7 @@ page.
   (`src/clib/`) to upstream tag `2.36.18` (`csrc/`, `cppsrc/`), fetched by
   `just u8g2`; it is the same version, a different packaging.
   `just test-display-parity`: 2 passed. `just snapshot-display`: 1 golden
-  rendered, unchanged.
+  rendered, unchanged on that run; 15 changed with the `°C` fix above.
 - **The documentation has one map, one architecture page and one glossary.**
   `docs/index.md` is exhaustive again (`AG-REPO-28`): `docs/api/openapi.yaml`
   had been missing from it for the whole port, which is how a 759-line orphan
