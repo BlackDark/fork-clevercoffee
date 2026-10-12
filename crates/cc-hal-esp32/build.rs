@@ -3,11 +3,10 @@
 //! # Why embedded and not a `LittleFS` partition
 //!
 //! F25's React SPA is built into `ui/packages/frontend/dist`, gzip-compressed
-//! by the `rollup-plugin-gzip` already wired into `vite.config.ts`. Measured on
-//! 2026-09-30 (Vite 8.2.2): 199,270 B gzipped, of which one file — the JS
-//! bundle — is 182,878 B. The uncompressed bundle is ~715 KB, which does NOT
-//! fit anywhere: the app slot had 496,192 B free and the `littlefs` partition
-//! is 393,216 B.
+//! by the `rollup-plugin-gzip` already wired into `vite.config.ts`. Measured
+//! 2026-10-08 (Vite 8.3.2): 195,436 B embedded, of which the JS file is
+//! 179,038 B gzip and 588 kB raw. The raw file does not fit the 393,216 B
+//! `littlefs` partition, so the gzip form is what gets embedded.
 //!
 //! The gzip bundle fits the app slot with room to spare, so it is embedded with
 //! `include_bytes!` rather than uploaded to `LittleFS`. That buys three things a

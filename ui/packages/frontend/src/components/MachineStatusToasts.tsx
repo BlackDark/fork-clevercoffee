@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
-import { useLocation } from "react-router-dom";
 import { toast } from "sonner";
 import { useCleverCoffee } from "@/context/useCleverCoffee";
+import { useLocation } from "@/lib/router";
 
 /**
  * Global machine alerts as bottom-right toasts (does not cover the nav bar).

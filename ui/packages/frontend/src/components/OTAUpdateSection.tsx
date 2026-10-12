@@ -1,3 +1,5 @@
+import { useState } from "react";
+import { toast } from "sonner";
 import {
   CheckCircle,
   Download,
@@ -6,9 +8,7 @@ import {
   Loader2,
   Upload,
   XCircle,
-} from "lucide-react";
-import { useState } from "react";
-import { toast } from "sonner";
+} from "@/components/icons";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";

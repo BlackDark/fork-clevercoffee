@@ -3,6 +3,8 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@radix-ui/react-collapsible";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import {
   AlertCircle,
   ChevronDown,
@@ -13,10 +15,7 @@ import {
   RefreshCw,
   Save,
   TriangleAlert,
-} from "lucide-react";
-import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { useParams } from "react-router-dom";
-import { toast } from "sonner";
+} from "@/components/icons";
 import { MaintenanceBackflushPanel } from "@/components/MaintenanceBackflushPanel";
 import { ParameterNavigation } from "@/components/ParameterNavigation";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -65,6 +64,7 @@ import {
   areRequiredParametersMet,
   getMissingRequiredParametersMessage,
 } from "@/lib/parameter-utils";
+import { useParams } from "@/lib/router";
 import { API_ROUTES } from "@/lib/routes";
 
 // Extract types for better type safety

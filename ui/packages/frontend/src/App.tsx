@@ -1,5 +1,5 @@
-import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { basePath } from "@/lib/config";
+import { BrowserRouter, Route, Routes } from "@/lib/router";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Layout } from "./components/Layout";
 import { Toaster } from "./components/ui/sonner";

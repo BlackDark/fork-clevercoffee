@@ -1,5 +1,4 @@
-import { ChevronDown, Settings } from "lucide-react";
-import { Link, useParams } from "react-router-dom";
+import { ChevronDown, Settings } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -7,6 +6,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Link, useParams } from "@/lib/router";
 
 const parameterCategories = [
   {

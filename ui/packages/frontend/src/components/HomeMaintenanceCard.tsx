@@ -1,5 +1,5 @@
-import { AlertTriangle, Droplets, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
+import { AlertTriangle, Droplets, RotateCcw } from "@/components/icons";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
