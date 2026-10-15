@@ -860,7 +860,6 @@ impl Display {
         true
     }
 
-    /// The clip window as a [`Rect`].
     #[must_use]
     fn clip_rect(&self) -> Rect {
         let (x0, y0, x1, y1) = self.clip_window();
