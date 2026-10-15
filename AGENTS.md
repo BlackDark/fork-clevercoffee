@@ -353,3 +353,31 @@ and `just bench` reports the number.
 `no_std` with no `alloc` in the device build, so an allocation there is a link
 error on the chip. It is a display rule as much as a memory rule: the layout
 ones are `AG-DISPLAY-1` through `AG-DISPLAY-6`.
+
+**AG-RUST-13.** **A comment must carry something the code does not.** The test
+is one question: *does this line hold a fact, a constraint, a hazard or a
+rejected alternative that the code, a linked ADR, or a test does not already
+hold?* If the answer is no, the comment is restatement and it is deleted rather
+than reworded.
+
+This is a length rule expressed as a content rule, because length is the symptom
+and not the defect. The rationale blocks in this tree are long *because* they
+cache derivation that cannot be redone here -- the deleted C++ is recoverable
+only through `git show` (`AG-REPO-27`), and ESP-IDF is not in the repository at
+all. Cutting those to hit a line count would delete the only copy.
+
+Two things this tree already proves about the rule, so neither needs re-measuring:
+comments are 39 % of `crates/*/src`, and comments that merely narrate the next
+statement are 0.36 % of them. The waste is small; the exposure is that the ratio
+grows by default, because nothing previously asked the question.
+
+Practical consequences:
+
+* A module header earns its place by the *first* statement after it. Put the
+  answerable part there -- what this file owns, what it refuses to do, what
+  breaks if it is wrong -- and put derivation below it.
+* A comment that states a number, a path or a section cite is the kind that rots.
+  Prefer the constant, the link or the assertion over the prose, so the compiler
+  or `check-doc-links.py` checks it. This is the failure `CLN-1` and `CLN-2` in
+  [`AUDIT.md`](AUDIT.md) record after the fact.
+* `CONTRIBUTING.md` carries the same rule for human contributors.

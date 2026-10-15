@@ -52,7 +52,10 @@ with `-D warnings`. Read those two before adding an `#[allow]` or an `#[expect]`
 (`AG-RUST-10`) -- every one already in the tree is there for a reason.
 
 Comments should explain the **why**, not restate the code. Write for the
-maintainer who does not know the subsystem.
+maintainer who does not know the subsystem. The test is one question: does this
+line hold a fact, a constraint, a hazard or a rejected alternative that the code,
+a linked ADR, or a test does not already hold? If not, delete it rather than
+reword it. See `AG-RUST-13`.
 
 ## Submitting Changes
 
