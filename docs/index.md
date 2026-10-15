@@ -89,6 +89,7 @@ rejected.
 | --- | --- | --- |
 | [`docs/operations/runbook.md`](operations/runbook.md) | **The runnable pre-release checklist**, section by section, with the exact command or `curl` for each check. Procedures only; the C++ comparisons live in the history reference. | You are at the hardware, or you are about to cut a release. |
 | [`docs/operations/ci.md`](operations/ci.md) | What CI runs, what each job costs, and why the caches are hand-keyed. | You want to know whether CI will catch something, or what it will cost. |
+| [`AUDIT.md`](../AUDIT.md) | A dated repository audit: scorecard, per-finding evidence and fix, tool coverage, and the review verdicts. | You want the defect list, or you are about to re-run the audit and must not duplicate it. |
 | [`docs/THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md) | Vendored third-party notices. Checked by CI with `test -f`. | Legal, or adding a vendored dependency. |
 
 ## How the firmware got here
