@@ -1,25 +1,24 @@
-//! The actuator facade: the single owner of the pump, the valve relay and the
+//! The actuator facade: single owner of the pump, the valve relay and the
 //! heater.
 //!
 //! Owner: **R4-01**.
 //!
 //! # What this is
 //!
-//! `cc_machine::Actuators` is the port of `HardwareManager`
-//! (`src/hardware/HardwareManager.cpp`): the object that owns the relay pins
-//! and the four booleans the rest of the C++ consults — `emergencyMode_`,
-//! `waterTankEmpty_`, `heaterEnabled_`, `valveState_`. It is the **only** code in
-//! the firmware permitted to change an actuator pin, and it is the only place
-//! the interlocks are checked.
+//! `cc_machine::Actuators` ports `HardwareManager`
+//! (`src/hardware/HardwareManager.cpp`): the object owning the relay pins and
+//! the four booleans the rest of the C++ consults — `emergencyMode_`,
+//! `waterTankEmpty_`, `heaterEnabled_`, `valveState_`. The **only** code in the
+//! firmware permitted to change an actuator pin, and the only place the
+//! interlocks are checked.
 //!
 //! [`cc_machine::applier::apply`] is the only caller. 04 §3.1: *"A new state
 //! cannot accidentally poke a relay, because it has no way to reach one — it can
-//! only return an `Effect`."* That sentence is only true if this type is the
-//! sole exit, and the C++ shows what the alternative costs: `heaterEnabled_`
-//! drifts away from the pin because `isr.h` drives the heater relay *directly*,
-//! bypassing the facade (01 §4). Here the heater pin belongs to the 10 ms ISR and
-//! the facade is what decides the duty it chops to, so the drift has nowhere to
-//! happen.
+//! only return an `Effect`."* True only if this type is the sole exit, and the
+//! C++ shows the cost of the alternative: `heaterEnabled_` drifts away from the
+//! pin because `isr.h` drives the heater relay *directly*, bypassing the facade
+//! (01 §4). Here the heater pin belongs to the 10 ms ISR and the facade decides
+//! the duty it chops to, so the drift has nowhere to happen.
 //!
 //! # Three properties, and why each is inside the methods
 //!
@@ -27,29 +26,27 @@
 //!
 //! `emergency_shutdown` **latches**; `safe_hardware_shutdown` does not. After the
 //! first, `enable_pump` / `open_water_valve` / `set_heater_duty` are **refused**
-//! until the latch is cleared. That is S2, and it is
+//! until the latch clears. That is S2, and it is
 //! `HardwareManager::emergencyMode_` (`:278,306,321,353,398,443`) — the guard is
 //! in the method rather than at the call site for the same reason the C++ puts
-//! it there: there are thirteen call sites and a new one must not be able to
-//! forget.
+//! it there: thirteen call sites exist and a new one must not be able to forget.
 //!
 //! The latch itself is **not owned here**. `cc_safety::reduce` owns it, in
-//! `Machine::safety`, and this type is told what it is
-//! ([`Actuators::set_latched`]) once per tick. The alternative — letting the
-//! actuator facade be the latch's home — is the C++'s actual bug shape:
-//! `EmergencyStopManager::emergencyActive_` and
-//! `MachineStateContext::emergencyStop_` are two copies of one latch that have to
-//! be updated in step (`ProcessController.cpp:336`,
-//! `EmergencyStopState.cpp:59-63`), and they are not always.
+//! `Machine::safety`, and this type is told what it is ([`Actuators::set_latched`])
+//! once per tick. Making the actuator facade the latch's home is the C++'s actual
+//! bug shape: `EmergencyStopManager::emergencyActive_` and
+//! `MachineStateContext::emergencyStop_` are two copies of one latch updated in
+//! step (`ProcessController.cpp:336`, `EmergencyStopState.cpp:59-63`), and not
+//! always.
 //!
 //! ## 2. The water tank interlock
 //!
 //! Checked inside [`Actuators::enable_pump`] and
 //! [`Actuators::open_water_valve`], from the flag the shell sets from the float
-//! switch. **This is a deliberate divergence from the C++**, which checks
-//! `waterTankEmpty_` in `enablePump` (`:325-328`) but *not* in
-//! `openWaterValve` — see 09 §3 and `intentional-diffs.md` #3. A brew state
-//! entered with an empty tank opened the water valve against a dry reservoir.
+//! switch. **A deliberate divergence from the C++**, which checks
+//! `waterTankEmpty_` in `enablePump` (`:325-328`) but *not* in `openWaterValve` —
+//! see 09 §3 and `intentional-diffs.md` #3. A brew state entered with an empty
+//! tank opened the water valve against a dry reservoir.
 //!
 //! ## 3. The two valve whitelists
 //!
@@ -63,41 +60,38 @@
 //! [`Actuators::open_water_valve`] applies
 //! [`cc_safety::water_flow_allowed`] for the same reason. S5's whitelist is the
 //! C++'s own — `BrewHandler::valveSafetyShutdownCheck`
-//! (`BrewHandler.h:105-122`), transcribed into `cc_safety` — so this is not a
-//! new rule but the C++'s, enforced one place earlier as well. The two
-//! `may_open_*` methods are deliberately symmetric: both consult a whitelist,
-//! so the facade is a second line of defence on its own rather than only when
-//! the effect list happens to end in a close.
+//! (`BrewHandler.h:105-122`), transcribed into `cc_safety` — so not a new rule
+//! but the C++'s, enforced one place earlier as well. The two `may_open_*`
+//! methods are deliberately symmetric: both consult a whitelist, so the facade
+//! is a second line of defence on its own rather than only when the effect list
+//! happens to end in a close.
 //!
 //! **Which means the cached state has to be the one the effects were produced
-//! from.** The shell calls [`Actuators::set_state`] after the tick and before
-//! the `apply` (`cc-firmware/src/main.rs`), and again before the MQTT path's
-//! own `apply`; telling it before the tick leaves the cache holding the state
-//! that tick left, and an `OpenWaterValve` emitted *because of* the transition
-//! into `BREW_PREINFUSION` would then be judged against `PID_NORMAL` and
-//! refused.
+//! from.** The shell calls [`Actuators::set_state`] after the tick and before the
+//! `apply` (`cc-firmware/src/main.rs`), and again before the MQTT path's own
+//! `apply`; telling it before the tick leaves the cache holding the state that
+//! tick left, and an `OpenWaterValve` emitted *because of* the transition into
+//! `BREW_PREINFUSION` would then be judged against `PID_NORMAL` and refused.
 //!
 //! # The valve is one pin and four commands
 //!
-//! `ValveState` is the C++'s four-valued enum
-//! (`ValveState.h:12-17`) and it is here for the reason its own comment gives:
-//! steam and water share the relay, so the pin's state is a function of *both*
-//! valves and closing one must not close the other. A pair of booleans written to
-//! the same pin is a race with itself.
+//! `ValveState` is the C++'s four-valued enum (`ValveState.h:12-17`), kept for the
+//! reason its own comment gives: steam and water share the relay, so the pin's
+//! state is a function of *both* valves and closing one must not close the other.
+//! A pair of booleans written to the same pin is a race with itself.
 //!
 //! # The `test_only` inhibit
 //!
 //! [`Inhibit`] exists so a bring-up build can refuse to energise a relay without
-//! removing the code path that would. It is **not** a safety mechanism: a
-//! safety mechanism is a [`cc_safety::Verdict`], and this type consults one. An
-//! inhibit set here would silently defeat a test that was supposed to prove the
-//! actuator *can* be driven, which is why [`Actuators::inhibit`] is a field the
-//! firmware sets once at boot and logs, never something an effect can change.
+//! removing the code path that would. **Not** a safety mechanism: a safety
+//! mechanism is a [`cc_safety::Verdict`], and this type consults one. An inhibit
+//! set here would silently defeat a test that was supposed to prove the actuator
+//! *can* be driven, which is why [`Actuators::inhibit`] is a field the firmware
+//! sets once at boot and logs, never something an effect can change.
 //!
 //! The refusal is counted and logged rather than silent, because "the pump did
-//! not run" and "the pump was inhibited" are different facts and the second one
-//! has to be visible on the console.
-
+//! not run" and "the pump was inhibited" are different facts and the second has
+//! to be visible on the console.
 use cc_domain::heater::HeaterGate;
 use cc_domain::state::MachineState;
 use cc_domain::units::{Duty, Millis};

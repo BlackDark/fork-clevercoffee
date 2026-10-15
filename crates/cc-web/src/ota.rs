@@ -1,5 +1,5 @@
-//! The parts of an OTA that are pure functions: the upload envelope, the size
-//! and extension rules, and the status document.
+//! OTA parts that are pure functions: the upload envelope, the size and extension
+//! rules, the status document.
 //!
 //! Owner: **R3-15**.
 //!
@@ -7,7 +7,7 @@
 //!
 //! | Here | Why |
 //! | --- | --- |
-//! | [`PartReader`] | A streaming `multipart/form-data` splitter. It is a byte-level state machine over the request body, and it is where the memory argument lives — see below. |
+//! | [`PartReader`] | A streaming `multipart/form-data` splitter. A byte-level state machine over the request body, and where the memory argument lives — see below. |
 //! | [`Kind`], [`extension_allowed`] | `validateFileExtension` (`src/ota.cpp:186-193`), verbatim. |
 //! | [`fits`], [`MAX_FIRMWARE_BYTES`] | The size rule. `esp_ota_begin` takes an image size; a 1.6 MB image on a 1,835,008 B slot is 87 % full, and the C++ discovers that by erasing the whole partition first and failing afterwards. |
 //! | [`progress_percent`] | The progress bar's arithmetic, **including the per-kind floor**. It was in `cc-hal-esp32`, where `just test` cannot reach it, and it scaled both kinds against the firmware floor. |
@@ -18,7 +18,7 @@
 //! | `esp_ota_*` / `esp_partition_*` calls, the socket read loop, the restart | FFI and a socket. Neither is reachable from a host, and neither is where the decisions are. |
 //! | **the admission check** | it needs `cc_safety` and the live state; it is `cc_machine::ota::admit` and it is host-tested there. |
 //!
-//! # The memory argument, in one place
+//! # The memory argument
 //!
 //! **A firmware image is 1,675,952 B. The heap is ~320 KB.** The image cannot be
 //! buffered, and the C++ never buffered it either: `processUploadChunk`
@@ -26,18 +26,18 @@
 //! `AsyncWebServer` handed it and keeps no copy. ESP-IDF's `httpd` is the same
 //! shape — `httpd_req_recv` fills a caller-supplied buffer and returns.
 //!
-//! So the pipeline is:
+//! Pipeline:
 //!
 //! ```text
 //! socket -> [ 4 KiB stack buffer ] -> PartReader -> esp_ota_write
 //! ```
 //!
-//! and the heap high-water mark of an upload is **the size of one chunk**,
+//! Heap high-water mark of an upload is therefore **the size of one chunk**,
 //! independent of the image. [`PartReader`] holds a carry of
-//! `boundary.len() + 4` bytes — under 80 for any legal
-//! boundary — because a multipart delimiter may straddle two reads and the last
-//! few bytes cannot be emitted until it is known not to be one. Everything else
-//! goes straight through.
+//! `boundary.len() + 4` bytes — under 80 for any legal boundary — because a
+//! multipart delimiter may straddle two reads and the last few bytes cannot be
+//! emitted until it is known not to be one. Everything else goes straight
+//! through.
 //!
 //! This is the *inbound* half of
 //! [ADR-0002](../../../docs/adr/0002-wifi-logging-ota-memory-architecture.md)
@@ -51,12 +51,11 @@
 //!
 //! A `multipart/form-data` part's headers arrive *before* the payload, so
 //! [`PartReader`] must find the `filename=` parameter before it can apply
-//! [`extension_allowed`] — and it has done so before it has seen a single byte of
-//! the image. They are therefore accumulated, which means a hostile or broken
-//! client could make that accumulation grow. It is capped at
-//! [`MAX_PART_HEADER_BYTES`] and a part that exceeds it is a hard error, not a
-//! truncated header and not an unbounded `String`.
-
+//! [`extension_allowed`] — before it has seen a single byte of the image. They
+//! are therefore accumulated, and a hostile or broken client could make that
+//! accumulation grow. It is capped at [`MAX_PART_HEADER_BYTES`], and a part that
+//! exceeds it is a hard error, not a truncated header and not an unbounded
+//! `String`.
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt::Write as _;
