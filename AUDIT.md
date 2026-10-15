@@ -142,6 +142,22 @@ never logged or put in `sys.argv` (`justfile:826`).
 - Fix: point all three at the live paths.
 - Benefit: three fewer misdirections for a reader chasing a rule.
 
+## Checked, not findings
+
+- **Comment density.** 31 667 of 81 313 lines under `crates/*/src` are comments
+  (39 %), roughly 410 k tokens if an agent reads the whole tree. Sampled the
+  longest blocks and checked value per line: they cache derivation, not the code.
+  `cc-hal-esp32/src/heater.rs:39-90` holds a table derived by walking the
+  *deleted* C++ ISR plus `ledc.c:459-477` and `ledc_ll.h:28` citations; an agent
+  cannot redo that without the C++ (`git show 9fa8c834:<path>`, AG-REPO-27) and
+  ESP-IDF sources. Accuracy holds: `CARRIER_HZ`/`WINDOW_MS` are machine-asserted
+  at `cc-domain/src/heater.rs:382`, and the ADR-0002 heap number cited four times
+  matches the ADR and the constant. Narrate-the-next-line comments total 115 lines
+  (0.36 %), mostly accessor docs. No finding: no waste worth an edit.
+- **Token cost is real but falls only on agents**, and no gate can check the
+  external citations these blocks carry. That is the mechanism behind CLN-1 and
+  CLN-2, where the claims that did rot were all checkable ones.
+
 ## Vendored / generated
 
 - `cc-display/tests/golden/` (48 `.ppm`): needed; deliberately committed,
