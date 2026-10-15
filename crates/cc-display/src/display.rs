@@ -1348,6 +1348,12 @@ impl Display {
     }
 
     /// `print(const char*)` at the cursor: draw and advance the cursor.
+    ///
+    /// Each code point is drawn through the same Latin-1 mapping
+    /// [`Display::print_char`] applies -- `'\u{b0}'` is `0xB0`, U8g2's degree
+    /// sign, whichever way the string arrived. That is what lets
+    /// `fmt::Formatted` hand a `&str` straight to this and get the firmware's
+    /// rendering, rather than U8g2's byte walk over its UTF-8 encoding.
     pub fn print(&mut self, text: &str) {
         let advance = self.draw_string(self.x, self.y, text);
         self.x += advance;

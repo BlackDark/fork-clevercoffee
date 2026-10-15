@@ -301,10 +301,18 @@ pub mod fixed_str {
 
     /// A fixed-capacity string that never allocates.
     ///
-    /// `push` returns `Err(())` when the capacity is exceeded, which the
+    /// `push` returns `Err(Full)` when the capacity is exceeded, which the
     /// formatting code above treats as "truncate", matching `snprintf` into a
     /// fixed buffer. Capacity 24 covers `-1234567890123456789012.5`, i.e. every
     /// quantity the display prints with room to spare.
+    ///
+    /// The bytes are UTF-8, so [`String::as_str`] can return a `&str` at all.
+    /// A Latin-1 byte buffer could not: `push` used to store `c as u8`, so
+    /// `push('\u{b0}')` wrote a lone `0xB0`, which is not valid UTF-8 and made
+    /// `as_str()` return `""` — dropping the *whole* field, not just the degree
+    /// sign. The Latin-1 mapping belongs at the font boundary, where U8g2's
+    /// `static_cast<char>(176)` lives; see [`crate::font`] and
+    /// `Display::print_char`.
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub struct String<const N: usize> {
         buf: [u8; N],
@@ -327,7 +335,13 @@ pub mod fixed_str {
             }
         }
 
-        /// Append one ASCII character, or report that the capacity is full.
+        /// Append one character, or report that the capacity is full.
+        ///
+        /// Stored as UTF-8 (one byte for every character the formatter emits, so
+        /// every numeric caller is byte-for-byte what it was), and a character
+        /// that does not fit is dropped whole rather than split — a split
+        /// character would leave the buffer invalid UTF-8 and cost the caller
+        /// the entire string.
         ///
         /// # Errors
         ///
@@ -339,11 +353,14 @@ pub mod fixed_str {
         /// display can print, and `the_whole_display_numeric_range_formats_exactly`
         /// asserts that.
         pub fn push(&mut self, c: char) -> Result<(), Full> {
-            if self.len >= N {
+            let width = c.len_utf8();
+            if self.len + width > N {
                 return Err(Full);
             }
-            self.buf[self.len] = c as u8;
-            self.len += 1;
+            let mut encoded = [0u8; 4];
+            c.encode_utf8(&mut encoded);
+            self.buf[self.len..self.len + width].copy_from_slice(&encoded[..width]);
+            self.len += width;
             Ok(())
         }
 
@@ -352,17 +369,23 @@ pub mod fixed_str {
             for c in s.chars() {
                 // Truncation, not failure: the formatter treats a full buffer
                 // as "stop", which is what `snprintf` into a fixed buffer does.
+                // A character that does not fit whole is dropped; see `push`.
                 let _ = self.push(c);
             }
         }
 
         /// The contents.
+        ///
+        /// The buffer only ever holds whole characters, so this is infallible;
+        /// `unwrap_or("")` cannot fire and exists only because the length is
+        /// read at runtime.
         #[must_use]
         pub fn as_str(&self) -> &str {
             core::str::from_utf8(&self.buf[..self.len]).unwrap_or("")
         }
 
-        /// The number of characters.
+        /// The number of UTF-8 bytes held, which is also the capacity used.
+        /// Equal to the number of characters for everything the formatter emits.
         #[must_use]
         pub const fn len(&self) -> usize {
             self.len
@@ -506,6 +529,39 @@ mod tests {
         assert_eq!(format_fixed(f64::NAN, 1).as_str(), "nan");
         assert_eq!(format_fixed(f64::INFINITY, 1).as_str(), "inf");
         assert_eq!(format_fixed(f64::NEG_INFINITY, 1).as_str(), "-inf");
+    }
+
+    #[test]
+    fn a_degree_sign_is_not_the_end_of_the_whole_field() {
+        // The bug: `push` stored `c as u8`, so `push('\u{b0}')` wrote a lone
+        // `0xB0`, which is not valid UTF-8 — and `as_str` returned `""` for the
+        // *whole* string, not just for the character that could not be encoded.
+        // Four temperature fields were therefore blank on the panel.
+        let mut s = Formatted::new();
+        s.push_str("Target  93.0 ");
+        s.push('\u{b0}').ok();
+        s.push_str("C");
+        assert_eq!(s.as_str(), "Target  93.0 \u{b0}C");
+
+        // And the bare unit the Modern template builds.
+        let mut unit = Formatted::new();
+        unit.push('\u{b0}').ok();
+        unit.push_str("C");
+        assert_eq!(unit.as_str(), "\u{b0}C");
+    }
+
+    #[test]
+    fn a_character_that_does_not_fit_whole_is_dropped_not_split() {
+        // A split multi-byte character would leave the buffer invalid UTF-8,
+        // which costs the caller the entire string -- the bug above, reached a
+        // different way.
+        let mut s: fixed_str::String<3> = fixed_str::String::new();
+        s.push_str("ab");
+        assert!(s.push('\u{b0}').is_err());
+        assert_eq!(s.as_str(), "ab");
+        s.push('c').ok();
+        assert_eq!(s.as_str(), "abc");
+        assert_eq!(s.len(), 3, "the capacity is counted in bytes");
     }
 
     #[test]
