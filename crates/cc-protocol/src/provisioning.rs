@@ -106,6 +106,18 @@
 //! so the caller mutes the log stream between `set` and the password line.
 //! `cc-hal-esp32` does this; see `cc_hal_esp32::provisioning` for the window length
 //! and why it is bounded.
+
+/// The longest line the parser will consider, in bytes.
+///
+/// The longest possible command is `wifi pass ` (10) + a 63-character WPA
+/// passphrase = 73 bytes. 80 covers that and the `wifi set ` + 32-octet SSID
+/// form (41) with margin, and anything longer is a paste, a binary blob, or
+/// noise.
+///
+/// It was 72 before `wifi pass` existed, which is *one byte* short of the
+/// longest legal passphrase on the `wifi pass` form: raising it is not a
+/// nicety, a 63-character passphrase typed as `wifi pass <pw>` is a legal
+/// command and was rejected as "line too long" at 72.
 pub const MAX_LINE_BYTES: usize = 80;
 
 /// The longest SSID the parser accepts, in bytes.

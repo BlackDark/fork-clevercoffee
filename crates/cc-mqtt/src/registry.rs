@@ -1,9 +1,9 @@
-//! [`Registry`]: the C++'s registration, topic for topic, and [`PlanView`],
-//! the flattened three-phase plan the budgeted publish pass walks.
+//! [`Registry`]: the set of publishable topics and how each is retained, and
+//! [`PlanView`], the flattened three-phase plan the budgeted publish pass walks.
 //!
-//! Moved verbatim from `cc_hal_esp32::mqtt`. `from_config` reads four booleans
-//! and one `ScaleType` out of the configuration and builds nothing else; see the
-//! crate root for the purity check that established it.
+//! `from_config` reads four booleans and one `ScaleType` out of the
+//! configuration and builds nothing else, which is what lets the whole
+//! registration be asserted in a host test.
 
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
@@ -20,11 +20,11 @@ use crate::topics::{ParamTopic, Topics, BACKFLUSH_ON, CALIBRATION_ON, STEAM_MODE
 /// no conflict.
 #[derive(Clone, Debug, Default)]
 pub struct Registry {
-    /// Retained parameter topics (`MQTTManager.cpp:410-497`).
+    /// Retained parameter topics, in registration order.
     parameters: Vec<ParamTopic>,
-    /// Non-retained polled sensors (`:500-517`).
+    /// Non-retained polled sensors, in registration order.
     sensors: Vec<(String, bool)>,
-    /// Retained binary sensors (`:520-548`).
+    /// Retained binary sensors, in registration order.
     binary_sensors: Vec<(String, bool)>,
 }
 
@@ -50,20 +50,20 @@ impl Registry {
 
     /// Add a non-retained polled sensor.
     ///
-    /// The C++ publishes these with `retain = false` (`MQTTManager.cpp:511`).
-    /// Retaining a value that changes every 400 ms would fill the broker's
-    /// retained store with a value that is stale by the time anyone reads it, and
-    /// would cost a write per publish on a device with the flash wear budget of a
-    /// coffee machine.
+    /// **Not** retained. A value that changes every 400 ms would fill the
+    /// broker's retained store with something stale by the time anyone reads it,
+    /// and would cost a flash write per publish on a device with the wear budget
+    /// of a coffee machine. A subscriber that wants the current reading gets it
+    /// from the retained *parameters*; the polled topics exist to carry change.
     pub fn add_sensor(&mut self, reading: &str) {
         self.sensors.push((reading.to_string(), false));
     }
 
     /// Add a retained binary sensor.
     ///
-    /// `MQTTManager.cpp:543-544`: "binary state must survive broker/HA restarts
-    /// — it may not change again for days, so a fresh subscriber would otherwise
-    /// see unknown until the next transition."
+    /// **Retained**, unlike a polled sensor: binary state may not change again for
+    /// days, so without the retained copy a fresh subscriber sees `unknown` until
+    /// the next transition, which can be never.
     pub fn add_binary_sensor(&mut self, reading: &str) {
         self.binary_sensors.push((reading.to_string(), true));
     }
@@ -100,10 +100,10 @@ impl Registry {
 
     /// The configuration key an inbound reading maps to, if it is registered.
     ///
-    /// `MQTTManager::assignParameter`'s `mqttVars_.find(param)`
-    /// (`MQTTManager.cpp:288`). `None` is the C++'s
-    /// `"MQTT topic %s not found in mapping"`: an inbound `set` for a topic this
-    /// machine does not publish is refused rather than guessed at.
+    /// `None` for a topic this machine does not publish. An inbound `set` naming
+    /// an unknown topic is **refused, not guessed at**: a misspelled or
+    /// machine-specific name must not be resolved to whichever parameter happens
+    /// to sort nearby.
     #[must_use]
     pub fn resolve(&self, reading: &str) -> Option<&'static str> {
         self.parameters
@@ -112,43 +112,33 @@ impl Registry {
             .map(|p| p.key)
     }
 
-    /// Fill a registry from `config`: the C++'s registration, in its order.
+    /// Fill a registry from `config`, in publication order.
     ///
-    /// `SystemInitializer::registerMQTTParameters` and `registerMQTTSensors`
-    /// (`src/core/SystemInitializer.cpp:687-800`), verbatim in membership and
-    /// in order — 12 unconditional parameters, 14 more behind
-    /// `hardware.switches.brew.enabled`, 5 or 6 behind the scale; 9
-    /// unconditional sensors plus `currBrewTime`, the two weights and
-    /// `pressure`; and the single binary sensor `waterTankFull`.
+    /// Membership is gated on four configuration booleans and the scale type, so
+    /// two machines with different hardware publish different topic sets. The
+    /// unconditional entries come first in each of the three lists.
     ///
-    /// # What this replaces
+    /// # A registered topic is not the same as an advertised entity
     ///
-    /// Three parameters, two setpoints, `pidON`, three "sensors" and two binary
-    /// sensors. Two of those are **not in the C++ and not advertised by
-    /// `cc_config::discovery`** — a `brewing` and a `tankEmpty` binary sensor
-    /// that no Home Assistant entity ever subscribed to, i.e. the "advertised but
-    /// inert" shape reached from the publishing side. One, `weight`, is the
-    /// **opposite** defect: it was published while `cc_config::discovery`
-    /// advertises `currReadingWeight` and `currBrewWeight`
-    /// (`MQTTManager.cpp:903-904`), which are two different topics, so the weight
-    /// Home Assistant showed stayed `unknown` forever.
+    /// `cc_config::discovery` builds the Home Assistant entities and this builds
+    /// what is actually published, and the two are maintained separately. They
+    /// agree today except for `usePonM`: discovery advertises that name while the
+    /// registry registers `pidUsePonM`, so the Home Assistant switch moves a topic
+    /// this registry does not know, [`Self::resolve`] returns `None`, and the
+    /// command is dropped.
     ///
-    /// # The topic/key pairs are the C++'s, not the discovery table's
-    ///
-    /// `SystemInitializer.cpp:695` registers `pidUsePonM` while
-    /// `MQTTManager.cpp:869` advertises the entity as `usePonM`. The two
-    /// disagree in the C++ too — the Home Assistant switch moves a topic the
-    /// registry does not know, so it lands in the `sscanf` arm, finds no
-    /// mapping and is dropped. Reproduced, because "fixing" it here would make
-    /// the port accept a command the C++ silently ignores, and the fix belongs
-    /// where the advertisement is built (`cc_config::discovery`).
+    /// That is deliberate and is the safe direction — a switch that appears to
+    /// work and does not is worse than one that is visibly inert. Renaming the
+    /// registry entry would make the entity work and silently change a wire
+    /// format, so the fix belongs where the advertisement is built, in
+    /// `cc_config::discovery`, and the two must be changed together.
     #[must_use]
     #[allow(
         clippy::too_many_lines,
-        reason = "this IS the C++'s two registration functions. Splitting the \
-                  32 parameters from the 13 sensors would hide the property the \
-                  function exists to provide, which is that the conditional \
-                  blocks are the C++'s conditional blocks."
+        reason = "one flat registration table per phase. Splitting the \
+                  conditional groups into helpers would scatter a single \
+                  ordered list across four call sites, and the order is part of \
+                  what this function provides."
     )]
     pub fn from_config(topics: &Topics, config: &Config) -> Self {
         let mut registry = Self::new();

@@ -918,7 +918,7 @@ transcriptions:
 | --- | --- |
 | **C++** | `src/network/MQTTManager.cpp`, driven from `LoopManager::updateNetwork` (`LoopManager.cpp:485-508`) |
 | **Rust** | `cc_hal_esp32::mqtt::{Client, Feed}`, built and driven by the **control task** (`cc-firmware/src/mqtt_link.rs`) |
-| **Pinned by** | `mqtt::the_registry_is_the_csqs_registration`, `mqtt::an_inbound_reading_resolves_only_if_it_is_registered`, `mqtt::the_interval_follows_the_machine_state`, `mqtt::an_inbound_topic_is_parsed_exactly_as_the_csqs_matcher_does` |
+| **Pinned by** | `mqtt::the_registry_covers_a_bare_machine_and_a_full_one`, `mqtt::an_inbound_reading_resolves_only_if_it_is_registered`, `mqtt::the_interval_follows_the_machine_state`, `mqtt::an_inbound_topic_must_be_a_command_under_the_base` |
 
 ### What the C++ does
 

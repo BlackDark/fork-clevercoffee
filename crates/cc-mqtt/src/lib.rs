@@ -1,114 +1,50 @@
-//! The MQTT topic layout, the publish registry, and the value buffers — the part
-//! of `cc-hal-esp32`'s `mqtt.rs` that is a function of a [`Config`] and the machine
-//! state rather than of a socket.
+//! The MQTT wire contract as pure functions: topic layout, publish registry,
+//! value buffers, and the publish intervals.
 //!
-//! # Why this crate exists
+//! Everything here is a function of a [`Config`] and a machine state. No clock,
+//! no heap gauge, no socket, and no allocation after construction — which is
+//! what makes it host-testable, and why `just test` reaches it.
 //!
-//! **Finding 4.1b of
-//! [`32-findings-2026-10-03.md`](../../../docs/history/review-2026-10-03.md)
-//! — `just test` could not reach the MQTT surface at all.** `mqtt.rs` was ~2,030
-//! lines and named `esp_idf_svc`, so the six portable crates named by `just test`
-//! reached none of it. Every assertion about the wire contract — the registry is the
-//! C++'s 32 parameters and 13 sensors, the phase slices partition the plan, an
-//! inbound reading resolves only if it is registered — ran **only** by flashing a
-//! board (`just test-esp32`). That gap was left open on purpose: `cc_web`'s own
-//! crate doc records that "not attempted here rather than attempted and left
-//! half-done" was the deliberate call, because the registry and the discovery
-//! payloads are *verified parity* and a half-moved `mqtt.rs` is a firmware that does
-//! not compile.
-//!
-//! Moved now, whole, in one commit, with every assertion that moved with it.
-//! Nothing below is rewritten: the bodies are the `mqtt.rs` bodies.
-//!
-//! # Where it sits in the layering
+//! # Boundary
 //!
 //! ```text
-//!   cc-safety ── cc-machine ─┐
-//!                            ├─> cc-hal-esp32 ──> cc-firmware
-//!   cc-domain ── cc-config ──┴─> cc-web ─────────┤
-//!                       cc-domain ── cc-config ──> cc-mqtt ──> cc-hal-esp32
+//!   cc-domain ── cc-config ──> cc-mqtt ──> cc-hal-esp32 ──> cc-firmware
 //! ```
 //!
-//! **`cc-domain` and `cc-config` are the only workspace dependencies**, and
-//! neither knows this crate exists — 04 §6 makes them siblings, and the dependency
-//! arrow points one way: a `Config` flows *in*, and nothing about how it will be
-//! published is visible from down here.
+//! `cc-domain` and `cc-config` are the only dependencies, and neither knows this
+//! crate exists. `cc-hal-esp32` depends on this crate and never the reverse:
+//! the socket, the esp-mqtt callback and the time-budgeted publisher are all
+//! device-side, because the budget is a claim about the control task's 10 ms
+//! period and only the device can honour it.
 //!
-//! **`cc-hal-esp32` depends on this crate**, never the reverse. `cc-web` is the
-//! template for that direction and for the crate-level documentation saying so.
+//! # What each module owns
 //!
-//! # What moved, and what is here
-//!
-//! | Moved out of `cc_hal_esp32::mqtt` | Where it is now |
+//! | Module | Owns |
 //! | --- | --- |
-//! | [`Topics`] — `MQTTManager::setup`'s `"%s%s/%s"` layout | [`topics`] |
-//! | [`ParamTopic`], `STEAM_MODE`/`BACKFLUSH_ON`/`TARE_ON`/`CALIBRATION_ON` | [`topics`] |
-//! | [`Registry`] and its `from_config` — the C++'s 32 + 13 + 1 registration | [`registry`] |
-//! | [`PlanView`] — the flattened three-phase plan | [`registry`] |
-//! | [`Payload`] — the reused `char data[256]`, as a `heapless::String` | [`payload`] |
-//! | [`SetCommand`] — one inbound `set`, in fixed buffers | [`payload`] |
-//! | the intervals, the budget and the buffer sizes | [`budget`], [`payload`] |
-//! | `interval_for`, `is_configured` | [`interval_for`], [`is_configured`] |
+//! | [`topics`] | the `<prefix>/<host>/<name>` layout and the inbound command matcher |
+//! | [`registry`] | [`Registry`] (the publishable topics), [`PlanView`] (the flat plan) |
+//! | [`payload`] | [`Payload`] and [`SetCommand`] — fixed capacity, never the allocator |
+//! | [`budget`] | the per-state publish intervals and the per-tick time budget |
 //!
-//! # Every function here is pure, checked one at a time
+//! # Two invariants a caller relies on
 //!
-//! The three traps that made `cc-web`'s extraction smaller than its brief claimed —
-//! an interpolated `free_heap()`, an unexamined dependency, a borrow of shared state
-//! — were checked against every MQTT item before anything moved. **One of the three
-//! turned up, and one did not:**
+//! * **The three phases partition the view.** [`PlanView`] slices parameters,
+//!   sensors and binary sensors into non-overlapping ranges, each slice's end
+//!   being the next one's start. Checked by
+//!   `registry::tests::the_plan_slices_partition_the_view`. An earlier version
+//!   stored slice *lengths* where offsets were expected, so any registry with a
+//!   binary sensor read past the end of the view.
+//! * **Nothing here reads the clock or the heap.** No `now_ms`, no
+//!   `esp_get_free_heap_size`, no client handle. [`is_configured`] and
+//!   [`interval_for`] are total functions of their arguments, and the two
+//!   genuinely time-dependent decisions — discovery cadence and the publish
+//!   budget — belong to the publisher in `cc-hal-esp32`.
 //!
-//! * **`is_configured` and `interval_for` are pure.** `is_configured` reads
-//!   `config.mqtt.enabled` and `config.mqtt.broker` and nothing else; `interval_for`
-//!   is a `match` on a [`cc_domain::state::MachineState`]. No heap gauge, no
-//!   `now_ms`, no client handle.
-//! * **`Registry::from_config` is pure.** It reads four booleans and one
-//!   `ScaleType` out of the configuration. Its doc comment already said so —
-//!   "the conditional groups are read from it here, once, exactly as
-//!   `SystemInitializer` read `Config::getInstance()` once" — and that is the claim
-//!   the move had to be true of.
-//! * **`Topics` has no separator the C++ does not have, and no default that could
-//!   drift**: `format!` over two borrowed `&str`.
-//! * **No MQTT item interpolates a heap gauge or the clock.** This is the trap
-//!   that caught `cc_web::payload::status_json`, and it does **not** apply here:
-//!   `esp_get_free_heap_size()` appears nowhere in `mqtt.rs`, and neither do
-//!   `now_ms()` or a free-running tick. The two time-dependent items —
-//!   `Client::discovery_due` and the `TIME_BUDGET_MS` check inside `Feed::service` —
-//!   are both inside the publisher, which stayed.
+//! # Not here
 //!
-//! # What stayed behind, and why
-//!
-//! | Stayed in `cc-hal-esp32` | Why |
-//! | --- | --- |
-//! | `Client` | `EspMqttClient`, `MqttClientConfiguration`, `LwtConfiguration`; `esp_mqtt_client_start` and `esp_mqtt_client_publish` are FFI |
-//! | `Link`, `note_event_on`, `receive` | the callback runs on the `esp-mqtt` task and the channel is `AtomicBool` + `Mutex<Deque>`; the *policy* around it stayed whole because there is no portable half to split |
-//! | `Feed`, `Service`, the `BTreeMap` dedupe | it walks the cursor and calls `publish_to` under a clock reading; the budget is a claim about the control task's 10 ms period, which is a device claim |
-//! | `MQTT_TASK_STACK_BYTES`, `MQTT_TASK_PRIO` | they are arguments to `MqttClientConfiguration::task_stack`/`task_prio` and nothing else |
-//!
-//! `receive` is the judgement call worth naming: it is the C++'s
-//! `MQTTManager::messageCallback` (`MQTTManager.cpp:237-274`) and it is *not* pure —
-//! it locks the inbound queue and pushes onto it. **The parse it performs is pure** —
-//! [`Topics::command_of`] moved, so the `%119[^\/]` matcher is host-tested from here
-//! — and the queue push stayed. Splitting `receive` into a pure half returning a
-//! [`SetCommand`] and an impure half that enqueues it would be a restructure with no
-//! test to justify it, so it stayed as it is.
-//!
-//! # Why the discovery payloads stayed in `cc-config`
-//!
-//! [`cc_config::discovery`] builds the Home Assistant documents and this crate
-//! publishes them, but building them is a function of the configuration alone and is
-//! host-tested where it already was. Moving it here would have been a second move
-//! with its own parity risk (17–29 entities, pinned against the C++) for no
-//! additional reachability.
-//!
-//! # The one test that could not move, and why it did not need to
-//!
-//! `the_shared_plan_helper_still_sees_the_whole_registry` kept the on-target runner
-//! honest about `plan_of`, the leaked-registry shortcut the other cases use. Every
-//! case that used `plan_of` moved, so it moved with them; what it guarded — that the
-//! three slices **partition** the view — is now checked directly and
-//! per-configuration by `registry::tests::the_plan_slices_partition_the_view`,
-//! which is the bug class it was written for (`PlanView` stored *lengths* and used
-//! them as *offsets*, so any registry with a binary sensor panicked the MQTT task).
+//! [`cc_config::discovery`] builds the Home Assistant discovery documents and
+//! `cc-hal-esp32::mqtt` publishes them. They are a function of the
+//! configuration alone and are host-tested where they already were.
 #![no_std]
 #![forbid(unsafe_code)] // already denied workspace-wide; restated for clarity
 #![deny(missing_docs)]
@@ -136,15 +72,13 @@ use cc_config::Config;
 
 /// Whether a broker is configured at all.
 ///
-/// `MQTTManager::setup` (`MQTTManager.cpp:79-83`) disables MQTT outright when the
-/// broker name is empty, rather than building a client and failing to
-/// connect. Reproduced: an empty `mqtt.broker` is the *default*, so a machine
-/// that has never been provisioned should not spawn an MQTT task at all — 4 KB of
-/// stack and 2 KB of buffers for a client with nowhere to connect.
+/// Empty `mqtt.broker` means **off**, not "try and fail": an empty broker is the
+/// default, so a machine that was never provisioned must not spawn an MQTT task
+/// at all — that is a task's stack and two buffers reserved for a client with
+/// nowhere to connect.
 ///
-/// This is a function of the configuration and of nothing else — no heap gauge,
-/// no clock, no client handle — which is why it is here rather than a question
-/// the caller has to answer before it can build a client.
+/// A function of the configuration and of nothing else, which is why it is a
+/// question this crate answers rather than one the caller must.
 #[must_use]
 pub fn is_configured(config: &Config) -> bool {
     config.mqtt.enabled && !config.mqtt.broker.is_empty()
