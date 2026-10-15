@@ -1,17 +1,11 @@
-//! The topic layout: `<prefix><hostname>/<reading>`, and the four inbound
-//! targets that are machine state rather than configuration parameters.
-//!
-//! `Topics::new` is two `format!` calls over two borrowed `&str`, and
-//! `command_of` is a `strip_prefix` and a `rsplit_once`. See the crate root for
-//! why there is no heap gauge or clock anywhere in this crate.
+//! Topic layout `<prefix><hostname>/<reading>`, the inbound command matcher, and
+//! the four targets that are machine state rather than configuration parameters.
 
 use alloc::format;
 use alloc::string::String;
 
-/// The longest topic this firmware will build, in bytes.
-///
-/// A topic longer than this is a configuration error, and silently publishing to
-/// a truncated topic would be worse than refusing it.
+/// Longest topic, in bytes. Longer is a configuration error; publishing to a
+/// truncated topic is worse than refusing it.
 pub const TOPIC_MAX: usize = 120;
 
 /// The topic layout, built once from the configuration.
@@ -22,27 +16,25 @@ pub const TOPIC_MAX: usize = 120;
 ///   state    <prefix><hostname>/<reading>
 /// ```
 ///
-/// With the defaults (`mqtt.topic = "custom/kitchen/"`, `system.hostname =
-/// "clevercoffee"`) a state topic is `custom/kitchen/clevercoffee/temperature`.
+/// Defaults (`custom/kitchen/` + `clevercoffee`) give the state topic
+/// `custom/kitchen/clevercoffee/temperature`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Topics {
-    /// The retained last-will and availability topic,
-    /// `<prefix><hostname>/status`.
+    /// Retained last-will and availability topic.
     pub will: String,
-    /// The subscription wildcard, `<prefix><hostname>/+/set`.
+    /// Subscription wildcard.
     pub set: String,
-    /// The prefix every state topic starts with, `<prefix><hostname>/`.
+    /// Prefix every state topic starts with.
     pub base: String,
 }
 
 impl Topics {
     /// Build the layout from `mqtt.topic` and `system.hostname`.
     ///
-    /// **No separator is inserted between the two**, because `mqtt.topic`'s
-    /// default already ends in `/`. Do not "fix" this: a topic layout is a wire
-    /// format, and existing Home Assistant installs hold retained topics under
-    /// this exact spelling. Adding a separator would orphan every entity on
-    /// every machine that upgraded.
+    /// **No separator between the two** — `mqtt.topic`'s default already ends in
+    /// `/`. Do not "fix" it: this is a wire format, and existing installs hold
+    /// retained topics under this exact spelling. Adding one orphans their
+    /// entities.
     #[must_use]
     pub fn new(prefix: &str, hostname: &str) -> Self {
         Self {
@@ -66,12 +58,9 @@ impl Topics {
 
     /// The reading an inbound topic names, or `None` if it is not a command.
     ///
-    /// Three conditions, all required: the topic starts with the base, the tail
-    /// after the last `/` is exactly `set`, and the reading contains no `/`.
-    ///
-    /// A retained `set` at depth 0 — a broker echoing our own command, or a
-    /// `.../+/set` wildcard published to — is rejected here rather than becoming
-    /// a parameter called `+`.
+    /// Requires all three: starts with the base, tail after the last `/` is
+    /// exactly `set`, reading contains no `/`. So a broker echoing our own
+    /// `<base>+/set` is refused rather than becoming a parameter called `+`.
     #[must_use]
     pub fn command_of<'a>(&self, topic: &'a str) -> Option<&'a str> {
         let rest = topic.strip_prefix(self.base.as_str())?;
@@ -83,29 +72,20 @@ impl Topics {
     }
 }
 
-/// One retained parameter topic and what it maps to.
-///
-/// The mapping is not decoration: the inbound handler looks the topic up in it
-/// and refuses anything absent.
+/// One retained parameter topic and the configuration key it writes.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ParamTopic {
-    /// The topic name, relative to [`Topics::base`].
+    /// Topic name, relative to [`Topics::base`].
     pub topic: String,
-    /// Parameters are always retained, so a subscriber gets the current value
-    /// immediately rather than waiting for the next pass.
+    /// True. A subscriber then gets the value without waiting for the next pass.
     pub retain: bool,
-    /// The configuration key, or one of [`STEAM_MODE`], [`BACKFLUSH_ON`],
-    /// [`TARE_ON`], [`CALIBRATION_ON`].
-    ///
-    /// The four are **not** configuration parameters: a `key` equal to one of
-    /// them is a request against the running machine rather than a parameter
-    /// write, so the comparison against these four happens before the registry
-    /// is consulted.
+    /// Configuration key to write, or one of [`STEAM_MODE`], [`BACKFLUSH_ON`],
+    /// [`TARE_ON`], [`CALIBRATION_ON`] — those four are machine state, not
+    /// parameters, so they are compared **before** the registry is consulted.
     pub key: &'static str,
 }
 
-/// The steam-mode switch, which is machine state and not a configuration
-/// parameter.
+/// Steam-mode switch: machine state, not a parameter.
 pub const STEAM_MODE: &str = "STEAM_MODE";
 
 /// The backflush-mode switch.

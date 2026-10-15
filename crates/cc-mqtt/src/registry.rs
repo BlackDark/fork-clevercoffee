@@ -1,9 +1,8 @@
-//! [`Registry`]: the set of publishable topics and how each is retained, and
-//! [`PlanView`], the flattened three-phase plan the budgeted publish pass walks.
+//! [`Registry`]: the publishable topics and how each is retained. [`PlanView`]: the
+//! flattened three-phase plan the budgeted pass walks.
 //!
-//! `from_config` reads four booleans and one `ScaleType` out of the
-//! configuration and builds nothing else, which is what lets the whole
-//! registration be asserted in a host test.
+//! [`Registry::from_config`] is a pure function of the [`Config`], so all of
+//! membership is host-testable.
 
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
@@ -13,11 +12,10 @@ use cc_netpolicy::mqtt::{Item, Plan};
 
 use crate::topics::{ParamTopic, Topics, BACKFLUSH_ON, CALIBRATION_ON, STEAM_MODE, TARE_ON};
 
-/// The topics to publish, and how to retain each one.
+/// The topics to publish, and how each is retained.
 ///
-/// Owned rather than borrowed, because the [`Plan`] the publish pass walks
-/// borrows it while the client is mutably borrowed. Two objects, two borrows,
-/// no conflict.
+/// Owned, not borrowed: the [`Plan`] the pass walks borrows this while the client is
+/// mutably borrowed, and two objects make the two borrows disjoint.
 #[derive(Clone, Debug, Default)]
 pub struct Registry {
     /// Retained parameter topics, in registration order.
@@ -50,11 +48,10 @@ impl Registry {
 
     /// Add a non-retained polled sensor.
     ///
-    /// **Not** retained. A value that changes every 400 ms would fill the
-    /// broker's retained store with something stale by the time anyone reads it,
-    /// and would cost a flash write per publish on a device with the wear budget
-    /// of a coffee machine. A subscriber that wants the current reading gets it
-    /// from the retained *parameters*; the polled topics exist to carry change.
+    /// **Not** retained. A value that changes every 400 ms would fill the broker's
+    /// retained store with something stale, on a device with the flash wear budget
+    /// of a coffee machine. A subscriber wanting the current value gets it from the
+    /// retained parameters; polled topics exist to carry change.
     pub fn add_sensor(&mut self, reading: &str) {
         self.sensors.push((reading.to_string(), false));
     }
@@ -62,8 +59,8 @@ impl Registry {
     /// Add a retained binary sensor.
     ///
     /// **Retained**, unlike a polled sensor: binary state may not change again for
-    /// days, so without the retained copy a fresh subscriber sees `unknown` until
-    /// the next transition, which can be never.
+    /// days, so without the retained copy a new subscriber sees `unknown` until the
+    /// next transition, which can be never.
     pub fn add_binary_sensor(&mut self, reading: &str) {
         self.binary_sensors.push((reading.to_string(), true));
     }
@@ -98,12 +95,11 @@ impl Registry {
         self.len() == 0
     }
 
-    /// The configuration key an inbound reading maps to, if it is registered.
+    /// The configuration key an inbound reading maps to, or `None` if not
+    /// registered.
     ///
-    /// `None` for a topic this machine does not publish. An inbound `set` naming
-    /// an unknown topic is **refused, not guessed at**: a misspelled or
-    /// machine-specific name must not be resolved to whichever parameter happens
-    /// to sort nearby.
+    /// **Refused, not guessed at.** An unregistered name must not resolve to a
+    /// neighbouring parameter.
     #[must_use]
     pub fn resolve(&self, reading: &str) -> Option<&'static str> {
         self.parameters
@@ -115,36 +111,30 @@ impl Registry {
     /// Fill a registry from `config`, in publication order.
     ///
     /// Membership is gated on four configuration booleans and the scale type, so
-    /// two machines with different hardware publish different topic sets. The
-    /// unconditional entries come first in each of the three lists.
+    /// machines with different hardware publish different topic sets. Unconditional
+    /// entries come first in each of the three lists.
     ///
     /// # A registered topic is not the same as an advertised entity
     ///
-    /// `cc_config::discovery` builds the Home Assistant entities and this builds
-    /// what is actually published, and the two are maintained separately. They
-    /// agree today except for `usePonM`: discovery advertises that name while the
-    /// registry registers `pidUsePonM`, so the Home Assistant switch moves a topic
-    /// this registry does not know, [`Self::resolve`] returns `None`, and the
-    /// command is dropped.
+    /// [`cc_config::discovery`] builds the entities; this builds what is published.
+    /// They disagree at exactly one name: discovery advertises `usePonM`, the
+    /// registry registers `pidUsePonM`, so that switch's writes are refused.
     ///
-    /// That is deliberate and is the safe direction — a switch that appears to
-    /// work and does not is worse than one that is visibly inert. Renaming the
-    /// registry entry would make the entity work and silently change a wire
-    /// format, so the fix belongs where the advertisement is built, in
-    /// `cc_config::discovery`, and the two must be changed together.
+    /// The safe direction, deliberately: a switch that looks wired and does nothing
+    /// is worse than one visibly inert. Renaming the entry here would also change a
+    /// wire format, so both sides must move together — and only in `cc_config::discovery`.
     #[must_use]
     #[allow(
         clippy::too_many_lines,
-        reason = "one flat registration table per phase. Splitting the \
-                  conditional groups into helpers would scatter a single \
-                  ordered list across four call sites, and the order is part of \
-                  what this function provides."
+        reason = "one flat table per phase. Splitting the conditional groups \
+                  into helpers would scatter a single ordered list, and the \
+                  order is part of what this provides."
     )]
     pub fn from_config(topics: &Topics, config: &Config) -> Self {
         let mut registry = Self::new();
         let _ = topics;
 
-        // ---- parameters: the twelve unconditional ones, :690-701 ----
+        // ---- parameters: the twelve unconditional ones ----
         registry.add_parameter("pidON", "pid.enabled");
         registry.add_parameter("brewSetpoint", "brew.setpoint");
         registry.add_parameter("brewTempOffset", "brew.temp_offset");
@@ -158,7 +148,7 @@ impl Registry {
         registry.add_parameter("steamKp", "pid.steam.kp");
         registry.add_parameter("standbyModeOn", "standby.enabled");
 
-        // ---- parameters: behind the brew switch, :705-719 ----
+        // ---- parameters: behind the brew switch ----
         if config.hardware.switches.brew.enabled {
             registry.add_parameter("aggbKp", "pid.bd.kp");
             registry.add_parameter("aggbTn", "pid.bd.tn");
@@ -182,7 +172,7 @@ impl Registry {
             );
         }
 
-        // ---- parameters: behind the scale, :722-734 ----
+        // ---- parameters: behind the scale ----
         if config.hardware.sensors.scale.enabled {
             registry.add_parameter("targetBrewWeight", "brew.by_weight.target_weight");
             registry.add_parameter("scaleCalibration", "hardware.sensors.scale.calibration");
@@ -194,7 +184,7 @@ impl Registry {
             registry.add_parameter("scaleCalibrationOn", CALIBRATION_ON);
         }
 
-        // ---- sensors: the nine unconditional ones, :738-766 ----
+        // ---- sensors: the nine unconditional ones ----
         registry.add_sensor("temperature");
         registry.add_sensor("heaterPower");
         registry.add_sensor("standbyModeTimeRemaining");
@@ -205,23 +195,23 @@ impl Registry {
         registry.add_sensor("currentKd");
         registry.add_sensor("machineState");
 
-        // ---- sensors: behind the brew switch, :770-775 ----
+        // ---- sensors: behind the brew switch ----
         if config.hardware.switches.brew.enabled {
             registry.add_sensor("currBrewTime");
         }
 
-        // ---- sensors: behind the scale, :778-784 ----
+        // ---- sensors: behind the scale ----
         if config.hardware.sensors.scale.enabled {
             registry.add_sensor("currReadingWeight");
             registry.add_sensor("currBrewWeight");
         }
 
-        // ---- sensors: behind the pressure probe, :787-790 ----
+        // ---- sensors: behind the pressure probe ----
         if config.hardware.sensors.pressure.enabled {
             registry.add_sensor("pressure");
         }
 
-        // ---- binary sensors: behind the water tank, :794-798 ----
+        // ---- binary sensors: behind the water tank ----
         if config.hardware.sensors.watertank.enabled {
             registry.add_binary_sensor("waterTankFull");
         }

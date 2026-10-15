@@ -1,16 +1,11 @@
-//! Tests for the whole MQTT surface: the topic layout, the registry, the plan
-//! slices, the payload buffer and the interval predicate.
-//!
-//! Every case here is a host test on purpose. The wire contract — the topic
-//! layout, the registry membership, the phase partition, the payload limits, the
-//! interval predicate — is all a pure function of the configuration, so none of it
-//! needs a board, and running it in `just test` is what makes a change to it fail
-//! in seconds rather than on the next flash.
+//! The whole MQTT surface — topic layout, registry membership, phase partition,
+//! payload limits, intervals — as host tests, because all of it is a pure function
+//! of the configuration. Nothing here needs a board.
 
 #![allow(
     clippy::wildcard_imports,
-    reason = "the cases are spread across four modules and a glob is what keeps \
-              them from rotting against a rename in any one of them"
+    reason = "cases span four modules; a glob keeps them from rotting against a \
+              rename in any one"
 )]
 
 use alloc::boxed::Box;
@@ -23,9 +18,8 @@ use cc_netpolicy::mqtt::{Item, Phase, Plan};
 use crate::*;
 
 fn plan_of(config: &Config) -> Plan<'static> {
-    // The tests need a `Plan` and a `Registry` with the same lifetime, which
-    // is the one shape this module cannot build by value. The leak is what
-    // `Feed` itself does, and it is bounded by the number of cases.
+    // A `Plan` and its `Registry` need the same lifetime, which cannot be built by
+    // value. Leaked, as the real publisher does; bounded by the case count.
     let registry: &'static Registry = Box::leak(Box::new(Registry::from_config(
         &Topics::new("p/", "h"),
         config,
@@ -36,8 +30,8 @@ fn plan_of(config: &Config) -> Plan<'static> {
 
 #[test]
 fn the_default_configuration_is_not_a_broker() {
-    // The default is disabled *and* brokerless, so either alone is enough to
-    // mean "off": a machine must not spawn a client with nowhere to connect.
+    // Disabled and brokerless is doubly off. A client with nowhere to connect
+    // still costs a task stack and two buffers.
     assert!(!is_configured(&Config::default()));
     let mut config = Config::default();
     config.mqtt.enabled = true;
@@ -51,8 +45,7 @@ fn the_default_configuration_is_not_a_broker() {
 
 #[test]
 fn the_topic_layout_inserts_no_separator_of_its_own() {
-    // Nothing between the prefix and the hostname; `mqtt.topic`'s default
-    // already ends in `/`.
+    // `mqtt.topic`'s default ends in `/`, so no separator is added.
     let topics = Topics::new("custom/kitchen/", "clevercoffee");
     assert_eq!(topics.will, "custom/kitchen/clevercoffee/status");
     assert_eq!(topics.set, "custom/kitchen/clevercoffee/+/set");
@@ -68,22 +61,18 @@ fn the_topic_layout_inserts_no_separator_of_its_own() {
 
 #[test]
 fn a_prefix_without_a_trailing_slash_is_used_verbatim() {
-    // A tidy layout that inserted a separator would be a different wire format
-    // from the one every existing install already uses.
+    // Prefixes are concatenated verbatim; a separator here would be a new wire
+    // format.
     assert_eq!(Topics::new("home/", "cc").state("t"), "home/cc/t");
 }
 
-/// The topic matcher, and every way a topic can miss it.
+/// Every way a topic can miss the matcher: a deeper path, a bare `status`, a
+/// trailing `/extra`, a foreign prefix.
 ///
-/// A deeper path, a bare `status`, a trailing `/extra` and a foreign prefix are
-/// all refused.
-///
-/// **A wildcard is the interesting one.** `<base>+/set` parses to the reading
-/// `"+"`, and is then dropped by the registry lookup. Not "fixed" here on
-/// purpose: the refusal is the *registry's* job, and
-/// `an_inbound_reading_resolves_only_if_it_is_registered` is where it is checked.
-/// A matcher that also refused wildcards would be a second place carrying the
-/// same rule, and the two would drift.
+/// `<base>+/set` parses to the reading `"+"` and is then refused by the registry.
+/// Not refused here on purpose: the rule lives in one place,
+/// `an_inbound_reading_resolves_only_if_it_is_registered`, and a second copy is a
+/// copy that drifts.
 #[test]
 fn an_inbound_topic_must_be_a_command_under_the_base() {
     let topics = Topics::new("custom/kitchen/", "clevercoffee");
@@ -121,17 +110,15 @@ fn an_inbound_topic_must_be_a_command_under_the_base() {
 
 #[test]
 fn the_buffer_holds_the_largest_published_payload() {
-    // Sized for a discovery payload with a `device` block, which is the
-    // largest this firmware publishes. `cc_config::discovery` asserts that
-    // every payload it builds is under it.
+    // A discovery payload with a `device` block is the largest we publish;
+    // `cc_config::discovery` asserts itself under this.
     assert_eq!(BUFFER_BYTES, 1024);
 }
 
 #[test]
 fn the_budget_is_a_fraction_of_the_control_period() {
-    // `Feed::service` runs on every tick and a tick is 10 ms, so the budget
-    // has to be a fraction of that: a quarter of the period is most of a
-    // tick's worth of publishing, and the whole of it bounds nothing.
+    // `Feed::service` runs every tick and a tick is 10 ms, so the budget must be a
+    // fraction of it. The whole period would bound nothing.
     assert_eq!(TIME_BUDGET_MS, 2);
     const { assert!(TIME_BUDGET_MS * 5 <= 10) };
 }
@@ -144,13 +131,11 @@ fn the_pass_intervals_are_what_they_are_meant_to_be() {
     assert_eq!(DISCOVERY_INTERVAL_MS, 300_000);
 }
 
-/// The interval is a function of the machine state, and the state is not the
-/// same thing as "a brew is happening".
+/// The interval is a function of the machine state, which is not the same thing as
+/// "a brew is happening".
 ///
-/// `BrewFinished` is excluded from the brew arm, which is the one case a naive
-/// `is_brew_state()` gets wrong: the result screen is shown for three seconds
-/// and does not change, so it keeps the slow cadence throughout rather than
-/// reporting at 2 Hz for a screen nobody is watching.
+/// `BrewFinished` is excluded from the brew arm, the one case a bare
+/// `is_brew_state()` gets wrong. The result screen is static for three seconds.
 #[test]
 fn the_interval_follows_the_machine_state() {
     use cc_domain::state::MachineState as S;
@@ -168,14 +153,13 @@ fn the_interval_follows_the_machine_state() {
 
 /// The registry covers the machine, and only the machine.
 ///
-/// **The counts are the whole assertion.** Membership, not topic spelling: a
-/// registry of three parameters and two binary sensors passes every other test in
-/// this file while publishing almost nothing the Home Assistant entities expect,
-/// because those entities are built in `cc_config::discovery` and nothing else
-/// connects the two. Both configurations below are written out rather than taken
-/// from `Config::default()`, because `hardware.switches.brew.enabled` defaults to
-/// `true` and a count that silently depended on the default would be a count of
-/// the wrong thing.
+/// **The counts are the whole assertion.** Topic spelling is trivially right;
+/// membership is what goes missing silently, and nothing else connects the registry
+/// to the entities `cc_config::discovery` advertises.
+///
+/// Both configurations are written out, not taken from `Config::default()`,
+/// because `hardware.switches.brew.enabled` defaults to `true` and a count that
+/// quietly depended on it would be a count of the wrong machine.
 #[test]
 fn the_registry_covers_a_bare_machine_and_a_full_one() {
     use cc_domain::hardware::ScaleType;
@@ -184,28 +168,25 @@ fn the_registry_covers_a_bare_machine_and_a_full_one() {
     let mut config = Config::default();
     config.hardware.switches.brew.enabled = false;
     let bare = Registry::from_config(&topics, &config);
-    // A machine with no scale, no water tank, no pressure sensor and no brew
-    // switch still publishes a real baseline: the temperature and the PID, plus
-    // the two tank-free readings.
+    // No scale, no tank, no pressure, no brew switch: still a real baseline.
     assert_eq!(bare.parameters().len(), 12);
     assert_eq!(bare.sensors().len(), 9);
-    // With no tank there is no tank-full sensor, so nothing binary at all.
+    // No tank, so no tank-full sensor: nothing binary at all.
     assert_eq!(bare.binary_sensors(), []);
 
-    // Everything on, with a single-cell scale. The dual-cell calibration is
-    // behind `HX711_DUAL`, so it is absent here and appears below.
+    // All on, single-cell scale. The dual-cell calibration is behind `HX711_DUAL`,
+    // absent here and present below.
     config.hardware.switches.brew.enabled = true;
     config.hardware.sensors.scale.enabled = true;
     config.hardware.sensors.scale.r#type = ScaleType::Hx711Single;
     config.hardware.sensors.watertank.enabled = true;
     config.hardware.sensors.pressure.enabled = true;
     let full = Registry::from_config(&topics, &config);
-    // Baseline parameters, plus the fourteen the brew switch unlocks, plus the
-    // five the scale unlocks.
+    // Baseline + fourteen behind the brew switch + five behind the scale.
     assert_eq!(full.parameters().len(), 31);
-    // Baseline sensors, plus the brew timer, the two weights and the pressure.
+    // Baseline + brew timer + two weights + pressure.
     assert_eq!(full.sensors().len(), 13);
-    // The tank is fitted, so its full/empty pair is now published.
+    // Tank fitted, so its full/empty pair is published.
     assert_eq!(full.binary_sensors().len(), 1);
 
     // The dual cell adds exactly one, and only that one.
@@ -218,10 +199,8 @@ fn the_registry_covers_a_bare_machine_and_a_full_one() {
     );
 }
 
-/// Every registered topic resolves, and nothing else does.
-///
-/// The refusal of an unregistered topic is what keeps a typo on a command topic
-/// from becoming a parameter write, so it is asserted from both sides.
+/// Every registered topic resolves, and nothing else does. Otherwise a typo on a
+/// command topic becomes a parameter write.
 #[test]
 fn an_inbound_reading_resolves_only_if_it_is_registered() {
     let topics = Topics::new("p/", "h");
@@ -230,23 +209,18 @@ fn an_inbound_reading_resolves_only_if_it_is_registered() {
     let registry = Registry::from_config(&topics, &config);
     assert_eq!(registry.resolve("brewSetpoint"), Some("brew.setpoint"));
     assert_eq!(registry.resolve("pidON"), Some("pid.enabled"));
-    // The two machine-state targets, which resolve to their sentinel rather than
-    // to a configuration key.
+    // The two machine-state targets resolve to their sentinel, not a config key.
     assert_eq!(registry.resolve("steamON"), Some(STEAM_MODE));
     assert_eq!(registry.resolve("backflushOn"), Some(BACKFLUSH_ON));
-    // A sensor is published but not settable, and an advertised-but-unregistered
-    // parameter resolves to nothing.
+    // Published-but-not-settable, and advertised-but-unregistered, both refuse.
     assert_eq!(registry.resolve("temperature"), None);
     assert_eq!(registry.resolve("usePonM"), None);
 }
 
-/// The four special targets are not configuration keys.
-///
-/// They are compared against **before** the schema is consulted, because the
-/// configuration carries no steam mode, no backflush mode, no tare mode and no
-/// calibration mode: they are requests against the running machine. Asserting
-/// they are absent from the schema is what stops somebody "tidying" them into
-/// parameters.
+/// The four special targets are not configuration keys, and are compared **before**
+/// the schema is consulted: the configuration carries no steam mode, backflush
+/// mode, tare or calibration. Asserting their absence from the schema is what stops
+/// somebody "tidying" them into parameters.
 #[test]
 fn the_four_specials_are_not_configuration_keys() {
     for special in [STEAM_MODE, BACKFLUSH_ON, TARE_ON, CALIBRATION_ON] {
@@ -260,9 +234,8 @@ fn the_four_specials_are_not_configuration_keys() {
 
 #[test]
 fn each_kind_of_topic_lands_in_its_phase() {
-    // Phase membership is what decides the retain flag, and a topic in the
-    // wrong phase is published with the wrong flag — retained where it must
-    // not be, or lost on a broker restart where it must not be.
+    // Phase membership decides the retain flag. Wrong phase means the wrong flag:
+    // retained where it must not be, or lost on restart where it must not be.
     let topics = Topics::new("p/", "h");
     let mut config = Config::default();
     config.hardware.switches.brew.enabled = false;
@@ -282,12 +255,10 @@ fn each_kind_of_topic_lands_in_its_phase() {
 
 /// The three plan slices must **partition** the view.
 ///
-/// The retain assertions in `each_kind_of_topic_lands_in_its_phase` are all
-/// vacuous on an empty slice, so on their own they say nothing about whether the
-/// phases were cut in the right place -- which is exactly the bug this exists for:
-/// `PlanView` stored per-group *lengths* and `plan()` used them as end *offsets*,
-/// so `sensors` came back empty and `binary_sensors` was an out-of-range slice
-/// that panicked.
+/// The retain assertions in `each_kind_of_topic_lands_in_its_phase` are vacuous on
+/// an empty slice, so on their own they say nothing about where the phases were cut,
+/// which is exactly the bug: `PlanView` stored *lengths* and `plan()` used them as
+/// *offsets*, so `sensors` came back empty and `binary_sensors` read past the end.
 ///
 /// Everything here is about membership and count, never about a value.
 #[test]
@@ -323,9 +294,7 @@ fn the_plan_slices_partition_the_view() {
 
 #[test]
 fn a_pressure_sensor_appears_only_when_it_is_fitted() {
-    // Pressure is a fitted sensor, so an unfitted machine must not publish a
-    // topic for it: the value would be absent, and a retained-shaped consumer
-    // waiting on it has nothing to wait for.
+    // Pressure is fitted-or-absent, so an unfitted machine must not publish it.
     let topics = Topics::new("p/", "h");
     let mut config = Config::default();
     let without = Registry::from_config(&topics, &config);
@@ -341,10 +310,9 @@ fn a_pressure_sensor_appears_only_when_it_is_fitted() {
 /// The registry publishes `currReadingWeight` and `currBrewWeight`, the same two
 /// names `cc_config::discovery` advertises.
 ///
-/// Asserted in both directions, because the two facts live in **different
-/// crates** and nothing else makes them agree: a registry entry called `weight`
-/// matched neither, so the Home Assistant weight entity was advertised and never
-/// updated -- a silently inert entity that no test in either crate could see.
+/// Both directions, because the two facts live in different crates and nothing else
+/// makes them agree. A registry entry called `weight` was advertised by neither and
+/// updated by nothing: an inert entity invisible to tests in either crate.
 #[test]
 fn the_weight_topics_are_exactly_the_ones_discovery_advertises() {
     let topics = Topics::new("p/", "h");
@@ -387,8 +355,8 @@ fn the_weight_topics_are_exactly_the_ones_discovery_advertises() {
 
 #[test]
 fn a_registry_never_names_a_credential() {
-    // The topics are the configuration's own; a mistake here would put the
-    // MQTT password on a world-readable broker topic.
+    // Topics are the configuration's own, so a mistake here publishes the MQTT
+    // password to every subscriber.
     let topics = Topics::new("p/", "h");
     let mut config = Config::default();
     config.mqtt.password = cc_config::Secret::new(alloc::string::String::from("brokerpw"));
