@@ -12,8 +12,8 @@ registered) and the tools under coverage.
 | cicd | 1 | 1 | 0 |
 | deps | 2 | 1 | 1 |
 | security | 0 | 0 | 0 |
-| cleanup | 2 | 1 | 1 |
-| total | 6 | 3 | 3 |
+| cleanup | 3 | 1 | 2 |
+| total | 7 | 3 | 4 |
 
 Top 5 by benefit/effort: CI-1, DEP-1, CLN-1, CODE-1, CLN-2.
 
@@ -142,21 +142,31 @@ never logged or put in `sys.argv` (`justfile:826`).
 - Fix: point all three at the live paths.
 - Benefit: three fewer misdirections for a reader chasing a rule.
 
-## Checked, not findings
+### CLN-3 · L · effort M · `CONTRIBUTING.md:54` vs `crates/*/src`
 
-- **Comment density.** 31 667 of 81 313 lines under `crates/*/src` are comments
-  (39 %), roughly 410 k tokens if an agent reads the whole tree. Sampled the
-  longest blocks and checked value per line: they cache derivation, not the code.
-  `cc-hal-esp32/src/heater.rs:39-90` holds a table derived by walking the
-  *deleted* C++ ISR plus `ledc.c:459-477` and `ledc_ll.h:28` citations; an agent
-  cannot redo that without the C++ (`git show 9fa8c834:<path>`, AG-REPO-27) and
-  ESP-IDF sources. Accuracy holds: `CARRIER_HZ`/`WINDOW_MS` are machine-asserted
-  at `cc-domain/src/heater.rs:382`, and the ADR-0002 heap number cited four times
-  matches the ADR and the constant. Narrate-the-next-line comments total 115 lines
-  (0.36 %), mostly accessor docs. No finding: no waste worth an edit.
-- **Token cost is real but falls only on agents**, and no gate can check the
-  external citations these blocks carry. That is the mechanism behind CLN-1 and
-  CLN-2, where the claims that did rot were all checkable ones.
+- Evidence: the repo states the policy but nothing enforces it. 31 667 of 81 313
+  lines under `crates/*/src` are comments (39 %), about 410 k tokens for an agent
+  reading the tree. 65 of 140 `src` files open with 40 or more comment lines
+  before their first statement, totalling 4 457 lines; the longest is 260
+  (`cc-hal-esp32/src/heater.rs`), then 181 (`cc-firmware/src/slots.rs`) and 120
+  (`cc-protocol/src/sensor/tsic306/mod.rs`).
+- Measured before filing: the long blocks are mostly load-bearing. They cache
+  derivation an agent cannot redo without the deleted C++
+  (`git show 9fa8c834:<path>`, AG-REPO-27) and ESP-IDF sources; their
+  internally checkable claims are machine-asserted
+  (`cc-domain/src/heater.rs:382` asserts `CARRIER_HZ * WINDOW_MS == 1_000`) or
+  agree with their ADRs; and comments that merely narrate the next line are 115
+  lines, 0.36 %. So this is not a defect today, it is an unbounded surface.
+- Fix: make `CONTRIBUTING.md:54` ("explain the why, not restate the code",
+  "write for the maintainer who does not know the subsystem") a checkable
+  convention rather than prose: state the test a comment must pass (does it
+  carry a fact the code, an ADR, or a test does not already?) and require that
+  anything over the threshold is either that, or split so the answerable part
+  loads first. Do **not** bulk-trim the existing blocks; the measured waste does
+  not justify an edit campaign.
+- Benefit: comment cost stops scaling silently with each feature added, and the
+  un-rot checkable claims stop being caught only when a human notices (which is
+  what CLN-1 and CLN-2 are).
 
 ## Vendored / generated
 
@@ -187,7 +197,12 @@ Branch protection and required checks were not verified; `gh` has no token here.
 
 ## review
 
-`review: kept 6 / dropped 1 / merged 3 / added 0`
+`review: kept 7 / dropped 1 / merged 3 / added 1`
+
+The one addition is CLN-3 (comment volume), which the reviewer did not raise
+because the brief scoped it to verifying existing findings. It was added after
+the same measurement, kept at L because the measured waste is small, and its fix
+is a convention rather than an edit campaign.
 
 Corrections the review forced, all applied above: the host test count is 1318,
 not 2970 (an arithmetic error in the first pass); CODE-1's magnitudes were wrong
