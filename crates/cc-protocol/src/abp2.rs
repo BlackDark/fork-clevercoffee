@@ -431,8 +431,6 @@ pub trait I2cBus {
     /// What the transport reports.
     type Error;
 
-    /// Write `bytes` to `address`.
-    ///
     /// # Errors
     ///
     /// Whatever the transport reports, including a NACK on the address — the
