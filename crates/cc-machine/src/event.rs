@@ -17,7 +17,7 @@ use cc_domain::units::{Celsius, Millis};
 ///
 /// Mirrors what `SensorCoordinator` exposes and what the state machine actually
 /// reads. Note what is **not** here: pressure and the raw scale weight. The
-/// state machine only logs those (`BrewStates.cpp:100-103`), so carrying them
+/// state machine only logs those, so carrying them
 /// would make the event bigger for no decision's sake.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Sensors {
@@ -25,7 +25,7 @@ pub struct Sensors {
     /// `ProcessController::updateTemperature` does
     /// (`ProcessController.cpp:131-141`).
     pub temperature: Celsius,
-    /// `SensorCoordinator::isWaterTankFull()` (`SensorCoordinator.h:180`).
+    /// `SensorCoordinator::isWaterTankFull()`.
     pub water_tank_full: bool,
     /// `SensorCoordinator::hasTemperatureSensorError()`.
     pub has_temperature_error: bool,
@@ -61,7 +61,7 @@ impl Sensors {
     }
 
     /// `SensorCoordinator::hasSensorError()` — "any *enabled* sensor has an
-    /// error" (`SensorCoordinator.h:190-192`), which is the temperature probe
+    /// error", which is the temperature probe
     /// **or** the scale. The scale is gone after R2-07, so on the Rust machine
     /// the second term is always false; it is kept so the name and the C++
     /// agree and so re-adding a sensor does not silently change a guard.
@@ -74,7 +74,7 @@ impl Sensors {
 /// A sampled switch edge.
 ///
 /// The C++ handlers poll `Switch::isPressed()` every loop and compare with the
-/// previous reading (`BrewHandler.h:172`, `SteamHandler.h:103`). The edge *is*
+/// previous reading. The edge *is*
 /// the event; the level is a consequence of it. So there is no "level changed
 /// to the same value" event, and a sample that matches the stored level
 /// produces no [`Event`] at all — exactly the C++'s
@@ -95,7 +95,7 @@ pub enum Event {
 
     /// The switch went from released to pressed.
     ///
-    /// `long_press` is `Switch::longPressDetected()` (`hardware/Switch.h:28`),
+    /// `long_press` is `Switch::longPressDetected()`,
     /// which `BrewHandler` consults to tell a short press (start a backflush
     /// cycle) from a long press (start a manual flush) in `BACKFLUSH_IDLE`
     /// (`BrewHandler.h:198-200`).
@@ -158,7 +158,7 @@ pub enum Event {
     /// # Why the whole `Outcome` and not just the `Verdict`
     ///
     /// The brief sketches `Safety(SafetyVerdict)`. A verdict alone is not enough:
-    /// S1 is a **three-reading debounce** (`EmergencyStopManager.cpp:46`), so
+    /// S1 is a **three-reading debounce**, so
     /// `SafetyState::high_reading_count` is part of the machine's memory and has
     /// to survive between ticks. Passing only the verdict would force the shell
     /// to keep a second copy of the counter, and the C++ already has that exact
@@ -187,7 +187,7 @@ pub enum SwitchId {
     ///
     /// Named for the switch, not the function: the same switch is the hot-water
     /// switch in `PID_NORMAL` and the boiler water-injection switch in
-    /// `STEAM_RUNNING` (`PidStates.cpp:33`, `SteamStates.cpp:36`).
+    /// `STEAM_RUNNING`.
     HotWater,
 }
 
@@ -239,9 +239,9 @@ pub enum Command {
     /// `backflush/BackflushModeLogic.h:26-34`. The command is only the request
     /// flag that function sets.
     BackflushEnter,
-    /// `setBackflushMode(bool)` (`MachineStateContext.cpp:354-381`) — the C++'s
+    /// `setBackflushMode(bool)` — the C++'s
     /// own entry point, which `POST /api/backflush` calls with
-    /// `!backflushMode()` (`WebServerManager.cpp:489-491`).
+    /// `!backflushMode()`.
     ///
     /// **This is the command the toggle needs and did not have.** There was a
     /// `BackflushEnter` (mode on) and a `BackflushStop` (stop the running
@@ -266,7 +266,7 @@ pub enum Command {
     /// `setNormalOperationRequested(true)` — the power-on path
     /// (`PowerHandler::powerOn`, `PowerHandler.h:156`).
     NormalOperation,
-    /// `setUserPidEnabled(bool)` (`SystemUtils.h:34-40`): persists
+    /// `setUserPidEnabled(bool)`: persists
     /// `pid.enabled` **and** sets the runtime flag.
     ///
     /// The C++ has these as two separate calls, and splitting them here would

@@ -42,7 +42,7 @@ pub const UPRIGHT_BOX_WIDTH: i32 = 100;
 /// The height of a brew-time / brew-weight box.
 pub const BOX_HEIGHT: i32 = 10;
 
-/// `displayThermometerOutline` (`DisplayWidgets.h:149`).
+/// `displayThermometerOutline`.
 ///
 /// Called with `(4, 62)` by the Standard template. Note the negative y
 /// arguments: the function is written relative to a *bulb* at `(x, y)` and
@@ -86,7 +86,7 @@ pub const fn constrain(amt: i32, low: i32, high: i32) -> i32 {
     }
 }
 
-/// `drawTemperaturebar` (`DisplayWidgets.h:166`).
+/// `drawTemperaturebar`.
 ///
 /// Five vertical bars whose heights track the temperature, drawn from a
 /// baseline of `y = 52` upwards. `heightRange` is the full-scale height.
@@ -103,7 +103,7 @@ pub fn draw_temperature_bar(d: &mut Display, input: &DisplayInput, x: i32, heigh
     }
 }
 
-/// `displayTemperature` (`DisplayWidgets.h:184`).
+/// `displayTemperature`.
 ///
 /// The big `fub30` readout, with the "hide the leading digit under 100" trick:
 /// below 99.5 the value is drawn 20 px to the right so a two-digit number still
@@ -123,7 +123,7 @@ pub fn display_temperature(d: &mut Display, input: &DisplayInput, x: i32, y: i32
     d.draw_circle(x + 72, y + 4, 3);
 }
 
-/// `displayTemperatureInfo` (`DisplayTemplateBase.h:130`).
+/// `displayTemperatureInfo`.
 ///
 /// The two-row label/value block every non-Modern template uses. The x
 /// coordinates come from the template's own `getTemperatureCoords`, so the
@@ -243,7 +243,7 @@ fn draw_right_aligned(d: &mut Display, right: i32, y: i32, text: &str) {
 /// Where the `°C` unit sits relative to the value column, **when there is
 /// room**.
 ///
-/// The C++'s literal `31` (`DisplayTemplateBase.h:118,122`). It is a *starting*
+/// The C++'s literal `31`. It is a *starting*
 /// offset and not a guarantee: on the Scale template (value column 50) the unit
 /// lands at 81 and there is nothing to fix, while on the Standard and Minimal
 /// templates (value column 84) it would land at 115 and ink to 131 — three
@@ -277,7 +277,7 @@ pub struct TemperatureCoords {
     pub set_value_x: i32,
 }
 
-/// `displayPIDInfo` (`DisplayTemplateBase.h:165`).
+/// `displayPIDInfo`.
 ///
 /// The `Kp|Ki/Kp|Kd` row and the heater-output percentage. The separator is a
 /// template parameter: `"|"` everywhere except Upright, which uses `" "`
@@ -352,7 +352,7 @@ pub struct PidCoords {
     pub output_y: i32,
 }
 
-/// `displayBrewTime` (`DisplayWidgets.h:203`).
+/// `displayBrewTime`.
 ///
 /// The inverted field with the label on the left and the value in a fixed
 /// column. `total_target_brew_time` is `-1` for manual, which suppresses the
@@ -391,7 +391,7 @@ pub fn display_brew_time(
     }
 }
 
-/// `displayBrewWeight` (`DisplayWidgets.h:247`).
+/// `displayBrewWeight`.
 ///
 /// As [`display_brew_time`], but the value is a float with zero decimals and
 /// the unit is grams. `setpoint` is `-1` for no target, `fault` replaces the
@@ -457,7 +457,7 @@ pub fn display_brew_weight(
 /// [`VALUE_COLUMN_OFFSET`] for the rest.
 ///
 /// **The width is what is left to the frame's edge, not a constant.** The C++
-/// uses `kValueColumnWidth = 78` (`DisplayWidgets.h:171`), and 78 is exactly
+/// uses `kValueColumnWidth = 78`, and 78 is exactly
 /// right for the **Scale** template — whose row origin is `x = 0`, so the box
 /// runs 50..127 and closes on the last column. The Standard and Minimal
 /// templates pass `x = 34`, so the same 78 px runs **84..161**: 33 px of it is
@@ -479,7 +479,7 @@ fn draw_inverted_field(d: &mut Display, x: i32, y: i32, upright: bool) {
     d.set_draw_color(1);
 }
 
-/// `displayBrewtimeFs` (`DisplayWidgets.h:296`) — the fullscreen brew timer.
+/// `displayBrewtimeFs` — the fullscreen brew timer.
 ///
 /// Two completely different renderings, because the two panels have different
 /// shapes: in the Upright template's 64x128 space the digits are `fub20` with a
@@ -521,7 +521,7 @@ pub fn display_brew_time_fs(d: &mut Display, x: i32, y: i32, brew_time_ms: f64, 
     d.set_font(font::profont11());
 }
 
-/// `displayProgressbar` (`DisplayWidgets.h:335`).
+/// `displayProgressbar`.
 ///
 /// A `w x 4` frame with a two-pixel-thick fill. Note `output - 2 > 0`: the
 /// fill is inset by one pixel on each side, and the guard means a value under 2
@@ -535,7 +535,7 @@ pub fn display_progress_bar(d: &mut Display, value: i32, x: i32, y: i32, width: 
     }
 }
 
-/// `displayWiFiStatus` (`DisplayWidgets.h:84`).
+/// `displayWiFiStatus`.
 ///
 /// The antenna icon plus, when connected, one vertical bar per signal step. The
 /// bar count is `for (b = 0; b <= signal; b++)`, so a signal of 3 draws *four*
@@ -556,7 +556,7 @@ pub fn display_wifi_status(d: &mut Display, input: &DisplayInput, x: i32, y: i32
     }
 }
 
-/// `displayMQTTStatus` (`DisplayWidgets.h:104`).
+/// `displayMQTTStatus`.
 pub fn display_mqtt_status(d: &mut Display, config: &Config, input: &DisplayInput, x: i32, y: i32) {
     if !config.mqtt_enabled {
         return;
@@ -576,7 +576,7 @@ pub fn display_mqtt_status(d: &mut Display, config: &Config, input: &DisplayInpu
     }
 }
 
-/// `displayBluetoothStatus` (`DisplayWidgets.h:349`).
+/// `displayBluetoothStatus`.
 pub fn display_bluetooth_status(d: &mut Display, input: &DisplayInput, x: i32, y: i32) {
     // The C++ guards on `hardwareContext().scalePtr()` being non-null and the
     // scale being connected. `DisplayInput` has no such pointer, so the port
@@ -587,7 +587,7 @@ pub fn display_bluetooth_status(d: &mut Display, input: &DisplayInput, x: i32, y
     d.draw_xbmp(x, y, 8, 9, &bm::BLUETOOTH_ICON);
 }
 
-/// `displayUptime` (`DisplayWidgets.h:68`).
+/// `displayUptime`.
 ///
 /// `snprintf(buf, format, hours, minutes, seconds)` with the format
 /// `"%02luh %02lum"`, drawn at `(x, y)` in `profont11`.
@@ -610,7 +610,7 @@ pub fn display_uptime(d: &mut Display, uptime_s: u32, y: i32) {
     }
     text.push('m').ok();
     // **Right-aligned to the frame, not drawn at `x`.** A deliberate divergence
-    // from the C++, which passes a fixed `x = 84` (`DisplayWidgets.h:374`) and
+    // from the C++, which passes a fixed `x = 84` and
     // lets the string run off the panel.
     //
     // `"%02luh %02lum"` is a *minimum* width, not a fixed one: past 100 hours
@@ -632,7 +632,7 @@ pub fn display_uptime(d: &mut Display, uptime_s: u32, y: i32) {
 /// it is the same margin [`UNIT_COLUMN_OFFSET`] leaves on the `°C` column.
 pub const RIGHT_MARGIN: i32 = 1;
 
-/// `displayMaintenanceStatusBar` (`DisplayWidgets.h:358`).
+/// `displayMaintenanceStatusBar`.
 ///
 /// Returns whether it drew, because the status bar uses the answer to decide
 /// whether to fall back to the uptime.
@@ -651,7 +651,7 @@ pub fn display_maintenance_status_bar(
     true
 }
 
-/// `displayStatusbar` (`DisplayWidgets.h:369`).
+/// `displayStatusbar`.
 ///
 /// The horizontal rule at [`STATUS_BAR_Y_POS`] plus the radio, MQTT, Bluetooth
 /// and maintenance indicators. The two templates lay the four elements out
@@ -686,7 +686,7 @@ pub fn display_statusbar(
     }
 }
 
-/// `displayMessage` (`DisplayWidgets.h:391`).
+/// `displayMessage`.
 ///
 /// Six lines at a fixed ten-pixel pitch. Does not `setFont`.
 pub fn display_message(d: &mut Display, lines: [&str; 6]) {
@@ -705,7 +705,7 @@ pub fn display_message(d: &mut Display, lines: [&str; 6]) {
     d.print(lines[5]);
 }
 
-/// `displayBrewInfo` (`DisplayTemplateBase.h:196`) — decide what the brew row shows.
+/// `displayBrewInfo` — decide what the brew row shows.
 ///
 /// Split out from the drawing so the *choice* is testable without a framebuffer:
 /// manual flush, else hot water, else the brew timer (with a target when the
@@ -764,7 +764,7 @@ pub fn brew_row(config: &Config, input: &DisplayInput) -> BrewRow {
     BrewRow::None
 }
 
-/// The Scale template's pressure row (`ScaleTemplate.h:47`).
+/// The Scale template's pressure row.
 ///
 /// `setFont`, `setCursor`, then three `print`s: the localized label, the value
 /// with one decimal, and `" bar"`. Three separate `print` calls, not one
@@ -777,7 +777,7 @@ pub fn display_pressure(d: &mut Display, input: &DisplayInput, l: &Lang, x: i32,
     d.print(" bar");
 }
 
-/// The Upright template's pressure row (`UprightTemplate.h:99`).
+/// The Upright template's pressure row.
 ///
 /// Same, but with the short label and a row that moves depending on whether a
 /// scale is fitted.
@@ -948,7 +948,6 @@ mod tests {
     fn the_inverted_field_clears_the_cplusplus_box() {
         // Tested on its own, with no text, so the assertion is about the box
         // rather than about the box minus whatever glyphs land inside it.
-        // `DisplayWidgets.h:209-216`.
 
         // Upright: `drawBox(x, y + 1, 100, 10)`.
         let mut upright = filled();

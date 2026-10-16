@@ -89,7 +89,7 @@ impl FixedBox {
     }
 }
 
-/// `drawStrRightInBox` (`DisplayLayoutUtils.h:11`).
+/// `drawStrRightInBox`.
 ///
 /// Draws `text` so its **right** edge sits at `box_x + box_w`. This is the
 /// helper every counting field uses: the far edge is pinned to a constant, so
@@ -99,7 +99,7 @@ pub fn draw_str_right_in_box(d: &mut Display, box_x: i32, box_w: i32, y: i32, te
     d.draw_str(box_x + box_w - d.str_width(text), y, text);
 }
 
-/// `drawStrCenteredOnScreen` (`DisplayLayoutUtils.h:19`).
+/// `drawStrCenteredOnScreen`.
 ///
 /// Centres on `DISPLAY_WIDTH` — the *physical* width, even under `R1`/`R3`.
 /// That is what the C++ does (`(DISPLAY_WIDTH - w) / 2`, and `DISPLAY_WIDTH` is
@@ -143,7 +143,7 @@ impl BarLabelCluster {
     }
 }
 
-/// `layoutBarLabelCluster` (`DisplayLayoutUtils.h:39`).
+/// `layoutBarLabelCluster`.
 ///
 /// Horizontally centres `bar_w + gap + label_w` on the physical width, and
 /// vertically centres the bar and the label *independently* within

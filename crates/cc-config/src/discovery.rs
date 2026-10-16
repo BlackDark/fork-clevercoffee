@@ -18,7 +18,7 @@
 //!
 //! # What is ported, and what is not
 //!
-//! `MQTTManager::sendHASSIODiscoveryMsg` (`MQTTManager.cpp:828-926`) publishes
+//! `MQTTManager::sendHASSIODiscoveryMsg` publishes
 //! 16 entities unconditionally and 13 more behind configuration flags. All four
 //! payload *shapes* are ported — sensor, binary sensor, number, switch, plus the
 //! button shape (`generateButtonDevice`, `:684-724`) — and the entity list is
@@ -97,7 +97,6 @@ fn device_block(hostname: &str) -> Value {
 
 /// The availability fields, identical in every payload.
 ///
-/// `MQTTManager.cpp:597-600`.
 fn availability(hostname: &str, prefix: &str, status_topic: &str) -> Value {
     json!({
         "payload_available": "online",
@@ -173,7 +172,7 @@ impl Builder<'_> {
     ///
     /// `unit` and `device_class` are `Option` because the C++ passes empty
     /// strings for some entities and *omits* `device_class` only for binary
-    /// sensors (`:770-772`); an empty `device_class` in a sensor payload makes
+    /// sensors; an empty `device_class` in a sensor payload makes
     /// Home Assistant show the entity without an icon, which is the intent for
     /// `machineState`, so an empty string is preserved as "no class".
     #[must_use]
@@ -337,7 +336,7 @@ pub const STEP_ONE: f64 = 1.0;
 
 /// The whole discovery set for `config`, in the C++'s publication order.
 ///
-/// `MQTTManager::sendHASSIODiscoveryMsg` (`MQTTManager.cpp:848-926`).
+/// `MQTTManager::sendHASSIODiscoveryMsg`.
 ///
 /// Built with `alloc`, so it is a `Vec` of 16–29 `Discovery` values of a few
 /// hundred bytes each. The C++ builds them one at a time and publishes each
@@ -707,12 +706,12 @@ mod tests {
                 .contains(&m.topic.rsplit('/').nth(2).unwrap_or(""))
             })
             .count();
-        // 25, and **not** the C++'s 16 (`MQTTManager.cpp:848-871`). The nine
+        // 25, and **not** the C++'s 16. The nine
         // extra entities are the switch-conditional ones, which the C++ omits
         // because all four `hardware.switches.*.enabled` flags default to
-        // `false` (`Config.h:985,1004,1023,1042`) and this firmware defaults
+        // `false` and this firmware defaults
         // them to `true` — the divergence recorded in intentional-diffs.md. The
-        // water-tank binary sensor is still conditional (`:914`) and
+        // water-tank binary sensor is still conditional and
         // `hardware.sensors.watertank.enabled` is still `false`, so that entity
         // is still absent.
         assert_eq!(unconditional, 25);

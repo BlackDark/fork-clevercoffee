@@ -25,7 +25,7 @@
 //! ```
 //!
 //! `SensorCoordinator::update()` runs **every loop iteration**, and
-//! `PRESSURE_UPDATE_INTERVAL_MS` is **50 ms** (`SensorCoordinator.h:271`). So
+//! `PRESSURE_UPDATE_INTERVAL_MS` is **50 ms**. So
 //! the control loop spends `delay(10)` out of every 50 ms — **20 % of the
 //! entire control loop asleep, unconditionally, forever**, whether or not
 //! anything is brewing.
@@ -57,14 +57,14 @@ use cc_domain::units::{Bar, Celsius, Millis};
 
 /// The ABP2's 7-bit I²C address.
 ///
-/// `inline uint8_t ABP2_id = 0x28;` (`pressureSensor.h:14`). The bus is shared
+/// `inline uint8_t ABP2_id = 0x28;`. The bus is shared
 /// with the OLED (`I2C0`, GPIO21/22, `pinmapping.h:53-54`), so every
 /// transaction here is bounded and must not hold the bus.
 pub const ADDRESS: u8 = 0x28;
 
 /// The command that starts a conversion: read the first four output words.
 ///
-/// `inline uint8_t ABP2_cmd[3] = {0xAA, 0x00, 0x00};` (`pressureSensor.h:16`).
+/// `inline uint8_t ABP2_cmd[3] = {0xAA, 0x00, 0x00};`.
 /// `0xAA` is the ABP2's "output all" command; the two zero bytes select which
 /// of the four words to return.
 pub const COMMAND: [u8; 3] = [0xAA, 0x00, 0x00];
@@ -77,7 +77,7 @@ pub const RESPONSE_LEN: usize = 7;
 
 /// How long the C++ waits between the command and the read.
 ///
-/// `ABP2_READ_DELAY_MS` (`pressureSensor.h:10`). The ABP2 datasheet's
+/// `ABP2_READ_DELAY_MS`. The ABP2 datasheet's
 /// conversion time is 2 ms typical / 6.6 ms maximum for this part; 10 ms is
 /// the C++'s margin over that. **Preserved as the read deadline** rather than
 /// as a sleep — see the module docs.
@@ -85,19 +85,19 @@ pub const READ_DELAY: Millis = Millis::new(10);
 
 /// The reading cadence.
 ///
-/// `PRESSURE_UPDATE_INTERVAL_MS = 50` (`SensorCoordinator.h:271`).
+/// `PRESSURE_UPDATE_INTERVAL_MS = 50`.
 pub const CADENCE: Millis = Millis::new(50);
 
 /// The output count at minimum pressure.
 ///
-/// `ABP2_outputmin` (`pressureSensor.h:19`). This is the fitted part's 10 %
+/// `ABP2_outputmin`. This is the fitted part's 10 %
 /// of full scale, not zero: the ABP2's transfer function is deliberately
 /// offset, and the datasheet's equation 2 subtracts this before scaling.
 pub const OUTPUT_MIN: f64 = 1_677_722.0;
 
 /// The output count at maximum pressure.
 ///
-/// `ABP2_outputmax` (`pressureSensor.h:18`).
+/// `ABP2_outputmax`.
 pub const OUTPUT_MAX: f64 = 15_099_494.0;
 
 /// The full-scale count of the 24-bit output.
@@ -108,13 +108,13 @@ pub const FULL_SCALE: f64 = 16_777_215.0;
 
 /// The fitted part's minimum pressure, in bar.
 ///
-/// `ABP2_pmin` (`pressureSensor.h:20`). A differential gauge at 0 bar
+/// `ABP2_pmin`. A differential gauge at 0 bar
 /// reference.
 pub const P_MIN: f64 = 0.0;
 
 /// The fitted part's maximum pressure, in bar.
 ///
-/// `ABP2_pmax` (`pressureSensor.h:19`).
+/// `ABP2_pmax`.
 pub const P_MAX: f64 = 10.0;
 
 /// The fitted part's full-scale temperature span, in °C.
@@ -308,7 +308,7 @@ pub struct Driver {
     ///
     /// `None` initially, so the very first poll reads. The C++ has no warm-up:
     /// `SensorCoordinator::updatePressure` calls `measurePressure()` on the
-    /// first loop iteration (`SensorCoordinator.cpp:112-123`), and adding a
+    /// first loop iteration, and adding a
     /// 50 ms wait before the first reading would be a behaviour change with no
     /// safety benefit.
     next_due: Option<Millis>,

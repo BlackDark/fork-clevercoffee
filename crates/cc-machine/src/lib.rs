@@ -16,7 +16,7 @@
 //! # What this crate is *not*
 //!
 //! It is not `LoopManager::update()` ported. That god-function reaches into ten
-//! subsystems in eight fixed steps (`src/core/LoopManager.cpp:90-253`) and the
+//! subsystems in eight fixed steps and the
 //! order between them is load-bearing and untested. Here the same behaviour is
 //! one function of three values, and the eight steps are:
 //!
@@ -135,7 +135,7 @@ pub use maintenance::{
 #[must_use]
 pub fn reduce(machine: &Machine, ctx: &Context<'_>, ev: Event) -> (Machine, Effects) {
     // `StateMachine::update()` returns immediately when it has not been
-    // initialised (`StateMachine.cpp:72-75`). Reproduced rather than dropped:
+    // initialised. Reproduced rather than dropped:
     // an uninitialised machine must not act on a stale emergency request.
     if !machine.initialized {
         return (*machine, Effects::new());
@@ -152,7 +152,7 @@ pub fn reduce(machine: &Machine, ctx: &Context<'_>, ev: Event) -> (Machine, Effe
         Event::ButtonPressed { switch, long_press } => {
             m.switches.set_level(switch, true);
             // `Switch::longPressDetected()` is latched on the edge. The C++ reads
-            // it live (`BrewHandler.h:199`, `PowerHandler.h:144`); an edge is the
+            // it live; an edge is the
             // only place the reducer can see it, and by the time a hold is long
             // enough to matter the press event is history — which is why
             // `handlers::long_press_reboot` reads the latched flag later.
@@ -196,8 +196,8 @@ pub fn reduce(machine: &Machine, ctx: &Context<'_>, ev: Event) -> (Machine, Effe
 /// Everything that happens once per control-loop iteration.
 ///
 /// In the C++ this is `LoopManager` steps 3 through 5, in that order:
-/// `updateSwitchesAndStandby` (`LoopManager.cpp:561-569`),
-/// `updateStateMachine` (`:571-621`) and `updateProcessControl` (`:288-321`).
+/// `updateSwitchesAndStandby`,
+/// `updateStateMachine` and `updateProcessControl`.
 fn tick(m: &mut Machine, ctx: &Context<'_>, now: Millis, fx: &mut Effects) {
     // ---- the switch handlers' per-loop work (LoopManager step 3) -----------
     //
@@ -295,7 +295,7 @@ fn next_state(machine: &mut Machine, ctx: &Context<'_>) -> Option<MachineState> 
 
 /// Apply one transition: `onExit` → swap → stamp → `onEntry`.
 ///
-/// `StateMachine::executeTransition` (`StateMachine.cpp:106-149`):
+/// `StateMachine::executeTransition`:
 ///
 /// ```cpp
 /// currentState_->onExit(context_);
@@ -310,7 +310,7 @@ fn next_state(machine: &mut Machine, ctx: &Context<'_>) -> Option<MachineState> 
 /// already applied it, so a guard that names the current state produces no
 /// effects at all.
 fn transition(m: &mut Machine, ctx: &Context<'_>, target: MachineState, fx: &mut Effects) {
-    // `createStateInstance(newStateId)` (`StateMachine.cpp:118`). The C++ logs
+    // `createStateInstance(newStateId)`. The C++ logs
     // FATAL and restarts the device for an unknown id
     // (`StateFactory.cpp:65-69`); `MachineState` is an enum, so the id is known
     // by construction and `MachineState::from_id` is the only place a raw id
@@ -334,14 +334,14 @@ fn transition(m: &mut Machine, ctx: &Context<'_>, target: MachineState, fx: &mut
 
     m.state = target;
     // Stamped **before** `onEntry`, so a state's entry code sees its own
-    // elapsed time as zero (`StateMachine.cpp:145-148`).
+    // elapsed time as zero.
     m.entry_at = m.now;
 
     fx.push(Effect::EnterState(target));
     fx.extend(&states::on_entry(target, m, ctx));
 }
 
-/// `standbyCoordinator().update()` (`StandbyCoordinator.h:31-74`).
+/// `standbyCoordinator().update()`.
 ///
 /// The C++ recomputes the countdown at most once a second
 /// (`StandbyCoordinator.h:39`) and only when standby is enabled. Preserved: a
@@ -380,7 +380,7 @@ fn standby_update(m: &mut Machine, ctx: &Context<'_>, now: Millis) {
         return;
     }
 
-    // The display-off countdown (`StandbyCoordinator.h:56-72`). It runs only
+    // The display-off countdown. It runs only
     // once the standby countdown itself has expired, and it counts from the
     // *same* `standbyModeStartTimeMillis_` against a longer deadline
     // (`standbyTimeout + displayOffTimeout`), which is why the machine sits in
@@ -419,7 +419,7 @@ fn standby_update(m: &mut Machine, ctx: &Context<'_>, now: Millis) {
 /// other: `WATER_TANK_EMPTY` is excluded from the guard (so the machine can
 /// recover) but blocks the heater unless `keep_heater_on_empty`.
 fn process_control(m: &mut Machine, ctx: &Context<'_>, fx: &mut Effects) {
-    // `updatePIDState` (`ProcessController.cpp:151-172`).
+    // `updatePIDState`.
     let permitted =
         guards::should_pid_be_enabled(m.state, ctx.keep_heater_on_empty(), m.pid.brew_disabled);
     if !permitted && m.pid.mode_enabled {
@@ -432,11 +432,11 @@ fn process_control(m: &mut Machine, ctx: &Context<'_>, fx: &mut Effects) {
         m.pid.mode_enabled = true;
     }
 
-    // `handleBrewPIDDelay` (`ProcessController.cpp:465-487`).
+    // `handleBrewPIDDelay`.
     handle_brew_pid_delay(m, ctx, fx);
 }
 
-/// `ProcessController::handleBrewPIDDelay` (`ProcessController.cpp:465-487`).
+/// `ProcessController::handleBrewPIDDelay`.
 ///
 /// ```cpp
 /// const bool inBrewState = isBrewState(machineState);
@@ -469,21 +469,21 @@ fn handle_brew_pid_delay(m: &mut Machine, ctx: &Context<'_>, fx: &mut Effects) {
         let in_window = delay_ms > 0.0 && m.brew.elapsed_ms > 0.0 && m.brew.elapsed_ms < delay_ms;
         if in_window {
             if !m.pid.brew_disabled {
-                // `disablePIDForBrewDelay` (`ProcessController.cpp:410-424`).
+                // `disablePIDForBrewDelay`.
                 m.pid.brew_disabled = true;
                 m.pid.mode_enabled = false;
                 m.pid.output = 0.0;
                 fx.push(Effect::DisableHeater);
             }
         } else if m.pid.brew_disabled {
-            // `enablePIDAfterBrewDelay` (`ProcessController.cpp:432-450`).
+            // `enablePIDAfterBrewDelay`.
             // The tunings it selects are `cc_domain::Controller`'s business; the
             // machine only needs the flag.
             m.pid.brew_disabled = false;
             m.pid.mode_enabled = true;
         }
     } else if m.pid.brew_disabled {
-        // `reEnablePIDAfterBrewAbort` (`ProcessController.cpp:459-469`).
+        // `reEnablePIDAfterBrewAbort`.
         m.pid.brew_disabled = false;
         m.pid.mode_enabled = true;
     }
@@ -520,7 +520,7 @@ pub fn new() -> Machine {
     Machine::cold()
 }
 
-/// `StateMachine::initialize(MachineStateId::INIT)` (`StateMachine.cpp:28-69`).
+/// `StateMachine::initialize(MachineStateId::INIT)`.
 ///
 /// The C++ calls `onEntry` on the initial state, stamps the entry time, and sets
 /// `initialized_ = true`. This is the same thing as a value, and it is the only
@@ -530,7 +530,7 @@ pub fn new() -> Machine {
 ///
 /// The state is `INIT` and the runtime PID flag is the config value, which is
 /// the "no power switch" arm of
-/// `SystemInitializer::finalizeMachineState` (`SystemInitializer.cpp:633-641`).
+/// `SystemInitializer::finalizeMachineState`.
 /// The first [`Event::Tick`] then runs `InitState::checkSpecificTransitions`
 /// and lands in `PID_NORMAL` or `PID_DISABLED` — one loop after boot, exactly as
 /// the C++ does.
@@ -559,7 +559,7 @@ pub fn boot(now: Millis, ctx: &Context<'_>) -> (Machine, Effects) {
 /// `StateMachine::initialize()` creates an `InitState` — so immediately after
 /// boot the two disagree, and the first
 /// `LoopManager::updateStateMachine` reconciles them by overwriting the context
-/// with the state machine's value (`LoopManager.cpp:605-611`). The end state is
+/// with the state machine's value. The end state is
 /// `INIT` either way, because `InitState` routes on `isPidRuntimeEnabled()`,
 /// which `finalizeMachineState` has already set. Ported as a single field: the
 /// disagreement is not observable and one field cannot hold two truths.

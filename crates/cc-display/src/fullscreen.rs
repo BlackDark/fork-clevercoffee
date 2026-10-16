@@ -123,7 +123,7 @@ pub fn draw_hot_water_timer(
     config: &Config,
     template: TemplateId,
 ) -> Option<Stage> {
-    // `Config::displayFullscreenHotWaterTimer` (`DisplayFullscreenModes.h:107-109`).
+    // `Config::displayFullscreenHotWaterTimer`.
     // Same missing second gate as the manual flush above, and this one fires on
     // ordinary hot-water and steam use rather than on an edge case.
     if !config.fullscreen_hot_water_timer {

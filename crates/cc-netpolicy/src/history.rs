@@ -6,8 +6,8 @@
 //!
 //! `TemperatureHistory` in `src/network/WebServerManager.cpp:107-156`: a
 //! fixed 600-point ring of `{currentTemp, targetTemp, heaterPower}` triples,
-//! written from `sendTempEvent` (`:1134`) and rendered oldest-first by
-//! `generateJson` (`:134-153`).
+//! written from `sendTempEvent` and rendered oldest-first by
+//! `generateJson`.
 //!
 //! # Why it is here and not in the HTTP layer
 //!
@@ -34,7 +34,7 @@
 //!   `now - 3 * i` seconds (`CleverCoffeeContext.tsx:240-243`) — so the skip is
 //!   part of the wire contract, not an optimisation.
 
-/// How many points the ring keeps. `HISTORY_SIZE` (`WebServerManager.cpp:109`).
+/// How many points the ring keeps. `HISTORY_SIZE`.
 pub const CAPACITY: usize = 600;
 
 /// How many samples are dropped between two kept points. `SKIP_INTERVAL`
@@ -134,7 +134,7 @@ impl History {
 
     /// The oldest point's index.
     ///
-    /// The C++ computes it inline in `generateJson` (`:144-146`) from the two
+    /// The C++ computes it inline in `generateJson` from the two
     /// cursors; it is the same arithmetic, named once so the reader and the
     /// writer cannot compute it differently.
     #[must_use]

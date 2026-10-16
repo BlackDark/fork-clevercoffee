@@ -68,7 +68,7 @@ use cc_domain::units::{Celsius, Millis};
 
 /// The number of consecutive above-threshold readings that trip emergency stop.
 ///
-/// `EmergencyStopManager::DEBOUNCE_COUNT = 3` (`EmergencyStopManager.h:106`).
+/// `EmergencyStopManager::DEBOUNCE_COUNT = 3`.
 /// With the production 400 ms sensor interval (`Timing::TEMPERATURE_SENSOR_INTERVAL_MS`)
 /// that is roughly 1.2 s of sustained overheat.
 pub const DEBOUNCE_COUNT: u8 = 3;
@@ -116,8 +116,8 @@ pub struct SafetyConfig {
     /// `hardware.sensors.scale.enabled` — whether this machine has a scale.
     ///
     /// **The C++'s own definition of a fitted scale**, not this port's: it is
-    /// the guard on every scale command (`WebServerManager.cpp:540,563`) and the
-    /// third argument of `recordBrewIfQualified` (`BrewStates.cpp:311`), which
+    /// the guard on every scale command and the
+    /// third argument of `recordBrewIfQualified`, which
     /// is [`crate::validate_config`]'s subject as much as the reducer's is.
     ///
     /// It is a configuration value rather than a live probe, which is the point:
@@ -343,7 +343,7 @@ impl SafetyState {
         self.last_sample_seq = None;
     }
 
-    /// Forget everything. Mirrors `reset()` (`EmergencyStopManager.cpp:107-110`).
+    /// Forget everything. Mirrors `reset()`.
     pub const fn reset(&mut self) {
         *self = Self::CLEAR;
     }
@@ -541,7 +541,6 @@ pub const fn water_flow_allowed(state: MachineState) -> bool {
 ///     }
 ///     ...
 /// ```
-/// (`src/hardware/HardwareManager.cpp:397-400`)
 ///
 /// `emergencyMode_` is the *only* check. There is no `steamSafetyShutdownCheck`
 /// anywhere in the tree — `BrewHandler::valveSafetyShutdownCheck`
@@ -575,7 +574,7 @@ pub const fn water_flow_allowed(state: MachineState) -> bool {
 /// 1. `SteamRunningState::onEntryImpl` is the **only** place in the tree that
 ///    turns steam mode on: `context.setSteamMode(true)`
 ///    (`src/state/states/SteamStates.cpp:16`). Every other state either never
-///    touches it or clears it — `SteamRunningState::onExitImpl` (`:21`),
+///    touches it or clears it — `SteamRunningState::onExitImpl`,
 ///    `SystemStates.cpp:17`.
 ///
 /// 2. Steam mode is what the process controller keys off to select the steam
@@ -798,7 +797,7 @@ pub enum ConfigViolation {
     /// emergency threshold means the boiler is driven there and held, and the
     /// three-reading debounce can never count a breach.
     ///
-    /// `safety.emergency_temp` defaults to 150 (`Config.h:813-829`) and
+    /// `safety.emergency_temp` defaults to 150 and
     /// `brew.setpoint` is bounded 20..=110 by the schema
     /// (`Config.h:795-802`, `defaults.h:81-82`), so the schema bounds alone
     /// keep the defaults 40 °C apart — which is why the C++ is not exposed to
@@ -832,7 +831,7 @@ pub enum ConfigViolation {
     /// A `LOW_TRIGGER` pump relay: the pump runs at every boot, before any
     /// firmware exists to stop it.
     ///
-    /// The C++ honours this setting (`Relay.cpp:13-27`), and so does this port —
+    /// The C++ honours this setting, and so does this port —
     /// `actuators::Polarity` exists for it — but a configuration carrying one is
     /// refused at boot rather than obeyed, because the pin floats before
     /// firmware runs and "honoured" would mean "energised from power-on".
@@ -843,9 +842,9 @@ pub enum ConfigViolation {
     /// with no scale.
     ///
     /// **A pump with an open water valve and nothing to stop it.**
-    /// `BrewRunningState::checkSpecificTransitions` (`BrewStates.cpp:266-303`)
+    /// `BrewRunningState::checkSpecificTransitions`
     /// ends an automatic shot on exactly two things: `brew.by_time`, whose
-    /// target comes from `initTotalTargetBrewTime` (`:53-62`) and is **zero**
+    /// target comes from `initTotalTargetBrewTime` and is **zero**
     /// unless `brew.by_time.enabled`, and `brew.by_weight`, which compares
     /// `getCurrentBrewWeight()` against `brew.by_weight.target_weight`. With
     /// `by_time` off and no scale to weigh with, neither arm can ever fire and
@@ -965,7 +964,7 @@ pub fn validate_config(cfg: &SafetyConfig) -> Result<(), ConfigViolation> {
     // pin floats, which is *before* any firmware runs — so a low-trigger pump or
     // valve relay runs water at boot, with no firmware in the loop to stop it.
     // Nothing about that hazard is heater-specific, and the C++ wires all three
-    // trigger types into `Relay::on()` (`HardwareManager.cpp:73,80,87`), so a
+    // trigger types into `Relay::on()`, so a
     // stored configuration can carry any of them.
     if cfg.heater_relay_trigger == RelayTriggerType::LowTrigger {
         return Err(ConfigViolation::HeaterRelayLowTrigger);
@@ -982,7 +981,7 @@ pub fn validate_config(cfg: &SafetyConfig) -> Result<(), ConfigViolation> {
     // rather than about what cannot be made safe in firmware at all.
     //
     // The rule is the conjunction of the two arms of
-    // `BrewRunningState::checkSpecificTransitions` (`BrewStates.cpp:283-299`),
+    // `BrewRunningState::checkSpecificTransitions`,
     // negated: the by-time arm cannot fire because `by_time` is off (and
     // `initTotalTargetBrewTime`, `:53-62`, returns 0.0 in that case, so
     // `machine.brew.target_ms` is 0 and the arm's own `target > 0.0` test fails

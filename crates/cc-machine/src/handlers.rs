@@ -18,7 +18,7 @@
 //! # What this module deliberately does *not* do
 //!
 //! It does not touch an actuator. The only handler that reaches hardware in the
-//! C++ is `HotWaterHandler::checkPumpTimeout` (`HotWaterHandler.h:114-122`),
+//! C++ is `HotWaterHandler::checkPumpTimeout`,
 //! which calls `context.disablePump()` — and it is dead in the C++, because
 //! `PumpTimer::start()` is never called (09 §11). It is ported anyway, as a
 //! `DisablePump` effect, and here it is *reachable*: [`pump_timeouts`] arms both
@@ -28,7 +28,7 @@
 //!
 //! `BaseHandler::process` checks `isEnabled()`, then `hasPermission()`, then
 //! `isHardwareValid()`, and `BrewHandler`/`HotWaterHandler` both refuse in
-//! `WATER_TANK_EMPTY` (`BrewHandler.h:147-150`, `HotWaterHandler.h:64-67`).
+//! `WATER_TANK_EMPTY`.
 //! `SwitchBasedHandler::isHardwareValid()` is `switch_ != nullptr`
 //! (`BaseHandler.h:159-161`) — in Rust that is "the switch exists", which is the
 //! same as "there is an event", so it needs no representation.
@@ -80,7 +80,7 @@ fn handler(machine: &mut Machine, ctx: &Context<'_>, switch: SwitchId) -> Effect
 /// The C++ spells this out eleven times: every `setXxxRequested(true)` that
 /// counts as user activity calls `resetStandbyTimerOnUserActivity()`
 /// (`MachineStateContext.cpp:217-267`), and the ones that do not are bare
-/// assignments (`:483`, `:509`, `:536`, `:587`, `:523`). [`Request::resets_standby_timer`]
+/// assignments. [`Request::resets_standby_timer`]
 /// is that table and this is the one function that applies it.
 ///
 /// `resetStandbyTimerOnUserActivity` forwards to `standbyCoordinator().reset()`,
@@ -95,7 +95,7 @@ fn set_request(machine: &mut Machine, ctx: &Context<'_>, request: Request) -> Ef
     Effects::new()
 }
 
-/// `BrewHandler::processSwitchInput` (`BrewHandler.h:165-252`).
+/// `BrewHandler::processSwitchInput`.
 ///
 /// The most tangled of the four: the brew switch is also the backflush switch
 /// and the manual-flush switch, and which one it means depends on the state.
@@ -189,7 +189,7 @@ fn brew_switch(machine: &mut Machine, ctx: &Context<'_>) -> Effects {
     fx
 }
 
-/// `SteamHandler::processSwitchInput` (`SteamHandler.h:98-158`).
+/// `SteamHandler::processSwitchInput`.
 ///
 /// The one genuinely surprising branch is the standby one
 /// (`SteamHandler.h:137-141`): with a **toggle** steam switch, a machine in
@@ -251,7 +251,7 @@ fn power_switch(machine: &mut Machine, ctx: &Context<'_>) -> Effects {
     }
 }
 
-/// `PowerHandler::recordSystemInitialization` (`PowerHandler.h:73-81`).
+/// `PowerHandler::recordSystemInitialization`.
 ///
 /// The first statement of `PowerHandler::processImpl`, so the C++ records the
 /// boot time on the **first loop**, not on the first press. The reducer only
@@ -259,7 +259,7 @@ fn power_switch(machine: &mut Machine, ctx: &Context<'_>) -> Effects {
 /// — which is the same loop, and is the only place it would otherwise be missed.
 ///
 /// Gated on the handler being enabled, because in the C++ the call is inside
-/// `processImpl` and `isEnabled()` is checked first (`BaseHandler.h:77-80`).
+/// `processImpl` and `isEnabled()` is checked first.
 pub fn record_power_handler_initialisation(machine: &mut Machine, ctx: &Context<'_>) {
     if !ctx.power_switch_enabled() {
         return;
@@ -267,7 +267,7 @@ pub fn record_power_handler_initialisation(machine: &mut Machine, ctx: &Context<
     machine.boot_at.get_or_insert(machine.now);
 }
 
-/// `PowerHandler::processTogglePowerSwitch` (`PowerHandler.h:83-95`).
+/// `PowerHandler::processTogglePowerSwitch`.
 ///
 /// A toggle switch's position is the state, so an edge is the state changing.
 /// The C++ has to track `lastPowerSwitchPressed_` to notice; the reducer is
@@ -286,7 +286,7 @@ fn toggle_power(machine: &mut Machine, ctx: &Context<'_>) -> Effects {
 ///
 /// The press does three things, in the C++'s order:
 /// 1. arm long-press tracking, but only once the machine has been up for
-///    `POWER_SWITCH_SETTLE_MS` (`PowerHandler.h:117-123`);
+///    `POWER_SWITCH_SETTLE_MS`;
 /// 2. toggle power: `STANDBY` → on, anything else → off
 ///    (`PowerHandler.h:125-132`);
 /// 3. nothing else. The reboot is evaluated by [`long_press_reboot`] on every
@@ -312,7 +312,7 @@ fn momentary_power(machine: &mut Machine, ctx: &Context<'_>) -> Effects {
             fx.extend(&power_off(machine));
         }
     } else {
-        // `PowerHandler::handlePowerButtonRelease` (`PowerHandler.h:135-140`).
+        // `PowerHandler::handlePowerButtonRelease`.
         machine.power_press_started_at = None;
     }
     fx
@@ -329,7 +329,7 @@ fn power_settle_elapsed(machine: &Machine) -> bool {
     }
 }
 
-/// `PowerHandler::checkForLongPressReboot` (`PowerHandler.h:142-147`).
+/// `PowerHandler::checkForLongPressReboot`.
 ///
 /// ```cpp
 /// if (pressed && (currentMillis - systemInitializedTime_ > 5000) && trackingLongPress_ &&
@@ -364,7 +364,7 @@ pub fn long_press_reboot(machine: &Machine) -> Effects {
     }
 }
 
-/// `PowerHandler::powerOn` (`PowerHandler.h:149-161`).
+/// `PowerHandler::powerOn`.
 ///
 /// ```cpp
 /// if ((state == STANDBY) || (state == PID_DISABLED)) {
@@ -383,7 +383,7 @@ pub fn long_press_reboot(machine: &Machine) -> Effects {
 /// Note the state gate: the power switch does nothing at all in `PID_NORMAL`,
 /// `BREW_RUNNING`, or any other state. A user who toggles the power switch while
 /// brewing gets no response whatsoever, and the machine keeps brewing. That is
-/// the C++'s behaviour (`PowerHandler.h:152-154`) and it is preserved.
+/// the C++'s behaviour and it is preserved.
 fn power_on(machine: &mut Machine, ctx: &Context<'_>) -> Effects {
     if machine.state != MachineState::Standby && machine.state != MachineState::PidDisabled {
         return Effects::new();
@@ -397,7 +397,7 @@ fn power_on(machine: &mut Machine, ctx: &Context<'_>) -> Effects {
     fx
 }
 
-/// `PowerHandler::powerOff` (`PowerHandler.h:163-175`).
+/// `PowerHandler::powerOff`.
 ///
 /// ```cpp
 /// if (state != STANDBY) {
@@ -426,19 +426,19 @@ fn power_off(machine: &mut Machine) -> Effects {
     one(Effect::SafeHardwareShutdown)
 }
 
-/// `HotWaterHandler::processImpl` (`HotWaterHandler.h:73-76`).
+/// `HotWaterHandler::processImpl`.
 ///
 /// The hot-water handler sets **no** request flag. It calls
-/// `setHotWaterActivity(true)` (`HotWaterHandler.h:89`), which resets the
+/// `setHotWaterActivity(true)`, which resets the
 /// standby timer and nothing else, and the actual pumping is done by
 /// `PidNormalState::update` and `SteamRunningState::update` reading the switch
 /// level. The C++'s permission layer denies the whole handler in
-/// `WATER_TANK_EMPTY` (`HotWaterHandler.h:64-67`).
+/// `WATER_TANK_EMPTY`.
 ///
 /// # It does not wake the machine
 ///
 /// `hasUserActivity()` — the flag `StandbyState` checks — is a stub that returns
-/// false (`MachineStateContext.cpp:419-429`). So pressing the water switch while
+/// false. So pressing the water switch while
 /// in standby resets the standby countdown and does nothing else: no pump, no
 /// wake. Preserved; reported.
 fn hot_water_switch(machine: &mut Machine, ctx: &Context<'_>) -> Effects {
@@ -451,7 +451,7 @@ fn hot_water_switch(machine: &mut Machine, ctx: &Context<'_>) -> Effects {
     machine.hot_water_activity = true;
     // `setHotWaterActivity(true)` → `resetStandbyTimerOnUserActivity()`
     // (`MachineStateContext.cpp:262-267`), which is a no-op when standby is
-    // disabled (`StandbyCoordinator.h:88`).
+    // disabled.
     if ctx.config.standby.enabled {
         machine.standby.reset(machine.now, ctx.standby_timeout_ms());
         return one(Effect::ResetStandbyTimer);
@@ -461,8 +461,8 @@ fn hot_water_switch(machine: &mut Machine, ctx: &Context<'_>) -> Effects {
 
 /// The four switch-handler pump watchdogs, run on every loop.
 ///
-/// `BrewHandler::checkPumpTimeout` (`BrewHandler.h:254-262`) and
-/// `HotWaterHandler::checkPumpTimeout` (`HotWaterHandler.h:114-122`).
+/// `BrewHandler::checkPumpTimeout` and
+/// `HotWaterHandler::checkPumpTimeout`.
 ///
 /// # Divergence, and a deliberate one — see 09 §11
 ///
@@ -474,9 +474,8 @@ fn hot_water_switch(machine: &mut Machine, ctx: &Context<'_>) -> Effects {
 ///     return (millis() - startTime_) > maxRunTime_;
 /// }
 /// ```
-/// (`handlers/PumpTimer.h:23-26`)
 ///
-/// `isRunning_` starts `false` (`PumpTimer.h:14`) and `start()` is never called
+/// `isRunning_` starts `false` and `start()` is never called
 /// anywhere in the tree, so `isExpired()` is unconditionally `false`. The
 /// 5-minute brew limit and the 60-second hot-water limit cannot fire; holding
 /// the water switch runs the pump indefinitely.
@@ -496,11 +495,11 @@ fn hot_water_switch(machine: &mut Machine, ctx: &Context<'_>) -> Effects {
 ///
 /// | watchdog | armed while |
 /// | --- | --- |
-/// | brew | the current state is one whose `update()` pushes `Effect::EnablePump` — `BREW_PREINFUSION` or `BREW_RUNNING` (`BrewStates.cpp:70,245`) |
-/// | hot water | the water switch is held in a state that dispenses hot water — `PID_NORMAL` (`PidStates.cpp:36-38`) |
+/// | brew | the current state is one whose `update()` pushes `Effect::EnablePump` — `BREW_PREINFUSION` or `BREW_RUNNING` |
+/// | hot water | the water switch is held in a state that dispenses hot water — `PID_NORMAL` |
 ///
 /// `BREW_PREINFUSION_PAUSE` deliberately does **not** arm the brew watchdog: its
-/// `update()` pushes `Effect::DisablePump` (`BrewStates.cpp:172`), so a pause is
+/// `update()` pushes `Effect::DisablePump`, so a pause is
 /// not pump run time. It is also a state the watchdog's own
 /// `isBrewActive()` guard accepts, which is exactly why arming on the state
 /// alone would have counted the pause against the five minutes.
@@ -545,7 +544,7 @@ pub fn pump_timeouts(machine: &mut Machine) -> Effects {
     }
 
     // `HotWaterHandler.h:115`: `if (pumpTimer_.isExpired() && isHotWaterActive())`.
-    // `isHotWaterActive` is the switch level (`HotWaterHandler.h:39-44`).
+    // `isHotWaterActive` is the switch level.
     if hot_water_timer_expired(machine) && machine.switches.hot_water {
         // `HotWaterHandler.h:117`, also recovered verbatim from the previous
         // Rust firmware (08 §4.2).
@@ -617,7 +616,7 @@ fn hot_water_timer_expired(machine: &Machine) -> bool {
     }
 }
 
-/// `BrewHandler::isBrewActive` (`BrewHandler.h:98-103`).
+/// `BrewHandler::isBrewActive`.
 #[must_use]
 pub fn brew_is_active(state: MachineState) -> bool {
     state.is_brew_state() && state != MachineState::BrewFinished
@@ -653,7 +652,7 @@ fn apply_command(
         C::BackflushStop => fx.extend(&set_request(machine, ctx, Request::BackflushStop)),
         C::Standby => {
             // The web/MQTT standby path. `setStandbyRequested` does **not**
-            // reset the standby timer (`MachineStateContext.h:587`).
+            // reset the standby timer.
             machine.requests.standby = true;
         }
         C::NormalOperation => {
@@ -666,12 +665,11 @@ fn apply_command(
             }
         }
         C::SetUserPidEnabled(enabled) => {
-            // `SystemUtils.h:34-40`.
             machine.pid.runtime_enabled = enabled;
             fx.push(Effect::SetPidRuntime { enabled });
         }
         C::Reboot => {
-            // `PowerHandler::triggerSystemReboot` (`PowerHandler.h:177-192`).
+            // `PowerHandler::triggerSystemReboot`.
             // The C++ shows a message, `delay(1000)`, shuts down, `delay(1000)`
             // and restarts. The two delays and the restart belong to the
             // applier; the reducer only says what is wanted.
@@ -681,7 +679,7 @@ fn apply_command(
     fx
 }
 
-/// `MachineStateContext::applyBackflushMode` (`MachineStateContext.cpp:354-381`).
+/// `MachineStateContext::applyBackflushMode`.
 ///
 /// The mode toggle is the one external request that is a *decision* rather than
 /// a flag, so it goes through [`crate::backflush::apply_backflush_mode`] and then
@@ -725,7 +723,6 @@ mod tests {
 
     #[test]
     fn brew_is_active_excludes_brew_finished() {
-        // `BrewHandler.h:98-103`.
         assert!(brew_is_active(MachineState::BrewPreinfusion));
         assert!(brew_is_active(MachineState::BrewRunning));
         assert!(!brew_is_active(MachineState::BrewFinished));
@@ -758,7 +755,7 @@ mod tests {
         // `{"backflushOn":true}` and the machine stayed in `BACKFLUSH_IDLE`.
         //
         // The C++ has one call for both directions —
-        // `setBackflushMode(!backflushMode())` (`WebServerManager.cpp:489-491`)
+        // `setBackflushMode(!backflushMode())`
         // — and `SetBackflushMode(bool)` is that call.
         let config = cc_config::Config::default();
         let ctx = Context::new(&config, Celsius::new(95.0));

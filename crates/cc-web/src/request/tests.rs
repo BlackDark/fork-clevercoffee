@@ -10,7 +10,7 @@ use crate::telemetry::Telemetry;
 fn the_setpoint_route_takes_what_the_schema_will_store() {
     // The bound is `cc_config::assign::parse`'s, not a repeated literal, so
     // this cannot drift from `brew.setpoint`'s `ParamSpec` range. The pairs
-    // are the schema's two edges (`Config.h:795-802`, `defaults.h:81-82`)
+    // are the schema's two edges
     // and the value the integration checklist posts, spelled both ways.
     for (field, expected) in [
         ("20", 20.0),
@@ -33,7 +33,7 @@ fn a_fractional_setpoint_survives_to_the_command() {
     // The one that was broken on the bench. `93.5`, `80.5` and `91.2` were all
     // accepted with `202 {"accepted":true}` and all arrived as the truncated
     // integer, because `parse_setpoint` cast to `i32`. The C++ passes the
-    // `double` straight through (`WebServerManager.cpp:394-396`) and
+    // `double` straight through and
     // `brew.setpoint` is a float parameter, so 93.5 must stay 93.5.
     for (field, expected) in [("93.5", 93.5), ("80.5", 80.5), ("91.2", 91.2)] {
         assert_eq!(
@@ -137,8 +137,8 @@ fn a_toggle_route_inverts_the_published_value() {
 fn a_query_string_is_reachable_from_the_uri() {
     // `httpd_req_t::uri` is the whole request target, query included —
     // `esp_http_server` reads the query back out of it at
-    // `r->uri + res->field_data[UF_QUERY].off` (`httpd_parse.c:992`), and
-    // there is no `httpd_req_t::query` member (`esp_http_server.h:373-400`).
+    // `r->uri + res->field_data[UF_QUERY].off`, and
+    // there is no `httpd_req_t::query` member.
     // An earlier revision of `cc_config::form` claimed otherwise and said the
     // query string was unreachable without an `esp-idf-sys` call; this is the
     // test that says so.
@@ -151,7 +151,7 @@ fn a_query_string_is_reachable_from_the_uri() {
 
 #[test]
 fn a_query_string_and_a_body_carry_the_same_parameter() {
-    // `request->params()` (`:823`) is the query string and the body together,
+    // `request->params()` is the query string and the body together,
     // and the handler merges them in that order — which is what makes
     // `curl -X POST '.../api/parameters?pid.enabled=1'` work.
     let mut fields = cc_config::form::parse_form(query_of("/api/parameters?pid.enabled=1"));

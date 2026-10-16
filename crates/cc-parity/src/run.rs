@@ -126,7 +126,7 @@ impl Actuators for Recorder {
 
 /// The temperature sensor's read interval, in milliseconds.
 ///
-/// `Timing::TEMPERATURE_SENSOR_INTERVAL_MS` = 400 (`constants/Timing.h:42`),
+/// `Timing::TEMPERATURE_SENSOR_INTERVAL_MS` = 400,
 /// and `SensorCoordinator::update()` runs on it rather than on the control
 /// loop's period. That distinction is what makes S1's three-reading debounce
 /// mean what it says: without it the same reading would count three times in
@@ -250,7 +250,7 @@ impl Runner {
         })?;
 
         // The PID is the C++'s, not a stub: `ProcessController`'s gains are
-        // `Ki = Kp/Tn`, `Kd = Tv*Kp` (`ProcessController.cpp:382-390`) and the
+        // `Ki = Kp/Tn`, `Kd = Tv*Kp` and the
         // sample time is the 1000 ms heater window
         // (`SystemInitializer.cpp:551`). The window is not configurable
         // (`Config::HEATER_WINDOW_MS`).
@@ -283,7 +283,7 @@ impl Runner {
 
         // `SystemInitializer::finalizeMachineState` reads the power switch
         // before the state machine exists and hands it both an initial state and
-        // the runtime PID flag (`SystemInitializer.cpp:604-641`). A `dry_run`
+        // the runtime PID flag. A `dry_run`
         // scenario has no power switch, so the "no power switch" arm applies:
         // start in `INIT` with the config's PID preference.
         let machine = cc_machine::boot(Millis::ZERO, &ctx).0;
@@ -495,7 +495,7 @@ impl Runner {
 
         // ---- 3. the PID ---------------------------------------------------
         // `ProcessController::updateTemperature` subtracts the brew offset from
-        // the reading when not steaming (`ProcessController.cpp:131-141`), and
+        // the reading when not steaming, and
         // `updateSetpoint` picks the steam setpoint while steam mode is on
         // (`:235-244`).
         let steaming = self.machine.steam_mode;

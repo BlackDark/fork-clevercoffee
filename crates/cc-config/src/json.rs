@@ -30,7 +30,7 @@
 //!
 //! 1. **A bad value for a known key rejects the whole import.** The C++ logs a
 //!    warning per bad parameter and carries on, then reports success as long as
-//!    *one* parameter imported (`Config.cpp:331-342`). A user uploading a
+//!    *one* parameter imported. A user uploading a
 //!    configuration with an out-of-range `safety.emergency_temp` gets a
 //!    `200 OK`, believes it took effect, and runs on the old value. Here the
 //!    import is all-or-nothing and the offending keys are named. The C++ *error
@@ -87,7 +87,7 @@ pub enum ImportError {
     NotAnObject,
     /// A top-level key contained a `.`, i.e. the legacy flat format.
     ///
-    /// `ConfigJson::usesFlatDotKeys` (`src/ConfigJson.cpp:40-52`) rejects this,
+    /// `ConfigJson::usesFlatDotKeys` rejects this,
     /// and so does `/api/config/upload` (`WebServerManager.cpp:737-745`). The
     /// reason it matters: `{"brew.setpoint": 95}` looks like a valid nested
     /// document to a human, imports *nothing at all* under the nested reader,
@@ -290,7 +290,7 @@ fn scan(root: &Map<String, Value>) -> Result<Vec<(&'static ParamSpec, Value)>, I
 ///
 /// **This is the reader for `POST /api/config/upload`.** The C++'s route
 /// (`WebServerManager.cpp:727-762`) hands the body to
-/// `Config::importFromJsonObject` (`Config.cpp:323-345`), which walks the
+/// `Config::importFromJsonObject`, which walks the
 /// parameters, applies the ones the document mentions, and reports success if
 /// *one* of them imported. It is deliberately **not** `json_import`, which
 /// deserialises a whole `Config` with defaults filled in — that is the right
@@ -347,7 +347,7 @@ pub fn document_pairs(text: &str) -> Result<Vec<crate::form::Field>, ImportError
 
 /// The live value of one parameter, borrowed from a [`Config`].
 ///
-/// What the C++'s `toJson` puts in `value` (`Config.h:226-238`): the
+/// What the C++'s `toJson` puts in `value`: the
 /// *current* value of the parameter, not its compiled-in default. The two are
 /// the same on a freshly-booted machine and different after anything has been
 /// stored, which is the whole reason the field exists.
@@ -409,7 +409,7 @@ impl<'a> From<LiveValue<'a>> for ParamValue<'a> {
 
 /// Read one schema key's current value out of a [`Config`].
 ///
-/// What the C++'s `toJson` puts in `value` (`Config.h:226-238`): the
+/// What the C++'s `toJson` puts in `value`: the
 /// *current* value of the parameter, not its compiled-in default. The two are
 /// the same on a freshly-booted machine and different after anything has been
 /// stored, which is the whole reason the field exists.
@@ -418,7 +418,7 @@ impl<'a> From<LiveValue<'a>> for ParamValue<'a> {
 /// itself (`schema::ParamSpec::get`), so this is a lookup rather than a
 /// 98-arm match — the same collapse `assign::set` got, and for the same
 /// reason. `None` for a key the schema does not register, which is what
-/// `findConfigParameter` returning `nullptr` means (`Config.h:1550`).
+/// `findConfigParameter` returning `nullptr` means.
 #[must_use]
 pub fn live_value<'a>(config: &'a Config, key: &str) -> Option<LiveValue<'a>> {
     schema::SCHEMA
@@ -432,7 +432,7 @@ pub fn live_value<'a>(config: &'a Config, key: &str) -> Option<LiveValue<'a>> {
 /// The list `/api/parameters` needs, and **the order `/api/parameters` emits
 /// is this function's, not `live_value`'s**: this iterates
 /// [`schema::SCHEMA`], so the output is SCHEMA order — the C++'s
-/// `getAllConfigParams` order (`Config.cpp:438-563`) for the first 96 — even
+/// `getAllConfigParams` order for the first 96 — even
 /// though `live_value` is free to answer in any order it likes. That was
 /// already true before the accessors moved onto [`ParamSpec`]
 /// (`cc-hal-esp32`'s `parameters_json` pairs `SCHEMA.iter().enumerate()`

@@ -8,10 +8,10 @@
 //! | Here | Why |
 //! | --- | --- |
 //! | [`PartReader`] | A streaming `multipart/form-data` splitter. A byte-level state machine over the request body, and where the memory argument lives — see below. |
-//! | [`Kind`], [`extension_allowed`] | `validateFileExtension` (`src/ota.cpp:186-193`), verbatim. |
+//! | [`Kind`], [`extension_allowed`] | `validateFileExtension`, verbatim. |
 //! | [`fits`], [`MAX_FIRMWARE_BYTES`] | The size rule. `esp_ota_begin` takes an image size; a 1.6 MB image on a 1,835,008 B slot is 87 % full, and the C++ discovers that by erasing the whole partition first and failing afterwards. |
 //! | [`progress_percent`] | The progress bar's arithmetic, **including the per-kind floor**. It was in `cc-hal-esp32`, where `just test` cannot reach it, and it scaled both kinds against the firmware floor. |
-//! | `Status::status_json` | `handleStatus`'s document (`ota.cpp:726-756`), now carrying real values. |
+//! | `Status::status_json` | `handleStatus`'s document, now carrying real values. |
 //!
 //! | In `cc-hal-esp32` | Why |
 //! | --- | --- |
@@ -62,7 +62,7 @@ use core::fmt::Write as _;
 
 /// Which partition an upload targets.
 ///
-/// The C++'s `Type::Firmware` / `Type::Filesystem` (`ota.h:56-62`), which
+/// The C++'s `Type::Firmware` / `Type::Filesystem`, which
 /// `handleURLUpdate` compares the `type` form field against
 /// (`ota.cpp:643`). Kept as two variants with no third so that a typo in the
 /// `type` field is a compile error rather than a silent third behaviour.
@@ -113,7 +113,7 @@ impl Kind {
 
     /// The partition label reported by `/api/ota/status`.
     ///
-    /// The C++ reports `"spiffs"` (`ota.cpp:46`) and so does this, because the
+    /// The C++ reports `"spiffs"` and so does this, because the
     /// UI renders it as a label and a partition renamed under it would read as a
     /// different machine. The Rust partition table calls the partition `littlefs`
     /// (`rust/partitions_4M.csv`) — the *label* on the wire is the C++'s, and the
@@ -133,7 +133,7 @@ impl Kind {
 
     /// The smallest payload that will be accepted for this kind.
     ///
-    /// `processUploadChunk` (`ota.cpp:216-218`) uses 512 KiB for firmware and
+    /// `processUploadChunk` uses 512 KiB for firmware and
     /// 256 KiB for the filesystem purely to scale its *progress percentage*, and
     /// rejects nothing on size. Here the same two numbers are used for their
     /// better purpose: an ESP32 app image with no valid app descriptor at offset
@@ -198,7 +198,7 @@ pub const fn fits(kind: Kind, size: usize) -> bool {
 
 /// The number the C++ scales a `kind`'s progress percentage against.
 ///
-/// `isFilesystem ? (256 * 1024) : (512 * 1024)` (`ota.cpp:234`) — a **floor**,
+/// `isFilesystem ? (256 * 1024): (512 * 1024)` — a **floor**,
 /// not a declared length: a browser's `Content-Length` covers the multipart
 /// envelope, so the real image size is not known while the bytes arrive.
 ///
@@ -241,7 +241,7 @@ pub fn progress_percent(kind: Kind, uploaded: usize) -> u8 {
 
 /// Does this filename's extension pass?
 ///
-/// `validateFileExtension` (`ota.cpp:186-193`) exactly:
+/// `validateFileExtension` exactly:
 ///
 /// ```cpp
 /// String path = filename; path.toLowerCase();
@@ -893,7 +893,6 @@ mod tests {
 
     #[test]
     fn the_extension_rule_is_the_cpps() {
-        // `ota.cpp:186-193`.
         assert!(extension_allowed("firmware.bin", Kind::Firmware));
         assert!(extension_allowed("FIRMWARE.BIN", Kind::Firmware));
         assert!(!extension_allowed("firmware.img", Kind::Firmware));
@@ -1015,13 +1014,13 @@ mod tests {
 ///
 /// The six names `z.enum([...])` accepts in
 /// `OtaStatusSchema` (`ui/packages/frontend/src/lib/schemas.ts:59-72`), and the
-/// C++'s `Status` enum (`ota.h:29-36`) — which carries a seventh member,
+/// C++'s `Status` enum — which carries a seventh member,
 /// `Queued`, that the schema rejects.
 ///
 /// # The `queued` problem, stated because it is a real one
 ///
 /// The C++ sets `Status::Queued` for the window between "a URL update was
-/// accepted" and "the download starts" (`ota.cpp:816`), and serialises it as an
+/// accepted" and "the download starts", and serialises it as an
 /// **integer** (its `Status` has no string conversion), which the UI's
 /// `z.enum` of strings rejects anyway — finding 3.4's note that the C++'s wire
 /// type is already a divergence. So `queued` is **not** represented here: a
@@ -1134,7 +1133,7 @@ impl StatusMessage {
 }
 
 impl Status {
-    /// The C++'s `isUpdateInProgress()` (`ota.cpp:830`): anything but idle,
+    /// The C++'s `isUpdateInProgress()`: anything but idle,
     /// complete and error.
     ///
     /// A separate question from [`Self::is_updating`], and the C++ keeps them
@@ -1267,7 +1266,7 @@ mod status_tests {
     }
 
     /// `updating` and `updateInProgress` are different questions and the C++
-    /// answers both (`ota.cpp:737-738`).
+    /// answers both.
     #[test]
     fn updating_and_update_in_progress_are_distinct_questions() {
         let uploading = Status {

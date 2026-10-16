@@ -41,8 +41,8 @@
 //! ## 1. The two sentinels
 //!
 //! `temp == 222` → `"Temperature reading failed"`; `temp == 221` →
-//! `"Temperature sensor not connected"` (`TempSensorTSIC.cpp:46-54`). Both return
-//! false, so both increment `TempSensor::bad_readings_` (`TempSensor.h:43-48`) and
+//! `"Temperature sensor not connected"`. Both return
+//! false, so both increment `TempSensor::bad_readings_` and
 //! both can reach `SENSOR_ERROR` after ten. [`Outcome`] keeps them apart: 221
 //! means *go and look at the wiring*, 222 means *this reading is not trustworthy*.
 //!
@@ -58,7 +58,7 @@
 //!
 //! (`TempSensorTSIC.cpp:56-62`.) **The single most important line in the file.**
 //! A TSIC-306 brownout for one 100 ms window can decode to a wild value, and S1's
-//! `MIN_VALID_TEMP_C` is 0.0 (`constants/Temperature.h:14`) — so an unfiltered
+//! `MIN_VALID_TEMP_C` is 0.0 — so an unfiltered
 //! −2.9 °C glitch reaches `EmergencyStopManager::checkEmergencyConditions` and
 //! latches a healthy machine. The reject turns the glitch into a failed read, the
 //! failed read keeps the last good cached value, and the PID never sees it.
@@ -149,7 +149,7 @@ pub enum Outcome {
     /// `ZACwire`'s **221**, `errorNotConnected`.
     ///
     /// `TempSensorTSIC.cpp:51-54`, and `ZACwire::connectionCheck`'s heartbeat
-    /// timeout (`ZACwire.cpp:104-113`). A probe that is not transmitting.
+    /// timeout. A probe that is not transmitting.
     NotConnected,
 }
 
@@ -546,7 +546,7 @@ impl<S: EdgeSource> Tsic306<S> {
     /// [`MAX_BAD_READINGS`](super::ds18b20::MAX_BAD_READINGS).
     ///
     /// **The C++'s own counter has the same threshold** — `max_bad_readings_` is
-    /// a private member of the shared `TempSensor` base (`TempSensor.h:177`) —
+    /// a private member of the shared `TempSensor` base —
     /// so it is the same ten for both drivers, which is why the constant lives
     /// with the DS18B20 and is referenced rather than duplicated.
     fn reject(&mut self, outcome: Outcome) -> Outcome {
@@ -905,7 +905,7 @@ mod tests {
     fn the_cold_extreme_is_rejected_and_the_hot_extreme_is_not() {
         // 🔴 A finding about the C++'s range check, measured rather than assumed.
         //
-        // `temp <= 0.0 || temp >= 180.0` (`TempSensorTSIC.cpp:59`). The
+        // `temp <= 0.0 || temp >= 180.0`. The
         // TSIC-306's span is -50..+150 (`T = DS/2047·200 − 50`), so:
         //
         // | bound | reachable? |
@@ -1135,7 +1135,7 @@ mod tests {
     #[test]
     fn the_latch_is_per_instance_not_process_global() {
         // 🔴 DIVERGENCE. `validTemps` is a function-local `static` in a `const`
-        // member function (`TempSensorTSIC.cpp:29`), so it is shared by every
+        // member function, so it is shared by every
         // instance in the process and is never reset. Two consequences the C++
         // has and this port does not: a probe that is unplugged and re-plugged
         // does not get to re-latch, and two TSIC probes would share one flag.
@@ -1170,7 +1170,7 @@ mod tests {
     #[test]
     fn ten_failed_reads_latch_the_error_exactly_like_the_dallas_path() {
         // `TempSensor::max_bad_readings_` is 10 for both drivers: it is a
-        // private member of the shared base (`TempSensor.h:177`).
+        // private member of the shared base.
         let mut d = driver(alloc::vec![wire_for(-2.9)]);
         for _ in 0..ds18b20::MAX_BAD_READINGS {
             d.driver.note_overrun();
@@ -1189,7 +1189,7 @@ mod tests {
 
     #[test]
     fn the_no_signal_timeout_is_longer_than_the_cpps_and_says_why() {
-        // The C++'s is 100 ms (`ZACwire.h:29`) against a 10 Hz sensor, i.e. one
+        // The C++'s is 100 ms against a 10 Hz sensor, i.e. one
         // transmission period with zero margin. This port uses 2.5 periods.
         // These are invariants between two CONSTANTS, so they are asserted at
         // COMPILE time (`const { assert!(..) }`, clippy 1.99's

@@ -67,7 +67,7 @@
 //! (`IOSwitch.cpp:19`), so **a water-tank switch reads "not pressed" — tank
 //! empty — until the debounce settles on the first read.** `SensorCoordinator`
 //! separately initialises `waterTankFull_` to `true` with the comment "Assume
-//! full initially" (`SensorCoordinator.h:260`), so the machine does not refuse
+//! full initially", so the machine does not refuse
 //! to pump on the first tick. Both are preserved; see
 //! `s2_the_c_tank_starts_full_and_the_switch_starts_open`.
 
@@ -102,29 +102,29 @@ pub struct Debounced {
     mode: SwitchMode,
     /// The previous *raw* pin reading, for the debounce-timer reset.
     ///
-    /// `lastState` (`IOSwitch.cpp:19`), seeded with the caller's
+    /// `lastState`, seeded with the caller's
     /// `initialState` rather than with 0.
     last_raw: u8,
     /// The debounced, mode-inverted state.
     ///
-    /// `currentState` (`IOSwitch.cpp:20`), **always** seeded `LOW` regardless
+    /// `currentState`, **always** seeded `LOW` regardless
     /// of `initialState`.
     state: u8,
     /// When the debounced state last went to `LOW`.
     ///
-    /// `lastStateChangeTime` (`IOSwitch.cpp:53`).
+    /// `lastStateChangeTime`.
     last_change_to_low: Millis,
     /// When the debounced state last went to `HIGH`.
     ///
-    /// `pressStartTime` (`IOSwitch.cpp:55`).
+    /// `pressStartTime`.
     press_start: Millis,
     /// When the raw pin last changed, which arms the debounce.
     ///
-    /// `lastDebounceTime` (`IOSwitch.cpp:54`).
+    /// `lastDebounceTime`.
     last_raw_change: Millis,
     /// Whether a long press has been reported and not yet cleared.
     ///
-    /// `longPressTriggered` (`IOSwitch.cpp:56`).
+    /// `longPressTriggered`.
     long_press_triggered: bool,
 }
 
@@ -172,7 +172,7 @@ impl Debounced {
 
     /// Whether a long press is currently reported.
     ///
-    /// Ported from `IOSwitch::longPressDetected` (`IOSwitch.cpp:56-65`), which
+    /// Ported from `IOSwitch::longPressDetected`, which
     /// returns `false` for a `TOGGLE` switch unconditionally, before looking at
     /// the flag at all.
     #[must_use]
@@ -198,7 +198,7 @@ impl Debounced {
     /// # Note on the long-press flag
     ///
     /// The C++ clears `longPressTriggered` in the same call that observes the
-    /// release (`IOSwitch.cpp:48-49`), so it is **level-triggered on the current
+    /// release, so it is **level-triggered on the current
     /// call**, not latched across calls. A caller that reads
     /// [`Self::long_press_detected`] after [`Self::update`] gets the value for
     /// the state *at that instant*; there is no "a long press happened" edge to
@@ -280,7 +280,7 @@ mod tests {
 
     #[test]
     fn a_fresh_switch_is_not_pressed() {
-        // `currentState(LOW)` in the constructor (`IOSwitch.cpp:19`).
+        // `currentState(LOW)` in the constructor.
         let switch = momentary();
         assert!(!switch.is_pressed());
     }
@@ -305,7 +305,7 @@ mod tests {
 
     #[test]
     fn the_debounce_boundary_is_exclusive() {
-        // `now - lastDebounceTime > debounceDelay` (`IOSwitch.cpp:33`).
+        // `now - lastDebounceTime > debounceDelay`.
         // A change at t=0 is accepted at t=21, not t=20.
         let mut switch = momentary();
         assert!(
@@ -402,7 +402,7 @@ mod tests {
 
     #[test]
     fn a_normally_closed_switch_inverts() {
-        // `reading ^ mapped_mode` (`IOSwitch.cpp:31`): NORMALLY_CLOSED is 1, so
+        // `reading ^ mapped_mode`: NORMALLY_CLOSED is 1, so
         // a low pin is "pressed".
         let mut switch = Debounced::new(SwitchType::Momentary, SwitchMode::NormallyClosed, HIGH);
         // Rest is high (contact open), so not pressed. The first read matches
@@ -534,10 +534,10 @@ mod tests {
     #[test]
     fn s3_a_toggle_switch_never_reports_a_long_press() {
         // PRESERVED C++ BEHAVIOUR, and required: the water-tank switch is a
-        // TOGGLE (`SystemInitializer.cpp:75`), so it must not be able to raise a
+        // TOGGLE, so it must not be able to raise a
         // long press. `longPressDetected` checks the type first
         // (`IOSwitch.cpp:57-59`) and `isPressed` gates the whole long-press
-        // block on `type_ == MOMENTARY` (`IOSwitch.cpp:44`), so there are two
+        // block on `type_ == MOMENTARY`, so there are two
         // independent guards in the C++ and both are kept.
         let mut switch = toggle();
         for ms in 0..5_000u32 {

@@ -28,7 +28,7 @@
 //!
 //! The C++ writes each parameter separately into the `config` namespace under an
 //! FNV-1a-hashed key — `"p" + 8 hex digits` (`Config.h:318-332, 487-501`).
-//! `saveAll()` writes 98 keys one at a time (`Config.cpp:154-171`), so a power
+//! `saveAll()` writes 98 keys one at a time, so a power
 //! cut mid-save leaves a configuration where some parameters are new and the
 //! rest are old. For a machine that heats to 150 °C, "some new" is a
 //! configuration nobody ever chose.
@@ -77,7 +77,7 @@ use crate::store::StoreError;
 /// The NVS namespace the Rust firmware owns.
 ///
 /// 15 characters is the NVS limit and this is 2. It is deliberately **not**
-/// `config`, which is what the C++ uses (`Config.cpp:265`): see the module
+/// `config`, which is what the C++ uses: see the module
 /// documentation on why a C++-written partition must be invisible.
 pub const NAMESPACE: &str = "cc";
 

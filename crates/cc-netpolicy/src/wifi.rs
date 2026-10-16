@@ -216,7 +216,7 @@ impl Monitor {
     /// Whether the machine has given up on Wi-Fi and is running offline.
     ///
     /// The C++'s `networkCoordinator_->isOfflineMode()`. Once true, the monitor
-    /// returns early on every call (`CleverCoffeeWiFiManager.cpp:194-196`) and
+    /// returns early on every call and
     /// a later successful association does **not** clear it — the C++ only
     /// clears it on an explicit configuration change
     /// (`NetworkCoordinator::setOfflineMode` callers). Reproduced: a machine
@@ -316,7 +316,7 @@ impl Monitor {
     ///
     /// Leaving offline mode also resets both policies, and that is deliberate
     /// rather than convenient: the C++'s only way out of offline mode is
-    /// `ESP.restart()` (`CleverCoffeeWiFiManager.cpp:150`), which destroys the
+    /// `ESP.restart()`, which destroys the
     /// `RetryPolicy` and `CircuitBreaker` objects along with everything else. A
     /// reset here is the in-process equivalent of that restart, so `wifi apply`
     /// after a successful provisioning behaves like a reboot — which is what

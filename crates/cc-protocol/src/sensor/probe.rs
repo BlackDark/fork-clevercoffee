@@ -51,7 +51,7 @@ use crate::sensor::ds18b20;
 /// Carried on every reading so a log line, an MQTT payload or a web response
 /// can say *which* sensor produced the number. The C++ cannot: `TempSensor`
 /// exposes `getSensorType()` returning the literal `"TempSensor"` for both
-/// drivers (`TempSensor.h:148-151`), so a diagnostic that wanted to name the
+/// drivers, so a diagnostic that wanted to name the
 /// probe had no way to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ProbeSource {
@@ -109,7 +109,7 @@ pub enum ProbeFault {
     /// change-rate limiter rejected. The one deliberate loss of detail: the
     /// 1-Wire CRC failure is also this, because `TempSensorDallas` cannot tell
     /// a CRC failure from a short read either — both arrive as
-    /// `DEVICE_DISCONNECTED_C` (`TempSensorDallas.cpp:29-31`).
+    /// `DEVICE_DISCONNECTED_C`.
     ReadFailed,
     /// A DS18B20-specific fault.
     ///
@@ -282,8 +282,8 @@ mod tests {
 
     #[test]
     fn usability_is_s1s_range_not_the_dead_helpers_range() {
-        // `TempSensor::isValidTemperature` is -50..150 (`TempSensor.h:91-93`) and
-        // is never called. S1's is 0.0..200.0 (`constants/Temperature.h:14-15`).
+        // `TempSensor::isValidTemperature` is -50..150 and
+        // is never called. S1's is 0.0..200.0.
         for celsius in [0.0f32, 22.9, 150.0, 200.0] {
             let reading = ProbeReading {
                 celsius,

@@ -68,7 +68,7 @@ pub const ENTRY_BYTES: usize = 256;
 /// How many log clients the machine serves at once.
 ///
 /// **One, and this is the heap bound that matters.** The C++ has exactly one
-/// `WiFiClient client_` (`Logger.h:154`) and a second connection *replaces* the
+/// `WiFiClient client_` and a second connection *replaces* the
 /// first (`Logger.cpp:134-137`: `client_.stop()`, then `server_.available()`),
 /// so the socket count does not grow with how many terminals are open. An
 /// unbounded listener is how a debug channel becomes the OOM.
@@ -300,7 +300,7 @@ impl Ring {
 /// Format one line for the wire.
 ///
 /// `[<uptime_ms>] [<LEVEL>] <target>: <body>\r\n` — the C++'s
-/// `[HH:MM:SS] [LEVEL] <message>\r\n` (`Logger.cpp:212`) with two changes, both
+/// `[HH:MM:SS] [LEVEL] <message>\r\n` with two changes, both
 /// forced by facts about this port rather than chosen:
 ///
 /// * **`uptime_ms` instead of a wall clock.** `Logger::formatTimestamp`

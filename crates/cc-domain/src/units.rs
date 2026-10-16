@@ -110,7 +110,7 @@ float_unit!(
     /// A mass in grams.
     ///
     /// Range from the widest mass the firmware's scale calibration can express:
-    /// `SCALE_KNOWN_WEIGHT_MAX` = 2000 g (`include/clevercoffee/defaults.h:117`).
+    /// `SCALE_KNOWN_WEIGHT_MAX` = 2000 g.
     Grams, 0.0, 2000.0
 );
 
@@ -130,7 +130,7 @@ float_unit!(
     /// window.
     ///
     /// The C++ heater output is a 1 Hz chopper whose window is
-    /// `windowSize_ = 1000` ms (`include/clevercoffee/context/ProcessState.h:183`),
+    /// `windowSize_ = 1000` ms,
     /// and the PID output is bounded by exactly that window
     /// (`SystemInitializer.cpp:552`, `setPidOutputLimits(0, processWindowSize())`).
     /// So the PID output *is* a millisecond duty, and the upper bound is the

@@ -8,10 +8,10 @@
 //!
 //! | Constant | C++ |
 //! | --- | --- |
-//! | [`ERROR_RECOVERY_DELAY_MS`] | `Timing::ERROR_RECOVERY_DELAY_MS` (`constants/Timing.h:32`) |
-//! | [`EEPROM_RECOVERY_TIMEOUT_MS`] | `Timing::EEPROM_RECOVERY_TIMEOUT_MS` (`constants/Timing.h:33`) |
-//! | [`BREW_FINISHED_DISPLAY_TIMEOUT_MS`] | `BrewTiming::FINISHED_DISPLAY_TIMEOUT_MS` (`constants/Timing.h:64`) |
-//! | [`BACKFLUSH_FINISHED_DISPLAY_TIMEOUT_MS`] | `BackflushTiming::FINISHED_DISPLAY_TIMEOUT_MS` (`constants/Timing.h:75`) |
+//! | [`ERROR_RECOVERY_DELAY_MS`] | `Timing::ERROR_RECOVERY_DELAY_MS` |
+//! | [`EEPROM_RECOVERY_TIMEOUT_MS`] | `Timing::EEPROM_RECOVERY_TIMEOUT_MS` |
+//! | [`BREW_FINISHED_DISPLAY_TIMEOUT_MS`] | `BrewTiming::FINISHED_DISPLAY_TIMEOUT_MS` |
+//! | [`BACKFLUSH_FINISHED_DISPLAY_TIMEOUT_MS`] | `BackflushTiming::FINISHED_DISPLAY_TIMEOUT_MS` |
 //! | [`POWER_SWITCH_SETTLE_MS`] | `PowerHandler.h:118,143` (the literal `5000`) |
 //! | [`POWER_LONG_PRESS_REBOOT_MS`] | `PowerHandler.h:144` (the literal `1000`) |
 //! | [`POWER_REBOOT_DISPLAY_MS`] | `PowerHandler.h:183,189` (the two `delay(1000)` calls) |
@@ -42,13 +42,13 @@ pub const BACKFLUSH_FINISHED_DISPLAY_TIMEOUT_MS: u32 = 3_000;
 
 /// The power switch ignores presses for this long after boot.
 /// `PowerHandler::handlePowerButtonPress` requires
-/// `currentMillis - systemInitializedTime_ > 5000` (`PowerHandler.h:118`).
+/// `currentMillis - systemInitializedTime_ > 5000`.
 pub const POWER_SWITCH_SETTLE_MS: u32 = 5_000;
 
 /// How long the power switch must be held (and must report a hardware long
 /// press) before a reboot is requested.
 /// `PowerHandler::checkForLongPressReboot` requires
-/// `currentMillis - longPressStartTime_ > 1000` (`PowerHandler.h:144`).
+/// `currentMillis - longPressStartTime_ > 1000`.
 pub const POWER_LONG_PRESS_REBOOT_MS: u32 = 1_000;
 
 /// How long the "REBOOTING" message is shown before the reboot is issued.
@@ -94,8 +94,8 @@ pub const HOT_WATER_PUMP_TIMEOUT_MS: u32 = 60_000;
 ///
 /// # Dead in the C++, armed in the port — see 09 §11
 ///
-/// `BrewHandler::checkPumpTimeout` (`BrewHandler.h:254-262`) and
-/// `HotWaterHandler::checkPumpTimeout` (`HotWaterHandler.h:114-122`) are the
+/// `BrewHandler::checkPumpTimeout` and
+/// `HotWaterHandler::checkPumpTimeout` are the
 /// firmware's only *run-time* bound on how long the pump may run continuously.
 /// In the C++ both are inert:
 ///
@@ -105,9 +105,8 @@ pub const HOT_WATER_PUMP_TIMEOUT_MS: u32 = 60_000;
 ///     return (millis() - startTime_) > maxRunTime_;
 /// }
 /// ```
-/// (`handlers/PumpTimer.h:23-26`)
 ///
-/// `isRunning_` is initialised `false` (`PumpTimer.h:14`) and `start()` is
+/// `isRunning_` is initialised `false` and `start()` is
 /// **never called** — `rg -n 'pumpTimer_\.' src/ include/` finds only the two
 /// declarations, two constructor arguments and the two `isExpired()` reads. So
 /// both `isExpired()` calls return `false` unconditionally and the pump can run

@@ -26,8 +26,8 @@
 //! if (newCounter >= ctx->processWindowSize()) newCounter = 0;        // 1000
 //! ```
 //!
-//! with `windowSize_ = 1000` ms (`context/ProcessState.h:183`) and
-//! `ISR_COUNTER_INCREMENT = 10` (`constants/Timing.h:17`). The PID output is bounded
+//! with `windowSize_ = 1000` ms and
+//! `ISR_COUNTER_INCREMENT = 10`. The PID output is bounded
 //! by exactly the window — `setPidOutputLimits(0, processWindowSize())`
 //! (`src/core/SystemInitializer.cpp:552`) — so **the PID output is a count of
 //! milliseconds of energisation per second**.
@@ -115,7 +115,7 @@ use crate::units::{Duty, Millis};
 
 /// The chopper window, in milliseconds.
 ///
-/// `ProcessState::windowSize_ = 1000` (`include/clevercoffee/context/ProcessState.h:183`),
+/// `ProcessState::windowSize_ = 1000`,
 /// which is also what `setPidSampleTime` and `setPidOutputLimits` are given
 /// (`src/core/SystemInitializer.cpp:551-552`). **1 Hz.**
 pub const WINDOW_MS: u32 = 1000;
@@ -1123,9 +1123,9 @@ pub fn duty_ms_from_fraction(fraction: f32, max_duty: u32) -> u32 {
 /// The 10 ms hardware-timer period the C++'s heater ISR runs at, in
 /// microseconds.
 ///
-/// `Timing::ISR_TIMER_INTERVAL_US = 10000` (`constants/Timing.h:15`), written
+/// `Timing::ISR_TIMER_INTERVAL_US = 10000`, written
 /// by `timerAlarmWrite(timer, ISR_TIMER_INTERVAL_US, true)` in
-/// `ISR::onTimer` (`isr.h:88`).
+/// `ISR::onTimer`.
 ///
 /// **This is the default heater output on this firmware**, not the LEDC 1 Hz
 /// carrier. R1-07 chose LEDC and it does panic the chip on the original ESP32
@@ -1191,7 +1191,7 @@ pub const ISR_INTERVAL_US: u32 = 10_000;
 ///
 /// # The armed check is a real hardware state, not a formality
 ///
-/// `ISR::onTimer` returns early on `!ctx->isISRReady()` (`isr.h:70-73`), so the
+/// `ISR::onTimer` returns early on `!ctx->isISRReady()`, so the
 /// ISR never drives the relay before the system is initialised. Here `armed`
 /// plays that role, and it matters for the same reason it mattered in the C++:
 /// the timer must be running before the pin is trusted, and the pin must be at
@@ -1272,7 +1272,7 @@ impl IsrChopper {
 
     /// Change the control window.
     ///
-    /// `ctx->processWindowSize()` (`isr.h:105`) is a runtime value in the C++
+    /// `ctx->processWindowSize()` is a runtime value in the C++
     /// (`ProcessState::windowSize_ = 1000`, `ProcessState.h:183`), so it is one
     /// here too. Clamped to at least one step, because a window the counter can
     /// never fit inside would never wrap and the relay would latch on.
@@ -1537,7 +1537,7 @@ mod isr_tests {
     #[test]
     fn the_isr_period_is_ten_milliseconds_and_matches_the_step() {
         // `Timing::ISR_TIMER_INTERVAL_US = 10000` and
-        // `Timing::ISR_COUNTER_INCREMENT = 10` (`constants/Timing.h:15,17`).
+        // `Timing::ISR_COUNTER_INCREMENT = 10`.
         // They must agree, or the counter and the clock drift apart and the
         // window is not a window.
         assert_eq!(ISR_INTERVAL_US, 10_000);
@@ -1803,7 +1803,7 @@ impl AtomicChopper {
     /// One ISR tick: decide the level, advance the counter, report it.
     ///
     /// `None` means the ISR is disarmed and the pin is to be left alone — the
-    /// C++'s early return on `!isISRReady()` (`isr.h:70-73`).
+    /// C++'s early return on `!isISRReady()`.
     ///
     /// This is the entire body of the heater ISR's arithmetic. The device crate's
     /// callback is this call, a branch on the result, and one GPIO write.

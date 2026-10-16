@@ -14,13 +14,13 @@
 //! # Why the REST API reads bodies *and* query strings
 //!
 //! The C++ uses `request->hasParam("value", true)` — the `true` meaning
-//! "from the body" (`WebServerManager.cpp:392`) — and `/api/parameters` is
-//! `HTTP_ANY` with a form-encoded POST for updates (`:820-826`). So every
+//! "from the body" — and `/api/parameters` is
+//! `HTTP_ANY` with a form-encoded POST for updates. So every
 //! parameter the C++ accepts arrives in a body, and reproducing it means parsing
 //! a body.
 //!
 //! `POST /api/parameters` is the exception that is not an exception: its handler
-//! walks `request->params()` (`:823`), which is the **query string and the body
+//! walks `request->params()`, which is the **query string and the body
 //! together** — `AsyncWebServerRequest` appends the query args before the POST
 //! fields. `?pid.enabled=1` is therefore a parameter write in the C++, and this
 //! parser serves both encodings because the encoding is identical.
@@ -31,7 +31,7 @@
 //! already split from the query. It has not. `httpd_req_t` has no query member
 //! (`esp_http_server.h:373-400`); the query lives *inside* `uri`, and
 //! `esp_http_server` reads it back out with
-//! `r->uri + res->field_data[UF_QUERY].off` (`httpd_parse.c:992`). So the query
+//! `r->uri + res->field_data[UF_QUERY].off`. So the query
 //! string is available with no `esp-idf-sys` FFI call, which is why
 //! `cc_hal_esp32::web::query_of` is a `split_once('?')` and not an FFI binding.
 //!

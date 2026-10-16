@@ -117,7 +117,7 @@ impl MachineState {
     /// Recover a state from its `MachineStateId`.
     ///
     /// Returns `None` for an id the firmware does not know. The C++ restarts the
-    /// device in that case (`src/state/StateFactory.cpp:65-69`); the Rust port
+    /// device in that case; the Rust port
     /// must not, so the caller decides.
     #[must_use]
     pub const fn from_id(id: u16) -> Option<Self> {
@@ -146,7 +146,7 @@ impl MachineState {
 
     /// Whether this is one of the four brew states.
     ///
-    /// Port of `isBrewState` (`MachineStateIds.h:42-44`), which is a range test
+    /// Port of `isBrewState`, which is a range test
     /// over the enum: `>= BREW_PREINFUSION && <= BREW_FINISHED`. The range is
     /// spelled out rather than compared numerically so that reordering the
     /// variants cannot silently change the answer.
@@ -163,7 +163,7 @@ impl MachineState {
 
     /// Whether this is the steam state.
     ///
-    /// Port of `isSteamState` (`MachineStateIds.h:46-48`).
+    /// Port of `isSteamState`.
     #[must_use]
     pub const fn is_steam_state(self) -> bool {
         matches!(self, Self::SteamRunning)
@@ -171,7 +171,7 @@ impl MachineState {
 
     /// Whether this is one of the four backflush states.
     ///
-    /// Port of `isBackflushState` (`MachineStateIds.h:50-52`).
+    /// Port of `isBackflushState`.
     #[must_use]
     pub const fn is_backflush_state(self) -> bool {
         matches!(
@@ -185,7 +185,7 @@ impl MachineState {
 
     /// Whether this is the manual-flush state.
     ///
-    /// Port of `isManualFlushState` (`MachineStateIds.h:54-56`).
+    /// Port of `isManualFlushState`.
     #[must_use]
     pub const fn is_manual_flush_state(self) -> bool {
         matches!(self, Self::ManualFlushRunning)

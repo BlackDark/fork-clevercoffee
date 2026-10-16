@@ -4,7 +4,7 @@
 //!
 //! # The design being ported
 //!
-//! `MQTTManager::writeSysParamsToMQTT` (`src/network/MQTTManager.cpp:366-570`)
+//! `MQTTManager::writeSysParamsToMQTT`
 //! publishes three collections of topics — parameters, numeric sensors, binary
 //! sensors — and it publishes them **a few per call**, resuming where it left
 //! off on the next call, under a **10 ms budget per call**
@@ -43,12 +43,12 @@
 /// important work.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Phase {
-    /// `mqttVars_` — the retained parameter topics (`MQTTManager.cpp:410-497`).
+    /// `mqttVars_` — the retained parameter topics.
     #[default]
     Parameters,
-    /// `mqttSensors_` — the polled numeric sensors (`:500-517`).
+    /// `mqttSensors_` — the polled numeric sensors.
     Sensors,
-    /// `mqttBinarySensors_` — the retained `ON`/`OFF` topics (`:520-548`).
+    /// `mqttBinarySensors_` — the retained `ON`/`OFF` topics.
     BinarySensors,
 }
 

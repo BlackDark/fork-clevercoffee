@@ -53,7 +53,7 @@ pub mod data;
 /// `u8g2_font.c:39`: `#define U8G2_FONT_DATA_STRUCT_SIZE 23`.
 pub const FONT_INFO_LEN: usize = 23;
 
-/// The U8g2 font height mode (`u8g2_font.c:1176`).
+/// The U8g2 font height mode.
 ///
 /// The firmware calls `setFontRefHeightExtendedText()` once, in
 /// `OledDriver::prepareDisplay()`, so [`HeightMode::ExtendedText`] is what every
@@ -75,7 +75,7 @@ pub enum HeightMode {
 ///
 /// Field names are U8g2's. `x_offset`, `y_offset`, `max_char_width`,
 /// `max_char_height`, `ascent_A`, `descent_g`, `ascent_para` and `descent_para`
-/// are `int8_t` in `u8g2_font_info_t` (`u8g2.h:247-256`) even though they are
+/// are `int8_t` in `u8g2_font_info_t` even though they are
 /// read with `u8g2_font_get_byte`, so they are reinterpreted as signed here.
 /// Getting that wrong is not cosmetic: `y_offset` is the descent, and it is
 /// what makes `ref_ascent`/`ref_descent` come out right.
@@ -329,7 +329,7 @@ impl Font {
 
     /// Find a glyph by encoding.
     ///
-    /// Port of `u8g2_font_get_glyph_data` (`u8g2_font.c:759`). `None` means the
+    /// Port of `u8g2_font_get_glyph_data`. `None` means the
     /// font has no such glyph, and U8g2 then advances the pen by zero and draws
     /// nothing — which is how a missing `°` in `fub20` behaves.
     ///
@@ -451,7 +451,7 @@ impl Font {
     /// # Panics
     ///
     /// Never, for a well-formed glyph; the run-length stream is self-
-    /// terminating (`u8g2_font.c:695-700`).
+    /// terminating.
     pub fn decode_into<F: FnMut(i16, i16, u8, bool)>(&self, header: &GlyphHeader, mut sink: F) {
         if header.width == 0 {
             return;
@@ -488,7 +488,7 @@ impl Font {
 
     /// Width of `text` in pixels, matching U8g2's `getStrWidth`.
     ///
-    /// Port of `u8g2_string_width` (`u8g2_font.c:1290`). Two details in that
+    /// Port of `u8g2_string_width`. Two details in that
     /// function are load-bearing and are reproduced rather than "fixed":
     ///
     /// * the last glyph is measured with its *ink width* rather than its
@@ -519,7 +519,7 @@ impl Font {
 
     /// The `u8g2_GetGlyphWidth` loop, over an iterator of decoded code points.
     ///
-    /// This is `u8g2_string_width` (`u8g2_font.c:1325`) verbatim, including
+    /// This is `u8g2_string_width` verbatim, including
     /// both of its quirks, because both are pixel-affecting:
     ///
     /// 1. **The last glyph is measured differently.** After summing every
@@ -586,7 +586,7 @@ impl Font {
 
     /// `ref_ascent + ref_descent` under `mode` — U8g2's *reference* box.
     ///
-    /// Ported from `u8g2_UpdateRefHeight` (`u8g2_font.c:1189`). Note the
+    /// Ported from `u8g2_UpdateRefHeight`. Note the
     /// asymmetry U8g2 uses for [`HeightMode::All`]: it takes the ascent from
     /// `max_char_height + y_offset` and the descent from `y_offset`, so the
     /// modes genuinely disagree.
@@ -604,7 +604,7 @@ impl Font {
     ///
     /// The y coordinate a `setFontPosTop` `drawStr` places the *reference*
     /// ascent's top at is `y + ref_ascent + 1` — the `+1` is U8g2's
-    /// `u8g2_font_calc_vref_top` (`u8g2_font.c:1237`), which deliberately puts
+    /// `u8g2_font_calc_vref_top`, which deliberately puts
     /// the reference one pixel above the glyph box.
     #[must_use]
     pub fn ref_height(&self, mode: HeightMode) -> (i8, i8) {
@@ -704,7 +704,7 @@ impl Font {
 
 /// Walk one run-length, wrapping at the glyph's right edge.
 ///
-/// `u8g2_font_decode_len` (`u8g2_font.c:344`). The glyph is stored as a
+/// `u8g2_font_decode_len`. The glyph is stored as a
 /// sequence of horizontal runs that are `glyph_width` wide; a run longer than
 /// the remaining row spills into the next. Background and foreground runs are
 /// both reported — U8g2 paints both, since the firmware is in non-transparent

@@ -148,7 +148,7 @@ pub struct Observation {
     /// The ordered states entered, deduplicated on consecutive repeats.
     ///
     /// Consecutive repeats are collapsed because the reducer's self-transition
-    /// skip (`StateMachine.cpp:107-111`) makes them a bookkeeping artefact, not
+    /// skip makes them a bookkeeping artefact, not
     /// a behaviour. A state that is entered, left, and re-entered still appears
     /// twice, which is the case that matters.
     pub states: Vec<String>,

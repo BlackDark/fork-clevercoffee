@@ -27,7 +27,7 @@
 //!
 //! # What the C++ does instead, and why this is not a port of `ZACwire`
 //!
-//! `ZACwire::read` (`ZACwire.cpp:80-101`) is an interrupt on the **rising**
+//! `ZACwire::read` is an interrupt on the **rising**
 //! edge that measures the **interval** between consecutive rising edges and
 //! compares it against a learned threshold, with a "add half a threshold if the
 //! previous bit was 0" normalisation and a run of "first 4 bits are always 0"
@@ -137,18 +137,18 @@ pub const ERROR_MISREADING: f32 = 222.0;
 
 /// The maximum change allowed per reading before the signal is suspected.
 ///
-/// `INITIAL_CHANGERATE` (`TempSensorTSIC.cpp:11`), passed to
+/// `INITIAL_CHANGERATE`, passed to
 /// `ZACwire::getTemp(maxChangeRate)`.
 pub const INITIAL_CHANGE_RATE_C: f32 = 200.0;
 
 /// The change rate the driver latches onto once the signal has settled.
 ///
-/// `RUNTIME_CHANGERATE` (`TempSensorTSIC.cpp:12`).
+/// `RUNTIME_CHANGERATE`.
 pub const RUNTIME_CHANGE_RATE_C: f32 = 5.0;
 
 /// The physical range the C++ accepts, exclusive at both ends.
 ///
-/// `temp <= 0.0 || temp >= 180.0` (`TempSensorTSIC.cpp:59-62`).
+/// `temp <= 0.0 || temp >= 180.0`.
 ///
 /// **Inclusive rejection**: a reading of exactly 0.00 °C is rejected, and so is
 /// one of exactly 180.0 °C. The TSIC-306 can legitimately report both (its span
@@ -165,7 +165,7 @@ pub const ACCEPT_MAX_C: f32 = 180.0;
 /// # 🔴 Deliberately not the C++'s 100 ms
 ///
 /// `ZACwire.h:29` is `const uint8_t timeout {100}`, and
-/// `ZACwire::connectionCheck` (`ZACwire.cpp:104-113`) returns false — the 221
+/// `ZACwire::connectionCheck` returns false — the 221
 /// path — when no completed frame has arrived for longer than that.
 ///
 /// The sensor transmits **at 10 Hz** (app note §1.4: "The update rate of the

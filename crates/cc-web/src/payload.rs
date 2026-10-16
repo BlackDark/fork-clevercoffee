@@ -33,9 +33,9 @@ use crate::telemetry::Telemetry;
 /// (`WebServerManager.cpp:359`), which is `SystemContext::steamMode()` →
 /// `MachineStateContext::isSteamModeActive()` → `steamON_`
 /// (`MachineStateContext.h:395`, `:785`). That flag is **latched**: it is set
-/// `true` in `SteamRunningState::onEntryImpl` (`SteamStates.cpp:16`), cleared in
-/// `SteamRunningState::onExitImpl` (`:21`) and cleared again in
-/// `StandbyState::onEntryImpl` (`SystemStates.cpp:17`). It means "steam mode is
+/// `true` in `SteamRunningState::onEntryImpl`, cleared in
+/// `SteamRunningState::onExitImpl` and cleared again in
+/// `StandbyState::onEntryImpl`. It means "steam mode is
 /// engaged", and it survives for as long as the machine is in the steam state
 /// and not a moment longer.
 ///
@@ -222,7 +222,7 @@ pub fn error_body(message: &str) -> String {
 
 /// `POST /api/config/upload` — the C++'s answer, verbatim.
 ///
-/// `sendConfigUploadResponse` (`WebServerManager.cpp:50-62`) writes
+/// `sendConfigUploadResponse` writes
 /// `{"success":…,"message":…,"restart":…}`.
 ///
 /// `restart` is `success`, i.e. **the device does not reboot itself**. The C++
@@ -232,11 +232,11 @@ pub fn error_body(message: &str) -> String {
 /// inside the handler would tear the socket down under the response the client
 /// is still reading.
 ///
-/// The C++ adds `Connection: close` (`:60`). It is **not** reproduced, and the
+/// The C++ adds `Connection: close`. It is **not** reproduced, and the
 /// reason is that the hazard it guards against is already handled one layer
 /// down: ESP-IDF's `httpd_req_delete` "finish\[es] off reading any
 /// pending/leftover data", draining and discarding whatever body a handler left
-/// unread (`httpd_parse.c:841-855`). So the oversized upload — the one path that
+/// unread. So the oversized upload — the one path that
 /// deliberately stops reading — cannot have its tail parsed as the next request
 /// on the socket. Setting the header through `httpd_resp_set_hdr` would only
 /// append a second `Connection` header to a response ESP-IDF manages itself.
@@ -279,12 +279,12 @@ pub fn unavailable_json(feature: &str, task: &str) -> String {
 
 /// The `/api/parameters` body: every registered parameter, C++ shape.
 ///
-/// `Config::getAllParameters(array, "all")` (`WebServerManager.cpp:818`), which
-/// is a loop of `param->toJson(paramObj)` (`:401-404`).
+/// `Config::getAllParameters(array, "all")`, which
+/// is a loop of `param->toJson(paramObj)`.
 ///
 /// # The C++'s ten fields, and the six this firmware emits
 ///
-/// `BaseParamDef::toJsonBase` (`Config.h:99-109`) writes `name`, `label`,
+/// `BaseParamDef::toJsonBase` writes `name`, `label`,
 /// `section`, `order`, `helpText` and `type`; `ParamDef::toJson`
 /// (`:215-238`) adds `value`, `default`, and — for the arithmetic kinds only —
 /// `min` and `max`. That is ten.
@@ -314,7 +314,7 @@ pub fn unavailable_json(feature: &str, task: &str) -> String {
 ///
 /// # The value is the stored one, and what "live" means today
 ///
-/// `value` is the C++'s `currentValue_` (`Config.h:226-238`) — what the machine
+/// `value` is the C++'s `currentValue_` — what the machine
 /// is configured with, not the compiled-in default. The compiled-in default is
 /// reported separately as `default`, which is the C++'s `defaultValue_`. A
 /// firmware that reported the default in both places would show a
@@ -390,7 +390,7 @@ fn opt_number(value: Option<f64>) -> String {
 
 /// A schema default as JSON.
 ///
-/// The C++'s `toJson` (`:851-866`) distinguishes `bool` from `int` from
+/// The C++'s `toJson` distinguishes `bool` from `int` from
 /// `double` from `const char*` when it serialises, and so does this — which is
 /// why a `Text` default is quoted and a `Bool` is not. Getting that wrong makes
 /// the React editor's number input receive `"94.5"` and refuse it.

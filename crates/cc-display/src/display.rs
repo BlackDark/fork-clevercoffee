@@ -5,7 +5,7 @@
 //! The buffer is page-major, vertical, LSB-on-top: byte
 //! `buf[(y >> 3) * 128 + x]` holds the eight pixels of column `x` for rows
 //! `8 * page ..= 8 * page + 7`, with bit `y & 7` selecting the row. That is
-//! exactly `u8g2_ll_hvline_vertical_top_lsb` (`u8g2_ll_hvline.c:72`), and it
+//! exactly `u8g2_ll_hvline_vertical_top_lsb`, and it
 //! is also the SSD1306/SH1106 page-addressing wire format, so the same 1024
 //! bytes go straight out over I2C with no repacking (R3-09).
 //!
@@ -18,7 +18,7 @@
 //! Drawing takes *logical* coordinates in a `0..width` x `0..height` space that
 //! [`Rotation`] selects. Under `R1`/`R3` that space is 64 wide and 128 tall,
 //! and the mapping onto the physical 128x64 page buffer is U8g2's
-//! `u8g2_draw_l90_r1`..`r3` (`u8g2_setup.c:349-441`), reproduced in
+//! `u8g2_draw_l90_r1`..`r3`, reproduced in
 //! [`Display::draw_hv_line`](Display::draw_hv_line). The UPRIGHT template is
 //! drawn in that rotated space
 //! and the *coordinates in the templates are the rotated ones*, matching the
@@ -45,8 +45,8 @@ pub const STATUS_BAR_Y_POS: i32 = 12;
 
 /// The display rotation, and with it the logical coordinate space.
 ///
-/// `OledDriver::getU8G2Rotation` (`src/ui/OledDriver.cpp:80-96`) maps an
-/// integer `0..3` onto `U8G2_R0..R3`, and `prepareDisplay` (`:66-79`) computes
+/// `OledDriver::getU8G2Rotation` maps an
+/// integer `0..3` onto `U8G2_R0..R3`, and `prepareDisplay` computes
 /// it as `displayInverted * 2 + (template == UPRIGHT)`. Ported verbatim:
 ///
 /// | rotation | set when | logical space |
@@ -57,7 +57,7 @@ pub const STATUS_BAR_Y_POS: i32 = 12;
 /// | [`R3`](Rotation::R3) | both | 64 x 128 |
 ///
 /// R1/R3 swap width and height because U8g2's `u8g2_update_dimension_r1`
-/// overwrites `width` with `pixel_height` (`u8g2_setup.c:245`). R2 is a 180
+/// overwrites `width` with `pixel_height`. R2 is a 180
 /// degree turn of R0; R3 is a 90 degree turn of R2.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Rotation {
@@ -405,7 +405,7 @@ impl Display {
         self.font_pos_top = false;
     }
 
-    /// `OledDriver::prepareDisplay` (`src/ui/OledDriver.cpp:34`).
+    /// `OledDriver::prepareDisplay`.
     ///
     /// The firmware runs this once, when the display is first acquired, and
     /// every template then draws on top of whatever state it leaves. Two of the
@@ -665,7 +665,7 @@ impl Display {
 
     /// The rotation transform, then the buffer write.
     ///
-    /// This is `u8g2_draw_l90_r0..r3` (`u8g2_setup.c:309-441`) followed by
+    /// This is `u8g2_draw_l90_r0..r3` followed by
     /// `u8g2_draw_hv_line_2dir`. The R1/R3 arms both *flip* `dir`, which is why
     /// a horizontal line in portrait space lands as a vertical line in the
     /// page buffer.

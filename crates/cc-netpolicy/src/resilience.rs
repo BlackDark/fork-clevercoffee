@@ -54,7 +54,7 @@
 //!   strength of having not been used. Preserved, and pinned by
 //!   `div_half_open_closes_on_idleness_not_on_success`.
 //! * `record_failure` in `CLOSED` resets the failure count to 0 when it opens
-//!   the circuit (`Resilience.h:253-258`). Preserved, and pinned by
+//!   the circuit. Preserved, and pinned by
 //!   `div_opening_the_circuit_clears_the_failure_count`.
 
 use core::fmt;

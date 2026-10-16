@@ -5,7 +5,7 @@
 //! An [`Effect`] is a *description*. The C++ state classes call
 //! `context.enablePump()` / `context.openWaterValve()` directly
 //! (`BrewStates.cpp:70-71`), and `MachineStateContext` forwards straight to
-//! `HardwareManager` (`MachineStateContext.cpp:544-578`). That is why
+//! `HardwareManager`. That is why
 //! `HardwareManager`'s `valveState_` bookkeeping is a thing that can drift, and
 //! why 04 §3.1 insists "a new state cannot accidentally poke a relay, because it
 //! has no way to reach one — it can only return an `Effect`".
@@ -18,9 +18,9 @@
 //! # Order
 //!
 //! Order is part of the contract, not an implementation detail: the C++ runs
-//! `onExit` → swap → `onEntry` (`StateMachine.cpp:136-148`) and
-//! `update()` → `checkTransitions()` (`StateMachine.cpp:81-86`), and the S5
-//! valve fail-safe runs *after* all of it (`LoopManager.cpp:616-619`). Two
+//! `onExit` → swap → `onEntry` and
+//! `update()` → `checkTransitions()`, and the S5
+//! valve fail-safe runs *after* all of it. Two
 //! effects that both write the same relay in the same tick resolve differently
 //! depending on order, so the applier applies the vector front to back and the
 //! tests assert on exact sequences, not sets.
@@ -50,13 +50,13 @@ pub enum Effect {
     /// `context.enablePump()` → `HardwareManager::enablePump()`
     /// (`MachineStateContext.cpp:544`).
     EnablePump,
-    /// `context.disablePump()` (`MachineStateContext.cpp:548`).
+    /// `context.disablePump()`.
     DisablePump,
-    /// `context.openWaterValve()` (`MachineStateContext.cpp:564`).
+    /// `context.openWaterValve()`.
     OpenWaterValve,
-    /// `context.closeWaterValve()` (`MachineStateContext.cpp:568`).
+    /// `context.closeWaterValve()`.
     CloseWaterValve,
-    /// `context.openSteamValve()` (`MachineStateContext.cpp:556`).
+    /// `context.openSteamValve()`.
     ///
     /// **Deliberate divergence, see 09 §2 / `intentional-diffs.md` #2.** The C++
     /// has no steam-valve whitelist at all and nothing ever calls it. This port
@@ -68,11 +68,11 @@ pub enum Effect {
     /// the shared-relay argument means "the C++ never calls it" is a fact about
     /// the call graph, not a safety property.
     OpenSteamValve,
-    /// `context.closeSteamValve()` (`MachineStateContext.cpp:560`).
+    /// `context.closeSteamValve()`.
     CloseSteamValve,
-    /// `context.enableHeater()` (`MachineStateContext.cpp:532`).
+    /// `context.enableHeater()`.
     EnableHeater,
-    /// `context.disableHeater()` (`MachineStateContext.cpp:536`).
+    /// `context.disableHeater()`.
     DisableHeater,
     /// The heater duty, in the C++'s 0-1000 units.
     ///
@@ -102,16 +102,16 @@ pub enum Effect {
     ExitState(MachineState),
     /// The state being entered. Emitted before the new state's entry effects.
     EnterState(MachineState),
-    /// `context.setPidRuntimeState(bool)` (`MachineStateContext.cpp:275`).
+    /// `context.setPidRuntimeState(bool)`.
     ///
     /// Runtime only — it never writes `pid.enabled`. That distinction is the
     /// whole reason `EmergencyStopState::onExitImpl` can restore the PID from
-    /// config (`EmergencyStopState.cpp:29-30`).
+    /// config.
     SetPidRuntime {
         /// The new runtime PID state.
         enabled: bool,
     },
-    /// `context.setSteamMode(bool)` (`MachineStateContext.cpp:271`).
+    /// `context.setSteamMode(bool)`.
     ///
     /// Also sets `steamFirstON_` to the same value, exactly as
     /// `SystemUtils.h:42-53` does.
@@ -128,7 +128,7 @@ pub enum Effect {
     // restates a field the applier can already read is a second source of
     // truth waiting to disagree with the first.
     /// `maintenanceCoordinator().recordBrewIfQualified(...)` from
-    /// `BrewFinishedState::onEntryImpl` (`BrewStates.cpp:310-311`).
+    /// `BrewFinishedState::onEntryImpl`.
     ///
     /// **The decision, not the facts.** The C++'s one call applies the
     /// qualification rule, increments the counter and writes NVS. Here the
@@ -151,15 +151,15 @@ pub enum Effect {
         counted: bool,
     },
     /// `maintenanceCoordinator().resetSinceBackflush()` from
-    /// `BackflushFinishedState::onEntryImpl` (`BackflushStates.cpp:144`).
+    /// `BackflushFinishedState::onEntryImpl`.
     ResetShotsSinceBackflush,
-    /// `context.clearAllActionRequests()` (`MachineStateContext.h:615-627`).
+    /// `context.clearAllActionRequests()`.
     ///
     /// S11. The *effect* is emitted so the applier's flag mirror stays in step
     /// with [`Machine::requests`](crate::machine::Machine::requests); the
     /// reducer has already applied it.
     ClearActionRequests,
-    /// `context.clearStaleStopRequests()` (`MachineStateContext.h:634-639`).
+    /// `context.clearStaleStopRequests()`.
     ///
     /// Not the same as [`Effect::ClearActionRequests`]: `STANDBY` keeps the
     /// start flags as wake triggers and drains only the stops.
@@ -172,9 +172,9 @@ pub enum Effect {
     /// (`MachineStateContext.cpp:327-329`), on the way out of standby.
     ResetMqttReconnectCount,
     /// `MachineStateContext::exitStandbyMode()`'s one real side effect:
-    /// `display->setPowerSave(0)` (`MachineStateContext.cpp:411-417`).
+    /// `display->setPowerSave(0)`.
     WakeDisplay,
-    /// `PowerHandler::triggerSystemReboot()` (`PowerHandler.h:177-192`).
+    /// `PowerHandler::triggerSystemReboot()`.
     ///
     /// The reducer does not restart the chip. The applier shows the message,
     /// performs the safe shutdown, and restarts — and the

@@ -13,11 +13,11 @@
 //! if (paramDef) { bool updateSuccess = paramDef->fromString(value); }
 //! ```
 //!
-//! * `ParamDef<T>::fromString` (`:242-262`) — the string → typed value
+//! * `ParamDef<T>::fromString` — the string → typed value
 //!   conversion, per type.
-//! * `ParamDef<T>::set` (`:156-180`) — the range check, the assignment, and the
+//! * `ParamDef<T>::set` — the range check, the assignment, and the
 //!   **immediate NVS write**.
-//! * `ParamDef<T>::isValid` (`:190-200`) — `>=`/`<=` on the numeric kinds, and
+//! * `ParamDef<T>::isValid` — `>=`/`<=` on the numeric kinds, and
 //!   unconditionally `true` for `bool` and `String`.
 //!
 //! # Why the three are one function here
@@ -55,7 +55,7 @@
 //! it is not a footgun.
 //!
 //! **2. An enumeration is written by discriminant only.** The C++'s
-//! `EnumParamDef::fromString` (`:437-455`) falls back to matching the option's
+//! `EnumParamDef::fromString` falls back to matching the option's
 //! **label** ("High", "Momentary"). [`ParamSpec`] carries no label table — the
 //! React editor renders enums from `type: 5` and an integer, and
 //! `json::enum_discriminants_known` validates against the Rust enum — so
@@ -87,12 +87,12 @@ use crate::schema::{self, ParamKind, ParamSpec};
 /// Why a parameter was not written.
 ///
 /// The two cases the C++ distinguishes are "no such parameter" and "the value
-/// did not survive validation" (`WebServerManager.cpp:843-859`), and it answers
+/// did not survive validation", and it answers
 /// the same `400` for both. They are kept apart here because the second carries
 /// a reason worth logging and the first never does.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum AssignError {
-    /// `findConfigParameter` returned `nullptr` (`Config.h:1550`): the schema
+    /// `findConfigParameter` returned `nullptr`: the schema
     /// does not register this key.
     UnknownKey,
     /// The value was not acceptable for this parameter.
@@ -113,8 +113,8 @@ impl core::fmt::Display for AssignError {
 
 /// Convert one parameter's string value into the typed value to store.
 ///
-/// Port of `ParamDef<T>::fromString` (`Config.h:242-262`) followed by
-/// `isValid` (`:190-200`). The two are one step here because the C++'s
+/// Port of `ParamDef<T>::fromString` followed by
+/// `isValid`. The two are one step here because the C++'s
 /// `fromString` ends by calling `set`, which validates — splitting them would
 /// leave a caller able to skip the check.
 ///
@@ -168,7 +168,7 @@ pub fn parse<'a>(key: &str, raw: &'a str) -> Result<LiveValue<'a>, AssignError> 
             crate::json::check_range(spec, value).map_err(rejected)?;
             Ok(LiveValue::Float(value))
         }
-        // `newValue = value` with no validation at all (`Config.h:253-255`):
+        // `newValue = value` with no validation at all:
         // a string is always valid, so the only rule is the store's own length.
         ParamKind::Text => {
             if raw.len() > MAX_TEXT_LEN {
@@ -250,7 +250,7 @@ impl Applied {
 
 /// Write every pair, independently, and report what happened.
 ///
-/// The C++'s handler loop (`WebServerManager.cpp:829-865`), with its two
+/// The C++'s handler loop, with its two
 /// properties preserved deliberately:
 ///
 /// * **One bad parameter does not roll back the others.** The C++ applies each
@@ -400,7 +400,7 @@ mod tests {
     }
 
     /// A value that does not parse is a rejection here and a silent zero in the
-    /// C++ (`Config.h:249-252`). Pinned because it is the module's first
+    /// C++. Pinned because it is the module's first
     /// documented difference and it is the one that would otherwise be "fixed"
     /// back into a `toInt()`-alike by a later reader who has not read it.
     #[test]
@@ -421,7 +421,7 @@ mod tests {
         }
     }
 
-    /// The C++'s `equalsIgnoreCase("true") || value == "1"` (`Config.h:246`),
+    /// The C++'s `equalsIgnoreCase("true") || value == "1"`,
     /// and nothing else.
     #[test]
     fn a_bool_accepts_exactly_the_cpp_two_spellings() {
@@ -484,7 +484,7 @@ mod tests {
         }
     }
 
-    /// The C++'s loop (`WebServerManager.cpp:829-865`): each pair is applied on
+    /// The C++'s loop: each pair is applied on
     /// its own, and one failure does not undo the others.
     #[test]
     fn one_bad_parameter_does_not_roll_back_the_good_ones() {
@@ -523,7 +523,7 @@ mod tests {
         assert_eq!(config.mqtt.port, 8883);
     }
 
-    /// The C++ skips a field with no name or no value (`:830`), so an empty
+    /// The C++ skips a field with no name or no value, so an empty
     /// value is "not mentioned" rather than "set to nothing" — and a request
     /// that mentions nothing updates nothing, which is the C++'s third response
     /// (`{"success":true,"message":"No parameters updated"}`, `:877`).
