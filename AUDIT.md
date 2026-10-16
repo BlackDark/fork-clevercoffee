@@ -162,8 +162,15 @@ never logged or put in `sys.argv` (`justfile:826`).
   convention rather than prose: state the test a comment must pass (does it
   carry a fact the code, an ADR, or a test does not already?) and require that
   anything over the threshold is either that, or split so the answerable part
-  loads first. Do **not** bulk-trim the existing blocks; the measured waste does
-  not justify an edit campaign.
+  loads first. The bulk trim was **not** part of this fix, and was not done at
+  the time: the measured waste did not justify an edit campaign.
+- Status: implemented as a rule, applied as a sweep. The convention landed as
+  `AG-RUST-13` and its `CONTRIBUTING.md` mirror (commit `256059c4`); that rule
+  states which comment classes go whatever their truth value and which
+  derivation stays. Application is per crate, not one tree-wide trim:
+  re-measuring found 146 of 6 218 comment blocks (2 %) holding no token absent
+  from the code, 60 of them on `pub` items where `missing_docs` makes a doc
+  deletion a build break, which leaves the private remainder as the whole yield.
 - Benefit: comment cost stops scaling silently with each feature added, and the
   un-rot checkable claims stop being caught only when a human notices (which is
   what CLN-1 and CLN-2 are).
@@ -202,7 +209,7 @@ Branch protection and required checks were not verified; `gh` has no token here.
 The one addition is CLN-3 (comment volume), which the reviewer did not raise
 because the brief scoped it to verifying existing findings. It was added after
 the same measurement, kept at L because the measured waste is small, and its fix
-is a convention rather than an edit campaign.
+is a convention that bounds later work rather than one bulk edit.
 
 Corrections the review forced, all applied above: the host test count is 1318,
 not 2970 (an arithmetic error in the first pass); CODE-1's magnitudes were wrong

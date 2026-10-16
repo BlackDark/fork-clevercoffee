@@ -52,10 +52,17 @@ with `-D warnings`. Read those two before adding an `#[allow]` or an `#[expect]`
 (`AG-RUST-10`) -- every one already in the tree is there for a reason.
 
 Comments should explain the **why**, not restate the code. Write for the
-maintainer who does not know the subsystem. The test is one question: does this
-line hold a fact, a constraint, a hazard or a rejected alternative that the code,
-a linked ADR, or a test does not already hold? If not, delete it rather than
-reword it. See `AG-RUST-13`.
+maintainer who does not know the subsystem, and write it terse: the shortest
+form that stays true, one idea per line, no narrative. The test is one question:
+does this line hold a fact, a constraint, a hazard or a rejected alternative that
+the code, a linked ADR, or a test does not already hold? If not, delete it rather
+than reword it.
+
+Four classes go whatever their truth value: restating a lint the workspace
+already holds; recording what a commit or a refactor did; restating the
+signature; and citing the deleted C++ by line number, which `docs/history/` owns.
+Long is fine when the derivation cannot be redone here — `git show` and the
+missing ESP-IDF sources are why. See `AG-RUST-13`.
 
 ## Submitting Changes
 

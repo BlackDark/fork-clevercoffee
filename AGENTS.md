@@ -292,7 +292,6 @@ and [`docs/display/rendering.md`](docs/display/rendering.md).
 rows, shifting numbers and misaligned bar/label pairs must be fixed before the
 task is done.
 
-
 ## 3. The Rust port
 
 Everything in this section is scoped `AG-RUST-*` and applies to `crates/`,
@@ -360,24 +359,47 @@ rejected alternative that the code, a linked ADR, or a test does not already
 hold?* If the answer is no, the comment is restatement and it is deleted rather
 than reworded.
 
-This is a length rule expressed as a content rule, because length is the symptom
-and not the defect. The rationale blocks in this tree are long *because* they
-cache derivation that cannot be redone here -- the deleted C++ is recoverable
-only through `git show` (`AG-REPO-27`), and ESP-IDF is not in the repository at
-all. Cutting those to hit a line count would delete the only copy.
+**Terse.** Write the shortest form that stays true. One idea per line, no
+narrative, no hedging, no summary of what the next statement does. Rust
+best-practice rationale is in scope ("offsets, not lengths", "why not `String`",
+"do not fix this"); justifications of a change are not.
 
-Two things this tree already proves about the rule, so neither needs re-measuring:
-comments are 39 % of `crates/*/src`, and comments that merely narrate the next
-statement are 0.36 % of them. The waste is small; the exposure is that the ratio
-grows by default, because nothing previously asked the question.
+**Four classes, deleted whatever their truth value.** Being accurate is not
+enough:
+
+1. **Global-lint restatement.** Do not annotate that a workspace lint is held.
+   `Cargo.toml:149-189` sets `missing_docs = "warn"`, `unsafe_code = "deny"` and
+   clippy `all`+`pedantic` for every crate, so a crate-level attribute repeating
+   one of them says nothing about that crate. Only an *escalation* above the
+   workspace value carries information: `#![deny(missing_docs)]` turns a missing
+   doc from a warning into a build break, and is the shape worth keeping.
+2. **Process record.** What a commit did, what moved between crates, what a field
+   was before, which finding produced the code. That is `git log` and
+   `docs/history/`; a comment that restates it rots on the next refactor.
+3. **Signature restatement.** "The decimal integer, unadorned" over
+   `fn set_int`, "the current rotation" over `fn rotation`. If the name and
+   signature say it, it does not need saying.
+4. **Citing the deleted C++ by line number.** The migration is closed
+   (`docs/history/README.md`), so `MQTTManager.cpp:96` and friends point
+   somewhere a reader cannot follow and duplicate the provenance record.
+   `docs/history/divergences.md` and `docs/history/cpp-findings.md` own it;
+   keep the *decision* the citation stood for, drop the citation.
+
+**What survives, and why this is not a line-count rule.** Derivation that
+cannot be redone in this repository is worth its length: the deleted C++ is
+recoverable only through `git show` (`AG-REPO-27`), ESP-IDF is not vendored at
+all, and a `PlanView` slice bug that only fires once a registry has a binary
+sensor is not re-derivable from any signature. Keep those long. The question is
+never "is this short enough" but "could a reader get this from the code, a lint,
+a sibling file, or `docs/`?"
 
 Practical consequences:
 
-* A module header earns its place by the *first* statement after it. Put the
+- A module header earns its place by the *first* statement after it. Put the
   answerable part there -- what this file owns, what it refuses to do, what
   breaks if it is wrong -- and put derivation below it.
-* A comment that states a number, a path or a section cite is the kind that rots.
+- A comment that states a number, a path or a section cite is the kind that rots.
   Prefer the constant, the link or the assertion over the prose, so the compiler
   or `check-doc-links.py` checks it. This is the failure `CLN-1` and `CLN-2` in
   [`AUDIT.md`](AUDIT.md) record after the fact.
-* `CONTRIBUTING.md` carries the same rule for human contributors.
+- `CONTRIBUTING.md` carries the same rule for human contributors.
