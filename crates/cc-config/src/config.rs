@@ -6,7 +6,7 @@
 //! `include/clevercoffee/Config.h` and `include/clevercoffee/defaults.h`. The
 //! nesting is chosen so that a `serde_json` serialisation of [`Config`] is
 //! **byte-compatible with the C++ `Config::exportToJson()`** for every key the
-//! C++ exports: `ConfigJson::setNested` (`src/ConfigJson.cpp:83-106`) turns the
+//! C++ exports: `ConfigJson::setNested` turns the
 //! dotted key `pid.regular.kp` into `{"pid":{"regular":{"kp":…}}}`, and so does
 //! the struct layout here. `schema::SCHEMA` is the flat view of the same
 //! registry, and a test asserts the two agree.
@@ -1300,7 +1300,7 @@ pub struct SafetyView {
     ///
     /// It is the guard on every scale command in the C++
     /// (`WebServerManager.cpp:540,563`) and the third argument of
-    /// `recordBrewIfQualified` (`BrewStates.cpp:311`), so it is what "this
+    /// `recordBrewIfQualified`, so it is what "this
     /// machine has a scale" means in the oracle this crate is measured against.
     ///
     /// A configuration value rather than a live probe, and that is deliberate:
@@ -1382,7 +1382,7 @@ impl Config {
     ///
     /// NOT configurable: the C++ hard-codes `windowSize_ = 1000`
     /// (`include/clevercoffee/context/ProcessState.h:183`) and the PID output is
-    /// bounded by it (`SystemInitializer.cpp:552`). Exposing it as a constant
+    /// bounded by it. Exposing it as a constant
     /// rather than a parameter makes it obvious that changing it changes the
     /// control loop, which R1-07 has to do deliberately.
     pub const HEATER_WINDOW_MS: u32 = 1000;
@@ -1400,8 +1400,8 @@ impl Config {
     /// The C++ derives `Ki` from `Tn` alone and then hands `(0, i_max)` to
     /// `SetIntegratorLimits`, which **refuses** a window whose `min >= max`
     /// (`PID_v1.cpp:220-231`). So `pid.regular.i_max = 0` — legal in both
-    /// firmwares, `PID_I_MAX_REGULAR_MIN` is `0.0` (`defaults.h:71`) — left the
-    /// controller on `PID_v1`'s own `-100 ..= +100` (`PID_v1.cpp:35`) while
+    /// firmwares, `PID_I_MAX_REGULAR_MIN` is `0.0` — left the
+    /// controller on `PID_v1`'s own `-100..= +100` while
     /// reporting a configured ceiling of zero: an operator asking for no
     /// integral action got an integrator free to wind to either end.
     ///
@@ -1412,7 +1412,7 @@ impl Config {
     /// MQTT surface. `Ki = 0` is instead the honest translation, and it is the
     /// one this codebase already uses for "no integral action": it is what a
     /// `Tn` of 0 gives, and `Controller::set_tunings` pins the accumulator to
-    /// zero for it (`PID_v1.cpp:167-169`), so the integral term cannot
+    /// zero for it, so the integral term cannot
     /// contribute at all.
     #[must_use]
     pub fn pid_tunings(&self) -> (f64, f64, f64) {

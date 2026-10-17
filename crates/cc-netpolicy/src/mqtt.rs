@@ -1,40 +1,24 @@
 //! The incremental, time-budgeted MQTT publish plan.
 //!
-//! Owner: **R3-13** (task D).
+//! Three collections of topics — parameters, numeric sensors, binary sensors —
+//! published **a few per call**, resuming where the last call left off, under a
+//! **10 ms budget per call**.
 //!
-//! # The design being ported
+//! That budget is a safety property rather than an optimisation. A machine with
+//! dozens of registered MQTT topics, each publish a TLS-less TCP round trip on a
+//! lossy link, can spend a second or more in one pass, and a second-long pass is
+//! a second in which the control loop does not run: the heater is not
+//! re-evaluated and the over-temperature debounce does not advance. Ten
+//! milliseconds is 2.5 % of the 400 ms sensor interval, which the control loop
+//! can absorb.
 //!
-//! `MQTTManager::writeSysParamsToMQTT` (`src/network/MQTTManager.cpp:366-570`)
-//! publishes three collections of topics — parameters, numeric sensors, binary
-//! sensors — and it publishes them **a few per call**, resuming where it left
-//! off on the next call, under a **10 ms budget per call**
-//! (`MQTTManager.h:259` `timeBudget_ = 10`).
-//!
-//! That budget is the interesting part and it is not an optimisation, it is a
-//! safety property. A machine with ~50 registered MQTT topics, each publish a
-//! TLS-less TCP round trip on a lossy link, can spend a second or more in one
-//! pass. The C++ calls `writeSysParamsToMQTT` from the main loop
-//! (`LoopManager.cpp:505`), so a second in one pass is a second during which the
-//! control loop does not run: the heater is not re-evaluated and the overtemp
-//! debounce does not advance. Ten milliseconds is 2.5 % of the 400 ms sensor
-//! interval, which is a bound the control loop can absorb.
-//!
-//! # What is *not* ported, and why
-//!
-//! The C++'s cursors are `std::map` iterators held as members
-//! (`mqttVarsIt_`, `mqttSensorsIt_`, `mqttBinarySensorsIt_`, plus
-//! `publishPhase_`), and `std::map` iterators are invalidated by any insertion.
-//! Registration happens at startup, so it works, but it means the object cannot
-//! be reasoned about: there is no way to ask "how far through phase 1 am I?"
-//! without reading three private members.
-//!
-//! Here a cursor is **three `usize` indices and a phase**, over three slices the
-//! caller owns. Which means the whole thing is a host test: the invariant worth
-//! pinning is that resuming after a budget expiry picks up at exactly the item
-//! that was not published, and that a full pass visits every item exactly once
-//! and returns to the start.
+//! A cursor is **three `usize` indices and a phase**, over three slices the
+//! caller owns, which makes the plan a host test. The invariants worth pinning
+//! are that resuming after a budget expiry picks up at exactly the item that was
+//! not published, and that a full pass visits every item exactly once and returns
+//! to the start.
 
-/// The three collections the C++ publishes, in the order it publishes them.
+/// The three collections, in publication order.
 ///
 /// The order is not arbitrary: parameters are retained and change rarely,
 /// numeric sensors are polled and change constantly, and binary sensors are
@@ -43,12 +27,12 @@
 /// important work.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Phase {
-    /// `mqttVars_` — the retained parameter topics (`MQTTManager.cpp:410-497`).
+    /// The retained parameter topics.
     #[default]
     Parameters,
-    /// `mqttSensors_` — the polled numeric sensors (`:500-517`).
+    /// The polled numeric sensors.
     Sensors,
-    /// `mqttBinarySensors_` — the retained `ON`/`OFF` topics (`:520-548`).
+    /// The retained `ON`/`OFF` topics.
     BinarySensors,
 }
 
@@ -56,7 +40,7 @@ impl Phase {
     /// Every phase, in publication order.
     pub const ALL: [Self; 3] = [Self::Parameters, Self::Sensors, Self::BinarySensors];
 
-    /// The C++'s `publishPhase_` integer, for a log line.
+    /// The phase as an integer, for a log line.
     #[must_use]
     pub const fn as_index(self) -> usize {
         match self {
@@ -69,12 +53,10 @@ impl Phase {
 
 /// A topic to publish, and how to retain it.
 ///
-/// The C++'s two `publish()` overloads differ in one respect that matters: the
-/// parameter and binary-sensor paths pass `retain = true`
-/// (`MQTTManager.cpp:492, 545`) and the numeric-sensor path does not
-/// (`:511`). Retention is not cosmetic — a retained `ON` for a contactor is what
-/// makes Home Assistant show the right thing after a broker restart, and the C++
-/// says so at `:543-544` ("binary state must survive broker/HA restarts").
+/// The parameter and binary-sensor paths retain; the numeric-sensor path does
+/// not. Retention is not cosmetic: a retained `ON` for a contactor is what makes
+/// Home Assistant show the right thing after a broker restart, while a retained
+/// sensor reading is a value that is stale by the time anyone reads it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Item<'a> {
     /// The full topic, prefix and hostname already applied.
@@ -85,9 +67,9 @@ pub struct Item<'a> {
 
 /// Where a pass through the three collections has got to.
 ///
-/// A cursor with a phase and three indices. It is `Copy`, 32 bytes, and holds
-/// no reference to the collections, so the caller can rebuild them (from a
-/// configuration change, say) without invalidating it.
+/// A cursor with a phase and three indices. It holds no reference to the
+/// collections, so the caller can rebuild them (after a configuration change,
+/// say) without invalidating it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Cursor {
     phase: Phase,
@@ -189,8 +171,7 @@ impl<'a> Plan<'a> {
                 return Some(item);
             }
             // This phase is done or empty; move on. `as_index() + 1 == 3` wraps
-            // to `Parameters`, which is the wrap the C++ does at
-            // `MQTTManager.cpp:571-573`.
+            // to `Parameters`.
             let next = (phase.as_index() + 1) % 3;
             if next == 0 {
                 // Wrapped: the pass is complete.
@@ -296,8 +277,7 @@ mod tests {
 
     #[test]
     fn a_second_pass_repeats_the_same_sequence() {
-        // The C++ resets all three cursors and `publishPhase_` to 0 at
-        // `MQTTManager.cpp:571-573` when the binary-sensor phase runs out.
+        // A completed pass resets all three cursors and the phase.
         let plan = plan();
         assert_eq!(one_pass(&plan), one_pass(&plan));
     }
@@ -372,10 +352,9 @@ mod tests {
 
     #[test]
     fn parameters_and_binary_sensors_are_retained_and_sensors_are_not() {
-        // MQTTManager.cpp:492 retains parameters, :511 does not retain the
-        // polled sensors, :545 retains binary sensors. Getting this backwards
-        // for the sensors fills the broker's retained store with a value that
-        // is stale by the time anyone reads it.
+        // Parameters and binary sensors are retained; the polled sensors are
+        // not. Getting this backwards for the sensors fills the broker's
+        // retained store with a value that is stale by the time anyone reads it.
         let plan = plan();
         for item in plan.parameters {
             assert!(item.retain, "{}", item.topic);
@@ -406,15 +385,13 @@ mod tests {
 
     #[test]
     fn the_cursor_reports_the_phase_it_is_in() {
-        // MQTTManager.cpp:410/500/520 are the three phase heads, and a log line
-        // naming the phase is how the C++'s "published 12/48" style message is
-        // made diagnosable.
+        // A log line naming the phase is what makes a "published 12/48" style
+        // message diagnosable.
         let plan = plan();
         let mut cursor = Cursor::new();
         assert_eq!(cursor.phase(), Phase::Parameters);
         // The phase advances when the *next* call crosses into it, not when the
-        // last item of a phase is handed out -- the C++ behaves the same way
-        // (`publishPhase_` is set at :571, after the while loop exits).
+        // last item of a phase is handed out.
         for _ in 0..3 {
             let _ = plan.next(&mut cursor);
         }

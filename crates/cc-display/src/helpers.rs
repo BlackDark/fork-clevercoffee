@@ -127,7 +127,7 @@ pub const fn current_display_state(input: &DisplayInput) -> MachineState {
     input.state
 }
 
-/// `shouldDisplayHotWaterTimer` (`DisplayFullscreenModes.h:31`).
+/// `shouldDisplayHotWaterTimer`.
 ///
 /// True while the pump is running *and* the machine is in a state where the
 /// water is going somewhere hot: PID normal (hot water into the group) or steam.

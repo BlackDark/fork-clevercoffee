@@ -3,7 +3,7 @@
 //! Source of truth: `lib/Arduino-PID-Library/PID_v1.cpp` and `PID_v1.h`, which
 //! the firmware constructs in `SystemInitializer::initializeContext`
 //! (`src/core/SystemInitializer.cpp:296-305`) and configures in
-//! `initializePID` (`:536-566`).
+//! `initializePID`.
 //!
 //! # Parity
 //!
@@ -22,10 +22,10 @@
 //!
 //! | # | C++ | Here | Why |
 //! | --- | --- | --- | --- |
-//! | D1 | `PID(double* Input, double* Output, double* Setpoint, …)` — three raw pointers to caller-owned variables | [`Controller`] owns the three values as fields | The C++ aliases the caller's `double`s and reads `*myOutput` for its anti-windup test (`PID_v1.cpp:70`). Keeping the values inside the controller is the same aliasing with no possibility of a dangling pointer or an accidental write from elsewhere. The shell assigns `input`/`setpoint`/`output` fields directly. |
-//! | D2 | the constructor calls `millis()` | [`Controller::new`] takes `now: Millis` | A pure function of its arguments. The C++ value is `millis() - SampleTime` (`PID_v1.cpp:42`) and it is reproduced exactly. |
-//! | D3 | seven members are left uninitialised (`PID_v1.h:108-113`) | all initialised to `0.0` | Unobservable in the firmware's usage — `SetMode(AUTOMATIC)` calls `Initialize()` before the first `Compute()` — but a Rust struct cannot be partially uninitialised, and zero is the safe value. See also D-PID-2 below. |
-//! | D4 | `if (Kp < 0 \|\| Ki < 0 \|\| Kd < 0) return;` silently discards the call | [`Controller::set_tunings`] returns `bool` | A rejected tuning is a configuration error, and the caller deserves to know. The firmware's own callers ignore it (`ProcessController.cpp:214`), which is why this is safe. |
+//! | D1 | `PID(double* Input, double* Output, double* Setpoint, …)` — three raw pointers to caller-owned variables | [`Controller`] owns the three values as fields | The C++ aliases the caller's `double`s and reads `*myOutput` for its anti-windup test. Keeping the values inside the controller is the same aliasing with no possibility of a dangling pointer or an accidental write from elsewhere. The shell assigns `input`/`setpoint`/`output` fields directly. |
+//! | D2 | the constructor calls `millis()` | [`Controller::new`] takes `now: Millis` | A pure function of its arguments. The C++ value is `millis() - SampleTime` and it is reproduced exactly. |
+//! | D3 | seven members are left uninitialised | all initialised to `0.0` | Unobservable in the firmware's usage — `SetMode(AUTOMATIC)` calls `Initialize()` before the first `Compute()` — but a Rust struct cannot be partially uninitialised, and zero is the safe value. See also D-PID-2 below. |
+//! | D4 | `if (Kp < 0 \|\| Ki < 0 \|\| Kd < 0) return;` silently discards the call | [`Controller::set_tunings`] returns `bool` | A rejected tuning is a configuration error, and the caller deserves to know. The firmware's own callers ignore it, which is why this is safe. |
 //!
 //! # Reproduced upstream defects
 //!
@@ -65,7 +65,7 @@
 //!   `integrator`, `lastInput`, `lastFilteredInput`, `lastFilteredDifferential`,
 //!   `lastError`, `lastPPart` and `lastDPart` have no initialiser in
 //!   `PID_v1.h:108-113`. Correctness depends entirely on `SetMode(AUTOMATIC)`
-//!   calling `Initialize()` (`PID_v1.cpp:238-244`) before the first
+//!   calling `Initialize()` before the first
 //!   `Compute()`. Construct the controller, leave it in `Manual`, and call
 //!   `compute()` forever and nothing happens — harmless — but a future edit that
 //!   makes `compute()` run in manual mode would read uninitialised memory.
@@ -186,18 +186,18 @@ impl Controller {
     pub const DEFAULT_OUT_MIN: f64 = 0.0;
     /// See [`Self::DEFAULT_OUT_MIN`].
     pub const DEFAULT_OUT_MAX: f64 = 255.0;
-    /// The library's default integrator limits (`PID_v1.cpp:35`).
+    /// The library's default integrator limits.
     pub const DEFAULT_INTEGRATOR_MIN: f64 = -100.0;
     /// See [`Self::DEFAULT_INTEGRATOR_MIN`].
     pub const DEFAULT_INTEGRATOR_MAX: f64 = 100.0;
-    /// The library's default sample period in milliseconds (`PID_v1.cpp:37`).
+    /// The library's default sample period in milliseconds.
     ///
     /// NOTE the firmware immediately overrides this with
     /// `processWindowSize()` = 1000 ms. The default is only observable in the
     /// window between construction and `SetSampleTime`, and it is what
     /// `last_time` is computed from — see difference D2.
     pub const DEFAULT_SAMPLE_TIME: Millis = Millis::new(100);
-    /// The library's default input low-pass coefficient (`PID_v1.h:106`).
+    /// The library's default input low-pass coefficient.
     pub const DEFAULT_FILTER_ALPHA: f64 = 0.9;
 
     /// Construct, mirroring `PID::PID(...)` (`PID_v1.cpp:20-43`).
@@ -260,7 +260,7 @@ impl Controller {
     /// window.
     ///
     /// This is `SampleTime / 1000` computed in `f64` — the C++ computes it in
-    /// `unsigned long` (`PID_v1.cpp:85`) and the *shape* of the expression is
+    /// `unsigned long` and the *shape* of the expression is
     /// kept so the two are recognisably the same term. The difference is the
     /// `f64` division, and that difference is the whole of deliberate
     /// divergence D-PID-1.
@@ -329,7 +329,7 @@ impl Controller {
     }
 
     /// The three gains as the operator entered them — `PID_v1`'s `GetKp`,
-    /// `GetKi` and `GetKd` (`PID_v1.h:279-292`).
+    /// `GetKi` and `GetKd`.
     ///
     /// **Needed by the display, and the reason is a defect it caught.** The
     /// screen's PID row shows `Kp | Kp/Ki | Kd/Kp`
@@ -346,7 +346,7 @@ impl Controller {
         (self.kp, self.ki, self.kd)
     }
 
-    /// `SetTunings(Kp, Ki, Kd, POn)` (`PID_v1.cpp:145-169`).
+    /// `SetTunings(Kp, Ki, Kd, POn)`.
     ///
     /// Returns `false` and changes nothing if any gain is negative
     /// (`PID_v1.cpp:146`). The C++ silently returns; surfacing it is difference
@@ -386,7 +386,7 @@ impl Controller {
         true
     }
 
-    /// `SetSampleTime(NewSampleTime)` (`PID_v1.cpp:181-188`).
+    /// `SetSampleTime(NewSampleTime)`.
     ///
     /// Rescales `ki` and `kd` by the ratio of the new and old periods, exactly
     /// as the C++ does, so a change of window does not retune the controller.
@@ -402,14 +402,14 @@ impl Controller {
         true
     }
 
-    /// `SetSmoothingFactor(alpha)` (`PID_v1.cpp:190-192`).
+    /// `SetSmoothingFactor(alpha)`.
     pub fn set_smoothing_factor(&mut self, alpha: f64) {
         self.filter_alpha = alpha;
     }
 
-    /// `SetOutputLimits(Min, Max)` (`PID_v1.cpp:202-218`).
+    /// `SetOutputLimits(Min, Max)`.
     ///
-    /// Returns `false` and changes nothing if `min >= max` (`PID_v1.cpp:203`).
+    /// Returns `false` and changes nothing if `min >= max`.
     /// The C++ additionally clamps the caller's output and the integrator when
     /// running; here the output is a field, so both are clamped.
     pub fn set_output_limits(&mut self, min: f64, max: f64) -> bool {
@@ -426,7 +426,7 @@ impl Controller {
         true
     }
 
-    /// `SetIntegratorLimits(Min, Max)` (`PID_v1.cpp:220-231`).
+    /// `SetIntegratorLimits(Min, Max)`.
     ///
     /// Returns `false` and changes nothing if `min >= max`.
     pub fn set_integrator_limits(&mut self, min: f64, max: f64) -> bool {
@@ -460,7 +460,7 @@ impl Controller {
         self.in_auto
     }
 
-    /// `SetMode(Mode)` (`PID_v1.cpp:238-244`).
+    /// `SetMode(Mode)`.
     ///
     /// Entering [`Mode::Automatic`] from [`Mode::Manual`] performs the bumpless
     /// transfer (`Initialize()`), so no arguments are needed.
@@ -472,7 +472,7 @@ impl Controller {
         self.in_auto = new_auto;
     }
 
-    /// `SetControllerDirection(Direction)` (`PID_v1.cpp:266-273`).
+    /// `SetControllerDirection(Direction)`.
     ///
     /// Flipping direction while running negates the gains in place, which is
     /// why the firmware only ever sets it in the constructor.
@@ -485,7 +485,7 @@ impl Controller {
         self.direction = direction;
     }
 
-    /// `Initialize()` (`PID_v1.cpp:250-258`): the bumpless transfer.
+    /// `Initialize()`: the bumpless transfer.
     ///
     /// Seeds the integrator from the current output and the input history from
     /// the current input, so the first automatic compute does not step.
@@ -496,7 +496,7 @@ impl Controller {
         self.integrator = clamp(self.integrator, self.out_min, self.out_max);
     }
 
-    /// `Compute()` (`PID_v1.cpp:58-138`).
+    /// `Compute()`.
     ///
     /// Returns `true` when a new output was produced, `false` when the sample
     /// period has not elapsed or the controller is in [`Mode::Manual`] — the
@@ -956,7 +956,7 @@ mod tests {
 mod mode_query_tests {
     use super::{Controller, ControllerDirection, Millis, Mode, ProportionalOn};
 
-    /// A controller with the C++'s production gains (`ProcessController.cpp:296-305`).
+    /// A controller with the C++'s production gains.
     fn production() -> Controller {
         let mut pid = Controller::new(
             Millis::ZERO,

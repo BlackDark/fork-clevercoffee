@@ -85,7 +85,7 @@ impl ErrorCode {
 
     /// Whether this error requires the machine to stop what it is doing.
     ///
-    /// Port of `Error::isCritical()` (`ErrorCodes.h:142-146`), which marks
+    /// Port of `Error::isCritical()`, which marks
     /// exactly five codes. A critical error is one where continuing to heat or
     /// pump risks the machine, not merely where a retry might help.
     #[must_use]
@@ -101,7 +101,7 @@ impl ErrorCode {
     }
 
     /// A user-facing description with a recovery suggestion, from
-    /// `Error::getUserMessage()` (`ErrorCodes.h:78-104`).
+    /// `Error::getUserMessage()`.
     #[must_use]
     pub const fn user_message(self) -> &'static str {
         match self {

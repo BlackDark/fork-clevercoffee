@@ -1,16 +1,11 @@
-//! Tests for the whole MQTT surface: the topic layout, the registry, the plan
-//! slices, the payload buffer and the interval predicate.
-//!
-//! These are the assertions that used to run **only** by flashing a board.
-//! `mqtt.rs` named `esp_idf_svc`, so `just test` could not reach any of them and
-//! the on-target runner (`just test-esp32`) was the only thing that executed
-//! them; see the crate root for the finding that established the gap. Nineteen
-//! device tests became nineteen host tests, and the bodies are the same bodies.
+//! The whole MQTT surface — topic layout, registry membership, phase partition,
+//! payload limits, intervals — as host tests, because all of it is a pure function
+//! of the configuration. Nothing here needs a board.
 
 #![allow(
     clippy::wildcard_imports,
-    reason = "the cases are spread across four modules and a glob is what keeps \
-              them from rotting against a rename in any one of them"
+    reason = "cases span four modules; a glob keeps them from rotting against a \
+              rename in any one"
 )]
 
 use alloc::boxed::Box;
@@ -23,9 +18,8 @@ use cc_netpolicy::mqtt::{Item, Phase, Plan};
 use crate::*;
 
 fn plan_of(config: &Config) -> Plan<'static> {
-    // The tests need a `Plan` and a `Registry` with the same lifetime, which
-    // is the one shape this module cannot build by value. The leak is what
-    // `Feed` itself does, and it is bounded by the number of cases.
+    // A `Plan` and its `Registry` need the same lifetime, which cannot be built by
+    // value. Leaked, as the real publisher does; bounded by the case count.
     let registry: &'static Registry = Box::leak(Box::new(Registry::from_config(
         &Topics::new("p/", "h"),
         config,
@@ -36,8 +30,8 @@ fn plan_of(config: &Config) -> Plan<'static> {
 
 #[test]
 fn the_default_configuration_is_not_a_broker() {
-    // cc_config::Mqtt::default: enabled = false, broker = "".
-    // MQTTManager.cpp:79-83 disables MQTT rather than building a client.
+    // Disabled and brokerless is doubly off. A client with nowhere to connect
+    // still costs a task stack and two buffers.
     assert!(!is_configured(&Config::default()));
     let mut config = Config::default();
     config.mqtt.enabled = true;
@@ -50,9 +44,8 @@ fn the_default_configuration_is_not_a_broker() {
 }
 
 #[test]
-fn the_topic_layout_has_no_separator_the_cpp_does_not_have() {
-    // MQTTManager.cpp:80-82 uses "%s%s/%s" with nothing between the prefix
-    // and the hostname; mqtt.topic's default already ends in '/'.
+fn the_topic_layout_inserts_no_separator_of_its_own() {
+    // `mqtt.topic`'s default ends in `/`, so no separator is added.
     let topics = Topics::new("custom/kitchen/", "clevercoffee");
     assert_eq!(topics.will, "custom/kitchen/clevercoffee/status");
     assert_eq!(topics.set, "custom/kitchen/clevercoffee/+/set");
@@ -67,29 +60,21 @@ fn the_topic_layout_has_no_separator_the_cpp_does_not_have() {
 }
 
 #[test]
-fn a_prefix_without_a_trailing_slash_reproduces_the_cpp_result() {
-    // The C++ does not insert one either. A tidy layout would be a
-    // different wire format from the one every existing install uses.
+fn a_prefix_without_a_trailing_slash_is_used_verbatim() {
+    // Prefixes are concatenated verbatim; a separator here would be a new wire
+    // format.
     assert_eq!(Topics::new("home/", "cc").state("t"), "home/cc/t");
 }
 
-/// The C++'s topic matcher, and every way a topic can miss it.
+/// Every way a topic can miss the matcher: a deeper path, a bare `status`, a
+/// trailing `/extra`, a foreign prefix.
 ///
-/// `MQTTManager.cpp:252-262` builds `"%s%s/%%119[^\/]/%%63[^\\/]"` and
-/// requires the second field to be exactly `set`; a deeper path, a bare
-/// `status`, a trailing `/extra` and a foreign prefix all land in the
-/// `"Invalid MQTT topic/command"` arm, and so must they here.
-///
-/// **A wildcard is the interesting one.** `%119[^\/]` accepts `+`, so
-/// `<base>+/set` parses to the reading `"+"` in the C++ exactly as it does
-/// here -- and is then dropped by `mqttVars_.find("+")`, the
-/// `"MQTT topic %s not found in mapping"` arm of `MQTTManager.cpp:289-292`.
-/// Reproduced rather than "fixed", because the refusal is the *registry's*
-/// job and `an_inbound_reading_resolves_only_if_it_is_registered` is where
-/// it is checked; a matcher that also refused wildcards would be a second
-/// place with the same rule, and the two would drift.
+/// `<base>+/set` parses to the reading `"+"` and is then refused by the registry.
+/// Not refused here on purpose: the rule lives in one place,
+/// `an_inbound_reading_resolves_only_if_it_is_registered`, and a second copy is a
+/// copy that drifts.
 #[test]
-fn an_inbound_topic_is_parsed_exactly_as_the_csqs_matcher_does() {
+fn an_inbound_topic_must_be_a_command_under_the_base() {
     let topics = Topics::new("custom/kitchen/", "clevercoffee");
     assert_eq!(
         topics.command_of("custom/kitchen/clevercoffee/brewSetpoint/set"),
@@ -124,39 +109,33 @@ fn an_inbound_topic_is_parsed_exactly_as_the_csqs_matcher_does() {
 }
 
 #[test]
-fn the_buffer_is_the_csqs_1024() {
-    // MQTTManager.cpp:96, raised specifically for discovery payloads.
-    // cc_config::discovery asserts every payload is under it.
+fn the_buffer_holds_the_largest_published_payload() {
+    // A discovery payload with a `device` block is the largest we publish;
+    // `cc_config::discovery` asserts itself under this.
     assert_eq!(BUFFER_BYTES, 1024);
 }
 
 #[test]
 fn the_budget_is_a_fraction_of_the_control_period() {
-    // The C++'s 10 ms was 2.5 % of a 400 ms loop. This firmware's loop is
-    // 10 ms (`cc-firmware/src/main.rs:189`), so the budget is re-derived
-    // against that: a quarter of the period would still be most of a tick's
-    // worth of publishing, and the whole of it would bound nothing.
+    // `Feed::service` runs every tick and a tick is 10 ms, so the budget must be a
+    // fraction of it. The whole period would bound nothing.
     assert_eq!(TIME_BUDGET_MS, 2);
     const { assert!(TIME_BUDGET_MS * 5 <= 10) };
 }
 
 #[test]
-fn the_intervals_are_the_csqs() {
+fn the_pass_intervals_are_what_they_are_meant_to_be() {
     assert_eq!(INTERVAL_MS, 5_000);
     assert_eq!(INTERVAL_BREW_MS, 500);
     assert_eq!(INTERVAL_STANDBY_MS, 10_000);
     assert_eq!(DISCOVERY_INTERVAL_MS, 300_000);
 }
 
-/// The interval is a function of the machine state, and the state is the
-/// C++'s predicate.
+/// The interval is a function of the machine state, which is not the same thing as
+/// "a brew is happening".
 ///
-/// `MQTTManager.cpp:384-387`. The brewing arm used to be unreachable,
-/// because a `BREWING` flag made every publish a no-op during a brew — and
-/// that flag was never set by anything, so the guard was both wrong and inert.
-/// `BrewFinished` is excluded from the brew arm by the C++ itself
-/// (`BrewHandler.h:98-103`), which is the one case a naive
-/// `is_brew_state()` would get wrong.
+/// `BrewFinished` is excluded from the brew arm, the one case a bare
+/// `is_brew_state()` gets wrong. The result screen is static for three seconds.
 #[test]
 fn the_interval_follows_the_machine_state() {
     use cc_domain::state::MachineState as S;
@@ -165,53 +144,49 @@ fn the_interval_follows_the_machine_state() {
     assert_eq!(
         interval_for(S::BrewFinished),
         INTERVAL_MS,
-        "BREW_FINISHED is excluded from the brew arm: MQTTManager.cpp:385"
+        "BREW_FINISHED is excluded from the brew arm"
     );
     assert_eq!(interval_for(S::Standby), INTERVAL_STANDBY_MS);
     assert_eq!(interval_for(S::PidNormal), INTERVAL_MS);
     assert_eq!(interval_for(S::SteamRunning), INTERVAL_MS);
 }
 
-/// The registry is the C++'s, topic for topic.
+/// The registry covers the machine, and only the machine.
 ///
-/// `SystemInitializer.cpp:687-800`. The counts are the whole assertion: the
-/// three parameters, three sensors and two binary sensors this file used to
-/// register were 32 parameters and 13 sensors' worth of nothing, so nothing
-/// Home Assistant displays was ever published.
+/// **The counts are the whole assertion.** Topic spelling is trivially right;
+/// membership is what goes missing silently, and nothing else connects the registry
+/// to the entities `cc_config::discovery` advertises.
+///
+/// Both configurations are written out, not taken from `Config::default()`,
+/// because `hardware.switches.brew.enabled` defaults to `true` and a count that
+/// quietly depended on it would be a count of the wrong machine.
 #[test]
-fn the_registry_is_the_csqs_registration() {
+fn the_registry_covers_a_bare_machine_and_a_full_one() {
     use cc_domain::hardware::ScaleType;
     let topics = Topics::new("p/", "h");
 
-    // A configuration with every conditional group **off**. Written out
-    // rather than taken from `Config::default()` because
-    // `hardware.switches.brew.enabled` defaults to `true` here — a declared
-    // divergence from the C++'s `false` (`Config.h:985`), recorded in
-    // `intentional-diffs.md` — and a count that silently depended on it
-    // would be a count of the wrong thing.
     let mut config = Config::default();
     config.hardware.switches.brew.enabled = false;
     let bare = Registry::from_config(&topics, &config);
-    // The 12 unconditional parameters, SystemInitializer.cpp:690-701.
+    // No scale, no tank, no pressure, no brew switch: still a real baseline.
     assert_eq!(bare.parameters().len(), 12);
-    // The 9 unconditional sensors, :738-766.
     assert_eq!(bare.sensors().len(), 9);
-    // No binary sensor without the tank, :794-798.
+    // No tank, so no tank-full sensor: nothing binary at all.
     assert_eq!(bare.binary_sensors(), []);
 
-    // Everything on, with a single-cell scale: the fifth conditional scale
-    // parameter, `scale2Calibration`, is behind `HX711_DUAL`
-    // (SystemInitializer.cpp:727-729).
+    // All on, single-cell scale. The dual-cell calibration is behind `HX711_DUAL`,
+    // absent here and present below.
     config.hardware.switches.brew.enabled = true;
     config.hardware.sensors.scale.enabled = true;
     config.hardware.sensors.scale.r#type = ScaleType::Hx711Single;
     config.hardware.sensors.watertank.enabled = true;
     config.hardware.sensors.pressure.enabled = true;
     let full = Registry::from_config(&topics, &config);
-    // 12 + 14 (:705-719) + 5 (:722-734).
+    // Baseline + fourteen behind the brew switch + five behind the scale.
     assert_eq!(full.parameters().len(), 31);
-    // 9 + 1 (:770-775) + 2 (:778-784) + 1 (:787-790).
+    // Baseline + brew timer + two weights + pressure.
     assert_eq!(full.sensors().len(), 13);
+    // Tank fitted, so its full/empty pair is published.
     assert_eq!(full.binary_sensors().len(), 1);
 
     // The dual cell adds exactly one, and only that one.
@@ -224,11 +199,8 @@ fn the_registry_is_the_csqs_registration() {
     );
 }
 
-/// Every topic the C++ registers resolves, and nothing else does.
-///
-/// `MQTTManager.cpp:288-292` refuses an unregistered inbound topic with
-/// "MQTT topic %s not found in mapping", and that refusal is what keeps a
-/// typo on a command topic from becoming a parameter write.
+/// Every registered topic resolves, and nothing else does. Otherwise a typo on a
+/// command topic becomes a parameter write.
 #[test]
 fn an_inbound_reading_resolves_only_if_it_is_registered() {
     let topics = Topics::new("p/", "h");
@@ -237,37 +209,33 @@ fn an_inbound_reading_resolves_only_if_it_is_registered() {
     let registry = Registry::from_config(&topics, &config);
     assert_eq!(registry.resolve("brewSetpoint"), Some("brew.setpoint"));
     assert_eq!(registry.resolve("pidON"), Some("pid.enabled"));
-    // The four the C++ compares against literals rather than looking up
-    // (MQTTManager.cpp:296-322).
+    // The two machine-state targets resolve to their sentinel, not a config key.
     assert_eq!(registry.resolve("steamON"), Some(STEAM_MODE));
     assert_eq!(registry.resolve("backflushOn"), Some(BACKFLUSH_ON));
-    // A sensor is published but not settable: `mqttVars_` has no entry.
+    // Published-but-not-settable, and advertised-but-unregistered, both refuse.
     assert_eq!(registry.resolve("temperature"), None);
     assert_eq!(registry.resolve("usePonM"), None);
 }
 
-/// The four special targets are not configuration keys.
-///
-/// `MQTTManager.cpp:296-322` branches on them **before** `findConfigParameter`
-/// is called, because `Config` does not carry a steam mode, a backflush
-/// mode, a tare mode or a calibration mode. A test that asserts they are not
-/// schema keys is what stops somebody "tidying" them into one.
+/// The four special targets are not configuration keys, and are compared **before**
+/// the schema is consulted: the configuration carries no steam mode, backflush
+/// mode, tare or calibration. Asserting their absence from the schema is what stops
+/// somebody "tidying" them into parameters.
 #[test]
 fn the_four_specials_are_not_configuration_keys() {
     for special in [STEAM_MODE, BACKFLUSH_ON, TARE_ON, CALIBRATION_ON] {
         assert!(
             cc_config::schema::find(special).is_none(),
             "{special} must stay outside the schema: it is machine state, \
-             not a parameter (MQTTManager.cpp:296-322)"
+             not a parameter"
         );
     }
 }
 
 #[test]
-fn the_registry_puts_each_kind_of_topic_in_the_cpp_phase() {
-    // Phase membership is what decides the retain flag, and a topic in the
-    // wrong phase is published with the wrong flag — retained where it must
-    // not be, or lost on a broker restart where it must not be.
+fn each_kind_of_topic_lands_in_its_phase() {
+    // Phase membership decides the retain flag. Wrong phase means the wrong flag:
+    // retained where it must not be, or lost on restart where it must not be.
     let topics = Topics::new("p/", "h");
     let mut config = Config::default();
     config.hardware.switches.brew.enabled = false;
@@ -279,7 +247,7 @@ fn the_registry_puts_each_kind_of_topic_in_the_cpp_phase() {
     // Parameters and binary sensors are.
     assert!(plan.parameters.iter().all(|i| i.retain));
     assert!(plan.binary_sensors.iter().all(|i| i.retain));
-    // The phases are the C++'s, in its order.
+    // And the phases are cut where the registration puts them.
     assert_eq!(plan.phase_items(Phase::Parameters).len(), 12);
     assert_eq!(plan.phase_items(Phase::Sensors).len(), 9);
     assert_eq!(plan.phase_items(Phase::BinarySensors), []);
@@ -287,12 +255,10 @@ fn the_registry_puts_each_kind_of_topic_in_the_cpp_phase() {
 
 /// The three plan slices must **partition** the view.
 ///
-/// The retain assertions in `the_registry_puts_each_kind_of_topic_in_the_cpp_phase`
-/// are all vacuous on an empty slice, so on their own they say nothing about
-/// whether the phases were cut in the right place -- which is exactly the bug
-/// this found: `PlanView` stored per-group *lengths* and `plan()` used them
-/// as end *offsets*, so `sensors` came back empty and `binary_sensors` was an
-/// out-of-range slice that panicked.
+/// The retain assertions in `each_kind_of_topic_lands_in_its_phase` are vacuous on
+/// an empty slice, so on their own they say nothing about where the phases were cut,
+/// which is exactly the bug: `PlanView` stored *lengths* and `plan()` used them as
+/// *offsets*, so `sensors` came back empty and `binary_sensors` read past the end.
 ///
 /// Everything here is about membership and count, never about a value.
 #[test]
@@ -328,7 +294,7 @@ fn the_plan_slices_partition_the_view() {
 
 #[test]
 fn a_pressure_sensor_appears_only_when_it_is_fitted() {
-    // MQTTManager.cpp:787-790.
+    // Pressure is fitted-or-absent, so an unfitted machine must not publish it.
     let topics = Topics::new("p/", "h");
     let mut config = Config::default();
     let without = Registry::from_config(&topics, &config);
@@ -341,12 +307,12 @@ fn a_pressure_sensor_appears_only_when_it_is_fitted() {
 /// The weight is published on the topics `cc_config::discovery`
 /// advertises — and only those.
 ///
-/// `MQTTManager.cpp:903-904` registers `currReadingWeight` and
-/// `currBrewWeight`; `discovery.rs` advertises sensors of those same two
-/// names. The registry used to publish a topic called `weight`, which
-/// matches neither, so the Home Assistant weight entity was advertised and
-/// never updated. Both facts live in **different crates** and nothing made
-/// them agree.
+/// The registry publishes `currReadingWeight` and `currBrewWeight`, the same two
+/// names `cc_config::discovery` advertises.
+///
+/// Both directions, because the two facts live in different crates and nothing else
+/// makes them agree. A registry entry called `weight` was advertised by neither and
+/// updated by nothing: an inert entity invisible to tests in either crate.
 #[test]
 fn the_weight_topics_are_exactly_the_ones_discovery_advertises() {
     let topics = Topics::new("p/", "h");
@@ -382,15 +348,15 @@ fn the_weight_topics_are_exactly_the_ones_discovery_advertises() {
     }
     assert!(
         !publishes(&registry_with, "weight"),
-        "`weight` was never a topic: Home Assistant listens on \
-         currReadingWeight/currBrewWeight (MQTTManager.cpp:903-904)"
+        "`weight` is not a topic; Home Assistant listens on \
+         currReadingWeight/currBrewWeight"
     );
 }
 
 #[test]
 fn a_registry_never_names_a_credential() {
-    // The topics are the configuration's own; a mistake here would put the
-    // MQTT password on a world-readable broker topic.
+    // Topics are the configuration's own, so a mistake here publishes the MQTT
+    // password to every subscriber.
     let topics = Topics::new("p/", "h");
     let mut config = Config::default();
     config.mqtt.password = cc_config::Secret::new(alloc::string::String::from("brokerpw"));

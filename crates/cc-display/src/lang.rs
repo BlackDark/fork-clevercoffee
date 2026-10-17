@@ -130,7 +130,7 @@ const GERMAN: Lang = Lang {
     backflush_reminder: ["Rueckspuelen", "Reiniger-", "Rueckspuelung"],
     // Split: one line is 129 px in profont10 (`languages.h`).
     error_tsensor: ["Fehler, Temp: ", "Temp.-Sensor", "ueberpruefen!", "", ""],
-    // Last word is 63 px in profont10, 75 in profont11 (`languages.h:155-159`).
+    // Last word is 63 px in profont10, 75 in profont11.
     error_tsensor_ur: ["Fehler", "Temp: ", "Temp.", "Sensor", "ueberpruefen!"],
 };
 

@@ -1,13 +1,10 @@
 //! The heater output: LEDC hardware PWM, behind one swappable type.
 //!
-//! Owner: **R1-07**.
+//! Owner: **R1-07**. This file owns the pin and the peripheral driving it.
 //!
-//! # What this replaces
-//!
-//! The C++ chops the heater relay in a 10 ms hardware-timer ISR
-//! (`include/clevercoffee/isr.h:85-118`), at the highest interrupt priority the
-//! chip offers, and that ISR is the only hard-real-time requirement in the whole
-//! firmware:
+//! The C++ chopped the relay in a 10 ms hardware-timer ISR at the chip's highest
+//! interrupt priority (`include/clevercoffee/isr.h:85-118`), the only
+//! hard-real-time requirement in the firmware:
 //!
 //! ```cpp
 //! if (currentPidOutput <= currentCounter) relay->off(); else relay->on();
@@ -15,160 +12,108 @@
 //! if (newCounter >= ctx->processWindowSize()) newCounter = 0;
 //! ```
 //!
-//! Everything *about* that decision — the window, the 10 ms quantisation, the
-//! gate — is in [`cc_domain::heater`], where it is host-testable. This file owns
-//! exactly one thing: the pin, and the peripheral that drives it.
+//! Everything *about* that decision is in [`cc_domain::heater`], host-testable.
 //!
-//! # LEDC, and why it would be the right answer
+//! ## Carrier: 1 Hz, and why
 //!
-//! [`hal::ledc`] generates the carrier in hardware. There is no ISR, no CPU, no
-//! scheduler dependency, and nothing to jitter: the duty is a register. **On a
-//! chip whose `ledc_ll_set_duty_start` is a single register write, that is
-//! strictly better than an ISR, and the tables below are why.** This one is not
-//! such a chip.
+//! The pin is a **contactor**, so what matters is level changes per second, not
+//! smoothness. Walking the C++ ISR (`isr.h:96-118`) for a constant `pidOutput`
+//! over one 1000 ms window: `pidOutput > counter` is monotone, so on-time is one
+//! contiguous run from counter 0.
 //!
-//! | | C++ ISR chopper | LEDC |
-//! | --- | --- | --- |
-//! | on-time resolution | 10 ms (1 % of the window) | 1/131 072 of the carrier period (7.6 µs) |
-//! | delivered power | `on_ticks / 100` | identical, by construction |
-//! | CPU per second | 100 interrupt entries | 0 |
-//! | worst-case latency | one interrupt-priority preemption | n/a — the duty *is* the output |
-//! | failure mode if the scheduler stalls | heater runs at the last commanded duty | unchanged (the register holds its value) |
-//! | **contactor level changes per second** | **0 or 2** | **0 or 2** — must match, see below |
+//! | `pid_output` | on-ticks | level over the window | level changes/s |
+//! | --- | --- | --- | --- |
+//! | 0 | 0 | OFF throughout | **0** |
+//! | 50 | 5 | ON 50 ms, OFF 950 ms | **2** |
+//! | 500 | 50 | ON 500 ms, OFF 500 ms | **2** |
+//! | 950 | 95 | ON 950 ms, OFF 50 ms | **2** |
+//! | 1000 | 100 | ON throughout | **0** |
 //!
-//! # The carrier frequency: 1 Hz, and it has to be low
+//! An `f` Hz square wave makes `2f`, so **`f <= 1 Hz`**; the only frequency
+//! keeping one period equal to one control window is `1 / WINDOW_MS`. Hence
+//! [`heater::CARRIER_HZ`] = 1. A 100 Hz carrier gives the same average power and
+//! spends **200** contactor operations a second against the C++'s two, which on
+//! a 2 kW boiler contactor is a defect dressed as fidelity.
 //!
-//! **The pin is a contactor, not a GPIO.** A carrier's frequency is a
-//! *mechanical* duty on the relay, not a fidelity setting, and the number that
-//! matters is how many times the level changes, not how smoothly it does.
+//! ## Resolution: 17 bits, and why
 //!
-//! The C++ ISR runs 100 times a second and that is **not** a 100 Hz chopper.
-//! Re-asserting the same level is not a transition. Walking `isr.h:96-118` for a
-//! constant `pidOutput` over one 1000 ms window — the predicate
-//! `pidOutput > counter` is monotone, so the on-time is one contiguous run
-//! starting at counter 0 — gives:
-//!
-//! | `pid_output` | ISR entries/s | on-ticks | on-time | level over the window | level changes/s |
-//! | --- | --- | --- | --- | --- | --- |
-//! | 0 | 100 | 0 | 0.0 % | OFF throughout | **0** |
-//! | 50 | 100 | 5 | 5 % | ON 50 ms, OFF 950 ms | **2** |
-//! | 500 | 100 | 50 | 50 % | ON 500 ms, OFF 500 ms | **2** |
-//! | 950 | 100 | 95 | 95 % | ON 950 ms, OFF 50 ms | **2** |
-//! | 1000 | 100 | 100 | 100 % | ON throughout | **0** |
-//!
-//! Two changes per second: one falling edge inside the window and one rising
-//! edge at the wrap. An `f` Hz square wave makes `2f`, so **`f ≤ 1 Hz`**, and the
-//! only frequency at which the duty also keeps its meaning — one period *is* one
-//! control window — is exactly `1 / WINDOW_MS`. Hence
-//! [`heater::CARRIER_HZ`](cc_domain::heater::CARRIER_HZ) = 1.
-//!
-//! A 100 Hz carrier would deliver the same *average* power to within a rounding
-//! error of a few thousandths of a percent, and spend **two hundred** contactor
-//! operations per second where the C++ spent two. On a 2 kW boiler contactor,
-//! whose mechanical life is counted in operations, that is a defect dressed up
-//! as fidelity. The duty-resolution argument runs the other way from the usual
-//! one: a *low* carrier makes the duty step coarser, so the low carrier has to
-//! be paid for in bits, and the next section is about that.
-//!
-//! ## Why 17 bits, from ESP-IDF's own divider arithmetic
-//!
-//! The duty step at `f` Hz and `b` bits is `1000 / f / 2^b` ms. Matching the
-//! C++'s 10 ms step needs `2^b ≥ 100 / f`, so at 1 Hz, `b ≥ 7` — but that is not
-//! the binding constraint. `ledc_calculate_divisor`
-//! (`esp_driver_ledc/src/ledc.c:459-477`) computes
+//! Duty step at `f` Hz and `b` bits is `1000 / f / 2^b` ms, so matching the C++'s
+//! 10 ms step needs `2^b >= 100 / f`. The binding constraint is the divider.
+//! `ledc_calculate_divisor` (`esp_driver_ledc/src/ledc.c:459-477`):
 //!
 //! ```text
 //! div_param = ((src_clk << 8) + freq_hz * precision / 2) / (freq_hz * precision)
 //! ```
 //!
-//! with `precision = 1 << duty_resolution` (`ledc.c:600`), and
-//! `LEDC_IS_DIV_INVALID` rejects `div_param <= LEDC_LL_FRACTIONAL_MAX` (255,
+//! with `precision = 1 << duty_resolution` (`ledc.c:600`). `LEDC_IS_DIV_INVALID`
+//! rejects `div_param <= LEDC_LL_FRACTIONAL_MAX` (255,
 //! `hal/esp32/include/hal/ledc_ll.h:28`) or `> LEDC_TIMER_DIV_NUM_MAX`
-//! (`0x3FFFF` = 262 143) (`ledc.c:115,111`). On the
-//! original ESP32 the LEDC source is APB at 80 MHz (`LEDC_LL_GLOBAL_CLOCKS`
-//! lists `LEDC_SLOW_CLK_APB` first and `esp-idf-hal` passes `LEDC_AUTO_CLK`).
-//! The timer period is `div_param × 2^(bits − 8)` source clocks — that is
-//! `(div_param >> 8)` whole precision ticks plus the 8-bit fractional remainder —
-//! so:
+//! (`0x3FFFF` = 262 143) (`ledc.c:115,111`). The original ESP32's LEDC source is
+//! APB at 80 MHz. Period is `div_param * 2^(bits - 8)` clocks:
 //!
 //! | bits | `div_param` at 1 Hz | valid? | `max_duty` | duty step | realised `f` |
 //! | --- | --- | --- | --- | --- | --- |
-//! | 7 | 160 000 000 | ✗ > `0x3FFFF` | 128 | 7.81 ms | — |
-//! | 16 | 312 500 | ✗ > `0x3FFFF` | 65 536 | 15.3 µs | — |
-//! | **17 (chosen)** | **156 250** | **✓** | **131 072** | **7.63 µs** | **exactly 1.000 000 Hz** |
-//! | 18 | 78 125 | ✓ | 262 144 | 3.81 µs | exactly 1.000 000 Hz |
-//! | 19 | 39 063 | ✓ | 524 288 | 1.91 µs | 0.999 987 Hz |
-//! | 20 | 19 531 | ✓ | 1 048 575 | 0.95 µs | 1.000 013 Hz |
+//! | 7 | 160 000 000 | no, > `0x3FFFF` | 128 | 7.81 ms | -- |
+//! | 16 | 312 500 | no, > `0x3FFFF` | 65 536 | 15.3 µs | -- |
+//! | **17** | **156 250** | yes | 131 072 | 7.63 µs | **1.000 000 Hz** |
+//! | 18 | 78 125 | yes | 262 144 | 3.81 µs | 1.000 000 Hz |
+//! | 19 | 39 063 | yes | 524 288 | 1.91 µs | 0.999 987 Hz |
+//! | 20 | 19 531 | yes | 1 048 575 | 0.95 µs | 1.000 013 Hz |
 //!
-//! So at 1 Hz the reachable resolutions are **17, 18, 19 and 20 and nothing
-//! coarser**: 16 bits already overflows the maximum divider, and every bit below
-//! that overflows it further. [`heater::CHOSEN_RESOLUTION_BITS`] is 17 — the
-//! **coarsest that works**, which is the right way round because it leaves the
-//! most margin against the divider arithmetic being wrong, and because 19 and
-//! 20 are the two that lose exact frequency to the `+ freq_hz * precision / 2`
-//! rounding term. 19 bits is also perfectly acceptable and is the constant to
-//! change if the margin ever needs to be wider.
+//! Reachable at 1 Hz: **17, 18, 19, 20, nothing coarser**; 16 already overflows
+//! the divider. [`heater::CHOSEN_RESOLUTION_BITS`] is 17, the coarsest that
+//! works, leaving most margin against the arithmetic being wrong. 19 and 20 lose
+//! exact frequency to the `+ freq_hz * precision / 2` rounding term; 19 is
+//! acceptable if the margin ever needs widening.
 //!
-//! Concretely, `div_param = 156 250 = 610 × 256 + 50`, so the period is
-//! `610.3515625 × 131 072` = **80 000 000 APB clocks = 1.000 000 s exactly**.
-//! If `LEDC_AUTO_CLK` were to fall through to `RC_FAST` (≈8 MHz) instead of APB,
-//! `div_param` would be 15 625 and the period 8 000 000 `RC_FAST` clocks — also
-//! exactly 1 s. The frequency does not depend on which of the two the driver
-//! picks.
+//! `div_param = 156 250 = 610 * 256 + 50`, so the period is
+//! `610.3515625 * 131 072` = **80 000 000 APB clocks = 1.000 000 s exactly**. Were
+//! `LEDC_AUTO_CLK` to fall through to `RC_FAST` (~8 MHz), `div_param` would be
+//! 15 625 and the period 8 000 000 `RC_FAST` clocks -- also exactly 1 s. The
+//! frequency does not depend on which clock the driver picks.
 //!
-//! ### The duty ends, and why 17 rather than 20
+//! ### Why 17 and not 20
 //!
-//! `esp-idf-hal`'s `Resolution::max_duty` is `2^N`, **except** at 20 bits where it
-//! is `2^20 - 1`, and `ledc_channel_config` says why, in its own comment:
+//! `max_duty` is `2^N` except at 20 bits, where it is `2^20 - 1`.
+//! `ledc_channel_config` says why:
 //!
 //! > On ESP32 … due to a hardware bug, 100 % duty cycle (i.e. `2**duty_res`) is
 //! > not reachable when the binded timer selects the maximum duty resolution.
 //!
-//! The maximum low-speed resolution on the ESP32 is 20 bits
-//! (`SOC_LEDC_TIMER_BIT_WIDTH`, `soc/esp32/include/soc/soc_caps.h:246`, and
+//! Max low-speed resolution is 20 bits (`soc/esp32/include/soc/soc_caps.h:246`;
 //! `ledc_timer_config` rejects `duty_resolution >= LEDC_TIMER_BIT_MAX`,
-//! `ledc.c:791`), so at `Bits20` full
-//! power would be `1 048 575 / 1 048 576` — a permanent 0.95 ms notch once a
-//! second, and "100 % duty" would be a lie the register could not express. At
-//! 17 bits, `max_duty` is a plain `131 072`, so:
+//! `ledc.c:791`), so at `Bits20` full power would be `1 048 575 / 1 048 576`: a
+//! permanent 0.95 ms notch once a second, and "100 % duty" a lie the register
+//! cannot express. At 17 bits `max_duty` is a plain `131 072`, so:
 //!
-//! * **duty 0** is a *steady low level* — the idle level `ledc.c` configures —
-//!   and it is what the gate produces for a closed gate, so "disabled" and
-//!   "off" are the same register value;
-//! * **duty `max_duty`** is a *steady high level*, a different register value
-//!   from 0, so full power is never confused with disabled;
-//! * **any interior duty** is one high pulse per second, at `hpoint = 0` — i.e.
-//!   starting at the beginning of the period, which is where the C++ puts it
-//!   too (the relay is energised at counter 0 and de-energised as the counter
-//!   passes `pidOutput`).
+//! * **duty 0** is a *steady low level* (the idle level `ledc.c` configures), and
+//!   it is what a closed gate produces, so "disabled" and "off" are one register
+//!   value;
+//! * **duty `max_duty`** is a *steady high level*, a different value from 0, so
+//!   full power is never confused with disabled;
+//! * **any interior duty** is one high pulse per second at `hpoint = 0`, where
+//!   the C++ puts it too (energised at counter 0, de-energised as it passes
+//!   `pidOutput`).
 //!
-//! `Resolution::Bits20` is a compile-time error here, not a code review note.
+//! `Resolution::Bits20` is a compile-time error here, not a review note.
 //!
-//! ## The narrowest pulse is still the C++'s 10 ms
+//! ## Other facts this rests on
 //!
-//! 131 072 counts would allow a 7.6 µs pulse, and nothing ever asks for one: the
-//! duty is `on_fraction(pid)`, and `on_fraction` is `chopper_on_ticks / 100`
-//! with the C++'s 10 ms quantisation. The smallest non-zero duty is therefore one
-//! whole 10 ms step, exactly the narrowest pulse the C++ has ever produced.
-//! `cc_domain::heater::tests::the_minimum_pulse_is_the_cpp_ten_millisecond_step`
-//! walks the whole range to prove it.
+//! * **Narrowest pulse is still the C++'s 10 ms.** 131 072 counts would allow
+//!   7.6 µs, but the duty is `chopper_on_ticks / 100`, so the smallest non-zero
+//!   duty is one whole 10 ms step.
+//!   `cc_domain::heater::tests::the_minimum_pulse_is_the_cpp_ten_millisecond_step`
+//!   walks the range to prove it.
+//! * **Low speed, not high.** Only the original ESP32 has high-speed mode
+//!   (`esp-idf-hal-0.47.0/src/ledc.rs`); it exists for carriers `>= 10 MHz`. At
+//!   1 Hz low speed is six orders of magnitude inside its range, and high speed
+//!   would consume one of the four high-speed timers, the scarce resource here.
+//!   If the carrier ever has to exceed ~1 MHz, this is the line to change.
 //!
-//! # Low speed mode, not high
-//!
-//! The original ESP32 is the only chip with LEDC high-speed mode
-//! (`esp-idf-hal-0.47.0/src/ledc.rs`, `#[cfg(esp32)] pub struct HighSpeed`).
-//! **It is not needed.** High speed exists for the ≥ 10 MHz carrier duty that
-//! low speed cannot produce; at 1 Hz low speed is six orders of magnitude inside
-//! its range. Taking high speed would buy nothing and would consume one of the
-//! four high-speed timers, which is the scarce resource on the original ESP32 —
-//! it has four of each, and the other peripherals on this board want them too.
-//! The decision is recorded rather than left implicit: if the carrier ever has
-//! to go above ~1 MHz, this is the line to change.
-//!
-//! # 🔴 Unusable on this chip: the 1 Hz carrier trips the interrupt watchdog
+//! ## 🔴 Unusable on this chip: the 1 Hz carrier trips the interrupt watchdog
 //!
 //! Measured 2026-09-28 on the attached board. **An `LEDC` heater output panics
-//! the chip at boot**, and the cause is ESP-IDF's own HAL, not this file:
+//! the chip at boot**, and the cause is ESP-IDF's own HAL:
 //!
 //! ```c
 //! // components/hal/esp32/include/hal/ledc_ll.h:485-489, ESP-IDF v5.5.5
@@ -178,86 +123,70 @@
 //! while (hw->channel_group[speed_mode].channel[channel_num].conf1.duty_start);
 //! ```
 //!
-//! `duty_start` is cleared by the hardware at the next **timer period**, and the
-//! spin is inside `portENTER_CRITICAL(&ledc_spinlock)`
-//! (`components/esp_driver_ledc/src/ledc.c:1603-1606`) — interrupts masked. At
-//! the 1 Hz carrier chosen below, that is up to **one second**. The original
-//! ESP32's interrupt watchdog is **300 ms** (`components/esp_system/int_wdt.c`).
-//! The boot backtrace decodes to `ledc_set_duty_and_update` ->
-//! `ledc_ll_set_duty_start`.
+//! `duty_start` self-clears at the next **timer period**, and the spin sits inside
+//! `portENTER_CRITICAL(&ledc_spinlock)`
+//! (`components/esp_driver_ledc/src/ledc.c:1603-1606`) -- interrupts masked. At
+//! 1 Hz that is up to **one second**; the ESP32 interrupt watchdog is **300 ms**
+//! (`components/esp_system/int_wdt.c`). The backtrace decodes to
+//! `ledc_set_duty_and_update` -> `ledc_ll_set_duty_start`.
 //!
-//! **The spin is unique to this chip.** Every other `ledc_ll.h` in this tree
-//! (esp32c2, esp32c3, esp32c5, and the s3/h2/p4 equivalents) has the function
-//! body reduced to a single register write with no loop. So the tables and the
-//! arithmetic in the rest of this module are still correct and still worth
-//! having — they are what a future non-original-ESP32 target would use — and
-//! [`CARRIER_HZ`] and [`RESOLUTION`] are still asserted against
-//! `cc_domain`'s host-tested constants on every build of this crate, so the
-//! numbers they were derived from cannot drift.
+//! The spin is unique to this chip: every other `ledc_ll.h` in this tree
+//! (esp32c2, c3, c5, s3/h2/p4) reduces the body to a single register write, no
+//! loop. So the tables and arithmetic above stay correct and stay what a future
+//! non-original-ESP32 target would use, and [`CARRIER_HZ`] and [`RESOLUTION`] are
+//! asserted against `cc_domain`'s host-tested constants on every build, so the
+//! numbers cannot drift.
 //!
-//! It is **resolved**, by not using LEDC here: `cc-firmware` builds
-//! [`TimerIsrPwm`] instead, and the boot log records that it is an ISR. See
+//! Resolved by not using LEDC: `cc-firmware` builds [`TimerIsrPwm`] instead, and
+//! the boot log records it as an ISR. See
 //! [09-cpp-findings.md §17](../../../docs/history/cpp-findings.md).
 //!
-//! ### The `LEDC` transport type was deleted, not parked
+//! ### Traps a replacement transport must not rediscover
 //!
-//! There was a `LedcPwm` struct here with a `new`, an `HeaterDuty` impl and a
-//! `HeaterOutput::new_ledc` constructor, and it had **zero construction sites**:
-//! a documented, type-checked, never-built 190 lines, in a crate where a
-//! type-checked thing is otherwise something the firmware uses. It is gone, and
-//! so is the one-method `HeaterDuty` trait it needed to justify — with one impl
-//! the trait bought a type parameter on [`HeaterOutput`] and nothing else, and
-//! the whole "the decision is swappable" claim rested on a second impl that was
-//! never built on hardware that works.
+//! A `LedcPwm` transport once lived here with **zero construction sites**: 190
+//! type-checked, never-built lines. It was deleted with the one-method
+//! `HeaterDuty` trait that justified it. Not parked -- not written. A chip whose
+//! `ledc_ll.h` has no spin starts from the tables above and the two constants.
+//! Three costs it paid:
 //!
-//! **This is not gone, it is just not written.** Anyone bringing up a chip whose
-//! `ledc_ll.h` has no spin starts from the tables above and the two constants,
-//! and re-adds a transport type. Three things that cost the `LedcPwm` that was
-//! deleted, and that a replacement must not rediscover:
-//!
-//! * `LedcDriver::new` takes the timer driver by `Borrow` and does not keep it,
-//!   so passing a temporary is a latent bug: `LedcTimerDriver` has a `Drop` that
-//!   **resets the timer** (`esp-idf-hal-0.47.0/src/ledc.rs`, `impl Drop for
-//!   LedcTimerDriver`), so a temporary stops the carrier the instant the
-//!   constructor returns. The timer driver has to be *owned* for as long as the
-//!   channel that depends on it.
+//! * `LedcDriver::new` borrows the timer driver and does not keep it, so passing
+//!   a temporary is a latent bug: `LedcTimerDriver` has a `Drop` that **resets
+//!   the timer** (`esp-idf-hal-0.47.0/src/ledc.rs`). The timer driver has to be
+//!   *owned* for as long as the channel depending on it.
 //! * Duty 0 is a safe state, not an initialisation detail: the channel is
-//!   configured `duty: 0, hpoint: 0` with the idle level at 0 (`ledc.c`'s
-//!   `IDLE_LEVEL`), so a `HIGH_TRIGGER` relay is de-energised from the moment
-//!   configuration returns and stays de-energised, because the register holds 0.
-//! * `LedcDriver::set_duty` clamps to `get_max_duty()` **silently**, so an
-//!   unclamped request is not an error — it is a wrong-but-plausible duty on a
-//!   heater. Clamp before the register.
+//!   configured `duty: 0, hpoint: 0` with idle level 0 (`ledc.c`'s `IDLE_LEVEL`),
+//!   so a `HIGH_TRIGGER` relay is de-energised from the moment configuration
+//!   returns and stays so, because the register holds 0.
+//! * `LedcDriver::set_duty` clamps to `get_max_duty()` **silently**: an unclamped
+//!   request is not an error, it is a wrong-but-plausible duty on a heater.
+//!   Clamp before the register.
 //!
-//! And the trap this whole module is about: **the first duty write panics the
-//! chip, at duty 0**, because `duty_start` self-clears at the next period
-//! regardless of the value. `cc_firmware::HEATER_LEDC_DEFECT` carries the same
-//! finding where the boot log prints it.
+//! And the trap this module is about: **the first duty write panics the chip, at
+//! duty 0**, because `duty_start` self-clears at the next period regardless of
+//! value. `cc_firmware::HEATER_LEDC_DEFECT` carries the same finding where the
+//! boot log prints it.
 //!
-//! # ⚠ The ISR path is booted but has never energised the contactor
+//! ## ⚠ The ISR path is booted but has never energised the contactor
 //!
 //! **The heater has never been energised by this code, and must not be until
-//! R1-07's safe test procedure has been run with the boiler disconnected.** What
-//! *is* verified is the arithmetic — the whole 10 ms tick-by-tick state machine
-//! in `cc_domain::heater::IsrChopper`, host-tested against the transcribed C++
-//! predicate at every counter value for every duty — and that the firmware
-//! **boots with the timer running and the gate closed**, which is the specific
+//! R1-07's safe test procedure has run with the boiler disconnected.** Verified:
+//! the arithmetic (`cc_domain::heater::IsrChopper` host-tested against the
+//! transcribed C++ predicate at every counter value for every duty), and that
+//! the firmware boots with the timer running and the gate closed -- the specific
 //! thing that used to panic.
 //!
-//! What is **not** verified, and cannot be verified from a datasheet-free desk:
+//! Not verified, and not verifiable from a datasheet-free desk:
 //!
-//! * **The contactor's minimum on-time and minimum off-time.** The software
-//!   guarantees it never asks for a pulse narrower than 10 ms, because that is
-//!   the C++'s own quantisation. Whether 10 ms is *itself* long enough is a
-//!   measurement.
-//! * **The realised duty on the pin.** The ISR's counter is host-tested and its
-//!   decisions are the C++'s, but nothing has been measured with a scope: 100
-//!   entries a second that are *supposed* to be 50 on and 50 off could be 51 and
-//!   49 and no host test would know.
+//! * **Contactor minimum on-time and off-time.** The software never asks for a
+//!   pulse under 10 ms, being the C++'s own quantisation; whether 10 ms is itself
+//!   long enough is a measurement.
+//! * **Realised duty on the pin.** The ISR's decisions are host-tested and are
+//!   the C++'s, but nothing has been measured with a scope: 100 entries a second
+//!   *supposed* to be 50 on and 50 off could be 51 and 49, and no host test would
+//!   know.
 //!
-//! The duty-versus-time measurement against a dummy load — R1-07 steps 1 and 2 —
-//! is **not** done, and **R1-07 stays open**. See
-//! `docs/history/divergences.md` #5.
+//! The duty-versus-time measurement against a dummy load -- R1-07 steps 1 and 2
+//! -- is **not** done; **R1-07 stays open**. See `docs/history/divergences.md` §5.
 
 use alloc::sync::Arc;
 use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};

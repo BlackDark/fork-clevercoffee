@@ -4,8 +4,8 @@
 //! Small, pure, and assigned to R2-08 by the coverage map in 06
 //! (`test_maintenance_coordinator` → R2-08). Only the parts the state machine
 //! touches are ported: the qualification test that `BrewFinishedState::onEntryImpl`
-//! calls (`BrewStates.cpp:310`), the reset that `BackflushFinishedState::onEntryImpl`
-//! calls (`BackflushStates.cpp:144`), and the reminder predicate. The
+//! calls, the reset that `BackflushFinishedState::onEntryImpl`
+//! calls, and the reminder predicate. The
 //! coordinator's NVS persistence has no analogue here —
 //! [`Machine::shots_since_backflush`](crate::machine::Machine::shots_since_backflush)
 //! is the value, and persisting it is the store's job at R3-08.
@@ -13,7 +13,7 @@
 //! # Where the counter is changed, and why it is here
 //!
 //! The C++ calls `maintenanceCoordinator().recordBrewIfQualified(...)` from
-//! `BrewFinishedState::onEntryImpl` (`BrewStates.cpp:306-312`), and that one
+//! `BrewFinishedState::onEntryImpl`, and that one
 //! call does three things: apply [`qualifies_as_counted_shot`], increment, and
 //! write NVS. In the port the three split, because the three have three owners:
 //! the increment belongs to [`Machine`](crate::machine::Machine) and can only be

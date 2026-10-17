@@ -1,19 +1,19 @@
-//! The heater output: the 1 Hz / 100-step chopper arithmetic, and the latching
-//! gate that stands in front of it.
+//! The heater output: the 1 Hz / 100-step chopper arithmetic, and the latching gate
+//! that stands in front of it.
 //!
 //! # Why this is in `cc-domain` and not in `cc-hal-esp32`
 //!
-//! R1-07 decides *how* the heater is driven — LEDC hardware PWM, with a
-//! `GPTimer` ISR as the fallback ([04 §5](../../docs/history/target-architecture.md#5-heater-output--the-one-hard-real-time-path)).
-//! Everything *about* the decision is portable: what duty a PID output means,
-//! how a millisecond duty becomes a fraction, and whether the output may be
-//! non-zero at all. Those are arithmetic and policy, they must be unit-tested on
-//! the host, and putting them behind an `esp_idf_hal` type would make them
-//! untestable without a board. `cc-hal-esp32::heater` owns only the pin.
+//! R1-07 decides *how* the heater is driven — LEDC hardware PWM, with a `GPTimer`
+//! ISR as the fallback ([04 §5](../../docs/history/target-architecture.md#5-heater-output--the-one-hard-real-time-path)).
+//! Everything *about* the decision is portable: what duty a PID output means, how a
+//! millisecond duty becomes a fraction, whether the output may be non-zero at all.
+//! Those are arithmetic and policy, they must be unit-tested on the host, and behind
+//! an `esp_idf_hal` type they would be untestable without a board.
+//! `cc-hal-esp32::heater` owns only the pin.
 //!
 //! # The parity baseline: the C++ chopper
 //!
-//! The C++ chops, in a hardware timer ISR every 10 ms
+//! The C++ chops in a hardware timer ISR every 10 ms
 //! (`include/clevercoffee/isr.h:85-118`):
 //!
 //! ```cpp
@@ -26,34 +26,33 @@
 //! if (newCounter >= ctx->processWindowSize()) newCounter = 0;        // 1000
 //! ```
 //!
-//! with `windowSize_ = 1000` ms (`context/ProcessState.h:183`) and
-//! `ISR_COUNTER_INCREMENT = 10` (`constants/Timing.h:17`). The PID output is
-//! bounded by exactly the window — `setPidOutputLimits(0, processWindowSize())`
+//! with `windowSize_ = 1000` ms and
+//! `ISR_COUNTER_INCREMENT = 10`. The PID output is bounded
+//! by exactly the window — `setPidOutputLimits(0, processWindowSize())`
 //! (`src/core/SystemInitializer.cpp:552`) — so **the PID output is a count of
 //! milliseconds of energisation per second**.
 //!
 //! # What R1-07 changed, and what it did not
 //!
-//! **Unchanged: the window, and therefore the PID.** The controller still
-//! computes once per second against a 1000 ms window. Moving the *output* method
-//! must not move the control law, or every tuning in
-//! `include/clevercoffee/defaults.h` would be wrong.
+//! **Unchanged: the window, and therefore the PID.** The controller still computes
+//! once per second against a 1000 ms window. Moving the *output* method must not
+//! move the control law, or every tuning in `include/clevercoffee/defaults.h` would
+//! be wrong.
 //!
-//! **Changed: how the on-time is delivered.** A 10 ms ISR on the highest
-//! priority on the chip, that does a GPIO write and a counter add, is replaced
-//! by a hardware carrier with **one period per control window — 1 Hz** — whose
-//! duty *is* the on-time fraction. The delivered power is identical —
-//! [`on_fraction`] is the C++ chopper's on-time fraction, computed from the same
-//! 10 ms quantisation — and the CPU involvement goes from 100 interrupts per
-//! second to zero.
+//! **Changed: how the on-time is delivered.** A 10 ms ISR on the highest priority on
+//! the chip, doing a GPIO write and a counter add, is replaced by a hardware carrier
+//! with **one period per control window — 1 Hz** — whose duty *is* the on-time
+//! fraction. Delivered power is identical ([`on_fraction`] is the C++ chopper's
+//! on-time fraction from the same 10 ms quantisation) and CPU involvement goes from
+//! 100 interrupts per second to zero.
 //!
 //! # The carrier must be LOW: deriving it from the C++
 //!
-//! The C++ ISR runs 100 times a second, and it is tempting to read that as
-//! "100 Hz". It is not. The ISR *fires* 100 times a second and re-asserts the
-//! same relay level almost every time; the **level** changes about **twice** a
-//! second. Walking `isr.h:96-118` for a constant `pidOutput` over one 1000 ms
-//! window (counters `0, 10, …, 990`, 100 of them, then wrap):
+//! The C++ ISR runs 100 times a second, and it is tempting to read that as "100 Hz".
+//! It is not: the ISR *fires* 100 times a second and re-asserts the same relay level
+//! almost every time; the **level** changes about **twice** a second. Walking
+//! `isr.h:96-118` for a constant `pidOutput` over one 1000 ms window (counters
+//! `0, 10, …, 990`, 100 of them, then wrap):
 //!
 //! | `pid_output` | ISR entries | on-ticks | on-time | relay level over the window | level changes/s |
 //! | --- | --- | --- | --- | --- | --- |
@@ -63,64 +62,60 @@
 //! | 950 | 100 | 95 | 95 % | ON 950 ms, then OFF 50 ms | **2** |
 //! | 1000 | 100 | 100 | 100 % | ON throughout | **0** |
 //!
-//! Two edges per second, not a hundred: one falling edge inside the window where
-//! the relay is switched off, and one rising edge at the wrap where it is
-//! switched back on. The gate is monotone — `pidOutput > counter` — so a
-//! constant duty gives **at most one** falling edge per window, whatever the
-//! duty. [`cpp_transitions_per_second`] computes that from the same predicate
-//! [`chopper_tick_level`] transcribes, and the test
+//! Two edges per second, not a hundred: one falling edge inside the window where the
+//! relay is switched off, one rising edge at the wrap where it comes back. The gate
+//! is monotone — `pidOutput > counter` — so a constant duty gives **at most one**
+//! falling edge per window, whatever the duty. [`cpp_transitions_per_second`]
+//! computes that from the same predicate [`chopper_tick_level`] transcribes, and
 //! `the_carrier_does_not_switch_the_contactor_more_than_the_cpp_does` checks the
 //! carrier against it.
 //!
 //! So the target is:
 //!
-//! * **transitions ≤ 2 per second** — an `f` Hz square wave makes `2f`, so
-//!   `f ≤ 1 Hz`. [`CARRIER_HZ`] is 1, and it equals `1 / WINDOW_MS` rather than a
-//!   round number, because one period per control window is the *only* frequency
-//!   at which the duty can mean the same thing it meant in the C++.
-//! * **duty resolution at least as fine as the C++'s 10 ms steps.** One step of
-//!   the C++ chopper is `CHOPPER_STEP_MS / WINDOW_MS` = 1 % of the window. A
-//!   period of 1 s therefore needs `max_duty ≥ 100` to express all 101 levels;
+//! * **transitions <= 2 per second** — an `f` Hz square wave makes `2f`, so
+//!   `f <= 1 Hz`. [`CARRIER_HZ`] is 1, and it equals `1 / WINDOW_MS` rather than a
+//!   round number, because one period per control window is the *only* frequency at
+//!   which the duty can mean what it meant in the C++.
+//! * **duty resolution at least as fine as the C++'s 10 ms steps.** One step of the
+//!   C++ chopper is `CHOPPER_STEP_MS / WINDOW_MS` = 1 % of the window. A period of
+//!   1 s therefore needs `max_duty >= 100` to express all 101 levels;
 //!   [`CHOSEN_RESOLUTION_BITS`] gives 131 072.
 //!
-//! **A high carrier would be a hardware defect, not a fidelity gain.** At 100 Hz
-//! the same pin makes 200 level changes per second — a hundred times the C++'s
-//! mechanical duty, on a 2 kW boiler contactor whose life is counted in
-//! operations. The delivered *power* would match to within a rounding error and
-//! the *wear* would be two orders of magnitude worse, which is precisely why the
-//! frequency has to be derived from the C++'s edge count rather than from its ISR
-//! count.
+//! **A high carrier would be a hardware defect, not a fidelity gain.** At 100 Hz the
+//! same pin makes 200 level changes per second — a hundred times the C++'s mechanical
+//! duty, on a 2 kW boiler contactor whose life is counted in operations. Delivered
+//! *power* would match to within a rounding error; the *wear* would be two orders of
+//! magnitude worse. Hence the frequency is derived from the C++'s edge count, not its
+//! ISR count.
 //!
 //! # ⚠ Still unverified: the contactor itself
 //!
 //! Matching the C++'s transition rate is necessary and **not sufficient**. Nobody
 //! has measured, and this repository does not guess:
 //!
-//! * **The contactor's minimum on-time and minimum off-time.** The C++ never
-//!   pulses the heater narrower than 10 ms, and neither does this — the smallest
-//!   duty [`duty_counts`] can be asked for is one whole 10 ms chopper step (see
-//!   `the_minimum_pulse_is_the_cpp_ten_millisecond_step`). Whether 10 ms is
-//!   *itself* long enough for the contactor is a datasheet question.
-//! * **Whether a hardware-PWM output is acceptable to the coil at all.** LEDC
-//!   drives a square wave into the same relay pin the C++ drove. A contactor coil
-//!   is an inductive load; whether the driver's rise/fall and any freewheeling
-//!   path tolerate a 1 Hz square wave is exactly as unknown as it was for the
-//!   C++'s 10 ms one, but the *frequency* is now a new variable.
-//! * **The realised frequency and duty on the pin.** Everything above is
-//!   arithmetic. `ledc_timer_config`'s divider selection and the duty register
-//!   have not been read back from hardware.
+//! * **The contactor's minimum on-time and minimum off-time.** The C++ never pulses
+//!   the heater narrower than 10 ms, and neither does this — the smallest duty
+//!   [`duty_counts`] can be asked for is one whole 10 ms chopper step (see
+//!   `the_minimum_pulse_is_the_cpp_ten_millisecond_step`). Whether 10 ms is *itself*
+//!   long enough for the contactor is a datasheet question.
+//! * **Whether a hardware-PWM output is acceptable to the coil at all.** LEDC drives
+//!   a square wave into the same relay pin the C++ drove. A contactor coil is an
+//!   inductive load; whether the driver's rise/fall and any freewheeling path tolerate
+//!   a 1 Hz square wave is exactly as unknown as it was for the C++'s 10 ms one, but
+//!   the *frequency* is now a new variable.
+//! * **The realised frequency and duty on the pin.** Everything above is arithmetic.
+//!   `ledc_timer_config`'s divider selection and the duty register have not been read
+//!   back from hardware.
 //!
-//! Until a person with a scope, a dummy load and the boiler **disconnected**
-//! measures it, R1-07 stays open. See `docs/history/divergences.md`
-//! #5.
-
+//! Until a person with a scope, a dummy load and the boiler **disconnected** measures
+//! it, R1-07 stays open. See `docs/history/divergences.md` #5.
 use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use crate::units::{Duty, Millis};
 
 /// The chopper window, in milliseconds.
 ///
-/// `ProcessState::windowSize_ = 1000` (`include/clevercoffee/context/ProcessState.h:183`),
+/// `ProcessState::windowSize_ = 1000`,
 /// which is also what `setPidSampleTime` and `setPidOutputLimits` are given
 /// (`src/core/SystemInitializer.cpp:551-552`). **1 Hz.**
 pub const WINDOW_MS: u32 = 1000;
@@ -1128,9 +1123,9 @@ pub fn duty_ms_from_fraction(fraction: f32, max_duty: u32) -> u32 {
 /// The 10 ms hardware-timer period the C++'s heater ISR runs at, in
 /// microseconds.
 ///
-/// `Timing::ISR_TIMER_INTERVAL_US = 10000` (`constants/Timing.h:15`), written
+/// `Timing::ISR_TIMER_INTERVAL_US = 10000`, written
 /// by `timerAlarmWrite(timer, ISR_TIMER_INTERVAL_US, true)` in
-/// `ISR::onTimer` (`isr.h:88`).
+/// `ISR::onTimer`.
 ///
 /// **This is the default heater output on this firmware**, not the LEDC 1 Hz
 /// carrier. R1-07 chose LEDC and it does panic the chip on the original ESP32
@@ -1196,7 +1191,7 @@ pub const ISR_INTERVAL_US: u32 = 10_000;
 ///
 /// # The armed check is a real hardware state, not a formality
 ///
-/// `ISR::onTimer` returns early on `!ctx->isISRReady()` (`isr.h:70-73`), so the
+/// `ISR::onTimer` returns early on `!ctx->isISRReady()`, so the
 /// ISR never drives the relay before the system is initialised. Here `armed`
 /// plays that role, and it matters for the same reason it mattered in the C++:
 /// the timer must be running before the pin is trusted, and the pin must be at
@@ -1277,7 +1272,7 @@ impl IsrChopper {
 
     /// Change the control window.
     ///
-    /// `ctx->processWindowSize()` (`isr.h:105`) is a runtime value in the C++
+    /// `ctx->processWindowSize()` is a runtime value in the C++
     /// (`ProcessState::windowSize_ = 1000`, `ProcessState.h:183`), so it is one
     /// here too. Clamped to at least one step, because a window the counter can
     /// never fit inside would never wrap and the relay would latch on.
@@ -1542,7 +1537,7 @@ mod isr_tests {
     #[test]
     fn the_isr_period_is_ten_milliseconds_and_matches_the_step() {
         // `Timing::ISR_TIMER_INTERVAL_US = 10000` and
-        // `Timing::ISR_COUNTER_INCREMENT = 10` (`constants/Timing.h:15,17`).
+        // `Timing::ISR_COUNTER_INCREMENT = 10`.
         // They must agree, or the counter and the clock drift apart and the
         // window is not a window.
         assert_eq!(ISR_INTERVAL_US, 10_000);
@@ -1808,7 +1803,7 @@ impl AtomicChopper {
     /// One ISR tick: decide the level, advance the counter, report it.
     ///
     /// `None` means the ISR is disarmed and the pin is to be left alone — the
-    /// C++'s early return on `!isISRReady()` (`isr.h:70-73`).
+    /// C++'s early return on `!isISRReady()`.
     ///
     /// This is the entire body of the heater ISR's arithmetic. The device crate's
     /// callback is this call, a branch on the result, and one GPIO write.

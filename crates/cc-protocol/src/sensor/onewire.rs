@@ -83,7 +83,7 @@ impl Rom {
     /// Whether this is a family [`ScratchPad::interpret`] can decode.
     ///
     /// These are exactly the five families `DallasTemperature::validFamily`
-    /// accepts (`DallasTemperature.cpp:127-135`).
+    /// accepts.
     #[must_use]
     pub const fn is_supported_family(self) -> bool {
         matches!(
@@ -100,7 +100,7 @@ impl Rom {
 /// Computed bitwise, which is exactly what the C++ library's `#else` branch
 /// does (`OneWire.cpp:537`, "this is much slower, but a little smaller, than
 /// the lookup table"). The ESP32 build of the C++ actually uses the 32-byte
-/// `dscrc2x16_table` variant (`OneWire.cpp:511-531`); the two are the same
+/// `dscrc2x16_table` variant; the two are the same
 /// function, and `crc8_matches_the_cpp_lookup_table` proves it step for step
 /// against that table rather than asserting it.
 #[must_use]
@@ -146,7 +146,7 @@ pub fn crc8_step_table(crc: u8, byte: u8) -> u8 {
 
 /// The 1-Wire bit-slot and reset timings, in microseconds.
 ///
-/// These are the C++ library's numbers, unaltered (`OneWire.cpp:179-256`), and
+/// These are the C++ library's numbers, unaltered, and
 /// they are **constants in the portable crate** rather than magic numbers in the
 /// device code for two reasons:
 ///
@@ -172,7 +172,7 @@ pub mod timing {
     /// Reset: after releasing, wait this long before sampling for presence.
     ///
     /// The datasheet puts the presence pulse 15–60 µs after the release; the
-    /// C++ waits 70 µs (`OneWire.cpp:202`) and so does this.
+    /// C++ waits 70 µs and so does this.
     pub const RESET_PRESENCE_US: u32 = 70;
     /// Reset: after sampling, wait out the rest of `t_RSTH` (480 µs total).
     pub const RESET_RECOVERY_US: u32 = 410;
@@ -234,7 +234,7 @@ pub const fn delay_ns_to_us_ceil(ns: u32) -> u32 {
 ///   `helper methods on the driver for executing commands` under `todo:`
 ///   (`:15-17`) — the two things a DS18B20 driver is *made of* are missing;
 /// * `OWDriver` exposes only `read(&[u8])` / `write(&[u8])` / `reset()` /
-///   `search()` (`:118-155`), so a caller must bit-bang the scratchpad protocol
+///   `search()`, so a caller must bit-bang the scratchpad protocol
 ///   itself over a byte interface, which is where the CRC would have to live
 ///   anyway;
 /// * it is RMT-backed, which allocates an RMT channel and cannot be driven
@@ -251,7 +251,7 @@ pub trait OneWireBus {
     /// Drive a reset pulse and report whether a device answered with a
     /// presence pulse.
     ///
-    /// Implements `OneWire::reset` (`OneWire.cpp:179-207`).
+    /// Implements `OneWire::reset`.
     ///
     /// # Errors
     ///
@@ -283,7 +283,7 @@ pub enum OneWireError<E> {
     Bus(E),
     /// The reset produced no presence pulse: nothing on the bus.
     ///
-    /// `OneWire::reset` returns 0 in this case (`OneWire.cpp:190-194`) and
+    /// `OneWire::reset` returns 0 in this case and
     /// `DallasTemperature::readScratchPad` returns false
     /// (`DallasTemperature.cpp:207-208`).
     NoPresence,
@@ -308,7 +308,7 @@ pub fn write_byte<B: OneWireBus>(bus: &mut B, byte: u8) -> Result<(), OneWireErr
 
 /// Clock in one byte, least-significant bit first.
 ///
-/// `OneWire::read` (`OneWire.cpp:294-302`) accumulates with the same ascending
+/// `OneWire::read` accumulates with the same ascending
 /// mask, so the first bit read is the low bit.
 ///
 /// # Errors
@@ -486,7 +486,7 @@ const SP_COUNT_PER_C: usize = 7;
 const SP_CRC: usize = 8;
 
 /// The sign-extension mask `calculateTemperature` ORs in for a negative
-/// reading (`DallasTemperature.cpp:536`).
+/// reading.
 ///
 /// The C++ writes `0xFFF80000` into an `int32_t`, which is **-524288** as an
 /// i32 — it sets bit 31 and clears bits 16..18. Stated here as the i32 it is,
@@ -521,7 +521,7 @@ impl ScratchPad {
 
     /// Whether every byte is zero.
     ///
-    /// `DallasTemperature::isAllZeros` (`DallasTemperature.cpp:199-204`), which
+    /// `DallasTemperature::isAllZeros`, which
     /// `isConnected` also requires. This is what rejects a device that has
     /// powered up but never converted: its scratchpad reads all zeros.
     #[must_use]
@@ -532,7 +532,7 @@ impl ScratchPad {
     /// The resolution the device is configured for, from the configuration
     /// register.
     ///
-    /// `DallasTemperature::getResolution` (`DallasTemperature.cpp:378-396`).
+    /// `DallasTemperature::getResolution`.
     /// Returns 0 if the register holds an unrecognised value, which is the
     /// C++'s "cannot talk to this device" answer.
     #[must_use]
@@ -564,7 +564,7 @@ impl ScratchPad {
 
     /// A copy of this scratchpad with the resolution changed.
     ///
-    /// `DallasTemperature::setResolution` (`DallasTemperature.cpp:331-357`)
+    /// `DallasTemperature::setResolution`
     /// only touches `SP_CONFIGURATION` and leaves everything else — including
     /// the CRC, which it then recomputes on the way out. This returns the
     /// bytes; [`Self::with_valid_crc`] stamps the CRC.
@@ -597,7 +597,7 @@ impl ScratchPad {
     /// Decode the scratchpad into a temperature, or a fault.
     ///
     /// This is `DallasTemperature::isConnected` + `calculateTemperature` +
-    /// `rawToCelsius` (`DallasTemperature.cpp:168-176`, `:530-602`, `:406-410`)
+    /// `rawToCelsius`
     /// fused into one decision, because the C++ only ever consumed the fused
     /// result. The order of the checks is the C++'s and matters: presence,
     /// then all-zeros, then CRC, then the family-specific fault registers, then
@@ -690,7 +690,7 @@ impl ScratchPad {
     }
 }
 
-/// `DallasTemperature::rawToCelsius` (`DallasTemperature.cpp:406-410`).
+/// `DallasTemperature::rawToCelsius`.
 ///
 /// ```cpp
 /// if (raw <= DEVICE_DISCONNECTED_RAW) return DEVICE_DISCONNECTED_C;
@@ -755,7 +755,7 @@ impl Ds18b20Fault {
     ///
     /// # Every one of the six is -127, and that is the whole finding
     ///
-    /// `rawToCelsius` (`DallasTemperature.cpp:406-410`) folds *every* raw value
+    /// `rawToCelsius` folds *every* raw value
     /// at or below `DEVICE_DISCONNECTED_RAW` to `DEVICE_DISCONNECTED_C`:
     ///
     /// | fault | its raw sentinel | `<= -7040`? | what `rawToCelsius` returns |
@@ -793,14 +793,14 @@ impl Ds18b20Fault {
     /// The first `if` tests `temp == DEVICE_DISCONNECTED_C`
     /// (`TempSensorDallas.cpp:29-31`), and per the table on
     /// [`cpp_sentinel`](Self::cpp_sentinel) *every* sensor fault arrives as
-    /// exactly that. So the second `if` block (`:33-35`) never fires, and a
+    /// exactly that. So the second `if` block never fires, and a
     /// DS18B20 reporting a power-on reset is rejected — as "not connected".
     ///
     /// An earlier revision of this port recorded `PowerOnReset` and
     /// `InsufficientPower` as **not** rejected, on the reading that
     /// `DEVICE_POWER_ON_RESET_C` (-251) reaches the control loop as a
     /// temperature. It does not: `calculateTemperature` returns the *raw*
-    /// sentinel (`DallasTemperature.cpp:571-573`, `:574`), and `rawToCelsius`
+    /// sentinel, and `rawToCelsius`
     /// folds it to -127 two lines later. 09 §17 has been corrected; the test
     /// `div7_every_ds18b20_fault_is_rejected_by_the_cpp` pins the truth so it
     /// cannot be re-instated.
@@ -865,7 +865,7 @@ mod tests {
     /// Build a scratchpad from a raw 1/128 °C reading at 11-bit resolution.
     ///
     /// The inverse of `interpret`'s assembly, which is
-    /// `raw = (MSB << 11) | (LSB << 3)` (`DallasTemperature.cpp:561-563`).
+    /// `raw = (MSB << 11) | (LSB << 3)`.
     ///
     /// Both shifts are **arithmetic on an `i16`**, which is what makes the
     /// encoding work for negative temperatures: -1280 (`0xFB00`) has
@@ -900,7 +900,7 @@ mod tests {
     #[test]
     fn crc8_matches_the_cpp_lookup_table() {
         // The C++ drives `crc = table[crc & 0x0f] ^ table[16 + crc >> 4]` once
-        // per input byte, after `crc = byte ^ crc` (`OneWire.cpp:520-530`).
+        // per input byte, after `crc = byte ^ crc`.
         // Exhaustive over every (crc, byte) pair reachable in one step: 256
         // values of the pre-XOR accumulator are not all reachable, so instead
         // walk real buffers and compare the two formulations step for step.
@@ -1070,7 +1070,7 @@ mod tests {
     #[test]
     fn a_powered_up_but_unconverted_device_is_disconnected() {
         // A device that has powered up but never converted reads all zeros, and
-        // `isConnected` rejects that (`DallasTemperature.cpp:175`) — the CRC
+        // `isConnected` rejects that — the CRC
         // check cannot, because the CRC of nothing is zero. This is the one
         // fault only the all-zeros test catches.
         let pad = ScratchPad::power_on();
@@ -1168,7 +1168,7 @@ mod tests {
     fn the_power_on_reset_pattern_is_reported_but_not_rejected() {
         // PRESERVED C++ BEHAVIOUR, and the most interesting one found in this
         // port. `calculateTemperature` returns `DEVICE_POWER_ON_RESET_RAW` for
-        // the 0x50/0x05/0x0C pattern (`DallasTemperature.cpp:571-573`), and
+        // the 0x50/0x05/0x0C pattern, and
         // `rawToCelsius` folds it to -127, so the C++ *does* reject it as
         // disconnected via the first `if`. It is `DEVICE_POWER_ON_RESET_C`
         // (-251) that nothing ever compares against.
@@ -1296,7 +1296,7 @@ mod tests {
 
     #[test]
     fn resolution_and_conversion_time_come_from_the_configuration_register() {
-        // `millisToWaitForConversion` (`DallasTemperature.cpp:422-429`).
+        // `millisToWaitForConversion`.
         for (bits, expected_crc, expected_ms) in [
             (9u8, RES_9_BIT, 94u32),
             (10, RES_10_BIT, 188),

@@ -253,7 +253,7 @@ impl Requests {
     /// ```
     ///
     /// Two defects compose here. `PidDisabledState::checkSpecificTransitions`
-    /// never checks `isStandbyRequested()` either (`PidStates.cpp:135-148`), so
+    /// never checks `isStandbyRequested()` either, so
     /// even if the flag survived, nothing would read it. `PidNormalState` — the
     /// state one line away — does check it, which is what makes this an oversight
     /// rather than a design.
@@ -276,7 +276,7 @@ impl Requests {
     }
 
     /// `clearStaleStopRequests()` — the four stop flags only, start flags kept
-    /// as wake triggers (`MachineStateContext.h:634-639`).
+    /// as wake triggers.
     ///
     /// ADR-0003: "**Never** drain wake-up signals: `STANDBY` preserves
     /// `brewStartRequested` and `steamStartRequested` as intentional wake
@@ -331,14 +331,14 @@ pub struct SwitchLevels {
     pub hot_water: bool,
     /// `Switch::longPressDetected()` for the brew switch, sampled on the edge.
     ///
-    /// Only `BrewHandler` consults it (`BrewHandler.h:199`), and only in
+    /// Only `BrewHandler` consults it, and only in
     /// `BACKFLUSH_IDLE`, to choose between "start a backflush cycle" and "start
     /// a manual flush". It is a property of the *press*, not of the level, so it
     /// is latched on the rising edge and never cleared by a release.
     pub brew_long_press: bool,
     /// `Switch::longPressDetected()` for the power switch, same latching.
     ///
-    /// `PowerHandler::checkForLongPressReboot` (`PowerHandler.h:144`) needs it to
+    /// `PowerHandler::checkForLongPressReboot` needs it to
     /// decide on a reboot, and it needs it *after* the press edge is gone —
     /// hence [`crate::handlers::long_press_reboot`] runs on every tick.
     pub power_long_press: bool,
@@ -400,8 +400,8 @@ pub struct BrewProgress {
 ///
 /// | | C++ | Set by | Read by |
 /// | --- | --- | --- | --- |
-/// | runtime | `SystemContext::isProcessPidEnabled()` | `setPidRuntimeState` (`MachineStateContext.cpp:275`) | the global guard in `BaseState.h:167`, `PidNormalState`, `PidDisabledState` |
-/// | mode | `ProcessController::isPIDEnabled()`, i.e. `pidMode() == AUTOMATIC` | `setPIDEnabled` (`ProcessController.cpp:261`) | `shouldPIDBeEnabled` (`ProcessController.cpp:246`) — the heater gate |
+/// | runtime | `SystemContext::isProcessPidEnabled()` | `setPidRuntimeState` | the global guard in `BaseState.h:167`, `PidNormalState`, `PidDisabledState` |
+/// | mode | `ProcessController::isPIDEnabled()`, i.e. `pidMode() == AUTOMATIC` | `setPIDEnabled` | `shouldPIDBeEnabled` — the heater gate |
 ///
 /// The C++ keeps the second in a *different object* from the state machine, which
 /// is how they drift: emergency stop forces `runtime` off, and only
@@ -457,7 +457,7 @@ impl Default for Backflush {
 /// # One intentional difference
 ///
 /// The C++ uses `standbyModeStartTimeMillis_ != 0` as "the timer was started"
-/// test (`StandbyCoordinator.h:120-121`) and stores `millis()` in it. At
+/// test and stores `millis()` in it. At
 /// `millis() == 0` — the first millisecond after boot, and every millisecond in
 /// a test harness — the test is false, so standby can never fire. [`Option`]
 /// makes "started" unambiguous and fixes that. This is the one place the port
@@ -477,7 +477,7 @@ pub struct StandbyTimer {
 }
 
 impl StandbyTimer {
-    /// `standbyCoordinator().reset()` (`StandbyCoordinator.h:86-93`).
+    /// `standbyCoordinator().reset()`.
     ///
     /// Resets only when standby is enabled — the C++'s own guard
     /// (`StandbyCoordinator.h:88`, `resetStandbyTimerIfNeeded`): the method
@@ -512,7 +512,7 @@ impl StandbyTimer {
         self.remaining_ms = 0;
     }
 
-    /// `shouldTurnOffDisplay()` (`StandbyCoordinator.h:135-140`): the standby
+    /// `shouldTurnOffDisplay()`: the standby
     /// countdown has run out **and** the display countdown has, **and** the
     /// timer was started.
     #[must_use]
@@ -520,7 +520,7 @@ impl StandbyTimer {
         self.remaining_ms == 0 && self.display_off_remaining_ms == 0 && self.started_at.is_some()
     }
 
-    /// `shouldEnterStandby()` (`StandbyCoordinator.h:115-122`): enabled **and**
+    /// `shouldEnterStandby()`: enabled **and**
     /// the countdown has run out **and** the timer was started.
     #[must_use]
     pub const fn should_enter(&self, enabled: bool) -> bool {
@@ -539,7 +539,7 @@ impl StandbyTimer {
 pub struct Machine {
     /// `StateMachine::currentState_`.
     pub state: MachineState,
-    /// `StateMachine::initialized_` (`StateMachine.cpp:23`).
+    /// `StateMachine::initialized_`.
     ///
     /// `StateMachine::update()` returns immediately when this is false
     /// (`StateMachine.cpp:72-75`). The reducer reproduces that: an
@@ -556,7 +556,7 @@ pub struct Machine {
     /// be a pure function. So the reading arrives in the event and every timed
     /// decision is a comparison against it.
     pub now: Millis,
-    /// `MachineStateContext::stateEntryTime_` (`MachineStateContext.h:808`).
+    /// `MachineStateContext::stateEntryTime_`.
     pub entry_at: Millis,
     /// The latest [`Event::SensorUpdated`](crate::Event::SensorUpdated) sample.
     pub sensors: Sensors,
@@ -570,9 +570,9 @@ pub struct Machine {
     pub safety: cc_safety::SafetyState,
     /// The last `cc-safety` verdict, used to gate the actuator effects.
     pub verdict: cc_safety::Verdict,
-    /// `MachineStateContext::steamON_` (`MachineStateContext.h:785`).
+    /// `MachineStateContext::steamON_`.
     pub steam_mode: bool,
-    /// `MachineStateContext::steamFirstON_` (`MachineStateContext.h:786`).
+    /// `MachineStateContext::steamFirstON_`.
     pub steam_first_on: bool,
     /// Backflush mode and cycle counter.
     pub backflush: Backflush,
@@ -583,7 +583,7 @@ pub struct Machine {
     /// `SensorErrorState::errorStartTime_` / `EepromErrorState::errorStartTime_`.
     ///
     /// The C++ gets a fresh value for free because a transition builds a new
-    /// state object (`StateFactory.cpp:24`). Here, [`crate::states::on_entry`]
+    /// state object. Here, [`crate::states::on_entry`]
     /// is the only writer, and the value is cleared on exit so a stale one can
     /// never be read.
     pub error_since: Option<Millis>,
@@ -593,7 +593,7 @@ pub struct Machine {
     /// accident. The C++ reaches the counter from two directions —
     /// `recordBrewIfQualified` on entry to `BREW_FINISHED`
     /// (`BrewStates.cpp:306-312`) and `resetSinceBackflush` on entry to
-    /// `BACKFLUSH_FINISHED` (`BackflushStates.cpp:142-146`) — and both of those
+    /// `BACKFLUSH_FINISHED` — and both of those
     /// are state *entries*, which is where this crate's `states::on_entry` runs.
     /// So the qualification rule is applied here, at the point the C++ applies
     /// it, and [`Effect::RecordBrew`](crate::effect::Effect::RecordBrew) carries
@@ -606,7 +606,7 @@ pub struct Machine {
     /// where its value lives cannot.
     pub shots_since_backflush: i32,
     /// `setHotWaterActivity` — "a hot-water switch edge happened". Resets the
-    /// standby timer (`MachineStateContext.cpp:262-267`).
+    /// standby timer.
     pub hot_water_activity: bool,
     /// `PowerHandler::systemInitializedTime_` — when the power handler first
     /// ran, and from which presses are ignored for
@@ -679,56 +679,56 @@ impl Machine {
         }
     }
 
-    /// `context.getStateElapsedTimeMs()` (`MachineStateContext.cpp:447-450`).
+    /// `context.getStateElapsedTimeMs()`.
     #[must_use]
     pub const fn state_elapsed_ms(&self) -> u32 {
         self.now.since(self.entry_at).raw()
     }
 
-    /// `context.hasStateTimeoutElapsed(ms)` (`MachineStateContext.cpp:452-454`)
+    /// `context.hasStateTimeoutElapsed(ms)`
     /// — `>=`, not `>`.
     #[must_use]
     pub const fn state_timeout_elapsed(&self, timeout_ms: u32) -> bool {
         self.state_elapsed_ms() >= timeout_ms
     }
 
-    /// `context.isEmergencyStop()` (`MachineStateContext.h:380-382`).
+    /// `context.isEmergencyStop()`.
     #[must_use]
     pub const fn is_emergency_stop(&self) -> bool {
         self.safety.latched
     }
 
-    /// `context.isPidRuntimeEnabled()` (`MachineStateContext.cpp:176-178`).
+    /// `context.isPidRuntimeEnabled()`.
     #[must_use]
     pub const fn is_pid_runtime_enabled(&self) -> bool {
         self.pid.runtime_enabled
     }
 
-    /// `context.isWaterTankFull()` (`MachineStateContext.cpp:114-116`).
+    /// `context.isWaterTankFull()`.
     #[must_use]
     pub const fn is_water_tank_full(&self) -> bool {
         self.sensors.water_tank_full
     }
 
-    /// `context.hasSensorError()` (`MachineStateContext.cpp:139-141`).
+    /// `context.hasSensorError()`.
     #[must_use]
     pub const fn has_sensor_error(&self) -> bool {
         self.sensors.has_sensor_error()
     }
 
-    /// `context.isBackflushModeActive()` (`MachineStateContext.h:422-424`).
+    /// `context.isBackflushModeActive()`.
     #[must_use]
     pub const fn is_backflush_mode_active(&self) -> bool {
         self.backflush.on
     }
 
-    /// `context.getCurrentBrewWeight()` (`MachineStateContext.cpp:129-133`).
+    /// `context.getCurrentBrewWeight()`.
     #[must_use]
     pub const fn brew_weight(&self) -> f32 {
         self.sensors.brew_weight
     }
 
-    /// `context.getCurrentTemperature()` (`MachineStateContext.cpp:106-108`).
+    /// `context.getCurrentTemperature()`.
     #[must_use]
     pub const fn temperature(&self) -> Celsius {
         self.sensors.temperature
@@ -762,7 +762,7 @@ mod tests {
     /// Ten of the eleven flags drain; `standby` survives.
     ///
     /// ⚠ Divergence from the C++, approved 2026-09-30. `clearAllActionRequests`
-    /// clears `requestStandby_` too (`MachineStateContext.h:626`), which is one
+    /// clears `requestStandby_` too, which is one
     /// half of why 09 §25 is unreachable — the other half is that
     /// `PidDisabledState::checkSpecificTransitions` never reads the flag either.
     /// `update` runs before `checkTransitions`, so the drain destroys the request

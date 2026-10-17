@@ -84,7 +84,7 @@ pub trait Actuators {
     fn enable_heater(&mut self);
     /// `HardwareManager::disableHeater()`.
     fn disable_heater(&mut self);
-    /// The heater duty, 0-1000, as the ISR's PWM window expects (`isr.h:96-118`).
+    /// The heater duty, 0-1000, as the ISR's PWM window expects.
     fn set_heater_duty(&mut self, duty: f32);
     /// `HardwareManager::emergencyShutdown()`.
     ///
@@ -96,7 +96,7 @@ pub trait Actuators {
     /// `HardwareManager::safeHardwareShutdown()`.
     ///
     /// The same relays off **without** the latch, so the machine can come back
-    /// after standby (`ProcessController.cpp:489-500`).
+    /// after standby.
     fn safe_hardware_shutdown(&mut self);
 }
 
@@ -125,7 +125,7 @@ pub trait MachineChannels {
     /// `MaintenanceCoordinator::resetSinceBackflush()`
     /// (`MaintenanceCoordinator.cpp:52-64`). This is the same write as
     /// [`Self::on_record_brew`], and it is a separate effect because the C++ is:
-    /// `BackflushFinishedState::onEntryImpl` (`BackflushStates.cpp:144`) calls a
+    /// `BackflushFinishedState::onEntryImpl` calls a
     /// different method than `BrewFinishedState::onEntryImpl` does. It is also
     /// the path the C++'s `POST /api/maintenance/reset-backflush-counter` takes
     /// (`WebServerManager.cpp:528-537`).
@@ -286,9 +286,9 @@ pub fn apply_one<A: Actuators + ?Sized, M: MachineChannels + ?Sized>(
         //
         // * `ClearActionRequests` / `ClearStaleStopRequests` mirror
         //   [`Machine::requests`](crate::machine::Machine::requests), which the
-        //   reducer drained itself (`MachineStateContext.h:615-639`).
+        //   reducer drained itself.
         // * `ResetStandbyTimer` mirrors [`Machine::standby`], which `set_request`
-        //   has already re-armed (`MachineStateContext.cpp:217-267`).
+        //   has already re-armed.
         // * `ResetMqttReconnectCount` is
         //   `networkCoordinator().resetMqttConnectionAttempts()`
         //   (`MachineStateContext.cpp:327-329`); the port's MQTT client lives in
@@ -298,7 +298,7 @@ pub fn apply_one<A: Actuators + ?Sized, M: MachineChannels + ?Sized>(
         //   panel is blanked from [`Machine::standby`]'s
         //   `should_turn_off_display()` at frame-publish time, and both of the
         //   C++'s wake paths out of standby request normal operation, which
-        //   re-arms that timer (`MachineStateContext.cpp:254-260`).
+        //   re-arms that timer.
         Effect::ClearActionRequests
         | Effect::ClearStaleStopRequests
         | Effect::ResetStandbyTimer

@@ -42,7 +42,7 @@ pub struct Telemetry {
     pub heater_power_pct: f64,
     /// Whether the PID is running.
     pub pid_enabled: bool,
-    /// `MachineStateContext::steamON_` (`MachineStateContext.h:785`).
+    /// `MachineStateContext::steamON_`.
     ///
     /// Published because `/api/steam`'s toggle needs it: the C++'s handler reads
     /// `isSteamModeActive()` to compute `!current`, and this is the only copy of
@@ -123,7 +123,7 @@ pub enum Command {
     /// `POST /api/setpoint?value=<celsius>` — an `f64`, not an `i32`.
     ///
     /// The C++ hands the `double` from the request straight to
-    /// `setProcessSetpoint` (`WebServerManager.cpp:394-396`) and to
+    /// `setProcessSetpoint` and to
     /// `Config::brewSetpoint`, and `brew.setpoint` is a float parameter, so a
     /// fractional setpoint is meaningful end to end. It was an `i32` here.
     SetSetpoint(f64),
@@ -144,7 +144,7 @@ pub enum Command {
     SetPid(bool),
     /// `POST /api/pid` with no field — the C++'s toggle.
     ///
-    /// `!Config::getInstance().pidEnabled.get()` (`WebServerManager.cpp:466`),
+    /// `!Config::getInstance().pidEnabled.get()`,
     /// which the control task both holds and writes. See [`Self::ToggleSteam`]
     /// for why the resolution happens there.
     TogglePid,
@@ -152,13 +152,13 @@ pub enum Command {
     SetBackflush(bool),
     /// `POST /api/backflush` with no field — the C++'s toggle.
     ///
-    /// `!systemContext_->backflushMode()` (`WebServerManager.cpp:490`). See
+    /// `!systemContext_->backflushMode()`. See
     /// [`Self::ToggleSteam`].
     ToggleBackflush,
     /// `POST /api/backflush?value=start` — begin a backflush cycle.
     ///
     /// **Not a C++ route.** The C++'s `/api/backflush` only toggles backflush
-    /// *mode* (`WebServerManager.cpp:490`); starting a cycle is a switch press
+    /// *mode*; starting a cycle is a switch press
     /// or an MQTT command. This verb exists because the previous
     /// `register_command` accepted `start` and something may already send it,
     /// and removing a reachable command would be a regression. The bare POST

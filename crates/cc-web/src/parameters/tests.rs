@@ -101,7 +101,7 @@ fn a_parameter_post_of_the_four_kinds_is_accepted() {
 #[test]
 fn an_unknown_key_is_a_400_and_names_nothing_in_the_body() {
     // The C++ answers `{"error":"Some parameter updates failed"}` for an
-    // unknown key (`:856-859`, `:868`) and names nothing — the reasons go to
+    // unknown key and names nothing — the reasons go to
     // the log, which is what the handler does there too.
     let verdict = classify_parameters(&[("no.such.parameter".into(), "1".into())]);
     assert!(matches!(verdict, ParameterPost::Rejected { .. }));
@@ -148,7 +148,7 @@ fn one_rejected_parameter_does_not_lose_the_accepted_ones() {
 #[test]
 fn a_request_that_names_no_parameter_is_the_third_response() {
     // The C++'s third body, for a request whose fields are all valueless
-    // (`:830` skips them) or which names nothing at all (`:876-878`).
+    // (`:830` skips them) or which names nothing at all.
     for pairs in [
         vec![],
         vec![("pid.enabled".into(), String::new())],
@@ -169,7 +169,6 @@ fn a_request_that_names_no_parameter_is_the_third_response() {
 
 #[test]
 fn the_updated_response_is_the_cpp_body_verbatim() {
-    // `WebServerManager.cpp:874-875`.
     assert_eq!(
         ParameterPost::Updated {
             accepted: Vec::new()
@@ -202,7 +201,7 @@ fn enabling_auth_is_reported_as_needing_a_reboot() {
 
 #[test]
 fn the_upload_body_is_bounded_and_the_cap_is_the_cpps() {
-    // `MAX_CONFIG_UPLOAD_SIZE = 16384` (`WebServerManager.cpp:48`), passed to
+    // `MAX_CONFIG_UPLOAD_SIZE = 16384`, passed to
     // `setMaxContentLength` at `:762`.
     assert_eq!(MAX_CONFIG_UPLOAD_BYTES, 16 * 1024);
     // The policy limit underneath it is `cc_config`'s own 8 KB; the two are

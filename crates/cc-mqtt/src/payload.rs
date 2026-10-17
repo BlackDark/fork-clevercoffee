@@ -1,74 +1,50 @@
-//! The two fixed-capacity buffers the publish pass runs on: [`Payload`], the
-//! reused value buffer, and [`SetCommand`], one inbound `set`.
+//! The two fixed-capacity buffers on the MQTT path: [`Payload`], the reused value
+//! buffer, and [`SetCommand`], one inbound `set`.
 //!
-//! Moved verbatim from `cc_hal_esp32::mqtt`. Both are `heapless::String`s
-//! because both are on a path where an allocation is heap traffic in the task
-//! that runs the heater deadman: `Payload` is formatted once per published
-//! topic, and `SetCommand` is produced on the `esp-mqtt` task and consumed on
-//! the control task.
+//! `heapless::String`, not `String`. Both sit on paths where an allocation is heap
+//! traffic in a task that must not block: `Payload` is written once per topic per
+//! pass on the control task, `SetCommand` crosses from the `esp-mqtt` task to it.
 
 use heapless::String as Bounded;
 use log::warn;
 
-/// The MQTT receive and outbox buffers, in bytes.
+/// MQTT receive and outbox buffers, in bytes.
 ///
-/// `MQTTManager.cpp:96` `setBufferSize(1024)`, "Set larger buffer size for Home
-/// Assistant discovery messages". A `number` entity with a `device` block is the
-/// largest payload this firmware produces; `cc_config::discovery` asserts every
-/// one of them is under this.
-///
-/// `MqttClientConfiguration` has both `buffer_size` and `out_buffer_size`
-/// (`client.rs:104-105`) and both are set, because the receive buffer holds an
-/// inbound `set` command and the outbox buffer holds an outbound discovery
-/// payload, and the C++'s single `setBufferSize` covered both.
+/// Sized for a discovery payload with a `device` block, the largest this firmware
+/// produces; `cc_config::discovery` asserts them under it. One constant for both
+/// so they cannot drift.
 pub const BUFFER_BYTES: usize = 1024;
 
-/// The longest value payload, in bytes.
+/// Longest value payload, in bytes.
 ///
-/// The C++'s `char data[256]` (`MQTTManager.cpp:405`) covers a parameter
-/// printed with `%.2f`, a sensor through `number2string` (which uses a
-/// 22-byte buffer, `helperUtils.h:38-62`) and the `ON`/`OFF` binaries. The
-/// widest value any registered topic can produce is a `%0.2f` of a
-/// schema-bounded number, well under 16 bytes, so 32 is generous while keeping
-/// the reusable buffer — and the dedupe table that holds one per topic — small
-/// on a 320 KB chip.
+/// The widest value any topic can produce is a two-decimal number, under 16 B. 32
+/// leaves headroom while keeping the buffer and the per-topic dedupe table small.
 pub const PAYLOAD_MAX: usize = 32;
 
-/// The longest reading name an inbound `set` topic may carry.
+/// Longest reading name an inbound `set` topic may carry.
 ///
-/// `MQTTManager.cpp:249` `char configVar[120]` with `%119[^\/]`. The longest
-/// registered reading is `backflushReminderThreshold` (27 bytes), so 64 is
-/// generous and an over-long name is dropped rather than truncated into a
-/// different parameter.
+/// Generous. The failure it prevents is not a rejected command but a *silently
+/// wrong* one: a truncated name is a different parameter, and the write lands
+/// somewhere the operator did not ask for.
 pub const READING_MAX: usize = 64;
 
-/// The longest inbound `set` value, in bytes.
+/// Longest inbound `set` value, in bytes.
 ///
-/// `MQTTManager.cpp:250` `data_str[1024]` is sized for a JSON-ish payload, but
-/// every registered target is a number or a boolean, and the C++'s own handler
-/// throws the rest away after `sscanf("%lf")` (`MQTTManager.cpp:268`). 32 bytes
-/// holds any of them with room for the decimal expansion of a `f64`.
+/// Every target is a number or a boolean; anything else the configuration's parser
+/// refuses. 32 B holds an `f64`'s full decimal expansion.
 pub const VALUE_MAX: usize = 32;
 
-/// How many inbound `set` commands may be waiting for the control task.
+/// How many inbound `set` commands may wait for the control task.
 ///
-/// The control task drains every tick, so four is a whole tick's worth. A
-/// Home Assistant entity that spams its command topic cannot grow this: the
-/// oldest is dropped and counted, which is visible in `cc_hal_esp32::mqtt::Link::dropped` and in
-/// the boot log rather than being a silent loss.
+/// A whole tick's worth at one drain per tick. An entity that spams its command
+/// topic cannot grow this: the oldest is dropped and counted, which the boot log
+/// reports, never silently lost.
 pub const INBOUND_DEPTH: usize = 8;
 
-/// A reusable value buffer, so a publish pass touches the allocator zero times.
+/// Reusable value buffer, so a publish pass touches the allocator zero times.
 ///
-/// The C++'s `char data[256]` (`MQTTManager.cpp:405`) is a stack buffer reused
-/// across every parameter and every sensor. This is the same buffer, as a
-/// [`heapless::String`] so it can be handed to [`core::fmt::Write`] and so a
-/// caller can build one once and pass it in on every pass.
-///
-/// The alternative — returning a fresh `String` per value, which is what
-/// `publish_pass` used to ask its closure for — is one heap allocation per topic
-/// per pass, roughly 250 a second on a configured machine, in the task that also
-/// runs the heater deadman.
+/// The alternative — a fresh `String` per value — is hundreds of allocations a
+/// second on the task that runs the heater deadman.
 #[derive(Clone, Debug, Default)]
 pub struct Payload(Bounded<PAYLOAD_MAX>);
 
@@ -84,35 +60,27 @@ impl Payload {
         self.0.clear();
     }
 
-    /// `snprintf(data, ..., "%d", on ? 1 : 0)` — `MQTTManager.cpp:417`.
-    ///
-    /// And the same two `if` arms for a boolean parameter
-    /// (`MQTTManager.cpp:448-449`). Not `ON`/`OFF`: that spelling is the
-    /// **binary sensor** path only (`MQTTManager.cpp:534`), and a parameter
-    /// published as `ON` would be rejected by the `number`/`switch` entity
-    /// Home Assistant built for it.
+    /// `1` or `0`, **not** `ON`/`OFF`. `ON` is the binary-sensor spelling only; a
+    /// parameter published as `ON` is rejected by the entity Home Assistant built
+    /// for it.
     pub fn set_bool(&mut self, on: bool) {
         self.set_int(i64::from(on));
     }
 
-    /// `snprintf(data, ..., "%d", value)` — `MQTTManager.cpp:449`.
+    /// The decimal integer, unadorned.
     pub fn set_int(&mut self, value: i64) {
         self.write(&format_args!("{value}"));
     }
 
-    /// `snprintf(data, ..., "%.2f", value)` — `MQTTManager.cpp:452-455`, and
-    /// `number2string` (`helperUtils.h:44-47`) for every polled sensor.
+    /// Two decimal places, for every parameter *and* every polled sensor.
     pub fn set_float(&mut self, value: f64) {
         self.write(&format_args!("{value:.2}"));
     }
 
-    /// A literal payload: the `ON`/`OFF` of a binary sensor
-    /// (`MQTTManager.cpp:534`) and a text parameter (`MQTTManager.cpp:456`).
+    /// A literal payload: a binary sensor's `ON`/`OFF`, or a text parameter.
     ///
-    /// A payload that does not fit [`PAYLOAD_MAX`] leaves the buffer **empty**,
-    /// which [`Self::is_empty`] reports, rather than being silently
-    /// half-published: a half-sent retained value is worse than none, and the
-    /// buffer cannot grow.
+    /// A value that does not fit leaves the buffer empty, not half-written:
+    /// `is_empty` then reports it. A half-sent retained value is worse than none.
     pub fn set_text(&mut self, text: &str) {
         self.0.clear();
         if self.0.push_str(text).is_err() {
@@ -126,9 +94,8 @@ impl Payload {
 
     /// Whether this already holds exactly `value`.
     ///
-    /// The `mqttLastSent_[mqttTopic] != value` comparison of
-    /// `MQTTManager.cpp:512`, `:520` and `:538`, as a method so the call site
-    /// does not have to build a second [`Payload`] to compare against.
+    /// The value-change dedupe, so a caller need not build a second [`Payload`]
+    /// to compare against.
     #[must_use]
     pub fn holds(&self, value: &str) -> bool {
         self.0.as_str() == value
@@ -136,11 +103,8 @@ impl Payload {
 
     /// Replace the contents with `value`, without allocating.
     ///
-    /// Public because the dedupe table that stores one `Payload` per topic lives
-    /// in the publisher, which stayed in `cc-hal-esp32` (`mqtt.rs`'s
-    /// `Feed::remember`); this is the operation it performs on a stored value.
-    /// It was private before the extraction and could not stay that way across
-    /// a crate boundary.
+    /// The dedupe table, one `Payload` per topic, lives in the publisher in
+    /// `cc-hal-esp32`, so this crossed the crate boundary with it.
     pub fn overwrite(&mut self, value: &str) {
         self.0.clear();
         let _ = self.0.push_str(value);
@@ -148,14 +112,9 @@ impl Payload {
 
     /// Format into the buffer **directly**.
     ///
-    /// Not `self.set_text(&format!("…"))`: `format!` builds a `String` on the
-    /// heap first, which is one allocation per published value — about 46 a
-    /// pass, five times a second, in the task that also runs the heater
-    /// deadman. `heapless::String` is a `core::fmt::Write`, so the digits go
-    /// straight into the reused buffer.
-    ///
-    /// A value that does not fit leaves the buffer empty (a partial write is
-    /// visible, an empty one is not), which is what [`Self::is_empty`] reports.
+    /// Not `set_text(&format!("…"))`: that builds a `String` on the heap first, one
+    /// allocation per value, hundreds a second on the heater-deadman task.
+    /// `heapless::String` is a `core::fmt::Write`, so digits go straight in.
     fn write(&mut self, args: &core::fmt::Arguments<'_>) {
         use core::fmt::Write as _;
         self.0.clear();
@@ -184,11 +143,10 @@ impl Payload {
     }
 }
 
-/// One inbound `set`, as the C++'s `(configVar, value_double)` pair.
+/// One inbound `set`: the reading a command topic named, and its payload.
 ///
-/// Owned into fixed buffers rather than `String`s because it is produced on the
-/// `esp-mqtt` task inside its callback and consumed on the control task: an
-/// allocation on either side would be heap traffic that this path can do without.
+/// Fixed buffers, not `String`s: it is produced on the `esp-mqtt` task and consumed
+/// on the control task, and an allocation there is avoidable heap traffic.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SetCommand {
     /// The reading the topic named.

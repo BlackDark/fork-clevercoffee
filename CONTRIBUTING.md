@@ -35,8 +35,8 @@ no `rustfmt.toml` to disagree with them. Apply it with `just fmt`, check it with
 hooks (trailing whitespace, end-of-file newline, merge conflicts):
 
 ```bash
-$ pip install pre-commit
-$ pre-commit install
+pip install pre-commit
+pre-commit install
 ```
 
 There is deliberately **no** `cargo fmt` pre-commit hook: a `language: system`
@@ -52,7 +52,18 @@ with `-D warnings`. Read those two before adding an `#[allow]` or an `#[expect]`
 (`AG-RUST-10`) -- every one already in the tree is there for a reason.
 
 Comments should explain the **why**, not restate the code. Write for the
-maintainer who does not know the subsystem.
+maintainer who does not know the subsystem, and write it terse: the shortest
+form that stays true, one idea per line, no narrative. The test is one question:
+does this line hold a fact, a constraint, a hazard or a rejected alternative that
+the code, a linked ADR, or a test does not already hold? If not, delete it rather
+than reword it.
+
+Four classes go whatever their truth value: restating a lint the workspace
+already holds; recording what a commit or a refactor did; restating the
+signature; and any reference to the deleted C++ -- a line number, a
+`cpp-findings.md` section, "the C++ does X, so this does Y". `docs/history/` owns
+that provenance. Long is fine when the derivation cannot be redone here, and the
+missing ESP-IDF sources are why. See `AG-RUST-13`.
 
 ## Submitting Changes
 

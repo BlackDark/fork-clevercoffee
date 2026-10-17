@@ -13,7 +13,7 @@ use crate::telemetry::Command;
 ///
 /// # Why this is not `0.0..=150.0`
 ///
-/// That was the C++ handler's own filter (`WebServerManager.cpp:393-395`) and
+/// That was the C++ handler's own filter and
 /// this port reproduced it verbatim — which is how `brew.setpoint = 150` could
 /// be written and persisted. The C++ does not have the resulting bug only
 /// because the *next* line, `Config::brewSetpoint.set(newSetpoint)`
@@ -39,7 +39,7 @@ use crate::telemetry::Command;
 /// request it did not make: a UI slider stuck at 110 looks like a stuck UI,
 /// not a refused write, and the operator has no way to learn the machine is not
 /// holding what they asked for. `400` is also what the C++ already answers for
-/// a value it will not take (`:404-406`), what `POST /api/parameters` answers
+/// a value it will not take, what `POST /api/parameters` answers
 /// for the same key through the same [`cc_config::assign::parse`]
 /// (`WebServerManager.cpp:843-859` → this port's `400`), and what
 /// `register_command` already sends when this returns `None`.
@@ -47,7 +47,7 @@ use crate::telemetry::Command;
 /// # What this costs, deliberately
 ///
 /// The C++ accepts `0.0..=150.0` here and applies `0..20` to the **running**
-/// machine — `setProcessSetpoint` (`:398`) runs before the range-checked
+/// machine — `setProcessSetpoint` runs before the range-checked
 /// `set` — while persisting nothing. So `?value=5` is a `202` on the C++ and a
 /// `400` here, and `?value=150` is a `200` on the C++ that leaves a 150 °C
 /// process setpoint in RAM. Narrowing the accepted range is a divergence from
@@ -69,7 +69,7 @@ pub fn parse_setpoint(value: &str) -> Option<Command> {
             // **Not truncated.** This cast to `i32` and the comment above it
             // claimed "the C++ truncates the same way into its process setpoint".
             // It does not: `setProcessSetpoint(newSetpoint)` takes the `double`
-            // straight (`WebServerManager.cpp:394-396`), so `93.5` is 93.5 in the
+            // straight, so `93.5` is 93.5 in the
             // C++ and 93 here. Measured on a bench ESP32: `?value=93.5`,
             // `?value=80.5` and `?value=91.2` were all accepted and all landed
             // on the truncated integer, which is what "the setpoint control does
@@ -112,7 +112,7 @@ pub fn explicit_value(command: &Command) -> bool {
 /// The first value any of `names` has, in **name** order rather than field order.
 ///
 /// `hasParam(name, true).orElse(hasParam(other, true))` — the C++'s
-/// `hasParam("value", …)` then `hasParam("on", …)` (`:392`), so `value` anywhere
+/// `hasParam("value", …)` then `hasParam("on", …)`, so `value` anywhere
 /// in the request beats `on` anywhere in it. Scanning the fields once and taking
 /// whichever key matched first would flip that for a request carrying both.
 #[must_use]
@@ -130,7 +130,7 @@ pub fn first_of(fields: &[cc_config::form::Field], names: &[&str]) -> Option<Str
 /// `EspHttpConnection::uri()` (`esp-idf-svc` `src/http/server.rs:949-955`)
 /// returns `httpd_req_t::uri`, and that field is the **whole** request target
 /// including the `?…` — `esp_http_server` reads the query back out of it with
-/// `r->uri + res->field_data[UF_QUERY].off` (`httpd_parse.c:992`) rather than
+/// `r->uri + res->field_data[UF_QUERY].off` rather than
 /// from a member of its own. So the query string needs no `esp-idf-sys` call to
 /// reach, which is what `cc_config::form`'s module documentation used to say the
 /// opposite of; the split is at the first `?` and everything after it.

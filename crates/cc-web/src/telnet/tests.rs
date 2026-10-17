@@ -29,7 +29,7 @@ fn the_stream_constants_are_the_csqs() {
 }
 
 /// `Logger.h:154`: one `WiFiClient client_`, and a second connection replaces
-/// the first (`Logger.cpp:134-137`). This is the constant that stops a debug
+/// the first. This is the constant that stops a debug
 /// channel from becoming the OOM, so it gets its own test rather than riding
 /// along with the numbers above.
 #[test]
@@ -182,7 +182,6 @@ fn a_line_carries_a_stamp_a_level_the_target_and_a_crlf() {
 
 #[test]
 fn a_line_truncates_with_the_csqs_marker() {
-    // `Logger.cpp:221-228`.
     let body = "y".repeat(ENTRY_BYTES);
     let text = line(Level::Info, 0, "t", &body);
     assert_eq!(text.len(), ENTRY_BYTES);

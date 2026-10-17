@@ -16,7 +16,7 @@
 //!
 //! # What the C++ does, and what is therefore the same here
 //!
-//! `WebServerManager::setupMiddleware` (`src/network/WebServerManager.cpp:272-296`)
+//! `WebServerManager::setupMiddleware`
 //! installs `ESPAsyncWebServer`'s `AsyncAuthenticationMiddleware` when
 //! `system.auth.enabled` is set, with the realm `"CleverCoffee"`:
 //!
@@ -70,7 +70,7 @@
 //!   posture (there is no HTTPS listener in `WebServerManager` either) and it
 //!   is why this is "the C++'s control, implemented", not "a secure interface".
 
-/// The realm the C++ challenges with (`WebServerManager.cpp:286`).
+/// The realm the C++ challenges with.
 ///
 /// The whole header rather than the realm, because the realm is a constant and
 /// this crate is `no_std` + no `alloc`: a `fn realm() -> String` would be the

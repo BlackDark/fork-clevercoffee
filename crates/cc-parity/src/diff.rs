@@ -104,8 +104,8 @@ fn matcher_matches(matcher: &str, line: &str) -> bool {
 pub struct DiffLine {
     /// The line, as it appears in the observation's canonical rendering.
     pub text: String,
-    /// Present in the Rust observation and not the C++ baseline (`+`), or the
-    /// reverse (`-`).
+    /// Present in the Rust observation and not the reference baseline (`+`), or
+    /// the reverse (`-`).
     pub side: Side,
     /// The ledger entries that claim this line. Empty means unexplained.
     pub explained_by: Vec<String>,
@@ -116,7 +116,7 @@ pub struct DiffLine {
 pub enum Side {
     /// Only in the new (Rust) observation.
     Rust,
-    /// Only in the reference (C++) baseline.
+    /// Only in the reference baseline.
     Cpp,
 }
 
@@ -192,9 +192,9 @@ pub fn classify(cpp: &Observation, rust: &Observation, ledger: &Ledger) -> Verdi
     ));
 
     // ---- the effect-name sequence -----------------------------------------
-    // Names only, not the reduced payloads: the C++ has no effect stream at
-    // all, so this is Rust-side instrumentation and comparing payloads across
-    // firmwares would be comparing a thing against its absence.
+    // Names only, not the reduced payloads: the baseline records no effect
+    // stream, so this is Rust-side instrumentation, and comparing payloads
+    // against it would compare a thing with its absence.
     lines.extend(diff_seq(
         "effect",
         cpp.effects.iter().map(|e| e.name.as_str()),
@@ -549,7 +549,7 @@ mod tests {
         // A substitution is reported as **two** lines — one removed from the
         // baseline, one added — because a reader needs to see both sides, and
         // because a divergence declared against "the Rust side gained X" is a
-        // different declaration from one against "the C++ side lost X".
+        // different declaration from one against "the reference side lost X".
         let cpp = obs("brew", &["PID_NORMAL", "PID_NORMAL"], &[]);
         let rust = obs("brew", &["PID_NORMAL", "BREW_RUNNING"], &[]);
         let v = classify(&cpp, &rust, &Ledger::default());

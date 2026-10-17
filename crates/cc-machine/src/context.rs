@@ -68,7 +68,7 @@ impl<'a> Context<'a> {
     // -- pid ---------------------------------------------------------------
 
     /// `context.isPidConfigEnabled()` — the *user's saved preference*,
-    /// `Config::getInstance().pidEnabled.get()` (`MachineStateContext.cpp:181`).
+    /// `Config::getInstance().pidEnabled.get()`.
     ///
     /// Distinct from the runtime flag the state machine actually reads
     /// ([`Machine::pid`](crate::Machine)::`runtime_enabled`): this one is the
@@ -88,7 +88,7 @@ impl<'a> Context<'a> {
         self.config.brew.mode == cc_domain::process::BrewMode::Automatic
     }
 
-    /// `calculatePreinfusionBaseTimeMs` (`BrewStates.cpp:24-37`), in
+    /// `calculatePreinfusionBaseTimeMs`, in
     /// milliseconds: pre-infusion plus pause, or zero when pre-infusion is
     /// off.
     #[must_use]
@@ -96,7 +96,7 @@ impl<'a> Context<'a> {
         preinfusion_base_ms(self.config)
     }
 
-    /// `initTotalTargetBrewTime` (`BrewStates.cpp:53-62`): the total target brew
+    /// `initTotalTargetBrewTime`: the total target brew
     /// time in milliseconds, or `0.0` unless brewing automatically *by time*.
     #[must_use]
     pub fn total_target_brew_ms(&self) -> f64 {
@@ -116,19 +116,19 @@ impl<'a> Context<'a> {
 
     // -- backflush ---------------------------------------------------------
 
-    /// `context.getBackflushFillTimeMs()` (`MachineStateContext.cpp:433`).
+    /// `context.getBackflushFillTimeMs()`.
     #[must_use]
     pub fn backflush_fill_ms(&self) -> u32 {
         secs_to_ms(self.config.backflush.fill_time)
     }
 
-    /// `context.getBackflushFlushTimeMs()` (`MachineStateContext.cpp:437`).
+    /// `context.getBackflushFlushTimeMs()`.
     #[must_use]
     pub fn backflush_flush_ms(&self) -> u32 {
         secs_to_ms(self.config.backflush.flush_time)
     }
 
-    /// `context.getBackflushCycles()` (`MachineStateContext.cpp:441`).
+    /// `context.getBackflushCycles()`.
     #[must_use]
     pub const fn backflush_cycles(&self) -> i32 {
         self.config.backflush.cycles
@@ -136,7 +136,7 @@ impl<'a> Context<'a> {
 
     // -- standby -----------------------------------------------------------
 
-    /// `StandbyCoordinator::getStandbyTimeoutMillis` (`StandbyCoordinator.h:155`)
+    /// `StandbyCoordinator::getStandbyTimeoutMillis`
     /// — `standby.time` minutes to milliseconds.
     #[must_use]
     pub fn standby_timeout_ms(&self) -> u32 {
@@ -152,37 +152,37 @@ impl<'a> Context<'a> {
         self.config.hardware.sensors.watertank.keep_heater_on_empty
     }
 
-    /// `config_.hardwareSwitchesBrewEnabled.get()` (`BrewHandler.h:126`).
+    /// `config_.hardwareSwitchesBrewEnabled.get()`.
     #[must_use]
     pub const fn brew_switch_enabled(&self) -> bool {
         self.config.hardware.switches.brew.enabled
     }
 
-    /// `config_.hardwareSwitchesBrewType.get()` (`BrewHandler.h:91`).
+    /// `config_.hardwareSwitchesBrewType.get()`.
     #[must_use]
     pub const fn brew_switch_type(&self) -> cc_domain::hardware::SwitchType {
         self.config.hardware.switches.brew.r#type
     }
 
-    /// `config_.hardwareSwitchesSteamEnabled.get()` (`SteamHandler.h:87`).
+    /// `config_.hardwareSwitchesSteamEnabled.get()`.
     #[must_use]
     pub const fn steam_switch_enabled(&self) -> bool {
         self.config.hardware.switches.steam.enabled
     }
 
-    /// `config_.hardwareSwitchesSteamType.get()` (`SteamHandler.h:82`).
+    /// `config_.hardwareSwitchesSteamType.get()`.
     #[must_use]
     pub const fn steam_switch_type(&self) -> cc_domain::hardware::SwitchType {
         self.config.hardware.switches.steam.r#type
     }
 
-    /// `config_.hardwareSwitchesPowerEnabled.get()` (`PowerHandler.h:50`).
+    /// `config_.hardwareSwitchesPowerEnabled.get()`.
     #[must_use]
     pub const fn power_switch_enabled(&self) -> bool {
         self.config.hardware.switches.power.enabled
     }
 
-    /// `config_.hardwareSwitchesPowerType.get()` (`PowerHandler.h:63`).
+    /// `config_.hardwareSwitchesPowerType.get()`.
     #[must_use]
     pub const fn power_switch_type(&self) -> cc_domain::hardware::SwitchType {
         self.config.hardware.switches.power.r#type

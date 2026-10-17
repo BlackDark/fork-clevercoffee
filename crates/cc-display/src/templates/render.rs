@@ -839,8 +839,8 @@ fn scale_temp_coords() -> TemperatureCoords {
 // The Scale template's five content rows.
 //
 // **Re-pitched from 16/26/26/36/46.** The C++ puts the setpoint row and the brew
-// row both at `y = 26` (`ScaleTemplate.h:24,59-61`), and the brew row's inverted
-// field is `78 x 10` at `(x + 50, y + 1)` (`DisplayWidgets.h:170-171`) — so it
+// row both at `y = 26`, and the brew row's inverted
+// field is `78 x 10` at `(x + 50, y + 1)` — so it
 // erases the setpoint's label, value and `°C`. The collision is not hidden by a
 // flag: `display.fullscreen_brew_timer` defaults to **false** in both firmwares, so
 // on a Scale-template machine the setpoint simply disappears for the whole

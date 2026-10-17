@@ -50,12 +50,12 @@ pub enum Guard {
     /// `context.isEmergencyStop()` → `EMERGENCY_STOP`
     /// (`BaseState.h:139-142`). **No exclusions.**
     EmergencyStop,
-    /// `context.hasSensorError()` → `SENSOR_ERROR` (`BaseState.h:145-148`).
+    /// `context.hasSensorError()` → `SENSOR_ERROR`.
     /// **No exclusions.**
     SensorError,
-    /// `!context.isWaterTankFull()` → `WATER_TANK_EMPTY` (`BaseState.h:153-158`).
+    /// `!context.isWaterTankFull()` → `WATER_TANK_EMPTY`.
     WaterTankEmpty,
-    /// `!context.isPidRuntimeEnabled()` → `PID_DISABLED` (`BaseState.h:163-171`).
+    /// `!context.isPidRuntimeEnabled()` → `PID_DISABLED`.
     PidRuntimeDisabled,
     /// No global guard fired; [`states::check_specific`](crate::states::check_specific)
     /// decides.
@@ -125,13 +125,13 @@ pub const fn excluded_from_tank_check(state: MachineState) -> bool {
 ///
 /// * `PID_DISABLED` — already there.
 /// * `PID_NORMAL` — "handles it explicitly": `PidNormalState::checkSpecificTransitions`
-///   opens with its own `if (!isPidRuntimeEnabled())` (`PidStates.cpp:48-51`).
+///   opens with its own `if (!isPidRuntimeEnabled())`.
 /// * `STANDBY` — "PID intentionally off". **This is why standby is a latched
 ///   state and not a timeout**: the runtime flag is off for as long as the
 ///   machine is in standby, so including it here would make the guard a no-op
 ///   cycle.
 /// * `INIT` — `InitState::checkSpecificTransitions` routes on exactly this
-///   condition (`InitState.cpp:24-31`).
+///   condition.
 /// * `EMERGENCY_STOP`, `SENSOR_ERROR`, `WATER_TANK_EMPTY`, `EEPROM_ERROR` — the
 ///   error states, which must be able to recover to a PID state rather than
 ///   being bounced out of recovery by the guard.
@@ -150,7 +150,7 @@ pub const fn excluded_from_pid_check(state: MachineState) -> bool {
     )
 }
 
-/// `ProcessController::shouldPIDBeEnabled` (`ProcessController.cpp:246-255`).
+/// `ProcessController::shouldPIDBeEnabled`.
 ///
 /// A second, *independent* PID gate: this one is about the heater, not about
 /// the state machine. The state machine can be in `PID_NORMAL` with the runtime
@@ -223,7 +223,6 @@ mod tests {
 
     #[test]
     fn the_pid_check_excludes_exactly_eight_states() {
-        // `BaseState.h:163-166`.
         let mut excluded: Vec<MachineState> = cc_domain::state::ALL
             .iter()
             .copied()
@@ -321,7 +320,7 @@ mod tests {
     #[test]
     fn keep_heater_on_empty_overrides_the_tank_rule() {
         // `ProcessController.cpp:247-248`. This is the flag the WATER_TANK_EMPTY
-        // state doc-comment warns about (`ErrorStates.cpp:83-85`).
+        // state doc-comment warns about.
         assert!(!should_pid_be_enabled(
             MachineState::WaterTankEmpty,
             false,

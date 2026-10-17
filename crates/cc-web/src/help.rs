@@ -21,11 +21,11 @@
 //! Parity with the C++ is the point, so every code here is the C++'s.
 //!
 //! * **`200`** — the name named a parameter. The body is the C++'s
-//!   `{"name":…,"helpText":…}` (`WebServerManager.cpp:598-608`).
+//!   `{"name":…,"helpText":…}`.
 //! * **`404`** — the name named no parameter (`findConfigParameter` returned
 //!   `nullptr`, `:594-596`). Not `200`, because "this firmware has no such
 //!   parameter" is a fact about the request, not a successful lookup.
-//! * **`422`** — there was no `param` at all (`:587-590`). The C++'s code and
+//! * **`422`** — there was no `param` at all. The C++'s code and
 //!   not `400`: `422` is what the C++ sends, and a request missing a required
 //!   query key is precisely what `422 Unprocessable Content` names.
 //!
@@ -40,7 +40,7 @@ use cc_config::schema::SCHEMA;
 
 /// `GET /api/parameter-help?param=<name>` — the status code and the body.
 ///
-/// The C++'s handler, in the C++'s order (`WebServerManager.cpp:585-618`):
+/// The C++'s handler, in the C++'s order:
 /// absent `param` → `422`; a name no `ConfigParamDef` carries → `404`;
 /// otherwise the parameter's own `helpText` with `200`.
 ///
@@ -75,9 +75,9 @@ pub fn parameter_help(name: Option<&str>) -> (u16, String) {
 
 /// The JSON `404` for a `/api/` path that matched no route.
 ///
-/// The C++'s `handleNotFound` (`WebServerManager.cpp:1006-1027`) answers
+/// The C++'s `handleNotFound` answers
 /// `ApiResponses::errorResponse("API endpoint not found")` — which is
-/// `{"error": "…"}` **with a space after the colon** (`ApiResponses.cpp:21-26`),
+/// `{"error": "…"}` **with a space after the colon**,
 /// where this crate's [`crate::payload::error_body`] emits none. The bytes are
 /// reproduced rather than normalised, because a client that byte-compares
 /// against the C++ is exactly the client this finding is about.
@@ -91,14 +91,14 @@ pub fn not_found_json() -> &'static str {
 
 /// Whether `path` gets the JSON `404` or ESP-IDF's plain-text one.
 ///
-/// The C++ tests `path.startsWith("/api/")` (`WebServerManager.cpp:1011`) —
+/// The C++ tests `path.startsWith("/api/")` —
 /// **with the trailing slash**, so a bare `/api` is a plain-text `404` there
 /// and is one here. Matching the C++ on that detail is deliberate: the finding
 /// is that this firmware's HTTP surface is not honest, and inventing a second
 /// definition of "is this an API path" would be a new way to be wrong.
 ///
 /// `/ui*` is served by its own wildcard handler and so never reaches a `404`
-/// here, which is why the C++'s `serveUiIndex` fallback (`:1016-1022`) has no
+/// here, which is why the C++'s `serveUiIndex` fallback has no
 /// counterpart: that branch is unreachable once the wildcard exists.
 #[must_use]
 pub fn wants_json_not_found(path: &str) -> bool {
@@ -128,7 +128,7 @@ pub enum Unmatched {
     /// only the body was wrong.
     Served,
     /// A path outside `/api/`. ESP-IDF's own plain-text `404`, which is what the
-    /// C++ answers for these too (`WebServerManager.cpp:1023-1024`).
+    /// C++ answers for these too.
     NotApi,
 }
 

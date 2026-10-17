@@ -104,7 +104,7 @@ fn the_help_lookup_agrees_with_the_schema_on_both_sides() {
 
 #[test]
 fn the_api_404_is_json_with_the_cpp_bytes() {
-    // `ApiResponses::errorResponse` (`ApiResponses.cpp:21-26`) writes
+    // `ApiResponses::errorResponse` writes
     // `{"error": "…"}` **with a space after the colon**, unlike this crate's
     // `payload::error_body`. Reproduced rather than normalised: the client this
     // exists for is one comparing against the C++.

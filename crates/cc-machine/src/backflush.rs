@@ -11,7 +11,6 @@
 
 /// What applying a backflush-mode request does.
 ///
-/// `BackflushModeLogic.h:10-15`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ModeChangeEffect {
     /// Nothing changed — already in the requested mode.
@@ -26,7 +25,6 @@ pub enum ModeChangeEffect {
 
 /// The three inputs to [`resolve_mode_change`].
 ///
-/// `BackflushModeLogic.h:17-22`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ModeChangeInput {
     /// `backflushOn_` before the change.
@@ -78,7 +76,6 @@ pub const fn resolve_mode_change(input: ModeChangeInput) -> ModeChangeEffect {
 
 /// What to do once a flush phase's timer has expired.
 ///
-/// `BackflushModeLogic.h:36-40`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CycleAdvanceEffect {
     /// Go back to `BACKFLUSH_FILLING` and increment the counter.
@@ -102,7 +99,7 @@ pub enum CycleAdvanceEffect {
 ///
 /// # Why `<` and not `<=`
 ///
-/// `currBackflushCycles_` starts at 1 (`MachineStateContext.h:788`) and
+/// `currBackflushCycles_` starts at 1 and
 /// `applyBackflushMode`'s `Enable` arm re-arms it to 1
 /// (`MachineStateContext.cpp:368`). With `backflush.cycles = 5` the machine
 /// therefore runs cycles 1, 2, 3, 4, 5 and reaches `BACKFLUSH_FINISHED` after
@@ -122,7 +119,7 @@ pub const fn resolve_cycle_advance(
 /// The state of the machine's backflush bookkeeping after applying a mode
 /// change.
 ///
-/// `MachineStateContext::applyBackflushMode` (`MachineStateContext.cpp:354-381`)
+/// `MachineStateContext::applyBackflushMode`
 /// is not one function: it resolves an effect and then mutates flags per arm.
 /// Splitting the mutation out keeps this module a pure decision, which is what
 /// the C++ header was for, and leaves the mutation in the reducer.
@@ -159,7 +156,7 @@ pub struct ModeChangeOutcome {
 /// behaviour and the reason the parameter exists: `applyBackflushMode`'s `None`
 /// arm is `return true;` having written nothing
 /// (`MachineStateContext.cpp:361-362`), and the rejection arm logs and returns
-/// `false`, also having written nothing (`:364-365`). A caller that assigned
+/// `false`, also having written nothing. A caller that assigned
 /// `false` for those arms — which is the obvious transcription — would silently
 /// clear a pending cycle-start request every time a redundant "enter backflush
 /// mode" arrived, and `test_backflush_states`'s

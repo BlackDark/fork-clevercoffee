@@ -13,7 +13,7 @@ use alloc::vec::Vec;
 
 /// What one `POST /api/parameters` resolved to, before anything is written.
 ///
-/// The C++'s `hasErrors` / `hasUpdates` pair (`WebServerManager.cpp:826-827`),
+/// The C++'s `hasErrors` / `hasUpdates` pair,
 /// kept as a value so the handler's decision — which of three response bodies to
 /// send, and whether to emit a command at all — is a function that can be tested
 /// without a socket.
@@ -34,14 +34,14 @@ pub enum ParameterPost {
         accepted: Vec<(String, String)>,
     },
     /// Nothing in the request named a parameter with a value, so nothing was
-    /// written. The C++'s `"No parameters updated"` (`WebServerManager.cpp:877`).
+    /// written. The C++'s `"No parameters updated"`.
     Nothing,
 }
 
 impl ParameterPost {
     /// The status code and the body, verbatim from the C++.
     ///
-    /// * rejected → `400 {"error":"Some parameter updates failed"}` (`:868`)
+    /// * rejected → `400 {"error":"Some parameter updates failed"}`
     /// * updated → `200 {"success":true,"message":"Parameters updated and
     ///   saved"}` (`:874-875`)
     /// * nothing → `200 {"success":true,"message":"No parameters updated"}`
@@ -117,7 +117,7 @@ impl ParameterPost {
 /// `system.auth.*` is the same kind of thing for a different reason, and it is
 /// the one the C++ cannot report: the C++ installs its authentication
 /// middleware in `setupMiddleware`, which runs once from
-/// `WebServerManager::initialize` (`WebServerManager.cpp:272-296`), so
+/// `WebServerManager::initialize`, so
 /// enabling `system.auth.enabled` protects **nothing** until the machine
 /// restarts — an operator who sets it, sees `200`, and is still serving an open
 /// API. [`crate::Auth::from_config`] reproduces the C++'s boot-time decision, so
@@ -170,7 +170,7 @@ pub const MAX_PARAMETER_BODY_BYTES: usize = 1024;
 /// The most bytes one `POST /api/config/upload` body may be.
 ///
 /// 16 KB — `MAX_CONFIG_UPLOAD_SIZE` at `WebServerManager.cpp:48`, which the
-/// C++ passes to `jsonHandler.setMaxContentLength` (`:762`). That is the
+/// C++ passes to `jsonHandler.setMaxContentLength`. That is the
 /// **transport** limit; the *policy* limit is `cc_config::MAX_CONFIG_BYTES`
 /// (8 KB), which is what a document over it is refused with. Two limits on
 /// purpose: the C++'s is the largest request it will accept off the wire, and the
@@ -181,9 +181,9 @@ pub const MAX_CONFIG_UPLOAD_BYTES: usize = 16 * 1024;
 
 /// Decide what a `POST /api/parameters` means, without writing anything.
 ///
-/// The C++'s loop over `request->params()` (`WebServerManager.cpp:829-865`),
+/// The C++'s loop over `request->params()`,
 /// with the same two rules: a field with no name or no value is **skipped**
-/// rather than rejected (`:830`), and a rejected value does not undo the
+/// rather than rejected, and a rejected value does not undo the
 /// accepted ones.
 ///
 /// The pairs are validated here because the handler has to answer `200` or `400`

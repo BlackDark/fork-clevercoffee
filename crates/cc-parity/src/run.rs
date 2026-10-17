@@ -126,11 +126,10 @@ impl Actuators for Recorder {
 
 /// The temperature sensor's read interval, in milliseconds.
 ///
-/// `Timing::TEMPERATURE_SENSOR_INTERVAL_MS` = 400 (`constants/Timing.h:42`),
-/// and `SensorCoordinator::update()` runs on it rather than on the control
-/// loop's period. That distinction is what makes S1's three-reading debounce
-/// mean what it says: without it the same reading would count three times in
-/// 30 ms and the debounce would be a fiction.
+/// `SENSOR_INTERVAL_MS` is 400 and the sensor is read on it rather than on the
+/// control loop's period. That distinction is what makes S1's three-reading
+/// debounce mean what it says: without it the same reading would count three
+/// times in 30 ms and the debounce would be a fiction.
 const SENSOR_INTERVAL_MS: u32 = 400;
 
 /// How many consecutive unchanged ticks end a run.
@@ -221,11 +220,9 @@ pub struct Runner {
     ota_until: Option<u32>,
     /// Whether the machine is inside an OTA session.
     ///
-    /// The C++'s `LoopManager::update()` returns early while `OTA::isActive()`
-    /// (`LoopManager.cpp:128-132`), so the state machine does not run and the
-    /// pump and valve are not driven. That is the gap 01 §6 records. This
-    /// harness models the **fixed** behaviour, which is the one the Rust port
-    /// must have, and asserts the actuators are off across the session.
+    /// The state machine keeps running and the recorder asserts the actuators
+    /// stay off for the whole session. An OTA session that leaves the pump or the
+    /// valve energised mid-brew is the failure this models.
     ota_active: bool,
 }
 
@@ -249,11 +246,9 @@ impl Runner {
             }
         })?;
 
-        // The PID is the C++'s, not a stub: `ProcessController`'s gains are
-        // `Ki = Kp/Tn`, `Kd = Tv*Kp` (`ProcessController.cpp:382-390`) and the
-        // sample time is the 1000 ms heater window
-        // (`SystemInitializer.cpp:551`). The window is not configurable
-        // (`Config::HEATER_WINDOW_MS`).
+        // The real controller, not a stub: the gains are `Ki = Kp/Tn`,
+        // `Kd = Tv*Kp`, and the sample time is the 1000 ms heater window
+        // (`Config::HEATER_WINDOW_MS`, not configurable).
         let (kp, ki, kd) = config.pid_tunings();
         let pid = Controller::new(
             Millis::ZERO,
@@ -281,11 +276,10 @@ impl Runner {
         let obs = Observation::new(&scenario.name, "rust");
         let ctx = cc_machine::Context::new(&config, Celsius::new(setpoint as f32));
 
-        // `SystemInitializer::finalizeMachineState` reads the power switch
-        // before the state machine exists and hands it both an initial state and
-        // the runtime PID flag (`SystemInitializer.cpp:604-641`). A `dry_run`
-        // scenario has no power switch, so the "no power switch" arm applies:
-        // start in `INIT` with the config's PID preference.
+        // The power switch is read before the state machine exists, which yields
+        // both an initial state and the runtime PID flag. A `dry_run` scenario
+        // has no power switch, so the "no power switch" arm applies: start in
+        // `INIT` with the config's PID preference.
         let machine = cc_machine::boot(Millis::ZERO, &ctx).0;
 
         Ok(Self {
@@ -396,14 +390,12 @@ impl Runner {
             self.deliver(&s, at);
         }
 
-        // Whether this iteration carries a new sensor sample. Step 2 of the
-        // C++'s loop is `sensorCoordinator().update()`, which reads on
-        // `Timing::TEMPERATURE_SENSOR_INTERVAL_MS` = 400 ms
-        // (`constants/Timing.h:42`), not every iteration.
+        // Whether this iteration carries a new sensor sample. The probe is read
+        // on a 400 ms cadence, not every iteration.
         //
         // This is load-bearing for S1 rather than a fidelity detail. The
         // over-temperature debounce is **three readings**
-        // (`EmergencyStopManager::DEBOUNCE_COUNT`), and a "reading" is a sensor
+        // (`cc_safety::DEBOUNCE_COUNT`), and a "reading" is a sensor
         // sample. Running the safety reduce on every 10 ms tick would make it
         // trip on the same temperature 30 times over in 300 ms, so a scenario
         // whose readings are 400 ms apart would trip at 20 ms instead of 800 ms
@@ -419,21 +411,19 @@ impl Runner {
             self.last_sample_at = Some(at);
             // **A sampled tick is a reading**, and S1's debounce counts readings
             // (`cc_safety::Telemetry::sample_seq`). It advances here — before
-            // anything borrows `self` — so the safety monitor sees the same
-            // "one count per probe reading" discipline the firmware now uses.
-            // Before that field existed the debounce counted invocations, which
-            // made the real 100 Hz loop trip 40x faster than the C++.
+            // anything borrows `self` — so the safety monitor sees one count per
+            // probe reading. Counting invocations instead trips the
+            // over-temperature latch about 40x early at a 100 Hz loop.
             let seq = self.sample_seq.wrapping_add(1);
             self.sample_seq = seq;
             self.sensors.sample_seq = seq;
         }
 
         if self.ota_active {
-            // The C++ skips the whole loop here (01 §6's gap). The fixed
-            // behaviour is that the actuators are off, which the recorder
+            // The actuators stay off for the whole session, which the recorder
             // already reflects from the SafeHardwareShutdown the session's
-            // `begin` emitted. Ticking the reducer would be asserting the
-            // *unfixed* behaviour.
+            // `begin` emitted. Ticking the reducer would assert behaviour the
+            // session is supposed to suppress.
             self.now = self.now.saturating_add(tick);
             if self.ota_until.is_some_and(|until| at >= until) {
                 self.ota_active = false;
@@ -443,8 +433,8 @@ impl Runner {
         }
 
         // ---- 2. the safety monitor, on the sensor cadence ------------------
-        // Held from the previous sample between reads, exactly as the C++'s
-        // `SensorCoordinator` holds its last reading.
+        // The last reading is held between samples, so the monitor always sees a
+        // value rather than a gap.
         //
         // The conversion goes through `Config::safety_view`, which is the
         // hand-off point `cc-config` documents for exactly this (`cc-config`'s
@@ -494,10 +484,8 @@ impl Runner {
         };
 
         // ---- 3. the PID ---------------------------------------------------
-        // `ProcessController::updateTemperature` subtracts the brew offset from
-        // the reading when not steaming (`ProcessController.cpp:131-141`), and
-        // `updateSetpoint` picks the steam setpoint while steam mode is on
-        // (`:235-244`).
+        // The brew offset is subtracted from the reading when not steaming, and
+        // the steam setpoint replaces the brew setpoint while steam mode is on.
         let steaming = self.machine.steam_mode;
         self.pid.setpoint = if steaming {
             self.config.steam.setpoint
@@ -517,16 +505,14 @@ impl Runner {
         let mut effects = Effects::new();
 
         if sampled {
-            // `Event::SensorUpdated` is `LoopManager` step 2, before the state
+            // `Event::SensorUpdated` is the sensor step, before the state
             // machine, so the guards react to this sample in this tick.
             //
             // The sequence advances **only on a sampled tick**, because that is
-            // exactly what a real reading is: the probe produced one. S1's
-            // debounce counts samples (`cc_safety::Telemetry::sample_seq`), and
-            // before that field existed it counted invocations — which made the
-            // over-temperature trip 40x faster than the C++ on the real 100 Hz
-            // loop. Here the runner already models the 400 ms cadence, so this
-            // is the same discipline the firmware now uses.
+            // what a real reading is: the probe produced one. S1's debounce
+            // counts samples (`cc_safety::Telemetry::sample_seq`), and counting
+            // invocations instead trips the over-temperature latch about 40x
+            // early at a 100 Hz loop.
             let sensors = self.sensors;
             let (m, fx) = cc_machine::reduce(&machine, &ctx, Event::SensorUpdated(sensors));
             machine = m;
@@ -540,9 +526,8 @@ impl Runner {
         }
 
         if computed {
-            // The C++ publishes the output and relies on `updatePIDState`
-            // zeroing it later in the same `updateProcessControl`
-            // (`ProcessController.cpp:113` then `:151-172`). Same shape here.
+            // The output is published here and zeroed later in the same tick, so
+            // no later step reads a stale value.
             let out = self.pid.output as f32;
             let (m, fx) = cc_machine::reduce(&machine, &ctx, Event::PidOutput(out));
             machine = m;
@@ -564,7 +549,7 @@ impl Runner {
         self.now = self.now.saturating_add(tick);
 
         // Arm the next cadence sample: 400 ms after the last one
-        // (`Timing::TEMPERATURE_SENSOR_INTERVAL_MS`, `constants/Timing.h:42`).
+        // (`SENSOR_INTERVAL_MS`).
         let next_sample = self
             .last_sample_at
             .is_none_or(|last| self.now.saturating_sub(last) >= SENSOR_INTERVAL_MS);
@@ -664,11 +649,9 @@ impl Runner {
             }
 
             StimulusKind::Config { set } => {
-                // A mid-run configuration write. The C++ equivalent is a
-                // `/api/parameters` POST, which mutates the singleton the next
-                // `LoopManager` iteration reads. Here the `Context` is rebuilt
-                // from the mutated `Config` on the next tick, which is the same
-                // thing one iteration later.
+                // A mid-run configuration write, as `/api/parameters` does it.
+                // The `Context` is rebuilt from the mutated `Config` on the next
+                // tick, so the write is visible one iteration after it lands.
                 if let Err(e) = apply_overrides(&mut self.config, set) {
                     // The scenario parser already validated these keys, so this
                     // cannot fire for a validated scenario. Recorded rather than
@@ -686,8 +669,8 @@ impl Runner {
 
             StimulusKind::Ota { action, path } => match action {
                 OtaAction::Begin => {
-                    // The fix 01 §6 asks for: `safe_hardware_shutdown()` — pump,
-                    // valve and heater — not the C++'s `disable_heater()` only.
+                    // Pump, valve and heater together: an OTA start must not
+                    // leave the heater energised.
                     effects.push(Effect::SafeHardwareShutdown);
                     self.ota_active = true;
                     // A realistic session length, so `ota: end` in a later
@@ -905,11 +888,9 @@ fn apply_overrides(config: &mut Config, set: &BTreeMap<String, Value>) -> Result
         if cc_config::schema::find(key).is_none() {
             return Err(format!("unknown parameter {key:?}"));
         }
-        // The schema nests the same way the C++'s dotted key does
-        // (`ConfigJson::setNested`, `ConfigJson.cpp:83-106`), so the dotted key
-        // *is* the JSON path. Rebuilding the whole `Config` as JSON, patching,
-        // and deserialising is the one implementation that cannot drift from
-        // `cc-config`'s own shape.
+        // The schema nests, so the dotted key *is* the JSON path. Rebuilding the
+        // whole `Config` as JSON, patching, and deserialising is the one
+        // implementation that cannot drift from `cc-config`'s own shape.
         let mut doc = serde_json::to_value(&*config)
             .map_err(|e| format!("cannot serialise the configuration: {e}"))?;
         if !set_path(&mut doc, key, value, 0) {
@@ -1172,8 +1153,8 @@ assert:
         );
     }
 
-    /// The steam valve is closed outside `STEAM_RUNNING` — the S5' whitelist
-    /// the C++ does not have.
+    /// The steam valve is closed in every state but `STEAM_RUNNING` — the S5'
+    /// whitelist.
     #[test]
     fn the_steam_valve_is_closed_outside_steam_running() {
         let obs = run(shipped("steam_on_off")).expect("runs");
@@ -1184,8 +1165,8 @@ assert:
         assert!(obs.states.contains(&"STEAM_RUNNING".to_string()), "{obs:?}");
     }
 
-    /// An OTA session leaves every actuator off for its whole duration — the
-    /// gap 01 §6 records, which the C++ does not satisfy mid-brew.
+    /// An OTA session leaves every actuator off for its whole duration,
+    /// including mid-brew.
     #[test]
     fn an_ota_session_closes_everything() {
         // `ota_start_from_idle` ends with everything off, because nothing was
@@ -1373,8 +1354,8 @@ assert:
     }
 
     /// The momentary power switch reaches standby, and a press inside the
-    /// 5 s settle window is honoured too — because `PowerHandler.h:116-133`
-    /// toggles on the *press*, and the settle window only gates the long-press
+    /// 5 s settle window is honoured too: the press is what toggles, and the
+    /// settle window only gates the long-press
     /// tracking. Pinned because the opposite is easy to assume.
     #[test]
     fn the_power_switch_reaches_standby_from_the_press() {

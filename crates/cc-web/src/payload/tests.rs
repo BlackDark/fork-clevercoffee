@@ -264,8 +264,8 @@ fn the_status_body_reports_an_associated_radio() {
 fn steam_mode_is_the_latched_steam_flag_and_not_the_brew_state() {
     // The defect this pins. The C++'s `steamMode` is
     // `MachineStateContext::steamON_` -- set in
-    // `SteamRunningState::onEntryImpl` (`SteamStates.cpp:16`), cleared in its
-    // `onExitImpl` (`:21`) and in `StandbyState::onEntryImpl`
+    // `SteamRunningState::onEntryImpl`, cleared in its
+    // `onExitImpl` and in `StandbyState::onEntryImpl`
     // (`SystemStates.cpp:17`). This port emitted `"brewing"`
     // -- `state.is_brew_state()`, a *derived* value with no C++ counterpart --
     // under the C++'s name, so a poll answered a steam-mode question with a
@@ -302,7 +302,7 @@ fn steam_mode_is_the_latched_steam_flag_and_not_the_brew_state() {
 #[test]
 fn the_status_steam_mode_agrees_with_the_steam_toggle_response() {
     // `POST /api/steam` answers `{"success":true,"steamMode":<bool>}` from
-    // `Telemetry::steam_mode` (`WebServerManager.cpp:444-475`), and the UI
+    // `Telemetry::steam_mode`, and the UI
     // reads that field (`machine-toggle-result.ts:9`). If `/api/status`
     // reported a different fact under the same name, a poll would contradict
     // the toggle that set it -- which is the class of bug this file already
@@ -352,7 +352,7 @@ fn the_refused_url_route_says_what_is_missing() {
 
 #[test]
 fn the_upload_response_is_the_cpp_shape() {
-    // `sendConfigUploadResponse` (`WebServerManager.cpp:50-62`): three keys,
+    // `sendConfigUploadResponse`: three keys,
     // and `restart` mirrors `success` because the C++ does not reboot
     // itself -- it sets a flag and the browser calls `/api/restart`.
     assert_eq!(

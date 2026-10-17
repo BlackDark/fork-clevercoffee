@@ -76,7 +76,7 @@ fn auth_with_empty_credentials_serves_the_api_open_exactly_as_the_cpp_does() {
 
 #[test]
 fn the_challenge_is_the_cpp_realm() {
-    // `authMiddleware_->setRealm("CleverCoffee")` (`WebServerManager.cpp:286`).
+    // `authMiddleware_->setRealm("CleverCoffee")`.
     // A different realm is a different challenge, and a browser that has
     // cached credentials for one will not send them for the other.
     assert_eq!(WWW_AUTHENTICATE, "Basic realm=\"CleverCoffee\"");

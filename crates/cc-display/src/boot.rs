@@ -1,4 +1,4 @@
-//! The boot screen: `displayLogo` (`DisplayWidgets.h:404-446`).
+//! The boot screen: `displayLogo`.
 //!
 //! # Why this module exists
 //!
@@ -6,7 +6,7 @@
 //! IP". The C++ shows it twice during boot: once with the firmware version
 //! straight after the display is brought up
 //! (`SystemInitializer.cpp:133-135`), and once with the address as soon as the
-//! radio has associated (`:848`). Nothing in the Rust port drew either, so the
+//! radio has associated. Nothing in the Rust port drew either, so the
 //! panel sat on whatever the previous frame left there — on a cold boot, a
 //! cleared panel — for as long as the Wi-Fi took.
 //!

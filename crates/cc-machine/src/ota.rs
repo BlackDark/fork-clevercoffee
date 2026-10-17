@@ -52,7 +52,7 @@
 //!
 //! # What the C++ does, and why this is stricter
 //!
-//! `otaPrepareHardware` (`src/core/SystemInitializer.cpp:57-63`) is:
+//! `otaPrepareHardware` is:
 //!
 //! ```cpp
 //! void otaPrepareHardware() noexcept {

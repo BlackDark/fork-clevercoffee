@@ -82,7 +82,7 @@ impl Frame {
     ///
     /// # Not the C++'s arithmetic, and the difference is up to 0.1 °C
     ///
-    /// `ZACwire::getTemp` (`ZACwire.cpp:62`) uses
+    /// `ZACwire::getTemp` uses
     /// `((temp * 250L >> 8) - 499) / 10.0`, which is the same line written with
     /// an integer shift and an integer subtract. Two consequences:
     ///

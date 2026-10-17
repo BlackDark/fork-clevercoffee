@@ -4,49 +4,47 @@
 //!
 //! # 🔴 This driver has never run against a TSIC-306
 //!
-//! **The probe fitted to the machine this was written on is a DS18B20**
-//! (family `0x28`, ROM `286937aacd78af41`, measured — see [`super::ds18b20`]).
+//! The probe fitted to the machine this was written on is a **DS18B20**
+//! (family `0x28`, ROM `286937aacd78af41`, measured — [`super::ds18b20`]).
 //! There is no TSIC-306, no `ZACwire` waveform, and no second temperature probe.
 //!
-//! Everything in this module is therefore **host-tested against a synthesised
-//! waveform** (`simulator`, built from the app note's own timings), and that
-//! proves the arithmetic, the frame ordering, the parity and the rejection of
-//! damaged frames. It proves **nothing** about a real sensor: its clock
-//! tolerance, its 31.25 µs pulses through a pull-up and a cable, its behaviour
-//! when brownout, and the one thing that actually matters for a heater — what it
+//! Everything here is host-tested against a **synthesised waveform** (`simulator`,
+//! built from the app note's own timings), which proves the arithmetic, frame
+//! ordering, parity and rejection of damaged frames. It proves **nothing** about a
+//! real sensor: clock tolerance, 31.25 µs pulses through a pull-up and a cable,
+//! behaviour on brownout, and the one thing that matters for a heater — what it
 //! does when the supply dips. **A green test run here is not evidence that a
 //! TSIC-306 works.** Anyone fitting one must treat the first reading as
-//! unverified, and [`Device`](crate) is written so that a wrong decode produces
-//! a *rejected reading* rather than a wrong temperature.
+//! unverified; [`Device`](crate) is written so a wrong decode produces a
+//! *rejected reading* rather than a wrong temperature.
 //!
 //! # 🔴 The device side has also never executed
 //!
-//! [`GpioZacwire`](crate) — the GPIO edge capture, the `esp_timer_get_time()`
-//! timestamps and the `hal::task::notification` wake-up — is implemented and is
-//! **not brought up in the firmware build**, because the pin it would capture is
-//! carrying 1-Wire traffic from the DS18B20 that is actually fitted. So there are
-//! two separate gaps and both are open: the pure logic is tested, and the device
-//! path is written but has never run. Neither is evidence about the other.
+//! [`GpioZacwire`](crate) — GPIO edge capture, `esp_timer_get_time()` timestamps
+//! and the `hal::task::notification` wake-up — is implemented and **not brought up
+//! in the firmware build**: the pin it would capture carries 1-Wire traffic from
+//! the DS18B20 that is actually fitted. Two gaps, both open. The pure logic is
+//! tested; the device path is written but has never run. Neither is evidence
+//! about the other.
 //!
 //! # What this replaces
 //!
-//! `TempSensorTSIC` (`src/hardware/tempsensors/TempSensorTSIC.cpp`, deleted
-//! with the C++ tree — `git show 9fa8c834:src/hardware/tempsensors/TempSensorTSIC.cpp`)
-//! over `ZACwire` 2.0.0, which `PlatformIO` fetched and which this repository no
-//! longer vendors.
+//! `TempSensorTSIC` (`src/hardware/tempsensors/TempSensorTSIC.cpp`, deleted with
+//! the C++ tree — `git show 9fa8c834:src/hardware/tempsensors/TempSensorTSIC.cpp`)
+//! over `ZACwire` 2.0.0, which `PlatformIO` fetched and this repository no longer
+//! vendors.
 //!
 //! # The C++'s four safety-relevant behaviours, all ported
 //!
-//! `TempSensorTSIC::sample_temperature` is 40 lines and four of them matter.
+//! `TempSensorTSIC::sample_temperature` is 40 lines; four of them matter.
 //!
 //! ## 1. The two sentinels
 //!
 //! `temp == 222` → `"Temperature reading failed"`; `temp == 221` →
-//! `"Temperature sensor not connected"` (`TempSensorTSIC.cpp:46-54`). Both
-//! return false, so both increment `TempSensor::bad_readings_`
-//! (`TempSensor.h:43-48`) and both can reach `SENSOR_ERROR` after ten.
-//! [`Outcome`] keeps them apart, because 221 means *go and look at the wiring*
-//! and 222 means *this reading is not trustworthy*.
+//! `"Temperature sensor not connected"`. Both return
+//! false, so both increment `TempSensor::bad_readings_` and
+//! both can reach `SENSOR_ERROR` after ten. [`Outcome`] keeps them apart: 221
+//! means *go and look at the wiring*, 222 means *this reading is not trustworthy*.
 //!
 //! ## 2. The hard physical range
 //!
@@ -58,23 +56,22 @@
 //! if (temp <= 0.0 || temp >= 180.0) { ... return false; }
 //! ```
 //!
-//! (`TempSensorTSIC.cpp:56-62`.) **This is the single most important line in the
-//! file.** A TSIC-306 that is brownout for one 100 ms window can decode to a
-//! wild value, and S1's `MIN_VALID_TEMP_C` is 0.0
-//! (`constants/Temperature.h:14`) — so an unfiltered −2.9 °C glitch reaches
-//! `EmergencyStopManager::checkEmergencyConditions` and latches a machine that
-//! is perfectly healthy. The reject converts the glitch into a failed read, the
+//! (`TempSensorTSIC.cpp:56-62`.) **The single most important line in the file.**
+//! A TSIC-306 brownout for one 100 ms window can decode to a wild value, and S1's
+//! `MIN_VALID_TEMP_C` is 0.0 — so an unfiltered
+//! −2.9 °C glitch reaches `EmergencyStopManager::checkEmergencyConditions` and
+//! latches a healthy machine. The reject turns the glitch into a failed read, the
 //! failed read keeps the last good cached value, and the PID never sees it.
 //!
-//! **Preserved verbatim, including the inclusive bounds**, which means a
-//! legitimate 0.00 °C is rejected. [`protocol::ACCEPT_MIN_C`]'s docs say so.
+//! **Bounds preserved verbatim, inclusive**, so a legitimate 0.00 °C is rejected.
+//! [`protocol::ACCEPT_MIN_C`]'s docs say so.
 //!
 //! ## 3. The adaptive max change rate
 //!
 //! `INITIAL_CHANGERATE 200` / `RUNTIME_CHANGERATE 5`
 //! (`TempSensorTSIC.cpp:11-12`), passed to `ZACwire::getTemp(maxChangeRate)`,
 //! which rejects a reading whose gradient exceeds it by returning **222**
-//! (`ZACwire.cpp:59`, `:66`). So a rate violation is a *sentinel*, not a
+//! (`ZACwire.cpp:59`, `:66`). A rate violation is therefore a *sentinel*, not a
 //! separate outcome — which is why [`Outcome::ReadFailed`] covers it.
 //!
 //! ## 4. The latch onto the tighter rate
@@ -86,39 +83,36 @@
 //!     abs(temperature - temp) < RUNTIME_CHANGERATE) { validTemps = true; }
 //! ```
 //!
-//! (`TempSensorTSIC.cpp:29`, `:36-41`.) Two consecutive readings both inside
-//! the accept window and within 5 °C of each other mean the signal has settled,
-//! and from then on the 5 °C/sample limit is the one that rejects a glitch.
+//! (`TempSensorTSIC.cpp:29`, `:36-41`.) Two consecutive readings both inside the
+//! accept window and within 5 °C of each other mean the signal has settled; from
+//! then on the 5 °C/sample limit is the one that rejects a glitch.
 //!
-//! # Two things about the C++ that are recorded rather than copied
+//! # Two things recorded rather than copied
 //!
-//! **The `static` is process-global.** `validTemps` is a function-local `static`
-//! in a `const` member function, so it is shared by every `TempSensorTSIC` in
-//! the process, is never reset, and latching is a once-forever event. A probe
-//! that is unplugged, re-plugged, and warms up does not get to re-latch. This
-//! port makes it per-instance state, so a reconnect starts in the permissive
-//! state — which is the safe direction, since the permissive state is the one
-//! that follows the C++ on a first-ever boot.
+//! **The `static` is process-global.** `validTemps` is a function-local `static` in
+//! a `const` member function, so it is shared by every `TempSensorTSIC` in the
+//! process, is never reset, and latching is a once-forever event: a probe that is
+//! unplugged, re-plugged and warms up never re-latches. This port makes it
+//! per-instance, so a reconnect starts permissive — the safe direction, since
+//! permissive is what the C++ does on a first-ever boot.
 //!
 //! **The units of `maxChangeRate` are not what the constant's name implies.**
 //! `ZACwire::getTemp` computes `int16_t grad = (temp - prevTemp) / (heartbeat|1)`
 //! (`ZACwire.cpp:58`) where `temp` is the **raw 11-bit count**, not degrees, and
-//! its own comment says `//grad is [°C/s]`, which is wrong. So the C++'s two
+//! its own comment says `//grad is [°C/s]`, which is wrong. The C++'s two
 //! constants are really 200 **counts**/sample (≈ 19.5 °C/sample) and 5
-//! **counts**/sample (≈ 0.49 °C/sample) — while `TempSensorTSIC`'s own latch
+//! **counts**/sample (≈ 0.49 °C/sample), while `TempSensorTSIC`'s own latch
 //! condition compares the same `RUNTIME_CHANGERATE` against two **degrees**
 //! (`abs(temperature - temp) < RUNTIME_CHANGERATE`, both `double`s in °C).
 //!
-//! The same number is used in two different units in two adjacent files. This
-//! port applies both in **degrees**, because that is what
-//! [`protocol::INITIAL_CHANGE_RATE_C`] and [`protocol::RUNTIME_CHANGE_RATE_C`]
-//! are documented as (02 §6 calls them "200 °C/sample → 5 °C/sample") and
-//! because the latch condition in the C++ is unambiguously in degrees. The
-//! count-based reading is available by dividing the limits by
-//! `200.0 / 2047.0`; see [`COUNT_SCALE`]. **This is an unresolved ambiguity, not
-//! a decision**, and it is the single thing most likely to be wrong in this
-//! module.
-
+//! One number, two units, two adjacent files. This port applies both in
+//! **degrees**, because that is what [`protocol::INITIAL_CHANGE_RATE_C`] and
+//! [`protocol::RUNTIME_CHANGE_RATE_C`] are documented as (02 §6 calls them
+//! "200 °C/sample → 5 °C/sample") and because the latch condition in the C++ is
+//! unambiguously in degrees. The count-based reading is one multiplication away:
+//! divide the limits by `200.0 / 2047.0`; see [`COUNT_SCALE`]. **This is an
+//! unresolved ambiguity, not a decision**, and it is the thing most likely to be
+//! wrong in this module.
 pub mod decode;
 pub mod protocol;
 pub mod ring;
@@ -155,7 +149,7 @@ pub enum Outcome {
     /// `ZACwire`'s **221**, `errorNotConnected`.
     ///
     /// `TempSensorTSIC.cpp:51-54`, and `ZACwire::connectionCheck`'s heartbeat
-    /// timeout (`ZACwire.cpp:104-113`). A probe that is not transmitting.
+    /// timeout. A probe that is not transmitting.
     NotConnected,
 }
 
@@ -552,7 +546,7 @@ impl<S: EdgeSource> Tsic306<S> {
     /// [`MAX_BAD_READINGS`](super::ds18b20::MAX_BAD_READINGS).
     ///
     /// **The C++'s own counter has the same threshold** — `max_bad_readings_` is
-    /// a private member of the shared `TempSensor` base (`TempSensor.h:177`) —
+    /// a private member of the shared `TempSensor` base —
     /// so it is the same ten for both drivers, which is why the constant lives
     /// with the DS18B20 and is referenced rather than duplicated.
     fn reject(&mut self, outcome: Outcome) -> Outcome {
@@ -911,7 +905,7 @@ mod tests {
     fn the_cold_extreme_is_rejected_and_the_hot_extreme_is_not() {
         // 🔴 A finding about the C++'s range check, measured rather than assumed.
         //
-        // `temp <= 0.0 || temp >= 180.0` (`TempSensorTSIC.cpp:59`). The
+        // `temp <= 0.0 || temp >= 180.0`. The
         // TSIC-306's span is -50..+150 (`T = DS/2047·200 − 50`), so:
         //
         // | bound | reachable? |
@@ -1141,7 +1135,7 @@ mod tests {
     #[test]
     fn the_latch_is_per_instance_not_process_global() {
         // 🔴 DIVERGENCE. `validTemps` is a function-local `static` in a `const`
-        // member function (`TempSensorTSIC.cpp:29`), so it is shared by every
+        // member function, so it is shared by every
         // instance in the process and is never reset. Two consequences the C++
         // has and this port does not: a probe that is unplugged and re-plugged
         // does not get to re-latch, and two TSIC probes would share one flag.
@@ -1176,7 +1170,7 @@ mod tests {
     #[test]
     fn ten_failed_reads_latch_the_error_exactly_like_the_dallas_path() {
         // `TempSensor::max_bad_readings_` is 10 for both drivers: it is a
-        // private member of the shared base (`TempSensor.h:177`).
+        // private member of the shared base.
         let mut d = driver(alloc::vec![wire_for(-2.9)]);
         for _ in 0..ds18b20::MAX_BAD_READINGS {
             d.driver.note_overrun();
@@ -1195,7 +1189,7 @@ mod tests {
 
     #[test]
     fn the_no_signal_timeout_is_longer_than_the_cpps_and_says_why() {
-        // The C++'s is 100 ms (`ZACwire.h:29`) against a 10 Hz sensor, i.e. one
+        // The C++'s is 100 ms against a 10 Hz sensor, i.e. one
         // transmission period with zero margin. This port uses 2.5 periods.
         // These are invariants between two CONSTANTS, so they are asserted at
         // COMPILE time (`const { assert!(..) }`, clippy 1.99's

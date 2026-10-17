@@ -10,12 +10,12 @@
 //!
 //! # The count, and why it is 98
 //!
-//! `Config::getAllConfigParams()` (`src/Config.cpp:438-563`) returns **96**
+//! `Config::getAllConfigParams()` returns **96**
 //! parameters. Two more are defined in `Config.h` and read by
 //! `EmergencyStopManager.cpp:18-19` but are *absent* from that list:
 //!
-//! * `safety.emergency_temp` (`Config.h:813`)
-//! * `safety.emergency_hysteresis` (`Config.h:822`)
+//! * `safety.emergency_temp`
+//! * `safety.emergency_hysteresis`
 //!
 //! Because they are never registered, they are never written to NVS, never
 //! exported, and never imported. They silently reset to their compiled
@@ -71,7 +71,7 @@ pub const MAX_KEY_LEN: usize = 64;
 
 /// The device's default network name.
 ///
-/// The C++ default is `"silvia"` (`include/clevercoffee/defaults.h:14`), which
+/// The C++ default is `"silvia"`, which
 /// is the product's own name. **This is a deliberate divergence**, decided
 /// 2026-09-29: the development device is named for what it is, so that a
 /// hostname on the network is never ambiguous about which firmware is running
@@ -232,10 +232,10 @@ pub struct ParamSpec {
     /// The dotted C++ key, e.g. `"pid.regular.kp"`.
     pub key: &'static str,
     /// The operator-facing help text, transcribed verbatim from the C++'s
-    /// `helpText_` constructor argument (`Config.h:69`, `:536`, `:661`).
+    /// `helpText_` constructor argument.
     ///
     /// This is the whole of `GET /api/parameter-help`: the C++ answers with
-    /// `paramDef->getHelpText()` (`WebServerManager.cpp:598-599`) and nothing
+    /// `paramDef->getHelpText()` and nothing
     /// else, so this field *is* that route's body. It was missing here until
     /// finding 3.4 of
     /// [`32-findings-2026-10-03.md`](../../../docs/history/review-2026-10-03.md)
@@ -253,7 +253,7 @@ pub struct ParamSpec {
     pub max: Option<f64>,
     /// Read this key's current value out of a [`Config`].
     ///
-    /// The read half of the C++'s `toJson` (`Config.h:215-238`), which writes
+    /// The read half of the C++'s `toJson`, which writes
     /// `obj["value"] = currentValue_` — the *stored* value, not the default.
     ///
     /// Higher-ranked in the config's lifetime rather than a bare
@@ -266,7 +266,7 @@ pub struct ParamSpec {
     pub get: for<'a> fn(&'a Config) -> LiveValue<'a>,
     /// Write a value into this parameter's field. `false` = not applicable.
     ///
-    /// The write half of the C++'s `fromString` (`Config.h:242-262`) without
+    /// The write half of the C++'s `fromString` without
     /// the parsing and without the NVS write, which moved to
     /// [`crate::BlobConfigStore::save`]. `false` covers a value of the wrong
     /// [`ParamKind`] and — for an enumeration — a discriminant that names no
@@ -316,7 +316,7 @@ impl ParamSpec {
 
     /// Whether `value` is acceptable for this parameter.
     ///
-    /// Port of `ParamDef::isValid` (`Config.h:190-200`): booleans and strings
+    /// Port of `ParamDef::isValid`: booleans and strings
     /// are always valid, everything else is range-checked with `>=` and `<=`.
     /// Enumerations are additionally checked against their option list in the
     /// C++ (`EnumParamDef::isValid`, `Config.h:379-388`); here an out-of-range
@@ -1294,7 +1294,7 @@ pub const SCHEMA: &[ParamSpec] = &[
         "hardware.switches.brew.enabled",
         "Enable physical brew switch",
         ParamKind::Bool,
-        // `true`, not the C++'s `false` (`Config.h:985`) — see
+        // `true`, not the C++'s `false` — see
         // `HardwareSwitchesBrew::enabled` and intentional-diffs.md.
         ParamValue::Bool(true),
         None,

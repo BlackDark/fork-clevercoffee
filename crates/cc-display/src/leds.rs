@@ -78,7 +78,7 @@ pub struct LedOutput {
 }
 
 impl LedOutput {
-    /// The C++ `LoopManager::updateLEDs` (`LoopManager.cpp:255-286`), as a pure
+    /// The C++ `LoopManager::updateLEDs`, as a pure
     /// function of the machine state and the process temperature.
     ///
     /// `blinking_delta` is `config.display.blinking.delta`, read through
@@ -140,7 +140,7 @@ fn status_led_should_light(input: &DisplayInput, blinking_delta: f64) -> bool {
 /// The brew LED's gate.
 ///
 /// `isBrewState(machineState)` first, and only if that is false the C++ consults
-/// the blink phase (`LoopManager.cpp:270-278`):
+/// the blink phase:
 ///
 /// ```cpp
 /// bool brewLedOn = isBrewState(machineState);
@@ -176,7 +176,7 @@ fn brew_led_should_light(input: &DisplayInput) -> bool {
 mod tests {
     use super::*;
 
-    /// The C++'s default `display.blinking.delta` (`defaults.h:109`), and the
+    /// The C++'s default `display.blinking.delta`, and the
     /// value every test that is not *about* the tolerance uses. Naming it keeps
     /// each case from repeating a literal that is a configuration default, not a
     /// parameter of the rule.
@@ -206,7 +206,7 @@ mod tests {
     #[test]
     fn the_status_led_goes_dark_in_every_state_after_backflush_finished() {
         // `state <= BACKFLUSH_FINISHED` is the whole of the eligibility rule, so
-        // this list is exactly the C++'s excluded half (`LoopManager.cpp:262`).
+        // this list is exactly the C++'s excluded half.
         for state in [
             MachineState::WaterTankEmpty,
             MachineState::EmergencyStop,

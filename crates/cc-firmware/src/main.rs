@@ -3,46 +3,44 @@
 //!
 //! # What this binary is (and is not)
 //!
-//! This is the **R1-01 feasibility spike** extended by **R1-07**, not the
-//! firmware. Its jobs are to prove that the toolchain builds, links, boots and
-//! runs on this host for `xtensa-esp32-espidf`, to make the first image-size
-//! measurement (07 §5), and — from R1-07 — to bring up the heater output behind a
-//! deadman gate that no code in this binary can open.
+//! The **R1-01 feasibility spike** extended by **R1-07**, not the firmware.
+//! Proves the toolchain builds, links, boots and runs on this host for
+//! `xtensa-esp32-espidf`; takes the first image-size measurement (07 §5); and —
+//! from R1-07 — brings up the heater output behind a deadman gate no code in
+//! this binary can open.
 //!
-//! What it does, in order:
+//! In order:
 //!
 //! 1. Initialise ESP-IDF and route `log` to UART0 at 115200 baud — the same
 //!    stream and baud rate the C++ firmware uses.
 //! 2. Configure the pump and water-valve pins — GPIO17 and GPIO27
 //!    (`include/clevercoffee/hardware/pinmapping.h:39-40`) — as outputs and
 //!    drive them **inactive**.
-//! 3. **Drive GPIO2 — the heater — inactive and read it back as a pin.** The
-//!    heater is chopped by a 10 ms `GPTimer` ISR ([`cc_hal_esp32::heater::TimerIsrPwm`]),
-//!    which is what the C++ did (`isr.h:85-118`); the ISR is built disarmed, so
-//!    the pin does not move until the deadman gate is beaten.
-//! 4. **Read every actuator pin back and assert it is inactive.** This is the
-//!    startup assertion of 04 §4 / R3-16 in its smallest possible form, done
-//!    before anything else exists so a failure is unambiguous. For the heater this
-//!    happens at the one moment it can be a pin readback at all: the ISR takes the
-//!    pin immediately afterwards.
+//! 3. **Drive GPIO2 — the heater — inactive and read it back as a pin.** Chopped
+//!    by a 10 ms `GPTimer` ISR ([`cc_hal_esp32::heater::TimerIsrPwm`]), as in the
+//!    C++ (`isr.h:85-118`); the ISR is built disarmed, so the pin does not move
+//!    until the deadman gate is beaten.
+//! 4. **Read every actuator pin back and assert it is inactive.** 04 §4 / R3-16's
+//!    startup assertion in its smallest form, before anything else exists so a
+//!    failure is unambiguous. For the heater this is the one moment it can be a
+//!    pin readback at all: the ISR takes the pin immediately afterwards.
 //! 5. Move a `TWDTDriver` into a control task and feed it from there, so the
 //!    watchdog subscriber is the control task and nothing else (04 §2, §3.4 —
-//!    the same shape the recovered oracle used, 08 §3).
-//! 6. Log a heartbeat every second — which is also the **supervisor heartbeat the
-//!    heater's deadman consumes**, so the gate opens once the control task is
-//!    provably alive and shuts again if it stops.
+//!    the shape the recovered oracle used, 08 §3).
+//! 6. Log a heartbeat every second — also the **supervisor heartbeat the heater's
+//!    deadman consumes**, so the gate opens once the control task is provably
+//!    alive and shuts again if it stops.
 //!
 //! # ⚠ Safety note about driving these three pins
 //!
-//! `inactive` is asserted as `Level::Low`, which is correct for the
-//! `HIGH_TRIGGER` relays that are this board's default
-//! (`hardware.relays.*.trigger_type`, default `HIGH_TRIGGER`; the oracle's boot
-//! log says "active high", 08 §3). If this board were wired `LOW_TRIGGER`, `Low`
-//! would **energise** the heater, the pump and the valve. The oracle refused
-//! `LOW_TRIGGER` heater configurations outright for exactly that reason
-//! (08 §4.1), and R2-06/R3-03 must reproduce that refusal. R0-01 has not yet
-//! confirmed the relay board's trigger polarity in the field, so this is the one
-//! thing to check before the boiler is ever energised.
+//! `inactive` is asserted as `Level::Low`, correct for the `HIGH_TRIGGER` relays
+//! that are this board's default (`hardware.relays.*.trigger_type`, default
+//! `HIGH_TRIGGER`; the oracle's boot log says "active high", 08 §3). On a
+//! `LOW_TRIGGER` board `Low` would **energise** the heater, the pump and the
+//! valve. The oracle refused `LOW_TRIGGER` heater configurations outright for
+//! exactly that reason (08 §4.1), and R2-06/R3-03 must reproduce that refusal.
+//! R0-01 has not confirmed the relay board's trigger polarity in the field, so
+//! this is the one thing to check before the boiler is ever energised.
 //!
 //! # ⚠ The heater output has never been energised
 //!
@@ -53,9 +51,8 @@
 //! with a scope) is **not** done: see the module docs of `cc-hal-esp32::heater`
 //! and `docs/history/divergences.md` #5.
 //!
-//! There is deliberately **no** control loop, no state machine and no sensor
-//! here. Those arrive at R2-08 and R3-xx.
-
+//! No control loop, no state machine and no sensor here. Those arrive at R2-08
+//! and R3-xx.
 mod config_io;
 mod control;
 mod display_task;
@@ -106,13 +103,12 @@ use log::{debug, error, info, warn};
 
 type EspError = esp_idf_svc::sys::EspError;
 
-/// The level that means "actuator de-energised" for a `HIGH_TRIGGER` relay.
-/// The level that de-energises a `HIGH_TRIGGER` relay — the level the bring-up
+/// The level that de-energises a `HIGH_TRIGGER` relay — what the bring-up
 /// sequence drives each actuator pin to before anything reads it back.
 ///
-/// **Why it is a constant and not the configuration:** a `LOW_TRIGGER` relay
-/// energises whenever its pin *floats*, which is before this firmware runs, so
-/// driving such a pin low to "de-energise" it would in fact **energise** it.
+/// **Why a constant and not the configuration:** a `LOW_TRIGGER` relay energises
+/// whenever its pin *floats*, which is before this firmware runs, so driving
+/// such a pin low to "de-energise" it would **energise** it.
 /// `cc_safety::validate_config` refuses `LOW_TRIGGER` for every relay for
 /// exactly that reason, which means a stored configuration carrying one is
 /// discarded at boot and the defaults — high-trigger — are what run here. The

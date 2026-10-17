@@ -28,7 +28,7 @@ use crate::effect::{Effect, Effects};
 use crate::machine::Machine;
 use crate::timing;
 
-/// `MachineStateContext::getPidState()` (`MachineStateContext.cpp:313-315`).
+/// `MachineStateContext::getPidState()`.
 ///
 /// ```cpp
 /// return isPidConfigEnabled() ? PID_NORMAL : PID_DISABLED;
@@ -49,7 +49,7 @@ pub fn pid_state(ctx: &Context<'_>) -> MachineState {
     }
 }
 
-/// `BaseState::checkBrewStopRequest` (`BaseState.h:103-111`).
+/// `BaseState::checkBrewStopRequest`.
 ///
 /// ```cpp
 /// std::optional<MachineStateId> checkBrewStopRequest(MachineStateContext& context) {
@@ -75,7 +75,7 @@ fn check_brew_stop_request(machine: &mut Machine, ctx: &Context<'_>) -> Option<M
     Some(pid_state(ctx))
 }
 
-/// `checkBackflushModeDisabled` (`BackflushStates.cpp:18-28`).
+/// `checkBackflushModeDisabled`.
 ///
 /// ```cpp
 /// if (context.isBackflushModeActive()) return std::nullopt;
@@ -126,16 +126,16 @@ fn check_backflush_mode_disabled(machine: &mut Machine, ctx: &Context<'_>) -> Op
 pub fn on_entry(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -> Effects {
     let mut fx = Effects::new();
     match state {
-        // `InitState::onEntryImpl` (`InitState.cpp:12-14`) logs only.
+        // `InitState::onEntryImpl` logs only.
         MachineState::Init => {}
 
-        // `PidNormalState::onEntryImpl` (`PidStates.cpp:16-19`): "Don't reset
+        // `PidNormalState::onEntryImpl`: "Don't reset
         // standby timer on entry - only reset on user activity". Deliberately
         // does not re-arm the countdown, so time spent in a brew counts toward
         // standby.
         MachineState::PidNormal => {}
 
-        // `PidDisabledState::onEntryImpl` (`PidStates.cpp:112-120`).
+        // `PidDisabledState::onEntryImpl`.
         MachineState::PidDisabled => {
             machine.pid.runtime_enabled = false;
             fx.push(Effect::SetPidRuntime { enabled: false });
@@ -146,18 +146,18 @@ pub fn on_entry(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -
             drain_action_requests(machine, &mut fx);
         }
 
-        // `BrewPreinfusionState::onEntryImpl` (`BrewStates.cpp:67-79`).
+        // `BrewPreinfusionState::onEntryImpl`.
         MachineState::BrewPreinfusion => {
             fx.push(Effect::EnablePump);
             fx.push(Effect::OpenWaterValve);
             machine.brew.elapsed_ms = 0.0;
-            // `initTotalTargetBrewTime` (`BrewStates.cpp:53-62`): the target is
+            // `initTotalTargetBrewTime`: the target is
             // set from the very start so the display shows "0s/30s" rather than
             // "0s" and then jumping.
             machine.brew.target_ms = ctx.total_target_brew_ms();
         }
 
-        // `BrewPreinfusionPauseState::onEntryImpl` (`BrewStates.cpp:152-162`).
+        // `BrewPreinfusionPauseState::onEntryImpl`.
         MachineState::BrewPreinfusionPause => {
             // Pump off, **valve deliberately open** to hold puck pressure.
             fx.push(Effect::DisablePump);
@@ -165,7 +165,7 @@ pub fn on_entry(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -
             machine.brew.elapsed_ms = preinfusion_ms(ctx);
         }
 
-        // `BrewRunningState::onEntryImpl` (`BrewStates.cpp:218-235`).
+        // `BrewRunningState::onEntryImpl`.
         MachineState::BrewRunning => {
             fx.push(Effect::EnablePump);
             fx.push(Effect::OpenWaterValve);
@@ -180,7 +180,7 @@ pub fn on_entry(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -
             machine.brew.target_ms = ctx.total_target_brew_ms();
         }
 
-        // `BrewFinishedState::onEntryImpl` (`BrewStates.cpp:306-312`).
+        // `BrewFinishedState::onEntryImpl`.
         MachineState::BrewFinished => {
             // The C++ makes one call here —
             // `maintenanceCoordinator().recordBrewIfQualified(processCurrentBrewTime(), getCurrentBrewWeight(), hardwareSensorsScaleEnabled.get())`
@@ -204,38 +204,38 @@ pub fn on_entry(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -
             fx.push(Effect::RecordBrew { counted });
         }
 
-        // `ManualFlushRunningState::onEntryImpl` (`SystemStates.cpp:58-63`).
+        // `ManualFlushRunningState::onEntryImpl`.
         MachineState::ManualFlushRunning => {
             fx.push(Effect::EnablePump);
             fx.push(Effect::OpenWaterValve);
         }
 
-        // `SteamRunningState::onEntryImpl` (`SteamStates.cpp:14-17`).
+        // `SteamRunningState::onEntryImpl`.
         MachineState::SteamRunning => {
             machine.steam_mode = true;
             machine.steam_first_on = true;
             fx.push(Effect::SetSteamMode { enabled: true });
         }
 
-        // `BackflushState::onEntryImpl` (`BackflushStates.cpp:33-36`).
+        // `BackflushState::onEntryImpl`.
         MachineState::BackflushIdle => {
             fx.push(Effect::DisablePump);
             fx.push(Effect::CloseWaterValve);
         }
 
-        // `BackflushFillingState::onEntryImpl` (`BackflushStates.cpp:61-65`).
+        // `BackflushFillingState::onEntryImpl`.
         MachineState::BackflushFilling => {
             fx.push(Effect::EnablePump);
             fx.push(Effect::OpenWaterValve);
         }
 
-        // `BackflushFlushingState::onEntryImpl` (`BackflushStates.cpp:97-101`).
+        // `BackflushFlushingState::onEntryImpl`.
         MachineState::BackflushFlushing => {
             fx.push(Effect::DisablePump);
             fx.push(Effect::CloseWaterValve);
         }
 
-        // `BackflushFinishedState::onEntryImpl` (`BackflushStates.cpp:142-146`).
+        // `BackflushFinishedState::onEntryImpl`.
         MachineState::BackflushFinished => {
             fx.push(Effect::DisablePump);
             fx.push(Effect::CloseWaterValve);
@@ -243,12 +243,12 @@ pub fn on_entry(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -
             fx.push(Effect::ResetShotsSinceBackflush);
         }
 
-        // `WaterTankEmptyState::onEntryImpl` (`ErrorStates.cpp:58-60`): a log
+        // `WaterTankEmptyState::onEntryImpl`: a log
         // line. No hardware, deliberately — see the note in this module's docs
         // about `keep_heater_on_empty`.
         MachineState::WaterTankEmpty => {}
 
-        // `EmergencyStopState::onEntryImpl` (`EmergencyStopState.cpp:15-17`).
+        // `EmergencyStopState::onEntryImpl`.
         MachineState::EmergencyStop => {
             // 🔴 Drained on entry and on every tick; see the tick arm and §36.
             fx.push(Effect::EmergencyShutdown);
@@ -257,7 +257,7 @@ pub fn on_entry(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -
             drain_action_requests(machine, &mut fx);
         }
 
-        // `StandbyState::onEntryImpl` (`SystemStates.cpp:14-25`).
+        // `StandbyState::onEntryImpl`.
         MachineState::Standby => {
             machine.steam_mode = false;
             machine.steam_first_on = false;
@@ -272,7 +272,7 @@ pub fn on_entry(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -
             fx.push(Effect::ClearStaleStopRequests);
         }
 
-        // `SensorErrorState::onEntryImpl` (`ErrorStates.cpp:13-17`).
+        // `SensorErrorState::onEntryImpl`.
         MachineState::SensorError => {
             // `errorStartTime_ = millis()`; entry is the only writer. It
             // also drains, which the C++ does not: `AG-REPO-24` names the error
@@ -283,7 +283,7 @@ pub fn on_entry(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -
             machine.error_since = Some(machine.now);
         }
 
-        // `EepromErrorState::onEntryImpl` (`ErrorStates.cpp:94-100`).
+        // `EepromErrorState::onEntryImpl`.
         MachineState::EepromError => {
             // As `SensorError`. See §37.
             drain_action_requests(machine, &mut fx);
@@ -311,10 +311,10 @@ pub fn on_entry(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -
 pub fn on_exit(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -> Effects {
     let mut fx = Effects::new();
     match state {
-        // No `onExitImpl` (`InitState.h:16-21`).
+        // No `onExitImpl`.
         MachineState::Init => {}
 
-        // `PidNormalState::onExitImpl` (`PidStates.cpp:21-25`).
+        // `PidNormalState::onExitImpl`.
         //
         // Pump only, no valve: `PID_NORMAL` never opens the water valve itself,
         // but `PidNormalState::update` runs the pump for hot-water dispensing
@@ -326,7 +326,7 @@ pub fn on_exit(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) ->
         // No `onExitImpl` (`PidStates.h`).
         MachineState::PidDisabled => {}
 
-        // `BrewPreinfusionState::onExitImpl` (`BrewStates.cpp:81-86`).
+        // `BrewPreinfusionState::onExitImpl`.
         //
         // "Pump off only — valve stays open to hold puck pressure through
         // pause/running. Valve closure happens in BREW_RUNNING::onExitImpl or
@@ -341,30 +341,30 @@ pub fn on_exit(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) ->
             fx.push(Effect::DisablePump);
         }
 
-        // `BrewPreinfusionPauseState::onExitImpl` (`BrewStates.cpp:164-169`).
+        // `BrewPreinfusionPauseState::onExitImpl`.
         MachineState::BrewPreinfusionPause => {
             fx.push(Effect::DisablePump);
         }
 
-        // `BrewRunningState::onExitImpl` (`BrewStates.cpp:237-242`).
+        // `BrewRunningState::onExitImpl`.
         MachineState::BrewRunning => {
             fx.push(Effect::DisablePump);
             fx.push(Effect::CloseWaterValve);
         }
 
-        // `BrewFinishedState::onExitImpl` (`BrewStates.cpp:314-319`).
+        // `BrewFinishedState::onExitImpl`.
         MachineState::BrewFinished => {
             fx.push(Effect::DisablePump);
             fx.push(Effect::CloseWaterValve);
         }
 
-        // `ManualFlushRunningState::onExitImpl` (`SystemStates.cpp:65-70`).
+        // `ManualFlushRunningState::onExitImpl`.
         MachineState::ManualFlushRunning => {
             fx.push(Effect::DisablePump);
             fx.push(Effect::CloseWaterValve);
         }
 
-        // `SteamRunningState::onExitImpl` (`SteamStates.cpp:19-25`).
+        // `SteamRunningState::onExitImpl`.
         MachineState::SteamRunning => {
             machine.steam_mode = false;
             machine.steam_first_on = false;
@@ -375,28 +375,28 @@ pub fn on_exit(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) ->
             fx.push(Effect::DisablePump);
         }
 
-        // No `onExitImpl` — `BackflushState` has none (`BackflushStates.h:9-14`).
+        // No `onExitImpl` — `BackflushState` has none.
         MachineState::BackflushIdle => {}
 
-        // `BackflushFillingState::onExitImpl` (`BackflushStates.cpp:67-69`).
+        // `BackflushFillingState::onExitImpl`.
         MachineState::BackflushFilling => {
             fx.push(Effect::DisablePump);
             fx.push(Effect::CloseWaterValve);
         }
 
-        // `BackflushFlushingState::onExitImpl` (`BackflushStates.cpp:102-104`).
+        // `BackflushFlushingState::onExitImpl`.
         MachineState::BackflushFlushing => {
             fx.push(Effect::DisablePump);
             fx.push(Effect::CloseWaterValve);
         }
 
-        // No `onExitImpl` (`BackflushStates.h:30-35`).
+        // No `onExitImpl`.
         MachineState::BackflushFinished => {}
 
-        // No `onExitImpl` (`ErrorStates.h:22-28`).
+        // No `onExitImpl`.
         MachineState::WaterTankEmpty => {}
 
-        // `EmergencyStopState::onExitImpl` (`EmergencyStopState.cpp:24-31`).
+        // `EmergencyStopState::onExitImpl`.
         MachineState::EmergencyStop => {
             // "Emergency entry forced runtime PID off (performEmergencyShutdown).
             // Restore it from config so recovery resumes heating instead of
@@ -406,7 +406,7 @@ pub fn on_exit(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) ->
             fx.push(Effect::SetPidRuntime { enabled });
         }
 
-        // `StandbyState::onExitImpl` (`SystemStates.cpp:27-34`).
+        // `StandbyState::onExitImpl`.
         MachineState::Standby => {
             // `exitStandbyMode()`'s only real effect: display power save off.
             fx.push(Effect::WakeDisplay);
@@ -415,12 +415,12 @@ pub fn on_exit(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) ->
             fx.push(Effect::SetPidRuntime { enabled });
         }
 
-        // `SensorErrorState::onExitImpl` (`ErrorStates.cpp:19-22`).
+        // `SensorErrorState::onExitImpl`.
         MachineState::SensorError => {
             machine.error_since = None;
         }
 
-        // `EepromErrorState::onExitImpl` (`ErrorStates.cpp:102-105`).
+        // `EepromErrorState::onExitImpl`.
         MachineState::EepromError => {
             machine.error_since = None;
         }
@@ -447,10 +447,10 @@ pub fn on_exit(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) ->
 pub fn update(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -> Effects {
     let mut fx = Effects::new();
     match state {
-        // `InitState::update` (`InitState.cpp:16-22`): a debug log.
+        // `InitState::update`: a debug log.
         MachineState::Init => {}
 
-        // `PidNormalState::update` (`PidStates.cpp:27-44`).
+        // `PidNormalState::update`.
         //
         // Hot-water dispensing has no state of its own: the water switch drives
         // the pump directly while the machine is in PID_NORMAL. The comment in
@@ -463,7 +463,7 @@ pub fn update(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -> 
             }
         }
 
-        // `PidDisabledState::update` (`PidStates.cpp:122-133`).
+        // `PidDisabledState::update`.
         //
         // "Only drain stale action flags if PID remains disabled. If PID was
         // just re-enabled, skip draining so PID_NORMAL can process pending
@@ -476,21 +476,21 @@ pub fn update(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -> 
             }
         }
 
-        // `BrewPreinfusionState::update` (`BrewStates.cpp:88-104`).
+        // `BrewPreinfusionState::update`.
         MachineState::BrewPreinfusion => {
             fx.push(Effect::EnablePump);
             fx.push(Effect::OpenWaterValve);
             machine.brew.elapsed_ms = f64::from(machine.state_elapsed_ms());
         }
 
-        // `BrewPreinfusionPauseState::update` (`BrewStates.cpp:171-189`).
+        // `BrewPreinfusionPauseState::update`.
         MachineState::BrewPreinfusionPause => {
             fx.push(Effect::DisablePump);
             fx.push(Effect::OpenWaterValve);
             machine.brew.elapsed_ms = preinfusion_ms(ctx) + f64::from(machine.state_elapsed_ms());
         }
 
-        // `BrewRunningState::update` (`BrewStates.cpp:244-266`).
+        // `BrewRunningState::update`.
         MachineState::BrewRunning => {
             fx.push(Effect::EnablePump);
             fx.push(Effect::OpenWaterValve);
@@ -502,16 +502,16 @@ pub fn update(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -> 
             machine.brew.elapsed_ms = base + f64::from(machine.state_elapsed_ms());
         }
 
-        // `BrewFinishedState::update` (`BrewStates.cpp:321-326`): a log.
+        // `BrewFinishedState::update`: a log.
         MachineState::BrewFinished => {}
 
-        // `ManualFlushRunningState::update` (`SystemStates.cpp:72-81`).
+        // `ManualFlushRunningState::update`.
         MachineState::ManualFlushRunning => {
             fx.push(Effect::EnablePump);
             fx.push(Effect::OpenWaterValve);
         }
 
-        // `SteamRunningState::update` (`SteamStates.cpp:27-47`).
+        // `SteamRunningState::update`.
         //
         // The same water switch, repurposed: in STEAM_RUNNING it injects water
         // into the boiler. `test_steam_water_injection` is the oracle.
@@ -523,34 +523,34 @@ pub fn update(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -> 
             }
         }
 
-        // `BackflushState::update` (`BackflushStates.cpp:38-40`): a log.
+        // `BackflushState::update`: a log.
         MachineState::BackflushIdle => {}
 
-        // The C++ only logs (`BackflushStates.cpp:71-76`).
+        // The C++ only logs.
         MachineState::BackflushFilling => {
             fx.push(Effect::EnablePump);
             fx.push(Effect::OpenWaterValve);
         }
 
-        // The C++ only logs (`BackflushStates.cpp:106-111`).
+        // The C++ only logs.
         MachineState::BackflushFlushing => {
             fx.push(Effect::DisablePump);
             fx.push(Effect::CloseWaterValve);
         }
 
-        // `BackflushFinishedState::update` (`BackflushStates.cpp:148-150`): a
+        // `BackflushFinishedState::update`: a
         // log.
         MachineState::BackflushFinished => {}
 
-        // `WaterTankEmptyState::update` (`ErrorStates.cpp:62-67`): a log.
+        // `WaterTankEmptyState::update`: a log.
         //
         // No heater release, deliberately: with
         // `hardware.sensors.watertank.keep_heater_on_empty` the heater is
         // *supposed* to keep running, which is why this state's standby timeout
-        // has to keep working (`ErrorStates.cpp:83-85`).
+        // has to keep working.
         MachineState::WaterTankEmpty => {}
 
-        // `EmergencyStopState::update` (`EmergencyStopState.cpp:33-39`).
+        // `EmergencyStopState::update`.
         //
         // Re-runs the full emergency shutdown **every loop**, not just on
         // entry. This is S2's enforcement: the latch lives in the actuator
@@ -601,15 +601,15 @@ pub fn update(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -> 
             fx.push(Effect::ClearActionRequests);
         }
 
-        // `StandbyState::update` (`SystemStates.cpp:36-41`): a log. The heater
+        // `StandbyState::update`: a log. The heater
         // is off because the PID gate (`should_pid_be_enabled`) excludes
         // STANDBY, not because anything switches it off here.
         MachineState::Standby => {}
 
-        // `SensorErrorState::update` (`ErrorStates.cpp:24-30`): a log.
+        // `SensorErrorState::update`: a log.
         MachineState::SensorError => {}
 
-        // `EepromErrorState::update` (`ErrorStates.cpp:107-109`): a log.
+        // `EepromErrorState::update`: a log.
         MachineState::EepromError => {}
     }
 
@@ -621,7 +621,7 @@ pub fn update(state: MachineState, machine: &mut Machine, ctx: &Context<'_>) -> 
 ///
 /// Reached only when no global guard fired — see
 /// [`crate::guards::global_guard`]. In the C++ the same ordering lives in
-/// `BaseState::checkTransitions` (`BaseState.h:137-174`), which returns the
+/// `BaseState::checkTransitions`, which returns the
 /// guard's answer before delegating here.
 ///
 /// The return type is `Option<MachineState>`: `None` means "stay put", which is
@@ -641,7 +641,7 @@ pub fn check_specific(
     ctx: &Context<'_>,
 ) -> Option<MachineState> {
     match state {
-        // `InitState::checkSpecificTransitions` (`InitState.cpp:24-32`).
+        // `InitState::checkSpecificTransitions`.
         MachineState::Init => {
             // Note `checkPidConfig` returns `isPidRuntimeEnabled()`
             // (`InitState.cpp:45-47`) — the *runtime* flag, not the config
@@ -655,7 +655,7 @@ pub fn check_specific(
             })
         }
 
-        // `PidNormalState::checkSpecificTransitions` (`PidStates.cpp:46-97`).
+        // `PidNormalState::checkSpecificTransitions`.
         MachineState::PidNormal => {
             // "CRITICAL: Check if PID was disabled while in this state". The
             // global guard excludes PID_NORMAL, so this is the *only* place the
@@ -700,7 +700,7 @@ pub fn check_specific(
             None
         }
 
-        // `PidDisabledState::checkSpecificTransitions` (`PidStates.cpp:135-147`),
+        // `PidDisabledState::checkSpecificTransitions`,
         // **plus one deliberate divergence**.
         MachineState::PidDisabled => {
             if machine.is_pid_runtime_enabled() {
@@ -779,7 +779,7 @@ pub fn check_specific(
             None
         }
 
-        // `BrewRunningState::checkSpecificTransitions` (`BrewStates.cpp:268-304`).
+        // `BrewRunningState::checkSpecificTransitions`.
         MachineState::BrewRunning => {
             // Note: brew stop goes to BREW_FINISHED here, not to the PID state.
             // The other brew states use `checkBrewStopRequest` (→ PID state);
@@ -816,7 +816,7 @@ pub fn check_specific(
             None
         }
 
-        // `BrewFinishedState::checkSpecificTransitions` (`BrewStates.cpp:328-345`).
+        // `BrewFinishedState::checkSpecificTransitions`.
         MachineState::BrewFinished => {
             if machine.requests.brew_start {
                 machine.requests.brew_start = false;
@@ -831,7 +831,7 @@ pub fn check_specific(
             None
         }
 
-        // `SteamRunningState::checkSpecificTransitions` (`SteamStates.cpp:49-60`).
+        // `SteamRunningState::checkSpecificTransitions`.
         MachineState::SteamRunning => {
             if machine.requests.steam_stop {
                 machine.requests.steam_stop = false;
@@ -859,7 +859,7 @@ pub fn check_specific(
             None
         }
 
-        // `BackflushState::checkSpecificTransitions` (`BackflushStates.cpp:42-59`).
+        // `BackflushState::checkSpecificTransitions`.
         MachineState::BackflushIdle => {
             if let Some(target) = check_backflush_mode_disabled(machine, ctx) {
                 return Some(target);
@@ -942,9 +942,9 @@ pub fn check_specific(
         //
         // `ErrorStates.cpp:70-74` starts with `if (context.isEmergencyStop())
         // return EMERGENCY_STOP;`, but `BaseState::checkTransitions` tests
-        // emergency **first** and with no exclusion (`BaseState.h:139-142`), so
+        // emergency **first** and with no exclusion, so
         // an emergency can never reach this function. Same for
-        // `EepromErrorState` (`ErrorStates.cpp:112-115`). Preserved by
+        // `EepromErrorState`. Preserved by
         // *omitting* it: the reachable behaviour is identical, and an
         // unreachable arm is one more thing to keep correct.
         MachineState::WaterTankEmpty => {
@@ -965,12 +965,12 @@ pub fn check_specific(
             None
         }
 
-        // `SensorErrorState::checkSpecificTransitions` (`ErrorStates.cpp:32-56`).
+        // `SensorErrorState::checkSpecificTransitions`.
         MachineState::SensorError => {
             let error_duration = error_duration_ms(machine);
             if !machine.has_sensor_error() && !machine.sensors.has_temperature_error {
                 // "Error resolved - wait for recovery delay before resuming".
-                // Strictly `>`, not `>=` (`ErrorStates.cpp:43`).
+                // Strictly `>`, not `>=`.
                 if error_duration > timing::ERROR_RECOVERY_DELAY_MS {
                     return Some(pid_state(ctx));
                 }
@@ -986,7 +986,7 @@ pub fn check_specific(
             None
         }
 
-        // `EepromErrorState::checkSpecificTransitions` (`ErrorStates.cpp:111-125`).
+        // `EepromErrorState::checkSpecificTransitions`.
         MachineState::EepromError => {
             let error_duration = error_duration_ms(machine);
             // "EEPROM recovery timeout - attempting recovery".
@@ -1011,7 +1011,7 @@ pub fn check_specific(
             None
         }
 
-        // `StandbyState::checkSpecificTransitions` (`SystemStates.cpp:43-56`).
+        // `StandbyState::checkSpecificTransitions`.
         MachineState::Standby => {
             if machine.requests.normal_operation {
                 machine.requests.normal_operation = false;
@@ -1042,12 +1042,12 @@ fn wake_from_standby(machine: &mut Machine, ctx: &Context<'_>) -> MachineState {
     pid_state(ctx)
 }
 
-/// `EmergencyStopState::isEmergencyCleared` (`EmergencyStopState.cpp:54-75`),
+/// `EmergencyStopState::isEmergencyCleared`,
 /// reduced to what is reachable.
 ///
 /// The C++ has two branches: with a `ProcessController` wired in it calls
 /// `processController->isEmergencyCleared(temp)`, which is
-/// `EmergencyStopManager::isEmergencyCleared` (`EmergencyStopManager.cpp:71-90`):
+/// `EmergencyStopManager::isEmergencyCleared`:
 /// invalid reading → false; `> 100.0 °C` → false; otherwise true. Without one it
 /// falls back to the same `EMERGENCY_SAFE_TEMP_C` comparison
 /// (`EmergencyStopState.cpp:66-70`).
@@ -1082,8 +1082,8 @@ fn error_duration_ms(machine: &Machine) -> u32 {
     }
 }
 
-/// `context.initializeStandbyTimerIfNeeded()` (`MachineStateContext.cpp:207-210`)
-/// → `StandbyCoordinator::initializeIfNeeded()` (`StandbyCoordinator.h:140-148`).
+/// `context.initializeStandbyTimerIfNeeded()`
+/// → `StandbyCoordinator::initializeIfNeeded()`.
 ///
 /// "If timer hasn't been started yet, initialize it" — and only when standby is
 /// enabled. A pure mutation of [`Machine::standby`], so it produces no effect:
@@ -1098,7 +1098,7 @@ fn initialize_standby_if_needed(machine: &mut Machine, ctx: &Context<'_>) {
     }
 }
 
-/// `context.getPreInfusionTime() * 1000.0` (`BrewStates.cpp:29,159,178`).
+/// `context.getPreInfusionTime() * 1000.0`.
 ///
 /// Note this is **not** gated on `brew.pre_infusion.enabled` — the pause and
 /// running states add the raw configured time to their elapsed timer whether or
