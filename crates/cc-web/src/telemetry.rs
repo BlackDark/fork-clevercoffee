@@ -1,64 +1,58 @@
 //! [`Telemetry`] and [`Command`]: the two types every HTTP handler is a function
 //! of, and the whole of the network→control surface.
 //!
-//! Moved out of `cc_hal_esp32::web` by finding 4.1. Neither type names
-//! `esp_idf_svc`, and `Telemetry` is what `Snapshot` carries — so the payload is
-//! portable even though the cell that holds it is not. See the crate root.
+//! Neither type names `esp_idf_svc`, and `Telemetry` is what `Snapshot` carries,
+//! so the payload is portable even though the cell that holds it is not. See the
+//! crate root.
 //!
 //! # One `Telemetry`, not two
 //!
-//! Finding 4.5 recorded that this struct existed **twice** — here and as
-//! `cc_firmware::network::Reading`, with a `telemetry_from` translation between
-//! them. The translation is gone and `cc-firmware`'s copy is deleted: the control
-//! task now builds a [`Telemetry`] directly. `Reading` existed because the field
-//! names had drifted (`state` against `machine_state`), which is a cost paid on
-//! every publish, not a separation.
+//! The control task builds a [`Telemetry`] directly, and it is the only such type.
+//! A second struct with a field-by-field translation between the two is a cost
+//! paid on every publish, and the translation's only source of drift — two sets of
+//! field names for one set of facts — is not a separation between layers.
 
 /// The telemetry every handler reads.
 ///
 /// A flat struct of `Copy` values, published into an `Arc` by the control task.
 /// It is deliberately **not** `cc_machine`'s state or `cc_config`'s `Config`:
-/// those are owned by tasks this one must not reach into, and a network task
-/// holding a `Config` is how the C++'s `LoopManager` ↔ `MQTTManager` ↔
-/// `WebServerManager` coupling happened (04 §3.2).
+/// those are owned by tasks the httpd task must not reach into, and a network task
+/// holding a `Config` is how this layering gets bypassed.
 #[derive(Clone, Debug, Default, PartialEq)]
 #[allow(
     clippy::struct_excessive_bools,
     reason = "`Telemetry` is a *report of facts about the machine*, one field per \
-              key the C++'s `/api/status` publishes -- and a dozen of those are \
-              booleans because a dozen of the C++'s are. Turning them into \
-              enums would make the payload builder unreadable and would not \
-              make the data any more correct. See `the_cpp_keys_are_the_schema`."
+              key `/api/status` publishes, and a dozen of those keys are booleans \
+              because a dozen of the answers are. Turning them into enums would \
+              make the payload builder unreadable and would not make the data any \
+              more correct."
 )]
 pub struct Telemetry {
-    /// `MachineState` as its integer discriminant, as the C++ publishes it
-    /// (`WebServerManager.cpp:349`).
+    /// The machine state as its integer discriminant, as `/api/status` publishes
+    /// it.
     pub machine_state: i32,
     /// The boiler temperature in °C.
     pub temperature_c: f64,
     /// The brew setpoint in °C.
     pub setpoint_c: f64,
-    /// The PID output in per cent (`pidOutput / 10`, `:352`).
+    /// The PID output in per cent (`pid_output / 10`).
     pub heater_power_pct: f64,
     /// Whether the PID is running.
     pub pid_enabled: bool,
-    /// `MachineStateContext::steamON_`.
+    /// The latched steam flag.
     ///
-    /// Published because `/api/steam`'s toggle needs it: the C++'s handler reads
-    /// `isSteamModeActive()` to compute `!current`, and this is the only copy of
-    /// that fact the httpd task can reach.
+    /// Published because `/api/steam`'s toggle needs it: the target is `!current`,
+    /// and this is the only copy of that fact the httpd task can reach.
     pub steam_mode: bool,
-    /// `systemContext_->backflushMode()` — whether backflush *mode* is armed.
+    /// Whether backflush *mode* is armed.
     ///
-    /// Published for `/api/backflush`'s toggle, on the same reasoning as
+    /// Published for `/api/backflush`'s toggle, for the same reason as
     /// [`Self::steam_mode`].
     pub backflush_mode: bool,
     /// Whether a brew is running.
     ///
-    /// **Not** the C++'s `steamMode` and not what this used to be published as.
-    /// See [`crate::payload::status_json`]: `steam_mode` is that flag, this is a
-    /// derived `is_brew_state()`, and the C++ publishes neither this one nor any
-    /// field of this shape.
+    /// A different fact from [`Self::steam_mode`], not another name for it; see
+    /// [`crate::payload::status_json`].
     pub brewing: bool,
     /// Whether the machine is in standby.
     pub standby: bool,
@@ -90,12 +84,12 @@ pub struct Telemetry {
     /// form can be (`255.255.255.255`) -- and **not** a `String`.
     ///
     /// This is not a style preference, and it is the field that decides whether
-    /// the snapshot that carries this type is safe. It used to be a `String`,
-    /// which meant the snapshot payload owned heap memory; combined with the
-    /// non-atomic seqlock access that made a reader's `clone()` a
-    /// use-after-free (see `cc_hal_esp32::web::Snapshot`'s docs). Fixed-size
-    /// means the reader's copy is a memcpy of at most 16 bytes with no
-    /// allocation, no `free`, and no allocator traffic on the httpd task.
+    /// the snapshot that carries this type is safe. A `String` here would make the
+    /// snapshot payload own heap memory, and the snapshot's access is not atomic,
+    /// so a reader's `clone()` would be a use-after-free (see
+    /// `cc_hal_esp32::web::Snapshot`). Fixed-size means the reader's copy is a
+    /// memcpy of at most 16 bytes: no allocation, no `free`, and no allocator
+    /// traffic on the httpd task.
     pub ip: Option<heapless::String<15>>,
     /// Whether MQTT is configured at all.
     pub mqtt_configured: bool,
@@ -107,62 +101,51 @@ pub struct Telemetry {
 
 /// A request the handlers can ask the control task to carry out.
 ///
-/// The whole of the network→control surface for now. `Copy`, bounded, and
-/// `hal::task::queue::Queue`-compatible by construction (04 §3.2: *"No
-/// `String`, no `Vec`, no `Box` in a cross-task message"*).
+/// The whole of the network→control surface. `Copy`, bounded, and
+/// `hal::task::queue::Queue`-compatible by construction: no `String`, no `Vec`,
+/// no `Box` crosses a task boundary in a message.
 ///
 /// **`POST /api/parameters` is the one command endpoint that is not in here**, and
 /// the reason is that rule: a parameter write is a *list* of pairs, and a `Copy`
 /// enum cannot carry a list. It travels in
 /// `cc_hal_esp32::task::ParameterHandoff` instead, which is drained at the same
 /// point in the tick. The write itself is not a second path —
-/// [`cc_config::assign::apply`] is the only writer of a parameter, and R3-13's
-/// inbound MQTT calls it directly because MQTT already runs on the control task.
+/// [`cc_config::assign::apply`] is the only writer of a parameter, and inbound MQTT
+/// calls it directly because MQTT already runs on the control task.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Command {
     /// `POST /api/setpoint?value=<celsius>` — an `f64`, not an `i32`.
     ///
-    /// The C++ hands the `double` from the request straight to
-    /// `setProcessSetpoint` and to
-    /// `Config::brewSetpoint`, and `brew.setpoint` is a float parameter, so a
-    /// fractional setpoint is meaningful end to end. It was an `i32` here.
+    /// `brew.setpoint` is a float parameter and the machine carries it as an `f64`
+    /// end to end, so a fractional setpoint is meaningful all the way to the PID.
     SetSetpoint(f64),
     /// `POST /api/steam?on=0|1` — the **explicit** form.
     SetSteam(bool),
-    /// `POST /api/steam` with no field — the C++'s toggle.
+    /// `POST /api/steam` with no field — the toggle.
     ///
-    /// The C++'s `/api/steam` reads no parameter at all; it computes
-    /// `!isSteamModeActive()` from the **live** `MachineStateContext`
-    /// (`WebServerManager.cpp:444-445`). So the decision needs the machine
-    /// state, which only the control task has, and the web layer cannot make it
-    /// without racing a snapshot that may be a tick stale. This variant carries
-    /// no value and the control task resolves it against the machine it owns —
-    /// which is the faithful translation, and the reason the toggle is a
+    /// Deciding the target needs the **live** machine flag, which only the control
+    /// task has; the web layer cannot compute it without racing a snapshot that may
+    /// be a tick stale. So this variant carries no value and the control task
+    /// resolves it against the machine it owns, which is why the toggle is a
     /// separate variant rather than a flag on [`Self::SetSteam`].
     ToggleSteam,
     /// `POST /api/pid?on=0|1` — the explicit form.
     SetPid(bool),
-    /// `POST /api/pid` with no field — the C++'s toggle.
+    /// `POST /api/pid` with no field — the toggle.
     ///
-    /// `!Config::getInstance().pidEnabled.get()`,
-    /// which the control task both holds and writes. See [`Self::ToggleSteam`]
-    /// for why the resolution happens there.
+    /// The control task both holds and writes the PID flag, so it resolves this
+    /// one; see [`Self::ToggleSteam`].
     TogglePid,
     /// `POST /api/backflush?on=0|1` — the explicit form.
     SetBackflush(bool),
-    /// `POST /api/backflush` with no field — the C++'s toggle.
-    ///
-    /// `!systemContext_->backflushMode()`. See
-    /// [`Self::ToggleSteam`].
+    /// `POST /api/backflush` with no field — the toggle, resolved by the control
+    /// task. See [`Self::ToggleSteam`].
     ToggleBackflush,
     /// `POST /api/backflush?value=start` — begin a backflush cycle.
     ///
-    /// **Not a C++ route.** The C++'s `/api/backflush` only toggles backflush
-    /// *mode*; starting a cycle is a switch press
-    /// or an MQTT command. This verb exists because the previous
-    /// `register_command` accepted `start` and something may already send it,
-    /// and removing a reachable command would be a regression. The bare POST
-    /// does **not** mean this — it means toggle, as in the C++.
+    /// A bare `POST /api/backflush` does **not** mean this; it means toggle. This
+    /// verb exists because `start` was accepted here before and something may
+    /// already send it, and removing a reachable command would be a regression.
     StartBackflush,
     /// `POST /api/sleep`.
     Sleep,
@@ -182,19 +165,14 @@ pub enum Command {
     Restart,
     /// An OTA session has started: apply `Effect::SafeHardwareShutdown`.
     ///
-    /// **Not a C++ route.** The C++ calls `otaPrepareHardware()`
-    /// (`SystemInitializer.cpp:57-63`) directly from the OTA module, on the main
-    /// loop, because in the C++ the OTA code *is* the main loop. Here the OTA
-    /// handler runs on the httpd task, which does not own the actuators — so this
-    /// is requirement S8 expressed the way this firmware expresses every other
-    /// web-initiated hardware action: a request the control task drains.
+    /// The OTA handler runs on the httpd task, which does not own the actuators,
+    /// so this is requirement S8 expressed the way every other web-initiated
+    /// hardware action is: a request the control task drains.
     ///
-    /// What it buys is the applier. `otaPrepareHardware` calls
-    /// `disableHeater()` on the `HardwareManager` directly; going through
-    /// `Effect::SafeHardwareShutdown` reaches
-    /// `Actuators::safe_hardware_shutdown` (`actuators.rs:775`), which turns the
-    /// pump off and closes the valve as well as zeroing the heater duty — the
-    /// difference 04 §4 names, and the one S8 asks for.
+    /// What it buys is the applier. Zeroing the heater duty alone would leave the
+    /// pump and the valve as they were; `Effect::SafeHardwareShutdown` reaches
+    /// `Actuators::safe_hardware_shutdown`, which turns the pump off and closes the
+    /// valve as well. That is the difference S8 asks for.
     OtaBegin,
 }
 

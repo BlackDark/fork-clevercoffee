@@ -13,15 +13,14 @@ use alloc::vec::Vec;
 
 /// What one `POST /api/parameters` resolved to, before anything is written.
 ///
-/// The C++'s `hasErrors` / `hasUpdates` pair,
-/// kept as a value so the handler's decision — which of three response bodies to
-/// send, and whether to emit a command at all — is a function that can be tested
-/// without a socket.
+/// The verdict as a value, so the handler's decision — which of three response
+/// bodies to send, and whether to emit a command at all — is a function that can be
+/// tested without a socket.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ParameterPost {
-    /// At least one parameter was rejected. The C++ answers `400` and does not
-    /// report which, but the pairs that *were* accepted are still written:
-    /// `apply` walks the request in order and only collects the failures.
+    /// At least one parameter was rejected. The response is `400` and does not say
+    /// which, but the pairs that *were* accepted are still written: `apply` walks
+    /// the request in order and only collects the failures.
     Rejected {
         /// The pairs that passed. Empty when all failed.
         accepted: Vec<(String, String)>,
@@ -34,18 +33,19 @@ pub enum ParameterPost {
         accepted: Vec<(String, String)>,
     },
     /// Nothing in the request named a parameter with a value, so nothing was
-    /// written. The C++'s `"No parameters updated"`.
+    /// written.
     Nothing,
 }
 
 impl ParameterPost {
-    /// The status code and the body, verbatim from the C++.
+    /// The status code and the body for this outcome.
+    ///
+    /// These strings are the API: a client reads `success` and `message` by name,
+    /// so they are fixed rather than built.
     ///
     /// * rejected → `400 {"error":"Some parameter updates failed"}`
-    /// * updated → `200 {"success":true,"message":"Parameters updated and
-    ///   saved"}` (`:874-875`)
+    /// * updated → `200 {"success":true,"message":"Parameters updated and saved"}`
     /// * nothing → `200 {"success":true,"message":"No parameters updated"}`
-    ///   (`:877`)
     #[must_use]
     pub fn response(&self) -> (u16, &'static str) {
         match self {
@@ -72,10 +72,8 @@ impl ParameterPost {
     /// fitted, whether the tank float is fitted. Those cannot change under a
     /// running machine, and the only honest thing is to say so.
     ///
-    /// The C++ does not say it, because in the C++ a switch's enable flag is read
-    /// by `SystemInitializer` at boot too — the same limitation, reported as
-    /// silence. This firmware names the keys, which is the difference between
-    /// "my setting vanished" and a diagnosis.
+    /// The list says so rather than staying silent, which is the difference
+    /// between "my setting vanished" and a diagnosis.
     #[must_use]
     pub fn reboot_required(&self) -> Vec<&str> {
         let pairs = match self {
@@ -114,15 +112,13 @@ impl ParameterPost {
 /// `hardware.sensors.scale.enabled` decides whether a sampler exists at all
 /// (`main.rs:1362`).
 ///
-/// `system.auth.*` is the same kind of thing for a different reason, and it is
-/// the one the C++ cannot report: the C++ installs its authentication
-/// middleware in `setupMiddleware`, which runs once from
-/// `WebServerManager::initialize`, so
-/// enabling `system.auth.enabled` protects **nothing** until the machine
-/// restarts — an operator who sets it, sees `200`, and is still serving an open
-/// API. [`crate::Auth::from_config`] reproduces the C++'s boot-time decision, so
-/// this list has to say so, and `requiresRebootKeys` in the
-/// `POST /api/parameters` answer is where it says it.
+/// `system.auth.*` is the same kind of thing for a different reason: the
+/// authentication decision is taken once, when the server starts, so enabling
+/// `system.auth.enabled` protects **nothing** until the machine restarts — an
+/// operator who sets it, sees `200`, and is still serving an open API.
+/// [`crate::Auth::from_config`] makes the decision at boot, so this list has to say
+/// so, and `requiresRebootKeys` in the `POST /api/parameters` answer is where it
+/// says it.
 ///
 /// Everything else is read from `Config` per tick or per event, so a write is
 /// live. That includes `pid.enabled`, which the control task pushes into the
@@ -133,24 +129,21 @@ fn needs_reboot(key: &str) -> bool {
         || key == "hardware.sensors.scale.enabled"
         || key.starts_with("system.auth.")
         // **The probe type decides which driver is constructed**, so it is read
-        // once at boot like every other `hardware.*` setting. It was missing
-        // from this list, which is how a saved `TSIC_306` on a `DS18B20` board
-        // looked applied while the machine carried on reading the other bus —
-        // the operator changes it, the API says `success`, and nothing happens
-        // until a reboot. The C++ has the same property (it builds
-        // `TempSensorDallas` or `TempSensorTSIC` in `SystemInitializer`) and its
-        // UI has to say so by hand; here the answer is the list.
+        // once at boot like every other `hardware.*` setting. It was missing from
+        // this list, which is how a saved `TSIC_306` on a `DS18B20` board looked
+        // applied while the machine carried on reading the other bus — the
+        // operator changes it, the API says `success`, and nothing happens until a
+        // reboot. The UI has to say so by hand; here the answer is the list.
         || key == "hardware.sensors.temperature.type"
 }
 
 /// The most pairs one `POST /api/parameters` may carry.
 ///
-/// The C++ has no bound: it iterates `request->params()` and a client can send
-/// ten thousand. Here the pairs are staged in a heap `Vec` on a 320 KB machine
-/// and each one is a `String` pair, so an unbounded request is a
+/// A client can send ten thousand fields, and the pairs are staged in a heap `Vec`
+/// on a 320 KB machine with each one a `String` pair — so an unbounded request is a
 /// denial-of-service with one `curl`. `cc_hal_esp32::task::STAGED_PARAMETER_DEPTH`
-/// requests times this is 256 pairs — eight times the 98 the firmware registers,
-/// so no legitimate request is refused, and the body is bounded at 4 KB by
+/// requests times this is 256 pairs — eight times the 98 the firmware registers, so
+/// no legitimate request is refused — and the body is bounded at 4 KB by
 /// `drain_body` long before the count is reached.
 pub const MAX_PARAMETER_PAIRS: usize = 64;
 
@@ -169,22 +162,18 @@ pub const MAX_PARAMETER_BODY_BYTES: usize = 1024;
 
 /// The most bytes one `POST /api/config/upload` body may be.
 ///
-/// 16 KB — `MAX_CONFIG_UPLOAD_SIZE` at `WebServerManager.cpp:48`, which the
-/// C++ passes to `jsonHandler.setMaxContentLength`. That is the
-/// **transport** limit; the *policy* limit is `cc_config::MAX_CONFIG_BYTES`
-/// (8 KB), which is what a document over it is refused with. Two limits on
-/// purpose: the C++'s is the largest request it will accept off the wire, and the
-/// Rust one is the largest configuration the store can hold, so a body
-/// between the two gets the clearer of the two answers rather than being cut
-/// off.
+/// 16 KB. That is the **transport** limit; the *policy* limit is
+/// `cc_config::MAX_CONFIG_BYTES` (8 KB), which is what a document over it is
+/// refused with. Two limits on purpose: the transport limit is the largest request
+/// accepted off the wire, and the policy limit is the largest configuration the
+/// store can hold, so a body between the two gets the clearer of the two answers
+/// rather than being cut off.
 pub const MAX_CONFIG_UPLOAD_BYTES: usize = 16 * 1024;
 
 /// Decide what a `POST /api/parameters` means, without writing anything.
 ///
-/// The C++'s loop over `request->params()`,
-/// with the same two rules: a field with no name or no value is **skipped**
-/// rather than rejected, and a rejected value does not undo the
-/// accepted ones.
+/// Two rules: a field with no name or no value is **skipped** rather than rejected,
+/// and a rejected value does not undo the accepted ones.
 ///
 /// The pairs are validated here because the handler has to answer `200` or `400`
 /// **synchronously**, and the `Config` is the control task's. The control task

@@ -30,11 +30,9 @@ fn the_setpoint_route_takes_what_the_schema_will_store() {
 
 #[test]
 fn a_fractional_setpoint_survives_to_the_command() {
-    // The one that was broken on the bench. `93.5`, `80.5` and `91.2` were all
-    // accepted with `202 {"accepted":true}` and all arrived as the truncated
-    // integer, because `parse_setpoint` cast to `i32`. The C++ passes the
-    // `double` straight through and
-    // `brew.setpoint` is a float parameter, so 93.5 must stay 93.5.
+    // The symptom was a setpoint control that did nothing: `93.5`, `80.5` and
+    // `91.2` were all accepted with `202 {"accepted":true}` and all arrived
+    // truncated. `brew.setpoint` is a float parameter, so 93.5 must stay 93.5.
     for (field, expected) in [("93.5", 93.5), ("80.5", 80.5), ("91.2", 91.2)] {
         assert_eq!(
             parse_setpoint(field),
@@ -46,13 +44,11 @@ fn a_fractional_setpoint_survives_to_the_command() {
 
 #[test]
 fn the_setpoint_route_refuses_a_value_that_would_defeat_the_interlock() {
-    // The defect this route carried: `?value=150` passed the C++'s
-    // permissive `0.0..=150.0` filter and was persisted, which parks the
-    // boiler on `safety.emergency_temp` (default 150) where S1's *strictly
-    // greater* test can never trip. A `None` here is a `400` from
-    // `register_command`, not a silently clamped write. The rest are the
-    // values that stop being numbers at all — `NaN` and `inf` included,
-    // which every comparison lets through.
+    // `?value=150` parks the boiler on `safety.emergency_temp` (default 150),
+    // where S1's *strictly greater* test can never trip. A `None` here is a `400`
+    // from `register_command`, not a silently clamped write. The rest are the
+    // values that stop being numbers at all — `NaN` and `inf` included, which
+    // every comparison lets through.
     for field in [
         "150", "150.0", "200", "-1", "0", "110.5", "1e400", "NaN", "hot",
     ] {
@@ -68,10 +64,9 @@ fn the_setpoint_route_refuses_a_value_that_would_defeat_the_interlock() {
 // ==================================================== the toggle routes
 
 #[test]
-fn a_flag_reads_the_csqs_spellings_and_treats_anything_else_as_off() {
-    // The C++ compares the string "1" (`if (value == "1")`), so "1" is the
-    // spelling that must work. The extras are this firmware's documented
-    // superset.
+fn a_flag_reads_the_documented_spellings_and_treats_anything_else_as_off() {
+    // `"1"` is the documented spelling and must work. The extras are the
+    // wider set the docs promise, so `"0"`, `"false"` and `"off"` stay off.
     assert!(parse_flag("1"));
     assert!(parse_flag("true"));
     assert!(parse_flag("on"));
@@ -138,10 +133,8 @@ fn a_query_string_is_reachable_from_the_uri() {
     // `httpd_req_t::uri` is the whole request target, query included —
     // `esp_http_server` reads the query back out of it at
     // `r->uri + res->field_data[UF_QUERY].off`, and
-    // there is no `httpd_req_t::query` member.
-    // An earlier revision of `cc_config::form` claimed otherwise and said the
-    // query string was unreachable without an `esp-idf-sys` call; this is the
-    // test that says so.
+    // there is no `httpd_req_t::query` member. So the query string needs no
+    // `esp-idf-sys` call to reach: split at the first `?`.
     assert_eq!(query_of("/api/pid?on=0"), "on=0");
     assert_eq!(query_of("/api/pid"), "");
     assert_eq!(query_of("/api/parameters?a=1&b=2"), "a=1&b=2");
@@ -166,16 +159,14 @@ fn a_query_string_and_a_body_carry_the_same_parameter() {
 #[test]
 fn a_command_field_is_read_from_the_query_string_as_well_as_the_body() {
     // `POST /api/pid?on=0` answered `400 {"error":"missing value"}` before,
-    // because only the body was read. The C++'s `POST /api/pid` reads no
-    // field at all (`:462-479`, a toggle), so there is no C++ answer for
-    // `?on=0` to match; every script and the integration checklist spell it
-    // that way, so both are accepted and the body wins.
+    // because only the body was read. A bare `POST /api/pid` is the toggle form,
+    // and every script and the integration checklist spell the explicit form with
+    // a field, so the query string is read too and the body wins.
     let from_query = cc_config::form::parse_form(query_of("/api/pid?on=0"));
     assert_eq!(first_of(&from_query, &["value", "on"]), Some("0".into()));
     let from_body = cc_config::form::parse_form("on=1");
     assert_eq!(first_of(&from_body, &["value", "on"]), Some("1".into()));
-    // `value` beats `on` wherever each is — the C++'s
-    // `hasParam("value", …)` then `hasParam("on", …)`.
+    // `value` beats `on` wherever each one appears.
     let both = cc_config::form::parse_form("on=1&value=7");
     assert_eq!(first_of(&both, &["value", "on"]), Some("7".into()));
     // Neither is a 400 rather than a default.
@@ -183,7 +174,7 @@ fn a_command_field_is_read_from_the_query_string_as_well_as_the_body() {
         first_of(&cc_config::form::parse_form(""), &["value", "on"]),
         None
     );
-    // And the single-field helper the C++'s `hasParam` is.
+    // And the single-field helper the route table uses.
     assert_eq!(
         cc_config::form::field("value=3&value=4", "value"),
         Some("3".into())

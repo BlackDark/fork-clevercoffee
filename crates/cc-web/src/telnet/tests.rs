@@ -1,9 +1,9 @@
 //! Tests for [`crate::telnet`], the portable half of the Wi-Fi log stream.
 //!
 //! What is being pinned here is mostly the *numbers* — the shed floor, the ring
-//! capacity, the one-client cap, the flush bound. Those are judgements someone
-//! will otherwise "tidy" (to 32768, to `RING_ENTRIES / 2`, to "why not allow two
-//! terminals") without reading the ADR or the C++ header that explains them.
+//! capacity, the one-client cap, the flush bound. Each is a judgement someone will
+//! otherwise "tidy" (to 32768, to `RING_ENTRIES / 2`, to "why not allow two
+//! terminals") without the RAM budget behind it. The module docs carry that budget.
 
 use alloc::format;
 use alloc::string::{String as StdString, ToString as _};
@@ -13,33 +13,29 @@ use cc_config::predecessor::{startup_notice, PredecessorProbe};
 
 use super::*;
 
-/// `Logger.h:159-161`. The ring is 16 entries of 256 B, not a knob.
+/// The ring is 16 entries of 256 B: 4 KB of static RAM, not a knob.
 #[test]
-fn the_ring_is_the_csqs_sixteen_by_two_fifty_six() {
+fn the_ring_is_the_declared_sixteen_by_two_fifty_six() {
     assert_eq!(RING_ENTRIES, 16);
     assert_eq!(ENTRY_BYTES, 256);
 }
 
-/// `Logger.cpp:133-152`, `Logger.h:145`.
 #[test]
-fn the_stream_constants_are_the_csqs() {
-    // `Logger.h:146` HEARTBEAT_INTERVAL_MS.
-    // `Logger.h:145` MAX_WIFI_FLUSH_PER_UPDATE.
+fn the_flush_bound_is_where_the_docs_say() {
     assert_eq!(MAX_FLUSH_PER_PASS, 8);
 }
 
-/// `Logger.h:154`: one `WiFiClient client_`, and a second connection replaces
-/// the first. This is the constant that stops a debug
-/// channel from becoming the OOM, so it gets its own test rather than riding
-/// along with the numbers above.
+/// One client, because a second connection replaces the first. This is the constant
+/// that stops a debug channel from becoming the OOM, so it gets its own test rather
+/// than riding along with the numbers above.
 #[test]
 fn one_client_is_the_cap() {
     assert_eq!(MAX_CLIENTS, 1);
 }
 
-/// `Logger.cpp:161-177` `getLevelString`.
+/// The level words are the wire format; a client parses them.
 #[test]
-fn the_level_words_are_the_csqs() {
+fn the_level_words_are_the_declared_ones() {
     assert_eq!(Level::Trace.as_str(), "TRACE");
     assert_eq!(Level::Debug.as_str(), "DEBUG");
     assert_eq!(Level::Info.as_str(), "INFO");
@@ -47,9 +43,9 @@ fn the_level_words_are_the_csqs() {
     assert_eq!(Level::Error.as_str(), "ERROR");
 }
 
-/// The whole of ADR-0002 decision 5's observable behaviour, on both edges — which
-/// the device version could not assert, because a device test can only observe
-/// the branch the real heap happened to be on.
+/// The whole observable behaviour of the shed, on both edges — which a device test
+/// could not assert, because it can only observe the branch the real heap happened
+/// to be on.
 #[test]
 fn the_shed_engages_below_the_floor_and_reports_each_edge_once() {
     let mut shed = Shed::new();
@@ -67,7 +63,7 @@ fn the_shed_engages_below_the_floor_and_reports_each_edge_once() {
     assert_eq!(shed.decide(0), Decision::Shed);
     assert_eq!(shed.decide(SHED_FLOOR_BYTES - 1), Decision::Shed);
 
-    // Exactly at the floor is above it: `Logger.cpp:29` is `>=`.
+    // Exactly at the floor is above it: the comparison is `>=`.
     assert_eq!(shed.decide(SHED_FLOOR_BYTES), Decision::AllowRecovered);
     assert!(!shed.is_shedding());
 
@@ -75,7 +71,7 @@ fn the_shed_engages_below_the_floor_and_reports_each_edge_once() {
     assert_eq!(shed.decide(200_000), Decision::Allow);
 }
 
-/// `Logger.cpp:29` is `currentFreeHeap() >= MIN_HEAP_FOR_WIFI_LOG`.
+/// The boundary is inclusive: at the floor the line is written.
 #[test]
 fn the_shed_boundary_is_inclusive() {
     let mut shed = Shed::new();
@@ -175,13 +171,13 @@ fn an_over_long_line_is_truncated_to_one_entry() {
 
 #[test]
 fn a_line_carries_a_stamp_a_level_the_target_and_a_crlf() {
-    // The C++'s `[HH:MM:SS] [LEVEL] message\r\n` shape, `Logger.cpp:212`.
+    // Stamp, level, target, body, CRLF — the shape a client parses.
     let text = line(Level::Warning, 1_234, "cc_firmware", "pump stuck");
     assert_eq!(text, "[1234] [WARNING] cc_firmware: pump stuck\r\n");
 }
 
 #[test]
-fn a_line_truncates_with_the_csqs_marker() {
+fn a_line_truncates_with_the_declared_marker() {
     let body = "y".repeat(ENTRY_BYTES);
     let text = line(Level::Info, 0, "t", &body);
     assert_eq!(text.len(), ENTRY_BYTES);

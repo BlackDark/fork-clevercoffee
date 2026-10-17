@@ -50,16 +50,14 @@ fn the_payload_is_bounded_and_carries_no_allocator() {
 
 #[test]
 fn a_command_carries_no_allocator_either() {
-    // 04 §3.2: "No `String`, no `Vec`, no `Box` in a cross-task message." A
-    // `Command` is queued into a fixed-size `Queue` and drained by the control
-    // task, so its size is the queue's per-slot cost, and `Copy` is what makes
-    // `Queue::enqueue` infallible.
+    // No `String`, no `Vec`, no `Box` in a cross-task message. A `Command` is
+    // queued into a fixed-size `Queue` and drained by the control task, so its size
+    // is the queue's per-slot cost, and `Copy` is what makes `Queue::enqueue`
+    // infallible.
     //
-    // Sixteen bytes, not eight: `SetSetpoint` carries an `f64` because the C++
-    // hands the `double` straight to `setProcessSetpoint` and `brew.setpoint`
-    // is a float parameter — truncating it to an `i32` was a divergence that
-    // silently dropped `93.5` to `93` on the bench. The remaining 12 bytes of
-    // headroom in an aligned `f64` + discriminant are cheaper than the
-    // truncation was.
+    // Sixteen bytes, not eight: `SetSetpoint` carries an `f64` because
+    // `brew.setpoint` is a float parameter, and truncating it to an `i32` dropped
+    // `93.5` to `93`. The remaining 12 bytes of headroom in an aligned `f64` plus
+    // discriminant are cheaper than the truncation was.
     const _: () = assert!(core::mem::size_of::<Command>() == 16);
 }

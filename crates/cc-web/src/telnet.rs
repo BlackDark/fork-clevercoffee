@@ -1,44 +1,25 @@
 //! The Wi-Fi log stream's portable half: the heap shed, the bounded ring that
 //! carries lines from the logger to the socket, and the line format.
 //!
-//! # Why this is here and not in `cc-hal-esp32`
+//! # Why the policy is here
 //!
-//! Finding **3.2 of
-//! [`32-findings-2026-10-03.md`](../../../docs/history/review-2026-10-03.md)
-//! recorded that the telnet log server had a `HeapShed` and nothing consuming
-//! it: `cc-hal-esp32/src/telnet.rs` said so in its own doc comment. The shed
-//! policy was therefore never exercised by `just test`, and the acceptance
-//! criterion for R3-14/R3-11 could not be met at all — there was no client to
-//! disconnect and no line to shed.
+//! Three of the four pieces of a log stream need no chip: whether a given free heap
+//! permits a write ([`Shed`]), what a client that stops reading costs the machine
+//! ([`Ring`]), and what a line looks like on the wire ([`line()`]). They live here
+//! because `just test` names this crate, while `cc-hal-esp32` does not compile for a
+//! host target at all — so this is the half that runs on every commit.
 //!
-//! Three of the four pieces of a log stream need no chip: whether a given free
-//! heap permits a write ([`Shed`]), what a client that stops reading costs the
-//! machine ([`Ring`]), and what a line looks like on the wire ([`line()`]). They
-//! live here for the same reason [`crate::payload`] lives here — `just test`
-//! names this crate, so a test here runs on every commit and
-//! `cc-hal-esp32` does not compile for a host target at all.
+//! The fourth — the socket — is `cc_hal_esp32::telnet`, and it is device-only. That
+//! split is the point, not a compromise: the policy is reviewable without reading a
+//! `lwip_bind`.
 //!
-//! The fourth — the socket — is `cc_hal_esp32::telnet`, and it is device-only.
-//! That split is the point, not a compromise: the policy is reviewable without
-//! reading a `lwip_bind`.
+//! # Budget
 //!
-//! # What is the C++'s, precisely
-//!
-//! | here | C++ |
-//! | --- | --- |
-//! | [`SHED_FLOOR_BYTES`] = 30 000 | `Logger.cpp:13` `MIN_HEAP_FOR_WIFI_LOG`, checked at `:29` |
-//! | [`RING_ENTRIES`] = 16 | `Logger.h:161` `LOG_RING_SIZE` |
-//! | [`ENTRY_BYTES`] = 256 | `Logger.h:159` `LOG_BUFFER_SIZE` after ADR-0002 decision 1 |
-//! | [`MAX_CLIENTS`] = 1 | one `WiFiClient client_` member, `Logger.h:154` |
-//! | drop-newest on a full ring | `Logger.cpp:248-256` — count and return |
-//! | `...` on a truncated line | `Logger.cpp:221-228` |
-//!
-//! **The entry is 256 B here and 304 B there** (`Logger.h:160`
-//! `LOG_ENTRY_SIZE = LOG_BUFFER_SIZE + 48`), because the C++ sizes the entry
-//! for its own `[HH:MM:SS] [LEVEL] ` prefix while this formats the prefix
-//! straight into the same 256 B. The ring is 4 096 B rather than 4 864 B for
-//! the same reason. No knob: [`ENTRY_BYTES`] is the existing
-//! `LINE_BUFFER_BYTES`, moved here with the rest of the policy.
+//! [`RING_ENTRIES`] x [`ENTRY_BYTES`] is 4 KB of static RAM for the whole log
+//! backlog. The entry holds the formatted line *including* its prefix, because the
+//! prefix is written straight into the entry rather than into a buffer of its own.
+//! Both numbers are static-RAM decisions on a ~320 KB machine, so neither is a
+//! tuning knob.
 
 use core::fmt::Write;
 
@@ -46,47 +27,43 @@ use heapless::String;
 
 /// The free-heap floor below which the Wi-Fi log stream stops writing.
 ///
-/// ADR-0002 decision 5 and `Logger.cpp:13`. `cc_hal_esp32::heap` re-exports
-/// this as `HEAP_SHED_BYTES` and `cc_hal_esp32::web` re-exports *that* as
-/// `HEAP_FLOOR_BYTES`, because three paths guard "the machine is tight" and
-/// three constants for one judgement is how they drift.
+/// `cc_hal_esp32::heap` re-exports this as `HEAP_SHED_BYTES` and
+/// `cc_hal_esp32::web` re-exports *that* as `HEAP_FLOOR_BYTES`, because three paths
+/// guard "the machine is tight" and three constants for one judgement is how they
+/// drift.
 pub const SHED_FLOOR_BYTES: u32 = 30_000;
 
 /// How many lines the ring holds before it starts dropping the newest.
 ///
-/// `Logger.h:161`. Reused, not chosen: the C++'s ring is 16 entries and the
-/// ring size is a static-RAM number someone measured, not a tuning parameter.
+/// Sixteen entries, which is 4 KB of static RAM at [`ENTRY_BYTES`]. Sized for the
+/// backlog rather than tuned: a deeper ring costs RAM on every boot.
 pub const RING_ENTRIES: usize = 16;
 
 /// The bytes one line may occupy in the ring.
 ///
-/// ADR-0002 decision 1 ("down from 512") and `Logger.h:159` — "individual log
-/// lines rarely exceed 200 characters". A longer line is truncated with a
-/// visible `...`, never silently split across two entries.
+/// 256, which covers the line *and* its prefix; individual log lines rarely exceed
+/// 200 characters. A longer line is truncated with a visible `...`, never silently
+/// split across two entries.
 pub const ENTRY_BYTES: usize = 256;
 
 /// How many log clients the machine serves at once.
 ///
-/// **One, and this is the heap bound that matters.** The C++ has exactly one
-/// `WiFiClient client_` and a second connection *replaces* the
-/// first (`Logger.cpp:134-137`: `client_.stop()`, then `server_.available()`),
-/// so the socket count does not grow with how many terminals are open. An
-/// unbounded listener is how a debug channel becomes the OOM.
+/// **One, and this is the heap bound that matters.** A second connection *replaces*
+/// the first, so the socket count does not grow with how many terminals are open.
+/// An unbounded listener is how a debug channel becomes the OOM.
 pub const MAX_CLIENTS: usize = 1;
 
 /// How many lines one pass over the ring may flush.
 ///
-/// `Logger.h:145` `MAX_WIFI_FLUSH_PER_UPDATE`. Bounded so that a backlog of
-/// backlogged lines cannot keep the telnet task inside one loop iteration
-/// instead of going back to `accept()`.
+/// Eight. Bounded so that a backlog of lines cannot keep the telnet task inside one
+/// loop iteration instead of going back to `accept()`.
 pub const MAX_FLUSH_PER_PASS: usize = 8;
 
-/// The log levels `log` can carry, and the words the C++ printed for them.
+/// The log levels `log` can carry, and the word each one prints.
 ///
-/// `Logger.cpp:161-177` `getLevelString`. `FATAL` and `SILENT` are in the C++'s
-/// table and unreachable here: the `log` crate has no such levels, and adding
-/// them to a `match` on a value that cannot occur would be a claim about the
-/// world rather than about the code.
+/// `FATAL` and `SILENT` have no counterpart in `log`, so they are not in the table:
+/// a `match` arm for a value that cannot occur is a claim about the world rather
+/// than about the code.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Level {
     /// `TRACE`.
@@ -118,9 +95,9 @@ impl Level {
 /// One pass of the shed, including which edge it crossed.
 ///
 /// The edge is part of the answer and not a side effect because it is what the
-/// operator reads: a machine that oscillates around the floor prints one line
-/// per transition or thousands, and the oscillation is exactly the condition
-/// being investigated (`ADR-0002` decision 5).
+/// operator reads: a machine that oscillates around the floor prints one line per
+/// transition or thousands, and the oscillation is exactly the condition being
+/// investigated.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Decision {
     /// Above the floor, and it was above it last time. Write it, say nothing.
@@ -133,12 +110,12 @@ pub enum Decision {
     Shed,
 }
 
-/// ADR-0002 decision 5 as a pure state machine over the free-heap reading.
+/// The shed as a pure state machine over the free-heap reading.
 ///
 /// The heap read itself is the caller's (`esp_get_free_heap_size`), which is why
 /// this takes the number rather than asking for it: a host test can then drive
-/// **both** edges, which `cc-hal-esp32`'s version could not — a device test can
-/// only assert the branch the real heap happened to be on.
+/// **both** edges, where a device test could only assert the branch the real heap
+/// happened to be on.
 #[derive(Clone, Debug)]
 pub struct Shed {
     engaged: bool,
@@ -153,7 +130,7 @@ impl Shed {
 
     /// Decide whether one line goes to the Wi-Fi client, given `free` bytes.
     ///
-    /// **This is ADR-0002 decision 5 and nothing more.** Below
+    /// **The floor and the edge, and nothing more.** Below
     /// [`SHED_FLOOR_BYTES`] the line is not written; the connection stays open,
     /// the serial stream is untouched, and the stream resumes when the heap
     /// recovers. There is deliberately no "disconnect the client" arm: an
@@ -193,25 +170,22 @@ impl Default for Shed {
 /// # Why a ring and not a channel
 ///
 /// The producer is whichever task happened to log — usually the control task at
-/// priority 5 — and the consumer is the telnet task at priority
-/// [`TELNET_PRIO`](../../cc_hal_esp32/task/index.html). **The producer must
-/// never wait for the consumer**, and a client that has stopped reading must
-/// not be able to make the control tick wait either. A full ring therefore
-/// *drops the newest line and counts it* (`Logger.cpp:248-256` does exactly
-/// this), and [`Ring::push`] returns rather than blocking.
+/// priority 5 — and the consumer is the telnet task at a lower priority
+/// (`cc_hal_esp32::task`'s `TELNET_PRIO`). **The producer must never wait for the
+/// consumer**, and a client that has stopped reading must not be able to make the
+/// control tick wait either. A full ring therefore *drops the newest line and counts
+/// it*, and [`Ring::push`] returns rather than blocking.
 ///
-/// The alternative — holding a lock across the socket write — is the failure
-/// ADR-0002 exists to prevent, and it would put a network write on the control
-/// tick's critical path.
+/// The alternative — holding a lock across the socket write — would put a network
+/// write on the control tick's critical path.
 ///
 /// # Why this is `&mut self` and not `&self`
 ///
-/// Because it lives in a `no_std`, `forbid(unsafe_code)` crate and is reached
-/// from several tasks, the only safe way to get "another task may append" is a
-/// lock the caller owns. [`cc_hal_esp32::telnet`](../../cc_hal_esp32/telnet/index.html)
-/// holds the real one in a `Mutex` and states the argument at the call site; it
-/// is the same rule `cc_firmware`'s `slots.rs` states for the three locks the
-/// control task takes:
+/// Because it lives in a `no_std`, `forbid(unsafe_code)` crate and is reached from
+/// several tasks, the only safe way to get "another task may append" is a lock the
+/// caller owns. `cc_hal_esp32::telnet` holds the real one in a `Mutex` and states
+/// the argument at the call site; it is the same rule `cc_firmware`'s `slots.rs`
+/// states for the three locks the control task takes:
 ///
 /// > do not block on a lock whose critical section is unbounded, and do not
 /// > block on a lock a higher-priority task holds.
@@ -256,9 +230,9 @@ impl Ring {
     /// [`ENTRY_BYTES`] and copied into the ring, and a full ring is a `false`
     /// and a counter. This is the property the control tick depends on.
     pub fn push(&mut self, line: &str) -> bool {
-        // Truncate rather than reject: `Logger.cpp:221-228` truncates with a
-        // visible marker, and rejecting would make an over-long line invisible
-        // instead of visibly wrong.
+        // Truncate rather than reject: a truncated line with a visible marker is
+        // wrong in a way the operator can see, where a rejected one would be
+        // invisible.
         let n = core::cmp::min(line.len(), ENTRY_BYTES);
         let mut entry = heapless::String::new();
         match entry.push_str(&line[..n]) {
@@ -299,22 +273,18 @@ impl Ring {
 
 /// Format one line for the wire.
 ///
-/// `[<uptime_ms>] [<LEVEL>] <target>: <body>\r\n` — the C++'s
-/// `[HH:MM:SS] [LEVEL] <message>\r\n` with two changes, both
-/// forced by facts about this port rather than chosen:
+/// `[<uptime_ms>] [<LEVEL>] <target>: <body>\r\n`. Two of those fields are worth a
+/// word:
 ///
-/// * **`uptime_ms` instead of a wall clock.** `Logger::formatTimestamp`
-///   (`Logger.cpp:180-196`) uses `time(nullptr)`, and nothing in this port
-///   calls `settimeofday` — there is no SNTP client and no NVS-restore of the
-///   clock, so a `HH:MM:SS` field would print a 1970 date or an error string.
-///   A boot-relative stamp is the same field with an honest reference.
-/// * **`<target>` is kept.** The C++ passed `file`, `function` and `line` into
-///   `formatLogMessage` and printed none of them; `log` has no file or line, so
-///   without the target a line from the control task and a line from the HTTP
-///   task are indistinguishable in the one place an operator is reading them.
+/// * **`uptime_ms`, not a wall clock.** Nothing here calls `settimeofday` — there is
+///   no SNTP client and no NVS-restore of the clock — so a `HH:MM:SS` field would
+///   print a 1970 date or an error string. A boot-relative stamp is the same field
+///   with an honest reference.
+/// * **`<target>` is kept.** `log` has no file or line, so without the target a line
+///   from the control task and a line from the HTTP task are indistinguishable in
+///   the one place an operator is reading them.
 ///
-/// The line is truncated to [`ENTRY_BYTES`] with a trailing `...`, which is
-/// `Logger.cpp:221-228`.
+/// The line is truncated to [`ENTRY_BYTES`] with a trailing `...`.
 #[must_use]
 pub fn line(level: Level, uptime_ms: u32, target: &str, body: &str) -> String<ENTRY_BYTES> {
     let mut out = String::new();
@@ -341,9 +311,9 @@ pub fn line(level: Level, uptime_ms: u32, target: &str, body: &str) -> String<EN
     out
 }
 
-/// The truncation marker. `Logger.cpp:224`.
+/// The truncation marker.
 const ELLIPSIS: &str = "...";
-/// The line terminator the C++ writes. `Logger.cpp:212`.
+/// The line terminator, so a terminal receives whole lines.
 const CRLF: &str = "\r\n";
 
 #[cfg(test)]

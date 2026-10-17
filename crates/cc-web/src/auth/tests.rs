@@ -58,11 +58,10 @@ fn auth_admits_the_right_credentials_and_refuses_everything_else() {
 }
 
 #[test]
-fn auth_with_empty_credentials_serves_the_api_open_exactly_as_the_cpp_does() {
-    // `WebServerManager.cpp:283-294`: the middleware is installed only when
-    // the username AND the password are non-empty, and the else arm is a
-    // `LOG(WARNING)` -- not a locked door. Reproduced deliberately; the
-    // alternative locks an operator out of a machine whose only other
+fn auth_with_empty_credentials_serves_the_api_open() {
+    // The middleware is installed only when the username AND the password are
+    // non-empty, and the else arm is a warning, not a locked door. Deliberate:
+    // the alternative locks an operator out of a machine whose only other
     // console is a UART. See `docs/history/divergences.md`.
     for (username, password) in [("", "espresso"), ("barista", ""), ("", "")] {
         let auth = Auth::from_config(&auth_config(true, username, password));
@@ -75,10 +74,9 @@ fn auth_with_empty_credentials_serves_the_api_open_exactly_as_the_cpp_does() {
 }
 
 #[test]
-fn the_challenge_is_the_cpp_realm() {
-    // `authMiddleware_->setRealm("CleverCoffee")`.
-    // A different realm is a different challenge, and a browser that has
-    // cached credentials for one will not send them for the other.
+fn the_challenge_realm_is_the_expected_one() {
+    // A realm is the key a browser caches credentials against, so renaming it
+    // makes every browser ask for the password again.
     assert_eq!(WWW_AUTHENTICATE, "Basic realm=\"CleverCoffee\"");
 }
 

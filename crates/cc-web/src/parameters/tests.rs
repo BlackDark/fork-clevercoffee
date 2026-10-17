@@ -27,8 +27,8 @@ fn a_write_that_needs_a_reboot_is_named_rather_than_claimed_applied() {
         verdict.reboot_required(),
         vec!["hardware.switches.brew.enabled"]
     );
-    // And it is still a 200 with the C++'s message — the write *was*
-    // accepted and persisted; only the runtime effect is deferred.
+    // And the status is still 200: the write *was* accepted and persisted; only
+    // the runtime effect is deferred.
     assert_eq!(verdict.response().0, 200);
 }
 
@@ -66,11 +66,9 @@ fn a_rejected_write_still_names_the_reboot_keys_it_did_accept() {
 
 #[test]
 fn a_write_that_changed_nothing_needs_no_reboot() {
-    // `ParameterPost::Nothing` is the C++'s "No parameters updated"
-    // (`WebServerManager.cpp:877`), which is reached when the request names
-    // no parameter *with a value* — the `:830` skip, not a rejection. An
-    // unparseable value is `Rejected`, not `Nothing`, so it is the empty
-    // field that gets here.
+    // `ParameterPost::Nothing` is reached when the request names no parameter
+    // *with a value*: a blank field is skipped, not rejected. An unparseable value
+    // is `Rejected`, not `Nothing`, so the empty field is what gets here.
     let verdict = classify_parameters(&[("pid.regular.kp".into(), String::new())]);
     assert!(matches!(verdict, ParameterPost::Nothing));
     assert!(verdict.reboot_required().is_empty());
@@ -83,7 +81,7 @@ fn a_write_that_changed_nothing_needs_no_reboot() {
 
 #[test]
 fn a_parameter_post_of_the_four_kinds_is_accepted() {
-    // One of each kind, and the C++'s "all four spellings" for a bool.
+    // One of each kind, plus the wider boolean spellings.
     let verdict = classify_parameters(&[
         ("pid.enabled".into(), "1".into()),
         ("mqtt.port".into(), "1884".into()),
@@ -100,9 +98,8 @@ fn a_parameter_post_of_the_four_kinds_is_accepted() {
 
 #[test]
 fn an_unknown_key_is_a_400_and_names_nothing_in_the_body() {
-    // The C++ answers `{"error":"Some parameter updates failed"}` for an
-    // unknown key and names nothing — the reasons go to
-    // the log, which is what the handler does there too.
+    // An unknown key gets `{"error":"Some parameter updates failed"}` and the body
+    // names nothing: the reasons go to the log.
     let verdict = classify_parameters(&[("no.such.parameter".into(), "1".into())]);
     assert!(matches!(verdict, ParameterPost::Rejected { .. }));
     assert_eq!(
@@ -128,9 +125,9 @@ fn a_value_out_of_range_is_the_same_400_as_an_unknown_key() {
 
 #[test]
 fn one_rejected_parameter_does_not_lose_the_accepted_ones() {
-    // `WebServerManager.cpp:829-865`: each pair is applied as the loop reaches
-    // it, and `hasErrors` is only a flag. So the good pairs still travel to
-    // the control task and the answer is still a 400.
+    // Each pair is applied as the loop reaches it and the error flag is only a
+    // flag, so the good pairs still travel to the control task and the answer is
+    // still a 400.
     let verdict = classify_parameters(&[
         ("mqtt.port".into(), "1884".into()),
         ("pid.regular.kp".into(), "nope".into()),
@@ -147,8 +144,8 @@ fn one_rejected_parameter_does_not_lose_the_accepted_ones() {
 
 #[test]
 fn a_request_that_names_no_parameter_is_the_third_response() {
-    // The C++'s third body, for a request whose fields are all valueless
-    // (`:830` skips them) or which names nothing at all.
+    // The third body, for a request whose fields are all valueless (they are
+    // skipped) or which names nothing at all.
     for pairs in [
         vec![],
         vec![("pid.enabled".into(), String::new())],
@@ -168,7 +165,7 @@ fn a_request_that_names_no_parameter_is_the_third_response() {
 }
 
 #[test]
-fn the_updated_response_is_the_cpp_body_verbatim() {
+fn the_updated_response_is_the_documented_body() {
     assert_eq!(
         ParameterPost::Updated {
             accepted: Vec::new()
@@ -183,11 +180,11 @@ fn the_updated_response_is_the_cpp_body_verbatim() {
 
 #[test]
 fn enabling_auth_is_reported_as_needing_a_reboot() {
-    // The C++ installs its middleware once, in `setupMiddleware`, from
-    // `WebServerManager::initialize`. Enabling `system.auth.enabled` therefore
-    // protects nothing until the next boot -- and an operator who sets it,
-    // sees `200`, and is still serving an open API is exactly the lie this
-    // repository calls out. `requiresRebootKeys` is where it is said.
+    // The authentication decision is taken once, when the server starts. Enabling
+    // `system.auth.enabled` therefore protects nothing until the next boot, and an
+    // operator who sets it, sees `200`, and is still serving an open API is exactly
+    // the lie this list exists to prevent. `requiresRebootKeys` is where it is
+    // said.
     let verdict = classify_parameters(&[("system.auth.enabled".into(), "1".into())]);
     assert_eq!(
         verdict.reboot_required(),
