@@ -1,36 +1,31 @@
 //! The Wi-Fi station connection policy: the order of operations, and the
 //! arithmetic behind the four-bucket signal indicator.
 //!
-//! Owner: **R3-12** (task B).
+//! # The ordering rule, and why breaking it is a real bug
 //!
-//! # The ordering rule, and why it is a real bug when broken
+//! The STA hostname has to be applied **before** the association starts, so the
+//! DHCP client ID matches the configuration. ESP-IDF's STA driver takes its
+//! snapshot of the DHCP client identifier when the association starts, so a
+//! hostname set after `esp_wifi_connect()` is applied to the *next* association,
+//! not this one. A machine that set the hostname after connecting would present
+//! a different client ID on every boot depending on whether the DHCP server had
+//! already seen it, which shows up as a duplicate lease or a host that changes
+//! name when it renews, months later, on a network nobody is looking at.
 //!
-//! `include/clevercoffee/network/WiFiStaConnect.h:13-30` exists for one
-//! reason, stated in its own header comment: *"Apply STA hostname before
-//! `WiFi.begin` so DHCP client ID matches config"*. ESP-IDF's STA driver takes
-//! its snapshot of the DHCP client identifier when the association starts, so a
-//! `esp_netif_set_hostname` issued after `esp_wifi_connect()` is applied to the
-//! *next* association, not this one. A machine that set the hostname after
-//! connecting would present a different client ID on every boot depending on
-//! whether the DHCP server had already seen it — which shows up as a duplicate
-//! lease or a host that changes name when it renews, months later, on a network
-//! nobody is looking at.
-//!
-//! [`ConnectionOrder`] is the testable form of that rule. It is a record of
-//! what has happened, the device code appends to it as it runs, and
+//! [`ConnectionOrder`] is the testable form of that rule. It records what has
+//! happened, the device code appends to it as it runs, and
 //! [`ConnectionOrder::hostname_is_before_association`] is the assertion. The
-//! device side is `cc_hal_esp32::wifi`, which builds the sequence in this
-//! order by construction; the type exists so that a future edit which
-//! reorders the calls fails a test rather than a DHCP lease.
+//! device side is `cc_hal_esp32::wifi`, which builds the sequence in this order
+//! by construction; the type exists so that a future edit which reorders the
+//! calls fails a test rather than a DHCP lease.
 
 use crate::resilience::{CircuitBreaker, RetryPolicy};
 
 /// A record of the order in which the STA came up, for the ordering assertion.
 ///
-/// Not a state machine: it is a log of four booleans the device code sets as it
-/// performs each step. Making it a type rather than a comment is the point —
-/// the C++ needs a comment to state this rule and nothing to check it, and the
-/// comment is exactly the sort of thing that gets edited out.
+/// Not a state machine: a log of four booleans the device code sets as it
+/// performs each step. A type rather than a comment, because this rule is exactly
+/// the sort of thing an edit removes from a comment without noticing.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[allow(
     clippy::struct_excessive_bools,
@@ -43,11 +38,11 @@ pub struct ConnectionOrder {
     /// The netif was created with the DHCP hostname in its configuration.
     ///
     /// In `esp-idf-svc` the hostname is a field of the netif's
-    /// `DHCPClientSettings`, applied by `EspNetif::new_with_conf`
-    /// (`netif.rs:387,489-490`) — so this is true the moment the netif exists,
-    /// which is necessarily before `wifi.start()`. That is the structural
-    /// reason this port cannot get the order wrong, and it is why the assertion
-    /// below is about the netif and not about a separate `set_hostname` call.
+    /// `DHCPClientSettings`, applied when the netif is constructed, so this is
+    /// true the moment the netif exists, which is necessarily before
+    /// `wifi.start()`. That is the structural reason this port cannot get the
+    /// order wrong, and it is why the assertion below is about the netif and not
+    /// about a separate `set_hostname` call.
     pub netif_created_with_hostname: bool,
     /// `wifi.start()` was called.
     pub driver_started: bool,
@@ -64,11 +59,10 @@ impl ConnectionOrder {
     /// Whether the hostname was applied before the association could send a
     /// DHCP request.
     ///
-    /// The C++ rule is "hostname before `WiFi.begin()`", and this is that rule
-    /// expressed over the four steps the two stacks actually have. `esp-idf`
-    /// has no `begin()`; the equivalent edge is `association_requested`, and
-    /// because the hostname is a netif field it is set before that edge by
-    /// construction.
+    /// The rule is "hostname before the association", expressed over the four
+    /// steps the stack actually has. `esp-idf` has no `begin()`; the equivalent
+    /// edge is `association_requested`, and because the hostname is a netif field
+    /// it is set before that edge by construction.
     #[must_use]
     pub const fn hostname_is_before_association(&self) -> bool {
         // The association is only reachable with a hostname already on the
@@ -80,20 +74,18 @@ impl ConnectionOrder {
     }
 }
 
-/// The four-bucket signal indicator, ported from
-/// `CleverCoffeeWiFiManager::getSignalStrength`.
+/// The four-bucket signal indicator.
 ///
-/// The buckets are `-50`, `-65`, `-75`, `-80` dBm, and **0 is overloaded**:
-/// it means "not connected" *or* "offline mode", not "no signal". A display
-/// that drew four bars for 0 and an empty icon for "no network" would be
-/// showing a network it does not have, so the zero is its own case and the
-/// caller renders it as offline.
+/// The buckets are `-50`, `-65`, `-75`, `-80` dBm, and **0 is overloaded**: it
+/// means "not connected" *or* "offline mode", not "no signal". A display that
+/// drew four bars for 0 and an empty icon for "no network" would be showing a
+/// network it does not have, so zero is its own case and the caller renders it as
+/// offline.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Signal {
     /// Offline mode, or not associated. Never a received signal.
     Offline = 0,
-    /// Present but weak: worse than -80 dBm and up to -100 dBm (the C++'s
-    /// stand-in for a disconnected radio, `CleverCoffeeWiFiManager.cpp:246`).
+    /// Present but weak: worse than -80 dBm and up to -100 dBm.
     Weak = 1,
     /// Usable: -79..=-75 dBm.
     Fair = 2,
@@ -104,31 +96,26 @@ pub enum Signal {
 }
 
 impl Signal {
-    /// The RSSI the C++ substitutes when it is not connected.
+    /// The RSSI used for a radio that is up but not associated.
     ///
-    /// `CleverCoffeeWiFiManager.cpp:246` sets `rssi = -100` for a radio that is
-    /// not associated, which is 20 dB below the weakest bucket and therefore
-    /// lands in [`Signal::Weak`] — but the function returns 0 *before* that, on
-    /// the offline-mode check. The substitution is reproduced here for a
-    /// radio that is up but not associated, so the arithmetic is the C++'s.
+    /// -100 dBm is 20 dB below the weakest bucket, and the zero case is returned
+    /// before the buckets are consulted, so this value only ever lands in
+    /// [`Signal::Weak`].
     pub const NOT_CONNECTED_RSSI: i32 = -100;
 
     /// Map a received RSSI in dBm to a bucket.
     ///
-    /// The C++'s chain, boundary for boundary:
+    /// | RSSI dBm | bucket |
+    /// | --- | --- |
+    /// | `>= -50` | 4 |
+    /// | `-65..-51` | 3 |
+    /// | `-75..-66` | 2 |
+    /// | `-80..-76` | 1 |
+    /// | `<= -81` | 0 |
     ///
-    /// | RSSI dBm | bucket | C++ line |
-    /// | --- | --- | --- |
-    /// | `>= -50` | 4 | `:253` |
-    /// | `-65..-51` | 3 | `:255` |
-    /// | `-75..-66` | 2 | `:257` |
-    /// | `-80..-76` | 1 | `:259` |
-    /// | `<= -81` | 0 | `:263` |
-    ///
-    /// Note the last row: the C++ returns 0 for a *received but very weak*
-    /// signal, which is the same value it returns for "offline". That is a
-    /// display wart, not a safety issue, and it is reproduced — see
-    /// [`Signal::Offline`].
+    /// Note the last row: a **received but very weak** signal buckets the same as
+    /// "offline". That is a display wart rather than a safety issue, and it is
+    /// reproduced — see [`Signal::Offline`].
     #[must_use]
     pub const fn from_rssi(rssi: i32) -> Self {
         if rssi >= -50 {
@@ -144,7 +131,7 @@ impl Signal {
         }
     }
 
-    /// The 0–4 integer the C++ API and the `/api/status` payload use.
+    /// The 0–4 integer the `/api/status` payload uses.
     #[must_use]
     pub const fn as_bars(self) -> u8 {
         self as u8
@@ -153,14 +140,10 @@ impl Signal {
 
 /// What [`Monitor::poll`] wants the network code to do this iteration.
 ///
-/// `Connected` means "the link is up, keep going"; `Retry` means "call
-/// `wifi.connect()` now"; `Wait { retry_in_ms }` means "the backoff has not
-/// elapsed, do nothing"; `CircuitOpen` means fail fast rather than touching the
-/// radio; `Offline` means both policies are exhausted and the machine has
-/// stopped trying.
-///
-/// Every branch of `checkAndMaintainConnection` that is not the ESP-IDF call
-/// itself is one of these, and the ESP-IDF call is what `Retry` asks for.
+/// `Connected` means "the link is up, keep going"; `Retry` means "associate now";
+/// `Wait { retry_in_ms }` means "the backoff has not elapsed, do nothing";
+/// `CircuitOpen` means fail fast rather than touching the radio; `Offline` means
+/// both policies are exhausted and the machine has stopped trying.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
     /// The link is up. Reset both policies and count the reconnects as done.
@@ -184,14 +167,13 @@ pub enum Action {
     Offline,
 }
 
-/// The whole of the C++'s reconnection decision, as data.
+/// The whole of the reconnection decision, as data.
 ///
-/// `CleverCoffeeWiFiManager::checkAndMaintainConnection` is 90 lines whose
-/// structure is: check the breaker, check the association, on success record
+/// The structure is: check the breaker, check the association, on success record
 /// it and reset both policies, on failure consult the retry policy, and enter
-/// offline mode when both policies are exhausted. Every one of those decisions
-/// is a call into [`RetryPolicy`] or [`CircuitBreaker`], so this type is
-/// everything the port has of the C++ function and nothing else.
+/// offline mode when both policies are exhausted. Every one of those decisions is
+/// a call into [`RetryPolicy`] or [`CircuitBreaker`], so this type is the whole
+/// of that decision and nothing else.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Monitor {
     retry: RetryPolicy,
@@ -201,7 +183,7 @@ pub struct Monitor {
 }
 
 impl Monitor {
-    /// A monitor in the C++'s configuration: 10 s → 5 min ×2, 5 attempts;
+    /// A monitor in the production configuration: 10 s → 5 min ×2, 5 attempts;
     /// 5 failures, 60 s open, 30 s half-open.
     #[must_use]
     pub const fn new() -> Self {
@@ -215,12 +197,10 @@ impl Monitor {
 
     /// Whether the machine has given up on Wi-Fi and is running offline.
     ///
-    /// The C++'s `networkCoordinator_->isOfflineMode()`. Once true, the monitor
-    /// returns early on every call and
-    /// a later successful association does **not** clear it — the C++ only
-    /// clears it on an explicit configuration change
-    /// (`NetworkCoordinator::setOfflineMode` callers). Reproduced: a machine
-    /// that has gone offline needs `wifi apply` or a reboot, not luck.
+    /// Once true, the monitor returns early on every call, and a later successful
+    /// association does **not** clear it: only an explicit configuration change
+    /// does. A machine that has gone offline needs `wifi apply` or a reboot, not
+    /// luck.
     #[must_use]
     pub const fn is_offline(&self) -> bool {
         self.offline
@@ -232,13 +212,13 @@ impl Monitor {
         self.reconnect_attempts
     }
 
-    /// The retry policy, for the C++'s own log lines.
+    /// The retry policy, for the log lines.
     #[must_use]
     pub const fn retry(&self) -> &RetryPolicy {
         &self.retry
     }
 
-    /// The circuit breaker, for the C++'s own log lines.
+    /// The circuit breaker, for the log lines.
     #[must_use]
     pub const fn breaker(&self) -> &CircuitBreaker {
         &self.breaker
@@ -246,47 +226,45 @@ impl Monitor {
 
     /// One iteration of the monitor, called from the network task.
     ///
-    /// `associated` is the current radio state. The `&mut self` is the whole
-    /// reason this is a method rather than free code: the C++ keeps the two
-    /// policies and the offline flag as members of `NetworkCoordinator` next to
-    /// a dozen other flags, and nothing guarantees the three are updated
-    /// together. Here they cannot be, because they are private.
+    /// `associated` is the current radio state. The `&mut self` is why this is a
+    /// method rather than free code: the two policies, the offline flag and the
+    /// attempt count must move together, and as private fields they cannot be
+    /// updated separately.
     pub fn poll(&mut self, associated: bool, now_ms: u32) -> Action {
-        // `CleverCoffeeWiFiManager.cpp:194-196`: offline mode stops everything.
+        // Offline mode stops everything.
         if self.offline {
             return Action::Offline;
         }
 
-        // `:203-210`: fail fast while the circuit is open, so a dead access
-        // point costs one association attempt a minute rather than a busy
-        // loop of `esp_wifi_connect()` calls.
+        // Fail fast while the circuit is open, so a dead access point costs one
+        // association attempt a minute rather than a busy loop of
+        // `esp_wifi_connect()` calls.
         if !self.breaker.can_attempt(now_ms) {
             return Action::CircuitOpen;
         }
 
         if associated {
-            // `:212-224`: record the success on both policies. `resetWifiReconnects`
-            // and `setWifiConnected(true)` are the C++'s bookkeeping; the count
-            // here is only ever read for the log.
+            // Record the success on both policies. The reconnect count is only
+            // ever read for the log.
             self.breaker.record_success(now_ms);
             self.retry.reset();
             return Action::Connected;
         }
 
-        // `:232-239`: the attempt count is the hard stop.
+        // The attempt count is the hard stop.
         if !self.retry.should_retry() {
             self.offline = true;
             return Action::Offline;
         }
 
-        // `:241-250`: the backoff gate.
+        // The backoff gate.
         if !self.retry.can_retry_now(now_ms) {
             return Action::Wait {
                 retry_in_ms: self.retry.ms_until_retry(now_ms),
             };
         }
 
-        // `:252-259`: attempt.
+        // Associate now.
         self.retry.record_attempt(now_ms);
         self.reconnect_attempts += 1;
         Action::Retry {
@@ -297,12 +275,10 @@ impl Monitor {
 
     /// Record the outcome of the attempt [`Monitor::poll`] asked for.
     ///
-    /// The C++ reads `WiFi.status()` immediately after `WiFi.begin()`
-    /// (`:264-273`) and notes in a comment that this is racy because
-    /// `begin()` is asynchronous. This port keeps that: `poll` is called again
-    /// on the next iteration with the real state, and the result is the same.
-    /// `success` only feeds the circuit breaker, which is the one thing that
-    /// must not count a not-yet-associated radio as a success.
+    /// An asynchronous association is not a success yet, so `success` only feeds
+    /// the circuit breaker: `poll` is called again with the real radio state on
+    /// the next iteration, and the breaker is the one thing that must not count a
+    /// not-yet-associated radio as a success.
     pub fn record_attempt_result(&mut self, success: bool, now_ms: u32) {
         if success {
             self.breaker.record_success(now_ms);
@@ -314,13 +290,10 @@ impl Monitor {
 
     /// Enter or leave offline mode explicitly.
     ///
-    /// Leaving offline mode also resets both policies, and that is deliberate
-    /// rather than convenient: the C++'s only way out of offline mode is
-    /// `ESP.restart()`, which destroys the
-    /// `RetryPolicy` and `CircuitBreaker` objects along with everything else. A
-    /// reset here is the in-process equivalent of that restart, so `wifi apply`
-    /// after a successful provisioning behaves like a reboot — which is what
-    /// the operator expects, and what the C++ gives them.
+    /// Leaving offline mode also resets both policies, deliberately rather than
+    /// conveniently: a process that left offline mode with a spent attempt count
+    /// would go straight back offline on the next poll. Resetting here makes
+    /// `wifi apply` behave like a reboot, which is what the operator expects.
     pub fn set_offline(&mut self, offline: bool) {
         if offline {
             self.offline = true;
@@ -345,8 +318,7 @@ mod tests {
 
     #[test]
     fn the_hostname_is_set_before_the_association_can_send_a_dhcp_request() {
-        // The C++ rule, restated: `WiFi.setHostname()` before `WiFi.begin()`
-        // (`WiFiStaConnect.h:13-30`).
+        // The rule: the hostname before the association.
         let good = ConnectionOrder {
             netif_created_with_hostname: true,
             driver_started: true,
@@ -355,9 +327,9 @@ mod tests {
         };
         assert!(good.hostname_is_before_association());
 
-        // The broken order: a DHCP request that went out with no hostname on
-        // the netif. This is what a `set_hostname` after `wifi.connect()`
-        // produces, and it is the failure the C++ header comment describes.
+        // The broken order: a DHCP request that went out with no hostname on the
+        // netif, which is what setting the hostname after the association
+        // produces.
         let bad = ConnectionOrder {
             netif_created_with_hostname: false,
             driver_started: true,
@@ -385,7 +357,7 @@ mod tests {
 
     #[test]
     fn the_signal_buckets_match_the_cpp_boundaries() {
-        // Table transcribed from CleverCoffeeWiFiManager.cpp:250-265.
+        // The bucket table, boundary for boundary.
         let cases: &[(i32, u8)] = &[
             (-30, 4),
             (-50, 4),
@@ -405,11 +377,11 @@ mod tests {
 
     #[test]
     fn a_not_associated_radio_lands_in_the_cpp_substitution_bucket() {
-        // CleverCoffeeWiFiManager.cpp:246 substitutes -100 dBm.
+        // A radio that is up but not associated reads -100 dBm.
         assert_eq!(
             Signal::from_rssi(Signal::NOT_CONNECTED_RSSI),
             Signal::Offline,
-            "the C++ returns 0 for this, and the C++'s substitution is -100"
+            "an unassociated radio reads -100 dBm and buckets as offline"
         );
     }
 
@@ -438,10 +410,8 @@ mod tests {
         m.record_attempt_result(false, 0);
         // Immediately after, the backoff gate is shut.
         assert!(matches!(m.poll(false, 1), Action::Wait { .. }));
-        // Ten seconds after the attempt, `can_retry_now` uses the *next*
-        // delay, which after one attempt is 20 s. See `div_` note in
-        // resilience.rs: `canRetryNow` compares against `getNextDelay()` of the
-        // *current* attempt count.
+        // Ten seconds after the attempt, `can_retry_now` compares against the
+        // delay for the *current* attempt count, which after one attempt is 20 s.
         assert!(matches!(
             m.poll(false, 20_001),
             Action::Retry { attempt: 2, .. }
@@ -465,9 +435,8 @@ mod tests {
         now += 600_000;
         assert_eq!(m.poll(false, now), Action::Offline);
         assert!(m.is_offline());
-        // And it stays there: the C++ clears offline mode only on an explicit
-        // configuration change, not on a lucky association
-        // (NetworkCoordinator::setOfflineMode has no caller in the monitor).
+        // And it stays there: only an explicit configuration change clears
+        // offline mode, never a lucky association.
         assert_eq!(m.poll(true, now + 1), Action::Offline);
         assert!(m.is_offline());
     }
@@ -510,13 +479,10 @@ mod tests {
         assert!(matches!(m.poll(false, probe_at), Action::Retry { .. }));
         m.record_attempt_result(true, probe_at + 1);
         // One success does not close a half-open circuit, so the next poll is
-        // still an attempt. `Resilience.h:216-241` needs two, and the C++ needs
-        // two for the same reason.
+        // still an attempt: it takes two.
         //
-        // The attempt number is 1 rather than 2 because
-        // `record_attempt_result(true, ..)` resets the retry policy — the C++
-        // does the same at `CleverCoffeeWiFiManager.cpp:221`, on the argument
-        // that a success invalidates the backoff history.
+        // The attempt number is 1 rather than 2 because a success resets the
+        // retry policy: a success invalidates the backoff history.
         assert_eq!(
             m.poll(false, probe_at + 2),
             Action::Retry {
@@ -543,8 +509,8 @@ mod tests {
 
     #[test]
     fn an_offline_monitor_can_be_brought_back_explicitly() {
-        // `wifi apply` after a successful provisioning, which is the in-process
-        // equivalent of the C++'s `ESP.restart()`.
+        // `wifi apply` after a successful provisioning: the in-process equivalent
+        // of a reboot.
         let mut m = Monitor::new();
         for round in 0..5 {
             let now = round * 600_000;
@@ -564,8 +530,8 @@ mod tests {
 
     #[test]
     fn set_offline_true_is_a_one_way_latch() {
-        // The factory-reset direction: the C++ only ever sets offline mode
-        // true, and never clears it from the monitor.
+        // The factory-reset direction: only this call clears offline mode; the
+        // monitor never does.
         let mut m = Monitor::new();
         let _ = m.poll(true, 0);
         m.set_offline(true);

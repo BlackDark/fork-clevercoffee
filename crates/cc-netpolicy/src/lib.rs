@@ -1,9 +1,6 @@
 //! Clever Coffee `network policy`: what the link should do next, what to
 //! publish, when to retry, and the ring the chart reads.
 //!
-//! Owner: finding **4.4** — the split of `cc-domain` into a vocabulary crate and
-//! the transport policy it had accumulated.
-//!
 //! # Where this sits in the layering
 //!
 //! ```text
@@ -52,11 +49,7 @@
 //!   `#[cfg(test)]`. [`history`] in particular is a fixed `[Point; 600]` with
 //!   indexed access precisely so this holds.
 //! * This crate must never name `esp_idf_svc`, `esp_idf_hal` or `esp_idf_sys`.
-//!   A CI grep enforces that (05 §6).
-//! * This is a **move**. Every file here was `cc-domain/src/<same name>` and the
-//!   text is byte-identical apart from `crate::resilience`, which stays in-crate.
-//!   Parity with the C++ cannot be measured on this half of the port, so any
-//!   edit beyond that would be drift nobody sees.
+//!   A CI grep enforces that.
 
 #![no_std]
 #![forbid(unsafe_code)] // already denied workspace-wide; restated for clarity
