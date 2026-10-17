@@ -1,7 +1,5 @@
 //! The hand-off from the control task to the display task.
 //!
-//! Owner: **R4-01b** (the control-loop restructure).
-//!
 //! One frame's inputs, published by the control task and read by the display
 //! task. Sensor readings, switch edges and machine state stay **inside** the
 //! control task, which is the correct place for them; [`crate::sensor_task`] is
@@ -81,11 +79,10 @@
 //!
 //! ## The three locks on the control task, measured
 //!
-//! Scaled to a 240 MHz Xtensa at **8x pessimism**. No Xtensa figure here is a
-//! device measurement, because measuring one means flashing the machine, which
-//! the migration forbids. The scaling is a deliberately generous multiple of the
-//! host/core-clock ratio, so each figure is an upper bound and not a guess
-//! dressed as a number.
+//! Scaled to a 240 MHz Xtensa at **8x pessimism**. No figure here is a device
+//! measurement -- that needs the machine flashed and a console attended -- and the scaling
+//! is a deliberately generous multiple of the host/core-clock ratio, so each figure is an
+//! upper bound rather than a guess dressed as a number.
 //!
 //! ### [`cc_hal_esp32::task::ParameterHandoff::take_one`] -- every tick
 //!
@@ -109,11 +106,10 @@
 //! 100 times a second, each under a microsecond on **both** sides, so neither can
 //! be what makes the loop miss its period.
 //!
-//! The third has a genuinely large critical section but runs **once a second,
-//! not once per tick**: inside the `SSE_INTERVAL_MS` gate (1000 ms,
-//! `main.rs:SSE_INTERVAL_MS`), which is the C++'s `sendTempEvent` cadence and the
-//! same gate the SSE broadcast uses. Finding 4.2 counted it among three per-tick
-//! locks; it is one in a hundred.
+//! The third has a genuinely large critical section but runs **once a second, not once
+//! per tick**: inside the `SSE_INTERVAL_MS` gate (1000 ms, `main.rs:SSE_INTERVAL_MS`),
+//! which is the same gate the SSE broadcast uses. It is not a per-tick lock; it is one in
+//! a hundred.
 //!
 //! ## The 7,200 B copy, the largest number here
 //!

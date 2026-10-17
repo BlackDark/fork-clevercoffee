@@ -40,33 +40,26 @@ use crate::EspError;
 /// the value a machine with a `DS18B20` wants in
 /// `hardware.sensors.temperature.type`.
 ///
-/// The driver that actually runs is [`PROBE_FROM_CONFIG`] — the *configured*
-/// value, exactly as the C++ chooses it (`SystemInitializer.cpp` builds a
-/// `TempSensorDallas` or a `TempSensorTSIC` from
-/// `Config::hardwareSensorsTemperatureType`). It used to be this `const`, on the
-/// argument that the board is what it is and a configuration default should not
-/// override a measured fact. The human's answer to that was the right one:
-///
-/// > I switched the sensor in config but it still shows temperature — that
-/// > should not work
-///
-/// A setting that changes nothing is not a default, it is a lie, and a silent
-/// one: a board wired for a `DS18B20` that reads one while the operator has
-/// selected a `TSIC-306` is exactly the "silently read the other bus" failure the
-/// comment below claimed to be avoiding. With the configuration honoured, the
-/// mismatch is visible instead: the selected driver gets no answer, and no answer
-/// is what sends the machine to `SENSOR_ERROR` with a zero duty.
+/// The driver that actually runs is chosen by [`probe_from_config`] — the
+/// *configured* value. Letting this constant decide instead was the alternative, on the
+/// argument that the board is what it is and a configuration default should not override
+/// a measured fact. It should not, and it must not: a setting that changes nothing is a
+/// lie, and a silent one. A board wired for a `DS18B20` that is read while the operator
+/// has selected a `TSIC-306` misinforms the operator about a machine that is regulating
+/// happily. With the configuration honoured the mismatch is visible instead: the
+/// selected driver gets no answer, and no answer is what sends the machine to
+/// `SENSOR_ERROR` with a zero duty.
 ///
 /// Measured: ROM `286937aacd78af41`, family `0x28`, 2026-09-28.
 const BOARD_PROBE: TemperatureSensorType = TemperatureSensorType::DallasDs18b20;
 
-/// Read the probe type out of the configuration, naming the C++ it mirrors.
+/// Read `hardware.sensors.temperature.type` out of the configuration.
 ///
-/// `hardware.sensors.temperature.type` (`Config.h:1085-1092`), which defaults to
-/// `TSIC_306` in both firmwares — a default that does not match the machine that
-/// ships with a `DS18B20`. That is the C++'s own mismatch and it is preserved;
-/// what is **not** preserved is the C++'s tolerance of it being wrong in
-/// silence, because the C++ picks the driver from the same value.
+/// The default is `TSIC_306`, which does **not** match the machine that ships with a
+/// `DS18B20`. The mismatch is preserved deliberately — §7 of
+/// `docs/history/divergences.md` — and so is the consequence: whichever driver the
+/// setting names is the one that answers, and no answer is a sensor error rather than a
+/// silent fallback to the other bus.
 fn probe_from_config(config: &cc_config::Config) -> TemperatureSensorType {
     // Not a `match`: the enum has two variants and the point of the function is
     // to be a *narrowing* of the configuration's value to the two the driver
@@ -77,26 +70,24 @@ fn probe_from_config(config: &cc_config::Config) -> TemperatureSensorType {
 
 /// The `DS18B20`'s ROM code on this machine, in the device's byte order.
 ///
-/// Measured, not assumed: the recovered image's boot log reported
-/// `DS18B20 at 0x41af78cdaa376928 (family 0x28)`, which is the ROM printed in
-/// wire order (least-significant byte first) — see
-/// `cc_domain::onewire`'s `the_logged_rom_is_printed_least_significant_byte_first`.
-/// A mismatch is reported rather than tolerated, because a wrong ROM means the
-/// driver is addressing a device that is not there.
+/// Measured, not assumed: `0x41af78cdaa376928`, family `0x28`, printed in wire order
+/// (least-significant byte first) — see `cc_domain::onewire`'s
+/// `the_logged_rom_is_printed_least_significant_byte_first`. A mismatch is reported
+/// rather than tolerated, because a wrong ROM means the driver is addressing a device
+/// that is not there.
 const DS18B20_ROM: Rom = Rom([0x28, 0x69, 0x37, 0xAA, 0xCD, 0x78, 0xAF, 0x41]);
 
-/// Bring up whichever probe [`PROBE`] names, and read it once.
+/// Bring up whichever probe the configuration names, and read it once.
 ///
-/// A failure here is **not** fatal. The probe is a sensor: a machine with a
-/// broken probe must still be able to run its state machine and report the fault
-/// through S1, not refuse to boot. The C++ behaves the same way —
-/// `TempSensorDallas` reports a failed read and `TempSensor::error_` is what
-/// escalates it — so this matches it.
+/// A failure here is **not** fatal. The probe is a sensor: a machine with a broken probe
+/// must still be able to run its state machine and report the fault through S1, not
+/// refuse to boot. A failed read is reported by the driver, and
+/// [`TemperatureSensor::has_error`] is what escalates it.
 ///
-/// Both arms are compiled and type-checked, and now both are **linked**: the
-/// selection is a runtime value, so the arm the operator does not choose is dead
-/// weight rather than dead code. That is the honest cost of honouring the
-/// setting, and it is what `just size` now reports.
+/// Both arms are compiled, type-checked and **linked**: the selection is a runtime
+/// value, so the arm the operator does not choose is dead weight rather than dead code.
+/// That is the honest cost of honouring the setting, and it is what `just size`
+/// reports.
 pub(crate) fn bring_up_temperature_sensor(
     pin: esp_idf_hal::gpio::Gpio16<'static>,
     config: &cc_config::Config,
@@ -132,9 +123,8 @@ fn bring_up_ds18b20(
     let mut bus = GpioOneWire::new(pin)?;
     let mut driver = Ds18b20Driver::new(DS18B20_ROM);
 
-    // The resolution write is a one-time EEPROM cycle, so it happens here at
-    // boot and never again (`DallasTemperature::setResolution` is called once in
-    // the C++ constructor too, `TempSensorDallas.cpp:22`).
+    // The resolution write is a one-time EEPROM cycle, so it happens here at boot and
+    // never again.
     if let Err(err) = driver.calibrate(&mut bus) {
         warn!("temperature: calibration failed ({err:?}); assuming 12-bit");
     } else {
@@ -173,12 +163,11 @@ fn bring_up_ds18b20(
 ///
 /// # 🔴 This arm has never run
 ///
-/// **No `TSIC-306` is fitted to the machine this firmware was built for.** The
-/// probe is a `DS18B20` and [`PROBE`] says so, so this function is compiled (the
-/// types, the protocol arithmetic and the rejection paths are all checked) and
-/// **not executed**. See `cc_protocol::sensor::tsic306` and
-/// `cc_hal_esp32::zacwire` for what a green test run of this driver does and does
-/// not prove.
+/// **No `TSIC-306` is fitted to the machine this firmware was built for**, and its
+/// configuration selects the `DS18B20` ([`BOARD_PROBE`]), so this function is compiled
+/// (the types, the protocol arithmetic and the rejection paths are all checked) and
+/// **not executed**. See `cc_protocol::sensor::tsic306` and `cc_hal_esp32::zacwire` for
+/// what a green test run of this driver does and does not prove.
 ///
 /// The capture's first action is to report the line's own rest state, which is
 /// the one thing a `ZACwire` line has and a 1-Wire bus does not: the sensor drives
@@ -200,10 +189,9 @@ fn bring_up_tsic306(
         tsic306_domain::ring::CAPACITY,
         tsic306_domain::protocol::NO_SIGNAL_TIMEOUT_US / 1_000,
     );
-    // Acquire one burst and decode it, so the boot log says whether the line is
-    // alive and what, if anything, it decoded. This is the boot-time equivalent
-    // of `TempSensorTSIC`'s 221, and it is checked here rather than left to the
-    // first `tryGetValue` so an operator sees it at boot.
+    // Acquire one burst and decode it, so the boot log says whether the line is alive
+    // and what, if anything, it decoded. Checked at boot rather than left to the first
+    // sample, so an operator sees it without waiting for the loop to ask.
     let mut capture = capture;
     let mut buffer = tsic306_domain::ring::EdgeBuffer::new();
     let outcome = {
@@ -280,10 +268,9 @@ pub(crate) enum TemperatureSensor {
 
 /// `(celsius, plausible)` — the most recent reading.
 ///
-/// The pair is kept together because that is what S1 consumes: the C++ keeps
-/// `TempSensor::value_` and `TempSensor::error_` apart
-/// (`TempSensor.h:88-95`) and `EmergencyStopManager` branches on the *flag*,
-/// not on a NaN.
+/// The pair is kept together because that is what S1 consumes: the plausibility of
+/// *this* reading, which is the flag the safety monitor branches on rather than a NaN
+/// test on the number.
 pub(crate) type LastReading = Option<(f64, bool)>;
 
 /// Which sensor fault was last written to the log.
@@ -306,34 +293,27 @@ pub(crate) enum DallasFaultTag {
 impl TemperatureSensor {
     /// How many conversions have completed since boot.
     ///
-    /// **This is the safety monitor's clock.** S1's debounce counts *samples*,
-    /// not invocations (`cc_safety::Telemetry::sample_seq`), and the loop calls
-    /// the monitor ten times a second against a probe that converts at 2.5 Hz.
-    /// Without this counter the same reading is counted forty times and the
-    /// over-temperature debounce trips in 30 ms instead of the C++'s 1.2 s.
+    /// **This is the safety monitor's clock.** S1's debounce counts *samples*, not
+    /// invocations (`cc_safety::Telemetry::sample_seq`), and the loop calls the monitor
+    /// ten times a second against a probe that converts at 2.5 Hz. Without this counter
+    /// the same reading is counted forty times and the over-temperature debounce trips in
+    /// 30 ms instead of 1.2 s.
     ///
     /// # 🔴 A fault does NOT advance this counter, and must not
     ///
-    /// When the probe goes silent the counter freezes with the reading, so S1's
-    /// debounce stops advancing on a stale value. That is correct, and it is the
-    /// whole contract of the counter: it says a conversion completed, and a
-    /// failure is not a conversion.
+    /// When the probe goes silent the counter freezes with the reading, so S1's debounce
+    /// stops advancing on a stale value. That is correct, and it is the whole contract of
+    /// the counter: it says a conversion completed, and a failure is not a conversion.
     ///
-    /// Advancing it on a fault would look like it closes the gap and would
-    /// reopen the bug `intentional-diffs.md` #16 exists to prevent. The loop
-    /// polls at 100 Hz, so ten faults are 100 ms apart: three of them would trip
-    /// the over-temperature debounce in **30 ms** on a number nothing is
-    /// producing — the exact "one stale reading latches an emergency stop" failure
-    /// the counter was introduced to stop, reached by the other door.
+    /// Advancing it on a fault would look like it closes the gap and would reopen the bug
+    /// the counter exists to prevent. The loop polls at 100 Hz, so ten faults are 100 ms
+    /// apart: three of them would trip the over-temperature debounce in **30 ms** on a
+    /// number nothing is producing — the exact "one stale reading latches an emergency
+    /// stop" failure, reached by the other door.
     ///
-    /// **The gap is closed on the other path, and that is the C++'s path.** The
-    /// frozen reading no longer matters because a dead probe is a *sensor error*
-    /// ([`Self::has_error`]), which reaches `SENSOR_ERROR` and de-energises the
-    /// heater through `should_pid_be_enabled` (`guards.rs:183`). Note that the
-    /// C++ reaches *both* conclusions from a dead probe — its stale 155 °C also
-    /// trips S1, because it counts per `updateTemperature()` call rather than per
-    /// reading — so not advancing here is part of divergence #16, and the safety
-    /// it gave up is recovered by the sensor-error guard instead.
+    /// **The gap is closed on the other path.** The frozen reading no longer matters
+    /// because a dead probe is a *sensor error* ([`Self::has_error`]), which reaches
+    /// `SENSOR_ERROR` and de-energises the heater through the reducer's PID-enable guard.
     pub(crate) fn sample_seq(&self) -> u32 {
         match self {
             Self::Dallas { samples, .. } | Self::Tsic { samples, .. } => *samples,
@@ -347,13 +327,10 @@ impl TemperatureSensor {
     /// one: reporting `null` for a probe that has not spoken yet is honest, and
     /// reporting `0.0` is a disconnected probe wearing a plausible value.
     ///
-    /// **This is deliberately not the fault signal.** A reading that was
-    /// plausible when it arrived stays plausible forever, because nothing here
-    /// invalidates it — the C++ has the same property: `cachedTemperature_` is
-    /// written on success and never cleared (`SensorCoordinator.cpp:58`, field
-    /// at `SensorCoordinator.h:241`).
-    /// [`Self::has_error`] is the fault signal; see its docs for why asking
-    /// this one is not enough.
+    /// **This is deliberately not the fault signal.** A reading that was plausible when
+    /// it arrived stays plausible forever, because nothing here invalidates it.
+    /// [`Self::has_error`] is the fault signal; see its docs for why asking this one is
+    /// not enough.
     #[must_use]
     pub(crate) fn last_reading(&self) -> LastReading {
         match self {
@@ -363,25 +340,18 @@ impl TemperatureSensor {
 
     /// Whether the driver has latched a fault, whatever the last reading said.
     ///
-    /// This is the C++'s `TempSensor::hasError()` (`TempSensor.h:80-83`) via
-    /// `isConnected()` (`:158-161`), which `BaseState::checkTransitions` turns
-    /// into `SENSOR_ERROR` (`BaseState.h:145-148`). Both arms' drivers keep the
-    /// flag to the C++'s own rule: set at
-    /// [`MAX_BAD_READINGS`](cc_protocol::sensor::ds18b20::MAX_BAD_READINGS)
-    /// consecutive failures and cleared by the next success
-    /// (`TempSensor.h:41-53`).
+    /// The fault flag the reducer's sensor-error guard reads. Both arms' drivers keep it
+    /// to the same rule: set at
+    /// [`MAX_BAD_READINGS`](cc_protocol::sensor::ds18b20::MAX_BAD_READINGS) consecutive
+    /// failures and cleared by the next success.
     ///
-    /// **Why this cannot be derived from [`Self::last_reading`].** `poll` only
-    /// ever *writes* `last_reading`, never clears it, so a probe that reads
-    /// 95 °C and then goes silent leaves `Some((95.0, true))` behind
-    /// indefinitely — the C++ has the same property
-    /// (`SensorCoordinator::cachedTemperature_`, `SensorCoordinator.h:241`).
-    /// Deriving the fault from the reading's plausibility — which is what the
-    /// sample used to do — therefore reports a dead probe as a healthy one, and
-    /// the machine keeps regulating the PID against a number nothing is
-    /// producing. The C++ never had this window because `error_` is a
-    /// *separate* piece of state from `last_temperature_`, which is exactly the
-    /// split this method restores.
+    /// **Why this cannot be derived from [`Self::last_reading`].** `poll` only ever
+    /// *writes* `last_reading`, never clears it, so a probe that reads 95 °C and then
+    /// goes silent leaves `Some((95.0, true))` behind indefinitely. Deriving the fault
+    /// from the reading's plausibility therefore reports a dead probe as a healthy one,
+    /// and the machine keeps regulating the PID against a number nothing is producing.
+    /// The fault is a *separate* piece of state from the reading, which is exactly the
+    /// split this method keeps.
     #[must_use]
     pub(crate) fn has_error(&self) -> bool {
         match self {
@@ -417,17 +387,14 @@ impl TemperatureSensor {
                         );
                     }
                     Ok(ds18b20_domain::Poll::Reading(Err(fault))) => {
-                        // The C++'s `TempSensorDallas` logs and returns false for
-                        // the same faults; the count towards `error_` is the
-                        // driver's. See `div6_*`: the C++ can only report
-                        // "not connected" for all six, and this port names the
-                        // fault.
+                        // The count towards the fault flag is the driver's; this arm only
+                        // reports which fault it was.
                         //
-                        // **Once per streak, not once per read.** At the loop's
-                        // rate a misconfigured probe fails on every read, and 50
-                        // lines a second on a 115200-baud console is both a wall
-                        // of noise and real time spent in `println`. The
-                        // fault itself is unchanged; only the log is gated.
+                        // **Once per streak, not once per read.** At the loop's rate a
+                        // misconfigured probe fails on every read, and 50 lines a second
+                        // on a 115200-baud console is both a wall of noise and real time
+                        // spent in `println`. The fault itself is unchanged; only the log
+                        // is gated.
                         if *sensor_fault_logged != Some(DallasFaultTag::Read) {
                             *sensor_fault_logged = Some(DallasFaultTag::Read);
                             warn!("temperature: read failed: {fault} (logged once per fault)");

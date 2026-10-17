@@ -1,7 +1,5 @@
 //! The display task: the panel, on the panel's cadence.
 //!
-//! Owner: **R4-01b** (the event-driven control loop).
-//!
 //! # What it owns
 //!
 //! The panel and nothing else. It renders whatever
@@ -14,13 +12,10 @@
 //! Because of what a frame costs. The 1 KB framebuffer goes out as eight I²C
 //! writes, which is tens of milliseconds of bus time on a 400 kHz bus — and it
 //! was being paid **inside the control tick**, on the same task, in the same
-//! iteration as the heater decision. That is the whole of the "the control tick
-//! overruns its 10 ms budget in 62 % of ticks" finding in the migration notes:
-//! the loop was not slow because the loop was slow, it was slow because the
-//! display was in it.
+//! iteration as the heater decision. The loop was not slow because the loop was slow; it
+//! was slow because the display was in it.
 //!
-//! A later whole-tick measurement (2026-10-09) is mean work 1 ms, achieved
-//! period 10 ms. The 1 October 16 ms mean is a different measurement.
+//! A whole-tick measurement (2026-10-09) has mean work 1 ms against a 10 ms period.
 //!
 //! With the panel here, the control task's cost is the reducer and the applier,
 //! and the panel's cost is the panel. The two contend for one I²C bus, which is
@@ -29,20 +24,16 @@
 //!
 //! # The refresh interval
 //!
-//! [`cc_hal_esp32::display::REFRESH_INTERVAL_MS`] = 100 ms, the C++'s
-//! `DISPLAY_REFRESH_INTERVAL_MS` (`constants/Timing.h:38`). It is also the floor
-//! on how quickly a screen change becomes visible, which is the C++'s floor
-//! too: `LoopManager::updateDisplay` runs the display on the same loop as
-//! everything else and the panel's own driver rate-limits the flush.
+//! [`cc_hal_esp32::display::REFRESH_INTERVAL_MS`] = 100 ms. It is also the floor on how
+//! quickly a screen change becomes visible, because the panel's own driver rate-limits the
+//! flush and this task publishes a frame no faster than that.
 //!
 //! # The boot screens
 //!
-//! `displayLogo` (`DisplayWidgets.h:404-446`) is called twice during the C++'s
-//! boot — with the version (`SystemInitializer.cpp:134`) and then with the Wi-Fi
-//! address (`:848`). It is drawn here because this task owns the panel, and the
-//! address is not known to the control task: the radio publishes it into the
-//! telemetry snapshot, so the second screen is drawn when the snapshot's IP
-//! first appears.
+//! The logo is drawn twice at boot — once with the version and then with the Wi-Fi
+//! address. It is drawn here because this task owns the panel, and the address is not
+//! known to the control task: the radio publishes it into the telemetry snapshot, so the
+//! second screen is drawn when the snapshot's IP first appears.
 
 use std::sync::Arc;
 
@@ -161,12 +152,10 @@ impl DisplayTask {
                     info!("display: wifi screen — {ip}");
                     self.boot_screen(line1, line2);
                     shown_address = true;
-                    // Give the address a moment on its own before the first
-                    // normal frame overwrites it. The C++ has no such pause —
-                    // its first loop simply draws over the logo — but its Wi-Fi
-                    // setup blocks for seconds, so in practice the logo is the
-                    // only thing an operator sees. One second is the shortest
-                    // wait that makes the screen readable rather than a flash.
+                    // Give the address a moment on its own before the first normal frame
+                    // overwrites it. Wi-Fi setup blocks for seconds before this point, so
+                    // the logo is what an operator watches; one second is the shortest
+                    // wait that makes the address readable rather than a flash.
                     FreeRtos::delay_ms(1_000);
                 }
             }

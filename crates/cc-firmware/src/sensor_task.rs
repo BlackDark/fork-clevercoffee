@@ -43,14 +43,13 @@
 //! > section"*
 //!
 //! A scratchpad read enters that lock once per GPIO write. The wait sits
-//! outside it (`onewire.rs` `pulse_low`). On one task that matches the C++
-//! `noInterrupts()` around the edge. On a second task this build asserts.
+//! outside it (`onewire.rs` `pulse_low`). On one task, the control task, the same code
+//! runs without incident. On a second task this build asserts.
 //!
 //! It is reproducible, it is in the kernel rather than in this workspace, and it
 //! is not worth shipping a firmware that trips it. So the temperature probe stays
-//! on the control task, where it has run without incident, and the *display* —
-//! which the bisect shows is safe — moves out. See
-//! `docs/history/cpp-findings.md` for where this finding is recorded.
+//! on the control task, where it has run without incident, and the *display* -- which the
+//! bisect shows is safe -- moves out.
 //!
 //! Recheck 2027-01. On 2026-10-09 crate 0.47.0 was still the latest release and
 //! `free` still entered that one `CS`. The other path is RMT `OWDriver` in the
