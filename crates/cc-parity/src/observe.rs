@@ -9,9 +9,9 @@
 //!
 //! Three reductions, each with a reason:
 //!
-//! 1. **State names are the C++'s strings.** [`MachineState::name`], i.e.
-//!    `BREW_PREINFUSION`, because the C++ baseline was captured from the C++
-//!    firmware's log and the two have to be comparable.
+//! 1. **State names are [`MachineState::name`] strings**, i.e.
+//!    `BREW_PREINFUSION`, because the comparison is string-for-string against a
+//!    captured log.
 //! 2. **Effect values are dropped, except for the three that carry the safety
 //!    argument.** `SetHeaterDuty` becomes `SetHeaterDuty` with no number,
 //!    because the duty is a float computed from a live probe and no two runs
@@ -39,7 +39,7 @@ pub enum ObservedEffect {
     Plain,
     /// `EnterState` / `ExitState` — the state name is the observation.
     State {
-        /// The C++ `SCREAMING_SNAKE` state name.
+        /// The `SCREAMING_SNAKE` state name.
         state: String,
     },
     /// `SetPidRuntime` / `SetSteamMode` — the flag is the observation.
