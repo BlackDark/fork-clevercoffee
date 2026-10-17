@@ -1,6 +1,4 @@
 //! Brewing option vocabulary.
-//!
-//! Port of the `Process` namespace in `include/clevercoffee/defaults.h:214-221`.
 
 /// How a brew ends.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

@@ -1,20 +1,17 @@
 //! Standardised error codes.
 //!
-//! Port of `ErrorCode` in `include/clevercoffee/errors/ErrorCodes.h:16-40`.
-//! The C++ enum is implicit, so the discriminants are 0..=12 in declaration
-//! order; they are stated explicitly here because they cross the wire in API
-//! responses and MQTT payloads.
+//! The discriminants are 0..=11 in declaration order and are stated explicitly because
+//! they cross the wire in API responses and MQTT payloads.
 
 /// A system error, classified.
 ///
-/// The discriminants are positional, matching the implicit C++ enum: inserting
-/// or reordering a variant changes the wire format.
+/// The discriminants are positional: inserting or reordering a variant changes the wire
+/// format.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum ErrorCode {
-    /// No error. The C++ models this as a code rather than an `Option`, so
-    /// `ErrorCode::Success` is the value an `Error` carries when nothing went
-    /// wrong.
+    /// No error. Modelled as a code rather than as an `Option`, so this is the value an
+    /// `Error` carries when nothing went wrong.
     Success = 0,
     /// The sensor did not answer in time.
     SensorTimeout = 1,
@@ -63,8 +60,7 @@ impl ErrorCode {
         self as u8
     }
 
-    /// The C++ enumerator name, as `Error::codeString()` prints it
-    /// (`ErrorCodes.h:152-181`).
+    /// The enumerator's own name, spelled as the logs and the API print it.
     #[must_use]
     pub const fn code_string(self) -> &'static str {
         match self {
@@ -85,9 +81,8 @@ impl ErrorCode {
 
     /// Whether this error requires the machine to stop what it is doing.
     ///
-    /// Port of `Error::isCritical()`, which marks
-    /// exactly five codes. A critical error is one where continuing to heat or
-    /// pump risks the machine, not merely where a retry might help.
+    /// Exactly five codes are critical. A critical error is one where continuing to heat or
+    /// pump risks the machine, not merely one where a retry might help.
     #[must_use]
     pub const fn is_critical(self) -> bool {
         matches!(
@@ -100,8 +95,7 @@ impl ErrorCode {
         )
     }
 
-    /// A user-facing description with a recovery suggestion, from
-    /// `Error::getUserMessage()`.
+    /// A user-facing description with a recovery suggestion.
     #[must_use]
     pub const fn user_message(self) -> &'static str {
         match self {
@@ -122,8 +116,7 @@ impl ErrorCode {
         }
     }
 
-    /// Actionable recovery steps, from `Error::getRecoverySuggestion()`
-    /// (`ErrorCodes.h:110-136`).
+    /// Actionable recovery steps.
     #[must_use]
     pub const fn recovery_suggestion(self) -> &'static str {
         match self {
@@ -159,8 +152,8 @@ mod tests {
 
     #[test]
     fn discriminants_match_the_implicit_cpp_enum() {
-        // ErrorCodes.h:16-40 declares the variants with no explicit values, so
-        // they are 0..=11 in order.
+        // The variants are declared in order with no explicit values, so the ids are
+        // 0..=11.
         for (i, code) in ErrorCode::ALL.iter().enumerate() {
             assert_eq!(usize::from(code.code()), i, "{}", code.code_string());
         }

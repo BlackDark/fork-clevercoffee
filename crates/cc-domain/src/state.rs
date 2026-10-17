@@ -1,17 +1,14 @@
 //! The 18 machine states and their category predicates.
 //!
-//! Discriminants are the C++ `MachineStateId` values from
-//! `include/clevercoffee/state/MachineStateIds.h:11-39`, byte for byte. They
-//! are part of the machine's external contract: `/api/parameters` and the MQTT
-//! payloads report them as integers, and `intentional-diffs.md` / the parity
-//! harness diff them. Renumbering a variant is a breaking change.
+//! The discriminants are part of the machine's external contract: `/api/parameters` and
+//! the MQTT payloads report them as integers, and the parity harness diffs them.
+//! **Renumbering a variant is a breaking change.**
 
 /// Every state the machine can be in.
 ///
-/// Exactly 18 variants, matching `MachineStateIds.h`. Adding a variant is
-/// deliberate and forces a review of every `match` over `MachineState` — which
-/// is the point (04 §4, "adding a water-flow state is a compile error until the
-/// whitelist is updated").
+/// Exactly 18 variants. Adding one forces a review of every `match` over `MachineState`,
+/// which is the point: adding a water-flow state is a compile error until the flow
+/// whitelist is updated for it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u16)]
 pub enum MachineState {
@@ -79,11 +76,10 @@ pub const ALL: [MachineState; 18] = [
 ];
 
 impl MachineState {
-    /// The C++ enumerator name, e.g. `"BREW_PREINFUSION"`.
+    /// The enumerator's own name, e.g. `"BREW_PREINFUSION"`.
     ///
-    /// Used in logs and in the parity harness, where the C++ log text is the
-    /// comparison target. Deliberately the `SCREAMING_SNAKE` spelling rather
-    /// than a `Debug`-derived one: parity is measured against the C++ strings.
+    /// Used in logs and as the parity harness's comparison key, and deliberately the
+    /// `SCREAMING_SNAKE` spelling rather than a `Debug`-derived one for that reason.
     #[must_use]
     pub const fn name(self) -> &'static str {
         match self {
@@ -114,11 +110,11 @@ impl MachineState {
         self as u16
     }
 
-    /// Recover a state from its `MachineStateId`.
+    /// Recover a state from its numeric id.
     ///
-    /// Returns `None` for an id the firmware does not know. The C++ restarts the
-    /// device in that case; the Rust port
-    /// must not, so the caller decides.
+    /// Returns `None` for an id this firmware does not know, and deliberately does not
+    /// decide what that means: the caller chooses between reporting it and refusing to
+    /// continue.
     #[must_use]
     pub const fn from_id(id: u16) -> Option<Self> {
         match id {
@@ -144,12 +140,9 @@ impl MachineState {
         }
     }
 
-    /// Whether this is one of the four brew states.
-    ///
-    /// Port of `isBrewState`, which is a range test
-    /// over the enum: `>= BREW_PREINFUSION && <= BREW_FINISHED`. The range is
-    /// spelled out rather than compared numerically so that reordering the
-    /// variants cannot silently change the answer.
+    /// Whether this is one of the four brew states: `>= BREW_PREINFUSION && <=
+    /// BREW_FINISHED`. The range is spelled out rather than compared numerically so that
+    /// reordering the variants cannot silently change the answer.
     #[must_use]
     pub const fn is_brew_state(self) -> bool {
         matches!(
@@ -162,16 +155,12 @@ impl MachineState {
     }
 
     /// Whether this is the steam state.
-    ///
-    /// Port of `isSteamState`.
     #[must_use]
     pub const fn is_steam_state(self) -> bool {
         matches!(self, Self::SteamRunning)
     }
 
     /// Whether this is one of the four backflush states.
-    ///
-    /// Port of `isBackflushState`.
     #[must_use]
     pub const fn is_backflush_state(self) -> bool {
         matches!(
@@ -184,8 +173,6 @@ impl MachineState {
     }
 
     /// Whether this is the manual-flush state.
-    ///
-    /// Port of `isManualFlushState`.
     #[must_use]
     pub const fn is_manual_flush_state(self) -> bool {
         matches!(self, Self::ManualFlushRunning)
@@ -196,8 +183,6 @@ impl MachineState {
 mod tests {
     use super::*;
 
-    /// Ports `test/test_state_classification/test_main.cpp`, which is the C++
-    /// oracle for these four predicates.
     #[test]
     fn brew_preinfusion_is_brew_state() {
         assert!(MachineState::BrewPreinfusion.is_brew_state());
@@ -364,7 +349,6 @@ mod tests {
 
     #[test]
     fn discriminants_match_the_cpp_enum() {
-        // MachineStateIds.h:11-39, transcribed.
         let expected: [(MachineState, u16); 18] = [
             (MachineState::Init, 0),
             (MachineState::PidNormal, 20),

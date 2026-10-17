@@ -1,6 +1,4 @@
 //! Machine-level option vocabulary.
-//!
-//! Port of the `System` namespace in `include/clevercoffee/defaults.h:183-212`.
 
 /// Which of the six display layouts to render.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -32,8 +30,7 @@ pub enum Language {
     Spanish = 2,
 }
 
-/// Log verbosity. The values are the C++ `Logger::Level` levels
-/// (`defaults.h:203-211`) and are compared numerically by the logger.
+/// Log verbosity. The values are compared numerically by the logger.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(i8)]
 pub enum LogLevel {

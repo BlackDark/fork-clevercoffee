@@ -14,19 +14,19 @@
 //! the rest of the firmware speaks: a temperature has a type, the machine is in
 //! one of eighteen states, an error has a code, and a PID has a mode. Nothing
 //! here decodes a byte, drives a pin, or holds a ring of samples -- those are
-//! `cc-protocol` (protocols over bytes) and `cc-netpolicy` (link, publish and
-//! retry policy). That is finding 4.4; this crate was ~18,700 lines of all
-//! three, and a reviewer could no longer read it in one sitting.
+//! `cc-protocol` (protocols over bytes) and `cc-netpolicy` (link, publish and retry
+//! policy). The four change for different reasons: a vocabulary, a wire format, a link
+//! policy and a control policy.
 //!
 //! # Rules
 //!
-//! * `no_std`, no `alloc`, and **no dependency is on by default** (04 §1, §6).
+//! * `no_std`, no `alloc`, and **no dependency is on by default**.
 //!   The single optional dependency is `serde`, off unless a crate that already
 //!   depends on it turns it on, and it exists for one reason: `Secret<T>`'s
 //!   transparent `Serialize`/`Deserialize` impls, which `cc-config` needs to
 //!   round-trip the four credential fields. See [`secret`].
 //! * This crate must never name `esp_idf_svc`, `esp_idf_hal` or `esp_idf_sys`.
-//!   A CI grep enforces that (05 §6).
+//!   A CI grep enforces that.
 //! * Every unit is a newtype, never a bare `f32`. Mixing millimetres with
 //!   inches is the class of bug the type system is here to prevent.
 
@@ -37,21 +37,18 @@
 /// Add a `from_raw` constructor to an enum whose discriminants are contiguous
 /// `i8` values starting at 0.
 ///
-/// The schema in `cc-config` stores enumerations as their integer discriminant
-/// so the JSON matches the C++ byte for byte, and needs to turn one back into
-/// the enum. Doing that with a single macro keeps the mapping next to the
-/// declaration, where a reviewer can check it, and means adding a variant is a
-/// one-line change rather than an edit in two crates.
+/// The schema in `cc-config` stores enumerations as their integer discriminant and needs
+/// to turn one back into the enum. Doing that with a single macro keeps the mapping next to
+/// the declaration, where a reviewer can check it, and means adding a variant is a one-line
+/// change rather than an edit in two crates.
 ///
-/// **Why it lives here and is not `#[macro_export]`ed.** This is one macro, used
-/// by [`hardware`], [`process`] and [`system`]; it used to be a byte-identical
-/// copy of itself in each of those three files, because `macro_rules` has no
-/// crate-private export. It does have one, and it is this line: `macro_rules`
-/// scoping is **textual**, so a definition at the crate root is visible to every
-/// module declared *after* it. `#[macro_export]` would also work and would also
-/// be wrong — it publishes `cc_domain::from_raw` as public API of a `no_std`
-/// domain crate, and `missing_docs` would then demand docs on a macro that is
-/// an implementation detail of three of its own modules.
+/// **Why it lives here and is not `#[macro_export]`ed.** It is one macro, used by
+/// [`hardware`], [`process`] and [`system`]. `macro_rules` scoping is **textual**, so a
+/// definition at the crate root is visible to every module declared *after* it, and that is
+/// the crate-private export. `#[macro_export]` would also work and would be wrong: it
+/// publishes `cc_domain::from_raw` as public API of a `no_std` domain crate, and
+/// `missing_docs` would then demand docs on a macro that is an implementation detail of
+/// three of its own modules.
 ///
 /// **It must stay above the `pub mod` lines below.** Moving it into a submodule
 /// and importing it is the other idiom, and it does not work here: `use
