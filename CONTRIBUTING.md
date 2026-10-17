@@ -35,8 +35,8 @@ no `rustfmt.toml` to disagree with them. Apply it with `just fmt`, check it with
 hooks (trailing whitespace, end-of-file newline, merge conflicts):
 
 ```bash
-$ pip install pre-commit
-$ pre-commit install
+pip install pre-commit
+pre-commit install
 ```
 
 There is deliberately **no** `cargo fmt` pre-commit hook: a `language: system`
@@ -60,8 +60,9 @@ than reword it.
 
 Four classes go whatever their truth value: restating a lint the workspace
 already holds; recording what a commit or a refactor did; restating the
-signature; and citing the deleted C++ by line number, which `docs/history/` owns.
-Long is fine when the derivation cannot be redone here — `git show` and the
+signature; and any reference to the deleted C++ -- a line number, a
+`cpp-findings.md` section, "the C++ does X, so this does Y". `docs/history/` owns
+that provenance. Long is fine when the derivation cannot be redone here, and the
 missing ESP-IDF sources are why. See `AG-RUST-13`.
 
 ## Submitting Changes

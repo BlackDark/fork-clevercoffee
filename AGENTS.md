@@ -379,19 +379,21 @@ enough:
 3. **Signature restatement.** "The decimal integer, unadorned" over
    `fn set_int`, "the current rotation" over `fn rotation`. If the name and
    signature say it, it does not need saying.
-4. **Citing the deleted C++ by line number.** The migration is closed
-   (`docs/history/README.md`), so `MQTTManager.cpp:96` and friends point
-   somewhere a reader cannot follow and duplicate the provenance record.
-   `docs/history/divergences.md` and `docs/history/cpp-findings.md` own it;
-   keep the *decision* the citation stood for, drop the citation.
+4. **Any reference to the deleted C++.** A line number, a `cpp-findings.md`
+   section, a path in the old tree, "the C++ does X, so this does Y". Those files
+   are gone (`AG-REPO-27`), the migration is closed
+   (`docs/history/README.md`), and `docs/history/` owns the provenance record, so
+   the comparison is neither followable nor the crate's business. Say what this
+   firmware does and why that is correct. A **deliberate** divergence keeps its
+   `divergences.md` entry link: that file records this firmware's behaviour,
+   `cc-parity` parses it, and the link is what pins the divergence to a test.
 
 **What survives, and why this is not a line-count rule.** Derivation that
-cannot be redone in this repository is worth its length: the deleted C++ is
-recoverable only through `git show` (`AG-REPO-27`), ESP-IDF is not vendored at
-all, and a `PlanView` slice bug that only fires once a registry has a binary
-sensor is not re-derivable from any signature. Keep those long. The question is
-never "is this short enough" but "could a reader get this from the code, a lint,
-a sibling file, or `docs/`?"
+cannot be redone in this repository is worth its length: ESP-IDF is not vendored
+at all, a datasheet timing is nowhere in the tree, and a `PlanView` slice bug
+that only fires once a registry has a binary sensor is not re-derivable from any
+signature. Keep those long. The question is never "is this short enough" but
+"could a reader get this from the code, a lint, a sibling file, or `docs/`?"
 
 Practical consequences:
 
