@@ -1,8 +1,7 @@
-//! Port of `include/clevercoffee/display/displayHelpers.h`.
+//! Small, pure helpers shared between the display and the status LEDs.
 //!
-//! Small, pure, and shared between the display and the status LEDs. ADR-0001 §3
-//! made these the single source of truth for the tolerance thresholds, and the
-//! two `isNearSetpoint*` overloads differ by exactly one comparison operator on
+//! These are the single source of truth for the tolerance thresholds, and the two
+//! `is_near_setpoint_*` functions differ by exactly one comparison operator on
 //! purpose:
 //!
 //! * [`is_near_setpoint_for_display`] is **strict `<`**, for the OLED blink.
@@ -11,9 +10,9 @@
 //! * [`is_near_setpoint_for_led`] is **`<=`**, and uses a wider tolerance in a
 //!   steam state. A value exactly at the boundary *is* near, so the LED settles.
 //!
-//! That asymmetry is not an oversight and is asserted in the tests below; the
-//! C++ comments at `displayHelpers.h:44-52` call it out as the reason the
-//! helpers exist at all.
+//! That asymmetry is not an oversight and is asserted in the tests below: the two
+//! are one rule with one operator changed, and the boundary is the only place they
+//! disagree.
 //!
 //! [`is_heating_logo_condition_met`] is the third: it is `> HEATING_LOGO_THRESHOLD_C`
 //! (5 °C) below setpoint, and it is the *only* place that constant is applied.
@@ -35,23 +34,22 @@ pub const HEATING_LOGO_THRESHOLD_C: f32 = 5.0;
 /// how close the steam setpoint has to be before the LED is allowed to settle.
 pub const TEMP_TOLERANCE_STEAM_C: f32 = 5.0;
 
-/// `isManualFlushState` (`utils/SystemUtils.h`).
+/// Whether the state is a manual flush.
 ///
-/// The C++ helper is `state == MANUAL_FLUSH_RUNNING`, and a handful of call
-/// sites additionally test for it. Named here so a fourth state cannot be
-/// added without this being revisited.
+/// Named so a second flush state cannot be added without this being revisited.
 #[must_use]
 pub const fn is_manual_flush_state(state: MachineState) -> bool {
     matches!(state, MachineState::ManualFlushRunning)
 }
 
-/// `isSteamState` (`utils/SystemUtils.h`).
+/// Whether the state is the steam state.
 #[must_use]
 pub const fn is_steam_state(state: MachineState) -> bool {
     matches!(state, MachineState::SteamRunning)
 }
 
-/// `isBackflushState` (`utils/SystemUtils.h`).
+/// Whether the state is one of the four backflush states, the idle and finished
+/// ones included.
 #[must_use]
 pub const fn is_backflush_state(state: MachineState) -> bool {
     matches!(
@@ -99,7 +97,7 @@ pub fn is_near_setpoint_for_led(temperature: f64, setpoint: f64, tolerance: f64)
     (temperature - setpoint).abs() <= tolerance
 }
 
-/// `isBlinkPhaseOn` — `isrCounter() < 500`.
+/// The blink phase: the first half of the ISR counter's 1 s cycle.
 ///
 /// The ISR counter runs 0..999, so this is the first half of a 1 s cycle at
 /// 1 kHz. Every blink in the display uses it, so all of them are in phase.
@@ -147,7 +145,7 @@ mod tests {
 
     #[test]
     fn the_display_comparison_is_strict_and_the_led_one_is_not() {
-        // ADR-0001 §3. The two differ by one operator, on purpose.
+        // The two differ by one operator, on purpose.
         let delta = 0.3;
         assert!(is_near_setpoint_for_display(94.71, 95.0, delta), "inside");
         assert!(!is_near_setpoint_for_display(94.69, 95.0, delta), "outside");
@@ -163,7 +161,7 @@ mod tests {
 
     #[test]
     fn the_boundary_is_where_the_two_disagree() {
-        // The single value the C++ comparator difference shows up on. If this
+        // The single value the two comparators disagree on. If this
         // ever stops failing, one of the two has been "fixed" and the blink and
         // the LED have desynchronised at the boundary.
         //

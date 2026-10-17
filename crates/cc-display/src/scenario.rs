@@ -2,9 +2,9 @@
 //!
 //! # What this is for
 //!
-//! The claim `cc-display` wants to make is "these are the pixels the C++ firmware
-//! draws". That claim is only worth something if it is checked against something
-//! outside this crate, and there are two ways to do that:
+//! The claim this crate makes is "these are the pixels the panel shows". That
+//! claim is only worth something if it is checked against something outside this
+//! crate, and there are two ways to do that:
 //!
 //! 1. **Engine parity.** A scenario file is a list of draw calls, in the format
 //!    `tools/oracle/display_oracle.cpp` reads. The oracle replays it against the
@@ -75,7 +75,7 @@
 //! ```
 //!
 //! Inside a quoted string, `\xNN` is a raw byte and `\n` is a newline, which
-//! `drawStr` stops at. The oracle's query ops (`width`, `ascent`, `dispw`, ...)
+//! `draw_str` stops at. The oracle's query ops (`width`, `ascent`, `dispw`, ...)
 //! print to stdout instead of drawing, so they never appear in a scenario; they
 //! are covered by `tests/glyph_parity.rs` against measured tables.
 //!

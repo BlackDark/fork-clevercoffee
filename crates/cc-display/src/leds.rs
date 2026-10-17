@@ -1,58 +1,37 @@
 //! Which of the three status LEDs should be lit, as a pure function.
 //!
-//! Owner: **3.1** of
-//! [`32-findings-2026-10-03.md`](../../../docs/history/review-2026-10-03.md)
-//! — "`hardware.leds.*` (6 params) are writable and shown in the UI, but there
-//! is no LED code anywhere".
-//!
 //! # Why this crate and not `cc-web` or `cc-machine`
 //!
-//! **The brief for 3.1 asked for `cc-web` (the home for pure logic after finding
-//! 4.1) or `cc-machine`. `cc-display` is the correct third answer, and putting it
-//! in either of the other two would have been a mistake.**
+//! `cc-display` is the right home because the three primitives this needs are
+//! already here, each with its own test:
 //!
-//! The C++ does not put the LED rules in a machine file. `LoopManager::updateLEDs`
-//! (`src/core/LoopManager.cpp:255-286`) delegates every decision to
-//! `CleverCoffee::Display::` helpers in
-//! `include/clevercoffee/display/displayHelpers.h:41-59`, and **cc-display is
-//! already the host-tested port of that file** — its `helpers.rs` module doc
-//! opens with "Port of `include/clevercoffee/display/displayHelpers.h`" and it
-//! already carries two of the three primitives this needs:
+//! * [`crate::helpers::status_led_tolerance`] — the steam-versus-blink delta
+//!   choice, with a test asserting each side.
+//! * [`crate::helpers::is_near_setpoint_for_led`] — the **`<=`** comparator,
+//!   tested against the display's strict `<` at the exact boundary value so the
+//!   two cannot drift apart.
+//! * [`crate::helpers::is_blink_phase_on`] — the half-cycle the brew LED's
+//!   manual-flush rule hangs off.
 //!
-//! * [`crate::helpers::status_led_tolerance`] — `getStatusLedTolerance`, the
-//!   steam-vs-blink-delta choice, with a test asserting each side.
-//! * [`crate::helpers::is_near_setpoint_for_led`] — `isNearSetpointForStatusLed`,
-//!   the **`<=`** comparator, tested against the display's strict `<` at the
-//!   exact boundary value so the two cannot drift apart.
-//! * [`crate::helpers::is_blink_phase_on`] — `isBlinkPhaseOn`, the `isrCounter <
-//!   500` half-cycle the brew LED's manual-flush rule hangs off.
-//!
-//! Re-deriving any of those in `cc-machine` or `cc-web` would have created the
-//! second copy of a tolerance rule that `helpers.rs`'s module doc explicitly
-//! exists to prevent (ADR-0001 §3). This module is therefore **only the
-//! composition** the C++ performs in `updateLEDs`, and it consumes the existing
-//! primitives rather than restating them. The dependency edges are unchanged:
+//! Re-deriving any of those in `cc-machine` or `cc-web` would create a second
+//! copy of a tolerance rule that `helpers.rs` exists to keep single. This module
+//! is therefore **only the composition**: it consumes the existing primitives
+//! rather than restating them, and the dependency edges are unchanged —
 //! `cc-firmware` already depends on `cc-display`, and nothing new points at it.
 //!
 //! # What this is NOT
 //!
 //! This module decides *lit or not*. It does not touch a GPIO, does not know an
 //! LED can be inverted, and does not know whether the pin is even wired. Those
-//! belong to `cc_hal_esp32::leds`, which is the only code that drives a pin,
-//! exactly as the C++ splits it: `LoopManager` asks, `StandardLED` writes
-//! (`src/hardware/StandardLED.cpp:16-18`).
+//! belong to `cc_hal_esp32::leds`, the only code that drives a pin: this module
+//! asks, and that one writes.
 //!
 //! # The `enabled` gate
 //!
-//! The C++ checks `hardware.leds.*.enabled` **twice**: once when constructing the
-//! pin (`HardwareManager::initializeLEDs`, `:95-125` — a disabled LED has no
-//! `StandardLED` object at all) and again in `updateLEDs` before dereferencing
-//! it. That double check is an artefact of the C++ needing the pointer to be
-//! non-null, not two decisions. [`LedOutput::from_state`](crate::leds::LedOutput::from_state)
-//! models it once, by
-//! reporting `false` for a disabled LED, and `cc_hal_esp32::leds` models the
-//! other half by not configuring a pin it was not asked for. Together they are
-//! the same rule applied once each side.
+//! [`LedOutput::from_state`](crate::leds::LedOutput::from_state) reports `false`
+//! for a disabled LED, and `cc_hal_esp32::leds` does not configure a pin it was
+//! not asked for. Together those are the rule "a disabled LED stays dark",
+//! applied once on each side.
 
 use cc_domain::state::MachineState;
 
@@ -63,38 +42,35 @@ use crate::model::DisplayInput;
 
 /// The three LED states the machine reports, as one value.
 ///
-/// `true` means lit. Deliberately not a bitmask or a `heapless` set: there are
-/// exactly three LEDs, they are named everywhere in the C++, and a named field
-/// per LED is what makes `updateLEDs`'s three independent gates legible at the
-/// call site.
+/// `true` means lit. Deliberately not a bitmask or a fixed-size set: there are
+/// exactly three LEDs, each with its own independent gate, and a named field per
+/// LED is what makes the three gates legible at the call site.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct LedOutput {
-    /// `PIN_STATUSLED` (GPIO26) — near setpoint, in an eligible state.
+    /// `PIN_STATUSLED` — near setpoint, in an eligible state.
     pub status: bool,
-    /// `PIN_BREWLED` (GPIO19) — brewing, or pumping water for a flush.
+    /// `PIN_BREWLED` — brewing, or pumping water for a flush.
     pub brew: bool,
     /// `PIN_STEAMLED` — steaming.
     pub steam: bool,
 }
 
 impl LedOutput {
-    /// The C++ `LoopManager::updateLEDs`, as a pure
-    /// function of the machine state and the process temperature.
+    /// The whole LED rule, as a pure function of the machine state, the process
+    /// temperature and the blink phase.
     ///
     /// `blinking_delta` is `config.display.blinking.delta`, read through
     /// [`crate::helpers::status_led_tolerance`], so the steam state's wider 5 °C
     /// tolerance and the display's blink delta stay the two numbers they already
     /// were rather than becoming two more. It is a bare `f64` and not a `Config`
-    /// because this is evaluated every 10 ms control tick and it is the only
-    /// configured field the rule reads — see [`crate::helpers::status_led_tolerance`].
+    /// because this runs every 10 ms control tick and it is the only configured
+    /// field the rule reads.
     ///
-    /// `input.isr_counter` is the C++'s `systemContext_.isrCounter()`, and it is
-    /// consulted for exactly one thing: the brew LED's manual-flush and backflush
-    /// exception, which the C++ applies only during the **first half** of the
-    /// counter's 1 s cycle. That is the same half-cycle [`is_blink_phase_on`]
-    /// defines for the display, and it is why the two are visually in phase. The
-    /// status and steam LEDs do not read it at all — matching `updateLEDs`, where
-    /// only the brew LED's branch mentions `isrCounter()`.
+    /// `input.isr_counter` is consulted for exactly one thing: the brew LED's
+    /// manual-flush and backflush exception, which applies only during the
+    /// **first half** of the counter's 1 s cycle. That is the same half-cycle
+    /// [`is_blink_phase_on`] defines for the display, which is why the two are
+    /// visually in phase. The status and steam LEDs do not read it at all.
     #[must_use]
     pub fn from_state(input: &DisplayInput, blinking_delta: f64) -> Self {
         Self {
@@ -109,24 +85,20 @@ impl LedOutput {
 ///
 /// Two conditions, **and**ed, and the order matters only for readability:
 ///
-/// 1. `static_cast<int>(state) <= static_cast<int>(BACKFLUSH_FINISHED)`
-///    (`LoopManager.cpp:262`). The C++ spells this as a raw numeric comparison
-///    against the enum's discriminant, which is why it is spelled here as
-///    `MachineState::BackflushFinished` — a `PartialOrd` on the same
-///    `#[repr(u16)]` discriminants, so the comparison is identical and the intent
-///    ("everything up to and including the backflush group") is readable.
-///    The states it **excludes** are exactly the fault and idle states: tank
-///    empty, emergency stop, PID disabled, standby, sensor error and EEPROM
-///    error. That is deliberate in the C++ — the status LED is an "all is well"
-///    indicator, so it must go dark when the machine is not.
+/// 1. `state` is at or below [`MachineState::BackflushFinished`]. Ordering the
+///    enum that way is deliberate: the states above it are exactly the fault and
+///    idle states — tank empty, emergency stop, PID disabled, standby, sensor
+///    error and EEPROM error — so the LED goes dark whenever the machine is not
+///    well. `MachineState` is `#[repr(u16)]` with its variants in that order, so
+///    the comparison is a discriminant comparison and the intent ("everything up
+///    to and including the backflush group") stays readable.
 /// 2. [`is_near_setpoint_for_led`] at [`status_led_tolerance`], which is the
-///    **inclusive** `<=` the C++ uses for the LED (as opposed to the display's
-///    strict `<`).
+///    **inclusive** `<=` the LED uses, where the display's blink uses a strict
+///    `<`.
 ///
-/// Note the status LED's tolerance in a **brew** state is `blinking_delta`, not
-/// the 5 °C steam tolerance: `getStatusLedTolerance` only widens for
-/// `isSteamState`, so during a brew this LED tracks the setpoint to a third of a
-/// degree. That is the C++'s behaviour and it is preserved, not corrected.
+/// The status LED's tolerance in a **brew** state is `blinking_delta`, not the
+/// 5 °C steam tolerance: the tolerance only widens for a steam state, so during a
+/// brew this LED tracks the setpoint to a third of a degree.
 fn status_led_should_light(input: &DisplayInput, blinking_delta: f64) -> bool {
     let eligible_state = input.state <= MachineState::BackflushFinished;
     let near_setpoint = is_near_setpoint_for_led(
@@ -139,28 +111,17 @@ fn status_led_should_light(input: &DisplayInput, blinking_delta: f64) -> bool {
 
 /// The brew LED's gate.
 ///
-/// `isBrewState(machineState)` first, and only if that is false the C++ consults
-/// the blink phase:
+/// A brew state lights it steadily; anything else has to earn a blink:
 ///
-/// ```cpp
-/// bool brewLedOn = isBrewState(machineState);
-/// if (!brewLedOn && systemContext_.isrCounter() < 500) {
-///     if (machineState == MANUAL_FLUSH_RUNNING) {
-///         brewLedOn = true;
-///     } else if (isBackflushState(machineState) && machineState != BACKFLUSH_IDLE) {
-///         brewLedOn = true;
-///     }
-/// }
-/// ```
+/// 1. [`MachineState::is_brew_state`] alone is enough, so the LED stays lit
+///    through the post-brew timer (`BrewFinished` is a brew state).
+/// 2. Otherwise the blink phase gates an exception for a manual flush and for the
+///    three *active* backflush states, never `BackflushIdle`. Because the
+///    exception is gated on the counter's first half, the LED **blinks** during
+///    those states rather than staying lit.
 ///
-/// So the exception covers manual flush and the three *active* backflush states,
-/// and never `BACKFLUSH_IDLE` — and it is gated on the counter's first half, so
-/// the LED **blinks** during those states rather than staying lit. The C++ gates
-/// the brew states themselves on nothing, so a brew is steady and a flush blinks.
-///
-/// `MachineState::BrewFinished` is included by `is_brew_state`, so the LED stays
-/// lit through the post-brew timer. The states the C++ leaves out — `PID_NORMAL`,
-/// `INIT`, `STEAM_RUNNING`, every fault state — read `false` here.
+/// So a brew is steady and a flush blinks. `PidNormal`, the init state, the steam
+/// state and every fault state read `false`, on both halves.
 fn brew_led_should_light(input: &DisplayInput) -> bool {
     if input.state.is_brew_state() {
         return true;
@@ -176,10 +137,10 @@ fn brew_led_should_light(input: &DisplayInput) -> bool {
 mod tests {
     use super::*;
 
-    /// The C++'s default `display.blinking.delta`, and the
-    /// value every test that is not *about* the tolerance uses. Naming it keeps
-    /// each case from repeating a literal that is a configuration default, not a
-    /// parameter of the rule.
+    /// The default of `config.display.blinking.delta`, and the value every test
+    /// that is not *about* the tolerance uses. Naming it keeps each case from
+    /// repeating a literal that is a configuration default, not a parameter of the
+    /// rule.
     const DELTA: f64 = 0.3;
 
     /// A readout that is near setpoint and not in any special state, so a test
@@ -205,8 +166,8 @@ mod tests {
 
     #[test]
     fn the_status_led_goes_dark_in_every_state_after_backflush_finished() {
-        // `state <= BACKFLUSH_FINISHED` is the whole of the eligibility rule, so
-        // this list is exactly the C++'s excluded half.
+        // The eligibility rule is the whole of the rule, so this list is exactly
+        // the excluded half.
         for state in [
             MachineState::WaterTankEmpty,
             MachineState::EmergencyStop,
@@ -309,7 +270,7 @@ mod tests {
 
     #[test]
     fn every_brew_state_lights_the_brew_led_steadily() {
-        // No `isrCounter` gate on this branch — the tests pass the default
+        // No ISR-counter gate on this branch — the tests pass the default
         // counter, and the next test shows the flush exception is the only one
         // that reads it.
         for state in [
@@ -334,9 +295,9 @@ mod tests {
 
     #[test]
     fn manual_flush_and_active_backflush_light_the_brew_led_only_on_the_first_half() {
-        // The C++'s exception, and it **blinks**: `isrCounter() < 500` gates it,
-        // so `500..=999` goes dark. `BACKFLUSH_IDLE` is excluded outright, and
-        // the four non-brew, non-flush states stay dark on both halves.
+        // The exception **blinks**: the blink phase gates it, so the second half
+        // of the cycle goes dark. `BackflushIdle` is excluded outright, and the
+        // four non-brew, non-flush states stay dark on both halves.
         for (state, lit_on_first_half) in [
             (MachineState::ManualFlushRunning, true),
             (MachineState::BackflushFilling, true),

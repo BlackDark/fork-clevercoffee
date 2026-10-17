@@ -1,10 +1,9 @@
 //! Number formatting that matches C's `printf("%.Nf")`.
 //!
-//! The C++ templates format every number through `snprintf(buf, "%.Nf", v)` or
-//! Arduino's `Print::print(double, int)`, which is the same thing. A glyph
-//! difference here is a golden-image difference, so this is not cosmetic: the
-//! parity oracle renders numbers through the real `snprintf` and the Rust side
-//! through here.
+//! The panel's digits come from here, so a glyph difference is a golden-image
+//! difference rather than a cosmetic one: the parity oracle renders numbers
+//! through the real `snprintf` and the Rust side through this module, and the two
+//! frames must match.
 //!
 //! # Why not `format!("{:.1}", v)`
 //!
@@ -36,9 +35,8 @@
 
 /// A fixed-point number: an integer scaled by `10^-decimals`.
 ///
-/// The C++ does `snprintf(buf, sizeof(buf), "%.Nf", value)`, so the buffer is
-/// sized for the worst case and a narrow one would be a buffer overflow. This
-/// returns the same characters.
+/// Sized for the worst case the format can produce, so it holds exactly the
+/// characters `snprintf` would write into a buffer of that size.
 pub type Formatted = fixed_str::String<24>;
 
 /// Formats `value` with `decimals` fractional digits, C `printf` style.
@@ -171,36 +169,33 @@ fn from_str(s: &str) -> Formatted {
     out
 }
 
-/// Truncates a `f64` to an `i32`, as an explicit C++-style `static_cast<int>`
-/// does.
+/// Truncates a `f64` to an `i32` the way a C cast does: toward zero, including
+/// for negative values.
 ///
-/// The C++ templates reach for `static_cast<int>(someDouble / 1000.0)` in about
-/// a dozen places — brew seconds, cycle counts, the pid output / 10. Every one
-/// of them truncates toward zero, including for negative values, which is what a
-/// C cast does and what `as i32` does in Rust too. Wrapping it in one named
-/// function makes the truncation a single audited decision instead of a dozen
-/// `as` casts, and gives the "out of range" case somewhere to be handled.
+/// One named function rather than a dozen `as` casts, so the truncation is a
+/// single audited decision and the out-of-range case has somewhere to be handled.
+/// It covers brew seconds, cycle counts and the PID output over ten.
 #[must_use]
 pub fn truncate_to_i32(value: f64) -> i32 {
-    // `as i32` saturates in Rust, which differs from C only for values outside
-    // `i32` -- and the only inputs are millisecond durations and percentages, so
-    // the two agree on everything the display can produce. The bound is checked
-    // anyway so a sensor fault cannot silently print a saturated number.
+    // `as i32` saturates, which differs from a C cast only outside `i32`, and the
+    // only inputs are millisecond durations and percentages, so the two agree on
+    // everything the display can produce. The bound is checked anyway so a sensor
+    // fault cannot silently print a saturated number.
     if value.is_finite() && value >= f64::from(i32::MIN) && value <= f64::from(i32::MAX) {
         #[allow(
             clippy::cast_possible_truncation,
             clippy::cast_sign_loss,
-            reason = "the range is checked above; the truncation toward zero IS the C++ behaviour"
+            reason = "the range is checked above; truncation toward zero is intended"
         )]
         return value as i32;
     }
     0
 }
 
-/// Formats an `i32` the way `Print::print(int)` does.
+/// Formats an `i32` for the panel.
 ///
-/// The C++ prints several counters straight through `print(int)`, so this
-/// exists to make that call site explicit rather than reaching for a float.
+/// Cycle counts and counter values are integers, so this exists to make that call
+/// site explicit rather than routing them through a float.
 #[must_use]
 pub fn format_int(value: i32) -> Formatted {
     let mut out = Formatted::new();
@@ -279,11 +274,11 @@ fn write_u32(buf: &mut [u8; 12], mut value: u32) -> &str {
     core::str::from_utf8(&buf[i..]).unwrap_or("")
 }
 
-// A 40-line fixed-capacity string. This crate must stay dependency-free
-// (`no_std`, no `alloc`, no third-party crates -- 04 §6), and the formatter's
-// only output requirement is "produce the characters `snprintf` would produce
-// into a fixed buffer, truncating rather than overflowing". A crate
-// dependency for that would be the larger cost.
+// A fixed-capacity string. This crate must stay dependency-free (`no_std`, no
+// `alloc`, no third-party crates), and the formatter's only output requirement is
+// "produce the characters `snprintf` would produce into a fixed buffer,
+// truncating rather than overflowing". A crate dependency for that would be the
+// larger cost.
 //
 // It lives in its own module so the `Formatted` alias above can name it
 // without a circular reference, and so the capacity and the overflow policy

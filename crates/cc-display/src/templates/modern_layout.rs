@@ -1,6 +1,5 @@
-//! `ModernTemplateLayout` — the row map, as constants.
+//! The Modern layout's row map, as constants.
 //!
-//! Ported from `include/clevercoffee/display/templates/ModernTemplate.h:19-64`.
 //! Every number here is a *reserved* row height or an absolute Y, and the
 //! distinction is load-bearing.
 //!
@@ -104,20 +103,19 @@ pub fn is_ready_for_brew(temp_c: f64, setpoint_c: f64) -> bool {
     temp_c >= setpoint_c - f64::from(crate::helpers::HEATING_LOGO_THRESHOLD_C)
 }
 
-/// `mapTempToBarWidth` — the filled width of the temperature bar.
+/// The filled width of the temperature bar.
 ///
 /// Zero below [`K_TEMP_MAP_MIN`], otherwise a linear map clamped to
 /// `0..=inner_w`. Note the guard on `setpoint <= K_TEMP_MAP_MIN`: a setpoint at
-/// or below 20 °C would make `map`'s divisor zero-ish, and the C++ returns 0
-/// rather than dividing.
+/// or below 20 °C would make the map's divisor zero-ish, so this returns 0 rather
+/// than dividing.
 #[must_use]
 pub fn map_temp_to_bar_width(temp_c: f64, setpoint_c: f64, inner_w: i32) -> i32 {
     if setpoint_c <= f64::from(K_TEMP_MAP_MIN) {
         return 0;
     }
-    // `static_cast<int>` on both, exactly as `ModernTemplateLayout::mapTempToBarWidth`
-    // does. Truncation toward zero is the C++ behaviour and is what the bar's
-    // fill width depends on.
+    // Truncation toward zero, on both inputs, is what the bar's fill width
+    // depends on.
     let mapped = crate::widgets::arduino_map(
         crate::fmt::truncate_to_i32(temp_c),
         K_TEMP_MAP_MIN,
@@ -131,35 +129,35 @@ pub fn map_temp_to_bar_width(temp_c: f64, setpoint_c: f64, inner_w: i32) -> i32 
 /// The three Modern screens.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Screen {
-    /// `drawIdleScreen`.
+    /// The idle screen.
     Idle,
-    /// `drawBrewScreen`, with the phase.
+    /// The brew screen, with the phase.
     Brew {
-        /// `BrewPhase`.
+        /// Which of the three brew phases to highlight.
         phase: BrewPhase,
         /// Whether this is the manual-flush rendering.
         flushing: bool,
     },
-    /// `drawPostBrewScreen`.
+    /// The post-brew screen.
     PostBrew,
 }
 
-/// `ModernTemplate::BrewPhase`.
+/// Which phase of a brew the phase indicator is in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BrewPhase {
-    /// `BREW_PREINFUSION` / `BREW_PREINFUSION_PAUSE`.
+    /// Pre-infusion, and its pause.
     PreInfusion,
-    /// Anything else that is not `BREW_FINISHED`.
+    /// Everything between pre-infusion and the end.
     Brewing,
-    /// `BREW_FINISHED`.
+    /// The brew has finished.
     Done,
 }
 
 impl BrewPhase {
-    /// The three phase labels, in the order `drawPhaseIndicator` lays them out.
+    /// The three phase labels, in the order the phase indicator lays them out.
     pub const LABELS: [&'static str; 3] = ["PRE-INF", "BREW", "DONE"];
 
-    /// The x each label starts at (`drawPhaseIndicator`'s `xs`).
+    /// The x each label starts at.
     pub const XS: [i32; 3] = [2, 46, 86];
 
     /// This phase's index into [`BrewPhase::LABELS`].
@@ -340,9 +338,9 @@ mod tests {
 
     #[test]
     fn the_probes_are_the_widest_case_in_their_fonts() {
-        // Rule 3 depends on the probe being the widest. These are the C++'s
-        // literals, and the widths are *measured*, not assumed: each was read
-        // out of the real-U8g2 oracle (`tools/oracle`) and then reproduced here.
+        // Rule 3 depends on the probe being the widest, and the widths are
+        // *measured*, not assumed: each was read out of the real-U8g2 oracle
+        // (`tools/oracle`) and reproduced here.
         // The 25 px for "100C" is the width of the single Latin-1 byte 0xB0 --
         // two's worth of UTF-8 would measure 30, which is why
         // `font::latin1_of` exists.

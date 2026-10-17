@@ -1,30 +1,24 @@
-//! Port of `include/clevercoffee/display/DisplayWidgets.h`.
-//!
 //! The shared drawing pieces: the status bar, the thermometer, the temperature
 //! and brew readouts, the progress bar, the icons, and the multi-line message
 //! screens.
 //!
-//! # Two things the C++ does that this port keeps
+//! # Two conventions that are load-bearing
 //!
-//! **The brew-time box is drawn inverted.** `displayBrewTime` and
-//! `displayBrewWeight` set `setDrawColor(0)`, draw a filled box, restore the
-//! colour, and *then* print the label and value on top. It is a one-line
-//! "selected field" highlight. Reproduced, including the box dimensions, which
-//! differ between the Upright template and the rest
-//! (`DisplayWidgets.h:184-190`):
+//! **The brew-time box is drawn inverted.** The brew-time and brew-weight
+//! readouts set the draw colour to 0, draw a filled box, restore the colour, and
+//! *then* print the label and value on top: a one-line "selected field"
+//! highlight. The box differs between the upright template and the rest:
 //!
 //! | template | box | drawn at |
 //! |----------|-----|-----------|
 //! | Upright | `100 x 10` | `x, y+1` |
 //! | others | `78 x 10` | `x + 50, y+1` |
 //!
-//! **The value column is a hard-coded offset, not a measured one.**
-//! `kValueColumnOffset = 50`, and the templates separately hard-code
-//! `currentValueX = 34` / `currentValueX + 31` for the degree sign
-//! (`DisplayTemplateBase.h:135-150`). Both depend on `langstring_current_temp`
-//! being 42 px wide in `profont11` — a value pinned by a test in
-//! [`crate::lang`]. Change the label and those coordinates go wrong silently;
-//! `check_column_offsets` exists to make that loud.
+//! **The value column is a hard-coded offset, not a measured one.** It is
+//! [`VALUE_COLUMN_OFFSET`], and the width the column reserves for its label and
+//! value is [`VALUE_COLUMN_WIDTH`]. Both numbers assume the measured label width
+//! pinned by a test in [`crate::lang`]; change the label and those coordinates go
+//! wrong silently, which is why `check_column_offsets` exists.
 
 use crate::display::{Display, DISPLAY_WIDTH, STATUS_BAR_Y_POS};
 use crate::fmt::{format_fixed, format_int, format_padded2, truncate_to_i32};
@@ -33,22 +27,20 @@ use crate::helpers::{is_manual_flush_state, should_display_hot_water_timer};
 use crate::model::{BrewMode, Config, DisplayInput, ScaleType};
 use crate::{bitmaps_data as bm, lang::Lang};
 
-/// The offset from a field's x to its value column (`kValueColumnOffset`).
+/// The offset from a field's x to its value column.
 pub const VALUE_COLUMN_OFFSET: i32 = 50;
-/// The width of the value column (`kValueColumnWidth`).
+/// The width the value column reserves.
 pub const VALUE_COLUMN_WIDTH: i32 = 78;
-/// The width of the Upright template's brew-time box.
+/// The width of the upright brew-time box.
 pub const UPRIGHT_BOX_WIDTH: i32 = 100;
 /// The height of a brew-time / brew-weight box.
 pub const BOX_HEIGHT: i32 = 10;
 
-/// `displayThermometerOutline`.
-///
 /// Called with `(4, 62)` by the Standard template. Note the negative y
 /// arguments: the function is written relative to a *bulb* at `(x, y)` and
-/// draws the stem upwards, so `y - 44` is above the panel. That is deliberate
-/// in the C++ and reproduced here; the Standard template's own fit assertion is
-/// what catches it if the call site moves.
+/// draws the stem upwards, so `y - 44` is above the panel. That is deliberate and
+/// reproduced here; the Standard template's own fit assertion is what catches it
+/// if the call site moves.
 pub fn display_thermometer_outline(d: &mut Display, input: &DisplayInput, x: i32, y: i32) {
     d.draw_line(x + 3, y - 9, x + 3, y - 42);
     d.draw_line(x + 9, y - 9, x + 9, y - 42);
@@ -103,8 +95,6 @@ pub fn draw_temperature_bar(d: &mut Display, input: &DisplayInput, x: i32, heigh
     }
 }
 
-/// `displayTemperature`.
-///
 /// The big `fub30` readout, with the "hide the leading digit under 100" trick:
 /// below 99.5 the value is drawn 20 px to the right so a two-digit number still
 /// appears centred, because `fub30` digits are 41 px wide and three of them do
@@ -123,8 +113,6 @@ pub fn display_temperature(d: &mut Display, input: &DisplayInput, x: i32, y: i32
     d.draw_circle(x + 72, y + 4, 3);
 }
 
-/// `displayTemperatureInfo`.
-///
 /// The two-row label/value block every non-Modern template uses. The x
 /// coordinates come from the template's own `getTemperatureCoords`, so the
 /// Upright template can put them in a different place in the portrait space.
@@ -243,11 +231,10 @@ fn draw_right_aligned(d: &mut Display, right: i32, y: i32, text: &str) {
 /// Where the `°C` unit sits relative to the value column, **when there is
 /// room**.
 ///
-/// The C++'s literal `31`. It is a *starting*
-/// offset and not a guarantee: on the Scale template (value column 50) the unit
-/// lands at 81 and there is nothing to fix, while on the Standard and Minimal
-/// templates (value column 84) it would land at 115 and ink to 131 — three
-/// columns past the panel.
+/// A *starting* offset, not a guarantee: on the Scale template (value column 50)
+/// the unit lands at 81 and there is nothing to fix, while on the Standard and
+/// Minimal templates (value column 84) it would land at 115 and ink to 131 --
+/// three columns past the panel.
 ///
 /// So [`display_temperature_info`] uses this offset where the unit's **ink**
 /// fits and otherwise pulls the unit back to end one pixel inside the frame and
@@ -257,10 +244,8 @@ pub const UNIT_COLUMN_OFFSET: i32 = 31;
 
 /// Where a template puts the temperature block.
 ///
-/// The C++ has three per-template overrides returning a braced initialiser of
-/// five `int`s. Named fields, so a template that sets the setpoint column but
-/// forgets the value column is a compile error rather than a number in the
-/// wrong column.
+/// Named fields, so a template that sets the setpoint column but forgets the
+/// value column is a compile error rather than a number in the wrong column.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TemperatureCoords {
     /// Label x for the measured temperature.
@@ -277,8 +262,6 @@ pub struct TemperatureCoords {
     pub set_value_x: i32,
 }
 
-/// `displayPIDInfo`.
-///
 /// The `Kp|Ki/Kp|Kd` row and the heater-output percentage. The separator is a
 /// template parameter: `"|"` everywhere except Upright, which uses `" "`
 /// because the portrait space is 64 px wide.
@@ -288,36 +271,33 @@ pub fn display_pid_info(
     coords: &PidCoords,
     separator: &str,
 ) {
-    // `pidKi() != 0 ? pidKp() / pidKi() : "0"` -- an integer-ratio display that
-    // has to avoid dividing by zero, which is why the guard exists in the C++.
-    // `pidKi() != 0` in the C++: a double compared for exact zero, and any
-    // non-zero value divides. Preserved, including the fact that a
-    // denormal `pid_ki` would produce a very large ratio rather than a guard.
-    // The C++ is `pidKi() != 0`: an exact comparison against zero, not an
-    // epsilon. An epsilon would change which configurations take the divide
-    // branch, and the divided result is what the row displays. So the exact
-    // comparison is kept, named, and asserted below.
+    // The `Ki/Kp` ratio, an integer display that has to avoid dividing by zero.
+    // The comparison is against exact zero, not an epsilon: an epsilon would
+    // change which configurations take the divide branch, and the divided result
+    // is what the row displays. A denormal `pid_ki` therefore produces a very
+    // large ratio rather than taking the guard, which is intended and is asserted
+    // below.
     let divide = input.pid_ki != 0.0;
     let ratio = if divide {
         format_fixed(input.pid_kp / input.pid_ki, 0)
     } else {
         format_fixed(0.0, 0)
     };
-    // **Unconditional**, as the C++ is: `DisplayTemplateBase.h:172` divides
-    // `pidKd()` by `pidKp()` with no guard, and `pidKp()` is non-zero on any
-    // machine whose PID runs at all (a proportional gain of 0 is not a
-    // configuration, it is a broken one, and the C++ shows the consequence).
+    // **Unconditional**: the `Kd/Kp` ratio has no guard. `pid_kp` is non-zero on
+    // any machine whose PID runs at all; a proportional gain of 0 is not a
+    // configuration, it is a broken one, and the resulting inf or nan is shown
+    // rather than hidden.
     let third = format_fixed(input.pid_kd / input.pid_kp, 0);
 
     // **Right-aligned to just before the output column**, so a wide ratio grows
     // leftwards instead of into it.
     //
     // The three numbers are unbounded — they are `Kp`, `Kp/Ki` and `Kd/Kp`
-    // rendered as integers — and the C++ draws them left to right from
-    // `pid_x = 38` with the output at `output_x = 96`. With ordinary gains the
-    // row is 40 px and clears comfortably, but `Kp/Ki` is a division by
-    // whatever the operator typed for Ki: at `ki = 0.005` it is 10000, the row
-    // is 59 px wide, and it lands exactly on the output column. Right-aligning
+    // rendered as integers — and they are drawn left to right from `x = 38` with
+    // the output at `x = 96`. With ordinary gains the row is 40 px and clears
+    // comfortably, but `Kp/Ki` is a division by whatever the operator typed for
+    // Ki: at `ki = 0.005` it is 10000, the row is 59 px wide, and it lands exactly
+    // on the output column. Right-aligning
     // makes the overlap unreachable for any ratio that fits at all.
     let mut row = crate::fmt::Formatted::new();
     row.push_str(format_fixed(input.pid_kp, 0).as_str());
@@ -352,7 +332,7 @@ pub struct PidCoords {
     pub output_y: i32,
 }
 
-/// `displayBrewTime`.
+/// The brew-time readout.
 ///
 /// The inverted field with the label on the left and the value in a fixed
 /// column. `total_target_brew_time` is `-1` for manual, which suppresses the
@@ -391,14 +371,12 @@ pub fn display_brew_time(
     }
 }
 
-/// `displayBrewWeight`.
-///
 /// As [`display_brew_time`], but the value is a float with zero decimals and
 /// the unit is grams. `setpoint` is `-1` for no target, `fault` replaces the
 /// value with the language's "Fault" string.
 #[allow(
     clippy::too_many_arguments,
-    reason = "the C++ has the same eight; each is a distinct field of the widget"
+    reason = "eight independent fields, each a distinct part of the readout"
 )]
 pub fn display_brew_weight(
     d: &mut Display,
@@ -452,21 +430,19 @@ pub fn display_brew_weight(
 
 /// The inverted field behind [`display_brew_time`] and [`display_brew_weight`].
 ///
-/// `DisplayWidgets.h:209-216`: `setDrawColor(0)`, `drawBox`, `setDrawColor(1)`.
-/// The box is `100 x 10` for the Upright template and offset by
+/// The box is `100 x 10` for the upright template and offset by
 /// [`VALUE_COLUMN_OFFSET`] for the rest.
 ///
-/// **The width is what is left to the frame's edge, not a constant.** The C++
-/// uses `kValueColumnWidth = 78`, and 78 is exactly
-/// right for the **Scale** template — whose row origin is `x = 0`, so the box
-/// runs 50..127 and closes on the last column. The Standard and Minimal
-/// templates pass `x = 34`, so the same 78 px runs **84..161**: 33 px of it is
-/// off-panel, the right border is never drawn, and the field looks like it runs
-/// off the edge of the screen. That is the "the values don't fit" report.
+/// **The width is what is left to the frame's edge, not a constant.** A constant
+/// 78 is exactly right for the **Scale** template — whose row origin is `x = 0`,
+/// so the box runs 50..127 and closes on the last column. The Standard and
+/// Minimal templates pass `x = 34`, so the same 78 px runs **84..161**: 33 px of
+/// it is off-panel, the right border is never drawn, and the field looks like it
+/// runs off the edge of the screen. That is the "the values don't fit" report.
 ///
 /// One constant cannot be right for two row origins, so it is computed:
-/// `DISPLAY_WIDTH - (x + VALUE_COLUMN_OFFSET)`, which is 78 on Scale — byte for
-/// byte the C++ — and 44 on Standard and Minimal, where it closes on the frame.
+/// `DISPLAY_WIDTH - (x + VALUE_COLUMN_OFFSET)`: 78 on Scale, and 44 on Standard
+/// and Minimal, where it closes on the frame.
 fn draw_inverted_field(d: &mut Display, x: i32, y: i32, upright: bool) {
     d.set_font(font::profont11());
     d.set_draw_color(0);
@@ -479,10 +455,10 @@ fn draw_inverted_field(d: &mut Display, x: i32, y: i32, upright: bool) {
     d.set_draw_color(1);
 }
 
-/// `displayBrewtimeFs` — the fullscreen brew timer.
+/// The fullscreen brew timer.
 ///
 /// Two completely different renderings, because the two panels have different
-/// shapes: in the Upright template's 64x128 space the digits are `fub20` with a
+/// shapes: in the upright 64x128 space the digits are `fub20` with a
 /// `profont11` "s" underneath, and on a landscape 128x64 they are `fub25` with a
 /// `profont15` "s" to the right.
 ///
@@ -521,8 +497,6 @@ pub fn display_brew_time_fs(d: &mut Display, x: i32, y: i32, brew_time_ms: f64, 
     d.set_font(font::profont11());
 }
 
-/// `displayProgressbar`.
-///
 /// A `w x 4` frame with a two-pixel-thick fill. Note `output - 2 > 0`: the
 /// fill is inset by one pixel on each side, and the guard means a value under 2
 /// fills nothing at all.
@@ -535,12 +509,9 @@ pub fn display_progress_bar(d: &mut Display, value: i32, x: i32, y: i32, width: 
     }
 }
 
-/// `displayWiFiStatus`.
-///
 /// The antenna icon plus, when connected, one vertical bar per signal step. The
-/// bar count is `for (b = 0; b <= signal; b++)`, so a signal of 3 draws *four*
-/// bars of heights 0, 2, 4, 6. The off state prints the reconnect count at a
-/// template-dependent x.
+/// bar count is `0..=signal`, so a signal of 3 draws *four* bars of heights 0, 2,
+/// 4, 6. The off state prints the reconnect count at a template-dependent x.
 pub fn display_wifi_status(d: &mut Display, input: &DisplayInput, x: i32, y: i32, upright: bool) {
     if input.wifi_connected {
         d.draw_xbmp(x, y, 8, 8, &bm::ANTENNA_OK_ICON);
@@ -556,7 +527,8 @@ pub fn display_wifi_status(d: &mut Display, input: &DisplayInput, x: i32, y: i32
     }
 }
 
-/// `displayMQTTStatus`.
+/// The MQTT indicator: its name, with a `!` while the link is weak, and nothing
+/// while MQTT is disabled.
 pub fn display_mqtt_status(d: &mut Display, config: &Config, input: &DisplayInput, x: i32, y: i32) {
     if !config.mqtt_enabled {
         return;
@@ -569,37 +541,29 @@ pub fn display_mqtt_status(d: &mut Display, config: &Config, input: &DisplayInpu
             d.print("!");
         }
     } else {
-        // The C++ prints an empty string, which still moves the cursor to x
-        // (no-op) and *does* set the font. Preserved: the font change is
-        // observable by the next draw.
+        // Printing an empty string moves the cursor to x (a no-op) and *does* set
+        // the font, and the font change is observable by the next draw.
         d.print("");
     }
 }
 
-/// `displayBluetoothStatus`.
+/// The Bluetooth-scale indicator.
 pub fn display_bluetooth_status(d: &mut Display, input: &DisplayInput, x: i32, y: i32) {
-    // The C++ guards on `hardwareContext().scalePtr()` being non-null and the
-    // scale being connected. `DisplayInput` has no such pointer, so the port
-    // guards on the equivalent: a configured, connected Bluetooth scale. The
-    // caller has already checked `scale_enabled && scale_type == Bluetooth`, so
-    // reaching here means connected.
+    // The caller has already checked `scale_enabled && scale_type == Bluetooth`,
+    // and a scale of that type is connected whenever it is drawn, so there is
+    // nothing left to guard on here.
     let _ = input;
     d.draw_xbmp(x, y, 8, 9, &bm::BLUETOOTH_ICON);
 }
 
-/// `displayUptime`.
-///
-/// `snprintf(buf, format, hours, minutes, seconds)` with the format
-/// `"%02luh %02lum"`, drawn at `(x, y)` in `profont11`.
+/// The `HHh MMm` uptime readout, in `profont11`.
 pub fn display_uptime(d: &mut Display, uptime_s: u32, y: i32) {
     d.set_font(font::profont11());
     let hours = uptime_s / 3600;
     let minutes = uptime_s % 3600 / 60;
-    // The C++ computes `seconds = uptime_s % 60` and passes it to
-    // `snprintf(buf, 9, "%02luh %02lum", hours, minutes, seconds)` -- which has
-    // two specifiers for three arguments, so `seconds` is computed and then
-    // discarded. Reproduced without the dead computation; the rendered text is
-    // identical either way.
+    // The original computes `seconds` as well and then discards it: the format has
+    // two specifiers for three arguments. The dead computation is dropped and the
+    // rendered text is identical.
     let mut text = format_padded2(hours);
     text.push(' ').ok();
     text.push('h').ok();
@@ -609,16 +573,15 @@ pub fn display_uptime(d: &mut Display, uptime_s: u32, y: i32) {
         text.push(c).ok();
     }
     text.push('m').ok();
-    // **Right-aligned to the frame, not drawn at `x`.** A deliberate divergence
-    // from the C++, which passes a fixed `x = 84` and
-    // lets the string run off the panel.
+    // **Right-aligned to the frame, not drawn at `x`.** A deliberate divergence,
+    // recorded as §17 of `docs/history/divergences.md`: a fixed `x = 84` lets the
+    // string run off the panel.
     //
-    // `"%02luh %02lum"` is a *minimum* width, not a fixed one: past 100 hours
-    // the hours field grows a digit, and this machine is routinely up for
-    // fifteen days. At `x = 84` a 377-hour uptime is 47 px wide and ends at
-    // 131 — the `m` is cut in half by the right edge, which is what the human
-    // reported ("the time in the header, the m is missing"). The C++ has the
-    // same defect; the fix costs one `str_width` and cannot make a shorter
+    // The hour field is a *minimum* width, not a fixed one: past 100 hours it
+    // grows a digit, and this machine is routinely up for fifteen days. At `x = 84`
+    // a 377-hour uptime is 47 px wide and ends at 131 — the `m` is cut in half by
+    // the right edge, which is the reported symptom ("the time in the header, the
+    // m is missing"). The fix costs one `str_width` and cannot make a shorter
     // string worse.
     let right = DISPLAY_WIDTH - RIGHT_MARGIN - d.str_width(text.as_str());
     d.draw_str(right.clamp(0, DISPLAY_WIDTH - 1), y, text.as_str());
@@ -632,8 +595,6 @@ pub fn display_uptime(d: &mut Display, uptime_s: u32, y: i32) {
 /// it is the same margin [`UNIT_COLUMN_OFFSET`] leaves on the `°C` column.
 pub const RIGHT_MARGIN: i32 = 1;
 
-/// `displayMaintenanceStatusBar`.
-///
 /// Returns whether it drew, because the status bar uses the answer to decide
 /// whether to fall back to the uptime.
 pub fn display_maintenance_status_bar(
@@ -651,8 +612,6 @@ pub fn display_maintenance_status_bar(
     true
 }
 
-/// `displayStatusbar`.
-///
 /// The horizontal rule at [`STATUS_BAR_Y_POS`] plus the radio, MQTT, Bluetooth
 /// and maintenance indicators. The two templates lay the four elements out
 /// differently, which is the `upright` branch on the reconnect x in
@@ -686,9 +645,7 @@ pub fn display_statusbar(
     }
 }
 
-/// `displayMessage`.
-///
-/// Six lines at a fixed ten-pixel pitch. Does not `setFont`.
+/// Six lines at a fixed ten-pixel pitch, without setting a font.
 pub fn display_message(d: &mut Display, lines: [&str; 6]) {
     d.clear_buffer();
     d.set_cursor(0, 0);
@@ -705,7 +662,7 @@ pub fn display_message(d: &mut Display, lines: [&str; 6]) {
     d.print(lines[5]);
 }
 
-/// `displayBrewInfo` — decide what the brew row shows.
+/// Decide what the brew row shows.
 ///
 /// Split out from the drawing so the *choice* is testable without a framebuffer:
 /// manual flush, else hot water, else the brew timer (with a target when the
@@ -735,9 +692,8 @@ pub enum BrewRow {
 
 /// Which brew row to draw, and with what numbers.
 ///
-/// The priority order matters and is the C++'s: manual flush beats hot water
-/// beats brew, because those are states the machine cannot be in two of at once
-/// and the flush check is first in the source.
+/// The priority order matters: manual flush beats hot water beats brew, because
+/// those are states the machine cannot be in two of at once.
 #[must_use]
 pub fn brew_row(config: &Config, input: &DisplayInput) -> BrewRow {
     if is_manual_flush_state(input.state) {
@@ -766,9 +722,9 @@ pub fn brew_row(config: &Config, input: &DisplayInput) -> BrewRow {
 
 /// The Scale template's pressure row.
 ///
-/// `setFont`, `setCursor`, then three `print`s: the localized label, the value
+/// `set_font`, `set_cursor`, then three `print`s: the localized label, the value
 /// with one decimal, and `" bar"`. Three separate `print` calls, not one
-/// `snprintf`, because the label is localized and the value is not.
+/// formatted string, because the label is localized and the value is not.
 pub fn display_pressure(d: &mut Display, input: &DisplayInput, l: &Lang, x: i32, y: i32) {
     d.set_font(font::profont11());
     d.set_cursor(x, y);
@@ -777,7 +733,7 @@ pub fn display_pressure(d: &mut Display, input: &DisplayInput, l: &Lang, x: i32,
     d.print(" bar");
 }
 
-/// The Upright template's pressure row.
+/// The upright pressure row.
 ///
 /// Same, but with the short label and a row that moves depending on whether a
 /// scale is fitted.
@@ -814,10 +770,10 @@ mod tests {
 
     #[test]
     fn a_long_uptime_is_right_aligned_rather_than_clipped() {
-        // The human's "the time in the header, the m is missing". `"%02luh
-        // %02lum"` grows a digit past 100 hours and this machine is up for
-        // weeks; drawn at the C++'s fixed `x = 84` a 377-hour uptime ends at
-        // 131 and the unit is cut in half by the frame.
+        // The reported symptom: "the time in the header, the m is missing". The
+        // hour field grows a digit past 100 hours and this machine is up for
+        // weeks, so at a fixed `x = 84` a 377-hour uptime ends at 131 and the unit
+        // is cut in half by the frame.
         for hours in [0_u32, 3, 99, 100, 377, 9_999] {
             let mut d = mk();
             display_uptime(&mut d, hours * 3600 + 25 * 60, 0);
@@ -885,9 +841,9 @@ mod tests {
 
     #[test]
     fn the_value_column_offset_matches_the_english_label_width() {
-        // `kValueColumnOffset = 50` is a hard-coded constant in the C++ that
-        // only lines up because "Weight: " is 42 px in profont11. If the label
-        // or the font changes, the field no longer starts where the box is.
+        // The offset only lines up because "Weight: " is 48 px in profont11. If
+        // the label or the font changes, the field no longer starts where the box
+        // is.
         let f = font::profont11();
         let l = crate::lang::for_language(Language::English);
         assert_eq!(f.str_width(l.weight), 48);
@@ -904,11 +860,11 @@ mod tests {
 
     #[test]
     fn the_degree_sign_column_does_not_collide_with_a_four_character_value() {
-        // `DisplayTemplateBase.h:118` hard-codes `currentValueX + 31` for the
-        // degree sign, which only works because `"%.1f"` is four characters and
-        // a digit is 5-6 px in profont11. The offset is now
-        // `UNIT_COLUMN_OFFSET`, one pixel less, so the unit ends inside the
-        // frame; what still has to hold is that value and unit do not touch.
+        // The degree sign sits a fixed offset right of the value column, which only
+        // works because `"%.1f"` is four characters and a digit is 5-6 px in
+        // profont11. The offset is [`UNIT_COLUMN_OFFSET`], one pixel less than the
+        // four-character width, so the unit ends inside the frame; what still has
+        // to hold is that value and unit do not touch.
         let f = font::profont11();
         let four_digits = f.str_width("100.0");
         assert!(
@@ -921,8 +877,8 @@ mod tests {
         );
     }
 
-    /// A display with the whole panel lit, so a `setDrawColor(0)` box shows up
-    /// as a cleared region.
+    /// A display with the whole panel lit, so a colour-0 box shows up as a
+    /// cleared region.
     fn filled() -> Display {
         let mut d = Display::new();
         d.set_font(font::profont11());
@@ -945,11 +901,11 @@ mod tests {
     }
 
     #[test]
-    fn the_inverted_field_clears_the_cplusplus_box() {
+    fn the_inverted_field_clears_the_expected_box() {
         // Tested on its own, with no text, so the assertion is about the box
         // rather than about the box minus whatever glyphs land inside it.
 
-        // Upright: `drawBox(x, y + 1, 100, 10)`.
+        // The upright box: `x, y + 1, 100, 10`.
         let mut upright = filled();
         draw_inverted_field(&mut upright, 1, 44, true);
         let fb = upright.into_framebuffer();
@@ -970,7 +926,7 @@ mod tests {
         );
         assert!(lit_in(&fb, 0, 1, 45, 55) > 0, "and it does not extend left");
 
-        // Landscape: `drawBox(x + 50, y + 1, 78, 10)`.
+        // The landscape box: `x + 50, y + 1, 78, 10`.
         let mut land = filled();
         draw_inverted_field(&mut land, 34, 36, false);
         let fb = land.into_framebuffer();
@@ -1000,8 +956,8 @@ mod tests {
     #[test]
     fn the_inverted_field_restores_the_draw_colour() {
         // If the colour were not restored, every later draw would be an erase
-        // and the screen would come out inverted. The C++ is explicit about
-        // it; the test makes forgetting it visible.
+        // and the screen would come out inverted. The test makes forgetting it
+        // visible.
         let mut d = filled();
         assert_eq!(d.draw_color(), 1);
         draw_inverted_field(&mut d, 0, 0, false);
@@ -1040,9 +996,9 @@ mod tests {
 
     #[test]
     fn the_wifi_signal_bars_include_a_zero_height_one() {
-        // `for (b = 0; b <= signal; b++)` draws signal+1 bars, the first with
-        // height 0 -- so it is a `drawVLine` of length 0 and contributes
-        // nothing. Pinned because the off-by-one looks like a bug and is not.
+        // `0..=signal` draws signal+1 bars, the first with height 0 -- so it is a
+        // `draw_v_line` of length 0 and contributes nothing. Pinned because the
+        // off-by-one looks like a bug and is not.
         let mut d = mk();
         let input = DisplayInput {
             wifi_connected: true,

@@ -41,23 +41,21 @@
 //
 // WHY THE BYTES BELOW ARE THE RAW U8g2 RLE STREAM, NOT AN UNCOMPRESSED ATLAS
 // ------------------------------------------------------------------------
-// R1-04 step 2 asks for a "Rust-embedded bitmap format" and suggests
-// `embedded-graphics`' `ImageRaw`. Measured, that is a large flash regression:
-// see `FontSize` in this crate's module docs and the per-font table printed by
-// `extract_fonts.py report`. The U8g2 encoding is already a per-glyph
-// run-length code, the C++ firmware pays for exactly these bytes, and the
-// decoder that `src/font/mod.rs` ports is the only thing that yields the
-// glyph placement / delta-x advances that `getStrWidth` and `drawStr` must
-// agree on for pixel parity. Embedding the stream verbatim is therefore both
-// the smaller and the more faithful option; it is a measured decision, not a
-// shortcut, and the uncompressed figures are reported so it can be checked.
+// An uncompressed `embedded-graphics` `ImageRaw` atlas is a large flash
+// regression: see `FontSize` in this crate's module docs and the per-font table
+// printed by `extract_fonts.py report`. The U8g2 encoding is already a per-glyph
+// run-length code, and the decoder in `src/font/mod.rs` is the only thing that
+// yields the glyph placement and delta-x advances that the width measurement and
+// the drawing path must agree on for pixel parity. Embedding the stream verbatim
+// is therefore both the smaller and the more faithful option; it is a measured
+// decision rather than a shortcut, and the uncompressed figures are reported so
+// it can be checked.
 
 // Every array below is a U8g2 font in the library's own RLE encoding.
 //
 // The 23-byte header is `u8g2_font.c:44-68` (`u8g2_read_font_info`); the rest is
 // the glyph table, and `FONT_INFO_LEN` is the offset the decoder starts walking
-// from. These are `&'static [u8]`, so they land in `.rodata`, which is where a
-// C array of the same shape would have gone too.
+// from. These are `&'static [u8]`, so they land in `.rodata` and cost no RAM.
 
 /// Length of the U8g2 font header, in bytes.
 ///

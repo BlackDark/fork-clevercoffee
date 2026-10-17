@@ -1,27 +1,21 @@
-//! The six display templates, and the CRTP stage order they share.
+//! The six display templates, and the stage order they share.
 //!
 //! # The stage order is the design, not an implementation detail
 //!
-//! ADR-0001 §1 fixes the pipeline: **fullscreen modes -> system screens ->
-//! the template's own layout**, with a per-template [`TemplatePolicy`] choosing
-//! which shared stages run. The C++ realises that with CRTP
-//! (`DisplayTemplateBase<Derived>`) and a `DisplayPolicy` type alias per
-//! template; there is no virtual override table.
+//! The pipeline is fixed: **fullscreen modes -> system screens -> the template's
+//! own layout**, with a per-template [`TemplatePolicy`] choosing which shared
+//! stages run.
 //!
-//! The port keeps the *behaviour* and drops the *mechanism*. CRTP exists in C++
-//! to get static dispatch without a vtable on a small MCU; in Rust the same
-//! effect comes from a `match` on [`TemplateId`] in `render::dispatch`, which
-//! has no vtable for the same reason and needs no trait to say so. So [`render()`]
-//! is the fixed stage order, with no way for a template to reorder it — which is
-//! the property CRTP was buying.
+//! The order is realised as a `match` on [`TemplateId`] in `render::dispatch`,
+//! which costs no vtable and needs no trait. [`render()`] is the fixed stage order
+//! and no template can reorder it, which is the property that matters.
 //!
-//! [`TemplatePolicy`] is public and `const` because the policy is *data*, and
-//! data is what a test can assert on: `Standard`/`Scale`/`Upright` enable all
-//! four shared stages, `Minimal` and `TemperatureOnly` enable none, and `Modern`
-//! opts out of the shared heating logo because it draws its own `HEATING` row
-//! instead. That asymmetry is the whole reason the policy exists, and it is
-//! checked by `the_policy_table_matches_the_cplusplus` rather than left to a
-//! reviewer.
+//! [`TemplatePolicy`] is public and `const` because the policy is *data*, and data
+//! is what a test can assert on: `Standard`/`Scale`/`Upright` enable all four
+//! shared stages, `Minimal` and `TemperatureOnly` enable none, and `Modern` opts
+//! out of the shared heating logo because it draws its own `HEATING` row instead.
+//! That asymmetry is the whole reason the policy exists, and a test checks it
+//! rather than leaving it to a reviewer.
 
 pub mod modern_layout;
 pub mod render;
@@ -31,31 +25,28 @@ use crate::model::{BrewTimerState, Config, DisplayInput};
 
 /// Which shared stages a template opts into.
 ///
-/// The four flags are the C++ `DisplayPolicy<SharedHeatingLogo,
-/// SharedFullscreenBrew, SharedFullscreenManualFlush, SharedFullscreenHotWater>`
-/// template parameters, renamed for what they gate.
+/// One flag per shared stage, named for what it gates.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-// Four independent opt-outs, one per shared stage. Grouping them into a
-// "shared_stages: Stages" sub-struct would be a design the C++
-// `DisplayPolicy<...>` template parameters do not have, and the four flags are
-// only ever set together (as `ALL`, `NONE` or `MODERN`).
+// Four independent opt-outs, one per shared stage. They are only ever set
+// together (`ALL`, `NONE` or `MODERN`), and grouping them into a `shared_stages`
+// sub-struct would add a layer with nothing in it.
 #[allow(
     clippy::struct_excessive_bools,
     reason = "one flag per shared stage; see the type's doc comment"
 )]
 pub struct TemplatePolicy {
-    /// `DisplayPolicy::sharedHeatingLogoScreen` — the fullscreen heating logo.
+    /// The fullscreen heating logo.
     pub shared_heating_logo: bool,
-    /// `DisplayPolicy::sharedFullscreenBrewTimer`.
+    /// The fullscreen brew timer.
     pub shared_fullscreen_brew_timer: bool,
-    /// `DisplayPolicy::sharedFullscreenManualFlushTimer`.
+    /// The fullscreen manual-flush timer.
     pub shared_fullscreen_manual_flush_timer: bool,
-    /// `DisplayPolicy::sharedFullscreenHotWaterTimer`.
+    /// The fullscreen hot-water timer.
     pub shared_fullscreen_hot_water_timer: bool,
 }
 
 impl TemplatePolicy {
-    /// `DefaultDisplayPolicy` — all four on. Used by Standard, Scale, Upright.
+    /// All four stages on: the policy Standard, Scale and Upright share.
     pub const ALL: Self = Self {
         shared_heating_logo: true,
         shared_fullscreen_brew_timer: true,
@@ -63,7 +54,7 @@ impl TemplatePolicy {
         shared_fullscreen_hot_water_timer: true,
     };
 
-    /// `DisplayPolicy<false>`: no shared stages. `Minimal` and `TemperatureOnly`.
+    /// No shared stages. `Minimal` and `TemperatureOnly`.
     pub const NONE: Self = Self {
         shared_heating_logo: false,
         shared_fullscreen_brew_timer: false,
@@ -71,8 +62,8 @@ impl TemplatePolicy {
         shared_fullscreen_hot_water_timer: false,
     };
 
-    /// What `ModernTemplate` uses: no shared fullscreen stages and no shared
-    /// heating logo, because it draws a `HEATING` row in its own idle layout.
+    /// What `Modern` uses: no shared fullscreen stages and no shared heating logo,
+    /// because it draws a `HEATING` row in its own idle layout.
     pub const MODERN: Self = Self {
         shared_heating_logo: false,
         ..Self::NONE
@@ -82,18 +73,18 @@ impl TemplatePolicy {
 /// One of the six templates.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TemplateId {
-    /// `StandardTemplate` — the default: status bar, thermometer, temperature,
-    /// brew, PID, progress bar, maintenance footer.
+    /// The default: status bar, thermometer, temperature, brew, PID, progress bar,
+    /// maintenance footer.
     Standard,
-    /// `ScaleTemplate` — Standard plus weight and pressure.
+    /// Standard plus weight and pressure.
     Scale,
-    /// `MinimalTemplate` — status bar, temperature, brew, progress bar.
+    /// Status bar, temperature, brew, progress bar.
     Minimal,
-    /// `TemperatureOnlyTemplate` — the big readout and nothing else.
+    /// The big readout and nothing else.
     TemperatureOnly,
-    /// `UprightTemplate` — the portrait layout, drawn in the R1/R3 space.
+    /// The portrait layout, drawn in the rotated space.
     Upright,
-    /// `ModernTemplate` — the fixed-width, stable-field layout.
+    /// The fixed-width, stable-field layout.
     Modern,
 }
 
@@ -108,10 +99,10 @@ impl TemplateId {
         Self::Modern,
     ];
 
-    /// The C++ `System::DisplayTemplate` discriminant.
+    /// The integer `/api/parameters` reports for this template.
     ///
-    /// The order is the C++ enum's, because `/api/parameters` reports the
-    /// template as an integer and the parity harness diffs that.
+    /// The order is the reported order: the parity harness diffs the integer, so
+    /// renumbering would show up as a parameter change.
     #[must_use]
     pub const fn as_u8(self) -> u8 {
         match self {
@@ -181,11 +172,11 @@ impl Stage {
     /// Whether the frame is flushed later, or immediately by the stage that drew
     /// it.
     ///
-    /// The C++ sets `displayBufferReady` differently per stage, and
-    /// `LoopManager::updateDisplay` only flushes when the flag is set
-    /// (`docs/display/rendering.md`, "Buffer policy"). Getting
-    /// this wrong stalls the SSE stream, which is the failure mode ADR-0001 §7
-    /// fixed.
+    /// Deferred stages leave the buffer for the caller to flush; the others flush
+    /// from the stage that drew them.
+    ///
+    /// `docs/display/rendering.md` ("Buffer policy") is the table. Getting it wrong
+    /// stalls the SSE stream.
     #[must_use]
     pub const fn is_deferred(self) -> bool {
         matches!(
@@ -230,26 +221,17 @@ pub struct Rendered {
     pub stage: Stage,
 }
 
-// There was a `Template` trait here — `const ID` plus `render_normal`, one
-// method mirroring the C++'s `renderNormalDisplay()`. **It is deleted.** It had
-// zero impls, and `render::dispatch()` is a `match` on `TemplateId`: the six
-// templates are free functions reached by value, not types.
-//
-// The module docs' own reasoning argued for it — CRTP exists in the C++ to get
-// static dispatch without a vtable, and "in Rust the same effect comes from a
-// trait, and 'no virtual table' is free". That sentence was right about the
-// *dispatch* and wrong about the *shape*: the six templates share no code beyond
-// the fixed stage order in `render()`, they have no associated data, and there is
-// nothing a caller could hold as `&dyn Template` and get behaviour out of. A
-// trait with no implementors is a description of an idea, not an interface, and
-// it made the module look like it had an extension point it did not have.
+// The six templates are free functions reached by value through
+// `render::dispatch`, not types: they share no code beyond the fixed stage order,
+// hold no associated data, and there is nothing a caller could hold as
+// `&dyn Template`. A trait here would look like an extension point without being
+// one.
 //
 // A template is added by adding a `TemplateId` variant and a `match` arm in
-// `render::dispatch` — and the compiler then names every place that is not
-// exhaustive, which is what a `const ID` in a trait would have done anyway, only
-// without an impl to check it against.
+// `render::dispatch`, and the compiler then names every place that is not
+// exhaustive.
 
-/// The fixed stage order, from ADR-0001 §1.
+/// The fixed stage order.
 ///
 /// The order is not negotiable. A fullscreen timer beats the system screens (a
 /// steam screen during a hot-water timer would hide the timer); the offline
@@ -268,13 +250,13 @@ pub fn render(
 ) -> Rendered {
     let policy = template.policy();
 
-    // `OledDriver::prepareDisplay`, run per frame here rather than once at boot
-    // -- see `Display::prepare_display`. It has to happen before stage 0, since
-    // the OTA screen draws into the buffer it just cleared.
+    // Run per frame rather than once at boot -- see `Display::prepare_display`. It
+    // has to happen before stage 0, since the OTA screen draws into the buffer it
+    // just cleared.
     d.prepare_display(config.rotation());
 
-    // Stage 0: OTA. Not a policy flag: `printScreen()` calls `drawOtaScreen`
-    // unconditionally and it declines internally.
+    // Stage 0: OTA. Not a policy flag: it is always offered and declines
+    // internally.
     if let Some(stage) = crate::ota::draw(d, input) {
         return Rendered {
             display: d.clone(),
@@ -282,7 +264,7 @@ pub fn render(
         };
     }
 
-    // Stage 1: fullscreen modes, in the C++'s order.
+    // Stage 1: fullscreen modes, in the order the layout documents.
     if policy.shared_fullscreen_brew_timer {
         if let Some(stage) = crate::fullscreen::draw_brew_timer(d, input, config, template) {
             return Rendered {
@@ -331,11 +313,10 @@ pub fn render(
     }
 }
 
-/// The brew-timer FSM, as the C++ mutates it inside `shouldDisplayBrewTimer`.
+/// The brew-timer FSM, stepped once per frame.
 ///
-/// ADR-0001 §4 made this one FSM in `UICoordinator`. The C++ advances it as a
-/// side effect of a predicate; the port makes the step explicit so the render
-/// path is a pure function of the state and the transition is testable on its
+/// The step is explicit rather than a side effect of a predicate, so the render
+/// path stays a pure function of the state and the transition is testable on its
 /// own. `DisplayInput::brew_timer` carries the state between frames.
 #[must_use]
 pub fn step_brew_timer(input: &mut DisplayInput, config: &Config) -> BrewTimerState {
@@ -383,8 +364,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_policy_table_matches_the_cplusplus() {
-        // ModernTemplate: `DisplayPolicy<false, false>`.
+    fn the_policy_table_matches_the_stage_order() {
+        // Modern: no shared fullscreen stages and no shared heating logo.
         assert_eq!(TemplateId::Modern.policy(), TemplatePolicy::MODERN);
         assert!(
             !TemplateId::Modern.policy().shared_heating_logo,
@@ -392,12 +373,12 @@ mod tests {
         );
         assert!(!TemplateId::Modern.policy().shared_fullscreen_brew_timer);
 
-        // MinimalTemplate and TemperatureOnlyTemplate: `DisplayPolicy<false>`.
+        // Minimal and TemperatureOnly: no shared stages.
         for id in [TemplateId::Minimal, TemplateId::TemperatureOnly] {
             assert_eq!(id.policy(), TemplatePolicy::NONE, "{}", id.name());
         }
 
-        // Standard, Scale, Upright: `DefaultDisplayPolicy`.
+        // Standard, Scale and Upright: all four.
         for id in [TemplateId::Standard, TemplateId::Scale, TemplateId::Upright] {
             assert_eq!(id.policy(), TemplatePolicy::ALL, "{}", id.name());
         }
@@ -421,7 +402,7 @@ mod tests {
                 }
             }
         }
-        // The C++ enum is ordered; the order is the reported integer.
+        // The order is the reported integer.
         assert_eq!(TemplateId::Standard.as_u8(), 0);
         assert_eq!(TemplateId::Modern.as_u8(), 5);
     }

@@ -1,23 +1,21 @@
-//! The U8g2 font decoder, ported so that glyph pixels and glyph metrics agree
-//! with the C++ firmware exactly.
+//! The U8g2 font decoder, so that glyph pixels and glyph metrics agree with the
+//! library exactly.
 //!
 //! # Why the RLE is decoded rather than pre-rasterised
 //!
-//! R1-04 step 2 asks for the profont/fub atlases "converted to a Rust-embedded
-//! bitmap format", and suggests `embedded-graphics`' `ImageRaw` (an
-//! *uncompressed* 1bpp carrier). Measured, that is the wrong trade for this
-//! firmware — see [`crate::font::data`] for the numbers and the reasoning. The
-//! RLE stream is embedded byte-for-byte and the decoder below is a port of
-//! `u8g2_font.c`.
+//! `embedded-graphics`' `ImageRaw` is an *uncompressed* 1bpp carrier, and
+//! measured, that is the wrong trade for this firmware — see [`crate::font::data`]
+//! for the numbers and the reasoning. The RLE stream is embedded byte-for-byte
+//! and the decoder below follows `u8g2_font.c`.
 //!
 //! Decoding rather than storing a raster is also the only way to get *pixel
 //! parity*: the glyph's x/y offset, its `glyph_width`, and the delta-x advance
-//! that `getStrWidth` returns all come out of this decoder. Storing a raster
+//! that the width measurement returns all come out of this decoder. Storing a raster
 //! and measuring its bounding box instead would silently disagree with U8g2 on
 //! kerning and side bearings, and the fixed-width-field layout helpers are
-//! entirely built on `getStrWidth`.
+//! entirely built on that measurement.
 //!
-//! # What is ported, and from where
+//! # Where each function comes from in U8g2
 //!
 //! | Rust | U8g2 |
 //! |------|-------|
@@ -32,12 +30,12 @@
 //!
 //! U8g2 has a "transparent" font mode that skips the background runs and so
 //! avoids double-drawing overlaps (`u8g2_font_decode_len`, the
-//! `decode->is_transparent == 0` guard). The firmware never enables it:
+//! `decode->is_transparent == 0` guard). This firmware never enables it:
 //! `u8g2_SetupBuffer` hard-sets `font_decode.is_transparent = 0` (`u8g2_setup.c:93`,
-//! "issue 443") and nothing in `src/` or `include/` calls `setFontMode`. This
-//! port therefore always draws the background run, which is the behaviour the
-//! device actually has. [`Font::decode_into`] takes the flag anyway, so a future
-//! caller cannot get it wrong by accident.
+//! "issue 443") and nothing in the tree calls `setFontMode`. This port therefore
+//! always draws the background run, which is the behaviour the device actually
+//! has. [`Font::decode_into`] takes the flag anyway, so a future caller cannot
+//! get it wrong by accident.
 
 use core::fmt;
 
@@ -55,9 +53,9 @@ pub const FONT_INFO_LEN: usize = 23;
 
 /// The U8g2 font height mode.
 ///
-/// The firmware calls `setFontRefHeightExtendedText()` once, in
-/// `OledDriver::prepareDisplay()`, so [`HeightMode::ExtendedText`] is what every
-/// template renders under. The other two are implemented because
+/// The firmware calls `setFontRefHeightExtendedText()` once, when it sets the
+/// display up, so [`HeightMode::ExtendedText`] is what every template renders
+/// under. The other two are implemented because
 /// `ref_box_height` — the number the whole layout is built on — depends on them,
 /// and a silent mismatch here would shift every row.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -586,10 +584,9 @@ impl Font {
 
     /// `ref_ascent + ref_descent` under `mode` — U8g2's *reference* box.
     ///
-    /// Ported from `u8g2_UpdateRefHeight`. Note the
-    /// asymmetry U8g2 uses for [`HeightMode::All`]: it takes the ascent from
-    /// `max_char_height + y_offset` and the descent from `y_offset`, so the
-    /// modes genuinely disagree.
+    /// Follows `u8g2_UpdateRefHeight`, including the asymmetry it uses for
+    /// [`HeightMode::All`]: the ascent comes from `max_char_height + y_offset` and
+    /// the descent from `y_offset`, so the modes genuinely disagree.
     ///
     /// This is **not** the ink height and **not** the row height the Modern
     /// template uses. See [`Font::ink_box`] and
@@ -636,8 +633,8 @@ impl Font {
 
     /// `u8g2_GetMaxCharHeight` — the raw `max_char_height` byte.
     ///
-    /// This is *not* the row height; `DisplayWidgets::displayWrappedMessage`
-    /// uses it as a line height, and it is deliberately the other number. Kept
+    /// This is *not* the row height; the wrapped-message helper uses it as a line
+    /// height, and it is deliberately the other number. Kept
     /// separate from [`Font::ref_box_height`] so the two cannot be confused.
     #[must_use]
     pub fn max_char_height(&self) -> i32 {
@@ -953,13 +950,13 @@ mod tests {
     }
 
     #[test]
-    fn ref_box_heights_match_the_cpp_probe() {
+    fn ref_box_heights_match_the_u8g2_probe() {
         // Measured from the real U8g2 (see the `ref_heights` table in this
         // module's docs and `crates/cc-display/tests/parity.rs`): with
         // `setFontRefHeightExtendedText()`, `getFontAscent()` and
-        // `getFontDescent()` return these. The C++ templates never read them
-        // directly, but they determine where ink lands under `setFontPosTop()`,
-        // so a drift here moves every glyph.
+        // `getFontDescent()` return these. Nothing reads them directly, but they
+        // determine where ink lands under `setFontPosTop()`, so a drift here moves
+        // every glyph.
         assert_eq!((fub20().ref_height(HeightMode::ExtendedText)), (20, -5));
         assert_eq!((profont17().ref_height(HeightMode::ExtendedText)), (13, -3));
         assert_eq!((profont11().ref_height(HeightMode::ExtendedText)), (8, -2));
@@ -968,9 +965,10 @@ mod tests {
     }
 
     #[test]
-    fn ink_box_matches_the_cpp_measured_ink() {
+    fn ink_box_matches_the_oracle_measured_ink() {
         // Oracle numbers: draw at y=20, read the framebuffer, report the ink
-        // extent. `tools/display_oracle.cpp` reproduces this.
+        // extent. `crates/cc-display/tools/oracle/display_oracle.cpp` reproduces
+        // this.
         //
         //   fub20   "100.0" -> y=21..40  (20 rows)
         //   fub20   "Ay"    -> y=21..45  (25 rows, descender of y)

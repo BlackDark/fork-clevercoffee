@@ -1,16 +1,13 @@
-//! The boot screen: `displayLogo`.
+//! The boot screen: logo, version, Wi-Fi address.
 //!
 //! # Why this module exists
 //!
-//! The human's report was "the startup screen is missing — logo, version, Wi-Fi
-//! IP". The C++ shows it twice during boot: once with the firmware version
-//! straight after the display is brought up
-//! (`SystemInitializer.cpp:133-135`), and once with the address as soon as the
-//! radio has associated. Nothing in the Rust port drew either, so the
-//! panel sat on whatever the previous frame left there — on a cold boot, a
-//! cleared panel — for as long as the Wi-Fi took.
+//! The panel shows the screen twice: once with the firmware version straight
+//! after the display is brought up, and once with the address as soon as the radio
+//! has associated. Without it the panel sits on whatever the previous frame left
+//! there — on a cold boot, a cleared panel — for as long as the Wi-Fi takes.
 //!
-//! # The layout, transcribed
+//! # The layout
 //!
 //! Two very different arrangements behind one `if`, and both are reproduced:
 //!
@@ -19,11 +16,10 @@
 //! | landscape (the default) | `(38, 0)`, 40x40 | two lines at `(0, 45)` and `(0, 55)` |
 //! | Upright | `(11, 4)`, 40x40 | one word per line from `y = 47`, 10 px apart |
 //!
-//! The Upright arm word-wraps with `strtok` on spaces, which is why the
-//! firmware passes `"Version "` and `"WiFi Connected"` — with the trailing
-//! space, so the empty final token is dropped rather than printing a blank
-//! line. The landscape arm prints the two lines as given, which is why the
-//! version is passed as `"Version "` + the version string and lands on one row.
+//! The Upright arm word-wraps on spaces, which is why the version line is passed
+//! with a trailing space: the empty final token is dropped rather than printing a
+//! blank line. The landscape arm prints the two lines as given, so the same
+//! trailing space costs a pixel of width and nothing else.
 
 use crate::bitmaps_data as bm;
 use crate::display::Display;
@@ -32,11 +28,9 @@ use crate::templates::TemplateId;
 
 /// Draw the boot screen.
 ///
-/// `line1` and `line2` are the C++'s two message arguments, unchanged — the
-/// C++ callers pass `"Version "` and the version as *separate* lines in the
-/// Upright case and as one string in the landscape case, and this signature
-/// cannot express the difference, so callers pass what the C++ passes for the
-/// layout they are in.
+/// The two lines are separate arguments because the Upright arm wraps them word by
+/// word and the landscape arm prints them verbatim, so a caller passes what its
+/// layout needs: a phrase in Upright, a whole row in landscape.
 pub fn draw(d: &mut Display, line1: &str, line2: &str, template: TemplateId) {
     d.clear_buffer();
     if template.is_upright() {
@@ -60,27 +54,27 @@ pub fn draw(d: &mut Display, line1: &str, line2: &str, template: TemplateId) {
     }
 }
 
-/// The two calls the C++ makes at boot, as the strings it passes.
+/// The boot strings, in one place.
 ///
-/// Named so the firmware cannot invent its own wording: the version line and
-/// the address line are part of what a support screenshot shows.
+/// Named so the firmware cannot invent its own wording: the version line and the
+/// address line are part of what a support screenshot shows.
 pub mod text {
-    /// `SystemInitializer.cpp:134` — `displayLogo(ctx, "Version ", version)`.
+    /// The version line: `"Version "` and the version, the trailing space being
+    /// what the Upright wrap needs.
     #[must_use]
     pub fn version(version: &str) -> (&'static str, &str) {
         ("Version ", version)
     }
 
-    /// `SystemInitializer.cpp:848` — `displayLogo(ctx, "WiFi Connected", ip)`.
+    /// The association line: `"WiFi Connected"` and the address.
     #[must_use]
     pub fn wifi_connected(ip: &str) -> (&'static str, &str) {
         ("WiFi Connected", ip)
     }
 
-    /// `SystemInitializer.cpp:846` — the two no-Wi-Fi strings, which are
-    /// localised in the C++ (`langstring_nowifi`). English here, because the
-    /// Upright arm splits them into words and the landscape arm prints them
-    /// verbatim.
+    /// The two no-Wi-Fi lines, in English. The Upright arm splits them into words
+    /// and the landscape arm prints them verbatim, and the layout was tuned on
+    /// these two phrases.
     #[must_use]
     pub fn no_wifi() -> (&'static str, &'static str) {
         ("No WiFi", "Check settings")

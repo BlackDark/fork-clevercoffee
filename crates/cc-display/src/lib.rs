@@ -1,17 +1,14 @@
-//! Display layout: framebuffer, `DrawTarget`, the profont/fub glyph atlases
-//! converted from U8g2, the ported `DisplayLayoutUtils` helpers, and the six
-//! templates.
+//! Display layout: the framebuffer and `DrawTarget`, the profont and fub glyph
+//! atlases converted from U8g2, the layout helpers, and the display templates.
 //!
 //! # Rules
 //!
 //! * Portable and `no_std`: it renders into a byte buffer, so the whole thing is
-//!   golden-image testable on the host (R1-04 / R2-10) with no hardware.
+//!   golden-image testable on the host with no hardware.
 //! * The AGENTS.md OLED rules apply here as assertions, not as conventions:
 //!   everything fits 128x64, no rows overlap, counting fields use a fixed pixel
 //!   width so digits do not shift, a bar and its label share a vertical
 //!   midline, and bottom rows are anchored from `DISPLAY_HEIGHT`.
-//!
-//! Owner: R1-04 (spike) then R2-10 (templates). This is the R1-01 skeleton.
 
 #![no_std]
 
@@ -26,10 +23,10 @@ pub mod fullscreen;
 pub mod helpers;
 pub mod lang;
 pub mod layout;
-/// Which of the three status LEDs should be lit, as a pure function. Finding
-/// 3.1 — it lives here, next to `helpers`, because the C++ puts the LED rules in
-/// `displayHelpers.h` and that module is already this file's port. See the
-/// module's own doc for why `cc-web`/`cc-machine` would have been wrong.
+/// Which of the three status LEDs should be lit, as a pure function. It lives
+/// here, next to `helpers`, because the LED rules are part of what the display
+/// shows; the module's own doc records why `cc-web` and `cc-machine` would have
+/// been wrong.
 pub mod leds;
 pub mod model;
 pub mod ota;

@@ -1,36 +1,25 @@
-//! Port of `src/display/DisplayOtaScreen.cpp`.
+//! The OTA screen.
 //!
-//! Three mutually exclusive renderings, chosen by the OTA state, plus the
-//! one non-trivial bit of logic in the file: `truncateToWidth`.
+//! Three mutually exclusive renderings, chosen by the OTA state, plus the one
+//! non-trivial piece of logic here: [`truncate_to_width`].
 //!
-//! # `truncateToWidth`
+//! # Truncation
 //!
-//! The error message is an arbitrary `String` from the HTTP layer, and the
-//! screen is 128 px wide, so it has to be cut to fit. The C++ peels one
-//! character off the end until it fits:
+//! The error message is an arbitrary string from the HTTP layer and the screen is
+//! 128 px wide, so it has to be cut to fit. The rule is:
 //!
-//! ```cpp
-//! while (!message.isEmpty() && display->getStrWidth(message.c_str()) > kMaxWidth)
-//!     message.remove(message.length() - 1);
-//! if (message.endsWith("..")) return;
-//! if (display->getStrWidth(message.c_str()) > kMaxWidth && message.length() > 3)
-//!     message = message.substring(0, message.length() - 3) + "...";
-//! ```
-//!
-//! Three subtleties, all reproduced:
-//!
-//! * the loop is `length() - 1`, so it drops the *last* character and re-tests —
-//!   an O(n^2) walk, but n is a short error string and matching it matters more
-//!   than the cost;
+//! * peel one character off the end and re-test until the remainder fits. That is
+//!   O(n^2), but n is a short error string and matching the panel's existing
+//!   behaviour matters more than the cost;
 //! * a message that already ends in `".."` is left as-is even if it is still too
-//!   wide, because the author is telling the truncation that it ran; and
-//! * the `length() > 3` guard means the `"..."` suffix is never *longer* than
-//!   what it replaced, so a 3-character message that is too wide is left
-//!   too wide rather than becoming `"..."`.
+//!   wide, because that suffix says the truncation already ran; and
+//! * the `length() > 3` guard keeps the `"..."` suffix from being *longer* than
+//!   what it replaced, so an over-wide 3-character message stays over-wide rather
+//!   than becoming `"..."`.
 //!
-//! This is the one place in the display layer where a `String` exists, and it is
-//! a `&'static str` here: the device builds it once per frame from the OTA
-//! manager, and a host test can pass any string.
+//! This is the one place in the display layer whose input is a runtime string, and
+//! it is a `&str` here: the device builds it from the OTA manager, and a host test
+//! can pass any string.
 
 use crate::display::{Display, DISPLAY_WIDTH};
 use crate::fmt::{format_int, format_uint};
@@ -52,8 +41,8 @@ pub fn draw(d: &mut Display, input: &DisplayInput) -> Option<Stage> {
     d.clear_buffer();
 
     match input.ota.status {
-        // `hasError() || status == Error` -- the C++ checks both, so an error
-        // flag with a non-error status still takes this branch.
+        // An error flag with a non-error status still takes this branch: both are
+        // checked, not just the status.
         OtaStatus::Error => {
             // fub17 is 150 px and centres at x = -11.
             d.set_font(font::profont17());
@@ -87,7 +76,7 @@ pub fn draw(d: &mut Display, input: &DisplayInput) -> Option<Stage> {
             crate::widgets::display_progress_bar(d, i32::from(input.ota.progress), 14, 38, 100);
 
             d.set_font(font::profont11());
-            // `snprintf("%u%%")` then centred.
+            // The percentage, formatted then centred.
             let mut percent = format_uint(u32::from(input.ota.progress));
             percent.push('%').ok();
             draw_str_centered_on_screen(d, 50, percent.as_str());
@@ -120,10 +109,9 @@ pub const fn kind_label(kind: OtaKind) -> &'static str {
 pub fn truncate_to_width(d: &Display, message: &str) -> FixedText {
     let mut out = FixedText::from(message);
 
-    // The peel loop. `out.len()` shrinks by one byte per iteration; a multi-byte
-    // UTF-8 sequence would be cut mid-character, which is what the C++ does too
-    // (it removes one *byte*), and the fonts are Latin-1 so it cannot happen for
-    // the ASCII error strings the device actually produces.
+    // The peel loop. `out.len()` shrinks by one byte per iteration, so a
+    // multi-byte UTF-8 sequence would be cut mid-character. The fonts are Latin-1
+    // and the device's error strings are ASCII, so it cannot happen in practice.
     while !out.is_empty() && d.str_width(out.as_str()) > MAX_WIDTH {
         out.remove_last();
     }
@@ -237,7 +225,7 @@ impl core::fmt::Display for FixedText {
     }
 }
 
-/// A convenience so the three branches read the same as the C++'s.
+/// The `NN%` label, shared by the three branches so they read the same.
 #[must_use]
 pub fn percent_label(progress: u8) -> crate::fmt::Formatted {
     let mut s = format_int(i32::from(progress));
@@ -287,18 +275,8 @@ mod tests {
 
     #[test]
     fn the_peel_loop_always_runs_before_the_dot_dot_guard() {
-        // `DisplayOtaScreen.cpp:26`:
-        //
-        // ```cpp
-        // while (!message.isEmpty() && getStrWidth(message) > kMaxWidth)
-        //     message.remove(message.length() - 1);
-        // if (message.endsWith("..")) return;
-        // if (getStrWidth(message) > kMaxWidth && message.length() > 3)
-        //     message = message.substring(0, message.length() - 3) + "...";
-        // ```
-        //
-        // This is a real behaviour difference, not a formality. The guard reads
-        // the *peeled* string, and the peel stops at the first prefix that fits.
+        // The guard reads the *peeled* string, and the peel stops at the first
+        // prefix that fits.
         // Here the boundary lands on the space after "error", so the guard does
         // not fire and the second `if` does not either -- the string already
         // fits -- and the result is a 24-character string with a trailing space.

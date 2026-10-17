@@ -15,15 +15,11 @@
 //!   *independently within the same row*, so a 4 px bar and a 10 px label share
 //!   a midline instead of being bottom- or top-edge aligned.
 //!
-//! The C++ is `inline void f(U8G2*, int, int, ...)`. That is four positional
-//! `int`s and a `const char*`, and the call sites
-//! (`ModernTemplate::drawLargeTemperature`, `drawTemperatureToSetpointBar`,
-//! `drawBrewMainReadout`, `drawBrewProgressBar`, `drawPostBrewScreen`) are where
-//! the bugs this guards against actually happened. So the port takes a typed
-//! [`FixedBox`] instead of loose coordinates: a box cannot be built with
-//! `box_x + box_w` the wrong way round, and `width_from_probe` is the only way
-//! to make one, which means the widest-case string is always named at the point
-//! of use.
+//! The helpers take a typed [`FixedBox`] instead of loose coordinates. Four
+//! positional `int`s and a `&str` is the shape the misalignment bugs came from: a
+//! box cannot be built with `box_x + box_w` the wrong way round, and
+//! `width_from_probe` is the only way to make one, which means the widest-case
+//! string is always named at the point of use.
 //!
 //! # Coordinates are pen-relative
 //!
@@ -89,8 +85,6 @@ impl FixedBox {
     }
 }
 
-/// `drawStrRightInBox`.
-///
 /// Draws `text` so its **right** edge sits at `box_x + box_w`. This is the
 /// helper every counting field uses: the far edge is pinned to a constant, so
 /// adding a digit extends the string leftwards into the reserved space instead
@@ -99,13 +93,12 @@ pub fn draw_str_right_in_box(d: &mut Display, box_x: i32, box_w: i32, y: i32, te
     d.draw_str(box_x + box_w - d.str_width(text), y, text);
 }
 
-/// `drawStrCenteredOnScreen`.
+/// Centres a string on the **physical** width, `DISPLAY_WIDTH`, even under the
+/// portrait rotations.
 ///
-/// Centres on `DISPLAY_WIDTH` — the *physical* width, even under `R1`/`R3`.
-/// That is what the C++ does (`(DISPLAY_WIDTH - w) / 2`, and `DISPLAY_WIDTH` is
-/// the constant 128), and it is correct for the templates that use it: the OTA
-/// screen is drawn before the rotation is known, and the post-brew cup is
-/// centred in the portrait width by the caller passing the rotated box.
+/// That is correct for the templates that use it: the OTA screen is drawn before
+/// the rotation is known, and the post-brew cup is centred in the portrait width
+/// by the caller passing the rotated box.
 pub fn draw_str_centered_on_screen(d: &mut Display, y: i32, text: &str) {
     let w = d.str_width(text);
     d.draw_str((DISPLAY_WIDTH - w) / 2, y, text);
@@ -186,9 +179,9 @@ pub struct BarBox {
 
 /// The label's row, the gap, and the label's reserved height.
 ///
-/// Grouped so the eight-argument C++ signature becomes four, and so
-/// `font_h` and `row_h` sit next to each other: those are the two numbers a
-/// mid-line assertion compares, and the C++ lets them drift apart silently.
+/// `row_h` and `font_h` sit next to each other on purpose: those are the two
+/// numbers a mid-line alignment assertion compares, and they are the easiest pair
+/// to let drift apart.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LabelBox {
     /// Top of the row both the bar and the label are centred within.
@@ -374,8 +367,8 @@ mod tests {
 
     #[test]
     fn a_bar_and_its_label_share_a_vertical_midline() {
-        // The Modern bottom row, verbatim from `ModernTemplateLayout`:
-        // 10 px row at y=54..63, 4 px bar, 10 px label, gap 3.
+        // The Modern bottom row: 10 px row at y=54..63, 4 px bar, 10 px label,
+        // gap 3.
         let f = font::profont10();
         let mut d = mk();
         d.set_font(f);
@@ -400,14 +393,12 @@ mod tests {
         // This is the trap. U8g2's own reference box for profont10 under
         // `setFontRefHeightExtendedText()` is `ref_ascent + ref_descent` = 7 + -2
         // = 5, and passing that to `layout_bar_label_cluster` puts the label at
-        // y=56 instead of y=54 -- half a pixel of drift that is invisible on
-        // screen and breaks the "pair the bar with its label" rule.
+        // y=56 instead of y=54 -- drift that is invisible on screen and breaks the
+        // "pair the bar with its label" rule.
         //
-        // The C++ does not have this problem because `ModernTemplateLayout`
-        // passes the hard-coded `kFontHeightProfont10 = 10`, the *reserved row*
-        // height, not a font metric. So the templates must pass a reserved
-        // height; this test exists to make that decision explicit rather than
-        // incidental.
+        // The caller must therefore pass the *reserved row* height, 10 for
+        // profont10, not a font metric. This test exists to make that decision
+        // explicit rather than incidental.
         let f = font::profont10();
         let ref_box = f.ref_box_height(crate::font::HeightMode::ExtendedText);
         assert_eq!(
