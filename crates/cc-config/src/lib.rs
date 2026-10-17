@@ -1,48 +1,49 @@
 //! The typed configuration schema, the configuration value, the store trait,
-//! and JSON import/export — task R2-06.
+//! and JSON import/export.
 //!
-//! # What this crate replaces
+//! # Why configuration is a value
 //!
-//! The C++ has a `Config` **singleton** whose 98 `ParamDef` members are global
-//! mutable objects that write themselves to NVS from inside their own setter
-//! (`Config.h:170-186`). Every one of those 98 members is constructed before
-//! `main()` runs, each holds an Arduino `String`, and each `set()` opens the
-//! NVS namespace, writes one key, and closes it. The consequences are visible
-//! throughout the C++: `Config::getInstance()` appears in test fixtures and in
-//! `showCondition` lambdas, `loadAll` reports "loaded 41/96 parameters" on a
-//! healthy machine, and the S1 emergency threshold cannot be persisted at all
-//! because it is not in the list.
+//! [`Config`] is a plain struct of typed fields which implements
+//! `Serialize`/`Deserialize`, and [`BlobConfigStore`] moves whole values. Every
+//! other decision here follows from that: with no global mutable state a test
+//! needs no fixture reset, and a failed write cannot leave a half-updated
+//! machine.
 //!
-//! Here configuration is a **value**. [`Config`] is a plain struct of typed
-//! fields, `Config` implements `Serialize`/`Deserialize`, and
-//! [`BlobConfigStore`] moves whole values. There is no global mutable state,
-//! so a test needs no fixture reset, and a failed write cannot leave a
-//! half-updated machine.
+//! The rejected alternative is one global mutable object per parameter, each
+//! writing itself to NVS from inside its own setter. It fails in two ways that
+//! show up as defects rather than as design taste: a per-parameter write opens
+//! and closes the NVS namespace once per value, and a parameter that is not in
+//! the store's list cannot be persisted at all, so it silently resets on every
+//! reboot. That second failure is why `safety.emergency_temp` and
+//! `safety.emergency_hysteresis` are registered here (see the table below),
+//! *and* why a registration is the thing the schema test pins rather than the
+//! presence of the field.
 //!
 //! # What is deliberately the same
 //!
-//! * **The keys.** The C++ dotted names, verbatim. See [`schema`].
-//! * **The defaults and ranges.** Transcribed from `Config.h` and `defaults.h`.
+//! * **The keys.** The dotted names, verbatim, because an operator's existing
+//!   `config.json` has to keep resolving. See [`schema`].
+//! * **The defaults and ranges.** [`Config::default`] sets the factory values
+//!   and [`schema`] carries the range each parameter accepts.
 //! * **The JSON shape.** Nested objects, integers for enums, so
 //!   `docs/example_config.json` imports unchanged.
-//! * **The secret fields.** Four parameters are plaintext in NVS in the C++ and
-//!   in the oracle (08 §3: 2071 bytes, unencrypted). They are plaintext here
-//!   too — the machine has to be able to *use* them — but wrapped in
-//!   [`Secret`] so that no log line, `Debug` dump or panic message can print
-//!   one. The type itself now lives in `cc-domain`, because the UART
-//!   provisioning parser (R3-12) has a fifth credential that is not part of a
+//! * **The secret fields.** Four parameters are plaintext in NVS. They are
+//!   plaintext here too — the machine has to be able to *use* them — but wrapped
+//!   in [`Secret`] so that no log line, `Debug` dump or panic message can print
+//!   one. The type itself lives in `cc-domain` ([`cc_domain::secret`]) because
+//!   the UART provisioning parser has a fifth credential that is not part of a
 //!   `Config` at all.
 //!
 //! # What is deliberately different
 //!
 //! | # | Change | Why |
 //! | --- | --- | --- |
-//! | 1 | `safety.emergency_temp` and `safety.emergency_hysteresis` are registered | The C++ defines them, reads them, and never registers them, so they reset on every reboot. Finding 1 of 01 §10. |
-//! | 2 | One JSON blob instead of 98 FNV-1a-hashed NVS keys | Atomic, readable, and 1/98th of the NVS traffic. 08 §6. [`blob_store`] |
-//! | 3 | A bad value rejects the whole import | The C++ logs a warning and continues, then reports success. |
-//! | 4 | Text parameters have one storage-length bound | The C++ has eight length constants and checks none of them. See [`json`]. |
-//! | 5 | Credentials redact in `Debug`/`Display` | Skill rule 7. |
-//! | 6 | A C++-written NVS is ignored, not migrated — but a boot that finds one says so | Decided 2026-09-28. See [`blob_store`] and [`predecessor`]. |
+//! | 1 | `safety.emergency_temp` and `safety.emergency_hysteresis` are registered | a parameter that is not registered cannot be persisted, so it resets on every reboot |
+//! | 2 | One JSON blob instead of one NVS key per parameter | atomic, readable, and 1/98th of the NVS traffic. [`blob_store`] |
+//! | 3 | A bad value rejects the whole import | a warn-and-continue import answers `success` and leaves the machine on defaults |
+//! | 4 | Text parameters have one storage-length bound | one bound the writer enforces beats eight constants nothing checks. See [`json`]. |
+//! | 5 | Credentials redact in `Debug`/`Display` | a credential in a log line or a panic message is a disclosure with no local symptom |
+//! | 6 | An NVS written by another firmware is ignored, not migrated — but a boot that finds one says so | §32 of `docs/history/divergences.md`; see [`predecessor`] |
 //!
 //! Cross-parameter safety validation lives in `cc-safety`
 //! (`validate_config` / `load_or_default`), not here, because `cc-config` may
@@ -52,14 +53,15 @@
 //!
 //! `serde` + `serde_json` (with `alloc`) and `cc-domain`. `serde_json` is
 //! `alloc`-based and the configuration is a single serialised blob read once at
-//! boot, so the crate is `no_std + alloc` rather than `no_std`; the 20 KB NVS
-//! partition and the 2071-byte oracle blob are the sizing evidence. `heapless`
-//! is **not** used: its only natural home here would be the dotted key type, and
-//! a `&'static str` in a `const` schema plus a borrowed key for JSON lookup is
-//! both smaller and simpler than a `heapless::String<64>`. The four credential
-//! fields stay `alloc::string::String` because the C++ accepts unbounded
-//! strings and a fixed-capacity type would reject configurations the running
-//! firmware accepts.
+//! boot, so the crate is `no_std + alloc` rather than `no_std`; the measurement
+//! that sizes it is `docs/example_config.json` — 1814 B in compact JSON, against
+//! the 20 KB NVS partition and [`MAX_CONFIG_BYTES`]. `heapless` is **not** used:
+//! its only natural home here would be the dotted key type, and a `&'static str`
+//! in a `const` schema plus a borrowed key for JSON lookup is both smaller and
+//! simpler than a `heapless::String<64>`. The four credential fields stay
+//! `alloc::string::String` because a credential has no length the firmware can
+//! bound: a fixed-capacity type would reject configurations the running firmware
+//! accepts.
 
 #![no_std]
 #![forbid(unsafe_code)]
@@ -99,14 +101,14 @@ pub use store::StoreError;
 
 /// An enumeration that travels over the wire as its integer discriminant.
 ///
-/// The C++ serialises every enum parameter as `static_cast<int>(value)`
-/// (`Config.h:423`, `Config.h:212`), and `docs/example_config.json` shows
-/// `"mode": 1`. Keeping integers means an exported configuration is byte-for-byte
-/// comparable with one the C++ produced, and it means a hand-edited file that
-/// says `"mode": 7` is *rejected* rather than silently mapped onto a variant.
+/// Integers, not variant names, because the wire shape is a number — see
+/// `"mode"` in `docs/example_config.json`, the file the import test parses. A name
+/// on the wire would make the format depend on the Rust variant spelling, and it
+/// would also stop a hand-edited `"mode": 7` from being *rejected* rather than
+/// silently mapped onto a variant.
 ///
 /// This trait lives here rather than in `cc-domain` because `cc-domain` has no
-/// dependencies at all (04 §1) and must not acquire `serde` for one trait.
+/// dependencies at all and must not acquire `serde` for one trait.
 pub trait IntEnum: Copy {
     /// The discriminant on the wire.
     fn to_raw(self) -> i8;
@@ -162,7 +164,8 @@ macro_rules! impl_int_enum {
             impl IntEnum for $ty {
                 fn to_raw(self) -> i8 {
                     // The enums are all `#[repr(i8)]` with contiguous
-                    // discriminants, so this is the wire value the C++ writes.
+                    // discriminants, so this is the discriminant the wire format
+                    // carries.
                     self as i8
                 }
 

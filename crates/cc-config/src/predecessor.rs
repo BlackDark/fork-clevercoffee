@@ -1,13 +1,11 @@
-//! Telling an operator that the previous firmware's settings are still on the
-//! chip, and that this firmware does not read them.
-//!
-//! Owner: finding **3.6** of `32-findings-2026-10-03.md`, 2026-10-04.
+//! Telling an operator that another firmware's settings are still on the chip,
+//! and that this firmware does not read them.
 //!
 //! # The mechanism, in one sentence
 //!
-//! The two firmwares use **different NVS namespaces**, so a machine that ran
-//! the C++ has not lost its configuration — the Rust firmware has never opened
-//! the namespace it is in, and then writes its compiled-in defaults, which
+//! The two stores use **different NVS namespaces**, so a machine that has run
+//! another firmware has not lost its configuration: this firmware never opens the
+//! namespace those settings are in, and boots on its compiled-in defaults, which
 //! carry no SSID.
 //!
 //! # Why this is a module and not a log line in `bring_up_config`
@@ -20,14 +18,14 @@
 //! fit the log ring's line budget — is a pure function of one enum, and
 //! `just test` reaches all of it. It belongs beside [`crate::blob_store`] because that
 //! is where [`crate::blob_store::NAMESPACE`] and the decision *not* to read a
-//! C++-written partition are already documented, and splitting those two facts
+//! partition another firmware wrote are documented, and splitting those two facts
 //! across two modules is how they drift.
 //!
 //! # ⚠ There is deliberately no migration, and this is the whole of it
 //!
-//! A migration would mean shipping the C++'s FNV-1a key hash, its 98 key
-//! names and its per-parameter type table, and then writing the result into
-//! the **one** configuration slot a machine has, with no rollback. On a device
+//! A migration would mean reimplementing the old store's key derivation and its
+//! per-parameter type table, and then writing the result into the **one**
+//! configuration slot a machine has, with no rollback. On a device
 //! that heats a boiler to 150 °C, that is a bad trade for values that are
 //! nearly all within a whisker of their defaults — and the credentials, the
 //! only parameters whose loss is actually felt, are re-entered in seconds over
@@ -35,12 +33,12 @@
 //! right size of answer. `blob_store`'s module documentation carries the full
 //! reasoning; this module is where the operator-facing consequence of it lives.
 
-/// The NVS namespace the **C++ firmware** stored its parameters under.
+/// The NVS namespace a machine that ran another firmware stored its parameters
+/// under.
 ///
-/// `include/clevercoffee/defaults.h:13` — `#define STORAGE_NAMESPACE "config"` —
-/// read by `Config.cpp`'s `Preferences` opens at `:137`, `:159` and `:184`. It
-/// is a fact about a frozen C++ file, so it is named here with that citation
-/// rather than derived from anything in this tree.
+/// A frozen literal, and it has to be: the namespace is a property of the NVS
+/// already on such a machine, so nothing in this tree can derive it. A test
+/// asserts the name.
 ///
 /// It is deliberately **not** [`crate::blob_store::NAMESPACE`], which is `cc`; that
 /// inequality is the reason this module exists, and `blob_store` asserts it.
@@ -113,11 +111,11 @@ mod tests {
     use crate::blob_store::NAMESPACE;
 
     #[test]
-    fn the_cpp_namespace_is_a_different_key_space_from_ours() {
+    fn the_predecessor_namespace_is_a_different_key_space_from_ours() {
         // The entire reason this module is reached. Asserted, not commented:
         // a rename of either constant that made them equal would silently turn
-        // this feature into "the firmware reads the C++'s keys", which is the
-        // thing `blob_store` decided it must never do.
+        // this feature into "the firmware reads the other store's keys", which is
+        // the thing `blob_store` decided it must never do.
         assert_eq!(CPP_NAMESPACE, "config");
         assert_ne!(CPP_NAMESPACE, NAMESPACE);
     }

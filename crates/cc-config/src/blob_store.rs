@@ -1,13 +1,11 @@
 //! The NVS wire format: one namespace, one JSON blob, one key.
 //!
-//! Owner: **R3-08** (task A).
-//!
 //! # Why the store is split in two
 //!
 //! Everything interesting about *where* the bytes live is separable from
 //! everything interesting about what they mean: the namespace name, the key
-//! name, the JSON encoding, the schema version, and the decision that a
-//! namespace the C++ also wrote is not ours. None of that needs an ESP32.
+//! name, the JSON encoding, the schema version, and the decision that a namespace
+//! this firmware does not own is not ours. None of that needs an ESP32.
 //!
 //! So [`BlobConfigStore`] owns the format and [`BlobBackend`] owns the medium.
 //! The device implementation of the backend is
@@ -21,48 +19,42 @@
 //! Every caller in the workspace names the concrete
 //! `BlobConfigStore<EspNvsBlob>`, nothing is generic over a store, and there is
 //! no `dyn`. The seam that does get used is one level down, [`BlobBackend`] —
-//! and it already provides the substitution a store trait would have. Finding
-//! 4.6 of 32-findings-2026-10-03.
+//! and it already provides the substitution a store trait would have.
 //!
 //! # One blob, not 98 keys
 //!
-//! The C++ writes each parameter separately into the `config` namespace under an
-//! FNV-1a-hashed key — `"p" + 8 hex digits` (`Config.h:318-332, 487-501`).
-//! `saveAll()` writes 98 keys one at a time, so a power
-//! cut mid-save leaves a configuration where some parameters are new and the
-//! rest are old. For a machine that heats to 150 °C, "some new" is a
-//! configuration nobody ever chose.
+//! Writing the parameters one at a time leaves a configuration where some are new
+//! and the rest are old if the power fails mid-save. For a machine that heats to
+//! 150 °C, "some new" is a configuration nobody ever chose. One blob, in one NVS
+//! entry, cannot be half-applied.
 //!
-//! The recovered oracle firmware stored **one nested JSON blob** in a single
-//! namespace, 2071 bytes (08 §3, 08 §5.3), and 08 §6 recommends it. This does
-//! the same.
+//! # ⚠ No compatibility with another firmware's NVS, and this is deliberate
 //!
-//! # ⚠ No C++ compatibility, and this is deliberate
-//!
-//! Decided 2026-09-28: the Rust firmware owns its namespace, and a NVS written
-//! by the C++ firmware is **expected to be ignored and overwritten with
-//! defaults**. There is no migration, no compatibility shim, and no
-//! "read the old hashed keys if the new key is absent" path.
+//! This firmware owns its namespace, and an NVS written by another firmware is
+//! **expected to be ignored and overwritten with defaults**. There is no
+//! migration, no compatibility shim, and no "read the old keys if the new key is
+//! absent" path.
 //!
 //! Three things make this safe rather than merely convenient:
 //!
-//! * **A different namespace cannot collide.** The C++ uses `config`; this uses
-//!   [`NAMESPACE`]. NVS namespaces are independent key spaces, so a C++-written
-//!   partition is not merely unreadable, it is invisible. A test asserts it.
+//! * **A different namespace cannot collide.** The other firmware uses `config`;
+//!   this uses [`NAMESPACE`]. NVS namespaces are independent key spaces, so such
+//!   a partition is not merely unreadable, it is invisible. A test asserts it.
 //! * **The old keys are not garbage-collected and do not need to be.** They sit
 //!   in a namespace nothing opens. The 20 KB partition is not the constraint
-//!   (a blob is ~2 KB, 08 §3), and erasing another namespace would be a write
+//!   (a blob is ~2 KB), and erasing another namespace would be a write
 //!   path with its own failure modes for no benefit.
-//! * **A first boot with a C++-written NVS is indistinguishable from a first
-//!   boot on a blank device**, which is exactly the state the C++ firmware
-//!   reaches on a factory reset anyway. The operator's saved setpoints are
-//!   lost once, deliberately, and the reason is recorded in the boot log.
+//! * **A first boot onto such an NVS is indistinguishable from a first boot on a
+//!   blank device**, which is the state a factory reset reaches anyway. The
+//!   operator's saved setpoints are lost once, deliberately, and the reason is
+//!   recorded in the boot log — see [`crate::predecessor`] and §32 of
+//!   `docs/history/divergences.md`.
 //!
-//! The alternative — importing the C++'s 98 FNV-1a keys — would mean shipping
-//! the C++'s hash function, its key list, and its per-parameter type table, and
-//! would make the Rust schema permanently answerable to a C++ file that is
-//! being deleted. That is a large permanent cost for a one-time migration of
-//! values that are all within a whisker of their defaults.
+//! The alternative — importing the other firmware's hashed keys — would mean
+//! shipping its hash function, its key list and its per-parameter type table, and
+//! would make the schema permanently answerable to a file that no longer exists.
+//! That is a large permanent cost for a one-time migration of values that are all
+//! within a whisker of their defaults.
 
 use alloc::collections::BTreeMap;
 use alloc::format;
@@ -77,8 +69,8 @@ use crate::store::StoreError;
 /// The NVS namespace the Rust firmware owns.
 ///
 /// 15 characters is the NVS limit and this is 2. It is deliberately **not**
-/// `config`, which is what the C++ uses: see the module
-/// documentation on why a C++-written partition must be invisible.
+/// `config`, which is the namespace another firmware writes: see the module
+/// documentation on why such a partition must be invisible.
 pub const NAMESPACE: &str = "cc";
 
 /// The single key the configuration blob is stored under.
@@ -100,8 +92,8 @@ pub const SCHEMA_VERSION: u32 = 1;
 
 /// The largest blob this store will read or write, in bytes.
 ///
-/// A [`Config`] serialises to about 2100 bytes (08 §3 measured 2071 for the
-/// oracle's schema, which is the same 97 keys). The bound is 4× that: generous
+/// A [`Config`] serialises to about 2 KB — `docs/example_config.json` is 1814 B in
+/// compact JSON, and that file imports unchanged. The bound is 4× that: generous
 /// enough that no legitimate configuration is refused, tight enough that a
 /// corrupt length field cannot make the firmware try to allocate megabytes
 /// from a 320 KB heap before it has decided whether the blob is even its own.
@@ -232,7 +224,7 @@ impl<B: BlobBackend> BlobConfigStore<B> {
     pub fn load(&mut self) -> Result<Option<Config>, StoreError> {
         let Some(bytes) = self.backend.get(KEY)? else {
             // `Ok(None)` is not an error: a machine on a fresh partition, or one
-            // whose partition was written by the C++ firmware, has nothing here.
+            // whose partition was written by another firmware, has nothing here.
             // The caller uses `Config::default()` and says so in the boot log.
             return Ok(None);
         };
@@ -341,10 +333,10 @@ impl<B: BlobBackend> BlobConfigStore<B> {
 ///
 /// # Why it models *namespaces* and not just keys
 ///
-/// Because the "no C++ compatibility" decision is a claim about key spaces, not
+/// Because the no-compatibility decision is a claim about key spaces, not
 /// about key names, and a fake holding one flat map could not test it. So
 /// [`MemoryBackend`] has an `own` namespace and a `foreign` one: the first is
-/// what `nvs_open` would have opened, the second is bytes a previous firmware
+/// what `nvs_open` would have opened, the second is bytes another firmware
 /// left behind, and the test asserts the first cannot see the second.
 #[derive(Debug, Default)]
 pub struct MemoryBackend {
@@ -363,9 +355,9 @@ impl MemoryBackend {
 
     /// Plant bytes in a namespace this store is not opened on.
     ///
-    /// This is how a test reproduces "the C++ firmware ran here first": the C++
-    /// writes the `config` namespace, this store is opened on [`NAMESPACE`], and
-    /// the question is whether it can see the other one. It cannot, and the
+    /// This is how a test reproduces "another firmware ran here first": the other
+    /// store writes the `config` namespace, this store is opened on [`NAMESPACE`],
+    /// and the question is whether it can see the other one. It cannot, and the
     /// test says so.
     pub fn plant_foreign(&mut self, namespace: &str, key: &str, value: &[u8]) {
         self.foreign
@@ -491,16 +483,19 @@ mod tests {
     }
 
     #[test]
-    fn the_blob_is_a_namespace_and_a_key_the_cpp_does_not_use() {
-        // This is the whole of the "no C++ compatibility" decision, stated as an
+    fn the_blob_is_a_namespace_and_a_key_no_other_store_uses() {
+        // This is the whole of the no-compatibility decision, stated as an
         // assertion rather than as a comment.
-        assert_ne!(NAMESPACE, "config", "the C++ namespace is `config`");
-        assert!(!KEY.starts_with('p'), "the C++ keys are `p` + 8 hex digits");
+        assert_ne!(NAMESPACE, "config", "`config` is another store's namespace");
+        assert!(
+            !KEY.starts_with('p'),
+            "the other store's keys are `p` + 8 hex digits"
+        );
     }
 
     #[test]
-    fn a_cpp_written_nvs_is_ignored_and_overwritten_with_defaults() {
-        // Reproduce the C++'s NVS: the `config` namespace, one key per
+    fn an_nvs_written_by_another_store_is_ignored_and_overwritten_with_defaults() {
+        // Reproduce that store's NVS: the `config` namespace, one key per
         // parameter, each an FNV-1a hash of the dotted name. Then open the
         // store the way the firmware does and assert what actually happens.
         let mut backend = MemoryBackend::new();
@@ -511,19 +506,19 @@ mod tests {
         // 1. Nothing of ours is visible, so the firmware sees a first boot.
         assert_eq!(s.load(), Ok(None));
 
-        // 2. Writing defaults leaves the C++'s namespace untouched: it is a
+        // 2. Writing defaults leaves the other namespace untouched: it is a
         //    different key space and this code has no path that opens it.
         s.save(&Config::default()).expect("save");
         let raw = s.raw().expect("raw").expect("a blob");
         assert_eq!(raw.0, SCHEMA_VERSION);
 
-        // 3. The C++'s keys are still there, still unread, still harmless.
+        // 3. The other keys are still there, still unread, still harmless.
         assert!(s.backend().foreign_intact("config", "p1a2b3c4"));
         assert!(s.backend().foreign_intact("config", "pdeadbeef"));
         assert_eq!(
             s.backend().len(),
             1,
-            "exactly one key, ours; the two C++ keys are in another namespace"
+            "exactly one key, ours; the other two are in another namespace"
         );
     }
 
@@ -569,8 +564,8 @@ mod tests {
 
     #[test]
     fn a_failed_save_leaves_the_previous_configuration_in_place() {
-        // The C++ can leave a machine on half of a new configuration. This is
-        // the property one blob was chosen for, so it is worth a test.
+        // A per-key save can leave a machine on half of a new configuration. This
+        // is the property one blob was chosen for, so it is worth a test.
         let mut s = store();
         let mut original = Config::default();
         original.brew.setpoint = 88.0;
@@ -606,7 +601,7 @@ mod tests {
 
     #[test]
     fn the_serialised_blob_fits_the_bound_and_the_partition() {
-        // ~2100 bytes measured on the oracle (08 §3). The bound is 8 KiB and
+        // A default `Config` is about 2 kB of JSON. The bound is 8 KiB and
         // the partition is 20 KiB, so there is room for a few generations of
         // NVS garbage-collection churn before the partition fills.
         let mut json = Vec::new();
@@ -660,9 +655,9 @@ mod tests {
 
     #[test]
     fn a_config_with_its_text_fields_full_round_trips() {
-        // The C++ has no length checks on its text parameters (01 §10), so the
-        // blob can be much larger than the ~2100 B average. A hostname is the
-        // realistic worst case, and 30 is the C++'s own limit for it.
+        // Text parameters have only the storage bound [`crate::json`] enforces, so
+        // the blob can be much larger than the ~2 kB average. A hostname is the
+        // realistic worst case, and 30 characters is what the schema allows for it.
         let mut s = store();
         let mut c = Config::default();
         c.system.hostname = "k".repeat(30);
