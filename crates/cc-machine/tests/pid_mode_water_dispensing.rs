@@ -1,29 +1,10 @@
-//! Port of `test/test_pid_mode_water_dispensing` — 6 C++ cases.
+//! Hot-water dispensing in `PID_NORMAL`: the same switch as steam water injection, on the other
+//! side of the mode flag.
 //!
-//! The twin of [`ported_steam_water_injection`], on the other side of the same
-//! switch: in `PID_NORMAL` the hot-water switch dispenses hot water, in
-//! `STEAM_RUNNING` it injects water into the boiler. Both are handled by a
-//! state's `update` and nowhere else — there is no `HOT_WATER` state
-//! (`PidStates.cpp:69`, "Hot water is handled directly in `PID_NORMAL` via pump
-//! control (no separate state needed)").
-//!
-//! ## The C++ suite tests a mock
-//!
-//! As with the steam suite, `test_pid_mode_water_dispensing/test_main.cpp`
-//! defines a `MockPidModeContext` (`:73-131`) with its own `pid_mode_active_`
-//! field and never includes `PidStates.cpp`. The port drives the real
-//! `PidNormalState::update` instead.
-//!
-//! ## Case mapping
-//!
-//! | C++ case (`test_pid_mode_water_dispensing/test_main.cpp`) | Rust test |
-//! | --- | --- |
-//! | `WaterSwitchActivatesPumpInPidMode` (:151) | [`water_switch_activates_pump_in_pid_mode`] |
-//! | `PumpStaysActiveWhileWaterSwitchHeldInPidMode` (:184) | [`pump_stays_active_while_the_switch_is_held_in_pid_mode`] |
-//! | `PumpDeactivatesWhenWaterSwitchReleasedInPidMode` (:216) | [`pump_deactivates_when_the_switch_is_released_in_pid_mode`] |
-//! | `SystemStaysPidModeDuringWaterDispensing` (:252) | [`the_system_stays_in_pid_mode_during_dispensing`] |
-//! | `WaterDispensingOnlyWorksInPidMode` (:275) | [`water_dispensing_only_works_in_pid_mode`] |
-//! | `MultipleDenseCycles` (:304) | [`multiple_dense_cycles`] |
+//! In `PID_NORMAL` the hot-water switch runs the pump; in `STEAM_RUNNING` the same physical input
+//! injects water into the boiler. Both are handled by the update of the state the machine is
+//! already in -- there is no `HOT_WATER` state -- so the switch is a level rather than a trigger,
+//! and the pump follows it for as long as it is held.
 
 mod common;
 
@@ -88,10 +69,9 @@ fn the_system_stays_in_pid_mode_during_dispensing() {
 
 #[test]
 fn water_dispensing_only_works_in_pid_mode() {
-    // The C++ mock's `setPidModeActive(false)` is the mock's own flag. The real
-    // analogue is a state in which `PidNormalState::update` is not the code
-    // reading the switch — `STEAM_RUNNING` reads it itself, and every other state
-    // ignores it entirely.
+    // `PID_NORMAL` is the state whose update reads this switch as the hot-water switch. In
+    // `STEAM_RUNNING` the same switch is read by that state's update instead, and every other
+    // state ignores it.
     let mut h = Harness::in_state(MachineState::BrewFinished);
     let _ = h.press(SwitchId::HotWater);
     let fx = h.tick();
@@ -131,12 +111,11 @@ fn multiple_dense_cycles() {
 }
 
 // ---------------------------------------------------------------------------
-// What the C++ suite should also have checked
+// What the suite also checks
 // ---------------------------------------------------------------------------
 
-/// `PID_NORMAL`'s `update` turns the pump **off** on every loop while the switch
-/// is released (`PidStates.cpp:39-42`) — it is a level-driven `update`, not an
-/// edge, so the pump is actively held off rather than merely left alone.
+/// A released switch turns the pump **off** on every tick: the update follows the level, so the
+/// pump is actively held off rather than merely left alone.
 #[test]
 fn pid_normal_holds_the_pump_off_while_the_switch_is_released() {
     let mut h = Harness::in_state(MachineState::PidNormal);
@@ -149,9 +128,8 @@ fn pid_normal_holds_the_pump_off_while_the_switch_is_released() {
     }
 }
 
-/// The pump is stopped when the machine leaves `PID_NORMAL`, which is the only
-/// thing `PidNormalState::onExitImpl` does (`PidStates.cpp:21-25`, "Safety:
-/// Disable pump when exiting PID normal state (water dispensing cleanup)").
+/// Leaving `PID_NORMAL` stops the pump: water dispensing is cleaned up by the exit rather than
+/// by a state of its own.
 #[test]
 fn leaving_pid_normal_stops_the_dispensing_pump() {
     let mut h = Harness::in_state(MachineState::PidNormal);

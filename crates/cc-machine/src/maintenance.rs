@@ -1,75 +1,49 @@
-//! Shot counting and the backflush reminder, ported from
-//! `maintenance/BackflushReminderLogic.h`.
+//! Shot counting and the backflush reminder: the qualification rule, the counter's
+//! increment, and the reminder predicate.
 //!
-//! Small, pure, and assigned to R2-08 by the coverage map in 06
-//! (`test_maintenance_coordinator` → R2-08). Only the parts the state machine
-//! touches are ported: the qualification test that `BrewFinishedState::onEntryImpl`
-//! calls, the reset that `BackflushFinishedState::onEntryImpl`
-//! calls, and the reminder predicate. The
-//! coordinator's NVS persistence has no analogue here —
-//! [`Machine::shots_since_backflush`](crate::machine::Machine::shots_since_backflush)
-//! is the value, and persisting it is the store's job at R3-08.
+//! Small and pure, and it is the state machine's only maintenance behaviour. Only the
+//! parts the reducer touches live here: the qualification test `BrewFinished` calls, the
+//! reset `BackflushFinished` calls, and the reminder predicate. Persisting the counter is
+//! the store's job --
+//! [`Machine::shots_since_backflush`](crate::machine::Machine::shots_since_backflush) is
+//! the value, and the shell writes it.
 //!
 //! # Where the counter is changed, and why it is here
 //!
-//! The C++ calls `maintenanceCoordinator().recordBrewIfQualified(...)` from
-//! `BrewFinishedState::onEntryImpl`, and that one
-//! call does three things: apply [`qualifies_as_counted_shot`], increment, and
-//! write NVS. In the port the three split, because the three have three owners:
-//! the increment belongs to [`Machine`](crate::machine::Machine) and can only be
-//! written where `Machine` is written — the reducer — and the write belongs to
-//! the task that owns the store. So [`record_brew_if_qualified`] does the first
-//! two at the point the C++ evaluates them, and the shell is told the outcome
-//! through [`Effect::RecordBrew`](crate::effect::Effect::RecordBrew).
+//! Incrementing on a completed shot is three facts, each with a different owner: the
+//! decision ([`qualifies_as_counted_shot`]), the increment (which can only be written
+//! where `Machine` is written, i.e. the reducer), and the write (the task that owns the
+//! store). [`record_brew_if_qualified`] does the first two, and the shell is told the
+//! outcome through [`Effect::RecordBrew`](crate::effect::Effect::RecordBrew).
 //!
-//! The decision is therefore made **once**. An earlier version of this port
-//! emitted the three facts and left the qualification to the applier, which
-//! meant the C++'s rule was evaluated in a place that could only be reached by
-//! wiring it up — and it was not, so the counter never moved and
-//! `/api/status` reported `shotsSinceBackflush: 0` for the life of the
-//! firmware. A rule that lives in one place and is evaluated in one place
-//! cannot be forgotten; a rule that has to be *wired* can.
-
-/// A brew is long enough to count on time alone. `defaults.h:46`:
-/// `BACKFLUSH_REMINDER_MIN_BREW_TIME_MS = 5000.0`.
+//! The decision is therefore made **once**. Emitting the three facts and leaving the
+//! qualification to the applier moves the rule to a place reachable only by wiring it up,
+//! and a rule that has to be *wired* can be forgotten: the counter would never move and
+//! `/api/status` would report `shotsSinceBackflush: 0` for the life of the firmware.
+/// A brew is long enough to count on time alone: five seconds.
 pub const MIN_BREW_TIME_MS: f64 = 5_000.0;
 
-/// A brew is long enough to count on weight alone. `defaults.h:47`:
-/// `BACKFLUSH_REMINDER_MIN_BREW_WEIGHT_G = 10.0`.
+/// A brew is long enough to count on weight alone: ten grams.
 pub const MIN_BREW_WEIGHT_G: f32 = 10.0;
 
-/// The shipped reminder threshold, shots. `defaults.h:43`:
-/// `BACKFLUSH_REMINDER_THRESHOLD = 50`.
+/// The shipped reminder threshold, in counted shots.
 ///
-/// The default rather than the rule: an operator sets
-/// `maintenance.backflush_reminder.threshold` and the firmware uses whatever
-/// that says (`Config.h:1283`), which is why [`is_reminder_due`] takes it as an
-/// argument. This constant is the value a default configuration produces, and
-/// the one the tests below use to walk a machine up to the boundary.
+/// The default rather than the rule: the operator sets
+/// `maintenance.backflush_reminder.threshold` (`1..=500`) and the firmware uses whatever
+/// that says, which is why [`is_reminder_due`] takes it as an argument. This constant is
+/// the value a default configuration produces, and the one the tests below use to walk a
+/// machine up to the boundary.
 pub const BACKFLUSH_REMINDER_THRESHOLD: i32 = 50;
 
 /// Whether a completed brew should increment the shot counter.
 ///
-/// `maintenance/BackflushReminderLogic.h:18-28`, transcribed:
+/// Either arm qualifies: at least [`MIN_BREW_TIME_MS`] of brew time, or -- with a scale
+/// fitted -- at least [`MIN_BREW_WEIGHT_G`] of brew weight.
 ///
-/// ```cpp
-/// [[nodiscard]] inline constexpr bool qualifiesAsCountedShot(double totalBrewTimeMs,
-///                                                            float  brewWeight,
-///                                                            bool   scaleEnabled) noexcept {
-///     if (totalBrewTimeMs >= BACKFLUSH_REMINDER_MIN_BREW_TIME_MS) {
-///         return true;
-///     }
-///     if (scaleEnabled && brewWeight >= BACKFLUSH_REMINDER_MIN_BREW_WEIGHT_G) {
-///         return true;
-///     }
-///     return false;
-/// }
-/// ```
-///
-/// Note that the weight arm is gated on `scaleEnabled`: with no scale fitted,
-/// `brewWeight` is 0 and a 3-second shot must not be counted because "0 >= 10"
-/// is false anyway — but with a *stale* non-zero weight it would be. The gate is
-/// what stops a failed tare from counting a two-second shot.
+/// The weight arm is gated on a fitted scale, and the gate is the point. With no scale
+/// fitted the reading is 0, and "0 >= 10" is false anyway; but a *stale* non-zero weight
+/// left over from a failed tare would otherwise count a two-second flush as a shot. The
+/// gate is what stops that.
 #[must_use]
 pub fn qualifies_as_counted_shot(
     total_brew_time_ms: f64,
@@ -82,19 +56,15 @@ pub fn qualifies_as_counted_shot(
     scale_enabled && brew_weight >= MIN_BREW_WEIGHT_G
 }
 
-/// `MaintenanceCoordinator::recordBrewIfQualified` with the NVS write removed:
-/// the decision **and** the increment, and nothing else.
+/// [`qualifies_as_counted_shot`] plus the increment, and nothing else.
 ///
-/// `MaintenanceCoordinator.cpp:30-49`. Returns whether the shot counted, which
-/// is what the emitted effect carries, so that the shell persists a decision
-/// rather than re-deriving one.
+/// Returns whether the shot counted, which is what the emitted effect carries, so the shell
+/// persists a decision rather than re-deriving one.
 ///
-/// The increment saturates. The C++'s `++shotsSinceBackflush_` is a signed
-/// increment that overflows at 2^31, and the release profile sets
-/// `overflow-checks = true`, so a plain `+= 1` here would be a panic on a
-/// machine that had been plugged in for a year rather than a counter that stops
-/// moving. The threshold is 500 at most (`BACKFLUSH_REMINDER_THRESHOLD_MAX`,
-/// `defaults.h:45`), so the only way here is a corrupted stored value.
+/// The increment saturates. The release profile sets `overflow-checks = true`, so a plain
+/// `+= 1` on an `i32` would panic at 2^31 -- a machine plugged in for a year would reboot
+/// rather than stop counting. The threshold is 500 at most, so reaching the limit at all
+/// means the stored value is already corrupt.
 #[must_use]
 pub fn record_brew_if_qualified(
     shots: &mut i32,
@@ -109,9 +79,7 @@ pub fn record_brew_if_qualified(
     true
 }
 
-/// Whether the backflush reminder should be shown.
-///
-/// `maintenance/BackflushReminderLogic.h:30-32`, transcribed.
+/// Whether the backflush reminder should be shown: enabled, and at or past the threshold.
 #[must_use]
 pub const fn is_reminder_due(shots: i32, enabled: bool, threshold: i32) -> bool {
     enabled && shots >= threshold
@@ -119,9 +87,8 @@ pub const fn is_reminder_due(shots: i32, enabled: bool, threshold: i32) -> bool 
 
 /// The width of the stored shot counter, in bytes.
 ///
-/// `prefs.putInt(...)` (`MaintenanceCoordinator.cpp:82`) is a four-byte integer
-/// and this is the same width, so an `nvs_dump` of a development board shows a
-/// recognisable number rather than an escape.
+/// A four-byte integer, so an `nvs_dump` of a development board shows a recognisable
+/// number rather than an escape.
 pub const SHOT_COUNT_BYTES: usize = 4;
 
 /// The shot counter as the bytes NVS holds for it.
@@ -191,13 +158,10 @@ mod tests {
         assert!(!is_reminder_due(0, true, 50));
     }
 
-    // ---- `MaintenanceCoordinator::recordBrewIfQualified` -------------------
+    // ---- the qualification rule and the increment --------------------------
     //
-    // The C++'s `MaintenanceCoordinatorTest` (10 cases in
-    // `test/test_maintenance_coordinator/test_main.cpp`) drives the rule through
-    // the coordinator; these drive the two pure halves directly, and the
-    // coordinator's persistence is a host test in
-    // `tests/ported_maintenance_coordinator.rs`.
+    // The two pure halves, driven directly. The counter's persistence is a host test in
+    // `tests/maintenance_coordinator.rs`.
 
     #[test]
     fn a_qualified_brew_increments_and_an_unqualified_one_does_not() {
@@ -215,9 +179,8 @@ mod tests {
 
     #[test]
     fn the_weight_arm_of_the_rule_needs_the_scale() {
-        // `MaintenanceCoordinatorTest`'s fixtures pass `scaleEnabled` explicitly
-        // for this reason; a stale weight with no scale fitted is a failed tare,
-        // not a shot.
+        // A stale weight with no scale fitted is a failed tare, not a shot, which is why
+        // the scale flag is explicit rather than inferred from the reading.
         let mut shots = 0;
         assert!(!record_brew_if_qualified(&mut shots, 1_000.0, 36.0, false));
         assert!(record_brew_if_qualified(&mut shots, 1_000.0, 36.0, true));

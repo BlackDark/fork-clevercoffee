@@ -1,33 +1,23 @@
 //! What the reducer is told, as a pure value.
 //!
-//! [`Context`] is the *read-only world* the C++ reaches through
-//! `MachineStateContext`. It holds only the values that can change the
-//! transition decision, so the set is deliberately small: pull anything in here
-//! that does not change a transition's outcome and the reducer stops being
-//! auditable.
+//! [`Context`] is the *read-only world* the machine can see. It holds only the values that
+//! can change a transition decision, so the set is deliberately small: pull anything in here
+//! that does not change a transition's outcome and the reducer stops being auditable.
 //!
 //! # What is **not** here, and why
 //!
 //! * **Sensor values.** They are
-//!   [`Event::SensorUpdated`](crate::event::Event::SensorUpdated) payloads, not
-//!   context.
-//!   The C++ reads them out of `SensorCoordinator` inside `checkTransitions`,
-//!   which makes the transition decision depend on *when* it was read relative
-//!   to the sensor update. Here they are an explicit event, so every decision
-//!   is a decision about a specific sample.
-//! * **The clock.** The reducer never reads one.
-//!   [`Event::Tick`](crate::event::Event::Tick) carries the
-//!   reading (see `lib.rs`).
-//! * **The current state.** That is
-//!   [`Machine::state`](crate::machine::Machine::state),
-//!   not the context — it is the thing being reduced, not the context it is
-//!   reduced in.
-//! * **The safety verdict.** That is
-//!   [`Event::Safety`](crate::event::Event::Safety),
-//!   because S1 is
-//!   stateful (a three-reading debounce) and the latch has to be part of the
-//!   machine's memory.
-
+//!   [`Event::SensorUpdated`](crate::event::Event::SensorUpdated) payloads, not context.
+//!   Reading them out of a shared sensor object inside the transition check would make the
+//!   decision depend on *when* it was read relative to the sensor update. Here they are an
+//!   explicit event, so every decision is a decision about a specific sample.
+//! * **The clock.** The reducer never reads one. [`Event::Tick`](crate::event::Event::Tick)
+//!   carries the reading (see `lib.rs`).
+//! * **The current state.** That is [`Machine::state`](crate::machine::Machine::state), not
+//!   the context -- it is the thing being reduced, not the context it is reduced in.
+//! * **The safety verdict.** That is [`Event::Safety`](crate::event::Event::Safety), because
+//!   S1 is stateful (a three-reading debounce) and the latch has to be part of the machine's
+//!   memory.
 use cc_config::Config;
 use cc_domain::units::Celsius;
 
@@ -50,10 +40,8 @@ pub struct Context<'a> {
     pub config: &'a Config,
     /// The active PID setpoint in degrees Celsius.
     ///
-    /// The C++ computes this in `ProcessController::updateSetpoint`, which
-    /// chooses `steam.setpoint` while `isSteamModeActive()` and
-    /// `brew.setpoint + brew.temp_offset` otherwise. Setpoint *selection* is
-    /// process control, not a transition, so the shell decides it and hands the
+    /// `steam.setpoint` in steam mode, `brew.setpoint + brew.temp_offset` otherwise. Setpoint
+    /// *selection* is process control, not a transition, so the shell decides it and hands the
     /// result in. The state machine only needs it to report the duty it wants.
     pub setpoint: Celsius,
 }
@@ -67,13 +55,11 @@ impl<'a> Context<'a> {
 
     // -- pid ---------------------------------------------------------------
 
-    /// `context.isPidConfigEnabled()` — the *user's saved preference*,
-    /// `Config::getInstance().pidEnabled.get()`.
+    /// `pid.enabled`: the operator's saved preference.
     ///
     /// Distinct from the runtime flag the state machine actually reads
-    /// ([`Machine::pid`](crate::Machine)::`runtime_enabled`): this one is the
-    /// source of truth that runtime state is restored *from* on exit from
-    /// standby and emergency stop.
+    /// ([`Machine::pid`](crate::Machine)::`runtime_enabled`): this one is the source of truth
+    /// that the runtime state is restored *from* on exit from standby and emergency stop.
     #[must_use]
     pub fn pid_config_enabled(&self) -> bool {
         self.config.pid.enabled
@@ -81,23 +67,21 @@ impl<'a> Context<'a> {
 
     // -- brew --------------------------------------------------------------
 
-    /// `context.getConfig().brewMode.get() == Process::BrewMode::AUTOMATIC_BREW`
-    /// (`BrewStates.cpp:54,113,198,226,277`).
+    /// `brew.mode` is `AUTOMATIC`.
     #[must_use]
     pub fn brew_is_automatic(&self) -> bool {
         self.config.brew.mode == cc_domain::process::BrewMode::Automatic
     }
 
-    /// `calculatePreinfusionBaseTimeMs`, in
-    /// milliseconds: pre-infusion plus pause, or zero when pre-infusion is
-    /// off.
+    /// The pre-infusion base time, in milliseconds: pre-infusion plus pause, or zero when
+    /// pre-infusion is off.
     #[must_use]
     pub fn preinfusion_base_ms(&self) -> f64 {
         preinfusion_base_ms(self.config)
     }
 
-    /// `initTotalTargetBrewTime`: the total target brew
-    /// time in milliseconds, or `0.0` unless brewing automatically *by time*.
+    /// The total target brew time, in milliseconds, or `0.0` unless brewing automatically
+    /// *by time*.
     #[must_use]
     pub fn total_target_brew_ms(&self) -> f64 {
         if self.brew_is_automatic() && self.config.brew.by_time.enabled {
@@ -107,8 +91,7 @@ impl<'a> Context<'a> {
         }
     }
 
-    /// `brew.pid_delay` in milliseconds
-    /// (`ProcessController::handleBrewPIDDelay`, `ProcessController.cpp:469`).
+    /// `brew.pid_delay` in milliseconds.
     #[must_use]
     pub fn brew_pid_delay_ms(&self) -> f64 {
         self.config.brew.pid_delay * 1000.0
@@ -116,19 +99,19 @@ impl<'a> Context<'a> {
 
     // -- backflush ---------------------------------------------------------
 
-    /// `context.getBackflushFillTimeMs()`.
+    /// `backflush.fill_time` in milliseconds.
     #[must_use]
     pub fn backflush_fill_ms(&self) -> u32 {
         secs_to_ms(self.config.backflush.fill_time)
     }
 
-    /// `context.getBackflushFlushTimeMs()`.
+    /// `backflush.flush_time` in milliseconds.
     #[must_use]
     pub fn backflush_flush_ms(&self) -> u32 {
         secs_to_ms(self.config.backflush.flush_time)
     }
 
-    /// `context.getBackflushCycles()`.
+    /// `backflush.cycles`: how many fill/flush pairs a backflush runs.
     #[must_use]
     pub const fn backflush_cycles(&self) -> i32 {
         self.config.backflush.cycles
@@ -136,8 +119,7 @@ impl<'a> Context<'a> {
 
     // -- standby -----------------------------------------------------------
 
-    /// `StandbyCoordinator::getStandbyTimeoutMillis`
-    /// — `standby.time` minutes to milliseconds.
+    /// `standby.time` minutes, in milliseconds.
     #[must_use]
     pub fn standby_timeout_ms(&self) -> u32 {
         secs_to_ms(self.config.standby.time * 60.0)
@@ -145,51 +127,49 @@ impl<'a> Context<'a> {
 
     // -- hardware ----------------------------------------------------------
 
-    /// `hardware.sensors.watertank.keep_heater_on_empty`
-    /// (`ProcessController::shouldPIDBeEnabled`, `ProcessController.cpp:247-248`).
+    /// `hardware.sensors.watertank.keep_heater_on_empty`.
     #[must_use]
     pub const fn keep_heater_on_empty(&self) -> bool {
         self.config.hardware.sensors.watertank.keep_heater_on_empty
     }
 
-    /// `config_.hardwareSwitchesBrewEnabled.get()`.
+    /// `hardware.switches.brew.enabled`.
     #[must_use]
     pub const fn brew_switch_enabled(&self) -> bool {
         self.config.hardware.switches.brew.enabled
     }
 
-    /// `config_.hardwareSwitchesBrewType.get()`.
+    /// `hardware.switches.brew.type`.
     #[must_use]
     pub const fn brew_switch_type(&self) -> cc_domain::hardware::SwitchType {
         self.config.hardware.switches.brew.r#type
     }
 
-    /// `config_.hardwareSwitchesSteamEnabled.get()`.
+    /// `hardware.switches.steam.enabled`.
     #[must_use]
     pub const fn steam_switch_enabled(&self) -> bool {
         self.config.hardware.switches.steam.enabled
     }
 
-    /// `config_.hardwareSwitchesSteamType.get()`.
+    /// `hardware.switches.steam.type`.
     #[must_use]
     pub const fn steam_switch_type(&self) -> cc_domain::hardware::SwitchType {
         self.config.hardware.switches.steam.r#type
     }
 
-    /// `config_.hardwareSwitchesPowerEnabled.get()`.
+    /// `hardware.switches.power.enabled`.
     #[must_use]
     pub const fn power_switch_enabled(&self) -> bool {
         self.config.hardware.switches.power.enabled
     }
 
-    /// `config_.hardwareSwitchesPowerType.get()`.
+    /// `hardware.switches.power.type`.
     #[must_use]
     pub const fn power_switch_type(&self) -> cc_domain::hardware::SwitchType {
         self.config.hardware.switches.power.r#type
     }
 
-    /// `config_.hardwareSwitchesHotWaterEnabled.get()`
-    /// (`HotWaterHandler.h:48`).
+    /// `hardware.switches.hot_water.enabled`.
     #[must_use]
     pub const fn hot_water_switch_enabled(&self) -> bool {
         self.config.hardware.switches.hot_water.enabled
@@ -209,20 +189,14 @@ fn preinfusion_base_ms(config: &Config) -> f64 {
     time_ms
 }
 
-/// The C++'s `(unsigned long)(seconds * 1000)` truncation, in one place.
+/// Seconds to whole milliseconds, saturating rather than panicking.
 ///
-/// `static_cast<unsigned long>(config.backflushFillTime.get() * 1000)` and the
-/// same for the pre-infusion and pause times. A negative or absurd value
-/// truncates to `0`, which makes the timeout fire immediately — the same
-/// behaviour the C++ cast produces, and the reason a range-checked
-/// `Config` is not optional here.
-// The C++ is `static_cast<unsigned long>(seconds * 1000)`. The truncation and
-// the sign loss are both the C++'s behaviour and are the point: a range-checked
-// `Config` never produces either, and an unchecked one should saturate towards
-// "already elapsed" rather than panic.
+/// A negative duration is handled by [`secs_to_ms`] before this is reached; an absurdly large
+/// one lands on `u32::MAX`, and a `NaN` on 0. A range-checked `Config` produces neither, and
+/// this is what keeps an unchecked one from taking the machine down.
 #[allow(clippy::cast_possible_truncation)]
-// Justification: reproduces `static_cast<unsigned long>(seconds * 1000)`
-// exactly, including the truncation.
+// Justification: the truncation to whole milliseconds is the intended result; a
+// fractional millisecond has no representation here.
 #[allow(clippy::cast_sign_loss)]
 // Justification: `secs_to_ms` checks `seconds > 0.0` before calling this, so the
 // value cast is known to be non-negative.
@@ -257,8 +231,8 @@ mod tests {
 
     #[test]
     fn preinfusion_base_is_zero_when_disabled() {
-        // `BrewStates.cpp:27-28`: the whole calculation is inside
-        // `if (preinfusionEnabled)`.
+        // The whole calculation is inside the `enabled` check, so a disabled pre-infusion
+        // contributes nothing even though both durations are set.
         let config = Config {
             brew: cc_config::config::Brew {
                 pre_infusion: cc_config::config::BrewPreInfusion {
@@ -294,9 +268,8 @@ mod tests {
 
     #[test]
     fn preinfusion_base_ignores_a_zero_pause() {
-        // `BrewStates.cpp:31`: `if (pauseTimeSec > 0.0)`. A zero pause adds
-        // nothing, which is also why `BREW_PREINFUSION_PAUSE` is skipped
-        // entirely rather than entered for 0 ms.
+        // A zero pause adds nothing, which is also why the pause phase is skipped entirely
+        // rather than entered for 0 ms.
         let config = Config {
             brew: cc_config::config::Brew {
                 pre_infusion: cc_config::config::BrewPreInfusion {
@@ -387,8 +360,8 @@ mod tests {
 
     #[test]
     fn a_negative_duration_truncates_to_zero() {
-        // The C++ cast of a negative double to `unsigned long` is undefined, but
-        // in practice yields 0, and 0 means "the timeout has already elapsed".
+        // A negative duration means "already elapsed", so it clamps to 0 rather than
+        // wrapping to a huge timeout.
         assert_eq!(secs_to_ms(-1.0), 0);
         assert_eq!(secs_to_ms(0.0), 0);
         assert_eq!(secs_to_ms(1.5), 1500);

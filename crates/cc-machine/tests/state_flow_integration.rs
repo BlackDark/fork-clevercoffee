@@ -1,52 +1,16 @@
-//! Port of `test/test_state_flow_integration` — 20 C++ cases, 22 Rust cases
-//! (20 one-to-one plus 2 the C++ does not have).
+//! End-to-end flows: a whole brew, a manual flush, an emergency, and a standby round trip,
+//! checked at every step against the effects the hardware would see.
 //!
-//! These are the end-to-end transition tests with hardware assertions, and the
-//! most valuable suite in the C++ tree: they walk a whole flow and check the
-//! pump and the valve at every step.
+//! # Driving the reducer rather than the states
 //!
-//! # One structural difference
+//! Each step is one `Event::Tick`, which is what the machine's control loop sends, so a test sees
+//! the whole tick: the guard, the exit half, the entry half and the update, in that order. That is
+//! stronger than checking one hook at a time, and it is why [`brew_abort_during_preinfusion`] can
+//! assert that the valve is closed by the end of the tick rather than only that the exit hook left
+//! it alone. Where a test is about a single hook, its comment says so.
 //!
-//! The C++ drives the states **directly**: it constructs a `BrewPreinfusionState`,
-//! calls `onEntry(ctx)`, back-dates `updateStateEntryTime`, and calls
-//! `checkSpecificTransitions(ctx)`. It never runs `StateMachine::update()`, so it
-//! never runs `onExit` on the way out, and the spy is reset by hand between
-//! steps.
-//!
-//! The Rust ports drive the **reducer**, because a reducer *can* be driven: one
-//! `Event::Tick` per iteration reproduces `StateMachine::update()` exactly,
-//! including the exit half of each transition. That means these tests assert
-//! *more* than the C++ ones did — for instance
-//! [`brew_abort_during_preinfusion`] can check that the valve really is closed
-//! by the end of the tick, not merely that `onExit` did not close it.
-//!
-//! Where the C++ assertion is about a *single* hook (`onExit` closes the valve),
-//! the Rust asserts it through the tick and says so in a comment.
-//!
-//! ## Case mapping
-//!
-//! | C++ case (`test_state_flow_integration/test_main.cpp`) | Rust test |
-//! | --- | --- |
-//! | `ComplBrewCycle_FullFlow` (:98) | [`completes_brew_cycle_full_flow`] |
-//! | `BrewAbortDuringPreinfusionPause` (:185) | [`brew_abort_during_preinfusion_pause`] |
-//! | `BrewAbortDuringPreinfusion` (:209) | [`brew_abort_during_preinfusion`] |
-//! | `PidToggleCycle_BrewWorksAfterReEnable` (:235) | [`pid_toggle_cycle_brew_works_after_re_enable`] |
-//! | `EmergencyDuringBrew_HardwareCleanedUp` (:280) | [`emergency_during_brew_hardware_cleaned_up`] |
-//! | `EmergencyDuringPreinfusion_Detected` (:303) | [`emergency_during_preinfusion_detected`] |
-//! | `EmergencyRecovery_RestoresPidFromConfig` (:319) | [`emergency_recovery_restores_pid_from_config`] |
-//! | `EmergencyRecovery_RespectsConfigPidDisabled` (:347) | [`emergency_recovery_respects_config_pid_disabled`] |
-//! | `ManualFlushFlow_PumpAndValveControlled` (:363) | [`manual_flush_flow_pump_and_valve_controlled`] |
-//! | `ManualFlush_UpdateKeepsPumpAndValveActive` (:393) | [`manual_flush_update_keeps_pump_and_valve_active`] |
-//! | `StandbyAndWake_PidDisabledAndRestored` (:411) | [`standby_and_wake_pid_disabled_and_restored`] |
-//! | `StandbyWakeOnBrewRequest` (:440) | [`standby_wake_on_brew_request`] |
-//! | `BrewRunningOnExit_AlwaysClosesValve` (:457) | [`brew_running_on_exit_always_closes_valve`] |
-//! | `BrewFinishedOnExit_AlsoClosesValve` (:473) | [`brew_finished_on_exit_also_closes_valve`] |
-//! | `PidNormalToBrewManualMode_SkipsPreinfusion` (:487) | [`pid_normal_to_brew_manual_mode_skips_preinfusion`] |
-//! | `PidDisabledDrainsActionRequests` (:499) | [`pid_disabled_drains_action_requests`] |
-//! | `BrewPreinfusionToRunning_WhenPreinfusionDisabled` (:515) | [`brew_preinfusion_to_running_when_preinfusion_disabled`] |
-//! | `BrewPreinfusionToRunning_WhenPauseIsZero` (:529) | [`brew_preinfusion_to_running_when_pause_is_zero`] |
-//! | `EmergencyDuringManualFlush_DetectedByBaseState` (:548) | [`emergency_during_manual_flush_detected_by_base_state`] |
-//! | `PidDisabledDuringBrew_ForcesTransition` (:568) | [`pid_disabled_during_brew_forces_transition`] |
+//! The steps walk one brew from `PID_NORMAL` through pre-infusion, pause, running and finished,
+//! then the same machine through an emergency stop and its recovery.
 
 mod common;
 
@@ -127,8 +91,8 @@ fn completes_brew_cycle_full_flow() {
         common::has(&entry, cc_machine::Effect::OpenWaterValve),
         "{entry:?}"
     );
-    // And `initTotalTargetBrewTime`: 5000 ms of pre-infusion+pause plus 25000 ms
-    // of target brew time, so the display shows "0s/30s" from the first frame.
+    // And the target: 5000 ms of pre-infusion plus pause, plus the 25 s brew time, so the
+    // display shows "0s/30s" from the first frame.
     common::assert_ms(h.machine.brew.target_ms, 30_000.0);
     common::assert_ms(h.machine.brew.elapsed_ms, 0.0);
 
@@ -140,7 +104,7 @@ fn completes_brew_cycle_full_flow() {
         MachineState::BrewPreinfusion,
         MachineState::BrewPreinfusionPause,
     );
-    // C++ step 4 (:121-125): "onExit → pump disabled, valve NOT closed".
+    // Step 4: leaving the pause disables the pump and leaves the valve open.
     assert!(
         common::has(&win, cc_machine::Effect::DisablePump),
         "{win:?}"
@@ -149,7 +113,7 @@ fn completes_brew_cycle_full_flow() {
         common::count(&win, cc_machine::Effect::CloseWaterValve) == 0,
         "preinfusion exit must not close the valve: {win:?}"
     );
-    // C++ step 5 (:127-133): entry stops the pump and keeps the valve open.
+    // Step 5: entry stops the pump and keeps the valve open.
     assert!(
         common::has(&win, cc_machine::Effect::DisablePump),
         "{win:?}"
@@ -183,11 +147,9 @@ fn completes_brew_cycle_full_flow() {
         "{win:?}"
     );
 
-    // The brew timer restarts from the base on entry (`BrewStates.cpp:229-230`),
-    // so entering BREW_RUNNING after 2.1 s of pause shows 5.0 s — the 3 s
-    // pre-infusion plus the 2 s pause. It does **not** show 7.1 s, and the
-    // difference is a real property of the C++: the running state's timer is
-    // "base + time in this state", not "total time since the brew started".
+    // The timer is rebuilt from the base on entry, so entering BREW_RUNNING after 2.1 s of pause
+    // shows 5.0 s -- the 3 s pre-infusion plus the 2 s pause -- and not 7.1 s. The running state's
+    // timer is "base plus time in this state", not "total time since the brew started".
     common::assert_ms(h.machine.brew.elapsed_ms, 5_000.0);
     // One second later it is 6.0 s.
     let _ = h.elapse(1_000);
@@ -198,7 +160,7 @@ fn completes_brew_cycle_full_flow() {
     let fx = h.tick();
     assert_eq!(h.state(), MachineState::BrewFinished, "{fx:?}");
     let win = common::transition_window(&fx, MachineState::BrewRunning, MachineState::BrewFinished);
-    // C++ step 10 (:160-164): "onExit → pump disabled, valve CLOSED".
+    // Step 10: leaving the running state disables the pump and closes the valve.
     assert!(
         common::has(&win, cc_machine::Effect::DisablePump),
         "{win:?}"
@@ -207,18 +169,16 @@ fn completes_brew_cycle_full_flow() {
         common::has(&win, cc_machine::Effect::CloseWaterValve),
         "{win:?}"
     );
-    // C++ step 11 (:166-171): "BREW_FINISHED onEntry → no pump/valve changes".
+    // Step 11: entering BREW_FINISHED changes neither the pump nor the valve.
     let entry_half = common::entry_half(&win, MachineState::BrewFinished);
     assert_eq!(
         common::count(&entry_half, cc_machine::Effect::EnablePump),
         0
     );
-    // The shot is offered to the maintenance counter (`BrewStates.cpp:310`).
-    //
-    // The effect carries the **decision**, not the three facts it came from: the
-    // reducer applied `qualifiesAsCountedShot` at the point the C++ evaluates it
-    // (`BrewStates.cpp:306-312`) and incremented the counter itself, so what the
-    // shell has to persist is the count. A brew by time is 30 s, so it counts.
+    // The shot is offered to the maintenance counter here, as an effect that carries the
+    // **decision** rather than the three facts it came from: the qualification rule is applied
+    // where the counter lives, so what the shell has to persist is the count. A brew by time is
+    // 30 s, so it counts.
     assert!(
         common::has(&win, cc_machine::Effect::RecordBrew { counted: true }),
         "{win:?}"
@@ -238,20 +198,10 @@ fn completes_brew_cycle_full_flow() {
 // Flow 2: brew abort
 // ---------------------------------------------------------------------------
 
-/// `BrewAbortDuringPreinfusionPause` (:185-207).
+/// The pause's exit leaves the valve open, and the S5 check closes it later in the same tick.
 ///
-/// The C++ test's own comment documents the behaviour it is pinning:
-///
-/// ```cpp
-/// // DOCUMENTING CURRENT BEHAVIOR: BrewPreinfusionPauseState::onExitImpl does
-/// // NOT close valve. The valve remains open until valveSafetyShutdownCheck()
-/// // runs externally.
-/// EXPECT_EQ(CleverCoffee::TestHardwareSpy::closeWaterValveCalls, 0);
-/// ```
-///
-/// The reducer can show both halves of that, which is the point: the pause's
-/// `onExit` does not close the valve, **and** the S5 valve check in the same tick
-/// does.
+/// Both halves are visible here because the test drives whole ticks: the exit half of the window
+/// carries no close, and the tick as a whole does.
 #[test]
 fn brew_abort_during_preinfusion_pause() {
     let mut h = Harness {
@@ -280,7 +230,7 @@ fn brew_abort_during_preinfusion_pause() {
     let exit_half = common::exit_half(&win, MachineState::PidNormal);
     assert!(
         common::count(&exit_half, cc_machine::Effect::CloseWaterValve) == 0,
-        "the pause's onExit must not close the valve: {exit_half:?}"
+        "the pause's exit must not close the valve: {exit_half:?}"
     );
     assert!(
         common::has(&exit_half, cc_machine::Effect::DisablePump),
@@ -291,7 +241,7 @@ fn brew_abort_during_preinfusion_pause() {
     // does. `PID_NORMAL` is not on the whitelist.
     assert!(
         common::has(&fx, cc_machine::Effect::CloseWaterValve),
-        "valveSafetyShutdownCheck must close it later in the same tick: {fx:?}"
+        "the S5 valve check must close it later in the same tick: {fx:?}"
     );
     let check = common::index_of(&fx, cc_machine::Effect::CloseWaterValve).unwrap();
     assert!(
@@ -368,7 +318,7 @@ fn pid_toggle_cycle_brew_works_after_re_enable() {
     let fx = h.tick();
     assert_eq!(h.state(), MachineState::PidDisabled, "{fx:?}");
     let win = common::transition_window(&fx, MachineState::PidNormal, MachineState::PidDisabled);
-    // C++ step 2 (:246-250): "PID_DISABLED onEntry → pump disabled, valve closed".
+    // Step 2: entering PID_DISABLED disables the pump and closes the valve.
     assert!(
         common::has(&win, cc_machine::Effect::DisablePump),
         "{win:?}"
@@ -461,11 +411,10 @@ fn emergency_during_preinfusion_detected() {
     );
 }
 
-/// `EmergencyRecovery_RestoresPidFromConfig` (:319-343).
+/// Recovery after a transient overheat restores the runtime PID from the configuration.
 ///
-/// The C++ regression: after a transient overheat, recovery must restore the
-/// runtime PID from config, or the machine comes back saying "PID is disabled
-/// manually" and never heats again.
+/// Without that, the machine comes back with the PID off and never heats again -- it is stuck in
+/// `PID_DISABLED` unless someone re-enables it by hand.
 #[test]
 fn emergency_recovery_restores_pid_from_config() {
     let mut h = Harness::new();
@@ -473,7 +422,7 @@ fn emergency_recovery_restores_pid_from_config() {
     h.machine.state = MachineState::EmergencyStop;
     h.machine.safety.latched = true;
 
-    // Entry forces the runtime PID off (`performEmergencyShutdown`).
+    // Entry forces the runtime PID off.
     let _ = h.on_entry(MachineState::EmergencyStop);
     assert!(
         !h.machine.pid.runtime_enabled,
@@ -519,8 +468,8 @@ fn emergency_recovery_respects_config_pid_disabled() {
          the user turned off"
     );
 
-    // And INIT routes to PID_DISABLED, because `InitState::checkPidConfig` reads
-    // the *runtime* flag, which recovery left off.
+    // And INIT routes to PID_DISABLED, because INIT reads the *runtime* flag, which recovery
+    // leaves off.
     let fx = h.tick();
     assert_eq!(h.state(), MachineState::PidDisabled, "{fx:?}");
 }
@@ -680,8 +629,7 @@ fn pid_normal_to_brew_manual_mode_skips_preinfusion() {
     h.machine.requests.set(Request::BrewStart, true);
     let fx = h.tick();
     assert_eq!(h.state(), MachineState::BrewRunning, "{fx:?}");
-    // And the brew timer starts at zero, because a manual shot has no
-    // pre-infusion base (`BrewStates.cpp:229`).
+    // And the brew timer starts at zero: a manual shot has no pre-infusion phase to count.
     common::assert_ms(h.machine.brew.elapsed_ms, 0.0);
 }
 
@@ -702,8 +650,7 @@ fn pid_disabled_drains_action_requests() {
     ]);
     assert!(h.requested(Request::BrewStart));
 
-    // The `update` drain clears them, because PID is still off
-    // (`PidStates.cpp:124-127`).
+    // The update drain clears them, because the PID is still off.
     let _ = h.update(MachineState::PidDisabled);
     assert!(
         !h.requested(Request::BrewStart),
@@ -715,8 +662,8 @@ fn pid_disabled_drains_action_requests() {
     );
 }
 
-/// `PidDisabled_update` skips the drain once PID is back on, so the request that
-/// brought the PID back is not eaten (`PidStates.cpp:123-127`).
+/// `PID_DISABLED`'s update skips the drain once the PID is back on, so the request that brought
+/// the PID back is not eaten.
 #[test]
 fn pid_disabled_stops_draining_once_pid_is_re_enabled() {
     let mut h = Harness::in_state(MachineState::PidDisabled);
@@ -813,8 +760,8 @@ fn pid_disabled_during_brew_forces_transition() {
     );
 }
 
-/// The switch-driven path, which no C++ case in this suite covers: a brew switch
-/// press sets the flag and the same loop's `Tick` consumes it.
+/// The switch-driven path: a brew switch press sets the flag, and the tick that follows consumes
+/// it.
 #[test]
 fn a_brew_switch_press_starts_a_brew_in_the_same_loop() {
     let mut h = Harness {

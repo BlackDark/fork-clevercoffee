@@ -1,28 +1,13 @@
-//! Port of `test/test_sensor_error_state` — 4 C++ cases, 4 Rust cases.
+//! A faulted probe: entering `SENSOR_ERROR`, waiting, and recovering.
 //!
-//! These are regression tests for "Bug #1": a 60-second timeout in
-//! `SensorErrorState` used to move the machine to `PID_DISABLED` with no user
-//! action. The fix removed the timeout and replaced it with a recovery delay
-//! that starts when the error *clears*, not when the state is entered
-//! (`ErrorStates.cpp:47-50`).
+//! The recovery delay is measured from **entry**, not from the moment the fault clears, so a probe
+//! fault that persists for an hour and then clears recovers on the very next tick rather than after
+//! the delay. Recovery still happens only once the error is genuinely clear, because the guard is
+//! re-checked on every tick; it is the *delay* that does not apply.
 //!
-//! ## The C++ suite's stubs decide the outcome
-//!
-//! `test_sensor_error_state` runs with `HandlerTestStubs`, whose
-//! `hasSensorError()` and `hasTemperatureError()` both return **false** — so
-//! every case exercises the *recovered* branch, and the persisting-error branch
-//! is only reached by the sub-assertion that within the delay window nothing
-//! happens. The port makes both branches explicit instead of relying on which
-//! way a stub happens to point.
-//!
-//! ## Case mapping
-//!
-//! | C++ case (`test_sensor_error_state/test_main.cpp`) | Rust test |
-//! | --- | --- |
-//! | `NeverTransitionsToPidDisabledOnTimeout` (:92) | [`never_transitions_to_pid_disabled_on_timeout`] |
-//! | `StaysInSensorErrorWithinRecoveryDelay` (:118) | [`stays_in_sensor_error_within_the_recovery_delay`] |
-//! | `RecoversToPidNormalAfterDelayWhenErrorClears` (:137) | [`recovers_to_pid_normal_after_the_delay_when_the_error_clears`] |
-//! | `RecoversToPidDisabledWhenUserHadDisabledPid` (:160) | [`recovers_to_pid_disabled_when_the_user_had_disabled_pid`] |
+//! Two entries are not equivalent, which is why both are exercised: a probe that reports a fault
+//! takes the machine here and the heater is held off by S1, while an implausible *reading* goes to
+//! `EMERGENCY_STOP` instead. Conflating the two was the defect, so the suite keeps them apart.
 
 mod common;
 
@@ -88,34 +73,17 @@ fn recovers_to_pid_normal_after_the_delay_when_the_error_clears() {
     assert_eq!(h.state(), MachineState::PidNormal);
 }
 
-/// # Preserved deliberately, and a new finding: the recovery clock is **not**
-/// reset when the error persists
+/// The recovery delay is measured from **entry**, not from the moment the fault clears.
 ///
-/// `SensorErrorState::checkSpecificTransitions` says:
+/// While a fault persists the guard answers `SENSOR_ERROR` for a machine already in it, and a
+/// self-transition is discarded, so the state's own rules do not run and the entry stamp is never
+/// re-written. The consequence is observable: a fault that persists for an hour and then clears
+/// recovers on the next tick rather than five seconds later.
 ///
-/// ```cpp
-/// } else {
-///     // Error still present - keep resetting the clock so recovery delay
-///     // is measured from when the error actually clears, not from entry.
-///     errorStartTime_ = millis();
-/// }
-/// ```
-/// (`ErrorStates.cpp:47-50`)
-///
-/// **That branch is unreachable.** `BaseState::checkTransitions` tests
-/// `hasSensorError()` with **no exclusion** (`BaseState.h:145-148`), so while the
-/// probe is faulted the guard returns `SENSOR_ERROR` (a discarded
-/// self-transition) and `checkSpecificTransitions` is never called. The
-/// clock reset never runs, and the recovery delay is measured from **entry**.
-///
-/// The observable consequence: a probe fault that persists for an hour and then
-/// clears does **not** wait five seconds — the machine recovers on the very next
-/// loop. That is safe in the direction that matters (recovery only happens once
-/// the error is genuinely clear, and the guard re-checks it every loop), but it
-/// is not what the comment says, and it is what the C++ does.
-///
-/// The C++ has no test for this at all — `test_sensor_error_state`'s stubs always
-/// report the error clear — so it was never noticed. Preserved here, and pinned.
+/// Recovery is safe in the direction that matters: it happens only once the error is genuinely
+/// clear, and the guard is re-checked on every tick. The ledger records the missing delay
+/// under its preserved behaviours, pinned by
+/// `parity_findings::the_sensor_error_recovery_delay_is_measured_from_entry`.
 #[test]
 fn a_persisting_error_does_not_postpone_recovery() {
     let mut h = entered(0);
@@ -128,9 +96,8 @@ fn a_persisting_error_does_not_postpone_recovery() {
         assert_eq!(h.state(), MachineState::SensorError, "minute {minute}");
     }
 
-    // The error clears. Because the clock was never reset, the delay has already
-    // elapsed, so recovery happens on the very next loop — not five seconds
-    // later. This is the *preserved* C++ behaviour; see the test's doc comment.
+    // The error clears. The stamp was never re-written, so the delay has already elapsed and
+    // recovery happens on the next tick rather than five seconds later. See the test's doc comment.
     let _ = h.send(cc_machine::Event::SensorUpdated(Sensors::healthy()));
     let _ = h.elapse_to(10 * 60_000);
     assert_eq!(
@@ -155,10 +122,9 @@ fn recovers_to_pid_disabled_when_the_user_had_disabled_pid() {
     );
 }
 
-/// A persisting error is a **self-transition**, because the sensor-error guard
-/// has no exclusion (`BaseState.h:145-148`). The state machine must therefore
-/// not run `onExit`/`onEntry` every loop — which for `SENSOR_ERROR` would mean
-/// re-stamping `error_since` forever and never recovering.
+/// A persisting error is a **self-transition**: the guard names the state the machine is already
+/// in. The hooks must therefore not run every tick, which for `SENSOR_ERROR` would mean re-stamping
+/// the recovery clock forever and never recovering.
 #[test]
 fn a_persisting_error_is_a_discarded_self_transition() {
     let mut h = entered(0);
@@ -176,8 +142,7 @@ fn a_persisting_error_is_a_discarded_self_transition() {
     );
 }
 
-/// Entry stamps the recovery clock, which the C++ gets for free because a
-/// transition builds a fresh state object (`StateFactory.cpp:24`).
+/// Entry stamps the recovery clock.
 #[test]
 fn entry_stamps_the_recovery_clock() {
     let mut h = Harness::in_state(MachineState::SensorError);
@@ -196,9 +161,9 @@ fn entry_stamps_the_recovery_clock() {
     assert_eq!(h.machine.error_since, None);
 }
 
-/// The emergency guard beats the sensor-error guard (`BaseState.h:139-148`,
-/// emergency first) and the C++'s own `isEmergencyStop` check inside
-/// `SensorErrorState::checkSpecificTransitions` is therefore unreachable.
+/// The emergency guard beats the sensor-error guard, and the guards are answered before the
+/// state's own rules, so a latched machine is routed to the emergency stop and the faulted-probe
+/// branch is only reached when it is not latched.
 #[test]
 fn emergency_wins_over_the_sensor_error_guard() {
     let mut h = entered(0);
@@ -226,15 +191,12 @@ fn emergency_wins_over_the_sensor_error_guard() {
     );
 }
 
-/// `SENSOR_ERROR` recovers to the **config** PID state, not the runtime one.
+/// `SENSOR_ERROR` recovers to the **configured** PID state, not the runtime one.
 ///
-/// `SENSOR_ERROR` is excluded from the PID-runtime guard (`BaseState.h:165`), so
-/// a machine sitting there with the runtime PID off is not bounced out; when it
-/// recovers it uses `getPidState()` (`ErrorStates.cpp:44`), which reads
-/// `config.pidEnabled` and not the runtime flag. So a sensor error that is
-/// cleared recovers into `PID_NORMAL` even though the runtime PID is off — and
-/// `PID_NORMAL`'s own first check then immediately takes it to `PID_DISABLED` on
-/// the *following* loop. Two loops, not one.
+/// The state is excluded from the PID-runtime guard, so a machine sitting there with the runtime
+/// PID off is not bounced out; when it recovers it reads the configured flag. A cleared sensor
+/// recovers into `PID_NORMAL` even though the runtime PID is off -- and `PID_NORMAL`'s own first
+/// check then takes it to `PID_DISABLED` on the *following* tick. Two ticks, not one.
 #[test]
 fn a_sensor_error_recovers_to_the_config_pid_state_not_the_runtime_one() {
     let mut h = entered(0);
@@ -245,7 +207,7 @@ fn a_sensor_error_recovers_to_the_config_pid_state_not_the_runtime_one() {
     assert_eq!(
         h.state(),
         MachineState::PidNormal,
-        "recovery uses getPidState(), which reads the config, not the runtime flag"
+        "recovery uses the configured PID flag, not the runtime one"
     );
 
     // And on the next loop PID_NORMAL's own check notices the runtime flag is off.
@@ -253,10 +215,9 @@ fn a_sensor_error_recovers_to_the_config_pid_state_not_the_runtime_one() {
     assert_eq!(h.state(), MachineState::PidDisabled);
 }
 
-/// `EEPROM_ERROR` recovers to `PID_DISABLED` **unconditionally** after five
-/// minutes — not to `getPidState()` as every other recovery path does
-/// (`ErrorStates.cpp:121`). Pinned because it is the one recovery that ignores
-/// the user's configuration.
+/// `EEPROM_ERROR` recovers to `PID_DISABLED` **unconditionally** once its timeout elapses, rather
+/// than to the configured PID state as every other recovery path does. The one recovery that
+/// ignores the user's configuration, and pinned for that reason.
 #[test]
 fn eeprom_error_recovers_to_pid_disabled_even_when_pid_is_enabled() {
     let mut h = Harness::in_state(MachineState::EepromError);
@@ -272,11 +233,11 @@ fn eeprom_error_recovers_to_pid_disabled_even_when_pid_is_enabled() {
     assert_eq!(
         h.state(),
         MachineState::PidDisabled,
-        "ErrorStates.cpp:121 returns PID_DISABLED, not getPidState()"
+        "the EEPROM recovery returns PID_DISABLED, not the configured PID state"
     );
 }
 
-/// `EEPROM_ERROR` entry forces the runtime PID off (`ErrorStates.cpp:97`).
+/// `EEPROM_ERROR` entry forces the runtime PID off.
 #[test]
 fn eeprom_error_entry_forces_the_runtime_pid_off() {
     let mut h = Harness::in_state(MachineState::EepromError);
@@ -289,10 +250,9 @@ fn eeprom_error_entry_forces_the_runtime_pid_off() {
     assert!(!h.machine.pid.runtime_enabled);
 }
 
-/// An implausible temperature is S1's job, not the state's — and the S1 verdict
-/// routes the machine to `EMERGENCY_STOP`, not to `SENSOR_ERROR`, because
-/// `hasSensorError()` is about the *probe reporting an error*, not about the
-/// reading being implausible.
+/// An implausible temperature is S1's job, not the state's -- and the S1 verdict routes the machine
+/// to `EMERGENCY_STOP`, not here: a fault flag is about the *probe reporting an error*, not about
+/// the reading being implausible.
 #[test]
 fn an_implausible_reading_goes_to_emergency_stop_not_sensor_error() {
     let mut h = Harness::in_state(MachineState::PidNormal);
@@ -314,25 +274,22 @@ fn an_implausible_reading_goes_to_emergency_stop_not_sensor_error() {
     assert_eq!(h.next_state_this_tick(), Some(MachineState::EmergencyStop));
 }
 
-/// 🔴 A **plausible** reading from a **faulted** probe must still stop the heater
+/// A **plausible** reading from a **faulted** probe must still stop the heater.
 ///
-/// This is the safety consequence the firmware's probe-fault wiring exists to
-/// produce, and it was unreachable before it: the driver latched its error at
-/// ten consecutive bad reads, but nothing consulted that flag, so
-/// `has_temperature_error` stayed `false` and this branch was dead on hardware.
+/// This is the safety consequence the probe-fault wiring exists to produce, and it was unreachable
+/// before it: the driver latched its error after ten consecutive bad reads, but nothing consulted
+/// that flag, so `has_temperature_error` stayed `false` and this branch was dead on hardware.
 ///
-/// The two cases are deliberately different, and conflating them is the whole
-/// defect:
+/// The two cases are deliberately different, and conflating them is the defect:
 ///
-/// * an **implausible** reading is S1's job — see
+/// * an **implausible** reading is S1's job -- see
 ///   [`an_implausible_reading_goes_to_emergency_stop_not_sensor_error`] above;
-/// * a **plausible** reading from a probe that has *latched an error* is
-///   `TempSensor::hasError()`'s job (`TempSensor.h:80-83`), and it goes to
-///   `SENSOR_ERROR`.
+/// * a **plausible** reading from a probe that has *latched an error* is the driver's job, and it
+///   goes here.
 ///
-/// The reading here is 95 °C — mid-range, plausible, and exactly what a probe
-/// that read once and then went silent leaves behind. That is the shape of the
-/// failure: the number looks healthy and nothing is producing it.
+/// The reading here is 95 °C: mid-range, plausible, and exactly what a probe that read once
+/// and then went silent leaves behind. That is the shape of the failure -- the number looks healthy
+/// and nothing is producing it.
 #[test]
 fn a_plausible_reading_from_a_faulted_probe_stops_the_heater() {
     let mut h = Harness::in_state(MachineState::PidNormal);
@@ -340,10 +297,8 @@ fn a_plausible_reading_from_a_faulted_probe_stops_the_heater() {
     h.machine.pid.mode_enabled = true;
     h.machine.pid.output = 0.8;
 
-    // The loop's order: the sample arrives, then the tick that judges it.
-    // `BaseState::checkTransitions` is reached from `StateMachine::update()`
-    // (`StateMachine.cpp:84-86`), so the guard fires on the tick and not on
-    // the sample — which is what `cc_machine::Control::tick` does too.
+    // The loop's order: the sample arrives, then the tick that judges it. The guard is reached from
+    // the tick rather than from the sample, which is the order the control loop uses.
     let _ = h.send(cc_machine::Event::SensorUpdated(Sensors {
         temperature: Celsius::new(95.0),
         has_temperature_error: true,
@@ -356,10 +311,8 @@ fn a_plausible_reading_from_a_faulted_probe_stops_the_heater() {
         MachineState::SensorError,
         "a latched probe error is the sensor-error guard, whatever the reading said"
     );
-    // `should_pid_be_enabled` excludes `SENSOR_ERROR` (`guards.rs:183`), so
-    // `process_control` takes the "Force PID shutdown" branch
-    // (`ProcessController.cpp:151-172`) and the duty is zeroed on the same tick
-    // the guard fires — not on some later one.
+    // Process control's own PID gate excludes `SENSOR_ERROR`, so the duty is zeroed on the same
+    // tick the guard fires rather than on a later one.
     assert_eq!(
         h.machine.pid.output.to_bits(),
         0.0f32.to_bits(),

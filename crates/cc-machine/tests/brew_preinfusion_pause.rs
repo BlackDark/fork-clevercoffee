@@ -1,20 +1,12 @@
-//! Port of `test/test_brew_preinfusion_pause` — 2 C++ cases, 2 Rust cases.
+//! The pre-infusion pause: the pump off and the water valve **open**, holding puck pressure.
 //!
-//! `test_brew_preinfusion_pause` is the S5 suite in the coverage map: the pause
-//! keeps the water valve **open** to hold puck pressure, and the pump off. Two
-//! cases, both on `BrewPreinfusionPauseState`:
+//! Keeping the valve open is what the valve whitelist exists for: the pause is on it, so the
+//! valve check leaves the valve alone while the pause runs and closes it when the pause is
+//! aborted, or when the brew ends.
 //!
-//! | C++ case (`test_brew_preinfusion_pause/test_main.cpp`) | Rust test |
-//! | --- | --- |
-//! | `PauseEntryStopsPumpAndOpensValve` (:63) | [`pause_entry_stops_pump_and_opens_valve`] |
-//! | `PauseUpdateKeepsPumpOffAndValveOpen` (:72) | [`pause_update_keeps_pump_off_and_valve_open`] |
-//!
-//! Both C++ cases assert `EXPECT_EQ(enablePumpCalls, 0)`, which is a *global*
-//! count across the whole entry or update — so it says "the pump is never turned
-//! on", which is stronger than "the pump ends up off" and is the assertion worth
-//! keeping. The Rust asserts the same thing as "no `EnablePump` effect anywhere
-//! in the sequence", and additionally checks that a whole tick in the pause state
-//! produces the same verdict, which the C++ case does not.
+//! Both cases assert that the pump is never turned on anywhere in the entry or in the update,
+//! which is stronger than "the pump ends up off": a sequence that turned the pump on and straight
+//! back off would pass the weaker check and still pulse the puck.
 
 mod common;
 
@@ -57,13 +49,11 @@ fn pause_update_keeps_pump_off_and_valve_open() {
     );
     assert_eq!(common::count(&fx, Effect::EnablePump), 0, "{fx:?}");
 
-    // And through a whole control-loop iteration, which is what actually
-    // happens: `update` runs, then the S5 valve check runs, and the pause *is*
-    // on the whitelist so the valve survives.
+    // And through a whole control-loop iteration, which is the real shape: the update runs, then
+    // the valve check runs, and the pause is on the whitelist so the valve survives.
     //
-    // The configuration has to be automatic-with-pre-infusion: with the shipped
-    // default (`brew.mode = MANUAL_BREW`) the pause state's own
-    // "manual mode - skipping pause" arm (`BrewStates.cpp:198-202`) fires
+    // The configuration has to be automatic-with-pre-infusion: with the shipped default
+    // (`brew.mode` manual) the pause state's own "manual mode, skip the pause" arm fires
     // immediately, which is correct but is not what this case is about.
     h.config.brew.mode = cc_domain::process::BrewMode::Automatic;
     h.config.brew.pre_infusion.enabled = true;
@@ -85,15 +75,13 @@ fn pause_update_keeps_pump_off_and_valve_open() {
 }
 
 // ---------------------------------------------------------------------------
-// What the C++ suite should also have checked
+// What the suite also checks
 // ---------------------------------------------------------------------------
 
-/// The pause's `onExit` stops the pump but **not** the valve
-/// (`BrewStates.cpp:164-169`).
+/// The pause's exit stops the pump but **not** the valve.
 ///
-/// This is the S5 dependency: on the *abort* path the valve is closed by
-/// `valveSafetyShutdownCheck`, not by the exit. `BrewStates.cpp:165-166` says so,
-/// and the comment is only true because the exit is deliberately partial.
+/// That partial exit is the S5 dependency: on the abort path the exit leaves the valve open and
+/// the valve fail-safe is what closes it, later in the same tick.
 #[test]
 fn pause_exit_stops_the_pump_but_not_the_valve() {
     let mut h = Harness::in_state(MachineState::BrewPreinfusionPause);
@@ -106,8 +94,7 @@ fn pause_exit_stops_the_pump_but_not_the_valve() {
     );
 }
 
-/// The pause timer: the state's own elapsed time, added to the configured
-/// pre-infusion time (`BrewStates.cpp:177-182`).
+/// The pause timer: the configured pre-infusion time plus the time spent in this state.
 #[test]
 fn the_pause_timer_is_preinfusion_plus_time_in_this_state() {
     let mut h = Harness::in_state(MachineState::BrewPreinfusionPause);
@@ -123,9 +110,8 @@ fn the_pause_timer_is_preinfusion_plus_time_in_this_state() {
     common::assert_ms(h.machine.brew.elapsed_ms, 4_000.0);
 }
 
-/// The pause ends after `brew.pre_infusion.pause` seconds
-/// (`BrewStates.cpp:205-213`) — strictly `>=`, because
-/// `hasStateTimeoutElapsed` is `>=` (`MachineStateContext.cpp:454`).
+/// The pause ends after `brew.pre_infusion.pause` seconds -- the comparison is `>=`, not `>`,
+/// so a pause of exactly the configured length has ended.
 #[test]
 fn the_pause_ends_at_the_configured_pause_time() {
     let mut h = Harness::in_state(MachineState::BrewPreinfusionPause);
@@ -141,8 +127,7 @@ fn the_pause_ends_at_the_configured_pause_time() {
     assert_eq!(h.state(), MachineState::BrewRunning, "2.000 s elapsed");
 }
 
-/// A brew stop during the pause goes to the PID state, not to `BREW_RUNNING`
-/// (`BaseState::checkBrewStopRequest`, `BaseState.h:103-111`).
+/// A brew stop during the pause goes back to the PID state rather than on to `BREW_RUNNING`.
 #[test]
 fn a_brew_stop_during_the_pause_goes_to_the_pid_state() {
     let mut h = Harness::in_state(MachineState::BrewPreinfusionPause);

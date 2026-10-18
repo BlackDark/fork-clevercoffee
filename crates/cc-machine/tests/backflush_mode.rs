@@ -1,26 +1,11 @@
-//! Port of `test/test_backflush_mode` — 9 C++ cases, 10 Rust cases (9 one-to-one
-//! plus 1 for `applyBackflushMode`'s flag mutation, which the C++ suite does not
-//! test).
+//! The two pure backflush decisions, case by case, plus what the flags become.
 //!
-//! `include/clevercoffee/backflush/BackflushModeLogic.h` is already two pure
-//! `constexpr` functions, so this is a straight transcription with no decisions
-//! in it. Every case name and every argument triple is preserved.
+//! [`resolve_mode_change`] decides whether a mode request enables, disables or is rejected;
+//! [`resolve_cycle_advance`] decides whether the current cycle is the last. Neither takes a
+//! [`Machine`](cc_machine::Machine), so the truth table is a table.
 //!
-//! ## Case mapping
-//!
-//! | C++ case (`test_backflush_mode/test_main.cpp`) | Rust test |
-//! | --- | --- |
-//! | `NoChangeWhenAlreadyActive` (:17) | [`no_change_when_already_active`] |
-//! | `NoChangeWhenAlreadyInactive` (:21) | [`no_change_when_already_inactive`] |
-//! | `EnableWhenInactiveAndCyclesConfigured` (:25) | [`enable_when_inactive_and_cycles_configured`] |
-//! | `RejectEnableWhenCyclesZero` (:29) | [`reject_enable_when_cycles_zero`] |
-//! | `RejectEnableWhenCyclesNegative` (:33) | [`reject_enable_when_cycles_negative`] |
-//! | `DisableWhenActive` (:37) | [`disable_when_active`] |
-//! | `StartsNextCycleWhenBelowConfigured` (:41) | [`starts_next_cycle_when_below_configured`] |
-//! | `CompletesWhenConfiguredCyclesReached` (:46) | [`completes_when_configured_cycles_reached`] |
-//! | `CompletesWhenCurrentExceedsConfigured` (:50) | [`completes_when_current_exceeds_configured`] |
-//! | — | [`the_flag_outcome_matches_the_effect`] (the `applyBackflushMode`
-//! mutation, `MachineStateContext.cpp:354-381`) |
+//! [`the_flag_outcome_matches_the_effect`] covers the part that is not a pure decision: what
+//! [`apply_backflush_mode`] writes to the request flags in each arm, and what it leaves alone.
 
 use cc_machine::backflush::{
     apply_backflush_mode, resolve_cycle_advance, resolve_mode_change, CycleAdvanceEffect,
@@ -100,9 +85,7 @@ fn completes_when_current_exceeds_configured() {
     );
 }
 
-/// The `if constexpr`-free companion the C++ suite does not test: what
-/// `MachineStateContext::applyBackflushMode` (`MachineStateContext.cpp:354-381`)
-/// does to the flags in each arm.
+/// What each arm of [`apply_backflush_mode`] writes to the request flags.
 #[test]
 fn the_flag_outcome_matches_the_effect() {
     // `None` writes nothing: the flags come back exactly as they went in.
@@ -133,8 +116,8 @@ fn the_flag_outcome_matches_the_effect() {
     assert!(!out.cycle_start_requested);
     assert!(!out.stop_requested);
 
-    // `Disable` turns the mode off and clears all three request flags — the
-    // `DisableClearsCycleStartRequestFlag` case in `test_backflush_states`.
+    // `Disable` turns the mode off and clears all three request flags, so a stale cycle-start
+    // cannot start a cycle that no longer belongs to a mode.
     let out = apply_backflush_mode(true, 4, false, 5, &busy);
     assert_eq!(out.effect, ModeChangeEffect::Disable);
     assert!(!out.on);

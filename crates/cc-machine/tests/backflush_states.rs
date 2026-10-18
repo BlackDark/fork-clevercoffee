@@ -1,19 +1,11 @@
-//! Port of `test/test_backflush_states` — 4 C++ cases, 4 Rust cases.
+//! The backflush cycle: its transitions, and the valve that has to stay open through them.
 //!
-//! This suite is S5 in the coverage map: `BACKFLUSH_FILLING` and
-//! `BACKFLUSH_FLUSHING` are on `cc_safety::water_flow_allowed`, so the S5 valve
-//! check must not close their valves.
+//! `BACKFLUSH_FILLING` and `BACKFLUSH_FLUSHING` are both on `cc_safety::water_flow_allowed`, so the
+//! valve check must leave their valves alone while they run: a fill that closed its valve would
+//! pressurise nothing, and a flush that closed its valve would do nothing at all.
 //!
-//! ## Case mapping
-//!
-//! | C++ case (`test_backflush_states/test_main.cpp`) | Rust test |
-//! | --- | --- |
-//! | `DisableClearsCycleStartRequestFlag` (:81) | [`disable_clears_the_cycle_start_request_flag`] |
-//! | `ModeDisabledMidFillTransitionsToPid` (:91) | [`mode_disabled_mid_fill_transitions_to_pid`] |
-//! | `LastCycleTransitionsToFinished` (:106) | [`last_cycle_transitions_to_finished`] |
-//! | `FinishedOnEntryResetsMaintenanceCounter` (:119) | [`finished_on_entry_resets_the_maintenance_counter`] |
-//!
-//! Plus the S5 case the suite is assigned to check.
+//! The rest is the cycle's shape: turning the mode off mid-fill, the last cycle finishing, and the
+//! maintenance counter being re-armed on the way into `BACKFLUSH_FINISHED`.
 
 mod common;
 
@@ -51,9 +43,8 @@ fn disable_clears_the_cycle_start_request_flag() {
     let _ = h.send(Event::Command(Command::BackflushEnter)); // idempotent: already on
     assert!(h.requested(Request::BackflushCycleStart));
 
-    // `applyBackflushMode(false)` is the disable; the command layer's `BackflushEnter`
-    // is the *enable*, so the disable is driven the same way the C++ drives it —
-    // through the mode-change resolution.
+    // Turning the mode off is the disable; the command layer's `BackflushEnter` is the *enable*, so
+    // the disable goes through the same mode-change resolution the request does.
     let outcome = backflush::apply_backflush_mode(
         h.machine.backflush.on,
         h.machine.backflush.cycle,
@@ -83,8 +74,7 @@ fn mode_disabled_mid_fill_transitions_to_pid() {
         Some(h.pid_state()),
         "the mode-disabled check comes first"
     );
-    // And it also clears the three backflush request flags
-    // (`BackflushStates.cpp:22-24`).
+    // And it also clears the three backflush request flags.
     assert!(!h.requested(Request::BackflushEnter));
     assert!(!h.requested(Request::BackflushCycleStart));
     assert!(!h.requested(Request::BackflushStop));
@@ -97,16 +87,14 @@ fn last_cycle_transitions_to_finished() {
 
     let next = h.check_specific(MachineState::BackflushFlushing);
     assert_eq!(next, Some(MachineState::BackflushFinished));
-    // The counter is re-armed to 1 for the next run
-    // (`BackflushStates.cpp:134`).
+    // The counter is re-armed to 1 for the next run.
     assert_eq!(h.machine.backflush.cycle, 1);
 }
 
 #[test]
 fn finished_on_entry_resets_the_maintenance_counter() {
     let mut h = backflushing(MachineState::BackflushFinished, 1);
-    // Count a shot: 5000 ms is the minimum brew time
-    // (`defaults.h:46`, `BACKFLUSH_REMINDER_MIN_BREW_TIME_MS`).
+    // Count a shot: 5000 ms is `BACKFLUSH_REMINDER_MIN_BREW_TIME_MS`.
     h.machine.brew.elapsed_ms = 5_000.0;
     h.machine.shots_since_backflush = 7;
     assert!(h.machine.shots_since_backflush > 0);
@@ -185,8 +173,7 @@ fn the_full_backflush_cycle_runs_the_configured_number_of_cycles() {
     assert_eq!(h.state(), MachineState::BackflushIdle);
 }
 
-/// A backflush stop from any backflush state returns to `BACKFLUSH_IDLE`
-/// (`BackflushStates.cpp:83-87`, `:118-122`, `:157-161`).
+/// A backflush stop from any backflush state returns to `BACKFLUSH_IDLE`.
 #[test]
 fn a_backflush_stop_returns_to_idle_from_every_backflush_state() {
     for state in [
@@ -205,8 +192,7 @@ fn a_backflush_stop_returns_to_idle_from_every_backflush_state() {
     }
 }
 
-/// A short press in `BACKFLUSH_IDLE` starts a cycle; a long press starts a manual
-/// flush instead (`BrewHandler.h:198-203`).
+/// A short press in `BACKFLUSH_IDLE` starts a cycle; a long press starts a manual flush instead.
 #[test]
 fn a_short_press_in_idle_starts_a_cycle_and_a_long_press_starts_a_flush() {
     let mut h = backflushing(MachineState::BackflushIdle, 1);
@@ -236,8 +222,7 @@ fn a_short_press_in_idle_starts_a_cycle_and_a_long_press_starts_a_flush() {
     assert!(!h2.requested(Request::BackflushCycleStart));
 }
 
-/// Manual flush is reachable from `BACKFLUSH_IDLE` and returns there on stop
-/// (`BackflushStates.cpp:47-51` and `SystemStates.cpp:87-90`).
+/// Manual flush is reachable from `BACKFLUSH_IDLE` and returns there on stop.
 #[test]
 fn manual_flush_runs_from_idle_and_returns_there() {
     let mut h = backflushing(MachineState::BackflushIdle, 1);

@@ -362,22 +362,23 @@ a list of places it does the same thing on purpose. They are in this file so
 nobody "fixes" them.
 
 These are C++ bugs the port **reproduces on purpose**. A diff at any of these is
-*not* a regression; the `s<N>_`-prefixed tests in
-`cc-machine/tests/parity_findings.rs` pin each one, and the `s<N>` numbering is
-[09](./cpp-findings.md)'s.
+*not* a regression; the test named in the third column pins each one, and all of
+them live in `cc-machine/tests/parity_findings.rs`. The `09 §N` rows are
+[09](./cpp-findings.md)'s numbering, kept so this table can be read against that
+document.
 
 | # | C++ behaviour | Pinned by | Note |
 | --- | --- | --- | --- |
-| 09 §4 | S1's three-reading debounce keeps the heater energised for up to ~800 ms above the emergency temperature | `s4_the_emergency_debounce_keeps_the_heater_on` | **Real exposure.** Tripping immediately on the first reading above the threshold is recommended and is *not* implemented. Needs a human decision. |
-| 09 §5 | The live emergency threshold is `config_.emergencyStopTemp` (default 150 °C); the `145 °C` and `120 °C` constants in `constants/Temperature.h:6-7` are dead | `s5_the_emergency_threshold_constant_is_dead` | The port uses 150, matching the running firmware. |
+| 09 §4 | S1's three-reading debounce keeps the heater energised for up to ~800 ms above the emergency temperature | `the_emergency_debounce_needs_three_readings` | **Real exposure.** Tripping immediately on the first reading above the threshold is recommended and is *not* implemented. Needs a human decision. |
+| 09 §5 | The live emergency threshold is `config_.emergencyStopTemp` (default 150 °C); the `145 °C` and `120 °C` constants in `constants/Temperature.h:6-7` are dead | `the_live_emergency_thresholds_are_the_defaults` | The port uses 150, matching the running firmware. |
 | 09 §6 | The anti-windup gate is a strict interior test with a 0.01 dead band, so an output sitting exactly on `outMin` cannot accumulate | `pid::tests::an_output_exactly_on_a_limit_does_not_accumulate` | Shipped behaviour. |
 | 09 §7 | The shipped gains (`kd = Tv·Kp = 713`, ~7130 ms⁻¹ after rescaling) make the controller behave like on/off control | `pid_parity::scenario_a_production_pon_e_matches_the_cpp_library` | **Not a migration bug** — this is the real, shipped control law. Worth someone's attention independent of the port. |
 | 09 §8 | The C++ validates each config parameter in isolation, so `steam.setpoint = 140` with `safety.emergency_temp = 120` is accepted | `cc-safety::tests::safety_paths.rs::config_*` | The port *adds* the cross-parameter rule, so this is listed for completeness: the diff here is intentional but is a rule the C++ lacks, not a rule it had. |
 | 09 §9 | Eight string-length constants in `defaults.h:118-125` are never enforced; a 4 KB hostname is accepted | — | Not enforced in the port either; enforcing it would reject configs the C++ accepts. |
 | 09 §10 | Two config parameters share `order = 203` | — | Cosmetic; the port's schema has one of them. |
-| 09 §12 | `SensorErrorState`'s recovery clock is measured from **entry**, not from the moment the error clears, because the sensor-error guard in `BaseState.h:145-148` has no exclusion list | `s12_the_sensor_error_recovery_clock_is_never_reset` | The `errorStartTime_ = millis()` line at `ErrorStates.cpp:49` is unreachable. |
-| 09 §14 | `hasUserActivity()` is a hard `return false` (`MachineStateContext.cpp:419-423`), so the water switch cannot wake the machine from standby | `s14_the_water_switch_does_not_wake_the_machine_from_standby` | |
-| 09 §15 | `powerOff()` performs the safe shutdown *before* requesting standby (`PowerHandler.h:163-175`), so for one loop the machine is in `PID_NORMAL` with the hardware off and `PidNormalState::update` re-enables the pump | `s15_the_power_off_happens_before_the_standby_request` | One loop. Narrow and real. |
+| 09 §12 | `SensorErrorState`'s recovery clock is measured from **entry**, not from the moment the error clears, because the sensor-error guard in `BaseState.h:145-148` has no exclusion list | `the_sensor_error_recovery_delay_is_measured_from_entry` | The `errorStartTime_ = millis()` line at `ErrorStates.cpp:49` is unreachable. |
+| 09 §14 | `hasUserActivity()` is a hard `return false` (`MachineStateContext.cpp:419-423`), so the water switch cannot wake the machine from standby | `the_water_switch_does_not_wake_the_machine_from_standby` | |
+| 09 §15 | `powerOff()` performs the safe shutdown *before* requesting standby (`PowerHandler.h:163-175`), so for one loop the machine is in `PID_NORMAL` with the hardware off and `PidNormalState::update` re-enables the pump | `the_power_off_happens_before_the_standby_request` | One loop. Narrow and real. |
 | 09 §16 | The C++ state-machine test coverage is far thinner than 340 cases suggests: `test_state_machine` exercises gMock plumbing only, `test_pid_state_transitions` uses hand-written mock states, and `test_steam_water_injection` / `test_pid_mode_water_dispensing` never include the real state sources | — | The port replaces them with 4140 real state × event pairs. |
 
 ---
@@ -1256,9 +1257,12 @@ display: present=true blanked=true frames=7 failed=0
 The panel blanks as it should — seven frames drawn, then the 100 ms gate correctly
 stops writing to a blanked panel.
 
-Three pins in `parity_findings.rs` (`div13_*`) hold both halves: the request is
-honoured, it is **consumed** on the transition that acted on it, and waking still
-works — so closing this does not make standby a one-way door.
+Three pins in `parity_findings.rs` hold both halves:
+`a_sleep_request_is_honoured_with_the_pid_disabled`,
+`the_sleep_request_is_consumed_and_not_repeated` and
+`waking_from_standby_still_works_with_the_pid_disabled`. The request is honoured,
+it is **consumed** on the transition that acted on it, and waking still works, so
+closing this does not make standby a one-way door.
 
 ## 17. The status bar's uptime and `°C` column are laid out from the frame edge, not from a fixed x 🔴 changed {#d17}
 
@@ -1291,7 +1295,6 @@ reserved fixed width — win over matching a layout that clips.
 (the widest reading a boiler can report). The regenerated goldens
 (`minimal.ppm`, `standard*.ppm`, `scale*.ppm`, `screen_heating.ppm`, the Modern
 set) differ **only** by these two columns; every other pixel is where it was.
-
 
 ## 18. The inverted value field closes on the frame, and the `°C` unit is placed by its ink 🔴 changed {#d18}
 
@@ -1341,7 +1344,6 @@ for the portrait screen (`languages.h:35,69-73`) and the port had dropped it, so
 a **64 logical pixel**-wide panel received 111 px of ink and 91 px of it was
 dropped. Restored for all three languages.
 
-
 ## 19. S1's over-temperature debounce counts probe *samples*, not control ticks 🔴 changed {#d19}
 
 **What changed.** `cc_safety::Telemetry` gained a `sample_seq`, and `reduce`
@@ -1383,7 +1385,6 @@ no interlock — while the heater ISR kept chopping at the last commanded duty. 
 power-switch reboot branch, a few lines below, already did the right thing and
 said why; this one did not. It now applies `Effect::SafeHardwareShutdown` through
 `apply_one` before the pause, exactly as its sibling does.
-
 
 ## 21. The Scale template's five rows are re-pitched; the setpoint no longer disappears during a brew 🔴 changed {#d21}
 
@@ -1789,7 +1790,7 @@ Assistant's `aggIMax` number entity publishes this bound — the C++ at
 boiler is the thing being regulated.
 
 **What pins it.**
-`cc-config/tests/config_schema.rs::an_integrator_ceiling_of_zero_is_no_integral_action_not_the_library_default`,
+`cc-config/tests/config_schema.rs::an_integrator_ceiling_of_zero_is_no_integral_action`,
 next to `a_zero_tn_gives_a_zero_ki_rather_than_a_division_by_zero`, which is the
 rule this one joins.
 
@@ -1872,9 +1873,9 @@ writes it as a peripheral function.
 
 Two of the three LEDs, on the C++'s pins, with the C++'s rules:
 
-- `PIN_STATUSLED` (GPIO26) and `PIN_BREWLED` (GPIO19) are wired, driven, and
+* `PIN_STATUSLED` (GPIO26) and `PIN_BREWLED` (GPIO19) are wired, driven, and
   logged at boot.
-- `PIN_STEAMLED` is **not**. There is deliberately **no `STEAM_LED` constant**
+* `PIN_STEAMLED` is **not**. There is deliberately **no `STEAM_LED` constant**
   in `cc_hal_esp32::pins` — adding one would be claiming a pin this firmware
   gives to something else.
 
@@ -1912,21 +1913,21 @@ steam LED to be parity with; it had a race between two peripherals on one pin.
 it is the obvious candidate. **GPIO 32 is `SCALE_DATA_1`** — the HX711 scale's
 first data line, `PIN_HXDAT` at `pinmapping.h:29`. Every reference:
 
-- `crates/cc-hal-esp32/src/pins.rs` — the `SCALE_DATA_1` constant, and the
+* `crates/cc-hal-esp32/src/pins.rs` — the `SCALE_DATA_1` constant, and the
   uniqueness entry in `ALL` that would reject a second claim on 32 at compile
   time.
-- `crates/cc-hal-esp32/src/pins.rs::assert_wiring` — `("SCALE_DATA_1", …,
+* `crates/cc-hal-esp32/src/pins.rs::assert_wiring` — `("SCALE_DATA_1", …,
   Pin::pin(&pins.gpio32))`, which checks the map against the real wiring at boot.
-- `crates/cc-hal-esp32/src/scale.rs:74` — `use crate::pins::{SCALE_CLOCK,
+* `crates/cc-hal-esp32/src/scale.rs:74` — `use crate::pins::{SCALE_CLOCK,
   SCALE_DATA_1, SCALE_DATA_2}`, and the `GpioHx711(data = SCALE_DATA_1, …)`
   driver built at `:173`.
-- `crates/cc-firmware/src/main.rs` — wired at `data_1: peripherals.pins.gpio32`
+* `crates/cc-firmware/src/main.rs` — wired at `data_1: peripherals.pins.gpio32`
   in the scale bring-up, and named in the `pins:` boot-log line.
-- `crates/cc-device-tests/src/main.rs:208` — `lend_test_pins(peripherals.pins
+* `crates/cc-device-tests/src/main.rs:208` — `lend_test_pins(peripherals.pins
   .gpio32, …)`.
-- `crates/cc-hal-esp32/src/scale.rs` — a test asserting `SCALE_DATA_1 == 32`, so
+* `crates/cc-hal-esp32/src/scale.rs` — a test asserting `SCALE_DATA_1 == 32`, so
   the number is pinned by a test as well as by the map.
-- `crates/cc-safety/src/lib.rs` and `cc-firmware/src/main.rs` — GPIO 32 is named
+* `crates/cc-safety/src/lib.rs` and `cc-firmware/src/main.rs` — GPIO 32 is named
   in the reasoning about whether a scale is fitted at all, alongside 25 and 33.
 
 **So this is a hardware change, not a firmware change.** With the machine in
@@ -1938,16 +1939,16 @@ precise about.** Of the 28 GPIOs this chip exposes (the set `is_gpio` in
 `cc_hal_esp32::pins` admits), 18 are claimed by `ALL`. The ten unclaimed are
 **0, 4, 5, 12, 13, 14, 15, 18, 37, 38**, and they divide:
 
-- **0, 5, 12, 15** — strapping pins (ESP32 Series Datasheet v5.3, Table 3-1;
+* **0, 5, 12, 15** — strapping pins (ESP32 Series Datasheet v5.3, Table 3-1;
   `feature-inventory.md:120-122`). Their reset state is a boot decision, not
   the firmware's, so they cannot carry a clocked data line.
-- **37, 38** — input-only, no output driver. `pins::is_input_only` exists for
+* **37, 38** — input-only, no output driver. `pins::is_input_only` exists for
   exactly this bank (34-39). Unusable for the HX711.
-- **4, 5, 18** — claimed by the **C++**: `PIN_ROTARY_DT`, `PIN_ROTARY_SW` and
+* **4, 5, 18** — claimed by the **C++**: `PIN_ROTARY_DT`, `PIN_ROTARY_SW` and
   `PIN_ZC` (`pinmapping.h:22,24,48`). Unwired in the Rust port — the rotary
   encoder and the zero-crossing dimmer were never ported — but the hardware
   exists on the board, so taking one forecloses a peripheral the C++ has.
-- **13, 14** — **genuinely free**: absent from `pinmapping.h`, absent from the
+* **13, 14** — **genuinely free**: absent from `pinmapping.h`, absent from the
   Rust tree, neither strapping nor input-only.
 
 **So GPIO 32 was never actually available either, but not for the reason one
@@ -2054,14 +2055,14 @@ work.
 
 Three parser bugs the host tests found, all of which would have shipped:
 
-- the closing delimiter is `\r\n--BOUNDARY`, not `--BOUNDARY`. RFC 2046 puts a
+* the closing delimiter is `\r\n--BOUNDARY`, not `--BOUNDARY`. RFC 2046 puts a
   CRLF before every delimiter but the first, and that CRLF belongs to the
   envelope — searching for the bare form splices two bytes of MIME framing into
   the middle of an image.
-- the Headers arm cleared its carry, so a `\r\n\r\n` split across two reads was
+* the Headers arm cleared its carry, so a `\r\n\r\n` split across two reads was
   never found and an ordinary upload died of `HeadersTooLong`. **At small chunk
   sizes only**, which is the worst shape of bug to reach hardware.
-- `const MIN_ACCEPTED_BYTES: usize = match self` does not compile as written;
+* `const MIN_ACCEPTED_BYTES: usize = match self` does not compile as written;
   the shape that does is one value for both variants, which silently applied the
   512 KiB firmware floor to a 384 KiB filesystem partition.
 
@@ -2069,21 +2070,21 @@ Three parser bugs the host tests found, all of which would have shipped:
 
 **Verified by reading ESP-IDF v5.5.5, and corrected on hardware 2026-10-07.**
 
-- **This section originally said** that `esp_ota_end` validates the image and
+* **This section originally said** that `esp_ota_end` validates the image and
   *only then* calls `esp_ota_set_boot_partition`. That was wrong, and the
   measurement is what disproved it: `esp_ota_end` is `ota_verify_partition` and
   cleanup (`esp_ota_ops.c:477-524`) and **never** touches `otadata`. The slot is
   selected by a separate call — which this firmware did not make until
   [`cc-hal-esp32/src/ota.rs`](../../crates/cc-hal-esp32/src/ota.rs) started
   calling `esp_ota_set_boot_partition` after a successful `esp_ota_end`.
-- Therefore a power cut **before** that call leaves `otadata` pointing at the slot
+* Therefore a power cut **before** that call leaves `otadata` pointing at the slot
   the machine booted from, and it boots that slot again. Measured 2026-10-07: an
   upload answered `200`, the device rebooted, and the bootloader logged
   `Loaded app from partition at offset 0x10000` — the slot it came from.
-- A power cut **during** the `otadata` write leaves a CRC-invalid sector. **The
+* A power cut **during** the `otadata` write leaves a CRC-invalid sector. **The
   bootloader's fallback to the factory app was NOT verified** — it depends on the
   bootloader binary flashed alongside this firmware, which was not inspected.
-- A power cut **after `esp_ota_set_boot_partition`** means the new image is
+* A power cut **after `esp_ota_set_boot_partition`** means the new image is
   selected and is a complete, validated image. A cut in the window between
   `esp_ota_end` and that call does **not** select it: `otadata` is untouched and
   the machine boots what it booted from, which is the safe direction.
@@ -2110,17 +2111,17 @@ previous version, a progress websocket, and scheduling.
 
 ### What pins it
 
-- `cc_machine::ota` — 10 host tests: every state classified, the six
+* `cc_machine::ota` — 10 host tests: every state classified, the six
   water-flowing states refused by name, steam refused *despite* the water
   whitelist allowing it, `BrewFinished` admits while `BrewRunning` does not, the
   session emits exactly `SafeHardwareShutdown` and not the latching variant.
-- `cc_web::ota` — 28 host tests: byte-exact recovery at **eleven** chunk sizes
+* `cc_web::ota` — 28 host tests: byte-exact recovery at **eleven** chunk sizes
   from 1 B to 4 KiB, near-miss delimiters, truncation refused rather than
   finalised, oversized headers a hard error, every status message non-empty, and
   every status document validated against the UI's `OtaStatusSchema` enum. Plus
   `progress_is_scaled_against_each_kinds_own_floor`, which pins `ota.cpp:234`:
   the same 256 KiB reads 45 % as firmware and 90 % as a filesystem image.
-- `cc_hal_esp32::ota` — 6 device tests: one claim at a time, exactly one restart
+* `cc_hal_esp32::ota` — 6 device tests: one claim at a time, exactly one restart
   request, a failure asks for no restart, and the claimed `Kind` reaching the
   progress bar (the half only this crate can see — the arithmetic itself is
   host-tested in `cc_web::ota`).
@@ -2231,33 +2232,33 @@ has. **Detection plus one sentence is the whole of this.**
 
 ### What was deliberately not built
 
-- **No migration.** Above. Nothing reads a C++ key or writes a C++ namespace.
-- **No prompt, no second boot, no modal.** One `warn!` line at boot, once. The
+* **No migration.** Above. Nothing reads a C++ key or writes a C++ namespace.
+* **No prompt, no second boot, no modal.** One `warn!` line at boot, once. The
   same information is on the console, in the telnet ring and in the UART log,
   which is where an operator with a machine on the wrong network will look.
-- **No key counting.** One key is enough to answer "was anything ever written
+* **No key counting.** One key is enough to answer "was anything ever written
   here", and reading the names would be the first half of a migration.
-- **No `/api/nvs-debug` field.** The endpoint reports on *this* firmware's
+* **No `/api/nvs-debug` field.** The endpoint reports on *this* firmware's
   namespace; a boot log is where a machine that cannot associate has to be
   explained, and adding an endpoint field would be a second spelling of the same
   sentence.
-- **No change when the Rust store is populated.** A machine that already has this
+* **No change when the Rust store is populated.** A machine that already has this
   firmware's settings is told nothing, and the namespace is not walked at all —
   `PredecessorProbe::Skipped`.
 
 ### What pins it
 
-- `cc_config::predecessor` — 4 host tests: the two namespaces are asserted to be
+* `cc_config::predecessor` — 4 host tests: the two namespaces are asserted to be
   different key spaces; the four `PredecessorProbe` cases map to the four
   outcomes, with the two quiet ones silent; the found message names both
   namespaces, says "not deleted" and names the action; the unreadable message
   does not also claim a finding.
-- `cc_web::telnet::tests::the_predecessor_boot_lines_are_not_truncated_on_the_wire`
+* `cc_web::telnet::tests::the_predecessor_boot_lines_are_not_truncated_on_the_wire`
   — the sentence, the namespace and the **real** formatter meet, on the widest
   `u32` uptime and this module's own log target. A hand-copied byte budget
   inside `cc-config` would have been invalidated silently by a change to
   `ENTRY_BYTES` or a rename of the target; this cannot.
-- `cc_hal_esp32::nvs::probe_predecessor` — device-only, and cannot fail: a
+* `cc_hal_esp32::nvs::probe_predecessor` — device-only, and cannot fail: a
   missing namespace is `Absent` (`ESP_ERR_NVS_NOT_FOUND` from a read-only open)
   and every other error is `Unreadable`. It reads one key name and writes
   nothing.
@@ -2307,11 +2308,11 @@ wrong method).
 
 ### What pins them
 
-- `cc_web::request::tests::a_fractional_setpoint_survives_to_the_command` —
+* `cc_web::request::tests::a_fractional_setpoint_survives_to_the_command` —
   `93.5`, `80.5`, `91.2` reach the command intact.
-- `cc_machine::handlers::tests::the_backflush_mode_toggle_turns_the_mode_off_again`
+* `cc_machine::handlers::tests::the_backflush_mode_toggle_turns_the_mode_off_again`
   — on, off, on again, through the command the web layer now sends.
-- `cc_web::help::tests` — the `404`/`405`/`plain` decision, and that the query
+* `cc_web::help::tests` — the `404`/`405`/`plain` decision, and that the query
   string does not change it. Plus
   `cc_hal_esp32::web::tests::every_registered_route_is_in_the_raw_handlers_own_table`,
   a device case, because `ROUTE_PATHS` is a compile-time list that has to agree
@@ -2356,8 +2357,8 @@ Approved on request, 2026-10-05.
 
 ### What pins it
 
-- `config_io::touches_pid_gains` — the predicate, by prefix.
-- Bench only, and honestly labelled as such: this path is in `cc-firmware`,
+* `config_io::touches_pid_gains` — the predicate, by prefix.
+* Bench only, and honestly labelled as such: this path is in `cc-firmware`,
   which `cc-hal-esp32` cannot depend on, so the device-test registry cannot
   reach it. The verification is the measurement above, repeated after the
   change: write `kp`, read `heaterPower` within one control period, no state
@@ -2437,12 +2438,12 @@ never ported). Tank-empty pump *kill* and valve fail-safe are about a real float
 Running §13 and §2b on a bench ESP32 on 2026-10-06 found two things that the
 green gate could not see, both now in [`../status.md`](../status.md):
 
-- **`just flash` never wrote the partition table.** The comment claiming the ELF
+* **`just flash` never wrote the partition table.** The comment claiming the ELF
   carried it was wrong in both halves; esp-idf-sys 0.38.1's README says the build
   does not consume a custom CSV and that flashing must pass
   `--partition-table`. Fixed, and the device now boots `app0`/`app1`/`littlefs`/
   `coredump` from `rust/partitions_4M.csv`.
-- **An OTA does not take effect.** `esp_ota_end` validates the image and does not
+* **An OTA does not take effect.** `esp_ota_end` validates the image and does not
   select the slot; `esp_ota_set_boot_partition` is never called, and rollback is
   not compiled in. The upload answers `200` and the device reboots into the slot
   it came from. **Fixed 2026-10-07 (`83b3c419`)** after the owner took the
@@ -2507,13 +2508,13 @@ point: recovery must require a fresh press.
 `cc-machine/tests/emergency_latch_drains.rs`, three tests, all of which fail
 against the pre-fix code and pass against it:
 
-- `a_brew_pressed_during_the_latch_is_refused_and_then_dropped` — nothing is
+* `a_brew_pressed_during_the_latch_is_refused_and_then_dropped` — nothing is
   energised while latched, `ClearActionRequests` is emitted **every tick** (a
   request arrives after entry has run, so an entry-only drain is not enough),
   and `requests.brew_start` is false afterwards.
-- `the_recovery_tick_starts_no_brew` — after five latched ticks and a cleared
+* `the_recovery_tick_starts_no_brew` — after five latched ticks and a cleared
   latch, the machine leaves `EMERGENCY_STOP` and **no brew begins**.
-- `an_empty_tank_drains_the_same_press_and_the_latch_now_does_too` — the
+* `an_empty_tank_drains_the_same_press_and_the_latch_now_does_too` — the
   contrast with R4-04 case 13.3, where `WATER_TANK_EMPTY` already drained the
   same press and the operator watched it happen at the LEDs.
 
@@ -2551,7 +2552,7 @@ write**, because the DS18B20 stalls while flash is erased.
 
 ### The test that was wrong, and why
 
-`ported_pid_state_transitions.rs` asserted the opposite — *"the error states drain
+`pid_state_transitions.rs` asserted the opposite — *"the error states drain
 nothing, and that is deliberate … the drain happens on entry to the recovery state
 instead"*. Two things were false about that:
 
@@ -2567,9 +2568,9 @@ recorded here rather than deleted.
 
 ### What pins it
 
-- `ported_pid_state_transitions.rs::the_error_states_drain_requests` — both
+* `pid_state_transitions.rs::the_error_states_drain_requests` — both
   error states, entry drain and the request's disappearance.
-- `cc-machine/tests/emergency_latch_drains.rs::a_brew_pressed_during_a_sensor_error_is_not_acted_on_after_it_recovers`
+* `cc-machine/tests/emergency_latch_drains.rs::a_brew_pressed_during_a_sensor_error_is_not_acted_on_after_it_recovers`
   — the end-to-end version: press brew, fault the probe, let it recover, and the
   brew has not started. Verified to fail against the pre-fix code.
 
@@ -2591,16 +2592,16 @@ No cross-parameter check. A key in range (`Config.h:isValid`) is stored, includi
 
 `validate_config` failure stores nothing:
 
-- `POST /api/parameters` and `POST /api/config/upload` wait, then HTTP 400 naming `ConfigViolation::implicated_keys`.
-- MQTT `apply_parameter` logs, does not save, does not `push_into_machine`.
-- `Command::SetSetpoint` validates first. `/api/setpoint` already answered `202 {"accepted":true}` (`register_command`). No second ack. Control task must not apply an unsafe setpoint.
+* `POST /api/parameters` and `POST /api/config/upload` wait, then HTTP 400 naming `ConfigViolation::implicated_keys`.
+* MQTT `apply_parameter` logs, does not save, does not `push_into_machine`.
+* `Command::SetSetpoint` validates first. `/api/setpoint` already answered `202 {"accepted":true}` (`register_command`). No second ack. Control task must not apply an unsafe setpoint.
 
 Boot repair keeps reverting the keys `validate` returns. `REPAIR_ESCALATION_KEYS` run one key at a time, and only when those keys make no progress. Still unsafe: full defaults plus the Wi-Fi credential. Boot line: `stored but unsafe`, not `DISCARDED`.
 
 ### What pins it
 
-- `cc-safety/tests/safety_paths.rs::div38_every_violation_names_the_keys_it_implicates`
-- `cc-config/tests/config_repair.rs`
+* `cc-safety/tests/safety_paths.rs::div38_every_violation_names_the_keys_it_implicates`
+* `cc-config/tests/config_repair.rs`
 
 ---
 

@@ -4,42 +4,18 @@
               assert_eq!(x, \"\") does not typecheck"
 )]
 
-//! Port of `test/test_pid_state_transitions` — 8 C++ cases, 13 Rust cases
-//! (8 live + 5 `#[ignore]`d mock records) plus 5 the C++ does not have.
+//! The PID flag, and what happens to action requests while it is off.
 //!
-//! ## What this suite is actually about
+//! `PID_NORMAL` is the machine's home state, and the global guard deliberately excludes it so
+//! that the machine can recover. That makes the state's own rules the only place a disabled PID
+//! is noticed while the machine is in it. The PID check is the first arm of those rules, so it
+//! wins over a brew-start request in the same tick:
+//! [`the_pid_disabled_check_wins_in_pid_normal`] and
+//! [`the_pid_disabled_check_has_priority_over_brew_start`] pin both halves.
 //!
-//! `test/test_pid_state_transitions/test_main.cpp` does **not** link the real
-//! state classes. It defines a `MockMachineStateContext` and two hand-written
-//! mock states — `BuggyPidNormalState` (no `!isPidEnabled()` check) and
-//! `FixedPidNormalState` (with one) — and asserts that the fixed one transitions
-//! and the buggy one does not (`:47-85`). It is a regression test for a fix that
-//! has already been made, written against stand-ins.
-//!
-//! The fix it pins is real and is present in the C++: `PidNormalState::checkSpecificTransitions`
-//! opens with `if (!context.isPidRuntimeEnabled()) return PID_DISABLED;`
-//! (`PidStates.cpp:48-51`), which is *required* because the global guard
-//! deliberately excludes `PID_NORMAL` (`BaseState.h:163-166`) so that the state
-//! can recover. Remove that check and the machine stays in `PID_NORMAL` with the
-//! PID off — the bug the test's own `BugLeadsToUnresponsiveSystem` case
-//! describes in prose.
-//!
-//! So the port pins the **real** behaviour rather than the mock's, using the
-//! reducer. The mock cases become `#[ignore]`d for the record, as in
-//! `ported_state_machine.rs`.
-//!
-//! ## Case mapping
-//!
-//! | C++ case (`test_pid_state_transitions/test_main.cpp`) | Rust test |
-//! | --- | --- |
-//! | `BuggyStateStuckWhenPidDisabled` (:128) | [`pid_normal_stuck_when_the_pid_is_disabled`] (the *absence* of the fix, demonstrated) |
-//! | `FixedStateTransitionsWhenPidDisabled` (:148) | [`pid_normal_transitions_to_pid_disabled`] |
-//! | `PidNormalStaysWhenEnabled` (:167) | [`pid_normal_stays_put_when_the_pid_is_enabled`] |
-//! | `RoundTripTransition` (:178) | [`round_trip_transition`] |
-//! | `PidDisabledCheckHasPriority` (:198) | [`the_pid_disabled_check_has_priority_over_brew_start`] |
-//! | `MultipleRapidStateChanges` (:212) | [`multiple_rapid_state_changes`] |
-//! | `StateIdsCorrect` (:239) | [`the_state_ids_are_the_cpp_discriminants`] |
-//! | `BugLeadsToUnresponsiveSystem` (:275) | [`the_stuck_state_would_leave_the_pid_off`] |
+//! The rest of the file is S11, the drain of stale action requests: `PID_DISABLED` drains on
+//! entry and again while the PID stays off, the two error states drain on entry, and `STANDBY`
+//! drains the stops while keeping the starts as wake triggers.
 
 mod common;
 
@@ -58,37 +34,12 @@ fn enable_pid(h: &mut Harness) {
     let _ = h.send(Event::Command(cc_machine::Command::SetUserPidEnabled(true)));
 }
 
-// ---------------------------------------------------------------------------
-// The mock cases
-// ---------------------------------------------------------------------------
-
-#[test]
-#[ignore = "C++ mock-state case; the real state is tested by the tests below"]
-fn buggy_state_stuck_when_pid_disabled_is_a_mock_artefact() {}
-
-#[test]
-#[ignore = "C++ mock-state case; the real state is tested by the tests below"]
-fn fixed_state_transitions_when_pid_disabled_is_a_mock_artefact() {}
-
-#[test]
-#[ignore = "C++ mock-state case; the real state is tested by the tests below"]
-fn round_trip_transition_is_a_mock_artefact() {}
-
-#[test]
-#[ignore = "C++ mock-state case; the real state is tested by the tests below"]
-fn multiple_rapid_state_changes_is_a_mock_artefact() {}
-
-#[test]
-#[ignore = "C++ mock-state case; the real state is tested by the tests below"]
-fn the_stuck_state_would_leave_the_pid_off_is_a_mock_artefact() {}
-
-/// The bug the C++ suite documents, reproduced against the real state machine so
-/// the *fix* is what is pinned rather than the mock.
+/// The check that keeps the machine recoverable, asserted from the positive side.
 ///
-/// With the check at `PidStates.cpp:48-51` removed, `PID_NORMAL` would fall
-/// through to the brew-start arm and the machine would stay put with the PID off.
-/// Asserting the counterfactual is not possible without deleting the arm, so the
-/// test asserts the positive: the PID check wins, and it wins *first*.
+/// Without the PID-disabled arm, the machine would fall through to the brew-start arm and stay in
+/// `PID_NORMAL` with the PID off and nothing left to bring it back. The counterfactual cannot be
+/// demonstrated without deleting the arm, so this pins what the arm does: it fires, and it fires
+/// before anything else.
 #[test]
 fn the_pid_disabled_check_wins_in_pid_normal() {
     let mut h = Harness::new();
@@ -101,7 +52,7 @@ fn the_pid_disabled_check_wins_in_pid_normal() {
     );
 }
 
-/// `FixedStateTransitionsWhenPidDisabled` (:148-162), against the real state.
+/// A disabled PID moves the machine out of `PID_NORMAL`.
 #[test]
 fn pid_normal_transitions_to_pid_disabled() {
     let mut h = Harness::new();
@@ -111,7 +62,7 @@ fn pid_normal_transitions_to_pid_disabled() {
     assert_eq!(h.state(), MachineState::PidDisabled, "{fx:?}");
 }
 
-/// `PidNormalStaysWhenEnabled` (:167-173).
+/// With the PID enabled and nothing requested, the machine stays where it is.
 #[test]
 fn pid_normal_stays_put_when_the_pid_is_enabled() {
     let mut h = Harness::new();
@@ -124,7 +75,7 @@ fn pid_normal_stays_put_when_the_pid_is_enabled() {
     );
 }
 
-/// `RoundTripTransition` (:178-193).
+/// The machine can go to `PID_DISABLED` and come back.
 #[test]
 fn round_trip_transition() {
     let mut h = Harness::new();
@@ -136,13 +87,11 @@ fn round_trip_transition() {
     assert_eq!(h.state(), MachineState::PidNormal);
 }
 
-/// `PidDisabledCheckHasPriority` (:198-207).
+/// The PID-disabled check takes priority over a brew start.
 ///
-/// Both the PID-disabled condition and a brew start are true. The C++ asserts
-/// `PID_DISABLED` "should take priority over brew start". The reason it does is
-/// positional: the check is the first arm of
-/// `PidNormalState::checkSpecificTransitions` (`PidStates.cpp:48-51`), before the
-/// brew-start arm at `:53`.
+/// Both conditions are true in the same tick, and the order of the arms decides: the PID check
+/// comes first. The brew request survives that tick -- it was never the arm that ran -- and the
+/// entry it causes is what drains it, so it cannot fire a shot while the PID is off.
 #[test]
 fn the_pid_disabled_check_has_priority_over_brew_start() {
     let mut h = Harness::new();
@@ -154,8 +103,8 @@ fn the_pid_disabled_check_has_priority_over_brew_start() {
         MachineState::PidDisabled,
         "the PID check must take priority over brew start: {fx:?}"
     );
-    // The brew request survives, because it was never the arm that ran. It is
-    // then drained by `PID_DISABLED`'s entry (`PidStates.cpp:119`).
+    // The brew request survives, because it was never the arm that ran; the entry it caused is
+    // what drains it.
     let win = common::transition_window(&fx, MachineState::PidNormal, MachineState::PidDisabled);
     assert!(
         common::has(&win, cc_machine::Effect::ClearActionRequests),
@@ -164,7 +113,7 @@ fn the_pid_disabled_check_has_priority_over_brew_start() {
     assert!(!h.requested(Request::BrewStart));
 }
 
-/// `MultipleRapidStateChanges` (:212-234) — four toggles, four loops.
+/// Four toggles in four ticks, with nothing left behind between them.
 #[test]
 fn multiple_rapid_state_changes() {
     let mut h = Harness::new();
@@ -178,10 +127,10 @@ fn multiple_rapid_state_changes() {
     }
 }
 
-/// `StateIdsCorrect` (:239-242) — the C++ asserts its own mock enum's values; the
-/// real ones are pinned here.
+/// The state ids are pinned: they are part of what is written to logs and to the API, so a
+/// renumber would be a breaking change rather than a refactor.
 #[test]
-fn the_state_ids_are_the_cpp_discriminants() {
+fn the_state_ids_are_pinned() {
     assert_eq!(MachineState::PidNormal.id(), 20);
     assert_eq!(MachineState::PidDisabled.id(), 90);
 }
@@ -190,8 +139,8 @@ fn the_state_ids_are_the_cpp_discriminants() {
 // S11: stale flag draining, which is what the coverage map assigns this suite
 // ---------------------------------------------------------------------------
 
-/// `PID_DISABLED` drains **on entry** and again in `update` while the PID stays
-/// off (`PidStates.cpp:112-127`).
+/// `PID_DISABLED` drains **on entry** and again in `update` while the PID stays off, so a
+/// request that arrives during the off period cannot fire when the PID comes back.
 #[test]
 fn pid_disabled_drains_on_entry_and_while_still_off() {
     let mut h = Harness::new();
@@ -220,8 +169,7 @@ fn pid_disabled_drains_on_entry_and_while_still_off() {
     assert!(!h.requested(Request::BrewStart));
 }
 
-/// `PID_DISABLED` entry also stops the pump and closes the valve
-/// (`PidStates.cpp:115-117`).
+/// Entry also stops the pump, closes the valve and reports the runtime PID off.
 #[test]
 fn pid_disabled_entry_stops_the_pump_and_closes_the_valve() {
     let mut h = Harness::new();
@@ -237,21 +185,13 @@ fn pid_disabled_entry_stops_the_pump_and_closes_the_valve() {
     );
 }
 
-/// The error states DO drain, and this test previously asserted the opposite
-/// on a rationale that turned out to be false.
+/// The two error states drain on entry, which is a deliberate divergence.
 ///
-/// It read: *"the drain happens on entry to the recovery state instead"* — but
-/// `PidNormal`'s `on_entry` is empty (`states.rs:138`), so no such drain exists.
-/// The comment it cited (`ErrorStates.cpp:52-54`) is about the machine *staying*
-/// in `SENSOR_ERROR` so a persistent fault stays visible; it says nothing about
-/// request draining. The port had carried a false mechanism as a pin.
-///
-/// With the bring-up inhibit deleted the difference is physical: a brew pressed
-/// while the machine was in `SENSOR_ERROR` used to end at `enablePump REFUSED`,
-/// and now starts a real brew when the fault clears and the recovery delay
-/// elapses. `AG-REPO-24` names the error states for exactly this reason.
-///
-/// **Divergence from the C++**, recorded in `docs/history/divergences.md` §37.
+/// They cannot act on a request, and nothing between them and `PID_NORMAL` can either: that
+/// state's entry emits no effects. Without the drain, a brew pressed while the machine is in an
+/// error state starts a real shot once the fault clears and the recovery delay elapses.
+/// `AG-REPO-24` names the error states for exactly this reason, and §37 of
+/// `docs/history/divergences.md` records the divergence.
 #[test]
 fn the_error_states_drain_requests() {
     for state in [MachineState::SensorError, MachineState::EepromError] {
@@ -271,8 +211,8 @@ fn the_error_states_drain_requests() {
     }
 }
 
-/// `STANDBY` drains the stops and keeps the starts (ADR-0003's "never drain
-/// wake-up signals").
+/// `STANDBY` drains the stops and keeps the starts. A start flag is an intentional wake trigger:
+/// it has to outlive the state the machine is asleep in, or the press that woke it is lost.
 #[test]
 fn standby_drains_the_stops_and_keeps_the_starts() {
     let mut h = Harness::new();
@@ -312,16 +252,16 @@ fn standby_drains_the_stops_and_keeps_the_starts() {
 fn a_guard_induced_pid_disable_drains_the_pending_brew() {
     let mut h = Harness::new();
     h.machine.requests.set(Request::BrewStart, true);
-    // Disable the runtime PID behind the state machine's back — the shape a
-    // `POST /api/pid` takes (`MQTTManager.cpp:340`).
+    // Disable the runtime PID behind the state machine's back, which is the shape a parameter
+    // write takes: the control task pushes the new value in, and the reducer only reads it.
     h.machine.pid.runtime_enabled = false;
     let fx = h.tick();
     assert_eq!(h.state(), MachineState::PidDisabled, "{fx:?}");
     assert!(!h.requested(Request::BrewStart));
 }
 
-/// A machine that has not been initialised must not act, and in particular must
-/// not act on a request (`StateMachine.cpp:72-75`).
+/// An uninitialised machine ignores a request rather than acting on it: boot has not chosen a
+/// state to act in.
 #[test]
 fn an_uninitialised_machine_ignores_requests() {
     let cold = Machine::cold();

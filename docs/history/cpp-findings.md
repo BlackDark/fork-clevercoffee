@@ -198,7 +198,7 @@ reached. The delay is therefore measured from **entry into `SENSOR_ERROR`**.
 
 **Consequence:** a fault that persists for an hour recovers immediately on clear.
 
-- Rust: preserved. Pinned by `s12_the_sensor_error_recovery_clock_is_never_reset`.
+- Rust: preserved. Pinned by `the_sensor_error_recovery_delay_is_measured_from_entry`.
 
 ## 13. Backflush states never re-assert their hardware in `update()` {#cf13}
 
@@ -967,7 +967,7 @@ re-enabled (S11).
 
 **Closed 2026-09-30** at the human's decision. Two changes, both in `cc-machine`:
 `Requests::clear_all` spares `standby`, and `PidDisabled`'s transition check
-honours it. See `divergences.md` [§13](divergences.md#d13) and the `div13_*` pins in
+honours it. See `divergences.md` [§13](divergences.md#d13) and the three sleep pins in
 `crates/cc-machine/tests/parity_findings.rs`.
 
 **Verified on hardware**, with the PID off throughout: `POST /api/sleep` →

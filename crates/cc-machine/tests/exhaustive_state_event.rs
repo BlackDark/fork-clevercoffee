@@ -1,10 +1,9 @@
-//! The exhaustive `state x event` table — the R2-08 acceptance criterion.
+//! The exhaustive `state x event` table: every pair must reach a *named* outcome.
 //!
 //! # What "exhaustive" means here
 //!
-//! **18 states × 46 events = 828 pairs.** Every one is reduced, and every one
-//! must reach a *named* outcome. There are three failure modes the criterion
-//! calls out and this file is built to catch all of them:
+//! **18 states x 46 events = 828 pairs.** Every one is reduced, and every one must reach a *named*
+//! outcome. Four failure modes are what this file is built to catch:
 //!
 //! 1. **A panic.** Any `unwrap`, `expect`, arithmetic overflow, slice index or
 //!    `unreachable!()` that a state/event pair can reach fails the test. The
@@ -47,8 +46,7 @@ enum Outcome {
     /// The machine consumed the event and did nothing: no effect, no state
     /// change. The common case for a switch edge in a state that ignores it.
     Consumed,
-    /// The machine is not initialised, so every event is ignored
-    /// (`StateMachine.cpp:72-75`).
+    /// The machine is not initialised, so every event is ignored.
     IgnoredNotInitialised,
     /// A global guard fired and named its destination. The name is the guard,
     /// because two guards can reach the same destination from different states
@@ -76,8 +74,8 @@ impl Outcome {
 
 /// The per-state transition rules, by name.
 ///
-/// Every entry names the C++ line that produces it. There is deliberately no
-/// "other" arm.
+/// Every arm is one rule of one state's own transition check, so the table can report *which* rule
+/// answered rather than only that the machine moved. There is deliberately no "other" arm.
 #[allow(dead_code)]
 // Justification: `Specific` is the table's naming scheme. Not every arm is
 // reachable from every machine flavour — the global guards shadow several — and
@@ -85,61 +83,64 @@ impl Outcome {
 // exists to provide.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Specific {
-    /// `InitState.cpp:24-32`.
+    /// `INIT` routes to the configured PID state.
     InitRoutesToPidState,
-    /// `PidStates.cpp:48-51` — the check the global guard cannot make.
+    /// The runtime PID went off: the check `PID_NORMAL` has to make itself, because it is
+    /// excluded from the global guard.
     PidNormalNoticesRuntimeDisabled,
-    /// `PidStates.cpp:53-68` — manual skips pre-infusion, automatic does not.
+    /// A brew start: manual goes straight to `BREW_RUNNING`, automatic to `BREW_PREINFUSION`.
     PidNormalBrewStart,
-    /// `PidStates.cpp:70-74`.
+    /// A steam start.
     PidNormalSteamStart,
-    /// `PidStates.cpp:75-79`.
+    /// A manual-flush start.
     PidNormalManualFlushStart,
-    /// `PidStates.cpp:80-84`.
+    /// Entering backflush mode settles in `BACKFLUSH_IDLE`.
     PidNormalBackflushEnter,
-    /// `PidStates.cpp:85-95` — request, or the standby countdown expiring.
+    /// A standby request, or the standby countdown expiring.
     PidNormalStandby,
-    /// `PidStates.cpp:136-145`.
+    /// The runtime PID came back on.
     PidDisabledRuntimeEnabled,
-    /// `BaseState::checkBrewStopRequest`, `BaseState.h:103-111`.
+    /// A brew stop from the pre-infusion or the pause phase: back to the PID state.
     BrewStopToPidState,
-    /// `BrewStates.cpp:113-126` — manual mode, or pre-infusion disabled.
+    /// Pre-infusion ends at once: manual mode, or pre-infusion disabled.
     BrewPreinfusionToRunning,
-    /// `BrewStates.cpp:132-147` — into the pause, or straight to running.
+    /// The pre-infusion time elapsed: into the pause, or straight to running when the pause is 0.
     BrewPreinfusionTimeout,
-    /// `BrewStates.cpp:198-213`.
+    /// The pause elapsed, or a manual shot that should not be in this state at all.
     BrewPauseToRunning,
-    /// `BrewStates.cpp:270-274` — note: to `BREW_FINISHED`, not the PID state.
+    /// A brew stop in the main phase: to `BREW_FINISHED`, not to the PID state, so the shot is
+    /// still counted and its result still shown.
     BrewRunningStopToFinished,
-    /// `BrewStates.cpp:281-300` — by time, or by weight.
+    /// The target was reached, by time or by weight.
     BrewRunningTargetReached,
-    /// `BrewStates.cpp:330-342`.
+    /// A new brew start, or the display timeout.
     BrewFinishedStartOrTimeout,
-    /// `SteamStates.cpp:52-55`.
+    /// A steam stop.
     SteamStopToPidState,
-    /// `SystemStates.cpp:84-92`.
+    /// A flush stop: back to `BACKFLUSH_IDLE` while backflush mode is on, otherwise the PID state.
     ManualFlushStop,
-    /// `BackflushStates.cpp:22-25` — mode off wins over everything.
+    /// The mode was turned off. It wins over every other arm in the state, and the request flags go
+    /// with it.
     BackflushModeDisabled,
-    /// `BackflushStates.cpp:47-58`.
+    /// A cycle start in `BACKFLUSH_IDLE`.
     BackflushIdleRequest,
-    /// `BackflushStates.cpp:83-92`.
+    /// A stop, or the fill time elapsed.
     BackflushFillingStopOrTimeout,
-    /// `BackflushStates.cpp:118-137`.
+    /// A stop, the last cycle finishing, or another cycle.
     BackflushFlushingStopOrCycle,
-    /// `BackflushStates.cpp:157-172`.
+    /// A stop, another cycle start, or the display timeout.
     BackflushFinishedStopOrTimeout,
-    /// `ErrorStates.cpp:75-77` — the tank refilled.
+    /// The tank refilled.
     WaterTankRefilled,
-    /// `ErrorStates.cpp:78-90` — the request, or the countdown.
+    /// A standby request, or the standby countdown, while the tank is still empty.
     WaterTankStandby,
-    /// `ErrorStates.cpp:40-51` — the recovery delay, measured from entry.
+    /// The error cleared and the recovery delay has elapsed.
     SensorErrorRecovered,
-    /// `ErrorStates.cpp:117-123` — five minutes, unconditionally to `PID_DISABLED`.
+    /// The timeout elapsed: to `PID_DISABLED` unconditionally, whatever the configuration says.
     EepromErrorRecovered,
-    /// `EmergencyStopState.cpp:42-45`.
+    /// The latch cleared: recovery goes through `INIT`, which re-reads the runtime PID flag.
     EmergencyClearedToInit,
-    /// `SystemStates.cpp:44-55`.
+    /// A wake: the normal-operation command, or a brew or steam start request.
     StandbyWoken,
 }
 
@@ -442,12 +443,10 @@ fn classify_on(
 
     // The guard's verdict is the outcome, whether or not it moved the machine.
     //
-    // A guard can name the state the machine is *already in* — the emergency
-    // guard in `EMERGENCY_STOP`, the sensor-error guard in `SENSOR_ERROR` — and
-    // `StateMachine::executeTransition` then discards it
-    // (`StateMachine.cpp:107-111`). That is still the guard's answer, and naming
-    // it is more informative than reporting "nothing happened": it says *which
-    // rule was consulted and why the machine stayed put*.
+    // A guard can name the state the machine is *already in* -- the emergency guard in
+    // `EMERGENCY_STOP`, the sensor-error guard in `SENSOR_ERROR` -- and the self-transition is then
+    // discarded. That is still the guard's answer, and naming it says *which rule was consulted and
+    // why the machine stayed put*.
     let guard = guards::global_guard(&machine);
     let outcome = if guards::guard_destination(guard).is_some() {
         Outcome::GlobalGuard(guard)
@@ -644,8 +643,8 @@ fn classify_uninitialised(_state: MachineState, _ev: Event) -> Outcome {
 // The guard precedence, pinned individually
 // ---------------------------------------------------------------------------
 
-/// `BaseState.h:139-142`: emergency is checked **first** and has **no**
-/// exclusion, so it wins in every state including `EMERGENCY_STOP` itself.
+/// The emergency guard is checked **first** and has **no** exclusion, so it wins in every state
+/// including `EMERGENCY_STOP` itself.
 #[test]
 fn emergency_beats_everything_in_every_state() {
     for state in cc_domain::state::ALL {
@@ -659,7 +658,7 @@ fn emergency_beats_everything_in_every_state() {
     }
 }
 
-/// `BaseState.h:145-148`: sensor error is second.
+/// A sensor error is second, and also has no exclusion.
 #[test]
 fn sensor_error_beats_the_tank_and_the_pid() {
     for state in cc_domain::state::ALL {
@@ -673,8 +672,7 @@ fn sensor_error_beats_the_tank_and_the_pid() {
     }
 }
 
-/// `BaseState.h:153-158`: an empty tank is third, in the sixteen states that are
-/// not excluded.
+/// An empty tank is third, in the sixteen states that are not excluded from it.
 #[test]
 fn tank_empty_beats_the_pid() {
     for state in cc_domain::state::ALL {
@@ -693,8 +691,7 @@ fn tank_empty_beats_the_pid() {
     }
 }
 
-/// `BaseState.h:163-171`: the PID-runtime guard is last, in the ten states that
-/// are not excluded.
+/// The PID-runtime guard is last, in the ten states that are not excluded from it.
 #[test]
 fn the_pid_guard_fires_last_and_only_where_it_is_not_excluded() {
     for state in cc_domain::state::ALL {
@@ -761,9 +758,8 @@ fn no_unreachable_outside_tests() {
             continue;
         }
         let text = std::fs::read_to_string(&path).expect("a readable source file");
-        // Only look at code, not doc comments: the docs quote the C++'s
-        // `LOG(FATAL, ...)` paths and the tests' names, and a doc comment cannot
-        // panic.
+        // Only the code, not the doc comments: a doc comment cannot panic, and the tests' names are
+        // prose.
         let code: String = text
             .lines()
             .filter(|l| !l.trim_start().starts_with("///") && !l.trim_start().starts_with("//"))
@@ -803,9 +799,9 @@ fn no_unreachable_outside_tests() {
 
 /// # The effect list never fills up
 ///
-/// [`Effects`] replaced a `Vec<Effect>` to keep the allocator out of the 10 ms
-/// control tick, and a `heapless::Vec` cannot grow: a `push` into a full list is
-/// **dropped and counted** rather than reallocated (see
+/// [`Effects`] has a fixed capacity, chosen to keep the allocator out of the 10 ms control tick,
+/// and a `heapless::Vec` cannot grow: a `push` into a full list is **dropped and counted** rather
+/// than reallocated (see
 /// [`cc_machine::Effects::dropped`] and `MAX_EFFECTS_PER_EVENT`). A dropped
 /// effect is not a cosmetic defect — the S5 fail-safe emits
 /// [`Effect::CloseWaterValve`] on almost every tick, so a full list is a valve
@@ -948,17 +944,13 @@ fn the_energising_states_emit_effects_on_every_tick() {
     }
 }
 
-/// `EMERGENCY_STOP` re-runs its shutdown on **every tick**, not only on entry
-/// (`EmergencyStopState.cpp:33-39`).
+/// `EMERGENCY_STOP` re-runs its shutdown on **every tick**, not only on entry.
 ///
-/// # The event is a `Tick`, not "any event"
+/// # Why the event is a `Tick` and not "any event"
 ///
-/// `StateMachine::update()` calls `currentState_->update()` on every **loop**
-/// (`StateMachine.cpp:81`), and the reducer's loop is `Event::Tick`. A sensor
-/// sample or a switch edge is a value the *next* tick will read, not a tick. The
-/// C++'s property is therefore "every loop", and this test is the `Tick`
-/// translation of it — asserting it for every event would be asserting something
-/// the C++ does not do either.
+/// What re-runs is the state's update hook, and the reducer reaches that hook from `Event::Tick`. A
+/// sensor sample or a switch edge is a value the *next* tick reads, not a tick of its own, so
+/// asserting this for every event would be asserting something the machine does not do.
 #[test]
 fn emergency_stop_shuts_down_on_every_tick() {
     for _ in 0..5 {
@@ -978,12 +970,11 @@ fn emergency_stop_shuts_down_on_every_tick() {
     }
 }
 
-/// While the latch is set, **no** event can leave `EMERGENCY_STOP`: guard 1
-/// returns `EMERGENCY_STOP` and the self-transition is discarded
-/// (`BaseState.h:139-142` + `StateMachine.cpp:107-111`).
+/// While the latch is set, **no** event can leave `EMERGENCY_STOP`: the emergency guard names the
+/// state the machine is already in, and a self-transition is discarded.
 ///
-/// This is the safety property that makes the re-run meaningful. If a single
-/// press could get the machine out, the shutdown would be a one-shot.
+/// This is the safety property that makes the re-run meaningful. If a single press could get the
+/// machine out, the shutdown would be a one-shot.
 #[test]
 fn no_event_leaves_emergency_stop_while_the_latch_is_set() {
     for ev in all_events() {
